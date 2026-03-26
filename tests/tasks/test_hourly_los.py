@@ -131,3 +131,22 @@ def test_tensor_shapes():
 
     # should be [T, 3] because 1 feature -> val/mask/decay
     assert len(ts[0]) == 3
+
+def test_target_los_sequence_generation():
+    task = build_task()
+
+    patient = DummyPatient(
+        "p6",
+        {"unitdischargeoffset": 600},  # 10 hours
+        [],
+    )
+
+    samples = task(patient)
+
+    first = samples[0]  # history length = 1
+    second = samples[1]  # history length = 2
+    third = samples[2]  # history length = 3
+
+    assert torch.allclose(first["target_los_sequence"], torch.tensor([9.0]))
+    assert torch.allclose(second["target_los_sequence"], torch.tensor([9.0, 8.0]))
+    assert torch.allclose(third["target_los_sequence"], torch.tensor([9.0, 8.0, 7.0]))

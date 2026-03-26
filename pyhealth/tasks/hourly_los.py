@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import math
 import numpy as np
+import torch
 
 from .base_task import BaseTask
 
@@ -231,6 +232,13 @@ class HourlyLOSEICU(BaseTask):
         for t in range(self.min_history_hours, usable_hours + 1):
             remaining = max(total_hours - t, 0.0)
 
+            # Remaining LoS at the end of each observed hour in this prefix.
+            # For a prefix of length t, targets correspond to hours 1..t.
+            target_los_sequence = [
+                float(max(total_hours - hour_idx, 0.0))
+                for hour_idx in range(1, t + 1)
+            ]
+
             samples.append(
                 {
                     "patient_id": patient.patient_id,
@@ -238,6 +246,7 @@ class HourlyLOSEICU(BaseTask):
                     "time_series": ts[:t],
                     "static": static_vec,
                     "target_los_hours": float(remaining),
+                    "target_los_sequence": torch.tensor(target_los_sequence, dtype=torch.float32),
                     "feature_names": feature_names,
                     "history_hours": t,
 

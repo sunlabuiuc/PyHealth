@@ -2,6 +2,7 @@ import os
 import sys
 import argparse
 import random
+from typing import Dict, List, Optional
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if REPO_ROOT not in sys.path:
@@ -9,48 +10,49 @@ if REPO_ROOT not in sys.path:
 
 import numpy as np
 import torch
-from torch.utils.data import DataLoader, Dataset, random_split
+from torch.utils.data import DataLoader, Dataset
 
 from pyhealth.datasets import eICUDataset
 from pyhealth.models.tpc import TPC
 from pyhealth.tasks.hourly_los import HourlyLOSEICU
 
 
-def set_seed(seed: int = 42):
+def set_seed(seed: int = 42) -> None:
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
 
 
-def build_categorical_vocab(samples, categorical_feature_names):
-    """
-    Build vocab from training samples only.
-
-    Returns:
-        {
-            "gender": {"Female": 0, "Male": 1, "__MISSING__": 2},
-            "ethnicity": {...},
-        }
-    """
-    vocab = {}
+def build_categorical_vocab(
+    samples: List[dict],
+    categorical_feature_names: List[str],
+) -> Dict[str, Dict[str, int]]:
+    vocab: Dict[str, Dict[str, int]] = {}
 
     for feature_name in categorical_feature_names:
         values = set()
 
-        for s in samples:
-            raw = s.get("categorical_static_raw", {}).get(feature_name)
+        for sample in samples:
+            raw = sample.get("categorical_static_raw", {}).get(feature_name)
             if raw is None:
                 raw = "__MISSING__"
             values.add(str(raw))
 
         sorted_values = sorted(values)
+        if "__MISSING__" not in sorted_values:
+            sorted_values.append("__MISSING__")
+
         vocab[feature_name] = {val: i for i, val in enumerate(sorted_values)}
 
     return vocab
 
 
-def encode_categorical_one_hot(raw_dict, categorical_feature_names, vocab):
-    encoded = []
+def encode_categorical_one_hot(
+    raw_dict: Dict[str, object],
+    categorical_feature_names: List[str],
+    vocab: Dict[str, Dict[str, int]],
+) -> List[float]:
+    encoded: List[float] = []
 
     for feature_name in categorical_feature_names:
         feature_vocab = vocab[feature_name]
@@ -69,71 +71,132 @@ def encode_categorical_one_hot(raw_dict, categorical_feature_names, vocab):
     return encoded
 
 
+def run_model_smoke_test() -> None:
+    print("=" * 80)
+    print("Running TPC smoke test")
+    print("=" * 80)
+
+    batch_size, seq_len, num_features, static_dim = 2, 6, 5, 3
+
+    x_values = torch.randn(batch_size, seq_len, num_features)
+    x_decay = torch.rand(batch_size, seq_len, num_features)
+    x_static = torch.randn(batch_size, static_dim)
+
+    model = TPC(
+        input_dim=num_features,
+        static_dim=static_dim,
+        temporal_channels=4,
+        pointwise_channels=4,
+        num_layers=2,
+        kernel_size=3,
+        fc_dim=16,
+        dropout=0.1,
+        return_sequence=False,
+    )
+
+    y = model(x_values=x_values, x_decay=x_decay, static=x_static)
+
+    print("Smoke test passed.")
+    print("x_values shape:", x_values.shape)
+    print("x_decay shape:", x_decay.shape)
+    print("x_static shape:", x_static.shape)
+    print("output shape:", y.shape)
+    print("=" * 80)
+
+
 class SimpleLoSDataset(Dataset):
+    """
+    Converts task samples into tensors expected by TPC.
+
+    Expected incoming time_series layout from the task:
+        [value_1, mask_1, decay_1, value_2, mask_2, decay_2, ...]
+
+    This wrapper feeds:
+        - x_values
+        - x_decay
+        - x_mask
+        - static
+        - target
+
+    IMPORTANT:
+    For now, target_los_hours is treated as a scalar and repeated across
+    the sequence length so we can test sequence-output TPC end to end.
+    This is temporary and should later be replaced with a true per-hour
+    remaining-LoS target sequence.
+    """
+
     def __init__(
         self,
-        samples,
+        samples: List[dict],
         channel_mode: str = "full",
         include_categorical_statics: bool = False,
-        categorical_feature_names=None,
-        categorical_vocab=None,
-    ):
-        """
-        channel_mode:
-            - full:     keep [value, mask, decay]
-            - no_decay: keep [value, mask]
-            - no_mask:  keep [value, decay]
-        """
+        categorical_feature_names: Optional[List[str]] = None,
+        categorical_vocab: Optional[Dict[str, Dict[str, int]]] = None,
+    ) -> None:
         self.samples = samples
         self.channel_mode = channel_mode
         self.include_categorical_statics = include_categorical_statics
         self.categorical_feature_names = categorical_feature_names or []
         self.categorical_vocab = categorical_vocab or {}
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.samples)
 
-    def _select_channels(self, ts: torch.Tensor) -> torch.Tensor:
+    def _split_value_mask_decay(
+        self,
+        ts: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Splits [T, 3F] into:
+            values: [T, F]
+            masks:  [T, F]
+            decay:  [T, F]
+        """
+        if ts.ndim != 2:
+            raise ValueError(f"Expected time_series shape [T, D], got {tuple(ts.shape)}")
+
         feat_dim = ts.shape[1]
         if feat_dim % 3 != 0:
             raise ValueError(
-                f"Expected feature dimension divisible by 3 for [value, mask, decay], got {feat_dim}"
+                "Expected feature dimension divisible by 3 for "
+                f"[value, mask, decay], got {feat_dim}"
             )
 
-        if self.channel_mode == "full":
-            return ts
-
         num_raw_features = feat_dim // 3
-        kept_cols = []
+
+        values = []
+        masks = []
+        decay = []
 
         for i in range(num_raw_features):
             base = i * 3
-            if self.channel_mode == "no_decay":
-                kept_cols.extend([base, base + 1])      # value, mask
-            elif self.channel_mode == "no_mask":
-                kept_cols.extend([base, base + 2])      # value, decay
-            else:
-                raise ValueError(f"Unknown channel_mode: {self.channel_mode}")
+            values.append(ts[:, base].unsqueeze(1))
+            masks.append(ts[:, base + 1].unsqueeze(1))
+            decay.append(ts[:, base + 2].unsqueeze(1))
 
-        return ts[:, kept_cols]
+        values_tensor = torch.cat(values, dim=1)
+        masks_tensor = torch.cat(masks, dim=1)
+        decay_tensor = torch.cat(decay, dim=1)
 
-    def __getitem__(self, idx):
-        s = self.samples[idx]
+        return values_tensor, masks_tensor, decay_tensor
 
-        ts = s["time_series"]
+    def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
+        sample = self.samples[idx]
+
+        ts = sample["time_series"]
         if not isinstance(ts, torch.Tensor):
             ts = torch.tensor(ts, dtype=torch.float32)
         else:
             ts = ts.float()
 
-        static = s["static"]
+        static = sample["static"]
         if not isinstance(static, torch.Tensor):
             static = torch.tensor(static, dtype=torch.float32)
         else:
             static = static.float()
 
         if self.include_categorical_statics:
-            raw_cats = s.get("categorical_static_raw", {})
+            raw_cats = sample.get("categorical_static_raw", {})
             cat_vec = encode_categorical_one_hot(
                 raw_dict=raw_cats,
                 categorical_feature_names=self.categorical_feature_names,
@@ -142,64 +205,94 @@ class SimpleLoSDataset(Dataset):
             cat_tensor = torch.tensor(cat_vec, dtype=torch.float32)
             static = torch.cat([static, cat_tensor], dim=0)
 
-        target = s["target_los_hours"]
+        x_values, x_mask, x_decay = self._split_value_mask_decay(ts)
+
+        target = sample["target_los_sequence"]
         if not isinstance(target, torch.Tensor):
             target = torch.tensor(target, dtype=torch.float32)
         else:
-            target = target.float().reshape(-1)[0]
+            target = target.float()
 
-        ts = self._select_channels(ts)
+        if self.channel_mode == "no_decay":
+            x_decay = torch.zeros_like(x_decay)
+        elif self.channel_mode in {"full", "no_mask"}:
+            pass
+        else:
+            raise ValueError(f"Unknown channel_mode: {self.channel_mode}")
 
         return {
-            "time_series": ts,
+            "x_values": x_values,
+            "x_decay": x_decay,
+            "x_mask": x_mask,
             "static": static,
             "target": target,
         }
 
 
-def collate_fn(batch):
-    max_t = max(item["time_series"].shape[0] for item in batch)
-    feat_dim = batch[0]["time_series"].shape[1]
+def collate_fn(batch: List[Dict[str, torch.Tensor]]) -> Dict[str, torch.Tensor]:
+    max_t = max(item["x_values"].shape[0] for item in batch)
+    feat_dim = batch[0]["x_values"].shape[1]
 
-    padded_ts = []
+    padded_values = []
+    padded_decay = []
+    padded_mask = []
+    padded_targets = []
     statics = []
-    targets = []
 
     for item in batch:
-        ts = item["time_series"]
-        pad_len = max_t - ts.shape[0]
-        if pad_len > 0:
-            pad = torch.zeros(pad_len, feat_dim, dtype=ts.dtype)
-            ts = torch.cat([ts, pad], dim=0)
+        x_values = item["x_values"]
+        x_decay = item["x_decay"]
+        x_mask = item["x_mask"]
+        target = item["target"]
 
-        padded_ts.append(ts)
+        pad_len = max_t - x_values.shape[0]
+        if pad_len > 0:
+            value_pad = torch.zeros(pad_len, feat_dim, dtype=x_values.dtype)
+            decay_pad = torch.zeros(pad_len, feat_dim, dtype=x_decay.dtype)
+            mask_pad = torch.zeros(pad_len, feat_dim, dtype=x_mask.dtype)
+            target_pad = torch.zeros(pad_len, dtype=target.dtype)
+
+            x_values = torch.cat([x_values, value_pad], dim=0)
+            x_decay = torch.cat([x_decay, decay_pad], dim=0)
+            x_mask = torch.cat([x_mask, mask_pad], dim=0)
+            target = torch.cat([target, target_pad], dim=0)
+
+        padded_values.append(x_values)
+        padded_decay.append(x_decay)
+        padded_mask.append(x_mask)
+        padded_targets.append(target)
         statics.append(item["static"])
-        targets.append(item["target"])
 
     return {
-        "time_series": torch.stack(padded_ts),
-        "static": torch.stack(statics),
-        "target": torch.stack(targets),
+        "x_values": torch.stack(padded_values),   # [B, T, F]
+        "x_decay": torch.stack(padded_decay),     # [B, T, F]
+        "x_mask": torch.stack(padded_mask),       # [B, T, F]
+        "static": torch.stack(statics),           # [B, S]
+        "target": torch.stack(padded_targets),    # [B, T]
     }
 
 
-def msle_loss(pred, target, eps=1e-6):
+def msle_loss(pred: torch.Tensor, target: torch.Tensor, eps: float = 1e-6) -> torch.Tensor:
     return torch.mean(
         (torch.log(pred + 1.0 + eps) - torch.log(target + 1.0 + eps)) ** 2
     )
 
 
-def mse_loss(pred, target):
+def mse_loss(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
     return torch.mean((pred - target) ** 2)
 
 
-def evaluate(model, loader, loss_fn):
+def evaluate(model: TPC, loader: DataLoader, loss_fn) -> float:
     model.eval()
     total_loss = 0.0
 
     with torch.no_grad():
         for batch in loader:
-            pred = model(batch["time_series"], batch["static"])
+            pred = model(
+                x_values=batch["x_values"],
+                x_decay=batch["x_decay"],
+                static=batch["static"],
+            )
             loss = loss_fn(pred, batch["target"])
             total_loss += loss.item()
 
@@ -238,13 +331,18 @@ def parse_args():
         type=str,
         choices=["full", "no_decay", "no_mask"],
         default="no_decay",
-        help="full=[value,mask,decay], no_decay=[value,mask], no_mask=[value,decay]",
+        help="full=value+decay, no_decay=value+zero_decay, no_mask=value+decay",
     )
     parser.add_argument("--train_ratio", type=float, default=0.8)
     parser.add_argument(
         "--include_categorical_statics",
         action="store_true",
         help="Append one-hot categorical statics to numeric static vector",
+    )
+    parser.add_argument(
+        "--smoke_model_only",
+        action="store_true",
+        help="Run a tiny synthetic forward pass through TPC and exit.",
     )
     parser.add_argument("--seed", type=int, default=42)
     return parser.parse_args()
@@ -253,6 +351,10 @@ def parse_args():
 def main():
     args = parse_args()
     set_seed(args.seed)
+
+    if args.smoke_model_only:
+        run_model_smoke_test()
+        return
 
     categorical_feature_names = ["gender", "ethnicity"]
 
@@ -313,12 +415,24 @@ def main():
         return
 
     print("first sample keys:", samples[0].keys())
-    print(
-        "raw time_series shape:",
-        len(samples[0]["time_series"]),
-        "x",
-        len(samples[0]["time_series"][0]),
-    )
+
+    sample_to_inspect = None
+    for s in samples:
+        ts = s["time_series"]
+        has_observation = False
+        for row in ts:
+            row_list = row.tolist() if hasattr(row, "tolist") else row
+            masks = row_list[1::3]
+            if any(m > 0 for m in masks):
+                has_observation = True
+                break
+        if has_observation:
+            sample_to_inspect = s
+            break
+
+    if sample_to_inspect is None:
+        print("\nNo sample with observed measurements found in current subset.\n")
+
     print("raw static dim:", len(samples[0]["static"]))
 
     train_size = int(len(samples) * args.train_ratio)
@@ -361,6 +475,22 @@ def main():
         categorical_vocab=categorical_vocab,
     )
 
+    debug_item = train_dataset[0]
+    #print("\n--- WRAPPER OUTPUT INSPECTION ---")
+    #print("x_values shape:", debug_item["x_values"].shape)
+    #print("x_decay shape:", debug_item["x_decay"].shape)
+    #print("x_mask shape:", debug_item["x_mask"].shape)
+    #print("static shape:", debug_item["static"].shape)
+    #print("target shape:", debug_item["target"].shape)
+    #print("target:", debug_item["target"])
+    #print("x_values:")
+    #print(debug_item["x_values"])
+    #print("x_decay:")
+    #print(debug_item["x_decay"])
+    #print("x_mask:")
+    #print(debug_item["x_mask"])
+    #print("--- END WRAPPER OUTPUT INSPECTION ---\n")
+
     val_dataset = SimpleLoSDataset(
         val_samples,
         channel_mode=args.channel_mode,
@@ -370,7 +500,7 @@ def main():
     )
 
     first_item = train_dataset[0]
-    input_dim = first_item["time_series"].shape[1]
+    input_dim = first_item["x_values"].shape[1]
     static_dim = first_item["static"].shape[0]
 
     print("model input_dim:", input_dim)
@@ -399,6 +529,7 @@ def main():
         kernel_size=args.kernel_size,
         fc_dim=args.fc_dim,
         dropout=args.dropout,
+        return_sequence=True,
     )
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
@@ -417,7 +548,15 @@ def main():
         epoch_train_loss = 0.0
 
         for batch in train_loader:
-            pred = model(batch["time_series"], batch["static"])
+            pred = model(
+                x_values=batch["x_values"],
+                x_decay=batch["x_decay"],
+                static=batch["static"],
+            )
+            #if epoch == 0:
+                #print("pred shape:", pred.shape)
+                #print("target shape:", batch["target"].shape)
+
             loss = loss_fn(pred, batch["target"])
 
             optimizer.zero_grad()
@@ -434,7 +573,8 @@ def main():
         best_val_loss = min(best_val_loss, epoch_val_loss)
 
         print(
-            f"epoch={epoch} train_loss={epoch_train_loss:.4f} val_loss={epoch_val_loss:.4f}"
+            f"epoch={epoch} train_loss={epoch_train_loss:.4f} "
+            f"val_loss={epoch_val_loss:.4f}"
         )
 
     print("=" * 80)
