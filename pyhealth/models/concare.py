@@ -73,8 +73,16 @@ class FinalAttentionQKV(nn.Module):
 
         self.W_out = nn.Linear(attention_hidden_dim, 1)
 
-        self.b_in = nn.Parameter(torch.zeros(1,))
-        self.b_out = nn.Parameter(torch.zeros(1,))
+        self.b_in = nn.Parameter(
+            torch.zeros(
+                1,
+            )
+        )
+        self.b_out = nn.Parameter(
+            torch.zeros(
+                1,
+            )
+        )
 
         nn.init.kaiming_uniform_(self.W_q.weight, a=math.sqrt(5))
         nn.init.kaiming_uniform_(self.W_k.weight, a=math.sqrt(5))
@@ -85,7 +93,11 @@ class FinalAttentionQKV(nn.Module):
             torch.randn(2 * attention_input_dim, attention_hidden_dim)
         )
         self.Wa = nn.Parameter(torch.randn(attention_hidden_dim, 1))
-        self.ba = nn.Parameter(torch.zeros(1,))
+        self.ba = nn.Parameter(
+            torch.zeros(
+                1,
+            )
+        )
 
         nn.init.kaiming_uniform_(self.Wh, a=math.sqrt(5))
         nn.init.kaiming_uniform_(self.Wa, a=math.sqrt(5))
@@ -95,9 +107,7 @@ class FinalAttentionQKV(nn.Module):
         self.softmax = nn.Softmax(dim=1)
         self.sigmoid = nn.Sigmoid()
 
-    def forward(
-        self, input: torch.Tensor
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, input: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         """Forward pass of the final attention layer.
 
         Args:
@@ -126,11 +136,7 @@ class FinalAttentionQKV(nn.Module):
             q = torch.reshape(
                 input_q, (batch_size, self.attention_hidden_dim, 1)
             )  # [batch, hidden, 1]
-<<<<<<< HEAD
-            e = torch.matmul(input_k, q).squeeze(-1)  # [batch, time]
-=======
             e = torch.matmul(input_k, q).squeeze(dim=-1)  # [batch, time]
->>>>>>> master
 
         elif self.attention_type == "concat":
             q = input_q.unsqueeze(1).repeat(1, time_step, 1)  # [batch, time, hidden]
@@ -149,11 +155,7 @@ class FinalAttentionQKV(nn.Module):
         a = self.softmax(e)  # [batch, time]
         if self.dropout is not None:
             a = self.dropout(a)
-<<<<<<< HEAD
-        v = torch.matmul(a.unsqueeze(1), input_v).squeeze(1)  # [batch, hidden]
-=======
         v = torch.matmul(a.unsqueeze(1), input_v).squeeze(dim=1)  # [batch, hidden]
->>>>>>> master
 
         return v, a
 
@@ -175,9 +177,7 @@ class PositionwiseFeedForward(nn.Module):
         self.w_2 = nn.Linear(d_ff, d_model)
         self.dropout = nn.Dropout(dropout)
 
-    def forward(
-        self, x: torch.Tensor
-    ) -> Tuple[torch.Tensor, None]:
+    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, None]:
         """Forward pass of the feed-forward network.
 
         Args:
@@ -340,9 +340,7 @@ class MultiHeadedAttention(nn.Module):
             query, key, value, mask=mask, dropout=self.dropout
         )
 
-        x = (
-            x.transpose(1, 2).contiguous().view(nbatches, -1, self.h * self.d_k)
-        )
+        x = x.transpose(1, 2).contiguous().view(nbatches, -1, self.h * self.d_k)
 
         # Compute DeCov loss
         decov_contexts = x.transpose(0, 1).transpose(1, 2)
@@ -404,10 +402,9 @@ class SublayerConnection(nn.Module):
 
     def forward(
         self,
-        x: torch.Tensor, 
+        x: torch.Tensor,
         sublayer: Callable[[torch.Tensor], Tuple[torch.Tensor, any]],
-     ) -> Tuple[torch.Tensor, any]:
-        
+    ) -> Tuple[torch.Tensor, any]:
         """Apply residual connection to sublayer with same size.
 
         Args:
@@ -455,9 +452,7 @@ class SingleAttention(nn.Module):
                 self.Wx = nn.Parameter(
                     torch.randn(attention_input_dim, attention_hidden_dim)
                 )
-                self.Wtime_aware = nn.Parameter(
-                    torch.randn(1, attention_hidden_dim)
-                )
+                self.Wtime_aware = nn.Parameter(torch.randn(1, attention_hidden_dim))
                 nn.init.kaiming_uniform_(self.Wtime_aware, a=math.sqrt(5))
             else:
                 self.Wx = nn.Parameter(
@@ -466,9 +461,17 @@ class SingleAttention(nn.Module):
             self.Wt = nn.Parameter(
                 torch.randn(attention_input_dim, attention_hidden_dim)
             )
-            self.bh = nn.Parameter(torch.zeros(attention_hidden_dim,))
+            self.bh = nn.Parameter(
+                torch.zeros(
+                    attention_hidden_dim,
+                )
+            )
             self.Wa = nn.Parameter(torch.randn(attention_hidden_dim, 1))
-            self.ba = nn.Parameter(torch.zeros(1,))
+            self.ba = nn.Parameter(
+                torch.zeros(
+                    1,
+                )
+            )
 
             nn.init.kaiming_uniform_(self.Wx, a=math.sqrt(5))
             nn.init.kaiming_uniform_(self.Wt, a=math.sqrt(5))
@@ -478,7 +481,11 @@ class SingleAttention(nn.Module):
             self.Wa = nn.Parameter(
                 torch.randn(attention_input_dim, attention_input_dim)
             )
-            self.ba = nn.Parameter(torch.zeros(1,))
+            self.ba = nn.Parameter(
+                torch.zeros(
+                    1,
+                )
+            )
             nn.init.kaiming_uniform_(self.Wa, a=math.sqrt(5))
 
         elif attention_type == "concat":
@@ -491,7 +498,11 @@ class SingleAttention(nn.Module):
                     torch.randn(2 * attention_input_dim, attention_hidden_dim)
                 )
             self.Wa = nn.Parameter(torch.randn(attention_hidden_dim, 1))
-            self.ba = nn.Parameter(torch.zeros(1,))
+            self.ba = nn.Parameter(
+                torch.zeros(
+                    1,
+                )
+            )
 
             nn.init.kaiming_uniform_(self.Wh, a=math.sqrt(5))
             nn.init.kaiming_uniform_(self.Wa, a=math.sqrt(5))
@@ -896,9 +907,7 @@ class ConCare(BaseModel):
         if "input_dim" in kwargs:
             raise ValueError("input_dim is determined by embedding_dim")
 
-        assert len(self.label_keys) == 1, (
-            "Only one label key is supported for ConCare"
-        )
+        assert len(self.label_keys) == 1, "Only one label key is supported for ConCare"
         self.label_key = self.label_keys[0]
 
         # Determine static dimension
@@ -918,8 +927,7 @@ class ConCare(BaseModel):
 
         # Get dynamic feature keys (excluding static key)
         self.dynamic_feature_keys = [
-            k for k in self.feature_keys
-            if k != self.static_key
+            k for k in self.feature_keys if k != self.static_key
         ]
 
         # ConCare layers for each dynamic feature
@@ -929,10 +937,10 @@ class ConCare(BaseModel):
             proc = dataset.input_processors[feature_key]
             if isinstance(proc, SequenceProcessor):
                 input_dim = 1
-                self._proc_types[feature_key] = 'sequence'
+                self._proc_types[feature_key] = "sequence"
             else:
                 input_dim = proc.size()
-                self._proc_types[feature_key] = 'other'
+                self._proc_types[feature_key] = "other"
             self.concare[feature_key] = ConCareLayer(
                 input_dim=input_dim,
                 static_dim=self.static_dim,
@@ -944,7 +952,7 @@ class ConCare(BaseModel):
         self.fc = nn.Linear(
             len(self.dynamic_feature_keys) * self.hidden_dim, output_size
         )
-    
+
     def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
         """Forward propagation.
 
@@ -958,7 +966,7 @@ class ConCare(BaseModel):
                 - y_prob: a tensor representing the predicted probabilities.
                 - y_true: a tensor representing the true labels.
                 - logit: a tensor representing the logits.
-                """
+        """
         patient_emb = []
         decov_loss = 0
 
@@ -975,7 +983,7 @@ class ConCare(BaseModel):
 
         for feature_key in self.dynamic_feature_keys:
             raw = kwargs[feature_key]
-            if self._proc_types[feature_key] == 'sequence':
+            if self._proc_types[feature_key] == "sequence":
                 # (batch, T) long → (batch, T, 1) float; PAD=0
                 mask = (raw != 0).float().to(self.device)
                 x = raw.float().unsqueeze(-1).to(self.device)
