@@ -92,7 +92,9 @@ class RNNLayer(nn.Module):
         Args:
             x: a tensor of shape [batch size, sequence len, input size].
             mask: an optional tensor of shape [batch size, sequence len], where
-                1 indicates valid and 0 indicates invalid.
+                1 indicates valid and 0 indicates invalid. Samples with all-zero
+                masks are clamped to length 1 to prevent pack_padded_sequence
+                from receiving zero-length sequences.
 
         Returns:
             outputs: a tensor of shape [batch size, sequence len, hidden size],
@@ -109,6 +111,9 @@ class RNNLayer(nn.Module):
             )
         else:
             lengths = torch.sum(mask.int(), dim=-1).cpu()
+        # Clamp lengths to at least 1 to handle empty sequences,
+        # matching TCNLayer (tcn.py:186).
+        lengths = torch.clamp(lengths, min=1)
         x = rnn_utils.pack_padded_sequence(
             x.contiguous(), lengths, batch_first=True, enforce_sorted=False
         )

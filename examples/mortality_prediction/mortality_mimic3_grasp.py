@@ -1,40 +1,36 @@
+import tempfile
+
 from pyhealth.datasets import MIMIC3Dataset
 from pyhealth.datasets import split_by_patient, get_dataloader
 from pyhealth.models import GRASP
-from pyhealth.tasks import mortality_prediction_mimic3_fn
+from pyhealth.tasks import MortalityPredictionMIMIC3
 from pyhealth.trainer import Trainer
 
 if __name__ == "__main__":
     # STEP 1: load data
     base_dataset = MIMIC3Dataset(
-        root="/srv/local/data/physionet.org/files/mimiciii/1.4",
+        root="https://storage.googleapis.com/pyhealth/Synthetic_MIMIC-III",
         tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
-        code_mapping={"ICD9CM": "CCSCM", "ICD9PROC": "CCSPROC", "NDC": "ATC"},
-        dev=False,
-        refresh_cache=False,
+        cache_dir=tempfile.TemporaryDirectory().name,
+        dev=True,
     )
-    base_dataset.stat()
+    base_dataset.stats()
 
     # STEP 2: set task
-    sample_dataset = base_dataset.set_task(mortality_prediction_mimic3_fn)
-    sample_dataset.stat()
+    task = MortalityPredictionMIMIC3()
+    sample_dataset = base_dataset.set_task(task)
 
     train_dataset, val_dataset, test_dataset = split_by_patient(
         sample_dataset, [0.8, 0.1, 0.1]
     )
-    train_dataloader = get_dataloader(train_dataset, batch_size=256, shuffle=True)
-    val_dataloader = get_dataloader(val_dataset, batch_size=256, shuffle=False)
-    test_dataloader = get_dataloader(test_dataset, batch_size=256, shuffle=False)
+    train_dataloader = get_dataloader(train_dataset, batch_size=32, shuffle=True)
+    val_dataloader = get_dataloader(val_dataset, batch_size=32, shuffle=False)
+    test_dataloader = get_dataloader(test_dataset, batch_size=32, shuffle=False)
 
     # STEP 3: define model
     model = GRASP(
         dataset=sample_dataset,
-        feature_keys=["conditions", "procedures"],
-        label_key="label",
-        mode="binary",
-        use_embedding=[True, True, True],
-        embedding_dim=32,
-        hidden_dim=32,
+        cluster_num=2,
     )
 
     # STEP 4: define trainer
@@ -42,7 +38,7 @@ if __name__ == "__main__":
     trainer.train(
         train_dataloader=train_dataloader,
         val_dataloader=val_dataloader,
-        epochs=5,
+        epochs=1,
         monitor="roc_auc",
     )
 

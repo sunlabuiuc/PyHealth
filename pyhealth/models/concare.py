@@ -293,7 +293,7 @@ class MultiHeadedAttention(nn.Module):
             m = torch.cat((m, y), dim=0)
         m_exp = torch.mean(m, dim=1)
         x = m - m_exp[:, None]
-        cov = 1 / (x.size(1) - 1) * x.mm(x.t())
+        cov = 1 / max(x.size(1) - 1, 1) * x.mm(x.t())
         return cov
 
     def forward(
