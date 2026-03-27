@@ -264,10 +264,10 @@ class GRASPLayer(nn.Module):
 
     def forward(
         self,
-        x: torch.tensor,
-        static: Optional[torch.tensor] = None,
-        mask: Optional[torch.tensor] = None,
-    ) -> torch.tensor:
+        x: torch.Tensor,
+        static: Optional[torch.Tensor] = None,
+        mask: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
         """Forward propagation.
 
         Args:
