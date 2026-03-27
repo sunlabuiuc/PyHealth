@@ -11,6 +11,12 @@ from .cardiology_detect import (
 )
 from .chestxray14_binary_classification import ChestXray14BinaryClassification
 from .chestxray14_multilabel_classification import ChestXray14MultilabelClassification
+from .corgan_generation import (
+    CorGANGenerationMIMIC3,
+    CorGANGenerationMIMIC4,
+    corgan_generation_mimic3_fn,
+    corgan_generation_mimic4_fn,
+)
 from .covid19_cxr_classification import COVID19CXRClassification
 from .dka import DKAPredictionMIMIC4, T1DDKAPredictionMIMIC4
 from .drug_recommendation import (
