@@ -1,20 +1,20 @@
-"""Neighborhood Conformal Prediction (NCP) on TUEV EEG Events using ContraWR.
+"""Neighborhood Conformal Prediction (NCP) on TUAB Abnormal EEG Detection using ContraWR.
 
 This script:
-1) Loads the TUEV dataset and applies the EEGEventsTUEV task.
-2) Splits into train/val/cal/test using split conformal protocol.
+1) Loads the TUAB dataset and applies the EEGAbnormalTUAB task.
+2) Splits into train/val/cal/test using the TUH-aware split conformal protocol.
 3) Trains a ContraWR model.
 4) Extracts calibration embeddings and calibrates a NeighborhoodLabel (NCP) predictor.
 5) Evaluates prediction-set coverage/miscoverage and efficiency on the test split.
 
-With --n-seeds > 1: fixes the test set (--split-seed), runs multiple training runs
+With --n-seeds > 1: fixes the test set (TUH eval partition), runs multiple training runs
 with different seeds (different train/val/cal splits and model init), reports
 coverage / set size / accuracy as mean ± std (error bars).
 
 Example (from repo root):
-  python examples/conformal_eeg/tuev_ncp_conformal.py --root /srv/local/data/TUH/tuh_eeg_events/v2.0.0/edf
-  python examples/conformal_eeg/tuev_ncp_conformal.py --quick-test --log-file quicktest_ncp.log
-  python examples/conformal_eeg/tuev_ncp_conformal.py --alpha 0.1 --n-seeds 5 --split-seed 0 --log-file ncp_seeds5.log
+  python examples/conformal_eeg/tuab_ncp_conformal.py --root /srv/local/data/TUH/tuh_eeg_abnormal/v3.0.0/edf
+  python examples/conformal_eeg/tuab_ncp_conformal.py --quick-test --log-file quicktest_ncp.log
+  python examples/conformal_eeg/tuab_ncp_conformal.py --alpha 0.1 --n-seeds 5 --split-seed 0 --log-file ncp_seeds5.log
 """
 
 from __future__ import annotations
@@ -48,21 +48,21 @@ class _Tee:
 
 from pyhealth.calib.predictionset.cluster import NeighborhoodLabel
 from pyhealth.calib.utils import extract_embeddings
-from pyhealth.datasets import TUEVDataset, get_dataloader, split_by_patient_conformal_tuh, split_by_sample_conformal_tuh, split_by_sample_conformal
+from pyhealth.datasets import TUABDataset, get_dataloader, split_by_patient_conformal_tuh, split_by_sample_conformal_tuh, split_by_sample_conformal
 from pyhealth.models import ContraWR, TFMTokenizer
-from pyhealth.tasks import EEGEventsTUEV
+from pyhealth.tasks import EEGAbnormalTUAB
 from pyhealth.trainer import Trainer, get_metrics_fn
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Neighborhood conformal prediction (NCP) on TUEV EEG events using ContraWR."
+        description="Neighborhood conformal prediction (NCP) on TUAB abnormal EEG detection using ContraWR."
     )
     parser.add_argument(
         "--root",
         type=str,
-        default="/srv/local/data/TUH/tuh_eeg_events/v2.0.0/edf",
-        help="Path to TUEV edf/ folder.",
+        default="/srv/local/data/TUH/tuh_eeg_abnormal/v3.0.0/edf",
+        help="Path to TUAB edf/ folder.",
     )
     parser.add_argument("--subset", type=str, default="both", choices=["train", "eval", "both"])
     parser.add_argument("--seed", type=int, default=42, help="Run seed (or first of run seeds when n-seeds > 1).")
@@ -70,13 +70,13 @@ def parse_args() -> argparse.Namespace:
         "--n-seeds",
         type=int,
         default=1,
-        help="Number of runs for mean±std. Test set fixed; train/val/cal vary by seed.",
+        help="Number of runs for mean±std. Test set fixed (TUH eval partition); train/val/cal vary by seed.",
     )
     parser.add_argument(
         "--split-seed",
         type=int,
         default=0,
-        help="Fixed seed for initial split (fixes test set when n-seeds > 1).",
+        help="Seed used to obtain the fixed test set in multi-seed mode. Since test = TUH eval partition, this only affects the initial train-pool shuffle (not which samples are in test).",
     )
     parser.add_argument(
         "--seeds",
@@ -136,7 +136,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--weights-dir",
         type=str,
-        default="weightfiles/TFM_Tokenizer_multiple_finetuned_on_TUEV",
+        default="weightfiles/TFM_Tokenizer_multiple_finetuned_on_TUAB",
         help="Root folder of fine-tuned TFM classifier checkpoints (only with --model tfm).",
     )
     parser.add_argument(
@@ -211,7 +211,7 @@ def _run_one_ncp(
     loops over alphas (fast — only threshold recomputed per alpha).
 
     Returns {alpha: metrics_dict} where metrics_dict has keys:
-        accuracy, f1_weighted, coverage, miscoverage, avg_set_size
+        accuracy, roc_auc_weighted_ovr, f1_weighted, coverage, miscoverage, avg_set_size
     """
     train_loader = get_dataloader(train_ds, batch_size=args.batch_size, shuffle=True)
     val_loader = get_dataloader(val_ds, batch_size=args.batch_size, shuffle=False) if len(val_ds) else None
@@ -234,7 +234,7 @@ def _run_one_ncp(
     # Base model metrics — computed once, shared across all alphas
     y_true_base, y_prob_base, _ = trainer.inference(test_loader)
     base_metrics = get_metrics_fn("multiclass")(
-        y_true_base, y_prob_base, metrics=["accuracy", "f1_weighted"]
+        y_true_base, y_prob_base, metrics=["accuracy", "roc_auc_weighted_ovr", "f1_weighted"]
     )
 
     # Extract calibration embeddings once — reused for every alpha
@@ -270,18 +270,18 @@ def _run_one_ncp(
             miscoverage = float(miscoverage)
 
         results[alpha] = {
-            "accuracy":    float(base_metrics["accuracy"]),
-            "f1_weighted": float(base_metrics["f1_weighted"]),
-            "coverage":    1.0 - miscoverage,
-            "miscoverage": miscoverage,
-            "avg_set_size": avg_set_size,
+            "accuracy":             float(base_metrics["accuracy"]),
+            "roc_auc_weighted_ovr": float(base_metrics["roc_auc_weighted_ovr"]),
+            "f1_weighted":          float(base_metrics["f1_weighted"]),
+            "coverage":             1.0 - miscoverage,
+            "miscoverage":          miscoverage,
+            "avg_set_size":         avg_set_size,
         }
     return results
 
 
 def main() -> None:
     args = parse_args()
-    # Seed set per run in multi-seed mode; for single run set once here
     if args.n_seeds <= 1 and args.seeds is None:
         set_seed(args.seed)
 
@@ -306,20 +306,20 @@ def _run(args: argparse.Namespace) -> None:
     root = Path(args.root)
     if not root.exists():
         raise FileNotFoundError(
-            f"TUEV root not found: {root}. "
-            "Pass --root to point to your downloaded TUEV edf/ directory."
+            f"TUAB root not found: {root}. "
+            "Pass --root to point to your downloaded TUAB edf/ directory."
         )
 
     epochs = 2 if args.quick_test else args.epochs
-    quick_test_max_samples = 2000  # cap samples so quick-test finishes in ~5-10 min
+    quick_test_max_samples = 2000
     if args.quick_test:
         print("*** QUICK TEST MODE (dev=True, 2 epochs, max 2000 samples) ***")
 
     print("=" * 80)
-    print("STEP 1: Load TUEV + build task dataset")
+    print("STEP 1: Load TUAB + build task dataset")
     print("=" * 80)
-    dataset = TUEVDataset(root=str(root), subset=args.subset, dev=args.quick_test)
-    sample_dataset = dataset.set_task(EEGEventsTUEV())
+    dataset = TUABDataset(root=str(root), subset=args.subset, dev=args.quick_test)
+    sample_dataset = dataset.set_task(EEGAbnormalTUAB())
     if args.quick_test and len(sample_dataset) > quick_test_max_samples:
         sample_dataset = sample_dataset.subset(range(quick_test_max_samples))
         print(f"Capped to {quick_test_max_samples} samples for quick-test.")
@@ -329,7 +329,7 @@ def _run(args: argparse.Namespace) -> None:
     print(f"Output schema: {sample_dataset.output_schema}")
 
     if len(sample_dataset) == 0:
-        raise RuntimeError("No samples produced. Verify TUEV root/subset/task.")
+        raise RuntimeError("No samples produced. Verify TUAB root/subset/task.")
 
     # Parse alphas and run seeds
     alphas = [float(a.strip()) for a in args.alphas.split(",")] if args.alphas else [args.alpha]
@@ -397,21 +397,23 @@ def _run(args: argparse.Namespace) -> None:
         if use_multi_seed:
             m = seed_results[alphas[0]]
             print(f"  [Run {run_i + 1} result (alpha={alphas[0]})] "
-                  f"acc={m['accuracy']:.4f}, f1={m['f1_weighted']:.4f}, "
+                  f"acc={m['accuracy']:.4f}, roc_auc={m['roc_auc_weighted_ovr']:.4f}, "
                   f"cov={m['coverage']:.4f}, set_size={m['avg_set_size']:.2f}")
 
     for alpha in alphas:
         mlist = all_metrics[alpha]
-        accs       = np.array([m["accuracy"]     for m in mlist])
-        f1s        = np.array([m["f1_weighted"]  for m in mlist])
-        coverages  = np.array([m["coverage"]     for m in mlist])
-        miscovs    = np.array([m["miscoverage"]  for m in mlist])
-        set_sizes  = np.array([m["avg_set_size"] for m in mlist])
+        accs       = np.array([m["accuracy"]             for m in mlist])
+        roc_aucs   = np.array([m["roc_auc_weighted_ovr"] for m in mlist])
+        f1s        = np.array([m["f1_weighted"]           for m in mlist])
+        coverages  = np.array([m["coverage"]              for m in mlist])
+        miscovs    = np.array([m["miscoverage"]           for m in mlist])
+        set_sizes  = np.array([m["avg_set_size"]          for m in mlist])
 
         if not use_multi_seed:
             print(f"\nNCP Results (alpha={alpha}):")
             print(f"  Accuracy:              {accs[0]:.4f}")
-            print(f"  F1 (weighted):         {f1s[0]:.4f}")
+            print(f"  ROC-AUC:               {roc_aucs[0]:.4f}")
+            print(f"  F1:                    {f1s[0]:.4f}")
             print(f"  Empirical coverage:    {coverages[0]:.4f}")
             print(f"  Empirical miscoverage: {miscovs[0]:.4f}")
             print(f"  Average set size:      {set_sizes[0]:.2f}")
@@ -421,18 +423,19 @@ def _run(args: argparse.Namespace) -> None:
             print("\n" + "=" * 80)
             print(f"Per-run NCP results — alpha={alpha} (target coverage={1-alpha:.0%})")
             print("=" * 80)
-            print(f"  {'Run':<4} {'Seed':<6} {'Accuracy':<10} {'F1-Wt':<10} "
+            print(f"  {'Run':<4} {'Seed':<6} {'Accuracy':<10} {'ROC-AUC':<10} {'F1':<8} "
                   f"{'Coverage':<10} {'Miscoverage':<12} {'Avg set size':<12}")
-            print("  " + "-" * 68)
+            print("  " + "-" * 76)
             for i in range(n_runs):
-                print(f"  {i+1:<4} {run_seeds[i]:<6} {accs[i]:<10.4f} {f1s[i]:<10.4f} "
-                      f"{coverages[i]:<10.4f} {miscovs[i]:<12.4f} {set_sizes[i]:<12.2f}")
+                print(f"  {i+1:<4} {run_seeds[i]:<6} {accs[i]:<10.4f} {roc_aucs[i]:<10.4f} "
+                      f"{f1s[i]:<8.4f} {coverages[i]:<10.4f} {miscovs[i]:<12.4f} {set_sizes[i]:<12.2f}")
 
             print("\n" + "=" * 80)
             print(f"NCP summary — alpha={alpha} (mean ± std over {n_runs} runs, fixed test set)")
             print("=" * 80)
             print(f"  Accuracy:              {accs.mean():.4f} ± {accs.std():.4f}")
-            print(f"  F1 (weighted):         {f1s.mean():.4f} ± {f1s.std():.4f}")
+            print(f"  ROC-AUC:               {roc_aucs.mean():.4f} ± {roc_aucs.std():.4f}")
+            print(f"  F1:                    {f1s.mean():.4f} ± {f1s.std():.4f}")
             print(f"  Empirical coverage:    {coverages.mean():.4f} ± {coverages.std():.4f}")
             print(f"  Empirical miscoverage: {miscovs.mean():.4f} ± {miscovs.std():.4f}")
             print(f"  Average set size:      {set_sizes.mean():.2f} ± {set_sizes.std():.2f}")
@@ -444,6 +447,7 @@ def _run(args: argparse.Namespace) -> None:
             print(f"  Coverage:    [{coverages.min():.4f}, {coverages.max():.4f}]")
             print(f"  Set size:    [{set_sizes.min():.2f}, {set_sizes.max():.2f}]")
             print(f"  Accuracy:    [{accs.min():.4f}, {accs.max():.4f}]")
+            print(f"  ROC-AUC:     [{roc_aucs.min():.4f}, {roc_aucs.max():.4f}]")
 
 
 if __name__ == "__main__":
