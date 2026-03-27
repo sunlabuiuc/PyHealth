@@ -117,12 +117,6 @@ class SimpleLoSDataset(Dataset):
         - x_mask
         - static
         - target
-
-    IMPORTANT:
-    For now, target_los_hours is treated as a scalar and repeated across
-    the sequence length so we can test sequence-output TPC end to end.
-    This is temporary and should later be replaced with a true per-hour
-    remaining-LoS target sequence.
     """
 
     def __init__(
@@ -237,6 +231,7 @@ def collate_fn(batch: List[Dict[str, torch.Tensor]]) -> Dict[str, torch.Tensor]:
     padded_decay = []
     padded_mask = []
     padded_targets = []
+    padded_target_masks = []
     statics = []
 
     for item in batch:
@@ -244,6 +239,7 @@ def collate_fn(batch: List[Dict[str, torch.Tensor]]) -> Dict[str, torch.Tensor]:
         x_decay = item["x_decay"]
         x_mask = item["x_mask"]
         target = item["target"]
+        target_mask = torch.ones(target.shape[0], dtype=torch.float32)
 
         pad_len = max_t - x_values.shape[0]
         if pad_len > 0:
@@ -251,24 +247,28 @@ def collate_fn(batch: List[Dict[str, torch.Tensor]]) -> Dict[str, torch.Tensor]:
             decay_pad = torch.zeros(pad_len, feat_dim, dtype=x_decay.dtype)
             mask_pad = torch.zeros(pad_len, feat_dim, dtype=x_mask.dtype)
             target_pad = torch.zeros(pad_len, dtype=target.dtype)
+            target_mask_pad = torch.zeros(pad_len, dtype=torch.float32)
 
             x_values = torch.cat([x_values, value_pad], dim=0)
             x_decay = torch.cat([x_decay, decay_pad], dim=0)
             x_mask = torch.cat([x_mask, mask_pad], dim=0)
             target = torch.cat([target, target_pad], dim=0)
+            target_mask = torch.cat([target_mask, target_mask_pad], dim=0)
 
         padded_values.append(x_values)
         padded_decay.append(x_decay)
         padded_mask.append(x_mask)
         padded_targets.append(target)
+        padded_target_masks.append(target_mask)
         statics.append(item["static"])
 
     return {
-        "x_values": torch.stack(padded_values),   # [B, T, F]
-        "x_decay": torch.stack(padded_decay),     # [B, T, F]
-        "x_mask": torch.stack(padded_mask),       # [B, T, F]
-        "static": torch.stack(statics),           # [B, S]
-        "target": torch.stack(padded_targets),    # [B, T]
+        "x_values": torch.stack(padded_values),           # [B, T, F]
+        "x_decay": torch.stack(padded_decay),             # [B, T, F]
+        "x_mask": torch.stack(padded_mask),               # [B, T, F]
+        "static": torch.stack(statics),                   # [B, S]
+        "target": torch.stack(padded_targets),            # [B, T]
+        "target_mask": torch.stack(padded_target_masks),  # [B, T]
     }
 
 
@@ -282,9 +282,35 @@ def mse_loss(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
     return torch.mean((pred - target) ** 2)
 
 
-def evaluate(model: TPC, loader: DataLoader, loss_fn) -> float:
+def masked_loss(
+    pred: torch.Tensor,
+    target: torch.Tensor,
+    target_mask: torch.Tensor,
+    loss_name: str,
+    eps: float = 1e-6,
+) -> torch.Tensor:
+    valid = target_mask > 0
+
+    pred_valid = pred[valid]
+    target_valid = target[valid]
+
+    if loss_name == "msle":
+        return torch.mean(
+            (torch.log(pred_valid + 1.0 + eps) - torch.log(target_valid + 1.0 + eps)) ** 2
+        )
+    elif loss_name == "mse":
+        return torch.mean((pred_valid - target_valid) ** 2)
+    else:
+        raise ValueError(f"Unknown loss_name: {loss_name}")
+
+
+def evaluate(model: TPC, loader: DataLoader, loss_name: str) -> Dict[str, float]:
     model.eval()
+
     total_loss = 0.0
+    total_mae_num = 0.0
+    total_mse_num = 0.0
+    total_count = 0.0
 
     with torch.no_grad():
         for batch in loader:
@@ -293,10 +319,29 @@ def evaluate(model: TPC, loader: DataLoader, loss_fn) -> float:
                 x_decay=batch["x_decay"],
                 static=batch["static"],
             )
-            loss = loss_fn(pred, batch["target"])
+            target = batch["target"]
+            target_mask = batch["target_mask"]
+
+            loss = masked_loss(pred, target, target_mask, loss_name)
             total_loss += loss.item()
 
-    return total_loss / max(len(loader), 1)
+            valid = target_mask > 0
+            pred_valid = pred[valid]
+            target_valid = target[valid]
+
+            total_mae_num += torch.sum(torch.abs(pred_valid - target_valid)).item()
+            total_mse_num += torch.sum((pred_valid - target_valid) ** 2).item()
+            total_count += float(pred_valid.numel())
+
+    mean_loss = total_loss / max(len(loader), 1)
+    mae = total_mae_num / max(total_count, 1.0)
+    rmse = (total_mse_num / max(total_count, 1.0)) ** 0.5
+
+    return {
+        "loss": mean_loss,
+        "mae": mae,
+        "rmse": rmse,
+    }
 
 
 def parse_args():
@@ -476,20 +521,20 @@ def main():
     )
 
     debug_item = train_dataset[0]
-    #print("\n--- WRAPPER OUTPUT INSPECTION ---")
-    #print("x_values shape:", debug_item["x_values"].shape)
-    #print("x_decay shape:", debug_item["x_decay"].shape)
-    #print("x_mask shape:", debug_item["x_mask"].shape)
-    #print("static shape:", debug_item["static"].shape)
-    #print("target shape:", debug_item["target"].shape)
-    #print("target:", debug_item["target"])
-    #print("x_values:")
-    #print(debug_item["x_values"])
-    #print("x_decay:")
-    #print(debug_item["x_decay"])
-    #print("x_mask:")
-    #print(debug_item["x_mask"])
-    #print("--- END WRAPPER OUTPUT INSPECTION ---\n")
+    # print("\n--- WRAPPER OUTPUT INSPECTION ---")
+    # print("x_values shape:", debug_item["x_values"].shape)
+    # print("x_decay shape:", debug_item["x_decay"].shape)
+    # print("x_mask shape:", debug_item["x_mask"].shape)
+    # print("static shape:", debug_item["static"].shape)
+    # print("target shape:", debug_item["target"].shape)
+    # print("target:", debug_item["target"])
+    # print("x_values:")
+    # print(debug_item["x_values"])
+    # print("x_decay:")
+    # print(debug_item["x_decay"])
+    # print("x_mask:")
+    # print(debug_item["x_mask"])
+    # print("--- END WRAPPER OUTPUT INSPECTION ---\n")
 
     val_dataset = SimpleLoSDataset(
         val_samples,
@@ -534,11 +579,6 @@ def main():
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 
-    if args.loss == "msle":
-        loss_fn = msle_loss
-    else:
-        loss_fn = mse_loss
-
     train_losses = []
     val_losses = []
     best_val_loss = float("inf")
@@ -553,11 +593,8 @@ def main():
                 x_decay=batch["x_decay"],
                 static=batch["static"],
             )
-            #if epoch == 0:
-                #print("pred shape:", pred.shape)
-                #print("target shape:", batch["target"].shape)
 
-            loss = loss_fn(pred, batch["target"])
+            loss = masked_loss(pred, batch["target"], batch["target_mask"], args.loss)
 
             optimizer.zero_grad()
             loss.backward()
@@ -566,22 +603,38 @@ def main():
             epoch_train_loss += loss.item()
 
         epoch_train_loss /= max(len(train_loader), 1)
-        epoch_val_loss = evaluate(model, val_loader, loss_fn)
+
+        val_results = evaluate(model, val_loader, args.loss)
+        epoch_val_loss = val_results["loss"]
 
         train_losses.append(epoch_train_loss)
         val_losses.append(epoch_val_loss)
-        best_val_loss = min(best_val_loss, epoch_val_loss)
+        best_val_loss = min(best_val_loss, float(epoch_val_loss))
 
         print(
             f"epoch={epoch} train_loss={epoch_train_loss:.4f} "
             f"val_loss={epoch_val_loss:.4f}"
         )
 
+    final_val_results = evaluate(model, val_loader, args.loss)
+
     print("=" * 80)
     print("Run complete")
+    print(f"channel_mode: {args.channel_mode}")
+    print(f"include_categorical_statics: {args.include_categorical_statics}")
     print(f"final_train_loss: {train_losses[-1]:.4f}")
-    print(f"final_val_loss: {val_losses[-1]:.4f}")
+    print(f"final_val_loss: {final_val_results['loss']:.4f}")
     print(f"best_val_loss: {best_val_loss:.4f}")
+    print(f"final_val_mae: {final_val_results['mae']:.4f}")
+    print(f"final_val_rmse: {final_val_results['rmse']:.4f}")
+    print(
+        "ABLATION_SUMMARY "
+        f"channel_mode={args.channel_mode} "
+        f"include_categorical_statics={args.include_categorical_statics} "
+        f"val_loss={final_val_results['loss']:.4f} "
+        f"mae={final_val_results['mae']:.4f} "
+        f"rmse={final_val_results['rmse']:.4f}"
+    )
     print("=" * 80)
 
 
