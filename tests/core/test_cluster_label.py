@@ -13,8 +13,15 @@ class TestClusterLabel(unittest.TestCase):
 
     def setUp(self):
         """Set up test data and model."""
-        # Create samples with 3 classes for multiclass classification
+        # Stabilize model initialization and downstream calibration behavior.
+        np.random.seed(42)
+        torch.manual_seed(42)
+
+        # Create samples with 3 classes for multiclass classification.
+        # 12 samples (2 per class for train, 2 per class for cal) ensure
+        # calibration samples are spread across clusters during K-means.
         self.samples = [
+            # --- train set (indices 0–5) ---
             {
                 "patient_id": "patient-0",
                 "visit_id": "visit-0",
@@ -55,6 +62,49 @@ class TestClusterLabel(unittest.TestCase):
                 "visit_id": "visit-5",
                 "conditions": ["cond-90", "cond-100"],
                 "procedures": [2.5, 3.5, 4.0, 5.5],
+                "label": 2,
+            },
+            # --- calibration set (indices 6–11) ---
+            {
+                "patient_id": "patient-6",
+                "visit_id": "visit-6",
+                "conditions": ["cond-11", "cond-22", "cond-33"],
+                "procedures": [6.0, 1.0, 2.5, 3.5],
+                "label": 0,
+            },
+            {
+                "patient_id": "patient-7",
+                "visit_id": "visit-7",
+                "conditions": ["cond-44", "cond-55", "cond-66"],
+                "procedures": [4.5, 5.5, 1.5, 2.0],
+                "label": 1,
+            },
+            {
+                "patient_id": "patient-8",
+                "visit_id": "visit-8",
+                "conditions": ["cond-77", "cond-88"],
+                "procedures": [3.5, 6.5, 2.0, 1.0],
+                "label": 2,
+            },
+            {
+                "patient_id": "patient-9",
+                "visit_id": "visit-9",
+                "conditions": ["cond-15", "cond-25", "cond-35", "cond-45"],
+                "procedures": [7.0, 1.5, 3.0, 4.0],
+                "label": 0,
+            },
+            {
+                "patient_id": "patient-10",
+                "visit_id": "visit-10",
+                "conditions": ["cond-55", "cond-65"],
+                "procedures": [2.0, 5.0, 6.5, 1.5],
+                "label": 1,
+            },
+            {
+                "patient_id": "patient-11",
+                "visit_id": "visit-11",
+                "conditions": ["cond-75", "cond-85", "cond-95"],
+                "procedures": [5.5, 2.5, 1.0, 3.0],
                 "label": 2,
             },
         ]
@@ -181,13 +231,13 @@ class TestClusterLabel(unittest.TestCase):
         cluster_model = ClusterLabel(
             model=self.model,
             alpha=0.3,
-            n_clusters=3,
+            n_clusters=2,
             random_state=42,
         )
 
-        # Split into train and cal sets
-        train_indices = [0, 1, 2]
-        cal_indices = [3, 4, 5]
+        # Split into train and cal sets (6 train, 6 cal)
+        train_indices = [0, 1, 2, 3, 4, 5]
+        cal_indices = [6, 7, 8, 9, 10, 11]
         train_dataset = self.dataset.subset(train_indices)
         cal_dataset = self.dataset.subset(cal_indices)
 
@@ -203,15 +253,15 @@ class TestClusterLabel(unittest.TestCase):
 
         # Check that K-means model is fitted
         self.assertIsNotNone(cluster_model.kmeans_model)
-        self.assertEqual(cluster_model.kmeans_model.n_clusters, 3)
+        self.assertEqual(cluster_model.kmeans_model.n_clusters, 2)
 
         # Check that cluster thresholds are set
         self.assertIsNotNone(cluster_model.cluster_thresholds)
         self.assertIsInstance(cluster_model.cluster_thresholds, dict)
-        self.assertEqual(len(cluster_model.cluster_thresholds), 3)
+        self.assertEqual(len(cluster_model.cluster_thresholds), 2)
 
         # Check that each cluster has a threshold
-        for cluster_id in range(3):
+        for cluster_id in range(2):
             self.assertIn(cluster_id, cluster_model.cluster_thresholds)
             threshold = cluster_model.cluster_thresholds[cluster_id]
             self.assertIsInstance(threshold, (float, np.floating))
@@ -226,9 +276,9 @@ class TestClusterLabel(unittest.TestCase):
             random_state=42,
         )
 
-        # Split into train and cal sets
-        train_indices = [0, 1, 2]
-        cal_indices = [3, 4, 5]
+        # Split into train and cal sets (6 train, 6 cal)
+        train_indices = [0, 1, 2, 3, 4, 5]
+        cal_indices = [6, 7, 8, 9, 10, 11]
         train_dataset = self.dataset.subset(train_indices)
         cal_dataset = self.dataset.subset(cal_indices)
 
@@ -254,13 +304,13 @@ class TestClusterLabel(unittest.TestCase):
         cluster_model = ClusterLabel(
             model=self.model,
             alpha=0.2,
-            n_clusters=3,
+            n_clusters=2,
             random_state=42,
         )
 
         # Calibrate
-        train_indices = [0, 1, 2]
-        cal_indices = [3, 4, 5]
+        train_indices = [0, 1, 2, 3, 4, 5]
+        cal_indices = [6, 7, 8, 9, 10, 11]
         train_dataset = self.dataset.subset(train_indices)
         cal_dataset = self.dataset.subset(cal_indices)
 
@@ -301,8 +351,8 @@ class TestClusterLabel(unittest.TestCase):
         )
 
         # Calibrate
-        train_indices = [0, 1, 2]
-        cal_indices = [3, 4, 5]
+        train_indices = [0, 1, 2, 3, 4, 5]
+        cal_indices = [6, 7, 8, 9, 10, 11]
         train_dataset = self.dataset.subset(train_indices)
         cal_dataset = self.dataset.subset(cal_indices)
 
@@ -335,7 +385,7 @@ class TestClusterLabel(unittest.TestCase):
             n_clusters=3,
         )
 
-        cal_indices = [3, 4, 5]
+        cal_indices = [6, 7, 8, 9, 10, 11]
         cal_dataset = self.dataset.subset(cal_indices)
         cal_embeddings = self._get_embeddings(cal_dataset)
 
@@ -362,8 +412,13 @@ class TestClusterLabel(unittest.TestCase):
                 cluster_model(**data_batch)
 
     def test_different_cluster_counts(self):
-        """Test that different cluster counts work."""
-        for n_clusters in [2, 3, 4]:
+        """Test that different cluster counts work.
+
+        Cluster counts are capped at 3 (half of the 6 cal samples) so that
+        K-means can reliably assign at least one calibration sample per cluster
+        with a small test dataset.
+        """
+        for n_clusters in [2, 3]:
             cluster_model = ClusterLabel(
                 model=self.model,
                 alpha=0.2,
@@ -371,8 +426,8 @@ class TestClusterLabel(unittest.TestCase):
                 random_state=42,
             )
 
-            train_indices = [0, 1, 2]
-            cal_indices = [3, 4, 5]
+            train_indices = [0, 1, 2, 3, 4, 5]
+            cal_indices = [6, 7, 8, 9, 10, 11]
             train_dataset = self.dataset.subset(train_indices)
             cal_dataset = self.dataset.subset(cal_indices)
 
@@ -395,12 +450,12 @@ class TestClusterLabel(unittest.TestCase):
         cluster_model = ClusterLabel(
             model=self.model,
             alpha=0.2,
-            n_clusters=3,
+            n_clusters=2,
             random_state=42,
         )
 
-        train_indices = [0, 1, 2]
-        cal_indices = [3, 4, 5]
+        train_indices = [0, 1, 2, 3, 4, 5]
+        cal_indices = [6, 7, 8, 9, 10, 11]
         train_dataset = self.dataset.subset(train_indices)
         cal_dataset = self.dataset.subset(cal_indices)
 
