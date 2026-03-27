@@ -125,7 +125,7 @@ class DermoscopyDataset(BaseDataset):
         dataset_name: Optional[str] = None,
         config_path: Optional[str] = None,
         cache_dir: Optional[str] = None,
-        num_workers: int = 1,
+        num_workers: int = 4,
         dev: bool = False,
     ) -> None:
         self.available_datasets = datasets or list(self.SUPPORTED_DATASETS)
