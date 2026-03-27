@@ -30,7 +30,7 @@ from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
 from pyhealth.models.utils import get_last_visit
 
-from .embedding import EmbeddingModel
+from pyhealth.processors import SequenceProcessor
 
 
 class FinalAttentionQKV(nn.Module):
@@ -126,7 +126,7 @@ class FinalAttentionQKV(nn.Module):
             q = torch.reshape(
                 input_q, (batch_size, self.attention_hidden_dim, 1)
             )  # [batch, hidden, 1]
-            e = torch.matmul(input_k, q).squeeze()  # [batch, time]
+            e = torch.matmul(input_k, q).squeeze(-1)  # [batch, time]
 
         elif self.attention_type == "concat":
             q = input_q.unsqueeze(1).repeat(1, time_step, 1)  # [batch, time, hidden]
@@ -145,7 +145,7 @@ class FinalAttentionQKV(nn.Module):
         a = self.softmax(e)  # [batch, time]
         if self.dropout is not None:
             a = self.dropout(a)
-        v = torch.matmul(a.unsqueeze(1), input_v).squeeze()  # [batch, hidden]
+        v = torch.matmul(a.unsqueeze(1), input_v).squeeze(1)  # [batch, hidden]
 
         return v, a
 
@@ -893,8 +893,6 @@ class ConCare(BaseModel):
         )
         self.label_key = self.label_keys[0]
 
-        self.embedding_model = EmbeddingModel(dataset, embedding_dim)
-
         # Determine static dimension
         self.static_dim = 0
         if self.static_key is not None:
@@ -918,9 +916,17 @@ class ConCare(BaseModel):
 
         # ConCare layers for each dynamic feature
         self.concare = nn.ModuleDict()
+        self._proc_types = {}  # feature_key -> 'sequence' | 'other'
         for feature_key in self.dynamic_feature_keys:
+            proc = dataset.input_processors[feature_key]
+            if isinstance(proc, SequenceProcessor):
+                input_dim = 1
+                self._proc_types[feature_key] = 'sequence'
+            else:
+                input_dim = proc.size()
+                self._proc_types[feature_key] = 'other'
             self.concare[feature_key] = ConCareLayer(
-                input_dim=embedding_dim,
+                input_dim=input_dim,
                 static_dim=self.static_dim,
                 hidden_dim=self.hidden_dim,
                 **kwargs,
@@ -948,8 +954,6 @@ class ConCare(BaseModel):
         patient_emb = []
         decov_loss = 0
 
-        embedded, masks = self.embedding_model(kwargs, output_mask=True)
-
         # Get static features if available
         static = None
         if self.static_key is not None and self.static_key in kwargs:
@@ -962,8 +966,15 @@ class ConCare(BaseModel):
                 )
 
         for feature_key in self.dynamic_feature_keys:
-            x = embedded[feature_key]
-            mask = masks[feature_key]
+            raw = kwargs[feature_key]
+            if self._proc_types[feature_key] == 'sequence':
+                # (batch, T) long → (batch, T, 1) float; PAD=0
+                mask = (raw != 0).float().to(self.device)
+                x = raw.float().unsqueeze(-1).to(self.device)
+            else:
+                # (batch, T, F) → mask on time axis (all-zero rows are padding)
+                mask = (raw.sum(-1) != 0).float().to(self.device)
+                x = raw.float().to(self.device)
 
             x, decov = self.concare[feature_key](x, static=static, mask=mask)
             patient_emb.append(x)
