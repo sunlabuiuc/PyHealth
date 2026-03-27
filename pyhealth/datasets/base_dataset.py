@@ -497,6 +497,7 @@ class BaseDataset(ABC):
         return df.replace("", pd.NA)  # Replace empty strings with NaN
 
     def _event_transform(self, output_dir: Path) -> None:
+        compute_ok = False
         try:
             df = self.load_data()
             with DaskCluster(
@@ -522,6 +523,20 @@ class BaseDataset(ABC):
                     handle = client.compute(collection)
                     dask_progress(handle)
                     handle.result()  # type: ignore
+                    compute_ok = True  # Data is fully written to disk
+        except TimeoutError:
+            if compute_ok:
+                # Cluster shutdown timed out after successful compute — data is intact
+                logger.warning(
+                    "Dask cluster shutdown timed out, but data was written successfully. Continuing."
+                )
+            else:
+                if output_dir.exists():
+                    logger.error(
+                        f"Error during caching, removing incomplete file {output_dir}"
+                    )
+                    shutil.rmtree(output_dir)
+                raise
         except Exception as e:
             if output_dir.exists():
                 logger.error(
@@ -531,7 +546,6 @@ class BaseDataset(ABC):
             raise e
         finally:
             self.clean_tmpdir()
-        pass
 
     @property
     def global_event_df(self) -> pl.LazyFrame:
