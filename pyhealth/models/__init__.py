@@ -1,6 +1,10 @@
 from .adacare import AdaCare, AdaCareLayer
 from .agent import Agent, AgentLayer
 from .base_model import BaseModel
+from .bottleneck_transformer import (
+    BottleneckTransformer,
+    MultimodalBottleneckTransformerEncoder
+)
 from .biot import BIOT
 from .cnn import CNN, CNNLayer
 from .concare import ConCare, ConCareLayer
