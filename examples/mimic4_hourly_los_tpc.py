@@ -1,3 +1,14 @@
+# FROZEN MIMIC BASELINE
+# Locked after successful 1000-sample dev run on 2026-03-28.
+# Do not change feature list unless there is a confirmed bug.
+# MIMIC summary:
+#   input_dim=20
+#   best_val_loss=0.3793
+#   final_val_loss=0.3793
+#   final_test_loss=0.3898
+#   final_test_mae=72.5161
+#   final_test_rmse=90.4184
+
 import os
 import sys
 import argparse
@@ -478,26 +489,26 @@ def main():
                     "gcs - verbal response",
                     "admission weight (kg)",
                     "daily weight",
+                ],
+                "labevents": [
                     "alt",
                     "ast",
                     "alkaline phosphate",
                     "anion gap",
-                    "bun",
-                    "chloride (serum)",
-                    "creatinine (serum)",
-                    "glucose (serum)",
-                    "hco3 (serum)",
-                    "hematocrit (serum)",
-                    "hemoglobin",
-                ],
-                "labevents": [
-                    "glucose",
+                    "chloride",
                     "creatinine",
-                    "urea nitrogen",
-                    "sodium",
+                    "glucose",
+                    "hematocrit",
+                    "hemoglobin",
                     "potassium",
+                    "sodium",
+                    "urea nitrogen",
                 ],
-            },)
+            },
+            min_history_hours=5,
+            max_hours=args.max_hours,
+        ),
+        num_workers=1,
     )
 
     samples = [task_dataset[i] for i in range(min(len(task_dataset), args.max_samples))]

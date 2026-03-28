@@ -117,22 +117,27 @@ class HourlyLOSEICU(BaseTask):
         numeric = []
         categorical = []
 
+        # numeric statics
+        for f in self.numeric_static_features:
+            val = self._safe_float(attr.get(f))
+            if val is None:
+                val = 0.0
+            numeric.append(float(val))
+
+        # categorical statics
         for f in self.categorical_static_features:
             raw = attr.get(f)
 
-            # normalize category
             if raw is None:
                 cid = "__MISSING__"
             else:
                 cid = str(raw)
 
-            # ensure stable vocab
             vocab = self.static_vocab.setdefault(f, {})
 
             if cid not in vocab:
                 vocab[cid] = len(vocab)
 
-            # FIXED SIZE: lock to max observed size
             max_size = 10  # small, safe cap for gender/race/etc.
 
             one_hot = [0.0] * max_size
@@ -151,6 +156,23 @@ class HourlyLOSEICU(BaseTask):
             names.extend(self.time_series_features.get(table, []))
 
         normalized_names = [self._norm_name(n) for n in names]
+
+        # HARD LOCK — ensure no duplicate or empty features
+        if len(normalized_names) == 0:
+            raise ValueError("No time-series features defined.")
+
+        if len(set(normalized_names)) != len(normalized_names):
+            raise ValueError("Duplicate feature names detected.")
+
+        # Optional: enforce deterministic ordering (future-proofing)
+        normalized_names = list(normalized_names)
+
+        # DEBUG — FEATURE LOCK VISIBILITY
+        print("\n[DEBUG] Feature list (normalized):")
+        for i, n in enumerate(normalized_names):
+            print(f"  {i}: {n}")
+        print(f"[DEBUG] Total features: {len(normalized_names)}\n")
+
         return normalized_names, {n: i for i, n in enumerate(normalized_names)}
 
     def _combine_value_mask_decay(self, filled, mask, decay):
@@ -308,6 +330,9 @@ class HourlyLOSEICU(BaseTask):
         if not normalized_names:
             return samples
 
+        # 🔍 DEBUG — track observed features in this patient
+        observed_features = set()
+
         observations = []
 
         for table in self.time_series_tables:
@@ -322,6 +347,8 @@ class HourlyLOSEICU(BaseTask):
                 name = self._norm_name(attr.get("labname"))
                 if name not in feature_index:
                     continue
+
+                observed_features.add(name)
 
                 value = self._safe_float(attr.get("labresult"))
                 minutes = self._safe_float(attr.get("labresultoffset"))
@@ -351,6 +378,10 @@ class HourlyLOSEICU(BaseTask):
                 normalized_feature_names=normalized_names,
             )
         )
+
+        # 🔍 DEBUG — print observed feature coverage
+        if observed_features:
+            print(f"[DEBUG] Observed features for patient: {sorted(observed_features)}")
 
         return samples
 
@@ -389,6 +420,8 @@ class HourlyLOSEICU(BaseTask):
                 admissions_by_hadm[hadm_id] = a
 
         normalized_names, feature_index = self._build_feature_index()
+        # 🔍 DEBUG — track observed features in this patient
+        observed_features = set()
         if not normalized_names:
             return samples
 
@@ -456,6 +489,9 @@ class HourlyLOSEICU(BaseTask):
                     normalized_feature_names=normalized_names,
                 )
             )
+
+        if observed_features:
+            print(f"[DEBUG] Observed features for patient: {sorted(observed_features)}")
 
         return samples
 
