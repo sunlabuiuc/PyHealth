@@ -496,6 +496,18 @@ class HourlyLOSEICU(BaseTask):
 
         return schema.get(table)
 
+    def _get_mimic_table_schema(self, table: str):
+        """Returns (name_key, value_key, time_key) for supported MIMIC-IV tables."""
+        table = str(table).strip().lower()
+
+        schema = {
+            "labevents": ("label", None, "timestamp"),
+            "chartevents": ("label", None, "timestamp"),
+        }
+
+        return schema.get(table)
+
+
     def _build_mimic_samples(self, patient) -> List[Dict[str, Any]]:
         samples = []
 
@@ -514,11 +526,6 @@ class HourlyLOSEICU(BaseTask):
         except Exception:
             icu_rows = []
 
-        try:
-            lab_rows = patient.get_events("labevents")
-        except Exception:
-            lab_rows = []
-
         if not icu_rows:
             return samples
 
@@ -531,10 +538,18 @@ class HourlyLOSEICU(BaseTask):
                 admissions_by_hadm[hadm_id] = a
 
         normalized_names, feature_index = self._build_feature_index()
-        # 🔍 DEBUG — track observed features in this patient
         observed_features = set()
         if not normalized_names:
             return samples
+
+        # --- Add derived features (paper alignment) ---
+        extra_features = ["time in the icu", "time of day"]
+
+        for f in extra_features:
+            if f not in normalized_names:
+                normalized_names.append(f)
+
+        feature_index = {name: i for i, name in enumerate(normalized_names)}
 
         for icu_event in icu_rows:
             icu_attr = dict(icu_event.attr_dict)
@@ -558,37 +573,71 @@ class HourlyLOSEICU(BaseTask):
 
             observations = []
 
-            for lab_event in lab_rows:
-                lab_attr = lab_event.attr_dict
+            for table in self.time_series_tables:
+                try:
+                    events = patient.get_events(table)
+                except Exception:
+                    events = []
 
-                lab_hadm_id = lab_attr.get("hadm_id")
-                if hadm_id is not None and lab_hadm_id is not None and str(lab_hadm_id) != str(hadm_id):
+                schema = self._get_mimic_table_schema(table)
+                if schema is None:
                     continue
 
-                name = self._norm_name(lab_attr.get("label"))
-                if name not in feature_index:
-                    continue
+                name_key, _, _ = schema
 
-                value = self._safe_float(lab_attr.get("valuenum"))
-                if value is None:
-                    value = self._safe_float(lab_attr.get("value"))
-                if value is None:
-                    continue
+                for event in events:
+                    attr = event.attr_dict
 
-                event_time = getattr(lab_event, "timestamp", None)
-                if event_time is None:
-                    event_time = self._safe_datetime(lab_attr.get("storetime"))
-                if event_time is None:
-                    continue
+                    event_hadm_id = attr.get("hadm_id")
+                    if (
+                        hadm_id is not None
+                        and event_hadm_id is not None
+                        and str(event_hadm_id) != str(hadm_id)
+                    ):
+                        continue
 
-                if event_time < intime or event_time > outtime:
-                    continue
+                    name = self._norm_name(attr.get(name_key))
+                    if name not in feature_index:
+                        continue
 
-                offset_hours = (event_time - intime).total_seconds() / 3600.0
-                hr = int(offset_hours)
-                fi = feature_index[name]
+                    value = self._safe_float(attr.get("valuenum"))
+                    if value is None:
+                        value = self._safe_float(attr.get("value"))
+                    if value is None:
+                        continue
 
-                observations.append((hr, fi, value, offset_hours))
+                    event_time = getattr(event, "timestamp", None)
+                    if event_time is None:
+                        event_time = self._safe_datetime(attr.get("storetime"))
+                    if event_time is None:
+                        event_time = self._safe_datetime(attr.get("charttime"))
+                    if event_time is None:
+                        continue
+
+                    if event_time < intime or event_time > outtime:
+                        continue
+
+                    observed_features.add(name)
+
+                    offset_hours = (event_time - intime).total_seconds() / 3600.0
+                    hr = int(offset_hours)
+                    fi = feature_index[name]
+                    observations.append((hr, fi, value, offset_hours))
+
+                    # derived: time in ICU
+                    ti_idx = feature_index.get("time in the icu")
+                    if ti_idx is not None:
+                        observations.append((hr, ti_idx, offset_hours, offset_hours))
+
+                    # derived: time of day
+                    tod_idx = feature_index.get("time of day")
+                    if tod_idx is not None:
+                        time_of_day = (
+                            event_time.hour
+                            + event_time.minute / 60.0
+                            + event_time.second / 3600.0
+                        )
+                        observations.append((hr, tod_idx, time_of_day, offset_hours))
 
             samples.extend(
                 self._make_samples_for_stay(
