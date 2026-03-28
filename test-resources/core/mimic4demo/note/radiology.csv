@@ -1,0 +1,25 @@
+note_id,subject_id,hadm_id,note_type,note_seq,charttime,storetime,text
+r1,10001,19999,RR,1,2150-02-15 14:00:00,2150-02-15 15:00:00,Chest X-ray for patient 10001. No acute cardiopulmonary process identified. Heart size normal.
+r2,10002,20000,RR,1,2151-01-01 14:00:00,2151-01-01 15:00:00,Chest X-ray for patient 10002. No acute cardiopulmonary process identified. Heart size normal.
+r3,10001,20001,RR,1,2150-03-15 14:00:00,2150-03-15 15:00:00,Chest X-ray for patient 10001. No acute cardiopulmonary process identified. Heart size normal.
+r4,10001,20002,RR,1,2150-06-20 14:00:00,2150-06-20 15:00:00,Chest X-ray for patient 10001. No acute cardiopulmonary process identified. Heart size normal.
+r5,10002,20003,RR,1,2151-01-10 14:00:00,2151-01-10 15:00:00,Chest X-ray for patient 10002. No acute cardiopulmonary process identified. Heart size normal.
+r6,10002,20004,RR,1,2151-04-05 14:00:00,2151-04-05 15:00:00,Chest X-ray for patient 10002. No acute cardiopulmonary process identified. Heart size normal.
+r7,10003,20005,RR,1,2152-02-28 14:00:00,2152-02-28 15:00:00,Chest X-ray for patient 10003. No acute cardiopulmonary process identified. Heart size normal.
+r8,10003,20006,RR,1,2152-08-10 14:00:00,2152-08-10 15:00:00,Chest X-ray for patient 10003. No acute cardiopulmonary process identified. Heart size normal.
+r9,10004,20007,RR,1,2150-05-01 14:00:00,2150-05-01 15:00:00,Chest X-ray for patient 10004. No acute cardiopulmonary process identified. Heart size normal.
+r10,10005,20008,RR,1,2151-07-15 14:00:00,2151-07-15 15:00:00,Chest X-ray for patient 10005. No acute cardiopulmonary process identified. Heart size normal.
+r11,10006,20009,RR,1,2152-09-01 14:00:00,2152-09-01 15:00:00,Chest X-ray for patient 10006. No acute cardiopulmonary process identified. Heart size normal.
+r12,10006,20010,RR,1,2152-11-15 14:00:00,2152-11-15 15:00:00,Chest X-ray for patient 10006. No acute cardiopulmonary process identified. Heart size normal.
+r13,10007,20011,RR,1,2150-04-10 14:00:00,2150-04-10 15:00:00,Chest X-ray for patient 10007. No acute cardiopulmonary process identified. Heart size normal.
+r14,10008,20012,RR,1,2151-10-05 14:00:00,2151-10-05 15:00:00,Chest X-ray for patient 10008. No acute cardiopulmonary process identified. Heart size normal.
+r15,10008,20013,RR,1,2151-12-15 14:00:00,2151-12-15 15:00:00,Chest X-ray for patient 10008. No acute cardiopulmonary process identified. Heart size normal.
+r16,10009,20014,RR,1,2152-03-20 14:00:00,2152-03-20 15:00:00,Chest X-ray for patient 10009. No acute cardiopulmonary process identified. Heart size normal.
+r17,10010,20015,RR,1,2150-08-01 14:00:00,2150-08-01 15:00:00,Chest X-ray for patient 10010. No acute cardiopulmonary process identified. Heart size normal.
+r18,1,1,RR,1,2150-01-01 14:00:00,2150-01-01 15:00:00,Chest X-ray for patient 1. No acute cardiopulmonary process identified. Heart size normal.
+r19,1,2,RR,1,2150-01-16 14:00:00,2150-01-16 15:00:00,Chest X-ray for patient 1. No acute cardiopulmonary process identified. Heart size normal.
+r20,2,3,RR,1,2150-01-01 14:00:00,2150-01-01 15:00:00,Chest X-ray for patient 2. No acute cardiopulmonary process identified. Heart size normal.
+r21,2,4,RR,1,2150-01-16 14:00:00,2150-01-16 15:00:00,Chest X-ray for patient 2. No acute cardiopulmonary process identified. Heart size normal.
+r22,2,5,RR,1,2150-01-21 14:00:00,2150-01-21 15:00:00,Chest X-ray for patient 2. No acute cardiopulmonary process identified. Heart size normal.
+r23,2,6,RR,1,2150-01-22 14:00:00,2150-01-22 15:00:00,Chest X-ray for patient 2. No acute cardiopulmonary process identified. Heart size normal.
+r24,3,7,RR,1,2150-01-01 14:00:00,2150-01-01 15:00:00,Chest X-ray for patient 3. No acute cardiopulmonary process identified. Heart size normal.

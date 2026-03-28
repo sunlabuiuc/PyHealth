@@ -1,4 +1,5 @@
-from datetime import datetime
+import random
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Union, Tuple, ClassVar
 
 from pyhealth.tasks.base_task import BaseTask
@@ -36,6 +37,16 @@ class BaseMultimodalMIMIC4Task(BaseTask):
         item for itemids in LAB_CATEGORIES.values() for item in itemids
     ]
 
+    def __init__(
+        self,
+        window_hours: Optional[float] = None,
+        window_start: Optional[datetime] = None,
+        window_end: Optional[datetime] = None,
+    ):
+        self.window_hours = window_hours
+        self.window_start = window_start
+        self.window_end = window_end
+
     @staticmethod
     def _clean_text(text: Optional[str]) -> Optional[str]:
         """Return text if non-empty, otherwise None."""
@@ -56,6 +67,46 @@ class BaseMultimodalMIMIC4Task(BaseTask):
     @staticmethod
     def _to_hours(delta_seconds: float) -> float:
         return delta_seconds / 3600.0
+
+    def _compute_effective_window(
+        self,
+        admissions_to_process: List[Any],
+    ) -> Tuple[datetime, Optional[datetime]]:
+        """Compute effective start/end from the global span of processed admissions.
+
+        Returns:
+            Tuple of (effective_start, effective_end).
+        """
+        global_start = admissions_to_process[0].timestamp
+        global_end: Optional[datetime] = None
+
+        for a in admissions_to_process:
+            dt = self._parse_datetime(getattr(a, "dischtime", None))
+            if dt is not None and (global_end is None or dt > global_end):
+                global_end = dt
+
+        if self.window_start is not None or self.window_end is not None:
+            effective_start = self.window_start if self.window_start is not None else global_start
+            effective_end = self.window_end if self.window_end is not None else global_end
+            return effective_start, effective_end
+
+        if self.window_hours is not None:
+            if global_end is not None:
+                max_offset = max(
+                    0.0,
+                    (global_end - global_start).total_seconds() / 3600.0 - self.window_hours,
+                )
+                offset = random.uniform(0.0, max_offset)
+            else:
+                offset = 0.0
+            effective_start = global_start + timedelta(hours=offset)
+            effective_end = effective_start + timedelta(hours=self.window_hours)
+            return effective_start, effective_end
+
+        effective_start = global_start
+        effective_end = global_end
+
+        return effective_start, effective_end
 
     def _collect_icd_codes(self, patient: Any, hadm_id: Any) -> List[str]:
         """Collect ICD diagnosis and procedure codes for one admission.
@@ -162,6 +213,8 @@ class BaseMultimodalMIMIC4Task(BaseTask):
         note_event_type: str,
         hadm_id: Any,
         admission_time: datetime,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
     ) -> Tuple[List[str], List[float]]:
         """Collect notes of a given type for one admission.
 
@@ -170,6 +223,8 @@ class BaseMultimodalMIMIC4Task(BaseTask):
             note_event_type: Event type string (e.g. "discharge", "radiology").
             hadm_id: Admission ID to filter by.
             admission_time: Admission start time; used to compute time offsets.
+            start_time: Optional start of the time window
+            end_time: Optional end of the time window
 
         Returns:
             Tuple of (texts, hours_from_admission). Falls back to
@@ -178,6 +233,8 @@ class BaseMultimodalMIMIC4Task(BaseTask):
         """
         notes = patient.get_events(
             event_type=note_event_type,
+            start=start_time,
+            end=end_time,
             filters=[("hadm_id", "==", hadm_id)],
         )
 
@@ -241,9 +298,6 @@ class ClinicalNotesMIMIC4(BaseMultimodalMIMIC4Task):
         }
     output_schema: Dict[str, str] = {"mortality": "binary"}
 
-    def __init__(self):
-        """Initialize the EHR Foundational Model task."""
-
     def __call__(self, patient: Any) -> List[Dict[str, Any]]:
         # Get demographic info to filter by age
         demographics = patient.get_events(event_type="patients")
@@ -285,6 +339,8 @@ class ClinicalNotesMIMIC4(BaseMultimodalMIMIC4Task):
         if len(admissions_to_process) == 0:
             return []
 
+        effective_start, effective_end = self._compute_effective_window(admissions_to_process)
+
         # Aggregated notes and time offsets across all admissions (per hadm_id)
         all_discharge_texts: List[str] = []
         all_discharge_times_from_admission: List[float] = []
@@ -296,13 +352,15 @@ class ClinicalNotesMIMIC4(BaseMultimodalMIMIC4Task):
             admission_time = admission.timestamp
 
             discharge_texts, discharge_times = self._collect_notes(
-                patient, "discharge", admission.hadm_id, admission_time
+                patient, "discharge", admission.hadm_id, admission_time,
+                start_time=effective_start, end_time=effective_end,
             )
             all_discharge_texts.extend(discharge_texts)
             all_discharge_times_from_admission.extend(discharge_times)
 
             radiology_texts, radiology_times = self._collect_notes(
-                patient, "radiology", admission.hadm_id, admission_time
+                patient, "radiology", admission.hadm_id, admission_time,
+                start_time=effective_start, end_time=effective_end,
             )
             all_radiology_texts.extend(radiology_texts)
             all_radiology_times_from_admission.extend(radiology_times)
@@ -315,6 +373,8 @@ class ClinicalNotesMIMIC4(BaseMultimodalMIMIC4Task):
                 "discharge_note_times": discharge_note_times_from_admission,
                 "radiology_note_times": radiology_note_times_from_admission,
                 "mortality": mortality_label,
+                "window_start": effective_start,
+                "window_end": effective_end,
             }
 
         return [
@@ -377,9 +437,6 @@ class ClinicalNotesICDLabsMIMIC4(BaseMultimodalMIMIC4Task):
         }
     output_schema: Dict[str, str] = {"mortality": "binary"}
 
-    def __init__(self):
-        """Initialize the EHR Foundational Model task."""
-
     def __call__(self, patient: Any) -> List[Dict[str, Any]]:
         # Get demographic info to filter by age
         demographics = patient.get_events(event_type="patients")
@@ -421,6 +478,8 @@ class ClinicalNotesICDLabsMIMIC4(BaseMultimodalMIMIC4Task):
         if len(admissions_to_process) == 0:
             return []
 
+        effective_start, effective_end = self._compute_effective_window(admissions_to_process)
+
         # Aggregated notes and time offsets across all admissions (per hadm_id)
         all_discharge_texts: List[str] = []
         all_discharge_times_from_admission: List[float] = []
@@ -448,13 +507,15 @@ class ClinicalNotesICDLabsMIMIC4(BaseMultimodalMIMIC4Task):
                 continue
 
             discharge_texts, discharge_times = self._collect_notes(
-                patient, "discharge", admission.hadm_id, admission_time
+                patient, "discharge", admission.hadm_id, admission_time,
+                start_time=effective_start, end_time=effective_end,
             )
             all_discharge_texts.extend(discharge_texts)
             all_discharge_times_from_admission.extend(discharge_times)
 
             radiology_texts, radiology_times = self._collect_notes(
-                patient, "radiology", admission.hadm_id, admission_time
+                patient, "radiology", admission.hadm_id, admission_time,
+                start_time=effective_start, end_time=effective_end,
             )
             all_radiology_texts.extend(radiology_texts)
             all_radiology_times_from_admission.extend(radiology_times)
@@ -500,6 +561,8 @@ class ClinicalNotesICDLabsMIMIC4(BaseMultimodalMIMIC4Task):
                 "labs": (all_lab_times, all_lab_values),
                 "labs_mask": (all_lab_times, all_lab_masks),
                 "mortality": mortality_label,
+                "window_start": effective_start,
+                "window_end": effective_end,
             }
 
         return [
