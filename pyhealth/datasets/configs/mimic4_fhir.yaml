@@ -2,9 +2,17 @@
 # This YAML is read by ``read_fhir_settings_yaml`` (FHIR layout), not the CSV
 # ``DatasetConfig`` table schema used by MIMIC-IV relational loaders.
 version: "fhir_r4"
-# PhysioNet MIMIC-IV on FHIR ships gzip-compressed files (e.g. MimicPatient.ndjson.gz).
-# For uncompressed trees, pass glob_pattern="**/*.ndjson" to MIMIC4FHIRDataset.
+# PhysioNet layout (credentialled export): a single ``fhir/`` directory containing
+# gzip NDJSON shards, e.g. ``MimicPatient.ndjson.gz``, ``MimicEncounter.ndjson.gz``,
+# ``MimicCondition.ndjson.gz``, ``MimicObservationLabevents.ndjson.gz``, etc.
+# Set ``root`` to that ``fhir/`` path (or the unpacked folder that holds these files).
+#
+# ``**/*.ndjson.gz`` matches all such files whether laid out flat or in subfolders.
+# For uncompressed trees, pass ``glob_pattern="**/*.ndjson"`` to MIMIC4FHIRDataset.
 glob_pattern: "**/*.ndjson.gz"
+# Parallel ingest: rows are hashed by ``patient_id`` into this many Parquet shards
+# (bounded RAM, avoids one global on-disk sort). Omit to auto-pick from CPU count.
+# ingest_num_shards: 16
 # Optional: restrict resource types when scanning (future use)
 resource_types:
   - Patient

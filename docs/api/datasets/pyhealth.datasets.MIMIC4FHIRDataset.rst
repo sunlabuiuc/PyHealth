@@ -8,51 +8,58 @@ for CEHR-style token sequences used with
 
 YAML defaults live in ``pyhealth/datasets/configs/mimic4_fhir.yaml`` (e.g.
 ``glob_pattern`` for ``**/*.ndjson.gz`` on PhysioNet exports, or ``**/*.ndjson``
-if uncompressed). The loader subclasses :class:`~pyhealth.datasets.BaseDataset`
-but does not build a Polars ``global_event_df``; use :meth:`MIMIC4FHIRDataset.gather_samples`
-or :meth:`MIMIC4FHIRDataset.set_task`.
+if uncompressed). The class subclasses :class:`~pyhealth.datasets.BaseDataset`
+and builds a standard Polars ``global_event_df`` backed by cached Parquet
+(``global_event_df.parquet/part-*.parquet``), same tabular path as other
+datasets: :meth:`~pyhealth.datasets.BaseDataset.set_task`, :meth:`iter_patients`,
+:meth:`get_patient`, etc.
 
-**Limitations.** Ingest is **non-streaming**: all lines from
-every glob-matched file are materialized in RAM before patient grouping. A full
-PhysioNet MIMIC-IV FHIR download can exceed **tens–hundreds of GB** and dominate
-runtime. Use a **narrow** ``glob_pattern`` for development, or extend the loader
-with chunked/streaming IO in a follow-up. ``max_patients`` does not reduce peak
-load memory—it only caps how many grouped patients are kept **after** the full
-parse.
+**Ingest (out-of-core).** Matching ``*.ndjson`` / ``*.ndjson.gz`` files are read
+**line by line**; each FHIR resource row is written to hash-partitioned Parquet
+shards (``patient_id`` → stable shard via CRC32). That bounds **peak ingest RAM**
+to on-disk batch buffers and shard writers (see constructor / YAML
+``ingest_num_shards``), instead of materializing the full export in Python lists.
+Shards are finalized into ``part-*.parquet`` under the dataset cache; there is no
+full-table ``(patient_id, timestamp)`` sort on disk—per-event time order for
+:class:`~pyhealth.data.Patient` comes from ``data_source.sort("timestamp")`` when
+a patient slice is loaded.
+
+**``max_patients``.** When set, the loader selects the first *N* patient ids after
+a **sorted** ``unique`` over the cached table (then filters shards). That caps
+stored patients and speeds downstream iteration for subsets; ingest still scans
+all matching NDJSON once to populate shards unless you also narrow
+``glob_pattern``.
+
+**Downstream memory (still important).** Streaming ingest avoids loading the
+entire NDJSON corpus into RAM at once, but other steps can still be heavy on large
+cohorts: building :class:`~pyhealth.data.Patient` / :class:`~pyhealth.datasets.FHIRPatient`
+from ``fhir/resource_json`` parses JSON per patient; MPF vocabulary warmup and
+:meth:`set_task` walk patients/samples; training needs RAM/VRAM for the model and
+batches. For a **full** PhysioNet tree, plan for **large disk** (Parquet cache),
+**comfortable system RAM** for Polars/PyArrow and task pipelines, and restrict
+``glob_pattern`` or ``max_patients`` when prototyping on a laptop.
 
 **Recommended hardware (informal)**
 
-These are order-of-magnitude guides, not guarantees. Peak RAM is dominated by the
-**parse phase** (all lines from matched ``.ndjson.gz`` / ``.ndjson`` files held in
-memory before ``max_patients`` trims grouped patients). **GPU** (CUDA/MPS) speeds
-**training and inference** once tensors are built but does **not** remove that parse
-cost—plan system RAM from the ingest footprint first.
+Order-of-magnitude guides, not guarantees. Ingest footprint is **much smaller**
+than “load everything into Python”; wall time still grows with **decompressed
+NDJSON volume** and shard/batch settings.
 
-* **Smoke / CI — synthetic**  
-  ``examples/mimic4fhir_mpf_ehrmamba.py --quick-test`` on CPU: ~**600–700 MiB**
-  peak RSS, **~10–15 s** wall for two short epochs (two-patient fixture). Any
-  recent laptop is sufficient.
+* **Smoke / CI**  
+  Small on-disk fixtures (see tests and ``examples/mimic4fhir_mpf_ehrmamba.py``):
+  a recent laptop is sufficient.
 
 * **Laptop-scale real FHIR subset**  
-  A **narrow** ``glob_pattern`` (e.g. Patient + Encounter + Condition
-  ``.ndjson.gz`` only), ``max_patients`` in the hundreds, and multi-epoch training
-  via ``examples/mimic4fhir_mpf_ehrmamba.py`` on **CPU**: expect **several GiB**
-  peak RSS and **many minutes** wall time per run. Treat **≥ 16 GB** system RAM as
-  a practical minimum with OS headroom; **8 GB** is often too tight. Use a
-  **GPU** for longer training (set device / ``CUDA_VISIBLE_DEVICES`` in your
-  runner); **VRAM** must fit model + batch—validate for your ``max_len`` and batch
-  size (small CEHR-style configs often use **8+ GB** GPU memory).
+  A **narrow** ``glob_pattern`` and/or ``max_patients`` in the hundreds keeps
+  cache and task passes manageable. **≥ 16 GB** system RAM is a practical
+  comfort target for Polars + trainer + OS; validate GPU **VRAM** for your
+  ``max_len`` and batch size.
 
-* **Scaling**  
-  Peak RSS and wall time **grow** with **decompressed NDJSON volume** (wider
-  ``glob_pattern`` or more files before ``max_patients``) and with **larger**
-  ``max_len``, vocabulary, batch size, and ``hidden_dim``.
-
-* **Full PhysioNet tree**  
-  Default ``**/*.ndjson.gz`` over the **entire** export is aimed at **workstations
-  or servers** with **very large RAM** (often **64 GB+**) and fast **SSD** I/O, or
-  at workflows that pass a **narrow** ``glob_pattern``. Not recommended on **16 GB**
-  laptops without subsetting.
+* **Full default glob on a complete export**  
+  Favor **workstations or servers** with **fast SSD**, **large disk**, and
+  **ample RAM** for downstream steps—not because NDJSON is fully buffered in
+  memory during ingest, but because total work and caches still scale with the
+  full dataset.
 
 .. autoclass:: pyhealth.datasets.MIMIC4FHIRDataset
     :members:

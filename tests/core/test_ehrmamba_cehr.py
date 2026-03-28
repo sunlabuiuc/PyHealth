@@ -49,34 +49,40 @@ class TestEHRMambaCEHR(unittest.TestCase):
         self.assertFalse(torch.allclose(out[0], wrong[0]))
 
     def test_end_to_end_fhir_pipeline(self) -> None:
-        from pyhealth.datasets import (
-            build_fhir_sample_dataset_from_lines,
-            create_sample_dataset,
-            get_dataloader,
-            synthetic_ndjson_lines_two_class,
-        )
+        import tempfile
+        from pathlib import Path
+
+        from pyhealth.datasets import MIMIC4FHIRDataset, create_sample_dataset
+        from pyhealth.datasets import get_dataloader
+
+        from tests.core.mimic4_fhir_ndjson_fixtures import write_two_class_ndjson
 
         task = MPFClinicalPredictionTask(max_len=32, use_mpf=True)
-        _, _, samples = build_fhir_sample_dataset_from_lines(
-            synthetic_ndjson_lines_two_class(), task
-        )
-        ds = create_sample_dataset(
-            samples=samples,
-            input_schema=task.input_schema,
-            output_schema=task.output_schema,
-            dataset_name="fhir_test",
-        )
-        vocab_size = max(max(s["concept_ids"]) for s in samples) + 1
-        model = EHRMambaCEHR(
-            dataset=ds,
-            vocab_size=vocab_size,
-            embedding_dim=64,
-            num_layers=1,
-        )
-        batch = next(iter(get_dataloader(ds, batch_size=2, shuffle=False)))
-        out = model(**batch)
-        self.assertIn("loss", out)
-        out["loss"].backward()
+        with tempfile.TemporaryDirectory() as tmp:
+            write_two_class_ndjson(Path(tmp))
+            ds = MIMIC4FHIRDataset(
+                root=tmp, glob_pattern="*.ndjson", cache_dir=tmp
+            )
+            samples = ds.gather_samples(task)
+            sample_ds = create_sample_dataset(
+                samples=samples,
+                input_schema=task.input_schema,
+                output_schema=task.output_schema,
+                dataset_name="fhir_test",
+            )
+            vocab_size = max(max(s["concept_ids"]) for s in samples) + 1
+            model = EHRMambaCEHR(
+                dataset=sample_ds,
+                vocab_size=vocab_size,
+                embedding_dim=64,
+                num_layers=1,
+            )
+            batch = next(
+                iter(get_dataloader(sample_ds, batch_size=2, shuffle=False))
+            )
+            out = model(**batch)
+            self.assertIn("loss", out)
+            out["loss"].backward()
 
     def test_forward_backward(self) -> None:
         samples, task = _tiny_samples()

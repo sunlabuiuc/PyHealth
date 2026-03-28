@@ -45,6 +45,7 @@ dependencies = [
   "more-itertools~=10.8.0",
   "einops>=0.8.0",
   "linear-attention-transformer>=0.19.1",
+  "orjson~=3.10",
 ]
 license = "BSD-3-Clause"
 license-files = ["LICENSE.md"]
