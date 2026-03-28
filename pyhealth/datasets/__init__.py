@@ -65,6 +65,7 @@ from .sample_dataset import SampleBuilder, SampleDataset, create_sample_dataset
 from .shhs import SHHSDataset
 from .sleepedf import SleepEDFDataset
 from .bmd_hs import BMDHSDataset
+from .clinical_jargon import ClinicalJargonDataset
 from .support2 import Support2Dataset
 from .tcga_prad import TCGAPRADDataset
 from .splitter import (
