@@ -53,7 +53,7 @@ if __name__ == "__main__":
             )
         
         # Apply multimodal task
-        task = ClinicalNotesICDLabsMIMIC4() 
+        task = ClinicalNotesICDLabsMIMIC4(window_hours=12) 
         samples = dataset.set_task(task)
 
         # Get and print sample

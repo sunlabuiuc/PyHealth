@@ -40,12 +40,8 @@ class BaseMultimodalMIMIC4Task(BaseTask):
     def __init__(
         self,
         window_hours: Optional[float] = None,
-        window_start: Optional[datetime] = None,
-        window_end: Optional[datetime] = None,
     ):
         self.window_hours = window_hours
-        self.window_start = window_start
-        self.window_end = window_end
 
     @staticmethod
     def _clean_text(text: Optional[str]) -> Optional[str]:
@@ -84,11 +80,6 @@ class BaseMultimodalMIMIC4Task(BaseTask):
             dt = self._parse_datetime(getattr(a, "dischtime", None))
             if dt is not None and (global_end is None or dt > global_end):
                 global_end = dt
-
-        if self.window_start is not None or self.window_end is not None:
-            effective_start = self.window_start if self.window_start is not None else global_start
-            effective_end = self.window_end if self.window_end is not None else global_end
-            return effective_start, effective_end
 
         if self.window_hours is not None:
             if global_end is not None:
