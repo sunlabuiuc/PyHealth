@@ -220,6 +220,7 @@ Available Tasks
     Mortality Prediction (StageNet MIMIC-IV) <tasks/pyhealth.tasks.mortality_prediction_stagenet_mimic4>
     Patient Linkage (MIMIC-III) <tasks/pyhealth.tasks.patient_linkage_mimic3_fn>
     Readmission Prediction <tasks/pyhealth.tasks.readmission_prediction>
+    Sleep-Wake Classification <tasks/pyhealth.tasks.sleep_wake_classification>
     Sleep Staging <tasks/pyhealth.tasks.sleep_staging>
     Sleep Staging (SleepEDF) <tasks/pyhealth.tasks.SleepStagingSleepEDF>
     Temple University EEG Tasks <tasks/pyhealth.tasks.temple_university_EEG_tasks>

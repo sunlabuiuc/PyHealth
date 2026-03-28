@@ -1,0 +1,295 @@
+import numpy as np
+import pandas as pd
+
+from pyhealth.tasks.sleep_wake_classification import SleepWakeClassification
+
+
+class FakeEvent:
+    """Creates a minimal DREAMT-like event for task tests.
+
+    Args:
+        file_64hz: Path to the wearable CSV associated with the event.
+    """
+
+    def __init__(self, file_64hz=None):
+        self.file_64hz = file_64hz
+
+
+class FakePatient:
+    """Creates a minimal DREAMT-like patient with configurable events.
+
+    Args:
+        patient_id: Identifier used by the task in generated samples.
+        events: Synthetic sleep events available for the patient.
+    """
+
+    def __init__(self, patient_id: str, events=None):
+        self.patient_id = patient_id
+        self._events = [] if events is None else events
+
+    def get_events(self, event_type=None):
+        """Returns synthetic events for the requested DREAMT event type.
+
+        Args:
+            event_type: Event type requested by the task.
+
+        Returns:
+            The stored sleep events for ``"dreamt_sleep"``, otherwise an empty
+            list.
+        """
+        if event_type == "dreamt_sleep":
+            return self._events
+        return []
+
+
+def _build_valid_record(num_rows: int = 4) -> pd.DataFrame:
+    """Builds a small synthetic wearable record for task tests.
+
+    Args:
+        num_rows: Number of rows to include in the record.
+
+    Returns:
+        A DREAMT-like wearable DataFrame with the required sensor columns.
+    """
+    sleep_stages = ["W", "W", "N2", "N2", "REM", "REM", "W", "W"][:num_rows]
+    return pd.DataFrame(
+        {
+            "TIMESTAMP": list(range(num_rows)),
+            "BVP": np.linspace(0.1, 0.8, num_rows),
+            "EDA": np.linspace(0.01, 0.08, num_rows),
+            "TEMP": np.linspace(36.1, 36.5, num_rows),
+            "ACC_X": np.linspace(1.0, 2.0, num_rows),
+            "ACC_Y": np.linspace(0.5, 1.5, num_rows),
+            "ACC_Z": np.linspace(0.2, 1.2, num_rows),
+            "HR": np.linspace(60, 67, num_rows),
+            "Sleep_Stage": sleep_stages,
+        }
+    )
+
+
+def _build_patient_with_single_event(patient_id: str = "S001") -> FakePatient:
+    """Builds a synthetic patient with one sleep event.
+
+    Args:
+        patient_id: Identifier to assign to the synthetic patient.
+
+    Returns:
+        A synthetic patient with one DREAMT-like sleep event.
+    """
+    return FakePatient(patient_id, events=[FakeEvent("unused.csv")])
+
+
+def test_convert_sleep_stage_to_binary_label():
+    """Tests that raw sleep stages map to the expected binary labels.
+
+    Returns:
+        None.
+    """
+    task = SleepWakeClassification()
+
+    assert task._convert_sleep_stage_to_binary_label("WAKE") == 1
+    assert task._convert_sleep_stage_to_binary_label("W") == 1
+    assert task._convert_sleep_stage_to_binary_label("N2") == 0
+    assert task._convert_sleep_stage_to_binary_label("REM") == 0
+    assert task._convert_sleep_stage_to_binary_label(None) is None
+    assert task._convert_sleep_stage_to_binary_label("UNKNOWN") is None
+
+
+def test_split_signal_into_epochs():
+    """Tests that only complete fixed-length epochs are returned.
+
+    Returns:
+        None.
+    """
+    task = SleepWakeClassification(epoch_seconds=2, sampling_rate=1)
+    signal = np.array([0, 1, 2, 3, 4])
+
+    epochs = task._split_signal_into_epochs(signal, sampling_rate_hz=1)
+
+    assert len(epochs) == 2
+    assert np.array_equal(epochs[0], np.array([0, 1]))
+    assert np.array_equal(epochs[1], np.array([2, 3]))
+
+
+def test_extract_binary_label_for_epoch():
+    """Tests epoch-level label extraction from sleep-stage mode.
+
+    Returns:
+        None.
+    """
+    task = SleepWakeClassification(epoch_seconds=2, sampling_rate=1)
+    record_dataframe = pd.DataFrame({"Sleep_Stage": ["W", "W", "N2", "N2"]})
+
+    assert task._extract_binary_label_for_epoch(record_dataframe, 0, 2) == 1
+    assert task._extract_binary_label_for_epoch(record_dataframe, 1, 2) == 0
+
+
+def test_build_record_epoch_feature_matrix_returns_empty_when_columns_missing():
+    """Tests that missing sensor columns yield an empty feature matrix.
+
+    Returns:
+        None.
+    """
+    task = SleepWakeClassification(epoch_seconds=2, sampling_rate=1)
+    record_dataframe = pd.DataFrame(
+        {
+            "ACC_X": [1, 2, 3, 4],
+            "ACC_Y": [1, 2, 3, 4],
+            "ACC_Z": [1, 2, 3, 4],
+            "TEMP": [36, 36, 36, 36],
+            "Sleep_Stage": ["W", "W", "N2", "N2"],
+        }
+    )
+
+    assert task._build_record_epoch_feature_matrix(record_dataframe) == []
+
+
+def test_load_wearable_record_dataframe_returns_none_for_missing_file():
+    """Tests that missing wearable files return ``None``.
+
+    Returns:
+        None.
+    """
+    task = SleepWakeClassification()
+
+    assert (
+        task._load_wearable_record_dataframe(FakeEvent(file_64hz="missing.csv")) is None
+    )
+    assert task._load_wearable_record_dataframe(FakeEvent(file_64hz=None)) is None
+
+
+def test_task_returns_empty_when_patient_has_no_sleep_events():
+    """Tests that a patient without sleep events produces no samples.
+
+    Returns:
+        None.
+    """
+    task = SleepWakeClassification(epoch_seconds=2, sampling_rate=1)
+    patient = FakePatient("S001", events=[])
+
+    assert task(patient) == []
+
+
+def test_task_returns_empty_when_sleep_stage_column_is_missing(monkeypatch):
+    """Tests that records missing ``Sleep_Stage`` are skipped.
+
+    Args:
+        monkeypatch: Pytest fixture used to replace file loading with a
+            synthetic DataFrame.
+
+    Returns:
+        None.
+    """
+    task = SleepWakeClassification(epoch_seconds=2, sampling_rate=1)
+    record_dataframe = _build_valid_record().drop(columns=["Sleep_Stage"])
+    patient = _build_patient_with_single_event()
+
+    monkeypatch.setattr(
+        task,
+        "_load_wearable_record_dataframe",
+        lambda event: record_dataframe,
+    )
+    assert task(patient) == []
+
+
+def test_task_skips_epochs_with_unsupported_labels(monkeypatch):
+    """Tests that epochs with unsupported labels are not emitted.
+
+    Args:
+        monkeypatch: Pytest fixture used to replace record loading and feature
+            extraction with synthetic values.
+
+    Returns:
+        None.
+    """
+    task = SleepWakeClassification(epoch_seconds=2, sampling_rate=1)
+    record_dataframe = _build_valid_record(num_rows=4)
+    record_dataframe["Sleep_Stage"] = ["X", "X", "N2", "N2"]
+    patient = _build_patient_with_single_event()
+
+    monkeypatch.setattr(
+        task,
+        "_load_wearable_record_dataframe",
+        lambda event: record_dataframe,
+    )
+    monkeypatch.setattr(
+        task,
+        "_build_record_epoch_feature_matrix",
+        lambda df: [[1.0, 2.0], [3.0, 4.0]],
+    )
+
+    samples = task(patient)
+
+    assert len(samples) == 1
+    assert samples[0]["epoch_index"] == 1
+    assert samples[0]["label"] == 0
+
+
+def test_task_runs_full_flow_with_lightweight_feature_stub(monkeypatch):
+    """Tests end-to-end sample generation with lightweight mocked features.
+
+    Args:
+        monkeypatch: Pytest fixture used to replace record loading and avoid
+            expensive feature extraction.
+
+    Returns:
+        None.
+    """
+    task = SleepWakeClassification(epoch_seconds=2, sampling_rate=1)
+    record_dataframe = _build_valid_record(num_rows=4)
+    patient = _build_patient_with_single_event()
+
+    monkeypatch.setattr(
+        task,
+        "_load_wearable_record_dataframe",
+        lambda event: record_dataframe,
+    )
+    monkeypatch.setattr(
+        task,
+        "_build_record_epoch_feature_matrix",
+        lambda df: [
+            [1.0, 10.0],
+            [2.0, 20.0],
+        ],
+    )
+
+    samples = task(patient)
+
+    assert len(samples) == 2
+    assert all("features" in sample for sample in samples)
+    assert all("label" in sample for sample in samples)
+    assert all("record_id" in sample for sample in samples)
+    assert samples[0]["record_id"] == "S001-event0-epoch0"
+    assert samples[0]["label"] == 1
+    assert samples[1]["label"] == 0
+
+
+def test_task_uses_minimum_epoch_count_between_labels_and_features(monkeypatch):
+    """Tests that sample count is bounded by the shorter epoch source.
+
+    Args:
+        monkeypatch: Pytest fixture used to control how many epoch features
+            the task returns during the test.
+
+    Returns:
+        None.
+    """
+    task = SleepWakeClassification(epoch_seconds=2, sampling_rate=1)
+    record_dataframe = _build_valid_record(num_rows=4)
+    patient = _build_patient_with_single_event()
+
+    monkeypatch.setattr(
+        task,
+        "_load_wearable_record_dataframe",
+        lambda _: record_dataframe,
+    )
+    monkeypatch.setattr(
+        task,
+        "_build_record_epoch_feature_matrix",
+        lambda _: [[1.0], [2.0]],
+    )
+
+    samples = task(patient)
+
+    assert len(samples) == 2
+    assert [sample["epoch_index"] for sample in samples] == [0, 1]
