@@ -7,7 +7,7 @@ Author:
 
 import logging
 import os
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import numpy as np
 from scipy.io import loadmat
@@ -36,6 +36,8 @@ class CardiologyMultilabelClassification(BaseTask):
         output_schema (Dict[str, str]): The schema for the task output.
         epoch_sec (float): Window length in seconds. Default 2.5.
         shift (float): Sliding window step in seconds. Default 1.25.
+        leads (Optional[List[int]]): List of indices representing which ECG leads to keep.
+            For example, [0] for Lead I only. Defaults to None (keeps all 12 leads).
 
     Examples:
         >>> from pyhealth.datasets import Cardiology2Dataset
@@ -55,15 +57,19 @@ class CardiologyMultilabelClassification(BaseTask):
         self,
         epoch_sec: float = 2.5,
         shift: float = 1.25,
+        leads: Optional[List[int]] = None,
     ) -> None:
         """Initializes the task.
 
         Args:
             epoch_sec (float): Length of each sliding window in seconds. Default 2.5.
             shift (float): Step size of the sliding window in seconds. Default 1.25.
+            leads (Optional[List[int]]): List of indices representing which ECG leads to keep.
+                For example, [0] for Lead I only. Defaults to None (keeps all 12 leads).
         """
         self.epoch_sec = epoch_sec
         self.shift = shift
+        self.leads = leads if leads is not None else list(range(12)) # Default to all 12 leads
 
     def __call__(self, patient: Patient) -> List[Dict]:
         """Generates multi-label classification samples for a single patient.
@@ -97,6 +103,9 @@ class CardiologyMultilabelClassification(BaseTask):
         epoch_samples = int(fs * self.epoch_sec)
         shift_samples = int(fs * self.shift)
 
+        # Convert leads to a numpy array for robust advanced indexing
+        lead_indices = np.array(self.leads, dtype=int)
+
         for event in events:
             signal_path = event["signal_path"]
             dx_raw = event["dx"]
@@ -118,7 +127,8 @@ class CardiologyMultilabelClassification(BaseTask):
             n_windows = (X.shape[1] - epoch_samples) // shift_samples + 1
 
             for i in range(n_windows):
-                epoch = X[:, shift_samples * i : shift_samples * i + epoch_samples]
+                # Apply the spatial ablation (lead slicing)
+                epoch = X[lead_indices, shift_samples * i : shift_samples * i + epoch_samples]
 
                 samples.append(
                     {
