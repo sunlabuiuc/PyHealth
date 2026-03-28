@@ -162,7 +162,15 @@ class HourlyLOSEICU(BaseTask):
             raise ValueError("No time-series features defined.")
 
         if len(set(normalized_names)) != len(normalized_names):
-            raise ValueError("Duplicate feature names detected.")
+            #Remove duplicates while preserving order
+            seen = set()
+            deduped = []
+            for n in normalized_names:
+                if n not in seen:
+                    seen.add(n)
+                    deduped.append(n)
+
+            normalized_names = deduped
 
         # Optional: enforce deterministic ordering (future-proofing)
         normalized_names = list(normalized_names)
@@ -330,6 +338,16 @@ class HourlyLOSEICU(BaseTask):
         if not normalized_names:
             return samples
 
+        # --- Add derived features (paper alignment) ---
+        extra_features = ["time in the icu", "time of day"]
+
+        for f in extra_features:
+            if f not in normalized_names:
+                normalized_names.append(f)
+
+        # rebuild feature index after extension
+        feature_index = {name: i for i, name in enumerate(normalized_names)}
+
         # 🔍 DEBUG — track observed features in this patient
         observed_features = set()
 
@@ -341,24 +359,95 @@ class HourlyLOSEICU(BaseTask):
             except Exception:
                 events = []
 
+            schema = self._get_eicu_table_schema(table)
+            if schema is None:
+                continue
+
+            name_key, value_key, offset_key = schema
+
             for e in events:
                 attr = e.attr_dict
 
-                name = self._norm_name(attr.get("labname"))
+                # column-style tables: vitalperiodic / vitalaperiodic
+                if name_key is None and value_key is None:
+                    minutes = self._safe_float(attr.get(offset_key))
+                    if minutes is None:
+                        continue
+
+                    offset_hours = minutes / 60.0
+                    hr = int(offset_hours)
+
+                    for raw_name, raw_val in attr.items():
+                        norm_name = self._norm_name(raw_name)
+                        if norm_name not in feature_index:
+                            continue
+
+                        value = self._safe_float(raw_val)
+                        if value is None:
+                            continue
+
+                        observed_features.add(norm_name)
+                        fi = feature_index[norm_name]
+                        observations.append((hr, fi, value, offset_hours))
+
+                    # derived: time in ICU
+                    ti_idx = feature_index.get("time in the icu")
+                    if ti_idx is not None:
+                        observations.append((hr, ti_idx, offset_hours, offset_hours))
+
+                    # derived: time of day
+                    time_of_day = None
+                    admit_time_str = anchor_attr.get("hospitaladmittime24")
+                    if admit_time_str:
+                        try:
+                            h, m, s = map(int, admit_time_str.split(":"))
+                            base_hour = h + m / 60.0 + s / 3600.0
+                            time_of_day = (base_hour + offset_hours) % 24
+                        except Exception:
+                            pass
+
+                    tod_idx = feature_index.get("time of day")
+                    if tod_idx is not None and time_of_day is not None:
+                        observations.append((hr, tod_idx, time_of_day, offset_hours))
+
+                    continue
+
+                # row-style tables: lab / respiratorycharting / nursecharting
+                name = self._norm_name(attr.get(name_key))
                 if name not in feature_index:
                     continue
 
-                observed_features.add(name)
-
-                value = self._safe_float(attr.get("labresult"))
-                minutes = self._safe_float(attr.get("labresultoffset"))
+                value = self._safe_float(attr.get(value_key))
+                minutes = self._safe_float(attr.get(offset_key))
                 if value is None or minutes is None:
                     continue
+
+                observed_features.add(name)
 
                 offset_hours = minutes / 60.0
                 hr = int(offset_hours)
                 fi = feature_index[name]
                 observations.append((hr, fi, value, offset_hours))
+
+                # derived: time in ICU
+                ti_idx = feature_index.get("time in the icu")
+                if ti_idx is not None:
+                    observations.append((hr, ti_idx, offset_hours, offset_hours))
+
+                # derived: time of day
+                time_of_day = None
+                admit_time_str = anchor_attr.get("hospitaladmittime24")
+                if admit_time_str:
+                    try:
+                        h, m, s = map(int, admit_time_str.split(":"))
+                        base_hour = h + m / 60.0 + s / 3600.0
+                        time_of_day = (base_hour + offset_hours) % 24
+                    except Exception:
+                        pass
+
+                tod_idx = feature_index.get("time of day")
+                if tod_idx is not None and time_of_day is not None:
+                    observations.append((hr, tod_idx, time_of_day, offset_hours))
 
         visit_id = (
             anchor_attr.get("patientunitstayid")
@@ -384,6 +473,28 @@ class HourlyLOSEICU(BaseTask):
             print(f"[DEBUG] Observed features for patient: {sorted(observed_features)}")
 
         return samples
+
+    def _get_eicu_table_schema(self, table: str):
+        """Returns (name_key, value_key, offset_key) for supported eICU tables."""
+        table = str(table).strip().lower()
+
+        schema = {
+            "lab": ("labname", "labresult", "labresultoffset"),
+            "respiratorycharting": (
+                "respchartvaluelabel",
+                "respchartvalue",
+                "respchartoffset",
+            ),
+            "nursecharting": (
+                "nursingchartcelltypevallabel",
+                "nursingchartvalue",
+                "nursingchartoffset",
+            ),
+            "vitalperiodic": (None, None, "observationoffset"),
+            "vitalaperiodic": (None, None, "observationoffset"),
+        }
+
+        return schema.get(table)
 
     def _build_mimic_samples(self, patient) -> List[Dict[str, Any]]:
         samples = []
@@ -500,14 +611,16 @@ class HourlyLOSEICU(BaseTask):
         try:
             if patient.get_events("patient"):
                 return self._build_eicu_samples(patient)
-        except Exception:
-            pass
+        except Exception as e:
+            print("[DEBUG] eICU task error:", repr(e))
+            raise
 
         # MIMIC-IV path
         try:
             if patient.get_events("icustays"):
                 return self._build_mimic_samples(patient)
-        except Exception:
-            pass
+        except Exception as e:
+            print("[DEBUG] MIMIC task error:", repr(e))
+            raise
 
         return []
