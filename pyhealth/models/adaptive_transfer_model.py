@@ -97,13 +97,13 @@ class ResNetBackbone(nn.Module):
 
         def _block(in_ch, out_ch):
             return nn.Sequential(
-                nn.Conv1d(in_ch, out_ch, kernel_size=8, padding=4),
+                nn.Conv1d(in_ch, out_ch, kernel_size=8, padding='same'),
                 nn.BatchNorm1d(out_ch),
                 nn.ReLU(),
-                nn.Conv1d(out_ch, out_ch, kernel_size=5, padding=2),
+                nn.Conv1d(out_ch, out_ch, kernel_size=5, padding='same'),
                 nn.BatchNorm1d(out_ch),
                 nn.ReLU(),
-                nn.Conv1d(out_ch, out_ch, kernel_size=3, padding=1),
+                nn.Conv1d(out_ch, out_ch, kernel_size=3, padding='same'),
                 nn.BatchNorm1d(out_ch),
             )
 
