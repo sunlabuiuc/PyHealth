@@ -360,7 +360,7 @@ def _main(args: argparse.Namespace) -> None:
     print("STEP 1: Load TUAB + build task dataset (shared across all seeds)")
     print("=" * 80)
     dataset = TUABDataset(root=str(root), subset=args.subset, dev=args.quick_test)
-    sample_dataset = dataset.set_task(EEGAbnormalTUAB())
+    sample_dataset = dataset.set_task(EEGAbnormalTUAB(normalization="95th_percentile"))
     if args.quick_test and len(sample_dataset) > quick_test_max_samples:
         sample_dataset = sample_dataset.subset(range(quick_test_max_samples))
         print(f"Capped to {quick_test_max_samples} samples for quick-test.")
