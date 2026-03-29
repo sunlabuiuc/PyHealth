@@ -319,7 +319,7 @@ def _run(args: argparse.Namespace) -> None:
     print("STEP 1: Load TUEV + build task dataset")
     print("=" * 80)
     dataset = TUEVDataset(root=str(root), subset=args.subset, dev=args.quick_test)
-    sample_dataset = dataset.set_task(EEGEventsTUEV(normalization="95th_percentile"))
+    sample_dataset = dataset.set_task(EEGEventsTUEV(normalization="95th_percentile"), num_workers=16)
     if args.quick_test and len(sample_dataset) > quick_test_max_samples:
         sample_dataset = sample_dataset.subset(range(quick_test_max_samples))
         print(f"Capped to {quick_test_max_samples} samples for quick-test.")
