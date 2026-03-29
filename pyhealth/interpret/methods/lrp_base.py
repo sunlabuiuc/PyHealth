@@ -39,7 +39,10 @@ def stabilize_denominator(
         Stabilized tensor safe for division.
     """
     if rule == "epsilon":
-        return z + epsilon * torch.sign(z)
+        sign = z.sign()
+        # sign(0) == 0 would make the denominator zero; treat zero as positive
+        sign = torch.where(sign == 0, torch.ones_like(sign), sign)
+        return z + epsilon * sign
     elif rule == "z+":
         return torch.clamp(z, min=epsilon)
     return z + epsilon

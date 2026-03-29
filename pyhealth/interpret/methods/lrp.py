@@ -59,6 +59,7 @@ class LayerwiseRelevancePropagation(BaseInterpreter):
 
         self.hooks = []
         self.activations = {}
+        self._residual_blocks = {}  # block_name -> {input, has_downsample}
 
         if use_embeddings:
             assert hasattr(model, "forward_from_embedding"), (
@@ -237,6 +238,8 @@ class LayerwiseRelevancePropagation(BaseInterpreter):
 
     def _register_hooks(self):
         """Register forward hooks to capture activations."""
+        self._residual_blocks = {}
+
         def save_activation(name):
             def hook(module, input, output):
                 in_t = input[0] if isinstance(input, tuple) else input
@@ -255,30 +258,161 @@ class LayerwiseRelevancePropagation(BaseInterpreter):
                 handle = module.register_forward_hook(save_activation(name))
                 self.hooks.append(handle)
 
+        # Hook residual blocks (torchvision ResNet BasicBlock / Bottleneck) so we can
+        # correctly split relevance at the skip-connection addition during backward pass.
+        try:
+            from torchvision.models.resnet import BasicBlock, Bottleneck
+
+            def save_residual_block(block_name):
+                def hook(module, input, output):
+                    x = input[0] if isinstance(input, tuple) else input
+                    self._residual_blocks[block_name] = {
+                        "input": x,
+                        "has_downsample": module.downsample is not None,
+                    }
+                return hook
+
+            for name, module in self.model.named_modules():
+                if isinstance(module, (BasicBlock, Bottleneck)):
+                    handle = module.register_forward_hook(save_residual_block(name))
+                    self.hooks.append(handle)
+        except (ImportError, AttributeError):
+            pass
+
     def _remove_hooks(self):
         for hook in self.hooks:
             hook.remove()
         self.hooks = []
         self.activations = {}
+        self._residual_blocks = {}
 
     # ------------------------------------------------------------------
     # Backward propagation
     # ------------------------------------------------------------------
 
+    def _get_block_for_layer(self, layer_name: str) -> Optional[str]:
+        """Return the residual block prefix if this layer belongs to a tracked block."""
+        for bname in self._residual_blocks:
+            if layer_name.startswith(bname + "."):
+                return bname
+        return None
+
+    def _propagate_through_residual_block(
+        self,
+        block_name: str,
+        block_layer_names_rev: list,
+        r_in: torch.Tensor,
+    ) -> torch.Tensor:
+        """Propagate relevance through a residual block with correct LRP skip-connection split.
+
+        At each residual addition ``out = main_path + identity`` the epsilon rule requires
+        splitting the incoming relevance proportionally:
+            R_main     = (main_path / stabilise(main_path + identity)) * R_in
+            R_identity = (identity  / stabilise(main_path + identity)) * R_in
+
+        R_main is then propagated back through the block's convolutional layers while
+        R_identity bypasses them (or is propagated through the downsample layers when
+        the block includes a projection shortcut).
+        """
+        has_downsample = self._residual_blocks[block_name]["has_downsample"]
+        block_input = self._residual_blocks[block_name]["input"]
+
+        # Partition layers into main path vs. downsample path
+        main_layers = [l for l in block_layer_names_rev if ".downsample." not in l]
+        ds_layers = [l for l in block_layer_names_rev if ".downsample." in l]
+
+        # main_out = output of the last main-path BN (first encountered in reversed order,
+        # e.g. bn2 for BasicBlock, bn3 for Bottleneck)
+        main_out = self.activations[main_layers[0]]["output"] if main_layers else None
+
+        # identity = output of the final downsample BN (projection shortcut) OR raw input
+        if has_downsample and ds_layers:
+            identity = self.activations[ds_layers[0]]["output"]
+        else:
+            identity = block_input
+
+        # LRP-epsilon split at the residual addition
+        if (main_out is not None
+                and identity is not None
+                and main_out.shape == identity.shape
+                and r_in.shape == main_out.shape):
+            total = main_out + identity
+            sign = total.sign()
+            sign = torch.where(sign == 0, torch.ones_like(sign), sign)
+            denom = total + self.epsilon * sign
+            r_for_main = (main_out / denom) * r_in
+            r_for_identity = (identity / denom) * r_in
+        else:
+            r_for_main = r_in
+            r_for_identity = None
+
+        # Propagate r_for_main backward through the main-path layers
+        r_at_input = r_for_main
+        for ln in main_layers:
+            ai = self.activations[ln]
+            if r_at_input.shape != ai["output"].shape:
+                r_at_input = self._match_shapes(r_at_input, ai["output"].shape)
+            r_at_input = self._propagate_through_layer(ai["module"], ai, r_at_input)
+
+        # Propagate r_for_identity through downsample layers (projection shortcut)
+        if has_downsample and ds_layers and r_for_identity is not None:
+            r_ds = r_for_identity
+            for ln in ds_layers:
+                ai = self.activations[ln]
+                if r_ds.shape != ai["output"].shape:
+                    r_ds = self._match_shapes(r_ds, ai["output"].shape)
+                r_ds = self._propagate_through_layer(ai["module"], ai, r_ds)
+            if r_ds.shape == r_at_input.shape:
+                r_at_input = r_at_input + r_ds
+        elif not has_downsample and r_for_identity is not None:
+            # No projection: identity goes directly to block input
+            if r_for_identity.shape == r_at_input.shape:
+                r_at_input = r_at_input + r_for_identity
+
+        return r_at_input
+
     def _propagate_relevance_backward(self, output_relevance, input_embeddings):
-        """Propagate relevance from output back to input embeddings."""
+        """Propagate relevance from output back to input embeddings.
+
+        Iterates layers in reverse-forward order.  When a layer belongs to a
+        tracked residual block (BasicBlock / Bottleneck), all sub-layers of that
+        block are handled by ``_propagate_through_residual_block`` which applies
+        a proper LRP-epsilon split at the skip-connection addition.
+        """
         current_relevance = output_relevance
         layer_names = list(reversed(list(self.activations.keys())))
 
         feature_relevances = {}
         concat_detected = False
+        blocks_handled: set = set()
 
-        for idx, layer_name in enumerate(layer_names):
+        idx = 0
+        while idx < len(layer_names):
+            layer_name = layer_names[idx]
+
+            # ---- Residual block handling ----
+            block_name = self._get_block_for_layer(layer_name)
+            if block_name is not None and block_name not in blocks_handled:
+                # Collect all consecutive layers that belong to this block
+                block_layers = []
+                j = idx
+                while j < len(layer_names) and self._get_block_for_layer(layer_names[j]) == block_name:
+                    block_layers.append(layer_names[j])
+                    j += 1
+
+                current_relevance = self._propagate_through_residual_block(
+                    block_name, block_layers, current_relevance
+                )
+                blocks_handled.add(block_name)
+                idx = j
+                continue
+
+            # ---- Regular layer handling ----
             activation_info = self.activations[layer_name]
             module = activation_info["module"]
             output_tensor = activation_info["output"]
 
-            # Detect concatenation point (PyHealth MLP pattern)
+            # Detect concatenation point (PyHealth MLP multi-feature pattern)
             if (not concat_detected and isinstance(module, nn.Linear)
                     and hasattr(self.model, "feature_keys")
                     and len(self.model.feature_keys) > 1
@@ -308,7 +442,7 @@ class LayerwiseRelevancePropagation(BaseInterpreter):
                 # Process remaining feature-specific layers
                 for fk in self.model.feature_keys:
                     cur = feature_relevances[fk]
-                    for ln in layer_names[idx + 1 :]:
+                    for ln in layer_names[idx + 1:]:
                         if fk not in ln:
                             continue
                         ai = self.activations[ln]
@@ -320,6 +454,8 @@ class LayerwiseRelevancePropagation(BaseInterpreter):
                 return self._split_relevance_to_features(
                     feature_relevances, input_embeddings
                 )
+
+            idx += 1
 
         return self._split_relevance_to_features(
             current_relevance, input_embeddings
@@ -477,7 +613,10 @@ class LayerwiseRelevancePropagation(BaseInterpreter):
 
         z_pos = F.conv2d(x, W_pos, b_pos, **conv_kw)
         z_neg = F.conv2d(x, W_neg, b_neg, **conv_kw)
-        z_total = z_pos + z_neg + self.epsilon * torch.sign(z_pos + z_neg)
+        z_sum = z_pos + z_neg
+        sign = z_sum.sign()
+        sign = torch.where(sign == 0, torch.ones_like(sign), sign)
+        z_total = z_sum + self.epsilon * sign
 
         s = relevance_output / z_total
         out_pad = self._conv_output_padding(module, z_pos.shape, x.shape)

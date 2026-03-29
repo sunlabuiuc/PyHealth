@@ -414,18 +414,40 @@ class SaliencyVisualizer:
         
         return saliency
     
-    def _normalize_saliency(self, saliency: np.ndarray) -> np.ndarray:
-        """Normalize saliency values to [0, 1] range.
-        
+    def _normalize_saliency(self, saliency: np.ndarray, percentile_clip: float = 1.0) -> np.ndarray:
+        """Normalize saliency values to [0, 1] range with optional percentile clipping.
+
+        Percentile clipping removes extreme outliers before normalization so that the
+        color scale spans the meaningful value range rather than being dominated by a
+        few extreme pixels (common with LRP which produces heavy-tailed distributions).
+
+        For signed attributions (e.g. LRP epsilon rule, which can have both positive and
+        negative relevance that nearly cancels), normalization is applied to the absolute
+        values so that high-magnitude pixels — excitatory *and* inhibitory — appear as
+        hotspots rather than averaging to the midpoint of the colormap.
+
         Args:
             saliency: Saliency array
-            
+            percentile_clip: Clip values below this percentile and above (100 -
+                percentile_clip) before normalizing.  Set to 0 for pure min-max.
+
         Returns:
-            Normalized saliency array
+            Normalized saliency array in [0, 1]
         """
+        # If the attribution is meaningfully signed (significant negative values),
+        # work on magnitudes so positive and negative evidence both appear bright.
+        max_abs = np.abs(saliency).max()
+        if max_abs > 1e-8 and saliency.min() < -0.1 * max_abs:
+            saliency = np.abs(saliency)
+
+        if percentile_clip > 0:
+            low = np.percentile(saliency, percentile_clip)
+            high = np.percentile(saliency, 100 - percentile_clip)
+            saliency = np.clip(saliency, low, high)
+
         min_val = saliency.min()
         max_val = saliency.max()
-        
+
         if max_val - min_val > 1e-8:
             return (saliency - min_val) / (max_val - min_val)
         else:
