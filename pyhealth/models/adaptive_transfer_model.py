@@ -315,18 +315,30 @@ class AdaptiveTransferModel(nn.Module):
     ) -> Dict[str, float]:
         """Compute IPD between each source domain and the target domain.
 
+        Supports both PhysicalActivityDataset (has .X attribute) and
+        plain TensorDataset (uses .tensors[0]).
+
         Args:
-            source_datasets (Dict): sensor_id -> PhysicalActivityDataset.
-            target_dataset (PhysicalActivityDataset): Target domain dataset.
+            source_datasets (Dict): sensor_id -> dataset.
+            target_dataset: Target domain dataset.
 
         Returns:
             Dict mapping sensor_id -> IPD score.
         """
-        target_X = target_dataset.X.numpy()   # (N, 9, 125)
+        # Support both PhysicalActivityDataset and TensorDataset
+        target_X = (
+            target_dataset.X.numpy()
+            if hasattr(target_dataset, 'X')
+            else target_dataset.tensors[0].numpy()
+        )
 
         ipd_scores = {}
         for sid, src_ds in source_datasets.items():
-            src_X = src_ds.X.numpy()
+            src_X = (
+                src_ds.X.numpy()
+                if hasattr(src_ds, 'X')
+                else src_ds.tensors[0].numpy()
+            )
             ipd = compute_ipd(
                 src_X, target_X,
                 n_samples=200,
