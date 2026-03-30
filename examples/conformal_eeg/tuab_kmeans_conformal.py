@@ -308,7 +308,7 @@ def _print_multi_seed_summary(
     n_runs = len(all_metrics)
 
     print("\n" + "=" * 80)
-    print("Per-run ClusterLabel results (fixed test set = TUH eval partition)")
+    print(f"Per-run results — alpha={alpha} (ClusterLabel, fixed test set = TUH eval partition)")
     print("=" * 80)
     print(f"  {'Run':<4} {'Seed':<6} {'Accuracy':<10} {'ROC-AUC':<10} {'F1':<8} "
           f"{'Coverage':<10} {'Miscoverage':<12} {'Avg set size':<12}")
@@ -320,7 +320,8 @@ def _print_multi_seed_summary(
               f"{m['miscoverage']:<12.4f} {m['avg_set_size']:<12.2f}")
 
     print("\n" + "=" * 80)
-    print(f"ClusterLabel summary (mean \u00b1 std over {n_runs} runs, fixed test set)")
+    print(f"Summary — alpha={alpha} (mean \u00b1 std over {n_runs} runs, fixed test set)")
+    print("  Method: ClusterLabel")
     print("=" * 80)
     print(f"  Accuracy:              {accs.mean():.4f} \u00b1 {accs.std():.4f}")
     print(f"  ROC-AUC:               {roc_aucs.mean():.4f} \u00b1 {roc_aucs.std():.4f}")

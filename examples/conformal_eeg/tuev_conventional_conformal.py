@@ -283,7 +283,7 @@ def _print_multi_seed_summary(
     n_runs = len(all_metrics)
 
     print("\n" + "=" * 80)
-    print("Per-run LABEL results (fixed test set = TUH eval partition)")
+    print(f"Per-run results — alpha={alpha} (LABEL, fixed test set = TUH eval partition)")
     print("=" * 80)
     print(f"  {'Run':<4} {'Seed':<6} {'Accuracy':<10} {'F1-Wt':<10} "
           f"{'Coverage':<10} {'Miscoverage':<12} {'Avg set size':<12}")
@@ -295,7 +295,8 @@ def _print_multi_seed_summary(
               f"{m['miscoverage']:<12.4f} {m['avg_set_size']:<12.2f}")
 
     print("\n" + "=" * 80)
-    print(f"LABEL summary (mean \u00b1 std over {n_runs} runs, fixed test set)")
+    print(f"Summary — alpha={alpha} (mean \u00b1 std over {n_runs} runs, fixed test set)")
+    print("  Method: LABEL")
     print("=" * 80)
     print(f"  Accuracy:              {accs.mean():.4f} \u00b1 {accs.std():.4f}")
     print(f"  F1 (weighted):         {f1s.mean():.4f} \u00b1 {f1s.std():.4f}")
