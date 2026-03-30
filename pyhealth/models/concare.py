@@ -21,6 +21,7 @@ Description:
 """
 
 import math
+import warnings
 from typing import Callable, Dict, Optional, Tuple
 
 import torch
@@ -30,7 +31,7 @@ from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
 from pyhealth.models.utils import get_last_visit
 
-from pyhealth.processors import SequenceProcessor
+from pyhealth.processors import NestedSequenceProcessor, SequenceProcessor
 
 
 class FinalAttentionQKV(nn.Module):
@@ -301,7 +302,8 @@ class MultiHeadedAttention(nn.Module):
             m = torch.cat((m, y), dim=0)
         m_exp = torch.mean(m, dim=1)
         x = m - m_exp[:, None]
-        cov = 1 / (x.size(1) - 1) * x.mm(x.t())
+        n = max(x.size(1) - 1, 1)
+        cov = (1 / n) * x.mm(x.t())
         return cov
 
     def forward(
@@ -932,12 +934,27 @@ class ConCare(BaseModel):
 
         # ConCare layers for each dynamic feature
         self.concare = nn.ModuleDict()
-        self._proc_types = {}  # feature_key -> 'sequence' | 'other'
+        self._embeddings = nn.ModuleDict()
+        self._proc_types = {}  # feature_key -> 'sequence' | 'nested_sequence' | 'other'
         for feature_key in self.dynamic_feature_keys:
             proc = dataset.input_processors[feature_key]
             if isinstance(proc, SequenceProcessor):
                 input_dim = 1
                 self._proc_types[feature_key] = "sequence"
+            elif isinstance(proc, NestedSequenceProcessor):
+                vocab_size = proc.vocab_size()
+                self._embeddings[feature_key] = nn.Embedding(
+                    vocab_size, 1, padding_idx=0
+                )
+                input_dim = 1
+                self._proc_types[feature_key] = "nested_sequence"
+                warnings.warn(
+                    f"ConCare: feature '{feature_key}' uses nested_sequence "
+                    f"(vocab_size={vocab_size}). Codes will be embedded (dim=1) "
+                    "and sum-pooled per visit for memory efficiency. This reduces "
+                    "per-visit code representations to a single scalar.",
+                    UserWarning,
+                )
             else:
                 input_dim = proc.size()
                 self._proc_types[feature_key] = "other"
@@ -987,6 +1004,13 @@ class ConCare(BaseModel):
                 # (batch, T) long → (batch, T, 1) float; PAD=0
                 mask = (raw != 0).float().to(self.device)
                 x = raw.float().unsqueeze(-1).to(self.device)
+            elif self._proc_types[feature_key] == "nested_sequence":
+                # raw: (batch, visits, max_codes) long
+                # embed each code to scalar, sum-pool over codes per visit
+                emb = self._embeddings[feature_key](raw.to(self.device))
+                # emb: (batch, visits, max_codes, 1)
+                x = emb.sum(dim=2).float()  # (batch, visits, 1)
+                mask = (raw != 0).any(dim=-1).float().to(self.device)
             else:
                 # (batch, T, F) → mask on time axis (all-zero rows are padding)
                 mask = (raw.sum(-1) != 0).float().to(self.device)
