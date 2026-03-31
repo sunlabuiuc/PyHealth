@@ -82,6 +82,7 @@ from .splitter import (
 )
 from .tuab import TUABDataset
 from .tuev import TUEVDataset
+from .vqarad import VQARADDataset
 from .utils import (
     collate_fn_dict,
     collate_fn_dict_with_padding,
