@@ -111,7 +111,7 @@ class RemovalBasedMetric(ABC):
             self.num_classes = 2
             print("[RemovalBasedMetric] Detected BINARY classifier")
             print("  - Output shape: [batch, 1] with P(class=1)")
-            print("  - Only evaluates positive predictions (>=threshold)")
+            print("  - Evaluates both positive and negative predictions")
         elif mode == "multiclass":
             self.classifier_type = "multiclass"
             # Get num_classes from processor
@@ -365,9 +365,9 @@ class RemovalBasedMetric(ABC):
                 samples have value 0.
 
         Note:
-            For binary classifiers, the valid_mask indicates samples with
-            P(class=1) >= threshold (default 0.5). Use this mask to filter
-            scores during averaging or analysis.
+            For binary classifiers, all samples are evaluated
+            (both positive and negative predictions). Use valid_mask to
+            filter scores during averaging or analysis.
         """
         # Get original predictions (returns 3 values)
         original_probs, pred_classes, original_class_probs = get_model_predictions(
@@ -390,17 +390,12 @@ class RemovalBasedMetric(ABC):
             self._positive_threshold,
         )
 
-        # For binary: determine which samples to evaluate
-        if self.classifier_type == "binary":
-            positive_mask = pred_classes == 1
-            num_positive = positive_mask.sum().item()
-            num_negative = (~positive_mask).sum().item()
-        else:
-            positive_mask = torch.ones(
-                batch_size, dtype=torch.bool, device=original_probs.device
-            )
-            num_positive = batch_size
-            num_negative = 0
+        # All samples are evaluated regardless of classifier type
+        positive_mask = torch.ones(
+            batch_size, dtype=torch.bool, device=original_probs.device
+        )
+        num_positive = batch_size
+        num_negative = 0
 
         # Debug output (if requested and returning per percentage)
         if debug and return_per_percentage:
@@ -410,19 +405,14 @@ class RemovalBasedMetric(ABC):
             print(f"Batch size: {batch_size}")
             print(f"Classifier type: {self.classifier_type}")
 
-            if self.classifier_type == "binary":
-                print(f"Positive class samples: {num_positive}")
-                print(f"Negative class samples: {num_negative}")
-                print("NOTE: Only computing metrics for POSITIVE class")
-
             print(f"Original probs shape: {original_probs.shape}")
             print(f"Predicted classes: {pred_classes.tolist()}")
 
             if self.classifier_type == "binary":
                 print("\nOriginal probabilities P(class=1):")
                 for i, prob in enumerate(original_probs):
-                    status = "EVAL" if positive_mask[i] else "SKIP"
-                    print(f"  Sample {i} [{status}]: {prob.item():.6f}")
+                    cls = pred_classes[i].item()
+                    print(f"  Sample {i} [class={cls}]: {prob.item():.6f}")
             else:
                 print("\nOriginal probabilities (all classes):")
                 for i, probs in enumerate(original_probs):
@@ -431,8 +421,8 @@ class RemovalBasedMetric(ABC):
             print("\nOriginal probs for predicted class:")
             for i, prob in enumerate(original_class_probs):
                 if self.classifier_type == "binary":
-                    status = "EVAL" if positive_mask[i] else "SKIP"
-                    print(f"  Sample {i} [{status}]: {prob.item():.6f}")
+                    cls = pred_classes[i].item()
+                    print(f"  Sample {i} [class={cls}]: {prob.item():.6f}")
                 else:
                     print(f"  Sample {i}: {prob.item():.6f}")
 
@@ -476,8 +466,8 @@ class RemovalBasedMetric(ABC):
                 if self.classifier_type == "binary":
                     print("\nAblated probabilities P(class=1):")
                     for i, prob in enumerate(ablated_probs):
-                        status = "EVAL" if positive_mask[i] else "SKIP"
-                        print(f"  Sample {i} [{status}]: {prob.item():.6f}")
+                        cls = pred_classes[i].item()
+                        print(f"  Sample {i} [class={cls}]: {prob.item():.6f}")
                 else:
                     print("\nAblated probabilities (all classes):")
                     for i, probs in enumerate(ablated_probs):
@@ -485,15 +475,13 @@ class RemovalBasedMetric(ABC):
 
                 print("\nProbability drops (original - ablated):")
                 for i, drop in enumerate(prob_drop):
-                    if drop == 0 and not positive_mask[i]:
-                        print(f"  Sample {i} [SKIP]: " f"0.000000 (negative class)")
-                    else:
-                        orig = original_class_probs[i].item()
-                        abl = ablated_class_probs[i].item()
-                        print(
-                            f"  Sample {i} [EVAL]: {drop.item():.6f} "
-                            f"({orig:.6f} - {abl:.6f})"
-                        )
+                    orig = original_class_probs[i].item()
+                    abl = ablated_class_probs[i].item()
+                    cls = pred_classes[i].item()
+                    print(
+                        f"  Sample {i} [class={cls}]: {drop.item():.6f} "
+                        f"({orig:.6f} - {abl:.6f})"
+                    )
 
                 # Check for unexpected negative values
                 evaluated_drops = prob_drop[positive_mask]
