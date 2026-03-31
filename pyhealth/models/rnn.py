@@ -109,11 +109,16 @@ class RNNLayer(nn.Module):
             )
         else:
             lengths = torch.sum(mask.int(), dim=-1).cpu()
+        # Ensure tensor is contiguous for cuDNN compatibility
+        x = x.contiguous()
         x = rnn_utils.pack_padded_sequence(
-            x, lengths, batch_first=True, enforce_sorted=False
+            x.contiguous(), lengths, batch_first=True, enforce_sorted=False
         )
         outputs, _ = self.rnn(x)
         outputs, _ = rnn_utils.pad_packed_sequence(outputs, batch_first=True)
+        # Ensure outputs are contiguous after unpacking
+        outputs = outputs.contiguous()
+
         if not self.bidirectional:
             last_outputs = outputs[torch.arange(batch_size), (lengths - 1), :]
             return outputs, last_outputs
@@ -122,7 +127,8 @@ class RNNLayer(nn.Module):
             f_last_outputs = outputs[torch.arange(batch_size), (lengths - 1), 0, :]
             b_last_outputs = outputs[:, 0, 1, :]
             last_outputs = torch.cat([f_last_outputs, b_last_outputs], dim=-1)
-            outputs = outputs.view(batch_size, outputs.shape[1], -1)
+            # Ensure view result is contiguous for cuDNN
+            outputs = outputs.view(batch_size, outputs.shape[1], -1).contiguous()
             last_outputs = self.down_projection(last_outputs)
             outputs = self.down_projection(outputs)
             return outputs, last_outputs
@@ -244,13 +250,54 @@ class RNN(BaseModel):
                 - embed (optional): a tensor representing the patient embeddings if requested.
         """
         patient_emb = []
-        embedded = self.embedding_model(kwargs)
+        
+        # We need to preprocess kwargs to extract values and masks for EmbeddingModel
+        # because EmbeddingModel expects dict of tensors
+        inputs = {}
+        masks = {}
+        
+        for feature_key in self.feature_keys:
+            feature = kwargs[feature_key]
+            if isinstance(feature, torch.Tensor):
+                feature = (feature,)
+            
+            schema = self.dataset.input_processors[feature_key].schema()
+            value = feature[schema.index("value")] if "value" in schema else None
+            mask = feature[schema.index("mask")] if "mask" in schema else None
+            
+            if value is None:
+                raise ValueError(f"Feature '{feature_key}' must contain 'value' in the schema.")
+            
+            inputs[feature_key] = value
+            if mask is not None:
+                masks[feature_key] = mask
+
+        embedded = self.embedding_model(inputs, masks=masks)
+        
         for feature_key in self.feature_keys:
             x = embedded[feature_key]
-            # Use abs() before sum to catch edge cases where embeddings sum to 0
-            # @TODO bug with 0 embedding sum can still persist if the embedding is all 0s but the mask is not all 0s. 
-            # despite being valid values (e.g., [1.0, -1.0])
-            mask = (torch.abs(x).sum(dim=-1) != 0).int()
+
+            x_dim_orig = x.dim()
+            if x_dim_orig == 4:
+                # nested_sequence: (B, num_visits, num_codes, D)
+                # @TODO: sum-pooling across codes is a simple baseline. May need to investigate better embeddings for nested codes.
+                x = x.sum(dim=2)  # (B, num_visits, D)
+                if feature_key in masks:
+                    mask = (masks[feature_key].to(self.device).sum(dim=-1) > 0).int()  # (B, V)
+                else:
+                    mask = (torch.abs(x).sum(dim=-1) != 0).int()
+            elif x_dim_orig == 2:
+                x = x.unsqueeze(1)
+                mask = None
+            else:
+                # 3D: already (B, T, D)
+                if feature_key in masks:
+                    mask = masks[feature_key].to(self.device).int()
+                    if mask.dim() == 3:
+                        mask = (mask.sum(dim=-1) > 0).int()
+                else:
+                    mask = (torch.abs(x).sum(dim=-1) != 0).int()
+
             _, x = self.rnn[feature_key](x, mask)
             patient_emb.append(x)
 
@@ -440,13 +487,54 @@ class MultimodalRNN(BaseModel):
                 - logit: a tensor representing the logits.
                 - embed (optional): a tensor representing the patient embeddings if requested.
         """
+        # Preprocess features
+        inputs = {}
+        masks = {}
+        
+        for feature_key in self.feature_keys:
+            feature = kwargs[feature_key]
+            if isinstance(feature, torch.Tensor):
+                feature = (feature,)
+            
+            schema = self.dataset.input_processors[feature_key].schema()
+            value = feature[schema.index("value")] if "value" in schema else None
+            mask = feature[schema.index("mask")] if "mask" in schema else None
+            
+            if value is None:
+                raise ValueError(f"Feature '{feature_key}' must contain 'value' in the schema.")
+            
+            inputs[feature_key] = value
+            if mask is not None:
+                masks[feature_key] = mask
+
         patient_emb = []
-        embedded, mask = self.embedding_model(kwargs, output_mask=True)
+        embedded, mask = self.embedding_model(inputs, masks=masks, output_mask=True)
 
         # Process sequential features through RNN
         for feature_key in self.sequential_features:
             x = embedded[feature_key]
             m = mask[feature_key]
+
+            x_dim_orig = x.dim()
+            if x_dim_orig == 4:
+                # nested_sequence: (B, num_visits, num_codes, D)
+                # Pool codes within each visit, then run RNN over visits.
+                # Flattening visits*codes would produce length=0 when inner lists are empty.
+                x = x.sum(dim=2)  # (B, num_visits, D)
+                if feature_key in masks:
+                    m = (masks[feature_key].to(self.device).sum(dim=-1) > 0).int()  # (B, V)
+                else:
+                    m = (torch.abs(x).sum(dim=-1) != 0).int()
+            elif x_dim_orig == 2:
+                x = x.unsqueeze(1)
+                m = None
+            else:
+                # 3D: already (B, T, D)
+                if m is not None and m.dim() == 3:
+                    m = (m.sum(dim=-1) > 0).int()
+                elif m is not None and m.dim() == 1:
+                    m = m.unsqueeze(1)
+
             _, last_hidden = self.rnn[feature_key](x, m)
             patient_emb.append(last_hidden)
 

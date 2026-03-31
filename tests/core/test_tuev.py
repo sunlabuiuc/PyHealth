@@ -23,7 +23,11 @@ class _DummyPatient:
 		self.patient_id = patient_id
 		self._events = events
 
-	def get_events(self) -> List[_DummyEvent]:
+	def get_events(self, event_type=None) -> List[_DummyEvent]:
+		# Treat all dummy events as belonging to the train split so each event
+		# is processed exactly once (eval returns empty).
+		if event_type == "eval":
+			return []
 		return self._events
 
 
@@ -178,6 +182,17 @@ class TestEEGEventsTUEV(unittest.TestCase):
         self.assertEqual(samples[0]["label"], 0)
         self.assertEqual(samples[1]["offending_channel"], 7)
         self.assertEqual(samples[1]["label"], 5)
+
+
+    def test_task_schema_attributes(self):
+        task = EEGEventsTUEV()
+        self.assertEqual(task.task_name, "EEG_events")
+        self.assertEqual(task.input_schema, {"signal": "tensor", "stft": "tensor"})
+        self.assertEqual(task.output_schema, {"label": "multiclass"})
+
+    def test_task_schema_no_stft(self):
+        task = EEGEventsTUEV(compute_stft=False)
+        self.assertEqual(task.input_schema, {"signal": "tensor"})
 
 
 if __name__ == "__main__":

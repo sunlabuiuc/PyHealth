@@ -160,7 +160,6 @@ if __name__ == "__main__":
     # - This ensures consistent encoding and saves computation time
     # - Processors include vocabulary mappings and sequence length statistics
     processor_dir = "../../output/processors/stagenet_mortality_mimic4"
-    cache_dir = "../../mimic4_stagenet_cache_v3"
 
     if os.path.exists(os.path.join(processor_dir, "input_processors.pkl")):
         print("\n=== Loading Pre-fitted Processors ===")
@@ -169,7 +168,6 @@ if __name__ == "__main__":
         sample_dataset = base_dataset.set_task(
             MortalityPredictionStageNetMIMIC4(padding=20),
             num_workers=4,
-            cache_dir=cache_dir,
             input_processors=input_processors,
             output_processors=output_processors,
         )
@@ -178,7 +176,6 @@ if __name__ == "__main__":
         sample_dataset = base_dataset.set_task(
             MortalityPredictionStageNetMIMIC4(padding=20),
             num_workers=4,
-            cache_dir=cache_dir,
         )
 
         # Save processors for future runs

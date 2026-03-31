@@ -11,6 +11,12 @@ about advancing computational healthcare, regardless of their career stage or in
 participants work on innovative projects that advance the field of computational healthcare, contributing 
 to publications, open-source software, and the broader healthcare AI community.
 
+Our goals are to build:
+
+1. **Easily accessible and reproducible research** — Making healthcare AI research transparent and replicable
+2. **Solutions to real-world healthcare problems** — Tackling important clinical challenges with practical impact
+3. **Connections with healthcare professionals** — Bridging the gap between AI researchers and clinical practitioners
+
 The initiative provides participants with hands-on experience in:
 
 - **Healthcare AI Research**: Working on real-world healthcare problems using electronic health records (EHRs) and clinical data
@@ -18,6 +24,46 @@ The initiative provides participants with hands-on experience in:
 - **Open-Source Contribution**: Contributing to the PyHealth library and ecosystem
 - **Academic Publishing**: Co-authoring research papers and presenting findings
 - **Collaborative Research**: Working alongside researchers and industry partners
+
+Program Logistics
+-----------------
+
+**Format**: Remote
+
+**Time Commitment**: 10–20 hours per week during active research cycles
+
+**Eligibility**: Open to anyone! We welcome people from all backgrounds—students, engineers, researchers,
+and healthcare professionals. We don't care about your title or institution. We only ask that you have the
+ability to write decent-quality code and are self-driven to work hard on healthcare problems.
+See `How to Apply`_ to get started.
+
+**Open Projects**: Browse available research projects and find one that matches your interests:
+`Open Projects List <https://docs.google.com/spreadsheets/d/1DLDpjBi40esOqaDWUvHTvCEEEoixyORTDisemIOkMBo/edit?usp=sharing>`_
+
+The program runs on a rolling, year-round basis with recurring terms aligned to major healthcare AI
+conference cycles. Each term culminates in a submission to a top-tier venue.
+
+.. list-table:: Upcoming Research Terms
+   :widths: 20 25 30 25
+   :header-rows: 1
+   :class: research-table
+
+   * - Term
+     - Period
+     - Target Conference
+     - Est. Submission Deadline
+   * - Summer Term
+     - Apr – Aug 2026
+     - `ML4H 2026 <https://ml4h.cc>`_
+     - ~Sep 2026
+   * - Fall Term
+     - Sep – Dec 2026
+     - `CHIL 2027 <https://chilconference.org>`_
+     - ~Feb 2027
+   * - Spring Term
+     - Jan – Apr 2027
+     - `MLHC 2027 <https://www.mlforhc.org>`_
+     - ~May 2027
 
 Research Contributions
 ----------------------
@@ -36,6 +82,11 @@ drug recommendation, and healthcare AI infrastructure.
      - Paper Title
      - Venue
      - Links
+   * - 2026
+     - Arjun Chatterjee, Sayeed Sajjad Razin
+     - Making Conformal Predictors Robust in Healthcare Settings: a Case Study on EEG Classification
+     - Under Review at AIME
+     - `Paper <https://arxiv.org/abs/2602.19483>`_
    * - 2025
      - Zilal Eiz Al Din
      - MIMIC-RD: Can LLMs differentially diagnose rare diseases in real-world clinical settings?
@@ -55,19 +106,9 @@ drug recommendation, and healthcare AI infrastructure.
 .. note::
    
    This table is continuously updated as new research is published. 
-
-Program Information
--------------------
-
-**Duration**: Ongoing
-
-**Format**: Remote
-
-**Application**: Open to anyone! Applications are evaluated based on contributions to PyHealth. To apply, submit a high-quality 
-pull request (PR) to the `PyHealth repository <https://github.com/sunlabuiuc/PyHealth>`_. Strong PRs that 
-demonstrate understanding of the codebase, good software engineering practices, and meaningful contributions 
-will be considered for the program. The program welcomes individuals from all backgrounds and career stages. 
-Check the GitHub repository for open issues and contribution opportunities.
+   
+   **Latest from ML4H 2025**: Our first cohort successfully published three papers at ML4H, covering rare diseases, 
+   social determinants of health, and prostate cancer genomics—all at the forefront of healthcare and AI research!
 
 Research Areas
 --------------
@@ -98,15 +139,44 @@ Real-World Applications
 - Healthcare resource optimization
 - Personalized treatment recommendations
 
-Getting Involved
+How to Apply
+------------
+
+Interested in participating in the PyHealth Research Initiative? Here's the three-step application process:
+
+**Step 1: Join the PyHealth Discord**
+
+Join our `Discord server <https://discord.gg/mpb835EHaX>`_ — This is where all official announcements and 
+communication happen. It's the best way to connect with the team, ask questions, and stay updated.
+
+**Step 2: Submit an Application Form**
+
+Especially important for those interested in industry collaborations: 
+`Application Form <https://docs.google.com/forms/d/e/1FAIpQLSc96iNxjnQPaCWc8ml8eEsxFgZlIQI6XxkNslM9A8G9LILe_Q/viewform?usp=publish-editor>`_
+
+**Step 3: Submit a High-Quality Pull Request to PyHealth**
+
+Applications are evaluated based on your contributions to PyHealth. Submit a high-quality pull request (PR) to the 
+`PyHealth repository <https://github.com/sunlabuiuc/PyHealth>`_. Strong PRs that demonstrate understanding of the codebase, 
+good software engineering practices, and meaningful contributions will be considered for the program.
+
+Need ideas for contributions?
+
+- **Bounty List**: Check our curated list of contribution opportunities: `Bounty List <https://docs.google.com/spreadsheets/d/1ruzKu-sTUnGZ3i9JPXzvjVCvxRFn6QJv2YLtVdXsmuE/edit?usp=sharing>`_
+- **Contribution Guide**: Learn how to contribute: :doc:`how_to_contribute`
+- **GitHub Issues**: Browse open issues in the repository for contribution ideas
+
+What You'll Gain
 ----------------
 
-Interested in participating in the PyHealth Research Initiative? Here's how to get involved:
+By participating in the PyHealth Research Initiative, you'll gain:
 
-1. **Join Discord**: Join our `Discord server <https://discord.gg/mpb835EHaX>`_ - the best way to connect with the team and community
-2. **Stay Updated**: Watch the `PyHealth repository <https://github.com/sunlabuiuc/PyHealth>`_ for announcements
-3. **Participate**: Contribute to PyHealth discussions and the codebase
-4. **Prepare**: Familiarize yourself with the PyHealth library and explore the documentation
+1. **Publication**: A peer-reviewed paper published at a respectable venue, establishing you as a credible researcher in the field
+2. **Hands-on Experience**: Direct experience working on real-world healthcare AI problems
+3. **Open-Source Impact**: Code merged into PyHealth that can be leveraged for other career goals
+4. **Mentorship**: Direct mentorship from experts across a wide variety of healthcare disciplines
+5. **Collaborations**: Potential industry and academic collaborations
+6. **Challenging Problems**: Work on interesting and impactful healthcare challenges
 
 Past Participants
 -----------------
@@ -122,18 +192,20 @@ around the world, including:
 Participants and alumni of the program have gone on to pursue graduate studies, research positions, and careers in 
 healthcare AI at leading institutions and companies.
 
-Contact
--------
+Stay Connected
+--------------
 
 For more information about the PyHealth Research Initiative:
 
-**Best way to reach us:** Join our `Discord server <https://discord.gg/mpb835EHaX>`_ for the fastest response and community support!
+**Best way to reach us:** Join our `Discord server <https://discord.gg/mpb835EHaX>`_ — Join the community, ask questions, 
+share what you're working on, and get the fastest response from the team!
 
 Additional resources:
 
-- GitHub: https://github.com/sunlabuiuc/PyHealth
-- Documentation: https://pyhealth.readthedocs.io
-- Email: johnwu3@illinois.edu
+- **GitHub**: `https://github.com/sunlabuiuc/PyHealth <https://github.com/sunlabuiuc/PyHealth>`_ — Star the repo, open issues, submit PRs
+- **Documentation**: https://pyhealth.readthedocs.io
+- **Mailing List**: `Subscribe here <https://docs.google.com/forms/d/e/1FAIpQLSfpJB5tdkI7BccTCReoszV9cyyX2rF99SgznzwlOepi5v-xLw/viewform?usp=header>`_ — Get updates delivered to your inbox
+- **Email**: johnwu3@illinois.edu
 
 Acknowledgments
 ---------------

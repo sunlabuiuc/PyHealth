@@ -26,7 +26,6 @@ from pyhealth.interpret.utils import visualize_image_attr
 DATA_ROOT = "/home/johnwu3/projects/PyHealth_Branch_Testing/datasets"
 ROOT = f"{DATA_ROOT}/COVID-19_Radiography_Dataset"
 CACHE = "/home/johnwu3/projects/covid19cxr_base_cache"
-TASK_CACHE = "/home/johnwu3/projects/covid19cxr_task_cache"
 CKPT = "/home/johnwu3/projects/covid19cxr_vit_model.ckpt"
 SEED = 42
 
@@ -41,7 +40,7 @@ if __name__ == "__main__":
 
     # Load dataset and create train/val/calibration/test splits
     dataset = COVID19CXRDataset(ROOT, cache_dir=CACHE, num_workers=8)
-    sample_dataset = dataset.set_task(cache_dir=TASK_CACHE, num_workers=8)
+    sample_dataset = dataset.set_task(num_workers=8)
     train_data, val_data, cal_data, test_data = split_by_sample_conformal(
         sample_dataset, ratios=[0.6, 0.1, 0.15, 0.15]
     )

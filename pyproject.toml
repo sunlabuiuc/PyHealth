@@ -15,7 +15,7 @@ authors = [
   {name = "Zhen Lin"},
   {name = "Benjamin Danek"},
   {name = "Junyi Gao"},
-  {name = "Paul Landes", email = "landes@mailc.net"},
+  {name = "Paul Landes", email = "plande2@uic.edu"},
   {name = "Jimeng Sun"},
 ]
 description = "A Python library for healthcare AI"
@@ -57,6 +57,16 @@ keywords = [
   "data mining",
   "neural networks",
   "deep learning",
+]
+
+[project.optional-dependencies]
+graph = [
+  "torch-geometric>=2.6.0",
+]
+nlp = [
+  "editdistance~=0.8.1",
+  "rouge_score~=0.1.2",
+  "nltk~=3.9.1",
 ]
 
 [project.urls]

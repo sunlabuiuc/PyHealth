@@ -98,7 +98,7 @@ def print_top_attributions(
     """Print top-k most important features from SHAP attributions."""
     if icd_code_to_desc is None:
         icd_code_to_desc = {}
-        
+
     for feature_key, attr in attributions.items():
         attr_cpu = attr.detach().cpu()
         if attr_cpu.dim() == 0 or attr_cpu.size(0) == 0:
@@ -117,7 +117,7 @@ def print_top_attributions(
         print(f"  Shape: {attr_cpu[0].shape}")
         print(f"  Total attribution sum: {flattened.sum().item():+.6f}")
         print(f"  Mean attribution: {flattened.mean().item():+.6f}")
-        
+
         k = min(top_k, flattened.numel())
         top_values, top_indices = torch.topk(flattened.abs(), k=k)
         processor = processors.get(feature_key) if processors else None
@@ -169,7 +169,6 @@ def main():
 
     sample_dataset = dataset.set_task(
         MortalityPredictionStageNetMIMIC4(),
-        cache_dir="~/.cache/pyhealth/mimic4_stagenet_mortality",
         input_processors=input_processors,
         output_processors=output_processors,
     )
@@ -222,7 +221,7 @@ def main():
         probs = output["y_prob"]
         label_key = model.label_key
         true_label = sample_batch_device[label_key]
-        
+
         # Handle binary classification (single probability output)
         if probs.shape[-1] == 1:
             prob_death = probs[0].item()

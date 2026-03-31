@@ -24,7 +24,11 @@ class _DummyPatient:
         self.patient_id = patient_id
         self._events = events
 
-    def get_events(self) -> List[_DummyEvent]:
+    def get_events(self, event_type=None) -> List[_DummyEvent]:
+        # Treat all dummy events as belonging to the train split so each event
+        # is processed exactly once (eval returns empty).
+        if event_type == "eval":
+            return []
         return self._events
 
 
@@ -85,7 +89,9 @@ class TestTUABDataset(unittest.TestCase):
             self.assertEqual(normal_row.iloc[0]["record_id"], "s004_t000")
             self.assertEqual(normal_row.iloc[0]["label"], "normal")
             self.assertTrue(
-                str(normal_row.iloc[0]["signal_file"]).endswith("aaaaaaav_s004_t000.edf")
+                str(normal_row.iloc[0]["signal_file"]).endswith(
+                    "aaaaaaav_s004_t000.edf"
+                )
             )
 
             # Verify an abnormal train entry
@@ -224,10 +230,22 @@ class TestEEGAbnormalTUAB(unittest.TestCase):
     def test_convert_to_bipolar_middle_channels(self):
         """Spot-check a middle channel (channel 9: F3 - C3)."""
         ch_names = [
-            "EEG FP1-REF", "EEG F7-REF", "EEG T3-REF", "EEG T5-REF",
-            "EEG O1-REF", "EEG FP2-REF", "EEG F8-REF", "EEG T4-REF",
-            "EEG T6-REF", "EEG O2-REF", "EEG F3-REF", "EEG C3-REF",
-            "EEG P3-REF", "EEG F4-REF", "EEG C4-REF", "EEG P4-REF",
+            "EEG FP1-REF",
+            "EEG F7-REF",
+            "EEG T3-REF",
+            "EEG T5-REF",
+            "EEG O1-REF",
+            "EEG FP2-REF",
+            "EEG F8-REF",
+            "EEG T4-REF",
+            "EEG T6-REF",
+            "EEG O2-REF",
+            "EEG F3-REF",
+            "EEG C3-REF",
+            "EEG P3-REF",
+            "EEG F4-REF",
+            "EEG C4-REF",
+            "EEG P4-REF",
         ]
 
         n = 100
@@ -246,10 +264,22 @@ class TestEEGAbnormalTUAB(unittest.TestCase):
         # 25 seconds of data => 2 full 10-second windows (last 5s discarded)
         n_samples = fs * 25
         ch_names = [
-            "EEG FP1-REF", "EEG F7-REF", "EEG T3-REF", "EEG T5-REF",
-            "EEG O1-REF", "EEG FP2-REF", "EEG F8-REF", "EEG T4-REF",
-            "EEG T6-REF", "EEG O2-REF", "EEG F3-REF", "EEG C3-REF",
-            "EEG P3-REF", "EEG F4-REF", "EEG C4-REF", "EEG P4-REF",
+            "EEG FP1-REF",
+            "EEG F7-REF",
+            "EEG T3-REF",
+            "EEG T5-REF",
+            "EEG O1-REF",
+            "EEG FP2-REF",
+            "EEG F8-REF",
+            "EEG T4-REF",
+            "EEG T6-REF",
+            "EEG O2-REF",
+            "EEG F3-REF",
+            "EEG C3-REF",
+            "EEG P3-REF",
+            "EEG F4-REF",
+            "EEG C4-REF",
+            "EEG P4-REF",
         ]
         raw_data = np.random.randn(len(ch_names), n_samples)
 
@@ -281,10 +311,22 @@ class TestEEGAbnormalTUAB(unittest.TestCase):
         fs = 200
         n_samples = fs * 10  # exactly one window
         ch_names = [
-            "EEG FP1-REF", "EEG F7-REF", "EEG T3-REF", "EEG T5-REF",
-            "EEG O1-REF", "EEG FP2-REF", "EEG F8-REF", "EEG T4-REF",
-            "EEG T6-REF", "EEG O2-REF", "EEG F3-REF", "EEG C3-REF",
-            "EEG P3-REF", "EEG F4-REF", "EEG C4-REF", "EEG P4-REF",
+            "EEG FP1-REF",
+            "EEG F7-REF",
+            "EEG T3-REF",
+            "EEG T5-REF",
+            "EEG O1-REF",
+            "EEG FP2-REF",
+            "EEG F8-REF",
+            "EEG T4-REF",
+            "EEG T6-REF",
+            "EEG O2-REF",
+            "EEG F3-REF",
+            "EEG C3-REF",
+            "EEG P3-REF",
+            "EEG F4-REF",
+            "EEG C4-REF",
+            "EEG P4-REF",
         ]
         raw_data = np.random.randn(len(ch_names), n_samples)
 
@@ -310,10 +352,22 @@ class TestEEGAbnormalTUAB(unittest.TestCase):
         fs = 200
         n_samples = fs * 10
         ch_names = [
-            "EEG FP1-REF", "EEG F7-REF", "EEG T3-REF", "EEG T5-REF",
-            "EEG O1-REF", "EEG FP2-REF", "EEG F8-REF", "EEG T4-REF",
-            "EEG T6-REF", "EEG O2-REF", "EEG F3-REF", "EEG C3-REF",
-            "EEG P3-REF", "EEG F4-REF", "EEG C4-REF", "EEG P4-REF",
+            "EEG FP1-REF",
+            "EEG F7-REF",
+            "EEG T3-REF",
+            "EEG T5-REF",
+            "EEG O1-REF",
+            "EEG FP2-REF",
+            "EEG F8-REF",
+            "EEG T4-REF",
+            "EEG T6-REF",
+            "EEG O2-REF",
+            "EEG F3-REF",
+            "EEG C3-REF",
+            "EEG P3-REF",
+            "EEG F4-REF",
+            "EEG C4-REF",
+            "EEG P4-REF",
         ]
         raw_data = np.random.randn(len(ch_names), n_samples)
 
@@ -339,10 +393,22 @@ class TestEEGAbnormalTUAB(unittest.TestCase):
         fs = 200
         n_samples = fs * 5  # only 5 seconds
         ch_names = [
-            "EEG FP1-REF", "EEG F7-REF", "EEG T3-REF", "EEG T5-REF",
-            "EEG O1-REF", "EEG FP2-REF", "EEG F8-REF", "EEG T4-REF",
-            "EEG T6-REF", "EEG O2-REF", "EEG F3-REF", "EEG C3-REF",
-            "EEG P3-REF", "EEG F4-REF", "EEG C4-REF", "EEG P4-REF",
+            "EEG FP1-REF",
+            "EEG F7-REF",
+            "EEG T3-REF",
+            "EEG T5-REF",
+            "EEG O1-REF",
+            "EEG FP2-REF",
+            "EEG F8-REF",
+            "EEG T4-REF",
+            "EEG T6-REF",
+            "EEG O2-REF",
+            "EEG F3-REF",
+            "EEG C3-REF",
+            "EEG P3-REF",
+            "EEG F4-REF",
+            "EEG C4-REF",
+            "EEG P4-REF",
         ]
         raw_data = np.random.randn(len(ch_names), n_samples)
 
@@ -367,10 +433,22 @@ class TestEEGAbnormalTUAB(unittest.TestCase):
         fs = 200
         n_samples = fs * 20  # 2 windows each
         ch_names = [
-            "EEG FP1-REF", "EEG F7-REF", "EEG T3-REF", "EEG T5-REF",
-            "EEG O1-REF", "EEG FP2-REF", "EEG F8-REF", "EEG T4-REF",
-            "EEG T6-REF", "EEG O2-REF", "EEG F3-REF", "EEG C3-REF",
-            "EEG P3-REF", "EEG F4-REF", "EEG C4-REF", "EEG P4-REF",
+            "EEG FP1-REF",
+            "EEG F7-REF",
+            "EEG T3-REF",
+            "EEG T5-REF",
+            "EEG O1-REF",
+            "EEG FP2-REF",
+            "EEG F8-REF",
+            "EEG T4-REF",
+            "EEG T6-REF",
+            "EEG O2-REF",
+            "EEG F3-REF",
+            "EEG C3-REF",
+            "EEG P3-REF",
+            "EEG F4-REF",
+            "EEG C4-REF",
+            "EEG P4-REF",
         ]
         raw_data = np.random.randn(len(ch_names), n_samples)
 
@@ -405,10 +483,22 @@ class TestEEGAbnormalTUAB(unittest.TestCase):
         fs = 200
         n_samples = fs * 30  # 3 windows
         ch_names = [
-            "EEG FP1-REF", "EEG F7-REF", "EEG T3-REF", "EEG T5-REF",
-            "EEG O1-REF", "EEG FP2-REF", "EEG F8-REF", "EEG T4-REF",
-            "EEG T6-REF", "EEG O2-REF", "EEG F3-REF", "EEG C3-REF",
-            "EEG P3-REF", "EEG F4-REF", "EEG C4-REF", "EEG P4-REF",
+            "EEG FP1-REF",
+            "EEG F7-REF",
+            "EEG T3-REF",
+            "EEG T5-REF",
+            "EEG O1-REF",
+            "EEG FP2-REF",
+            "EEG F8-REF",
+            "EEG T4-REF",
+            "EEG T6-REF",
+            "EEG O2-REF",
+            "EEG F3-REF",
+            "EEG C3-REF",
+            "EEG P3-REF",
+            "EEG F4-REF",
+            "EEG C4-REF",
+            "EEG P4-REF",
         ]
         raw_data = np.random.randn(len(ch_names), n_samples)
 
@@ -440,8 +530,12 @@ class TestEEGAbnormalTUAB(unittest.TestCase):
     def test_task_schema_attributes(self):
         task = EEGAbnormalTUAB()
         self.assertEqual(task.task_name, "EEG_abnormal")
-        self.assertEqual(task.input_schema, {"signal": "tensor"})
+        self.assertEqual(task.input_schema, {"signal": "tensor", "stft": "tensor"})
         self.assertEqual(task.output_schema, {"label": "binary"})
+
+    def test_task_schema_no_stft(self):
+        task = EEGAbnormalTUAB(compute_stft=False)
+        self.assertEqual(task.input_schema, {"signal": "tensor"})
 
 
 if __name__ == "__main__":
