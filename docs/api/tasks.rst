@@ -184,6 +184,26 @@ PyHealth detects the existing cache and skips reprocessing. During
 development it is useful to set ``dev=True`` on the dataset, which limits
 processing to 1 000 patients so iterations are fast.
 
+Task caches are keyed by:
+
+- ``task.task_name``
+- the task class and module
+- the task instance attributes returned by ``vars(task)`` (which usually
+  correspond to constructor arguments stored on ``self``)
+- ``input_schema`` and ``output_schema``
+
+The final processed sample cache is additionally keyed by any explicitly
+provided input/output processor configurations. If a constructor argument
+should change caching behaviour, make sure your task stores it on ``self``.
+If you change task logic without changing its stored state, clear the old
+task cache before re-running.
+
+For benchmark datasets with an official split, keep the split definition
+close to the dataset/task code that creates the samples and carry the split
+through as a ``sample["split"]`` field. Reserve
+``pyhealth.datasets.splitter`` for reusable split helpers that operate on
+generic sample metadata rather than dataset-specific file layout.
+
 .. note::
 
    **A note on multiprocessing.** ``set_task()`` can spawn worker processes
