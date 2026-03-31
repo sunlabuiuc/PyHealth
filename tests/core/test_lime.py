@@ -308,7 +308,7 @@ class TestLimeExplainerBasic(unittest.TestCase):
         self.assertEqual(attributions["x"].shape, inputs.shape)
 
     def test_target_class_idx_specified(self):
-        """Should handle specific target class index."""
+        """For binary (single logit), target_class_idx is a no-op."""
         inputs = torch.tensor([[1.0, 0.5, -0.3]])
         
         attr_class_0 = self.explainer.attribute(
@@ -323,8 +323,8 @@ class TestLimeExplainerBasic(unittest.TestCase):
             target_class_idx=1,
         )
 
-        # Attributions should differ for different classes
-        self.assertFalse(torch.allclose(attr_class_0["x"], attr_class_1["x"], atol=0.01))
+        # Single-logit binary: target_class_idx is a no-op, both should match
+        self.assertTrue(torch.allclose(attr_class_0["x"], attr_class_1["x"], atol=0.01))
 
     def test_attribution_values_are_finite(self):
         """Test that attribution values are finite (no NaN or Inf)."""
