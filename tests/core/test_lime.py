@@ -777,7 +777,7 @@ class TestLimeExplainerMLP(unittest.TestCase):
         self.assertIsInstance(attributions["procedures"], torch.Tensor)
 
     def test_lime_mlp_with_target_class(self):
-        """Test LIME attribution with specific target class."""
+        """For binary (single logit), target_class_idx is a no-op."""
         explainer = LimeExplainer(
             self.model,
             use_embeddings=True,
@@ -792,8 +792,8 @@ class TestLimeExplainerMLP(unittest.TestCase):
         # Compute attributions for class 1
         attr_class_1 = explainer.attribute(**data_batch, target_class_idx=1)
 
-        # Check that attributions are different for different classes
-        self.assertFalse(
+        # Single-logit binary: target_class_idx is a no-op, both should match
+        self.assertTrue(
             torch.allclose(attr_class_0["conditions"], attr_class_1["conditions"], atol=0.01)
         )
 
