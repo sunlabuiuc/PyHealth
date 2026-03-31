@@ -132,6 +132,92 @@ Initialization Parameters
   seconds rather than minutes. Switch to ``dev=False`` for your final training
   run.
 
+Cache Directory Behavior
+-------------------------
+
+PyHealth derives the dataset cache UUID from the combination of:
+
+- ``root``
+- ``tables`` (sorted before hashing)
+- ``dataset_name``
+- ``dev``
+
+This applies even when you pass ``cache_dir`` explicitly. In that case,
+PyHealth treats your ``cache_dir`` as the parent folder and still appends a
+configuration-specific UUID, so multiple dataset variants do not overwrite
+each other.
+
+Task caches live inside ``<cache_dir>/<dataset_uuid>/tasks/``. Their cache
+key includes the task name, task class/module, task instance attributes
+(``vars(task)``), plus the task input/output schemas. The final processed
+sample cache additionally includes the input/output processor configuration.
+If you change task code without changing those cache inputs, clear the stale
+task cache before re-running.
+
+Source and Compatibility Matrix
+--------------------------------
+
+The most common built-in datasets expect the following roots and files. For
+custom datasets, the authoritative source of truth is your own
+``config.yaml``: PyHealth will only look for the files referenced by
+``file_path`` there.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 24 56
+
+   * - Dataset class
+     - Expected root
+     - Minimum compatible files / notes
+   * - ``MIMIC3Dataset``
+     - PhysioNet MIMIC-III v1.4 root
+     - Always requires ``PATIENTS.csv.gz``, ``ADMISSIONS.csv.gz``, and
+       ``ICUSTAYS.csv.gz``. Optional tables map directly to
+       ``DIAGNOSES_ICD.csv.gz``, ``PROCEDURES_ICD.csv.gz``,
+       ``PRESCRIPTIONS.csv.gz``, ``LABEVENTS.csv.gz`` plus
+       ``D_LABITEMS.csv.gz``, and ``NOTEEVENTS.csv.gz``.
+   * - ``MIMIC4EHRDataset``
+     - MIMIC-IV v2.2 EHR root
+     - Requires the ``hosp/`` and ``icu/`` subdirectories. Core files are
+       ``hosp/patients.csv.gz``, ``hosp/admissions.csv.gz``, and
+       ``icu/icustays.csv.gz``. Optional tables include
+       ``hosp/diagnoses_icd.csv.gz``, ``hosp/procedures_icd.csv.gz``,
+       ``hosp/prescriptions.csv.gz``, ``hosp/labevents.csv.gz`` plus
+       ``hosp/d_labitems.csv.gz``, and ``hosp/hcpcsevents.csv.gz``.
+   * - ``MIMIC4NoteDataset``
+     - MIMIC-IV-Note v2.2 root
+     - Requires the ``note/`` subdirectory. Supported tables are
+       ``note/discharge.csv.gz``, ``note/discharge_detail.csv.gz``,
+       ``note/radiology.csv.gz``, and ``note/radiology_detail.csv.gz``.
+       Use this with a notes root, not the EHR root.
+   * - ``MIMIC4CXRDataset``
+     - MIMIC-CXR-JPG root
+     - Requires ``mimic-cxr-2.0.0-metadata.csv.gz`` and the JPEG ``files/``
+       tree so PyHealth can build ``image_path`` entries. Optional labels and
+       splits come from ``mimic-cxr-2.0.0-chexpert.csv.gz``,
+       ``mimic-cxr-2.0.0-negbio.csv.gz``,
+       ``mimic-cxr-2.1.0-test-set-labeled.csv``, and
+       ``mimic-cxr-2.0.0-split.csv.gz``. PyHealth generates
+       ``mimic-cxr-2.0.0-metadata-pyhealth.csv`` on first load. DICOM-only
+       MIMIC-CXR exports are not sufficient for this loader.
+   * - ``MIMIC4Dataset``
+     - Combined MIMIC-IV roots
+     - Pass any combination of ``ehr_root``, ``note_root``, and ``cxr_root``.
+       Each supplied root must satisfy the compatibility requirements of the
+       corresponding child dataset above.
+   * - ``eICUDataset``
+     - eICU-CRD v2.0 root
+     - Requires ``patient.csv``. Additional supported files are
+       ``hospital.csv``, ``diagnosis.csv``, ``medication.csv``,
+       ``treatment.csv``, ``lab.csv``, ``physicalExam.csv``, and
+       ``admissionDx.csv``.
+   * - ``OMOPDataset``
+     - OMOP CDM v5.3 export root
+     - Requires ``person.csv``, ``visit_occurrence.csv``, and ``death.csv``.
+       Additional supported files are ``condition_occurrence.csv``,
+       ``procedure_occurrence.csv``, ``drug_exposure.csv``, and
+       ``measurement.csv``.
+
 config.yaml for Custom Datasets
 ---------------------------------
 
