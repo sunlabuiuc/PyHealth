@@ -12,3 +12,8 @@ The separate callable RETAINLayer and the complete RETAIN model.
     :members:
     :undoc-members:
     :show-inheritance:
+
+.. autoclass:: pyhealth.models.MultimodalRETAIN
+    :members:
+    :undoc-members:
+    :show-inheritance:

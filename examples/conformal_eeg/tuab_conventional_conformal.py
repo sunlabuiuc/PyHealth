@@ -19,6 +19,7 @@ Multi-seed usage (recommended for papers):
 from __future__ import annotations
 
 import argparse
+import os
 import random
 import sys
 from pathlib import Path
@@ -45,8 +46,8 @@ class _Tee:
 
 
 from pyhealth.calib.predictionset import LABEL
-from pyhealth.datasets import TUABDataset, get_dataloader, split_by_sample_conformal_tuh
-from pyhealth.models import ContraWR
+from pyhealth.datasets import TUABDataset, get_dataloader, split_by_patient_conformal_tuh, split_by_sample_conformal_tuh, split_by_sample_conformal
+from pyhealth.models import ContraWR, TFMTokenizer
 from pyhealth.tasks import EEGAbnormalTUAB
 from pyhealth.trainer import Trainer, get_metrics_fn
 
@@ -58,7 +59,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--root",
         type=str,
-        default="downloads/tuab/v3.0.0/edf",
+        default="/srv/local/data/TUH/tuh_eeg_abnormal/v3.0.0/edf",
         help="Path to TUAB edf/ folder.",
     )
     parser.add_argument("--subset", type=str, default="both", choices=["train", "eval", "both"])
@@ -75,6 +76,10 @@ def parse_args() -> argparse.Namespace:
         help="Miscoverage rate (e.g., 0.1 => 90% target coverage).",
     )
     parser.add_argument(
+        "--alphas", type=str, default=None,
+        help="Comma-separated miscoverage rates, e.g. '0.2,0.1,0.05,0.01'. Overrides --alpha.",
+    )
+    parser.add_argument(
         "--ratios",
         type=float,
         nargs=3,
@@ -84,6 +89,10 @@ def parse_args() -> argparse.Namespace:
              "Must sum to 1.0. Test is fixed as the TUH eval partition.",
     )
     parser.add_argument("--n-fft", type=int, default=128, help="STFT FFT size used by ContraWR.")
+    parser.add_argument(
+        "--model", type=str, default="contrawr", choices=["contrawr", "tfm"],
+        help="Backbone model: 'contrawr' (default) or 'tfm' (TFMTokenizer).",
+    )
     parser.add_argument(
         "--device", type=str, default=None,
         help="Device string, e.g. 'cuda:0' or 'cpu'. Defaults to auto-detect.",
@@ -111,7 +120,46 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Smoke test: dev=True, max 2000 samples, 2 epochs.",
     )
+    parser.add_argument(
+        "--weights-dir",
+        type=str,
+        default="weightfiles/TFM_Tokenizer_multiple_finetuned_on_TUAB",
+        help="Root folder of fine-tuned TFM classifier checkpoints (only with --model tfm).",
+    )
+    parser.add_argument(
+        "--tokenizer-weights",
+        type=str,
+        default="weightfiles/tfm_tokenizer_last.pth",
+        help="Path to the pre-trained TFM tokenizer weights (only with --model tfm).",
+    )
+    parser.add_argument(
+        "--split-type",
+        type=str,
+        default="patient",
+        choices=["patient", "sample"],
+        help="Split strategy: 'patient' (default, patient-level, no leakage) or "
+             "'sample' (original sample-level, for comparison).",
+    )
     return parser.parse_args()
+
+
+def _do_split(dataset, ratios, seed, split_type):
+    """Dispatch to the correct TUH split function based on split_type."""
+    if split_type == "patient":
+        return split_by_patient_conformal_tuh(dataset=dataset, ratios=list(ratios), seed=seed)
+    else:
+        return split_by_sample_conformal_tuh(dataset=dataset, ratios=list(ratios), seed=seed)
+
+
+def _load_tfm_weights(model, args, run_idx: int) -> None:
+    """Load pre-trained tokenizer + fine-tuned classifier for run_idx (0-based)."""
+    base = os.path.basename(args.weights_dir)
+    classifier_path = os.path.join(args.weights_dir, f"{base}_{run_idx + 1}", "best_model.pth")
+    print(f"  Loading TFM weights (run {run_idx + 1}): {classifier_path}")
+    model.load_pretrained_weights(
+        tokenizer_checkpoint_path=args.tokenizer_weights,
+        classifier_checkpoint_path=classifier_path,
+    )
 
 
 def set_seed(seed: int) -> None:
@@ -130,19 +178,20 @@ def _run_one_seed(
     device: str,
     epochs: int,
     run_seed: int,
+    alphas: list,
+    run_idx: int = 0,
 ) -> dict:
-    """Train ContraWR + calibrate LABEL predictor for one seed.
+    """Train model + calibrate LABEL for one seed across all alphas.
 
-    The test set is passed in pre-built (fixed TUH eval partition).
-    Only train/val/cal (and model weights) vary per seed.
+    Training and base-model inference are done once; calibration loops over alphas (fast).
 
-    Returns a dict with keys:
-        accuracy, roc_auc, f1, coverage, miscoverage, avg_set_size
+    Returns {alpha: metrics_dict} where metrics_dict has keys:
+        accuracy, roc_auc_weighted_ovr, f1_weighted, coverage, miscoverage, avg_set_size
     """
     set_seed(run_seed)
 
-    train_ds, val_ds, cal_ds, _ = split_by_sample_conformal_tuh(
-        dataset=sample_dataset, ratios=list(args.ratios), seed=run_seed
+    train_ds, val_ds, cal_ds, _ = _do_split(
+        sample_dataset, args.ratios, run_seed, args.split_type
     )
     print(f"  Split — Train: {len(train_ds)}, Val: {len(val_ds)}, "
           f"Cal: {len(cal_ds)}, Test: {len(test_ds)} (fixed)")
@@ -153,62 +202,69 @@ def _run_one_seed(
         if len(val_ds) else None
     )
 
-    print("  Training ContraWR...")
-    model = ContraWR(dataset=sample_dataset, n_fft=args.n_fft).to(device)
-    trainer = Trainer(model=model, device=device, enable_logging=False)
-    trainer.train(
-        train_dataloader=train_loader,
-        val_dataloader=val_loader,
-        epochs=epochs,
-        monitor="roc_auc" if val_loader is not None else None,
-    )
-
-    # Base model metrics on fixed test set
-    y_true_base, y_prob_base, _ = trainer.inference(test_loader)
-    base_metrics = get_metrics_fn("binary")(
-        y_true_base, y_prob_base, metrics=["accuracy", "roc_auc", "f1"]
-    )
-
-    # Conformal calibration + evaluation
-    print("  Calibrating LABEL predictor...")
-    label_predictor = LABEL(model=model, alpha=float(args.alpha))
-    label_predictor.calibrate(cal_dataset=cal_ds)
-
-    print("  Evaluating LABEL predictor on test set...")
-    y_true, y_prob, _, extra = Trainer(model=label_predictor).inference(
-        test_loader, additional_outputs=["y_predset"]
-    )
-    conf_metrics = get_metrics_fn("binary")(
-        y_true, y_prob,
-        metrics=["accuracy", "miscoverage_ps"],
-        y_predset=extra["y_predset"],
-    )
-
-    predset = extra["y_predset"]
-    predset_t = torch.tensor(predset) if isinstance(predset, np.ndarray) else predset
-    avg_set_size = predset_t.float().sum(dim=1).mean().item()
-
-    miscoverage = conf_metrics["miscoverage_ps"]
-    if isinstance(miscoverage, np.ndarray):
-        miscoverage = float(miscoverage.item() if miscoverage.size == 1 else miscoverage.mean())
+    if args.model == "tfm":
+        model = TFMTokenizer(dataset=sample_dataset).to(device)
+        _load_tfm_weights(model, args, run_idx)
     else:
-        miscoverage = float(miscoverage)
+        model = ContraWR(dataset=sample_dataset, n_fft=args.n_fft).to(device)
+        print("  Training ContraWR...")
+        trainer_tmp = Trainer(model=model, device=device, enable_logging=False)
+        trainer_tmp.train(
+            train_dataloader=train_loader,
+            val_dataloader=val_loader,
+            epochs=epochs,
+            monitor="accuracy" if val_loader is not None else None,
+        )
+    trainer = Trainer(model=model, device=device, enable_logging=False)
 
-    return {
-        "accuracy":    float(base_metrics["accuracy"]),
-        "roc_auc":     float(base_metrics["roc_auc"]),
-        "f1":          float(base_metrics["f1"]),
-        "coverage":    1.0 - miscoverage,
-        "miscoverage": miscoverage,
-        "avg_set_size": avg_set_size,
-    }
+    # Base model metrics — computed once, shared across all alphas
+    y_true_base, y_prob_base, _ = trainer.inference(test_loader)
+    base_metrics = get_metrics_fn("multiclass")(
+        y_true_base, y_prob_base, metrics=["accuracy", "roc_auc_weighted_ovr", "f1_weighted"]
+    )
+
+    # Calibration + evaluation — fast; loop over every alpha
+    results = {}
+    for alpha in alphas:
+        print(f"  Calibrating LABEL predictor (alpha={alpha})...")
+        label_predictor = LABEL(model=model, alpha=float(alpha))
+        label_predictor.calibrate(cal_dataset=cal_ds)
+
+        y_true, y_prob, _, extra = Trainer(model=label_predictor).inference(
+            test_loader, additional_outputs=["y_predset"]
+        )
+        conf_metrics = get_metrics_fn("multiclass")(
+            y_true, y_prob,
+            metrics=["accuracy", "miscoverage_ps"],
+            y_predset=extra["y_predset"],
+        )
+
+        predset = extra["y_predset"]
+        predset_t = torch.tensor(predset) if isinstance(predset, np.ndarray) else predset
+        avg_set_size = predset_t.float().sum(dim=1).mean().item()
+
+        miscoverage = conf_metrics["miscoverage_ps"]
+        if isinstance(miscoverage, np.ndarray):
+            miscoverage = float(miscoverage.item() if miscoverage.size == 1 else miscoverage.mean())
+        else:
+            miscoverage = float(miscoverage)
+
+        results[alpha] = {
+            "accuracy":             float(base_metrics["accuracy"]),
+            "roc_auc_weighted_ovr": float(base_metrics["roc_auc_weighted_ovr"]),
+            "f1_weighted":          float(base_metrics["f1_weighted"]),
+            "coverage":             1.0 - miscoverage,
+            "miscoverage":          miscoverage,
+            "avg_set_size":         avg_set_size,
+        }
+    return results
 
 
 def _print_single_run_results(metrics: dict, alpha: float) -> None:
     print("\nLABEL Results:")
     print(f"  Accuracy:              {metrics['accuracy']:.4f}")
-    print(f"  ROC-AUC:               {metrics['roc_auc']:.4f}")
-    print(f"  F1:                    {metrics['f1']:.4f}")
+    print(f"  ROC-AUC:               {metrics['roc_auc_weighted_ovr']:.4f}")
+    print(f"  F1:                    {metrics['f1_weighted']:.4f}")
     print(f"  Empirical coverage:    {metrics['coverage']:.4f}")
     print(f"  Empirical miscoverage: {metrics['miscoverage']:.4f}")
     print(f"  Average set size:      {metrics['avg_set_size']:.2f}")
@@ -219,8 +275,8 @@ def _print_multi_seed_summary(
     all_metrics: list, run_seeds: list, alpha: float, n_test: int
 ) -> None:
     accs       = np.array([m["accuracy"]     for m in all_metrics])
-    roc_aucs   = np.array([m["roc_auc"]      for m in all_metrics])
-    f1s        = np.array([m["f1"]           for m in all_metrics])
+    roc_aucs   = np.array([m["roc_auc_weighted_ovr"]      for m in all_metrics])
+    f1s        = np.array([m["f1_weighted"]           for m in all_metrics])
     coverages  = np.array([m["coverage"]     for m in all_metrics])
     miscovs    = np.array([m["miscoverage"]  for m in all_metrics])
     set_sizes  = np.array([m["avg_set_size"] for m in all_metrics])
@@ -235,7 +291,7 @@ def _print_multi_seed_summary(
     for i in range(n_runs):
         m = all_metrics[i]
         print(f"  {i+1:<4} {run_seeds[i]:<6} {m['accuracy']:<10.4f} "
-              f"{m['roc_auc']:<10.4f} {m['f1']:<8.4f} {m['coverage']:<10.4f} "
+              f"{m['roc_auc_weighted_ovr']:<10.4f} {m['f1_weighted']:<8.4f} {m['coverage']:<10.4f} "
               f"{m['miscoverage']:<12.4f} {m['avg_set_size']:<12.2f}")
 
     print("\n" + "=" * 80)
@@ -294,9 +350,14 @@ def _main(args: argparse.Namespace) -> None:
     print("\n" + "=" * 80)
     print("STEP 2: Extract fixed test set (TUH eval partition — same for all seeds)")
     print("=" * 80)
-    _, _, _, test_ds = split_by_sample_conformal_tuh(
-        dataset=sample_dataset, ratios=list(args.ratios), seed=args.seed
+    _, _, _, test_ds = _do_split(
+        sample_dataset, args.ratios, args.seed, args.split_type
     )
+    if len(test_ds) == 0 and args.quick_test:
+        print("  [quick-test] TUH eval partition empty in dev mode — using random 20% as test set.")
+        _, _, _, test_ds = split_by_sample_conformal(
+            dataset=sample_dataset, ratios=[0.6, 0.1, 0.1, 0.2], seed=args.seed
+        )
     test_loader = get_dataloader(test_ds, batch_size=args.batch_size, shuffle=False)
     print(f"Test: {len(test_ds)} (fixed)")
 
@@ -308,36 +369,42 @@ def _main(args: argparse.Namespace) -> None:
     else:
         run_seeds = [args.seed + i for i in range(args.n_seeds)]
 
+    alphas = [float(a.strip()) for a in args.alphas.split(",")] if args.alphas else [args.alpha]
+
     use_multi_seed = len(run_seeds) > 1
     print(f"\nRun config: {'multi-seed (' + str(len(run_seeds)) + ' runs)' if use_multi_seed else 'single run'}")
-    print(f"Seeds: {run_seeds}, alpha={args.alpha}, target coverage={1 - args.alpha:.0%}")
+    print(f"Seeds: {run_seeds}, alphas={alphas}")
 
     # -------------------------------------------------------------------------
-    # STEP 3+: Train + conformal (once per seed)
+    # STEP 3+: Train once per seed; calibrate for every alpha (fast)
     # -------------------------------------------------------------------------
-    all_metrics = []
+    all_metrics = {alpha: [] for alpha in alphas}
     for run_i, run_seed in enumerate(run_seeds):
         print("\n" + "=" * 80)
         if use_multi_seed:
             print(f"Run {run_i + 1} / {len(run_seeds)}  (seed={run_seed})")
         else:
-            print(f"STEP 3–4: Train ContraWR + Conformal Calibration  (seed={run_seed})")
+            print(f"STEP 3–4: Train + Conformal Calibration  (seed={run_seed})")
         print("=" * 80)
 
-        metrics = _run_one_seed(
-            args, sample_dataset, test_ds, test_loader, device, epochs, run_seed
+        seed_results = _run_one_seed(
+            args, sample_dataset, test_ds, test_loader, device, epochs, run_seed, alphas,
+            run_idx=run_i,
         )
-        all_metrics.append(metrics)
+        for alpha in alphas:
+            all_metrics[alpha].append(seed_results[alpha])
 
         if use_multi_seed:
-            print(f"  [Run {run_i + 1} result] "
-                  f"acc={metrics['accuracy']:.4f}, roc_auc={metrics['roc_auc']:.4f}, "
-                  f"cov={metrics['coverage']:.4f}, set_size={metrics['avg_set_size']:.2f}")
+            m = seed_results[alphas[0]]
+            print(f"  [Run {run_i + 1} result (alpha={alphas[0]})] "
+                  f"acc={m['accuracy']:.4f}, roc_auc={m['roc_auc_weighted_ovr']:.4f}, "
+                  f"cov={m['coverage']:.4f}, set_size={m['avg_set_size']:.2f}")
 
-    if not use_multi_seed:
-        _print_single_run_results(all_metrics[0], args.alpha)
-    else:
-        _print_multi_seed_summary(all_metrics, run_seeds, args.alpha, len(test_ds))
+    for alpha in alphas:
+        if not use_multi_seed:
+            _print_single_run_results(all_metrics[alpha][0], alpha)
+        else:
+            _print_multi_seed_summary(all_metrics[alpha], run_seeds, alpha, len(test_ds))
 
 
 def main() -> None:
