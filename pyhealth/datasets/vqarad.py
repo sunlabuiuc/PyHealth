@@ -1,3 +1,11 @@
+"""VQA-RAD dataset for medical visual question answering.
+
+The VQA-RAD dataset (Lau et al., 2018) contains radiology images with
+paired question-answer annotations. On first load, the raw JSON file is
+flattened into ``vqarad-metadata-pyhealth.csv`` so it can be consumed by
+PyHealth's ``BaseDataset`` pipeline.
+"""
+
 import json
 import logging
 from functools import wraps
@@ -14,18 +22,22 @@ logger = logging.getLogger(__name__)
 
 
 class VQARADDataset(BaseDataset):
-    """VQA-RAD dataset for medical visual question answering.
+    """Dataset for VQA-RAD (Visual Question Answering in Radiology).
 
-    The raw dataset is expected to contain ``VQA_RAD Dataset Public.json`` and
-    an ``images/`` directory. On first load, the JSON annotations are flattened
-    into ``vqarad-metadata-pyhealth.csv`` so they can be consumed by
-    ``BaseDataset``.
+    Loads the VQA-RAD JSON file and converts it into a flat CSV that the
+    PyHealth ``BaseDataset`` pipeline can ingest. Each row represents one
+    (image, question, answer) triplet.
 
     Args:
-        root: Root directory of the raw data.
-        dataset_name: Name of the dataset. Defaults to ``"vqarad"``.
-        config_path: Path to the configuration file. If ``None``, uses the
-            default config.
+        root: Root directory containing the VQA-RAD data files.
+            Expected to contain ``VQA_RAD Dataset Public.json`` and an
+            ``images/`` subdirectory with the radiology images.
+        dataset_name: Optional name. Defaults to ``"vqarad"``.
+        config_path: Optional path to a YAML config. If ``None``, uses the
+            bundled ``configs/vqarad.yaml``.
+        cache_dir: Optional directory for caching processed data.
+        num_workers: Number of parallel workers. Defaults to 1.
+        dev: If ``True``, loads a small subset for development.
 
     Examples:
         >>> from pyhealth.datasets import VQARADDataset
@@ -63,7 +75,15 @@ class VQARADDataset(BaseDataset):
         )
 
     def prepare_metadata(self, root: str) -> None:
-        """Convert the raw VQA-RAD JSON file into a flat metadata CSV."""
+        """Convert the raw VQA-RAD JSON into a flat CSV.
+
+        The JSON file contains a list of QA entries, each with fields like
+        ``"IMAGES_PATH"``, ``"QUESTION"``, and ``"ANSWER"``. This method
+        normalizes them into a CSV with columns matching the YAML config.
+
+        Args:
+            root: Root directory containing ``VQA_RAD Dataset Public.json``.
+        """
         root_path = Path(root)
         json_path = root_path / "VQA_RAD Dataset Public.json"
         if not json_path.exists():

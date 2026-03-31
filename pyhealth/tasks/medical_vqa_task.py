@@ -1,3 +1,5 @@
+"""Medical Visual Question Answering (VQA) task."""
+
 from typing import Any, Dict, List
 
 from ..data import Patient
@@ -5,16 +7,16 @@ from .base_task import BaseTask
 
 
 class MedicalVQATask(BaseTask):
-    """Task for medical visual question answering.
+    """Task for medical Visual Question Answering (VQA).
 
-    This task takes a medical image and a natural-language question as input
-    and predicts the corresponding answer. It processes patient records
-    containing ``vqarad`` events and extracts image-question-answer triples.
+    Expects a dataset with medical images, questions, and answers. Each
+    sample maps an (image, question) pair to a single answer string,
+    treated as a multiclass classification label.
 
     Attributes:
-        task_name (str): Name of the task.
-        input_schema (Dict[str, str]): Schema defining input features.
-        output_schema (Dict[str, str]): Schema defining output features.
+        task_name: ``"MedicalVQA"``.
+        input_schema: ``{"image": "image", "question": "text"}``.
+        output_schema: ``{"answer": "multiclass"}``.
 
     Examples:
         >>> from pyhealth.datasets import VQARADDataset
@@ -31,15 +33,18 @@ class MedicalVQATask(BaseTask):
     def __call__(self, patient: Patient) -> List[Dict[str, Any]]:
         """Process a patient record into medical VQA samples.
 
+        Each event in the ``"vqarad"`` table becomes one (image, question,
+        answer) sample.
+
         Args:
-            patient (Patient): Patient record containing VQA-RAD events.
+            patient: Patient record containing VQA-RAD events.
 
         Returns:
-            List[Dict[str, Any]]: List of samples containing patient ID,
-                image path, question, and answer.
+            A list of sample dicts with patient ID, image, question,
+            and answer.
         """
-        samples = []
         events = patient.get_events(event_type="vqarad")
+        samples: List[Dict[str, Any]] = []
         for event in events:
             samples.append(
                 {
