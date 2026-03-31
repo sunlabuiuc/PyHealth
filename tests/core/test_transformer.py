@@ -154,8 +154,7 @@ class TestTransformer(unittest.TestCase):
         relevance = CheferRelevance(model)
         
         # Test with explicitly specified class index
-        data_batch["class_index"] = 0
-        scores = relevance.get_relevance_matrix(**data_batch)
+        scores = relevance.get_relevance_matrix(target_class_idx=0, **data_batch)
         
         # Verify that scores are returned for all feature keys
         self.assertIsInstance(scores, dict)
@@ -167,9 +166,8 @@ class TestTransformer(unittest.TestCase):
             # Verify scores are non-negative (due to clamping in relevance computation)
             self.assertTrue(torch.all(scores[feature_key] >= 0))
         
-        # Test without specifying class_index (should use predicted class)
-        data_batch_no_idx = {k: v for k, v in data_batch.items() if k != "class_index"}
-        scores_auto = relevance.get_relevance_matrix(**data_batch_no_idx)
+        # Test without specifying target_class_idx (should use predicted class)
+        scores_auto = relevance.get_relevance_matrix(**data_batch)
         
         # Verify that scores are returned
         self.assertIsInstance(scores_auto, dict)
