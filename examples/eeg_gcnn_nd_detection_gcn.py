@@ -12,13 +12,17 @@ Three ablation experiments are included:
     2. Frequency band ablation: individual bands & progressive combinations
     3. Connectivity measure: coherence vs WPLI
 
-Usage:
-    python examples/eeg_gcnn_nd_detection_gcn.py --root /path/to/eeg-gcnn-data
+Usage (with real data):
+    python examples/eeg_gcnn_nd_detection_gcn.py --root /path/to/data
+
+Usage (demo mode — synthetic data, no downloads needed):
+    python examples/eeg_gcnn_nd_detection_gcn.py --demo
 """
 
 import argparse
 import json
 import logging
+import warnings
 from collections import defaultdict
 from typing import Dict, List, Tuple
 
@@ -27,13 +31,86 @@ import torch
 from sklearn.metrics import roc_auc_score
 from torch.utils.data import DataLoader
 
-from pyhealth.datasets import EEGGCNNDataset, get_dataloader, split_by_patient
+from pyhealth.datasets import (
+    EEGGCNNDataset,
+    create_sample_dataset,
+    get_dataloader,
+    split_by_patient,
+)
 from pyhealth.models.gnn import GCN
 from pyhealth.tasks import EEGGCNNDiseaseDetection
-from pyhealth.tasks.eeg_gcnn_nd_detection import DEFAULT_BANDS
+from pyhealth.tasks.eeg_gcnn_nd_detection import (
+    DEFAULT_BANDS,
+    NUM_CHANNELS,
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+# -------------------------------------------------------------------
+# Synthetic demo data
+# -------------------------------------------------------------------
+
+def generate_demo_samples(
+    n_patients: int = 40,
+    windows_per_patient: int = 5,
+    n_bands: int = 6,
+    seed: int = 42,
+) -> List[Dict]:
+    """Generate synthetic samples that mirror real task output.
+
+    Creates ``n_patients`` patients (half label-0, half label-1) each
+    with ``windows_per_patient`` 10-second windows.  PSD features and
+    adjacency matrices are random but reproducible.
+
+    Args:
+        n_patients: Total number of synthetic patients.
+        windows_per_patient: Windows (samples) per patient.
+        n_bands: Number of frequency bands in PSD features.
+        seed: Random seed for reproducibility.
+
+    Returns:
+        List of sample dicts with keys ``patient_id``,
+        ``psd_features``, ``adjacency``, and ``label``.
+    """
+    rng = np.random.RandomState(seed)
+    samples = []
+    for p in range(n_patients):
+        pid = f"demo_{p:03d}"
+        label = 0 if p < n_patients // 2 else 1
+        for _ in range(windows_per_patient):
+            psd = rng.randn(NUM_CHANNELS, n_bands).astype(np.float32)
+            # Shift class-1 features slightly so the model can learn
+            if label == 1:
+                psd += 0.5
+            adj = np.eye(NUM_CHANNELS, dtype=np.float32)
+            off = rng.uniform(0.1, 0.5, (NUM_CHANNELS, NUM_CHANNELS))
+            off = (off + off.T) / 2.0
+            np.fill_diagonal(off, 0.0)
+            adj = adj + off.astype(np.float32)
+            samples.append(
+                {
+                    "patient_id": pid,
+                    "psd_features": torch.FloatTensor(psd),
+                    "adjacency": torch.FloatTensor(adj),
+                    "label": label,
+                }
+            )
+    return samples
+
+
+def build_demo_dataset(task: EEGGCNNDiseaseDetection):
+    """Wrap synthetic samples in a SampleDataset compatible with GCN."""
+    n_bands = len(task.bands)
+    samples = generate_demo_samples(n_bands=n_bands)
+    return create_sample_dataset(
+        samples=samples,
+        input_schema=task.input_schema,
+        output_schema=task.output_schema,
+        dataset_name="eeg_gcnn_demo",
+        task_name=task.task_name,
+    )
 
 
 # -------------------------------------------------------------------
@@ -88,8 +165,15 @@ def evaluate(
     all_probs = np.concatenate(all_probs)
     all_labels = np.concatenate(all_labels)
     try:
-        auc = roc_auc_score(all_labels, all_probs[:, 1])
-    except ValueError:
+        # Binary output may be shape (N,1) or (N,2)
+        if all_probs.ndim == 2 and all_probs.shape[1] >= 2:
+            scores = all_probs[:, 1]
+        else:
+            scores = all_probs.ravel()
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            auc = float(roc_auc_score(all_labels, scores))
+    except (ValueError, IndexError):
         auc = 0.5
     return {
         "auc": auc,
@@ -103,11 +187,15 @@ def run_experiment(
     epochs: int = 20,
     batch_size: int = 32,
     lr: float = 1e-3,
+    demo: bool = False,
 ) -> Dict[str, float]:
     """Run a single experiment: set_task, split, train, evaluate."""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    sample_dataset = dataset.set_task(task)
+    if demo:
+        sample_dataset = build_demo_dataset(task)
+    else:
+        sample_dataset = dataset.set_task(task)
     train_ds, val_ds, test_ds = split_by_patient(
         sample_dataset, [0.7, 0.1, 0.2]
     )
@@ -180,7 +268,7 @@ def ablation_frequency_bands(
         )
         results[name] = run_experiment(dataset, task, **kwargs)
 
-    # Progressive combinations: delta, delta+theta, delta+theta+alpha, ...
+    # Progressive combinations
     for k in range(2, len(band_names) + 1):
         combo_names = band_names[:k]
         combo_key = "+".join(combo_names)
@@ -216,8 +304,12 @@ def main():
         description="EEG-GCNN ablation study"
     )
     parser.add_argument(
-        "--root", type=str, required=True,
+        "--root", type=str, default=None,
         help="Root directory of EEG-GCNN data (TUAB + LEMON)",
+    )
+    parser.add_argument(
+        "--demo", action="store_true",
+        help="Run with synthetic data (no downloads needed)",
     )
     parser.add_argument("--epochs", type=int, default=20)
     parser.add_argument("--batch_size", type=int, default=32)
@@ -231,13 +323,25 @@ def main():
     )
     args = parser.parse_args()
 
-    dataset = EEGGCNNDataset(root=args.root)
-    dataset.stats()
+    if not args.demo and args.root is None:
+        parser.error("--root is required unless --demo is set")
+
+    dataset = None
+    if not args.demo:
+        dataset = EEGGCNNDataset(root=args.root)
+        dataset.stats()
+
+    if args.demo:
+        logger.info(
+            "Running in DEMO mode with synthetic data "
+            "(results are illustrative, not meaningful)"
+        )
 
     train_kwargs = dict(
         epochs=args.epochs,
         batch_size=args.batch_size,
         lr=args.lr,
+        demo=args.demo,
     )
 
     all_results = {}
