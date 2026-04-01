@@ -263,9 +263,10 @@ class EEGGCNNDiseaseDetection(BaseTask):
         # spectral_connectivity_epochs expects (n_epochs, n_channels, n_times)
         data_3d = window[np.newaxis, :, :]
 
+        method_map = {"coherence": "coh", "wpli": "wpli"}
         conn = spectral_connectivity_epochs(
             data_3d,
-            method=self.connectivity_measure,
+            method=method_map[self.connectivity_measure],
             sfreq=fs,
             fmin=0.5,
             fmax=50.0,
