@@ -113,9 +113,8 @@ class Evaluator:
                 Example: {'comprehensiveness': {10: tensor(...), 20: ...}}
 
         Note:
-            For binary classifiers, all samples are evaluated
-            (both positive and negative predictions).
-            Use: scores[valid_mask].mean()
+            For binary classifiers, valid_mask indicates samples with
+            P(class=1) >= threshold. Use: scores[valid_mask].mean()
 
         Examples:
             >>> # Default: averaged scores
@@ -167,16 +166,16 @@ class Evaluator:
 
         Returns:
             Dictionary mapping metric names to their average scores
-            across the entire dataset. For binary classifiers, both
-            positive and negative predictions are included in the
-            average.
+            across the entire dataset. For binary classifiers, only
+            positive class (predicted class=1) samples are included
+            in the average.
 
             Example: {'comprehensiveness': 0.345, 'sufficiency': 0.123}
 
         Note:
-            For binary classifiers, all samples are evaluated.
-            The metric measures the drop in P(predicted_class) after
-            ablation, for both positive and negative predictions.
+            For binary classifiers, negative class (predicted class=0)
+            samples are excluded from the average, as ablation metrics
+            are not meaningful for the default/null class.
 
         Examples:
             >>> from pyhealth.interpret.methods import IntegratedGradients
@@ -246,15 +245,13 @@ class Evaluator:
             )
 
             # Accumulate statistics incrementally (no tensor storage)
-            first_metric = metrics[0]
-            batch_size = len(batch_results[first_metric][0])
-            total_samples += batch_size
-
             for metric_name in metrics:
                 scores, valid_mask = batch_results[metric_name]
 
                 # Track statistics efficiently
+                batch_size = len(scores)
                 num_valid = valid_mask.sum().item()
+                total_samples += batch_size
                 total_valid[metric_name] += num_valid
 
                 # Update running sum (valid scores only)
