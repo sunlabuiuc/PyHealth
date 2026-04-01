@@ -20,6 +20,7 @@ Example (from repo root):
 from __future__ import annotations
 
 import argparse
+import os
 import random
 import sys
 from pathlib import Path
@@ -47,8 +48,8 @@ class _Tee:
 
 from pyhealth.calib.predictionset.cluster import NeighborhoodLabel
 from pyhealth.calib.utils import extract_embeddings
-from pyhealth.datasets import TUEVDataset, get_dataloader, split_by_sample_conformal_tuh
-from pyhealth.models import ContraWR
+from pyhealth.datasets import TUEVDataset, get_dataloader, split_by_patient_conformal_tuh, split_by_sample_conformal_tuh, split_by_sample_conformal
+from pyhealth.models import ContraWR, TFMTokenizer
 from pyhealth.tasks import EEGEventsTUEV
 from pyhealth.trainer import Trainer, get_metrics_fn
 
@@ -87,6 +88,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--epochs", type=int, default=20)
     parser.add_argument("--alpha", type=float, default=0.1, help="Miscoverage rate (e.g., 0.1 => 90% target coverage).")
     parser.add_argument(
+        "--alphas", type=str, default=None,
+        help="Comma-separated miscoverage rates, e.g. '0.2,0.1,0.05,0.01'. Overrides --alpha.",
+    )
+    parser.add_argument(
         "--ratios",
         type=float,
         nargs=3,
@@ -108,6 +113,10 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--n-fft", type=int, default=128, help="STFT FFT size used by ContraWR.")
     parser.add_argument(
+        "--model", type=str, default="contrawr", choices=["contrawr", "tfm"],
+        help="Backbone model: 'contrawr' (default) or 'tfm' (TFMTokenizer).",
+    )
+    parser.add_argument(
         "--device",
         type=str,
         default=None,
@@ -124,7 +133,46 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Smoke test: dev=True, max 2000 samples, 2 epochs, ~5-10 min.",
     )
+    parser.add_argument(
+        "--weights-dir",
+        type=str,
+        default="weightfiles/TFM_Tokenizer_multiple_finetuned_on_TUEV",
+        help="Root folder of fine-tuned TFM classifier checkpoints (only with --model tfm).",
+    )
+    parser.add_argument(
+        "--tokenizer-weights",
+        type=str,
+        default="weightfiles/tfm_tokenizer_last.pth",
+        help="Path to the pre-trained TFM tokenizer weights (only with --model tfm).",
+    )
+    parser.add_argument(
+        "--split-type",
+        type=str,
+        default="patient",
+        choices=["patient", "sample"],
+        help="Split strategy: 'patient' (default, patient-level, no leakage) or "
+             "'sample' (original sample-level, for comparison).",
+    )
     return parser.parse_args()
+
+
+def _do_split(dataset, ratios, seed, split_type):
+    """Dispatch to the correct TUH split function based on split_type."""
+    if split_type == "patient":
+        return split_by_patient_conformal_tuh(dataset=dataset, ratios=list(ratios), seed=seed)
+    else:
+        return split_by_sample_conformal_tuh(dataset=dataset, ratios=list(ratios), seed=seed)
+
+
+def _load_tfm_weights(model, args, run_idx: int) -> None:
+    """Load pre-trained tokenizer + fine-tuned classifier for run_idx (0-based)."""
+    base = os.path.basename(args.weights_dir)
+    classifier_path = os.path.join(args.weights_dir, f"{base}_{run_idx + 1}", "best_model.pth")
+    print(f"  Loading TFM weights (run {run_idx + 1}): {classifier_path}")
+    model.load_pretrained_weights(
+        tokenizer_checkpoint_path=args.tokenizer_weights,
+        classifier_checkpoint_path=classifier_path,
+    )
 
 
 def set_seed(seed: int) -> None:
@@ -135,15 +183,13 @@ def set_seed(seed: int) -> None:
         torch.cuda.manual_seed_all(seed)
 
 
-def _split_train_pool_for_run(sample_dataset, ratios, run_seed):
+def _split_train_pool_for_run(sample_dataset, ratios, run_seed, split_type="patient"):
     """Re-split the TUH train partition into train/val/cal for one run seed.
 
     The test set (TUH eval partition) is always fixed regardless of seed, so
     only train/val/cal change across runs in multi-seed mode.
     """
-    train_ds, val_ds, cal_ds, _ = split_by_sample_conformal_tuh(
-        sample_dataset, ratios=ratios, seed=run_seed
-    )
+    train_ds, val_ds, cal_ds, _ = _do_split(sample_dataset, ratios, run_seed, split_type)
     return train_ds, val_ds, cal_ds
 
 
@@ -156,85 +202,81 @@ def _run_one_ncp(
     args,
     device,
     epochs,
-    return_metrics=False,
+    alphas: list,
+    run_idx: int = 0,
 ):
-    """Train ContraWR, calibrate NCP, evaluate on test. Optionally return metrics dict for aggregation."""
+    """Train model + calibrate NCP for one seed across all alphas.
+
+    Training, embedding extraction, and base inference are done once; calibration
+    loops over alphas (fast — only threshold recomputed per alpha).
+
+    Returns {alpha: metrics_dict} where metrics_dict has keys:
+        accuracy, f1_weighted, coverage, miscoverage, avg_set_size
+    """
     train_loader = get_dataloader(train_ds, batch_size=args.batch_size, shuffle=True)
     val_loader = get_dataloader(val_ds, batch_size=args.batch_size, shuffle=False) if len(val_ds) else None
 
-    print("\n" + "=" * 80)
-    print("STEP 3: Train ContraWR")
-    print("=" * 80)
-    model = ContraWR(dataset=sample_dataset, n_fft=args.n_fft).to(device)
+    if args.model == "tfm":
+        model = TFMTokenizer(dataset=sample_dataset).to(device)
+        _load_tfm_weights(model, args, run_idx)
+    else:
+        model = ContraWR(dataset=sample_dataset, n_fft=args.n_fft).to(device)
+        print("  Training ContraWR...")
+        trainer_tmp = Trainer(model=model, device=device, enable_logging=False)
+        trainer_tmp.train(
+            train_dataloader=train_loader,
+            val_dataloader=val_loader,
+            epochs=epochs,
+            monitor="accuracy" if val_loader is not None else None,
+        )
     trainer = Trainer(model=model, device=device, enable_logging=False)
-    trainer.train(
-        train_dataloader=train_loader,
-        val_dataloader=val_loader,
-        epochs=epochs,
-        monitor="accuracy" if val_loader is not None else None,
-    )
 
-    print("\nBase model performance on test set:")
-    y_true_base, y_prob_base, _loss_base = trainer.inference(test_loader)
+    # Base model metrics — computed once, shared across all alphas
+    y_true_base, y_prob_base, _ = trainer.inference(test_loader)
     base_metrics = get_metrics_fn("multiclass")(
         y_true_base, y_prob_base, metrics=["accuracy", "f1_weighted"]
     )
-    for metric, value in base_metrics.items():
-        print(f"  {metric}: {value:.4f}")
 
-    print("\n" + "=" * 80)
-    print("STEP 4: Neighborhood Conformal Prediction (NCP / NeighborhoodLabel)")
-    print("=" * 80)
-    print(f"Target miscoverage alpha: {args.alpha} (target coverage {1 - args.alpha:.0%})")
-    print(f"k_neighbors: {args.k_neighbors}, lambda_L: {args.lambda_L}")
-
+    # Extract calibration embeddings once — reused for every alpha
+    print("  Extracting calibration embeddings...")
     cal_embeddings = extract_embeddings(model, cal_ds, batch_size=args.batch_size, device=device)
-    if not return_metrics:
-        print(f"  cal_embeddings shape: {cal_embeddings.shape}")
 
-    ncp_predictor = NeighborhoodLabel(
-        model=model,
-        alpha=float(args.alpha),
-        k_neighbors=args.k_neighbors,
-        lambda_L=args.lambda_L,
-    )
-    ncp_predictor.calibrate(cal_dataset=cal_ds, cal_embeddings=cal_embeddings)
+    # Calibration + evaluation — fast; loop over every alpha
+    results = {}
+    for alpha in alphas:
+        print(f"  Calibrating NCP predictor (alpha={alpha})...")
+        ncp_predictor = NeighborhoodLabel(
+            model=model,
+            alpha=float(alpha),
+            k_neighbors=args.k_neighbors,
+            lambda_L=args.lambda_L,
+        )
+        ncp_predictor.calibrate(cal_dataset=cal_ds, cal_embeddings=cal_embeddings)
 
-    y_true, y_prob, _loss, extra = Trainer(model=ncp_predictor).inference(
-        test_loader, additional_outputs=["y_predset"]
-    )
-    ncp_metrics = get_metrics_fn("multiclass")(
-        y_true, y_prob, metrics=["accuracy", "miscoverage_ps"], y_predset=extra["y_predset"]
-    )
-    predset = extra["y_predset"]
-    if isinstance(predset, np.ndarray):
-        predset_t = torch.tensor(predset)
-    else:
-        predset_t = predset
-    avg_set_size = predset_t.float().sum(dim=1).mean().item()
-    miscoverage = ncp_metrics["miscoverage_ps"]
-    if isinstance(miscoverage, np.ndarray):
-        miscoverage = float(miscoverage.item() if miscoverage.size == 1 else miscoverage.mean())
-    else:
-        miscoverage = float(miscoverage)
-    coverage = 1.0 - miscoverage
+        y_true, y_prob, _, extra = Trainer(model=ncp_predictor).inference(
+            test_loader, additional_outputs=["y_predset"]
+        )
+        ncp_metrics = get_metrics_fn("multiclass")(
+            y_true, y_prob, metrics=["accuracy", "miscoverage_ps"], y_predset=extra["y_predset"]
+        )
+        predset = extra["y_predset"]
+        predset_t = torch.tensor(predset) if isinstance(predset, np.ndarray) else predset
+        avg_set_size = predset_t.float().sum(dim=1).mean().item()
 
-    if return_metrics:
-        return {
+        miscoverage = ncp_metrics["miscoverage_ps"]
+        if isinstance(miscoverage, np.ndarray):
+            miscoverage = float(miscoverage.item() if miscoverage.size == 1 else miscoverage.mean())
+        else:
+            miscoverage = float(miscoverage)
+
+        results[alpha] = {
             "accuracy":    float(base_metrics["accuracy"]),
             "f1_weighted": float(base_metrics["f1_weighted"]),
-            "coverage":    coverage,
+            "coverage":    1.0 - miscoverage,
             "miscoverage": miscoverage,
             "avg_set_size": avg_set_size,
         }
-
-    print("\nNCP (NeighborhoodLabel) Results:")
-    print(f"  Accuracy:              {base_metrics['accuracy']:.4f}")
-    print(f"  F1 (weighted):         {base_metrics['f1_weighted']:.4f}")
-    print(f"  Empirical miscoverage: {miscoverage:.4f}")
-    print(f"  Empirical coverage:    {coverage:.4f}")
-    print(f"  Average set size:      {avg_set_size:.2f}")
-    print(f"  k_neighbors: {args.k_neighbors}")
+    return results
 
 
 def main() -> None:
@@ -286,83 +328,58 @@ def _run(args: argparse.Namespace) -> None:
     print(f"Input schema: {sample_dataset.input_schema}")
     print(f"Output schema: {sample_dataset.output_schema}")
 
-    # Experiment configuration (for PI / reporting)
-    print("\n--- Experiment configuration ---")
-    print(f"  dataset_root: {root}")
-    print(f"  subset: {args.subset}, ratios: train/val/cal = {args.ratios[0]:.2f}/{args.ratios[1]:.2f}/{args.ratios[2]:.2f} (test = TUH eval partition)")
-    print(f"  alpha: {args.alpha} (target coverage {1 - args.alpha:.0%})")
-    print(f"  k_neighbors: {args.k_neighbors}, lambda_L: {args.lambda_L}")
-    print(f"  epochs: {epochs}, batch_size: {args.batch_size}, device: {device}, seed: {args.seed}")
-
     if len(sample_dataset) == 0:
         raise RuntimeError("No samples produced. Verify TUEV root/subset/task.")
 
+    # Parse alphas and run seeds
+    alphas = [float(a.strip()) for a in args.alphas.split(",")] if args.alphas else [args.alpha]
     ratios = list(args.ratios)
     use_multi_seed = args.n_seeds > 1 or args.seeds is not None
-    if use_multi_seed:
-        run_seeds = (
-            [int(s.strip()) for s in args.seeds.split(",")]
-            if args.seeds
-            else [args.seed + i for i in range(args.n_seeds)]
-        )
-        n_runs = len(run_seeds)
-        print(f"  multi_seed: n_runs={n_runs}, run_seeds={run_seeds}, split_seed={args.split_seed} (fixed test set)")
-        print(f"Multi-seed mode: {n_runs} runs (fixed test set), run seeds: {run_seeds}")
-
-    if not use_multi_seed:
-        # Single run: original behavior
-        print("\n" + "=" * 80)
-        print("STEP 2: Split train/val/cal/test")
-        print("=" * 80)
-        train_ds, val_ds, cal_ds, test_ds = split_by_sample_conformal_tuh(
-            dataset=sample_dataset, ratios=ratios, seed=args.seed
-        )
-        print(f"Train: {len(train_ds)}")
-        print(f"Val:   {len(val_ds)}")
-        print(f"Cal:   {len(cal_ds)}")
-        print(f"Test:  {len(test_ds)}")
-
-        test_loader = get_dataloader(test_ds, batch_size=args.batch_size, shuffle=False)
-        _run_one_ncp(
-            sample_dataset=sample_dataset,
-            train_ds=train_ds,
-            val_ds=val_ds,
-            cal_ds=cal_ds,
-            test_loader=test_loader,
-            args=args,
-            device=device,
-            epochs=epochs,
-        )
-        print("\n--- Split sizes and seed (for reporting) ---")
-        print(f"  train={len(train_ds)}, val={len(val_ds)}, cal={len(cal_ds)}, test={len(test_ds)}, seed={args.seed}")
-        return
-
-    # Multi-seed: test set is always fixed as the TUH eval partition (no split-seed needed).
-    # Each run uses a different seed to re-shuffle the train pool into train/val/cal.
-    print("\n" + "=" * 80)
-    print("STEP 2: Fix test set (TUH eval partition), then run multiple train/cal splits")
-    print("=" * 80)
-    # Get the fixed test set — seed doesn't affect which samples are in eval, only the
-    # train-pool shuffle, so any seed works here.
-    _, _, _, test_ds = split_by_sample_conformal_tuh(
-        dataset=sample_dataset, ratios=ratios, seed=args.split_seed
+    run_seeds = (
+        [int(s.strip()) for s in args.seeds.split(",")]
+        if args.seeds
+        else [args.seed + i for i in range(args.n_seeds)]
     )
+    n_runs = len(run_seeds)
+
+    # -------------------------------------------------------------------------
+    # STEP 2: Extract the fixed test set ONCE
+    # -------------------------------------------------------------------------
+    print("\n" + "=" * 80)
+    print("STEP 2: Extract fixed test set (TUH eval partition — same for all seeds)")
+    print("=" * 80)
+    _, _, _, test_ds = _do_split(
+        sample_dataset, ratios, args.split_seed, args.split_type
+    )
+    if len(test_ds) == 0 and args.quick_test:
+        print("  [quick-test] TUH eval partition empty in dev mode — using random 20% as test set.")
+        _, _, _, test_ds = split_by_sample_conformal(
+            dataset=sample_dataset, ratios=[0.6, 0.1, 0.1, 0.2], seed=args.split_seed
+        )
     test_loader = get_dataloader(test_ds, batch_size=args.batch_size, shuffle=False)
     n_test = len(test_ds)
-    print(f"Fixed test set size: {n_test} (TUH eval partition)")
+    print(f"Test: {n_test} (fixed)")
 
-    accs, f1s, coverages, miscoverages, set_sizes = [], [], [], [], []
+    print(f"\nRun config: {'multi-seed (' + str(n_runs) + ' runs)' if use_multi_seed else 'single run'}")
+    print(f"Seeds: {run_seeds}, alphas={alphas}, k_neighbors={args.k_neighbors}")
+
+    # -------------------------------------------------------------------------
+    # STEP 3+: Train once per seed; calibrate for every alpha (fast)
+    # -------------------------------------------------------------------------
+    all_metrics = {alpha: [] for alpha in alphas}
     for run_i, run_seed in enumerate(run_seeds):
         print("\n" + "=" * 80)
-        print(f"Run {run_i + 1} / {n_runs} (seed={run_seed})")
+        if use_multi_seed:
+            print(f"Run {run_i + 1} / {n_runs}  (seed={run_seed})")
+        else:
+            print(f"STEP 3–4: Train + NCP Calibration  (seed={run_seed})")
         print("=" * 80)
         set_seed(run_seed)
-        train_ds, val_ds, cal_ds = _split_train_pool_for_run(
-            sample_dataset, ratios, run_seed
-        )
-        print(f"Train: {len(train_ds)}, Val: {len(val_ds)}, Cal: {len(cal_ds)}")
+        train_ds, val_ds, cal_ds = _split_train_pool_for_run(sample_dataset, ratios, run_seed, args.split_type)
+        print(f"  Split — Train: {len(train_ds)}, Val: {len(val_ds)}, "
+              f"Cal: {len(cal_ds)}, Test: {n_test} (fixed)")
 
-        metrics = _run_one_ncp(
+        seed_results = _run_one_ncp(
             sample_dataset=sample_dataset,
             train_ds=train_ds,
             val_ds=val_ds,
@@ -371,47 +388,62 @@ def _run(args: argparse.Namespace) -> None:
             args=args,
             device=device,
             epochs=epochs,
-            return_metrics=True,
+            alphas=alphas,
+            run_idx=run_i,
         )
-        accs.append(metrics["accuracy"])
-        f1s.append(metrics["f1_weighted"])
-        coverages.append(metrics["coverage"])
-        miscoverages.append(metrics["miscoverage"])
-        set_sizes.append(metrics["avg_set_size"])
+        for alpha in alphas:
+            all_metrics[alpha].append(seed_results[alpha])
 
-    accs          = np.array(accs)
-    f1s           = np.array(f1s)
-    coverages     = np.array(coverages)
-    miscoverages_arr = np.array(miscoverages)
-    set_sizes     = np.array(set_sizes)
+        if use_multi_seed:
+            m = seed_results[alphas[0]]
+            print(f"  [Run {run_i + 1} result (alpha={alphas[0]})] "
+                  f"acc={m['accuracy']:.4f}, f1={m['f1_weighted']:.4f}, "
+                  f"cov={m['coverage']:.4f}, set_size={m['avg_set_size']:.2f}")
 
-    # Per-run table (for PI / reporting)
-    print("\n" + "=" * 80)
-    print("Per-run NCP results (fixed test set = TUH eval partition)")
-    print("=" * 80)
-    print(f"  {'Run':<4} {'Seed':<6} {'Accuracy':<10} {'F1-Wt':<10} "
-          f"{'Coverage':<10} {'Miscoverage':<12} {'Avg set size':<12}")
-    print("  " + "-" * 68)
-    for i in range(n_runs):
-        print(f"  {i+1:<4} {run_seeds[i]:<6} {accs[i]:<10.4f} {f1s[i]:<10.4f} "
-              f"{coverages[i]:<10.4f} {miscoverages_arr[i]:<12.4f} {set_sizes[i]:<12.2f}")
+    for alpha in alphas:
+        mlist = all_metrics[alpha]
+        accs       = np.array([m["accuracy"]     for m in mlist])
+        f1s        = np.array([m["f1_weighted"]  for m in mlist])
+        coverages  = np.array([m["coverage"]     for m in mlist])
+        miscovs    = np.array([m["miscoverage"]  for m in mlist])
+        set_sizes  = np.array([m["avg_set_size"] for m in mlist])
 
-    print("\n" + "=" * 80)
-    print("NCP summary (mean \u00b1 std over {} runs, fixed test set)".format(n_runs))
-    print("=" * 80)
-    print(f"  Accuracy:              {accs.mean():.4f} \u00b1 {accs.std():.4f}")
-    print(f"  F1 (weighted):         {f1s.mean():.4f} \u00b1 {f1s.std():.4f}")
-    print(f"  Empirical coverage:    {coverages.mean():.4f} \u00b1 {coverages.std():.4f}")
-    print(f"  Empirical miscoverage: {miscoverages_arr.mean():.4f} \u00b1 {miscoverages_arr.std():.4f}")
-    print(f"  Average set size:      {set_sizes.mean():.2f} \u00b1 {set_sizes.std():.2f}")
-    print(f"  Target coverage:       {1 - args.alpha:.0%} (alpha={args.alpha})")
-    print(f"  k_neighbors: {args.k_neighbors}, lambda_L: {args.lambda_L}")
-    print(f"  Test set size:         {n_test} (fixed across runs)")
-    print(f"  Run seeds:             {run_seeds}")
-    print("\n--- Min / Max (across runs) ---")
-    print(f"  Coverage:    [{coverages.min():.4f}, {coverages.max():.4f}]")
-    print(f"  Set size:    [{set_sizes.min():.2f}, {set_sizes.max():.2f}]")
-    print(f"  Accuracy:    [{accs.min():.4f}, {accs.max():.4f}]")
+        if not use_multi_seed:
+            print(f"\nNCP Results (alpha={alpha}):")
+            print(f"  Accuracy:              {accs[0]:.4f}")
+            print(f"  F1 (weighted):         {f1s[0]:.4f}")
+            print(f"  Empirical coverage:    {coverages[0]:.4f}")
+            print(f"  Empirical miscoverage: {miscovs[0]:.4f}")
+            print(f"  Average set size:      {set_sizes[0]:.2f}")
+            print(f"  Target coverage:       {1 - alpha:.0%} (alpha={alpha})")
+            print(f"  k_neighbors: {args.k_neighbors}, lambda_L: {args.lambda_L}")
+        else:
+            print("\n" + "=" * 80)
+            print(f"Per-run NCP results — alpha={alpha} (target coverage={1-alpha:.0%})")
+            print("=" * 80)
+            print(f"  {'Run':<4} {'Seed':<6} {'Accuracy':<10} {'F1-Wt':<10} "
+                  f"{'Coverage':<10} {'Miscoverage':<12} {'Avg set size':<12}")
+            print("  " + "-" * 68)
+            for i in range(n_runs):
+                print(f"  {i+1:<4} {run_seeds[i]:<6} {accs[i]:<10.4f} {f1s[i]:<10.4f} "
+                      f"{coverages[i]:<10.4f} {miscovs[i]:<12.4f} {set_sizes[i]:<12.2f}")
+
+            print("\n" + "=" * 80)
+            print(f"NCP summary — alpha={alpha} (mean ± std over {n_runs} runs, fixed test set)")
+            print("=" * 80)
+            print(f"  Accuracy:              {accs.mean():.4f} ± {accs.std():.4f}")
+            print(f"  F1 (weighted):         {f1s.mean():.4f} ± {f1s.std():.4f}")
+            print(f"  Empirical coverage:    {coverages.mean():.4f} ± {coverages.std():.4f}")
+            print(f"  Empirical miscoverage: {miscovs.mean():.4f} ± {miscovs.std():.4f}")
+            print(f"  Average set size:      {set_sizes.mean():.2f} ± {set_sizes.std():.2f}")
+            print(f"  Target coverage:       {1 - alpha:.0%} (alpha={alpha})")
+            print(f"  k_neighbors: {args.k_neighbors}, lambda_L: {args.lambda_L}")
+            print(f"  Test set size:         {n_test} (fixed across runs)")
+            print(f"  Run seeds:             {run_seeds}")
+            print("\n--- Min / Max (across runs) ---")
+            print(f"  Coverage:    [{coverages.min():.4f}, {coverages.max():.4f}]")
+            print(f"  Set size:    [{set_sizes.min():.2f}, {set_sizes.max():.2f}]")
+            print(f"  Accuracy:    [{accs.min():.4f}, {accs.max():.4f}]")
 
 
 if __name__ == "__main__":
