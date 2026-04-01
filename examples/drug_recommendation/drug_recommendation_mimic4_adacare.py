@@ -1,11 +1,11 @@
 """
-Example of using RETAIN for drug recommendation on MIMIC-IV.
+Example of using AdaCare for drug recommendation on MIMIC-IV.
 
 This example demonstrates:
 1. Loading MIMIC-IV data
 2. Applying the DrugRecommendationMIMIC4 task
 3. Creating a SampleDataset with nested sequence processors
-4. Training a RETAIN model
+4. Training an AdaCare model
 """
 
 import torch
@@ -15,7 +15,7 @@ from pyhealth.datasets import (
     get_dataloader,
     split_by_patient,
 )
-from pyhealth.models import RETAIN
+from pyhealth.models import AdaCare
 from pyhealth.tasks import DrugRecommendationMIMIC4
 from pyhealth.trainer import Trainer
 
@@ -23,7 +23,7 @@ if __name__ == "__main__":
     # STEP 1: Load MIMIC-IV base dataset
     base_dataset = MIMIC4Dataset(
         ehr_root="/srv/local/data/physionet.org/files/mimiciv/2.2/",
-        cache_dir="/shared/eng/pyhealth_agent/baselines",
+        cache_dir="/shared/eng/pyhealth_agent/baselines",  # Change this to your desired cache directory
         ehr_tables=[
             "patients",
             "admissions",
@@ -70,22 +70,22 @@ if __name__ == "__main__":
     val_loader = get_dataloader(val_dataset, batch_size=64, shuffle=False)
     test_loader = get_dataloader(test_dataset, batch_size=64, shuffle=False)
 
-    # STEP 4: Initialize RETAIN model
-    model = RETAIN(
+    # STEP 4: Initialize AdaCare model
+    model = AdaCare(
         dataset=sample_dataset,
         embedding_dim=128,
-        dropout=0.5,
+        hidden_dim=128,
     )
 
     num_params = sum(p.numel() for p in model.parameters())
     print(f"\nModel initialized with {num_params:,} parameters")
     print(f"Feature keys: {model.feature_keys}")
-    print(f"Label key: {model.label_key}")
+    print(f"Label key: {model.label_keys[0]}")
 
     # STEP 5: Train the model
     trainer = Trainer(
         model=model,
-        device="cuda:4",  # or "cpu"
+        device="cuda:0",  # or "cpu"
         metrics=["pr_auc_samples", "f1_samples", "jaccard_samples"],
     )
 
@@ -95,7 +95,8 @@ if __name__ == "__main__":
         val_dataloader=val_loader,
         epochs=50,
         monitor="pr_auc_samples",
-        optimizer_params={"lr": 1e-3},
+        optimizer_params={"lr": 1e-4},
+        optimizer_class=torch.optim.AdamW,
     )
 
     # STEP 6: Evaluate on test set
