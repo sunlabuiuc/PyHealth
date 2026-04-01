@@ -40,8 +40,7 @@ def _query_quantile(scores: np.ndarray, alpha: float) -> float:
     """
     scores = np.sort(scores)
     N = len(scores)
-    # Use ceiling to get conservative coverage
-    loc = int(np.ceil(alpha * (N + 1))) - 1
+    loc = int(np.floor(alpha * (N + 1))) - 1
     return -np.inf if loc == -1 else scores[loc]
 
 
