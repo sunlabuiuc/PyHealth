@@ -59,6 +59,16 @@ keywords = [
   "deep learning",
 ]
 
+[project.optional-dependencies]
+graph = [
+  "torch-geometric>=2.6.0",
+]
+nlp = [
+  "editdistance~=0.8.1",
+  "rouge_score~=0.1.2",
+  "nltk~=3.9.1",
+]
+
 [project.urls]
 Homepage = "https://github.com/sunlabuiuc/PyHealth"
 Documentation = "https://pyhealth.readthedocs.io/en/latest/about.html"
@@ -97,7 +107,7 @@ build-env = { features = ["pyverbase", "build-env"], solve-group = "default" }
 # specify where to download the build backend that builds conda files
 [tool.pixi.package.build.backend]
 name = "pixi-build-python"
-version = "2.0.0"
+version = "==2.0.0"
 channels = [
   "https://prefix.dev/pixi-build-backends",
   "https://prefix.dev/conda-forge", 

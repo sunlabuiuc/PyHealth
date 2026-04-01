@@ -21,6 +21,7 @@ Description:
 """
 
 import math
+import warnings
 from typing import Callable, Dict, Optional, Tuple
 
 import torch
@@ -30,7 +31,7 @@ from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
 from pyhealth.models.utils import get_last_visit
 
-from .embedding import EmbeddingModel
+from pyhealth.processors import NestedSequenceProcessor, SequenceProcessor
 
 
 class FinalAttentionQKV(nn.Module):
@@ -73,8 +74,16 @@ class FinalAttentionQKV(nn.Module):
 
         self.W_out = nn.Linear(attention_hidden_dim, 1)
 
-        self.b_in = nn.Parameter(torch.zeros(1,))
-        self.b_out = nn.Parameter(torch.zeros(1,))
+        self.b_in = nn.Parameter(
+            torch.zeros(
+                1,
+            )
+        )
+        self.b_out = nn.Parameter(
+            torch.zeros(
+                1,
+            )
+        )
 
         nn.init.kaiming_uniform_(self.W_q.weight, a=math.sqrt(5))
         nn.init.kaiming_uniform_(self.W_k.weight, a=math.sqrt(5))
@@ -85,7 +94,11 @@ class FinalAttentionQKV(nn.Module):
             torch.randn(2 * attention_input_dim, attention_hidden_dim)
         )
         self.Wa = nn.Parameter(torch.randn(attention_hidden_dim, 1))
-        self.ba = nn.Parameter(torch.zeros(1,))
+        self.ba = nn.Parameter(
+            torch.zeros(
+                1,
+            )
+        )
 
         nn.init.kaiming_uniform_(self.Wh, a=math.sqrt(5))
         nn.init.kaiming_uniform_(self.Wa, a=math.sqrt(5))
@@ -95,9 +108,7 @@ class FinalAttentionQKV(nn.Module):
         self.softmax = nn.Softmax(dim=1)
         self.sigmoid = nn.Sigmoid()
 
-    def forward(
-        self, input: torch.Tensor
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, input: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         """Forward pass of the final attention layer.
 
         Args:
@@ -167,9 +178,7 @@ class PositionwiseFeedForward(nn.Module):
         self.w_2 = nn.Linear(d_ff, d_model)
         self.dropout = nn.Dropout(dropout)
 
-    def forward(
-        self, x: torch.Tensor
-    ) -> Tuple[torch.Tensor, None]:
+    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, None]:
         """Forward pass of the feed-forward network.
 
         Args:
@@ -293,7 +302,8 @@ class MultiHeadedAttention(nn.Module):
             m = torch.cat((m, y), dim=0)
         m_exp = torch.mean(m, dim=1)
         x = m - m_exp[:, None]
-        cov = 1 / (x.size(1) - 1) * x.mm(x.t())
+        n = max(x.size(1) - 1, 1)
+        cov = (1 / n) * x.mm(x.t())
         return cov
 
     def forward(
@@ -332,9 +342,7 @@ class MultiHeadedAttention(nn.Module):
             query, key, value, mask=mask, dropout=self.dropout
         )
 
-        x = (
-            x.transpose(1, 2).contiguous().view(nbatches, -1, self.h * self.d_k)
-        )
+        x = x.transpose(1, 2).contiguous().view(nbatches, -1, self.h * self.d_k)
 
         # Compute DeCov loss
         decov_contexts = x.transpose(0, 1).transpose(1, 2)
@@ -396,10 +404,9 @@ class SublayerConnection(nn.Module):
 
     def forward(
         self,
-        x: torch.Tensor, 
+        x: torch.Tensor,
         sublayer: Callable[[torch.Tensor], Tuple[torch.Tensor, any]],
-     ) -> Tuple[torch.Tensor, any]:
-        
+    ) -> Tuple[torch.Tensor, any]:
         """Apply residual connection to sublayer with same size.
 
         Args:
@@ -447,9 +454,7 @@ class SingleAttention(nn.Module):
                 self.Wx = nn.Parameter(
                     torch.randn(attention_input_dim, attention_hidden_dim)
                 )
-                self.Wtime_aware = nn.Parameter(
-                    torch.randn(1, attention_hidden_dim)
-                )
+                self.Wtime_aware = nn.Parameter(torch.randn(1, attention_hidden_dim))
                 nn.init.kaiming_uniform_(self.Wtime_aware, a=math.sqrt(5))
             else:
                 self.Wx = nn.Parameter(
@@ -458,9 +463,17 @@ class SingleAttention(nn.Module):
             self.Wt = nn.Parameter(
                 torch.randn(attention_input_dim, attention_hidden_dim)
             )
-            self.bh = nn.Parameter(torch.zeros(attention_hidden_dim,))
+            self.bh = nn.Parameter(
+                torch.zeros(
+                    attention_hidden_dim,
+                )
+            )
             self.Wa = nn.Parameter(torch.randn(attention_hidden_dim, 1))
-            self.ba = nn.Parameter(torch.zeros(1,))
+            self.ba = nn.Parameter(
+                torch.zeros(
+                    1,
+                )
+            )
 
             nn.init.kaiming_uniform_(self.Wx, a=math.sqrt(5))
             nn.init.kaiming_uniform_(self.Wt, a=math.sqrt(5))
@@ -470,7 +483,11 @@ class SingleAttention(nn.Module):
             self.Wa = nn.Parameter(
                 torch.randn(attention_input_dim, attention_input_dim)
             )
-            self.ba = nn.Parameter(torch.zeros(1,))
+            self.ba = nn.Parameter(
+                torch.zeros(
+                    1,
+                )
+            )
             nn.init.kaiming_uniform_(self.Wa, a=math.sqrt(5))
 
         elif attention_type == "concat":
@@ -483,7 +500,11 @@ class SingleAttention(nn.Module):
                     torch.randn(2 * attention_input_dim, attention_hidden_dim)
                 )
             self.Wa = nn.Parameter(torch.randn(attention_hidden_dim, 1))
-            self.ba = nn.Parameter(torch.zeros(1,))
+            self.ba = nn.Parameter(
+                torch.zeros(
+                    1,
+                )
+            )
 
             nn.init.kaiming_uniform_(self.Wh, a=math.sqrt(5))
             nn.init.kaiming_uniform_(self.Wa, a=math.sqrt(5))
@@ -888,12 +909,8 @@ class ConCare(BaseModel):
         if "input_dim" in kwargs:
             raise ValueError("input_dim is determined by embedding_dim")
 
-        assert len(self.label_keys) == 1, (
-            "Only one label key is supported for ConCare"
-        )
+        assert len(self.label_keys) == 1, "Only one label key is supported for ConCare"
         self.label_key = self.label_keys[0]
-
-        self.embedding_model = EmbeddingModel(dataset, embedding_dim)
 
         # Determine static dimension
         self.static_dim = 0
@@ -912,15 +929,37 @@ class ConCare(BaseModel):
 
         # Get dynamic feature keys (excluding static key)
         self.dynamic_feature_keys = [
-            k for k in self.feature_keys
-            if k != self.static_key
+            k for k in self.feature_keys if k != self.static_key
         ]
 
         # ConCare layers for each dynamic feature
         self.concare = nn.ModuleDict()
+        self._embeddings = nn.ModuleDict()
+        self._proc_types = {}  # feature_key -> 'sequence' | 'nested_sequence' | 'other'
         for feature_key in self.dynamic_feature_keys:
+            proc = dataset.input_processors[feature_key]
+            if isinstance(proc, SequenceProcessor):
+                input_dim = 1
+                self._proc_types[feature_key] = "sequence"
+            elif isinstance(proc, NestedSequenceProcessor):
+                vocab_size = proc.vocab_size()
+                self._embeddings[feature_key] = nn.Embedding(
+                    vocab_size, 1, padding_idx=0
+                )
+                input_dim = 1
+                self._proc_types[feature_key] = "nested_sequence"
+                warnings.warn(
+                    f"ConCare: feature '{feature_key}' uses nested_sequence "
+                    f"(vocab_size={vocab_size}). Codes will be embedded (dim=1) "
+                    "and sum-pooled per visit for memory efficiency. This reduces "
+                    "per-visit code representations to a single scalar.",
+                    UserWarning,
+                )
+            else:
+                input_dim = proc.size()
+                self._proc_types[feature_key] = "other"
             self.concare[feature_key] = ConCareLayer(
-                input_dim=embedding_dim,
+                input_dim=input_dim,
                 static_dim=self.static_dim,
                 hidden_dim=self.hidden_dim,
                 **kwargs,
@@ -930,7 +969,7 @@ class ConCare(BaseModel):
         self.fc = nn.Linear(
             len(self.dynamic_feature_keys) * self.hidden_dim, output_size
         )
-    
+
     def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
         """Forward propagation.
 
@@ -944,11 +983,9 @@ class ConCare(BaseModel):
                 - y_prob: a tensor representing the predicted probabilities.
                 - y_true: a tensor representing the true labels.
                 - logit: a tensor representing the logits.
-                """
+        """
         patient_emb = []
         decov_loss = 0
-
-        embedded, masks = self.embedding_model(kwargs, output_mask=True)
 
         # Get static features if available
         static = None
@@ -962,8 +999,22 @@ class ConCare(BaseModel):
                 )
 
         for feature_key in self.dynamic_feature_keys:
-            x = embedded[feature_key]
-            mask = masks[feature_key]
+            raw = kwargs[feature_key]
+            if self._proc_types[feature_key] == "sequence":
+                # (batch, T) long → (batch, T, 1) float; PAD=0
+                mask = (raw != 0).float().to(self.device)
+                x = raw.float().unsqueeze(-1).to(self.device)
+            elif self._proc_types[feature_key] == "nested_sequence":
+                # raw: (batch, visits, max_codes) long
+                # embed each code to scalar, sum-pool over codes per visit
+                emb = self._embeddings[feature_key](raw.to(self.device))
+                # emb: (batch, visits, max_codes, 1)
+                x = emb.sum(dim=2).float()  # (batch, visits, 1)
+                mask = (raw != 0).any(dim=-1).float().to(self.device)
+            else:
+                # (batch, T, F) → mask on time axis (all-zero rows are padding)
+                mask = (raw.sum(-1) != 0).float().to(self.device)
+                x = raw.float().to(self.device)
 
             x, decov = self.concare[feature_key](x, static=static, mask=mask)
             patient_emb.append(x)
