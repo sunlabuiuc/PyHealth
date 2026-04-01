@@ -80,6 +80,7 @@ from .splitter import (
     split_by_visit,
     split_by_visit_conformal,
 )
+from .eeg_gcnn import EEGGCNNDataset
 from .tuab import TUABDataset
 from .tuev import TUEVDataset
 from .utils import (
