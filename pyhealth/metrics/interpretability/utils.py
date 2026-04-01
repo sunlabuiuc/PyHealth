@@ -61,8 +61,10 @@ def get_model_predictions(
         if classifier_type == "binary":
             # For binary: class 1 if P(class=1) >= threshold, else 0
             pred_classes = (y_prob.squeeze(-1) >= positive_threshold).long() if pred_classes is None else pred_classes
-            # For binary, class_probs is P(class=1)
-            class_probs = y_prob.squeeze(-1)
+            # For binary, class_probs is P(predicted_class)
+            # class 1: P(class=1), class 0: 1 - P(class=1)
+            p1 = y_prob.squeeze(-1)
+            class_probs = torch.where(pred_classes == 1, p1, 1 - p1)
         else:
             # For multiclass/multilabel: argmax
             pred_classes = torch.argmax(y_prob, dim=-1) if pred_classes is None else pred_classes
@@ -94,8 +96,8 @@ def create_validity_mask(
     batch_size = y_prob.shape[0]
 
     if classifier_type == "binary":
-        # For binary: valid = P(class=1) >= threshold
-        return y_prob.squeeze(-1) >= positive_threshold
+        # All samples are valid (evaluate both positive and negative predictions)
+        return torch.ones(batch_size, dtype=torch.bool, device=y_prob.device)
     else:
         # For multiclass/multilabel: all samples are valid
         return torch.ones(batch_size, dtype=torch.bool, device=y_prob.device)

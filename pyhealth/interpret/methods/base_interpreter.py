@@ -10,7 +10,7 @@ map attributions back to specific input modalities.
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict, cast
+from typing import Dict, Optional, cast
 
 import torch
 import torch.nn as nn
@@ -138,8 +138,12 @@ class BaseInterpreter(ABC):
                   by the task's ``input_schema``.
                 - Label key (optional): Ground truth labels, may be needed
                   by some methods for loss computation.
-                - ``class_index`` (optional): Target class for attribution.
-                  If not provided, uses the predicted class.
+                - ``target_class_idx`` (Optional[int]): Target class for
+                  attribution. For binary classification (single logit
+                  output), this is a no-op because there is only one
+                  output. For multi-class or multi-label classification,
+                  specifies which class index to explain. If not provided,
+                  uses the argmax of logits.
                 - Additional method-specific parameters (e.g., ``baseline``,
                   ``steps``, ``interpolate``).
 
@@ -207,6 +211,42 @@ class BaseInterpreter(ABC):
         """
         pass
     
+    def _resolve_target_indices(
+        self,
+        logits: torch.Tensor,
+        target_class_idx: Optional[int],
+    ) -> torch.Tensor:
+        """Resolve target class indices for attribution.
+
+        Returns a ``[batch]`` tensor of class indices identifying which
+        logit to explain.  All prediction modes share this single code
+        path:
+
+        * **Binary** (single logit): ``target_class_idx`` is a no-op
+          because there is only one output.  Always returns zeros
+          (index 0).
+        * **Multi-class / multi-label**: uses ``target_class_idx`` if
+          given, otherwise the argmax of logits.
+
+        Args:
+            logits: Model output logits, shape ``[batch, num_classes]``.
+            target_class_idx: Optional user-specified class index.
+
+        Returns:
+            ``torch.LongTensor`` of shape ``[batch]``.
+        """
+        if logits.shape[-1] == 1:
+            # Single logit output — nothing to select.
+            return torch.zeros(
+                logits.shape[0], device=logits.device, dtype=torch.long,
+            )
+        if target_class_idx is not None:
+            return torch.full(
+                (logits.shape[0],), target_class_idx,
+                device=logits.device, dtype=torch.long,
+            )
+        return logits.argmax(dim=-1)
+
     def _prediction_mode(self) -> str:
         """Resolve the prediction mode from the model. 
         
