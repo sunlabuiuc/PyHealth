@@ -113,8 +113,9 @@ class Evaluator:
                 Example: {'comprehensiveness': {10: tensor(...), 20: ...}}
 
         Note:
-            For binary classifiers, valid_mask indicates samples with
-            P(class=1) >= threshold. Use: scores[valid_mask].mean()
+            For binary classifiers, all samples are evaluated
+            (both positive and negative predictions).
+            Use: scores[valid_mask].mean()
 
         Examples:
             >>> # Default: averaged scores
@@ -245,13 +246,15 @@ class Evaluator:
             )
 
             # Accumulate statistics incrementally (no tensor storage)
+            first_metric = metrics[0]
+            batch_size = len(batch_results[first_metric][0])
+            total_samples += batch_size
+
             for metric_name in metrics:
                 scores, valid_mask = batch_results[metric_name]
 
                 # Track statistics efficiently
-                batch_size = len(scores)
                 num_valid = valid_mask.sum().item()
-                total_samples += batch_size
                 total_valid[metric_name] += num_valid
 
                 # Update running sum (valid scores only)
@@ -325,8 +328,8 @@ class Evaluator:
                     print("    * Important features not correctly identified")
                     print("    * Consider checking attribution method")
 
-        valid_ratio = sum(total_valid.values()) / (len(metrics) * total_samples)
-        if valid_ratio < 0.1:
+        valid_ratio = sum(total_valid.values()) / (len(metrics) * total_samples) if total_samples > 0 else 0
+        if valid_ratio < 0.1 and total_samples > 0:
             print(f"\n⚠ WARNING: Only {valid_ratio*100:.1f}% valid samples")
             print("  - Most predictions are negative class")
             print("  - Consider:")
