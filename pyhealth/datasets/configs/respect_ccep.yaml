@@ -1,0 +1,19 @@
+version: "1.0"
+tables:
+  respectccep:
+    file_path: "respect_ccep_metadata-pyhealth.csv"
+    patient_id: "participant_id"
+    timestamp: null
+    attributes:
+      # Patient demographics from participants.tsv
+      - "session"
+      - "age"
+      - "sex"
+      # BIDS entity IDs carried into the flattened metadata index
+      - "session_id"
+      - "run_id"
+      # File pointers for the task layer to dereference raw BIDS files
+      - "events_file_path"
+      - "channels_file_path"
+      - "electrodes_file_path"
+      - "vhdr_file_path"
