@@ -6,13 +6,13 @@ Establish a reproducible E2E (End-to-end) test path for unified multimodal embed
 with both MLP and RNN heads:
 
 1. ingest MIMIC-IV data,
-2. construct multimodal task samples (MultimodalMortalityHorizonMIMIC4),
+2. construct multimodal task samples (ClinicalNotesICDLabsMIMIC4),
 3. train/infer with UnifiedMultimodalEmbeddingModel,
 4. emit concrete prediction rows.
 
 Task
 ----
-pyhealth.tasks.MultimodalMortalityHorizonMIMIC4
+pyhealth.tasks.ClinicalNotesICDLabsMIMIC4
 
 - Observation window: configurable (default 24h)
 - Prediction horizon: configurable (default 12h)
@@ -26,7 +26,7 @@ Criteria
 -------------------
 For each model head (MLP and RNN):
 
-1. dataset.set_task(MultimodalMortalityHorizonMIMIC4(...)) returns non-empty samples.
+1. dataset.set_task(ClinicalNotesICDLabsMIMIC4(...)) returns non-empty samples.
 2. A forward pass on a batch returns y_prob and loss.
 3. Inference returns aligned arrays of patient_id, y_true, y_prob.
 4. Predictions are written to CSV with one row per sample.
@@ -87,7 +87,7 @@ from pyhealth.datasets import (
     split_by_sample,
 )
 from pyhealth.models import MLP, RNN, UnifiedMultimodalEmbeddingModel
-from pyhealth.tasks import MultimodalMortalityHorizonMIMIC4
+from pyhealth.tasks import ClinicalNotesICDLabsMIMIC4
 from pyhealth.trainer import Trainer
 
 
@@ -172,14 +172,7 @@ def _write_predictions(
 def run(args: argparse.Namespace) -> Path:
     base_dataset = _build_base_dataset(args)
 
-    task = MultimodalMortalityHorizonMIMIC4(
-        observation_window_hours=args.observation_window_hours,
-        prediction_horizon_hours=args.prediction_horizon_hours,
-        include_notes=args.include_notes,
-        tokenizer_model=args.tokenizer_model,
-        min_age=args.min_age,
-        padding=args.padding,
-    )
+    task = ClinicalNotesICDLabsMIMIC4(window_hours=args.observation_window_hours)
     sample_dataset = base_dataset.set_task(task, num_workers=args.num_workers)
 
     if len(sample_dataset) == 0:
@@ -248,12 +241,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--bidirectional", action="store_true")
 
     parser.add_argument("--observation-window-hours", type=int, default=24)
-    parser.add_argument("--prediction-horizon-hours", type=int, default=12)
-    parser.add_argument("--min-age", type=int, default=18)
-    parser.add_argument("--padding", type=int, default=0)
-
     parser.add_argument("--include-notes", action="store_true")
-    parser.add_argument("--tokenizer-model", type=str, default="bert-base-uncased")
 
     parser.add_argument("--epochs", type=int, default=1)
     parser.add_argument("--batch-size", type=int, default=32)
