@@ -19,14 +19,19 @@ NMS (Non-Maximum Suppression) functions for Retina U-Net.
 Embedded here to remove external dependencies on cuda_functions.
 """
 
-import numpy as np
-import torch
 import logging
 from dataclasses import dataclass, fields
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Sequence, cast
+
+import numpy as np
+import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils
+
+from ..datasets import SampleDataset
+from ..processors import ImageProcessor, TensorProcessor
+from .base_model import BaseModel
 
 
 ############################################################
@@ -1056,16 +1061,12 @@ def get_results(cf, img_shape, detections, seg_logits, box_results_list=None):
 ############################################################
 
 
-class net(nn.Module):
+class RetinaUNetCore(nn.Module):
+    """Retina U-Net feature extractor and detection heads."""
 
-
-    def __init__(self, cf=None, logger=None, **kwargs):
-
-        super(net, self).__init__()
-        if cf is None:
-            self.cf = RetinaUNetParams.from_kwargs(**kwargs)
-        else:
-            self.cf = cf
+    def __init__(self, cf: RetinaUNetParams, logger: Optional[logging.Logger] = None):
+        super().__init__()
+        self.cf = cf
 
         if logger is None:
             logger = logging.getLogger(__name__)
@@ -1076,333 +1077,473 @@ class net(nn.Module):
 
         self.build()
         if self.cf.weight_init is not None:
-            logger.info("using pytorch weight init of type {}".format(self.cf.weight_init))
+            self.logger.info("using pytorch weight init of type %s", self.cf.weight_init)
             initialize_weights(self)
         else:
-            logger.info("using default pytorch weight init")
+            self.logger.info("using default pytorch weight init")
 
     def build(self):
-        """
-        Build Retina Net architecture.
-        """
-
-        # Image size must be dividable by 2 multiple times.
+        """Builds the Retina U-Net backbone and task heads."""
         h, w = self.cf.patch_size[:2]
         if h / 2 ** 5 != int(h / 2 ** 5) or w / 2 ** 5 != int(w / 2 ** 5):
-            raise Exception("Image size must be dividable by 2 at least 5 times "
-                            "to avoid fractions when downscaling and upscaling."
-                            "For example, use 256, 320, 384, 448, 512, ... etc. ")
+            raise ValueError(
+                "Image size must be divisible by 2 at least 5 times. "
+                "Use sizes such as 64, 96, 128, 160, 192, 224, 256, 320, 384, 448, or 512."
+            )
 
-        # instanciate abstract multi dimensional conv class and backbone model.
         conv = NDConvGenerator(self.cf.dim)
-        backbone_class = getattr(self.cf, 'backbone_class', None) or FPN
+        backbone_class = getattr(self.cf, "backbone_class", None) or FPN
 
-        # build Anchors, FPN, Classifier / Bbox-Regressor -head
         self.np_anchors = generate_pyramid_anchors(self.logger, self.cf)
-        device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        self.anchors = torch.from_numpy(self.np_anchors).float().to(device)
+        self.register_buffer("anchors", torch.from_numpy(self.np_anchors).float(), persistent=False)
         self.Fpn = backbone_class(self.cf, conv, operate_stride1=self.cf.operate_stride1)
         self.Classifier = Classifier(self.cf, conv)
         self.BBRegressor = BBRegressor(self.cf, conv)
-        self.final_conv = conv(self.cf.end_filts, self.cf.num_seg_classes, ks=1, pad=0, norm=None, relu=None)
+        self.final_conv = conv(
+            self.cf.end_filts,
+            self.cf.num_seg_classes,
+            ks=1,
+            pad=0,
+            norm=None,
+            relu=None,
+        )
 
-
-    def train_forward(self, batch, **kwargs):
-        """
-        train method (also used for validation monitoring). wrapper around forward pass of network. prepares input data
-        for processing, computes losses, and stores outputs in a dictionary.
-        :param batch: dictionary containing 'data', 'seg', etc.
-        :return: results_dict: dictionary with keys:
-                'boxes': list over batch elements. each batch element is a list of boxes. each box is a dictionary:
-                        [[{box_0}, ... {box_n}], [{box_0}, ... {box_n}], ...]
-                'seg_preds': pixelwise segmentation output (b, c, y, x, (z)) with values [0, .., n_classes].
-                'monitor_values': dict of values to be monitored.
-        """
-        img = batch['data']
-        gt_class_ids = batch['roi_labels']
-        gt_boxes = batch['bb_target']
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-        var_seg_ohe = torch.FloatTensor(get_one_hot_encoding(batch['seg'], self.cf.num_seg_classes)).to(device)
-        var_seg = torch.LongTensor(batch['seg']).to(device)
-
-        img = torch.from_numpy(img).float().to(device)
-        batch_class_loss = torch.FloatTensor([0]).to(device)
-        batch_bbox_loss = torch.FloatTensor([0]).to(device)
-
-        # list of output boxes for monitoring/plotting. each element is a list of boxes per batch element.
-        box_results_list = [[] for _ in range(img.shape[0])]
-        detections, class_logits, pred_deltas, seg_logits = self.forward(img)
-
-        # loop over batch
-        for b in range(img.shape[0]):
-
-            # add gt boxes to results dict for monitoring.
-            if len(gt_boxes[b]) > 0:
-                for ix in range(len(gt_boxes[b])):
-                    box_results_list[b].append({'box_coords': batch['bb_target'][b][ix],
-                                                'box_label': batch['roi_labels'][b][ix], 'box_type': 'gt'})
-
-                # match gt boxes with anchors to generate targets.
-                anchor_class_match, anchor_target_deltas = gt_anchor_matching(
-                    self.cf, self.np_anchors, gt_boxes[b], gt_class_ids[b])
-
-                # add positive anchors used for loss to results_dict for monitoring.
-                pos_anchors = clip_boxes_numpy(
-                    self.np_anchors[np.argwhere(anchor_class_match > 0)][:, 0], img.shape[2:])
-                for p in pos_anchors:
-                    box_results_list[b].append({'box_coords': p, 'box_type': 'pos_anchor'})
-
-            else:
-                anchor_class_match = np.array([-1]*self.np_anchors.shape[0])
-                anchor_target_deltas = np.array([0])
-
-            anchor_class_match = torch.from_numpy(anchor_class_match).to(device)
-            anchor_target_deltas = torch.from_numpy(anchor_target_deltas).float().to(device)
-
-            # compute losses.
-            class_loss, neg_anchor_ix = compute_class_loss(anchor_class_match, class_logits[b])
-            bbox_loss = compute_bbox_loss(anchor_target_deltas, pred_deltas[b], anchor_class_match)
-
-            # add negative anchors used for loss to results_dict for monitoring.
-            neg_anchors = clip_boxes_numpy(
-                self.np_anchors[np.argwhere(anchor_class_match == -1)][0, neg_anchor_ix], img.shape[2:])
-            for n in neg_anchors:
-                box_results_list[b].append({'box_coords': n, 'box_type': 'neg_anchor'})
-
-            batch_class_loss += class_loss / img.shape[0]
-            batch_bbox_loss += bbox_loss / img.shape[0]
-
-        results_dict = get_results(self.cf, img.shape, detections, seg_logits, box_results_list)
-        seg_loss_dice = 1 - batch_dice(F.softmax(seg_logits, dim=1), var_seg_ohe)
-        seg_loss_ce = F.cross_entropy(seg_logits, var_seg[:, 0])
-        loss = batch_class_loss + batch_bbox_loss + (seg_loss_dice + seg_loss_ce) / 2
-        results_dict['torch_loss'] = loss
-        results_dict['monitor_values'] = {'loss': loss.item(), 'class_loss': batch_class_loss.item()}
-        results_dict['logger_string'] = \
-            "loss: {0:.2f}, class: {1:.2f}, bbox: {2:.2f}, seg dice: {3:.3f}, seg ce: {4:.3f}, mean pix. pr.: {5:.5f}"\
-            .format(loss.item(), batch_class_loss.item(), batch_bbox_loss.item(), seg_loss_dice.item(),
-                    seg_loss_ce.item(), np.mean(results_dict['seg_preds']))
-
-        return results_dict
-
-
-    def test_forward(self, batch, **kwargs):
-        """
-        test method. wrapper around forward pass of network without usage of any ground truth information.
-        prepares input data for processing and stores outputs in a dictionary.
-        :param batch: dictionary containing 'data'
-        :return: results_dict: dictionary with keys:
-               'boxes': list over batch elements. each batch element is a list of boxes. each box is a dictionary:
-                       [[{box_0}, ... {box_n}], [{box_0}, ... {box_n}], ...]
-               'seg_preds': pixel-wise class predictions (b, 1, y, x, (z)) with values [0, ..., n_classes] for
-                            retina_unet and dummy array for retina_net.
-        """
-        img = batch['data']
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        img = torch.from_numpy(img).float().to(device)
-        detections, _, _, seg_logits = self.forward(img)
-        results_dict = get_results(self.cf, img.shape, detections, seg_logits)
-        return results_dict
-
-
-    def forward(self, img):
-        """
-        forward pass of the model.
-        :param img: input img (b, c, y, x, (z)).
-        :return: rpn_pred_logits: (b, n_anchors, 2)
-        :return: rpn_pred_deltas: (b, n_anchors, (y, x, (z), log(h), log(w), (log(d))))
-        :return: batch_proposal_boxes: (b, n_proposals, (y1, x1, y2, x2, (z1), (z2), batch_ix)) only for monitoring/plotting.
-        :return: detections: (n_final_detections, (y1, x1, y2, x2, (z1), (z2), batch_ix, pred_class_id, pred_score)
-        :return: detection_masks: (n_final_detections, n_classes, y, x, (z)) raw molded masks as returned by mask-head.
-        """
-        # Feature extraction
+    def forward(self, img: torch.Tensor):
+        """Runs the Retina U-Net core on a batch of images."""
         fpn_outs = self.Fpn(img)
         seg_logits = self.final_conv(fpn_outs[0])
         selected_fmaps = [fpn_outs[i] for i in self.cf.pyramid_levels]
 
-        # Loop through pyramid layers
-        class_layer_outputs, bb_reg_layer_outputs = [], []  # list of lists
-        for p in selected_fmaps:
-            class_layer_outputs.append(self.Classifier(p))
-            bb_reg_layer_outputs.append(self.BBRegressor(p))
+        class_layer_outputs, bb_reg_layer_outputs = [], []
+        for feature_map in selected_fmaps:
+            class_layer_outputs.append(self.Classifier(feature_map))
+            bb_reg_layer_outputs.append(self.BBRegressor(feature_map))
 
-        # Concatenate layer outputs
-        # Convert from list of lists of level outputs to list of lists
-        # of outputs across levels.
-        # e.g. [[a1, b1, c1], [a2, b2, c2]] => [[a1, a2], [b1, b2], [c1, c2]]
         class_logits = list(zip(*class_layer_outputs))
-        class_logits = [torch.cat(list(o), dim=1) for o in class_logits][0]
+        class_logits = [torch.cat(list(outputs), dim=1) for outputs in class_logits][0]
         bb_outputs = list(zip(*bb_reg_layer_outputs))
-        bb_outputs = [torch.cat(list(o), dim=1) for o in bb_outputs][0]
+        bb_outputs = [torch.cat(list(outputs), dim=1) for outputs in bb_outputs][0]
 
-        # merge batch_dimension and store info in batch_ixs for re-allocation.
-        device = class_logits.device
-        batch_ixs = torch.arange(class_logits.shape[0]).unsqueeze(1).repeat(1, class_logits.shape[1]).view(-1).to(device)
-        flat_class_softmax = F.softmax(class_logits.view(-1, class_logits.shape[-1]), 1)
+        batch_ixs = (
+            torch.arange(class_logits.shape[0], device=class_logits.device)
+            .unsqueeze(1)
+            .repeat(1, class_logits.shape[1])
+            .view(-1)
+        )
+        flat_class_softmax = F.softmax(class_logits.view(-1, class_logits.shape[-1]), dim=1)
         flat_bb_outputs = bb_outputs.view(-1, bb_outputs.shape[-1])
-        detections = refine_detections(self.anchors, flat_class_softmax, flat_bb_outputs, batch_ixs, self.cf)
+        detections = refine_detections(
+            self.anchors,
+            flat_class_softmax,
+            flat_bb_outputs,
+            batch_ixs,
+            self.cf,
+        )
 
         return detections, class_logits, bb_outputs, seg_logits
 
 
-def smoke_test(batch_size=1, channels=1, height=512, width=512):
-    """Run a minimal forward pass to verify this module works standalone."""
-    model = net(
-        n_channels=channels,
-        patch_size=(height, width),
-        num_seg_classes=2,
-        head_classes=2,
-        dim=2,
-    )
-    model.eval()
+class RetinaUNet(BaseModel):
+    """Retina U-Net model following the standard PyHealth model API.
 
-    dummy = np.random.rand(batch_size, channels, height, width).astype("float32")
-    with torch.no_grad():
-        out = model.test_forward({"data": dummy})
+    This wrapper keeps the Retina U-Net detection and segmentation heads while
+    exposing the same dataset-driven initialization and `forward(**kwargs)`
+    interface used by models such as RNN, CNN, and StageNet.
 
-    print("Smoke test OK")
-    print("boxes entries:", len(out["boxes"]))
-    print("seg_preds shape:", out["seg_preds"].shape)
-
-
-def train_smoke_test(batch_size=1, channels=1, height=512, width=512):
-    """Run a minimal training forward pass to verify train path works standalone."""
-    model = net(
-        n_channels=channels,
-        patch_size=(height, width),
-        num_seg_classes=2,
-        head_classes=2,
-        dim=2,
-    )
-    model.train()
-
-    data = np.random.rand(batch_size, channels, height, width).astype("float32")
-    seg_h, seg_w = height // 4, width // 4
-    seg = np.zeros((batch_size, 1, seg_h, seg_w), dtype="int64")
-
-    # Add one simple foreground square per image for synthetic supervision.
-    y1, x1, y2, x2 = height // 4, width // 4, height // 2, width // 2
-    sy1, sx1, sy2, sx2 = seg_h // 4, seg_w // 4, seg_h // 2, seg_w // 2
-    seg[:, 0, sy1:sy2, sx1:sx2] = 1
-
-    bb_target = [np.array([[y1, x1, y2, x2]], dtype="float32") for _ in range(batch_size)]
-    roi_labels = [np.array([1], dtype="int64") for _ in range(batch_size)]
-
-    batch = {
-        "data": data,
-        "seg": seg,
-        "bb_target": bb_target,
-        "roi_labels": roi_labels,
-    }
-
-    out = model.train_forward(batch)
-    print("Train smoke test OK")
-    print("loss:", float(out["torch_loss"].item()))
-    print("logger:", out["logger_string"])
-
-
-def example_train_method(
-    steps=5,
-    batch_size=1,
-    channels=1,
-    height=512,
-    width=512,
-    lr=1e-4,
-    data=None,
-    seg=None,
-    bb_target=None,
-    roi_labels=None,
-):
-    """Example end-to-end training loop on dummy or user-provided arrays.
-
-    Expected optional user-provided inputs:
-    - data: np.ndarray [B, C, H, W], float32
-    - seg: np.ndarray [B, 1, H/4, W/4] (or [B, 1, H, W], auto-resized), int64
-    - bb_target: list length B, each element np.ndarray [N, 4] in y1, x1, y2, x2
-    - roi_labels: list length B, each element np.ndarray [N] class ids
+    Args:
+        dataset: SampleDataset containing one image-like feature.
+        feature_key: Optional image feature to use. Defaults to the first image
+            feature, or the first tensor feature if no image processor is found.
+        seg_label_key: Optional segmentation-mask label field.
+        box_label_key: Optional bounding-box label field.
+        class_label_key: Optional detection-class label field.
+        logger: Optional logger for anchor and backbone diagnostics.
+        **kwargs: Retina U-Net hyperparameters consumed by RetinaUNetParams.
     """
-    model = net(
-        n_channels=channels,
-        patch_size=(height, width),
-        num_seg_classes=2,
-        head_classes=2,
-        dim=2,
-    )
-    model.train()
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
-    if data is None:
-        data = np.random.rand(batch_size, channels, height, width).astype("float32")
+    def __init__(
+        self,
+        dataset: SampleDataset,
+        feature_key: Optional[str] = None,
+        seg_label_key: Optional[str] = None,
+        box_label_key: Optional[str] = None,
+        class_label_key: Optional[str] = None,
+        logger: Optional[logging.Logger] = None,
+        **kwargs,
+    ) -> None:
+        super().__init__(dataset=dataset)
 
-    seg_h, seg_w = height // 4, width // 4
-    if seg is None:
-        seg = np.zeros((batch_size, 1, seg_h, seg_w), dtype="int64")
-        sy1, sx1, sy2, sx2 = seg_h // 4, seg_w // 4, seg_h // 2, seg_w // 2
-        seg[:, 0, sy1:sy2, sx1:sx2] = 1
-    elif seg.shape[-2:] == (height, width):
-        # If full-res labels are provided, resize to segmentation head resolution.
-        seg_resized = []
-        for b in range(seg.shape[0]):
-            s = torch.from_numpy(seg[b:b + 1].astype("float32"))
-            s = F.interpolate(s, size=(seg_h, seg_w), mode="nearest")
-            seg_resized.append(s.numpy())
-        seg = np.concatenate(seg_resized, axis=0).astype("int64")
+        self.feature_key = self._select_feature_key(feature_key)
+        self.seg_label_key = self._select_label_key(
+            explicit_key=seg_label_key,
+            candidates=("seg", "mask", "label"),
+            exclude_keys=(),
+        )
+        self.box_label_key = self._select_label_key(
+            explicit_key=box_label_key,
+            candidates=("bbox", "box", "bb_target"),
+            exclude_keys=(self.seg_label_key,),
+        )
+        self.class_label_key = self._select_label_key(
+            explicit_key=class_label_key,
+            candidates=("roi", "class", "label"),
+            exclude_keys=(self.seg_label_key, self.box_label_key),
+        )
+        self.label_key = self.seg_label_key
+        if self.label_key is not None and self.label_key in self.dataset.output_schema:
+            self.mode = self.dataset.output_schema[self.label_key]
 
-    y1, x1, y2, x2 = height // 4, width // 4, height // 2, width // 2
-    if bb_target is None:
-        bb_target = [np.array([[y1, x1, y2, x2]], dtype="float32") for _ in range(batch_size)]
-    if roi_labels is None:
-        roi_labels = [np.array([1], dtype="int64") for _ in range(batch_size)]
+        if logger is None:
+            logger = logging.getLogger(__name__)
+            if not logger.handlers:
+                logger.addHandler(logging.StreamHandler())
+            logger.setLevel(logging.INFO)
+        self.logger = logger
 
-    losses = []
-    for step in range(steps):
-        batch = {
-            "data": data,
-            "seg": seg,
-            "bb_target": bb_target,
-            "roi_labels": roi_labels,
+        model_kwargs = dict(kwargs)
+        model_kwargs.setdefault("n_channels", self._infer_input_channels())
+        model_kwargs.setdefault("patch_size", self._infer_patch_size())
+        model_kwargs.setdefault("window", self._infer_window(model_kwargs["patch_size"]))
+        self.cf = RetinaUNetParams.from_kwargs(**model_kwargs)
+        self.core = RetinaUNetCore(cf=self.cf, logger=self.logger)
+
+    def _select_feature_key(self, explicit_key: Optional[str]) -> str:
+        if explicit_key is not None:
+            if explicit_key not in self.feature_keys:
+                raise ValueError(f"Unknown feature key: {explicit_key}")
+            return explicit_key
+
+        for key, processor in self.dataset.input_processors.items():
+            if isinstance(processor, ImageProcessor):
+                return key
+        for key, processor in self.dataset.input_processors.items():
+            if isinstance(processor, TensorProcessor):
+                return key
+        raise ValueError("RetinaUNet requires an image or tensor feature in the dataset.")
+
+    def _select_label_key(
+        self,
+        explicit_key: Optional[str],
+        candidates: Sequence[str],
+        exclude_keys: Sequence[Optional[str]],
+    ) -> Optional[str]:
+        excluded = {key for key in exclude_keys if key is not None}
+        if explicit_key is not None:
+            return explicit_key
+
+        for key in self.label_keys:
+            if key in excluded:
+                continue
+            lowered = key.lower()
+            if any(candidate in lowered for candidate in candidates):
+                return key
+
+        for key in self.label_keys:
+            if key not in excluded:
+                return key if any(candidate == "label" for candidate in candidates) else None
+        return None
+
+    def _get_sample_value(self, field_name: str) -> Optional[torch.Tensor]:
+        for sample in self.dataset:
+            if field_name not in sample or sample[field_name] is None:
+                continue
+            value = sample[field_name]
+            if isinstance(value, tuple):
+                processor = self.dataset.input_processors[field_name]
+                schema = processor.schema()
+                if "value" not in schema:
+                    continue
+                value = value[schema.index("value")]
+            if isinstance(value, torch.Tensor):
+                return value
+            return torch.as_tensor(value)
+        return None
+
+    def _infer_input_channels(self) -> int:
+        processor = self.dataset.input_processors[self.feature_key]
+        if isinstance(processor, ImageProcessor):
+            mode = getattr(processor, "mode", None)
+            if mode == "L":
+                return 1
+            if mode == "RGBA":
+                return 4
+            if mode is not None:
+                return 3
+
+        sample_value = self._get_sample_value(self.feature_key)
+        if sample_value is None or sample_value.dim() < 3:
+            raise ValueError(
+                f"Unable to infer input channels for feature '{self.feature_key}'."
+            )
+        return int(sample_value.shape[0])
+
+    def _infer_patch_size(self) -> tuple[int, int]:
+        processor = self.dataset.input_processors[self.feature_key]
+        if isinstance(processor, ImageProcessor) and processor.image_size is not None:
+            return (processor.image_size, processor.image_size)
+
+        sample_value = self._get_sample_value(self.feature_key)
+        if sample_value is None or sample_value.dim() < 3:
+            raise ValueError(
+                f"Unable to infer patch size for feature '{self.feature_key}'."
+            )
+        height, width = sample_value.shape[-2:]
+        return (int(height), int(width))
+
+    @staticmethod
+    def _infer_window(patch_size: tuple[int, int]) -> tuple[int, int, int, int]:
+        height, width = patch_size[:2]
+        return (0, 0, height - 1, width - 1)
+
+    def _extract_value(self, field_name: str, feature: Any) -> torch.Tensor:
+        if isinstance(feature, torch.Tensor):
+            return feature
+
+        processor = self.dataset.input_processors.get(field_name)
+        if processor is None:
+            return torch.as_tensor(feature)
+
+        schema = processor.schema()
+        if "value" not in schema:
+            raise ValueError(f"Feature '{field_name}' must contain 'value' in the schema.")
+        if not isinstance(feature, Sequence):
+            raise ValueError(f"Feature '{field_name}' must be a tensor or tuple-like value.")
+        return cast(torch.Tensor, feature[schema.index("value")])
+
+    def _prepare_image_tensor(self, feature: Any) -> torch.Tensor:
+        image = self._extract_value(self.feature_key, feature)
+        if not isinstance(image, torch.Tensor):
+            image = torch.as_tensor(image)
+        return image.to(self.device).float()
+
+    def _prepare_segmentation_target(
+        self,
+        feature: Any,
+        target_size: Sequence[int],
+    ) -> torch.Tensor:
+        target = self._extract_value(self.seg_label_key, feature)
+        if not isinstance(target, torch.Tensor):
+            target = torch.as_tensor(target)
+        target = target.to(self.device)
+
+        if target.dim() == self.cf.dim + 1:
+            target = target.unsqueeze(1)
+        elif target.dim() == self.cf.dim + 2 and target.shape[1] != 1:
+            if target.is_floating_point():
+                target = target.argmax(dim=1, keepdim=True)
+            else:
+                raise ValueError(
+                    f"Expected single-channel segmentation targets, got shape {tuple(target.shape)}"
+                )
+
+        if tuple(target.shape[-self.cf.dim:]) != tuple(target_size):
+            target = F.interpolate(target.float(), size=tuple(target_size), mode="nearest")
+
+        return target.long()
+
+    def _prepare_label_list(self, label_value: Any) -> list[np.ndarray]:
+        if isinstance(label_value, torch.Tensor):
+            if label_value.dim() == 0:
+                return [label_value.detach().cpu().numpy().reshape(1)]
+            return [row.detach().cpu().numpy() for row in label_value]
+
+        if isinstance(label_value, np.ndarray):
+            if label_value.ndim == 0:
+                return [label_value.reshape(1)]
+            if label_value.ndim == 1:
+                return [label_value]
+            return [label_value[i] for i in range(label_value.shape[0])]
+
+        if isinstance(label_value, Sequence) and not isinstance(label_value, (str, bytes)):
+            prepared = []
+            for item in label_value:
+                if isinstance(item, torch.Tensor):
+                    prepared.append(item.detach().cpu().numpy())
+                else:
+                    prepared.append(np.asarray(item))
+            return prepared
+
+        return [np.asarray(label_value)]
+
+    def _prepare_detection_targets(self, kwargs: Dict[str, Any]) -> tuple[Optional[list[np.ndarray]], Optional[list[np.ndarray]]]:
+        if self.box_label_key is None or self.class_label_key is None:
+            return None, None
+        if self.box_label_key not in kwargs or self.class_label_key not in kwargs:
+            return None, None
+
+        boxes = self._prepare_label_list(kwargs[self.box_label_key])
+        classes = self._prepare_label_list(kwargs[self.class_label_key])
+        return boxes, classes
+
+    def _prepare_segmentation_prob(self, seg_logits: torch.Tensor) -> torch.Tensor:
+        if seg_logits.shape[1] == 1:
+            return torch.sigmoid(seg_logits)
+        return torch.softmax(seg_logits, dim=1)
+
+    def _prepare_segmentation_pred(self, seg_logits: torch.Tensor) -> torch.Tensor:
+        if seg_logits.shape[1] == 1:
+            return (torch.sigmoid(seg_logits) >= 0.5).long()
+        return torch.softmax(seg_logits, dim=1).argmax(dim=1, keepdim=True)
+
+    def _compute_detection_losses(
+        self,
+        img: torch.Tensor,
+        class_logits: torch.Tensor,
+        pred_deltas: torch.Tensor,
+        gt_boxes: Optional[list[np.ndarray]],
+        gt_class_ids: Optional[list[np.ndarray]],
+    ) -> tuple[torch.Tensor, torch.Tensor, list[list[dict[str, Any]]]]:
+        batch_size = img.shape[0]
+        batch_class_loss = torch.zeros(1, device=self.device)
+        batch_bbox_loss = torch.zeros(1, device=self.device)
+        box_results_list = [[] for _ in range(batch_size)]
+
+        if gt_boxes is None or gt_class_ids is None:
+            return batch_class_loss, batch_bbox_loss, box_results_list
+
+        for batch_index in range(batch_size):
+            current_boxes = np.asarray(gt_boxes[batch_index])
+            current_classes = np.asarray(gt_class_ids[batch_index])
+
+            if current_boxes.size == 0:
+                anchor_class_match = np.array([-1] * self.core.np_anchors.shape[0])
+                anchor_target_deltas = np.zeros((1, self.cf.dim * 2), dtype=np.float32)
+            else:
+                current_boxes = np.atleast_2d(current_boxes).astype(np.float32)
+                current_classes = np.atleast_1d(current_classes).astype(np.int64)
+
+                for box_coords, class_id in zip(current_boxes, current_classes):
+                    box_results_list[batch_index].append(
+                        {
+                            "box_coords": box_coords,
+                            "box_label": int(class_id),
+                            "box_type": "gt",
+                        }
+                    )
+
+                anchor_class_match, anchor_target_deltas = gt_anchor_matching(
+                    self.cf,
+                    self.core.np_anchors,
+                    current_boxes,
+                    current_classes,
+                )
+
+                pos_anchors = clip_boxes_numpy(
+                    self.core.np_anchors[np.argwhere(anchor_class_match > 0)][:, 0],
+                    img.shape[2:],
+                )
+                for anchor in pos_anchors:
+                    box_results_list[batch_index].append(
+                        {"box_coords": anchor, "box_type": "pos_anchor"}
+                    )
+
+            anchor_class_match_tensor = torch.from_numpy(anchor_class_match).to(self.device)
+            anchor_target_deltas_tensor = torch.from_numpy(anchor_target_deltas).float().to(self.device)
+
+            class_loss, neg_anchor_ix = compute_class_loss(
+                anchor_class_match_tensor,
+                class_logits[batch_index],
+            )
+            bbox_loss = compute_bbox_loss(
+                anchor_target_deltas_tensor,
+                pred_deltas[batch_index],
+                anchor_class_match_tensor,
+            )
+
+            neg_anchor_candidates = self.core.np_anchors[np.argwhere(anchor_class_match == -1)]
+            if neg_anchor_candidates.size != 0 and neg_anchor_ix.size != 0:
+                neg_anchors = clip_boxes_numpy(
+                    neg_anchor_candidates[0, neg_anchor_ix],
+                    img.shape[2:],
+                )
+                for anchor in neg_anchors:
+                    box_results_list[batch_index].append(
+                        {"box_coords": anchor, "box_type": "neg_anchor"}
+                    )
+
+            batch_class_loss += class_loss / batch_size
+            batch_bbox_loss += bbox_loss / batch_size
+
+        return batch_class_loss, batch_bbox_loss, box_results_list
+
+    def forward(self, **kwargs) -> Dict[str, Any]:
+        """Forward propagation.
+
+        By default returns the standard keys used by most models:
+        `logit`, `y_prob`, and when labels are provided, `y_true` and `loss`.
+
+        Set `return_aux=True` to include Retina-specific outputs.
+        """
+        image = self._prepare_image_tensor(kwargs[self.feature_key])
+        detections, class_logits, pred_deltas, seg_logits = self.core(image)
+        inference = get_results(self.cf, tuple(image.shape), detections, seg_logits)
+        return_aux = kwargs.get("return_aux", False)
+
+        results: Dict[str, Any] = {
+            "logit": seg_logits,
+            "y_prob": self._prepare_segmentation_prob(seg_logits),
+        }
+        if return_aux:
+            results["seg_preds"] = self._prepare_segmentation_pred(seg_logits)
+            results["detections"] = detections
+            results["boxes"] = inference["boxes"]
+            results["class_logits"] = class_logits
+            results["bbox_deltas"] = pred_deltas
+
+        seg_target = None
+        if self.seg_label_key is not None and self.seg_label_key in kwargs:
+            seg_target = self._prepare_segmentation_target(
+                kwargs[self.seg_label_key],
+                seg_logits.shape[-self.cf.dim:],
+            )
+            results["y_true"] = seg_target
+
+        gt_boxes, gt_class_ids = self._prepare_detection_targets(kwargs)
+        has_supervision = seg_target is not None or gt_boxes is not None
+        if not has_supervision:
+            return results
+
+        batch_class_loss, batch_bbox_loss, box_results_list = self._compute_detection_losses(
+            image,
+            class_logits,
+            pred_deltas,
+            gt_boxes,
+            gt_class_ids,
+        )
+        if return_aux:
+            monitored = get_results(self.cf, tuple(image.shape), detections, seg_logits, box_results_list)
+            results["boxes"] = monitored["boxes"]
+
+        loss = batch_class_loss + batch_bbox_loss
+        monitor_values: Dict[str, float] = {
+            "class_loss": float(batch_class_loss.item()),
+            "bbox_loss": float(batch_bbox_loss.item()),
         }
 
-        optimizer.zero_grad(set_to_none=True)
-        out = model.train_forward(batch)
-        loss = out["torch_loss"]
-        loss.backward()
-        optimizer.step()
+        if seg_target is not None:
+            seg_probs = self._prepare_segmentation_prob(seg_logits)
+            if self.cf.num_seg_classes == 1:
+                seg_target_float = seg_target.float()
+                seg_loss_ce = F.binary_cross_entropy_with_logits(seg_logits, seg_target_float)
+                intersection = (torch.sigmoid(seg_logits) * seg_target_float).sum()
+                union = torch.sigmoid(seg_logits).sum() + seg_target_float.sum()
+                seg_loss_dice = 1 - ((2 * intersection + 1e-6) / (union + 1e-6))
+            else:
+                seg_target_ohe = F.one_hot(
+                    seg_target[:, 0].long(),
+                    num_classes=self.cf.num_seg_classes,
+                ).permute(0, 3, 1, 2).float()
+                seg_loss_dice = 1 - batch_dice(seg_probs, seg_target_ohe)
+                seg_loss_ce = F.cross_entropy(seg_logits, seg_target[:, 0])
 
-        loss_val = float(loss.item())
-        losses.append(loss_val)
-        print("step {}/{} | loss {:.6f}".format(step + 1, steps, loss_val))
+            loss = loss + (seg_loss_dice + seg_loss_ce) / 2
+            monitor_values["seg_dice_loss"] = float(seg_loss_dice.item())
+            monitor_values["seg_ce_loss"] = float(seg_loss_ce.item())
 
-    return {
-        "model": model,
-        "optimizer": optimizer,
-        "losses": losses,
-    }
+        results["loss"] = loss
+        if return_aux:
+            results["monitor_values"] = monitor_values
+        return results
 
 
-if __name__ == "__main__":
-    import argparse
-
-    parser = argparse.ArgumentParser(description="Standalone Retina U-Net module smoke test")
-    parser.add_argument("--mode", choices=["test", "train"], default="test")
-    parser.add_argument("--batch-size", type=int, default=1)
-    parser.add_argument("--channels", type=int, default=1)
-    parser.add_argument("--height", type=int, default=512)
-    parser.add_argument("--width", type=int, default=512)
-    args = parser.parse_args()
-
-    if args.mode == "test":
-        smoke_test(
-            batch_size=args.batch_size,
-            channels=args.channels,
-            height=args.height,
-            width=args.width,
-        )
-    else:
-        train_smoke_test(
-            batch_size=args.batch_size,
-            channels=args.channels,
-            height=args.height,
-            width=args.width,
-        )
+net = RetinaUNetCore
