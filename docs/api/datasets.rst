@@ -239,6 +239,7 @@ Available Datasets
     datasets/pyhealth.datasets.COVID19CXRDataset
     datasets/pyhealth.datasets.ChestXray14Dataset
     datasets/pyhealth.datasets.ISIC2018Dataset
+    datasets/pyhealth.datasets.ISIC2018ArtifactsDataset
     datasets/pyhealth.datasets.TUABDataset
     datasets/pyhealth.datasets.TUEVDataset
     datasets/pyhealth.datasets.ClinVarDataset
