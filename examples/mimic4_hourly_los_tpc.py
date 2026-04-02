@@ -30,6 +30,11 @@ from pyhealth.tasks.hourly_los import HourlyLOSEICU
 
 
 def set_seed(seed: int = 42) -> None:
+    """Set random seeds for reproducible CPU training behavior.
+
+    Args:
+        seed: Random seed value applied to Python, NumPy, and PyTorch.
+    """
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -39,6 +44,18 @@ def build_categorical_vocab(
     samples: List[dict],
     categorical_feature_names: List[str],
 ) -> Dict[str, Dict[str, int]]:
+    """Build a one-hot vocabulary for categorical static features.
+
+    The vocabulary is derived from the provided samples and guarantees that
+    a ``"__MISSING__"`` token is available for each categorical feature.
+
+    Args:
+        samples: Task samples containing ``categorical_static_raw`` fields.
+        categorical_feature_names: Names of categorical static features to encode.
+
+    Returns:
+        A nested mapping from feature name to category-to-index vocabulary.
+    """
     vocab: Dict[str, Dict[str, int]] = {}
 
     for feature_name in categorical_feature_names:
@@ -64,6 +81,16 @@ def encode_categorical_one_hot(
     categorical_feature_names: List[str],
     vocab: Dict[str, Dict[str, int]],
 ) -> List[float]:
+    """Encode categorical static fields into concatenated one-hot vectors.
+
+    Args:
+        raw_dict: Raw categorical feature dictionary.
+        categorical_feature_names: Ordered categorical feature names.
+        vocab: Per-feature category vocabularies.
+
+    Returns:
+        A flat concatenated one-hot feature vector.
+    """
     encoded: List[float] = []
 
     for feature_name in categorical_feature_names:
@@ -84,6 +111,10 @@ def encode_categorical_one_hot(
 
 
 def run_model_smoke_test() -> None:
+    """Run a minimal synthetic forward pass through the TPC model.
+
+    This is intended as a quick sanity check for tensor shapes and model wiring.
+    """
     print("=" * 80)
     print("Running TPC smoke test")
     print("=" * 80)
@@ -139,6 +170,15 @@ class SimpleLoSDataset(Dataset):
         categorical_feature_names: Optional[List[str]] = None,
         categorical_vocab: Optional[Dict[str, Dict[str, int]]] = None,
     ) -> None:
+        """Initialize the dataset wrapper.
+
+        Args:
+            samples: Task-generated samples.
+            channel_mode: Input channel configuration variant.
+            include_categorical_statics: Whether to append one-hot categorical statics.
+            categorical_feature_names: Ordered categorical static feature names.
+            categorical_vocab: Vocabulary used for categorical one-hot encoding.
+        """
         self.samples = samples
         self.channel_mode = channel_mode
         self.include_categorical_statics = include_categorical_statics
@@ -146,6 +186,7 @@ class SimpleLoSDataset(Dataset):
         self.categorical_vocab = categorical_vocab or {}
 
     def __len__(self) -> int:
+        """Return the number of wrapped task samples."""
         return len(self.samples)
 
     def _split_value_mask_decay(
@@ -187,6 +228,14 @@ class SimpleLoSDataset(Dataset):
         return values_tensor, masks_tensor, decay_tensor
 
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
+        """Convert a single task sample into tensors used by the model.
+
+        Args:
+            idx: Sample index.
+
+        Returns:
+            A dictionary containing model-ready tensors.
+        """
         sample = self.samples[idx]
 
         ts = sample["time_series"]
@@ -239,6 +288,15 @@ def collate_fn(
     batch: List[Dict[str, torch.Tensor]],
     static_dim: Optional[int] = None,
 ) -> Dict[str, torch.Tensor]:
+    """Pad variable-length sequences into a batch and normalize static width.
+
+    Args:
+        batch: List of per-sample tensor dictionaries.
+        static_dim: Optional fixed static feature width.
+
+    Returns:
+        A dictionary of padded batch tensors.
+    """
     max_t = max(item["x_values"].shape[0] for item in batch)
     feat_dim = batch[0]["x_values"].shape[1]
 
@@ -299,12 +357,31 @@ def collate_fn(
 
 
 def msle_loss(pred: torch.Tensor, target: torch.Tensor, eps: float = 1e-6) -> torch.Tensor:
+    """Compute mean squared logarithmic error.
+
+    Args:
+        pred: Predicted values.
+        target: Target values.
+        eps: Small numerical stability constant.
+
+    Returns:
+        Scalar MSLE tensor.
+    """
     return torch.mean(
         (torch.log(pred + 1.0 + eps) - torch.log(target + 1.0 + eps)) ** 2
     )
 
 
 def mse_loss(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+    """Compute mean squared error.
+
+    Args:
+        pred: Predicted values.
+        target: Target values.
+
+    Returns:
+        Scalar MSE tensor.
+    """
     return torch.mean((pred - target) ** 2)
 
 
@@ -315,6 +392,18 @@ def masked_loss(
     loss_name: str,
     eps: float = 1e-6,
 ) -> torch.Tensor:
+    """Compute masked sequence loss over valid target positions only.
+
+    Args:
+        pred: Predicted sequence tensor.
+        target: Target sequence tensor.
+        target_mask: Binary mask identifying valid positions.
+        loss_name: Loss function name, either ``"msle"`` or ``"mse"``.
+        eps: Small numerical stability constant for MSLE.
+
+    Returns:
+        Scalar masked loss tensor.
+    """
     valid = target_mask > 0
 
     pred_valid = pred[valid]
@@ -331,6 +420,16 @@ def masked_loss(
 
 
 def evaluate(model: TPC, loader: DataLoader, loss_name: str) -> Dict[str, float]:
+    """Evaluate the model on a dataloader using masked sequence metrics.
+
+    Args:
+        model: Trained TPC model.
+        loader: Validation or test dataloader.
+        loss_name: Loss function name used for evaluation.
+
+    Returns:
+        Dictionary containing mean loss, MAE, and RMSE.
+    """
     model.eval()
 
     total_loss = 0.0
@@ -363,6 +462,13 @@ def evaluate(model: TPC, loader: DataLoader, loss_name: str) -> Dict[str, float]
     mae = total_mae_num / max(total_count, 1.0)
     rmse = (total_mse_num / max(total_count, 1.0)) ** 0.5
 
+    #DEBUG: inspect one prediction vs target (only first batch)
+    if total_count > 0:
+        print("\n[DEBUG] Sample prediction vs target:")
+        print("pred (first sequence):", pred[0][:10])
+        print("target (first sequence):", target[0][:10])
+        print()
+
     return {
         "loss": mean_loss,
         "mae": mae,
@@ -371,6 +477,11 @@ def evaluate(model: TPC, loader: DataLoader, loss_name: str) -> Dict[str, float]
 
 
 def parse_args():
+    """Parse command-line arguments for the MIMIC-IV TPC training script.
+
+    Returns:
+        Parsed argparse namespace.
+    """
     parser = argparse.ArgumentParser(
         description="Run MIMIC-IV hourly LoS prediction with TPC."
     )
@@ -427,6 +538,7 @@ def parse_args():
 
 
 def main():
+    """Run the full MIMIC-IV hourly LoS training, validation, and test pipeline."""
     args = parse_args()
     set_seed(args.seed)
 
