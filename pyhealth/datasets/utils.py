@@ -15,9 +15,10 @@ from pyhealth.utils import create_directory
 
 MODULE_CACHE_PATH = os.path.join(BASE_CACHE_PATH, "datasets")
 create_directory(MODULE_CACHE_PATH)
-#PyG import for graph-based models
+# PyG import for graph-based models
 try:
     from torch_geometric.data import Data as PyGData, Batch as PyGBatch
+
     HAS_PYG = True
 except ImportError:
     HAS_PYG = False
@@ -267,40 +268,37 @@ def collate_fn_dict_with_padding(batch: List[dict]) -> dict:
     for key in keys:
         values = [sample[key] for sample in batch]
 
-        # Check if this is a temporal feature tuple (time, values)
-        if isinstance(values[0], tuple) and len(values[0]) == 2:
-            # Handle (time, values) tuples from processors
-            time_tensors = [v[0] for v in values]
-            value_tensors = [v[1] for v in values]
+        if isinstance(values[0], tuple):
+            # Generic tuple collation for processor outputs, e.g.
+            # - (time, value) from StageNet processors
+            # - (value, mask, token_type_ids, time, type_tag)
+            #   from TupleTimeTextProcessor with tokenizer.
+            transposed = list(zip(*values))
+            collated_elems = []
 
-            # Collate values
-            if value_tensors[0].dim() == 0:
-                # Scalars
-                collated_values = torch.stack(value_tensors)
-            elif all(v.shape == value_tensors[0].shape for v in value_tensors):
-                # All same shape
-                collated_values = torch.stack(value_tensors)
-            else:
-                # Variable shapes, use pad_sequence
-                collated_values = pad_sequence(
-                    value_tensors, batch_first=True, padding_value=0
-                )
+            for elem_vals in transposed:
+                first = elem_vals[0]
 
-            # Collate times (if present)
-            collated_times = None
-            # Check if ALL samples have time (not just some)
-            if all(t is not None for t in time_tensors):
-                time_tensors_all = [t for t in time_tensors if t is not None]
-                if all(t.shape == time_tensors_all[0].shape for t in time_tensors_all):
-                    collated_times = torch.stack(time_tensors_all)
+                if first is None and all(v is None for v in elem_vals):
+                    collated_elems.append(None)
+                elif isinstance(first, torch.Tensor):
+                    tensor_vals = list(elem_vals)
+                    if all(v.shape == tensor_vals[0].shape for v in tensor_vals):
+                        collated_elems.append(torch.stack(tensor_vals))
+                    else:
+                        collated_elems.append(
+                            pad_sequence(
+                                tensor_vals,
+                                batch_first=True,
+                                padding_value=0,
+                            )
+                        )
                 else:
-                    collated_times = pad_sequence(
-                        time_tensors_all, batch_first=True, padding_value=0
-                    )
+                    collated_elems.append(list(elem_vals))
 
-            # Return as tuple (time, values)
-            collated[key] = (collated_times, collated_values)
-            # PyG Data objects (graph processor output)
+            collated[key] = tuple(collated_elems)
+
+        # PyG Data objects (graph processor output)
         elif HAS_PYG and isinstance(values[0], PyGData):
             collated[key] = PyGBatch.from_data_list(values)
 
