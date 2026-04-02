@@ -9,12 +9,11 @@ System (DUHS) Sleep Disorder Lab.
 This includes wearable signals, PSG signals, sleep labels, and clinical data
 related to sleep health and disorders.
 
-``DREAMTDataset`` supports both the official PhysioNet release layout and
-processed per-subject files named with DREAMT subject identifiers. It builds a
-metadata table with signal references so tasks such as
-``SleepStagingDREAMT`` can create fixed-size wearable windows for model
-training. In partial local downloads, subjects without detected local signal
-files are skipped automatically.
+``DREAMTDataset`` supports both official DREAMT release layouts and partial
+local subsets. It builds metadata linking each patient to locally available
+signal files and exposes data for both the simplified
+``SleepStagingDREAMT`` window-classification task and the more sequence-style
+``SleepStagingDREAMTSeq`` task.
 
 Refer to the `doc <https://physionet.org/content/dreamt/>`_ for more
 information about the dataset.
@@ -23,9 +22,3 @@ information about the dataset.
     :members:
     :undoc-members:
     :show-inheritance:
-
-   
-
-   
-   
-   

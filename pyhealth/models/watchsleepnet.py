@@ -3,6 +3,7 @@ from typing import Any, Optional
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from ..datasets.sample_dataset import SampleDataset
 from .base_model import BaseModel
@@ -159,6 +160,9 @@ class WatchSleepNet(BaseModel):
         use_tcn: Whether to use the dilated TCN stack.
         use_attention: Whether to use multi-head self-attention and attention
             pooling. When disabled, the model uses masked mean pooling instead.
+        sequence_output: Whether to emit logits for each timestep instead of a
+            single pooled prediction.
+        ignore_index: Ignore label used for padded sequence targets.
     """
 
     def __init__(
@@ -176,6 +180,8 @@ class WatchSleepNet(BaseModel):
         num_classes: Optional[int] = None,
         use_tcn: bool = True,
         use_attention: bool = True,
+        sequence_output: bool = False,
+        ignore_index: int = -100,
     ) -> None:
         super().__init__(dataset=dataset)
         if len(self.label_keys) != 1:
@@ -192,6 +198,8 @@ class WatchSleepNet(BaseModel):
         self.dropout = dropout
         self.use_tcn = use_tcn
         self.use_attention = use_attention
+        self.sequence_output = sequence_output
+        self.ignore_index = ignore_index
 
         self.input_dim = input_dim or self._infer_input_dim(self.feature_key)
         if self.input_dim <= 0:
@@ -257,9 +265,13 @@ class WatchSleepNet(BaseModel):
             classifier_input_dim = context_dim
 
         self.final_dropout = nn.Dropout(dropout)
+        if self.sequence_output and num_classes is None:
+            raise ValueError(
+                "num_classes must be provided when sequence_output=True."
+            )
         self.classifier = nn.Linear(
             classifier_input_dim,
-            num_classes or self.get_output_size(),
+            num_classes if num_classes is not None else self.get_output_size(),
         )
 
     def _infer_input_dim(self, feature_key: str) -> int:
@@ -300,13 +312,27 @@ class WatchSleepNet(BaseModel):
         )
 
     @staticmethod
-    def _build_mask(x: torch.Tensor) -> torch.Tensor:
-        return torch.ones(
-            x.shape[0],
-            x.shape[1],
-            dtype=torch.bool,
-            device=x.device,
+    def _default_mask(x: torch.Tensor) -> torch.Tensor:
+        return torch.ones(x.shape[0], x.shape[1], dtype=torch.bool, device=x.device)
+
+    def _build_mask(
+        self,
+        x: torch.Tensor,
+        explicit_mask: Optional[Any] = None,
+    ) -> torch.Tensor:
+        if explicit_mask is None:
+            return self._default_mask(x)
+        mask = (
+            explicit_mask
+            if isinstance(explicit_mask, torch.Tensor)
+            else torch.as_tensor(explicit_mask)
         )
+        mask = mask.to(self.device)
+        if mask.dim() != 2:
+            raise ValueError(
+                f"Expected mask with shape [batch, seq_len], got {tuple(mask.shape)}."
+            )
+        return mask > 0
 
     @staticmethod
     def _masked_mean(x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
@@ -314,10 +340,11 @@ class WatchSleepNet(BaseModel):
         denom = torch.clamp(weights.sum(dim=1), min=1.0)
         return (x * weights).sum(dim=1) / denom
 
-    def forward(self, **kwargs) -> dict[str, torch.Tensor]:
-        x = self._coerce_input(kwargs[self.feature_key])
-        mask = self._build_mask(x)
-
+    def _encode_sequence(
+        self,
+        x: torch.Tensor,
+        mask: torch.Tensor,
+    ) -> torch.Tensor:
         # x: [batch, seq_len, input_dim] -> [batch, input_dim, seq_len]
         x = x.transpose(1, 2)
         x = self.input_projection(x)
@@ -343,6 +370,40 @@ class WatchSleepNet(BaseModel):
                 need_weights=False,
             )
             x = self.attention_norm(attn_out + residual)
+        return x
+
+    def _compute_sequence_loss(
+        self,
+        logits: torch.Tensor,
+        y_true: torch.Tensor,
+    ) -> torch.Tensor:
+        return F.cross_entropy(
+            logits.reshape(-1, logits.shape[-1]),
+            y_true.reshape(-1).long(),
+            ignore_index=self.ignore_index,
+        )
+
+    def forward(self, **kwargs) -> dict[str, torch.Tensor]:
+        x = self._coerce_input(kwargs[self.feature_key])
+        mask = self._build_mask(x, kwargs.get("mask"))
+        x = self._encode_sequence(x, mask)
+
+        if self.sequence_output:
+            embed = self.final_dropout(x)
+            logits = self.classifier(embed)
+            results = {
+                "logit": logits,
+                "y_prob": torch.softmax(logits, dim=-1),
+            }
+            if self.label_key in kwargs:
+                y_true = kwargs[self.label_key].to(self.device).long()
+                results["loss"] = self._compute_sequence_loss(logits, y_true)
+                results["y_true"] = y_true
+            if kwargs.get("embed", False):
+                results["embed"] = embed
+            return results
+
+        if self.use_attention and self.attention_pool is not None:
             pooled, _ = self.attention_pool(x, mask)
         else:
             pooled = self._masked_mean(x, mask)

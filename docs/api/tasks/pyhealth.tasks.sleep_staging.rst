@@ -1,7 +1,15 @@
 ﻿pyhealth.tasks.sleep_staging
 =======================================
 
+``SleepStagingDREAMT`` provides a simplified window-classification task, while
+``SleepStagingDREAMTSeq`` provides a more paper-aligned sequence-style task.
+
 .. autoclass:: pyhealth.tasks.SleepStagingDREAMT
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+.. autoclass:: pyhealth.tasks.SleepStagingDREAMTSeq
     :members:
     :undoc-members:
     :show-inheritance:

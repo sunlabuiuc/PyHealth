@@ -102,6 +102,25 @@ class TestDREAMTDataset(unittest.TestCase):
         with self.assertRaises(FileNotFoundError):
             DREAMTDataset(root=str(self.temp_dir / "missing"))
 
+    def test_partial_download_drops_missing_subjects(self):
+        missing_wearable_file = self.synthetic_root / "data_64Hz" / "S002_whole_df.csv"
+        missing_psg_file = (
+            self.synthetic_root / "data_100Hz" / "S002_PSG_df_updated.csv"
+        )
+        missing_wearable_file.unlink()
+        missing_psg_file.unlink()
+        metadata_file = self.synthetic_root / "dreamt-metadata.csv"
+        if metadata_file.exists():
+            metadata_file.unlink()
+
+        dataset = DREAMTDataset(
+            root=str(self.synthetic_root),
+            cache_dir=self.temp_dir / "cache_partial",
+        )
+
+        self.assertEqual(len(dataset.unique_patient_ids), 1)
+        self.assertEqual(dataset.unique_patient_ids[0], "S001")
+
 
 if __name__ == "__main__":
     unittest.main()

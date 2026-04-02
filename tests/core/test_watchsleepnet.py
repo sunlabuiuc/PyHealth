@@ -34,6 +34,22 @@ class TestWatchSleepNet(unittest.TestCase):
             num_attention_heads=4,
             dropout=0.1,
         )
+        self.sequence_samples = [
+            {
+                "patient_id": f"seq-patient-{index}",
+                "record_id": f"seq-record-{index}",
+                "signal": rng.normal(size=(5, 4)).astype(np.float32),
+                "mask": np.array([1, 1, 1, 0, 0], dtype=np.float32),
+                "label": np.array([0, 1, 2, -100, -100], dtype=np.int64),
+            }
+            for index in range(4)
+        ]
+        self.sequence_dataset = create_sample_dataset(
+            samples=self.sequence_samples,
+            input_schema={"signal": "tensor", "mask": "tensor"},
+            output_schema={"label": "tensor"},
+            dataset_name="watchsleepnet_seq_test",
+        )
 
     def test_model_initialization(self):
         self.assertIsInstance(self.model, WatchSleepNet)
@@ -86,6 +102,95 @@ class TestWatchSleepNet(unittest.TestCase):
             output = model(**batch)
 
         self.assertEqual(tuple(output["logit"].shape), (2, 3))
+
+    def test_sequence_output_shapes(self):
+        model = WatchSleepNet(
+            dataset=self.sequence_dataset,
+            input_dim=4,
+            hidden_dim=12,
+            conv_channels=12,
+            num_attention_heads=3,
+            num_classes=3,
+            sequence_output=True,
+        )
+        loader = get_dataloader(self.sequence_dataset, batch_size=2, shuffle=False)
+        batch = next(iter(loader))
+
+        with torch.no_grad():
+            output = model(**batch)
+
+        self.assertEqual(tuple(output["logit"].shape), (2, 5, 3))
+        self.assertEqual(tuple(output["y_prob"].shape), (2, 5, 3))
+        self.assertEqual(tuple(output["y_true"].shape), (2, 5))
+
+    def test_sequence_mode_requires_num_classes(self):
+        with self.assertRaises(ValueError):
+            WatchSleepNet(
+                dataset=self.sequence_dataset,
+                input_dim=4,
+                hidden_dim=12,
+                conv_channels=12,
+                num_attention_heads=3,
+                sequence_output=True,
+            )
+
+    def test_sequence_loss_with_padding(self):
+        model = WatchSleepNet(
+            dataset=self.sequence_dataset,
+            input_dim=4,
+            hidden_dim=12,
+            conv_channels=12,
+            num_attention_heads=3,
+            num_classes=3,
+            sequence_output=True,
+        )
+        loader = get_dataloader(self.sequence_dataset, batch_size=2, shuffle=False)
+        batch = next(iter(loader))
+        output = model(**batch)
+
+        self.assertEqual(output["loss"].dim(), 0)
+        self.assertTrue(torch.isfinite(output["loss"]))
+
+    def test_sequence_backward_pass(self):
+        model = WatchSleepNet(
+            dataset=self.sequence_dataset,
+            input_dim=4,
+            hidden_dim=12,
+            conv_channels=12,
+            num_attention_heads=3,
+            num_classes=3,
+            sequence_output=True,
+        )
+        loader = get_dataloader(self.sequence_dataset, batch_size=2, shuffle=False)
+        batch = next(iter(loader))
+        output = model(**batch)
+        output["loss"].backward()
+
+        has_grad = any(
+            parameter.requires_grad and parameter.grad is not None
+            for parameter in model.parameters()
+        )
+        self.assertTrue(has_grad)
+
+    def test_sequence_mode_without_attention_and_tcn(self):
+        model = WatchSleepNet(
+            dataset=self.sequence_dataset,
+            input_dim=4,
+            hidden_dim=12,
+            conv_channels=12,
+            num_attention_heads=3,
+            num_classes=3,
+            sequence_output=True,
+            use_attention=False,
+            use_tcn=False,
+        )
+        loader = get_dataloader(self.sequence_dataset, batch_size=2, shuffle=False)
+        batch = next(iter(loader))
+
+        with torch.no_grad():
+            output = model(**batch)
+
+        self.assertEqual(tuple(output["logit"].shape), (2, 5, 3))
 
 
 if __name__ == "__main__":

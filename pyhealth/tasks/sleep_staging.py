@@ -712,6 +712,201 @@ class SleepStagingDREAMT(BaseTask):
         return samples
 
 
+class SleepStagingDREAMTSeq(SleepStagingDREAMT):
+    """Sequence-style DREAMT sleep staging task closer to WatchSleepNet.
+
+    This task converts a DREAMT recording into a sequence of epoch-level
+    feature vectors and labels. Each sample contains:
+
+    - ``signal``: ``[sequence_length, input_dim]``
+    - ``mask``: ``[sequence_length]`` with 1 for valid epochs and 0 for padding
+    - ``label``: ``[sequence_length]`` with padded labels set to
+      ``ignore_index``
+
+    By default, this class uses ``IBI`` only to better align with the paper's
+    shared-modality representation.
+    """
+
+    task_name: str = "SleepStagingDREAMTSeq"
+    input_schema: Dict[str, str] = {
+        "signal": "tensor",
+        "mask": "tensor",
+    }
+    output_schema: Dict[str, str] = {"label": "tensor"}
+
+    def __init__(
+        self,
+        feature_columns: Optional[Sequence[str]] = ("IBI",),
+        label_column: str = "Sleep_Stage",
+        source_preference: str = "wearable",
+        epoch_seconds: float = 30.0,
+        sequence_length: int = 1100,
+        stride_epochs: Optional[int] = None,
+        default_sampling_rate_hz: Optional[float] = None,
+        pad_value: float = 0.0,
+        truncate: bool = True,
+        ignore_index: int = -100,
+    ) -> None:
+        super().__init__(
+            feature_columns=feature_columns,
+            label_column=label_column,
+            source_preference=source_preference,
+            default_sampling_rate_hz=default_sampling_rate_hz,
+        )
+        if epoch_seconds <= 0:
+            raise ValueError("epoch_seconds must be positive.")
+        if sequence_length <= 0:
+            raise ValueError("sequence_length must be positive.")
+
+        self.epoch_seconds = float(epoch_seconds)
+        self.sequence_length = int(sequence_length)
+        self.stride_epochs = stride_epochs
+        self.pad_value = float(pad_value)
+        self.truncate = truncate
+        self.ignore_index = int(ignore_index)
+
+    def _epochize_features_and_labels(
+        self,
+        features: np.ndarray,
+        labels: np.ndarray,
+        sample_rate_hz: float,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        epoch_size = max(1, int(round(self.epoch_seconds * sample_rate_hz)))
+        num_epochs = features.shape[0] // epoch_size
+        if num_epochs == 0:
+            return (
+                np.zeros((0, features.shape[1]), dtype=np.float32),
+                np.zeros((0,), dtype=np.int64),
+            )
+
+        epoch_features: list[np.ndarray] = []
+        epoch_labels: list[int] = []
+        for epoch_index in range(num_epochs):
+            start = epoch_index * epoch_size
+            end = start + epoch_size
+            epoch_feature_values = features[start:end]
+            epoch_label_values = labels[start:end]
+            epoch_label = self._majority_label(epoch_label_values)
+            if epoch_label == self._IGNORE_LABEL:
+                continue
+            epoch_features.append(
+                epoch_feature_values.mean(axis=0).astype(np.float32, copy=False)
+            )
+            epoch_labels.append(epoch_label)
+
+        if not epoch_features:
+            return (
+                np.zeros((0, features.shape[1]), dtype=np.float32),
+                np.zeros((0,), dtype=np.int64),
+            )
+
+        return (
+            np.stack(epoch_features).astype(np.float32, copy=False),
+            np.asarray(epoch_labels, dtype=np.int64),
+        )
+
+    def _build_sequence_sample(
+        self,
+        patient_id: str,
+        signal_path: Path,
+        epoch_features: np.ndarray,
+        epoch_labels: np.ndarray,
+        chunk_index: int,
+        start_epoch: int,
+    ) -> dict[str, Any]:
+        valid_length = min(epoch_features.shape[0], self.sequence_length)
+        feature_dim = epoch_features.shape[1]
+
+        signal = np.full(
+            (self.sequence_length, feature_dim),
+            fill_value=self.pad_value,
+            dtype=np.float32,
+        )
+        mask = np.zeros((self.sequence_length,), dtype=np.float32)
+        labels = np.full(
+            (self.sequence_length,),
+            fill_value=self.ignore_index,
+            dtype=np.int64,
+        )
+
+        signal[:valid_length] = epoch_features[:valid_length]
+        mask[:valid_length] = 1.0
+        labels[:valid_length] = epoch_labels[:valid_length]
+
+        return {
+            "patient_id": patient_id,
+            "record_id": f"{patient_id}-{signal_path.stem}-seq-{chunk_index}",
+            "signal": signal,
+            "mask": mask,
+            "label": labels,
+            "signal_source": None,
+            "signal_file": str(signal_path),
+            "start_epoch": int(start_epoch),
+        }
+
+    def __call__(self, patient) -> list[dict[str, Any]]:
+        events = patient.get_events("dreamt_sleep")
+        if not events:
+            return []
+
+        samples = []
+        for event in events:
+            signal_path, sampling_rate_hz = self._load_signal_source(event)
+            frame = self._load_frame(signal_path)
+            labels = self._extract_labels(frame, signal_path)
+            feature_frame = self._extract_feature_frame(frame, signal_path)
+            features = feature_frame.to_numpy(dtype=np.float32, copy=False)
+
+            inferred_rate = self._infer_sampling_rate_hz(
+                frame,
+                sampling_rate_hz or self.default_sampling_rate_hz,
+            )
+            epoch_features, epoch_labels = self._epochize_features_and_labels(
+                features,
+                labels,
+                inferred_rate,
+            )
+            if epoch_features.shape[0] == 0:
+                continue
+
+            stride_epochs = self.stride_epochs or self.sequence_length
+            if epoch_features.shape[0] <= self.sequence_length:
+                samples.append(
+                    self._build_sequence_sample(
+                        patient.patient_id,
+                        signal_path,
+                        epoch_features,
+                        epoch_labels,
+                        chunk_index=0,
+                        start_epoch=0,
+                    )
+                )
+                continue
+
+            max_start = epoch_features.shape[0] - self.sequence_length
+            starts = list(range(0, max_start + 1, stride_epochs))
+            if (
+                not self.truncate
+                and starts[-1] != max_start
+            ):
+                starts.append(max_start)
+
+            for chunk_index, start_epoch in enumerate(starts):
+                end_epoch = start_epoch + self.sequence_length
+                samples.append(
+                    self._build_sequence_sample(
+                        patient.patient_id,
+                        signal_path,
+                        epoch_features[start_epoch:end_epoch],
+                        epoch_labels[start_epoch:end_epoch],
+                        chunk_index=chunk_index,
+                        start_epoch=start_epoch,
+                    )
+                )
+
+        return samples
+
+
 if __name__ == "__main__":
     from pyhealth.datasets import SleepEDFDataset, SHHSDataset, ISRUCDataset
 
