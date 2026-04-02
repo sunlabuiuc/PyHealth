@@ -13,7 +13,20 @@ logger = logging.getLogger(__name__)
 class MIMIC3Dataset(BaseDataset):
     """
     A dataset class for handling MIMIC-III data.
+    Download: https://physionet.org/content/mimiciii/1.4/
+    Access: Requires PhysioNet credentialed access and DUA agreement.
 
+    Required files:
+        - ADMISSIONS.csv
+        - PATIENTS.csv
+        - DIAGNOSES_ICD.csv
+        - PROCEDURES_ICD.csv
+        - PRESCRIPTIONS.csv
+        - LABEVENTS.csv
+        - ICUSTAYS.csv
+
+    Compatible formats: .csv
+    Note: All files must be placed in the root directory.
     This class is responsible for loading and managing the MIMIC-III dataset,
     which includes tables such as patients, admissions, and icustays.
 
