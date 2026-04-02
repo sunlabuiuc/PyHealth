@@ -190,6 +190,7 @@ API Reference
     models/pyhealth.models.SparcNet
     models/pyhealth.models.StageNet
     models/pyhealth.models.StageAttentionNet
+    models/pyhealth.models.WatchSleepNet
     models/pyhealth.models.AdaCare
     models/pyhealth.models.ConCare
     models/pyhealth.models.Agent
