@@ -1,27 +1,41 @@
 """
-PyHealth dataset for the ISIC 2018 Skin Lesion Classification dataset (Task 3).
+Unified PyHealth dataset for ISIC 2018 Tasks.
+
+This module provides :class:`ISIC2018Dataset`, a single dataset class that
+covers both:
+
+* ``task="task3"`` — 7-class skin lesion **classification** (HAM10000 / Task 3).
+  Downloads images and ``ISIC2018_Task3_Training_GroundTruth.csv``.
+
+* ``task="task1_2"`` — Lesion **segmentation** & attribute detection (Task 1/2).
+  Downloads images and binary segmentation masks.
+
+Both modes support ``download=True`` for automatic data acquisition from the
+official ISIC 2018 challenge S3 archive.
+
+The module also exports the URL / directory-name constants and helper functions
+(``_download_file``, ``_extract_zip``) that are re-used by
+:class:`~pyhealth.datasets.ISIC2018ArtifactsDataset`.
 
 Dataset link:
     https://challenge.isic-archive.com/data/#2018
 
-License:
-    CC-BY-NC 4.0 (https://creativecommons.org/licenses/by-nc/4.0/)
+Licenses:
+    Task 1/2 (segmentation & attribute detection):
+        CC-0 (Public Domain) — https://creativecommons.org/share-your-work/public-domain/cc0/
 
-Dataset paper: (please cite if you use this dataset)
-    [1] Noel Codella, Veronica Rotemberg, Philipp Tschandl, et al. "Skin Lesion
-    Analysis Toward Melanoma Detection 2018: A Challenge Hosted by the
-    International Skin Imaging Collaboration (ISIC)", 2018;
-    https://arxiv.org/abs/1902.03368
+    Task 3 (classification):
+        CC-BY-NC 4.0 — https://creativecommons.org/licenses/by-nc/4.0/
+        Attribution required — see references below.
 
-    [2] Tschandl, P., Rosendahl, C. & Kittler, H. "The HAM10000 dataset, a large
-    collection of multi-source dermatoscopic images of common pigmented skin
-    lesions." Sci. Data 5, 180161 (2018).
+References:
+    [1] Noel Codella et al. "Skin Lesion Analysis Toward Melanoma Detection
+    2018: A Challenge Hosted by the International Skin Imaging Collaboration
+    (ISIC)", 2018; https://arxiv.org/abs/1902.03368
 
-Dataset paper link:
-    https://doi.org/10.1038/sdata.2018.161
-
-Author:
-    Fan Zhang (fanz6@illinois.edu)
+    [2] Tschandl et al. "The HAM10000 dataset, a large collection of
+    multi-source dermatoscopic images of common pigmented skin lesions."
+    Sci. Data 5, 180161 (2018). https://doi.org/10.1038/sdata.2018.161
 """
 
 import logging
@@ -29,263 +43,314 @@ import os
 import zipfile
 from functools import wraps
 from pathlib import Path
-from typing import List, Optional
+from typing import List
 
 import pandas as pd
 import requests
+import yaml
 
 from pyhealth.datasets import BaseDataset
 from pyhealth.processors import ImageProcessor
-from pyhealth.tasks import ISIC2018Classification
 
 logger = logging.getLogger(__name__)
 
-# Official ISIC 2018 Task 3 download URLs
-_IMAGES_URL = (
+# ---------------------------------------------------------------------------
+# Public constants (also imported by isic2018_artifacts.py)
+# ---------------------------------------------------------------------------
+
+TASK12_IMAGES_URL: str = (
+    "https://isic-archive.s3.amazonaws.com/challenges/2018/"
+    "ISIC2018_Task1-2_Training_Input.zip"
+)
+TASK12_MASKS_URL: str = (
+    "https://isic-archive.s3.amazonaws.com/challenges/2018/"
+    "ISIC2018_Task1_Training_GroundTruth.zip"
+)
+TASK12_IMAGES_DIR: str = "ISIC2018_Task1-2_Training_Input"
+TASK12_MASKS_DIR: str = "ISIC2018_Task1_Training_GroundTruth"
+_T12_IMAGES_ZIP = "ISIC2018_Task1-2_Training_Input.zip"
+_T12_MASKS_ZIP = "ISIC2018_Task1_Training_GroundTruth.zip"
+
+_T3_IMAGES_URL = (
     "https://isic-archive.s3.amazonaws.com/challenges/2018/"
     "ISIC2018_Task3_Training_Input.zip"
 )
-_LABELS_URL = (
+_T3_LABELS_URL = (
     "https://isic-archive.s3.amazonaws.com/challenges/2018/"
     "ISIC2018_Task3_Training_GroundTruth.zip"
 )
+_T3_IMAGES_DIR = "ISIC2018_Task3_Training_Input"
+_T3_GROUNDTRUTH_CSV = "ISIC2018_Task3_Training_GroundTruth.csv"
+_T3_IMAGES_ZIP = "ISIC2018_Task3_Training_Input.zip"
+_T3_LABELS_ZIP = "ISIC2018_Task3_Training_GroundTruth.zip"
 
-_GROUNDTRUTH_CSV = "ISIC2018_Task3_Training_GroundTruth.csv"
-_IMAGES_DIR = "ISIC2018_Task3_Training_Input"
+VALID_TASKS = ("task3", "task1_2")
 
+
+# ---------------------------------------------------------------------------
+# Public download helpers (also imported by isic2018_artifacts.py)
+# ---------------------------------------------------------------------------
+
+def _download_file(url: str, dest: str) -> None:
+    """Stream *url* to *dest* with 1 MB chunks, logging % progress."""
+    with requests.get(url, stream=True, timeout=300) as response:
+        response.raise_for_status()
+        total = int(response.headers.get("content-length", 0))
+        downloaded = 0
+        with open(dest, "wb") as fh:
+            for chunk in response.iter_content(chunk_size=1024 * 1024):
+                fh.write(chunk)
+                downloaded += len(chunk)
+                if total:
+                    logger.info(
+                        "  %.1f%% (%d / %d bytes)",
+                        downloaded / total * 100,
+                        downloaded,
+                        total,
+                    )
+
+
+def _extract_zip(zip_path: str, dest_dir: str) -> None:
+    """Safely extract zip, guarding against path-traversal attacks."""
+    abs_dest = os.path.abspath(dest_dir)
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        for member in zf.infolist():
+            member_path = os.path.abspath(os.path.join(abs_dest, member.filename))
+            if not member_path.startswith(abs_dest + os.sep):
+                raise ValueError(f"Unsafe path in zip archive: '{member.filename}'")
+        zf.extractall(dest_dir)
+
+
+# ---------------------------------------------------------------------------
+# Dataset class
+# ---------------------------------------------------------------------------
 
 class ISIC2018Dataset(BaseDataset):
-    """Dataset class for the ISIC 2018 Skin Lesion Classification challenge (Task 3).
+    """Unified ISIC 2018 dataset for Task 1/2 (segmentation) or Task 3 (classification).
 
-    The dataset contains 10,015 dermoscopy images across seven diagnostic
-    categories of pigmented skin lesions.
+    Args:
+        root (str): Root directory. Defaults to ".".
+        task (str): Which ISIC 2018 task to load. One of:
 
-    Attributes:
-        root (str): Root directory of the raw data.
-        dataset_name (str): Name of the dataset.
-        config_path (str): Path to the configuration file.
-        classes (List[str]): List of skin lesion class labels.
+            - ``"task3"`` (default) — 7-class skin lesion classification.
+              Downloads images + ``ISIC2018_Task3_Training_GroundTruth.csv``.
+            - ``"task1_2"`` — Lesion segmentation & attribute detection.
+              Downloads images + binary segmentation masks.
 
-    The expected directory structure under ``root`` is::
+        download (bool): Download missing data automatically. Defaults to False.
+        **kwargs: Forwarded to BaseDataset.
+
+    .. note::
+        **Licenses differ by task:**
+
+        * ``task="task1_2"`` — **CC-0** (public domain).
+          No attribution required.
+        * ``task="task3"`` — **CC-BY-NC 4.0**.
+          Attribution is required; commercial use is not permitted.
+          See https://challenge.isic-archive.com/data/#2018 for citation details.
+
+    Raises:
+        ValueError: If task is not one of VALID_TASKS.
+        FileNotFoundError: If required paths are missing and download=False.
+        requests.HTTPError: If download fails.
+
+    task="task3" directory layout::
 
         <root>/
             ISIC2018_Task3_Training_GroundTruth.csv
             ISIC2018_Task3_Training_Input/
-                ISIC_0024306.jpg
-                ISIC_0024307.jpg
-                ...
+                ISIC_0024306.jpg ...
+
+    task="task1_2" directory layout::
+
+        <root>/
+            ISIC2018_Task1-2_Training_Input/
+                ISIC_0024306.jpg ...
+            ISIC2018_Task1_Training_GroundTruth/
+                ISIC_0024306_segmentation.png ...
+
+    Event attributes for task="task3" (table "isic2018"):
+        image_id, path, mel, nv, bcc, akiec, bkl, df, vasc
+
+    Event attributes for task="task1_2" (table "isic2018_task12"):
+        image_id, path, mask_path (empty string if mask absent)
+
+    Example::
+        >>> dataset = ISIC2018Dataset(root="/data/isic", task="task3", download=True)
+        >>> dataset = ISIC2018Dataset(root="/data/isic", task="task1_2", download=True)
     """
 
     classes: List[str] = ["mel", "nv", "bcc", "akiec", "bkl", "df", "vasc"]
 
-    def __init__(
-        self,
-        root: str = ".",
-        config_path: Optional[str] = str(
-            Path(__file__).parent / "configs" / "isic2018.yaml"
-        ),
-        download: bool = False,
-        **kwargs,
-    ) -> None:
-        """Initializes the ISIC 2018 dataset.
+    def __init__(self, root=".", task="task3", download=False, **kwargs):
+        if task not in VALID_TASKS:
+            raise ValueError(f"task must be one of {VALID_TASKS}, got '{task}'")
+        self.task = task
 
-        Args:
-            root (str): Root directory of the raw data. Defaults to the
-                working directory.
-            config_path (Optional[str]): Path to the configuration file.
-                Defaults to the bundled ``configs/isic2018.yaml``.
-            download (bool): Whether to download the dataset. Defaults to
-                False.
-
-        Raises:
-            FileNotFoundError: If the dataset root path does not exist.
-            FileNotFoundError: If the ground-truth CSV is not found under
-                ``root``.
-            FileNotFoundError: If the images directory is not found under
-                ``root``.
-            ValueError: If no JPEG images are found in the images directory.
-
-        Example::
-            >>> dataset = ISIC2018Dataset(root="./data/isic2018")
-        """
-        self._label_path: str = os.path.join(root, _GROUNDTRUTH_CSV)
-        self._image_path: str = os.path.join(root, _IMAGES_DIR)
+        if task == "task3":
+            self._image_dir = os.path.join(root, _T3_IMAGES_DIR)
+            self._label_path = os.path.join(root, _T3_GROUNDTRUTH_CSV)
+        else:  # task1_2
+            self._image_dir = os.path.join(root, TASK12_IMAGES_DIR)
+            self._mask_dir = os.path.join(root, TASK12_MASKS_DIR)
 
         if download:
             self._download(root)
 
         self._verify_data(root)
-        self._index_data(root)
+        config_path = self._index_data(root)
 
+        table = "isic2018" if task == "task3" else "isic2018_task12"
         super().__init__(
             root=root,
-            tables=["isic2018"],
+            tables=[table],
             dataset_name="ISIC2018",
             config_path=config_path,
             **kwargs,
         )
 
     @property
-    def default_task(self) -> ISIC2018Classification:
-        """Returns the default task for this dataset.
-
-        Returns:
-            ISIC2018Classification: The default multiclass classification task.
-
-        Example::
-            >>> dataset = ISIC2018Dataset()
-            >>> task = dataset.default_task
-        """
-        return ISIC2018Classification()
+    def default_task(self):
+        if self.task == "task3":
+            from pyhealth.tasks import ISIC2018Classification
+            return ISIC2018Classification()
+        return None  # No native segmentation task yet
 
     @wraps(BaseDataset.set_task)
     def set_task(self, *args, **kwargs):
-        input_processors = kwargs.get("input_processors", None)
-
-        if input_processors is None:
-            input_processors = {}
-
+        input_processors = kwargs.get("input_processors") or {}
         if "image" not in input_processors:
             input_processors["image"] = ImageProcessor(mode="RGB")
-
         kwargs["input_processors"] = input_processors
-
         return super().set_task(*args, **kwargs)
 
-    set_task.__doc__ = (
-        f"{set_task.__doc__}\n"
-        "        Note:\n"
-        "            If no image processor is provided, a default RGB "
-        "`ImageProcessor(mode='RGB')` is injected for dermoscopy images."
-    )
-
-    def _download(self, root: str) -> None:
-        """Downloads the ISIC 2018 Task 3 images and ground-truth labels.
-
-        Downloads and extracts:
-        1. The ground-truth CSV from the ISIC challenge S3 bucket.
-        2. The training image archive from the ISIC challenge S3 bucket.
-
-        Args:
-            root (str): Root directory where files will be saved.
-
-        Raises:
-            requests.HTTPError: If a download request fails.
-        """
+    def _download(self, root):
         os.makedirs(root, exist_ok=True)
+        if self.task == "task3":
+            if not os.path.isfile(self._label_path):
+                zip_path = os.path.join(root, _T3_LABELS_ZIP)
+                logger.info("Downloading ISIC 2018 Task 3 labels...")
+                _download_file(_T3_LABELS_URL, zip_path)
+                _extract_zip(zip_path, root)
+                os.remove(zip_path)
+            if not os.path.isdir(self._image_dir):
+                zip_path = os.path.join(root, _T3_IMAGES_ZIP)
+                logger.info("Downloading ISIC 2018 Task 3 images (~8 GB)...")
+                _download_file(_T3_IMAGES_URL, zip_path)
+                _extract_zip(zip_path, root)
+                os.remove(zip_path)
+        else:  # task1_2
+            if not os.path.isdir(self._image_dir):
+                zip_path = os.path.join(root, _T12_IMAGES_ZIP)
+                logger.info("Downloading ISIC 2018 Task 1/2 images (~8 GB)...")
+                _download_file(TASK12_IMAGES_URL, zip_path)
+                _extract_zip(zip_path, root)
+                os.remove(zip_path)
+            if not os.path.isdir(self._mask_dir):
+                zip_path = os.path.join(root, _T12_MASKS_ZIP)
+                logger.info("Downloading ISIC 2018 Task 1 masks...")
+                _download_file(TASK12_MASKS_URL, zip_path)
+                _extract_zip(zip_path, root)
+                os.remove(zip_path)
 
-        labels_zip = os.path.join(root, "ISIC2018_Task3_Training_GroundTruth.zip")
-        images_zip = os.path.join(root, "ISIC2018_Task3_Training_Input.zip")
-
-        logger.info("Downloading ISIC 2018 ground-truth labels...")
-        _download_file(_LABELS_URL, labels_zip)
-        logger.info("Extracting ground-truth labels...")
-        _extract_zip(labels_zip, root)
-        os.remove(labels_zip)
-
-        logger.info("Downloading ISIC 2018 training images (this may take a while)...")
-        _download_file(_IMAGES_URL, images_zip)
-        logger.info("Extracting training images...")
-        _extract_zip(images_zip, root)
-        os.remove(images_zip)
-
-        logger.info("Download complete.")
-
-    def _verify_data(self, root: str) -> None:
-        """Verifies the presence and structure of the dataset directory.
-
-        Args:
-            root (str): Root directory of the raw data.
-
-        Raises:
-            FileNotFoundError: If the dataset root path does not exist.
-            FileNotFoundError: If the ground-truth CSV is missing.
-            FileNotFoundError: If the images directory is missing.
-            ValueError: If no JPEG images are found in the images directory.
-        """
+    def _verify_data(self, root):
         if not os.path.exists(root):
-            msg = "Dataset path does not exist!"
-            logger.error(msg)
-            raise FileNotFoundError(msg)
+            raise FileNotFoundError(f"Dataset root not found: {root}")
+        if not os.path.isdir(self._image_dir):
+            raise FileNotFoundError(
+                f"Image directory not found: {self._image_dir}\n"
+                "Use download=True or obtain manually from "
+                "https://challenge.isic-archive.com/data/#2018"
+            )
+        if self.task == "task3":
+            if not os.path.isfile(self._label_path):
+                raise FileNotFoundError(
+                    f"Ground-truth CSV not found: {self._label_path}\n"
+                    "Use download=True or obtain manually from "
+                    "https://challenge.isic-archive.com/data/#2018"
+                )
+            if not list(Path(self._image_dir).glob("*.jpg")):
+                raise ValueError(f"No JPEG images found in '{self._image_dir}'")
+        else:  # task1_2
+            if not os.path.isdir(self._mask_dir):
+                raise FileNotFoundError(
+                    f"Mask directory not found: {self._mask_dir}\n"
+                    "Use download=True or obtain manually from "
+                    "https://challenge.isic-archive.com/data/#2018"
+                )
 
-        if not os.path.isfile(self._label_path):
-            msg = f"Dataset path must contain '{_GROUNDTRUTH_CSV}'!"
-            logger.error(msg)
-            raise FileNotFoundError(msg)
+    def _index_data(self, root):
+        return self._index_task3(root) if self.task == "task3" else self._index_task12(root)
 
-        if not os.path.isdir(self._image_path):
-            msg = f"Dataset path must contain a '{_IMAGES_DIR}' directory!"
-            logger.error(msg)
-            raise FileNotFoundError(msg)
-
-        if not list(Path(self._image_path).glob("*.jpg")):
-            msg = f"'{_IMAGES_DIR}' directory must contain JPEG images!"
-            logger.error(msg)
-            raise ValueError(msg)
-
-    def _index_data(self, root: str) -> pd.DataFrame:
-        """Parses and indexes metadata for all available images in the dataset.
-
-        Reads the ground-truth CSV, filters to images present on disk,
-        normalises column names to lowercase, and writes a consolidated
-        metadata CSV for the PyHealth config to consume.
-
-        Args:
-            root (str): Root directory of the raw data.
-
-        Returns:
-            pd.DataFrame: Table of image paths and per-class binary labels.
-        """
+    def _index_task3(self, root):
         df = pd.read_csv(self._label_path)
-
-        # Keep only rows whose image file is present on disk
-        image_names = {f.stem for f in Path(self._image_path).glob("*.jpg")}
+        image_names = {f.stem for f in Path(self._image_dir).glob("*.jpg")}
         df = df[df["image"].isin(image_names)].copy()
-
-        # Normalise class column names to lowercase
-        class_rename = {c.upper(): c for c in self.classes}
-        # The CSV uses the original casing: MEL, NV, BCC, AKIEC, BKL, DF, VASC
-        df.rename(columns=class_rename, inplace=True)
-
+        df.rename(columns={c.upper(): c for c in self.classes}, inplace=True)
         df.rename(columns={"image": "image_id"}, inplace=True)
-
-        # Use image_id as the patient identifier (ISIC images are independent)
         df["patient_id"] = df["image_id"]
-
         df["path"] = df["image_id"].apply(
-            lambda img_id: os.path.join(self._image_path, f"{img_id}.jpg")
+            lambda img_id: os.path.join(self._image_dir, f"{img_id}.jpg")
         )
+        metadata_path = os.path.join(root, "isic2018-metadata-pyhealth.csv")
+        df.to_csv(metadata_path, index=False)
 
-        df.to_csv(os.path.join(root, "isic2018-metadata-pyhealth.csv"), index=False)
+        config = {
+            "version": "1.0",
+            "tables": {
+                "isic2018": {
+                    "file_path": "isic2018-metadata-pyhealth.csv",
+                    "patient_id": "patient_id",
+                    "timestamp": None,
+                    "attributes": ["path", "image_id"] + list(self.classes),
+                }
+            },
+        }
+        config_path = os.path.join(root, "isic2018-config-pyhealth.yaml")
+        with open(config_path, "w") as fh:
+            yaml.dump(config, fh, default_flow_style=False, sort_keys=False)
+        logger.info(
+            "ISIC2018Dataset (task3): indexed %d images → %s", len(df), metadata_path
+        )
+        return config_path
 
-        return df
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def _download_file(url: str, dest: str) -> None:
-    """Streams a file from *url* to *dest* with a progress log."""
-    with requests.get(url, stream=True, timeout=120) as response:
-        response.raise_for_status()
-        total = int(response.headers.get("content-length", 0))
-        downloaded = 0
-        with open(dest, "wb") as f:
-            for chunk in response.iter_content(chunk_size=1024 * 1024):
-                f.write(chunk)
-                downloaded += len(chunk)
-                if total:
-                    pct = downloaded / total * 100
-                    logger.info(f"  {pct:.1f}% ({downloaded}/{total} bytes)")
-
-
-def _extract_zip(zip_path: str, dest_dir: str) -> None:
-    """Safely extracts a zip archive to *dest_dir*."""
-    abs_dest = os.path.abspath(dest_dir)
-    with zipfile.ZipFile(zip_path, "r") as zf:
-        for member in zf.infolist():
-            member_path = os.path.abspath(os.path.join(abs_dest, member.filename))
-            if not member_path.startswith(abs_dest + os.sep):
-                raise ValueError(f"Unsafe path in zip archive: '{member.filename}'!")
-        zf.extractall(dest_dir)
+    def _index_task12(self, root):
+        image_dir = Path(self._image_dir)
+        mask_dir = Path(self._mask_dir)
+        images = sorted(image_dir.glob("*.jpg")) + sorted(image_dir.glob("*.JPG"))
+        if not images:
+            raise ValueError(f"No images found in '{self._image_dir}'")
+        records = []
+        for img_path in images:
+            image_id = img_path.stem
+            mask_path = mask_dir / f"{image_id}_segmentation.png"
+            records.append({
+                "image_id": image_id,
+                "patient_id": image_id,
+                "path": str(img_path),
+                "mask_path": str(mask_path) if mask_path.exists() else None,
+            })
+        df = pd.DataFrame(records)
+        metadata_path = os.path.join(root, "isic2018-task12-metadata-pyhealth.csv")
+        df.to_csv(metadata_path, index=False)
+        config = {
+            "version": "1.0",
+            "tables": {
+                "isic2018_task12": {
+                    "file_path": "isic2018-task12-metadata-pyhealth.csv",
+                    "patient_id": "patient_id",
+                    "timestamp": None,
+                    "attributes": ["path", "mask_path", "image_id"],
+                }
+            },
+        }
+        config_path = os.path.join(root, "isic2018-task12-config-pyhealth.yaml")
+        with open(config_path, "w") as fh:
+            yaml.dump(config, fh, default_flow_style=False, sort_keys=False)
+        logger.info(
+            "ISIC2018Dataset (task1_2): indexed %d images (%d with masks) → %s",
+            len(df),
+            (df["mask_path"] != "").sum(),
+            metadata_path,
+        )
+        return config_path
