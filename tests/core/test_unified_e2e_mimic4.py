@@ -1,12 +1,13 @@
 from pathlib import Path
 import tempfile
 import unittest
+from datetime import datetime
 
 import numpy as np
 
 from pyhealth.datasets import MIMIC4Dataset, get_dataloader
 from pyhealth.models import MLP, RNN, UnifiedMultimodalEmbeddingModel
-from pyhealth.tasks import MultimodalMortalityHorizonMIMIC4
+from pyhealth.tasks import ClinicalNotesICDLabsMIMIC4
 from pyhealth.trainer import Trainer
 
 
@@ -30,15 +31,11 @@ class TestUnifiedE2EMIMIC4(unittest.TestCase):
                 cache_dir=cls.cache_dir.name,
                 num_workers=1,
             )
-            task = MultimodalMortalityHorizonMIMIC4(
-                observation_window_hours=24,
-                prediction_horizon_hours=12,
-                include_notes=False,
-            )
+            task = ClinicalNotesICDLabsMIMIC4(window_hours=24)
             cls.sample_dataset = base_dataset.set_task(task, num_workers=1)
             if len(cls.sample_dataset) == 0:
                 raise unittest.SkipTest(
-                    "MultimodalMortalityHorizonMIMIC4 produced no demo samples."
+                    "ClinicalNotesICDLabsMIMIC4 produced no demo samples."
                 )
             max_samples = min(16, len(cls.sample_dataset))
             cls.small_dataset = cls.sample_dataset.subset(list(range(max_samples)))
@@ -59,15 +56,48 @@ class TestUnifiedE2EMIMIC4(unittest.TestCase):
         sample = self.sample_dataset[0]
         for key in [
             "patient_id",
-            "visit_id",
-            "prediction_time_hours",
+            "discharge_note_times",
+            "radiology_note_times",
             "icd_codes",
             "labs",
+            "labs_mask",
             "mortality",
+            "window_start",
+            "window_end",
         ]:
             self.assertIn(key, sample)
         self.assertIsInstance(sample["icd_codes"], tuple)
         self.assertIsInstance(sample["labs"], tuple)
+
+    def test_deterministic_window_boundaries(self):
+        from pyhealth.tasks.multimodal_mimic4 import BaseMultimodalMIMIC4Task
+
+        class _DummyTask(BaseMultimodalMIMIC4Task):
+            pass
+
+        class _Admission:
+            def __init__(self, timestamp, dischtime):
+                self.timestamp = timestamp
+                self.dischtime = dischtime
+
+        global_start = datetime(2020, 1, 1, 0, 0, 0)
+        admissions = [
+            _Admission(global_start, "2020-01-01 12:00:00"),
+            _Admission(datetime(2020, 1, 2, 0, 0, 0), "2020-01-02 12:00:00"),
+        ]
+
+        task_windowed = _DummyTask(window_hours=12)
+        pairs = {task_windowed._compute_effective_window(admissions) for _ in range(20)}
+        self.assertEqual(len(pairs), 1)
+        only_pair = next(iter(pairs))
+        self.assertEqual(only_pair[0], global_start)
+        self.assertEqual(only_pair[1], datetime(2020, 1, 1, 12, 0, 0))
+
+        task_full = _DummyTask(window_hours=None)
+        full_pairs = {
+            task_full._compute_effective_window(admissions) for _ in range(20)
+        }
+        self.assertEqual(len(full_pairs), 1)
 
     def _run_and_check_model(self, model_type: str):
         unified = UnifiedMultimodalEmbeddingModel(
