@@ -116,7 +116,7 @@ class FavMac_GreedyRatio(FavMac):
             if self.proxy_fn.is_additive():
                 Ss, _ = self.util_fn.greedy_maximize_seq(pred=pred, d_proxy = self.proxy_fn.values * (1-pred))
                 return Ss, list(map(proxy_fn, Ss))
-        except:
+        except Exception:
             pass
 
         Ss = [np.zeros(len(pred), dtype=int)]

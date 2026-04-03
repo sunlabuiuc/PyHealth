@@ -140,7 +140,7 @@ def is_homo_list(l: List) -> bool:
         return True
 
     # if the value vector is a mix of float and int, convert all to float
-    l = [float(i) if type(i) == int else i for i in l]
+    l = [float(i) if isinstance(i, int) else i for i in l]
     return all(isinstance(i, type(l[0])) for i in l)
 
 
