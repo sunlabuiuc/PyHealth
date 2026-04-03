@@ -92,9 +92,9 @@ class RETAINLayer(nn.Module):
 
     def forward(
         self,
-        x: torch.tensor,
-        mask: Optional[torch.tensor] = None,
-    ) -> Tuple[torch.tensor, torch.tensor]:
+        x: torch.Tensor,
+        mask: Optional[torch.Tensor] = None,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Forward propagation.
 
         Args:
