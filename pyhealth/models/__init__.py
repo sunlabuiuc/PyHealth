@@ -41,6 +41,7 @@ from .ehrmamba import EHRMamba, MambaBlock
 from .vae import VAE
 from .vision_embedding import VisionEmbeddingModel
 from .text_embedding import TextEmbedding
+from .fusion import TransformerFusion
 from .sdoh import SdohClassifier
 from .medlink import MedLink
 from .unified_embedding import UnifiedMultimodalEmbeddingModel, SinusoidalTimeEmbedding
