@@ -66,3 +66,7 @@ from .variant_classification import (
     VariantClassificationClinVar,
 )
 from .patient_linkage_mimic3 import PatientLinkageMIMIC3Task
+from .synthetic_ehr_generation import (
+    SyntheticEHRGenerationMIMIC3,
+    SyntheticEHRGenerationMIMIC4,
+)
