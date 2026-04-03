@@ -38,6 +38,9 @@ dependencies = [
   "polars~=1.35.2",
   "pandas~=2.3.1",
   "pydantic~=2.11.7",
+  "gymnasium",
+  "scikit-image",
+  "pygame"
   "dask[complete]~=2025.11.0",
   "litdata~=0.2.59",
   "pyarrow~=22.0.0",
