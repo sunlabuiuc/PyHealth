@@ -13,6 +13,11 @@ from torch.utils.data import DataLoader
 from pyhealth import BASE_CACHE_PATH
 from pyhealth.utils import create_directory
 
+import numpy as np
+import pyedflib
+from scipy.signal import resample
+from xml.etree import ElementTree as ET
+
 MODULE_CACHE_PATH = os.path.join(BASE_CACHE_PATH, "datasets")
 create_directory(MODULE_CACHE_PATH)
 #PyG import for graph-based models
@@ -446,6 +451,87 @@ def load_processors(processor_dir: str) -> Tuple[Dict, Dict]:
 
     return input_processors, output_processors
 
+def read_edf_data(data_path, label_path, dataset, select_chs, target_fs=None):
+    """
+    Lightweight EDF reader + sleep stage extractor WITHOUT MNE.
+
+    Parameters:
+        data_path: path to EDF file.
+        label_path: SHHS XML annotation file.
+        dataset: "SHHS" or "MESA".
+        select_chs: list of channels to extract.
+        target_fs: optional downsample frequency.
+
+    Returns:
+        data: (T, C) extracted channel signals.
+        fs: sampling frequency.
+        stages: stage array aligned with signal.
+    """
+
+    # Dataset-specific channel exclusions (as before)
+    if dataset == "SHHS":
+        exclude_chs = ["SaO2", "H.R.", "SOUND", "AIRFLOW", "POSITION", "LIGHT"]
+    elif dataset == "MESA":
+        exclude_chs = ["EEG1", "EEG2", "Snore", "Thor", "Abdo", "Leg", "Therm", "Pos"]
+    else:
+        raise ValueError("Unsupported dataset. Use 'SHHS' or 'MESA'.")
+
+    # ---- Read EDF ----
+    f = pyedflib.EdfReader(data_path)
+    channel_labels = f.getSignalLabels()
+    original_fs = f.getSampleFrequencies()
+
+    # Determine which EDF channels to load
+    selected_idxs = []
+    for ch in select_chs:
+        if ch in channel_labels:
+            selected_idxs.append(channel_labels.index(ch))
+        else:
+            raise ValueError(f"Channel {ch} not found in EDF")
+
+    # Read signals into (T, C)
+    signals = []
+    for idx in selected_idxs:
+        sig = f.readSignal(idx)
+        signals.append(sig)
+    f.close()
+
+    # Shape: (C, T) → (T, C)
+    data = np.stack(signals, axis=-1)
+
+    # Use the first selected channel’s fs (usually they share same fs)
+    fs = original_fs[selected_idxs[0]]
+
+    # ---- Downsample ----
+    if target_fs and fs > target_fs:
+        factor = target_fs / fs
+        data = resample(data, int(len(data) * factor), axis=0)
+        fs = target_fs
+
+    # ---- Parse sleep stage annotations from XML ----
+    tree = ET.parse(label_path)
+    root = tree.getroot()
+    stages = np.array([int(s.text) for s in root[4].findall("SleepStage")], dtype=np.int8)
+
+    # Merge stages for consistency with standard:
+    # 3←4, 4←5 (deep/REM merge)
+    stages[stages == 4] = 3
+    stages[stages == 5] = 4
+
+    # Expand 30-second epochs to per-sample labels
+    expanded = np.repeat(stages, int(30 * fs))
+
+    # Align lengths
+    min_len = min(len(data), len(expanded))
+    data = data[:min_len]
+    stages = expanded[:min_len]
+
+    return data, fs, stages
+
+
+def save_to_npz(out_path, data, stages, fs):
+    """Saves extracted ECG/PPG/sleep staging data to NPZ."""
+    np.savez(out_path, data=data, stages=stages, fs=fs)
 
 if __name__ == "__main__":
     print(list_nested_levels([1, 2, 3]))
