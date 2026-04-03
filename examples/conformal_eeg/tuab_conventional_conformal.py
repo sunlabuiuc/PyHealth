@@ -123,13 +123,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--weights-dir",
         type=str,
-        default="weightfiles/TFM_Tokenizer_multiple_finetuned_on_TUAB",
-        help="Root folder of fine-tuned TFM classifier checkpoints (only with --model tfm).",
+        default="/shared/eng/conformal_eeg",
+        help="Root folder of TFM classifier checkpoints (only with --model tfm). "
+             "If the directory contains tfm_encoder_best_model_tuab.pth directly, "
+             "that single checkpoint is used for all seeds (PI TUAB setup). "
+             "Otherwise expects per-seed subdirs {base}_1..N/best_model.pth.",
     )
     parser.add_argument(
         "--tokenizer-weights",
         type=str,
-        default="weightfiles/tfm_tokenizer_last.pth",
+        default="/shared/eng/conformal_eeg/tfm_tokenizer_tuab.pth",
         help="Path to the pre-trained TFM tokenizer weights (only with --model tfm).",
     )
     parser.add_argument(
@@ -152,9 +155,19 @@ def _do_split(dataset, ratios, seed, split_type):
 
 
 def _load_tfm_weights(model, args, run_idx: int) -> None:
-    """Load pre-trained tokenizer + fine-tuned classifier for run_idx (0-based)."""
-    base = os.path.basename(args.weights_dir)
-    classifier_path = os.path.join(args.weights_dir, f"{base}_{run_idx + 1}", "best_model.pth")
+    """Load pre-trained tokenizer + fine-tuned classifier for run_idx (0-based).
+
+    Supports two layouts:
+      - Single classifier (PI TUAB setup): weights_dir/tfm_encoder_best_model_tuab.pth
+        Used for all seeds — only the data split varies across runs.
+      - Per-seed subdirs: weights_dir/{base}_{run_idx+1}/best_model.pth
+    """
+    single = os.path.join(args.weights_dir, "tfm_encoder_best_model_tuab.pth")
+    if os.path.isfile(single):
+        classifier_path = single
+    else:
+        base = os.path.basename(args.weights_dir)
+        classifier_path = os.path.join(args.weights_dir, f"{base}_{run_idx + 1}", "best_model.pth")
     print(f"  Loading TFM weights (run {run_idx + 1}): {classifier_path}")
     model.load_pretrained_weights(
         tokenizer_checkpoint_path=args.tokenizer_weights,
