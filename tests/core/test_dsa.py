@@ -9,13 +9,11 @@ import torch
 if not hasattr(torch, 'uint16'):
     torch.uint16 = torch.int16 # This tricks litdata into thinking uint16 exists
 
-
 import unittest
 from pathlib import Path
 
 from pyhealth.datasets import DSADataset
 from pyhealth.tasks import ActivityClassification
-
 
 class TestDSADataset(unittest.TestCase):
     """Test cases for DSADataset."""
@@ -92,11 +90,9 @@ class TestDSADataset(unittest.TestCase):
         if len(samples) > 0:
             sample = samples[0]
             self.assertIn("patient_id", sample)
-            self.assertIn("T", sample)
-            self.assertIn("LA", sample)
-            self.assertIn("RA", sample)
-            self.assertIn("LL", sample)
-            self.assertIn("RL", sample)
+            self.assertIn("T_xacc", sample)
+            self.assertIn("LA_ygyro", sample)
+            self.assertIn("LL_zmag", sample)
             self.assertIn("label", sample)
 
 
@@ -107,26 +103,25 @@ class TestActivityClassification(unittest.TestCase):
         """Test task class attributes."""
         task = ActivityClassification()
         self.assertEqual(task.task_name, "ActivityClassification")
-        self.assertIn("T", task.input_schema)
-        self.assertIn("LA", task.input_schema)
-        self.assertIn("RA", task.input_schema)
-        self.assertIn("LL", task.input_schema)
-        self.assertIn("RL", task.input_schema)
+        self.assertIn("T_xacc", task.input_schema)
+        self.assertIn("LA_ygyro", task.input_schema)
+        self.assertIn("LL_zmag", task.input_schema)
         self.assertIn("label", task.output_schema)
 
     def test_input_schema(self):
         """Test input schema definition."""
         task = ActivityClassification()
-        self.assertEqual(task.input_schema["T"], "timeseries")
-        self.assertEqual(task.input_schema["RA"], "timeseries")
-        self.assertEqual(task.input_schema["LA"], "timeseries")
-        self.assertEqual(task.input_schema["RL"], "timeseries")
-        self.assertEqual(task.input_schema["LL"], "timeseries")
+        
+        for x in ["T", "LA", "RA", "LL", "RL"]: 
+            for y in ["x", "y", "z"]: 
+                for z in ["acc", "gyro", "mag"]: 
+                    feature = f"{x}_{y}{z}"
+                    self.assertEqual(task.input_schema[feature], "sequence")
 
     def test_output_schema(self):
         """Test output schema definition."""
         task = ActivityClassification()
-        self.assertEqual(task.output_schema["label"], "text")
+        self.assertEqual(task.output_schema["label"], "multiclass")
 
 
 if __name__ == "__main__":

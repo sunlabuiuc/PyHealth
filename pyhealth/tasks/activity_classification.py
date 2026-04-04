@@ -3,11 +3,11 @@
 This module provides a task for classifying daily and sports activity using
 motion sensor data from Daily and Sports Activities (DSA) dataset.
 """
-import logging
+
 from typing import Any, Dict, List, Optional
 import pandas as pd
 from .base_task import BaseTask
-
+import logging
 logger = logging.getLogger(__name__)
 
 class ActivityClassification(BaseTask):
@@ -34,14 +34,13 @@ class ActivityClassification(BaseTask):
 
     task_name: str = "ActivityClassification"
     input_schema: Dict[str, str] = {
-        "T": "timeseries",
-        "RA": "timeseries",
-        "LA": "timeseries",
-        "RL": "timeseries",
-        "LL": "timeseries",
+        f"{x}_{y}{z}": "sequence"
+        for x in ["T", "LA", "RA", "LL", "RL"]
+        for y in ["x", "y", "z"]
+        for z in ["acc", "gyro", "mag"]
     }
     output_schema: Dict[str, str] = {
-        "label": "text",
+        "label": "multiclass",
     }
 
     def __call__(self, patient: Any) -> List[Dict[str, Any]]:
@@ -67,9 +66,12 @@ class ActivityClassification(BaseTask):
 
         def extract_time_series(df, sensor):
             columns = [f"{d}" for d in range(125)]
-            tss = df[df["sensor"].str.startswith(sensor + "_")].sort_values("sensor")[columns].astype(float).reset_index(drop=True).T.to_numpy().tolist()
-            return [tuple(ts) for ts in tss]
-        
+            ts = df[df["sensor"] == sensor][columns].astype(float).to_numpy().tolist()
+            # return times, values
+            if len(ts) > 0: 
+                return ts[0]
+            return []
+
         records = []
         for a in df["activity"].unique(): 
             for s in df["segment"].unique(): 
@@ -79,8 +81,15 @@ class ActivityClassification(BaseTask):
                 if len(df_one) == 0: 
                     continue
 
+                features = [
+                    f"{x}_{y}{z}" 
+                    for y in ["x", "y", "z"]
+                    for z in ["acc", "gyro", "mag"]
+                    for x in ["T", "RA", "LA", "RL", "LL"]
+                ] 
+
                 record = {
-                    sensor: extract_time_series(df_one, sensor) for sensor in ["T", "LA", "RA", "LL", "RL"]
+                    feature: extract_time_series(df_one, feature) for feature in features
                 }
                 record["patient_id"] = patient.patient_id
                 record["label"] = a
