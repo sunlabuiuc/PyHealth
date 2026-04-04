@@ -8,8 +8,6 @@
 You might need to restart kernel after running this section.
 """
 
-! rm -rf PyHealth
-
 !git clone https://github.com/ranyou/PyHealth.git
 !cd PyHealth && pip install -e .
 
