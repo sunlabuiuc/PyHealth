@@ -32,19 +32,20 @@ class DSADataset(BaseDataset):
     articular sampling instant from all sensors for one activity, one patient.
 
     The raw dataset structure looks like this: 
-    - data
-        - a01: activity 01
-            - p1: patient 1
-                - s01.txt: segment 01
-                - s02.txt: segment 02
+    - <root>
+        - data
+            - a01: activity 01
+                - p1: patient 1
+                    - s01.txt: segment 01
+                    - s02.txt: segment 02
+                    - ... ...
+                    - s60.txt: segment 60
+                - p2: patient 2
                 - ... ...
-                - s60.txt: segment 60
-            - p2: patient 2
+                - p8
+            - a02: activity 02
             - ... ...
-            - p8
-        - a02: activity 02
-        - ... ...
-        - a19
+            - a19
 
     This dataset class loads raw data files and reformats into a single CSV file
     with columns activity, patient, segment, sample_id, and 45 sensor columns.
@@ -80,15 +81,29 @@ class DSADataset(BaseDataset):
         root: str,
         dataset_name: Optional[str] = None,
         config_path: Optional[str] = None,
+        download : bool = False,
         **kwargs,
     ) -> None:
         if config_path is None:
             logger.info("No config path provided, using default config")
             config_path = Path(__file__).parent / "configs" / "dsa.yaml"
 
+        if download: 
+            self.download_dataset(root=root)
+
         # Prepare standardized CSV if not exists
         pyhealth_csv = os.path.join(root, "dsa-pyhealth.csv")
         if not os.path.exists(pyhealth_csv):
+            if len(os.listdir(root)) != 19: 
+                logger.info(
+                    f"""
+                    The contexts in {root} are unexpected. You root directory is likely wrong. 
+                    You can download the dataset manually from https://archive.ics.uci.edu/dataset/256/daily+and+sports+activities
+                    or directly set download=True.
+                    """
+                )
+                raise 
+                
             logger.info("Preparing DSA data...")
             self.prepare_data(root)
 
@@ -99,6 +114,34 @@ class DSADataset(BaseDataset):
             config_path=config_path,
             **kwargs,
         )
+
+    @staticmethod
+    def download_dataset(root : str = None) -> None: 
+        """Download DSA dataset and extract files.
+        
+        Args: 
+            root: directory to extract downloaded files, default to ./daily-and-sports-activities
+        """
+        import urllib.request
+        import zipfile
+        import os
+
+        url = "https://archive.ics.uci.edu/static/public/256/daily+and+sports+activities.zip"
+        zip_path = "./daily+and+sports+activities.zip"
+        if root is None: 
+            root = "./daily-and-sports-activities"
+
+        logger.info(f"Downloading {url}...")
+        urllib.request.urlretrieve(url, zip_path)
+
+        logger.info("Extracting files...")
+        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+            zip_ref.extractall(root)
+
+        os.remove(zip_path)
+
+        logger.info(f"Done! Files extracted to: {root}")
+        return
 
     @staticmethod
     def prepare_data(root: str) -> None:
@@ -125,7 +168,7 @@ class DSADataset(BaseDataset):
             for p in range(1, 9): 
                 for s in range(1, 61): 
                     df = pd.read_csv(
-                        root / f"a{a:02d}" / f"p{p}" / f"s{s:02d}.txt", 
+                        root / "data" / f"a{a:02d}" / f"p{p}" / f"s{s:02d}.txt", 
                         header=None,
                     )
                     df.columns = columns
