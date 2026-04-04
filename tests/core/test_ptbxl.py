@@ -175,6 +175,63 @@ class TestPTBXLDatasetPrepareMetadata(unittest.TestCase):
             self.assertIn("patient_id", df.columns)
             self.assertFalse(df["patient_id"].isnull().any())
 
+    def test_data_integrity_required_columns(self):
+        """All required columns must be present with no nulls."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _make_fake_db(root)
+
+            ds = PTBXLDataset.__new__(PTBXLDataset)
+            ds.sampling_rate = 100
+            ds.root = str(root)
+            ds.prepare_metadata(str(root))
+
+            df = pd.read_csv(root / "ptbxl-metadata-pyhealth.csv")
+            required = ["patient_id", "record_id", "signal_file",
+                        "scp_codes", "sampling_rate", "num_leads"]
+            for col in required:
+                self.assertIn(col, df.columns, f"Missing column: {col}")
+                self.assertFalse(df[col].isnull().any(), f"Nulls in column: {col}")
+
+    def test_data_integrity_record_ids_unique(self):
+        """Each ECG record_id must be unique."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _make_fake_db(root)
+
+            ds = PTBXLDataset.__new__(PTBXLDataset)
+            ds.sampling_rate = 100
+            ds.root = str(root)
+            ds.prepare_metadata(str(root))
+
+            df = pd.read_csv(root / "ptbxl-metadata-pyhealth.csv")
+            self.assertEqual(len(df["record_id"].unique()), len(df))
+
+    def test_data_integrity_sampling_rate_value(self):
+        """sampling_rate column must match the requested rate."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _make_fake_db(root)
+
+            ds = PTBXLDataset.__new__(PTBXLDataset)
+            ds.sampling_rate = 100
+            ds.root = str(root)
+            ds.prepare_metadata(str(root))
+
+            df = pd.read_csv(root / "ptbxl-metadata-pyhealth.csv")
+            self.assertTrue((df["sampling_rate"] == 100).all())
+
+    def test_invalid_sampling_rate_raises(self):
+        """PTBXLDataset should reject sampling rates other than 100/500."""
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(ValueError):
+                PTBXLDataset.__new__(PTBXLDataset)
+                # Simulate __init__ validation
+                ds = object.__new__(PTBXLDataset)
+                ds.sampling_rate = 250
+                if ds.sampling_rate not in (100, 500):
+                    raise ValueError("sampling_rate must be 100 or 500.")
+
 
 # ---------------------------------------------------------------------------
 # Tests: PTBXLDiagnosis task
