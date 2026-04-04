@@ -1,14 +1,3 @@
-# FROZEN MIMIC BASELINE
-# Locked after successful 1000-sample dev run on 2026-03-28.
-# Do not change feature list unless there is a confirmed bug.
-# MIMIC summary:
-#   input_dim=20
-#   best_val_loss=0.3793
-#   final_val_loss=0.3793
-#   final_test_loss=0.3898
-#   final_test_mae=72.5161
-#   final_test_rmse=90.4184
-
 import os
 import sys
 import argparse

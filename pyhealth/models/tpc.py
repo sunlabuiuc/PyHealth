@@ -8,19 +8,30 @@ import torch.nn.functional as F
 
 
 class TemporalConvBlock(nn.Module):
-    """
-    Feature-wise causal temporal convolution.
+    """Feature-wise or shared causal temporal convolution block.
+
+    This block applies a 1-D causal convolution over time for each feature.
+    It supports two modes:
+
+    1. Feature-wise temporal convolution:
+       A separate ``nn.Conv1d`` is created for each feature so temporal
+       filters are not shared across features.
+
+    2. Shared temporal convolution:
+       A single ``nn.Conv1d`` is reused for all features, allowing an
+       ablation against the feature-specific version.
 
     Input:
-        x: [B, T, F, C_in]
+        x: Tensor of shape ``[B, T, F, C_in]``
 
     Output:
-        y: [B, T, F, C_out]
+        y: Tensor of shape ``[B, T, F, C_out]``
 
     Notes:
-        - One Conv1d per feature (non-shared temporal filters).
-        - Left padding preserves causality.
-        - Each feature is convolved independently through time.
+        - Left padding preserves temporal causality.
+        - Output length matches input sequence length.
+        - Each feature is processed independently in time even when
+          weights are shared.
     """
 
     def __init__(
@@ -31,7 +42,23 @@ class TemporalConvBlock(nn.Module):
         kernel_size: int,
         dilation: int,
         dropout: float = 0.0,
+        shared_temporal: bool = False,
     ) -> None:
+        """Initialize the temporal convolution block.
+
+        Args:
+            in_channels: Number of per-feature input channels.
+            out_channels: Number of per-feature output channels.
+            num_features: Number of time-series features.
+            kernel_size: Temporal convolution kernel size.
+            dilation: Temporal dilation factor.
+            dropout: Dropout probability applied after convolution.
+            shared_temporal: Whether to share one temporal convolution
+                across all features.
+
+        Raises:
+            ValueError: If any required dimensional argument is invalid.
+        """
         super().__init__()
         if in_channels <= 0:
             raise ValueError("in_channels must be positive")
@@ -49,33 +76,52 @@ class TemporalConvBlock(nn.Module):
         self.num_features = num_features
         self.kernel_size = kernel_size
         self.dilation = dilation
+        self.shared_temporal = shared_temporal
 
-        self.feature_convs = nn.ModuleList(
-            [
-                nn.Conv1d(
-                    in_channels=in_channels,
-                    out_channels=out_channels,
-                    kernel_size=kernel_size,
-                    dilation=dilation,
-                    bias=True,
-                )
-                for _ in range(num_features)
-            ]
-        )
+        if self.shared_temporal:
+            self.shared_conv = nn.Conv1d(
+                in_channels=in_channels,
+                out_channels=out_channels,
+                kernel_size=kernel_size,
+                dilation=dilation,
+                bias=True,
+            )
+            self.feature_convs = None
+        else:
+            self.shared_conv = None
+            self.feature_convs = nn.ModuleList(
+                [
+                    nn.Conv1d(
+                        in_channels=in_channels,
+                        out_channels=out_channels,
+                        kernel_size=kernel_size,
+                        dilation=dilation,
+                        bias=True,
+                    )
+                    for _ in range(num_features)
+                ]
+            )
+
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """
+        """Apply causal temporal convolution to each feature.
+
         Args:
-            x: [B, T, F, C_in]
+            x: Input tensor of shape ``[B, T, F, C_in]``.
 
         Returns:
-            y: [B, T, F, C_out]
+            Output tensor of shape ``[B, T, F, C_out]``.
+
+        Raises:
+            ValueError: If the input tensor has incompatible shape.
         """
         if x.ndim != 4:
-            raise ValueError(f"Expected x to have shape [B, T, F, C], got {tuple(x.shape)}")
+            raise ValueError(
+                f"Expected x to have shape [B, T, F, C], got {tuple(x.shape)}"
+            )
 
-        bsz, seq_len, num_features, in_channels = x.shape
+        _, _, num_features, in_channels = x.shape
         if num_features != self.num_features:
             raise ValueError(
                 f"Expected {self.num_features} features, got {num_features}"
@@ -89,10 +135,14 @@ class TemporalConvBlock(nn.Module):
         left_pad = self.dilation * (self.kernel_size - 1)
 
         for feat_idx in range(self.num_features):
-            # [B, T, C_in] -> [B, C_in, T]
-            feat_x = x[:, :, feat_idx, :].transpose(1, 2)
+            feat_x = x[:, :, feat_idx, :].transpose(1, 2)  # [B, C_in, T]
             feat_x = F.pad(feat_x, (left_pad, 0))
-            feat_y = self.feature_convs[feat_idx](feat_x)  # [B, C_out, T]
+
+            if self.shared_temporal:
+                feat_y = self.shared_conv(feat_x)  # [B, C_out, T]
+            else:
+                feat_y = self.feature_convs[feat_idx](feat_x)  # [B, C_out, T]
+
             feat_y = feat_y.transpose(1, 2)  # [B, T, C_out]
             outputs.append(feat_y.unsqueeze(2))  # [B, T, 1, C_out]
 
@@ -102,17 +152,35 @@ class TemporalConvBlock(nn.Module):
 
 
 class PointwiseConvBlock(nn.Module):
-    """
-    Pointwise transformation applied independently at each time step.
+    """Pointwise transformation applied independently at each time step.
+
+    This block is implemented as a linear layer operating on the flattened
+    per-time-step representation. It is equivalent in spirit to a 1x1
+    convolution across the feature/channel dimension at each hour.
 
     Input:
-        x: [B, T, D_in]
+        x: Tensor of shape ``[B, T, D_in]``
 
     Output:
-        y: [B, T, D_out]
+        y: Tensor of shape ``[B, T, D_out]``
     """
 
-    def __init__(self, input_dim: int, output_dim: int, dropout: float = 0.0) -> None:
+    def __init__(
+        self,
+        input_dim: int,
+        output_dim: int,
+        dropout: float = 0.0,
+    ) -> None:
+        """Initialize the pointwise block.
+
+        Args:
+            input_dim: Input dimension per time step.
+            output_dim: Output dimension per time step.
+            dropout: Dropout probability applied after projection.
+
+        Raises:
+            ValueError: If either dimension is not positive.
+        """
         super().__init__()
         if input_dim <= 0:
             raise ValueError("input_dim must be positive")
@@ -123,30 +191,49 @@ class PointwiseConvBlock(nn.Module):
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Apply the pointwise transformation.
+
+        Args:
+            x: Input tensor of shape ``[B, T, D_in]``.
+
+        Returns:
+            Output tensor of shape ``[B, T, D_out]``.
+
+        Raises:
+            ValueError: If the input tensor shape is invalid.
+        """
         if x.ndim != 3:
-            raise ValueError(f"Expected x to have shape [B, T, D], got {tuple(x.shape)}")
+            raise ValueError(
+                f"Expected x to have shape [B, T, D], got {tuple(x.shape)}"
+            )
         y = self.linear(x)
         y = self.dropout(y)
         return y
 
 
 class TPCLayer(nn.Module):
-    """
-    One TPC layer combining:
+    """One Temporal Pointwise Convolution layer.
 
-    - feature-wise causal temporal convolution
-    - pointwise transformation over flattened current representation
-    - optional static feature injection
-    - optional decay injection
-    - concatenative skip-style fusion
+    This layer combines:
+
+    - optional temporal convolution branch
+    - optional pointwise branch
+    - optional concatenative skip connections
 
     Input:
-        x: [B, T, F, C_in]
-        decay: [B, T, F] or None
-        static: [B, S] or None
+        x: Tensor of shape ``[B, T, F, C_in]``
+        decay: Tensor of shape ``[B, T, F]`` or ``None``
+        static: Tensor of shape ``[B, S]`` or ``None``
 
     Output:
-        fused: [B, T, F, C_in + temporal_channels + pointwise_channels]
+        fused: Tensor of shape ``[B, T, F, C_out]``
+
+    Notes:
+        - The temporal branch performs feature-wise or shared causal
+          temporal convolution.
+        - The pointwise branch performs per-time-step feature mixing.
+        - Skip connections are implemented as concatenation of the input
+          representation with new branch outputs.
     """
 
     def __init__(
@@ -160,7 +247,33 @@ class TPCLayer(nn.Module):
         dilation: int,
         dropout: float = 0.0,
         use_decay_in_pointwise: bool = True,
+        shared_temporal: bool = False,
+        use_temporal: bool = True,
+        use_pointwise: bool = True,
+        use_skip_connections: bool = True,
     ) -> None:
+        """Initialize the TPC layer.
+
+        Args:
+            num_features: Number of time-series features.
+            in_channels: Number of input channels per feature.
+            temporal_channels: Number of temporal branch output channels.
+            pointwise_channels: Number of pointwise branch output channels.
+            static_dim: Static feature dimension.
+            kernel_size: Temporal kernel size.
+            dilation: Temporal dilation factor.
+            dropout: Dropout probability.
+            use_decay_in_pointwise: Whether decay indicators are concatenated
+                into the pointwise branch input.
+            shared_temporal: Whether temporal filters are shared across features.
+            use_temporal: Whether to enable the temporal branch.
+            use_pointwise: Whether to enable the pointwise branch.
+            use_skip_connections: Whether to concatenate the prior input
+                representation into the layer output.
+
+        Raises:
+            ValueError: If layer dimensions are invalid or both branches are off.
+        """
         super().__init__()
         if num_features <= 0:
             raise ValueError("num_features must be positive")
@@ -179,26 +292,47 @@ class TPCLayer(nn.Module):
         self.pointwise_channels = pointwise_channels
         self.static_dim = static_dim
         self.use_decay_in_pointwise = use_decay_in_pointwise
-        self.output_channels = in_channels + temporal_channels + pointwise_channels
+        self.shared_temporal = shared_temporal
+        self.use_temporal = use_temporal
+        self.use_pointwise = use_pointwise
+        self.use_skip_connections = use_skip_connections
 
-        self.temporal = TemporalConvBlock(
-            in_channels=in_channels,
-            out_channels=temporal_channels,
-            num_features=num_features,
-            kernel_size=kernel_size,
-            dilation=dilation,
-            dropout=dropout,
-        )
+        if not self.use_temporal and not self.use_pointwise:
+            raise ValueError("At least one of use_temporal or use_pointwise must be True")
 
-        point_input_dim = (num_features * in_channels) + static_dim
-        if use_decay_in_pointwise:
-            point_input_dim += num_features
+        self.output_channels = 0
+        if self.use_skip_connections:
+            self.output_channels += in_channels
+        if self.use_temporal:
+            self.output_channels += temporal_channels
+        if self.use_pointwise:
+            self.output_channels += pointwise_channels
 
-        self.pointwise = PointwiseConvBlock(
-            input_dim=point_input_dim,
-            output_dim=pointwise_channels,
-            dropout=dropout,
-        )
+        if self.use_temporal:
+            self.temporal = TemporalConvBlock(
+                in_channels=in_channels,
+                out_channels=temporal_channels,
+                num_features=num_features,
+                kernel_size=kernel_size,
+                dilation=dilation,
+                dropout=dropout,
+                shared_temporal=shared_temporal,
+            )
+        else:
+            self.temporal = None
+
+        if self.use_pointwise:
+            point_input_dim = (num_features * in_channels) + static_dim
+            if use_decay_in_pointwise:
+                point_input_dim += num_features
+
+            self.pointwise = PointwiseConvBlock(
+                input_dim=point_input_dim,
+                output_dim=pointwise_channels,
+                dropout=dropout,
+            )
+        else:
+            self.pointwise = None
 
         self.activation = nn.ReLU()
 
@@ -208,17 +342,23 @@ class TPCLayer(nn.Module):
         decay: Optional[torch.Tensor] = None,
         static: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        """
+        """Apply the TPC layer.
+
         Args:
-            x: [B, T, F, C_in]
-            decay: [B, T, F] or None
-            static: [B, S] or None
+            x: Input tensor of shape ``[B, T, F, C_in]``.
+            decay: Optional decay tensor of shape ``[B, T, F]``.
+            static: Optional static tensor of shape ``[B, S]``.
 
         Returns:
-            fused: [B, T, F, C_in + temporal_channels + pointwise_channels]
+            Fused tensor of shape ``[B, T, F, C_out]``.
+
+        Raises:
+            ValueError: If tensor shapes are incompatible.
         """
         if x.ndim != 4:
-            raise ValueError(f"Expected x to have shape [B, T, F, C], got {tuple(x.shape)}")
+            raise ValueError(
+                f"Expected x to have shape [B, T, F, C], got {tuple(x.shape)}"
+            )
 
         bsz, seq_len, num_features, in_channels = x.shape
         if num_features != self.num_features:
@@ -237,7 +377,8 @@ class TPCLayer(nn.Module):
                 )
             if decay.shape[:3] != (bsz, seq_len, num_features):
                 raise ValueError(
-                    f"Expected decay shape {(bsz, seq_len, num_features)}, got {tuple(decay.shape)}"
+                    "Expected decay shape "
+                    f"{(bsz, seq_len, num_features)}, got {tuple(decay.shape)}"
                 )
 
         if static is not None:
@@ -250,54 +391,66 @@ class TPCLayer(nn.Module):
                     f"Expected static batch size {bsz}, got {static.shape[0]}"
                 )
 
-        temp_out = self.temporal(x)  # [B, T, F, temporal_channels]
+        parts_to_concat = []
 
-        flat_x = x.reshape(bsz, seq_len, num_features * in_channels)  # [B, T, F*C_in]
-        parts = [flat_x]
+        if self.use_skip_connections:
+            parts_to_concat.append(x)
 
-        if static is not None:
-            static_rep = static.unsqueeze(1).expand(-1, seq_len, -1)  # [B, T, S]
-            parts.append(static_rep)
+        if self.use_temporal:
+            temp_out = self.temporal(x)  # [B, T, F, temporal_channels]
+            parts_to_concat.append(temp_out)
 
-        if self.use_decay_in_pointwise:
-            if decay is None:
-                raise ValueError("decay must be provided when use_decay_in_pointwise=True")
-            parts.append(decay)
+        if self.use_pointwise:
+            flat_x = x.reshape(bsz, seq_len, num_features * in_channels)
+            point_parts = [flat_x]
 
-        point_in = torch.cat(parts, dim=-1)  # [B, T, D_in]
-        point_out = self.pointwise(point_in)  # [B, T, pointwise_channels]
-        point_broadcast = point_out.unsqueeze(2).expand(-1, -1, num_features, -1)
+            if static is not None:
+                static_rep = static.unsqueeze(1).expand(-1, seq_len, -1)
+                point_parts.append(static_rep)
 
-        fused = torch.cat([x, temp_out, point_broadcast], dim=-1)
+            if self.use_decay_in_pointwise:
+                if decay is None:
+                    raise ValueError(
+                        "decay must be provided when use_decay_in_pointwise=True"
+                    )
+                point_parts.append(decay)
+
+            point_in = torch.cat(point_parts, dim=-1)  # [B, T, D_in]
+            point_out = self.pointwise(point_in)  # [B, T, pointwise_channels]
+            point_broadcast = point_out.unsqueeze(2).expand(
+                -1, -1, num_features, -1
+            )
+            parts_to_concat.append(point_broadcast)
+
+        fused = torch.cat(parts_to_concat, dim=-1)
         fused = self.activation(fused)
         return fused
 
 
 class TPC(nn.Module):
-    """
-    Temporal Pointwise Convolutional model for hourly LoS regression.
+    """Temporal Pointwise Convolution model for hourly LoS regression.
 
-    This version expects:
-        - x_values: hourly feature values
-        - x_decay: hourly decay indicators
-        - static: optional static features
+    This implementation expects three logical inputs:
+
+    - ``x_values``: hourly time-series values
+    - ``x_decay``: hourly decay indicators
+    - ``static``: optional static features
 
     Inputs:
-        x_values: [B, T, F]
-        x_decay: [B, T, F]
-        static: [B, S] or None
+        x_values: Tensor of shape ``[B, T, F]``
+        x_decay: Tensor of shape ``[B, T, F]``
+        static: Tensor of shape ``[B, S]`` or ``None``
 
     Outputs:
-        if return_sequence=True:
-            y_hat: [B, T]
-        else:
-            y_hat: [B]
+        - If ``return_sequence=True``: tensor of shape ``[B, T]``
+        - Else: tensor of shape ``[B]``
 
     Notes:
-        - Initial channels are stacked as [value, decay] per feature.
-        - Each TPC layer also feeds decay into the pointwise branch.
-        - The default is sequence output because your task proposal is
-          hourly remaining LoS prediction, not just a final single-time prediction.
+        - Initial per-feature channels are stacked as ``[value, decay]``.
+        - Each TPC layer can enable or disable temporal and pointwise branches
+          for architecture ablations.
+        - The default output mode is sequence prediction because the task is
+          hourly remaining length-of-stay regression.
     """
 
     def __init__(
@@ -313,7 +466,34 @@ class TPC(nn.Module):
         return_sequence: bool = True,
         use_decay_in_pointwise: bool = True,
         positive_output: bool = True,
+        shared_temporal: bool = False,
+        use_temporal: bool = True,
+        use_pointwise: bool = True,
+        use_skip_connections: bool = True,
     ) -> None:
+        """Initialize the TPC model.
+
+        Args:
+            input_dim: Number of time-series features.
+            static_dim: Static feature dimension.
+            temporal_channels: Temporal branch output channels per layer.
+            pointwise_channels: Pointwise branch output channels per layer.
+            num_layers: Number of stacked TPC layers.
+            kernel_size: Temporal kernel size.
+            fc_dim: Hidden dimension in the final prediction head.
+            dropout: Dropout probability.
+            return_sequence: Whether to predict at every hour or only the last.
+            use_decay_in_pointwise: Whether to inject decay into the pointwise
+                branch.
+            positive_output: Whether to enforce positive outputs using Softplus.
+            shared_temporal: Whether temporal weights are shared across features.
+            use_temporal: Whether to enable the temporal branch.
+            use_pointwise: Whether to enable the pointwise branch.
+            use_skip_connections: Whether to use concatenative skip connections.
+
+        Raises:
+            ValueError: If any dimensional argument is invalid.
+        """
         super().__init__()
         if input_dim <= 0:
             raise ValueError("input_dim must be positive")
@@ -341,6 +521,10 @@ class TPC(nn.Module):
         self.return_sequence = return_sequence
         self.use_decay_in_pointwise = use_decay_in_pointwise
         self.positive_output = positive_output
+        self.shared_temporal = shared_temporal
+        self.use_temporal = use_temporal
+        self.use_pointwise = use_pointwise
+        self.use_skip_connections = use_skip_connections
 
         layers = []
         in_channels = 2  # value + decay channels at input
@@ -356,6 +540,10 @@ class TPC(nn.Module):
                 dilation=i + 1,
                 dropout=dropout,
                 use_decay_in_pointwise=use_decay_in_pointwise,
+                shared_temporal=shared_temporal,
+                use_temporal=use_temporal,
+                use_pointwise=use_pointwise,
+                use_skip_connections=use_skip_connections,
             )
             layers.append(layer)
             in_channels = layer.output_channels
@@ -375,28 +563,33 @@ class TPC(nn.Module):
         x_decay: torch.Tensor,
         static: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        """
+        """Run the TPC model forward.
+
         Args:
-            x_values: [B, T, F]
-            x_decay: [B, T, F]
-            static: [B, S] or None
+            x_values: Tensor of shape ``[B, T, F]`` containing feature values.
+            x_decay: Tensor of shape ``[B, T, F]`` containing decay indicators.
+            static: Optional tensor of shape ``[B, S]``.
 
         Returns:
-            y_hat:
-                [B, T] if return_sequence=True
-                [B] if return_sequence=False
+            A tensor of shape ``[B, T]`` if ``return_sequence=True`` or
+            ``[B]`` otherwise.
+
+        Raises:
+            ValueError: If input tensor shapes are invalid.
         """
         if x_values.ndim != 3:
             raise ValueError(
-                f"Expected x_values to have shape [B, T, F], got {tuple(x_values.shape)}"
+                "Expected x_values to have shape [B, T, F], got "
+                f"{tuple(x_values.shape)}"
             )
         if x_decay.ndim != 3:
             raise ValueError(
-                f"Expected x_decay to have shape [B, T, F], got {tuple(x_decay.shape)}"
+                "Expected x_decay to have shape [B, T, F], got "
+                f"{tuple(x_decay.shape)}"
             )
         if x_values.shape != x_decay.shape:
             raise ValueError(
-                f"x_values and x_decay must have the same shape, got "
+                "x_values and x_decay must have the same shape, got "
                 f"{tuple(x_values.shape)} and {tuple(x_decay.shape)}"
             )
 
@@ -422,19 +615,15 @@ class TPC(nn.Module):
         elif self.static_dim != 0:
             raise ValueError(
                 f"Model was initialized with static_dim={self.static_dim}, "
-                f"but static=None was provided"
+                "but static=None was provided"
             )
 
-        # Stack value and decay into per-feature channels.
-        # x: [B, T, F, 2]
-        x = torch.stack([x_values, x_decay], dim=-1)
+        x = torch.stack([x_values, x_decay], dim=-1)  # [B, T, F, 2]
 
         for layer in self.layers:
             x = layer(x, decay=x_decay, static=static)
 
         if self.return_sequence:
-            # Predict a remaining LoS value at every hour.
-            # [B, T, F, C] -> [B, T, F*C]
             all_x = x.reshape(bsz, seq_len, -1)
 
             if static is not None:
@@ -449,7 +638,6 @@ class TPC(nn.Module):
 
             return y
 
-        # Predict only from the last time step.
         last_x = x[:, -1, :, :].reshape(bsz, -1)  # [B, F*C]
 
         if static is not None:

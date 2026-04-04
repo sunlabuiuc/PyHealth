@@ -207,18 +207,17 @@ def run_model_smoke_test() -> None:
 
 
 class SimpleLoSDataset(Dataset):
-    """
-    Converts task samples into tensors expected by TPC.
+    """Convert task samples into tensors expected by the TPC model.
 
-    Expected incoming time_series layout from the task:
-        [value_1, mask_1, decay_1, value_2, mask_2, decay_2, ...]
+    Expected incoming ``time_series`` layout from the task:
+        ``[value_1, mask_1, decay_1, value_2, mask_2, decay_2, ...]``
 
-    This wrapper feeds:
-        - x_values
-        - x_decay
-        - x_mask
-        - static
-        - target
+    This wrapper emits:
+        - ``x_values``
+        - ``x_decay``
+        - ``x_mask``
+        - ``static``
+        - ``target``
     """
 
     def __init__(
@@ -236,7 +235,8 @@ class SimpleLoSDataset(Dataset):
         Args:
             samples: Task-generated samples.
             channel_mode: Input channel configuration variant.
-            include_categorical_statics: Whether to append one-hot categorical statics.
+            include_categorical_statics: Whether to append one-hot categorical
+                statics to the static vector.
             categorical_feature_names: Ordered categorical static feature names.
             categorical_vocab: Vocabulary used for categorical one-hot encoding.
             include_diagnoses: Whether to append diagnosis multi-hot features.
@@ -258,11 +258,17 @@ class SimpleLoSDataset(Dataset):
         self,
         ts: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """
-        Splits [T, 3F] into:
-            values: [T, F]
-            masks:  [T, F]
-            decay:  [T, F]
+        """Split a ``[T, 3F]`` tensor into values, masks, and decay.
+
+        Args:
+            ts: Input time-series tensor of shape ``[T, 3F]``.
+
+        Returns:
+            A tuple ``(values, masks, decay)`` where each tensor has shape
+            ``[T, F]``.
+
+        Raises:
+            ValueError: If the input tensor shape is invalid.
         """
         if ts.ndim != 2:
             raise ValueError(f"Expected time_series shape [T, D], got {tuple(ts.shape)}")
@@ -300,6 +306,9 @@ class SimpleLoSDataset(Dataset):
 
         Returns:
             A dictionary containing model-ready tensors.
+
+        Raises:
+            ValueError: If an unsupported channel mode is requested.
         """
         sample = self.samples[idx]
 
@@ -465,6 +474,9 @@ def masked_loss(
 
     Returns:
         Scalar masked loss tensor.
+
+    Raises:
+        ValueError: If an unsupported loss name is requested.
     """
     valid = target_mask > 0
 
@@ -475,10 +487,10 @@ def masked_loss(
         return torch.mean(
             (torch.log(pred_valid + 1.0 + eps) - torch.log(target_valid + 1.0 + eps)) ** 2
         )
-    elif loss_name == "mse":
+    if loss_name == "mse":
         return torch.mean((pred_valid - target_valid) ** 2)
-    else:
-        raise ValueError(f"Unknown loss_name: {loss_name}")
+
+    raise ValueError(f"Unknown loss_name: {loss_name}")
 
 
 def evaluate(model: TPC, loader: DataLoader, loss_name: str) -> Dict[str, float]:
@@ -524,7 +536,6 @@ def evaluate(model: TPC, loader: DataLoader, loss_name: str) -> Dict[str, float]
     mae = total_mae_num / max(total_count, 1.0)
     rmse = (total_mse_num / max(total_count, 1.0)) ** 0.5
 
-    #DEBUG: inspect one prediction vs target (only first batch)
     if total_count > 0:
         print("\n[DEBUG] Sample prediction vs target:")
         print("pred (first sequence):", pred[0][:10])
@@ -550,7 +561,11 @@ def parse_args():
     parser.add_argument(
         "--root",
         type=str,
-        default="/home/medukonis/Documents/Illinois/Spring_2026/CS598_Deep_Learning_For_Healthcare/Project/Datasets/eicu-collaborative-research-database-2.0",
+        default=(
+            "/home/medukonis/Documents/Illinois/Spring_2026/"
+            "CS598_Deep_Learning_For_Healthcare/Project/"
+            "Datasets/eicu-collaborative-research-database-2.0"
+        ),
         help="Path to eICU dataset root",
     )
     parser.add_argument("--dev", action="store_true", help="Use dev mode dataset")
@@ -576,6 +591,28 @@ def parse_args():
         choices=["full", "no_decay", "no_mask"],
         default="no_decay",
         help="full=value+decay, no_decay=value+zero_decay, no_mask=value+decay",
+    )
+    parser.add_argument(
+        "--model_variant",
+        type=str,
+        choices=["full", "temporal_only", "pointwise_only"],
+        default="full",
+        help="Architectural ablation: full TPC, temporal only, or pointwise only",
+    )
+    parser.add_argument(
+        "--shared_temporal",
+        action="store_true",
+        help="Use shared temporal convolution weights across features",
+    )
+    parser.add_argument(
+        "--no_skip_connections",
+        action="store_true",
+        help="Disable concatenative skip connections",
+    )
+    parser.add_argument(
+        "--exclude_diagnoses",
+        action="store_true",
+        help="Do not append diagnosis multi-hot features to statics",
     )
     parser.add_argument("--train_ratio", type=float, default=0.8)
     parser.add_argument(
@@ -620,6 +657,10 @@ def main():
     print(f"lr: {args.lr}")
     print(f"loss: {args.loss}")
     print(f"channel_mode: {args.channel_mode}")
+    print(f"model_variant: {args.model_variant}")
+    print(f"shared_temporal: {args.shared_temporal}")
+    print(f"no_skip_connections: {args.no_skip_connections}")
+    print(f"exclude_diagnoses: {args.exclude_diagnoses}")
     print(f"train_ratio: {args.train_ratio}")
     print(f"include_categorical_statics: {args.include_categorical_statics}")
     print(f"categorical_feature_names: {categorical_feature_names}")
@@ -647,135 +688,135 @@ def main():
     )
 
     task_dataset = base_dataset.set_task(
-            HourlyLOSEICU(
-                time_series_tables=[
-                    "lab",
-                    "respiratorycharting",
-                    "nursecharting",
-                    "vitalperiodic",
-                    "vitalaperiodic",
+        HourlyLOSEICU(
+            time_series_tables=[
+                "lab",
+                "respiratorycharting",
+                "nursecharting",
+                "vitalperiodic",
+                "vitalaperiodic",
+            ],
+            time_series_features={
+                "lab": [
+                    "-basos",
+                    "-eos",
+                    "-lymphs",
+                    "-monos",
+                    "-polys",
+                    "ALT (SGPT)",
+                    "AST (SGOT)",
+                    "BUN",
+                    "Base Excess",
+                    "FiO2",
+                    "HCO3",
+                    "Hct",
+                    "Hgb",
+                    "MCH",
+                    "MCHC",
+                    "MCV",
+                    "MPV",
+                    "O2 Sat (%)",
+                    "PT",
+                    "PT - INR",
+                    "PTT",
+                    "RBC",
+                    "RDW",
+                    "WBC x 1000",
+                    "albumin",
+                    "alkaline phos.",
+                    "anion gap",
+                    "bedside glucose",
+                    "bicarbonate",
+                    "calcium",
+                    "chloride",
+                    "creatinine",
+                    "glucose",
+                    "lactate",
+                    "magnesium",
+                    "pH",
+                    "paCO2",
+                    "paO2",
+                    "phosphate",
+                    "platelets x 1000",
+                    "potassium",
+                    "sodium",
+                    "total bilirubin",
+                    "total protein",
+                    "troponin - I",
+                    "urinary specific gravity",
                 ],
-                time_series_features={
-                    "lab": [
-                        "-basos",
-                        "-eos",
-                        "-lymphs",
-                        "-monos",
-                        "-polys",
-                        "ALT (SGPT)",
-                        "AST (SGOT)",
-                        "BUN",
-                        "Base Excess",
-                        "FiO2",
-                        "HCO3",
-                        "Hct",
-                        "Hgb",
-                        "MCH",
-                        "MCHC",
-                        "MCV",
-                        "MPV",
-                        "O2 Sat (%)",
-                        "PT",
-                        "PT - INR",
-                        "PTT",
-                        "RBC",
-                        "RDW",
-                        "WBC x 1000",
-                        "albumin",
-                        "alkaline phos.",
-                        "anion gap",
-                        "bedside glucose",
-                        "bicarbonate",
-                        "calcium",
-                        "chloride",
-                        "creatinine",
-                        "glucose",
-                        "lactate",
-                        "magnesium",
-                        "pH",
-                        "paCO2",
-                        "paO2",
-                        "phosphate",
-                        "platelets x 1000",
-                        "potassium",
-                        "sodium",
-                        "total bilirubin",
-                        "total protein",
-                        "troponin - I",
-                        "urinary specific gravity",
-                    ],
-                    "respiratorycharting": [
-                        "Exhaled MV",
-                        "Exhaled TV (patient)",
-                        "LPM O2",
-                        "Mean Airway Pressure",
-                        "Peak Insp. Pressure",
-                        "PEEP",
-                        "Plateau Pressure",
-                        "Pressure Support",
-                        "RR (patient)",
-                        "SaO2",
-                        "TV/kg IBW",
-                        "Tidal Volume (set)",
-                        "Total RR",
-                        "Vent Rate",
-                    ],
-                    "nursecharting": [
-                        "Bedside Glucose",
-                        "Delirium Scale/Score",
-                        "Glasgow coma score",
-                        "Heart Rate",
-                        "Invasive BP",
-                        "Non-Invasive BP",
-                        "O2 Admin Device",
-                        "O2 L/%",
-                        "O2 Saturation",
-                        "Pain Score/Goal",
-                        "Respiratory Rate",
-                        "Sedation Score/Goal",
-                        "Temperature",
-                    ],
-                    "vitalperiodic": [
-                        "cvp",
-                        "heartrate",
-                        "respiration",
-                        "sao2",
-                        "st1",
-                        "st2",
-                        "st3",
-                        "systemicdiastolic",
-                        "systemicmean",
-                        "systemicsystolic",
-                        "temperature",
-                    ],
-                    "vitalaperiodic": [
-                        "noninvasivediastolic",
-                        "noninvasivemean",
-                        "noninvasivesystolic",
-                    ],
-                },
-                numeric_static_features=[
-                    "age",
-                    "admissionheight",
-                    "admissionweight",
+                "respiratorycharting": [
+                    "Exhaled MV",
+                    "Exhaled TV (patient)",
+                    "LPM O2",
+                    "Mean Airway Pressure",
+                    "Peak Insp. Pressure",
+                    "PEEP",
+                    "Plateau Pressure",
+                    "Pressure Support",
+                    "RR (patient)",
+                    "SaO2",
+                    "TV/kg IBW",
+                    "Tidal Volume (set)",
+                    "Total RR",
+                    "Vent Rate",
                 ],
-                categorical_static_features=[
-                    "gender",
-                    "ethnicity",
-                    "unittype",
+                "nursecharting": [
+                    "Bedside Glucose",
+                    "Delirium Scale/Score",
+                    "Glasgow coma score",
+                    "Heart Rate",
+                    "Invasive BP",
+                    "Non-Invasive BP",
+                    "O2 Admin Device",
+                    "O2 L/%",
+                    "O2 Saturation",
+                    "Pain Score/Goal",
+                    "Respiratory Rate",
+                    "Sedation Score/Goal",
+                    "Temperature",
                 ],
-                diagnosis_tables=[
-                    "pasthistory",
-                    "admissiondx",
-                    "diagnosis",
+                "vitalperiodic": [
+                    "cvp",
+                    "heartrate",
+                    "respiration",
+                    "sao2",
+                    "st1",
+                    "st2",
+                    "st3",
+                    "systemicdiastolic",
+                    "systemicmean",
+                    "systemicsystolic",
+                    "temperature",
                 ],
-                include_diagnoses=True,
-                diagnosis_time_limit_hours=5,
-                min_history_hours=5,
-                max_hours=48,
-            ),
-            num_workers=1,
-        )
+                "vitalaperiodic": [
+                    "noninvasivediastolic",
+                    "noninvasivemean",
+                    "noninvasivesystolic",
+                ],
+            },
+            numeric_static_features=[
+                "age",
+                "admissionheight",
+                "admissionweight",
+            ],
+            categorical_static_features=[
+                "gender",
+                "ethnicity",
+                "unittype",
+            ],
+            diagnosis_tables=[
+                "pasthistory",
+                "admissiondx",
+                "diagnosis",
+            ],
+            include_diagnoses=True,
+            diagnosis_time_limit_hours=5,
+            min_history_hours=5,
+            max_hours=48,
+        ),
+        num_workers=1,
+    )
 
     samples = [task_dataset[i] for i in range(min(len(task_dataset), args.max_samples))]
 
@@ -811,7 +852,7 @@ def main():
     if train_size == 0 or val_size == 0:
         raise ValueError(
             f"Invalid split with train_size={train_size}, val_size={val_size}. "
-            f"Increase max_samples or adjust train_ratio."
+            "Increase max_samples or adjust train_ratio."
         )
 
     rng = random.Random(args.seed)
@@ -848,25 +889,11 @@ def main():
         include_categorical_statics=args.include_categorical_statics,
         categorical_feature_names=categorical_feature_names,
         categorical_vocab=categorical_vocab,
-        include_diagnoses=True,
+        include_diagnoses=not args.exclude_diagnoses,
         diagnosis_vocab=diagnosis_vocab,
     )
 
     debug_item = train_dataset[0]
-    # print("\n--- WRAPPER OUTPUT INSPECTION ---")
-    # print("x_values shape:", debug_item["x_values"].shape)
-    # print("x_decay shape:", debug_item["x_decay"].shape)
-    # print("x_mask shape:", debug_item["x_mask"].shape)
-    # print("static shape:", debug_item["static"].shape)
-    # print("target shape:", debug_item["target"].shape)
-    # print("target:", debug_item["target"])
-    # print("x_values:")
-    # print(debug_item["x_values"])
-    # print("x_decay:")
-    # print(debug_item["x_decay"])
-    # print("x_mask:")
-    # print(debug_item["x_mask"])
-    # print("--- END WRAPPER OUTPUT INSPECTION ---\n")
 
     val_dataset = SimpleLoSDataset(
         val_samples,
@@ -874,7 +901,7 @@ def main():
         include_categorical_statics=args.include_categorical_statics,
         categorical_feature_names=categorical_feature_names,
         categorical_vocab=categorical_vocab,
-        include_diagnoses=True,
+        include_diagnoses=not args.exclude_diagnoses,
         diagnosis_vocab=diagnosis_vocab,
     )
 
@@ -899,6 +926,10 @@ def main():
         collate_fn=collate_fn,
     )
 
+    use_temporal = args.model_variant in {"full", "temporal_only"}
+    use_pointwise = args.model_variant in {"full", "pointwise_only"}
+    use_skip_connections = not args.no_skip_connections
+
     model = TPC(
         input_dim=input_dim,
         static_dim=static_dim,
@@ -909,6 +940,10 @@ def main():
         fc_dim=args.fc_dim,
         dropout=args.dropout,
         return_sequence=True,
+        shared_temporal=args.shared_temporal,
+        use_temporal=use_temporal,
+        use_pointwise=use_pointwise,
+        use_skip_connections=use_skip_connections,
     )
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
@@ -955,6 +990,10 @@ def main():
     print("=" * 80)
     print("Run complete")
     print(f"channel_mode: {args.channel_mode}")
+    print(f"model_variant: {args.model_variant}")
+    print(f"shared_temporal: {args.shared_temporal}")
+    print(f"no_skip_connections: {args.no_skip_connections}")
+    print(f"exclude_diagnoses: {args.exclude_diagnoses}")
     print(f"include_categorical_statics: {args.include_categorical_statics}")
     print(f"final_train_loss: {train_losses[-1]:.4f}")
     print(f"final_val_loss: {final_val_results['loss']:.4f}")
@@ -964,6 +1003,10 @@ def main():
     print(
         "ABLATION_SUMMARY "
         f"channel_mode={args.channel_mode} "
+        f"model_variant={args.model_variant} "
+        f"shared_temporal={args.shared_temporal} "
+        f"no_skip_connections={args.no_skip_connections} "
+        f"exclude_diagnoses={args.exclude_diagnoses} "
         f"include_categorical_statics={args.include_categorical_statics} "
         f"val_loss={final_val_results['loss']:.4f} "
         f"mae={final_val_results['mae']:.4f} "
