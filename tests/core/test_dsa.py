@@ -4,10 +4,6 @@ Unit tests for the DSADataset and ActivityClassification classes.
 Author:
     Ran You
 """
-# CR rayou: delete this
-import torch
-if not hasattr(torch, 'uint16'):
-    torch.uint16 = torch.int16 # This tricks litdata into thinking uint16 exists
 
 import unittest
 from pathlib import Path
