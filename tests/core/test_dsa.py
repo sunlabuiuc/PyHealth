@@ -117,11 +117,11 @@ class TestActivityClassification(unittest.TestCase):
     def test_input_schema(self):
         """Test input schema definition."""
         task = ActivityClassification()
-        self.assertEqual(task.input_schema["T"], "sequence")
-        self.assertEqual(task.input_schema["RA"], "sequence")
-        self.assertEqual(task.input_schema["LA"], "sequence")
-        self.assertEqual(task.input_schema["RL"], "sequence")
-        self.assertEqual(task.input_schema["LL"], "sequence")
+        self.assertEqual(task.input_schema["T"], "timeseries")
+        self.assertEqual(task.input_schema["RA"], "timeseries")
+        self.assertEqual(task.input_schema["LA"], "timeseries")
+        self.assertEqual(task.input_schema["RL"], "timeseries")
+        self.assertEqual(task.input_schema["LL"], "timeseries")
 
     def test_output_schema(self):
         """Test output schema definition."""

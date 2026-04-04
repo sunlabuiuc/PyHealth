@@ -34,11 +34,11 @@ class ActivityClassification(BaseTask):
 
     task_name: str = "ActivityClassification"
     input_schema: Dict[str, str] = {
-        "T": "sequence",
-        "RA": "sequence",
-        "LA": "sequence",
-        "RL": "sequence",
-        "LL": "sequence",
+        "T": "timeseries",
+        "RA": "timeseries",
+        "LA": "timeseries",
+        "RL": "timeseries",
+        "LL": "timeseries",
     }
     output_schema: Dict[str, str] = {
         "label": "text",
