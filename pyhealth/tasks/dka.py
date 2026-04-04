@@ -73,8 +73,16 @@ class DKAPredictionMIMIC4(BaseTask):
     }
 
     LAB_CATEGORY_ORDER: ClassVar[List[str]] = [
-        "Sodium", "Potassium", "Chloride", "Bicarbonate", "Glucose",
-        "Calcium", "Magnesium", "Anion Gap", "Osmolality", "Phosphate",
+        "Sodium",
+        "Potassium",
+        "Chloride",
+        "Bicarbonate",
+        "Glucose",
+        "Calcium",
+        "Magnesium",
+        "Anion Gap",
+        "Osmolality",
+        "Phosphate",
     ]
 
     # Flat list of all lab item IDs for filtering
@@ -89,11 +97,11 @@ class DKAPredictionMIMIC4(BaseTask):
             padding: Additional padding for nested sequences. Default: 0.
         """
         self.padding = padding
-        self.input_schema: Dict[str, Tuple[str, Dict[str, Any]]] = { # type: ignore
+        self.input_schema: Dict[str, Tuple[str, Dict[str, Any]]] = {  # type: ignore
             "icd_codes": ("stagenet", {"padding": padding}),
             "labs": ("stagenet_tensor", {}),
         }
-        self.output_schema: Dict[str, str] = {"label": "binary"} # type: ignore
+        self.output_schema: Dict[str, str] = {"label": "binary"}  # type: ignore
 
     def _is_dka_code(self, code: str, version: Any) -> bool:
         """Check if an ICD code represents Diabetic Ketoacidosis."""
@@ -115,10 +123,12 @@ class DKAPredictionMIMIC4(BaseTask):
 
         # Filter to relevant lab items and cast
         filtered = (
-            lab_df.with_columns([
-                pl.col("labevents/itemid").cast(pl.Utf8),
-                pl.col("labevents/valuenum").cast(pl.Float64),
-            ])
+            lab_df.with_columns(
+                [
+                    pl.col("labevents/itemid").cast(pl.Utf8),
+                    pl.col("labevents/valuenum").cast(pl.Float64),
+                ]
+            )
             .filter(pl.col("labevents/itemid").is_in(self.LABITEMS))
             .filter(pl.col("labevents/valuenum").is_not_null())
         )
@@ -133,7 +143,7 @@ class DKAPredictionMIMIC4(BaseTask):
             cat_df = filtered.filter(pl.col("labevents/itemid").is_in(itemids))
             if cat_df.height > 0:
                 values = cat_df["labevents/valuenum"].drop_nulls()
-                vector.append(float(values.mean()) if len(values) > 0 else math.nan) # type: ignore
+                vector.append(float(values.mean()) if len(values) > 0 else math.nan)  # type: ignore
             else:
                 vector.append(math.nan)
         return vector
@@ -262,13 +272,15 @@ class DKAPredictionMIMIC4(BaseTask):
             all_lab_values = [[math.nan] * len(self.LAB_CATEGORY_ORDER)]
             all_lab_times = [0.0]
 
-        return [{
-            "patient_id": patient.patient_id,
-            "record_id": patient.patient_id,
-            "icd_codes": (all_icd_times, all_icd_codes),
-            "labs": (all_lab_times, all_lab_values),
-            "label": int(has_dka),
-        }]
+        return [
+            {
+                "patient_id": patient.patient_id,
+                "record_id": patient.patient_id,
+                "icd_codes": (all_icd_times, all_icd_codes),
+                "labs": (all_lab_times, all_lab_values),
+                "label": int(has_dka),
+            }
+        ]
 
 
 class T1DDKAPredictionMIMIC4(BaseTask):
@@ -322,10 +334,26 @@ class T1DDKAPredictionMIMIC4(BaseTask):
 
     # ICD-9 codes for Type 1 Diabetes Mellitus
     T1DM_ICD9_CODES: ClassVar[Set[str]] = {
-        "25001", "25003", "25011", "25013", "25021", "25023",
-        "25031", "25033", "25041", "25043", "25051", "25053",
-        "25061", "25063", "25071", "25073", "25081", "25083",
-        "25091", "25093",
+        "25001",
+        "25003",
+        "25011",
+        "25013",
+        "25021",
+        "25023",
+        "25031",
+        "25033",
+        "25041",
+        "25043",
+        "25051",
+        "25053",
+        "25061",
+        "25063",
+        "25071",
+        "25073",
+        "25081",
+        "25083",
+        "25091",
+        "25093",
     }
 
     # ICD-9 codes for Diabetic Ketoacidosis
@@ -349,8 +377,16 @@ class T1DDKAPredictionMIMIC4(BaseTask):
     }
 
     LAB_CATEGORY_ORDER: ClassVar[List[str]] = [
-        "Sodium", "Potassium", "Chloride", "Bicarbonate", "Glucose",
-        "Calcium", "Magnesium", "Anion Gap", "Osmolality", "Phosphate",
+        "Sodium",
+        "Potassium",
+        "Chloride",
+        "Bicarbonate",
+        "Glucose",
+        "Calcium",
+        "Magnesium",
+        "Anion Gap",
+        "Osmolality",
+        "Phosphate",
     ]
 
     LABITEMS: ClassVar[List[str]] = [
@@ -361,11 +397,11 @@ class T1DDKAPredictionMIMIC4(BaseTask):
         """Initialize task with configurable DKA window and padding."""
         self.dka_window_days = dka_window_days
         self.padding = padding
-        self.input_schema: Dict[str, Tuple[str, Dict[str, Any]]] = { # type: ignore
+        self.input_schema: Dict[str, Tuple[str, Dict[str, Any]]] = {  # type: ignore
             "icd_codes": ("stagenet", {"padding": padding}),
             "labs": ("stagenet_tensor", {}),
-        } 
-        self.output_schema: Dict[str, str] = {"label": "binary"} # type: ignore
+        }
+        self.output_schema: Dict[str, str] = {"label": "binary"}  # type: ignore
 
     def _is_t1dm_code(self, code: str | None, version: Any) -> bool:
         """Check if an ICD code represents Type 1 Diabetes Mellitus."""
@@ -399,10 +435,12 @@ class T1DDKAPredictionMIMIC4(BaseTask):
             return [math.nan] * len(self.LAB_CATEGORY_ORDER)
 
         filtered = (
-            lab_df.with_columns([
-                pl.col("labevents/itemid").cast(pl.Utf8),
-                pl.col("labevents/valuenum").cast(pl.Float64),
-            ])
+            lab_df.with_columns(
+                [
+                    pl.col("labevents/itemid").cast(pl.Utf8),
+                    pl.col("labevents/valuenum").cast(pl.Float64),
+                ]
+            )
             .filter(pl.col("labevents/itemid").is_in(self.LABITEMS))
             .filter(pl.col("labevents/valuenum").is_not_null())
         )
@@ -416,7 +454,7 @@ class T1DDKAPredictionMIMIC4(BaseTask):
             cat_df = filtered.filter(pl.col("labevents/itemid").is_in(itemids))
             if cat_df.height > 0:
                 values = cat_df["labevents/valuenum"].drop_nulls()
-                vector.append(float(values.mean()) if len(values) > 0 else math.nan) # type: ignore
+                vector.append(float(values.mean()) if len(values) > 0 else math.nan)  # type: ignore
             else:
                 vector.append(math.nan)
         return vector
@@ -434,7 +472,9 @@ class T1DDKAPredictionMIMIC4(BaseTask):
 
         return (
             df.with_columns(has_t1dm.alias("__is_t1dm_code"))
-            .with_columns(pl.col("__is_t1dm_code").any().over("patient_id").alias("__has_t1dm"))
+            .with_columns(
+                pl.col("__is_t1dm_code").any().over("patient_id").alias("__has_t1dm")
+            )
             .filter(pl.col("__has_t1dm"))
             .drop(["__is_t1dm_code", "__has_t1dm"])
         )
@@ -623,10 +663,12 @@ class T1DDKAPredictionMIMIC4(BaseTask):
             all_lab_values = [[math.nan] * len(self.LAB_CATEGORY_ORDER)]
             all_lab_times = [0.0]
 
-        return [{
-            "patient_id": patient.patient_id,
-            "record_id": patient.patient_id,
-            "icd_codes": (all_icd_times, all_icd_codes),
-            "labs": (all_lab_times, all_lab_values),
-            "label": int(has_dka_within_window),
-        }]
+        return [
+            {
+                "patient_id": patient.patient_id,
+                "record_id": patient.patient_id,
+                "icd_codes": (all_icd_times, all_icd_codes),
+                "labs": (all_lab_times, all_lab_values),
+                "label": int(has_dka_within_window),
+            }
+        ]

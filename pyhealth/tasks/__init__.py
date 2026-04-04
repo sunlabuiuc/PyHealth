@@ -11,6 +11,10 @@ from .cardiology_detect import (
 )
 from .chestxray14_binary_classification import ChestXray14BinaryClassification
 from .chestxray14_multilabel_classification import ChestXray14MultilabelClassification
+from .catheter_infection import (
+    CatheterAssociatedInfectionPredictionMIMIC4,
+    CatheterAssociatedInfectionPredictionStageNetMIMIC4,
+)
 from .covid19_cxr_classification import COVID19CXRClassification
 from .dka import DKAPredictionMIMIC4, T1DDKAPredictionMIMIC4
 from .drug_recommendation import (
@@ -57,10 +61,7 @@ from .sleep_staging import (
     sleep_staging_sleepedf_fn,
 )
 from .sleep_staging_v2 import SleepStagingSleepEDF
-from .temple_university_EEG_tasks import (
-    EEGEventsTUEV,
-    EEGAbnormalTUAB
-)
+from .temple_university_EEG_tasks import EEGEventsTUEV, EEGAbnormalTUAB
 from .variant_classification import (
     MutationPathogenicityPrediction,
     VariantClassificationClinVar,
