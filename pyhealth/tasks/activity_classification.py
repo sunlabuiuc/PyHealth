@@ -67,7 +67,7 @@ class ActivityClassification(BaseTask):
 
         def extract_time_series(df, sensor):
             columns = [f"{d}" for d in range(125)] + ["sensor"]
-            return df[df["sensor"].str.startswith(sensor + "_")][columns].reset_index(drop=True).sort_values("sensor").T.to_numpy()
+            return df[df["sensor"].str.startswith(sensor + "_")][columns].reset_index(drop=True).sort_values("sensor").T.to_numpy().tolist()
         
         records = []
         for a in df["activity"].unique(): 
