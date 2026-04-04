@@ -94,12 +94,12 @@ class DSADataset(BaseDataset):
         # Prepare standardized CSV if not exists
         pyhealth_csv = os.path.join(root, "dsa-pyhealth.csv")
         if not os.path.exists(pyhealth_csv):
-            if len(os.listdir(root)) != 19: 
+            if not os.path.exists(Path(root) / "data"): 
                 logger.info(
                     f"""
-                    The contexts in {root} are unexpected. You root directory is likely wrong. 
+                    There's no data directory in {root}. You root directory is likely wrong. 
                     You can download the dataset manually from https://archive.ics.uci.edu/dataset/256/daily+and+sports+activities
-                    or directly set download=True.
+                    then extract the downloaded zip file to <root>, or directly set download=True.
                     """
                 )
                 raise 
