@@ -118,17 +118,6 @@ class RemainingLOSMIMIC4(BaseTask):
                 end=discharge_time,
             ))
 
-            # chartevents_df = cast(pl.DataFrame, patient.get_events(
-            #     event_type="chartevents", #or "chartevents"
-            #     start=admission.timestamp,
-            #     end=discharge_time,
-            #     # filters=[("chartevents/itemid", "in", self.chart_itemids)],
-            #     return_df=True
-            # ))
-
-            # all_events = pl.concat([labevents_df, chartevents_df])
-            # all_events = all_events.filter(pl.col("labevents/itemid").is_in(self.all_itemids))
-
             all_events = labevents
 
             if len(all_events) == 0:
@@ -182,72 +171,5 @@ class RemainingLOSMIMIC4(BaseTask):
                 "static": static,
                 "los": labels,
             })
-                    
-
-            # prediction_step_size = timedelta(hours=self.config.prediction_step_size)
-            
-            # current_time = admit_time + timedelta(hours=self.config.min_history_hours)
-            # max_cutoff = discharge_time - timedelta(hours=self.config.min_remaining_hours)
-            
-            # if self.config.max_history_hours is not None:
-            #     max_cutoff = min(
-            #         max_cutoff,
-            #         admit_time + timedelta(hours=self.config.max_history_hours),
-            #     )
-
-            # if len(labevents_df) == 0:
-            #     current_time += prediction_step_size
-            #     continue
-
-            # while current_time <= max_cutoff:
-
-            #     print(f"Processing patient {patient.patient_id}, admission {admission.hadm_id}, cutoff {current_time}")
-
-            #     remaining_hours = (discharge_time - current_time).total_seconds() / 3600.0
-
-            #     labevents_df_filtered = labevents_df.with_columns(
-            #         pl.col("labevents/storetime").str.strptime(
-            #             pl.Datetime, "%Y-%m-%d %H:%M:%S"
-            #         )
-            #     )
-            #     labevents_df_filtered = labevents_df_filtered.filter(
-            #         (pl.col("labevents/storetime") <= current_time)
-            #     )
-
-            #     if len(labevents_df_filtered) == 0:
-            #         current_time += prediction_step_size
-            #         continue
-
-                    
-            #     labevents_df_filtered = labevents_df_filtered.select(
-            #         pl.col("timestamp"),
-            #         pl.col("labevents/itemid"),
-            #         pl.col("labevents/valuenum").cast(pl.Float64),
-            #     )
-            #     labevents_df_filtered = labevents_df_filtered.pivot(
-            #         index="timestamp",
-            #         columns="labevents/itemid",
-            #         values="labevents/valuenum",
-            #         # in case of multiple values for the same timestamp
-            #         aggregate_function="first",
-            #     )
-
-            #     elapsed_hours = (current_time - admit_time).total_seconds() / 3600.
-
-
-            #     timestamps = labevents_df_filtered["timestamp"].to_list()
-            #     lab_values = labevents_df_filtered.drop("timestamp").to_numpy()
-
-            #     sample = {
-            #         # "patient_id": patient.patient_id,
-            #         # "visit_id": admission.hadm_id,
-
-            #         "decay_indicator": 0.75 ** elapsed_hours,
-            #         "labevents": (timestamps, lab_values),
-
-            #         "los": float(remaining_hours),
-            #     }
-            #     samples.append(sample)
-            #     current_time += prediction_step_size
 
         return samples

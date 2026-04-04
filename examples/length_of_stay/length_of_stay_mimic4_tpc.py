@@ -26,10 +26,6 @@ def inspect():
             print(f"Sample '{key}' shape: {value.shape}")
         else:
             print(f"Sample '{key}' value: {value}")
-    # print("Sample 'conditions' shape:", first_sample.get('conditions').shape)
-    # print("Sample 'procedures' shape:", first_sample.get('procedures').shape)
-    # print("Sample 'drugs' shape:", first_sample.get('drugs').shape)
-    # print("Sample 'los' value:", first_sample.get('los'))
 
 if __name__ == "__main__":
     inspect()
