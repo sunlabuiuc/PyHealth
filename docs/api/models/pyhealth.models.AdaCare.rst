@@ -12,3 +12,8 @@ The separate callable AdaCareLayer and the complete AdaCare model.
     :members:
     :undoc-members:
     :show-inheritance:
+
+.. autoclass:: pyhealth.models.MultimodalAdaCare
+    :members:
+    :undoc-members:
+    :show-inheritance:

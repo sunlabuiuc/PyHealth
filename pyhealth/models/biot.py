@@ -243,8 +243,7 @@ class BIOT(BaseModel):
         depth: number of transformer encoder layers. Default is 4.
         n_fft: number of frequency bins used in the STFT transform. Default is 200.
         hop_length: hop length for the STFT transform. Default is 100.
-        n_classes: number of output classes for classification tasks (only used for BIOTClassifier).
-        n_channels: number of channels in the biosignal data. Default is 18. 
+        n_channels: number of channels in the biosignal data. Default is 18.
             This includes the 16 channels of the TUEV dataset and 2 additional channels for Sleep dataset.
     Examples:
         >>> from pyhealth.datasets import TUEVDataset
@@ -257,7 +256,6 @@ class BIOT(BaseModel):
         >>>             depth=4,
         >>>             n_fft=200,
         >>>             hop_length=100,
-        >>>             n_classes=6,
         >>>             n_channels=18,
         >>>             )
         >>> model.load_pretrained_weights("pretrained-models/EEG-six-datasets-18-channels.ckpt")
@@ -266,24 +264,24 @@ class BIOT(BaseModel):
         >>> output = model(torch.randn(8, 18, TIME_STEPS))  # (batch, channels, time)
     """
     
-    def __init__(self, 
+    def __init__(self,
                  dataset: SampleDataset,
                  emb_size: int = 256,
                  heads: int = 8,
                  depth: int = 4,
                  n_fft: int = 200,
                  hop_length: int = 100,
-                 n_classes: int = 6,
                  n_channels: int = 18,
                  **kwargs):
         super().__init__(dataset=dataset)
         _get_linear_attention_transformer()
-        self.biot = BIOTClassifier(emb_size=emb_size, 
-                                   heads=heads, 
-                                   depth=depth, 
-                                   n_classes=n_classes, 
-                                   n_channels=n_channels, 
-                                   n_fft=n_fft, 
+        output_size = self.get_output_size()
+        self.biot = BIOTClassifier(emb_size=emb_size,
+                                   heads=heads,
+                                   depth=depth,
+                                   n_classes=output_size,
+                                   n_channels=n_channels,
+                                   n_fft=n_fft,
                                    hop_length=hop_length)
     
     def load_pretrained_weights(self, checkpoint_path: str, strict: bool = False, map_location: str = None):

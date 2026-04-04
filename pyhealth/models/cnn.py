@@ -261,6 +261,40 @@ class CNN(BaseModel):
         if spatial_dim == 1:
             return self.embedding_dim
 
+        # For ImageProcessor, derive channel count from the configured mode so
+        # we don't rely on whichever sample happens to come first (which may be
+        # grayscale even when most images are RGB).
+        processor = self.dataset.input_processors.get(feature_key)
+        if isinstance(processor, ImageProcessor):
+            _mode_channels = {
+                "L": 1, "P": 1, "I": 1, "F": 1,
+                "RGB": 3, "YCbCr": 3, "LAB": 3, "HSV": 3,
+                "RGBA": 4, "CMYK": 4,
+            }
+            if processor.mode is not None:
+                return _mode_channels.get(processor.mode, 3)
+            # mode=None: scan dataset and take the maximum channel count seen
+            # so that a single grayscale sample doesn't under-count.
+            max_channels = 0
+            min_dim = spatial_dim + 1
+            for sample in self.dataset:
+                if feature_key not in sample:
+                    continue
+                feature = self._extract_feature_tensor(sample[feature_key])
+                if feature is None:
+                    continue
+                tensor = self._ensure_tensor(feature)
+                if tensor.dim() < min_dim:
+                    continue
+                max_channels = max(max_channels, tensor.shape[0])
+                if max_channels >= 3:
+                    break  # RGB is the common maximum; no need to scan further
+            if max_channels > 0:
+                return max_channels
+            raise ValueError(
+                f"Unable to infer input channels for feature '{feature_key}'."
+            )
+
         min_dim = spatial_dim + 1
         for sample in self.dataset:
             if feature_key not in sample:
