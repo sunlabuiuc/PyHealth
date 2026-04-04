@@ -1,4 +1,12 @@
-"""Utilities for reproducing the EOL mistrust preprocessing and modeling tables."""
+"""Utilities for reproducing the EOL mistrust preprocessing and modeling tables.
+
+Notes
+-----
+This module uses a transformers+torch sentiment backend because those
+dependencies are already available in the project environment. That is a
+pragmatic replacement for the original Pattern-based notebook sentiment code,
+not an exact backend match.
+"""
 # pylint: disable=too-many-lines
 
 import importlib
@@ -7,6 +15,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Callable, Iterable, Mapping, Sequence
 
+import numpy as np
 import pandas as pd  # pylint: disable=import-error
 
 from pyhealth.tasks.eol_mistrust import (
@@ -19,7 +28,11 @@ _SENTIMENT_BACKEND: Callable[[str], tuple[float, float]] | None = None
 
 
 def _load_transformers_sentiment() -> Callable[[str], tuple[float, float]]:
-    """Load a transformers sentiment pipeline, preferring GPU when available."""
+    """Load the project-standard transformers sentiment pipeline.
+
+    This intentionally uses an existing transformers+torch dependency instead of
+    trying to install the original Pattern backend from the notebooks.
+    """
 
     transformers_module = importlib.import_module("transformers")
     torch_module = importlib.import_module("torch")
@@ -199,18 +212,22 @@ REQUIRED_JOIN_KEYS = {
     "itemid",
 }
 
-NONCOMPLIANCE_PATTERNS = [
-    "noncomplian",
-    "non-complian",
-    "nonadher",
-    "non-adher",
-    "noncompliance",
-    "noncompliant",
-    "refuses treatment",
-    "refused treatment",
-    "refused medication",
-    "refuses medication",
-]
+NONCOMPLIANCE_PATTERN = re.compile(r"\bnoncompliant\b", re.IGNORECASE)
+AUTOPSY_CONSENT_PATTERNS = (
+    re.compile(r"\bconsent(?: for)? autopsy\b", re.IGNORECASE),
+    re.compile(r"\bautopsy consent\b", re.IGNORECASE),
+    re.compile(r"\bconsented to autopsy\b", re.IGNORECASE),
+    re.compile(r"\bautopsy was performed\b", re.IGNORECASE),
+    re.compile(r"\bautopsy obtained\b", re.IGNORECASE),
+    re.compile(r"\bfamily provided autopsy consent\b", re.IGNORECASE),
+)
+AUTOPSY_DECLINE_PATTERNS = (
+    re.compile(r"\bautopsy declined\b", re.IGNORECASE),
+    re.compile(r"\bdeclined autopsy\b", re.IGNORECASE),
+    re.compile(r"\bno autopsy\b", re.IGNORECASE),
+    re.compile(r"\bfamily declined autopsy\b", re.IGNORECASE),
+)
+DEFAULT_LOGISTIC_C = 0.1
 
 
 def _require_columns(df: pd.DataFrame, required: Sequence[str], df_name: str) -> None:
@@ -228,15 +245,58 @@ def _filter_non_error_notes(noteevents: pd.DataFrame) -> pd.DataFrame:
     return noteevents.loc[keep_mask].copy()
 
 
-def _extract_positive_class_probabilities(probabilities) -> list[float]:
+def _extract_positive_class_probabilities(probabilities) -> np.ndarray:
     """Validate predict_proba output and return the positive-class column."""
 
-    probability_frame = pd.DataFrame(probabilities)
-    if probability_frame.shape[1] < 2:
+    probability_array = np.asarray(probabilities, dtype=float)
+    if probability_array.ndim != 2 or probability_array.shape[1] < 2:
         raise ValueError(
             "Estimator `predict_proba` output must have shape (n_samples, n_classes>=2)."
         )
-    return probability_frame.iloc[:, 1].astype(float).tolist()
+    return probability_array[:, 1]
+
+
+def _score_column_name(label_column: str) -> str:
+    if label_column.endswith("_label"):
+        return f"{label_column[:-6]}_score"
+    return f"{label_column}_score"
+
+
+def _normalize_note_categories(categories: Iterable[str] | None) -> set[str] | None:
+    if categories is None:
+        return None
+    normalized = {
+        str(category).strip().lower()
+        for category in categories
+        if str(category).strip()
+    }
+    return normalized or None
+
+
+def _filter_note_categories(
+    notes: pd.DataFrame,
+    categories: Iterable[str] | None = None,
+) -> pd.DataFrame:
+    normalized_categories = _normalize_note_categories(categories)
+    if normalized_categories is None:
+        return notes.copy()
+
+    _require_columns(notes, ["category"], "noteevents")
+    category_series = notes["category"].fillna("").astype(str).str.strip().str.lower()
+    return notes.loc[category_series.isin(normalized_categories)].copy()
+
+
+def _classify_noncompliance(text: str) -> int:
+    return int(bool(NONCOMPLIANCE_PATTERN.search(text)))
+
+
+def _classify_autopsy(text: str) -> int:
+    if "autopsy" not in text:
+        return 0
+
+    has_decline = any(pattern.search(text) for pattern in AUTOPSY_DECLINE_PATTERNS)
+    has_consent = any(pattern.search(text) for pattern in AUTOPSY_CONSENT_PATTERNS)
+    return int(has_consent and not has_decline)
 
 
 def _to_datetime(series: pd.Series) -> pd.Series:
@@ -438,7 +498,7 @@ def map_insurance(insurance) -> str:
         return INSURANCE_PRIVATE
     if normalized in {"self pay", "self-pay", "self_pay"}:
         return INSURANCE_SELF_PAY
-    raise ValueError(f"Unexpected insurance value: {insurance}")
+    return INSURANCE_SELF_PAY
 
 
 def prepare_note_text_for_sentiment(text) -> str:
@@ -557,7 +617,7 @@ def build_eol_cohort(base_admissions: pd.DataFrame, demographics: pd.DataFrame) 
     is_hospice = discharge_location.str.contains("HOSPICE", na=False)
     is_snf = discharge_location.str.contains(r"SKILLED NURSING|\bSNF\b", na=False, regex=True)
 
-    include = (df["los_hours"] >= 6) & (is_deceased | is_hospice | is_snf)
+    include = (df["los_hours"] > 24) & (is_deceased | is_hospice | is_snf)
     df = df.loc[include].copy()
     df["discharge_category"] = "Skilled Nursing Facility"
     df.loc[is_hospice.loc[df.index], "discharge_category"] = "Hospice"
@@ -567,17 +627,12 @@ def build_eol_cohort(base_admissions: pd.DataFrame, demographics: pd.DataFrame) 
 
 
 def build_all_cohort(base_admissions: pd.DataFrame, icustays: pd.DataFrame) -> pd.DataFrame:
-    """Build the admission-level cohort with at least one ICU stay of 12 hours."""
+    """Build the admission-level cohort with at least one ICU stay."""
 
     _require_columns(base_admissions, ["hadm_id"], "base_admissions")
     _require_columns(icustays, ["hadm_id", "icustay_id", "intime", "outtime"], "icustays")
 
-    icu = icustays.copy()
-    icu["intime"] = _to_datetime(icu["intime"])
-    icu["outtime"] = _to_datetime(icu["outtime"])
-    icu["icu_los_hours"] = (icu["outtime"] - icu["intime"]).dt.total_seconds() / 3600.0
-
-    qualifying = icu.loc[icu["icu_los_hours"] >= 12, "hadm_id"].drop_duplicates()
+    qualifying = icustays["hadm_id"].dropna().drop_duplicates()
     df = base_admissions.loc[base_admissions["hadm_id"].isin(set(qualifying))].copy()
     df = df.sort_values("hadm_id").drop_duplicates("hadm_id")
     return df.reset_index(drop=True)
@@ -683,6 +738,7 @@ def build_treatment_totals(
 def build_note_corpus(
     noteevents: pd.DataFrame,
     all_hadm_ids: Iterable[int] | None = None,
+    categories: Iterable[str] | None = None,
 ) -> pd.DataFrame:
     """Aggregate non-error notes into one concatenated note per admission."""
 
@@ -690,6 +746,7 @@ def build_note_corpus(
 
     notes = noteevents.copy()
     notes = _filter_non_error_notes(notes)
+    notes = _filter_note_categories(notes, categories=categories)
     notes["text"] = notes["text"].map(prepare_note_text_for_sentiment)
 
     grouped = (
@@ -712,10 +769,8 @@ def _build_note_labels_from_corpus(note_corpus: pd.DataFrame) -> pd.DataFrame:
 
     _require_columns(note_corpus, ["hadm_id", "note_text"], "note_corpus")
     lowered = note_corpus["note_text"].fillna("").astype(str).str.lower()
-    noncompliance = lowered.apply(
-        lambda text: int(any(pattern in text for pattern in NONCOMPLIANCE_PATTERNS))
-    )
-    autopsy = lowered.apply(lambda text: int("autopsy" in text))
+    noncompliance = lowered.apply(_classify_noncompliance)
+    autopsy = lowered.apply(_classify_autopsy)
 
     labels = pd.DataFrame(
         {
@@ -731,28 +786,67 @@ def _build_note_labels_from_corpus(note_corpus: pd.DataFrame) -> pd.DataFrame:
 def build_note_labels(
     noteevents: pd.DataFrame,
     all_hadm_ids: Iterable[int] | None = None,
+    categories: Iterable[str] | None = None,
 ) -> pd.DataFrame:
-    """Create admission-level noncompliance and autopsy labels from notes."""
+    """Create admission-level noncompliance and autopsy labels from notes.
+
+    By default labels are derived from all non-error notes. The optional
+    ``categories`` filter is provided for API symmetry, but the study pipeline
+    should typically leave it unset so labels continue to use all note types.
+    """
 
     _require_columns(noteevents, ["hadm_id", "text", "iserror"], "noteevents")
-    corpus = build_note_corpus(noteevents, all_hadm_ids=all_hadm_ids)
+    corpus = build_note_corpus(
+        noteevents,
+        all_hadm_ids=all_hadm_ids,
+        categories=categories,
+    )
     return _build_note_labels_from_corpus(corpus)
 
 
 def build_note_artifacts_from_csv(
     noteevents_csv_path: Path | str,
     all_hadm_ids: Iterable[int] | None = None,
+    categories: Iterable[str] | None = None,
+    corpus_categories: Iterable[str] | None = None,
+    label_categories: Iterable[str] | None = None,
     chunksize: int = 100_000,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Build the note corpus and note-derived labels from a large CSV in chunks."""
+    """Build the note corpus and note-derived labels from a large CSV in chunks.
+
+    Parameters
+    ----------
+    categories:
+        Backward-compatible shared filter applied to both corpus and labels when
+        the more specific ``corpus_categories`` / ``label_categories`` are not
+        provided.
+    corpus_categories:
+        Category filter for the returned corpus. Use
+        ``["Discharge summary"]`` for sentiment features in the study workflow.
+    label_categories:
+        Category filter for label extraction. Leave as ``None`` in the study
+        workflow so noncompliance/autopsy labels continue to use all note types.
+    """
 
     normalized_hadm_ids = _normalize_hadm_ids(all_hadm_ids)
     hadm_filter = set(normalized_hadm_ids) if normalized_hadm_ids is not None else None
-    note_fragments: dict[int, list[str]] = defaultdict(list)
+    if corpus_categories is None:
+        corpus_categories = categories
+    if label_categories is None:
+        label_categories = categories
+
+    normalized_corpus_categories = _normalize_note_categories(corpus_categories)
+    normalized_label_categories = _normalize_note_categories(label_categories)
+
+    corpus_fragments: dict[int, list[str]] = defaultdict(list)
+    label_fragments: dict[int, list[str]] = defaultdict(list)
+    required_columns = ["hadm_id", "text", "iserror"]
+    if normalized_corpus_categories is not None or normalized_label_categories is not None:
+        required_columns.append("category")
 
     for chunk in _iter_csv_chunks(
         noteevents_csv_path,
-        required_columns=["hadm_id", "text", "iserror"],
+        required_columns=required_columns,
         chunksize=chunksize,
     ):
         chunk["hadm_id"] = pd.to_numeric(chunk["hadm_id"], errors="coerce")
@@ -773,36 +867,60 @@ def build_note_artifacts_from_csv(
         if chunk.empty:
             continue
 
+        corpus_chunk = _filter_note_categories(chunk, categories=normalized_corpus_categories)
+        if not corpus_chunk.empty:
+            grouped = (
+                corpus_chunk.groupby("hadm_id", sort=False)["text"]
+                .apply(lambda series: prepare_note_text_for_sentiment(" ".join(series)))
+            )
+            for hadm_id, text in grouped.items():
+                if text:
+                    corpus_fragments[int(hadm_id)].append(text)
+
+        label_chunk = _filter_note_categories(chunk, categories=normalized_label_categories)
+        if label_chunk.empty:
+            continue
         grouped = (
-            chunk.groupby("hadm_id", sort=False)["text"]
+            label_chunk.groupby("hadm_id", sort=False)["text"]
             .apply(lambda series: prepare_note_text_for_sentiment(" ".join(series)))
         )
         for hadm_id, text in grouped.items():
             if text:
-                note_fragments[int(hadm_id)].append(text)
+                label_fragments[int(hadm_id)].append(text)
 
     if normalized_hadm_ids is not None:
         hadm_ids = normalized_hadm_ids
     else:
-        hadm_ids = sorted(note_fragments)
+        hadm_ids = sorted(set(corpus_fragments) | set(label_fragments))
 
     corpus = pd.DataFrame(
         {
             "hadm_id": hadm_ids,
             "note_text": [
-                prepare_note_text_for_sentiment(" ".join(note_fragments.get(hadm_id, [])))
+                prepare_note_text_for_sentiment(" ".join(corpus_fragments.get(hadm_id, [])))
                 for hadm_id in hadm_ids
             ],
         }
     )
     corpus = corpus.sort_values("hadm_id").drop_duplicates("hadm_id").reset_index(drop=True)
-    labels = _build_note_labels_from_corpus(corpus)
+    label_corpus = pd.DataFrame(
+        {
+            "hadm_id": hadm_ids,
+            "note_text": [
+                prepare_note_text_for_sentiment(" ".join(label_fragments.get(hadm_id, [])))
+                for hadm_id in hadm_ids
+            ],
+        }
+    )
+    label_corpus = label_corpus.sort_values("hadm_id").drop_duplicates("hadm_id").reset_index(drop=True)
+    labels = _build_note_labels_from_corpus(label_corpus)
     return corpus, labels
 
 
 def build_note_corpus_from_csv(
     noteevents_csv_path: Path | str,
     all_hadm_ids: Iterable[int] | None = None,
+    categories: Iterable[str] | None = None,
     chunksize: int = 100_000,
 ) -> pd.DataFrame:
     """Build the admission-level note corpus from a large CSV in chunks."""
@@ -810,6 +928,7 @@ def build_note_corpus_from_csv(
     corpus, _ = build_note_artifacts_from_csv(
         noteevents_csv_path=noteevents_csv_path,
         all_hadm_ids=all_hadm_ids,
+        corpus_categories=categories,
         chunksize=chunksize,
     )
     return corpus
@@ -818,13 +937,19 @@ def build_note_corpus_from_csv(
 def build_note_labels_from_csv(
     noteevents_csv_path: Path | str,
     all_hadm_ids: Iterable[int] | None = None,
+    categories: Iterable[str] | None = None,
     chunksize: int = 100_000,
 ) -> pd.DataFrame:
-    """Build note-derived labels from a large CSV in chunks."""
+    """Build note-derived labels from a large CSV in chunks.
+
+    The study pipeline should normally leave ``categories`` unset so labels are
+    derived from all non-error note types.
+    """
 
     _, labels = build_note_artifacts_from_csv(
         noteevents_csv_path=noteevents_csv_path,
         all_hadm_ids=all_hadm_ids,
+        label_categories=categories,
         chunksize=chunksize,
     )
     return labels
@@ -1055,11 +1180,22 @@ def build_chartevent_feature_matrix_from_csv(
     return feature_matrix
 
 
-def z_normalize_scores(df: pd.DataFrame, columns: Sequence[str]) -> pd.DataFrame:
+def z_normalize_scores(
+    df: pd.DataFrame,
+    columns: Sequence[str] | None = None,
+) -> pd.DataFrame:
     """Apply independent z-score normalization to the requested score columns."""
 
     normalized = df.copy()
-    for column in columns:
+    if columns is None:
+        score_columns = [
+            column
+            for column in normalized.columns
+            if column != "hadm_id" and (column.endswith("_score") or column.endswith("_score_z"))
+        ]
+    else:
+        score_columns = list(columns)
+    for column in score_columns:
         _require_columns(normalized, [column], "score_table")
         values = normalized[column].astype(float)
         mean = values.mean()
@@ -1107,20 +1243,23 @@ def build_proxy_probability_scores(
     y = merged[label_column].astype(int)
 
     if estimator_factory is None:
-        estimator = LogisticRegression(penalty="l1", solver="liblinear", max_iter=1000)
+        estimator = LogisticRegression(
+            penalty="l1",
+            C=DEFAULT_LOGISTIC_C,
+            solver="liblinear",
+            max_iter=1000,
+        )
     else:
         estimator = estimator_factory()
 
     estimator.fit(feature_values, y)
     probabilities = estimator.predict_proba(feature_values)
-    score_column = (
-        f"{label_column[:-6]}_score" if label_column.endswith("_label") else f"{label_column}_score"
-    )
+    score_column = _score_column_name(label_column)
 
     scores = pd.DataFrame(
         {
             "hadm_id": merged["hadm_id"].tolist(),
-            score_column: _extract_positive_class_probabilities(probabilities),
+            score_column: _extract_positive_class_probabilities(probabilities).astype(float),
         }
     )
     scores = scores.sort_values("hadm_id").drop_duplicates("hadm_id")
@@ -1424,6 +1563,8 @@ def write_minimal_deliverables(artifacts: dict[str, pd.DataFrame], output_dir: P
     }
 
     for key, filename in filenames.items():
+        if key not in artifacts:
+            continue
         df = artifacts[key].copy()
         if "hadm_id" in df.columns:
             df = df.sort_values("hadm_id")

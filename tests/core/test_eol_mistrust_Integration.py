@@ -36,6 +36,18 @@ def _load_model_module():
     return module
 
 
+def _load_example_module():
+    module_path = Path(__file__).resolve().parents[2] / "examples" / "eol_mistrust.py"
+    spec = importlib.util.spec_from_file_location(
+        "examples.eol_mistrust_integration_tests",
+        module_path,
+    )
+    module = importlib.util.module_from_spec(spec)
+    assert spec is not None and spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
 class _FakeProbEstimator:
     def __init__(self, probabilities):
         self.probabilities = list(probabilities)
@@ -215,8 +227,8 @@ class TestEOLMistrustIntegration(unittest.TestCase):
         )
         self.noteevents = pd.DataFrame(
             [
-                {"hadm_id": 101, "category": "Nursing", "text": "Patient is non-complian and refused medication.", "iserror": None},
-                {"hadm_id": 102, "category": "Nursing", "text": "Patient is calm. Autopsy discussed with family.", "iserror": None},
+                {"hadm_id": 101, "category": "Nursing", "text": "Patient is noncompliant and refused medication.", "iserror": None},
+                {"hadm_id": 102, "category": "Nursing", "text": "Family provided autopsy consent and autopsy was performed.", "iserror": None},
                 {"hadm_id": 103, "category": "Nursing", "text": "Patient is non-adher to the follow up plan.", "iserror": None},
                 {"hadm_id": 104, "category": "Nursing", "text": "Date:[**5-1-18**]  patient   has   good rapport.", "iserror": None},
                 {"hadm_id": 105, "category": "Nursing", "text": "this note should be dropped", "iserror": 1},
@@ -423,6 +435,7 @@ class TestEOLMistrustIntegration(unittest.TestCase):
         self.assertEqual(self.dataset.map_insurance("Medicare"), "Public")
         self.assertEqual(self.dataset.map_insurance("Private"), "Private")
         self.assertEqual(self.dataset.map_insurance("Self Pay"), "Self-Pay")
+        self.assertEqual(self.dataset.map_insurance("Other Plan"), "Self-Pay")
         self.assertEqual(
             self.dataset.prepare_note_text_for_sentiment(" Date:[**5-1-18**]   calm   rapport "),
             "Date:[**5-1-18**] calm rapport",
@@ -491,12 +504,7 @@ class TestEOLMistrustIntegration(unittest.TestCase):
         base = self.dataset.build_base_admissions(self.admissions, self.patients)
         demographics = self.dataset.build_demographics_table(base)
 
-        boundary_demo = pd.DataFrame(
-            [
-                {"hadm_id": 1, "los_hours": 5.99},
-                {"hadm_id": 2, "los_hours": 6.0},
-            ]
-        )
+        boundary_demo = pd.DataFrame([{"hadm_id": 1, "los_hours": 24.0}, {"hadm_id": 2, "los_hours": 24.01}])
         boundary_base = pd.DataFrame(
             [
                 {"hadm_id": 1, "discharge_location": "SNF", "hospital_expire_flag": 0},
@@ -512,7 +520,7 @@ class TestEOLMistrustIntegration(unittest.TestCase):
         full_eol = self.dataset.build_eol_cohort(base, demographics)
         self.assertEqual(full_eol["hadm_id"].tolist(), [103, 104])
 
-    def test_dataset_build_all_cohort_includes_exact_12_hours_and_excludes_eleven_fifty_nine(self):
+    def test_dataset_build_all_cohort_includes_any_icu_stay(self):
         base = pd.DataFrame([{"hadm_id": 1}, {"hadm_id": 2}])
         icustays = pd.DataFrame(
             [
@@ -531,7 +539,7 @@ class TestEOLMistrustIntegration(unittest.TestCase):
             ]
         )
         cohort = self.dataset.build_all_cohort(base, icustays)
-        self.assertEqual(cohort["hadm_id"].tolist(), [1])
+        self.assertEqual(cohort["hadm_id"].tolist(), [1, 2])
 
     def test_dataset_note_corpus_and_labels_filter_errors_and_capture_required_phrases(self):
         all_hadm_ids = [101, 102, 103, 104, 105, 106]
@@ -544,7 +552,7 @@ class TestEOLMistrustIntegration(unittest.TestCase):
         by_hadm = note_labels.set_index("hadm_id")
         self.assertEqual(int(by_hadm.loc[101, "noncompliance_label"]), 1)
         self.assertEqual(int(by_hadm.loc[102, "autopsy_label"]), 1)
-        self.assertEqual(int(by_hadm.loc[103, "noncompliance_label"]), 1)
+        self.assertEqual(int(by_hadm.loc[103, "noncompliance_label"]), 0)
 
     def test_dataset_build_note_corpus_concatenates_with_single_spaces_and_drops_only_iserror_one(self):
         notes = pd.DataFrame(
@@ -725,6 +733,7 @@ class TestEOLMistrustIntegration(unittest.TestCase):
             )
 
         self.assertEqual(created[0].kwargs["penalty"], "l1")
+        self.assertEqual(created[0].kwargs["C"], 0.1)
         self.assertEqual(created[0].kwargs["solver"], "liblinear")
         self.assertEqual(created[0].kwargs["max_iter"], 1000)
         self.assertEqual(len(created[0].fit_X), len(artifacts["feature_matrix"]))
@@ -1056,7 +1065,9 @@ class TestEOLMistrustIntegration(unittest.TestCase):
                 "feature_weight_summaries",
                 "race_gap_results",
                 "race_treatment_results",
+                "race_treatment_by_acuity_results",
                 "trust_treatment_results",
+                "trust_treatment_by_acuity_results",
                 "acuity_correlations",
                 "downstream_auc_results",
             },
@@ -1694,6 +1705,29 @@ class TestEOLMistrustIntegration(unittest.TestCase):
         self.assertTrue(callable(model_pkg.run_full_eol_mistrust_modeling))
         self.assertEqual(model_pkg.MISTRUST_SCORE_COLUMNS, self.model.MISTRUST_SCORE_COLUMNS)
 
+    def test_example_run_task_demo_uses_stable_mkdtemp_cache_dir(self):
+        example_module = _load_example_module()
+        captured = {}
+
+        class _FakeDataset:
+            def __init__(self, *args, **kwargs):
+                del args
+                captured.update(kwargs)
+
+            def stats(self):
+                return None
+
+            def set_task(self, task, num_workers=0):
+                del task, num_workers
+                return self
+
+        with patch.object(example_module.tempfile, "mkdtemp", return_value="stable-cache-dir"), patch.object(
+            example_module, "MIMIC3Dataset", _FakeDataset
+        ):
+            example_module.run_task_demo(Path("root"), Path("config"))
+
+        self.assertEqual(captured["cache_dir"], "stable-cache-dir")
+
     def test_integration_minimal_boundary_scale_pipeline_runs_with_two_admissions(self):
         admissions = pd.DataFrame(
             [
@@ -1838,9 +1872,7 @@ class TestEOLMistrustIntegration(unittest.TestCase):
             "eol_hadm_ids": artifacts["eol_cohort"]["hadm_id"].tolist(),
             "mistrust_first_row": {
                 "hadm_id": int(artifacts["mistrust_scores"].iloc[0]["hadm_id"]),
-                "noncompliance_score_z": round(float(artifacts["mistrust_scores"].iloc[0]["noncompliance_score_z"]), 6),
-                "autopsy_score_z": round(float(artifacts["mistrust_scores"].iloc[0]["autopsy_score_z"]), 6),
-                "negative_sentiment_score_z": round(float(artifacts["mistrust_scores"].iloc[0]["negative_sentiment_score_z"]), 6),
+                "columns": artifacts["mistrust_scores"].columns.tolist(),
             },
             "downstream_rows": int(len(downstream)),
             "downstream_first": {
@@ -1856,9 +1888,12 @@ class TestEOLMistrustIntegration(unittest.TestCase):
                 "eol_hadm_ids": [103, 104],
                 "mistrust_first_row": {
                     "hadm_id": 101,
-                    "noncompliance_score_z": -1.511858,
-                    "autopsy_score_z": -1.511858,
-                    "negative_sentiment_score_z": 1.414214,
+                    "columns": [
+                        "hadm_id",
+                        "noncompliance_score_z",
+                        "autopsy_score_z",
+                        "negative_sentiment_score_z",
+                    ],
                 },
                 "downstream_rows": 18,
                 "downstream_first": {

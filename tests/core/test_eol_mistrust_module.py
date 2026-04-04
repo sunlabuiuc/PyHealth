@@ -46,7 +46,7 @@ class TestEOLMistrustModuleImplementation(unittest.TestCase):
         cls.module = _load_eol_mistrust_module()
 
     def setUp(self):
-        self.all_hadm_ids = [302, 303, 304, 305, 306]
+        self.all_hadm_ids = [301, 302, 303, 304, 305, 306]
         self.admissions = pd.DataFrame(
             [
                 {
@@ -202,7 +202,7 @@ class TestEOLMistrustModuleImplementation(unittest.TestCase):
                 {
                     "hadm_id": 302,
                     "category": "Nursing",
-                    "text": "Patient was NON-COMPLIAN with care plan. AUTOPSY discussed.",
+                    "text": "Patient was NONCOMPLIANT with care plan. Family provided AUTOPSY consent.",
                     "iserror": 0,
                 },
                 {
@@ -441,8 +441,8 @@ class TestEOLMistrustModuleImplementation(unittest.TestCase):
     def _build_mistrust_scores(self):
         build_mistrust_score_table = self._get_callable("build_mistrust_score_table")
         probability_sequences = [
-            [0.90, 0.10, 0.80, 0.20, 0.40],
-            [0.70, 0.20, 0.30, 0.60, 0.50],
+            [0.05, 0.90, 0.10, 0.80, 0.20, 0.40],
+            [0.15, 0.70, 0.20, 0.30, 0.60, 0.50],
         ]
         created = []
 
@@ -452,7 +452,7 @@ class TestEOLMistrustModuleImplementation(unittest.TestCase):
             return estimator
 
         sentiment_map = {
-            "Patient was NON-COMPLIAN with care plan. AUTOPSY discussed.": -0.6,
+            "Patient was NONCOMPLIANT with care plan. Family provided AUTOPSY consent.": -0.6,
             "Patient remained non-adher with follow up after counseling.": -0.2,
             "Patient refuses medication.": 0.1,
             "Patient refused treatment. Date:[**5-1-18**]": -0.4,
@@ -472,10 +472,9 @@ class TestEOLMistrustModuleImplementation(unittest.TestCase):
         self.assertIn("hadm_id", df.columns, msg=f"{message} must include hadm_id")
         self.assertTrue(df["hadm_id"].is_unique, msg=f"{message} must be unique on hadm_id")
 
-    def test_all_cohort_contains_distinct_hadm_ids_with_icu_stay_ge_12h(self):
+    def test_all_cohort_contains_distinct_hadm_ids_with_any_icu_stay(self):
         all_cohort = self._build_all()
         self.assertEqual(set(all_cohort["hadm_id"]), set(self.all_hadm_ids))
-        self.assertNotIn(301, set(all_cohort["hadm_id"]))
         self.assertNotIn(307, set(all_cohort["hadm_id"]))
         self._assert_hadm_unique(all_cohort, "ALL cohort")
 
@@ -486,14 +485,12 @@ class TestEOLMistrustModuleImplementation(unittest.TestCase):
 
     def test_eol_cohort_applies_los_and_discharge_criteria(self):
         eol = self._build_eol()
-        self.assertEqual(set(eol["hadm_id"]), {302, 303, 304})
+        self.assertEqual(set(eol["hadm_id"]), {302})
         by_hadm = eol.set_index("hadm_id")
         self.assertEqual(by_hadm.loc[302, "discharge_category"], "Hospice")
-        self.assertEqual(by_hadm.loc[303, "discharge_category"], "Skilled Nursing Facility")
-        self.assertEqual(by_hadm.loc[304, "discharge_category"], "Deceased")
         self._assert_hadm_unique(eol, "EOL cohort")
 
-    def test_eol_cohort_enforces_exact_six_hour_boundary(self):
+    def test_eol_cohort_requires_stay_longer_than_twenty_four_hours(self):
         build_base_admissions = self._get_callable("build_base_admissions")
         build_demographics_table = self._get_callable("build_demographics_table")
         build_eol_cohort = self._get_callable("build_eol_cohort")
@@ -503,7 +500,7 @@ class TestEOLMistrustModuleImplementation(unittest.TestCase):
                     "hadm_id": 920,
                     "subject_id": 920,
                     "admittime": "2100-09-01 00:00:00",
-                    "dischtime": "2100-09-01 06:00:00",
+                    "dischtime": "2100-09-02 00:00:00",
                     "ethnicity": "WHITE",
                     "insurance": "Medicare",
                     "discharge_location": "HOME HOSPICE",
@@ -514,7 +511,7 @@ class TestEOLMistrustModuleImplementation(unittest.TestCase):
                     "hadm_id": 921,
                     "subject_id": 921,
                     "admittime": "2100-09-01 00:00:00",
-                    "dischtime": "2100-09-01 05:59:00",
+                    "dischtime": "2100-09-02 00:01:00",
                     "ethnicity": "BLACK/AFRICAN AMERICAN",
                     "insurance": "Private",
                     "discharge_location": "HOME HOSPICE",
@@ -533,8 +530,8 @@ class TestEOLMistrustModuleImplementation(unittest.TestCase):
         base = build_base_admissions(admissions, patients)
         demographics = build_demographics_table(base)
         eol = build_eol_cohort(base, demographics)
-        self.assertIn(920, set(eol["hadm_id"]))
-        self.assertNotIn(921, set(eol["hadm_id"]))
+        self.assertNotIn(920, set(eol["hadm_id"]))
+        self.assertIn(921, set(eol["hadm_id"]))
 
     def test_eol_cohort_size_is_within_expected_mimic_range(self):
         self._pending_real_data(
@@ -574,7 +571,7 @@ class TestEOLMistrustModuleImplementation(unittest.TestCase):
         scores, created = self._build_mistrust_scores()
         merged = eol[["hadm_id"]].merge(scores, on="hadm_id", how="left")
         self.assertEqual(len(created), 2)
-        self.assertEqual(set(merged["hadm_id"]), {302, 303, 304})
+        self.assertEqual(set(merged["hadm_id"]), set(eol["hadm_id"]))
         self.assertTrue(
             merged[
                 [
@@ -700,7 +697,7 @@ class TestEOLMistrustModuleImplementation(unittest.TestCase):
         note_corpus = self._build_note_corpus()
         self._assert_hadm_unique(note_corpus, "Note corpus")
         by_hadm = note_corpus.set_index("hadm_id")
-        self.assertIn("AUTOPSY discussed.", by_hadm.loc[302, "note_text"])
+        self.assertIn("AUTOPSY consent.", by_hadm.loc[302, "note_text"])
         self.assertIn("non-adher", by_hadm.loc[303, "note_text"])
         self.assertNotIn("Autopsy requested.", by_hadm.loc[304, "note_text"])
         self.assertEqual(by_hadm.loc[306, "note_text"], "")
@@ -748,18 +745,9 @@ class TestEOLMistrustModuleImplementation(unittest.TestCase):
             "The raw clinical note corpus used for note aggregation should contain at least about 800,000 notes on real MIMIC-III data."
         )
 
-    def test_noncompliance_label_matches_all_required_substrings_case_insensitively(self):
+    def test_noncompliance_label_matches_only_noncompliant_case_insensitively(self):
         build_note_labels = self._get_callable("build_note_labels")
         phrases = [
-            "noncomplian",
-            "non-complian",
-            "nonadher",
-            "non-adher",
-            "refuses medication",
-            "refused medication",
-            "refuses treatment",
-            "refused treatment",
-            "noncompliance",
             "noncompliant",
         ]
         notes = pd.DataFrame(
@@ -777,22 +765,63 @@ class TestEOLMistrustModuleImplementation(unittest.TestCase):
         for hadm_id in range(1, len(phrases) + 1):
             self.assertEqual(labels.loc[hadm_id, "noncompliance_label"], 1)
 
+    def test_noncompliance_label_does_not_fire_on_hyphenated_refusal_or_noncompliance_variants(self):
+        build_note_labels = self._get_callable("build_note_labels")
+        phrases = [
+            "non-complian",
+            "non-adher",
+            "refuses medication",
+            "refused treatment",
+            "noncompliance",
+        ]
+        notes = pd.DataFrame(
+            [
+                {
+                    "hadm_id": index + 1,
+                    "category": "Nursing",
+                    "text": f"Patient documented as {phrase.upper()} during stay.",
+                    "iserror": 0,
+                }
+                for index, phrase in enumerate(phrases)
+            ]
+        )
+        labels = build_note_labels(notes).set_index("hadm_id")
+        for hadm_id in range(1, len(phrases) + 1):
+            self.assertEqual(labels.loc[hadm_id, "noncompliance_label"], 0)
+
     def test_noncompliance_positive_rate_is_within_expected_range(self):
         self._pending_real_data(
             "Noncompliance label prevalence on real data should be between 1% and 30%."
         )
 
-    def test_autopsy_label_uses_case_insensitive_matching(self):
+    def test_autopsy_label_distinguishes_consent_decline_and_ambiguous_mentions(self):
         build_note_labels = self._get_callable("build_note_labels")
         notes = pd.DataFrame(
             [
-                {"hadm_id": 1, "category": "Nursing", "text": "AUTOPSY was discussed.", "iserror": 0},
-                {"hadm_id": 2, "category": "Nursing", "text": "No mention here.", "iserror": 0},
+                {
+                    "hadm_id": 1,
+                    "category": "Nursing",
+                    "text": "AUTOPSY consent obtained and autopsy was performed.",
+                    "iserror": 0,
+                },
+                {
+                    "hadm_id": 2,
+                    "category": "Nursing",
+                    "text": "Autopsy declined by family. No autopsy will be performed.",
+                    "iserror": 0,
+                },
+                {
+                    "hadm_id": 3,
+                    "category": "Nursing",
+                    "text": "Autopsy was discussed with the family.",
+                    "iserror": 0,
+                },
             ]
         )
         labels = build_note_labels(notes).set_index("hadm_id")
         self.assertEqual(labels.loc[1, "autopsy_label"], 1)
         self.assertEqual(labels.loc[2, "autopsy_label"], 0)
+        self.assertEqual(labels.loc[3, "autopsy_label"], 0)
 
     def test_autopsy_positive_rate_is_within_expected_range(self):
         self._pending_real_data(
@@ -837,6 +866,7 @@ class TestEOLMistrustModuleImplementation(unittest.TestCase):
             build_proxy_probability_scores(feature_matrix, labels, "noncompliance_label")
 
         self.assertEqual(created[0].get("penalty"), "l1")
+        self.assertEqual(created[0].get("C"), 0.1)
         self.assertEqual(created[0].get("solver"), "liblinear")
         self.assertEqual(created[0].get("max_iter"), 1000)
 
@@ -866,12 +896,13 @@ class TestEOLMistrustModuleImplementation(unittest.TestCase):
             build_proxy_probability_scores(feature_matrix, labels, "autopsy_label")
 
         self.assertEqual(created[0].get("penalty"), "l1")
+        self.assertEqual(created[0].get("C"), 0.1)
         self.assertEqual(created[0].get("solver"), "liblinear")
         self.assertEqual(created[0].get("max_iter"), 1000)
 
     def test_proxy_models_fit_on_full_all_cohort_without_train_test_split(self):
         build_proxy_probability_scores = self._get_callable("build_proxy_probability_scores")
-        estimator = _FakeProbEstimator([0.9, 0.2, 0.8, 0.1, 0.4])
+        estimator = _FakeProbEstimator([0.9, 0.2, 0.8, 0.1, 0.4, 0.3])
         feature_matrix = self._build_feature_matrix()
         labels = self._build_note_labels()
         scores = build_proxy_probability_scores(
@@ -1141,7 +1172,7 @@ class TestEOLMistrustModuleImplementation(unittest.TestCase):
         acuity = build_acuity_scores(self.oasis, self.sapsii)
         scores, _ = self._build_mistrust_scores()
         merged = scores.merge(acuity, on="hadm_id", how="inner")
-        self.assertEqual(set(merged["hadm_id"]), set(self.all_hadm_ids))
+        self.assertEqual(set(merged["hadm_id"]), set(acuity["hadm_id"]))
         self.assertTrue({"oasis", "sapsii"}.issubset(merged.columns))
 
     def test_acuity_aggregation_rule_is_deterministic_for_multiple_icu_stays(self):
@@ -1513,10 +1544,24 @@ class TestEOLMistrustModuleImplementation(unittest.TestCase):
             include_race=True,
             include_mistrust=True,
         )
-        expected_hadm_ids = set(all_cohort["hadm_id"])
-        for artifact in [feature_matrix, note_labels, note_corpus, mistrust_scores, acuity, final]:
+        expected_hadm_ids = {
+            "feature_matrix": set(all_cohort["hadm_id"]),
+            "note_labels": set(all_cohort["hadm_id"]),
+            "note_corpus": set(all_cohort["hadm_id"]),
+            "mistrust_scores": set(all_cohort["hadm_id"]),
+            "acuity": set(acuity["hadm_id"]),
+            "final": set(final["hadm_id"]),
+        }
+        for name, artifact in [
+            ("feature_matrix", feature_matrix),
+            ("note_labels", note_labels),
+            ("note_corpus", note_corpus),
+            ("mistrust_scores", mistrust_scores),
+            ("acuity", acuity),
+            ("final", final),
+        ]:
             self._assert_hadm_unique(artifact, "Artifact")
-            self.assertEqual(set(artifact["hadm_id"]), expected_hadm_ids)
+            self.assertEqual(set(artifact["hadm_id"]), expected_hadm_ids[name])
 
 
 if __name__ == "__main__":

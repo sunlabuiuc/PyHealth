@@ -335,6 +335,7 @@ class TestEOLMistrustModel(unittest.TestCase):
         self.assertEqual(len(created), 1)
         self.assertIs(estimator, created[0])
         self.assertEqual(created[0].kwargs.get("penalty"), "l1")
+        self.assertEqual(created[0].kwargs.get("C"), 0.1)
         self.assertEqual(created[0].kwargs.get("solver"), "liblinear")
         self.assertEqual(created[0].kwargs.get("max_iter"), 1000)
         self.assertEqual(len(created[0].fit_X), len(self.feature_matrix))
@@ -723,6 +724,21 @@ class TestEOLMistrustModel(unittest.TestCase):
                 self.treatment_totals,
             )
 
+    def test_run_race_based_treatment_analysis_by_acuity_partitions_each_treatment_into_three_bins(self):
+        run_race_based_treatment_analysis_by_acuity = self._get_callable(
+            "run_race_based_treatment_analysis_by_acuity"
+        )
+        results = run_race_based_treatment_analysis_by_acuity(
+            self.eol_cohort,
+            self.treatment_totals,
+            self.acuity_scores,
+        )
+        self.assertEqual(results.shape[0], 6)
+        self.assertEqual(set(results["treatment"]), {"total_vent_min", "total_vaso_min"})
+        self.assertEqual(set(results["severity_bin"]), {"low", "medium", "high"})
+        counts = results.groupby("treatment")["severity_bin"].nunique().to_dict()
+        self.assertEqual(counts, {"total_vent_min": 3, "total_vaso_min": 3})
+
     def test_run_trust_based_treatment_analysis_uses_explicit_group_size_and_tie_breaks_by_hadm_id(self):
         run_trust_based_treatment_analysis = self._get_callable("run_trust_based_treatment_analysis")
         eol = pd.DataFrame(
@@ -814,6 +830,22 @@ class TestEOLMistrustModel(unittest.TestCase):
         )
         row = valid.iloc[0]
         self.assertAlmostEqual(float(row["median_gap"]), float(row["median_high"]) - float(row["median_low"]))
+
+    def test_run_trust_based_treatment_analysis_by_acuity_returns_metric_treatment_bin_rows(self):
+        run_trust_based_treatment_analysis_by_acuity = self._get_callable(
+            "run_trust_based_treatment_analysis_by_acuity"
+        )
+        results = run_trust_based_treatment_analysis_by_acuity(
+            self.eol_cohort,
+            self.final_model_table[["hadm_id", "noncompliance_score_z"]],
+            self.treatment_totals,
+            self.acuity_scores,
+            score_columns=["noncompliance_score_z"],
+        )
+        self.assertEqual(results.shape[0], 6)
+        self.assertEqual(set(results["metric"]), {"noncompliance_score_z"})
+        self.assertEqual(set(results["treatment"]), {"total_vent_min", "total_vaso_min"})
+        self.assertEqual(set(results["severity_bin"]), {"low", "medium", "high"})
 
     def test_run_acuity_control_analysis_returns_pairwise_correlations(self):
         run_acuity_control_analysis = self._get_callable("run_acuity_control_analysis")
@@ -932,6 +964,7 @@ class TestEOLMistrustModel(unittest.TestCase):
 
         self.assertEqual(split_calls[0]["n_rows"], 4)
         self.assertEqual(created[0].kwargs.get("penalty"), "l1")
+        self.assertEqual(created[0].kwargs.get("C"), 0.1)
         self.assertEqual(created[0].kwargs.get("solver"), "liblinear")
         self.assertEqual(created[0].kwargs.get("max_iter"), 1000)
         self.assertEqual(auc_calls[0]["y_prob"], [0.1, 0.9])
@@ -1061,7 +1094,9 @@ class TestEOLMistrustModel(unittest.TestCase):
                 "feature_weight_summaries",
                 "race_gap_results",
                 "race_treatment_results",
+                "race_treatment_by_acuity_results",
                 "trust_treatment_results",
+                "trust_treatment_by_acuity_results",
                 "acuity_correlations",
                 "downstream_auc_results",
             },

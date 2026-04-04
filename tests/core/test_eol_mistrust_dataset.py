@@ -733,13 +733,14 @@ class TestEOLMistrustPreprocessing(unittest.TestCase):
 
         self.assertFalse(summary["supports_multiple_icustays_per_hadm"])
 
-    def test_map_insurance_matches_required_categories(self):
+    def test_map_insurance_matches_required_categories_and_falls_back_safely(self):
         map_insurance = self._get_callable("map_insurance")
         self.assertEqual(map_insurance("Medicare"), "Public")
         self.assertEqual(map_insurance("Medicaid"), "Public")
         self.assertEqual(map_insurance("Government"), "Public")
         self.assertEqual(map_insurance("Private"), "Private")
         self.assertEqual(map_insurance("Self Pay"), "Self-Pay")
+        self.assertEqual(map_insurance("Other Plan"), "Self-Pay")
 
     def test_build_base_admissions_raises_clear_error_when_required_columns_are_missing(self):
         build_base_admissions = self._get_callable("build_base_admissions")
@@ -817,21 +818,21 @@ class TestEOLMistrustPreprocessing(unittest.TestCase):
         eol = build_eol_cohort(base, demographics)
 
         self.assertIsInstance(eol, pd.DataFrame)
-        self.assertEqual(set(eol["hadm_id"]), {101, 103, 104, 107})
+        self.assertEqual(set(eol["hadm_id"]), {101})
 
         by_hadm = eol.set_index("hadm_id")
         self.assertEqual(by_hadm.loc[101, "discharge_category"], "Hospice")
-        self.assertEqual(by_hadm.loc[103, "discharge_category"], "Skilled Nursing Facility")
-        self.assertEqual(by_hadm.loc[104, "discharge_category"], "Deceased")
-        self.assertEqual(
-            by_hadm.loc[107, "discharge_category"],
-            "Deceased",
-            msg="Death must take priority over hospice when both indicators are present",
+        self.assertNotIn(103, set(eol["hadm_id"]))
+        self.assertNotIn(104, set(eol["hadm_id"]))
+        self.assertNotIn(
+            107,
+            set(eol["hadm_id"]),
+            msg="A stay of exactly 24 hours should not satisfy the >24h EOL LOS rule",
         )
         self.assertNotIn(102, set(eol["hadm_id"]))
         self._assert_hadm_unique(eol, "EOL cohort")
 
-    def test_build_eol_cohort_enforces_exact_six_hour_boundary(self):
+    def test_build_eol_cohort_requires_stay_longer_than_twenty_four_hours(self):
         build_base_admissions = self._get_callable("build_base_admissions")
         build_demographics_table = self._get_callable("build_demographics_table")
         build_eol_cohort = self._get_callable("build_eol_cohort")
@@ -842,7 +843,7 @@ class TestEOLMistrustPreprocessing(unittest.TestCase):
                     "hadm_id": 891,
                     "subject_id": 891,
                     "admittime": "2100-09-01 00:00:00",
-                    "dischtime": "2100-09-01 06:00:00",
+                    "dischtime": "2100-09-02 00:00:00",
                     "ethnicity": "WHITE",
                     "insurance": "Medicare",
                     "discharge_location": "HOME HOSPICE",
@@ -853,7 +854,7 @@ class TestEOLMistrustPreprocessing(unittest.TestCase):
                     "hadm_id": 892,
                     "subject_id": 892,
                     "admittime": "2100-09-01 00:00:00",
-                    "dischtime": "2100-09-01 05:59:00",
+                    "dischtime": "2100-09-02 00:01:00",
                     "ethnicity": "BLACK/AFRICAN AMERICAN",
                     "insurance": "Private",
                     "discharge_location": "HOME HOSPICE",
@@ -873,8 +874,8 @@ class TestEOLMistrustPreprocessing(unittest.TestCase):
         demographics = build_demographics_table(base)
         eol = build_eol_cohort(base, demographics)
 
-        self.assertIn(891, set(eol["hadm_id"]))
-        self.assertNotIn(892, set(eol["hadm_id"]))
+        self.assertNotIn(891, set(eol["hadm_id"]))
+        self.assertIn(892, set(eol["hadm_id"]))
 
     def test_build_eol_cohort_accepts_snf_discharge_text(self):
         build_base_admissions = self._get_callable("build_base_admissions")
@@ -887,7 +888,7 @@ class TestEOLMistrustPreprocessing(unittest.TestCase):
                     "hadm_id": 901,
                     "subject_id": 91,
                     "admittime": "2100-09-01 00:00:00",
-                    "dischtime": "2100-09-01 12:00:00",
+                    "dischtime": "2100-09-02 12:01:00",
                     "ethnicity": "WHITE",
                     "insurance": "Medicare",
                     "discharge_location": "SNF",
@@ -908,7 +909,7 @@ class TestEOLMistrustPreprocessing(unittest.TestCase):
 
         self.assertEqual(set(eol["hadm_id"]), {901})
 
-    def test_build_all_cohort_requires_a_single_icu_stay_of_at_least_12_hours(self):
+    def test_build_all_cohort_includes_admissions_with_any_icu_stay(self):
         build_base_admissions = self._get_callable("build_base_admissions")
         build_all_cohort = self._get_callable("build_all_cohort")
 
@@ -916,12 +917,7 @@ class TestEOLMistrustPreprocessing(unittest.TestCase):
         all_cohort = build_all_cohort(base, self.icustays)
 
         self.assertIsInstance(all_cohort, pd.DataFrame)
-        self.assertEqual(set(all_cohort["hadm_id"]), {101, 103, 106, 107})
-        self.assertNotIn(
-            100,
-            set(all_cohort["hadm_id"]),
-            msg="Two 11-hour ICU stays must not qualify; at least one stay must be >= 12 hours",
-        )
+        self.assertEqual(set(all_cohort["hadm_id"]), {100, 101, 103, 104, 106, 107})
         self.assertNotIn(
             105,
             set(all_cohort["hadm_id"]),
@@ -1124,6 +1120,28 @@ class TestEOLMistrustPreprocessing(unittest.TestCase):
         self.assertEqual(corpus.loc[999, "note_text"], "")
         self.assertFalse(pd.isna(corpus.loc[999, "note_text"]))
 
+    def test_build_note_corpus_can_filter_to_discharge_summaries_for_sentiment(self):
+        build_note_corpus = self._get_callable("build_note_corpus")
+        notes = pd.DataFrame(
+            [
+                {"hadm_id": 1, "category": "Nursing", "text": "nursing detail", "iserror": 0},
+                {
+                    "hadm_id": 1,
+                    "category": "Discharge summary",
+                    "text": "discharge summary text",
+                    "iserror": 0,
+                },
+                {"hadm_id": 2, "category": "Nursing", "text": "only nursing", "iserror": 0},
+            ]
+        )
+        corpus = build_note_corpus(
+            notes,
+            all_hadm_ids=[1, 2],
+            categories=["Discharge summary"],
+        ).set_index("hadm_id")
+        self.assertEqual(corpus.loc[1, "note_text"], "discharge summary text")
+        self.assertEqual(corpus.loc[2, "note_text"], "")
+
     def test_build_note_corpus_raises_clear_error_when_required_columns_are_missing(self):
         build_note_corpus = self._get_callable("build_note_corpus")
         notes_missing = self.noteevents.drop(columns=["text"])
@@ -1141,10 +1159,10 @@ class TestEOLMistrustPreprocessing(unittest.TestCase):
 
         by_hadm = labels.set_index("hadm_id")
         self.assertEqual(by_hadm.loc[101, "noncompliance_label"], 1)
-        self.assertEqual(by_hadm.loc[101, "autopsy_label"], 1)
+        self.assertEqual(by_hadm.loc[101, "autopsy_label"], 0)
         self.assertEqual(by_hadm.loc[103, "noncompliance_label"], 0)
         self.assertEqual(by_hadm.loc[104, "autopsy_label"], 0)
-        self.assertEqual(by_hadm.loc[106, "noncompliance_label"], 1)
+        self.assertEqual(by_hadm.loc[106, "noncompliance_label"], 0)
         self._assert_hadm_unique(labels, "Note labels")
 
     def test_build_note_labels_can_include_all_hadm_ids_with_zero_defaults(self):
@@ -1189,13 +1207,9 @@ class TestEOLMistrustPreprocessing(unittest.TestCase):
             0,
             msg="Substring rules should not fire on generic compliance mentions",
         )
-        self.assertEqual(
-            labels.loc[108, "autopsy_label"],
-            1,
-            msg="Autopsy matching should be case-insensitive and based on substring presence",
-        )
+        self.assertEqual(labels.loc[108, "autopsy_label"], 0)
 
-    def test_build_note_labels_matches_hyphenated_noncompliance_phrases(self):
+    def test_build_note_labels_does_not_treat_hyphenated_or_refusal_phrases_as_noncompliance(self):
         build_note_labels = self._get_callable("build_note_labels")
         notes = pd.DataFrame(
             [
@@ -1211,14 +1225,21 @@ class TestEOLMistrustPreprocessing(unittest.TestCase):
                     "text": "Patient remains non-adher to treatment plan.",
                     "iserror": 0,
                 },
+                {
+                    "hadm_id": 203,
+                    "category": "Nursing",
+                    "text": "Patient refuses treatment at this time.",
+                    "iserror": 0,
+                },
             ]
         )
 
         labels = build_note_labels(notes).set_index("hadm_id")
-        self.assertEqual(labels.loc[201, "noncompliance_label"], 1)
-        self.assertEqual(labels.loc[202, "noncompliance_label"], 1)
+        self.assertEqual(labels.loc[201, "noncompliance_label"], 0)
+        self.assertEqual(labels.loc[202, "noncompliance_label"], 0)
+        self.assertEqual(labels.loc[203, "noncompliance_label"], 0)
 
-    def test_build_note_labels_matches_literal_noncompliance_and_noncompliant_terms(self):
+    def test_build_note_labels_matches_only_noncompliant_keyword_case_insensitively(self):
         build_note_labels = self._get_callable("build_note_labels")
         notes = pd.DataFrame(
             [
@@ -1238,8 +1259,37 @@ class TestEOLMistrustPreprocessing(unittest.TestCase):
         )
 
         labels = build_note_labels(notes).set_index("hadm_id")
-        self.assertEqual(labels.loc[211, "noncompliance_label"], 1)
+        self.assertEqual(labels.loc[211, "noncompliance_label"], 0)
         self.assertEqual(labels.loc[212, "noncompliance_label"], 1)
+
+    def test_build_note_labels_distinguishes_autopsy_consent_from_decline(self):
+        build_note_labels = self._get_callable("build_note_labels")
+        notes = pd.DataFrame(
+            [
+                {
+                    "hadm_id": 221,
+                    "category": "Nursing",
+                    "text": "Family gave consent for autopsy and autopsy was performed.",
+                    "iserror": 0,
+                },
+                {
+                    "hadm_id": 222,
+                    "category": "Nursing",
+                    "text": "Autopsy declined by family. No autopsy will be performed.",
+                    "iserror": 0,
+                },
+                {
+                    "hadm_id": 223,
+                    "category": "Nursing",
+                    "text": "Autopsy discussed with family.",
+                    "iserror": 0,
+                },
+            ]
+        )
+        labels = build_note_labels(notes).set_index("hadm_id")
+        self.assertEqual(labels.loc[221, "autopsy_label"], 1)
+        self.assertEqual(labels.loc[222, "autopsy_label"], 0)
+        self.assertEqual(labels.loc[223, "autopsy_label"], 0)
 
     def test_identify_table2_itemids_discovers_matching_labels_across_dbsources(self):
         identify_table2_itemids = self._get_callable("identify_table2_itemids")
@@ -1502,6 +1552,20 @@ class TestEOLMistrustPreprocessing(unittest.TestCase):
         normalized = z_normalize_scores(raw, columns=["noncompliance_score"])
         self.assertTrue((normalized["noncompliance_score"] == 0.0).all())
 
+    def test_z_normalize_scores_can_auto_detect_score_columns_when_columns_not_provided(self):
+        z_normalize_scores = self._get_callable("z_normalize_scores")
+        raw = pd.DataFrame(
+            [
+                {"hadm_id": 1, "noncompliance_score": 1.0, "autopsy_score": 10.0, "keep": 7.0},
+                {"hadm_id": 2, "noncompliance_score": 2.0, "autopsy_score": 20.0, "keep": 8.0},
+                {"hadm_id": 3, "noncompliance_score": 3.0, "autopsy_score": 30.0, "keep": 9.0},
+            ]
+        )
+        normalized = z_normalize_scores(raw)
+        self.assertAlmostEqual(float(normalized["noncompliance_score"].mean()), 0.0, places=7)
+        self.assertAlmostEqual(float(normalized["autopsy_score"].mean()), 0.0, places=7)
+        self.assertEqual(normalized["keep"].tolist(), [7.0, 8.0, 9.0])
+
     def test_build_acuity_scores_produces_unique_admission_level_table(self):
         build_acuity_scores = self._get_callable("build_acuity_scores")
         acuity = build_acuity_scores(self.oasis, self.sapsii)
@@ -1618,6 +1682,7 @@ class TestEOLMistrustPreprocessing(unittest.TestCase):
 
         self.assertEqual(len(created), 1)
         self.assertEqual(created[0].get("penalty"), "l1")
+        self.assertEqual(created[0].get("C"), 0.1)
         self.assertEqual(created[0].get("solver"), "liblinear")
         self.assertEqual(created[0].get("max_iter"), 1000)
 
@@ -1946,7 +2011,7 @@ class TestEOLMistrustPreprocessing(unittest.TestCase):
             "in_hospital_mortality",
         }
         self.assertTrue(required_columns.issubset(set(final_table.columns)))
-        self.assertEqual(set(final_table["hadm_id"]), {101, 103, 106, 107})
+        self.assertEqual(set(final_table["hadm_id"]), set(all_cohort["hadm_id"]))
 
         by_hadm = final_table.set_index("hadm_id")
         self.assertEqual(by_hadm.loc[106, "left_ama"], 1)
@@ -2471,7 +2536,7 @@ class TestEOLMistrustPreprocessing(unittest.TestCase):
             self.assertEqual(list(base_admissions["hadm_id"]), [101, 103])
             self.assertNotIn("Unnamed: 0", base_admissions.columns)
 
-    def test_write_minimal_deliverables_raises_when_required_artifact_is_missing(self):
+    def test_write_minimal_deliverables_skips_missing_artifacts_without_crashing(self):
         write_minimal_deliverables = self._get_callable("write_minimal_deliverables")
         artifacts = {
             "base_admissions": pd.DataFrame([{"hadm_id": 101}]),
@@ -2491,8 +2556,11 @@ class TestEOLMistrustPreprocessing(unittest.TestCase):
         }
 
         with tempfile.TemporaryDirectory() as temp_dir:
-            with self.assertRaises(KeyError):
-                write_minimal_deliverables(artifacts, Path(temp_dir))
+            output_dir = Path(temp_dir)
+            write_minimal_deliverables(artifacts, output_dir)
+            self.assertTrue((output_dir / "base_admissions.csv").exists())
+            self.assertTrue((output_dir / "acuity_scores.csv").exists())
+            self.assertFalse((output_dir / "final_model_table.csv").exists())
 
     def test_write_minimal_deliverables_sorts_nullable_integer_hadm_ids(self):
         write_minimal_deliverables = self._get_callable("write_minimal_deliverables")
@@ -2723,14 +2791,14 @@ class TestEOLMistrustPreprocessing(unittest.TestCase):
             feature_matrix=feature_matrix,
             note_labels=note_labels,
             note_corpus=note_corpus,
-            estimator_factory=lambda: _FakeProbEstimator([0.9, 0.2, 0.8, 0.1]),
+            estimator_factory=lambda: _FakeProbEstimator([0.9, 0.2, 0.8, 0.1, 0.4, 0.3]),
             sentiment_fn=lambda text: (
                 {
                     "Patient refuses treatment and was noncompliant with medication. Date:[**5-1-18**] Autopsy was discussed with the family.": -0.5,
                     "Cooperative patient. Follows commands.": 0.0,
                     "Patient remains nonadherent with follow up plan.": -0.2,
                     "": 0.0,
-                }[text],
+                }.get(text, 0.0),
                 0.0,
             ),
         )
@@ -2817,14 +2885,14 @@ class TestEOLMistrustPreprocessing(unittest.TestCase):
             feature_matrix=feature_matrix,
             note_labels=note_labels,
             note_corpus=note_corpus,
-            estimator_factory=lambda: _FakeProbEstimator([0.9, 0.2, 0.8, 0.1]),
+            estimator_factory=lambda: _FakeProbEstimator([0.9, 0.2, 0.8, 0.1, 0.4, 0.3]),
             sentiment_fn=lambda text: (
                 {
                     "Patient refuses treatment and was noncompliant with medication. Date:[**5-1-18**] Autopsy was discussed with the family.": -0.5,
                     "Cooperative patient. Follows commands.": 0.0,
                     "Patient remains nonadherent with follow up plan.": -0.2,
                     "": 0.0,
-                }[text],
+                }.get(text, 0.0),
                 0.0,
             ),
         )

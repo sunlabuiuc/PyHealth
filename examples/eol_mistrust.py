@@ -12,6 +12,12 @@ It demonstrates two related flows:
 
 1. the study-style preprocessing + modeling pipeline built on pandas tables
 2. an optional PyHealth task demo using the custom EOL mistrust YAML config
+
+Implementation note: the sentiment metric in this repo uses the existing
+transformers+torch stack rather than the original Pattern backend from the
+reference notebooks. The example therefore builds the sentiment corpus from
+`Discharge summary` notes only, while label extraction still uses all non-error
+notes.
 """
 
 from __future__ import annotations
@@ -31,7 +37,8 @@ from pyhealth.datasets.eol_mistrust import (
     build_demographics_table,
     build_eol_cohort,
     build_final_model_table_from_code_status_targets,
-    build_note_artifacts_from_csv,
+    build_note_corpus_from_csv,
+    build_note_labels_from_csv,
     build_treatment_totals,
     write_minimal_deliverables,
 )
@@ -120,7 +127,13 @@ def build_eol_mistrust_outputs(
         ventdurations=materialized_views["ventdurations"],
         vasopressordurations=materialized_views["vasopressordurations"],
     )
-    note_corpus, note_labels = build_note_artifacts_from_csv(
+    note_corpus = build_note_corpus_from_csv(
+        noteevents_csv_path=noteevents_csv_path,
+        all_hadm_ids=all_cohort["hadm_id"],
+        categories=["Discharge summary"],
+        chunksize=note_chunksize,
+    )
+    note_labels = build_note_labels_from_csv(
         noteevents_csv_path=noteevents_csv_path,
         all_hadm_ids=all_cohort["hadm_id"],
         chunksize=note_chunksize,
@@ -208,7 +221,7 @@ def run_task_demo(root: Path, config_path: Path) -> None:
         tables=["chartevents", "noteevents", "d_items"],
         dataset_name="eol_mistrust_mimic3",
         config_path=str(config_path),
-        cache_dir=tempfile.TemporaryDirectory().name,
+        cache_dir=tempfile.mkdtemp(),
         dev=True,
     )
     base_dataset.stats()

@@ -6,6 +6,10 @@ This module implements the model-facing pieces of the EOL mistrust workflow:
 2. feature-weight summaries for the two proxy logistic models
 3. race-gap, treatment-disparity, and acuity-control analyses
 4. downstream repeated-split prediction experiments
+
+The sentiment metric uses a transformers+torch backend that is already available
+in the project environment. That is an intentional practical substitute for the
+original Pattern-based notebook implementation.
 """
 
 from __future__ import annotations
@@ -64,6 +68,7 @@ except ModuleNotFoundError:  # pragma: no cover
 
 RACE_WHITE = "WHITE"
 RACE_BLACK = "BLACK"
+DEFAULT_LOGISTIC_C = 0.1
 
 MISTRUST_SCORE_COLUMNS = [
     "noncompliance_score_z",
@@ -114,7 +119,11 @@ _SENTIMENT_BACKEND: Callable[[str], tuple[float, float]] | None = None
 
 
 def _load_transformers_sentiment() -> Callable[[str], tuple[float, float]]:
-    """Load a transformers sentiment pipeline, preferring GPU when available."""
+    """Load the project-standard transformers sentiment pipeline.
+
+    GPU is used first when CUDA is available; otherwise the backend falls back
+    to CPU without changing the public scorer interface.
+    """
 
     transformers_module = importlib.import_module("transformers")
     torch_module = importlib.import_module("torch")
@@ -178,7 +187,12 @@ def _prepare_note_text_for_sentiment(text) -> str:
 
 
 def _default_estimator_factory() -> object:
-    return LogisticRegression(penalty="l1", solver="liblinear", max_iter=1000)
+    return LogisticRegression(
+        penalty="l1",
+        C=DEFAULT_LOGISTIC_C,
+        solver="liblinear",
+        max_iter=1000,
+    )
 
 
 def _extract_positive_class_probabilities(probabilities) -> np.ndarray:
@@ -277,6 +291,33 @@ def _pearson_with_pvalue(left: pd.Series, right: pd.Series) -> tuple[float, floa
 
     corr = float(frame["left"].corr(frame["right"], method="pearson"))
     return corr, float("nan"), len(frame)
+
+
+def _assign_severity_bins(
+    frame: pd.DataFrame,
+    acuity_column: str = "oasis",
+) -> pd.DataFrame:
+    """Assign stable low/medium/high terciles from an acuity column."""
+
+    _require_columns(frame, [acuity_column], "acuity_frame")
+    labeled = frame.copy()
+    acuity_values = pd.to_numeric(labeled[acuity_column], errors="coerce")
+    labeled["severity_bin"] = pd.Series(pd.NA, index=labeled.index, dtype="object")
+
+    valid = acuity_values.notna()
+    if valid.sum() == 0:
+        return labeled
+
+    ordered = acuity_values.loc[valid].rank(method="first")
+    if len(ordered) >= 3:
+        bins = pd.qcut(ordered, 3, labels=["low", "medium", "high"])
+        labeled.loc[valid, "severity_bin"] = bins.astype(str)
+        return labeled
+
+    fallback_labels = ["low", "medium", "high"][: len(ordered)]
+    fallback = pd.Series(fallback_labels, index=ordered.sort_values().index)
+    labeled.loc[fallback.index, "severity_bin"] = fallback.astype(str)
+    return labeled
 
 
 def build_empirical_cdf_curve(values: Iterable[float]) -> pd.DataFrame:
@@ -391,7 +432,11 @@ def z_normalize_scores(
     _require_columns(score_table, ["hadm_id"], "score_table")
     normalized = score_table.copy()
     if columns is None:
-        score_columns = [column for column in normalized.columns if column != "hadm_id"]
+        score_columns = [
+            column
+            for column in normalized.columns
+            if column != "hadm_id" and (column.endswith("_score") or column.endswith("_score_z"))
+        ]
     else:
         score_columns = list(columns)
 
@@ -611,6 +656,57 @@ def run_race_based_treatment_analysis(
     return pd.DataFrame(rows)
 
 
+def run_race_based_treatment_analysis_by_acuity(
+    eol_cohort: pd.DataFrame,
+    treatment_totals: pd.DataFrame,
+    acuity_scores: pd.DataFrame,
+    race_column: str = "race",
+    treatment_columns: Sequence[str] = ("total_vent_min", "total_vaso_min"),
+    acuity_column: str = "oasis",
+) -> pd.DataFrame:
+    """Compare Black and White treatment duration within OASIS severity terciles."""
+
+    _require_columns(eol_cohort, ["hadm_id", race_column], "eol_cohort")
+    _require_columns(treatment_totals, ["hadm_id", *treatment_columns], "treatment_totals")
+    _require_columns(acuity_scores, ["hadm_id", acuity_column], "acuity_scores")
+
+    merged = (
+        eol_cohort.merge(treatment_totals, on="hadm_id", how="left", validate="one_to_one")
+        .merge(acuity_scores[["hadm_id", acuity_column]], on="hadm_id", how="inner", validate="one_to_one")
+    )
+    merged = merged.loc[merged[race_column].isin({RACE_WHITE, RACE_BLACK})].copy()
+    merged = _assign_severity_bins(merged, acuity_column=acuity_column)
+
+    rows: list[dict[str, float | int | str]] = []
+    for treatment in treatment_columns:
+        for severity_bin in ("low", "medium", "high"):
+            usable = merged.loc[
+                (merged["severity_bin"] == severity_bin) & merged[treatment].notna()
+            ].copy()
+            black = usable.loc[usable[race_column] == RACE_BLACK, treatment]
+            white = usable.loc[usable[race_column] == RACE_WHITE, treatment]
+            statistic, pvalue, median_black, median_white, n_black, n_white = _make_metric_result(
+                black,
+                white,
+            )
+            rows.append(
+                {
+                    "severity_bin": severity_bin,
+                    "treatment": treatment,
+                    "n_black": n_black,
+                    "n_white": n_white,
+                    "median_black": median_black,
+                    "median_white": median_white,
+                    "median_gap_black_minus_white": median_black - median_white
+                    if not (pd.isna(median_black) or pd.isna(median_white))
+                    else float("nan"),
+                    "statistic": statistic,
+                    "pvalue": pvalue,
+                }
+            )
+    return pd.DataFrame(rows)
+
+
 def build_race_based_treatment_cdf_plot_data(
     eol_cohort: pd.DataFrame,
     treatment_totals: pd.DataFrame,
@@ -732,6 +828,116 @@ def run_trust_based_treatment_analysis(
                     "pvalue": pvalue,
                 }
             )
+    return pd.DataFrame(rows)
+
+
+def run_trust_based_treatment_analysis_by_acuity(
+    eol_cohort: pd.DataFrame,
+    mistrust_scores: pd.DataFrame,
+    treatment_totals: pd.DataFrame,
+    acuity_scores: pd.DataFrame,
+    score_columns: Sequence[str] | None = None,
+    treatment_columns: Sequence[str] = ("total_vent_min", "total_vaso_min"),
+    group_sizes: Mapping[str, int] | None = None,
+    race_column: str = "race",
+    acuity_column: str = "oasis",
+) -> pd.DataFrame:
+    """Compare high-vs-low mistrust groups within OASIS severity terciles."""
+
+    _require_columns(eol_cohort, ["hadm_id"], "eol_cohort")
+    _require_columns(mistrust_scores, ["hadm_id"], "mistrust_scores")
+    _require_columns(treatment_totals, ["hadm_id", *treatment_columns], "treatment_totals")
+    _require_columns(acuity_scores, ["hadm_id", acuity_column], "acuity_scores")
+
+    columns = list(MISTRUST_SCORE_COLUMNS if score_columns is None else score_columns)
+    _require_columns(mistrust_scores, columns, "mistrust_scores")
+
+    merged = (
+        eol_cohort.merge(treatment_totals, on="hadm_id", how="left", validate="one_to_one")
+        .merge(
+            mistrust_scores[["hadm_id", *columns]],
+            on="hadm_id",
+            how="inner",
+            validate="one_to_one",
+        )
+        .merge(acuity_scores[["hadm_id", acuity_column]], on="hadm_id", how="inner", validate="one_to_one")
+    )
+    merged = _assign_severity_bins(merged, acuity_column=acuity_column)
+    explicit_groups = dict(group_sizes or {})
+
+    derived_groups: dict[tuple[str, str], int] = {}
+    if race_column in merged.columns:
+        race_based = run_race_based_treatment_analysis_by_acuity(
+            eol_cohort=eol_cohort,
+            treatment_totals=treatment_totals,
+            acuity_scores=acuity_scores,
+            race_column=race_column,
+            treatment_columns=treatment_columns,
+            acuity_column=acuity_column,
+        )
+        for row in race_based.itertuples(index=False):
+            derived_groups[(str(row.severity_bin), str(row.treatment))] = int(row.n_black)
+
+    rows: list[dict[str, float | int | str]] = []
+    for metric in columns:
+        for treatment in treatment_columns:
+            for severity_bin in ("low", "medium", "high"):
+                usable = merged.loc[
+                    (merged["severity_bin"] == severity_bin)
+                    & merged[treatment].notna()
+                    & merged[metric].notna()
+                ].copy()
+                usable = usable.sort_values([metric, "hadm_id"], ascending=[False, True]).reset_index(
+                    drop=True
+                )
+                group_size = int(
+                    explicit_groups.get(
+                        treatment,
+                        derived_groups.get((severity_bin, treatment), 0),
+                    )
+                )
+
+                if group_size <= 0 or group_size >= len(usable):
+                    rows.append(
+                        {
+                            "severity_bin": severity_bin,
+                            "metric": metric,
+                            "treatment": treatment,
+                            "stratification_n": group_size,
+                            "n_high": min(group_size, len(usable)),
+                            "n_low": max(len(usable) - group_size, 0),
+                            "median_high": float("nan"),
+                            "median_low": float("nan"),
+                            "median_gap": float("nan"),
+                            "statistic": float("nan"),
+                            "pvalue": float("nan"),
+                        }
+                    )
+                    continue
+
+                high = usable.iloc[:group_size][treatment]
+                low = usable.iloc[group_size:][treatment]
+                statistic, pvalue, median_high, median_low, n_high, n_low = _make_metric_result(
+                    high,
+                    low,
+                )
+                rows.append(
+                    {
+                        "severity_bin": severity_bin,
+                        "metric": metric,
+                        "treatment": treatment,
+                        "stratification_n": group_size,
+                        "n_high": n_high,
+                        "n_low": n_low,
+                        "median_high": median_high,
+                        "median_low": median_low,
+                        "median_gap": median_high - median_low
+                        if not (pd.isna(median_high) or pd.isna(median_low))
+                        else float("nan"),
+                        "statistic": statistic,
+                        "pvalue": pvalue,
+                    }
+                )
     return pd.DataFrame(rows)
 
 
@@ -1078,6 +1284,18 @@ def run_full_eol_mistrust_modeling(
             mistrust_scores=mistrust_scores,
             treatment_totals=treatment_totals,
         )
+        if acuity_scores is not None:
+            outputs["race_treatment_by_acuity_results"] = run_race_based_treatment_analysis_by_acuity(
+                eol_cohort=eol_cohort,
+                treatment_totals=treatment_totals,
+                acuity_scores=acuity_scores,
+            )
+            outputs["trust_treatment_by_acuity_results"] = run_trust_based_treatment_analysis_by_acuity(
+                eol_cohort=eol_cohort,
+                mistrust_scores=mistrust_scores,
+                treatment_totals=treatment_totals,
+                acuity_scores=acuity_scores,
+            )
         if include_cdf_plot_data:
             outputs["race_treatment_cdf_plot_data"] = build_race_based_treatment_cdf_plot_data(
                 eol_cohort=eol_cohort,
@@ -1227,9 +1445,11 @@ __all__ = [
     "run_downstream_prediction_experiments",
     "run_full_eol_mistrust_modeling",
     "run_race_based_treatment_analysis",
+    "run_race_based_treatment_analysis_by_acuity",
     "run_race_gap_analysis",
     "run_racial_gap_validation",
     "run_trust_based_treatment_analysis",
+    "run_trust_based_treatment_analysis_by_acuity",
     "summarize_feature_weights",
     "z_normalize_scores",
 ]
