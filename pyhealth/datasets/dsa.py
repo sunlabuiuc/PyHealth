@@ -168,7 +168,7 @@ class DSADataset(BaseDataset):
             for p in range(1, 9): 
                 for s in range(1, 61): 
                     df = pd.read_csv(
-                        root / "data" / f"a{a:02d}" / f"p{p}" / f"s{s:02d}.txt", 
+                        Path(root) / "data" / f"a{a:02d}" / f"p{p}" / f"s{s:02d}.txt", 
                         header=None,
                     )
                     df.columns = columns
