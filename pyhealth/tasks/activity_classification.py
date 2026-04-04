@@ -3,11 +3,12 @@
 This module provides a task for classifying daily and sports activity using
 motion sensor data from Daily and Sports Activities (DSA) dataset.
 """
-
+import logging
 from typing import Any, Dict, List, Optional
-
+import pandas as pd
 from .base_task import BaseTask
 
+logger = logging.getLogger(__name__)
 
 class ActivityClassification(BaseTask):
     """Task for classifying activity using motion sensor data.
@@ -33,50 +34,15 @@ class ActivityClassification(BaseTask):
 
     task_name: str = "ActivityClassification"
     input_schema: Dict[str, str] = {
-        "features": "sequence",
+        "T": "sequence",
+        "RA": "sequence",
+        "LA": "sequence",
+        "RL": "sequence",
+        "LL": "sequence",
     }
     output_schema: Dict[str, str] = {
         "label": "text",
     }
-
-    def _extract_features(self, activity: Any) -> List[float]:
-        """Extract features from an activity event.
-
-        Args:
-            activity: An activity event object.
-
-        Returns:
-            List of feature values.
-        """
-        features: List[float] = []
-
-        columns = [
-            f"{x}_{z}{y}" 
-            for z in ["x", "y", "z"]
-            for y in ["acc", "gyro", "mag"]
-            for x in ["T", "RA", "LA", "RL", "LL"]
-        ]
-        for c in columns:
-            x = getattr(activity, c, None)
-            features.append(x)
- 
-        return features
-
-    def _extract_label(self, activity: Any) -> Optional[int]:
-        """Extract label for an activity event.
-
-        Args:
-            activity: An activity event object.
-
-        Returns:
-            1 - 19 to represent activity, None if value is invalid or unknown.
-        """
-        if activity is None:
-            return None
-
-        label = getattr(activity, "activity", None)
-
-        return label
 
     def __call__(self, patient: Any) -> List[Dict[str, Any]]:
         """Process daily and sports activities data for activity classification.
@@ -92,16 +58,30 @@ class ActivityClassification(BaseTask):
             Returns empty list for patients with:
             - No activities
         """
-        activities = patient.get_events(event_type="activities")
+        events = patient.get_events(event_type="activities")
 
-        if len(activities) == 0:
+        if len(events) == 0:
             return []
+        
+        df = pd.DataFrame([e.attr_dict for e in events])
 
-        return [
-            {
-                "patient_id": patient.patient_id,
-                "features": self._extract_features(activity),
-                "label": self._extract_label(activity),
-            }
-            for activity in activities
-        ]
+        def extract_time_series(df, sensor):
+            return df[df["sensor"].str.startswith(sensor + "_")].reset_index(drop=True).sort_values("sensor").T
+        
+        records = []
+        for a in df["activity"].unique(): 
+            for s in df["segment"].unique(): 
+
+                df_one = df.query(f'activity == "{a}"').query(f'segment == "{s}"')
+                
+                if len(df_one) == 0: 
+                    continue
+
+                record = {
+                    sensor: extract_time_series(df_one, sensor) for sensor in ["T", "LA", "RA", "LL", "RL"]
+                }
+                record["patient_id"] = patient.patient_id
+                record["label"] = a
+                records.append(record)
+        
+        return records

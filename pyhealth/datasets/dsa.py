@@ -48,7 +48,8 @@ class DSADataset(BaseDataset):
             - a19
 
     This dataset class loads raw data files and reformats into a single CSV file
-    with columns activity, patient, segment, sample_id, and 45 sensor columns.
+    with columns activity, patient, segment, sensor, and 0-124 columns that
+    represent time series.
 
     Dataset is available at:
     https://archive.ics.uci.edu/dataset/256/daily+and+sports+activities
@@ -164,21 +165,19 @@ class DSADataset(BaseDataset):
 
         logger.info(f"Loading raw sensors data ...")
 
-        for a in range(1, 20): 
-            for p in range(1, 9): 
-                for s in range(1, 61): 
-                    df = pd.read_csv(
-                        Path(root) / "data" / f"a{a:02d}" / f"p{p}" / f"s{s:02d}.txt", 
-                        header=None,
-                    )
+        for a in list(range(1, 20)): 
+            for p in list(range(1, 9)): 
+                for s in list(range(1, 61)): 
+                    df = pd.read_csv(root / "data" / f"a{a:02d}" / f"p{p}" / f"s{s:02d}.txt", header=None)
                     df.columns = columns
-                    df = df.assign(
-                        activity=a,
-                        patient=p,
-                        segment=s,
+                    
+                    data.append(
+                        df.T.reset_index().rename(columns={"index": "sensor"}).assign(
+                            activity=a,
+                            patient=p,
+                            segment=s,
+                        )
                     )
-                    df["sample_id"] = range(1, 126)
-                    data.append(df)
                     
         df_out = pd.concat(data)
 

@@ -52,10 +52,10 @@ class TestDSADataset(unittest.TestCase):
     def test_get_events(self):
         """Test getting motion sensor data from a patient."""
         dataset = DSADataset(root=str(self.test_resources))
-        patient = dataset.get_patient("3")
+        patient = dataset.get_patient("4")
         events = patient.get_events(event_type="activities")
         # patient 5 has 2 samples in test data
-        self.assertEqual(len(events), 4)
+        self.assertEqual(len(events), 3)
 
     def test_event_attributes(self):
         """Test that event attributes are correctly loaded."""
@@ -67,8 +67,7 @@ class TestDSADataset(unittest.TestCase):
         # Check that attributes exist
         self.assertIn("activity", event)
         self.assertIn("segment", event)
-        self.assertIn("sample_id", event)
-        self.assertIn("LL_ygyro", event)
+        self.assertIn("sensor", event)
 
     def test_default_task(self):
         """Test that the default task is ActivityClassification."""
@@ -93,7 +92,11 @@ class TestDSADataset(unittest.TestCase):
         if len(samples) > 0:
             sample = samples[0]
             self.assertIn("patient_id", sample)
-            self.assertIn("features", sample)
+            self.assertIn("T", sample)
+            self.assertIn("LA", sample)
+            self.assertIn("RA", sample)
+            self.assertIn("LL", sample)
+            self.assertIn("RL", sample)
             self.assertIn("label", sample)
 
 
@@ -104,13 +107,21 @@ class TestActivityClassification(unittest.TestCase):
         """Test task class attributes."""
         task = ActivityClassification()
         self.assertEqual(task.task_name, "ActivityClassification")
-        self.assertIn("features", task.input_schema)
+        self.assertIn("T", task.input_schema)
+        self.assertIn("LA", task.input_schema)
+        self.assertIn("RA", task.input_schema)
+        self.assertIn("LL", task.input_schema)
+        self.assertIn("RL", task.input_schema)
         self.assertIn("label", task.output_schema)
 
     def test_input_schema(self):
         """Test input schema definition."""
         task = ActivityClassification()
-        self.assertEqual(task.input_schema["features"], "sequence")
+        self.assertEqual(task.input_schema["T"], "sequence")
+        self.assertEqual(task.input_schema["RA"], "sequence")
+        self.assertEqual(task.input_schema["LA"], "sequence")
+        self.assertEqual(task.input_schema["RL"], "sequence")
+        self.assertEqual(task.input_schema["LL"], "sequence")
 
     def test_output_schema(self):
         """Test output schema definition."""
