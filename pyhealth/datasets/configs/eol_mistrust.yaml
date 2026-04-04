@@ -1,0 +1,161 @@
+version: "1.0"
+
+tables:
+  patients:
+    file_path: "mimiciii_clinical/patients.csv"
+    patient_id: "subject_id"
+    timestamp: null
+    attributes:
+      - "gender"
+      - "dob"
+      - "dod"
+      - "dod_hosp"
+      - "dod_ssn"
+      - "expire_flag"
+
+  admissions:
+    file_path: "mimiciii_clinical/admissions.csv"
+    patient_id: "subject_id"
+    timestamp: "admittime"
+    attributes:
+      - "hadm_id"
+      - "dischtime"
+      - "deathtime"
+      - "admission_type"
+      - "admission_location"
+      - "discharge_location"
+      - "insurance"
+      - "language"
+      - "religion"
+      - "marital_status"
+      - "ethnicity"
+      - "edregtime"
+      - "edouttime"
+      - "diagnosis"
+      - "hospital_expire_flag"
+      - "has_chartevents_data"
+
+  icustays:
+    file_path: "mimiciii_clinical/icustays.csv"
+    patient_id: "subject_id"
+    timestamp: "intime"
+    attributes:
+      - "hadm_id"
+      - "icustay_id"
+      - "dbsource"
+      - "first_careunit"
+      - "last_careunit"
+      - "outtime"
+      - "los"
+
+  noteevents:
+    file_path: "mimiciii_notes/noteevents.csv"
+    patient_id: "subject_id"
+    timestamp: "charttime"
+    attributes:
+      - "row_id"
+      - "hadm_id"
+      - "chartdate"
+      - "text"
+      - "category"
+      - "description"
+      - "storetime"
+      - "iserror"
+
+  d_items:
+    file_path: "mimiciii_clinical/d_items.csv"
+    patient_id: null
+    timestamp: null
+    attributes:
+      - "itemid"
+      - "label"
+      - "abbreviation"
+      - "dbsource"
+      - "linksto"
+      - "category"
+      - "unitname"
+      - "param_type"
+      - "conceptid"
+
+  chartevents:
+    file_path: "mimiciii_clinical/chartevents.csv"
+    patient_id: "subject_id"
+    timestamp: "charttime"
+    join:
+      - file_path: "mimiciii_clinical/d_items.csv"
+        "on": "itemid"
+        how: "left"
+        columns:
+          - "label"
+          - "dbsource"
+          - "category"
+    attributes:
+      - "hadm_id"
+      - "icustay_id"
+      - "itemid"
+      - "storetime"
+      - "cgid"
+      - "value"
+      - "valuenum"
+      - "valueuom"
+      - "warning"
+      - "error"
+      - "resultstatus"
+      - "stopped"
+      - "label"
+      - "dbsource"
+      - "category"
+
+  ventdurations:
+    file_path: "mimiciii_derived/ventdurations.csv"
+    patient_id: "subject_id"
+    timestamp: "starttime"
+    join:
+      - file_path: "mimiciii_clinical/icustays.csv"
+        "on": "icustay_id"
+        how: "left"
+        columns:
+          - "subject_id"
+          - "hadm_id"
+    attributes:
+      - "hadm_id"
+      - "icustay_id"
+      - "ventnum"
+      - "endtime"
+      - "duration_hours"
+
+  vasopressordurations:
+    file_path: "mimiciii_derived/vasopressordurations.csv"
+    patient_id: "subject_id"
+    timestamp: "starttime"
+    join:
+      - file_path: "mimiciii_clinical/icustays.csv"
+        "on": "icustay_id"
+        how: "left"
+        columns:
+          - "subject_id"
+          - "hadm_id"
+    attributes:
+      - "hadm_id"
+      - "icustay_id"
+      - "vasonum"
+      - "endtime"
+      - "duration_hours"
+
+  oasis:
+    file_path: "mimiciii_derived/oasis.csv"
+    patient_id: "subject_id"
+    timestamp: null
+    attributes:
+      - "hadm_id"
+      - "icustay_id"
+      - "oasis"
+
+  sapsii:
+    file_path: "mimiciii_derived/sapsii.csv"
+    patient_id: "subject_id"
+    timestamp: null
+    attributes:
+      - "hadm_id"
+      - "icustay_id"
+      - "sapsii"
