@@ -286,8 +286,8 @@ class Trainer:
         patient_ids = []
         if additional_outputs is not None:
             additional_outputs = {k: [] for k in additional_outputs}
+        self.model.eval()
         for data in tqdm(dataloader, desc="Evaluation"):
-            self.model.eval()
             with torch.no_grad():
                 output = self.model(**data)
                 loss = output["loss"]
@@ -348,7 +348,7 @@ class Trainer:
 
     def load_ckpt(self, ckpt_path: str) -> None:
         """Saves the model checkpoint."""
-        state_dict = torch.load(ckpt_path, map_location=self.device)
+        state_dict = torch.load(ckpt_path, map_location=self.device, weights_only=True)
         self.model.load_state_dict(state_dict)
         return
 
