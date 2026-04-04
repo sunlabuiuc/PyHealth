@@ -66,7 +66,7 @@ class ActivityClassification(BaseTask):
         df = pd.DataFrame([e.attr_dict for e in events])
 
         def extract_time_series(df, sensor):
-            columns = [f"{d}" for d in range(125)]
+            columns = [f"{d}" for d in range(125)] + ["sensor"]
             return df[df["sensor"].str.startswith(sensor + "_")][columns].reset_index(drop=True).sort_values("sensor").T.to_numpy()
         
         records = []
