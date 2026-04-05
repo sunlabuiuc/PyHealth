@@ -9,7 +9,6 @@ import torch.nn.functional as F
 from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
 
-
 DistanceFn = Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
 
 
@@ -91,21 +90,21 @@ class AdaptiveTransferModel(BaseModel):
     """
 
     def __init__(
-        self,
-        dataset: SampleDataset,
-        feature_key: Optional[str] = None,
-        hidden_dim: int = 128,
-        num_layers: int = 1,
-        dropout: float = 0.2,
-        bidirectional: bool = False,
-        backbone: Optional[nn.Module] = None,
-        backbone_name: str = "lstm",
-        backbone_output_dim: Optional[int] = None,
-        distance_fn: Union[str, DistanceFn] = "euclidean",
-        use_similarity_weighting: bool = True,
-        use_kde_smoothing: bool = True,
-        smoothing_std: float = 0.01,
-        eps: float = 1e-8,
+            self,
+            dataset: SampleDataset,
+            feature_key: Optional[str] = None,
+            hidden_dim: int = 128,
+            num_layers: int = 1,
+            dropout: float = 0.2,
+            bidirectional: bool = False,
+            backbone: Optional[nn.Module] = None,
+            backbone_name: str = "lstm",
+            backbone_output_dim: Optional[int] = None,
+            distance_fn: Union[str, DistanceFn] = "euclidean",
+            use_similarity_weighting: bool = True,
+            use_kde_smoothing: bool = True,
+            smoothing_std: float = 0.01,
+            eps: float = 1e-8,
     ) -> None:
         """Initialize the adaptive transfer model.
 
@@ -182,15 +181,15 @@ class AdaptiveTransferModel(BaseModel):
         self.distance_fn = self._resolve_distance_fn(distance_fn)
 
     def _build_encoder(
-        self,
-        input_dim: int,
-        hidden_dim: int,
-        num_layers: int,
-        dropout: float,
-        bidirectional: bool,
-        backbone: Optional[nn.Module],
-        backbone_name: str,
-        backbone_output_dim: Optional[int],
+            self,
+            input_dim: int,
+            hidden_dim: int,
+            num_layers: int,
+            dropout: float,
+            bidirectional: bool,
+            backbone: Optional[nn.Module],
+            backbone_name: str,
+            backbone_output_dim: Optional[int],
     ) -> Tuple[nn.Module, int, bool]:
         """Build the encoder module and infer its output size.
 
@@ -268,7 +267,7 @@ class AdaptiveTransferModel(BaseModel):
         )
 
     def _infer_backbone_output_dim(
-        self, backbone: nn.Module, backbone_output_dim: Optional[int]
+            self, backbone: nn.Module, backbone_output_dim: Optional[int]
     ) -> int:
         """Infer the embedding size of a custom backbone.
 
@@ -305,7 +304,7 @@ class AdaptiveTransferModel(BaseModel):
         )
 
     def _resolve_distance_fn(
-        self, distance_fn: Union[str, DistanceFn]
+            self, distance_fn: Union[str, DistanceFn]
     ) -> DistanceFn:
         """Resolve a distance function specification into a callable.
 
@@ -369,7 +368,7 @@ class AdaptiveTransferModel(BaseModel):
         return 1
 
     def _get_feature_value_and_mask(
-        self, feature: Union[torch.Tensor, Tuple[torch.Tensor, ...]]
+            self, feature: Union[torch.Tensor, Tuple[torch.Tensor, ...]]
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
         """Extract dense value and optional mask tensors from a feature input.
 
@@ -426,7 +425,7 @@ class AdaptiveTransferModel(BaseModel):
         return value, mask
 
     def _masked_mean_pool(
-        self, x: torch.Tensor, mask: Optional[torch.Tensor]
+            self, x: torch.Tensor, mask: Optional[torch.Tensor]
     ) -> torch.Tensor:
         """Apply masked mean pooling over the time dimension.
 
@@ -445,7 +444,7 @@ class AdaptiveTransferModel(BaseModel):
         return (x * weights).sum(dim=1) / denom
 
     def _encode_sequence(
-        self, value: torch.Tensor, mask: Optional[torch.Tensor] = None
+            self, value: torch.Tensor, mask: Optional[torch.Tensor] = None
     ) -> torch.Tensor:
         """Encode a dense time series into a fixed-size embedding.
 
@@ -516,7 +515,7 @@ class AdaptiveTransferModel(BaseModel):
         return self.dropout(emb)
 
     def forward(
-        self, **kwargs: Union[torch.Tensor, Tuple[torch.Tensor, ...]]
+            self, **kwargs: Union[torch.Tensor, Tuple[torch.Tensor, ...]]
     ) -> Dict[str, torch.Tensor]:
         """Run the forward pass and optionally compute loss.
 
@@ -568,7 +567,7 @@ class AdaptiveTransferModel(BaseModel):
         return results
 
     def forward_from_embedding(
-        self, **kwargs: Union[torch.Tensor, Tuple[torch.Tensor, ...]]
+            self, **kwargs: Union[torch.Tensor, Tuple[torch.Tensor, ...]]
     ) -> Dict[str, torch.Tensor]:
         """Forward method used for compatibility with PyHealth hooks.
 
@@ -582,7 +581,7 @@ class AdaptiveTransferModel(BaseModel):
 
     @torch.no_grad()
     def extract_embedding(
-        self, batch: Dict[str, Union[torch.Tensor, Tuple[torch.Tensor, ...]]]
+            self, batch: Dict[str, Union[torch.Tensor, Tuple[torch.Tensor, ...]]]
     ) -> torch.Tensor:
         """Extract latent embeddings for a batch without gradient tracking.
 
@@ -597,9 +596,9 @@ class AdaptiveTransferModel(BaseModel):
 
     @torch.no_grad()
     def compute_pairwise_distances(
-        self,
-        source_batch: Dict[str, Union[torch.Tensor, Tuple[torch.Tensor, ...]]],
-        target_batch: Dict[str, Union[torch.Tensor, Tuple[torch.Tensor, ...]]],
+            self,
+            source_batch: Dict[str, Union[torch.Tensor, Tuple[torch.Tensor, ...]]],
+            target_batch: Dict[str, Union[torch.Tensor, Tuple[torch.Tensor, ...]]],
     ) -> torch.Tensor:
         """Compute paired distances between source and target embeddings.
 
@@ -628,9 +627,9 @@ class AdaptiveTransferModel(BaseModel):
 
     @torch.no_grad()
     def compute_ipd(
-        self,
-        source_batch: Dict[str, Union[torch.Tensor, Tuple[torch.Tensor, ...]]],
-        target_batch: Dict[str, Union[torch.Tensor, Tuple[torch.Tensor, ...]]],
+            self,
+            source_batch: Dict[str, Union[torch.Tensor, Tuple[torch.Tensor, ...]]],
+            target_batch: Dict[str, Union[torch.Tensor, Tuple[torch.Tensor, ...]]],
     ) -> float:
         """Compute an IPD-style distance between one source and target batch.
 
@@ -657,11 +656,11 @@ class AdaptiveTransferModel(BaseModel):
 
     @torch.no_grad()
     def compute_source_similarities(
-        self,
-        source_batches: Sequence[
-            Dict[str, Union[torch.Tensor, Tuple[torch.Tensor, ...]]]
-        ],
-        target_batch: Dict[str, Union[torch.Tensor, Tuple[torch.Tensor, ...]]],
+            self,
+            source_batches: Sequence[
+                Dict[str, Union[torch.Tensor, Tuple[torch.Tensor, ...]]]
+            ],
+            target_batch: Dict[str, Union[torch.Tensor, Tuple[torch.Tensor, ...]]],
     ) -> List[float]:
         """Compute source-target similarities for multiple source domains.
 
@@ -684,11 +683,11 @@ class AdaptiveTransferModel(BaseModel):
 
     @torch.no_grad()
     def rank_source_domains(
-        self,
-        source_batches: Sequence[
-            Dict[str, Union[torch.Tensor, Tuple[torch.Tensor, ...]]]
-        ],
-        target_batch: Dict[str, Union[torch.Tensor, Tuple[torch.Tensor, ...]]],
+            self,
+            source_batches: Sequence[
+                Dict[str, Union[torch.Tensor, Tuple[torch.Tensor, ...]]]
+            ],
+            target_batch: Dict[str, Union[torch.Tensor, Tuple[torch.Tensor, ...]]],
     ) -> List[int]:
         """Rank source domains by descending similarity to the target.
 

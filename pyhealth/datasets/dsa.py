@@ -82,7 +82,7 @@ def _scan_dsa_tree(root_path: Path, dsa_cfg: Dict[str, Any]) -> pd.DataFrame:
 
 
 def _write_manifest_csv(
-    root_path: Path, dsa_cfg: Dict[str, Any], manifest_path: Path
+        root_path: Path, dsa_cfg: Dict[str, Any], manifest_path: Path
 ) -> None:
     if not root_path.is_dir():
         raise FileNotFoundError(f"DSA root is not a directory: {root_path}")
@@ -133,13 +133,13 @@ class DSADataset(BaseDataset):
     """
 
     def __init__(
-        self,
-        root: str,
-        dataset_name: Optional[str] = None,
-        config_path: Optional[Union[str, Path]] = None,
-        cache_dir: Optional[Union[str, Path]] = None,
-        num_workers: int = 1,
-        dev: bool = False,
+            self,
+            root: str,
+            dataset_name: Optional[str] = None,
+            config_path: Optional[Union[str, Path]] = None,
+            cache_dir: Optional[Union[str, Path]] = None,
+            num_workers: int = 1,
+            dev: bool = False,
     ) -> None:
         cfg_path = (
             Path(config_path).expanduser().resolve()
@@ -156,7 +156,7 @@ class DSADataset(BaseDataset):
             root=str(root_path),
             tables=[DSA_TABLE_KEY],
             dataset_name=dataset_name
-            or str(dsa_cfg.get("internal_name", "dsa")),
+                         or str(dsa_cfg.get("internal_name", "dsa")),
             config_path=str(cfg_path),
             cache_dir=cache_dir,
             num_workers=num_workers,
@@ -187,13 +187,13 @@ class DSADataset(BaseDataset):
 
     def _load_metadata(self) -> Dict[str, Any]:
         manifest_path = (
-            self._root_path / self.config.tables[DSA_TABLE_KEY].file_path
+                self._root_path / self.config.tables[DSA_TABLE_KEY].file_path
         )
         df = pd.read_csv(manifest_path)
         out: Dict[str, Any] = {"subjects": {}, "activities": {}}
         for (sid, aname), group in df.groupby(
-            ["subject_id", "activity_name"],
-            sort=True,
+                ["subject_id", "activity_name"],
+                sort=True,
         ):
             sid, aname = str(sid), str(aname)
             code = str(group["activity_code"].iloc[0])
@@ -264,10 +264,10 @@ class DSADataset(BaseDataset):
         return subject_data
 
     def _segment_payload(
-        self,
-        file_path: Path,
-        subject_id: str,
-        activity: str,
+            self,
+            file_path: Path,
+            subject_id: str,
+            activity: str,
     ) -> Dict[str, Any]:
         data = np.loadtxt(file_path, delimiter=",", dtype=np.float64)
         if data.ndim == 1:
@@ -288,4 +288,3 @@ class DSADataset(BaseDataset):
             "sensors": self.sensors,
             "segment_filename": file_path.name,
         }
-
