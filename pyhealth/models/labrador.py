@@ -186,7 +186,8 @@ class LabradorModel(BaseModel):
         if tensor.dim() == 3 and tensor.size(-1) == 1:
             return tensor.squeeze(-1)
         raise ValueError(
-            f"Expected {name} to have shape [batch, num_labs] (or [..., 1]), got {tuple(tensor.shape)}"
+            f"Expected {name} to have shape [batch, num_labs] "
+            f"(or [..., 1]), got {tuple(tensor.shape)}"
         )
 
     @staticmethod
