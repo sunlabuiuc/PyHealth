@@ -4,8 +4,6 @@ The SEER program of the National Cancer Institute (NCI) collects cancer
 incidence and survival data from population-based cancer registries covering
 approximately 48% of the US population.
 
-Data access
------------
 SEER data requires a free research data agreement:
   https://seer.cancer.gov/data/access.html
 
@@ -32,10 +30,6 @@ SEER*Stat dictionary for your download):
   - ``Survival months``
   - ``Vital status recode (study cutoff used)``  (Alive / Dead)
   - ``Year of diagnosis``
-
-Citation:
-  National Cancer Institute, DCCPS, Surveillance Research Program,
-  SEER*Stat software (www.seer.cancer.gov/seerstat).
 """
 
 import logging
@@ -101,10 +95,6 @@ class SEERDataset(BaseDataset):
             config_path=str(config_path),
             **kwargs,
         )
-
-    # ------------------------------------------------------------------
-    # Data preparation
-    # ------------------------------------------------------------------
 
     @staticmethod
     def prepare_metadata(root: str) -> None:
@@ -173,7 +163,6 @@ class SEERDataset(BaseDataset):
         logger.info(f"Processing SEER raw file: {raw_file}")
         df = pd.read_csv(raw_file, low_memory=False)
 
-        # --- column name normalisation ---
         # SEER*Stat uses verbose labels; map common variants to short names.
         rename: dict = {}
         for col in df.columns:

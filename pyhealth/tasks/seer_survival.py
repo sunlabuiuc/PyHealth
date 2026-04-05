@@ -23,11 +23,6 @@ from .base_task import BaseTask
 
 logger = logging.getLogger(__name__)
 
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
 def _safe_float(value: Any) -> Optional[float]:
     if value is None:
         return None
@@ -136,11 +131,6 @@ def _extract_treatment_features(event: Any) -> List[str]:
         if val:
             features.append(f"{field.lower()}_{val.lower()}")
     return features
-
-
-# ---------------------------------------------------------------------------
-# Task class
-# ---------------------------------------------------------------------------
 
 class SEERSurvivalTask(BaseTask):
     """Overall survival prediction task for the SEER cancer registry.
