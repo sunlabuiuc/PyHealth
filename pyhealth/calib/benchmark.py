@@ -37,7 +37,7 @@ __all__ = ["CalibrationBenchmark"]
 # post-hoc probability calibrators.
 _DEFAULT_SET_METRICS: Dict[str, List[str]] = {
     "multiclass": ["accuracy", "set_size", "miscoverage_overall_ps"],
-    "binary": ["accuracy", "set_size", "miscoverage_overall_ps"],
+    "binary": ["accuracy"],
     "multilabel": ["set_size", "tp", "fp"],
 }
 
@@ -405,10 +405,13 @@ class CalibrationBenchmark:
             if spec.is_set_predictor and len(inference_out) > 3:
                 y_predset = inference_out[3].get("y_predset")
 
-            # Compute metrics
+            # Compute metrics — only pass y_predset for set predictors since
+            # binary_metrics_fn does not accept it as a kwarg
             metric_list = self._set_metrics if spec.is_set_predictor else self._calib_metrics
             metrics_fn = get_metrics_fn(self.task_type)
-            return metrics_fn(y_true, y_prob, metrics=metric_list, y_predset=y_predset)
+            if spec.is_set_predictor:
+                return metrics_fn(y_true, y_prob, metrics=metric_list, y_predset=y_predset)
+            return metrics_fn(y_true, y_prob, metrics=metric_list)
 
         except Exception as exc:
             warnings.warn(f"Baseline '{name}' failed with error: {exc}")
