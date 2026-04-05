@@ -19,7 +19,10 @@ dataset:
   name: DSA
   internal_name: dsa
   description: >-
-    Time-series from 5 IMU units (45 channels) at 25 Hz; 5 s segments (125 samples).
+    Daily and Sports Activities (Barshan & Altun, 2010): multivariate time-series from
+    five body-worn IMUs (45 channels) at 25 Hz; 5 s segments (125 samples). Dataset:
+    https://archive.ics.uci.edu/dataset/256/daily+and+sports+activities Citation:
+    https://doi.org/10.24432/C5C59F
   modality: time_series
   primary_task: activity_recognition
   tasks:
