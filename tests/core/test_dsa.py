@@ -98,7 +98,7 @@ class TestDSADataset(unittest.TestCase):
     def setUpClass(cls):
         cls._tmpdir = tempfile.TemporaryDirectory()
         cls.root_path = cls._tmpdir.name
-        # Minimal tree: one activity, one subject, one segment
+        # Minimal tree; DSADataset creates dsa_manifest.csv if missing (see COVID).
         seg_dir = Path(cls.root_path) / "a01" / "p1"
         seg_dir.mkdir(parents=True)
         _write_segment(seg_dir / "s01.txt")
