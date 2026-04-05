@@ -93,9 +93,23 @@ def _write_manifest_csv(
 class DSADataset(BaseDataset):
     """Daily and Sports Activities (DSA) time-series dataset (Barshan & Altun, 2010).
 
-    Five IMUs, 45 channels at 25 Hz; layout ``a01``…``a19`` / ``p*`` / ``s*.txt``. If
-    the manifest named in ``configs/dsa.yaml`` is missing under ``root``, it is
-    created by scanning the tree (like :class:`COVID19CXRDataset` metadata CSV).
+    Recordings use five on-body IMU units (torso, two arms, two legs); each unit
+    contributes nine columns per row (3-axis accelerometer, gyroscope, and
+    magnetometer), so each segment row has 45 comma-separated values. The public
+    release is sampled at 25 Hz; each ``.txt`` segment is typically 125 lines (about
+    five seconds of data).
+
+    On disk, activities live in folders ``a01`` through ``a19``, subjects in ``p1``
+    through ``p8``, and segment files ``s01.txt``, ``s02.txt``, … under each
+    subject. PyHealth maps ``aXX`` folder names to activity labels using the
+    ``label_mapping`` in ``configs/dsa.yaml``.
+
+    :class:`BaseDataset` reads a single tabular index of segments. The path to that
+    CSV (by default ``dsa_manifest.csv`` next to the activity folders) is set in the
+    YAML ``tables.dsa_segments.file_path`` entry. If that file is not present under
+    ``root`` when you construct this class, the loader walks the tree, matches the
+    same layout patterns as in the YAML, and writes the manifest. You can rebuild it
+    later with :meth:`prepare_metadata`.
 
     Dataset is available at:
     https://archive.ics.uci.edu/dataset/256/daily+and+sports+activities
