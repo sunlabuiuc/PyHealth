@@ -218,10 +218,6 @@ class CalibrationBenchmark:
         self._set_metrics: List[str] = set_metrics or _DEFAULT_SET_METRICS.get(task_type, [])
         self._calib_metrics: List[str] = calib_metrics or _DEFAULT_CALIB_METRICS.get(task_type, [])
 
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
-
     def run(
         self,
         new_calibrator: Optional[Type] = None,
@@ -300,10 +296,6 @@ class CalibrationBenchmark:
         print("=" * 60)
         print(self.results.to_string(float_format="{:.4f}".format))
         print("=" * 60 + "\n")
-
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
 
     def _try_extract_embeddings(
         self, dataset, label: str
