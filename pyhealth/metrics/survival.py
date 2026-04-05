@@ -2,8 +2,7 @@
 
 Implements Harrell's concordance index (C-index) and the inverse
 probability of censoring weighted (IPCW) Brier score for evaluating
-time-to-event / survival models.  Both are computed in pure NumPy so
-there is no extra dependency beyond what PyHealth already requires.
+time-to-event / survival models.
 
 Typical usage
 -------------
