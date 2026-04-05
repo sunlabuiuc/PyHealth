@@ -200,6 +200,7 @@ API Reference
     models/pyhealth.models.GAN
     models/pyhealth.models.VAE
     models/pyhealth.models.SDOH
+    models/pyhealth.models.SHy
     models/pyhealth.models.VisionEmbeddingModel
     models/pyhealth.models.TextEmbedding
     models/pyhealth.models.BIOT

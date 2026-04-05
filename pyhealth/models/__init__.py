@@ -42,5 +42,6 @@ from .vae import VAE
 from .vision_embedding import VisionEmbeddingModel
 from .text_embedding import TextEmbedding
 from .sdoh import SdohClassifier
+from .shy import SHy, SHyLayer
 from .medlink import MedLink
 from .unified_embedding import UnifiedMultimodalEmbeddingModel, SinusoidalTimeEmbedding
