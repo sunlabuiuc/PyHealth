@@ -162,7 +162,7 @@ class MIMIC4ICD10Coding(BaseTask):
                 df.filter(pl.col("event_type") == "discharge")
                 .select("patient_id")
                 .unique()
-                .collect()
+                .collect(engine="streaming")
                 .to_series()
             )
         )
@@ -187,7 +187,11 @@ class MIMIC4ICD10Coding(BaseTask):
                 event_type="discharge",
                 filters=[("hadm_id", "==", admission.hadm_id)],
             )
-            raw_text = " ".join(note.text for note in notes if hasattr(note, "text"))
+            raw_text = " ".join(
+                str(note.text)
+                for note in notes
+                if hasattr(note, "text") and note.text is not None
+            )
             tokens = _tokenize_clinical_text(raw_text)
 
             if not tokens or len(icd_codes) < 1:
@@ -196,8 +200,9 @@ class MIMIC4ICD10Coding(BaseTask):
             samples.append(
                 {
                     "patient_id": patient.patient_id,
+                    "visit_id": admission.hadm_id,
                     "text": tokens,
-                    "icd_codes": list(set(icd_codes)),
+                    "icd_codes": sorted(set(icd_codes)),
                 }
             )
 

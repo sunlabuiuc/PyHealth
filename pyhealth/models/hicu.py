@@ -344,14 +344,15 @@ class HiCu(BaseModel):
         self.current_depth = 2
 
     def _build_label_mappings(self) -> None:
+        """Build sparse full_to_ancestor index mappings instead of dense matrices."""
         hierarchy = self.hierarchy
         full_codes = hierarchy["depth_to_codes"][2]
         full_idx = hierarchy["code_to_index"][2]
 
         for d in range(2):
             n_full = len(full_codes)
-            n_depth = len(hierarchy["depth_to_codes"][d])
-            mapping = torch.zeros(n_full, n_depth)
+            # Store as 1D index tensor: full_to_ancestor[i] = ancestor_index
+            full_to_ancestor = torch.zeros(n_full, dtype=torch.long)
 
             for fc in full_codes:
                 fi = full_idx[fc]
@@ -360,15 +361,31 @@ class HiCu(BaseModel):
                 else:
                     ancestor = _get_icd10_category(fc)
                 ai = hierarchy["code_to_index"][d][ancestor]
-                mapping[fi, ai] = 1.0
+                full_to_ancestor[fi] = ai
 
-            self.register_buffer(f"_label_map_{d}", mapping)
+            self.register_buffer(f"_label_map_{d}", full_to_ancestor)
 
     def _remap_labels(self, y_true: torch.Tensor, depth: int) -> torch.Tensor:
+        """Remap full-code labels to ancestor labels at the given depth."""
         if depth == 2:
             return y_true
-        mapping = getattr(self, f"_label_map_{depth}")
-        return (y_true @ mapping).clamp(max=1.0)
+
+        # y_true: (batch_size, n_full_codes)
+        # full_to_ancestor: (n_full_codes,) - maps each full code to its ancestor index
+        full_to_ancestor = getattr(self, f"_label_map_{depth}")
+        n_ancestor = len(self.hierarchy["depth_to_codes"][depth])
+
+        # Use scatter_add to accumulate labels at ancestor positions
+        batch_size = y_true.shape[0]
+        y_ancestor = torch.zeros(
+            batch_size, n_ancestor, dtype=y_true.dtype, device=y_true.device
+        )
+
+        # Expand full_to_ancestor for batch processing
+        indices = full_to_ancestor.unsqueeze(0).expand(batch_size, -1)
+        y_ancestor.scatter_add_(1, indices, y_true)
+
+        return y_ancestor.clamp(max=1.0)
 
     def set_depth(self, depth: int) -> None:
         """Switch hierarchy depth (0=chapters, 1=categories, 2=full codes) and transfer weights."""
