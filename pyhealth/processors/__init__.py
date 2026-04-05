@@ -50,6 +50,7 @@ from .audio_processor import AudioProcessor
 from .ignore_processor import IgnoreProcessor
 from .temporal_timeseries_processor import TemporalTimeseriesProcessor
 from .tuple_time_text_processor import TupleTimeTextProcessor
+from .nifti_image_processor import NIftIImageProcessor
 
 # Expose public API
 from .base_processor import (
@@ -66,6 +67,7 @@ __all__ = [
     "MultiHotProcessor",
     "NestedFloatsProcessor",
     "NestedSequenceProcessor",
+    "NIftIImageProcessor",
     "RawProcessor",
     "SequenceProcessor",
     "SignalProcessor",
