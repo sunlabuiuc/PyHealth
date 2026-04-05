@@ -1,5 +1,19 @@
-# Daily and Sports Activities (DSA) dataset — layout and task metadata.
-# Pass the directory that contains folders a01 … a19 as DSADataset(root=...).
+# Daily and Sports Activities (DSA) — BaseDataset table config + dataset metadata.
+# Point DSADataset(root=...) at the directory that contains folders a01 … a19.
+#
+# On first use, a manifest CSV (dsa_manifest.csv) is created under ``root`` so
+# BaseDataset can load segment rows like other PyHealth datasets.
+
+version: "5.0"
+tables:
+  dsa_segments:
+    file_path: "dsa_manifest.csv"
+    patient_id: subject_id
+    timestamp: null
+    attributes:
+      - segment_path
+      - activity_name
+      - activity_code
 
 dataset:
   name: DSA

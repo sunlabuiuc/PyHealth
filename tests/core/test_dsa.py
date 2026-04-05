@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 
 from pyhealth.datasets import DSADataset
 
@@ -34,6 +35,9 @@ class TestDSADataset(unittest.TestCase):
     def test_dataset_initialization(self):
         self.assertIsNotNone(self.dataset)
         self.assertEqual(self.dataset.dataset_name, "dsa")
+        self.assertIsNotNone(self.dataset.config)
+        manifest = Path(self.root_path) / "dsa_manifest.csv"
+        self.assertTrue(manifest.is_file())
 
     def test_get_subject_ids(self):
         subject_ids = self.dataset.get_subject_ids()
@@ -65,6 +69,16 @@ class TestDSADataset(unittest.TestCase):
         self.assertIsInstance(segment["data"], np.ndarray)
         self.assertEqual(segment["sampling_rate"], 25)
         self.assertEqual(segment["data"].shape, (125, 45))
+
+    def test_load_table_manifest_via_base_dataset(self):
+        df = self.dataset.load_table("dsa_segments").compute()
+        self.assertEqual(len(df), 1)
+        self.assertEqual(df.iloc[0]["patient_id"], "p1")
+        self.assertEqual(
+            df.iloc[0]["dsa_segments/activity_name"],
+            "sitting",
+        )
+        self.assertTrue(pd.isna(df.iloc[0]["timestamp"]))
 
     def test_data_consistency(self):
         self.dataset.get_subject_ids()
