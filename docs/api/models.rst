@@ -197,6 +197,7 @@ API Reference
     models/pyhealth.models.MedLink
     models/pyhealth.models.TCN
     models/pyhealth.models.TFMTokenizer
+    models/pyhealth.models.labrador
     models/pyhealth.models.GAN
     models/pyhealth.models.VAE
     models/pyhealth.models.SDOH
