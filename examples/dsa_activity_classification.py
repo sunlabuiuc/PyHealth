@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""activity_classification_using_dsa.ipynb
+"""dsa_activity_classification.ipynb
 
 # Activity Classification Using DSA Dataset
 
