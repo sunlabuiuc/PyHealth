@@ -64,6 +64,12 @@ class Trainer:
         enable_logging: Whether to enable logging. Default is True.
         output_path: Path to save the output. Default is "./output".
         exp_name: Name of the experiment. Default is current datetime.
+
+    Note:
+        The evaluation mode (binary, multiclass, multilabel, regression) is
+        resolved from the model's dataset output processors when available,
+        falling back to the legacy ``model.mode`` attribute for backward
+        compatibility.
     """
 
     def __init__(
@@ -109,6 +115,35 @@ class Trainer:
 
         logger.info("")
         return
+
+    def _resolve_mode(self) -> Optional[str]:
+        """Resolve evaluation mode from the model's output processors.
+
+        Attempts to infer the mode (binary, multiclass, multilabel, regression)
+        from the model's dataset output schema via the processor registry,
+        falling back to the legacy ``model.mode`` attribute for backward
+        compatibility with non-BaseModel models.
+
+        Returns:
+            The resolved mode string, or None if no mode can be determined.
+        """
+        if (
+            hasattr(self.model, '_resolve_mode')
+            and hasattr(self.model, 'dataset')
+            and self.model.dataset is not None
+            and hasattr(self.model, 'label_keys')
+            and len(self.model.label_keys) == 1
+        ):
+            label_key = self.model.label_keys[0]
+            try:
+                mode = self.model._resolve_mode(
+                    self.model.dataset.output_schema[label_key]
+                )
+                if mode in ("binary", "multiclass", "multilabel", "regression"):
+                    return mode
+            except (KeyError, ValueError):
+                pass
+        return getattr(self.model, 'mode', None)
 
     def train(
         self,
@@ -301,7 +336,12 @@ class Trainer:
                         additional_outputs[key].append(output[key].cpu().numpy())
             if return_patient_ids:
                 patient_ids.extend(data["patient_id"])
-        loss_mean = sum(loss_all) / len(loss_all)
+        # Weighted average: account for potentially uneven last batch
+        batch_sizes = [arr.shape[0] for arr in y_true_all]
+        total_samples = sum(batch_sizes)
+        loss_mean = (
+            sum(l * n for l, n in zip(loss_all, batch_sizes)) / total_samples
+        )
         y_true_all = np.concatenate(y_true_all, axis=0)
         y_prob_all = np.concatenate(y_prob_all, axis=0)
         outputs = [y_true_all, y_prob_all, loss_mean]
@@ -322,16 +362,16 @@ class Trainer:
         Returns:
             scores: a dictionary of scores.
         """
-        if self.model.mode is not None:
+        mode = self._resolve_mode()
+        if mode is not None:
             y_true_all, y_prob_all, loss_mean = self.inference(dataloader)
-            mode = self.model.mode
             metrics_fn = get_metrics_fn(mode)
             scores = metrics_fn(y_true_all, y_prob_all, metrics=self.metrics)
             scores["loss"] = loss_mean
         else:
+            self.model.eval()
             loss_all = []
             for data in tqdm(dataloader, desc="Evaluation"):
-                self.model.eval()
                 with torch.no_grad():
                     output = self.model(**data)
                     loss = output["loss"]
