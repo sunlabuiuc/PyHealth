@@ -32,6 +32,30 @@ class LabradorModel(BaseModel):
         dropout: Dropout used by the transformer encoder layer.
         ff_hidden_dim: Feed-forward width inside each transformer layer.
         classifier_hidden_dim: Hidden width of classifier MLP head.
+
+    Examples:
+        >>> from pyhealth.datasets import create_sample_dataset
+        >>> from pyhealth.models import LabradorModel
+        >>> samples = [
+        ...     {
+        ...         "patient_id": "p-0",
+        ...         "visit_id": "v-0",
+        ...         "lab_codes": ["lab-1", "lab-2"],
+        ...         "lab_values": [0.2, 0.8],
+        ...         "label": 1,
+        ...     }
+        ... ]
+        >>> dataset = create_sample_dataset(
+        ...     samples=samples,
+        ...     input_schema={"lab_codes": "sequence", "lab_values": "tensor"},
+        ...     output_schema={"label": "binary"},
+        ...     dataset_name="labrador_demo",
+        ... )
+        >>> model = LabradorModel(
+        ...     dataset=dataset,
+        ...     code_feature_key="lab_codes",
+        ...     value_feature_key="lab_values",
+        ... )
     """
 
     def __init__(
@@ -108,7 +132,21 @@ class LabradorModel(BaseModel):
     def _extract_value_and_mask(
         self, feature_key: str, feature: torch.Tensor | Tuple[torch.Tensor, ...]
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
-        """Extract value and optional mask following processor schema."""
+        """Extract value tensor and optional mask from a processed feature.
+
+        Args:
+            feature_key: Name of the dataset feature being decoded.
+            feature: Processor output for one feature. This may be either a
+                tensor or a tuple containing tensors such as value and mask.
+
+        Returns:
+            A tuple ``(value, mask)`` where ``value`` is the feature tensor and
+            ``mask`` is the optional validity mask if provided by the processor.
+
+        Raises:
+            ValueError: If the processor schema does not contain a ``value``
+                field.
+        """
         if isinstance(feature, torch.Tensor):
             feature_tuple: Tuple[torch.Tensor, ...] = (feature,)
         else:
@@ -130,7 +168,19 @@ class LabradorModel(BaseModel):
 
     @staticmethod
     def _ensure_2d(tensor: torch.Tensor, name: str) -> torch.Tensor:
-        """Normalize tensor to [batch, num_labs] for aligned lab streams."""
+        """Normalize tensor to ``[batch, num_labs]`` for aligned lab streams.
+
+        Args:
+            tensor: Input tensor representing lab codes, values, or masks.
+            name: Human-readable tensor name used in error messages.
+
+        Returns:
+            A 2D tensor of shape ``[batch, num_labs]``.
+
+        Raises:
+            ValueError: If the input tensor cannot be interpreted as a 2D lab
+                matrix.
+        """
         if tensor.dim() == 2:
             return tensor
         if tensor.dim() == 3 and tensor.size(-1) == 1:
@@ -141,7 +191,16 @@ class LabradorModel(BaseModel):
 
     @staticmethod
     def _mean_pool(x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
-        """Masked mean pooling over lab dimension."""
+        """Apply masked mean pooling over the lab dimension.
+
+        Args:
+            x: Token representations of shape ``[batch, num_labs, embed_dim]``.
+            mask: Float mask of shape ``[batch, num_labs]`` indicating valid
+                lab positions.
+
+        Returns:
+            Pooled patient embeddings of shape ``[batch, embed_dim]``.
+        """
         denom = mask.sum(dim=1, keepdim=True).clamp(min=1.0)
         return (x * mask.unsqueeze(-1)).sum(dim=1) / denom
 
@@ -149,6 +208,27 @@ class LabradorModel(BaseModel):
         self,
         **kwargs: torch.Tensor | Tuple[torch.Tensor, ...],
     ) -> Dict[str, torch.Tensor]:
+        """Forward propagation.
+
+        Args:
+            **kwargs: Keyword arguments containing the code feature,
+                value feature, optional label, and optional ``embed`` flag.
+                The two feature tensors must describe aligned lab sequences for
+                the same samples.
+
+        Returns:
+            A dictionary containing model outputs. This always includes:
+                - ``logit``: classification logits.
+                - ``y_prob``: predicted probabilities.
+            When labels are provided, the dictionary also includes:
+                - ``loss``: supervised task loss.
+                - ``y_true``: ground-truth labels.
+            When ``embed=True`` is passed, the dictionary also includes:
+                - ``embed``: pooled patient embedding.
+
+        Raises:
+            ValueError: If code and value features do not have matching shapes.
+        """
         code_values, code_mask = self._extract_value_and_mask(
             self.code_feature_key, kwargs[self.code_feature_key]
         )
