@@ -20,6 +20,7 @@ from pyhealth.calib.predictionset import (
     SCRIB,
     BaseConformal,
     ClusterLabel,
+    CovariateLabel,
     FavMac,
     NeighborhoodLabel,
 )
@@ -62,15 +63,15 @@ class _BaselineSpec:
     # Whether the method needs embeddings extracted from the model
     needs_cal_embeddings: bool = False
     needs_train_embeddings: bool = False
+    needs_test_embeddings: bool = False
     # None means the method supports all task types
     supported_modes: Optional[Set[str]] = None
 
 
 # Registry of every built-in baseline included by default.
-# KCal and CovariateLabel are intentionally excluded:
-#   - KCal requires a separate training loop (too heavyweight for quick benchmarking)
-#   - CovariateLabel requires test embeddings at calibration time (non-standard contract)
-# Both can be added via the `custom_baselines` argument if needed.
+# KCal is intentionally excluded: it requires a separate training loop to learn a
+# projection network, which is too heavyweight for quick benchmarking. It can be
+# added via the `custom_baselines` argument if needed.
 _DEFAULT_BASELINES: Dict[str, _BaselineSpec] = {
     "LABEL": _BaselineSpec(
         cls=LABEL,
@@ -102,6 +103,12 @@ _DEFAULT_BASELINES: Dict[str, _BaselineSpec] = {
         needs_train_embeddings=True,
         supported_modes={"multiclass"},
     ),
+    "CovariateLabel": _BaselineSpec(
+        cls=CovariateLabel,
+        needs_cal_embeddings=True,
+        needs_test_embeddings=True,
+        supported_modes={"multiclass"},
+    ),
     "FavMac": _BaselineSpec(
         cls=FavMac,
         no_alpha=True,
@@ -118,6 +125,7 @@ _DEFAULT_BASELINES: Dict[str, _BaselineSpec] = {
     "DirichletCalibration": _BaselineSpec(
         cls=DirichletCalibration,
         is_set_predictor=False,
+        supported_modes={"multiclass"},
     ),
 }
 
@@ -219,6 +227,7 @@ class CalibrationBenchmark:
         new_calibrator: Optional[Type] = None,
         new_calibrator_name: str = "new_method",
         new_calibrator_kwargs: Optional[Dict] = None,
+        new_calibrator_is_set_predictor: bool = True,
         calibrate_kwargs: Optional[Dict[str, Dict]] = None,
     ) -> pd.DataFrame:
         """Run all baselines and optionally a new method, returning a metrics table.
@@ -231,6 +240,9 @@ class CalibrationBenchmark:
             new_calibrator_name: Label for the new method in the results table.
             new_calibrator_kwargs: Extra ``__init__`` keyword arguments for
                 the new method.
+            new_calibrator_is_set_predictor: Whether the new method is a set
+                predictor (outputs ``y_predset``, receives ``alpha``). Set to
+                ``False`` for post-hoc probability calibrators. Default ``True``.
             calibrate_kwargs: Per-method extra keyword arguments for
                 ``calibrate()``. Format: ``{method_name: {kwarg: value}}``.
 
@@ -249,6 +261,7 @@ class CalibrationBenchmark:
             if self.train_dataset is not None
             else None
         )
+        test_embeddings = self._try_extract_embeddings(self.test_dataset, "test")
 
         # Merge built-in baselines with the new method (if supplied)
         all_specs = dict(self._baselines)
@@ -256,6 +269,7 @@ class CalibrationBenchmark:
             all_specs[new_calibrator_name] = _BaselineSpec(
                 cls=new_calibrator,
                 init_kwargs=new_calibrator_kwargs or {},
+                is_set_predictor=new_calibrator_is_set_predictor,
             )
 
         test_loader = get_dataloader(self.test_dataset, self.batch_size, shuffle=False)
@@ -268,6 +282,7 @@ class CalibrationBenchmark:
                 test_loader=test_loader,
                 cal_embeddings=cal_embeddings,
                 train_embeddings=train_embeddings,
+                test_embeddings=test_embeddings,
                 extra_calibrate_kwargs=calibrate_kwargs.get(name, {}),
             )
 
@@ -300,7 +315,10 @@ class CalibrationBenchmark:
         needs_train = label == "train" and any(
             s.needs_train_embeddings for s in self._baselines.values()
         )
-        if not (needs_cal or needs_train):
+        needs_test = label == "test" and any(
+            s.needs_test_embeddings for s in self._baselines.values()
+        )
+        if not (needs_cal or needs_train or needs_test):
             return None
         try:
             logger.info("Extracting %s embeddings...", label)
@@ -324,6 +342,7 @@ class CalibrationBenchmark:
         test_loader,
         cal_embeddings: Optional[np.ndarray],
         train_embeddings: Optional[np.ndarray],
+        test_embeddings: Optional[np.ndarray],
         extra_calibrate_kwargs: Dict,
     ) -> Dict[str, Any]:
         """Instantiate, calibrate, and evaluate one baseline.
@@ -357,6 +376,12 @@ class CalibrationBenchmark:
                     "Pass train_dataset= to CalibrationBenchmark to enable ClusterLabel."
                 )
                 return {}
+            if spec.needs_test_embeddings and test_embeddings is None:
+                warnings.warn(
+                    f"Skipping '{name}': test embeddings unavailable "
+                    "(model does not support embed=True)."
+                )
+                return {}
 
             # Instantiate calibrator
             init_kw = dict(spec.init_kwargs)
@@ -371,6 +396,8 @@ class CalibrationBenchmark:
                 cal_kw["cal_embeddings"] = cal_embeddings
             if spec.needs_train_embeddings:
                 cal_kw["train_embeddings"] = train_embeddings
+            if spec.needs_test_embeddings:
+                cal_kw["test_embeddings"] = test_embeddings
             cal_kw.update(extra_calibrate_kwargs)
             calibrator.calibrate(self.cal_dataset, **cal_kw)
 
