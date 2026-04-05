@@ -205,8 +205,8 @@ class MIMIC4ICD10Coding(BaseTask):
 
 
 def main():
-    """Quick smoke test for medical coding tasks."""
-    from pyhealth.datasets import MIMIC3Dataset
+    # Test case for MIMIC4ICD9Coding and MIMIC3
+    from pyhealth.datasets import MIMIC3Dataset, MIMIC4Dataset
 
     root = "/srv/local/data/MIMIC-III/mimic-iii-clinical-database-1.4"
     print("Testing MIMIC3ICD9Coding task...")
@@ -218,11 +218,61 @@ def main():
         dev=True,
     )
     mimic3_coding = MIMIC3ICD9Coding()
+    # print(len(mimic3_coding.samples))
     samples = dataset.set_task(mimic3_coding)
+    # Print sample information
     print(f"Total samples generated: {len(samples)}")
     if len(samples) > 0:
+        print("First sample:")
         print(f"  - Text length: {len(samples[0]['text'])} characters")
         print(f"  - Number of ICD codes: {len(samples[0]['icd_codes'])}")
+        if len(samples[0]["icd_codes"]) > 0:
+            print(
+                f"  - Sample ICD codes: {samples[0]['icd_codes'][:5] if len(samples[0]['icd_codes']) > 5 else samples[0]['icd_codes']}"
+            )
+
+    # Initialize the dataset with dev mode enabled
+    print("Testing MIMIC4ICD9Coding task...")
+    dataset = MIMIC4Dataset(
+        root="/srv/local/data/MIMIC-IV/2.0/hosp",
+        tables=["diagnoses_icd", "procedures_icd"],
+        note_root="/srv/local/data/MIMIC-IV/2.0/note",
+        dev=True,
+    )
+    # Create the task instance
+    mimic4_coding = MIMIC4ICD9Coding()
+
+    # Generate samples
+    samples = dataset.set_task(mimic4_coding)
+
+    # Print sample information
+    print(f"Total samples generated: {len(samples)}")
+    if len(samples) > 0:
+        print("First sample:")
+        print(f"  - Text length: {len(samples[0]['text'])} characters")
+        print(f"  - Number of ICD codes: {len(samples[0]['icd_codes'])}")
+        if len(samples[0]["icd_codes"]) > 0:
+            print(
+                f"  - Sample ICD codes: {samples[0]['icd_codes'][:5] if len(samples[0]['icd_codes']) > 5 else samples[0]['icd_codes']}"
+            )
+
+    print("Testing MIMIC4ICD10Coding task... ")
+
+    mimic4_coding = MIMIC4ICD10Coding()
+
+    # Generate samples
+    samples = dataset.set_task(mimic4_coding)
+
+    # Print sample information
+    print(f"Total samples generated: {len(samples)}")
+    if len(samples) > 0:
+        print("First sample:")
+        print(f"  - Text length: {len(samples[0]['text'])} characters")
+        print(f"  - Number of ICD codes: {len(samples[0]['icd_codes'])}")
+        if len(samples[0]["icd_codes"]) > 0:
+            print(
+                f"  - Sample ICD codes: {samples[0]['icd_codes'][:5] if len(samples[0]['icd_codes']) > 5 else samples[0]['icd_codes']}"
+            )
 
 
 if __name__ == "__main__":
