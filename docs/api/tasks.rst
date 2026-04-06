@@ -209,6 +209,7 @@ Available Tasks
     In-Hospital Mortality (MIMIC-IV) <tasks/pyhealth.tasks.InHospitalMortalityMIMIC4>
     MIMIC-III ICD-9 Coding <tasks/pyhealth.tasks.MIMIC3ICD9Coding>
     Cardiology Detection <tasks/pyhealth.tasks.cardiology_detect>
+    ECG Delineation (LUDB) <tasks/pyhealth.tasks.ecg_delineation>
     COVID-19 CXR Classification <tasks/pyhealth.tasks.COVID19CXRClassification>
     DKA Prediction (MIMIC-IV) <tasks/pyhealth.tasks.dka>
     Drug Recommendation <tasks/pyhealth.tasks.drug_recommendation>

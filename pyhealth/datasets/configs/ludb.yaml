@@ -1,0 +1,27 @@
+version: "1.0.0"
+tables:
+  ludb:
+    file_path: "ludb-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+      - "visit_id"
+      - "record_id"
+      - "signal_file"
+      - "fs"
+      - "n_samples"
+      - "lead_i"
+      - "lead_ii"
+      - "lead_iii"
+      - "lead_avr"
+      - "lead_avl"
+      - "lead_avf"
+      - "lead_v1"
+      - "lead_v2"
+      - "lead_v3"
+      - "lead_v4"
+      - "lead_v5"
+      - "lead_v6"
+      - "rhythm"
+      - "electric_axis"
+      - "no_p"
