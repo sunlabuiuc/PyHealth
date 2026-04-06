@@ -233,7 +233,7 @@ class TestMedFlamingo(unittest.TestCase):
         self.assertEqual(model.lang_model_name, "facebook/opt-6.7b")
         self.assertEqual(len(model._xattn_layers), 1)
         self.assertEqual(model._tokenizer.pad_token, model._tokenizer.eos_token)
-        #TODO: should we mirror the intended production hidden sizes more closely once you and your partner settle the final checkpoint choice?
+        #TODO: should we mirror the intended production hidden sizes more closely?
 
     def test_forward_smoke_with_dataset_batch(self):
         model = TestableMedFlamingo(dataset=self.dataset)
@@ -254,7 +254,7 @@ class TestMedFlamingo(unittest.TestCase):
             output["logit"].shape[1],
             self.dataset.output_processors["answer"].size(),
         )
-        #TODO: should we also pin an expected class count here once the vqa-rad answer space is finalized between you two?
+        #TODO: should we also pin an expected class count here once the vqa-rad answer?
 
     def test_generate_smoke_single_image(self):
         model = TestableMedFlamingo(dataset=None)
@@ -283,7 +283,7 @@ class TestMedFlamingo(unittest.TestCase):
 
         self.assertIsInstance(response, str)
         self.assertIn("synthetic answer", response)
-        #TODO: should we assert a more specific few-shot prompt format once you and your partner finalize the demonstration template?
+        #TODO: should we assert a more specific few-shot prompt format?
 
     def test_gradients_flow_through_xattn_layers(self):
         model = TestableMedFlamingo(dataset=self.dataset)
@@ -317,7 +317,7 @@ class TestMedFlamingo(unittest.TestCase):
             },
             set(),
         )
-        #TODO: should this be phrased as xattn-only, or xattn-plus-classification-head for the multiclass path you and your partner want to keep?
+        #TODO: should this be phrased as xattn-only, or xattn-plus-classification-head for the multiclass path?
 
     def test_forward_smoke_with_vqarad_dataset_batch(self):
         samples = self._build_vqarad_sample_dataset()
