@@ -117,3 +117,19 @@ tables:
       - "hcpcs_cd"
       - "seq_num"
       - "short_description"
+
+  chartevents:
+    file_path: "icu/chartevents.csv.gz"
+    patient_id: "subject_id"
+    timestamp: "charttime"
+    attributes:
+      - "hadm_id"
+      - "stay_id"
+      - "caregiver_id"
+      - "storetime"
+      - "itemid"
+      - "value"
+      - "valuenum"
+      - "valueuom"
+      - "warning"
+
