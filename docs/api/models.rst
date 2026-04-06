@@ -48,6 +48,9 @@ routes each feature type automatically.
    * - :doc:`models/pyhealth.models.GraphCare`
      - You want to augment EHR codes with a medical knowledge graph
      - Combines code sequences with a :class:`~pyhealth.graph.KnowledgeGraph`
+   * - :doc:`models/pyhealth.models.MedFlamingo`
+     - You are solving multimodal medical tasks with images plus text prompts (for example, VQA-style radiology QA)
+     - Flamingo-style architecture with a frozen vision encoder + frozen language model connected by gated cross-attention layers
 
 How BaseModel Works
 --------------------
