@@ -72,7 +72,7 @@ def generate_demo_samples(
 
     Returns:
         List of sample dicts with keys ``patient_id``,
-        ``psd_features``, ``adjacency``, and ``label``.
+        ``node_features``, ``adj_matrix``, and ``label``.
     """
     rng = np.random.RandomState(seed)
     samples = []
@@ -92,8 +92,8 @@ def generate_demo_samples(
             samples.append(
                 {
                     "patient_id": pid,
-                    "psd_features": torch.FloatTensor(psd),
-                    "adjacency": torch.FloatTensor(adj),
+                    "node_features": torch.FloatTensor(psd),
+                    "adj_matrix": torch.FloatTensor(adj),
                     "label": label,
                 }
             )

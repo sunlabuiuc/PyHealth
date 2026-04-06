@@ -109,8 +109,8 @@ class TestTaskInit:
             EEGGCNNDiseaseDetection(connectivity_measure="plv")
 
     def test_task_schemas(self, task):
-        assert "psd_features" in task.input_schema
-        assert "adjacency" in task.input_schema
+        assert "node_features" in task.input_schema
+        assert "adj_matrix" in task.input_schema
         assert "label" in task.output_schema
         assert task.output_schema["label"] == "binary"
         assert task.task_name == "eeg_gcnn_nd_detection"
@@ -224,10 +224,10 @@ class TestTaskCall:
         assert len(samples) == 3
         for s in samples:
             assert s["patient_id"] == "test_001"
-            assert isinstance(s["psd_features"], torch.Tensor)
-            assert s["psd_features"].shape == (8, 6)
-            assert isinstance(s["adjacency"], torch.Tensor)
-            assert s["adjacency"].shape == (8, 8)
+            assert isinstance(s["node_features"], torch.Tensor)
+            assert s["node_features"].shape == (8, 6)
+            assert isinstance(s["adj_matrix"], torch.Tensor)
+            assert s["adj_matrix"].shape == (8, 8)
             assert s["label"] == 0
 
     def test_call_skips_bad_file(self):
