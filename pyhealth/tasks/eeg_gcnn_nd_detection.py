@@ -98,14 +98,14 @@ class EEGGCNNDiseaseDetection(BaseTask):
         >>> task = EEGGCNNDiseaseDetection(adjacency_type="spatial")
         >>> sample_dataset = dataset.set_task(task)
         >>> sample = sample_dataset[0]
-        >>> print(sample["psd_features"].shape)  # (8, 6)
-        >>> print(sample["adjacency"].shape)     # (8, 8)
+        >>> print(sample["node_features"].shape)  # (8, 6)
+        >>> print(sample["adj_matrix"].shape)     # (8, 8)
     """
 
     task_name: str = "eeg_gcnn_nd_detection"
     input_schema: Dict[str, str] = {
-        "psd_features": "tensor",
-        "adjacency": "tensor",
+        "node_features": "tensor",
+        "adj_matrix": "tensor",
     }
     output_schema: Dict[str, str] = {"label": "binary"}
 
@@ -312,8 +312,8 @@ class EEGGCNNDiseaseDetection(BaseTask):
 
         Each sample contains:
             - ``patient_id``: str
-            - ``psd_features``: torch.FloatTensor of shape ``(8, n_bands)``
-            - ``adjacency``: torch.FloatTensor of shape ``(8, 8)``
+            - ``node_features``: torch.FloatTensor of shape ``(8, n_bands)``
+            - ``adj_matrix``: torch.FloatTensor of shape ``(8, 8)``
             - ``label``: int (0 = patient-normal, 1 = healthy-control)
         """
         pid = patient.patient_id
@@ -351,8 +351,8 @@ class EEGGCNNDiseaseDetection(BaseTask):
                         {
                             "patient_id": pid,
                             "signal_file": filepath,
-                            "psd_features": torch.FloatTensor(psd_feat),
-                            "adjacency": torch.FloatTensor(adj),
+                            "node_features": torch.FloatTensor(psd_feat),
+                            "adj_matrix": torch.FloatTensor(adj),
                             "label": label,
                         }
                     )
