@@ -3,6 +3,7 @@ import os
 import shutil
 import tempfile
 import unittest
+import warnings
 from types import SimpleNamespace
 
 from PIL import Image
@@ -21,6 +22,12 @@ from pyhealth.trainer import Trainer
 
 
 REAL_VQARAD_ROOT = os.getenv("PYHEALTH_VQARAD_ROOT")
+
+warnings.filterwarnings(
+    "ignore",
+    message=r"A newer version of litdata is available .*",
+    category=UserWarning,
+)
 
 
 class FakeBatch(dict):
@@ -109,6 +116,8 @@ class FakeVisionEncoder(nn.Module):
 
 
 class TestableMedFlamingo(MedFlamingo):
+    __test__ = False
+
     def _init_vision_encoder(self) -> None:
         self._vision_encoder = FakeVisionEncoder()
         if self.freeze_vision:
