@@ -1,0 +1,38 @@
+# DSA (Daily and Sports Activities) Dataset Configuration
+# Source: https://archive.ics.uci.edu/dataset/256/daily+and+sports+activities
+# Reference: Zhang et al. CHIL 2024
+
+dataset_name: DSADataset
+dataset_description: >
+  UCI Daily and Sports Activities dataset containing motion sensor time series
+  from 5 body-part sensors (torso, right arm, left arm, right leg, left leg).
+  Eight subjects performed 19 daily and sports activities.
+
+file_structure:
+  pattern: "{activity}/{subject}/{segment}.txt"
+  activity_folders: ["a01", "a02", "a03", "a04", "a05", "a06", "a07",
+                     "a08", "a09", "a10", "a11", "a12", "a13", "a14",
+                     "a15", "a16", "a17", "a18", "a19"]
+  subject_folders: ["p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8"]
+  segment_files: 60  # s01.txt to s60.txt
+
+data_format:
+  rows_per_file: 125       # timesteps per segment
+  cols_per_file: 45        # 9 channels x 5 sensors
+  dtype: float32
+  delimiter: ","
+
+sensors:
+  s1: {name: torso,      col_start: 0,  col_end: 9}
+  s2: {name: right_arm,  col_start: 9,  col_end: 18}
+  s3: {name: left_arm,   col_start: 18, col_end: 27}
+  s4: {name: right_leg,  col_start: 27, col_end: 36}
+  s5: {name: left_leg,   col_start: 36, col_end: 45}
+
+task:
+  type: multiclass_classification
+  num_classes: 19
+  input_shape: [9, 125]
+  normalization: minmax  # scale each channel to [-1, 1]
+  train_subjects: ["p1", "p2", "p3", "p4", "p5", "p6"]
+  test_subjects: ["p7", "p8"]
