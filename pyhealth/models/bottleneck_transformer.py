@@ -6,6 +6,7 @@ import torch.nn as nn
 from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
 from pyhealth.models.embedding import EmbeddingModel
+from pyhealth.models.embedding.unified import UnifiedMultimodalEmbeddingModel
 
 
 class MultimodalBottleneckTransformerEncoder(nn.Module):
@@ -149,23 +150,30 @@ class MultimodalBottleneckTransformerEncoder(nn.Module):
 class BottleneckTransformer(BaseModel):
     """Bottleneck Transformer model for PyHealth datasets.
 
-    This model employs a unified multimodal approach by embedding diverse
-    feature streams using :class:`EmbeddingModel` and fusing them with
-    the Attention Bottleneck mechanism.
+    Per-field mode: each feature stream is embedded with :class:`EmbeddingModel`,
+    prefixed with a learnable per-modality ``[CLS]`` token, processed by
+    independent prefusion layers, then fused via shared bottleneck tokens.
+    The per-modality ``[CLS]`` embeddings are averaged and fed to the
+    classification head.
 
-    Each modality first prepends a learnable [CLS] token and is processed by
-    independent `prefusion` transformer layers. Then, they are processed by
-    fusion transformer layers with shared bottleneck tokens. The [CLS] token
-    of each modality is extracted, averaged, and fed to the classification head.
+    Unified mode (``unified_embedding`` supplied): all temporal fields are
+    jointly embedded and time-sorted by
+    :class:`~pyhealth.models.embedding.unified.UnifiedMultimodalEmbeddingModel`
+    into a single interleaved sequence.  A single ``[CLS]`` token is prepended
+    and the encoder runs with ``n_modality=1``, so the bottleneck tokens attend
+    over the full cross-modal timeline.
 
     Args:
         dataset (SampleDataset): dataset providing processed inputs.
         embedding_dim (int): shared embedding dimension.
         bottlenecks_n (int): number of shared bottleneck tokens.
-        fusion_startidx (int): the layer index at which bottleneck fusion starts.
-        num_layers (int): total number of transformer layers (prefusion + fusion).
+        fusion_startidx (int): layer index at which bottleneck fusion starts.
+            Must satisfy ``0 <= fusion_startidx <= num_layers``.
+        num_layers (int): total transformer layers (prefusion + fusion).
         heads (int): number of attention heads per transformer block.
-        dropout (float): dropout rate applied inside transformer blocks.
+        dropout (float): dropout rate inside transformer blocks.
+        unified_embedding (UnifiedMultimodalEmbeddingModel, optional): when
+            provided, switches to unified mode.
 
     Examples:
         >>> from pyhealth.datasets import create_sample_dataset, get_dataloader
@@ -210,6 +218,7 @@ class BottleneckTransformer(BaseModel):
         num_layers: int = 3,
         heads: int = 4,
         dropout: float = 0.5,
+        unified_embedding: Optional[UnifiedMultimodalEmbeddingModel] = None,
     ):
         super().__init__(dataset=dataset)
         self.embedding_dim = embedding_dim
@@ -218,6 +227,7 @@ class BottleneckTransformer(BaseModel):
         self.num_layers = num_layers
         self.heads = heads
         self.dropout = dropout
+        self._use_unified = unified_embedding is not None
 
         assert (
             len(self.label_keys) == 1
@@ -225,29 +235,101 @@ class BottleneckTransformer(BaseModel):
         self.label_key = self.label_keys[0]
         self.mode = self.dataset.output_schema[self.label_key]
 
-        self.embedding_model = EmbeddingModel(dataset, embedding_dim)
-        
-        self.n_modality = len(self.feature_keys)
-        
-        # Classification tokens for each modality
-        self.cls_token_per_modality = nn.ParameterList([
-            nn.Parameter(torch.randn(1, 1, embedding_dim)) for _ in range(self.n_modality)
-        ])
-
-        self.encoder = MultimodalBottleneckTransformerEncoder(
-            n_modality=self.n_modality,
-            bottlenecks_n=bottlenecks_n,
-            fusion_startidx=fusion_startidx,
-            n_layers=num_layers,
-            n_head=heads,
-            d_model=embedding_dim,
-            d_ff=embedding_dim * 4,
-            dropout=dropout
+        assert 0 <= fusion_startidx <= num_layers, (
+            f"fusion_startidx must be in [0, num_layers], got {fusion_startidx}"
         )
 
         output_size = self.get_output_size()
-        # Outputs of each modality's CLS token are averaged, not concatenated
+
+        if self._use_unified:
+            self.embedding_model = unified_embedding
+            # Single CLS token for the unified interleaved sequence
+            self.cls_token = nn.Parameter(torch.randn(1, 1, embedding_dim))
+            self.encoder = MultimodalBottleneckTransformerEncoder(
+                n_modality=1,
+                bottlenecks_n=bottlenecks_n,
+                fusion_startidx=fusion_startidx,
+                n_layers=num_layers,
+                n_head=heads,
+                d_model=embedding_dim,
+                d_ff=embedding_dim * 4,
+                dropout=dropout,
+            )
+        else:
+            self.embedding_model = EmbeddingModel(dataset, embedding_dim)
+            self.n_modality = len(self.feature_keys)
+            # Per-modality CLS tokens
+            self.cls_token_per_modality = nn.ParameterList([
+                nn.Parameter(torch.randn(1, 1, embedding_dim))
+                for _ in range(self.n_modality)
+            ])
+            self.encoder = MultimodalBottleneckTransformerEncoder(
+                n_modality=self.n_modality,
+                bottlenecks_n=bottlenecks_n,
+                fusion_startidx=fusion_startidx,
+                n_layers=num_layers,
+                n_head=heads,
+                d_model=embedding_dim,
+                d_ff=embedding_dim * 4,
+                dropout=dropout,
+            )
+
+        # fc input is embedding_dim in both modes (CLS token, not concat)
         self.fc = nn.Linear(embedding_dim, output_size)
+
+    def _build_unified_inputs(
+        self, kwargs: Dict[str, Any]
+    ) -> Dict[str, Dict[str, torch.Tensor]]:
+        """Extract value/time/mask tensors for UnifiedMultimodalEmbeddingModel."""
+        inputs: Dict[str, Dict[str, torch.Tensor]] = {}
+        for field_name in self.feature_keys:
+            feature = kwargs[field_name]
+            if isinstance(feature, torch.Tensor):
+                feature = (feature,)
+            schema = self.dataset.input_processors[field_name].schema()
+            field_dict: Dict[str, torch.Tensor] = {}
+            if "value" in schema:
+                field_dict["value"] = feature[schema.index("value")].to(self.device)
+            if "time" in schema:
+                field_dict["time"] = feature[schema.index("time")].to(self.device)
+            if "mask" in schema:
+                field_dict["mask"] = feature[schema.index("mask")].to(self.device)
+            inputs[field_name] = field_dict
+        return inputs
+
+    def _forward_unified(
+        self,
+        **kwargs: Union[torch.Tensor, Tuple[torch.Tensor, ...]],
+    ) -> Dict[str, torch.Tensor]:
+        """Forward pass in unified-embedding mode.
+
+        Calls UnifiedMultimodalEmbeddingModel to produce a single time-sorted
+        sequence, prepends a CLS token, encodes with the bottleneck encoder
+        (n_modality=1), and classifies from the CLS output.
+        """
+        inputs = self._build_unified_inputs(kwargs)
+        out = self.embedding_model(inputs)
+        sequence = out["sequence"]           # (B, S, E)
+        event_mask = out["mask"].bool()      # (B, S)
+
+        # Prepend CLS token
+        batch_size = sequence.size(0)
+        cls = self.cls_token.expand(batch_size, -1, -1)
+        sequence = torch.cat([cls, sequence], dim=1)
+        cls_mask = torch.ones(batch_size, 1, dtype=torch.bool, device=sequence.device)
+        event_mask = torch.cat([cls_mask, event_mask], dim=1)
+
+        enc_outputs = self.encoder([sequence], [event_mask])
+        patient_emb = enc_outputs[0][:, 0, :]   # CLS token output
+
+        logits = self.fc(patient_emb)
+        y_prob = self.prepare_y_prob(logits)
+        results: Dict[str, torch.Tensor] = {"logit": logits, "y_prob": y_prob}
+        if self.label_key in kwargs:
+            y_true = cast(torch.Tensor, kwargs[self.label_key]).to(self.device)
+            results["loss"] = self.get_loss_function()(logits, y_true)
+            results["y_true"] = y_true
+        return results
 
     @staticmethod
     def _pool_embedding(x: torch.Tensor) -> torch.Tensor:
@@ -273,6 +355,9 @@ class BottleneckTransformer(BaseModel):
     ) -> Dict[str, torch.Tensor]:
         """Forward propagation.
 
+        In unified mode dispatches to :meth:`_forward_unified`. Otherwise runs
+        per-field embedding + bottleneck fusion.
+
         Args:
             **kwargs: keyword arguments for the model.
 
@@ -283,6 +368,9 @@ class BottleneckTransformer(BaseModel):
                 y_true: a tensor representing the true labels.
                 logit: the raw logits before activation.
         """
+        if self._use_unified:
+            return self._forward_unified(**kwargs)
+
         enc_inputs = []
         masks = []
         

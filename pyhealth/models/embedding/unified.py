@@ -425,7 +425,9 @@ class UnifiedMultimodalEmbeddingModel(nn.Module, BaseEmbeddingModel):
 
             # ── Encode ────────────────────────────────────────────────────
             if modality == ModalityType.CODE:
-                emb = encoder(value)                           # (B, S, E')
+                emb = encoder(value)                           # (B, S, E') or (B, S, inner, E')
+                if emb.dim() == 4:
+                    emb = emb.sum(dim=2)                       # (B, S, E')
 
             elif modality == ModalityType.TEXT:
                 b, n, l = value.shape

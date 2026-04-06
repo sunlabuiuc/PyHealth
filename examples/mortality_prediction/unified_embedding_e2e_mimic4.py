@@ -1,74 +1,29 @@
-"""End-to-end protocol runner for Unified Embedding + MLP/RNN on MIMIC-IV.
+"""End-to-end protocol runner for Unified Embedding on MIMIC-IV.
 
-Objective
----------
-Establish a reproducible E2E (End-to-end) test path for unified multimodal embedding
-with both MLP and RNN heads:
+Trains and evaluates a unified-embedding model (MLP / RNN / Transformer /
+BottleneckTransformer) on a MIMIC-IV mortality task, then writes per-sample
+predictions to CSV.
 
-1. ingest MIMIC-IV data,
-2. construct multimodal task samples (ClinicalNotesICDLabsMIMIC4),
-3. train/infer with UnifiedMultimodalEmbeddingModel,
-4. emit concrete prediction rows.
+Tasks
+-----
+--task stagenet (default)
+    MortalityPredictionStageNetMIMIC4: ICD codes + 10-dim lab vectors,
+    patient-level samples aggregated across all admissions.
 
-Task
-----
-pyhealth.tasks.ClinicalNotesICDLabsMIMIC4
+--task clinical_notes_icd_labs
+    ClinicalNotesICDLabsMIMIC4: discharge/radiology notes + ICD + labs.
+    Requires --note-root.
 
-- Observation window: configurable (default 24h)
-- Prediction horizon: configurable (default 12h)
-- Label: in-hospital mortality within horizon
-- Inputs:
-    - icd_codes (diagnoses + procedures, StageNet)
-    - labs (10-category lab vectors, StageNet tensor)
-    - optional notes (discharge/radiology, tuple-time-text)
-
-Criteria
--------------------
-For each model head (MLP and RNN):
-
-1. dataset.set_task(ClinicalNotesICDLabsMIMIC4(...)) returns non-empty samples.
-2. A forward pass on a batch returns y_prob and loss.
-3. Inference returns aligned arrays of patient_id, y_true, y_prob.
-4. Predictions are written to CSV with one row per sample.
-
-Reference Test
---------------
-tests/core/test_unified_e2e_mimic4.py validates the end-to-end path.
-
-    pytest tests/core/test_unified_e2e_mimic4.py -v
-
-Run on Full MIMIC-IV
---------------------
-RNN head:
-
-    PYTHONPATH=. PYHEALTH_DISABLE_DASK_DISTRIBUTED=1 \\
+Example
+-------
     python examples/mortality_prediction/unified_embedding_e2e_mimic4.py \\
       --ehr-root /path/to/mimiciv/2.2 \\
-      --model rnn \\
-      --observation-window-hours 24 \\
-      --prediction-horizon-hours 12 \\
-      --epochs 3 \\
-      --batch-size 64 \\
+      --task stagenet \\
+      --model transformer \\
+      --heads 4 --num-layers 2 \\
+      --dev --device cpu \\
+      --epochs 10 --batch-size 32 --lr 1e-3 \\
       --output-dir ./output/unified_e2e
-
-MLP head:
-
-    PYTHONPATH=. PYHEALTH_DISABLE_DASK_DISTRIBUTED=1 \\
-    python examples/mortality_prediction/unified_embedding_e2e_mimic4.py \\
-      --ehr-root /path/to/mimiciv/2.2 \\
-      --model mlp \\
-      --observation-window-hours 24 \\
-      --prediction-horizon-hours 12 \\
-      --epochs 3 \\
-      --batch-size 64 \\
-      --output-dir ./output/unified_e2e
-
-Outputs
-----------------
-- <output-dir>/predictions_rnn.csv
-- <output-dir>/predictions_mlp.csv
-
-Columns: patient_id, y_true, y_prob, y_pred_threshold_0_5
 """
 
 from __future__ import annotations
@@ -86,27 +41,39 @@ from pyhealth.datasets import (
     split_by_patient,
     split_by_sample,
 )
-from pyhealth.models import MLP, RNN, UnifiedMultimodalEmbeddingModel
-from pyhealth.tasks import ClinicalNotesICDLabsMIMIC4
+from pyhealth.models import MLP, RNN, Transformer, UnifiedMultimodalEmbeddingModel
+from pyhealth.models.bottleneck_transformer import BottleneckTransformer
+from pyhealth.tasks import MortalityPredictionStageNetMIMIC4
+from pyhealth.tasks.multimodal_mimic4 import ClinicalNotesICDLabsMIMIC4
 from pyhealth.trainer import Trainer
 
 
 def _build_base_dataset(args: argparse.Namespace) -> MIMIC4Dataset:
     ehr_tables = ["diagnoses_icd", "procedures_icd", "labevents"]
-    note_tables = ["discharge", "radiology"] if args.include_notes else None
+    note_tables = None
 
-    if args.include_notes and not args.note_root:
-        raise ValueError("--include-notes requires --note-root.")
+    if args.task == "clinical_notes_icd_labs":
+        if not args.note_root:
+            raise ValueError("--task clinical_notes_icd_labs requires --note-root.")
+        note_tables = ["discharge", "radiology"]
 
     return MIMIC4Dataset(
         ehr_root=args.ehr_root,
         ehr_tables=ehr_tables,
-        note_root=args.note_root if args.include_notes else None,
+        note_root=args.note_root if note_tables else None,
         note_tables=note_tables,
         cache_dir=args.cache_dir,
         dev=args.dev,
         num_workers=args.num_workers,
     )
+
+
+def _build_task(args: argparse.Namespace):
+    if args.task == "stagenet":
+        return MortalityPredictionStageNetMIMIC4()
+    if args.task == "clinical_notes_icd_labs":
+        return ClinicalNotesICDLabsMIMIC4(window_hours=args.observation_window_hours)
+    raise ValueError(f"Unknown task: {args.task}")
 
 
 def _split_dataset(dataset: Any, seed: int) -> Tuple[Any, Any, Any]:
@@ -129,16 +96,38 @@ def _build_model(args: argparse.Namespace, sample_dataset: Any):
             hidden_dim=args.hidden_dim,
             unified_embedding=unified,
         )
-    return RNN(
-        dataset=sample_dataset,
-        embedding_dim=args.embedding_dim,
-        hidden_dim=args.hidden_dim,
-        unified_embedding=unified,
-        rnn_type=args.rnn_type,
-        num_layers=args.rnn_layers,
-        dropout=args.dropout,
-        bidirectional=args.bidirectional,
-    )
+    if args.model == "rnn":
+        return RNN(
+            dataset=sample_dataset,
+            embedding_dim=args.embedding_dim,
+            hidden_dim=args.hidden_dim,
+            unified_embedding=unified,
+            rnn_type=args.rnn_type,
+            num_layers=args.rnn_layers,
+            dropout=args.dropout,
+            bidirectional=args.bidirectional,
+        )
+    if args.model == "transformer":
+        return Transformer(
+            dataset=sample_dataset,
+            embedding_dim=args.embedding_dim,
+            heads=args.heads,
+            num_layers=args.num_layers,
+            dropout=args.dropout,
+            unified_embedding=unified,
+        )
+    if args.model == "bottleneck_transformer":
+        return BottleneckTransformer(
+            dataset=sample_dataset,
+            embedding_dim=args.embedding_dim,
+            bottlenecks_n=args.bottlenecks_n,
+            fusion_startidx=args.fusion_startidx,
+            num_layers=args.num_layers,
+            heads=args.heads,
+            dropout=args.dropout,
+            unified_embedding=unified,
+        )
+    raise ValueError(f"Unknown model: {args.model}")
 
 
 def _write_predictions(
@@ -171,13 +160,12 @@ def _write_predictions(
 
 def run(args: argparse.Namespace) -> Path:
     base_dataset = _build_base_dataset(args)
-
-    task = ClinicalNotesICDLabsMIMIC4(window_hours=args.observation_window_hours)
+    task = _build_task(args)
     sample_dataset = base_dataset.set_task(task, num_workers=args.num_workers)
 
     if len(sample_dataset) == 0:
         raise RuntimeError(
-            "Task produced zero samples. Check roots/tables or adjust window settings."
+            "Task produced zero samples. Check roots/tables or adjust settings."
         )
 
     train_ds, val_ds, test_ds = _split_dataset(sample_dataset, seed=args.seed)
@@ -225,24 +213,30 @@ def run(args: argparse.Namespace) -> Path:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Run E2E unified embedding + MLP/RNN protocol on MIMIC-IV."
+        description="Run E2E unified embedding on MIMIC-IV with any of four sequence heads."
     )
     parser.add_argument("--ehr-root", type=str, required=True)
     parser.add_argument("--note-root", type=str, default=None)
     parser.add_argument("--cache-dir", type=str, default=None)
     parser.add_argument("--output-dir", type=str, default="./output/unified_e2e")
 
-    parser.add_argument("--model", type=str, choices=["mlp", "rnn"], default="rnn")
+    parser.add_argument(
+        "--task",
+        type=str,
+        choices=["stagenet", "clinical_notes_icd_labs"],
+        default="stagenet",
+    )
+    parser.add_argument(
+        "--model",
+        type=str,
+        choices=["mlp", "rnn", "transformer", "bottleneck_transformer"],
+        default="rnn",
+    )
+
+    # Shared embedding / training
     parser.add_argument("--embedding-dim", type=int, default=64)
     parser.add_argument("--hidden-dim", type=int, default=64)
-    parser.add_argument("--rnn-type", type=str, default="GRU")
-    parser.add_argument("--rnn-layers", type=int, default=1)
     parser.add_argument("--dropout", type=float, default=0.1)
-    parser.add_argument("--bidirectional", action="store_true")
-
-    parser.add_argument("--observation-window-hours", type=int, default=24)
-    parser.add_argument("--include-notes", action="store_true")
-
     parser.add_argument("--epochs", type=int, default=1)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--lr", type=float, default=1e-3)
@@ -250,6 +244,23 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--num-workers", type=int, default=1)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--dev", action="store_true")
+
+    # Task-specific
+    parser.add_argument("--observation-window-hours", type=int, default=24)
+
+    # RNN-specific
+    parser.add_argument("--rnn-type", type=str, default="GRU")
+    parser.add_argument("--rnn-layers", type=int, default=1)
+    parser.add_argument("--bidirectional", action="store_true")
+
+    # Transformer / BottleneckTransformer shared
+    parser.add_argument("--heads", type=int, default=4)
+    parser.add_argument("--num-layers", type=int, default=2)
+
+    # BottleneckTransformer-specific
+    parser.add_argument("--bottlenecks-n", type=int, default=4)
+    parser.add_argument("--fusion-startidx", type=int, default=1)
+
     return parser.parse_args()
 
 
