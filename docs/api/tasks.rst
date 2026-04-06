@@ -213,6 +213,7 @@ Available Tasks
     DKA Prediction (MIMIC-IV) <tasks/pyhealth.tasks.dka>
     Drug Recommendation <tasks/pyhealth.tasks.drug_recommendation>
     Length of Stay Prediction <tasks/pyhealth.tasks.length_of_stay_prediction>
+    Medical VQA <tasks/pyhealth.tasks.MedicalVQATask>
     Medical Transcriptions Classification <tasks/pyhealth.tasks.MedicalTranscriptionsClassification>
     Mortality Prediction (Next Visit) <tasks/pyhealth.tasks.mortality_prediction>
     Mortality Prediction (StageNet MIMIC-IV) <tasks/pyhealth.tasks.mortality_prediction_stagenet_mimic4>
