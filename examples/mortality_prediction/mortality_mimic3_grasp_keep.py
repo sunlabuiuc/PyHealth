@@ -139,25 +139,32 @@ if __name__ == "__main__":
     train_dataset, val_dataset, test_dataset = split_by_patient(
         sample_dataset, [0.8, 0.1, 0.1]
     )
-    train_dataloader = get_dataloader(train_dataset, batch_size=32, shuffle=True)
-    val_dataloader = get_dataloader(val_dataset, batch_size=32, shuffle=False)
-    test_dataloader = get_dataloader(test_dataset, batch_size=32, shuffle=False)
+    train_dataloader = get_dataloader(train_dataset, batch_size=256, shuffle=True)
+    val_dataloader = get_dataloader(val_dataset, batch_size=256, shuffle=False)
+    test_dataloader = get_dataloader(test_dataset, batch_size=256, shuffle=False)
 
     # STEP 4: define model
     model = GRASP(
         dataset=sample_dataset,
         embedding_dim=100,
-        cluster_num=2,
+        hidden_dim=32,
+        cluster_num=8,
+        block="GRU",
         pretrained_emb_path=keep_emb_path,
     )
 
     # STEP 5: define trainer
-    trainer = Trainer(model=model)
+    trainer = Trainer(
+        model=model,
+        metrics=["roc_auc", "pr_auc", "f1"],
+    )
     trainer.train(
         train_dataloader=train_dataloader,
         val_dataloader=val_dataloader,
-        epochs=1,
-        monitor="roc_auc",
+        epochs=50,
+        monitor="pr_auc",
+        optimizer_params={"lr": 1e-3},
+        weight_decay=1e-4,
     )
 
     # STEP 6: evaluate
