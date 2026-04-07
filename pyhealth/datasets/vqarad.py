@@ -152,6 +152,18 @@ class VQARADDataset(BaseDataset):
             )
 
         df = pd.DataFrame(rows)
+
+        # Filter out rows whose image file is missing so that the processor
+        # pipeline does not fail on incomplete dataset downloads.
+        before = len(df)
+        df = df[df["image_path"].apply(lambda p: bool(p) and os.path.isfile(p))]
+        skipped = before - len(df)
+        if skipped:
+            logger.warning(
+                f"Skipped {skipped} entries with missing image files "
+                f"(out of {before} total)."
+            )
+
         out_path = os.path.join(root, "vqarad-metadata-pyhealth.csv")
         df.to_csv(out_path, index=False)
         logger.info(f"Saved VQA-RAD metadata ({len(df)} rows) to {out_path}")
