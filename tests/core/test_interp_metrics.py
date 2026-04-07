@@ -17,7 +17,6 @@ from pyhealth.metrics.interpretability import (
     ComprehensivenessMetric,
     Evaluator,
     SufficiencyMetric,
-    threshold_sample_filter,
 )
 from pyhealth.models import StageNet
 
@@ -123,7 +122,6 @@ class TestInterpretabilityMetrics(unittest.TestCase):
 
         # Initialize Integrated Gradients for attribution computation
         self.ig = IntegratedGradients(self.model, use_embeddings=True)
-        self.sample_filter = threshold_sample_filter()
 
     # Helper method to create attributions for a batch using IG
     def _create_attributions(self, batch, target_class_idx=1):
@@ -229,10 +227,7 @@ class TestInterpretabilityMetrics(unittest.TestCase):
 
         # Initialize metric
         comp = ComprehensivenessMetric(
-            self.model,
-            percentages=[10, 20, 50],
-            ablation_strategy="zero",
-            sample_filter=self.sample_filter,
+            self.model, percentages=[10, 20, 50], ablation_strategy="zero"
         )
 
         # Compute scores - now returns (scores, valid_mask) tuple
@@ -262,10 +257,7 @@ class TestInterpretabilityMetrics(unittest.TestCase):
 
         # Initialize metric
         suff = SufficiencyMetric(
-            self.model,
-            percentages=[10, 20, 50],
-            ablation_strategy="zero",
-            sample_filter=self.sample_filter,
+            self.model, percentages=[10, 20, 50], ablation_strategy="zero"
         )
 
         # Compute scores - now returns (scores, valid_mask) tuple
@@ -290,11 +282,7 @@ class TestInterpretabilityMetrics(unittest.TestCase):
         """Test that detailed scores return per-percentage results."""
         attributions = self._create_attributions(self.batch)
 
-        comp = ComprehensivenessMetric(
-            self.model,
-            percentages=[10, 20, 50],
-            sample_filter=self.sample_filter,
-        )
+        comp = ComprehensivenessMetric(self.model, percentages=[10, 20, 50])
 
         # Get detailed scores using return_per_percentage=True
         detailed = comp.compute(self.batch, attributions, return_per_percentage=True)
@@ -317,10 +305,7 @@ class TestInterpretabilityMetrics(unittest.TestCase):
 
         for strategy in strategies:
             comp = ComprehensivenessMetric(
-                self.model,
-                percentages=[10, 20],
-                ablation_strategy=strategy,
-                sample_filter=self.sample_filter,
+                self.model, percentages=[10, 20], ablation_strategy=strategy
             )
             # Compute returns (scores, valid_mask) tuple
             scores, valid_mask = comp.compute(self.batch, attributions)
@@ -429,10 +414,7 @@ class TestInterpretabilityMetrics(unittest.TestCase):
         attributions = self._create_attributions(self.batch)
 
         comp = ComprehensivenessMetric(
-            self.model,
-            percentages=[1, 10, 50],
-            ablation_strategy="zero",
-            sample_filter=self.sample_filter,
+            self.model, percentages=[1, 10, 50], ablation_strategy="zero"
         )
 
         detailed = comp.compute(self.batch, attributions, return_per_percentage=True)

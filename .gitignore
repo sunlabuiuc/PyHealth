@@ -139,4 +139,9 @@ data/physionet.org/
 .vscode/
 
 # Model weight files (large binaries, distributed separately)
-weightfiles/
+DL4H_alzheimers_cnn/Data/
+DL4H_alzheimers_cnn/balanced_train.pt
+DL4H_alzheimers_cnn/balanced_val.pt
+DL4H_alzheimers_cnn/Report/
+DL4H_alzheimers_cnn/balanced_train_0p2.pt
+DL4H_alzheimers_cnn/balanced_val_0p2.pt

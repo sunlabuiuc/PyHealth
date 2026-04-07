@@ -11,11 +11,7 @@ import torch
 
 from pyhealth.models import BaseModel
 
-from .utils import (
-    SampleClass,
-    SampleFilterFn,
-    get_model_predictions,
-)
+from .utils import create_validity_mask, get_model_predictions
 
 
 class RemovalBasedMetric(ABC):
@@ -34,15 +30,8 @@ class RemovalBasedMetric(ABC):
             - 'mean': Set ablated features to feature mean across batch
             - 'noise': Add Gaussian noise to ablated features
             Default: 'zero'.
-        sample_filter: A callable that classifies each sample for evaluation.
-            Signature: (class_probs, classifier_type) -> sample_classes
-            where class_probs has shape (batch_size,) and contains the
-            probability for the predicted class (sigmoid/softmax output
-            with target class already applied), and sample_classes is a
-            tensor of SampleClass values.
-            - SampleClass.POSITIVE: evaluate with attributions as-is
-            - SampleClass.NEGATIVE: evaluate with negated attributions
-            - SampleClass.IGNORE: exclude from evaluation
+        positive_threshold: Threshold for positive class in binary
+            classification. Default: 0.5.
     """
 
     def __init__(
@@ -50,13 +39,12 @@ class RemovalBasedMetric(ABC):
         model: BaseModel,
         percentages: List[float] = [1, 5, 10, 20, 50],
         ablation_strategy: str = "zero",
-        *,
-        sample_filter: SampleFilterFn,
+        positive_threshold: float = 0.5,
     ):
         self.model = model
         self.percentages = percentages
         self.ablation_strategy = ablation_strategy
-        self._sample_filter = sample_filter
+        self._positive_threshold = positive_threshold
         self.model.eval()
 
         # Detect classifier type from model
@@ -123,7 +111,7 @@ class RemovalBasedMetric(ABC):
             self.num_classes = 2
             print("[RemovalBasedMetric] Detected BINARY classifier")
             print("  - Output shape: [batch, 1] with P(class=1)")
-            print("  - Evaluates both positive and negative predictions")
+            print("  - Only evaluates positive predictions (>=threshold)")
         elif mode == "multiclass":
             self.classifier_type = "multiclass"
             # Get num_classes from processor
@@ -377,38 +365,42 @@ class RemovalBasedMetric(ABC):
                 samples have value 0.
 
         Note:
-            For binary classifiers, all samples are evaluated
-            (both positive and negative predictions). For class 0
-            predictions, attributions are negated internally so that
-            feature importance is measured relative to the predicted
-            class.
+            For binary classifiers, the valid_mask indicates samples with
+            P(class=1) >= threshold (default 0.5). Use this mask to filter
+            scores during averaging or analysis.
         """
         # Get original predictions (returns 3 values)
-        y_probs, target_class_idx, sample_class = get_model_predictions(
+        original_probs, pred_classes, original_class_probs = get_model_predictions(
             model=self.model,
             inputs=inputs,
             classifier_type=self.classifier_type,
-            sample_filter=self._sample_filter,
+            pred_classes=predicted_class,
+            positive_threshold=self._positive_threshold,
         )
-        
-        batch_size = y_probs.shape[0]
 
-        # Validity mask: IGNORE samples excluded
-        val_mask = sample_class != SampleClass.IGNORE
+        if predicted_class is not None:
+            pred_classes = predicted_class
 
-        # For NEGATIVE samples, negate attributions so that
-        # "top features" become those most important for the predicted
-        # class (features with low class-1 attribution support class 0).
-        neg_mask = sample_class == SampleClass.NEGATIVE
-        if neg_mask.any():
-            attributions = {
-                key: torch.where(
-                    neg_mask.view(-1, *([1] * (attr.dim() - 1))),
-                    -attr,
-                    attr,
-                )
-                for key, attr in attributions.items()
-            }
+        batch_size = original_probs.shape[0]
+
+        # Create validity mask using helper
+        valid_mask = create_validity_mask(
+            original_probs,
+            self.classifier_type,
+            self._positive_threshold,
+        )
+
+        # For binary: determine which samples to evaluate
+        if self.classifier_type == "binary":
+            positive_mask = pred_classes == 1
+            num_positive = positive_mask.sum().item()
+            num_negative = (~positive_mask).sum().item()
+        else:
+            positive_mask = torch.ones(
+                batch_size, dtype=torch.bool, device=original_probs.device
+            )
+            num_positive = batch_size
+            num_negative = 0
 
         # Debug output (if requested and returning per percentage)
         if debug and return_per_percentage:
@@ -419,21 +411,37 @@ class RemovalBasedMetric(ABC):
             print(f"Classifier type: {self.classifier_type}")
 
             if self.classifier_type == "binary":
-                print(f"Positive class samples: {(sample_class == SampleClass.POSITIVE).sum().item()}")
-                print(f"Negative class samples: {(sample_class == SampleClass.NEGATIVE).sum().item()}")
-                print("NOTE: Evaluating BOTH positive and negative predictions")
+                print(f"Positive class samples: {num_positive}")
+                print(f"Negative class samples: {num_negative}")
+                print("NOTE: Only computing metrics for POSITIVE class")
+
+            print(f"Original probs shape: {original_probs.shape}")
+            print(f"Predicted classes: {pred_classes.tolist()}")
+
+            if self.classifier_type == "binary":
+                print("\nOriginal probabilities P(class=1):")
+                for i, prob in enumerate(original_probs):
+                    status = "EVAL" if positive_mask[i] else "SKIP"
+                    print(f"  Sample {i} [{status}]: {prob.item():.6f}")
+            else:
+                print("\nOriginal probabilities (all classes):")
+                for i, probs in enumerate(original_probs):
+                    print(f"  Sample {i}: {probs.tolist()}")
 
             print("\nOriginal probs for predicted class:")
-            for i, prob in enumerate(y_probs):
-                cls = target_class_idx[i].item()
-                print(f"  Sample {i} [class={cls}]: {prob.item():.6f}")
+            for i, prob in enumerate(original_class_probs):
+                if self.classifier_type == "binary":
+                    status = "EVAL" if positive_mask[i] else "SKIP"
+                    print(f"  Sample {i} [{status}]: {prob.item():.6f}")
+                else:
+                    print(f"  Sample {i}: {prob.item():.6f}")
 
         # Store results per percentage
         if return_per_percentage:
             results = {}
         else:
             # Accumulator for averaging
-            metric_scores = torch.zeros(batch_size, device=y_probs.device)
+            metric_scores = torch.zeros(batch_size, device=original_probs.device)
 
         # Compute metrics across all percentages
         for percentage in self.percentages:
@@ -444,24 +452,18 @@ class RemovalBasedMetric(ABC):
             ablated_inputs = self._create_ablated_inputs(inputs, masks)
 
             # Get predictions on ablated inputs
-            ablated_probs, _, _ = get_model_predictions(
+            ablated_probs, _, ablated_class_probs = get_model_predictions(
                 model=self.model,
                 inputs=ablated_inputs,
-                target_class_idx=target_class_idx, # Use same predicted classes from original to avoid shifts
-                sample_class=sample_class, # Use same sample classes to ensure consistency
+                pred_classes=pred_classes, # Use same predicted classes from original to avoid shifts
                 classifier_type=self.classifier_type,
+                positive_threshold=self._positive_threshold,
             )
 
             # Compute probability drop
-            original_class_probs = y_probs
-            original_class_probs[neg_mask] = -original_class_probs[neg_mask]
-            
-            ablated_class_probs = ablated_probs
-            ablated_class_probs[neg_mask] = -ablated_class_probs[neg_mask]
-            
-            prob_drop = torch.zeros(batch_size, device=y_probs.device)
-            prob_drop[val_mask] = (
-                original_class_probs[val_mask] - ablated_class_probs[val_mask]
+            prob_drop = torch.zeros(batch_size, device=original_probs.device)
+            prob_drop[positive_mask] = (
+                original_class_probs[positive_mask] - ablated_class_probs[positive_mask]
             )
 
             # Debug output for this percentage
@@ -474,8 +476,8 @@ class RemovalBasedMetric(ABC):
                 if self.classifier_type == "binary":
                     print("\nAblated probabilities P(class=1):")
                     for i, prob in enumerate(ablated_probs):
-                        cls = target_class_idx[i].item()
-                        print(f"  Sample {i} [class={cls}]: {prob.item():.6f}")
+                        status = "EVAL" if positive_mask[i] else "SKIP"
+                        print(f"  Sample {i} [{status}]: {prob.item():.6f}")
                 else:
                     print("\nAblated probabilities (all classes):")
                     for i, probs in enumerate(ablated_probs):
@@ -483,16 +485,18 @@ class RemovalBasedMetric(ABC):
 
                 print("\nProbability drops (original - ablated):")
                 for i, drop in enumerate(prob_drop):
-                    orig = original_class_probs[i].item()
-                    abl = ablated_class_probs[i].item()
-                    cls = target_class_idx[i].item()
-                    print(
-                        f"  Sample {i} [class={cls}]: {drop.item():.6f} "
-                        f"({orig:.6f} - {abl:.6f})"
-                    )
+                    if drop == 0 and not positive_mask[i]:
+                        print(f"  Sample {i} [SKIP]: " f"0.000000 (negative class)")
+                    else:
+                        orig = original_class_probs[i].item()
+                        abl = ablated_class_probs[i].item()
+                        print(
+                            f"  Sample {i} [EVAL]: {drop.item():.6f} "
+                            f"({orig:.6f} - {abl:.6f})"
+                        )
 
                 # Check for unexpected negative values
-                evaluated_drops = prob_drop[val_mask]
+                evaluated_drops = prob_drop[positive_mask]
                 neg_mask = evaluated_drops < 0
                 if neg_mask.any():
                     neg_count = neg_mask.sum().item()
@@ -507,15 +511,15 @@ class RemovalBasedMetric(ABC):
                         print("    - Attribution quality may be poor")
 
             if return_per_percentage:
-                results[percentage] = prob_drop # type: ignore
+                results[percentage] = prob_drop
             else:
                 # Accumulate for averaging
-                metric_scores = metric_scores + prob_drop # type: ignore
+                metric_scores = metric_scores + prob_drop
 
         # Return appropriate format
         if return_per_percentage:
-            return results # type: ignore
+            return results
         else:
             # Average across percentages
-            metric_scores = metric_scores / len(self.percentages) # type: ignore
-            return metric_scores, val_mask
+            metric_scores = metric_scores / len(self.percentages)
+            return metric_scores, valid_mask

@@ -365,9 +365,8 @@ class GIM(BaseInterpreter):
         """Compute GIM attributions for a batch.
 
         Args:
-            target_class_idx: Target class index for attribution. For
-                binary classification (single logit output), this is a
-                no-op. If None, uses the argmax of model output.
+            target_class_idx: Target class index for attribution. If None,
+                uses the model's predicted class.
             **kwargs: Input data dictionary from a dataloader batch containing
                 feature tensors or tuples of tensors for each modality, plus
                 optional label tensors.
@@ -420,7 +419,35 @@ class GIM(BaseInterpreter):
         with torch.no_grad():
             base_logits = self.model.forward(**inputs)["logit"]
 
-        target_indices = self._resolve_target_indices(base_logits, target_class_idx)
+        mode = self._prediction_mode()
+        if mode == "binary":
+            if target_class_idx is not None:
+                target = torch.tensor([target_class_idx], device=device)
+            else:
+                target = (torch.sigmoid(base_logits) > 0.5).long()
+        elif mode == "multiclass":
+            if target_class_idx is not None:
+                target = F.one_hot(
+                    torch.tensor(target_class_idx, device=device),
+                    num_classes=base_logits.shape[-1],
+                ).float()
+            else:
+                target = torch.argmax(base_logits, dim=-1)
+                target = F.one_hot(
+                    target, num_classes=base_logits.shape[-1]
+                ).float()
+        elif mode == "multilabel":
+            if target_class_idx is not None:
+                target = F.one_hot(
+                    torch.tensor(target_class_idx, device=device),
+                    num_classes=base_logits.shape[-1],
+                ).float()
+            else:
+                target = (torch.sigmoid(base_logits) > 0.5).float()
+        else:
+            raise ValueError(
+                "Unsupported prediction mode for GIM attribution."
+            )
 
         # Embed values and detach for gradient attribution.
         # Split features by type using is_token():
@@ -494,7 +521,7 @@ class GIM(BaseInterpreter):
             output = self.model.forward_from_embedding(**forward_inputs)
 
             logits = output["logit"]  # type: ignore[assignment]
-            target_output = self._compute_target_output(logits, target_indices)
+            target_output = self._compute_target_output(logits, target)
 
             # Clear stale gradients, then backpropagate through the
             # GIM-modified computational graph.
@@ -525,23 +552,39 @@ class GIM(BaseInterpreter):
     def _compute_target_output(
         self,
         logits: torch.Tensor,
-        target_indices: torch.Tensor,
+        target: torch.Tensor,
     ) -> torch.Tensor:
         """Compute scalar target output for backpropagation.
 
-        Selects the target-class logit for each sample and sums over
-        the batch to produce a single differentiable scalar.
+        Creates a differentiable scalar from the model logits that,
+        when differentiated, gives the gradient of the target class
+        logit w.r.t. the input.
 
         Args:
-            logits: Model output logits, shape [batch, num_classes].
-            target_indices: [batch] tensor of target class indices.
+            logits: Model output logits, shape [batch, num_classes] or
+                [batch, 1].
+            target: Target tensor. For binary: [batch] or [1] with 0/1
+                class indices. For multiclass/multilabel: [batch, num_classes]
+                one-hot or multi-hot tensor.
 
         Returns:
             Scalar tensor for backpropagation.
         """
-        return logits.gather(
-            1, target_indices.unsqueeze(1)
-        ).squeeze(1).sum()
+        target_f = target.to(logits.device).float()
+        mode = self._prediction_mode()
+
+        if mode == "binary":
+            while target_f.dim() < logits.dim():
+                target_f = target_f.unsqueeze(-1)
+            target_f = target_f.expand_as(logits)
+            signs = 2.0 * target_f - 1.0
+            return (signs * logits).sum()
+        else:
+            # multiclass or multilabel: target is one-hot/multi-hot
+            while target_f.dim() < logits.dim():
+                target_f = target_f.unsqueeze(0)
+            target_f = target_f.expand_as(logits)
+            return (target_f * logits).sum()
 
     # ------------------------------------------------------------------
     # Utility helpers

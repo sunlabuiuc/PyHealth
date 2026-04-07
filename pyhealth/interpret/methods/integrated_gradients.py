@@ -217,11 +217,9 @@ class IntegratedGradients(BaseInterpreter):
                 the integral. If None, uses self.steps (set during
                 initialization). More steps lead to better approximation but
                 slower computation.
-            target_class_idx: Target class index for attribution.
-                For binary classification (single logit output), this is
-                a no-op because there is only one output. For multi-class
-                or multi-label, specifies which class to explain. If None,
-                uses the argmax of model output.
+            target_class_idx: Target class index for attribution
+                computation. If None, uses the predicted class (argmax of
+                model output).
             **kwargs: Input data dictionary from a dataloader batch
                 containing:
                 - Feature keys (e.g., 'conditions', 'procedures'):
@@ -326,7 +324,35 @@ class IntegratedGradients(BaseInterpreter):
         with torch.no_grad():
             base_logits = self.model.forward(**inputs)["logit"]
 
-        target_indices = self._resolve_target_indices(base_logits, target_class_idx)
+        mode = self._prediction_mode()
+        if mode == "binary":
+            if target_class_idx is not None:
+                target = torch.tensor([target_class_idx], device=device)
+            else:
+                target = (torch.sigmoid(base_logits) > 0.5).long()
+        elif mode == "multiclass":
+            if target_class_idx is not None:
+                target = F.one_hot(
+                    torch.tensor(target_class_idx, device=device),
+                    num_classes=base_logits.shape[-1],
+                ).float()
+            else:
+                target = torch.argmax(base_logits, dim=-1)
+                target = F.one_hot(
+                    target, num_classes=base_logits.shape[-1]
+                ).float()
+        elif mode == "multilabel":
+            if target_class_idx is not None:
+                target = F.one_hot(
+                    torch.tensor(target_class_idx, device=device),
+                    num_classes=base_logits.shape[-1],
+                ).float()
+            else:
+                target = (torch.sigmoid(base_logits) > 0.5).float()
+        else:
+            raise ValueError(
+                "Unsupported prediction mode for Integrated Gradients attribution."
+            )
 
         # Generate baselines
         if baseline is None:
@@ -379,7 +405,7 @@ class IntegratedGradients(BaseInterpreter):
             xs=values,
             bs=baselines,
             steps=steps,
-            target_indices=target_indices,
+            target=target,
         )
 
         return self._map_to_input_shapes(attributions, shapes)
@@ -393,7 +419,7 @@ class IntegratedGradients(BaseInterpreter):
         xs: Dict[str, torch.Tensor],
         bs: Dict[str, torch.Tensor],
         steps: int,
-        target_indices: torch.Tensor,
+        target: torch.Tensor,
     ) -> Dict[str, torch.Tensor]:
         """Compute integrated gradients via Riemann sum approximation.
 
@@ -412,7 +438,8 @@ class IntegratedGradients(BaseInterpreter):
             xs: Input values (embedded if use_embeddings=True).
             bs: Baseline values (embedded if use_embeddings=True).
             steps: Number of interpolation steps.
-            target_indices: [batch] tensor of target class indices.
+            target: Target tensor for computing the scalar output to
+                differentiate (one-hot for multiclass, class idx for binary).
 
         Returns:
             Dictionary mapping feature keys to attribution tensors.
@@ -486,7 +513,7 @@ class IntegratedGradients(BaseInterpreter):
             logits = output["logit"]
 
             # Compute target output and backward pass
-            target_output = self._compute_target_output(logits, target_indices)
+            target_output = self._compute_target_output(logits, target)
 
             self.model.zero_grad()
             target_output.backward(retain_graph=True)
@@ -523,23 +550,41 @@ class IntegratedGradients(BaseInterpreter):
     def _compute_target_output(
         self,
         logits: torch.Tensor,
-        target_indices: torch.Tensor,
+        target: torch.Tensor,
     ) -> torch.Tensor:
         """Compute scalar target output for backpropagation.
 
-        Selects the target-class logit for each sample and sums over
-        the batch to produce a single differentiable scalar.
+        Creates a differentiable scalar from the model logits that,
+        when differentiated, gives the gradient of the target class
+        logit w.r.t. the input.
 
         Args:
-            logits: Model output logits, shape [batch, num_classes].
-            target_indices: [batch] tensor of target class indices.
+            logits: Model output logits, shape [batch, num_classes] or
+                [batch, 1].
+            target: Target tensor. For binary: [batch] or [1] with 0/1
+                class indices. For multiclass/multilabel: [batch, num_classes]
+                one-hot or multi-hot tensor.
 
         Returns:
             Scalar tensor for backpropagation.
         """
-        return logits.gather(
-            1, target_indices.unsqueeze(1)
-        ).squeeze(1).sum()
+        target_f = target.to(logits.device).float()
+        mode = self._prediction_mode()
+
+        if mode == "binary":
+            # target shape: [1] or [batch, 1] with 0/1 values
+            # Convert to signs: 0 -> -1, 1 -> 1
+            while target_f.dim() < logits.dim():
+                target_f = target_f.unsqueeze(-1)
+            target_f = target_f.expand_as(logits)
+            signs = 2.0 * target_f - 1.0
+            return (signs * logits).sum()
+        else:
+            # multiclass or multilabel: target is one-hot/multi-hot
+            while target_f.dim() < logits.dim():
+                target_f = target_f.unsqueeze(0)
+            target_f = target_f.expand_as(logits)
+            return (target_f * logits).sum()
 
     # ------------------------------------------------------------------
     # Baseline generation
