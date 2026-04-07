@@ -1,5 +1,4 @@
 from.kg_base import KGEBaseModel
-from pyhealth.datasets import SampleBaseDataset
 import torch
 
 
@@ -13,7 +12,7 @@ class RotatE(KGEBaseModel):
 
     def __init__(
         self, 
-        dataset: SampleBaseDataset, 
+        dataset,
         e_dim: int = 600, 
         r_dim: int = 300, 
         ns='adv', 
