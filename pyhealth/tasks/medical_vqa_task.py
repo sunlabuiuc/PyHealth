@@ -1,69 +1,101 @@
-"""Medical Visual Question Answering (VQA) task.
+"""Medical Visual Question Answering task for the VQA-RAD dataset.
 
-This module defines the task for medical VQA, where the model receives a
-medical image and a natural-language question and must predict the correct
-answer. The primary benchmark is VQA-RAD (Lau et al., 2018).
+This module defines :class:`MedicalVQATask`, which converts raw VQA-RAD
+patient events (each consisting of a radiology image, a clinical question,
+and a free-text answer) into image-question-answer samples suitable for
+multiclass classification.
 
-The task frames VQA as **multiclass classification** over a closed answer
-vocabulary extracted from the training set. This is the standard evaluation
-protocol used by MedFlamingo (Moor et al., 2023) and other medical VQA
-models on VQA-RAD.
+The task frames VQA as **closed-set multiclass classification** over the
+vocabulary of all answers seen during training.  At inference time the model
+selects the most probable answer from this fixed vocabulary.  Open-ended
+generation is supported separately via :meth:`~pyhealth.models.MedFlamingo.generate`.
+
+Paper:
+    Lau et al. "A dataset of clinically generated visual questions and
+    answers about radiology images." Scientific Data 5, 180251 (2018).
+    https://doi.org/10.1038/sdata.2018.251
 """
 
 from typing import Any, Dict, List
 
+from ..data import Patient
 from .base_task import BaseTask
 
 
 class MedicalVQATask(BaseTask):
-    """Task for medical Visual Question Answering (VQA).
+    """Task for medical visual question answering on the VQA-RAD dataset.
 
-    Expects a dataset with medical images, questions, and answers. Each
-    sample maps an (image, question) pair to a single answer string,
-    treated as a multiclass classification label.
+    Each sample pairs a radiology image with a clinical question and maps
+    the corresponding free-text answer to a class index.  The full answer
+    vocabulary is inferred from the training split by the PyHealth processor
+    pipeline.
+
+    Input schema:
+        - ``image`` (``"image"``): A radiology image path, processed by
+          :class:`~pyhealth.processors.ImageProcessor` into a
+          ``(3, 224, 224)`` float tensor.
+        - ``question`` (``"text"``): A free-text clinical question string
+          (returned as-is by :class:`~pyhealth.processors.TextProcessor`).
+
+    Output schema:
+        - ``answer`` (``"multiclass"``): The free-text answer string, encoded
+          as an integer class index by
+          :class:`~pyhealth.processors.MulticlassProcessor`.
 
     Attributes:
-        task_name: ``"MedicalVQA"``.
-        input_schema: ``{"image": "image", "question": "text"}``.
-        output_schema: ``{"answer": "multiclass"}``.
-
-    Note:
-        The ``"text"`` processor for ``"question"`` will tokenize the
-        question string. If your model needs raw strings instead, you
-        can override the processor in ``dataset.set_task()``. The assumed
-        schema here is a reasonable default -- adjust once Teammate A
-        confirms the final field names and processor types.
+        task_name: Unique identifier used for cache-key generation.
+        input_schema: Maps feature names to their processor type strings.
+        output_schema: Maps label names to their processor type strings.
 
     Examples:
-        >>> from pyhealth.datasets import VQARADDataset
         >>> from pyhealth.tasks import MedicalVQATask
-        >>> dataset = VQARADDataset(root="/path/to/vqarad")
         >>> task = MedicalVQATask()
-        >>> samples = dataset.set_task(task)
+        >>> task.task_name
+        'MedicalVQA'
+        >>> task.input_schema
+        {'image': 'image', 'question': 'text'}
+        >>> task.output_schema
+        {'answer': 'multiclass'}
     """
 
     task_name: str = "MedicalVQA"
     input_schema: Dict[str, str] = {"image": "image", "question": "text"}
     output_schema: Dict[str, str] = {"answer": "multiclass"}
 
-    def __call__(self, patient: Any) -> List[Dict[str, Any]]:
-        """Process a patient's VQA data into samples.
+    def __call__(self, patient: Patient) -> List[Dict[str, Any]]:
+        """Convert a VQA-RAD patient's events into image-question-answer samples.
 
-        Each event in the ``"vqarad"`` table becomes one (image, question,
-        answer) sample.
+        Iterates over all events of type ``"vqarad"`` attached to ``patient``
+        and emits one sample dict per event.  Events without a valid
+        ``image_path`` are included; the downstream
+        :class:`~pyhealth.processors.ImageProcessor` will raise an error if
+        the path does not point to a readable image file.
 
         Args:
-            patient: A patient object from :class:`~pyhealth.datasets.VQARADDataset`.
+            patient: A :class:`~pyhealth.data.Patient` object whose events
+                were populated by :class:`~pyhealth.datasets.VQARADDataset`.
 
         Returns:
-            A list of sample dicts, each with keys ``"image"``,
-            ``"question"``, and ``"answer"``.
+            A list of sample dicts, each with the keys:
+
+            - ``"patient_id"`` (:class:`str`): The patient identifier.
+            - ``"image"`` (:class:`str`): Absolute path to the radiology image.
+            - ``"question"`` (:class:`str`): The clinical question text.
+            - ``"answer"`` (:class:`str`): The free-text answer string (will be
+              encoded as an integer by the multiclass processor).
+
+        Example:
+            >>> # Typically called internally by BaseDataset.set_task()
+            >>> samples = dataset.set_task(MedicalVQATask())
+            >>> samples[0].keys()
+            dict_keys(['patient_id', 'image', 'question', 'answer'])
         """
+        samples = []
         events = patient.get_events(event_type="vqarad")
-        samples: List[Dict[str, Any]] = []
         for event in events:
             samples.append(
                 {
+                    "patient_id": patient.patient_id,
                     "image": event.image_path,
                     "question": event.question,
                     "answer": event.answer,
