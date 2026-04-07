@@ -396,9 +396,16 @@ class RemovalBasedMetric(ABC):
 
         batch_size = original_probs.shape[0]
 
-        # Classify samples using the filter function
+        # Classify samples using the filter function.
+        # For binary classifiers, pass raw P(class=1) so the filter can
+        # distinguish class-0 from class-1 predictions (class_probs is
+        # P(predicted class) which is always >= 0.5 for binary).
+        if self.classifier_type == "binary":
+            filter_probs = original_probs.squeeze(-1)  # raw P(class=1)
+        else:
+            filter_probs = original_class_probs  # P(predicted class)
         sample_classes = self._sample_filter(
-            original_class_probs, self.classifier_type
+            filter_probs, self.classifier_type
         )
 
         # Validity mask: IGNORE samples excluded
@@ -406,8 +413,6 @@ class RemovalBasedMetric(ABC):
 
         # Determine which samples to evaluate
         positive_mask = sample_classes != SampleClass.IGNORE
-        num_positive = positive_mask.sum().item()
-        num_negative = 0
 
         # For NEGATIVE samples, negate attributions so that
         # "top features" become those most important for the predicted
