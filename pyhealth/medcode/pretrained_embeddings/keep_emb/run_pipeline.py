@@ -129,17 +129,22 @@ def run_keep_pipeline(
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    # Support both .csv and .csv.gz (compressed Athena files)
     concept_csv = athena_dir / "CONCEPT.csv"
+    if not concept_csv.exists():
+        concept_csv = athena_dir / "CONCEPT.csv.gz"
     relationship_csv = athena_dir / "CONCEPT_RELATIONSHIP.csv"
+    if not relationship_csv.exists():
+        relationship_csv = athena_dir / "CONCEPT_RELATIONSHIP.csv.gz"
 
     if not concept_csv.exists():
         raise FileNotFoundError(
-            f"CONCEPT.csv not found in {athena_dir}. "
+            f"CONCEPT.csv(.gz) not found in {athena_dir}. "
             "Download Athena vocabularies from https://athena.ohdsi.org/"
         )
     if not relationship_csv.exists():
         raise FileNotFoundError(
-            f"CONCEPT_RELATIONSHIP.csv not found in {athena_dir}."
+            f"CONCEPT_RELATIONSHIP.csv(.gz) not found in {athena_dir}."
         )
 
     # Override params for dev/testing speed
