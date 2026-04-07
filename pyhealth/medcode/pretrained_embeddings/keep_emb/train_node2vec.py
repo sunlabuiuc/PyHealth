@@ -44,7 +44,7 @@ Evaluating Stage 1 ablations:
         for each config and compare AUPRC on a held-out clinical task.
         This is the gold standard but costs hours per config.
 
-Authors: Desmond Fung, Colton Loew, Lookman Olowo, Christiana Beard
+Authors: Colton Loew, Desmond Fung, Lookman Olowo, Christiana Beard
 Paper: Elhussein et al., "KEEP: Integrating Medical Ontologies with Clinical
        Data for Robust Code Embeddings", CHIL 2025.
 """

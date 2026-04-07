@@ -23,7 +23,7 @@ This module handles both MIMIC-III (ICD-9 only) and MIMIC-IV (mixed
 ICD-9 + ICD-10) by routing codes through the appropriate ICD-to-SNOMED
 mapping based on the ``icd_version`` column.
 
-Authors: Desmond Fung, Colton Loew, Lookman Olowo, Christiana Beard
+Authors: Colton Loew, Desmond Fung, Lookman Olowo, Christiana Beard
 Paper: Elhussein et al., "KEEP: Integrating Medical Ontologies with Clinical
        Data for Robust Code Embeddings", CHIL 2025.
 """

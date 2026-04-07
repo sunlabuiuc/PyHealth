@@ -28,7 +28,7 @@ Athena file format:
     - CONCEPT.csv: concept_id, concept_name, domain_id, vocabulary_id, ...
     - CONCEPT_RELATIONSHIP.csv: concept_id_1, concept_id_2, relationship_id, ...
 
-Authors: Desmond Fung, Colton Loew, Lookman Olowo, Christiana Beard
+Authors: Colton Loew, Desmond Fung, Lookman Olowo, Christiana Beard
 Paper: Elhussein et al., "KEEP: Integrating Medical Ontologies with Clinical
        Data for Robust Code Embeddings", CHIL 2025.
 """
