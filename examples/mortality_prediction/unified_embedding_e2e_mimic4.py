@@ -183,11 +183,17 @@ def run(args: argparse.Namespace) -> Path:
         else None
     )
 
+    # Experiment name encodes model + seed for easy log separation
+    exp_name = f"{args.model}_seed{args.seed}"
+    output_dir = Path(args.output_dir)
+
     trainer = Trainer(
         model=model,
-        metrics=["accuracy"],
+        metrics=["pr_auc", "roc_auc", "accuracy"],
         device=args.device,
-        enable_logging=False,
+        enable_logging=True,
+        output_path=str(output_dir),
+        exp_name=exp_name,
     )
 
     if args.epochs > 0 and len(train_ds) > 0:
@@ -196,8 +202,8 @@ def run(args: argparse.Namespace) -> Path:
             val_dataloader=val_loader,
             epochs=args.epochs,
             optimizer_params={"lr": args.lr},
-            monitor=None,
-            load_best_model_at_last=False,
+            monitor="pr_auc",
+            load_best_model_at_last=True,
         )
 
     inference_loader = test_loader or val_loader or train_loader
@@ -205,8 +211,7 @@ def run(args: argparse.Namespace) -> Path:
         inference_loader, return_patient_ids=True
     )
 
-    output_dir = Path(args.output_dir)
-    output_csv = output_dir / f"predictions_{args.model}.csv"
+    output_csv = output_dir / exp_name / f"predictions_{args.model}.csv"
     _write_predictions(output_csv, patient_ids, y_true, y_prob)
     return output_csv
 
