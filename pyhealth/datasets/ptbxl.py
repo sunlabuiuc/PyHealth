@@ -1,4 +1,3 @@
-import ast
 import os
 from typing import Optional
 
@@ -32,10 +31,6 @@ class PTBXLDataset(BaseDataset):
         metadata_path = os.path.join(self.root, "ptbxl_database.csv")
         df = pd.read_csv(metadata_path)
 
-        if self.dev:
-            df = df.head(10)
-
-        # Keep only the fields we need for the task
         event_df = pd.DataFrame(
             {
                 "patient_id": df["patient_id"].astype(str),
