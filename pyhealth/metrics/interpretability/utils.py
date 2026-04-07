@@ -135,7 +135,10 @@ def get_model_predictions(
         if target_class_idx is None:
             target_class_idx = torch.argmax(y_prob, dim=-1)
 
-        y_prob = y_prob[target_class_idx]
+        y_prob = y_prob.gather(
+            dim=-1,
+            index=target_class_idx.unsqueeze(-1),
+        ).squeeze(-1)
 
         # Apply sample filter
         if sample_class is None:
@@ -147,6 +150,5 @@ def get_model_predictions(
         target_class_idx[sample_class == SampleClass.IGNORE] = 0  # Mark ignored samples with invalid class index
         
         return y_prob, target_class_idx, sample_class
-
 
 
