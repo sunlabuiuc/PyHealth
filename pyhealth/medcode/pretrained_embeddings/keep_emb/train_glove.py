@@ -38,7 +38,7 @@ Hyperparameters from KEEP paper (Appendix A.3, Table 6):
     rather than L2 distance. We implement cosine distance to match the
     code, with L2 as a configurable alternative.
 
-Authors: Desmond Fung, Colton Loew, Lookman Olowo, Christiana Beard
+Authors: Colton Loew, Desmond Fung, Lookman Olowo, Christiana Beard
 Paper: Elhussein et al., "KEEP: Integrating Medical Ontologies with Clinical
        Data for Robust Code Embeddings", CHIL 2025.
 """
