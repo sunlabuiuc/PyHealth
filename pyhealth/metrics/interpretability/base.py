@@ -11,7 +11,11 @@ import torch
 
 from pyhealth.models import BaseModel
 
-from .utils import create_validity_mask, get_model_predictions
+from .utils import (
+    SampleClass,
+    SampleFilterFn,
+    get_model_predictions,
+)
 
 
 class RemovalBasedMetric(ABC):
@@ -30,8 +34,15 @@ class RemovalBasedMetric(ABC):
             - 'mean': Set ablated features to feature mean across batch
             - 'noise': Add Gaussian noise to ablated features
             Default: 'zero'.
-        positive_threshold: Threshold for positive class in binary
-            classification. Default: 0.5.
+        sample_filter: A callable that classifies each sample for evaluation.
+            Signature: (class_probs, classifier_type) -> sample_classes
+            where class_probs has shape (batch_size,) and contains the
+            probability for the predicted class (sigmoid/softmax output
+            with target class already applied), and sample_classes is a
+            tensor of SampleClass values.
+            - SampleClass.POSITIVE: evaluate with attributions as-is
+            - SampleClass.NEGATIVE: evaluate with negated attributions
+            - SampleClass.IGNORE: exclude from evaluation
     """
 
     def __init__(
@@ -39,12 +50,13 @@ class RemovalBasedMetric(ABC):
         model: BaseModel,
         percentages: List[float] = [1, 5, 10, 20, 50],
         ablation_strategy: str = "zero",
-        positive_threshold: float = 0.5,
+        *,
+        sample_filter: SampleFilterFn,
     ):
         self.model = model
         self.percentages = percentages
         self.ablation_strategy = ablation_strategy
-        self._positive_threshold = positive_threshold
+        self._sample_filter = sample_filter
         self.model.eval()
 
         # Detect classifier type from model
@@ -377,7 +389,6 @@ class RemovalBasedMetric(ABC):
             inputs=inputs,
             classifier_type=self.classifier_type,
             pred_classes=predicted_class,
-            positive_threshold=self._positive_threshold,
         )
 
         if predicted_class is not None:
@@ -385,34 +396,32 @@ class RemovalBasedMetric(ABC):
 
         batch_size = original_probs.shape[0]
 
-        # Create validity mask using helper
-        valid_mask = create_validity_mask(
-            original_probs,
-            self.classifier_type,
-            self._positive_threshold,
+        # Classify samples using the filter function
+        sample_classes = self._sample_filter(
+            original_class_probs, self.classifier_type
         )
 
-        # All samples are evaluated regardless of predicted class
-        positive_mask = torch.ones(
-            batch_size, dtype=torch.bool, device=original_probs.device
-        )
-        num_positive = batch_size
+        # Validity mask: IGNORE samples excluded
+        valid_mask = sample_classes != SampleClass.IGNORE
+
+        # Determine which samples to evaluate
+        positive_mask = sample_classes != SampleClass.IGNORE
+        num_positive = positive_mask.sum().item()
         num_negative = 0
 
-        # For binary class 0 predictions, negate attributions so that
+        # For NEGATIVE samples, negate attributions so that
         # "top features" become those most important for the predicted
         # class (features with low class-1 attribution support class 0).
-        if self.classifier_type == "binary":
-            neg_mask = pred_classes == 0
-            if neg_mask.any():
-                attributions = {
-                    key: torch.where(
-                        neg_mask.view(-1, *([1] * (attr.dim() - 1))),
-                        -attr,
-                        attr,
-                    )
-                    for key, attr in attributions.items()
-                }
+        neg_mask = sample_classes == SampleClass.NEGATIVE
+        if neg_mask.any():
+            attributions = {
+                key: torch.where(
+                    neg_mask.view(-1, *([1] * (attr.dim() - 1))),
+                    -attr,
+                    attr,
+                )
+                for key, attr in attributions.items()
+            }
 
         # Debug output (if requested and returning per percentage)
         if debug and return_per_percentage:
@@ -466,7 +475,6 @@ class RemovalBasedMetric(ABC):
                 inputs=ablated_inputs,
                 pred_classes=pred_classes, # Use same predicted classes from original to avoid shifts
                 classifier_type=self.classifier_type,
-                positive_threshold=self._positive_threshold,
             )
 
             # Compute probability drop

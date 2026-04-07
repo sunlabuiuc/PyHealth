@@ -4,7 +4,8 @@ This module provides high-level interfaces for evaluating attribution methods
 using removal-based metrics like Comprehensiveness and Sufficiency.
 """
 
-from typing import Dict, List
+from typing import Dict, List, Optional
+import warnings
 
 import torch
 
@@ -12,6 +13,7 @@ from pyhealth.models import BaseModel
 
 from .comprehensiveness import ComprehensivenessMetric
 from .sufficiency import SufficiencyMetric
+from .utils import SampleClass, SampleFilterFn, threshold_sample_filter
 
 
 class Evaluator:
@@ -30,16 +32,44 @@ class Evaluator:
             - 'mean': Set ablated features to feature mean across batch
             - 'noise': Add Gaussian noise to ablated features
             Default: 'zero'.
-        positive_threshold: Threshold for positive class in binary
-            classification. Samples with P(class=1) >= threshold are
-            considered valid for evaluation. Default: 0.5.
+        sample_filter: A callable that classifies each sample for evaluation.
+            Signature: (class_probs, classifier_type) -> sample_classes
+            where class_probs has shape (batch_size,) and contains the
+            probability for the predicted class (sigmoid/softmax output
+            with target class already applied), and sample_classes is a
+            tensor of SampleClass values:
+            - SampleClass.POSITIVE: evaluate with attributions as-is
+            - SampleClass.NEGATIVE: evaluate with negated attributions
+            - SampleClass.IGNORE: exclude from evaluation
+            If None, uses default_sample_filter.
+        positive_threshold: .. deprecated::
+            This parameter is deprecated and will be removed in a future
+            release. Use ``sample_filter`` with
+            :func:`threshold_sample_filter` instead.
+            Threshold for positive class in binary classification.
+            Default: None.
 
     Examples:
         >>> from pyhealth.models import StageNet
         >>> from pyhealth.metrics.interpretability import Evaluator
+        >>> from pyhealth.metrics.interpretability.utils import (
+        ...     SampleClass,
+        ...     threshold_sample_filter,
+        ... )
         >>>
-        >>> # Initialize evaluator
+        >>> # Initialize evaluator with default filter
         >>> evaluator = Evaluator(model)
+        >>>
+        >>> # Initialize with custom filter that ignores low-confidence
+        >>> def confident_filter(class_probs, classifier_type):
+        ...     batch_size = class_probs.shape[0]
+        ...     result = torch.full(
+        ...         (batch_size,), SampleClass.POSITIVE,
+        ...         dtype=torch.long, device=class_probs.device,
+        ...     )
+        ...     result[class_probs < 0.6] = SampleClass.IGNORE
+        ...     return result
+        >>> evaluator = Evaluator(model, sample_filter=confident_filter)
         >>>
         >>> # Evaluate on a single batch
         >>> inputs = {'conditions': torch.randn(32, 50)}
@@ -61,24 +91,53 @@ class Evaluator:
         model: BaseModel,
         percentages: List[float] = [1, 5, 10, 20, 50],
         ablation_strategy: str = "zero",
-        positive_threshold: float = 0.5,
+        sample_filter: Optional[SampleFilterFn] = None,
+        positive_threshold: Optional[float] = None,
     ):
         self.model = model
         self.percentages = percentages
         self.ablation_strategy = ablation_strategy
         self.positive_threshold = positive_threshold
+
+        # Resolve the effective sample filter:
+        #   1. explicit sample_filter wins
+        #   2. positive_threshold → threshold_sample_filter(positive_threshold)
+        #   3. fallback → default (threshold_sample_filter(0.5))
+        if sample_filter is not None:
+            if positive_threshold is not None:
+                warnings.warn(
+                    "Both sample_filter and positive_threshold were given. "
+                    "sample_filter takes precedence; positive_threshold is "
+                    "ignored.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+            resolved_filter = sample_filter
+        elif positive_threshold is not None:
+            warnings.warn(
+                "positive_threshold is deprecated and will be removed in a "
+                "future release. Use sample_filter with "
+                "threshold_sample_filter() instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            resolved_filter = threshold_sample_filter(positive_threshold)
+        else:
+            resolved_filter = threshold_sample_filter(0.5)
+
+        self.sample_filter = resolved_filter
         self.metrics = {
             "comprehensiveness": ComprehensivenessMetric(
                 model,
                 percentages=percentages,
                 ablation_strategy=ablation_strategy,
-                positive_threshold=positive_threshold,
+                sample_filter=resolved_filter,
             ),
             "sufficiency": SufficiencyMetric(
                 model,
                 percentages=percentages,
                 ablation_strategy=ablation_strategy,
-                positive_threshold=positive_threshold,
+                sample_filter=resolved_filter,
             ),
         }
 
@@ -334,13 +393,12 @@ class Evaluator:
             print("  - Most predictions are negative class")
             print("  - Consider:")
             print("    * Checking model predictions distribution")
-            print("    * Adjusting positive_threshold parameter")
+            print("    * Adjusting sample_filter to include more samples")
             print("    * Using balanced test set")
 
         print(f"{'='*70}\n")
 
         return results
-
 
 # Functional API (wraps Evaluator for convenience)
 def evaluate_attribution(
@@ -350,7 +408,8 @@ def evaluate_attribution(
     metrics: List[str] = ["comprehensiveness", "sufficiency"],
     percentages: List[float] = [1, 5, 10, 20, 50],
     ablation_strategy: str = "zero",
-    positive_threshold: float = 0.5,
+    sample_filter: Optional[SampleFilterFn] = None,
+    positive_threshold: Optional[float] = None,
 ) -> Dict[str, float]:
     """Evaluate an attribution method across a dataset (functional API).
 
@@ -374,27 +433,37 @@ def evaluate_attribution(
             - 'mean': Set ablated features to feature mean across batch
             - 'noise': Add Gaussian noise to ablated features
             Default: 'zero'.
-        positive_threshold: Threshold for positive class in binary
-            classification. Samples with P(class=1) >= threshold are
-            considered valid for evaluation. Default: 0.5.
+        sample_filter: A callable that classifies each sample for
+            evaluation. Signature:
+            (class_probs, classifier_type) -> sample_classes
+            where class_probs has shape (batch_size,) and contains the
+            probability for the predicted class (sigmoid/softmax output
+            with target class already applied), and sample_classes is a
+            tensor of SampleClass values:
+            - SampleClass.POSITIVE: evaluate with attributions as-is
+            - SampleClass.NEGATIVE: evaluate with negated attributions
+            - SampleClass.IGNORE: exclude from evaluation
+            If None, uses default_sample_filter.
+        positive_threshold: .. deprecated::
+            This parameter is deprecated and will be removed in a future
+            release. Use ``sample_filter`` with
+            :func:`threshold_sample_filter` instead.
+            Threshold for positive class in binary classification.
+            Default: None.
 
     Returns:
         Dictionary mapping metric names to their average scores
         across the entire dataset. Averaging uses mask-based filtering
-        to include only valid samples (positive predictions for binary).
+        to exclude IGNORE samples.
 
         Example: {'comprehensiveness': 0.345, 'sufficiency': 0.123}
-
-    Note:
-        For binary classifiers, only samples with P(class=1) >= threshold
-        are included in the average, as ablation metrics are not
-        meaningful for negative predictions.
 
     Examples:
         >>> from pyhealth.interpret.methods import IntegratedGradients
         >>> from pyhealth.metrics.interpretability import (
         ...     evaluate_attribution
         ... )
+        >>> from pyhealth.metrics.interpretability.utils import SampleClass
         >>>
         >>> # Simple one-off evaluation
         >>> ig = IntegratedGradients(model, use_embeddings=True)
@@ -405,10 +474,18 @@ def evaluate_attribution(
         ... )
         >>> print(f"Comprehensiveness: {results['comprehensiveness']:.4f}")
         >>>
-        >>> # Custom threshold for binary classification
+        >>> # Custom filter to ignore uncertain predictions
+        >>> def ignore_uncertain(class_probs, classifier_type):
+        ...     batch_size = class_probs.shape[0]
+        ...     result = torch.full(
+        ...         (batch_size,), SampleClass.POSITIVE,
+        ...         dtype=torch.long, device=class_probs.device,
+        ...     )
+        ...     result[class_probs < 0.7] = SampleClass.IGNORE
+        ...     return result
         >>> results = evaluate_attribution(
         ...     model, test_loader, ig,
-        ...     positive_threshold=0.7  # Only evaluate high-confidence
+        ...     sample_filter=ignore_uncertain,
         ... )
         >>>
         >>> # For comparing multiple methods efficiently, use Evaluator:
@@ -423,6 +500,7 @@ def evaluate_attribution(
         model,
         percentages=percentages,
         ablation_strategy=ablation_strategy,
+        sample_filter=sample_filter,
         positive_threshold=positive_threshold,
     )
     return evaluator.evaluate_attribution(dataloader, method, metrics=metrics)
