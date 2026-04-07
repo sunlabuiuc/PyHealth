@@ -32,7 +32,6 @@ from .length_of_stay_stagenet_mimic4 import LengthOfStayStageNetMIMIC4
 from .medical_coding import MIMIC3ICD9Coding
 from .medical_vqa_task import MedicalVQATask
 from .medical_transcriptions_classification import MedicalTranscriptionsClassification
-from .medical_vqa_task import MedicalVQATask
 from .mortality_prediction import (
     MortalityPredictionEICU,
     MortalityPredictionEICU2,
