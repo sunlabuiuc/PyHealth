@@ -86,8 +86,9 @@ def get_model_predictions(
     model: BaseModel,
     inputs: Dict[str, torch.Tensor],
     classifier_type: str,
-    pred_classes: Optional[torch.Tensor] = None,
-    positive_threshold: float = 0.5,
+    sample_filter: Optional[SampleFilterFn] = None,
+    sample_class: Optional[torch.Tensor] = None,
+    target_class_idx: Optional[torch.Tensor] = None,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Get model predictions, probabilities, and class-specific probabilities.
 
@@ -95,18 +96,22 @@ def get_model_predictions(
         model: PyHealth BaseModel that returns dict with 'y_prob' or 'logit'
         inputs: Model inputs dict
         classifier_type: One of 'binary', 'multiclass', 'multilabel', 'unknown'
-        pred_classes: (Optional) Pre-computed predicted classes, this would ensure ablated runs
+        target_class_idx: (Optional) Pre-computed target class indices, this would ensure ablated runs
                       are consistent with original predictions. If None, will compute from model outputs.
-        positive_threshold: Threshold for binary classification (default: 0.5)
+        sample_filter: A callable that classifies each sample for evaluation.
+            Signature: (class_probs, classifier_type) -> sample_classes
+            where class_probs has shape (batch_size,) and contains the
+            probability for the predicted class (sigmoid/softmax output
+            with target class already applied), and sample_classes is a
+            tensor of SampleClass values.
 
     Returns:
-        Tuple of (y_prob, pred_classes, class_probs):
+        Tuple of (y_prob, target_class_idx, sample_classes):
         - y_prob: All class probabilities
             - Binary: shape (batch_size, 1), values are P(class=1)
             - Multiclass: shape (batch_size, num_classes)
-        - pred_classes: Predicted class indices, shape (batch_size,)
-        - class_probs: Probability for each sample's predicted class,
-            shape (batch_size,)
+        - target_class_idx: Target class indices, shape (batch_size,)
+        - sample_classes: SampleClass values for each sample, shape (batch_size,)
     """
     with torch.no_grad():
         outputs = model(**inputs)
@@ -116,7 +121,7 @@ def get_model_predictions(
             y_prob = outputs["y_prob"]
         elif "logit" in outputs:
             logits = outputs["logit"]
-            if classifier_type == "binary":
+            if classifier_type in ["binary", "multilabel"]:
                 y_prob = torch.sigmoid(logits)
             else:
                 y_prob = F.softmax(logits, dim=-1)
@@ -127,22 +132,21 @@ def get_model_predictions(
         if y_prob.dim() == 1:
             y_prob = y_prob.unsqueeze(-1)
 
-        # Get predicted classes based on classifier type
-        if classifier_type == "binary":
-            # For binary: class 1 if P(class=1) >= threshold, else 0
-            pred_classes = (y_prob.squeeze(-1) >= positive_threshold).long() if pred_classes is None else pred_classes
-            # For binary, class_probs is P(predicted_class)
-            # class 1: P(class=1), class 0: 1 - P(class=1)
-            p1 = y_prob.squeeze(-1)
-            class_probs = torch.where(pred_classes == 1, p1, 1 - p1)
-        else:
-            # For multiclass/multilabel: argmax
-            pred_classes = torch.argmax(y_prob, dim=-1) if pred_classes is None else pred_classes
-            # Gather probabilities for predicted classes
-            class_probs = y_prob.gather(1, pred_classes.unsqueeze(1)).squeeze(1)
-        assert pred_classes is not None, "pred_classes should have been set either by input or computation."
+        if target_class_idx is None:
+            target_class_idx = torch.argmax(y_prob, dim=-1)
 
-        return y_prob, pred_classes, class_probs
+        y_prob = y_prob[target_class_idx]
+
+        # Apply sample filter
+        if sample_class is None:
+            if sample_filter is None:
+                raise ValueError("sample_filter must be provided if sample_class is None")
+            sample_class = sample_filter(y_prob, classifier_type)
+        
+        y_prob[sample_class == SampleClass.IGNORE] = 0.0  # Set ignored samples' probs to 0
+        target_class_idx[sample_class == SampleClass.IGNORE] = 0  # Mark ignored samples with invalid class index
+        
+        return y_prob, target_class_idx, sample_class
 
 
 
