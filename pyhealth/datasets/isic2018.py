@@ -95,13 +95,11 @@ VALID_TASKS = ("task3", "task1_2")
 #   - ISIC2018_Task3_Training_GroundTruth.zip: verified ✓
 #   - ISIC2018_Task1_Training_GroundTruth.zip: verified ✓
 #
-# Large files with multipart uploads (ETag has -N suffix, not usable):
-#   - ISIC2018_Task3_Training_Input.zip: requires download (~2.6 GB)
-#   - ISIC2018_Task1-2_Training_Input.zip: requires download (~10.4 GB)
-_CHECKSUMS: Dict[str, Optional[str]] = {
+# MD5 checksums for all four ZIP archives (sourced from archive.org metadata).
+_CHECKSUMS: Dict[str, str] = {
     "ISIC2018_Task3_Training_GroundTruth.zip": "8302427e4ce0c107559531b9f444abe9",
-    "ISIC2018_Task3_Training_Input.zip": None,  # 2.6 GB - multipart, TODO
-    "ISIC2018_Task1-2_Training_Input.zip": None,  # 10.4 GB - multipart, TODO
+    "ISIC2018_Task3_Training_Input.zip": "0c281f121070a8d63457caffcdec439a",
+    "ISIC2018_Task1-2_Training_Input.zip": "8b5be801f37b58ccf533df2928a5906b",
     "ISIC2018_Task1_Training_GroundTruth.zip": "ee5e5db7771d48fa2613abc7cb5c24e2",
 }
 
