@@ -25,9 +25,6 @@ def prepare_drug_task_data():
     mimicvi = MIMIC4Dataset(
         root="/srv/local/data/physionet.org/files/mimiciv/2.0/hosp",
         tables=["diagnoses_icd", "procedures_icd", "prescriptions"],
-        code_mapping={"NDC": ("ATC", {"target_kwargs": {"level": 3}})},
-        dev=_DEV,
-        refresh_cache=False,
     )
 
     print("stat")
