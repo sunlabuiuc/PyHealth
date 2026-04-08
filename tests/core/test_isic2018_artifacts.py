@@ -220,7 +220,6 @@ class TestISIC2018ArtifactsDataset(unittest.TestCase):
             mock_resp.raise_for_status.assert_called_once()
             self.assertTrue(Path(tmpdir, "isic_bias.csv").exists())
 
-
     def test_download_images_skipped_when_dirs_exist(self):
         """_download_images should not call requests.get if extracted dirs exist."""
         from pyhealth.datasets.isic2018_artifacts import _IMAGES_DIR, _MASKS_DIR
@@ -229,7 +228,8 @@ class TestISIC2018ArtifactsDataset(unittest.TestCase):
             os.makedirs(os.path.join(tmpdir, _IMAGES_DIR))
             os.makedirs(os.path.join(tmpdir, _MASKS_DIR))
             obj = ISIC2018ArtifactsDataset.__new__(ISIC2018ArtifactsDataset)
-            with patch("pyhealth.datasets.isic2018_artifacts._download_file") as mock_dl:
+            mock_path = "pyhealth.datasets.isic2018_artifacts._download_file"
+            with patch(mock_path) as mock_dl:
                 obj._download_images(tmpdir)
                 mock_dl.assert_not_called()
 
@@ -383,9 +383,10 @@ class TestISIC2018ArtifactsDownload(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             obj = ISIC2018ArtifactsDataset.__new__(ISIC2018ArtifactsDataset)
-            with patch("pyhealth.datasets.isic2018_artifacts._download_file") as mock_dl, \
-                 patch("pyhealth.datasets.isic2018_artifacts._extract_zip"), \
-                 patch("pyhealth.datasets.isic2018_artifacts.os.remove"):
+            dl_path = "pyhealth.datasets.isic2018_artifacts._download_file"
+            zip_path = "pyhealth.datasets.isic2018_artifacts._extract_zip"
+            rm_path = "pyhealth.datasets.isic2018_artifacts.os.remove"
+            with patch(dl_path) as mock_dl, patch(zip_path), patch(rm_path):
                 obj._download_images(tmpdir)
             self.assertEqual(mock_dl.call_count, 2)
 
@@ -396,9 +397,10 @@ class TestISIC2018ArtifactsDownload(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             os.makedirs(os.path.join(tmpdir, _IMAGES_DIR))
             obj = ISIC2018ArtifactsDataset.__new__(ISIC2018ArtifactsDataset)
-            with patch("pyhealth.datasets.isic2018_artifacts._download_file") as mock_dl, \
-                 patch("pyhealth.datasets.isic2018_artifacts._extract_zip"), \
-                 patch("pyhealth.datasets.isic2018_artifacts.os.remove"):
+            dl_path = "pyhealth.datasets.isic2018_artifacts._download_file"
+            zip_path = "pyhealth.datasets.isic2018_artifacts._extract_zip"
+            rm_path = "pyhealth.datasets.isic2018_artifacts.os.remove"
+            with patch(dl_path) as mock_dl, patch(zip_path), patch(rm_path):
                 obj._download_images(tmpdir)
             self.assertEqual(mock_dl.call_count, 1)
 
@@ -409,9 +411,10 @@ class TestISIC2018ArtifactsDownload(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             os.makedirs(os.path.join(tmpdir, _MASKS_DIR))
             obj = ISIC2018ArtifactsDataset.__new__(ISIC2018ArtifactsDataset)
-            with patch("pyhealth.datasets.isic2018_artifacts._download_file") as mock_dl, \
-                 patch("pyhealth.datasets.isic2018_artifacts._extract_zip"), \
-                 patch("pyhealth.datasets.isic2018_artifacts.os.remove"):
+            dl_path = "pyhealth.datasets.isic2018_artifacts._download_file"
+            zip_path = "pyhealth.datasets.isic2018_artifacts._extract_zip"
+            rm_path = "pyhealth.datasets.isic2018_artifacts.os.remove"
+            with patch(dl_path) as mock_dl, patch(zip_path), patch(rm_path):
                 obj._download_images(tmpdir)
             self.assertEqual(mock_dl.call_count, 1)
 
@@ -439,11 +442,15 @@ class TestISIC2018ArtifactsDownload(unittest.TestCase):
     def test_constructor_download_true_calls_both_downloads(self):
         """download=True triggers both _download_bias_csv and _download_images."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            with patch.object(ISIC2018ArtifactsDataset, "_download_bias_csv") as mock_csv, \
-                 patch.object(ISIC2018ArtifactsDataset, "_download_images") as mock_img, \
-                 patch.object(ISIC2018ArtifactsDataset, "_verify_data"), \
-                 patch.object(ISIC2018ArtifactsDataset, "_index_data", return_value=None), \
-                 patch("pyhealth.datasets.base_dataset.BaseDataset.__init__"):
+            with patch.object(
+                ISIC2018ArtifactsDataset, "_download_bias_csv"
+            ) as mock_csv, patch.object(
+                ISIC2018ArtifactsDataset, "_download_images"
+            ) as mock_img, patch.object(
+                ISIC2018ArtifactsDataset, "_verify_data"
+            ), patch.object(
+                ISIC2018ArtifactsDataset, "_index_data", return_value=None
+            ), patch("pyhealth.datasets.base_dataset.BaseDataset.__init__"):
                 obj = ISIC2018ArtifactsDataset.__new__(ISIC2018ArtifactsDataset)
                 obj.mode = "whole"
                 obj.annotations_csv = "isic_bias.csv"

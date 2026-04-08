@@ -114,7 +114,7 @@ class TestISIC2018Dataset(unittest.TestCase):
             self.assertTrue(os.path.isfile(event["path"]))
 
     def test_rgb_processor_produces_tensor(self):
-        # RGB images should produce 3-channel tensors (C, H, W) when using ImageProcessor
+        # RGB images should produce 3-channel tensors (C, H, W)
         sample = self.samples[0]
         self.assertEqual(sample["image"].shape[0], 3)
 
@@ -198,7 +198,7 @@ class TestISIC2018Task12Dataset(unittest.TestCase):
             ).save(mask_path)
             cls._generated_masks.append(mask_path)
 
-    # ── Construction ──────────────────────────────────────────────────────────
+    # ── Construction ──────────────────────────────────────────
 
     def test_invalid_task_raises(self):
         with self.assertRaises(ValueError):
@@ -210,7 +210,7 @@ class TestISIC2018Task12Dataset(unittest.TestCase):
     def test_default_task_is_none(self):
         self.assertIsNone(self.dataset.default_task)
 
-    # ── Config / metadata files ───────────────────────────────────────────────
+    # ── Config / metadata files ───────────────────────────────
 
     def test_metadata_csv_created(self):
         self.assertTrue((self.root / "isic2018-task12-metadata-pyhealth.csv").exists())
@@ -218,7 +218,7 @@ class TestISIC2018Task12Dataset(unittest.TestCase):
     def test_config_yaml_created(self):
         self.assertTrue((self.root / "isic2018-task12-config-pyhealth.yaml").exists())
 
-    # ── Event attributes ──────────────────────────────────────────────────────
+    # ── Event attributes ──────────────────────────────────────
 
     def test_event_has_image_id(self):
         pid = sorted(self.dataset.unique_patient_ids)[0]
@@ -251,7 +251,7 @@ class TestISIC2018Task12Dataset(unittest.TestCase):
         finally:
             tmp_path.rename(mask_path)
 
-    # ── Validation ────────────────────────────────────────────────────────────
+    # ── Validation ────────────────────────────────────────────
 
     def test_missing_mask_dir_raises(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -299,7 +299,7 @@ class TestISIC2018VerifyDataEdgeCases(unittest.TestCase):
 class TestISIC2018Download(unittest.TestCase):
     """Covers _download_file, _extract_zip, and the _download dispatch method."""
 
-    # ── _download_file ────────────────────────────────────────────────────────
+    # ── _download_file ────────────────────────────────────────
 
     def test_download_file_writes_content(self):
         from pyhealth.datasets.isic2018 import _download_file
@@ -312,7 +312,9 @@ class TestISIC2018Download(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             dest = str(Path(tmpdir) / "out.bin")
-            with patch("pyhealth.datasets.isic2018.requests.get", return_value=mock_resp):
+            with patch(
+                "pyhealth.datasets.isic2018.requests.get", return_value=mock_resp
+            ):
                 _download_file("http://example.com/file", dest)
             self.assertEqual(Path(dest).read_bytes(), b"hello")
 
@@ -331,8 +333,12 @@ class TestISIC2018Download(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             dest = str(Path(tmpdir) / "out.bin")
-            with patch("pyhealth.datasets.isic2018.requests.get", return_value=mock_resp):
-                _download_file("http://example.com/file", dest, expected_md5=correct_md5)
+            with patch(
+                "pyhealth.datasets.isic2018.requests.get", return_value=mock_resp
+            ):
+                _download_file(
+                    "http://example.com/file", dest, expected_md5=correct_md5
+                )
             self.assertEqual(Path(dest).read_bytes(), b"hello")
 
     def test_download_file_raises_on_md5_mismatch(self):
@@ -346,9 +352,15 @@ class TestISIC2018Download(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             dest = str(Path(tmpdir) / "out.bin")
-            with patch("pyhealth.datasets.isic2018.requests.get", return_value=mock_resp):
+            with patch(
+                "pyhealth.datasets.isic2018.requests.get", return_value=mock_resp
+            ):
                 with self.assertRaises(ValueError) as ctx:
-                    _download_file("http://example.com/file", dest, expected_md5="wronghash123")
+                    _download_file(
+                        "http://example.com/file",
+                        dest,
+                        expected_md5="wronghash123",
+                    )
             self.assertIn("MD5 checksum mismatch", str(ctx.exception))
             self.assertFalse(Path(dest).exists())  # File should be removed
 
@@ -361,11 +373,13 @@ class TestISIC2018Download(unittest.TestCase):
         mock_resp.raise_for_status.side_effect = requests.HTTPError("404")
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            with patch("pyhealth.datasets.isic2018.requests.get", return_value=mock_resp):
+            with patch(
+                "pyhealth.datasets.isic2018.requests.get", return_value=mock_resp
+            ):
                 with self.assertRaises(requests.HTTPError):
                     _download_file("http://example.com/bad", str(Path(tmpdir) / "f"))
 
-    # ── _extract_zip ──────────────────────────────────────────────────────────
+    # ── _extract_zip ──────────────────────────────────────────
 
     def test_extract_zip_normal(self):
         from pyhealth.datasets.isic2018 import _extract_zip
@@ -387,7 +401,7 @@ class TestISIC2018Download(unittest.TestCase):
             with self.assertRaises(ValueError):
                 _extract_zip(zip_path, tmpdir)
 
-    # ── _download (skip when already present) ────────────────────────────────
+    # ── _download (skip when already present) ─────────────────
 
     def test_download_task3_skipped_when_present(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -409,12 +423,12 @@ class TestISIC2018Download(unittest.TestCase):
             # Create fake ZIPs but don't extract
             (root / "ISIC2018_Task3_Training_GroundTruth.zip").write_text("fake")
             (root / "ISIC2018_Task3_Training_Input.zip").write_text("fake")
-            
+
             ds = ISIC2018Dataset.__new__(ISIC2018Dataset)
             ds.task = "task3"
             ds._image_dir = str(root / "ISIC2018_Task3_Training_Input")
             ds._label_path = str(root / "ISIC2018_Task3_Training_GroundTruth.csv")
-            
+
             with patch("pyhealth.datasets.isic2018._download_file") as mock_dl, \
                  patch("pyhealth.datasets.isic2018._extract_zip"):
                 ds._download(str(root))
@@ -434,7 +448,7 @@ class TestISIC2018Download(unittest.TestCase):
                 ds._download(str(root))
             mock_dl.assert_not_called()
 
-    # ── _download (fetch when missing) ───────────────────────────────────────
+    # ── _download (fetch when missing) ────────────────────────
 
     def test_download_task3_fetches_both_when_missing(self):
         with tempfile.TemporaryDirectory() as tmpdir:

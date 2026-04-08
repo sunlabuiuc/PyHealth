@@ -22,7 +22,7 @@ Dataset link:
 
 Licenses:
     Task 1/2 (segmentation & attribute detection):
-        CC-0 (Public Domain) — https://creativecommons.org/share-your-work/public-domain/cc0/
+        CC-0 (Public Domain) — https://creativecommons.org/public-domain/cc0/
 
     Task 3 (classification):
         CC-BY-NC 4.0 — https://creativecommons.org/licenses/by-nc/4.0/
@@ -99,10 +99,10 @@ VALID_TASKS = ("task3", "task1_2")
 #   - ISIC2018_Task3_Training_Input.zip: requires download (~2.6 GB)
 #   - ISIC2018_Task1-2_Training_Input.zip: requires download (~10.4 GB)
 _CHECKSUMS: Dict[str, Optional[str]] = {
-    "ISIC2018_Task3_Training_GroundTruth.zip": "8302427e4ce0c107559531b9f444abe9",  # 35 KB
+    "ISIC2018_Task3_Training_GroundTruth.zip": "8302427e4ce0c107559531b9f444abe9",
     "ISIC2018_Task3_Training_Input.zip": None,  # 2.6 GB - multipart, TODO
     "ISIC2018_Task1-2_Training_Input.zip": None,  # 10.4 GB - multipart, TODO
-    "ISIC2018_Task1_Training_GroundTruth.zip": "ee5e5db7771d48fa2613abc7cb5c24e2",  # 26 MB
+    "ISIC2018_Task1_Training_GroundTruth.zip": "ee5e5db7771d48fa2613abc7cb5c24e2",
 }
 
 
@@ -112,13 +112,13 @@ _CHECKSUMS: Dict[str, Optional[str]] = {
 
 def _download_file(url: str, dest: str, expected_md5: Optional[str] = None) -> None:
     """Stream *url* to *dest* with 1 MB chunks, logging % progress.
-    
+
     Args:
         url: Source URL to download from.
         dest: Destination file path.
-        expected_md5: Expected MD5 checksum (optional). If provided, verifies 
+        expected_md5: Expected MD5 checksum (optional). If provided, verifies
                       downloaded file integrity and raises ValueError if mismatch.
-    
+
     Raises:
         requests.HTTPError: If the HTTP request fails.
         ValueError: If MD5 checksum verification fails.
@@ -128,7 +128,7 @@ def _download_file(url: str, dest: str, expected_md5: Optional[str] = None) -> N
         total = int(response.headers.get("content-length", 0))
         downloaded = 0
         md5_hash = hashlib.md5()
-        
+
         with open(dest, "wb") as fh:
             for chunk in response.iter_content(chunk_size=1024 * 1024):
                 fh.write(chunk)
@@ -141,7 +141,7 @@ def _download_file(url: str, dest: str, expected_md5: Optional[str] = None) -> N
                         downloaded,
                         total,
                     )
-    
+
     if expected_md5 is not None:
         actual_md5 = md5_hash.hexdigest()
         if actual_md5 != expected_md5:
@@ -156,7 +156,7 @@ def _download_file(url: str, dest: str, expected_md5: Optional[str] = None) -> N
 
 def _extract_zip(zip_path: str, dest_dir: str, flatten: bool = False) -> None:
     """Safely extract zip, guarding against path-traversal attacks.
-    
+
     Args:
         zip_path: Path to zip file to extract.
         dest_dir: Destination directory.
@@ -171,7 +171,7 @@ def _extract_zip(zip_path: str, dest_dir: str, flatten: bool = False) -> None:
             member_path = os.path.abspath(os.path.join(abs_dest, member.filename))
             if not member_path.startswith(abs_dest + os.sep):
                 raise ValueError(f"Unsafe path in zip archive: '{member.filename}'")
-        
+
         if flatten:
             # Check if all files are in a single top-level directory
             names = zf.namelist()
@@ -182,7 +182,7 @@ def _extract_zip(zip_path: str, dest_dir: str, flatten: bool = False) -> None:
                     parts = name.split('/')
                     if parts[0]:  # Skip empty parts from trailing slashes
                         top_level.add(parts[0])
-                
+
                 # If only one top-level item and it's a directory, flatten it
                 if len(top_level) == 1:
                     top_dir = list(top_level)[0]
@@ -193,7 +193,7 @@ def _extract_zip(zip_path: str, dest_dir: str, flatten: bool = False) -> None:
                         temp_dir = os.path.join(abs_dest, '.extract_temp')
                         os.makedirs(temp_dir, exist_ok=True)
                         zf.extractall(temp_dir)
-                        
+
                         # Move contents of top_dir to dest_dir
                         source_dir = os.path.join(temp_dir, top_dir)
                         for item in os.listdir(source_dir):
@@ -205,11 +205,11 @@ def _extract_zip(zip_path: str, dest_dir: str, flatten: bool = False) -> None:
                             else:
                                 os.makedirs(os.path.dirname(dst), exist_ok=True)
                                 shutil.copy2(src, dst)
-                        
+
                         # Clean up temp dir
                         shutil.rmtree(temp_dir)
                         return
-        
+
         # Otherwise, extract normally
         zf.extractall(dest_dir)
 
@@ -321,7 +321,9 @@ class ISIC2018Dataset(BaseDataset):
                 # Skip download if ZIP already exists (may be partial/incomplete)
                 if not os.path.isfile(zip_path):
                     logger.info("Downloading ISIC 2018 Task 3 labels...")
-                    _download_file(_T3_LABELS_URL, zip_path, _CHECKSUMS.get(_T3_LABELS_ZIP))
+                    _download_file(
+                        _T3_LABELS_URL, zip_path, _CHECKSUMS.get(_T3_LABELS_ZIP)
+                    )
                 if os.path.isfile(zip_path):
                     _extract_zip(zip_path, root, flatten=True)
                     os.remove(zip_path)
@@ -330,7 +332,9 @@ class ISIC2018Dataset(BaseDataset):
                 # Skip download if ZIP already exists (may be partial/incomplete)
                 if not os.path.isfile(zip_path):
                     logger.info("Downloading ISIC 2018 Task 3 images (~8 GB)...")
-                    _download_file(_T3_IMAGES_URL, zip_path, _CHECKSUMS.get(_T3_IMAGES_ZIP))
+                    _download_file(
+                        _T3_IMAGES_URL, zip_path, _CHECKSUMS.get(_T3_IMAGES_ZIP)
+                    )
                 if os.path.isfile(zip_path):
                     _extract_zip(zip_path, root, flatten=False)
                     os.remove(zip_path)
@@ -340,7 +344,9 @@ class ISIC2018Dataset(BaseDataset):
                 # Skip download if ZIP already exists (may be partial/incomplete)
                 if not os.path.isfile(zip_path):
                     logger.info("Downloading ISIC 2018 Task 1/2 images (~8 GB)...")
-                    _download_file(TASK12_IMAGES_URL, zip_path, _CHECKSUMS.get(_T12_IMAGES_ZIP))
+                    _download_file(
+                        TASK12_IMAGES_URL, zip_path, _CHECKSUMS.get(_T12_IMAGES_ZIP)
+                    )
                 if os.path.isfile(zip_path):
                     _extract_zip(zip_path, root, flatten=False)
                     os.remove(zip_path)
@@ -349,7 +355,9 @@ class ISIC2018Dataset(BaseDataset):
                 # Skip download if ZIP already exists (may be partial/incomplete)
                 if not os.path.isfile(zip_path):
                     logger.info("Downloading ISIC 2018 Task 1 masks...")
-                    _download_file(TASK12_MASKS_URL, zip_path, _CHECKSUMS.get(_T12_MASKS_ZIP))
+                    _download_file(
+                        TASK12_MASKS_URL, zip_path, _CHECKSUMS.get(_T12_MASKS_ZIP)
+                    )
                 if os.path.isfile(zip_path):
                     _extract_zip(zip_path, root, flatten=False)
                     os.remove(zip_path)
@@ -381,7 +389,9 @@ class ISIC2018Dataset(BaseDataset):
                 )
 
     def _index_data(self, root):
-        return self._index_task3(root) if self.task == "task3" else self._index_task12(root)
+        if self.task == "task3":
+            return self._index_task3(root)
+        return self._index_task12(root)
 
     def _index_task3(self, root):
         df = pd.read_csv(self._label_path)

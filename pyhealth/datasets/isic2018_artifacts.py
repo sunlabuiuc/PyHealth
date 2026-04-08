@@ -95,12 +95,11 @@ The *trap-set* protocol (Bissoto et al. 2020) studies whether models trained
 on artifact-biased data learn spurious correlations.
 """
 
-import hashlib
 import logging
 import os
 from functools import wraps
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import List
 
 import pandas as pd
 import requests
@@ -140,6 +139,7 @@ ARTIFACT_LABELS: List[str] = [
     "ink",           # ink or marker-pen markings on the skin
     "patches",       # adhesive patches or stickers
 ]
+
 
 class ISIC2018ArtifactsDataset(BaseDataset):
     """PyHealth dataset for dermoscopy images with per-image artifact annotations.
@@ -374,7 +374,7 @@ class ISIC2018ArtifactsDataset(BaseDataset):
         """Download and extract ISIC 2018 Task 1/2 images and masks.
 
         Skips download if ZIP files already exist (they may be partial/incomplete).
-        Always attempts extraction if ZIP is present.  The images archive is 
+        Always attempts extraction if ZIP is present.  The images archive is
         ~8 GB — this may take several minutes.
 
         Args:
@@ -391,7 +391,9 @@ class ISIC2018ArtifactsDataset(BaseDataset):
             zip_path = os.path.join(root, _IMAGES_ZIP)
             # Skip download if ZIP already exists (may be partial/incomplete)
             if not os.path.isfile(zip_path):
-                logger.info("Downloading ISIC 2018 Task 1/2 images (~8 GB): %s", _IMAGES_URL)
+                logger.info(
+                    "Downloading ISIC 2018 Task 1/2 images (~8 GB): %s", _IMAGES_URL
+                )
                 _download_file(_IMAGES_URL, zip_path, _ISIC_CHECKSUMS.get(_IMAGES_ZIP))
             if os.path.isfile(zip_path):
                 logger.info("Extracting images to %s ...", root)
@@ -406,7 +408,9 @@ class ISIC2018ArtifactsDataset(BaseDataset):
             zip_path = os.path.join(root, _MASKS_ZIP)
             # Skip download if ZIP already exists (may be partial/incomplete)
             if not os.path.isfile(zip_path):
-                logger.info("Downloading ISIC 2018 Task 1 segmentation masks: %s", _MASKS_URL)
+                logger.info(
+                    "Downloading ISIC 2018 Task 1 segmentation masks: %s", _MASKS_URL
+                )
                 _download_file(_MASKS_URL, zip_path, _ISIC_CHECKSUMS.get(_MASKS_ZIP))
             if os.path.isfile(zip_path):
                 logger.info("Extracting masks to %s ...", root)
@@ -426,7 +430,8 @@ class ISIC2018ArtifactsDataset(BaseDataset):
             if self.annotations_csv == _BIAS_CSV:
                 msg += (
                     "\nDownload it from: "
-                    "https://github.com/alceubissoto/debiasing-skin/tree/main/artefacts-annotation"
+                    "https://github.com/alceubissoto/debiasing-skin"
+                    "/tree/main/artefacts-annotation"
                     "\nOr pass download=True to fetch it automatically."
                 )
             raise FileNotFoundError(msg)
@@ -435,14 +440,16 @@ class ISIC2018ArtifactsDataset(BaseDataset):
             raise FileNotFoundError(
                 f"Image directory not found: {self._image_dir}\n"
                 "Download images with download=True (requires ~8 GB), or "
-                "obtain them manually from: https://challenge.isic-archive.com/data/#2018"
+                "obtain them manually from: "
+                "https://challenge.isic-archive.com/data/#2018"
             )
 
         if not os.path.isdir(self._mask_dir):
             raise FileNotFoundError(
                 f"Mask directory not found: {self._mask_dir}\n"
                 "Download masks with download=True, or "
-                "obtain them manually from: https://challenge.isic-archive.com/data/#2018"
+                "obtain them manually from: "
+                "https://challenge.isic-archive.com/data/#2018"
             )
 
     def _index_data(self, root: str) -> str:
