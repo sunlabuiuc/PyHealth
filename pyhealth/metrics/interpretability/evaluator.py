@@ -35,9 +35,10 @@ class Evaluator:
         sample_filter: A callable that classifies each sample for evaluation.
             Signature: (class_probs, classifier_type) -> sample_classes
             where class_probs has shape (batch_size,) and contains the
-            probability for the predicted class (sigmoid/softmax output
-            with target class already applied), and sample_classes is a
-            tensor of SampleClass values:
+            class probability used for filtering. For binary single-logit
+            models, this is ``P(class=1)``. For multiclass/multilabel
+            models, this is the gathered target-class probability.
+            ``sample_classes`` is a tensor of SampleClass values:
             - SampleClass.POSITIVE: evaluate with attributions as-is
             - SampleClass.NEGATIVE: evaluate with negated attributions
             - SampleClass.IGNORE: exclude from evaluation
@@ -226,16 +227,18 @@ class Evaluator:
 
         Returns:
             Dictionary mapping metric names to their average scores
-            across the entire dataset. For binary classifiers, only
-            positive class (predicted class=1) samples are included
-            in the average.
+            across the entire dataset. Samples marked ``IGNORE`` by the
+            configured ``sample_filter`` are excluded from the average.
 
             Example: {'comprehensiveness': 0.345, 'sufficiency': 0.123}
 
         Note:
-            For binary classifiers, negative class (predicted class=0)
-            samples are excluded from the average, as ablation metrics
-            are not meaningful for the default/null class.
+            For binary classifiers, both positive and negative samples can
+            be evaluated. Negative samples are handled by negating the
+            attribution scores before top-feature selection, which makes
+            the probability drop equivalent to the drop in confidence for
+            class 0. Use ``sample_filter`` to include or exclude whichever
+            subsets you want in the dataset average.
 
         Examples:
             >>> from pyhealth.interpret.methods import IntegratedGradients

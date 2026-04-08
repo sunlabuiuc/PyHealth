@@ -36,8 +36,9 @@ class SampleClass(IntEnum):
 
 # Type alias for sample filter functions.
 # Signature: (y_probs, classifier_type) -> sample_classes
-# y_probs has shape (batch_size,) and contains the probability for each
-# sample's predicted class (sigmoid/softmax output with target_id applied).
+# y_probs has shape (batch_size,). For binary single-logit models this is
+# P(class=1); for multiclass/multilabel models this is the gathered
+# target-class probability.
 SampleFilterFn = Callable[[torch.Tensor, str], torch.Tensor]
 
 
@@ -100,10 +101,10 @@ def get_model_predictions(
                       are consistent with original predictions. If None, will compute from model outputs.
         sample_filter: A callable that classifies each sample for evaluation.
             Signature: (class_probs, classifier_type) -> sample_classes
-            where class_probs has shape (batch_size,) and contains the
-            probability for the predicted class (sigmoid/softmax output
-            with target class already applied), and sample_classes is a
-            tensor of SampleClass values.
+            where class_probs has shape (batch_size,). For binary
+            single-logit models this is ``P(class=1)``; otherwise it is
+            the gathered target-class probability. ``sample_classes`` is
+            a tensor of SampleClass values.
 
     Returns:
         Tuple of (y_prob, target_class_idx, sample_classes):
@@ -150,5 +151,4 @@ def get_model_predictions(
         target_class_idx[sample_class == SampleClass.IGNORE] = 0  # Mark ignored samples with invalid class index
         
         return y_prob, target_class_idx, sample_class
-
 
