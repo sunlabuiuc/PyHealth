@@ -1,0 +1,13 @@
+version: "1.0"
+tables:
+  adni:
+    file_path: "adni-metadata-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: "timestamp"
+    attributes:
+      - "gender"
+      - "age"
+      - "weight"
+      - "group"
+      - "image_uid"
+      - "image_path"

@@ -1,5 +1,6 @@
 from .adacare import AdaCare, AdaCareLayer, MultimodalAdaCare
 from .agent import Agent, AgentLayer
+from .alzheimers_cnn import AlzheimersDiseaseCNN
 from .base_model import BaseModel
 from .biot import BIOT
 from .cnn import CNN, CNNLayer
