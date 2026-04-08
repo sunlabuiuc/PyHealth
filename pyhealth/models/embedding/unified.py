@@ -41,9 +41,11 @@ Quickstart::
     # out["mask"]:     (B, S_total)     , 1 = real event, 0 = padding
     # out["time"]:     (B, S_total)     , hours from first event
 """
+
 from __future__ import annotations
 
 import math
+import warnings
 from typing import Any, Optional
 
 import torch
@@ -86,9 +88,9 @@ class SinusoidalTimeEmbedding(nn.Module):
 
     def forward(self, t: torch.Tensor) -> torch.Tensor:
         """:param t: ``(...,)`` float, times in hours."""
-        t_norm = t / self.max_hours * 2 * math.pi           # (...,)
-        args = t_norm.unsqueeze(-1) * self.freqs             # (..., dim//2)
-        return torch.cat([args.sin(), args.cos()], dim=-1)   # (..., dim)
+        t_norm = t / self.max_hours * 2 * math.pi  # (...,)
+        args = t_norm.unsqueeze(-1) * self.freqs  # (..., dim//2)
+        return torch.cat([args.sin(), args.cos()], dim=-1)  # (..., dim)
 
 
 class _MeanPool(nn.Module):
@@ -238,8 +240,13 @@ class UnifiedMultimodalEmbeddingModel(nn.Module, BaseEmbeddingModel):
 
             elif m == ModalityType.IMAGE:
                 self.encoders[field_name] = self._build_image_encoder(
-                    field_name, processor, pre_built, embedding_dim,
-                    image_size, image_channels, patch_size,
+                    field_name,
+                    processor,
+                    pre_built,
+                    embedding_dim,
+                    image_size,
+                    image_channels,
+                    patch_size,
                 )
 
             elif m in (ModalityType.NUMERIC, ModalityType.SIGNAL):
@@ -258,12 +265,15 @@ class UnifiedMultimodalEmbeddingModel(nn.Module, BaseEmbeddingModel):
             mod: i for i, mod in enumerate(unique_modalities)
         }
         self.type_embedding = nn.Embedding(len(unique_modalities), embedding_dim)
+        self._warned_nested_code_flatten = False
 
         # Time embedding
         if time_embedding == "sinusoidal":
             self.time_embed = SinusoidalTimeEmbedding(embedding_dim, max_time_hours)
         else:
-            raise NotImplementedError("Only 'sinusoidal' time embedding is implemented.")
+            raise NotImplementedError(
+                "Only 'sinusoidal' time embedding is implemented."
+            )
 
     # ── Encoder builders ──────────────────────────────────────────────────────
 
@@ -348,7 +358,9 @@ class UnifiedMultimodalEmbeddingModel(nn.Module, BaseEmbeddingModel):
             backbone = pre_built.embedding_layers[field_name]
             pre_dim = getattr(pre_built, "embedding_dim", embedding_dim)
             if pre_dim != embedding_dim:
-                return nn.Sequential(backbone, _MeanPool(), nn.Linear(pre_dim, embedding_dim))
+                return nn.Sequential(
+                    backbone, _MeanPool(), nn.Linear(pre_dim, embedding_dim)
+                )
             return nn.Sequential(backbone, _MeanPool())
 
         _image_size = getattr(processor, "image_size", image_size)
@@ -407,45 +419,89 @@ class UnifiedMultimodalEmbeddingModel(nn.Module, BaseEmbeddingModel):
             * ``"type_ids"``, ``(B, S_total)``       modality index per event
         """
         all_embeddings: list[torch.Tensor] = []
-        all_times:      list[torch.Tensor] = []
-        all_masks:      list[torch.Tensor] = []
-        all_types:      list[torch.Tensor] = []
+        all_times: list[torch.Tensor] = []
+        all_masks: list[torch.Tensor] = []
+        all_types: list[torch.Tensor] = []
 
         for field_name, feat_dict in inputs.items():
-            value = feat_dict["value"]   # (B, N_i, ...) or (B, S, F)
-            time  = feat_dict["time"]    # (B, N_i)
-            mask  = feat_dict.get("mask")
+            value = feat_dict["value"]  # (B, N_i, ...) or (B, S, F)
+            time = feat_dict["time"]  # (B, N_i)
+            mask = feat_dict.get("mask")
 
             if time is None:
                 # Fallback: treat every event as occurring at t=0
                 time = torch.zeros(value.shape[:2], device=value.device)
 
             modality = self.modality_types[field_name]
-            encoder  = self.encoders[field_name]
+            encoder = self.encoders[field_name]
 
             # ── Encode ────────────────────────────────────────────────────
             if modality == ModalityType.CODE:
-                emb = encoder(value)                           # (B, S, E')
+                # CODE values may be either:
+                # - flat indices: (B, S)
+                # - nested indices: (B, S, C) where C is codes-per-event
+                # For nested indices, flatten to (B, S*C, E') so code-level
+                # detail is preserved, and expand time/mask to match.
+                if value.dim() == 2:
+                    emb = encoder(value)  # (B, S, E')
+                elif value.dim() == 3:
+                    bsz, seq_len, per_event_codes = value.shape
+                    token_emb = encoder(value.long())  # (B, S, C, E')
+                    emb = token_emb.reshape(bsz, seq_len * per_event_codes, -1)
+
+                    if not self._warned_nested_code_flatten:
+                        warnings.warn(
+                            (
+                                "UnifiedMultimodalEmbeddingModel detected "
+                                f"nested CODE input for '{field_name}' with "
+                                f"shape={tuple(value.shape)}. Flattening to "
+                                f"(B, S*C, E) and repeating time along C."
+                            ),
+                            stacklevel=2,
+                        )
+                        self._warned_nested_code_flatten = True
+
+                    if time is not None:
+                        time = (
+                            time.unsqueeze(-1)
+                            .expand(-1, -1, per_event_codes)
+                            .reshape(bsz, seq_len * per_event_codes)
+                        )
+
+                    if mask is not None:
+                        if mask.dim() == 2:
+                            mask = (
+                                mask.unsqueeze(-1)
+                                .expand(-1, -1, per_event_codes)
+                                .reshape(bsz, seq_len * per_event_codes)
+                            )
+                        elif mask.dim() == 3:
+                            mask = mask.reshape(bsz, seq_len * per_event_codes)
+                else:
+                    raise ValueError(
+                        f"Unsupported CODE value rank for '{field_name}': "
+                        f"shape={tuple(value.shape)}"
+                    )
 
             elif modality == ModalityType.TEXT:
                 b, n, l = value.shape
-                flat_ids  = value.view(b * n, l)
+                flat_ids = value.view(b * n, l)
                 flat_mask = mask.view(b * n, l) if mask is not None else None
-                out       = encoder(input_ids=flat_ids, attention_mask=flat_mask)
-                cls_emb   = out.last_hidden_state[:, 0, :]    # (B*N, H)
+                out = encoder(input_ids=flat_ids, attention_mask=flat_mask)
+                cls_emb = out.last_hidden_state[:, 0, :]  # (B*N, H)
                 if field_name in self.projections:
                     cls_emb = self.projections[field_name](cls_emb)
-                emb = cls_emb.view(b, n, -1)                  # (B, N, E')
+                emb = cls_emb.view(b, n, -1)  # (B, N, E')
 
             elif modality == ModalityType.IMAGE:
                 # encoder = Sequential(PatchEmbedding, _MeanPool) → (B*N, E')
                 b, n, c, h, w = value.shape
                 flat_imgs = value.view(b * n, c, h, w)
-                img_emb   = encoder(flat_imgs)                 # (B*N, E')
-                emb       = img_emb.view(b, n, -1)            # (B, N, E')
+                img_emb = encoder(flat_imgs)  # (B*N, E')
+                emb = img_emb.view(b, n, -1)  # (B, N, E')
 
             else:  # NUMERIC / SIGNAL
-                emb = encoder(value)                           # (B, T, E')
+                emb = encoder(value)  # (B, T, E')
 
             # ── Build event-level validity mask ───────────────────────────
             if mask is None:
@@ -458,8 +514,8 @@ class UnifiedMultimodalEmbeddingModel(nn.Module, BaseEmbeddingModel):
                     event_mask = mask.float()
 
             # ── Modality type indices ─────────────────────────────────────
-            type_idx  = self._modality_to_idx[modality]
-            type_ids  = torch.full(
+            type_idx = self._modality_to_idx[modality]
+            type_ids = torch.full(
                 emb.shape[:2], type_idx, dtype=torch.long, device=emb.device
             )
 
@@ -469,28 +525,26 @@ class UnifiedMultimodalEmbeddingModel(nn.Module, BaseEmbeddingModel):
             all_types.append(type_ids)
 
         # ── Concatenate across all fields ─────────────────────────────────
-        cat_emb   = torch.cat(all_embeddings, dim=1)   # (B, S_total, E')
-        cat_time  = torch.cat(all_times,      dim=1)   # (B, S_total)
-        cat_mask  = torch.cat(all_masks,      dim=1)   # (B, S_total)
-        cat_types = torch.cat(all_types,      dim=1)   # (B, S_total)
+        cat_emb = torch.cat(all_embeddings, dim=1)  # (B, S_total, E')
+        cat_time = torch.cat(all_times, dim=1)  # (B, S_total)
+        cat_mask = torch.cat(all_masks, dim=1)  # (B, S_total)
+        cat_types = torch.cat(all_types, dim=1)  # (B, S_total)
 
         # ── Sort by time ──────────────────────────────────────────────────
-        sort_idx   = cat_time.argsort(dim=1)
-        cat_emb    = cat_emb.gather(
-            1, sort_idx.unsqueeze(-1).expand_as(cat_emb)
-        )
-        cat_time   = cat_time.gather(1, sort_idx)
-        cat_mask   = cat_mask.gather(1, sort_idx)
-        cat_types  = cat_types.gather(1, sort_idx)
+        sort_idx = cat_time.argsort(dim=1)
+        cat_emb = cat_emb.gather(1, sort_idx.unsqueeze(-1).expand_as(cat_emb))
+        cat_time = cat_time.gather(1, sort_idx)
+        cat_mask = cat_mask.gather(1, sort_idx)
+        cat_types = cat_types.gather(1, sort_idx)
 
         # ── Add time + type embeddings ────────────────────────────────────
-        time_emb = self.time_embed(cat_time)             # (B, S_total, E')
-        type_emb = self.type_embedding(cat_types)        # (B, S_total, E')
-        final    = cat_emb + time_emb + type_emb         # (B, S_total, E')
+        time_emb = self.time_embed(cat_time)  # (B, S_total, E')
+        type_emb = self.type_embedding(cat_types)  # (B, S_total, E')
+        final = cat_emb + time_emb + type_emb  # (B, S_total, E')
 
         return {
-            "sequence": final,      # (B, S_total, E')
-            "time":     cat_time,   # (B, S_total)
-            "mask":     cat_mask,   # (B, S_total)
+            "sequence": final,  # (B, S_total, E')
+            "time": cat_time,  # (B, S_total)
+            "mask": cat_mask,  # (B, S_total)
             "type_ids": cat_types,  # (B, S_total)
         }
