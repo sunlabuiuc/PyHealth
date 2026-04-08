@@ -3,8 +3,11 @@
 # Paper Link: https://arxiv.org/abs/2411.04644
 # Description: wav2sleep implementation for PyHealth
 
+import os
+import xml.etree.ElementTree as ET
 from typing import Dict, List, Optional
 
+import numpy as np
 import torch
 import torch.nn as nn
 
@@ -412,3 +415,216 @@ class Wav2Sleep(BaseModel):
         if kwargs.get("embed", False):
             results["embed"] = emb
         return results
+
+
+# ---------------------------------------------------------------------------
+# SHHS preprocessing helper
+# ---------------------------------------------------------------------------
+
+def load_shhs_samples(
+    shhs_root: str,
+    epoch_seconds: int = 30,
+    ecg_samples_per_epoch: int = 1024,
+    resp_samples_per_epoch: int = 256,
+    max_recordings: Optional[int] = None,
+    label_map: Optional[Dict[int, int]] = None,
+) -> List[Dict]:
+    """Load SHHS recordings and return samples ready for :class:`Wav2Sleep`.
+
+    Reads SHHS polysomnography EDF files and paired XML annotation files,
+    extracts ECG, abdominal (ABD), and thoracic (THX) respiratory signals,
+    resamples each to the target length per epoch, and returns one sample
+    dict per 30-second sleep epoch.
+
+    The returned list is directly compatible with
+    :func:`pyhealth.datasets.create_sample_dataset`::
+
+        input_schema  = {"ecg": "tensor", "abd": "tensor", "thx": "tensor"}
+        output_schema = {"label": "multiclass"}
+
+    This mirrors the cardiorespiratory signal setup used in the wav2sleep paper
+    (Carter & Tarassenko, arXiv:2411.04644).
+
+    Expected directory layout::
+
+        shhs_root/
+            edfs/
+                shhs1/   *.edf
+                shhs2/   *.edf                        (optional)
+            annotations-events-profusion/
+                shhs1/   *-profusion.xml
+                shhs2/   *-profusion.xml              (optional)
+
+    Args:
+        shhs_root: Path to the SHHS polysomnography root directory.
+        epoch_seconds: Duration of each sleep epoch in seconds. Default is 30.
+        ecg_samples_per_epoch: Target ECG samples per epoch after resampling.
+            Default is 1024 (~34 Hz, matching the wav2sleep paper).
+        resp_samples_per_epoch: Target ABD/THX samples per epoch after
+            resampling. Default is 256 (~8 Hz).
+        max_recordings: Process at most this many EDF files. Default is None
+            (process all). Useful for quick experiments.
+        label_map: Maps raw SHHS stage integers to output labels. Default is
+            5-class AASM::
+
+                {0: 0,  # Wake
+                 1: 1,  # N1
+                 2: 2,  # N2
+                 3: 3,  # N3
+                 4: 3,  # N3 (legacy duplicate code)
+                 5: 4}  # REM
+
+            For the 4-class setup from the wav2sleep paper (N1+N2 merged as
+            "Light"), pass ``{0:0, 1:1, 2:1, 3:2, 4:2, 5:3}``.
+
+    Returns:
+        List of sample dicts, each containing:
+
+        - ``patient_id`` (str): Recording ID, e.g. ``"shhs1-200001"``.
+        - ``visit_id`` (str): Epoch ID, e.g. ``"shhs1-200001-42"``.
+        - ``ecg`` (np.ndarray): Shape ``(1, ecg_samples_per_epoch)``, float32.
+        - ``abd`` (np.ndarray): Shape ``(1, resp_samples_per_epoch)``, float32.
+        - ``thx`` (np.ndarray): Shape ``(1, resp_samples_per_epoch)``, float32.
+        - ``label`` (int): Mapped sleep stage label.
+
+    Raises:
+        FileNotFoundError: If no EDF+XML pairs are found under ``shhs_root``.
+        RuntimeError: If a recording is missing one of the required channels.
+
+    Examples:
+        >>> from pyhealth.models.wav2sleep import load_shhs_samples
+        >>> from pyhealth.datasets import create_sample_dataset
+        >>> samples = load_shhs_samples(
+        ...     "/data/shhs/polysomnography",
+        ...     label_map={0:0, 1:1, 2:1, 3:2, 4:2, 5:3},  # 4-class
+        ...     max_recordings=10,
+        ... )
+        >>> dataset = create_sample_dataset(
+        ...     samples=samples,
+        ...     input_schema={"ecg": "tensor", "abd": "tensor", "thx": "tensor"},
+        ...     output_schema={"label": "multiclass"},
+        ...     dataset_name="shhs_wav2sleep",
+        ... )
+        >>> model = Wav2Sleep(dataset=dataset)
+    """
+    try:
+        import mne
+    except ImportError as exc:
+        raise ImportError(
+            "mne is required for SHHS loading: pip install mne"
+        ) from exc
+
+    try:
+        from scipy.signal import resample as _scipy_resample
+        def _resample(x: np.ndarray, n_out: int) -> np.ndarray:
+            return _scipy_resample(x, n_out)
+    except ImportError:
+        def _resample(x: np.ndarray, n_out: int) -> np.ndarray:
+            idx = np.linspace(0, len(x) - 1, n_out)
+            return np.interp(idx, np.arange(len(x)), x)
+
+    if label_map is None:
+        label_map = {0: 0, 1: 1, 2: 2, 3: 3, 4: 3, 5: 4}
+
+    ECG_NAMES = ["ECG", "EKG", "ecg", "ekg"]
+    ABD_NAMES = ["ABDO RES", "ABDO", "ABD", "abdo res", "abdo", "abd"]
+    THX_NAMES = ["THOR RES", "THOR", "THX", "thor res", "thor", "thx"]
+
+    def _find_ch(ch_names: List[str], candidates: List[str]) -> Optional[str]:
+        for name in candidates:
+            if name in ch_names:
+                return name
+        return None
+
+    def _collect_paths(root: str) -> List[tuple]:
+        paths = []
+        for visit in ("shhs1", "shhs2"):
+            edf_dir = os.path.join(root, "edfs", visit)
+            xml_dir = os.path.join(root, "annotations-events-profusion", visit)
+            if not os.path.isdir(edf_dir):
+                continue
+            for fname in sorted(os.listdir(edf_dir)):
+                if not fname.endswith(".edf"):
+                    continue
+                pid = fname.split(".")[0]
+                xml_path = os.path.join(xml_dir, f"{pid}-profusion.xml")
+                if not os.path.isfile(xml_path):
+                    continue
+                paths.append((os.path.join(edf_dir, fname), xml_path, pid))
+        return paths
+
+    edf_paths = _collect_paths(shhs_root)
+    if not edf_paths:
+        raise FileNotFoundError(
+            f"No EDF+XML pairs found under '{shhs_root}'. "
+            "Check that edfs/shhs1/ and annotations-events-profusion/shhs1/ exist."
+        )
+    if max_recordings is not None:
+        edf_paths = edf_paths[:max_recordings]
+
+    samples: List[Dict] = []
+
+    for edf_path, xml_path, pid in edf_paths:
+        try:
+            raw = mne.io.read_raw_edf(edf_path, preload=True, verbose=False)
+        except Exception:
+            continue
+
+        ch_names = raw.ch_names
+        ecg_ch = _find_ch(ch_names, ECG_NAMES)
+        abd_ch = _find_ch(ch_names, ABD_NAMES)
+        thx_ch = _find_ch(ch_names, THX_NAMES)
+
+        missing = [n for n, ch in [("ECG", ecg_ch), ("ABD", abd_ch), ("THX", thx_ch)] if ch is None]
+        if missing:
+            raise RuntimeError(
+                f"{pid}: channels {missing} not found. Available: {ch_names}"
+            )
+
+        sfreq = raw.info["sfreq"]
+        epoch_len = int(sfreq * epoch_seconds)
+
+        ecg_sig, _ = raw[ecg_ch]  # (1, n_times)
+        abd_sig, _ = raw[abd_ch]
+        thx_sig, _ = raw[thx_ch]
+
+        try:
+            tree = ET.parse(xml_path)
+            stages = [
+                int(s.text)
+                for s in tree.getroot().find("SleepStages").findall("SleepStage")
+            ]
+        except Exception:
+            continue
+
+        n_epochs = min(
+            ecg_sig.shape[1] // epoch_len,
+            abd_sig.shape[1] // epoch_len,
+            thx_sig.shape[1] // epoch_len,
+            len(stages),
+        )
+
+        for i in range(n_epochs):
+            if stages[i] not in label_map:
+                continue
+
+            ecg_e = _resample(ecg_sig[0, i * epoch_len:(i + 1) * epoch_len], ecg_samples_per_epoch).astype(np.float32)
+            abd_e = _resample(abd_sig[0, i * epoch_len:(i + 1) * epoch_len], resp_samples_per_epoch).astype(np.float32)
+            thx_e = _resample(thx_sig[0, i * epoch_len:(i + 1) * epoch_len], resp_samples_per_epoch).astype(np.float32)
+
+            for arr in (ecg_e, abd_e, thx_e):
+                std = arr.std()
+                if std > 0:
+                    arr -= arr.mean()
+                    arr /= std
+
+            samples.append({
+                "patient_id": pid,
+                "visit_id": f"{pid}-{i}",
+                "ecg": ecg_e[np.newaxis, :],
+                "abd": abd_e[np.newaxis, :],
+                "thx": thx_e[np.newaxis, :],
+                "label": label_map[stages[i]],
+            })
+
+    return samples
