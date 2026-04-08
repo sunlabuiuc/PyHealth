@@ -7,12 +7,19 @@ Welcome to PyHealth
 
 **The Python Library for Healthcare AI**
 
-Build, test, and deploy healthcare machine learning models with ease. PyHealth is designed for both **ML researchers and medical practitioners**. We can make your **healthcare AI applications** easier to develop, test and validate. Your development process becomes more flexible and more customizable. `[GitHub] <https://github.com/sunlabuiuc/PyHealth>`_ 
+.. card:: 🌐 Visit the PyHealth Project Website
+   :link: https://pyhealth.dev
+   :link-type: url
+   :class-card: sd-bg-primary sd-text-white sd-text-center
+
+   **pyhealth.dev** — the new home for PyHealth news, updates, and resources →
+
+Build, test, and deploy healthcare machine learning models with ease. PyHealth is designed for both **ML researchers and medical practitioners**. We can make your **healthcare AI applications** easier to develop, test and validate. Your development process becomes more flexible and more customizable. `[GitHub] <https://github.com/sunlabuiuc/PyHealth>`_
 
 **Key Features**
 
 - **Dramatically simpler**: Build any healthcare AI model in ~7 lines of code
-- **Blazing fast**: Up to 39× faster than pandas
+- **Blazing fast**: Up to 39× faster than pandas for task processing
 - **Memory efficient**: Runs on 16GB laptops 
 - **True multimodal**: Unified API for EHR, medical images, biosignals, clinical text, and genomics
 - **Production-ready**: 25+ pre-built models, 20+ tasks, 12+ datasets with comprehensive evaluation tools
@@ -221,6 +228,7 @@ Quick Navigation
    :hidden:
    :caption: Documentation
 
+   api/overview
    api/data
    api/datasets
    api/graph
