@@ -82,7 +82,7 @@ from .splitter import (
 )
 from .tuab import TUABDataset
 from .tuev import TUEVDataset
-from .tuev import TUSZDataset
+from .tusz import TUSZDataset
 from .utils import (
     collate_fn_dict,
     collate_fn_dict_with_padding,
