@@ -832,7 +832,7 @@ class BaseDataset(ABC):
                         while not result.ready():
                             try:
                                 progress.update(queue.get(timeout=1))
-                            except:
+                            except Exception:
                                 pass
 
                         # remaining items
@@ -897,7 +897,7 @@ class BaseDataset(ABC):
                         while not result.ready():
                             try:
                                 progress.update(queue.get(timeout=1))
-                            except:
+                            except Exception:
                                 pass
 
                         # remaining items

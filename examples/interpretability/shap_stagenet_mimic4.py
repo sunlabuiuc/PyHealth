@@ -186,7 +186,7 @@ def main():
         dropout=0.3,
     )
 
-    state_dict = torch.load("../resources/best.ckpt", map_location=device)
+    state_dict = torch.load("../resources/best.ckpt", map_location=device, weights_only=True)
     model.load_state_dict(state_dict)
     model = model.to(device)
     model.eval()

@@ -54,7 +54,7 @@ model = TransE(
 )
 
 print('Loaded model: ', model)
-state_dict = torch.load("/data/pj20/umls_kge/pretrained_model/umls_transe_new/1_250000_last.ckpt")
+state_dict = torch.load("/data/pj20/umls_kge/pretrained_model/umls_transe_new/1_250000_last.ckpt", weights_only=True)
 model.load_state_dict(state_dict)
 
 # initialize a trainer and start training
