@@ -28,7 +28,14 @@ from typing import Dict, List, Tuple
 
 import numpy as np
 import torch
-from sklearn.metrics import roc_auc_score
+from sklearn.metrics import (
+    balanced_accuracy_score,
+    f1_score,
+    precision_score,
+    recall_score,
+    roc_auc_score,
+    roc_curve,
+)
 from torch.utils.data import DataLoader
 
 from pyhealth.datasets import (
@@ -146,7 +153,14 @@ def evaluate(
     loader: DataLoader,
     device: torch.device,
 ) -> Dict[str, float]:
-    """Evaluate the model and return AUC and loss."""
+    """Evaluate the model; return AUC, Precision, Recall, F1, Balanced Acc.
+
+    Threshold is chosen via Youden's J statistic (maximises sensitivity +
+    specificity), matching the evaluation protocol in the paper (Section 6).
+    Precision, Recall, F1, and Balanced Accuracy are all computed at the
+    subject level treating the patient class as positive, consistent with
+    Table 2 of Wagh & Varatharajah (2020).
+    """
     model.eval()
     all_probs, all_labels = [], []
     total_loss = 0.0
@@ -164,19 +178,43 @@ def evaluate(
 
     all_probs = np.concatenate(all_probs)
     all_labels = np.concatenate(all_labels)
+
+    # Binary output may be shape (N,1) or (N,2)
+    if all_probs.ndim == 2 and all_probs.shape[1] >= 2:
+        scores = all_probs[:, 1]
+    else:
+        scores = all_probs.ravel()
+
+    fallback = {
+        "auc": 0.5, "precision": 0.0, "recall": 0.0,
+        "f1": 0.0, "balanced_accuracy": 0.5, "threshold": 0.5,
+        "loss": total_loss / max(n_batches, 1),
+    }
     try:
-        # Binary output may be shape (N,1) or (N,2)
-        if all_probs.ndim == 2 and all_probs.shape[1] >= 2:
-            scores = all_probs[:, 1]
-        else:
-            scores = all_probs.ravel()
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             auc = float(roc_auc_score(all_labels, scores))
+
+            # Youden's J: threshold that maximises (sensitivity + specificity - 1)
+            fpr, tpr, thresholds = roc_curve(all_labels, scores)
+            j_idx = int(np.argmax(tpr - fpr))
+            threshold = float(thresholds[j_idx])
+
+            preds = (scores >= threshold).astype(int)
+            precision = float(precision_score(all_labels, preds, zero_division=0))
+            recall = float(recall_score(all_labels, preds, zero_division=0))
+            f1 = float(f1_score(all_labels, preds, zero_division=0))
+            bal_acc = float(balanced_accuracy_score(all_labels, preds))
     except (ValueError, IndexError):
-        auc = 0.5
+        return fallback
+
     return {
         "auc": auc,
+        "precision": precision,
+        "recall": recall,
+        "f1": f1,
+        "balanced_accuracy": bal_acc,
+        "threshold": threshold,
         "loss": total_loss / max(n_batches, 1),
     }
 
@@ -230,7 +268,14 @@ def run_experiment(
     if best_state is not None:
         model.load_state_dict(best_state)
     test_metrics = evaluate(model, test_loader, device)
-    logger.info("Test AUC: %.4f", test_metrics["auc"])
+    logger.info(
+        "Test — AUC=%.4f  Prec=%.4f  Rec=%.4f  F1=%.4f  BalAcc=%.4f",
+        test_metrics["auc"],
+        test_metrics.get("precision", float("nan")),
+        test_metrics.get("recall", float("nan")),
+        test_metrics.get("f1", float("nan")),
+        test_metrics.get("balanced_accuracy", float("nan")),
+    )
     return test_metrics
 
 
@@ -368,14 +413,26 @@ def main():
             dataset, **train_kwargs
         )
 
-    # Print summary
+    # Print summary (mirrors Table 2 of Wagh & Varatharajah, 2020)
     logger.info("\n" + "=" * 60)
     logger.info("ABLATION RESULTS SUMMARY")
+    logger.info(
+        "  %-30s  %6s  %6s  %6s  %6s  %8s",
+        "Config", "AUC", "Prec", "Recall", "F1", "BalAcc",
+    )
     logger.info("=" * 60)
     for exp_name, exp_results in all_results.items():
         logger.info("\n--- %s ---", exp_name)
         for config, metrics in exp_results.items():
-            logger.info("  %-30s  AUC=%.4f", config, metrics["auc"])
+            logger.info(
+                "  %-30s  %.4f  %.4f  %.4f  %.4f  %.4f",
+                config,
+                metrics.get("auc", float("nan")),
+                metrics.get("precision", float("nan")),
+                metrics.get("recall", float("nan")),
+                metrics.get("f1", float("nan")),
+                metrics.get("balanced_accuracy", float("nan")),
+            )
 
     # Save results to JSON
     output_path = "eeg_gcnn_ablation_results.json"
