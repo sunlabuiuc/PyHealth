@@ -22,11 +22,16 @@ from .drug_recommendation import (
     drug_recommendation_omop_fn,
 )
 from .in_hospital_mortality_mimic4 import InHospitalMortalityMIMIC4
+from .ckd_surv import MIMIC4CKDSurvAnalysis
 from .length_of_stay_prediction import (
     LengthOfStayPredictioneICU,
     LengthOfStayPredictionMIMIC3,
     LengthOfStayPredictionMIMIC4,
     LengthOfStayPredictionOMOP,
+    LengthOfStayRegressioneICU,
+    LengthOfStayRegressionMIMIC3,
+    LengthOfStayRegressionMIMIC4,
+    LengthOfStayRegressionOMOP,
 )
 from .length_of_stay_stagenet_mimic4 import LengthOfStayStageNetMIMIC4
 from .medical_coding import MIMIC3ICD9Coding
@@ -40,6 +45,8 @@ from .mortality_prediction import (
     MultimodalMortalityPredictionMIMIC3,
     MultimodalMortalityPredictionMIMIC4,
 )
+from .metabric_survival import METABRICSurvivalOS, METABRICSurvivalRFS
+from .seer_survival import SEERSurvivalTask
 from .survival_preprocess_support2 import SurvivalPreprocessSupport2
 from .mortality_prediction_stagenet_mimic4 import (
     MortalityPredictionStageNetMIMIC4,
