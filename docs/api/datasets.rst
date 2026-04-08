@@ -245,3 +245,4 @@ Available Datasets
     datasets/pyhealth.datasets.TCGAPRADDataset
     datasets/pyhealth.datasets.splitter
     datasets/pyhealth.datasets.utils
+    pyhealth.datasets.ptbxl
