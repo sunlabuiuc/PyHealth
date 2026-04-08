@@ -797,20 +797,17 @@ class TFMTokenizer(BaseModel):
         Returns:
             a dictionary containing loss, y_prob, y_true, logit, tokens, embeddings.
         """
-        # stft = kwargs.get("stft")
+        stft = kwargs.get("stft")
         signal = kwargs.get("signal")
+        if stft is None or signal is None:
+            raise ValueError("Both 'stft' and 'signal' must be provided in inputs")
         if len(signal.shape) == 2:
             signal = signal.unsqueeze(0)
         B,C,T = signal.shape
-        stft = get_stft_torch(signal)
-        stft = rearrange(stft, 'B C F T -> (B C) F T')
-        signal = rearrange(signal, 'B C T -> (B C) T')
-        
-        if stft is None or signal is None:
-            raise ValueError("Both 'stft' and 'signal' must be provided in inputs")
-
         stft = stft.to(self.device)
         signal = signal.to(self.device)
+        stft = rearrange(stft, 'B C F T -> (B C) F T')
+        signal = rearrange(signal, 'B C T -> (B C) T')
 
         reconstructed, tokens, quant_out, quant_in = self.tokenizer(stft, signal)
 
@@ -869,10 +866,10 @@ class TFMTokenizer(BaseModel):
         with torch.no_grad():
             for batch in dataloader:
                 signal = batch.get("signal").to(self.device)
+                stft = batch.get("stft").to(self.device)
                 if len(signal.shape) == 2:
                     signal = signal.unsqueeze(0)
                 B,C,T = signal.shape
-                stft = get_stft_torch(signal)
                 stft = rearrange(stft, 'B C F T -> (B C) F T')
                 signal = rearrange(signal, 'B C T -> (B C) T')
                 _, _, quant_out, _ = self.tokenizer(stft, signal)
@@ -898,10 +895,10 @@ class TFMTokenizer(BaseModel):
         with torch.no_grad():
             for batch in dataloader:
                 signal = batch.get("signal").to(self.device)
+                stft = batch.get("stft").to(self.device)
                 if len(signal.shape) == 2:
                     signal = signal.unsqueeze(0)
                 B,C,T = signal.shape
-                stft = get_stft_torch(signal)
                 stft = rearrange(stft, 'B C F T -> (B C) F T')
                 signal = rearrange(signal, 'B C T -> (B C) T')
                 _, tokens, _, _ = self.tokenizer(stft, signal)
@@ -930,10 +927,10 @@ class TFMTokenizer(BaseModel):
             map_location = str(self.device)
 
         # Load tokenizer weights
-        self.tokenizer.load_state_dict(torch.load(tokenizer_checkpoint_path, map_location=map_location), strict=strict)
+        self.tokenizer.load_state_dict(torch.load(tokenizer_checkpoint_path, map_location=map_location, weights_only=True), strict=strict)
 
         if classifier_checkpoint_path is not None and not is_masked_training:
-            self.classifier.load_state_dict(torch.load(classifier_checkpoint_path, map_location=map_location))
+            self.classifier.load_state_dict(torch.load(classifier_checkpoint_path, map_location=map_location, weights_only=True))
             print(f"✓ Successfully loaded weights from {classifier_checkpoint_path}")
         elif is_masked_training:
             load_embedding_weights(self.tokenizer, self.classifier)

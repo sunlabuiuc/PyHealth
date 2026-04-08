@@ -15,6 +15,7 @@ import torch.nn as nn
 from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
 from pyhealth.models.embedding import EmbeddingModel
+from pyhealth.models.embedding.unified import UnifiedMultimodalEmbeddingModel
 from pyhealth.models.transformer import TransformerBlock
 from pyhealth.models.ehrmamba import MambaBlock
 from pyhealth.models.utils import get_last_visit
@@ -177,6 +178,11 @@ class JambaEHR(BaseModel):
     by an independent :class:`JambaLayer`. The resulting patient embeddings
     are concatenated and projected through a classification head.
 
+    When ``unified_embedding`` is supplied the model switches to **unified
+    mode**: all temporal fields are jointly embedded and time-sorted by
+    :class:`UnifiedMultimodalEmbeddingModel`, then processed by a *single*
+    :class:`JambaLayer` rather than one layer per field.
+
     Args:
         dataset (SampleDataset): Dataset providing processed inputs.
         embedding_dim (int): Embedding and hidden dimension. Default 128.
@@ -186,6 +192,8 @@ class JambaEHR(BaseModel):
         dropout (float): Dropout rate. Default 0.3.
         state_size (int): SSM state size in Mamba blocks. Default 16.
         conv_kernel (int): Causal conv kernel in Mamba blocks. Default 4.
+        unified_embedding (UnifiedMultimodalEmbeddingModel, optional): when
+            provided, enables unified multi-modal mode with a single JambaLayer.
 
     Examples:
         >>> from pyhealth.datasets import create_sample_dataset, get_dataloader
@@ -234,6 +242,7 @@ class JambaEHR(BaseModel):
         dropout: float = 0.3,
         state_size: int = 16,
         conv_kernel: int = 4,
+        unified_embedding: Optional[UnifiedMultimodalEmbeddingModel] = None,
     ):
         super(JambaEHR, self).__init__(dataset=dataset)
         self.embedding_dim = embedding_dim
@@ -243,6 +252,7 @@ class JambaEHR(BaseModel):
         self.dropout_rate = dropout
         self.state_size = state_size
         self.conv_kernel = conv_kernel
+        self._use_unified = unified_embedding is not None
 
         assert (
             len(self.label_keys) == 1
@@ -250,11 +260,12 @@ class JambaEHR(BaseModel):
         self.label_key = self.label_keys[0]
         self.mode = self.dataset.output_schema[self.label_key]
 
-        self.embedding_model = EmbeddingModel(dataset, embedding_dim)
+        output_size = self.get_output_size()
+        self.dropout = nn.Dropout(dropout)
 
-        self.jamba: nn.ModuleDict = nn.ModuleDict()
-        for feature_key in self.feature_keys:
-            self.jamba[feature_key] = JambaLayer(
+        if self._use_unified:
+            self.embedding_model = unified_embedding
+            self._unified_jamba = JambaLayer(
                 feature_size=embedding_dim,
                 num_transformer_layers=num_transformer_layers,
                 num_mamba_layers=num_mamba_layers,
@@ -263,12 +274,66 @@ class JambaEHR(BaseModel):
                 state_size=state_size,
                 conv_kernel=conv_kernel,
             )
+            self.fc = nn.Linear(embedding_dim, output_size)
+        else:
+            self.embedding_model = EmbeddingModel(dataset, embedding_dim)
+            self.jamba: nn.ModuleDict = nn.ModuleDict()
+            for feature_key in self.feature_keys:
+                self.jamba[feature_key] = JambaLayer(
+                    feature_size=embedding_dim,
+                    num_transformer_layers=num_transformer_layers,
+                    num_mamba_layers=num_mamba_layers,
+                    heads=heads,
+                    dropout=dropout,
+                    state_size=state_size,
+                    conv_kernel=conv_kernel,
+                )
+            self.fc = nn.Linear(len(self.feature_keys) * embedding_dim, output_size)
 
-        output_size = self.get_output_size()
-        self.dropout = nn.Dropout(dropout)
-        self.fc = nn.Linear(
-            len(self.feature_keys) * embedding_dim, output_size
-        )
+    def _build_unified_inputs(
+        self, kwargs: Dict[str, Any]
+    ) -> Dict[str, Dict[str, torch.Tensor]]:
+        """Build the inputs dict required by UnifiedMultimodalEmbeddingModel."""
+        inputs: Dict[str, Dict[str, torch.Tensor]] = {}
+        for field_name in self.feature_keys:
+            feature = kwargs[field_name]
+            if isinstance(feature, torch.Tensor):
+                feature = (feature,)
+            schema = self.dataset.input_processors[field_name].schema()
+            field_dict: Dict[str, torch.Tensor] = {}
+            if "value" in schema:
+                field_dict["value"] = feature[schema.index("value")].to(self.device)
+            if "time" in schema:
+                field_dict["time"] = feature[schema.index("time")].to(self.device)
+            if "mask" in schema:
+                field_dict["mask"] = feature[schema.index("mask")].to(self.device)
+            inputs[field_name] = field_dict
+        return inputs
+
+    def _forward_unified(self, **kwargs: Any) -> Dict[str, torch.Tensor]:
+        """Forward pass in unified-embedding mode.
+
+        Calls UnifiedMultimodalEmbeddingModel to produce a single
+        temporally-sorted event sequence, then encodes it with one shared
+        JambaLayer and pools to the last valid event.
+        """
+        inputs = self._build_unified_inputs(kwargs)
+        out = self.embedding_model(inputs)
+        sequence = out["sequence"]          # (B, S_total, E)
+        mask     = out["mask"]              # (B, S_total) float, 1=valid 0=pad
+
+        _, cls_emb = self._unified_jamba(sequence, mask)
+        logits = self.fc(self.dropout(cls_emb))
+        y_prob = self.prepare_y_prob(logits)
+
+        results: Dict[str, torch.Tensor] = {"logit": logits, "y_prob": y_prob}
+        if self.label_key in kwargs:
+            y_true = cast(torch.Tensor, kwargs[self.label_key]).to(self.device)
+            results["loss"]   = self.get_loss_function()(logits, y_true)
+            results["y_true"] = y_true
+        if kwargs.get("embed", False):
+            results["embed"] = cls_emb
+        return results
 
     @staticmethod
     def _pool_embedding(x: torch.Tensor) -> torch.Tensor:
@@ -317,9 +382,10 @@ class JambaEHR(BaseModel):
     ) -> Dict[str, torch.Tensor]:
         """Forward propagation.
 
-        Embeds each feature stream, encodes through the hybrid
-        Transformer-Mamba stack, concatenates per-stream patient
-        representations, and projects to label space.
+        In **unified mode** (when ``unified_embedding`` was supplied at init)
+        the model jointly embeds all temporal fields and processes them with a
+        single JambaLayer backbone.  Otherwise each field is embedded and
+        encoded independently.
 
         Args:
             **kwargs: Must include all feature keys (tensors or tuples
@@ -330,6 +396,9 @@ class JambaEHR(BaseModel):
                 ``y_prob``, ``y_true``, ``logit``, and optionally
                 ``embed`` if ``kwargs["embed"] is True``.
         """
+        if self._use_unified:
+            return self._forward_unified(**kwargs)
+
         patient_emb = []
 
         for feature_key in self.feature_keys:

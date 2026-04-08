@@ -50,11 +50,14 @@ def regression_metrics_fn(
     output = {}
     for metric in metrics:
         if metric == "kl_divergence":
-            x[x < 1e-6] = 1e-6
-            x_rec[x_rec < 1e-6] = 1e-6
-            x = x / np.sum(x)
-            x_rec = x_rec / np.sum(x_rec)
-            kl_divergence = np.sum(x_rec * np.log(x_rec / x))
+            # Work on copies to avoid mutating x/x_rec for subsequent metrics
+            x_kl = x.copy()
+            x_rec_kl = x_rec.copy()
+            x_kl[x_kl < 1e-6] = 1e-6
+            x_rec_kl[x_rec_kl < 1e-6] = 1e-6
+            x_kl = x_kl / np.sum(x_kl)
+            x_rec_kl = x_rec_kl / np.sum(x_rec_kl)
+            kl_divergence = np.sum(x_rec_kl * np.log(x_rec_kl / x_kl))
             output["kl_divergence"] = kl_divergence
         elif metric == "mse":
             mse = sklearn_metrics.mean_squared_error(x, x_rec)

@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 import sys
 
-__version__ = "1.1.4"
+__version__ = "2.0.0"
 
 # package-level cache path
 BASE_CACHE_PATH = os.path.join(str(Path.home()), ".cache/pyhealth/")
