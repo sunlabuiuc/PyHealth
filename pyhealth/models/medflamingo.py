@@ -390,6 +390,7 @@ class MedFlamingo(BaseModel):
 
         # If a dataset is provided with a single label, prepare for
         # classification (VQA-as-multiclass).
+        self._fc = None  # default; overridden below when dataset is available
         if dataset is not None and len(self.label_keys) == 1:
             self.label_key = self.label_keys[0]
             self._init_classification_head()
@@ -694,42 +695,44 @@ class MedFlamingo(BaseModel):
             text_embeds = self._lang_model.model.embed_tokens(encoded_context["input_ids"])
             # (1, seq_len, lang_dim)
         
-        # Step 4: Apply cross-attention for conditioning
+        # Step 4: Apply cross-attention to produce visually-conditioned embeddings
         lang_hidden = text_embeds
-        
-        # Use all accumulated vision features for conditioning
-        # For simplicity, concatenate all vision features
-        all_vision_features = torch.cat(vision_features_list, dim=1)  # (batch_size, total_patches, vision_dim)
-        
+
+        # Concatenate all vision features (few-shot images + query image)
+        all_vision_features = torch.cat(
+            vision_features_list, dim=1
+        )  # (1, total_patches, vision_dim)
+
         for xattn_layer in self._xattn_layers:
-            lang_hidden = xattn_layer(lang_hidden, all_vision_features[:1])  # Use first batch's features for single sample
-        
-        # Step 5: Prepare input for generation
-        # Reuse the encoded input IDs but with updated hidden states
-        input_ids = encoded_context["input_ids"]
+            lang_hidden = xattn_layer(
+                lang_hidden, all_vision_features[:1]
+            )  # use first (and only) batch element
+
+        # Step 5: Generate from the conditioned embeddings.
+        # Pass ``inputs_embeds`` so the LLM starts from the xattn-conditioned
+        # representations rather than the raw token embeddings.  The
+        # attention_mask from the tokenizer still applies; a new all-ones mask
+        # matching the embedding sequence length is used if none is available.
         attention_mask = encoded_context.get("attention_mask")
-        
-        # Step 6: Generate using the language model
-        # We'll craft the generation call to use the conditioned embeddings
+
         with torch.no_grad():
-            # Generate from the LLM conditioned on visual features
             output = self._lang_model.generate(
-                input_ids=input_ids,
+                inputs_embeds=lang_hidden,
                 attention_mask=attention_mask,
                 max_new_tokens=max_new_tokens,
                 temperature=temperature,
                 do_sample=(temperature > 1.0),
-                **generation_kwargs
+                **generation_kwargs,
             )
-        
-        # Step 7: Decode generated tokens
+
+        # Step 6: Decode generated tokens
         generated_text = self._tokenizer.decode(
             output[0],
-            skip_special_tokens=True
+            skip_special_tokens=True,
         )
-        
+
         # Remove prompt from output if present
         if prompt in generated_text:
             generated_text = generated_text.split(prompt)[-1].strip()
-        
+
         return generated_text
