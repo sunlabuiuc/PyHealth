@@ -282,8 +282,8 @@ def _manual_token_attribution(
     output = model.forward_from_embedding(codes=tuple(parts), label=labels)
     logits = output["logit"]
 
-    # Binary mode: target class 0 → sign = -1 (2*0 - 1)
-    target = (-1.0 * logits).sum()
+    # Binary (single logit): _resolve_target_indices always selects index 0.
+    target = logits.sum()
 
     model.zero_grad(set_to_none=True)
     if embeddings.grad is not None:
