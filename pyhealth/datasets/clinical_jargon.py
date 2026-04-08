@@ -1,3 +1,11 @@
+"""Clinical jargon benchmark dataset for PyHealth.
+
+This module exposes a public clinical jargon benchmark derived from the
+released MedLingo and CASI assets from Jia et al. (CHIL 2025). The dataset is
+normalized into a single CSV file that PyHealth can load as an `examples`
+table.
+"""
+
 import csv
 import json
 import re
@@ -39,12 +47,30 @@ PAPER59_EXCLUSIONS = frozenset(
 
 
 def split_aliases(answer: str) -> list[str]:
+    """Split released answer strings into canonical aliases.
+
+    Args:
+        answer: The released answer string. Some MedLingo answers contain
+            multiple acceptable expansions joined by ``or``.
+
+    Returns:
+        A non-empty list of acceptable expansion strings.
+    """
     pieces = re.split(r"\s+or\s+", answer.strip())
     aliases = [piece.strip() for piece in pieces if piece.strip()]
     return aliases or [answer.strip()]
 
 
 def surface_form_group(abbreviation: str) -> str:
+    """Assign a surface-form bucket to a jargon token.
+
+    Args:
+        abbreviation: The shorthand token being evaluated.
+
+    Returns:
+        One of ``all_caps``, ``lowercase``, ``mixed_case``, or
+        ``digit_or_symbol``.
+    """
     if any(character.isdigit() or not character.isalpha() for character in abbreviation):
         return "digit_or_symbol"
     if abbreviation.isupper():
@@ -55,12 +81,28 @@ def surface_form_group(abbreviation: str) -> str:
 
 
 def strip_medlingo_oneshot(question: str) -> str:
+    """Remove the released MedLingo one-shot demonstration when present.
+
+    Args:
+        question: A released MedLingo question string.
+
+    Returns:
+        The same question without the built-in one-shot example prefix.
+    """
     if question.startswith(MEDLINGO_ONESHOT_PREFIX):
         return question[len(MEDLINGO_ONESHOT_PREFIX) :].strip()
     return question.strip()
 
 
 def dedupe(values: list[str]) -> list[str]:
+    """Preserve order while removing duplicate strings.
+
+    Args:
+        values: Ordered candidate strings.
+
+    Returns:
+        The input values with duplicates removed in first-seen order.
+    """
     seen: set[str] = set()
     ordered: list[str] = []
     for value in values:
@@ -71,6 +113,14 @@ def dedupe(values: list[str]) -> list[str]:
 
 
 def token_length(text: str) -> int:
+    """Count alphanumeric tokens in a string.
+
+    Args:
+        text: The input text.
+
+    Returns:
+        The number of regex word tokens in ``text``.
+    """
     return len(re.findall(r"\w+", text))
 
 
@@ -79,6 +129,20 @@ def choose_medlingo_distractors(
     current_record: dict,
     distractor_count: int = 3,
 ) -> list[str]:
+    """Select distractor expansions for a MedLingo item.
+
+    The ranking favors candidate expansions with similar token length, first
+    within the same surface-form group and then globally if more negatives are
+    needed.
+
+    Args:
+        records: All normalized MedLingo records.
+        current_record: The record whose distractors are being chosen.
+        distractor_count: Number of negative candidates to return.
+
+    Returns:
+        A list of distractor expansions ordered from closest to farthest match.
+    """
     gold = current_record["gold_expansion"]
     goal_length = token_length(gold)
 
@@ -110,7 +174,30 @@ def choose_medlingo_distractors(
 
 
 class ClinicalJargonDataset(BaseDataset):
-    """Public clinical jargon benchmark dataset for PyHealth."""
+    """Public clinical jargon benchmark dataset for PyHealth.
+
+    The dataset downloads the public MedLingo and CASI benchmark assets,
+    normalizes them into a single ``clinical_jargon_examples.csv`` file, and
+    exposes the result through the PyHealth dataset API.
+
+    The default task is :class:`pyhealth.tasks.ClinicalJargonVerification`,
+    which converts each benchmark item into paired-text binary verification
+    samples over candidate expansions.
+
+    Args:
+        root: Root directory used to store normalized benchmark files.
+        dataset_name: Optional dataset name. Defaults to ``clinical_jargon``.
+        config_path: Optional path to the dataset config file.
+        **kwargs: Additional keyword arguments forwarded to
+            :class:`pyhealth.datasets.BaseDataset`.
+
+    Examples:
+        >>> from pyhealth.datasets import ClinicalJargonDataset
+        >>> dataset = ClinicalJargonDataset(root="/tmp/clinical_jargon")
+        >>> task = dataset.default_task
+        >>> samples = dataset.set_task(task)
+        >>> print(samples[0]["paired_text"])
+    """
 
     def __init__(
         self,
@@ -119,6 +206,14 @@ class ClinicalJargonDataset(BaseDataset):
         config_path: Optional[str] = None,
         **kwargs,
     ) -> None:
+        """Initialize the public clinical jargon dataset.
+
+        Args:
+            root: Root directory used to cache normalized files.
+            dataset_name: Optional dataset name override.
+            config_path: Optional dataset config path override.
+            **kwargs: Additional keyword arguments passed to ``BaseDataset``.
+        """
         root_path = Path(root)
         root_path.mkdir(parents=True, exist_ok=True)
         if config_path is None:
@@ -136,6 +231,15 @@ class ClinicalJargonDataset(BaseDataset):
 
     @staticmethod
     def _download_text(url: str, destination: Path) -> str:
+        """Download text content unless it is already cached locally.
+
+        Args:
+            url: Source URL.
+            destination: Cache path for the downloaded content.
+
+        Returns:
+            The downloaded or cached text payload.
+        """
         if destination.exists():
             return destination.read_text()
         payload = urllib.request.urlopen(url).read().decode("utf-8", errors="replace")
@@ -144,11 +248,27 @@ class ClinicalJargonDataset(BaseDataset):
 
     @classmethod
     def _fetch_medlingo_rows(cls, cache_dir: Path) -> list[dict]:
+        """Load raw MedLingo rows from the released public CSV.
+
+        Args:
+            cache_dir: Cache directory for downloaded assets.
+
+        Returns:
+            Raw MedLingo rows as dictionaries.
+        """
         csv_text = cls._download_text(MEDLINGO_URL, cache_dir / "medlingo_questions.csv")
         return list(csv.DictReader(csv_text.splitlines()))
 
     @classmethod
     def _fetch_casi_rows(cls, cache_dir: Path) -> list[dict]:
+        """Load raw CASI rows from the released public subset.
+
+        Args:
+            cache_dir: Cache directory for downloaded assets.
+
+        Returns:
+            Raw CASI rows as dictionaries with source-file metadata.
+        """
         index_path = cache_dir / "casi_release_index.json"
         if index_path.exists():
             entries = json.loads(index_path.read_text())
@@ -170,6 +290,12 @@ class ClinicalJargonDataset(BaseDataset):
 
     @classmethod
     def prepare_metadata(cls, root: Path) -> None:
+        """Normalize public MedLingo and CASI assets into one CSV file.
+
+        Args:
+            root: Root directory where the normalized file and cache should be
+                written.
+        """
         cache_dir = root / "cache"
         cache_dir.mkdir(parents=True, exist_ok=True)
 
@@ -259,6 +385,11 @@ class ClinicalJargonDataset(BaseDataset):
 
     @property
     def default_task(self):
+        """Return the default task for the dataset.
+
+        Returns:
+            ClinicalJargonVerification: The default binary verification task.
+        """
         from ..tasks import ClinicalJargonVerification
 
         return ClinicalJargonVerification()
