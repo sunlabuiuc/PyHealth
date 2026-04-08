@@ -6,7 +6,7 @@ import logging
 from dataclasses import field
 from datetime import datetime
 from typing import Dict, List, Union, Type
-from pyhealth.processors import TextProcessor, MultiLabelProcessor
+from pyhealth.processors import TextProcessor, MultiLabelProcessor, SequenceProcessor
 import polars as pl
 
 from pyhealth.data.data import Patient
@@ -139,44 +139,74 @@ class MIMIC3ICD9Coding(BaseTask):
 #         return [{"text": text, "icd_codes": list(icd_codes)}]
 
 
-# @dataclass(frozen=True)
-# class MIMIC4ICD10Coding(TaskTemplate):
-#     """Medical coding task for MIMIC-IV using ICD-10 codes.
 
-#     This task uses discharge notes to predict ICD-10 codes for a patient.
+MAX_TOKENS = 4000
 
-#     Args:
-#         task_name: Name of the task
-#         input_schema: Definition of the input data schema
-#         output_schema: Definition of the output data schema
-#     """
-#     task_name: str = "mimic4_icd10_coding"
-#     input_schema: Dict[str, str] = field(default_factory=lambda: {"text": "str"})
-#     output_schema: Dict[str, str] = field(default_factory=lambda: {"icd_codes": "List[str]"})
 
-#     def __call__(self, patient: Patient) -> List[Dict]:
-#         """Process a patient and extract the discharge notes and ICD-9 codes."""
-#         text = ""
-#         icd_codes = set()
+def _tokenize_clinical_text(text: str) -> List[str]:
+    """Lowercase, split on whitespace, and truncate to MAX_TOKENS."""
+    return text.lower().split()[:MAX_TOKENS]
 
-#         for event in patient.events:
-#             event_type = event.type.lower() if isinstance(event.type, str) else ""
 
-#             # Look for "value" instead of "code" for clinical notes
-#             if event_type == "clinical_note":
-#                 if "value" in event.attr_dict:
-#                     text += event.attr_dict["value"]
+class MIMIC4ICD10Coding(BaseTask):
+    """MIMIC-IV ICD-10 coding task. Filters to icd_version=10 only."""
 
-#             vocabulary = event.attr_dict.get("vocabulary", "").upper()
-#             if vocabulary == "ICD10CM":
-#                 if event_type == "diagnoses_icd" or event_type == "procedures_icd":
-#                     if "code" in event.attr_dict:
-#                         icd_codes.add(event.attr_dict["code"])
+    task_name: str = "mimic4_icd10_coding"
+    input_schema: Dict[str, Union[str, Type]] = {"text": SequenceProcessor}
+    output_schema: Dict[str, Union[str, Type]] = {"icd_codes": MultiLabelProcessor}
 
-#         if text == "" or len(icd_codes) < 1:
-#             return []
+    def pre_filter(self, df: pl.LazyFrame) -> pl.LazyFrame:
+        """Keep only patients who have at least one discharge note."""
+        filtered_df = df.filter(
+            pl.col("patient_id").is_in(
+                df.filter(pl.col("event_type") == "discharge")
+                .select("patient_id")
+                .unique()
+                .collect(engine="streaming")
+                .to_series()
+            )
+        )
+        return filtered_df
 
-#         return [{"text": text, "icd_codes": list(icd_codes)}]
+    def __call__(self, patient: Patient) -> List[Dict]:
+        samples = []
+        admissions = patient.get_events(event_type="admissions")
+
+        for admission in admissions:
+            diagnoses = patient.get_events(
+                event_type="diagnoses_icd",
+                filters=[("hadm_id", "==", admission.hadm_id)],
+            )
+            icd_codes = [
+                e.icd_code
+                for e in diagnoses
+                if str(getattr(e, "icd_version", "")) == "10"
+            ]
+
+            notes = patient.get_events(
+                event_type="discharge",
+                filters=[("hadm_id", "==", admission.hadm_id)],
+            )
+            raw_text = " ".join(
+                str(note.text)
+                for note in notes
+                if hasattr(note, "text") and note.text is not None
+            )
+            tokens = _tokenize_clinical_text(raw_text)
+
+            if not tokens or len(icd_codes) < 1:
+                continue
+
+            samples.append(
+                {
+                    "patient_id": patient.patient_id,
+                    "visit_id": admission.hadm_id,
+                    "text": tokens,
+                    "icd_codes": sorted(set(icd_codes)),
+                }
+            )
+
+        return samples
 
 
 def main():
