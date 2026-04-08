@@ -4,7 +4,7 @@ All tests use synthetic data — no real EEG files are required.
 Tests complete in milliseconds.
 """
 
-import os
+import sys
 import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -109,8 +109,8 @@ class TestTaskInit:
             EEGGCNNDiseaseDetection(connectivity_measure="plv")
 
     def test_task_schemas(self, task):
-        assert "psd_features" in task.input_schema
-        assert "adjacency" in task.input_schema
+        assert "node_features" in task.input_schema
+        assert "adj_matrix" in task.input_schema
         assert "label" in task.output_schema
         assert task.output_schema["label"] == "binary"
         assert task.task_name == "eeg_gcnn_nd_detection"
@@ -224,10 +224,10 @@ class TestTaskCall:
         assert len(samples) == 3
         for s in samples:
             assert s["patient_id"] == "test_001"
-            assert isinstance(s["psd_features"], torch.Tensor)
-            assert s["psd_features"].shape == (8, 6)
-            assert isinstance(s["adjacency"], torch.Tensor)
-            assert s["adjacency"].shape == (8, 8)
+            assert isinstance(s["node_features"], torch.Tensor)
+            assert s["node_features"].shape == (8, 6)
+            assert isinstance(s["adj_matrix"], torch.Tensor)
+            assert s["adj_matrix"].shape == (8, 8)
             assert s["label"] == 0
 
     def test_call_skips_bad_file(self):
@@ -370,3 +370,122 @@ class TestConstants:
 
     def test_num_channels(self):
         assert NUM_CHANNELS == 8
+
+
+# ---------------------------------------------------------------
+# Functional and combined adjacency tests
+# (mne_connectivity is mocked so no real EEG dependency)
+# ---------------------------------------------------------------
+
+def _make_mock_mne_connectivity(n_channels: int = 8, n_freqs: int = 10):
+    """Return a (mock mne_connectivity module, mock connectivity result).
+
+    ``conn.get_data(output="dense")`` returns shape
+    ``(n_channels, n_channels, n_freqs)`` with values in [0, 1].
+    """
+    rng = np.random.RandomState(7)
+    conn_data = rng.uniform(0.0, 1.0, (n_channels, n_channels, n_freqs))
+
+    mock_conn_result = MagicMock()
+    mock_conn_result.get_data.return_value = conn_data
+
+    mock_mne_conn_module = MagicMock()
+    mock_mne_conn_module.spectral_connectivity_epochs.return_value = (
+        mock_conn_result
+    )
+    return mock_mne_conn_module, mock_conn_result
+
+
+class TestFunctionalAdjacency:
+    """Tests for _build_functional_adjacency and combined adjacency mode.
+
+    mne_connectivity is injected via sys.modules so the tests run in
+    milliseconds with no network or file I/O.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _patch_mne_conn(self, synthetic_bipolar_window):
+        """Inject a mock mne_connectivity for every test in this class."""
+        mock_module, self._mock_result = _make_mock_mne_connectivity()
+        with patch.dict(sys.modules, {"mne_connectivity": mock_module}):
+            self._mock_module = mock_module
+            yield
+
+    # --- _build_functional_adjacency ---
+
+    def test_functional_shape(self, synthetic_bipolar_window):
+        task = EEGGCNNDiseaseDetection(adjacency_type="functional")
+        adj = task._build_functional_adjacency(synthetic_bipolar_window)
+        assert adj.shape == (NUM_CHANNELS, NUM_CHANNELS)
+
+    def test_functional_diagonal_is_one(self, synthetic_bipolar_window):
+        task = EEGGCNNDiseaseDetection(adjacency_type="functional")
+        adj = task._build_functional_adjacency(synthetic_bipolar_window)
+        np.testing.assert_array_equal(np.diag(adj), np.ones(NUM_CHANNELS))
+
+    def test_functional_symmetric(self, synthetic_bipolar_window):
+        task = EEGGCNNDiseaseDetection(adjacency_type="functional")
+        adj = task._build_functional_adjacency(synthetic_bipolar_window)
+        np.testing.assert_array_almost_equal(adj, adj.T)
+
+    def test_functional_values_finite(self, synthetic_bipolar_window):
+        task = EEGGCNNDiseaseDetection(adjacency_type="functional")
+        adj = task._build_functional_adjacency(synthetic_bipolar_window)
+        assert np.all(np.isfinite(adj))
+
+    def test_functional_coherence_method_passed(self, synthetic_bipolar_window):
+        """spectral_connectivity_epochs must be called with method='coh'."""
+        task = EEGGCNNDiseaseDetection(
+            adjacency_type="functional", connectivity_measure="coherence"
+        )
+        task._build_functional_adjacency(synthetic_bipolar_window)
+        call_kwargs = (
+            self._mock_module.spectral_connectivity_epochs.call_args[1]
+        )
+        assert call_kwargs["method"] == "coh"
+
+    def test_functional_wpli_method_passed(self, synthetic_bipolar_window):
+        """spectral_connectivity_epochs must be called with method='wpli'."""
+        task = EEGGCNNDiseaseDetection(
+            adjacency_type="functional", connectivity_measure="wpli"
+        )
+        task._build_functional_adjacency(synthetic_bipolar_window)
+        call_kwargs = (
+            self._mock_module.spectral_connectivity_epochs.call_args[1]
+        )
+        assert call_kwargs["method"] == "wpli"
+
+    # --- combined adjacency via _build_adjacency ---
+
+    def test_combined_shape(self, synthetic_bipolar_window):
+        task = EEGGCNNDiseaseDetection(adjacency_type="combined")
+        adj = task._build_adjacency(synthetic_bipolar_window)
+        assert adj.shape == (NUM_CHANNELS, NUM_CHANNELS)
+
+    def test_combined_diagonal_is_one(self, synthetic_bipolar_window):
+        task = EEGGCNNDiseaseDetection(adjacency_type="combined")
+        adj = task._build_adjacency(synthetic_bipolar_window)
+        np.testing.assert_array_equal(np.diag(adj), np.ones(NUM_CHANNELS))
+
+    def test_combined_is_mean_of_spatial_and_functional(
+        self, synthetic_bipolar_window
+    ):
+        """Combined adjacency = (spatial + functional) / 2, diag set to 1."""
+        task = EEGGCNNDiseaseDetection(adjacency_type="combined")
+        combined = task._build_adjacency(synthetic_bipolar_window)
+
+        functional = task._build_functional_adjacency(synthetic_bipolar_window)
+        spatial = task._spatial_adj
+
+        expected = (spatial + functional) / 2.0
+        np.fill_diagonal(expected, 1.0)
+        np.testing.assert_array_almost_equal(combined, expected)
+
+    def test_combined_off_diagonal_differs_from_identity(
+        self, synthetic_bipolar_window
+    ):
+        """Combined adjacency must not collapse to identity matrix."""
+        task = EEGGCNNDiseaseDetection(adjacency_type="combined")
+        adj = task._build_adjacency(synthetic_bipolar_window)
+        off_diag = adj[~np.eye(NUM_CHANNELS, dtype=bool)]
+        assert np.any(off_diag != 0.0)
