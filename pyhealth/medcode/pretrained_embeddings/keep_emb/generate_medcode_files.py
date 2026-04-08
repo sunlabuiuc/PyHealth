@@ -96,8 +96,11 @@ def generate_snomed_csv(
         concept_code = str(attrs.get("concept_code", node))
         concept_name = attrs.get("concept_name", "")
 
-        # Get first parent (InnerMap only supports single parent)
-        parents = list(graph.successors(node))
+        # Get first parent (InnerMap only supports single parent).
+        # Sort for reproducibility — SNOMED is a polyhierarchy so a
+        # node can have multiple parents. Without sorting, the choice
+        # depends on edge insertion order which varies across Athena versions.
+        parents = sorted(graph.successors(node))
         if parents:
             parent_code = str(
                 graph.nodes[parents[0]].get("concept_code", parents[0])

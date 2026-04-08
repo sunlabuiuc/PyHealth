@@ -53,7 +53,7 @@ def run_keep_pipeline(
     num_walks: int = 750,
     walk_length: int = 30,
     glove_epochs: int = 300,
-    lambd: float = 1e-3,
+    lambd: float = 1e-5,
     min_occurrences: int = 2,
     device: str = "cpu",
     seed: int = 42,

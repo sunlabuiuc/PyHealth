@@ -56,9 +56,11 @@ class TestKeepGloVe:
         col = torch.tensor([1, 2, 0])
         counts = torch.tensor([3.0, 1.0, 2.0])
 
-        loss = model(row, col, counts)
-        assert loss.dim() == 0  # scalar
-        assert loss.item() > 0  # should be positive
+        glove_loss, reg_loss = model(row, col, counts)
+        assert glove_loss.dim() == 0  # scalar
+        assert glove_loss.item() > 0  # should be positive
+        # No init_embeddings, so reg_loss should be 0
+        assert reg_loss.item() == 0.0
 
     def test_regularization_increases_loss(self):
         from pyhealth.medcode.pretrained_embeddings.keep_emb.train_glove import (
@@ -81,12 +83,13 @@ class TestKeepGloVe:
         with torch.no_grad():
             model_reg.emb_u.weight.add_(torch.randn_like(model_reg.emb_u.weight))
 
-        loss_noreg = model_noreg(row, col, counts).item()
-        loss_reg = model_reg(row, col, counts).item()
+        glove_noreg, reg_noreg = model_noreg(row, col, counts)
+        glove_reg, reg_reg = model_reg(row, col, counts)
 
-        # Regularized loss should generally be larger due to drift penalty
-        # (not guaranteed on exact values, but the reg term is added)
-        assert loss_reg >= 0
+        # With lambd=0, reg loss should be 0
+        assert reg_noreg.item() == 0.0
+        # With lambd=1 and perturbed weights, reg loss should be > 0
+        assert reg_reg.item() > 0
 
     def test_get_embeddings_shape(self):
         from pyhealth.medcode.pretrained_embeddings.keep_emb.train_glove import (
@@ -178,7 +181,10 @@ class TestTrainKeep:
             total = 0.0
             for i in range(len(ds)):
                 r, c, cnt = ds[i]
-                loss = model(r.unsqueeze(0), c.unsqueeze(0), cnt.unsqueeze(0))
+                glove_loss, reg_loss = model(
+                    r.unsqueeze(0), c.unsqueeze(0), cnt.unsqueeze(0),
+                )
+                loss = glove_loss + reg_loss
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()

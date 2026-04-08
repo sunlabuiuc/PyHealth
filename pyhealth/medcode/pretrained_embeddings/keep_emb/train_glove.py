@@ -100,21 +100,37 @@ class KeepGloVe(nn.Module):
     convention of "context" and "target" embeddings). The final output
     is the average: ``(U + V) / 2``.
 
+    The KEEP paper text and reference code differ on several details.
+    We default to the **code-faithful** values (which produced the
+    published AUPRC numbers). Pass alternative values to test the
+    paper-described variant.
+
+    ========== ============= =============== =======================
+    Aspect     Paper text    Reference code  Our default
+    ========== ============= =============== =======================
+    Reg dist   L2            Cosine          Cosine (``use_cosine_reg=True``)
+    Lambda     1e-3          1e-5            1e-5
+    Optimizer  AdamW         Adagrad         Adagrad (set in ``train_keep``)
+    Reduction  per-element   sum-over-batch  sum-over-batch
+    ========== ============= =============== =======================
+
     Args:
         vocab_size: Number of unique codes.
         embedding_dim: Dimensionality of embeddings. Default: 100.
         init_embeddings: Node2Vec embeddings to initialize from and
             regularize toward. Shape ``(vocab_size, embedding_dim)``.
             If None, uses random initialization and no regularization.
-        lambd: Regularization strength (lambda in the paper).
-            Default: 1e-3 (KEEP paper Table 6).
+        lambd: Regularization strength (lambda). Default: 1e-5
+            (matches reference code ``LAMBD = 0.00001``). The paper
+            Table 6 reports 1e-3 but uses a different normalization
+            convention (per-element vs sum-over-batch).
         use_cosine_reg: If True, use cosine distance for regularization
-            (matches KEEP code). If False, use L2 distance (matches
-            paper Algorithm 1). Default: True.
+            (matches reference code ``REG_NORM = None``). If False,
+            use L2 norm (matches paper Algorithm 1 text). Default: True.
 
     Example:
         >>> model = KeepGloVe(5000, 100, init_embeddings=n2v_embs)
-        >>> loss = model(row_idx, col_idx, counts)
+        >>> glove_loss, reg_loss = model(row_idx, col_idx, counts)
     """
 
     def __init__(
@@ -122,7 +138,7 @@ class KeepGloVe(nn.Module):
         vocab_size: int,
         embedding_dim: int = 100,
         init_embeddings: Optional[np.ndarray] = None,
-        lambd: float = 1e-3,
+        lambd: float = 1e-5,
         use_cosine_reg: bool = True,
     ):
         super().__init__()
@@ -160,8 +176,12 @@ class KeepGloVe(nn.Module):
         counts: torch.Tensor,
         x_max: float = 50.0,
         alpha: float = 0.75,
-    ) -> torch.Tensor:
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Compute the KEEP loss (GloVe + regularization).
+
+        Returns GloVe loss and reg loss separately for logging.
+        The reference code sums (not averages) the reg loss over the
+        batch and computes it for both row and col tokens.
 
         Args:
             row_idx: Batch of row indices, shape ``(batch,)``.
@@ -174,7 +194,7 @@ class KeepGloVe(nn.Module):
                 (KEEP paper Table 6).
 
         Returns:
-            Scalar loss tensor (GloVe loss + regularization loss).
+            Tuple of (glove_loss, reg_loss) as separate tensors.
         """
         # Look up embeddings
         u = self.emb_u(row_idx)       # (batch, dim)
@@ -195,26 +215,36 @@ class KeepGloVe(nn.Module):
         diff = dot + bu + bv - log_counts
         glove_loss = (weights * diff.pow(2)).mean()
 
-        # Regularization loss
+        # Regularization loss — applied to BOTH row and col tokens
+        # Uses .sum() not .mean() to match reference normalization.
+        # With lambd=1e-5 and sum reduction, effective reg strength is
+        # lambd * 2 * batch_size * avg_distance ≈ meaningful.
         reg_loss = torch.tensor(0.0, device=glove_loss.device)
         if self.init_emb is not None and self.lambd > 0:
-            # Average of U and V (the final embedding)
-            avg_u = self.emb_u(row_idx)
-            avg_v = self.emb_v(row_idx)
-            avg_emb = (avg_u + avg_v) / 2.0
-            init = self.init_emb[row_idx]
+            # Average of U and V for row tokens (i indices)
+            avg_i = (self.emb_u(row_idx) + self.emb_v(row_idx)) / 2.0
+            init_i = self.init_emb[row_idx]
+            # Average of U and V for col tokens (j indices)
+            avg_j = (self.emb_u(col_idx) + self.emb_v(col_idx)) / 2.0
+            init_j = self.init_emb[col_idx]
 
             if self.use_cosine_reg:
-                # Cosine distance: 1 - cosine_similarity
-                cos_sim = nn.functional.cosine_similarity(
-                    avg_emb, init, dim=1
+                # Cosine distance: 1 - cosine_similarity (reference default)
+                reg_dist_i = 1.0 - nn.functional.cosine_similarity(
+                    avg_i, init_i, dim=1
                 )
-                reg_loss = self.lambd * (1.0 - cos_sim).mean()
+                reg_dist_j = 1.0 - nn.functional.cosine_similarity(
+                    avg_j, init_j, dim=1
+                )
             else:
-                # L2 distance (paper Algorithm 1)
-                reg_loss = self.lambd * (avg_emb - init).pow(2).mean()
+                # L2 norm (not squared) — matches reference when REG_NORM is set
+                reg_dist_i = torch.norm(avg_i - init_i, p=2, dim=1)
+                reg_dist_j = torch.norm(avg_j - init_j, p=2, dim=1)
 
-        return glove_loss + reg_loss
+            # .sum() matches reference: reg_loss = lambd * (sum(dist_i) + sum(dist_j))
+            reg_loss = self.lambd * (reg_dist_i.sum() + reg_dist_j.sum())
+
+        return glove_loss, reg_loss
 
     def get_embeddings(self) -> np.ndarray:
         """Return the final KEEP embeddings as a numpy array.
@@ -240,7 +270,7 @@ def train_keep(
     batch_size: int = 1024,
     lr: float = 0.05,
     alpha: float = 0.75,
-    lambd: float = 1e-3,
+    lambd: float = 1e-5,
     use_cosine_reg: bool = True,
     device: str = "cpu",
     seed: int = 42,
@@ -271,11 +301,12 @@ def train_keep(
             Default: 0.05 (KEEP paper Table 6).
         alpha: GloVe weighting exponent.
             Default: 0.75 (KEEP paper Table 6).
-        lambd: Regularization strength (lambda).
-            Default: 1e-3 (KEEP paper Table 6).
+        lambd: Regularization strength (lambda). Default: 1e-5
+            (matches reference code). See ``KeepGloVe`` docstring for
+            the paper vs code deviation on this value.
         use_cosine_reg: If True, use cosine distance for regularization
-            (matches KEEP code). If False, use L2 (matches paper text).
-            Default: True.
+            (matches reference code). If False, use L2 norm (matches
+            paper text). Default: True.
         device: Device to train on ("cpu" or "cuda"). Default: "cpu".
         seed: Random seed. Default: 42.
         log_every: Print loss every N epochs. Default: 50.
@@ -343,7 +374,8 @@ def train_keep(
 
     # Training loop
     for epoch in range(1, epochs + 1):
-        total_loss = 0.0
+        total_glove = 0.0
+        total_reg = 0.0
         num_batches = 0
 
         for row_idx, col_idx, counts in dataloader:
@@ -351,18 +383,26 @@ def train_keep(
             col_idx = col_idx.to(device)
             counts = counts.to(device)
 
-            loss = model(row_idx, col_idx, counts, x_max=x_max, alpha=alpha)
+            glove_loss, reg_loss = model(
+                row_idx, col_idx, counts, x_max=x_max, alpha=alpha,
+            )
+            loss = glove_loss + reg_loss
 
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
 
-            total_loss += loss.item()
+            total_glove += glove_loss.item()
+            total_reg += reg_loss.item()
             num_batches += 1
 
         if epoch % log_every == 0 or epoch == 1:
-            avg_loss = total_loss / max(num_batches, 1)
-            logger.info("Epoch %d/%d, loss=%.6f", epoch, epochs, avg_loss)
+            avg_glove = total_glove / max(num_batches, 1)
+            avg_reg = total_reg / max(num_batches, 1)
+            logger.info(
+                "Epoch %d/%d, loss=%.6f (glove=%.6f, reg=%.6f)",
+                epoch, epochs, avg_glove + avg_reg, avg_glove, avg_reg,
+            )
 
     embeddings = model.get_embeddings()
     logger.info("KEEP training complete: %s embeddings", embeddings.shape)
