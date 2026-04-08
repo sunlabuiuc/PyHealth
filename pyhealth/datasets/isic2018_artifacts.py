@@ -95,11 +95,12 @@ The *trap-set* protocol (Bissoto et al. 2020) studies whether models trained
 on artifact-biased data learn spurious correlations.
 """
 
+import hashlib
 import logging
 import os
 from functools import wraps
 from pathlib import Path
-from typing import List
+from typing import Dict, List, Optional
 
 import pandas as pd
 import requests
@@ -113,6 +114,7 @@ from pyhealth.datasets.isic2018 import (
     TASK12_MASKS_URL as _MASKS_URL,
     _T12_IMAGES_ZIP as _IMAGES_ZIP,
     _T12_MASKS_ZIP as _MASKS_ZIP,
+    _CHECKSUMS as _ISIC_CHECKSUMS,
     _download_file,
     _extract_zip,
 )
@@ -371,38 +373,46 @@ class ISIC2018ArtifactsDataset(BaseDataset):
     def _download_images(self, root: str) -> None:
         """Download and extract ISIC 2018 Task 1/2 images and masks.
 
-        Skips each archive if the corresponding extracted directory already
-        exists.  The images archive is ~8 GB — this may take several minutes.
+        Skips download if ZIP files already exist (they may be partial/incomplete).
+        Always attempts extraction if ZIP is present.  The images archive is 
+        ~8 GB — this may take several minutes.
 
         Args:
             root: Dataset root directory.
 
         Raises:
             requests.HTTPError: If any HTTP request returns an error status.
+            ValueError: If MD5 checksum verification fails.
         """
         os.makedirs(root, exist_ok=True)
 
         images_dest = os.path.join(root, _IMAGES_DIR)
         if not os.path.isdir(images_dest):
             zip_path = os.path.join(root, _IMAGES_ZIP)
-            logger.info("Downloading ISIC 2018 Task 1/2 images (~8 GB): %s", _IMAGES_URL)
-            _download_file(_IMAGES_URL, zip_path)
-            logger.info("Extracting images to %s ...", root)
-            _extract_zip(zip_path, root)
-            os.remove(zip_path)
-            logger.info("Images ready at %s", images_dest)
+            # Skip download if ZIP already exists (may be partial/incomplete)
+            if not os.path.isfile(zip_path):
+                logger.info("Downloading ISIC 2018 Task 1/2 images (~8 GB): %s", _IMAGES_URL)
+                _download_file(_IMAGES_URL, zip_path, _ISIC_CHECKSUMS.get(_IMAGES_ZIP))
+            if os.path.isfile(zip_path):
+                logger.info("Extracting images to %s ...", root)
+                _extract_zip(zip_path, root)
+                os.remove(zip_path)
+                logger.info("Images ready at %s", images_dest)
         else:
             logger.info("Image directory already present, skipping: %s", images_dest)
 
         masks_dest = os.path.join(root, _MASKS_DIR)
         if not os.path.isdir(masks_dest):
             zip_path = os.path.join(root, _MASKS_ZIP)
-            logger.info("Downloading ISIC 2018 Task 1 segmentation masks: %s", _MASKS_URL)
-            _download_file(_MASKS_URL, zip_path)
-            logger.info("Extracting masks to %s ...", root)
-            _extract_zip(zip_path, root)
-            os.remove(zip_path)
-            logger.info("Masks ready at %s", masks_dest)
+            # Skip download if ZIP already exists (may be partial/incomplete)
+            if not os.path.isfile(zip_path):
+                logger.info("Downloading ISIC 2018 Task 1 segmentation masks: %s", _MASKS_URL)
+                _download_file(_MASKS_URL, zip_path, _ISIC_CHECKSUMS.get(_MASKS_ZIP))
+            if os.path.isfile(zip_path):
+                logger.info("Extracting masks to %s ...", root)
+                _extract_zip(zip_path, root)
+                os.remove(zip_path)
+                logger.info("Masks ready at %s", masks_dest)
         else:
             logger.info("Mask directory already present, skipping: %s", masks_dest)
 
