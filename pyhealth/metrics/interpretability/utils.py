@@ -35,8 +35,8 @@ class SampleClass(IntEnum):
 
 
 # Type alias for sample filter functions.
-# Signature: (class_probs, classifier_type) -> sample_classes
-# class_probs has shape (batch_size,) and contains the probability for each
+# Signature: (y_probs, classifier_type) -> sample_classes
+# y_probs has shape (batch_size,) and contains the probability for each
 # sample's predicted class (sigmoid/softmax output with target_id applied).
 SampleFilterFn = Callable[[torch.Tensor, str], torch.Tensor]
 
@@ -65,18 +65,18 @@ def threshold_sample_filter(threshold: float = 0.5) -> SampleFilterFn:
     """
 
     def filter_fn(
-        class_probs: torch.Tensor,
+        y_probs: torch.Tensor,
         classifier_type: str,
     ) -> torch.Tensor:
-        batch_size = class_probs.shape[0]
+        batch_size = y_probs.shape[0]
         result = torch.full(
             (batch_size,),
             SampleClass.POSITIVE,
             dtype=torch.long,
-            device=class_probs.device,
+            device=y_probs.device,
         )
         if classifier_type in ("binary", "multilabel"):
-            result[class_probs < threshold] = SampleClass.IGNORE
+            result[y_probs < threshold] = SampleClass.IGNORE
         return result
 
     return filter_fn
