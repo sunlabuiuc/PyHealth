@@ -184,7 +184,7 @@ class SleepStagingDREAMT(BaseTask):
     - **BVP**: Chebyshev Type II bandpass, 0.5-20 Hz
     - **TEMP**: Winsorized to [31, 40] C
 
-    Epochs labeled ``"P"`` (preparation) or ``"Missing"`` are excluded.
+    Epochs labeled ``"P"`` or ``"Missing"`` are excluded.
 
     Attributes:
         task_name: ``"SleepStagingDREAMT"``
