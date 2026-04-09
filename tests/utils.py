@@ -1,6 +1,7 @@
 import numpy as np
 
 def create_synthetic_ehr(num_patients=10, num_features=8):
+    print("Testing Utils")
     """
     Creates fake patient EHR data for testing.
     Returns X features and y labels.
