@@ -28,6 +28,7 @@ CASI_RELEASE_INDEX_URL = (
 MEDLINGO_ONESHOT_PREFIX = (
     "In a clinical note that mentions a high creat, creat stands for creatine. "
 )
+DOWNLOAD_TIMEOUT_SECONDS = 10
 PAPER59_EXCLUSIONS = frozenset(
     {
         ("AB", "blood group in ABO system"),
@@ -188,12 +189,18 @@ class ClinicalJargonDataset(BaseDataset):
         root: Root directory used to store normalized benchmark files.
         dataset_name: Optional dataset name. Defaults to ``clinical_jargon``.
         config_path: Optional path to the dataset config file.
+        download: Whether to download and normalize the public source assets
+            when ``clinical_jargon_examples.csv`` is missing. Defaults to
+            ``False``.
         **kwargs: Additional keyword arguments forwarded to
             :class:`pyhealth.datasets.BaseDataset`.
 
     Examples:
         >>> from pyhealth.datasets import ClinicalJargonDataset
-        >>> dataset = ClinicalJargonDataset(root="/tmp/clinical_jargon")
+        >>> dataset = ClinicalJargonDataset(
+        ...     root="/tmp/clinical_jargon",
+        ...     download=True,
+        ... )
         >>> task = dataset.default_task
         >>> samples = dataset.set_task(task)
         >>> print(samples[0]["paired_text"])
@@ -204,6 +211,7 @@ class ClinicalJargonDataset(BaseDataset):
         root: str,
         dataset_name: Optional[str] = None,
         config_path: Optional[str] = None,
+        download: bool = False,
         **kwargs,
     ) -> None:
         """Initialize the public clinical jargon dataset.
@@ -212,6 +220,8 @@ class ClinicalJargonDataset(BaseDataset):
             root: Root directory used to cache normalized files.
             dataset_name: Optional dataset name override.
             config_path: Optional dataset config path override.
+            download: Whether to fetch and normalize the released benchmark
+                assets when the normalized CSV is missing.
             **kwargs: Additional keyword arguments passed to ``BaseDataset``.
         """
         root_path = Path(root)
@@ -220,6 +230,12 @@ class ClinicalJargonDataset(BaseDataset):
             config_path = Path(__file__).parent / "configs" / "clinical_jargon.yaml"
         normalized_csv = root_path / "clinical_jargon_examples.csv"
         if not normalized_csv.exists():
+            if not download:
+                raise FileNotFoundError(
+                    f"Missing normalized metadata at {normalized_csv}. "
+                    "Pass download=True to fetch the public MedLingo and CASI "
+                    "assets and generate this CSV."
+                )
             self.prepare_metadata(root_path)
         super().__init__(
             root=str(root_path),
@@ -241,10 +257,28 @@ class ClinicalJargonDataset(BaseDataset):
             The downloaded or cached text payload.
         """
         if destination.exists():
-            return destination.read_text()
-        payload = urllib.request.urlopen(url).read().decode("utf-8", errors="replace")
-        destination.write_text(payload)
+            return destination.read_text(encoding="utf-8", errors="replace")
+        request = urllib.request.Request(url)
+        with urllib.request.urlopen(
+            request,
+            timeout=DOWNLOAD_TIMEOUT_SECONDS,
+        ) as response:
+            payload = response.read().decode("utf-8", errors="replace")
+        destination.write_text(payload, encoding="utf-8", errors="replace")
         return payload
+
+    @staticmethod
+    def _validated_file_name(file_name: str) -> str:
+        """Validate a remotely provided cache filename."""
+        candidate = Path(file_name)
+        if (
+            not file_name
+            or candidate.is_absolute()
+            or candidate.name != file_name
+            or candidate.parent != Path(".")
+        ):
+            raise ValueError(f"Invalid cache file name: {file_name}")
+        return file_name
 
     @classmethod
     def _fetch_medlingo_rows(cls, cache_dir: Path) -> list[dict]:
@@ -270,18 +304,10 @@ class ClinicalJargonDataset(BaseDataset):
             Raw CASI rows as dictionaries with source-file metadata.
         """
         index_path = cache_dir / "casi_release_index.json"
-        if index_path.exists():
-            entries = json.loads(index_path.read_text())
-        else:
-            entries = json.loads(
-                urllib.request.urlopen(CASI_RELEASE_INDEX_URL)
-                .read()
-                .decode("utf-8", errors="replace")
-            )
-            index_path.write_text(json.dumps(entries, indent=2))
+        entries = json.loads(cls._download_text(CASI_RELEASE_INDEX_URL, index_path))
         rows: list[dict] = []
         for entry in entries:
-            file_name = entry["name"]
+            file_name = cls._validated_file_name(entry["name"])
             file_text = cls._download_text(entry["download_url"], cache_dir / file_name)
             for row in csv.DictReader(file_text.splitlines()):
                 row["source_file"] = file_name
@@ -378,7 +404,7 @@ class ClinicalJargonDataset(BaseDataset):
             )
 
         output_path = root / "clinical_jargon_examples.csv"
-        with output_path.open("w", newline="") as handle:
+        with output_path.open("w", newline="", encoding="utf-8") as handle:
             writer = csv.DictWriter(handle, fieldnames=list(normalized_rows[0].keys()))
             writer.writeheader()
             writer.writerows(normalized_rows)

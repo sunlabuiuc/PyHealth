@@ -11,7 +11,7 @@ Example
 
     from pyhealth.datasets import ClinicalJargonDataset
 
-    dataset = ClinicalJargonDataset(root="/tmp/clinical_jargon")
+    dataset = ClinicalJargonDataset(root="/tmp/clinical_jargon", download=True)
     task = dataset.default_task
     samples = dataset.set_task(task)
 

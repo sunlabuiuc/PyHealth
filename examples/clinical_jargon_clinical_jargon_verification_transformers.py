@@ -7,6 +7,9 @@ jargon benchmark contribution. It supports three lightweight task ablations:
 - switch CASI between ``release62`` and ``paper59`` variants
 - vary MedLingo distractor count through ``--medlingo-distractors``
 
+Run this example from an environment where PyHealth is installed, such as
+``pip install -e .`` from the repository root.
+
 Example commands:
     python3 examples/clinical_jargon_clinical_jargon_verification_transformers.py \
         --benchmark medlingo --medlingo-distractors 1 --epochs 1
@@ -16,12 +19,9 @@ Example commands:
 """
 
 import argparse
-import sys
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
 
 from pyhealth.datasets import ClinicalJargonDataset, get_dataloader, split_by_sample
 from pyhealth.models.transformers_model import TransformersModel
@@ -51,7 +51,12 @@ def parse_args() -> argparse.Namespace:
         default=str(
             PROJECT_ROOT / "test-resources" / "clinical_jargon"
         ),
-        help="Dataset root containing clinical_jargon_examples.csv or raw assets.",
+        help="Dataset root containing clinical_jargon_examples.csv.",
+    )
+    parser.add_argument(
+        "--download",
+        action="store_true",
+        help="Fetch the public source assets when the normalized CSV is missing.",
     )
     parser.add_argument(
         "--model-name",
@@ -85,7 +90,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     """Run one clinical jargon verification configuration."""
     args = parse_args()
-    dataset = ClinicalJargonDataset(root=args.root)
+    dataset = ClinicalJargonDataset(root=args.root, download=args.download)
     task = ClinicalJargonVerification(
         benchmark=args.benchmark,
         casi_variant=args.casi_variant,

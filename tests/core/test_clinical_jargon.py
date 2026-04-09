@@ -1,6 +1,7 @@
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from pyhealth.datasets import ClinicalJargonDataset
 from pyhealth.tasks import ClinicalJargonVerification
@@ -29,6 +30,11 @@ class TestClinicalJargonDataset(unittest.TestCase):
     def test_dataset_initialization(self):
         dataset = self.make_dataset()
         self.assertEqual(dataset.dataset_name, "clinical_jargon")
+
+    def test_missing_csv_requires_explicit_download(self):
+        with TemporaryDirectory() as root:
+            with self.assertRaises(FileNotFoundError):
+                ClinicalJargonDataset(root=root, cache_dir=self.cache_dir.name)
 
     def test_default_task(self):
         dataset = self.make_dataset()
@@ -73,6 +79,15 @@ class TestClinicalJargonDataset(unittest.TestCase):
         self.assertIn("paired_text", sample)
         self.assertIn("label", sample)
         self.assertIn("candidate_expansion", sample)
+
+    def test_rejects_non_local_casi_cache_names(self):
+        with patch.object(
+            ClinicalJargonDataset,
+            "_download_text",
+            return_value='[{"name":"../escape.csv","download_url":"https://example.com"}]',
+        ):
+            with self.assertRaises(ValueError):
+                ClinicalJargonDataset._fetch_casi_rows(Path(self.cache_dir.name))
 
 
 if __name__ == "__main__":

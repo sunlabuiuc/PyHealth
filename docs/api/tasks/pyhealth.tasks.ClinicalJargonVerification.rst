@@ -12,7 +12,7 @@ Example
     from pyhealth.datasets import ClinicalJargonDataset
     from pyhealth.tasks import ClinicalJargonVerification
 
-    dataset = ClinicalJargonDataset(root="/tmp/clinical_jargon")
+    dataset = ClinicalJargonDataset(root="/tmp/clinical_jargon", download=True)
     task = ClinicalJargonVerification(
         benchmark="medlingo",
         medlingo_distractors=1,
