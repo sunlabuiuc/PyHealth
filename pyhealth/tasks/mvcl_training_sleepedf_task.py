@@ -40,8 +40,8 @@ class MVCLTrainingSleepEEG(BaseTask):
     """
 
     task_name: str = "MVCLTrainingSleepEEG"
-    input_schema: Dict[str, str] = {"signal": "tensor"}
-    output_schema: Dict[str, str] = {"label": "multiclass"}
+    input_schema = {"signal": "tensor"}
+    output_schema = {"label": "multiclass"}
 
     def __init__(
         self,
