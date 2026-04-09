@@ -14,9 +14,6 @@ import pytest
 
 from pyhealth.tasks.sleep_staging_dreamt import (
     ALL_SIGNAL_COLUMNS,
-    LABEL_MAP_2CLASS,
-    LABEL_MAP_3CLASS,
-    LABEL_MAP_5CLASS,
     SleepStagingDREAMT,
 )
 

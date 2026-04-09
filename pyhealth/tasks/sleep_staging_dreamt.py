@@ -280,7 +280,7 @@ class SleepStagingDREAMT(BaseTask):
 
         try:
             events = patient.get_events(event_type="dreamt_sleep")
-        except Exception:
+        except (TypeError, KeyError):
             events = patient.get_events()
 
         if not events:
@@ -295,7 +295,7 @@ class SleepStagingDREAMT(BaseTask):
 
         try:
             df = pd.read_csv(str(file_path))
-        except Exception as exc:
+        except (FileNotFoundError, pd.errors.EmptyDataError, OSError) as exc:
             logger.warning("Could not read %s: %s", file_path, exc)
             return []
 
