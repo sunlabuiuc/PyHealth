@@ -13,6 +13,6 @@ def create_synthetic_ehr(num_patients=10, num_features=8):
 
 
 if __name__ == "__main__":
-    X, y = create_synthetic_ehr()
-    print("X shape:", X.shape)
+    X, y = create_synthetic_ehr() 
+    print("X shape:", X.shape)  
     print("y shape:", y.shape)
