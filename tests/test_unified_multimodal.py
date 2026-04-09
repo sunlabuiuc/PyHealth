@@ -519,6 +519,39 @@ def test_rnn_unified_mode():
     assert model.fc.in_features == 32
 
 
+def test_bottleneck_transformer_unified_mode():
+    """BottleneckTransformer with unified_embedding uses n_modality=1 encoder and a single CLS token."""
+    from pyhealth.datasets.utils import get_dataloader
+    from pyhealth.models.embedding import UnifiedMultimodalEmbeddingModel
+    from pyhealth.models.bottleneck_transformer import BottleneckTransformer
+
+    dataset = _make_stagenet_dataset()
+    unified = UnifiedMultimodalEmbeddingModel(
+        processors=dataset.input_processors,
+        embedding_dim=32,
+    )
+    model = BottleneckTransformer(
+        dataset=dataset,
+        embedding_dim=32,
+        bottlenecks_n=2,
+        fusion_startidx=1,
+        num_layers=2,
+        heads=2,
+        unified_embedding=unified,
+    )
+
+    loader = get_dataloader(dataset, batch_size=2, shuffle=False)
+    batch = next(iter(loader))
+    out = model(**batch)
+
+    assert "loss" in out and "y_prob" in out and "logit" in out
+    out["loss"].backward()
+    # fc input must be embedding_dim (CLS token), not n_fields * embedding_dim
+    assert model.fc.in_features == 32
+    # Encoder must be configured for n_modality=1
+    assert model.encoder.n_modality == 1
+
+
 def test_unified_per_field_backward_compat():
     """Models without unified_embedding still work in per-field mode."""
     from pyhealth.datasets.utils import get_dataloader
