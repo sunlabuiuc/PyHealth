@@ -36,8 +36,8 @@ class MultimodalBottleneckTransformerEncoder(nn.Module):
         self.d_model = d_model
         self.n_bottlenecks = bottlenecks_n
 
-        # Shared Bottleneck Tokens
-        self.bottlenecks = nn.Parameter(torch.randn(1, bottlenecks_n, d_model))
+        # Shared Bottleneck Tokens — small init to avoid early gradient explosion
+        self.bottlenecks = nn.Parameter(torch.randn(1, bottlenecks_n, d_model) * 0.02)
 
         # Prefusion Stacks: independent layers per modality
         self.prefusion_stacks = nn.ModuleList([
@@ -244,7 +244,7 @@ class BottleneckTransformer(BaseModel):
         if self._use_unified:
             self.embedding_model = unified_embedding
             # Single CLS token for the unified interleaved sequence
-            self.cls_token = nn.Parameter(torch.randn(1, 1, embedding_dim))
+            self.cls_token = nn.Parameter(torch.randn(1, 1, embedding_dim) * 0.02)
             self.encoder = MultimodalBottleneckTransformerEncoder(
                 n_modality=1,
                 bottlenecks_n=bottlenecks_n,
@@ -260,7 +260,7 @@ class BottleneckTransformer(BaseModel):
             self.n_modality = len(self.feature_keys)
             # Per-modality CLS tokens
             self.cls_token_per_modality = nn.ParameterList([
-                nn.Parameter(torch.randn(1, 1, embedding_dim))
+                nn.Parameter(torch.randn(1, 1, embedding_dim) * 0.02)
                 for _ in range(self.n_modality)
             ])
             self.encoder = MultimodalBottleneckTransformerEncoder(

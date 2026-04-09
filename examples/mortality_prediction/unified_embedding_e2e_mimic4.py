@@ -202,6 +202,7 @@ def run(args: argparse.Namespace) -> Path:
             val_dataloader=val_loader,
             epochs=args.epochs,
             optimizer_params={"lr": args.lr},
+            max_grad_norm=args.max_grad_norm,
             monitor="pr_auc",
             load_best_model_at_last=True,
         )
@@ -265,6 +266,10 @@ def parse_args() -> argparse.Namespace:
     # BottleneckTransformer-specific
     parser.add_argument("--bottlenecks-n", type=int, default=4)
     parser.add_argument("--fusion-startidx", type=int, default=1)
+
+    # Training stability
+    parser.add_argument("--max-grad-norm", type=float, default=None,
+                        help="Gradient clipping max norm. Recommended: 1.0 for BottleneckTransformer.")
 
     return parser.parse_args()
 
