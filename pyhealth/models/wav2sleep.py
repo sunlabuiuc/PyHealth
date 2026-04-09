@@ -17,11 +17,460 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch import Tensor
 
 from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
 from pyhealth.models.embedding import EmbeddingModel
 
+# =============================================================================
+# Modality Encoders
+# =============================================================================
+
+class ConvBlock(nn.Module):
+
+    def __init__(
+        self,
+        input_num_channels: int,
+        output_num_channels: int,
+        activation: str = 'leaky',
+        norm: str = 'batch',
+        dropout: float = 0.0,
+        causal: bool = False,
+        eps: float | None = None,
+        residual: bool = True,
+    ) -> None:
+        super().__init__()
+        self.residual = residual
+
+        self.layer1 = ConvLayer(
+            input_channels=input_num_channels, 
+            output_channels=output_num_channels, 
+            activation=activation,
+            norm=norm,
+            dropout=dropout,
+            kernel_size=3,
+            stride=1,
+            padding=1,
+            causal=causal,
+            eps=eps,
+        )
+
+        self.layer2 = ConvLayer(
+            input_channels=output_num_channels, 
+            output_channels=output_num_channels, 
+            activation=activation,
+            norm=norm,
+            dropout=dropout,
+            kernel_size=3,
+            stride=1,
+            padding=1,
+            causal=causal,
+            eps=eps,
+        )
+
+        self.layer3 = ConvLayer(
+            input_channels=output_num_channels, 
+            output_channels=output_num_channels, 
+            activation=activation,
+            norm=norm,
+            dropout=dropout,
+            kernel_size=3,
+            stride=2,
+            padding=1,
+            causal=causal,
+            eps=eps,
+        )        
+
+        self.activation = get_activation(activation)
+
+        if self.residual:
+            self.down = nn.Conv1d(input_num_channels, output_num_channels, kernel_size=1, stride=2, padding=0, bias=False)
+        else:
+            self.register_parameter('down', None)
+        
+    def forward(self, x: Tensor) -> Tensor:
+        output = self.layer1(x)
+        output = self.layer2(output)
+        output = self.layer3(output)
+
+        if self.residual:
+            output = output + self.down(x)
+        output = self.activation(output)
+        return output
+
+class ConvLayer(nn.Module):
+
+    def __init__(
+        self,
+        input_channels: int,
+        output_channels: int,
+        activation: str = 'relu',
+        norm: str | None = 'batch',
+        eps: float | None = None,
+        kernel_size: int = 3,
+        stride: int = 1,
+        padding: int = 1,
+        dilation: int = 1,
+        dropout: float = 0.0,
+        causal: bool = False,
+        groups: int = 1,
+        bias: bool = False,
+    ) -> None:
+
+        super().__init__()
+        self.input_channels = input_channels
+        self.output_channels = output_channels
+        self.kernel_size = kernel_size
+        self.stride = stride
+        self.padding = padding
+        self.dilation = dilation
+        self.dropout = dropout
+        self.causal = causal
+        self.groups = groups
+        self.bias = bias
+
+        if causal:
+            self.padding = (self.kernel_size - 1) * self.dilation
+        
+        self.conv = nn.Conv1d(
+            input_channels,
+            output_channels,
+            kernel_size,
+            stride=stride,
+            padding=self.padding,
+            groups=groups,
+            bias=bias or norm is None,
+            dilation=dilation,
+        )
+
+        self.activation = get_activation(activation)
+        self.dropout = nn.Dropout(p=dropout)
+
+        if norm == 'weight':
+            self.norm = nn.Identity()
+            self.conv = nn.utils.parametrizations.weight_norm(self.conv)
+        else:
+            norm_info = {}
+            if eps is not None:
+                norm_info = {'norm_eps': eps}
+            self.norm = get_norm(norm, num_features=output_channels, causal=causal, **norm_info)
+
+
+    def forward(self, x: Tensor) -> Tensor:
+        output = self.conv(x)
+
+        if self.causal and self.padding > 0:
+            if isinstance(self.conv.stride, tuple):
+                stride = self.conv.stride[0]
+            else:
+                stride = self.conv.stride
+            trim = max(self.padding - stride + 1, 0)
+            if trim > 0:
+                output = output[:, :, :-trim]
+        
+        output = self.norm(output)
+        output = self.activation(output)
+        output = self.dropout(output)
+        return output
+        
+
+            
+
+
+
+
+class SignalEncoder(nn.Module):
+
+    def __init__(
+        self,
+        input_num_channels: int = 1,
+        epoch_embedding_dim: int = 256,
+        activation: str = 'gelu',
+        samples_per_epoch: int = 1024,
+        norm: str = 'instance',
+        init_feature_channels: int = 16,
+        max_channels: int = 128,
+        output_norm: bool = False,
+        residual: bool = True,
+        causal: bool = False,
+        chunk_causal: bool = True,
+    ):
+        super().__init__()
+        self.input_num_channels = input_num_channels
+        self.epoch_embedding_dim = epoch_embedding_dim
+        self.activation = activation
+        self.samples_per_epoch = samples_per_epoch
+        self.norm = norm
+        self.init_feature_channels = init_feature_channels
+        self.max_channels = max_channels
+        self.output_norm = output_norm
+        self.residual = residual
+        self.causal = causal
+        self.chunk_causal = chunk_causal
+
+        if samples_per_epoch & (samples_per_epoch - 1) != 0:
+            raise ValueError("samples_per_epoch must be even")
+        
+        num_conv_blocks = int(math.log2(samples_per_epoch)) - 2
+        blocks = []
+
+        num_channels_per_block = [min(init_feature_channels * 2**(i//2), max_channels) for i in range(num_conv_blocks)]
+
+        in_ch = input_num_channels
+        for i, dim in enumerate(num_channels_per_block):
+            if norm == "auto":
+                norm_type = "instance" if i < 2 else "layer"
+            else:
+                norm_type = norm
+            eps = 1e-2 if norm_type == "instance" else None
+            blocks.append(ConvBlock(input_num_channels=in_ch, output_num_channels=dim, activation=activation, norm=norm_type, eps=eps, causal=(causal and not chunk_causal), residual=residual))
+            in_ch = dim
+
+        self.cnn = nn.Sequential(*blocks)
+        self.epoch_size = num_channels_per_block[-1] * 4
+        self.linear = nn.Linear(self.epoch_size, epoch_embedding_dim)
+        self.activation = get_activation(activation)
+        self.output_norm = nn.LayerNorm(epoch_embedding_dim) if output_norm else nn.Identity()
+
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if x.size(-1) % self.samples_per_epoch:
+            raise ValueError(f"Input length must be a multiple of {self.samples_per_epoch}")
+        
+        batch = x.size(0)
+        epochs = x.size(-1) // self.samples_per_epoch
+
+        if self.causal and self.chunk_causal:
+            y = x.view(batch, epochs, self.samples_per_epoch)
+            y = y.reshape(batch * epochs, 1, self.samples_per_epoch)
+            y = self.cnn(y)
+            y = y.transpose(-1,-2).reshape(batch, epochs, self.epoch_size)
+        else:
+            y = x.unsqueeze(1)
+            y = self.cnn(y)
+            y = y.transpose(-1, -2).reshape(batch, -1, self.epoch_size)
+
+        y = self.linear(y)
+        y = self.activation(y)
+        y = self.output_norm(y)
+        return y
+
+
+    
+SIGNAL_TO_SAMPLES_PER_EPOCH = {
+    'ABD': 256,
+    'THX': 256,
+    'ECG': 1024,
+    'PPG': 1024,
+    'EOG_L': 4096,
+    'EOG_R': 4096,
+}
+
+class SignalEncoders(nn.Module):
+
+    def __init__(
+        self,
+        signal_encoder_map: dict[str, str],
+        feature_dim: int,
+        activation: str,
+        norm: str = 'instance',
+        include_signal: bool = False,
+        init_feature_channels: int = 16,
+        max_channels: int = 128,
+        output_norm: bool = False,
+        residual: bool = True,
+        causal: bool = False,
+        chunk_causal: bool = True,
+    ) -> None:
+        super().__init__()
+        self.signal_encoder_map = signal_encoder_map
+        self.feature_dim = feature_dim
+        self.activation = activation
+        self.norm = norm
+        self.include_signal = include_signal
+        self.init_feature_channels = init_feature_channels
+        self.max_channels = max_channels
+        self.output_norm = output_norm
+        self.residual = residual
+        self.causal = causal
+        self.chunk_causal = chunk_causal
+
+        encoders = {}
+
+        for signal, encoder in signal_encoder_map.items():
+            if encoder in encoders:
+                continue
+            if signal not in SIGNAL_TO_SAMPLES_PER_EPOCH:
+                raise ValueError(f"Signal {signal} not found in SIGNAL_TO_SAMPLES_PER_EPOCH")
+            samples_per_epoch = SIGNAL_TO_SAMPLES_PER_EPOCH[signal]
+
+            encoders[encoder] = SignalEncoder(
+                input_num_channels=1,
+                epoch_embedding_dim=feature_dim,
+                activation=activation,
+                samples_per_epoch=samples_per_epoch,
+                norm=norm,
+                init_feature_channels=init_feature_channels,
+                max_channels=max_channels,
+                output_norm=output_norm,
+                residual=residual,
+                causal=causal,
+                chunk_causal=chunk_causal,
+            )
+
+        self.include_signal = include_signal
+        self.encoders = nn.ModuleDict(encoders)
+        self.signal_to_idx = {signal: i for i, signal in enumerate(sorted(signal_encoder_map.keys()))}
+
+        if self.include_signal:
+            self.embedding = nn.Embedding(num_embeddings=len(signal_encoder_map), embedding_dim=self.feature_dim)
+        else:
+            self.register_parameter('embedding', None)
+
+    def __len__(self) -> int:
+        return len(self.encoders)
+
+    def get_encoder(self, signal: str) -> 'SignalEncoder':
+
+        if self.signal_encoder_map is not None:
+            return self.encoders[self.signal_encoder_map[signal]]
+        else:
+            return self.encoders[signal]
+    
+    def forward(self, x: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+
+        out: dict[str, torch.Tensor] = {}
+
+        for signal, x_signal in x.items():
+            inf_batch_mask = torch.isinf(x_signal[:,0])
+            x_signal = torch.where(torch.isinf(x_signal), 0.0, x_signal)
+            out_BSF = self.get_encoder(signal)(x_signal)
+            out_BSF = torch.where(inf_batch_mask[:,None,None], float('-inf'), out_BSF)
+
+            if self.include_signal:
+                embed = self.embedding(
+                    torch.tensor(
+                        [self.signal_to_idx[signal]], 
+                        device=out_BSF.device, 
+                        dtype=torch.int64
+                    )
+                )
+                embed_BSF = embed[None,:,:].repeat(out_BSF.size(0), out_BSF.size(1), 1)
+                out_BSF += embed_BSF
+            out[signal] = out_BSF
+        return out
+
+    
+class ConvLayerNorm(nn.Module):
+
+    def __init__(self, num_features: int, eps: float = 1e-5):
+        super().__init__()
+        self.eps = eps
+        self.weight = nn.Parameter(torch.ones(1, num_features, 1))
+        self.bias = nn.Parameter(torch.zeros(1, num_features, 1))
+    
+    def forward(self, x: Tensor) -> Tensor:
+        mean = x.mean(1,keepdim=True)
+        sigma = (x - mean).pow(2).mean(1,keepdim=True)
+        x = (x - mean) / torch.sqrt(sigma + self.eps)
+        x = self.bias + self.weight * x
+        return x
+
+class ConvRMSNorm(nn.Module):
+
+    def __init__(self, num_features: int, eps: float = 1e-5):
+        super().__init__()
+        self.weight = nn.Parameter(torch.ones(1, num_features, 1))
+        self.eps = eps
+    
+    def forward(self, x: Tensor) -> Tensor:
+        sigma = x.pow(2).mean(1,keepdim=True)
+        x = x / torch.sqrt(sigma + self.eps)
+        x = self.weight * x
+        return x
+
+class ConvLayerNorm(nn.Module):
+
+    def __init__(self, num_features: int, eps: float = 1e-5):
+        super().__init__()
+        self.eps = eps
+        self.weight = nn.Parameter(torch.ones(1, num_features, 1))
+        self.bias = nn.Parameter(torch.zeros(1, num_features, 1))
+    
+    def forward(self, x: Tensor) -> Tensor:
+        mean = x.mean(1,keepdim=True)
+        sigma = (x - mean).pow(2).mean(1,keepdim=True)
+        x = (x - mean) / torch.sqrt(sigma + self.eps)
+        x = self.bias + self.weight * x
+        return x
+
+class ConvRMSNorm(nn.Module):
+
+    def __init__(self, num_features: int, eps: float = 1e-5):
+        super().__init__()
+        self.weight = nn.Parameter(torch.ones(1, num_features, 1))
+        self.eps = eps
+    
+    def forward(self, x: Tensor) -> Tensor:
+        sigma = x.pow(2).mean(1,keepdim=True)
+        x = x / torch.sqrt(sigma + self.eps)
+        x = self.weight * x
+        return x
+
+class ConvGroupNorm(nn.Module):
+
+    def __init__(self, num_features: int, num_groups: int = 8, eps: float = 1e-5, channels : int | None = None):
+        super().__init__()
+        
+        if channels is not None:
+            num_groups = num_features // channels
+        if num_features < num_groups:
+            num_groups = num_features
+        if num_features % num_groups != 0:
+            raise ValueError(f"num_features must be divisible by num_groups")
+        self.norm = nn.GroupNorm(num_groups=num_groups, num_channels=num_features, eps=eps)
+
+    def forward(self, x: Tensor) -> Tensor:
+        return self.norm(x)
+
+        
+def get_activation(name: str, **kwargs):
+    """Return an activation function from its name."""
+    if name == 'relu':
+        return nn.ReLU(**kwargs)
+    elif name == 'leaky':
+        return nn.LeakyReLU(**kwargs)
+    elif name == 'gelu':
+        return nn.GELU(**kwargs)
+    elif name == 'silu' or name == 'swish':
+        return nn.SiLU(**kwargs)
+    elif name == 'linear':
+        return nn.Identity()
+    else:
+        raise ValueError(f'{name=} is unsupported.')
+
+
+def get_norm(name: str | None = 'batch', causal: bool = False, *args, **kwargs) -> nn.Module:
+    # Extract norm_eps - only used by instance norm, but may be passed for any norm type
+    norm_eps = kwargs.pop('norm_eps', None)
+
+    if name == 'batch':
+        return nn.BatchNorm1d(*args, **kwargs)
+    elif name == 'layer':
+        return ConvLayerNorm(*args, **kwargs)
+    elif name == 'rms':
+        return ConvRMSNorm(*args, **kwargs)
+    elif name is None:
+        return nn.Identity()
+    elif name == 'instance':
+        if norm_eps is not None:
+            kwargs['eps'] = norm_eps
+        return nn.InstanceNorm1d(*args, **kwargs)
+    elif name == 'group':
+        return ConvGroupNorm(*args, **kwargs)
+    else:
+        raise ValueError(f'Normalisation with {name=} and {causal=} unknown.')
 
 # =============================================================================
 # CLS-Token Transformer Fusion Module (Paper-Faithful)
@@ -480,15 +929,16 @@ class Wav2Sleep(BaseModel):
         self.label_key = self.label_keys[0]
         
         # Expected modality keys
-        self.modality_keys = ['ecg', 'ppg', 'resp']
+        self.modality_keys = ['ecg', 'ppg']
+        self.modality_to_signal = {'ecg': 'ECG', 'ppg': 'PPG'}
         
         # Check which modalities are available in the dataset
         self.available_modalities = [key for key in self.modality_keys if key in self.feature_keys]
         if not self.available_modalities:
-            raise ValueError("At least one modality (ecg, ppg, resp) must be present in dataset")
+            raise ValueError("At least one modality (ecg, ppg) must be present in dataset")
         
         # Embedding model for initial feature processing
-        self.embedding_model = EmbeddingModel(dataset, embedding_dim)
+        # self.embedding_model = EmbeddingModel(dataset, embedding_dim)
         
         # ╔═════════════════════════════════════════════════════════════════╗
         # ║  ██████╗ ██╗  ██╗██████╗ ██╗   ██╗██╗   ██╗                     ║
@@ -511,19 +961,32 @@ class Wav2Sleep(BaseModel):
         # ║                                                                 ║
         # ║  See INTEGRATION_HOOKS.md for detailed instructions.            ║
         # ╚═════════════════════════════════════════════════════════════════╝
-        self.modality_encoders = nn.ModuleDict()
-        for modality in self.available_modalities:
-            # ┌─────────────────────────────────────────────────────────────┐
-            # │ TODO [DHRUV]: Replace nn.Identity() with your CNN encoder   │
-            # │                                                             │
-            # │ Example:                                                    │
-            # │   self.modality_encoders[modality] = ECGEncoder(            │
-            # │       input_dim=embedding_dim,                              │
-            # │       output_dim=embedding_dim,                             │
-            # │       dropout=dropout,                                      │
-            # │   )                                                         │
-            # └─────────────────────────────────────────────────────────────┘
-            self.modality_encoders[modality] = nn.Identity()  # ← REPLACE THIS
+
+
+        # self.modality_encoders = nn.ModuleDict()
+        # for modality in self.available_modalities:
+        #     # ┌─────────────────────────────────────────────────────────────┐
+        #     # │ TODO [DHRUV]: Replace nn.Identity() with your CNN encoder   │
+        #     # │                                                             │
+        #     # │ Example:                                                    │
+        #     # │   self.modality_encoders[modality] = ECGEncoder(            │
+        #     # │       input_dim=embedding_dim,                              │
+        #     # │       output_dim=embedding_dim,                             │
+        #     # │       dropout=dropout,                                      │
+        #     # │   )                                                         │
+        #     # └─────────────────────────────────────────────────────────────┘
+        #     self.modality_encoders[modality] = nn.Identity()  # ← REPLACE THIS
+
+        self.signal_encoders = SignalEncoders(
+                                    signal_encoder_map={
+                                        self.modality_to_signal[m]: self.modality_to_signal[m] for m in self.available_modalities
+                                    },
+                                    feature_dim=embedding_dim,
+                                    activation='relu',
+                                    norm='instance',
+                                    include_signal=False,
+                                )
+        
         
         # ╔═════════════════════════════════════════════════════════════════╗
         # ║  ███╗   ██╗ █████╗ ███████╗██╗███████╗                          ║
@@ -637,7 +1100,7 @@ class Wav2Sleep(BaseModel):
             raise ValueError("At least one modality must be provided in input")
         
         # Step 2: Process through embedding model
-        embedded_inputs = self.embedding_model(available_inputs)
+        # embedded_inputs = self.embedding_model(available_inputs)
         
         # ┌─────────────────────────────────────────────────────────────────┐
         # │ Step 3: Apply modality-specific encoders                        │
@@ -645,20 +1108,34 @@ class Wav2Sleep(BaseModel):
         # │         DHRUV'S ENCODERS ARE CALLED HERE                        │
         # │         Each encoder: [B, T, D] → [B, T, D]                     │
         # └─────────────────────────────────────────────────────────────────┘
-        modality_embeddings = {}
-        for modality, embedded_data in embedded_inputs.items():
-            # Ensure data is on correct device
-            embedded_data = embedded_data.to(self.device)
+        # modality_embeddings = {}
+        # for modality, embedded_data in embedded_inputs.items():
+        #     # Ensure data is on correct device
+        #     embedded_data = embedded_data.to(self.device)
             
             # ═══════════════════════════════════════════════════════════════
             # DHRUV'S ENCODER CALLED HERE: self.modality_encoders[modality]
             # ═══════════════════════════════════════════════════════════════
-            encoded = self.modality_encoders[modality](embedded_data)
-            modality_embeddings[modality] = encoded
+            # encoded = self.modality_encoders[modality](embedded_data)
+            # modality_embeddings[modality] = encoded
+
+        wave_inputs = {}
+        for modality in self.available_modalities:
+            if modality not in kwargs:
+                continue
+            sig = self.modality_to_signal[modality]  # ecg -> ECG, ppg -> PPG
+            wave_inputs[sig] = kwargs[modality].to(self.device).float()
+        z_signal = self.signal_encoders(wave_inputs)
+
+        modality_embeddings = {
+            modality: z_signal[self.modality_to_signal[modality]]
+            for modality in self.available_modalities
+            if modality in kwargs
+        }
         
         # Step 4: Validate shapes before fusion
         self._validate_modality_shapes(modality_embeddings)
-        
+
         # ┌─────────────────────────────────────────────────────────────────┐
         # │ Step 5: Multimodal fusion                                       │
         # │         ═════════════════════                                   │
