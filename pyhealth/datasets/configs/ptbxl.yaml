@@ -1,0 +1,12 @@
+version: "1.0.0"
+tables:
+  ptbxl:
+    file_path: "ptbxl-metadata-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+      - "record_id"
+      - "signal_file"
+      - "scp_codes"
+      - "sampling_rate"
+      - "num_leads"
