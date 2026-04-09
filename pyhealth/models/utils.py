@@ -3,7 +3,7 @@ from typing import List
 import torch
 
 
-def batch_to_multihot(label: List[List[int]], num_labels: int) -> torch.tensor:
+def batch_to_multihot(label: List[List[int]], num_labels: int) -> torch.Tensor:
     """Converts label to multihot format.
 
     Args:
