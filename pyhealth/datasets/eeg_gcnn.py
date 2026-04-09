@@ -2,7 +2,7 @@ import logging
 import math
 import os
 from pathlib import Path
-from typing import List, Optional
+from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -28,9 +28,6 @@ _NUM_NODES = len(_CH_NAMES)       # 8
 _NUM_NODE_FEATURES = 6            # PSD bands per channel
 _NUM_EDGES = _NUM_NODES ** 2      # 64 (fully connected, including self-loops)
 
-# PSD frequency band names — index matches column position within each node's feature vector.
-_BAND_NAMES: List[str] = ["delta", "theta", "alpha", "beta", "low_gamma", "high_gamma"]
-
 _REQUIRED_FILES = [
     "psd_features_data_X",
     "labels_y",
@@ -39,8 +36,8 @@ _REQUIRED_FILES = [
     "standard_1010.tsv.txt",
 ]
 
-_METADATA_CSV_TEMPLATE = "eeg_gcnn_windows_alpha{alpha:.2f}_excl{bands}.csv"
-_NPY_CACHE_DIR_TEMPLATE = "npy_cache_alpha{alpha:.2f}_excl{bands}"
+_METADATA_CSV_TEMPLATE = "eeg_gcnn_windows_alpha{alpha:.2f}.csv"
+_NPY_CACHE_DIR_TEMPLATE = "npy_cache_alpha{alpha:.2f}"
 
 
 class EEGGCNNDataset(BaseDataset):
@@ -75,8 +72,6 @@ class EEGGCNNDataset(BaseDataset):
             dev mode).
         alpha: Mixing weight for geodesic distance vs. coherence in edge weights.
             Default ``0.5``.
-        excluded_bands: Frequency bands to zero out for ablation studies. Valid
-            values are elements of ``_BAND_NAMES``. Default ``[]`` (all active).
 
     Examples:
         >>> from pyhealth.datasets import EEGGCNNDataset
@@ -95,36 +90,23 @@ class EEGGCNNDataset(BaseDataset):
         num_workers: int = 1,
         dev: bool = False,
         alpha: float = 0.5,
-        excluded_bands: Optional[List[str]] = None,
     ) -> None:
         if not 0.0 <= alpha <= 1.0:
             raise ValueError(f"alpha must be in [0, 1], got {alpha}")
-
-        excluded_bands = excluded_bands or []
-        invalid = [b for b in excluded_bands if b not in _BAND_NAMES]
-        if invalid:
-            raise ValueError(
-                f"Unknown band(s) {invalid}. Valid options: {_BAND_NAMES}"
-            )
 
         if config_path is None:
             logger.info("No config_path provided, using default eeg_gcnn config.")
             config_path = str(Path(__file__).parent / "configs" / "eeg_gcnn.yaml")
 
-        bands_tag = "_".join(sorted(excluded_bands)) if excluded_bands else "none"
-        metadata_csv = os.path.join(
-            root, _METADATA_CSV_TEMPLATE.format(alpha=alpha, bands=bands_tag)
-        )
+        metadata_csv = os.path.join(root, _METADATA_CSV_TEMPLATE.format(alpha=alpha))
         if not os.path.exists(metadata_csv):
             logger.info(
-                "Metadata CSV not found for alpha=%.2f, excluded_bands=%s. "
-                "Running prepare_metadata().",
+                "Metadata CSV not found for alpha=%.2f. Running prepare_metadata().",
                 alpha,
-                excluded_bands,
             )
-            self.prepare_metadata(root, alpha=alpha, excluded_bands=excluded_bands)
+            self.prepare_metadata(root, alpha=alpha)
 
-        # Copy the ablation-specific CSV to the name BaseDataset expects.
+        # Copy the alpha-specific CSV to the name BaseDataset expects.
         import shutil as _shutil
         base_csv = os.path.join(root, "eeg_gcnn_windows.csv")
         _shutil.copy2(metadata_csv, base_csv)
@@ -145,17 +127,12 @@ class EEGGCNNDataset(BaseDataset):
     # ------------------------------------------------------------------
 
     @staticmethod
-    def prepare_metadata(
-        root: str,
-        alpha: float = 0.5,
-        excluded_bands: Optional[List[str]] = None,
-    ) -> None:
+    def prepare_metadata(root: str, alpha: float = 0.5) -> None:
         """Convert raw EEG-GCNN binary files into a per-window CSV.
 
         Reads joblib / NumPy arrays, computes the graph structure for every
         window, saves per-window node-feature and adjacency matrices as ``.npy``
-        files, and writes a metadata CSV named after the ``alpha`` and
-        ``excluded_bands`` values.
+        files, and writes a metadata CSV named after the ``alpha`` value.
 
         Args:
             root: Root directory containing the raw dataset files.
@@ -165,14 +142,11 @@ class EEGGCNNDataset(BaseDataset):
                 ``alpha=0.5`` (default) reproduces the original equal average;
                 ``alpha=1.0`` uses geodesic distance only;
                 ``alpha=0.0`` uses coherence only.
-            excluded_bands: Frequency bands to zero out in node features. Valid
-                values are elements of ``_BAND_NAMES``. Default ``[]``.
 
         Raises:
             FileNotFoundError: If any required source file is missing.
             ValueError: If array shapes are inconsistent.
         """
-        excluded_bands = excluded_bands or []
         root = os.path.abspath(root)
         EEGGCNNDataset._validate_root(root)
 
@@ -235,26 +209,15 @@ class EEGGCNNDataset(BaseDataset):
             )
 
         # --- save per-window npy files ------------------------------------
-        bands_tag = "_".join(sorted(excluded_bands)) if excluded_bands else "none"
-        npy_dir = os.path.join(
-            root, _NPY_CACHE_DIR_TEMPLATE.format(alpha=alpha, bands=bands_tag)
-        )
+        npy_dir = os.path.join(root, _NPY_CACHE_DIR_TEMPLATE.format(alpha=alpha))
         os.makedirs(npy_dir, exist_ok=True)
-        logger.info(
-            "Saving per-window .npy files to %s (alpha=%.2f, excluded_bands=%s)...",
-            npy_dir, alpha, excluded_bands,
-        )
-
-        # Pre-compute which band column indices to zero out (shared across windows).
-        excluded_indices = [_BAND_NAMES.index(b) for b in excluded_bands]
+        logger.info("Saving per-window .npy files to %s (alpha=%.2f)...", npy_dir, alpha)
 
         rows = []
         for idx in range(n_windows):
             patient_id = metadata["patient_ID"].iloc[idx]
 
             node_features = X[idx].reshape(_NUM_NODES, _NUM_NODE_FEATURES).astype(np.float64)
-            if excluded_indices:
-                node_features[:, excluded_indices] = 0.0
             edge_weights = alpha * distances_flat + (1 - alpha) * spec_coh[idx]  # (64,)
             adj_matrix = EEGGCNNDataset._build_adj_matrix(edge_weights).astype(np.float64)
 
@@ -272,17 +235,14 @@ class EEGGCNNDataset(BaseDataset):
             })
 
         # --- write metadata CSV -------------------------------------------
-        out_csv = os.path.join(
-            root, _METADATA_CSV_TEMPLATE.format(alpha=alpha, bands=bands_tag)
-        )
+        out_csv = os.path.join(root, _METADATA_CSV_TEMPLATE.format(alpha=alpha))
         df = pd.DataFrame(rows)
         df.to_csv(out_csv, index=False)
         logger.info(
-            "Wrote %d window rows to %s (alpha=%.2f, excluded_bands=%s)",
+            "Wrote %d window rows to %s (alpha=%.2f)",
             len(df),
             out_csv,
             alpha,
-            excluded_bands,
         )
 
     # ------------------------------------------------------------------

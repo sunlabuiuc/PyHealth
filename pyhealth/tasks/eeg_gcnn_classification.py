@@ -1,11 +1,14 @@
 import logging
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 
 from .base_task import BaseTask
 
 logger = logging.getLogger(__name__)
+
+# Band name → column index in the (8, 6) node feature matrix.
+BAND_NAMES: List[str] = ["delta", "theta", "alpha", "beta", "low_gamma", "high_gamma"]
 
 
 class EEGGCNNClassification(BaseTask):
@@ -22,11 +25,19 @@ class EEGGCNNClassification(BaseTask):
     Output schema keys:
         label : binary — 0 = diseased, 1 = healthy
 
+    Args:
+        excluded_bands: Frequency band names to zero out in node features at
+            load time, for ablation studies. Valid values are elements of
+            ``BAND_NAMES``. Default ``[]`` (all bands active).
+
     Examples:
         >>> from pyhealth.datasets import EEGGCNNDataset
         >>> from pyhealth.tasks import EEGGCNNClassification
         >>> dataset = EEGGCNNDataset(root="/path/to/eeg-gcnn")
+        >>> # baseline
         >>> samples = dataset.set_task(EEGGCNNClassification())
+        >>> # ablation: remove delta band
+        >>> samples = dataset.set_task(EEGGCNNClassification(excluded_bands=["delta"]))
     """
 
     task_name: str = "EEGGCNNClassification"
@@ -37,6 +48,18 @@ class EEGGCNNClassification(BaseTask):
     output_schema: Dict[str, str] = {
         "label": "binary",
     }
+
+    def __init__(self, excluded_bands: Optional[List[str]] = None) -> None:
+        super().__init__()
+        excluded_bands = excluded_bands or []
+        invalid = [b for b in excluded_bands if b not in BAND_NAMES]
+        if invalid:
+            raise ValueError(
+                f"Unknown band(s) {invalid}. Valid options: {BAND_NAMES}"
+            )
+        self.excluded_band_indices: List[int] = [
+            BAND_NAMES.index(b) for b in excluded_bands
+        ]
 
     def __call__(self, patient: Any) -> List[Dict[str, Any]]:
         """Convert one patient's EEG windows into classification samples.
@@ -68,6 +91,8 @@ class EEGGCNNClassification(BaseTask):
             adj_matrix_path = event.adj_matrix_path
 
             node_features = np.load(node_features_path).astype(np.float32)
+            if self.excluded_band_indices:
+                node_features[:, self.excluded_band_indices] = 0.0
             adj_matrix = np.load(adj_matrix_path).astype(np.float32)
 
             if node_features.shape != (8, 6):
