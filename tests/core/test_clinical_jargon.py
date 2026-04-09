@@ -3,7 +3,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from pyhealth.datasets import ClinicalJargonDataset
+from pyhealth.datasets import ClinicalJargonDataset, split_by_patient
 from pyhealth.tasks import ClinicalJargonVerification
 
 
@@ -42,7 +42,7 @@ class TestClinicalJargonDataset(unittest.TestCase):
 
     def test_num_patients(self):
         dataset = self.make_dataset()
-        self.assertEqual(len(dataset.unique_patient_ids), 8)
+        self.assertEqual(len(dataset.unique_patient_ids), 9)
 
     def test_get_patient(self):
         dataset = self.make_dataset()
@@ -54,13 +54,13 @@ class TestClinicalJargonDataset(unittest.TestCase):
         dataset = self.make_dataset()
         task = ClinicalJargonVerification(benchmark="all", casi_variant="release62")
         samples = dataset.set_task(task)
-        self.assertEqual(len(samples), 20)
+        self.assertEqual(len(samples), 24)
 
     def test_paper59_task_samples(self):
         dataset = self.make_dataset()
         task = ClinicalJargonVerification(benchmark="all", casi_variant="paper59")
         samples = dataset.set_task(task)
-        self.assertEqual(len(samples), 14)
+        self.assertEqual(len(samples), 18)
 
     def test_medlingo_distractor_control(self):
         dataset = self.make_dataset()
@@ -69,7 +69,23 @@ class TestClinicalJargonDataset(unittest.TestCase):
             medlingo_distractors=1,
         )
         samples = dataset.set_task(task)
-        self.assertEqual(len(samples), 4)
+        self.assertEqual(len(samples), 6)
+
+    def test_split_by_patient_keeps_candidate_rows_together(self):
+        dataset = self.make_dataset()
+        task = ClinicalJargonVerification(
+            benchmark="medlingo",
+            medlingo_distractors=1,
+        )
+        samples = dataset.set_task(task)
+        splits = split_by_patient(samples, [0.6, 0.2, 0.2], seed=42)
+        split_patient_ids = [
+            {split_dataset[index]["patient_id"] for index in range(len(split_dataset))}
+            for split_dataset in splits
+        ]
+        for left_index, left_ids in enumerate(split_patient_ids):
+            for right_ids in split_patient_ids[left_index + 1 :]:
+                self.assertTrue(left_ids.isdisjoint(right_ids))
 
     def test_task_output_shape(self):
         dataset = self.make_dataset()

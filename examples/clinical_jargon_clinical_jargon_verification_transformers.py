@@ -1,7 +1,8 @@
 """Clinical jargon verification example with `TransformersModel`.
 
 This example is the course-facing ablation entrypoint for the public clinical
-jargon benchmark contribution. It supports three lightweight task ablations:
+jargon benchmark contribution. It supports three lightweight task ablations
+while keeping each source benchmark item in a single split:
 
 - switch between ``medlingo``, ``casi``, and ``all`` benchmark subsets
 - switch CASI between ``release62`` and ``paper59`` variants
@@ -23,7 +24,7 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
-from pyhealth.datasets import ClinicalJargonDataset, get_dataloader, split_by_sample
+from pyhealth.datasets import ClinicalJargonDataset, get_dataloader, split_by_patient
 from pyhealth.models.transformers_model import TransformersModel
 from pyhealth.tasks import ClinicalJargonVerification
 from pyhealth.trainer import Trainer
@@ -106,7 +107,7 @@ def main() -> None:
             "model_name": args.model_name,
         }
     )
-    train_dataset, val_dataset, test_dataset = split_by_sample(
+    train_dataset, val_dataset, test_dataset = split_by_patient(
         samples, [0.6, 0.2, 0.2], seed=42
     )
     train_loader = get_dataloader(train_dataset, batch_size=args.batch_size, shuffle=True)
