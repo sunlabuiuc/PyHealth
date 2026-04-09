@@ -163,7 +163,12 @@ class LabradorModel(BaseModel):
         result = {"logit": logit, "y_prob": y_prob}
 
         if labels is not None:
+            if self.mode == "binary":
+                labels = labels.float().view_as(logit)
+            elif self.mode == "multilabel":
+                labels = labels.float().view_as(logit)
+        
             result["loss"] = self.get_loss_function()(logit, labels)
             result["y_true"] = labels
-
+        
         return result
