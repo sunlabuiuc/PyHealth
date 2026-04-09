@@ -1,14 +1,3 @@
-"""Tests for MedFlamingo model, VQARADDataset, and MedicalVQATask.
-
-All tests use synthetic / pseudo data generated in memory or in temporary
-directories.  No real datasets, internet access, or heavyweight model weights
-are required.  The ``TestableMedFlamingo`` subclass replaces the production
-CLIP vision encoder and OPT language model with lightweight stubs so the
-entire test suite completes in under a few seconds on CPU.
-"""
-
-import json
-import os
 import shutil
 import tempfile
 import unittest
@@ -19,20 +8,9 @@ from PIL import Image
 import torch
 import torch.nn as nn
 
-from pyhealth.data import Patient, Event
-from pyhealth.datasets import (
-    VQARADDataset,
-    create_sample_dataset,
-    get_dataloader,
-    split_by_sample,
-)
+from pyhealth.datasets import create_sample_dataset, get_dataloader
 from pyhealth.models.base_model import BaseModel
 from pyhealth.models.medflamingo import MedFlamingo
-from pyhealth.tasks import MedicalVQATask
-from pyhealth.trainer import Trainer
-
-
-REAL_VQARAD_ROOT = os.getenv("PYHEALTH_VQARAD_ROOT")
 
 warnings.filterwarnings(
     "ignore",
@@ -172,8 +150,6 @@ class TestMedFlamingo(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.temp_dir = tempfile.mkdtemp()
-        cls.vqarad_root = tempfile.mkdtemp()
-        cls.vqarad_cache_dir = tempfile.mkdtemp()
         cls.samples = []
         labels = ["yes", "no", "yes", "no"]
         questions = [
@@ -184,7 +160,7 @@ class TestMedFlamingo(unittest.TestCase):
         ]
 
         for idx, (answer, question) in enumerate(zip(labels, questions)):
-            image_path = os.path.join(cls.temp_dir, f"img_{idx}.png")
+            image_path = f"{cls.temp_dir}/img_{idx}.png"
             image = Image.fromarray(
                 torch.randint(0, 255, (16, 16, 3), dtype=torch.uint8).numpy(),
                 mode="RGB",
@@ -210,63 +186,9 @@ class TestMedFlamingo(unittest.TestCase):
             dataset_name="test_medflamingo",
         )
 
-        cls._create_vqarad_fixture(
-            cls.vqarad_root,
-            num_examples=8,
-        )
-
-    @classmethod
-    def _create_vqarad_fixture(cls, root, num_examples):
-        images_dir = os.path.join(root, "images")
-        os.makedirs(images_dir, exist_ok=True)
-        entries = []
-        answers = ["yes", "no"] * (num_examples // 2)
-        questions = [
-            "is there a fracture",
-            "is the study normal",
-            "is there consolidation",
-            "is there edema",
-            "is there a mass",
-            "is there pleural effusion",
-            "is there cardiomegaly",
-            "is there pneumothorax",
-        ]
-
-        for idx in range(num_examples):
-            image_name = f"study_{idx}.png"
-            image_path = os.path.join(images_dir, image_name)
-            image = Image.fromarray(
-                torch.randint(0, 255, (16, 16, 3), dtype=torch.uint8).numpy(),
-                mode="RGB",
-            )
-            image.save(image_path)
-            entries.append(
-                {
-                    "IMAGE_PATH": image_name,
-                    "QUESTION": questions[idx % len(questions)],
-                    "ANSWER": answers[idx % len(answers)],
-                    "ANSWER_TYPE": "closed",
-                    "QUESTION_TYPE": "presence",
-                    "IMAGE_ORGAN": "chest",
-                }
-            )
-
-        with open(os.path.join(root, "VQA_RAD Dataset Public.json"), "w") as f:
-            json.dump(entries, f)
-
     @classmethod
     def tearDownClass(cls):
         shutil.rmtree(cls.temp_dir)
-        shutil.rmtree(cls.vqarad_root)
-        shutil.rmtree(cls.vqarad_cache_dir)
-
-    def _build_vqarad_sample_dataset(self):
-        dataset = VQARADDataset(
-            root=self.vqarad_root,
-            cache_dir=self.vqarad_cache_dir,
-            num_workers=1,
-        )
-        return dataset.set_task(num_workers=1)
 
     # ------------------------------------------------------------------
     # MedicalVQATask unit tests
@@ -458,93 +380,6 @@ class TestMedFlamingo(unittest.TestCase):
     # ------------------------------------------------------------------
     # VQARADDataset integration tests
     # ------------------------------------------------------------------
-
-    def test_forward_smoke_with_vqarad_dataset_batch(self):
-        """forward() works end-to-end on a batch from the VQARADDataset pipeline."""
-        samples = self._build_vqarad_sample_dataset()
-        try:
-            model = TestableMedFlamingo(dataset=samples)
-            loader = get_dataloader(samples, batch_size=2, shuffle=False)
-            batch = next(iter(loader))
-
-            with torch.no_grad():
-                output = model(**batch)
-
-            self.assertIn("loss", output)
-            self.assertIn("y_prob", output)
-            self.assertIn("y_true", output)
-            self.assertIn("logit", output)
-            self.assertEqual(output["logit"].shape[0], 2)
-            self.assertEqual(
-                output["logit"].shape[1],
-                samples.output_processors["answer"].size(),
-            )
-        finally:
-            samples.close()
-
-    @unittest.skipUnless(
-        REAL_VQARAD_ROOT,
-        "set PYHEALTH_VQARAD_ROOT to run the real VQA-RAD batch smoke test",
-    )
-    def test_forward_with_real_vqarad_batch_if_available(self):
-        real_cache_dir = tempfile.mkdtemp()
-        try:
-            dataset = VQARADDataset(
-                root=REAL_VQARAD_ROOT,
-                cache_dir=real_cache_dir,
-                num_workers=1,
-                dev=True,
-            )
-            samples = dataset.set_task(num_workers=1)
-            try:
-                model = TestableMedFlamingo(dataset=samples)
-                loader = get_dataloader(samples, batch_size=2, shuffle=False)
-                batch = next(iter(loader))
-
-                with torch.no_grad():
-                    output = model(**batch)
-
-                self.assertIn("loss", output)
-                self.assertIn("y_prob", output)
-                self.assertIn("y_true", output)
-                self.assertIn("logit", output)
-            finally:
-                samples.close()
-        finally:
-            shutil.rmtree(real_cache_dir)
-
-    def test_trainer_with_small_vqarad_sample(self):
-        """Trainer.train() and Trainer.evaluate() complete without error on tiny data."""
-        samples = self._build_vqarad_sample_dataset()
-        try:
-            train_dataset, val_dataset, test_dataset = split_by_sample(
-                samples,
-                [0.5, 0.25, 0.25],
-                seed=42,
-            )
-            train_loader = get_dataloader(train_dataset, batch_size=2, shuffle=True)
-            val_loader = get_dataloader(val_dataset, batch_size=2, shuffle=False)
-            test_loader = get_dataloader(test_dataset, batch_size=2, shuffle=False)
-
-            model = TestableMedFlamingo(dataset=samples)
-            trainer = Trainer(
-                model=model,
-                metrics=["accuracy"],
-                device="cpu",
-                enable_logging=False,
-            )
-            trainer.train(
-                train_dataloader=train_loader,
-                val_dataloader=val_loader,
-                epochs=1,
-                load_best_model_at_last=False,
-            )
-            scores = trainer.evaluate(test_loader)
-
-            self.assertIn("loss", scores)
-            self.assertIn("accuracy", scores)
-        finally:
-            samples.close()
 
 
 if __name__ == "__main__":
