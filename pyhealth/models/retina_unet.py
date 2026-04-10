@@ -1323,7 +1323,7 @@ class RetinaUNet(BaseModel):
         rpn_anchor_stride: int = 1,
         pyramid_levels: Optional[List[int]] = None,
     ):
-        super().__init__(dataset=dataset, feature_keys=[feature_key], label_keys=[seg_label_key])
+        super().__init__(dataset=dataset)
 
         self.feature_key = feature_key
         self.seg_label_key = seg_label_key
