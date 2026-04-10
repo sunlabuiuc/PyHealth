@@ -226,6 +226,7 @@ Available Datasets
     datasets/pyhealth.datasets.MIMIC4Dataset
     datasets/pyhealth.datasets.MedicalTranscriptionsDataset
     datasets/pyhealth.datasets.CardiologyDataset
+    datasets/pyhealth.datasets.Cardiology2Dataset
     datasets/pyhealth.datasets.eICUDataset
     datasets/pyhealth.datasets.ISRUCDataset
     datasets/pyhealth.datasets.MIMICExtractDataset
