@@ -140,3 +140,6 @@ data/physionet.org/
 
 # Local Data
 local_data/
+
+# Model weight files (large binaries, distributed separately)
+weightfiles/
