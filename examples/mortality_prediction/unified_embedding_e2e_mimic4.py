@@ -1,8 +1,8 @@
 """End-to-end protocol runner for Unified Embedding on MIMIC-IV.
 
 Trains and evaluates a unified-embedding model (MLP / RNN / Transformer /
-BottleneckTransformer) on a MIMIC-IV mortality task, then writes per-sample
-predictions to CSV.
+BottleneckTransformer / EHRMamba / JambaEHR) on a MIMIC-IV mortality task,
+then writes per-sample predictions to CSV.
 
 Tasks
 -----
@@ -12,7 +12,7 @@ Tasks
 
 --task clinical_notes_icd_labs
     ClinicalNotesICDLabsMIMIC4: discharge/radiology notes + ICD + labs.
-    Requires --note-root.
+    Requires --note-root.  Used for Table 2 (EHR + clinical text).
 
 Example
 -------
@@ -24,6 +24,18 @@ Example
       --dev --device cpu \\
       --epochs 10 --batch-size 32 --lr 1e-3 \\
       --output-dir ./output/unified_e2e
+
+    # EHRMamba on full dataset (no --dev):
+    python examples/mortality_prediction/unified_embedding_e2e_mimic4.py \\
+      --ehr-root /data/mimic-iv/2.2 --note-root /data/mimic-iv/note \\
+      --task clinical_notes_icd_labs --model ehrmamba \\
+      --embedding-dim 128 --num-layers 2 --seed 42
+
+    # JambaEHR:
+    python examples/mortality_prediction/unified_embedding_e2e_mimic4.py \\
+      --ehr-root /data/mimic-iv/2.2 --note-root /data/mimic-iv/note \\
+      --task clinical_notes_icd_labs --model jambaehr \\
+      --embedding-dim 128 --jamba-transformer-layers 2 --jamba-mamba-layers 6
 """
 
 from __future__ import annotations
@@ -43,6 +55,8 @@ from pyhealth.datasets import (
 )
 from pyhealth.models import MLP, RNN, Transformer, UnifiedMultimodalEmbeddingModel
 from pyhealth.models.bottleneck_transformer import BottleneckTransformer
+from pyhealth.models.ehrmamba import EHRMamba
+from pyhealth.models.jamba_ehr import JambaEHR
 from pyhealth.tasks import MortalityPredictionStageNetMIMIC4
 from pyhealth.tasks.multimodal_mimic4 import ClinicalNotesICDLabsMIMIC4
 from pyhealth.trainer import Trainer
@@ -127,6 +141,28 @@ def _build_model(args: argparse.Namespace, sample_dataset: Any):
             dropout=args.dropout,
             unified_embedding=unified,
         )
+    if args.model == "ehrmamba":
+        return EHRMamba(
+            dataset=sample_dataset,
+            embedding_dim=args.embedding_dim,
+            num_layers=args.num_layers,
+            state_size=args.mamba_state_size,
+            conv_kernel=args.mamba_conv_kernel,
+            dropout=args.dropout,
+            unified_embedding=unified,
+        )
+    if args.model == "jambaehr":
+        return JambaEHR(
+            dataset=sample_dataset,
+            embedding_dim=args.embedding_dim,
+            num_transformer_layers=args.jamba_transformer_layers,
+            num_mamba_layers=args.jamba_mamba_layers,
+            heads=args.heads,
+            dropout=args.dropout,
+            state_size=args.mamba_state_size,
+            conv_kernel=args.mamba_conv_kernel,
+            unified_embedding=unified,
+        )
     raise ValueError(f"Unknown model: {args.model}")
 
 
@@ -189,20 +225,41 @@ def run(args: argparse.Namespace) -> Path:
 
     trainer = Trainer(
         model=model,
-        metrics=["pr_auc", "roc_auc", "accuracy"],
+        metrics=["pr_auc", "roc_auc", "f1", "accuracy"],
         device=args.device,
         enable_logging=True,
         output_path=str(output_dir),
         exp_name=exp_name,
     )
 
+    # BottleneckTransformer is more fragile on full MIMIC-IV with no warmup.
+    # Use safer defaults unless explicitly overridden from CLI.
+    effective_lr = args.lr
+    effective_max_grad_norm = args.max_grad_norm
+    optimizer_params = {}
+
+    if args.model == "bottleneck_transformer":
+        if effective_lr is None:
+            effective_lr = 1e-4
+        if effective_max_grad_norm is None:
+            effective_max_grad_norm = 0.5
+        optimizer_params["eps"] = args.adam_eps if args.adam_eps is not None else 1e-6
+    else:
+        if effective_lr is None:
+            effective_lr = 1e-3
+        if args.adam_eps is not None:
+            optimizer_params["eps"] = args.adam_eps
+
+    optimizer_params["lr"] = effective_lr
+
     if args.epochs > 0 and len(train_ds) > 0:
         trainer.train(
             train_dataloader=train_loader,
             val_dataloader=val_loader,
             epochs=args.epochs,
-            optimizer_params={"lr": args.lr},
-            max_grad_norm=args.max_grad_norm,
+            optimizer_params=optimizer_params,
+            weight_decay=args.weight_decay,
+            max_grad_norm=effective_max_grad_norm,
             monitor="pr_auc",
             load_best_model_at_last=True,
         )
@@ -219,7 +276,7 @@ def run(args: argparse.Namespace) -> Path:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Run E2E unified embedding on MIMIC-IV with any of four sequence heads."
+        description="Run E2E unified embedding on MIMIC-IV with any of six sequence heads."
     )
     parser.add_argument("--ehr-root", type=str, required=True)
     parser.add_argument("--note-root", type=str, default=None)
@@ -235,7 +292,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--model",
         type=str,
-        choices=["mlp", "rnn", "transformer", "bottleneck_transformer"],
+        choices=["mlp", "rnn", "transformer", "bottleneck_transformer",
+                 "ehrmamba", "jambaehr"],
         default="rnn",
     )
 
@@ -245,7 +303,26 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dropout", type=float, default=0.1)
     parser.add_argument("--epochs", type=int, default=1)
     parser.add_argument("--batch-size", type=int, default=32)
-    parser.add_argument("--lr", type=float, default=1e-3)
+    parser.add_argument(
+        "--lr",
+        type=float,
+        default=None,
+        help=(
+            "Learning rate. Default is model-specific: 1e-3 for "
+            "mlp/rnn/transformer/ehrmamba/jambaehr, 1e-4 for "
+            "bottleneck_transformer."
+        ),
+    )
+    parser.add_argument(
+        "--adam-eps",
+        type=float,
+        default=None,
+        help=(
+            "Adam epsilon. Default is model-specific: 1e-8 for non-BT models, "
+            "1e-6 for bottleneck_transformer."
+        ),
+    )
+    parser.add_argument("--weight-decay", type=float, default=0.0)
     parser.add_argument("--device", type=str, default=None)
     parser.add_argument("--num-workers", type=int, default=1)
     parser.add_argument("--seed", type=int, default=42)
@@ -268,8 +345,25 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--fusion-startidx", type=int, default=1)
 
     # Training stability
-    parser.add_argument("--max-grad-norm", type=float, default=None,
-                        help="Gradient clipping max norm. Recommended: 1.0 for BottleneckTransformer.")
+    parser.add_argument(
+        "--max-grad-norm",
+        type=float,
+        default=None,
+        help=(
+            "Gradient clipping max norm. Default is model-specific: None for "
+            "non-BT models, 0.5 for bottleneck_transformer."
+        ),
+    )
+
+    # Mamba / JambaEHR-specific
+    parser.add_argument("--mamba-state-size", type=int, default=16,
+                        help="SSM state size for EHRMamba and JambaEHR blocks.")
+    parser.add_argument("--mamba-conv-kernel", type=int, default=4,
+                        help="Causal conv kernel size for EHRMamba and JambaEHR blocks.")
+    parser.add_argument("--jamba-transformer-layers", type=int, default=2,
+                        help="Number of Transformer (attention) layers in JambaEHR.")
+    parser.add_argument("--jamba-mamba-layers", type=int, default=6,
+                        help="Number of Mamba (SSM) layers in JambaEHR.")
 
     return parser.parse_args()
 
