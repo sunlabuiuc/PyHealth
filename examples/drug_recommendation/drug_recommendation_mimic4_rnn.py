@@ -1,11 +1,11 @@
 """
-Example of using RETAIN for drug recommendation on MIMIC-IV.
+Example of using RNN for drug recommendation on MIMIC-IV.
 
 This example demonstrates:
 1. Loading MIMIC-IV data
 2. Applying the DrugRecommendationMIMIC4 task
 3. Creating a SampleDataset with nested sequence processors
-4. Training a RETAIN model
+4. Training an RNN model
 """
 
 import torch
@@ -15,7 +15,7 @@ from pyhealth.datasets import (
     get_dataloader,
     split_by_patient,
 )
-from pyhealth.models import RETAIN
+from pyhealth.models import RNN
 from pyhealth.tasks import DrugRecommendationMIMIC4
 from pyhealth.trainer import Trainer
 
@@ -70,10 +70,12 @@ if __name__ == "__main__":
     val_loader = get_dataloader(val_dataset, batch_size=64, shuffle=False)
     test_loader = get_dataloader(test_dataset, batch_size=64, shuffle=False)
 
-    # STEP 4: Initialize RETAIN model
-    model = RETAIN(
+    # STEP 4: Initialize RNN model
+    model = RNN(
         dataset=sample_dataset,
         embedding_dim=128,
+        hidden_dim=128,
+        rnn_type="GRU",
         dropout=0.5,
     )
 
@@ -85,7 +87,7 @@ if __name__ == "__main__":
     # STEP 5: Train the model
     trainer = Trainer(
         model=model,
-        device="cuda:4",  # or "cpu"
+        device="cuda:0",  # or "cpu"
         metrics=["pr_auc_samples", "f1_samples", "jaccard_samples"],
     )
 
@@ -95,7 +97,8 @@ if __name__ == "__main__":
         val_dataloader=val_loader,
         epochs=50,
         monitor="pr_auc_samples",
-        optimizer_params={"lr": 1e-3},
+        optimizer_params={"lr": 1e-4},
+        optimizer_class=torch.optim.AdamW,
     )
 
     # STEP 6: Evaluate on test set
