@@ -175,6 +175,8 @@ class FPN(nn.Module):
             num_blocks = [3, 4, 6, 3]  # ResNet50-like
 
         stride = 2 if dim == 2 else (2, 2, 1) # For 3D, preserve depth resolution
+        self.top_down_scale_factor = stride
+        self.block_stride = stride
         
         # Initial convolution
         self.c0 = nn.Sequential(
@@ -226,14 +228,14 @@ class FPN(nn.Module):
             c2_out_channels, 
             c3_out_channels, 
             num_blocks[1], 
-            stride=2
+            stride=self.block_stride
         )
         c4_out_channels = c3_out_channels * 2
         self.c4 = self._make_layer(
             c3_out_channels, 
             c4_out_channels,
             num_blocks[2], 
-            stride=2
+            stride=self.block_stride
         )
         
         c5_out_channels = c4_out_channels * 2
@@ -241,7 +243,7 @@ class FPN(nn.Module):
             c4_out_channels, 
             c5_out_channels, 
             num_blocks[3], 
-            stride=2
+            stride=self.block_stride
         )
 
         if self.dim == 2:
@@ -409,14 +411,41 @@ class FPN(nn.Module):
         c3_out = self.c3(c2_out)
         c4_out = self.c4(c3_out)
         c5_out = self.c5(c4_out)
+
+        interpolation_mode = "bilinear" if self.dim == 2 else "trilinear"
         
         # FPN top-down path
         p5_pre_out = self.p5(c5_out)
-        p4_pre_out = self.p4(c4_out) + F.interpolate(p5_pre_out, scale_factor=2)
-        p3_pre_out = self.p3(c3_out) + F.interpolate(p4_pre_out, scale_factor=2)
-        p2_pre_out = self.p2(c2_out) + F.interpolate(p3_pre_out, scale_factor=2)
-        p1_pre_out = self.p1(c1_out) + self.p2_upsample(p2_pre_out)
-        p0_pre_out = self.p0(c0_out) + self.p1_upsample(p1_pre_out)
+        p4_pre_out = self.p4(c4_out) + F.interpolate(
+            p5_pre_out,
+            size=c4_out.shape[2:],
+            mode=interpolation_mode,
+            align_corners=False,
+        )
+        p3_pre_out = self.p3(c3_out) + F.interpolate(
+            p4_pre_out,
+            size=c3_out.shape[2:],
+            mode=interpolation_mode,
+            align_corners=False,
+        )
+        p2_pre_out = self.p2(c2_out) + F.interpolate(
+            p3_pre_out,
+            size=c2_out.shape[2:],
+            mode=interpolation_mode,
+            align_corners=False,
+        )
+        p1_pre_out = self.p1(c1_out) + F.interpolate(
+            p2_pre_out,
+            size=c1_out.shape[2:],
+            mode=interpolation_mode,
+            align_corners=False,
+        )
+        p0_pre_out = self.p0(c0_out) + F.interpolate(
+            p1_pre_out,
+            size=c0_out.shape[2:],
+            mode=interpolation_mode,
+            align_corners=False,
+        )
         
         # Smooth
         p5 = self.smooth_p5(p5_pre_out)
@@ -959,27 +988,15 @@ class SegmentationHead(nn.Module):
 
 
 class RetinaUNetLayer(nn.Module):
-    """Core Retina U-Net neural network layer for medical image detection and segmentation.
+    """Core Retina U-Net layer.
+    Retina U-Net: Multi-task detection and segmentation model for medical images.
     
-    This layer combines a Feature Pyramid Network (FPN) backbone with detection and
-    segmentation heads. It is designed to be wrapped by the RetinaUNet BaseModel for
-    PyHealth integration.
+    Combines:
+    - Retina Net architecture for object detection (classification + bbox regression)
+    - U-Net style segmentation decoder
+    - FPN backbone for multi-scale features
+    Combines an FPN backbone with detection and segmentation heads for 2D or 3D inputs.
     
-    Args:
-        in_channels (int): Number of input channels. Default is 1 (grayscale).
-        num_classes (int): Number of detection classes. Default is 2.
-        num_seg_classes (int): Number of segmentation classes. Default is 2.
-        dim (int): Spatial dimensionality (2 or 3). Default is 2.
-        fpn_base_channels (int): Base channels for FPN. Default is 48.
-        fpn_out_channels (int): Output channels for FPN features. Default is 192.
-        fpn_num_blocks (List[int]): Blocks per FPN stage (ResNet-style). Default is None (auto).
-        rpn_hidden_channels (int): Hidden channels in detection/segmentation heads. Default is 256.
-        norm_type (str): Normalization type ('batch', 'instance', None). Default is None.
-        activation (str): Activation function ('relu', 'leaky_relu'). Default is 'relu'.
-        rpn_anchor_ratios (List[float]): Anchor aspect ratios. Default is [0.5, 1.0, 2.0].
-        rpn_anchor_scales (Dict): Anchor scales per pyramid level. Default is None (auto).
-        rpn_anchor_stride (int): Anchor stride for dense prediction. Default is 1.
-        pyramid_levels (List[int]): Pyramid levels to use (e.g., [2,3,4,5]=P2-P5). Default is [2,3,4,5].
     """
     
     def __init__(
@@ -1244,60 +1261,9 @@ class RetinaUNetLayer(nn.Module):
 
 
 class RetinaUNet(BaseModel):
-    """Retina U-Net model for medical image object detection and segmentation.
-    
-    A PyHealth-integrated wrapper around the Retina U-Net architecture that combines
-    Retina Net (two-stage object detection with focal loss) with U-Net style segmentation.
-    The model uses a Feature Pyramid Network (FPN) backbone to handle multi-scale features
-    and supports both 2D and 3D medical images.
-    
-    The model returns segmentation predictions by default and can optionally return
-    detection bounding boxes and class predictions via the return_aux flag.
-    
-    Note:
-        - Requires image and segmentation label inputs from the dataset
-        - Supports dataset-driven initialization with automatic processor fitting
-        - Returns standard PyHealth output keys: logit, y_prob, y_true (optional), loss (optional)
-        - Optional auxiliary outputs: seg_preds, class_logits, bbox_deltas, detections, boxes
-    
-    Args:
-        dataset (SampleDataset): Dataset with fitted input and output processors.
-        feature_key (str): Key for image input in the dataset. Default is "image".
-        seg_label_key (str): Key for segmentation labels. Default is "seg".
-        box_label_key (str): Key for bounding box targets (optional). Default is "bb_target".
-        class_label_key (str): Key for class labels (optional). Default is "roi_labels".
-        in_channels (int): Number of input channels. Default is 1.
-        num_classes (int): Number of detection classes. Default is 2.
-        head_classes (int): Alternative parameter name (mapped to num_classes). Default is None.
-        num_seg_classes (int): Number of segmentation classes. Default is 2.
-        dim (int): Spatial dimensionality (2 or 3). Default is 2.
-        fpn_base_channels (int): Base channels for FPN. Default is 48.
-        fpn_out_channels (int): Output channels for FPN features. Default is 192.
-        fpn_num_blocks (List[int]): Blocks per FPN stage. Default is None.
-        rpn_hidden_channels (int): Hidden channels in detection/segmentation heads. Default is 256.
-        norm_type (str): Normalization type ('batch', 'instance', None). Default is None.
-        activation (str): Activation function. Default is 'relu'.
-        rpn_anchor_ratios (List[float]): Anchor aspect ratios. Default is None.
-        rpn_anchor_scales (Dict): Anchor scales per pyramid level. Default is None.
-        rpn_anchor_stride (int): Anchor stride. Default is 1.
-        pyramid_levels (List[int]): FPN pyramid levels. Default is None.
-    
-    Examples:
-        >>> from pyhealth.datasets import SampleDataset
-        >>> from pyhealth.models import RetinaUNet
-        >>> # Create a sample dataset with medical images and segmentation masks
-        >>> dataset = SampleDataset(
-        ...     samples=[...],  # samples with 'image' and 'seg' keys
-        ...     input_schema={"image": "image"},
-        ...     output_schema={"seg": "image"},
-        ... )
-        >>> model = RetinaUNet(dataset=dataset, num_classes=2, dim=2)
-        >>> # Forward pass with image and segmentation label
-        >>> output = model(image=x, seg=y)
-        >>> print(output.keys())  # ['logit', 'y_prob', 'y_true', 'loss']
-        >>> # Get auxiliary detection outputs
-        >>> aux_output = model(image=x, seg=y, return_aux=True)
-        >>> print('detections' in aux_output)  # True
+    """Retina U-Net model wrapper for PyHealth.
+
+    Wraps RetinaUNetLayer with dataset-driven initialization and standard PyHealth outputs.
     """
 
     def __init__(
