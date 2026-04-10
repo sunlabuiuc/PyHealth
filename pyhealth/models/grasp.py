@@ -9,9 +9,10 @@ import torch.nn as nn
 import torch.nn.utils.rnn as rnn_utils
 from sklearn.neighbors import kneighbors_graph
 
-from pyhealth.datasets import SampleEHRDataset
-from pyhealth.models.base_model import BaseModel
+from pyhealth.datasets import SampleDataset
+from pyhealth.models import BaseModel
 from pyhealth.models.concare import ConCareLayer
+from pyhealth.models.embedding import EmbeddingModel
 from pyhealth.models.rnn import RNNLayer
 from pyhealth.models.utils import get_last_visit
 
@@ -286,300 +287,186 @@ class GRASPLayer(nn.Module):
 
 
 class GRASP(BaseModel):
-    """GRASP model.
+    """GRASP model for EHR-based prediction tasks.
 
-    Paper: Liantao Ma et al. GRASP: generic framework for health status representation learning based on incorporating knowledge from similar patients. AAAI 2021.
+    GRASP (Generic framework for health status Representation learning
+    bAsed on incorporating knowledge from Similar Patients) uses graph-based
+    clustering to capture patient similarity and enhance temporal modeling.
+
+    Paper: Liantao Ma et al. GRASP: generic framework for health status
+        representation learning based on incorporating knowledge from
+        similar patients. AAAI 2021.
 
     Note:
         We use separate GRASP layers for different feature_keys.
-        Currently, we automatically support different input formats:
-            - code based input (need to use the embedding table later)
-            - float/int based value input
-        We follow the current convention for the GRASP model:
-            - case 1. [code1, code2, code3, ...]
-                - we will assume the code follows the order; our model will encode
-                each code into a vector and apply GRASP on the code level
-            - case 2. [[code1, code2]] or [[code1, code2], [code3, code4, code5], ...]
-                - we will assume the inner bracket follows the order; our model first
-                use the embedding table to encode each code into a vector and then use
-                average/mean pooling to get one vector for one inner bracket; then use
-                GRASP one the braket level
-            - case 3. [[1.5, 2.0, 0.0]] or [[1.5, 2.0, 0.0], [8, 1.2, 4.5], ...]
-                - this case only makes sense when each inner bracket has the same length;
-                we assume each dimension has the same meaning; we run GRASP directly
-                on the inner bracket level, similar to case 1 after embedding table
-            - case 4. [[[1.5, 2.0, 0.0]]] or [[[1.5, 2.0, 0.0], [8, 1.2, 4.5]], ...]
-                - this case only makes sense when each inner bracket has the same length;
-                we assume each dimension has the same meaning; we run GRASP directly
-                on the inner bracket level, similar to case 2 after embedding table
+        The model automatically handles different input formats through the
+        EmbeddingModel.
 
     Args:
-        dataset: the dataset to train the model. It is used to query certain
+        dataset: The dataset to train the model. It is used to query certain
             information such as the set of all tokens.
-        feature_keys:  list of keys in samples to use as features,
-            e.g. ["conditions", "procedures"].
-        label_key: key in samples to use as label (e.g., "drugs").
-        mode: one of "binary", "multiclass", or "multilabel".
-        static_keys: the key in samples to use as static features, e.g. "demographics". Default is None.
-                     we only support numerical static features.
-        use_embedding: list of bools indicating whether to use embedding for each feature type,
-            e.g. [True, False].
-        embedding_dim: the embedding dimension. Default is 128.
-        hidden_dim: the hidden dimension of the GRASP layer. Default is 128.
-        cluster_num: the number of clusters. Default is 10. Note that batch size should be greater than cluster_num.
-        **kwargs: other parameters for the GRASP layer.
-
+        static_key: The key in samples to use as static features, e.g.
+            "demographics". Default is None. Only numerical static features
+            are supported.
+        embedding_dim: The embedding dimension. Default is 128.
+        hidden_dim: The hidden dimension. Default is 128.
+        **kwargs: Other parameters for the GRASP layer (cluster_num, block,
+            dropout).
 
     Examples:
-        >>> from pyhealth.datasets import SampleEHRDataset
+        >>> from pyhealth.datasets import SampleDataset
         >>> samples = [
-        ...         {
-        ...             "patient_id": "patient-0",
-        ...             "visit_id": "visit-0",
-        ...             "list_codes": ["505800458", "50580045810", "50580045811"],  # NDC
-        ...             "list_vectors": [[1.0, 2.55, 3.4], [4.1, 5.5, 6.0]],
-        ...             "list_list_codes": [["A05B", "A05C", "A06A"], ["A11D", "A11E"]],  # ATC-4
-        ...             "list_list_vectors": [
-        ...                 [[1.8, 2.25, 3.41], [4.50, 5.9, 6.0]],
-        ...                 [[7.7, 8.5, 9.4]],
-        ...             ],
-        ...             "demographic": [0.0, 2.0, 1.5],
-        ...             "label": 1,
-        ...         },
-        ...         {
-        ...             "patient_id": "patient-0",
-        ...             "visit_id": "visit-1",
-        ...             "list_codes": [
-        ...                 "55154191800",
-        ...                 "551541928",
-        ...                 "55154192800",
-        ...                 "705182798",
-        ...                 "70518279800",
-        ...             ],
-        ...             "list_vectors": [[1.4, 3.2, 3.5], [4.1, 5.9, 1.7], [4.5, 5.9, 1.7]],
-        ...             "list_list_codes": [["A04A", "B035", "C129"]],
-        ...             "list_list_vectors": [
-        ...                 [[1.0, 2.8, 3.3], [4.9, 5.0, 6.6], [7.7, 8.4, 1.3], [7.7, 8.4, 1.3]],
-        ...             ],
-        ...             "demographic": [0.0, 2.0, 1.5],
-        ...             "label": 0,
-        ...         },
-        ...     ]
-        >>> dataset = SampleEHRDataset(samples=samples, dataset_name="test")
-        >>>
+        ...     {
+        ...         "patient_id": "patient-0",
+        ...         "visit_id": "visit-0",
+        ...         "list_codes": ["505800458", "50580045810", "50580045811"],
+        ...         "list_vectors": [[1.0, 2.55, 3.4], [4.1, 5.5, 6.0]],
+        ...         "demographic": [0.0, 2.0, 1.5],
+        ...         "label": 1,
+        ...     },
+        ...     {
+        ...         "patient_id": "patient-0",
+        ...         "visit_id": "visit-1",
+        ...         "list_codes": ["55154191800", "551541928", "55154192800"],
+        ...         "list_vectors": [[1.4, 3.2, 3.5], [4.1, 5.9, 1.7]],
+        ...         "demographic": [0.0, 2.0, 1.5],
+        ...         "label": 0,
+        ...     },
+        ... ]
+        >>> dataset = SampleDataset(
+        ...     samples=samples,
+        ...     input_schema={"list_codes": "sequence", "list_vectors": "sequence"},
+        ...     output_schema={"label": "binary"},
+        ...     dataset_name="test"
+        ... )
         >>> from pyhealth.models import GRASP
         >>> model = GRASP(
-        ...         dataset=dataset,
-        ...         feature_keys=[
-        ...             "list_codes",
-        ...             "list_vectors",
-        ...             "list_list_codes",
-        ...             "list_list_vectors",
-        ...         ],
-        ...         label_key="label",
-        ...         static_key="demographic",
-        ...         use_embedding=[True, False, True, False],
-        ...         mode="binary"
-        ...     )
-        >>>
+        ...     dataset=dataset,
+        ...     static_key="demographic",
+        ...     embedding_dim=64,
+        ...     hidden_dim=64,
+        ...     cluster_num=2,
+        ... )
         >>> from pyhealth.datasets import get_dataloader
         >>> train_loader = get_dataloader(dataset, batch_size=2, shuffle=True)
         >>> data_batch = next(iter(train_loader))
-        >>>
         >>> ret = model(**data_batch)
-        >>> print(ret)
-        {
-            'loss': tensor(0.6896, grad_fn=<BinaryCrossEntropyWithLogitsBackward0>),
-            'y_prob': tensor([[0.4983],
-                        [0.4947]], grad_fn=<SigmoidBackward0>),
-            'y_true': tensor([[1.],
-                        [0.]]),
-            'logit': tensor([[-0.0070],
-                        [-0.0213]], grad_fn=<AddmmBackward0>)
-        }
-        >>>
-
+        >>> print(ret["loss"])
+        tensor(..., grad_fn=<AddBackward0>)
     """
 
     def __init__(
         self,
-        dataset: SampleEHRDataset,
-        feature_keys: List[str],
-        label_key: str,
-        mode: str,
-        use_embedding: List[bool],
+        dataset: SampleDataset,
         static_key: Optional[str] = None,
         embedding_dim: int = 128,
         hidden_dim: int = 128,
         **kwargs,
     ):
-        super(GRASP, self).__init__(
-            dataset=dataset,
-            feature_keys=feature_keys,
-            label_key=label_key,
-            mode=mode,
-        )
+        super(GRASP, self).__init__(dataset=dataset)
+
         self.embedding_dim = embedding_dim
         self.hidden_dim = hidden_dim
-        self.use_embedding = use_embedding
+        self.static_key = static_key
 
         # validate kwargs for GRASP layer
         if "feature_size" in kwargs:
             raise ValueError("feature_size is determined by embedding_dim")
-        if len(dataset) < 12 and "cluster_num" not in kwargs:
-            raise ValueError("cluster_num is required for small dataset, default 12")
-        if "cluster_num" in kwargs and kwargs["cluster_num"] > len(dataset):
-            raise ValueError("cluster_num must be no larger than dataset size")
 
         cluster_num = kwargs.get("cluster_num", 12)
+        if len(dataset) < cluster_num:
+            raise ValueError(
+                f"cluster_num ({cluster_num}) must be no larger than "
+                f"dataset size ({len(dataset)})"
+            )
 
-        # the key of self.feat_tokenizers only contains the code based inputs
-        self.feat_tokenizers = {}
-        self.static_key = static_key
-        self.label_tokenizer = self.get_label_tokenizer()
-        # the key of self.embeddings only contains the code based inputs
-        self.embeddings = nn.ModuleDict()
-        # the key of self.linear_layers only contains the float/int based inputs
-        self.linear_layers = nn.ModuleDict()
+        assert len(self.label_keys) == 1, (
+            "Only one label key is supported for GRASP"
+        )
+        self.label_key = self.label_keys[0]
 
+        # EmbeddingModel handles all feature embedding automatically
+        self.embedding_model = EmbeddingModel(dataset, embedding_dim)
+
+        # Determine static dimension
         self.static_dim = 0
         if self.static_key is not None:
-            self.static_dim = self.dataset.input_info[self.static_key]["len"]
+            first_sample = dataset[0]
+            if self.static_key in first_sample:
+                static_val = first_sample[self.static_key]
+                if isinstance(static_val, torch.Tensor):
+                    self.static_dim = (
+                        static_val.shape[-1] if static_val.dim() > 0 else 1
+                    )
+                elif isinstance(static_val, (list, tuple)):
+                    self.static_dim = len(static_val)
+                else:
+                    self.static_dim = 1
 
+        # Get dynamic feature keys (excluding static key)
+        self.dynamic_feature_keys = [
+            k for k in self.feature_keys
+            if k != self.static_key
+        ]
+
+        # GRASP layers for each dynamic feature
         self.grasp = nn.ModuleDict()
-        # add feature GRASP layers
-        for idx, feature_key in enumerate(self.feature_keys):
-            input_info = self.dataset.input_info[feature_key]
-            # sanity check
-            if input_info["type"] not in [str, float, int]:
-                raise ValueError(
-                    "GRASP only supports str code, float and int as input types"
-                )
-            elif (input_info["type"] == str) and (input_info["dim"] not in [2, 3]):
-                raise ValueError(
-                    "GRASP only supports 2-dim or 3-dim str code as input types"
-                )
-            elif (input_info["type"] == str) and (use_embedding[idx] == False):
-                raise ValueError(
-                    "GRASP only supports embedding for str code as input types"
-                )
-            elif (input_info["type"] in [float, int]) and (
-                input_info["dim"] not in [2, 3]
-            ):
-                raise ValueError(
-                    "GRASP only supports 2-dim or 3-dim float and int as input types"
-                )
+        for feature_key in self.dynamic_feature_keys:
+            self.grasp[feature_key] = GRASPLayer(
+                input_dim=embedding_dim,
+                static_dim=self.static_dim,
+                hidden_dim=self.hidden_dim,
+                **kwargs,
+            )
 
-            # for code based input, we need Type
-            # for float/int based input, we need Type, input_dim
-            if use_embedding[idx]:
-                self.add_feature_transform_layer(feature_key, input_info)
-                self.grasp[feature_key] = GRASPLayer(
-                    input_dim=embedding_dim,
-                    static_dim=self.static_dim,
-                    hidden_dim=self.hidden_dim,
-                    **kwargs,
-                )
-            else:
-                self.grasp[feature_key] = GRASPLayer(
-                    input_dim=input_info["len"],
-                    static_dim=self.static_dim,
-                    hidden_dim=self.hidden_dim,
-                    **kwargs,
-                )
-
-        output_size = self.get_output_size(self.label_tokenizer)
-        self.fc = nn.Linear(len(self.feature_keys) * self.hidden_dim, output_size)
+        output_size = self.get_output_size()
+        self.fc = nn.Linear(
+            len(self.dynamic_feature_keys) * self.hidden_dim, output_size
+        )
 
     def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
         """Forward propagation.
-
-        The label `kwargs[self.label_key]` is a list of labels for each patient.
 
         Args:
             **kwargs: keyword arguments for the model. The keys must contain
                 all the feature keys and the label key.
 
         Returns:
-            A dictionary with the following keys:
-                loss: a scalar tensor representing the final loss.
-                y_prob: a tensor representing the predicted probabilities.
-                y_true: a tensor representing the true labels.
+            Dict[str, torch.Tensor]: A dictionary with the following keys:
+                - loss: a scalar tensor representing the final loss.
+                - y_prob: a tensor representing the predicted probabilities.
+                - y_true: a tensor representing the true labels.
+                - logit: a tensor representing the logits.
         """
         patient_emb = []
-        for idx, feature_key in enumerate(self.feature_keys):
-            input_info = self.dataset.input_info[feature_key]
-            dim_, type_ = input_info["dim"], input_info["type"]
 
-            # for case 1: [code1, code2, code3, ...]
-            if (dim_ == 2) and (type_ == str):
-                x = self.feat_tokenizers[feature_key].batch_encode_2d(
-                    kwargs[feature_key]
-                )
-                # (patient, event)
-                x = torch.tensor(x, dtype=torch.long, device=self.device)
-                # (patient, event, embedding_dim)
-                x = self.embeddings[feature_key](x)
-                # (patient, event)
-                mask = torch.any(x !=0, dim=2)
+        embedded, masks = self.embedding_model(kwargs, output_mask=True)
 
-            # for case 2: [[code1, code2], [code3, ...], ...]
-            elif (dim_ == 3) and (type_ == str):
-                x = self.feat_tokenizers[feature_key].batch_encode_3d(
-                    kwargs[feature_key]
-                )
-                # (patient, visit, event)
-                x = torch.tensor(x, dtype=torch.long, device=self.device)
-                # (patient, visit, event, embedding_dim)
-                x = self.embeddings[feature_key](x)
-                # (patient, visit, embedding_dim)
-                x = torch.sum(x, dim=2)
-                # (patient, visit)
-                mask = torch.any(x !=0, dim=2)
-
-            # for case 3: [[1.5, 2.0, 0.0], ...]
-            elif (dim_ == 2) and (type_ in [float, int]):
-                x, mask = self.padding2d(kwargs[feature_key])
-                # (patient, event, values)
-                x = torch.tensor(x, dtype=torch.float, device=self.device)
-                # (patient, event, embedding_dim)
-                if self.use_embedding[idx]:
-                    x = self.linear_layers[feature_key](x)
-                # (patient, event)
-                mask = mask.bool().to(self.device)
-
-            # for case 4: [[[1.5, 2.0, 0.0], [1.8, 2.4, 6.0]], ...]
-            elif (dim_ == 3) and (type_ in [float, int]):
-                x, mask = self.padding3d(kwargs[feature_key])
-                # (patient, visit, event, values)
-                x = torch.tensor(x, dtype=torch.float, device=self.device)
-                # (patient, visit, embedding_dim)
-                x = torch.sum(x, dim=2)
-
-                if self.use_embedding[idx]:
-                    x = self.linear_layers[feature_key](x)
-                # (patient, event)
-                mask = mask[:, :, 0]
-                mask = mask.bool().to(self.device)
+        # Get static features if available
+        static = None
+        if self.static_key is not None and self.static_key in kwargs:
+            static_data = kwargs[self.static_key]
+            if isinstance(static_data, torch.Tensor):
+                static = static_data.float().to(self.device)
             else:
-                raise NotImplementedError
-
-            if self.static_dim > 0:
                 static = torch.tensor(
-                    kwargs[self.static_key], dtype=torch.float, device=self.device
+                    static_data, dtype=torch.float, device=self.device
                 )
-                x = self.grasp[feature_key](x, static=static, mask=mask)
-            else:
-                x = self.grasp[feature_key](x, mask=mask)
+
+        for feature_key in self.dynamic_feature_keys:
+            x = embedded[feature_key]
+            mask = masks[feature_key]
+            x = self.grasp[feature_key](x, static=static, mask=mask)
             patient_emb.append(x)
 
         patient_emb = torch.cat(patient_emb, dim=1)
-        # (patient, label_size)
         logits = self.fc(patient_emb)
-        # obtain y_true, loss, y_prob
-        y_true = self.prepare_labels(kwargs[self.label_key], self.label_tokenizer)
+
+        # Compute loss and predictions
+        y_true = kwargs[self.label_key].to(self.device)
         loss = self.get_loss_function()(logits, y_true)
         y_prob = self.prepare_y_prob(logits)
+
         results = {
             "loss": loss,
             "y_prob": y_prob,
@@ -592,27 +479,21 @@ class GRASP(BaseModel):
 
 
 if __name__ == "__main__":
-    from pyhealth.datasets import SampleEHRDataset
+    from pyhealth.datasets import create_sample_dataset, get_dataloader
 
     samples = [
         {
             "patient_id": "patient-0",
             "visit_id": "visit-0",
-            # "single_vector": [1, 2, 3],
-            "list_codes": ["505800458", "50580045810", "50580045811"],  # NDC
+            "list_codes": ["505800458", "50580045810", "50580045811"],
             "list_vectors": [[1.0, 2.55, 3.4], [4.1, 5.5, 6.0]],
-            "list_list_codes": [["A05B", "A05C", "A06A"], ["A11D", "A11E"]],  # ATC-4
-            "list_list_vectors": [
-                [[1.8, 2.25, 3.41], [4.50, 5.9, 6.0]],
-                [[7.7, 8.5, 9.4]],
-            ],
+            "list_list_codes": [["A05B", "A05C", "A06A"], ["A11D", "A11E"]],
             "label": 1,
             "demographic": [1.0, 2.0, 1.3],
         },
         {
             "patient_id": "patient-0",
             "visit_id": "visit-1",
-            # "single_vector": [1, 5, 8],
             "list_codes": [
                 "55154191800",
                 "551541928",
@@ -622,44 +503,33 @@ if __name__ == "__main__":
             ],
             "list_vectors": [[1.4, 3.2, 3.5], [4.1, 5.9, 1.7], [4.5, 5.9, 1.7]],
             "list_list_codes": [["A04A", "B035", "C129"]],
-            "list_list_vectors": [
-                [[1.0, 2.8, 3.3], [4.9, 5.0, 6.6], [7.7, 8.4, 1.3], [7.7, 8.4, 1.3]],
-            ],
             "label": 0,
             "demographic": [1.0, 2.0, 1.3],
         },
     ]
 
-    # dataset
-    dataset = SampleEHRDataset(samples=samples, dataset_name="test")
-
-    # data loader
-    from pyhealth.datasets import get_dataloader
+    dataset = create_sample_dataset(
+        samples=samples,
+        input_schema={
+            "list_codes": "sequence",
+            "list_vectors": "sequence",
+            "list_list_codes": "sequence",
+        },
+        output_schema={"label": "binary"},
+        dataset_name="test",
+    )
 
     train_loader = get_dataloader(dataset, batch_size=2, shuffle=True)
 
-    # model
     model = GRASP(
         dataset=dataset,
-        feature_keys=[
-            "list_codes",
-            "list_vectors",
-            "list_list_codes",
-            # "list_list_vectors",
-        ],
         static_key="demographic",
-        label_key="label",
-        use_embedding=[True, False, True],
-        mode="binary",
+        embedding_dim=64,
+        hidden_dim=64,
         cluster_num=2,
     )
 
-    # data batch
     data_batch = next(iter(train_loader))
-
-    # try the model
     ret = model(**data_batch)
     print(ret)
-
-    # try loss backward
     ret["loss"].backward()

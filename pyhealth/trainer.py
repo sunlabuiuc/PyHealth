@@ -1,5 +1,7 @@
+import json
 import logging
 import os
+import time
 from datetime import datetime
 from typing import Callable, Dict, List, Optional, Type
 
@@ -35,6 +37,15 @@ def set_logger(log_path: str) -> None:
     handler.setFormatter(formatter)
     logger.addHandler(handler)
     return
+
+
+def _vram_stats(device: str) -> Dict[str, float]:
+    """Returns current and peak VRAM usage in MB for a CUDA device."""
+    if not torch.cuda.is_available() or not str(device).startswith("cuda"):
+        return {}
+    allocated = torch.cuda.memory_allocated(device) / 1024**2
+    peak = torch.cuda.max_memory_allocated(device) / 1024**2
+    return {"vram_allocated_mb": allocated, "vram_peak_mb": peak}
 
 
 def get_metrics_fn(mode: str) -> Callable:
@@ -184,12 +195,17 @@ class Trainer:
             steps_per_epoch = len(train_dataloader)
         global_step = 0
         patience_counter = 0
+        metrics_history: List[Dict] = []
+        train_start = time.perf_counter()
 
         # epoch training loop
         for epoch in range(epochs):
             training_loss = []
             self.model.zero_grad()
             self.model.train()
+            if torch.cuda.is_available() and str(self.device).startswith("cuda"):
+                torch.cuda.reset_peak_memory_stats(self.device)
+            epoch_start = time.perf_counter()
             # batch training loop
             logger.info("")
             for _ in trange(
@@ -216,11 +232,29 @@ class Trainer:
                 optimizer.zero_grad()
                 training_loss.append(loss.item())
                 global_step += 1
+
+            epoch_time = time.perf_counter() - epoch_start
+            vram = _vram_stats(self.device)
+
             # log and save
             logger.info(f"--- Train epoch-{epoch}, step-{global_step} ---")
             logger.info(f"loss: {sum(training_loss) / len(training_loss):.4f}")
+            logger.info(f"epoch_time: {epoch_time:.2f}s")
+            if vram:
+                logger.info(
+                    f"vram_peak: {vram['vram_peak_mb']:.1f} MB  "
+                    f"vram_current: {vram['vram_allocated_mb']:.1f} MB"
+                )
             if self.exp_path is not None:
                 self.save_ckpt(os.path.join(self.exp_path, "last.ckpt"))
+
+            epoch_record: Dict = {
+                "epoch": epoch,
+                "global_step": global_step,
+                "train_loss": sum(training_loss) / len(training_loss),
+                "epoch_time_s": round(epoch_time, 3),
+                **{f"train_{k}": v for k, v in vram.items()},
+            }
 
             # validation
             if val_dataloader is not None:
@@ -228,6 +262,7 @@ class Trainer:
                 logger.info(f"--- Eval epoch-{epoch}, step-{global_step} ---")
                 for key in scores.keys():
                     logger.info("{}: {:.4f}".format(key, scores[key]))
+                epoch_record.update({f"val_{k}": v for k, v in scores.items()})
                 # save best model
                 if monitor is not None:
                     score = scores[monitor]
@@ -247,7 +282,20 @@ class Trainer:
                             logger.info(
                                 f"Early stopping at epoch-{epoch}, step-{global_step}"
                             )
+                            metrics_history.append(epoch_record)
                             break
+
+            metrics_history.append(epoch_record)
+
+        total_time = time.perf_counter() - train_start
+        logger.info(f"--- Training complete: {total_time:.2f}s total ---")
+
+        # persist metrics history
+        if self.exp_path is not None:
+            history_path = os.path.join(self.exp_path, "metrics_history.json")
+            with open(history_path, "w") as f:
+                json.dump(metrics_history, f, indent=2)
+            logger.info(f"Metrics history saved to {history_path}")
 
         # load best model
         if load_best_model_at_last and self.exp_path is not None and os.path.isfile(
@@ -262,7 +310,7 @@ class Trainer:
             for key in scores.keys():
                 logger.info("{}: {:.4f}".format(key, scores[key]))
 
-        return
+        return metrics_history
 
     def inference(self, dataloader, additional_outputs=None,
                   return_patient_ids=False) -> Dict[str, float]:
@@ -286,8 +334,8 @@ class Trainer:
         patient_ids = []
         if additional_outputs is not None:
             additional_outputs = {k: [] for k in additional_outputs}
+        self.model.eval()
         for data in tqdm(dataloader, desc="Evaluation"):
-            self.model.eval()
             with torch.no_grad():
                 output = self.model(**data)
                 loss = output["loss"]
@@ -348,7 +396,7 @@ class Trainer:
 
     def load_ckpt(self, ckpt_path: str) -> None:
         """Saves the model checkpoint."""
-        state_dict = torch.load(ckpt_path, map_location=self.device)
+        state_dict = torch.load(ckpt_path, map_location=self.device, weights_only=True)
         self.model.load_state_dict(state_dict)
         return
 

@@ -1,4 +1,5 @@
 import logging
+import os
 from typing import Any, Dict, Iterable
 
 import torch
@@ -21,12 +22,25 @@ class BinaryLabelProcessor(FeatureProcessor):
 
     def fit(self, samples: Iterable[Dict[str, Any]], field: str) -> None:
         all_labels = set([sample[field] for sample in samples])
+        allow_single_class = (
+            os.environ.get("PYHEALTH_ALLOW_SINGLE_CLASS_BINARY", "0") == "1"
+        )
         if len(all_labels) != 2:
-            raise ValueError(f"Expected 2 unique labels, got {len(all_labels)}")
+            if not (allow_single_class and len(all_labels) == 1):
+                raise ValueError(f"Expected 2 unique labels, got {len(all_labels)}")
+            logger.warning(
+                "BinaryLabelProcessor received single-class labels for '%s'. "
+                "Proceeding due to PYHEALTH_ALLOW_SINGLE_CLASS_BINARY=1.",
+                field,
+            )
         if all_labels == {0, 1}:
             self.label_vocab = {0: 0, 1: 1}
         elif all_labels == {False, True}:
             self.label_vocab = {False: 0, True: 1}
+        elif all_labels == {0} or all_labels == {False}:
+            self.label_vocab = {list(all_labels)[0]: 0}
+        elif all_labels == {1} or all_labels == {True}:
+            self.label_vocab = {list(all_labels)[0]: 1}
         else:
             all_labels = list(all_labels)
             all_labels.sort()

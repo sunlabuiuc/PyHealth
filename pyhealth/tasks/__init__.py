@@ -21,8 +21,6 @@ from .drug_recommendation import (
     drug_recommendation_mimic4_fn,
     drug_recommendation_omop_fn,
 )
-from .EEG_abnormal import EEG_isAbnormal_fn
-from .EEG_events import EEG_events_fn
 from .in_hospital_mortality_mimic4 import InHospitalMortalityMIMIC4
 from .length_of_stay_prediction import (
     LengthOfStayPredictioneICU,
@@ -45,6 +43,10 @@ from .mortality_prediction import (
 from .survival_preprocess_support2 import SurvivalPreprocessSupport2
 from .mortality_prediction_stagenet_mimic4 import (
     MortalityPredictionStageNetMIMIC4,
+)
+from .multimodal_mimic4 import (
+    ClinicalNotesMIMIC4,
+    ClinicalNotesICDLabsMIMIC4,
 )
 from .patient_linkage import patient_linkage_mimic3_fn
 from .readmission_prediction import (

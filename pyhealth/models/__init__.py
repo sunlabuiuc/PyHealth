@@ -1,6 +1,10 @@
-from .adacare import AdaCare, AdaCareLayer
+from .adacare import AdaCare, AdaCareLayer, MultimodalAdaCare
 from .agent import Agent, AgentLayer
 from .base_model import BaseModel
+from .bottleneck_transformer import (
+    BottleneckTransformer,
+    MultimodalBottleneckTransformerEncoder
+)
 from .biot import BIOT
 from .cnn import CNN, CNNLayer
 from .concare import ConCare, ConCareLayer
@@ -30,7 +34,7 @@ from .medlink import MedLink
 from .micron import MICRON, MICRONLayer
 from .mlp import MLP
 from .molerec import MoleRec, MoleRecLayer
-from .retain import RETAIN, RETAINLayer
+from .retain import MultimodalRETAIN, RETAIN, RETAINLayer
 from .rnn import MultimodalRNN, RNN, RNNLayer
 from .safedrug import SafeDrug, SafeDrugLayer
 from .sparcnet import DenseBlock, DenseLayer, SparcNet, TransitionLayer
