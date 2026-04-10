@@ -1,7 +1,9 @@
-﻿pyhealth.tasks.ChestXray14BinaryClassification
-=======================================
+﻿pyhealth.tasks.DermoscopyMelanomaClassification
+===============================================
 
-.. autoclass:: pyhealth.tasks.ChestXray14BinaryClassification
+Melanoma classification task for dermoscopy datasets.
+
+.. autoclass:: pyhealth.tasks.DermoscopyMelanomaClassification
     :members:
     :undoc-members:
     :show-inheritance:
