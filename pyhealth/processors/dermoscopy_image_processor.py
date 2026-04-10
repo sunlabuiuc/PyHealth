@@ -1,179 +1,113 @@
-"""Custom image processor for dermoscopic images with mode-based processing.
+# Contributor: [Your Name]
+# NetID: [Your NetID]
 
-Supports three processing modes that leverage segmentation masks:
-- "whole": Use the full unmodified image
-- "lesion": Isolate the lesion region (zero out background using mask)
-- "background": Isolate the background region (zero out lesion using inverted mask)
-
-The processor accepts (image_path, mask_path) tuples and applies the selected
-mode before resizing and converting to a tensor.
-
-Reuses mask/mode logic from the dermoscopic_artifacts repository.
-"""
-
-from functools import partial
 from pathlib import Path
-from typing import Any, List, Optional, Tuple, Union
+from typing import Any, Tuple, Union
 
+import cv2
 import numpy as np
+import scipy.ndimage
+import torch
 import torchvision.transforms as transforms
 from PIL import Image
 
-from . import register_processor
-from .base_processor import FeatureProcessor
+from pyhealth.processors.base_processor import FeatureProcessor
 
+VALID_MODES = ("whole", "lesion", "background", "high_whole")
 
-VALID_MODES = ("whole", "lesion", "background")
-
+def high_pass_filter(image: np.ndarray, sigma: int = 1) -> np.ndarray:
+    """Isolates high-frequency structural edges in an image using Gaussian blur subtraction.
+    
+    Args:
+        image (np.ndarray): The input RGB image array.
+        sigma (int, optional): Standard deviation for Gaussian kernel. Defaults to 1.
+        
+    Returns:
+        np.ndarray: The high-frequency residual image.
+    """
+    image_gray = np.dot(image[..., :3], [0.2989, 0.587, 0.114])
+    low_freq = scipy.ndimage.gaussian_filter(image_gray, sigma=sigma)
+    high_freq = image_gray - low_freq
+    high_freq = np.clip(high_freq, 0, 255).astype(np.uint8)
+    return np.stack((high_freq,)*3, axis=-1)
 
 def _load_and_binarize_mask(mask_path: str, target_size: Tuple[int, int]) -> np.ndarray:
-    """Load a segmentation mask, resize to match the image, and binarize it.
-
-    Args:
-        mask_path: Path to the segmentation mask file (PNG or BMP).
-        target_size: (width, height) to resize the mask to match the image.
-
-    Returns:
-        Binary numpy array of shape (H, W) with values 0 or 1.
-    """
     mask_img = Image.open(mask_path).convert("L")
     mask_img = mask_img.resize(target_size, Image.NEAREST)
-    mask = np.array(mask_img)
-    return (mask > 0).astype(np.uint8)
-
+    return (np.array(mask_img) > 127).astype(np.uint8)
 
 def apply_mode(image: np.ndarray, mask: np.ndarray, mode: str) -> np.ndarray:
-    """Apply a processing mode to a dermoscopic image using its segmentation mask.
-
-    Args:
-        image: RGB image as numpy array of shape (H, W, 3).
-        mask: Binary mask as numpy array of shape (H, W) with values 0/1.
-        mode: One of "whole", "lesion", "background".
-
-    Returns:
-        Processed image as numpy array of shape (H, W, 3).
-    """
-    if mode == "whole":
-        return image
-    elif mode == "lesion":
-        return image * mask[:, :, np.newaxis]
+    """Applies a spatial mask to isolate specific regions of the image."""
+    if mode == "lesion":
+        return image * np.expand_dims(mask, axis=-1)
     elif mode == "background":
-        return image * (1 - mask[:, :, np.newaxis])
-    else:
-        raise ValueError(f"Unknown mode '{mode}'. Must be one of {VALID_MODES}")
+        return image * np.expand_dims(1 - mask, axis=-1)
+    return image
 
-
-@register_processor("dermoscopy_image")
-class DermoscopyImageProcessor(FeatureProcessor):
-    """Feature processor for dermoscopic images with mask-based mode processing.
-
-    Accepts (image_path, mask_path) tuples and applies mode-based processing
-    before standard image transforms (resize, to_tensor, normalize).
+class DermoscopyImageProcessor(FeatureProcessor): 
+    """Image processor for dermoscopic images implementing frequency and spatial ablation.
+    
+    This processor applies standard PyTorch vision transforms (resizing to 224x224 
+    and ImageNet normalization) while allowing for custom ablation modes to test 
+    artifact reliance.
+    
+    Modes:
+        - "whole": Returns the standard, unfiltered image.
+        - "lesion": Masks out the background, leaving only the lesion.
+        - "background": Masks out the lesion, leaving only the background.
+        - "high_whole": Applies a high-pass frequency filter to isolate structural edges.
 
     Args:
-        mode: Processing mode — "whole", "lesion", or "background".
-            Defaults to "whole".
-        image_size: Desired output image size (square). Defaults to 224.
-        to_tensor: Whether to convert image to tensor. Defaults to True.
-        normalize: Whether to apply ImageNet normalization. Defaults to True.
-        mean: Normalization mean. Defaults to ImageNet values.
-        std: Normalization std. Defaults to ImageNet values.
-
-    Examples:
-        >>> processor = DermoscopyImageProcessor(mode="lesion")
-        >>> tensor = processor.process(("/path/to/image.jpg", "/path/to/mask.png"))
-        >>> tensor.shape
-        torch.Size([3, 224, 224])
+        mode (str, optional): The processing mode to apply. Defaults to "whole".
+        **kwargs: Additional keyword arguments passed to FeatureProcessor.
+        
+    Raises:
+        ValueError: If an unsupported mode is provided.
     """
-
-    def __init__(
-        self,
-        mode: str = "whole",
-        image_size: int = 224,
-        to_tensor: bool = True,
-        normalize: bool = True,
-        mean: Optional[List[float]] = None,
-        std: Optional[List[float]] = None,
-    ) -> None:
+    def __init__(self, mode: str = "whole", **kwargs):
         if mode not in VALID_MODES:
-            raise ValueError(f"mode must be one of {VALID_MODES}, got '{mode}'")
-
+            raise ValueError(f"Invalid mode {mode}. Expected one of {VALID_MODES}")
         self.mode = mode
-        self.image_size = image_size
-        self.to_tensor = to_tensor
-        self.normalize = normalize
-        self.mean = mean or [0.485, 0.456, 0.406]
-        self.std = std or [0.229, 0.224, 0.225]
-
-        self.transform = self._build_transform()
-
-    def _build_transform(self) -> transforms.Compose:
-        """Build the torchvision transform pipeline applied after mode processing."""
-        transform_list = [
+        self.transform = transforms.Compose([
             transforms.ToPILImage(),
-            transforms.Resize((self.image_size, self.image_size)),
-        ]
-        if self.to_tensor:
-            transform_list.append(transforms.ToTensor())
-        if self.normalize:
-            transform_list.append(
-                transforms.Normalize(mean=self.mean, std=self.std)
-            )
-        return transforms.Compose(transform_list)
+            transforms.Resize((224, 224)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        ])
 
-    def process(self, value: Union[Tuple[str, str], str]) -> Any:
-        """Process a dermoscopic image with optional mask-based mode.
+    def process(self, value: Union[str, Tuple[str, str]]) -> torch.Tensor:
+        """Processes a single image (and optional mask) path into a Tensor.
 
         Args:
-            value: Either a tuple of (image_path, mask_path) or a single
-                image_path string (mask ignored, treated as "whole" mode).
+            value: Either a string (path to image) or a tuple (image_path, mask_path).
 
         Returns:
-            Transformed image tensor of shape (3, image_size, image_size).
-
-        Raises:
-            FileNotFoundError: If image or mask file does not exist.
+            torch.Tensor: A normalized PyTorch tensor of shape (3, 224, 224).
         """
         if isinstance(value, (tuple, list)):
             image_path, mask_path = value[0], value[1]
         else:
-            image_path = value
-            mask_path = None
+            image_path, mask_path = value, None
 
         image_path = Path(image_path)
-        if not image_path.exists():
-            raise FileNotFoundError(f"Image file not found: {image_path}")
-
-        # Load image as RGB numpy array
         with Image.open(image_path) as img:
-            img = img.convert("RGB")
-            image = np.array(img)
+            image = np.array(img.convert("RGB"))
 
-        # Apply mode-based processing
-        if self.mode != "whole" and mask_path is not None:
+        if self.mode == "high_whole":
+            image = high_pass_filter(image, sigma=1)
+        elif self.mode != "whole" and mask_path is not None and Path(mask_path).exists():
             mask_path = Path(mask_path)
-            if not mask_path.exists():
-                raise FileNotFoundError(f"Mask file not found: {mask_path}")
-            target_size = (image.shape[1], image.shape[0])  # (width, height)
+            target_size = (image.shape[1], image.shape[0])
             mask = _load_and_binarize_mask(str(mask_path), target_size)
             image = apply_mode(image, mask, self.mode)
 
         return self.transform(image)
-
-    def is_token(self) -> bool:
+        
+    def is_token(self) -> bool: 
         return False
-
-    def schema(self) -> tuple:
+        
+    def schema(self) -> tuple: 
         return ("value",)
-
-    def dim(self) -> tuple:
+        
+    def dim(self) -> tuple: 
         return (3,)
-
-    def spatial(self) -> tuple:
-        return (False, True, True)
-
-    def __repr__(self) -> str:
-        return (
-            f"DermoscopyImageProcessor(mode={self.mode!r}, "
-            f"image_size={self.image_size}, normalize={self.normalize})"
-        )
