@@ -37,7 +37,7 @@ class TUSZDataset(BaseDataset):
         root: str,
         dataset_name: Optional[str] = None,
         config_path: Optional[str] = None,
-        subset: Optional[str] = 'both',
+        subset: Optional[str] = 'train',
         **kwargs
     ) -> None:
         if config_path is None:
@@ -67,7 +67,7 @@ class TUSZDataset(BaseDataset):
             return [ subset ]
         if subset == 'all':
             return ['train', 'eval', 'dev']
-        raise ValueError("subset must be one of None, 'train', 'dev', 'eval', or 'both'")
+        raise ValueError("subset must be one of None, 'train', 'dev', 'eval', or 'all'")
 
     def __use_cache(self, tables):
         for table in tables:
