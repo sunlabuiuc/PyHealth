@@ -1,0 +1,17 @@
+version: "1.0"
+tables:
+  train:
+    file_path: "tusz-train-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+    - "record_id"
+    - "signal_file"
+  eval:
+    file_path: "tusz-eval-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+    - "segment_id"
+    - "label"
+    - "signal_file"
