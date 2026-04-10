@@ -20,7 +20,7 @@ import logging
 from tqdm import tqdm
 import json
 
-from retina_unet_sample import RetinaUNet
+from model import RetinaUNet
 from data_loader import LIDCDataLoader
 
 
@@ -50,6 +50,7 @@ def get_device() -> torch.device:
     else:
         device = torch.device('cpu')
         print("Using CPU")
+
     return device
 
 
@@ -253,48 +254,111 @@ def compute_anchor_matches(
     return anchor_class_match.astype(np.int32), anchor_target_deltas.astype(np.float32)
 
 
-def compute_focal_loss(
-    class_logits: torch.Tensor,
-    anchor_class_match: torch.Tensor,
-    alpha: float = 0.25,
-    gamma: float = 2.0
-) -> torch.Tensor:
-    """
-    Compute focal loss for object detection.
+# def compute_focal_loss(
+#     class_logits: torch.Tensor,
+#     anchor_class_match: torch.Tensor,
+#     alpha: float = 0.25,
+#     gamma: float = 2.0
+# ) -> torch.Tensor:
+#     """
+#     Compute focal loss for object detection.
     
-    Focal loss = -alpha_t * (1 - p_t)^gamma * log(p_t)
+#     Focal loss = -alpha_t * (1 - p_t)^gamma * log(p_t)
+    
+#     Args:
+#         class_logits: (num_anchors, num_classes) prediction logits
+#         anchor_class_match: (num_anchors,) with class labels [-1=negative, 0=neutral, 1+=class_id]
+#         alpha: Focal loss alpha parameter
+#         gamma: Focal loss gamma parameter
+    
+#     Returns:
+#         Scalar loss value
+#     """
+#     # Get softmax probabilities
+#     probs = F.softmax(class_logits, dim=-1)
+    
+#     # Only use valid anchors (not neutral)
+#     valid_mask = anchor_class_match >= 0
+#     if valid_mask.sum() == 0:
+#         return torch.tensor(0.0, device=class_logits.device)
+    
+#     valid_logits = class_logits[valid_mask]
+#     valid_targets = anchor_class_match[valid_mask].long()
+#     valid_probs = probs[valid_mask]
+    
+#     # Standard cross entropy loss
+#     ce_loss = F.cross_entropy(valid_logits, valid_targets.squeeze(1).long(), reduction='none')
+    
+#     # Get probability of correct class
+#     p_t = valid_probs.gather(1, valid_targets.unsqueeze(1)).squeeze(1)
+    
+#     # Focal loss modulation
+#     focal_loss = alpha * ((1 - p_t) ** gamma) * ce_loss
+    
+#     return focal_loss.mean()
+
+
+def compute_class_loss(class_pred_logits, anchor_matches, shem_poolsize=20):
+    """
+    Refactored to match the original Retina U-Net OHEM implementation.
     
     Args:
-        class_logits: (num_anchors, num_classes) prediction logits
-        anchor_class_match: (num_anchors,) with class labels [-1=negative, 0=neutral, 1+=class_id]
-        alpha: Focal loss alpha parameter
-        gamma: Focal loss gamma parameter
-    
-    Returns:
-        Scalar loss value
+        class_pred_logits: (n_anchors, n_classes) Logits from the classifier sub-net.
+        anchor_matches: (n_anchors) [-1=negative, 0=neutral, 1+=class_id]
+        shem_poolsize: factor for top-k candidates in hard example mining.
     """
-    # Get softmax probabilities
-    probs = F.softmax(class_logits, dim=-1)
+    # 1. Separate indices by type
+    pos_indices = torch.nonzero(anchor_matches > 0).view(-1)
+    neg_indices = torch.nonzero(anchor_matches == -1).view(-1)
+
+    # 2. Calculate Positive Loss (Standard Cross Entropy)
+    if pos_indices.numel() > 0:
+        roi_logits_pos = class_pred_logits[pos_indices]
+        targets_pos = anchor_matches[pos_indices].long()
+        pos_loss = F.cross_entropy(roi_logits_pos, targets_pos)
+    else:
+        # Match original: FloatTensor([0]).cuda()
+        pos_loss = torch.tensor(0.0, device=class_pred_logits.device)
+
+    # 3. Calculate Negative Loss with OHEM
+    if neg_indices.numel() > 0:
+        roi_logits_neg = class_pred_logits[neg_indices]
+        # Number of negatives should match positives (at least 1)
+        negative_count = max(1, pos_indices.numel())
+        
+        # OHEM: Get probabilities to find "hard" negatives
+        roi_probs_neg = F.softmax(roi_logits_neg, dim=1)
+        
+        # Hard sampling (assuming mutils.shem is available or similar logic)
+        # For OHEM, we pick indices where background probability is lowest
+        neg_ix = shem_sampling(roi_probs_neg, negative_count, shem_poolsize)
+        
+        # Target for negatives is always 0 (background class)
+        neg_targets = torch.zeros(len(neg_ix), dtype=torch.long, device=class_pred_logits.device)
+        neg_loss = F.cross_entropy(roi_logits_neg[neg_ix], neg_targets)
+        
+    else:
+        neg_loss = torch.tensor(0.0, device=class_pred_logits.device)
+
+    # 4. Final loss is average of the two
+    loss = (pos_loss + neg_loss) / 2
+    return loss
+
+def shem_sampling(probs, count, poolsize):
+    """
+    Simulated mutils.shem: Picks 'count' hard negatives from a pool 
+    of size count * poolsize.
+    """
+    # Background is usually class 0. "Hard" negatives have LOW background prob.
+    bg_probs = probs[:, 0]
+    num_candidates = min(count * poolsize, len(bg_probs))
     
-    # Only use valid anchors (not neutral)
-    valid_mask = anchor_class_match >= 0
-    if valid_mask.sum() == 0:
-        return torch.tensor(0.0, device=class_logits.device)
+    # Get candidates with lowest background confidence
+    _, candidate_indices = torch.topk(bg_probs, num_candidates, largest=False)
     
-    valid_logits = class_logits[valid_mask]
-    valid_targets = anchor_class_match[valid_mask].long()
-    valid_probs = probs[valid_mask]
-    
-    # Standard cross entropy loss
-    ce_loss = F.cross_entropy(valid_logits, valid_targets, reduction='none')
-    
-    # Get probability of correct class
-    p_t = valid_probs.gather(1, valid_targets.unsqueeze(1)).squeeze(1)
-    
-    # Focal loss modulation
-    focal_loss = alpha * ((1 - p_t) ** gamma) * ce_loss
-    
-    return focal_loss.mean()
+    # Randomly sample 'count' from the candidates (as per some SHEM implementations)
+    perm = torch.randperm(len(candidate_indices))[:count]
+    return candidate_indices[perm]
 
 
 def compute_bbox_loss(
@@ -329,7 +393,8 @@ def compute_bbox_loss(
 
 def compute_segmentation_loss(
     seg_logits: torch.Tensor,
-    seg_masks: torch.Tensor
+    seg_masks: torch.Tensor,
+    n_classes=2
 ) -> torch.Tensor:
     """
     Compute segmentation loss (combined Dice + Cross-entropy).
@@ -342,12 +407,26 @@ def compute_segmentation_loss(
         Scalar loss value
     """
     # Compute cross-entropy loss
-    ce_loss = F.binary_cross_entropy_with_logits(seg_logits, seg_masks, reduction='mean')
+    target_masks = seg_masks.squeeze(1).long()
+    ce_loss = F.cross_entropy(seg_logits, target_masks, reduction='mean')
     
     # Compute Dice loss
-    probs = torch.sigmoid(seg_logits)
-    intersection = (probs * seg_masks).sum()
-    dice_loss = 1 - (2 * intersection) / (probs.sum() + seg_masks.sum() + 1e-5)
+    # Convert logits to probabilities using Softmax
+    probs = F.softmax(seg_logits, dim=1)
+    
+    # Convert target masks [B, 1, H, W] to One-Hot [B, C, H, W]
+    # We squeeze the channel dim, one_hot it, then permute to put classes at dim 1
+    target_ohe = F.one_hot(seg_masks.squeeze(1).long(), num_classes=n_classes)
+    target_ohe = target_ohe.permute(0, 3, 1, 2).float() # [B, C, H, W]
+
+    # Compute Dice per class (excluding background class 0 is often preferred)
+    # But for standard implementation, we sum over all spatial dims
+    dims = (0, 2, 3) 
+    intersection = torch.sum(probs * target_ohe, dim=dims)
+    cardinality = torch.sum(probs + target_ohe, dim=dims)
+    
+    dice_score = (2. * intersection + 1e-5) / (cardinality + 1e-5)
+    dice_loss = 1 - dice_score.mean() # Average Dice loss across all classes
     
     # Combined loss
     return 0.5 * ce_loss + 0.5 * dice_loss
@@ -487,12 +566,7 @@ class Trainer:
                 anchor_target_deltas_t = torch.from_numpy(anchor_target_deltas).to(self.device)
                 
                 # Compute losses for this batch element
-                class_loss = compute_focal_loss(
-                    class_logits[b],
-                    anchor_class_match_t,
-                    alpha=0.25,
-                    gamma=2.0
-                )
+                class_loss = compute_class_loss(class_logits[b], anchor_class_match_t)
                 
                 bbox_loss = compute_bbox_loss(
                     anchor_target_deltas_t,
@@ -599,7 +673,7 @@ class Trainer:
                     anchor_target_deltas_t = torch.from_numpy(anchor_target_deltas).to(self.device)
                     
                     # Compute losses
-                    class_loss = compute_focal_loss(class_logits[b], anchor_class_match_t)
+                    class_loss = compute_class_loss(class_logits[b], anchor_class_match_t)
                     bbox_loss = compute_bbox_loss(anchor_target_deltas_t, bbox_deltas[b], anchor_class_match_t)
                     
                     batch_class_loss = batch_class_loss + class_loss / batch_size
@@ -720,7 +794,7 @@ def train_model(
     # Create model
     model = RetinaUNet(
         in_channels=1,
-        num_classes=1,
+        num_classes=2,
         dim=dim,
         fpn_base_channels=64,
         fpn_out_channels=192,
