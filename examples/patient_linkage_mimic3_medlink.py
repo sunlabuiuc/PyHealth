@@ -29,9 +29,6 @@ USE_BM25_HARDNEGS = False
 base_dataset = MIMIC3Dataset(
     root="/srv/local/data/physionet.org/files/mimiciii/1.4",
     tables=["DIAGNOSES_ICD"],
-    code_mapping={"ICD9CM": ("CCSCM", {})},
-    dev=False,
-    refresh_cache=False,
 )
 base_dataset.stat()
 
