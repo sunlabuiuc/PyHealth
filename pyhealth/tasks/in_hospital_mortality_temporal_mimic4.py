@@ -13,8 +13,12 @@ class InHospitalMortalityTemporalMIMIC4(BaseTask):
 
     Attributes:
         task_name (str): The name of the task.
-        input_schema (Dict[str, str]): The schema for the task input.
-        output_schema (Dict[str, str]): The schema for the task output.
+        input_schema (Dict[str, str]): The schema for input data, which includes:
+            - conditions: A sequence of diagnosis ICD codes.
+            - procedures: A sequence of procedure ICD codes.
+            - drugs: A sequence of prescribed drug names.
+        output_schema (Dict[str, str]): The schema for output data, which includes:
+            - mortality: A binary indicator of in-hospital mortality.
 
     Examples:
         >>> from pyhealth.datasets import MIMIC4EHRDataset
