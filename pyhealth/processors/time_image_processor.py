@@ -384,5 +384,5 @@ class TimeImageProcessor(TemporalFeatureProcessor):
             f"std={self.std}, "
             f"mode={self.mode}, "
             f"max_images={self.max_images}, "
-            f"padding={self.padding})"
+            f"padding={self.padding!r})"
         )
