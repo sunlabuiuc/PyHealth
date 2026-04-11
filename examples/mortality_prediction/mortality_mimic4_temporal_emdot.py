@@ -231,7 +231,7 @@ def run_window_ablation(
 if __name__ == "__main__":
     t0 = time.perf_counter()
 
-    # ── STEP 1: Load MIMIC-IV base dataset ────────────────────────
+    # STEP 1: Load MIMIC-IV base dataset
     print("=" * 60)
     print("STEP 1: Loading MIMIC-IV Dataset")
     print("=" * 60)
@@ -242,7 +242,7 @@ if __name__ == "__main__":
     )
     base_dataset.stats()
 
-    # ── STEP 2: Apply temporal mortality task ─────────────────────
+    # STEP 2: Apply temporal mortality task
     print("\n" + "=" * 60)
     print("STEP 2: Applying InHospitalMortalityTemporalMIMIC4 Task")
     print("=" * 60)
@@ -259,7 +259,7 @@ if __name__ == "__main__":
         f"{np.mean([s['mortality'] for s in all_samples]):.3f}"
     )
 
-    # ── STEP 3: Baseline — standard random split (time-agnostic) ──
+    # STEP 3: Baseline — standard random split (time-agnostic)
     print("\n" + "=" * 60)
     print("STEP 3: Baseline -- Standard Random Split (Time-Agnostic)")
     print("=" * 60)
@@ -284,7 +284,7 @@ if __name__ == "__main__":
     )
     print(f"Random split AUROC (optimistic estimate): {baseline_auroc:.4f}")
 
-    # ── STEP 4: EMDOT all-historical regime ───────────────────────
+    # STEP 4: EMDOT all-historical regime
     print("\n" + "=" * 60)
     print("STEP 4: EMDOT -- All-Historical Regime (Logistic Regression)")
     print("=" * 60)
@@ -292,7 +292,7 @@ if __name__ == "__main__":
         all_samples, regime="all_historical"
     )
 
-    # ── STEP 5: EMDOT sliding window regime ───────────────────────
+    # STEP 5: EMDOT sliding window regime
     print("\n" + "=" * 60)
     print("STEP 5: EMDOT -- Sliding Window Regime (window=3 years)")
     print("=" * 60)
@@ -300,7 +300,7 @@ if __name__ == "__main__":
         all_samples, regime="sliding_window"
     )
 
-    # ── STEP 6: Ablation — vary window size ───────────────────────
+    # STEP 6: Ablation — vary window size
     # This is the core ablation: how does window size affect temporal
     # performance? Smaller windows use more recent (relevant) data but
     # have fewer samples; larger windows have more data but include
@@ -312,7 +312,7 @@ if __name__ == "__main__":
         all_samples, window_sizes=[1, 2, 3, 5]
     )
 
-    # ── STEP 7: Summary ──────────────────────────────────────────
+    # STEP 7: Summary
     print("\n" + "=" * 60)
     print("STEP 7: Summary")
     print("=" * 60)
