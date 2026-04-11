@@ -6,7 +6,8 @@ import os
 from pyhealth.datasets import MIMIC4Dataset
 from pyhealth.tasks.multimodal_mimic4 import (
     ClinicalNotesMIMIC4,
-    ClinicalNotesICDLabsMIMIC4
+    ClinicalNotesICDLabsMIMIC4,
+    ClinicalNotesICDLabsCXRMIMIC4,
 )
 from pyhealth.tasks.base_task import BaseTask
 
@@ -90,6 +91,33 @@ if __name__ == "__main__":
 
         # Apply multimodal task
         task = ClinicalNotesICDLabsMIMIC4()
+        samples = dataset.set_task(task)
+
+        # Get and print sample
+        sample = samples[0]
+        print(sample)
+
+    elif TASK == "ClinicalNotesICDLabsCXRMIMIC4":
+        dataset = MIMIC4Dataset(
+            ehr_root=ehr_root,
+            note_root=note_root,
+            cxr_root=cxr_root,
+            cxr_variant="sunlab",
+            ehr_tables=[
+                "diagnoses_icd",
+                "procedures_icd",
+                "prescriptions",
+                "labevents",
+            ],
+            note_tables=["discharge", "radiology"],
+            cxr_tables=["metadata", "negbio"],
+            cache_dir=cache_dir,
+            num_workers=8,
+            dev=DEV_MODE,
+        )
+
+        # Apply multimodal task
+        task = ClinicalNotesICDLabsCXRMIMIC4()
         samples = dataset.set_task(task)
 
         # Get and print sample

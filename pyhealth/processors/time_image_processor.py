@@ -206,7 +206,7 @@ class TimeImageProcessor(TemporalFeatureProcessor):
 
         Args:
             path: Path to the image file. If this equals
-                padding, a zero-filled placeholder tensor
+                missing_path_token, a zero-filled placeholder tensor
                 is returned instead.
 
         Returns:
@@ -264,6 +264,8 @@ class TimeImageProcessor(TemporalFeatureProcessor):
                                 else:
                                     self.n_channels = 3
                             break
+                if self.n_channels is not None:
+                    break
             if self.n_channels is None:
                 self.n_channels = 3
 
@@ -384,5 +386,9 @@ class TimeImageProcessor(TemporalFeatureProcessor):
             f"std={self.std}, "
             f"mode={self.mode}, "
             f"max_images={self.max_images}, "
+<<<<<<< HEAD
+            f"padding={self.padding!r})"
+=======
             f"padding={self.padding})"
+>>>>>>> main
         )
