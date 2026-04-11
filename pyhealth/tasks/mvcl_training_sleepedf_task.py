@@ -169,9 +169,9 @@ class MVCLTrainingSleepEEG(BaseTask):
                         "epoch_index": b["epoch_index"],
                         "window_in_epoch": b["window_in_epoch"],
                         "signal": vec,
-                        "xt": xt[i].detach().cpu().numpy().astype(np.float16),
-                        "dx": dx[i].detach().cpu().numpy().astype(np.float16),
-                        "xf": xf[i].detach().cpu().numpy().astype(np.float16),
+                        "xt": xt[i].detach().cpu().numpy().astype(np.float32),
+                        "xd": dx[i].detach().cpu().numpy().astype(np.float32),
+                        "xf": xf[i].detach().cpu().numpy().astype(np.float32),
                         "label": b["label"],
                     }
                 )
