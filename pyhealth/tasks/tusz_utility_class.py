@@ -219,15 +219,16 @@ class TUSZHelper:
         return sliced_raws, sliced_labels, label_names
 
     def convert_labels(self, sliced_labels):
+        y1, y2, y3 = [], [], []
         for i, labels in enumerate(sliced_labels):
             y_map = list(map(int, labels))
-            y1 = torch.tensor(y_map).byte()
+            y1.append(torch.tensor(y_map).byte())
 
             def make_binary(target):
                 return torch.tensor([target[j] for j in y_map]).byte() if target is not None else None
 
-            y2 = make_binary(self.binary_target1)
-            y3 = make_binary(self.binary_target2)
+            y2.append(make_binary(self.binary_target1))
+            y3.append(make_binary(self.binary_target2))
 
         return y1, y2, y3
     

@@ -117,7 +117,7 @@ class TUSZTask(BaseTask):
 
                 samples.append(sample)
 
-            self.helper.log(LOG_INFO, data_file_name, "completed successfullly")
+            self.helper.log(LOG_INFO, data_file_name, "** completed successfullly **")
 
         return samples
 

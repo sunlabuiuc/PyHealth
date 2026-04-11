@@ -62,6 +62,17 @@ class TUSZDataset(BaseDataset):
             **kwargs
         )
     
+    def prepare_metadata(self, tables) -> None:
+        """Build and save processed metadata CSVs for TUSZ train/eval separately."""
+        
+        for table in tables:
+            self.__create_csv(table)
+
+    @property
+    def default_task(self) -> TUSZTask:
+        """Returns the default task for TUSZ dataset."""
+        return TUSZTask()
+
     def __set_tables(self, subset):
         if subset in ['train', 'eval', 'dev']:
             return [ subset ]
@@ -121,14 +132,3 @@ class TUSZDataset(BaseDataset):
             self.cache_dir.mkdir(parents=True, exist_ok=True)
             df.to_csv(cache_csv, index=False)
             logger.info(f"Wrote train metadata to cache: {cache_csv}")
-
-    def prepare_metadata(self, tables) -> None:
-        """Build and save processed metadata CSVs for TUSZ train/eval separately."""
-        
-        for table in tables:
-            self.__create_csv(table)
-
-    @property
-    def default_task(self) -> TUSZTask:
-        """Returns the default task for TUSZ dataset."""
-        return TUSZTask()
