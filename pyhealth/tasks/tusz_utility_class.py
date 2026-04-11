@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 from scipy import signal as sci_sig
 from itertools import groupby
+import math
 
 logger = logging.getLogger(__name__)
 
@@ -103,7 +104,17 @@ class TUSZHelper:
             if int(signal_headers[idx]['sample_frequency']) > self.sample_rate:
                 secs = len(signal) / float(signal_sample_rate)
                 samps = int(secs * self.sample_rate)
-                signal = sci_sig.resample(signal, samps)
+                # signal = sci_sig.resample(signal, samps)
+
+                n_original = len(signal)
+                gcd = math.gcd(samps, n_original)
+                up = samps // gcd
+                down = n_original // gcd
+                signal = sci_sig.resample_poly(signal, up, down)
+                if len(signal) > samps:
+                     signal =  signal[:samps]
+                elif len(signal) < samps:
+                     signal = np.pad(signal, (0, samps - len(signal)))
 
             signal_list.append(signal)
             signal_label_list.append(label)
