@@ -39,6 +39,9 @@ class MedicalTranscriptionsDataset(BaseDataset):
         root: str,
         dataset_name: Optional[str] = None,
         config_path: Optional[str] = None,
+        cache_dir=None,
+        num_workers: int = 1,
+        dev: bool = False,
     ) -> None:
         if config_path is None:
             logger.info("No config path provided, using default config")
@@ -51,6 +54,9 @@ class MedicalTranscriptionsDataset(BaseDataset):
             tables=default_tables,
             dataset_name=dataset_name or "medical_transcriptions",
             config_path=config_path,
+            cache_dir=cache_dir,
+            num_workers=num_workers,
+            dev=dev,
         )
         return
 

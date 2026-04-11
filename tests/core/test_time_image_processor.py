@@ -281,13 +281,14 @@ class TestTimeImageProcessor(unittest.TestCase):
     def test_repr(self):
         """__repr__ contains key parameter values."""
         proc = TimeImageProcessor(
-            image_size=128, max_images=5, mode="L"
+            image_size=128, max_images=5, mode="L", padding=""
         )
         r = repr(proc)
         self.assertIn("TimeImageProcessor", r)
         self.assertIn("image_size=128", r)
         self.assertIn("max_images=5", r)
         self.assertIn("mode=L", r)
+        self.assertIn("padding=", r)
 
     # ---- Tensor properties ----
 
@@ -309,6 +310,18 @@ class TestTimeImageProcessor(unittest.TestCase):
         )
 
         self.assertEqual(timestamps.dtype, torch.float32)
+
+    # ---- padding ----
+
+    def test_padding_returns_zero_tensor(self):
+        """Padding path returns a zero tensor instead of loading."""
+        proc = TimeImageProcessor(image_size=32, padding="")
+        images, timestamps, tag = proc.process(
+            (["", self.rgb_paths[0]], [0.0, 1.0])
+        )
+
+        self.assertEqual(images.shape, (2, 3, 32, 32))
+        self.assertTrue(torch.all(images[0] == 0))
 
 
 if __name__ == "__main__":

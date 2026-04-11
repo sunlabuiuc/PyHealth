@@ -96,24 +96,28 @@ def multiclass_metrics_fn(
     output = {}
     for metric in metrics:
         if metric == "roc_auc_macro_ovo":
+            y_prob_roc = y_prob[:, 1] if y_prob.shape[1] == 2 else y_prob
             roc_auc_macro_ovo = sklearn_metrics.roc_auc_score(
-                y_true, y_prob, average="macro", multi_class="ovo"
-            )
+                y_true, y_prob_roc, average="macro", multi_class="ovo"
+            ) if y_prob.shape[1] > 2 else sklearn_metrics.roc_auc_score(y_true, y_prob_roc)
             output["roc_auc_macro_ovo"] = roc_auc_macro_ovo
         elif metric == "roc_auc_macro_ovr":
+            y_prob_roc = y_prob[:, 1] if y_prob.shape[1] == 2 else y_prob
             roc_auc_macro_ovr = sklearn_metrics.roc_auc_score(
-                y_true, y_prob, average="macro", multi_class="ovr"
-            )
+                y_true, y_prob_roc, average="macro", multi_class="ovr"
+            ) if y_prob.shape[1] > 2 else sklearn_metrics.roc_auc_score(y_true, y_prob_roc)
             output["roc_auc_macro_ovr"] = roc_auc_macro_ovr
         elif metric == "roc_auc_weighted_ovo":
+            y_prob_roc = y_prob[:, 1] if y_prob.shape[1] == 2 else y_prob
             roc_auc_weighted_ovo = sklearn_metrics.roc_auc_score(
-                y_true, y_prob, average="weighted", multi_class="ovo"
-            )
+                y_true, y_prob_roc, average="weighted", multi_class="ovo"
+            ) if y_prob.shape[1] > 2 else sklearn_metrics.roc_auc_score(y_true, y_prob_roc)
             output["roc_auc_weighted_ovo"] = roc_auc_weighted_ovo
         elif metric == "roc_auc_weighted_ovr":
+            y_prob_roc = y_prob[:, 1] if y_prob.shape[1] == 2 else y_prob
             roc_auc_weighted_ovr = sklearn_metrics.roc_auc_score(
-                y_true, y_prob, average="weighted", multi_class="ovr"
-            )
+                y_true, y_prob_roc, average="weighted", multi_class="ovr"
+            ) if y_prob.shape[1] > 2 else sklearn_metrics.roc_auc_score(y_true, y_prob_roc)
             output["roc_auc_weighted_ovr"] = roc_auc_weighted_ovr
         elif metric == "accuracy":
             accuracy = sklearn_metrics.accuracy_score(y_true, y_pred)
