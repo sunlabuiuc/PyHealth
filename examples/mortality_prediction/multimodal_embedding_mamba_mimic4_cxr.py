@@ -22,6 +22,7 @@ Smoke test (single forward + inference, no train):
 from __future__ import annotations
 
 import argparse
+import os
 import time
 from typing import Any, Tuple
 
@@ -46,32 +47,31 @@ def _split_dataset(dataset: Any, seed: int) -> Tuple[Any, Any, Any]:
     return train_ds, val_ds, test_ds
 
 
-def _resolve_device(device: str) -> str:
-    if not device.startswith("cuda"):
-        return device
-
-    if not torch.cuda.is_available():
-        print("CUDA requested but not available. Falling back to CPU.")
-        return "cpu"
-
-    device_count = torch.cuda.device_count()
-    if device == "cuda":
-        return "cuda:0"
-
-    try:
-        requested_idx = int(device.split(":", maxsplit=1)[1])
-    except (IndexError, ValueError):
-        print(f"Could not parse CUDA device '{device}'. Falling back to cuda:0.")
-        return "cuda:0"
-
-    if requested_idx < 0 or requested_idx >= device_count:
-        print(
-            f"Requested device '{device}' is out of range for {device_count} visible "
-            "GPU(s). Falling back to cuda:0."
-        )
-        return "cuda:0"
-
-    return device
+def _build_run_output_path(args: argparse.Namespace) -> str:
+    device_tag = args.device.replace(":", "")
+    lr_tag = f"{args.lr:g}".replace(".", "p")
+    dropout_tag = f"{args.dropout:g}".replace(".", "p")
+    run_tag = (
+        f"cxr{args.cxr_variant}"
+        f"_emb{args.embedding_dim}"
+        f"_layers{args.num_layers}"
+        f"_state{args.state_size}"
+        f"_conv{args.conv_kernel}"
+        f"_drop{dropout_tag}"
+        f"_win{args.observation_window_hours}"
+        f"_ep{args.epochs}"
+        f"_bs{args.batch_size}"
+        f"_lr{lr_tag}"
+        f"_{device_tag}"
+        f"_nw{args.num_workers}"
+        f"_seed{args.seed}"
+        f"_dev{int(args.dev)}"
+        f"_quick{int(args.quick_test)}"
+        f"_smoke{int(args.smoke_forward)}"
+    )
+    return os.path.join(
+        os.getcwd(), "output", "multimodal_embedding_mamba_mimic4_cxr", run_tag
+    )
 
 
 def run(args: argparse.Namespace) -> Tuple[int, int]:
@@ -80,7 +80,7 @@ def run(args: argparse.Namespace) -> Tuple[int, int]:
     total_start = time.perf_counter()
 
     cuda_device_index = None
-    if args.device.startswith("cuda") and torch.cuda.is_available():
+    if args.device.startswith("cuda"):
         device_index = torch.device(args.device).index
         cuda_device_index = 0 if device_index is None else device_index
 
@@ -187,7 +187,8 @@ def run(args: argparse.Namespace) -> Tuple[int, int]:
         model=model,
         metrics=["accuracy"],
         device=args.device,
-        enable_logging=False,
+        enable_logging=True,
+        output_path=_build_run_output_path(args),
     )
 
     if not args.smoke_forward and args.epochs > 0 and len(train_ds) > 0:
@@ -295,8 +296,6 @@ def parse_args() -> argparse.Namespace:
         args.dev = True
         args.epochs = 1
         args.batch_size = min(args.batch_size, 4)
-
-    args.device = _resolve_device(args.device)
 
     return args
 
