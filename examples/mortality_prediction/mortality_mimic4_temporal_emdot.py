@@ -300,7 +300,7 @@ if __name__ == "__main__":
         all_samples, regime="sliding_window"
     )
 
-    # STEP 6: Ablation — vary window size
+    # STEP 6: Ablation - vary window size
     # This is the core ablation: how does window size affect temporal
     # performance? Smaller windows use more recent (relevant) data but
     # have fewer samples; larger windows have more data but include
