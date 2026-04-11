@@ -9,6 +9,7 @@ from .deepr import Deepr, DeeprLayer
 from .embedding import EmbeddingModel
 from .gamenet import GAMENet, GAMENetLayer
 from .jamba_ehr import JambaEHR, JambaLayer
+from .lambda_resnet import LambdaConv1d, LambdaBottleneck1d, LambdaResNet1d, LambdaResNet18ECG
 from .logistic_regression import LogisticRegression
 from .gan import GAN
 from .gnn import GAT, GCN
@@ -19,9 +20,12 @@ from .medlink import MedLink
 from .micron import MICRON, MICRONLayer
 from .mlp import MLP
 from .molerec import MoleRec, MoleRecLayer
+from .resnet_ecg_base import BasicBlock1d, Bottleneck1d, ResNet1d, ECGBackboneModel
+from .resnet import ResNet18ECG
 from .retain import MultimodalRETAIN, RETAIN, RETAINLayer
 from .rnn import MultimodalRNN, RNN, RNNLayer
 from .safedrug import SafeDrug, SafeDrugLayer
+from .se_resnet import SEModule1d, SEResNetBottleneck1d, SEResNet50ECG
 from .sparcnet import DenseBlock, DenseLayer, SparcNet, TransitionLayer
 from .stagenet import StageNet, StageNetLayer
 from .stagenet_mha import StageAttentionNet, StageNetAttentionLayer
