@@ -23,11 +23,10 @@ This example shows:
 6. Comparing performance across temporal splits to highlight distribution shift effects.
 
 Ablation study:
-    - Regime comparison: all-historical vs sliding-window across deployment years.
+    - Regime comparison: all-historical vs sliding-window across deployment years
+      using logistic regression as the classifier.
     - Window size ablation: sliding window with w = 1, 2, 3, 5 years to test
       the trade-off between recency (smaller window) and sample size (larger window).
-    - Model comparison: Logistic Regression, Gradient Boosted Trees, and MLP
-      under both regimes.
 
 Expected findings (from the EMDOT paper):
     - Random splits overestimate AUROC compared to temporal evaluation.
@@ -45,10 +44,8 @@ import time
 from typing import Dict, List, Tuple
 
 import numpy as np
-from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
-from sklearn.neural_network import MLPClassifier
 from sklearn.preprocessing import MultiLabelBinarizer
 
 from pyhealth.datasets import MIMIC4Dataset, split_by_sample
@@ -136,7 +133,6 @@ def encode_features(
 def run_emdot_evaluation(
     samples: List[Dict],
     regime: str,
-    model_name: str = "lr",
     window: int = 3,
     min_train: int = 50,
     deployment_years: range = range(2012, 2020),
@@ -144,14 +140,12 @@ def run_emdot_evaluation(
 ) -> Dict[int, float]:
     """Runs the EMDOT evaluation loop over all deployment years.
 
-    For each deployment year t, trains a model under the specified regime
-    and evaluates AUROC on out-period data.
+    For each deployment year t, trains a logistic regression model under the
+    specified regime and evaluates AUROC on out-period data.
 
     Args:
         samples: full list of task samples with 'admission_year' field.
         regime: 'all_historical' or 'sliding_window'.
-        model_name: 'lr' for logistic regression, 'gbdt' for gradient
-            boosted trees, 'mlp' for feedforward neural network.
         window: sliding window size in years.
         min_train: minimum number of training samples to proceed.
         deployment_years: range of deployment years to evaluate.
@@ -183,27 +177,12 @@ def run_emdot_evaluation(
             train_samples, test_samples
         )
 
-        if model_name == "lr":
-            model = LogisticRegression(
-                max_iter=1000,
-                solver="lbfgs",
-                class_weight="balanced",
-                random_state=seed,
-            )
-        elif model_name == "gbdt":
-            model = GradientBoostingClassifier(
-                n_estimators=100,
-                max_depth=3,
-                random_state=seed,
-            )
-        elif model_name == "mlp":
-            model = MLPClassifier(
-                hidden_layer_sizes=(128, 64),
-                max_iter=200,
-                random_state=seed,
-            )
-        else:
-            raise ValueError(f"Unknown model: {model_name}")
+        model = LogisticRegression(
+            max_iter=1000,
+            solver="lbfgs",
+            class_weight="balanced",
+            random_state=seed,
+        )
 
         model.fit(X_train, y_train)
         y_prob = model.predict_proba(X_test)[:, 1]
@@ -307,36 +286,18 @@ if __name__ == "__main__":
 
     # ── STEP 4: EMDOT all-historical regime ───────────────────────
     print("\n" + "=" * 60)
-    print("STEP 4: EMDOT -- All-Historical Regime")
+    print("STEP 4: EMDOT -- All-Historical Regime (Logistic Regression)")
     print("=" * 60)
-    print("\n  Logistic Regression:")
-    results_ah_lr = run_emdot_evaluation(
-        all_samples, regime="all_historical", model_name="lr"
-    )
-    print("\n  Gradient Boosted Decision Trees:")
-    results_ah_gbdt = run_emdot_evaluation(
-        all_samples, regime="all_historical", model_name="gbdt"
-    )
-    print("\n  MLP:")
-    results_ah_mlp = run_emdot_evaluation(
-        all_samples, regime="all_historical", model_name="mlp"
+    results_ah = run_emdot_evaluation(
+        all_samples, regime="all_historical"
     )
 
     # ── STEP 5: EMDOT sliding window regime ───────────────────────
     print("\n" + "=" * 60)
     print("STEP 5: EMDOT -- Sliding Window Regime (window=3 years)")
     print("=" * 60)
-    print("\n  Logistic Regression:")
-    results_sw_lr = run_emdot_evaluation(
-        all_samples, regime="sliding_window", model_name="lr"
-    )
-    print("\n  Gradient Boosted Decision Trees:")
-    results_sw_gbdt = run_emdot_evaluation(
-        all_samples, regime="sliding_window", model_name="gbdt"
-    )
-    print("\n  MLP:")
-    results_sw_mlp = run_emdot_evaluation(
-        all_samples, regime="sliding_window", model_name="mlp"
+    results_sw = run_emdot_evaluation(
+        all_samples, regime="sliding_window"
     )
 
     # ── STEP 6: Ablation — vary window size ───────────────────────
@@ -345,7 +306,7 @@ if __name__ == "__main__":
     # have fewer samples; larger windows have more data but include
     # older (potentially shifted) distributions.
     print("\n" + "=" * 60)
-    print("STEP 6: Ablation -- Sliding Window Size (LR)")
+    print("STEP 6: Ablation -- Sliding Window Size")
     print("=" * 60)
     ablation = run_window_ablation(
         all_samples, window_sizes=[1, 2, 3, 5]
@@ -356,21 +317,13 @@ if __name__ == "__main__":
     print("STEP 7: Summary")
     print("=" * 60)
     print(f"\nRandom split AUROC (time-agnostic):   {baseline_auroc:.4f}")
-    print(f"\nAUROC by deployment year:")
-    print(
-        f"{'Year':<8} "
-        f"{'AH-LR':<10} {'AH-GBDT':<10} {'AH-MLP':<10} "
-        f"{'SW-LR':<10} {'SW-GBDT':<10} {'SW-MLP':<10}"
-    )
+    print(f"\nAUROC by deployment year (Logistic Regression):")
+    print(f"{'Year':<8} {'All-Historical':<18} {'Sliding Window':<18}")
     for t in range(2012, 2020):
         print(
             f"{t:<8} "
-            f"{results_ah_lr.get(t, float('nan')):<10.4f} "
-            f"{results_ah_gbdt.get(t, float('nan')):<10.4f} "
-            f"{results_ah_mlp.get(t, float('nan')):<10.4f} "
-            f"{results_sw_lr.get(t, float('nan')):<10.4f} "
-            f"{results_sw_gbdt.get(t, float('nan')):<10.4f} "
-            f"{results_sw_mlp.get(t, float('nan')):<10.4f} "
+            f"{results_ah.get(t, float('nan')):<18.4f} "
+            f"{results_sw.get(t, float('nan')):<18.4f}"
         )
 
     print("\nWindow size ablation (mean AUROC across deployment years):")
