@@ -1,0 +1,15 @@
+version: "1.0"
+tables:
+  mutations:
+    file_path: "cosmic-pyhealth.csv"
+    patient_id: "sample_id"
+    timestamp: null
+    attributes:
+    - "gene_name"
+    - "hgvsc"
+    - "hgvsp"
+    - "mutation_description"
+    - "fathmm_prediction"
+    - "primary_site"
+    - "primary_histology"
+    - "mutation_somatic_status"

@@ -1,0 +1,118 @@
+version: "5.3"
+tables:
+  person:
+    file_path: "person.csv"
+    patient_id: "person_id"
+    timestamp: null
+    timestamp_format: "%Y-%m-%d %H:%M:%S"
+    attributes:
+      - "year_of_birth"
+      - "month_of_birth"
+      - "day_of_birth"
+      - "gender_concept_id"
+      - "race_concept_id"
+      - "ethnicity_concept_id"
+
+  visit_occurrence:
+    file_path: "visit_occurrence.csv"
+    patient_id: "person_id"
+    timestamp: "visit_start_datetime"
+    timestamp_format: "%Y-%m-%d %H:%M:%S"
+    attributes:
+      - "visit_occurrence_id"
+      - "visit_concept_id"
+      - "visit_start_date"
+      - "visit_start_datetime"
+      - "visit_end_date"
+      - "visit_end_datetime"
+      - "visit_type_concept_id"
+
+  death:
+    file_path: "death.csv"
+    patient_id: "person_id"
+    timestamp: "death_datetime"
+    timestamp_format: "%Y-%m-%d %H:%M:%S"
+    attributes:
+      - "death_date"
+      - "death_datetime"
+      - "death_type_concept_id"
+
+  condition_occurrence:
+    file_path: "condition_occurrence.csv"
+    patient_id: "person_id"
+    timestamp: "condition_start_datetime"
+    timestamp_format: "%Y-%m-%d %H:%M:%S"
+    join:
+      - file_path: "visit_occurrence.csv"
+        "on": "visit_occurrence_id"
+        how: "left"
+        columns:
+          - "visit_start_datetime"
+          - "visit_end_datetime"
+    attributes:
+      - "visit_occurrence_id"
+      - "condition_concept_id"
+      - "condition_start_date"
+      - "condition_start_datetime"
+      - "condition_end_date"
+      - "condition_end_datetime"
+      - "condition_type_concept_id"
+
+  procedure_occurrence:
+    file_path: "procedure_occurrence.csv"
+    patient_id: "person_id"
+    timestamp: "procedure_datetime"
+    timestamp_format: "%Y-%m-%d %H:%M:%S"
+    join:
+      - file_path: "visit_occurrence.csv"
+        "on": "visit_occurrence_id"
+        how: "left"
+        columns:
+          - "visit_start_datetime"
+    attributes:
+      - "visit_occurrence_id"
+      - "procedure_concept_id"
+      - "procedure_date"
+      - "procedure_datetime"
+      - "procedure_type_concept_id"
+
+  drug_exposure:
+    file_path: "drug_exposure.csv"
+    patient_id: "person_id"
+    timestamp: "drug_exposure_start_datetime"
+    timestamp_format: "%Y-%m-%d %H:%M:%S"
+    join:
+      - file_path: "visit_occurrence.csv"
+        "on": "visit_occurrence_id"
+        how: "left"
+        columns:
+          - "visit_start_datetime"
+    attributes:
+      - "visit_occurrence_id"
+      - "drug_concept_id"
+      - "drug_exposure_start_date"
+      - "drug_exposure_start_datetime"
+      - "drug_exposure_end_date"
+      - "drug_exposure_end_datetime"
+      - "drug_type_concept_id"
+
+  measurement:
+    file_path: "measurement.csv"
+    patient_id: "person_id"
+    timestamp: "measurement_datetime"
+    timestamp_format: "%Y-%m-%d %H:%M:%S"
+    join:
+      - file_path: "visit_occurrence.csv"
+        "on": "visit_occurrence_id"
+        how: "left"
+        columns:
+          - "visit_start_datetime"
+    attributes:
+      - "visit_occurrence_id"
+      - "measurement_concept_id"
+      - "measurement_date"
+      - "measurement_datetime"
+      - "measurement_type_concept_id"
+      - "value_as_number"
+      - "value_as_concept_id"
+      - "unit_concept_id"

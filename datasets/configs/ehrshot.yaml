@@ -1,0 +1,139 @@
+version: "1.0"
+tables:
+  ehrshot:
+    file_path: "data/ehrshot.csv"
+    patient_id: "patient_id"
+    timestamp: "start"
+    attributes:
+      - "code"
+      - "value"
+      - "unit"
+      - "visit_id"
+      - "omop_table"
+
+  splits:
+    file_path: "splits/person_id_map.csv"
+    patient_id: "omop_person_id"
+    timestamp: null
+    attributes:
+      - "split"
+
+  chexpert:
+    file_path: "benchmark/chexpert/labeled_patients.csv"
+    patient_id: "patient_id"
+    timestamp: "prediction_time"
+    attributes:
+      - "value"
+      - "label_type"
+
+  guo_icu:
+    file_path: "benchmark/guo_icu/labeled_patients.csv"
+    patient_id: "patient_id"
+    timestamp: "prediction_time"
+    attributes:
+      - "value"
+      - "label_type"
+
+  guo_los:
+    file_path: "benchmark/guo_los/labeled_patients.csv"
+    patient_id: "patient_id"
+    timestamp: "prediction_time"
+    attributes:
+      - "value"
+      - "label_type"
+
+  guo_readmission:
+    file_path: "benchmark/guo_readmission/labeled_patients.csv"
+    patient_id: "patient_id"
+    timestamp: "prediction_time"
+    attributes:
+      - "value"
+      - "label_type"
+
+  lab_anemia:
+    file_path: "benchmark/lab_anemia/labeled_patients.csv"
+    patient_id: "patient_id"
+    timestamp: "prediction_time"
+    attributes:
+      - "value"
+      - "label_type"
+  
+  lab_hyperkalemia:
+    file_path: "benchmark/lab_hyperkalemia/labeled_patients.csv"
+    patient_id: "patient_id"
+    timestamp: "prediction_time"
+    attributes:
+      - "value"
+      - "label_type"
+
+  lab_hypoglycemia:
+    file_path: "benchmark/lab_hypoglycemia/labeled_patients.csv"
+    patient_id: "patient_id"
+    timestamp: "prediction_time"
+    attributes:
+      - "value"
+      - "label_type"
+
+  lab_hyponatremia:
+    file_path: "benchmark/lab_hyponatremia/labeled_patients.csv"
+    patient_id: "patient_id"
+    timestamp: "prediction_time"
+    attributes:
+      - "value"
+      - "label_type"
+
+  lab_thrombocytopenia:
+    file_path: "benchmark/lab_thrombocytopenia/labeled_patients.csv"
+    patient_id: "patient_id"
+    timestamp: "prediction_time"
+    attributes:
+      - "value"
+      - "label_type"
+
+  new_acutemi:
+    file_path: "benchmark/new_acutemi/labeled_patients.csv"
+    patient_id: "patient_id"
+    timestamp: "prediction_time"
+    attributes:
+      - "value"
+      - "label_type"
+
+  new_celiac:
+    file_path: "benchmark/new_celiac/labeled_patients.csv"
+    patient_id: "patient_id"
+    timestamp: "prediction_time"
+    attributes:
+      - "value"
+      - "label_type"
+
+  new_hyperlipidemia:
+    file_path: "benchmark/new_hyperlipidemia/labeled_patients.csv"
+    patient_id: "patient_id"
+    timestamp: "prediction_time"
+    attributes:
+      - "value"
+      - "label_type"
+
+  new_hypertension:
+    file_path: "benchmark/new_hypertension/labeled_patients.csv"
+    patient_id: "patient_id"
+    timestamp: "prediction_time"
+    attributes:
+      - "value"
+      - "label_type"
+
+  new_lupus:
+    file_path: "benchmark/new_lupus/labeled_patients.csv"
+    patient_id: "patient_id"
+    timestamp: "prediction_time"
+    attributes:
+      - "value"
+      - "label_type"
+      
+  new_pancan:
+    file_path: "benchmark/new_pancan/labeled_patients.csv"
+    patient_id: "patient_id"
+    timestamp: "prediction_time"
+    attributes:
+      - "value"
+      - "label_type"
