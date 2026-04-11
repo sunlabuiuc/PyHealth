@@ -4,9 +4,9 @@ and print stats.
 Usage:
   python examples/cxr/mimic4_cxr_sunlab_stats.py \
     --ehr-root /shared/rsaas/physionet.org/files/mimiciv/2.2 \
-    --note-root /shared/rsaas/physionet.org/files/mimic-note/note \
-      --cxr-root /shared/rsaas/physionet.org/files/MIMIC-CXR \
-            --cache-dir /shared/eng/pyhealth
+        --note-root /shared/rsaas/physionet.org/files/mimic-note \
+        --cxr-root /shared/rsaas/physionet.org/files/MIMIC-CXR \
+        --cache-dir /shared/eng/pyhealth
 """
 
 import argparse
@@ -27,7 +27,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--note-root",
         type=str,
-        default="/shared/rsaas/physionet.org/files/mimic-note/note",
+        default="/shared/rsaas/physionet.org/files/mimic-note",
         help="Root directory for MIMIC-IV notes data.",
     )
     parser.add_argument(
@@ -45,7 +45,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--num-workers",
         type=int,
-        default=1,
+        default=4,
         help="Number of workers for dataset processing.",
     )
     parser.add_argument(
