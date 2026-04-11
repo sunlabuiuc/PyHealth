@@ -149,11 +149,11 @@ if __name__ == "__main__":
     print("=" * 60)
     print(f"\nRandom split AUROC: {baseline_auroc:.4f}")
     print(f"\nBy deployment year:")
-    print(f"{'Year':<8}{'All-Hist':<14}{'Sliding(w=3)':<14}")
+    print("Year\tAll-Hist\tSliding(w=3)")
     for t in range(2012, 2020):
         ah = results_ah.get(t, float('nan'))
         sw = results_sw.get(t, float('nan'))
-        print(f"{t:<8}{ah:<14.4f}{sw:<14.4f}")
+        print(f"{t}\t{ah:.4f}\t\t{sw:.4f}")
 
     print(f"\nWindow ablation (mean AUROC):")
     for w, res in ablation.items():
