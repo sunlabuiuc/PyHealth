@@ -535,16 +535,16 @@ class BaseDataset(ABC):
                             filter = df["patient_id"].isin(patients)
                             df = df[filter]
 
-                    logger.info(f"Caching event dataframe to {output_dir}...")
-                    collection = df.sort_values("patient_id").to_parquet(
-                        output_dir,
-                        write_index=False,
-                        compute=False,
-                    )
-                    handle = client.compute(collection)
-                    dask_progress(handle)
-                    handle.result()  # type: ignore
-                    compute_ok = True  # Data is fully written to disk
+                        logger.info(f"Caching event dataframe to {output_dir}...")
+                        collection = df.sort_values("patient_id").to_parquet(
+                            output_dir,
+                            write_index=False,
+                            compute=False,
+                        )
+                        handle = client.compute(collection)
+                        dask_progress(handle)
+                        handle.result()  # type: ignore
+                        compute_ok = True  # Data is fully written to disk
         except TimeoutError:
             if compute_ok:
                 # Cluster shutdown timed out after successful compute — data is intact
