@@ -175,8 +175,8 @@ class FPN(nn.Module):
             num_blocks = [3, 4, 6, 3]  # ResNet50-like
 
         stride = 2 if dim == 2 else (2, 2, 1) # For 3D, preserve depth resolution
-        self.top_down_scale_factor = stride
-        self.block_stride = stride
+        #self.top_down_scale_factor = stride
+        #self.block_stride = stride
         
         # Initial convolution
         self.c0 = nn.Sequential(
@@ -228,14 +228,16 @@ class FPN(nn.Module):
             c2_out_channels, 
             c3_out_channels, 
             num_blocks[1], 
-            stride=self.block_stride
+            #stride=self.block_stride
+            stride=2
         )
         c4_out_channels = c3_out_channels * 2
         self.c4 = self._make_layer(
             c3_out_channels, 
             c4_out_channels,
             num_blocks[2], 
-            stride=self.block_stride
+            #stride=self.block_stride
+            stride=2
         )
         
         c5_out_channels = c4_out_channels * 2
@@ -243,7 +245,8 @@ class FPN(nn.Module):
             c4_out_channels, 
             c5_out_channels, 
             num_blocks[3], 
-            stride=self.block_stride
+            #stride=self.block_stride
+            stride=2
         )
 
         if self.dim == 2:
@@ -412,40 +415,46 @@ class FPN(nn.Module):
         c4_out = self.c4(c3_out)
         c5_out = self.c5(c4_out)
 
-        interpolation_mode = "bilinear" if self.dim == 2 else "trilinear"
+        #interpolation_mode = "bilinear" if self.dim == 2 else "trilinear"
         
         # FPN top-down path
         p5_pre_out = self.p5(c5_out)
-        p4_pre_out = self.p4(c4_out) + F.interpolate(
-            p5_pre_out,
-            size=c4_out.shape[2:],
-            mode=interpolation_mode,
-            align_corners=False,
-        )
-        p3_pre_out = self.p3(c3_out) + F.interpolate(
-            p4_pre_out,
-            size=c3_out.shape[2:],
-            mode=interpolation_mode,
-            align_corners=False,
-        )
-        p2_pre_out = self.p2(c2_out) + F.interpolate(
-            p3_pre_out,
-            size=c2_out.shape[2:],
-            mode=interpolation_mode,
-            align_corners=False,
-        )
-        p1_pre_out = self.p1(c1_out) + F.interpolate(
-            p2_pre_out,
-            size=c1_out.shape[2:],
-            mode=interpolation_mode,
-            align_corners=False,
-        )
-        p0_pre_out = self.p0(c0_out) + F.interpolate(
-            p1_pre_out,
-            size=c0_out.shape[2:],
-            mode=interpolation_mode,
-            align_corners=False,
-        )
+        p4_pre_out = self.p4(c4_out) + F.interpolate(p5_pre_out, scale_factor=2)
+        p3_pre_out = self.p3(c3_out) + F.interpolate(p4_pre_out, scale_factor=2)
+        p2_pre_out = self.p2(c2_out) + F.interpolate(p3_pre_out, scale_factor=2)
+        p1_pre_out = self.p1(c1_out) + self.p2_upsample(p2_pre_out)
+        p0_pre_out = self.p0(c0_out) + self.p1_upsample(p1_pre_out)
+
+        # p4_pre_out = self.p4(c4_out) + F.interpolate(
+        #     p5_pre_out,
+        #     size=c4_out.shape[2:],
+        #     mode=interpolation_mode,
+        #     align_corners=False,
+        # )
+        # p3_pre_out = self.p3(c3_out) + F.interpolate(
+        #     p4_pre_out,
+        #     size=c3_out.shape[2:],
+        #     mode=interpolation_mode,
+        #     align_corners=False,
+        # )
+        # p2_pre_out = self.p2(c2_out) + F.interpolate(
+        #     p3_pre_out,
+        #     size=c2_out.shape[2:],
+        #     mode=interpolation_mode,
+        #     align_corners=False,
+        # )
+        # p1_pre_out = self.p1(c1_out) + F.interpolate(
+        #     p2_pre_out,
+        #     size=c1_out.shape[2:],
+        #     mode=interpolation_mode,
+        #     align_corners=False,
+        # )
+        # p0_pre_out = self.p0(c0_out) + F.interpolate(
+        #     p1_pre_out,
+        #     size=c0_out.shape[2:],
+        #     mode=interpolation_mode,
+        #     align_corners=False,
+        # )
         
         # Smooth
         p5 = self.smooth_p5(p5_pre_out)
@@ -994,9 +1003,7 @@ class RetinaUNetLayer(nn.Module):
     Combines:
     - Retina Net architecture for object detection (classification + bbox regression)
     - U-Net style segmentation decoder
-    - FPN backbone for multi-scale features
-    Combines an FPN backbone with detection and segmentation heads for 2D or 3D inputs.
-    
+    - FPN backbone for multi-scale features    
     """
     
     def __init__(
@@ -1114,7 +1121,6 @@ class RetinaUNetLayer(nn.Module):
                 - 'segmentation': (B, 1, H, W) or (B, 1, H, W, D)
                 - 'detections': final post-NMS detections
         """
-        
 
         # Backbone
         features = self.fpn(x)  # List of multi-scale features
@@ -1403,7 +1409,7 @@ if __name__ == '__main__':
     print(f"  detections: {output_2d['detections'].shape}")
     
     model_3d = RetinaUNetLayer(in_channels=1, num_classes=2, dim=3)
-    x_3d = torch.randn(2, 1, 128, 128, 64)
+    x_3d = torch.randn(2, 1, 64, 64, 32)
     output_3d = model_3d(x_3d)
     print("\n3D Output shapes:")
     print(f"  class_logits: {output_3d['class_logits'].shape}")
@@ -1414,25 +1420,33 @@ if __name__ == '__main__':
     # Test the BaseModel wrapper with a sample dataset
     print("\n" + "="*50)
     print("Testing RetinaUNet (PyHealth BaseModel wrapper):")
-    from pyhealth.datasets import SampleDataset
+    from pyhealth.datasets import create_sample_dataset
     
     # Create a minimal sample dataset
     samples = [
         {
             "patient_id": "p0",
             "visit_id": "v0",
-            "image": torch.randn(1, 64, 64),  # Single channel 64x64 image
-            "seg": torch.randint(0, 2, (1, 64, 64)),  # Binary segmentation mask
+            "image": torch.randn(1, 64, 64).numpy().tolist(),
+            "seg": torch.randint(0, 2, (64, 64)).numpy().tolist(),
         },
         {
             "patient_id": "p1",
             "visit_id": "v1",
-            "image": torch.randn(1, 64, 64),
-            "seg": torch.randint(0, 2, (1, 64, 64)),
+            "image": torch.randn(1, 64, 64).numpy().tolist(),
+            "seg": torch.randint(0, 2, (64, 64)).numpy().tolist(),
         },
     ]
     
-    dataset = SampleDataset(samples=samples)
+    input_schema = {"image": "tensor", "seg": "tensor"}
+    output_schema = {"seg": "tensor"}
+    
+    dataset = create_sample_dataset(
+        samples=samples,
+        input_schema=input_schema,
+        output_schema=output_schema,
+        dataset_name="retina_unet_demo"
+    )
     model = RetinaUNet(dataset=dataset, in_channels=1, num_classes=2, dim=2)
     
     print(f"Model created successfully on device: {model.device}")

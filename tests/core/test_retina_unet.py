@@ -171,7 +171,7 @@ class TestRetinaUNet(unittest.TestCase):
 
     def test_model_forward_3d(self):
         """Test the 3D RetinaUNet path returns standard outputs."""
-        h, w, d = 16, 16, 8
+        h, w, d = 64, 64, 32
         y1, x1, y2, x2, z1, z2 = h // 4, w // 4, h // 2, w // 2, d // 4, d // 2
 
         samples_3d = [
