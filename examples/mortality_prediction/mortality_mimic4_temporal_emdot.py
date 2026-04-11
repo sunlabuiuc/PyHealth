@@ -9,8 +9,10 @@ This script demonstrates that standard random train-test splits overestimate
 real-world model performance by ignoring temporal distribution shift. 
 
 Two EMDOT training regimes are evaluated across simulated deployment years:
-    - All-historical: train on all data up to deployment year t
-    - Sliding window: train only on recent data within a window before t
+    - All-historical: train on all in-period data up to deployment year t
+      (the simulated clinical deployment date), test on all data after t.
+    - Sliding window: train only on the most recent `window` years before t,
+      test on all data after t.
 
 This example shows:
 1. Loading MIMIC-IV data with chronological admission year tagging.
