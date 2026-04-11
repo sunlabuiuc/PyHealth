@@ -14,7 +14,7 @@ import numpy as np
 from pyhealth.data.data import Patient
 from pyhealth.tasks.base_task import BaseTask
 
-from pyhealth.processors import TemporalTimeseriesProcessor, TensorProcessor
+from pyhealth.processors import TemporalTimeseriesProcessor, TensorProcessor, SequenceProcessor
 from pyhealth.processors.base_processor import Processor
 import polars as pl
 
@@ -51,12 +51,9 @@ class RemainingLOSMIMIC4(BaseTask):
     # Keep this conceptual unless you already know the exact schema names
     # your installed PyHealth version expects.
     input_schema: Dict[str, Any]  = {
-        # "labevents": TemporalTimeseriesProcessor(sampling_rate=timedelta(hours=RemainingLOSConfig.prediction_step_size), impute_strategy="forward_fill"),
-        # "decay_indicator": TensorProcessor() ,          # calculated as 0.75 ** elapsed_hours
-                                                      # need to add static as well as other temporal features
-
         "timeseries": TensorProcessor(),
         "static": TensorProcessor(),
+        "conditions": SequenceProcessor(),
     }
 
     output_schema: Dict[str, Any] = {"los": "tensor"}
@@ -101,7 +98,10 @@ class RemainingLOSMIMIC4(BaseTask):
         for admission in admissions:
 
             admit_time = admission.timestamp
-            discharge_time = datetime.strptime(admission.outtime, "%Y-%m-%d %H:%M:%S")
+            # outtime is usually a string in attributes
+            outtime_raw = admission.outtime
+            discharge_time = datetime.strptime(outtime_raw, "%Y-%m-%d %H:%M:%S")
+
             los_hours = (discharge_time - admit_time).total_seconds() / 3600.0
             T = min(int(math.ceil(los_hours)), self.config.max_history_hours)
 
@@ -112,13 +112,26 @@ class RemainingLOSMIMIC4(BaseTask):
             if los_hours < self.config.min_history_hours + self.config.min_remaining_hours:
                 continue
 
-            labevents = cast(List[Event], patient.get_events(
-                event_type="labevents", #or "chartevents"
+            labevents = patient.get_events(
+                event_type="labevents",
                 start=admission.timestamp,
                 end=discharge_time,
-            ))
+            )
+            chartevents = patient.get_events(
+                event_type="chartevents",
+                start=admission.timestamp,
+                end=discharge_time,
+            )
+            diagnoses_events = patient.get_events(
+                event_type="diagnoses_icd",
+                filters=[("hadm_id", "==", admission.hadm_id)],
+            )
+            conditions = [
+                f"{getattr(event, 'icd_version', '10')}_{event.icd_code}" 
+                for event in diagnoses_events if hasattr(event, "icd_code")
+            ]
 
-            all_events = labevents
+            all_events = labevents + chartevents
 
             if len(all_events) == 0:
                 continue
@@ -155,10 +168,16 @@ class RemainingLOSMIMIC4(BaseTask):
             # Elapsed time channel
             elapsed = np.arange(T, dtype=np.float32).reshape(1, T)
 
+            # hour_of_day channel
+            hour_of_day = np.array([
+                (admit_time + timedelta(hours=t)).hour
+                for t in range(T)
+            ], dtype=np.float32).reshape(1, T)
+
             # Concatenate all channels: [elapsed (1), values (F), decays (F), hour_of_day (1)] -> (2F+2, T)
-            timeseries = np.concatenate([elapsed, values_mat, decay_mat], axis=0)
+            timeseries = np.concatenate([elapsed, values_mat, decay_mat, hour_of_day], axis=0)
             
-            # Label sequence: remaining LoS in days at each hour
+            # Label sequence: remaining LoS in hours at each hour
             labels = np.array([
                 max(0.0, (discharge_time - (admit_time + timedelta(hours=t))).total_seconds() / (3600.0))
                 for t in range(T)
@@ -169,6 +188,7 @@ class RemainingLOSMIMIC4(BaseTask):
                 "visit_id": admission.stay_id ,
                 "timeseries": timeseries,
                 "static": static,
+                "conditions": conditions,
                 "los": labels,
             })
 

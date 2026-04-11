@@ -10,7 +10,7 @@ CACHE_PATH = r"D:\cs598\.cache_dir"
 def inspect():
     mimic4 = MIMIC4EHRDataset( 
             root=MIMIC_ROOT,
-            tables=["diagnoses_icd", "labevents", "procedures_icd", "prescriptions"],
+            tables=["diagnoses_icd", "labevents", "procedures_icd", "prescriptions", "chartevents"],
             dev=True, cache_dir=CACHE_PATH
         )
     
