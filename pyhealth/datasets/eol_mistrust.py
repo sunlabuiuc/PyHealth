@@ -1,111 +1,37 @@
-"""Utilities for reproducing the EOL mistrust preprocessing and modeling tables.
+"""Utilities for reproducing the EOL mistrust preprocessing tables.
 
 Notes
 -----
-This module uses a transformers+torch sentiment backend because those
-dependencies are already available in the project environment. That is a
-pragmatic replacement for the original Pattern-based notebook sentiment code,
-not an exact backend match.
+This module owns dataset preparation only:
+- cohort construction
+- note/chartevent feature and label extraction
+- treatment and acuity tables
+- final admission-level modeling table assembly
 """
+
 # pylint: disable=too-many-lines
 
-import importlib
+import importlib.util
 import re
 from collections import defaultdict
 from pathlib import Path
 from typing import Callable, Iterable, Mapping, Sequence
 
-import numpy as np
 import pandas as pd  # pylint: disable=import-error
 
 from pyhealth.tasks.eol_mistrust import (
+    CODE_STATUS_MODE_CORRECTED,
+    CODE_STATUS_MODE_PAPER_LIKE,
+    _advance_paper_like_code_status_label as _task_advance_paper_like_code_status_label,
+    _normalize_code_status_mode as _task_normalize_code_status_mode,
     build_code_status_target as _build_task_code_status_target,
     build_in_hospital_mortality_target as _build_task_in_hospital_mortality_target,
     build_left_ama_target as _build_task_left_ama_target,
+    is_positive_code_status_value as _task_is_positive_code_status_value,
+    map_ethnicity_to_race as _task_map_ethnicity_to_race,
+    map_insurance_to_group as _task_map_insurance_to_group,
+    prepare_note_text as _task_prepare_note_text,
 )
-
-_SENTIMENT_BACKEND: Callable[[str], tuple[float, float]] | None = None
-
-
-def _load_transformers_sentiment() -> Callable[[str], tuple[float, float]]:
-    """Load the project-standard transformers sentiment pipeline.
-
-    This intentionally uses an existing transformers+torch dependency instead of
-    trying to install the original Pattern backend from the notebooks.
-    """
-
-    transformers_module = importlib.import_module("transformers")
-    torch_module = importlib.import_module("torch")
-
-    pipeline_factory = getattr(transformers_module, "pipeline", None)
-    if not callable(pipeline_factory):
-        raise ModuleNotFoundError("transformers.pipeline is unavailable in the current environment.")
-
-    try:  # pragma: no cover - logging surface depends on transformers version
-        transformers_logging = importlib.import_module("transformers.utils.logging")
-        set_verbosity_error = getattr(transformers_logging, "set_verbosity_error", None)
-        if callable(set_verbosity_error):
-            set_verbosity_error()
-    except Exception:
-        pass
-
-    use_cuda = bool(getattr(torch_module, "cuda", None) and torch_module.cuda.is_available())
-    device = 0 if use_cuda else -1
-    classifier = pipeline_factory(
-        "sentiment-analysis",
-        model="distilbert/distilbert-base-uncased-finetuned-sst-2-english",
-        device=device,
-    )
-
-    def _transformers_sentiment(text: str) -> tuple[float, float]:
-        cleaned = " ".join(str(text).split())
-        if not cleaned:
-            return (0.0, 0.0)
-        result = classifier(cleaned[:2048], truncation=True)[0]
-        label = str(result.get("label", "")).upper()
-        score = float(result.get("score", 0.0))
-        polarity = score if "POS" in label else -score
-        return (polarity, 0.0)
-
-    return _transformers_sentiment
-
-
-def _default_sentiment_backend(text: str) -> tuple[float, float]:
-    """Resolve and cache the default transformers sentiment backend lazily."""
-
-    global _SENTIMENT_BACKEND
-    if _SENTIMENT_BACKEND is None:
-        _SENTIMENT_BACKEND = _load_transformers_sentiment()
-    return _SENTIMENT_BACKEND(text)
-
-
-pattern_sentiment = _default_sentiment_backend
-
-try:
-    from sklearn.linear_model import LogisticRegression  # pylint: disable=import-error
-except ModuleNotFoundError:  # pragma: no cover - lightweight test env fallback
-    class LogisticRegression:  # type: ignore[no-redef]
-        """Fallback estimator that preserves the expected interface in test envs."""
-
-        def __init__(self, *args, **kwargs):
-            self.args = args
-            self.kwargs = kwargs
-
-        def fit(self, features, labels):
-            """Raise when scikit-learn is unavailable for model fitting."""
-
-            del features, labels
-            raise ModuleNotFoundError(
-                "scikit-learn is required for the default logistic regression estimator."
-            )
-
-        def predict_proba(self, features):
-            """Raise when scikit-learn is unavailable for probability scoring."""
-
-            del features
-            raise ModuleNotFoundError(
-                "scikit-learn is required for the default logistic regression estimator."
-            )
 
 
 RACE_WHITE = "WHITE"
@@ -158,8 +84,11 @@ TABLE2_LABELS = {
     "pain_assessment_method",
     "pain_level",
     "pain_management",
+    "pain_present",
     "reason_for_restraint",
     "restraint_device",
+    "restraint_type",
+    "restraints_evaluated",
     "richmond_ras_scale",
     "riker_sas_scale",
     "safety_measures",
@@ -168,6 +97,7 @@ TABLE2_LABELS = {
     "sitter",
     "skin_care",
     "social_work_consult",
+    "spokesperson_healthcare_proxy",
     "spiritual_support",
     "stress",
     "support_systems",
@@ -176,6 +106,65 @@ TABLE2_LABELS = {
     "violent_restraints",
     "wrist_restraints",
 }
+
+PAPER_LIKE_RELEVANT_LABELS = (
+    "Family Communication",
+    "Follows Commands",
+    "Education Barrier",
+    "Education Learner",
+    "Education Method",
+    "Education Readiness",
+    "Education Topic #1",
+    "Education Topic #2",
+    "Pain",
+    "Pain Level",
+    "Pain Level (Rest)",
+    "Pain Assess Method",
+    "Restraint",
+    "Restraint Type",
+    "Restraint (Non-violent)",
+    "Restraint Ordered (Non-violent)",
+    "Restraint Location",
+    "Reason For Restraint",
+    "Spiritual Support",
+    "Support Systems",
+    "State",
+    "Behavior",
+    "Behavioral State",
+    "Stress",
+    "Safety",
+    "Safety Measures_U_1",
+    "Family",
+    "Patient/Family Informed",
+    "Pt./Family Informed",
+    "Health Care Proxy",
+    "BATH",
+    "bath",
+    "Bath",
+    "Bed Bath",
+    "Bedbath",
+    "CHG Bath",
+    "Skin Care",
+    "Judgement",
+    "Family Meeting held",
+    "Emotional / physical / sexual harm by partner or close relation",
+    "Verbal Response",
+    "Side Rails",
+    "Orientation",
+    "RSBI Deferred",
+    "Richmond-RAS Scale",
+    "Riker-SAS Scale",
+    "Status and Comfort",
+    "Teaching directed toward",
+    "Consults",
+    "Social work consult",
+    "Sitter",
+    "security",
+    "safety",
+    "headache",
+    "hairwashed",
+    "observer",
+)
 
 CODE_STATUS_ITEMIDS = {128, 223758}
 
@@ -199,8 +188,20 @@ REQUIRED_RAW_TABLE_COLUMNS = {
 }
 
 REQUIRED_MATERIALIZED_VIEW_COLUMNS = {
-    "ventdurations": ["icustay_id", "ventnum", "starttime", "endtime", "duration_hours"],
-    "vasopressordurations": ["icustay_id", "vasonum", "starttime", "endtime", "duration_hours"],
+    "ventdurations": [
+        "icustay_id",
+        "ventnum",
+        "starttime",
+        "endtime",
+        "duration_hours",
+    ],
+    "vasopressordurations": [
+        "icustay_id",
+        "vasonum",
+        "starttime",
+        "endtime",
+        "duration_hours",
+    ],
     "oasis": ["hadm_id", "icustay_id", "oasis"],
     "sapsii": ["hadm_id", "icustay_id", "sapsii"],
 }
@@ -213,21 +214,35 @@ REQUIRED_JOIN_KEYS = {
 }
 
 NONCOMPLIANCE_PATTERN = re.compile(r"\bnoncompliant\b", re.IGNORECASE)
-AUTOPSY_CONSENT_PATTERNS = (
-    re.compile(r"\bconsent(?: for)? autopsy\b", re.IGNORECASE),
-    re.compile(r"\bautopsy consent\b", re.IGNORECASE),
-    re.compile(r"\bconsented to autopsy\b", re.IGNORECASE),
-    re.compile(r"\bautopsy was performed\b", re.IGNORECASE),
-    re.compile(r"\bautopsy obtained\b", re.IGNORECASE),
-    re.compile(r"\bfamily provided autopsy consent\b", re.IGNORECASE),
+_AUTOPSY_CONSENT_KEYWORDS = ("consent", "agree", "request")
+_AUTOPSY_DECLINE_KEYWORDS = ("decline", "not consent", "refuse", "denied")
+_AUTOPSY_CORRECTED_DECLINE_PHRASES = (
+    "no autopsy",
+    "not perform an autopsy",
+    "not perform autopsy",
+    "decision to not perform an autopsy",
+    "decision made to not perform an autopsy",
+    "do not want an autopsy",
+    "did not want an autopsy",
+    "not want an autopsy",
+    "declining autopsy",
+    "declining an autopsy",
 )
-AUTOPSY_DECLINE_PATTERNS = (
-    re.compile(r"\bautopsy declined\b", re.IGNORECASE),
-    re.compile(r"\bdeclined autopsy\b", re.IGNORECASE),
-    re.compile(r"\bno autopsy\b", re.IGNORECASE),
-    re.compile(r"\bfamily declined autopsy\b", re.IGNORECASE),
+_AUTOPSY_CORRECTED_CONSENT_PHRASES = (
+    "autopsy permission was obtained",
+    "permission for autopsy",
+    "permission obtained for autopsy",
 )
-DEFAULT_LOGISTIC_C = 0.1
+_AUTOPSY_SEGMENT_SPLIT_PATTERN = re.compile(r"[\n.;]+")
+_AUTOPSY_CORRECTED_DECLINE_PATTERN = re.compile(
+    r"(?:\b(?:declin\w*|refus\w*|deni\w*|not\s+consent(?:ed)?)\b(?:\W+\w+){0,5}\W+\bautopsy\b)"
+    r"|(?:\bautopsy\b(?:\W+\w+){0,5}\W+\b(?:declin\w*|refus\w*|deni\w*|not\s+consent(?:ed)?)\b)",
+    re.IGNORECASE,
+)
+_AUTOPSY_STUB_SEGMENT_PATTERN = re.compile(r"^(?:an?\s+)?autopsy\b", re.IGNORECASE)
+AUTOPSY_LABEL_MODE_CORRECTED = "corrected"
+AUTOPSY_LABEL_MODE_PAPER_LIKE = "paper_like"
+_EOL_MISTRUST_MODEL_MODULE = None
 
 
 def _require_columns(df: pd.DataFrame, required: Sequence[str], df_name: str) -> None:
@@ -237,29 +252,30 @@ def _require_columns(df: pd.DataFrame, required: Sequence[str], df_name: str) ->
         raise ValueError(f"{df_name} is missing required columns: {missing_str}")
 
 
+def _load_eol_mistrust_model_module():
+    global _EOL_MISTRUST_MODEL_MODULE
+    if _EOL_MISTRUST_MODEL_MODULE is None:
+        module_path = Path(__file__).resolve().parents[1] / "models" / "eol_mistrust.py"
+        spec = importlib.util.spec_from_file_location(
+            "pyhealth.models.eol_mistrust_dataset_compat",
+            module_path,
+        )
+        module = importlib.util.module_from_spec(spec)
+        if spec is None or spec.loader is None:
+            raise ImportError(
+                "Unable to load pyhealth.models.eol_mistrust compatibility module."
+            )
+        spec.loader.exec_module(module)
+        _EOL_MISTRUST_MODEL_MODULE = module
+    return _EOL_MISTRUST_MODEL_MODULE
+
+
 def _filter_non_error_notes(noteevents: pd.DataFrame) -> pd.DataFrame:
     """Keep notes where iserror is NULL or not equal to 1."""
 
     iserror_numeric = pd.to_numeric(noteevents["iserror"], errors="coerce")
     keep_mask = noteevents["iserror"].isna() | iserror_numeric.ne(1)
     return noteevents.loc[keep_mask].copy()
-
-
-def _extract_positive_class_probabilities(probabilities) -> np.ndarray:
-    """Validate predict_proba output and return the positive-class column."""
-
-    probability_array = np.asarray(probabilities, dtype=float)
-    if probability_array.ndim != 2 or probability_array.shape[1] < 2:
-        raise ValueError(
-            "Estimator `predict_proba` output must have shape (n_samples, n_classes>=2)."
-        )
-    return probability_array[:, 1]
-
-
-def _score_column_name(label_column: str) -> str:
-    if label_column.endswith("_label"):
-        return f"{label_column[:-6]}_score"
-    return f"{label_column}_score"
 
 
 def _normalize_note_categories(categories: Iterable[str] | None) -> set[str] | None:
@@ -290,17 +306,163 @@ def _classify_noncompliance(text: str) -> int:
     return int(bool(NONCOMPLIANCE_PATTERN.search(text)))
 
 
-def _classify_autopsy(text: str) -> int:
-    if "autopsy" not in text:
-        return 0
+def _normalize_autopsy_label_mode(mode: str | None) -> str:
+    normalized = (
+        AUTOPSY_LABEL_MODE_CORRECTED if mode is None else str(mode).strip().lower()
+    )
+    if normalized not in {AUTOPSY_LABEL_MODE_CORRECTED, AUTOPSY_LABEL_MODE_PAPER_LIKE}:
+        raise ValueError(
+            "autopsy_label_mode must be one of "
+            f"{AUTOPSY_LABEL_MODE_CORRECTED!r} or {AUTOPSY_LABEL_MODE_PAPER_LIKE!r}"
+        )
+    return normalized
 
-    has_decline = any(pattern.search(text) for pattern in AUTOPSY_DECLINE_PATTERNS)
-    has_consent = any(pattern.search(text) for pattern in AUTOPSY_CONSENT_PATTERNS)
-    return int(has_consent and not has_decline)
+
+def _classify_autopsy_lines_paper_like(lines: Iterable[str]) -> float:
+    """Line-level autopsy classification matching the reference notebook.
+
+    Each line is checked independently: if a line contains 'autopsy',
+    look for consent keywords (consent, agree, request) and decline
+    keywords (decline, not consent, refuse, denied) on that same line.
+
+    Returns
+    -------
+    float
+        1.0 = consent (proxy positive / mistrust)
+        0.0 = decline (proxy negative / trust)
+        NaN  = autopsy not mentioned, or ambiguous (both consent and decline)
+
+    Parameters
+    ----------
+    lines : Iterable[str]
+        Pre-lowered text lines (may come from one note or many).
+    """
+    consented = False
+    declined = False
+    for line in lines:
+        if "autopsy" not in line:
+            continue
+        for kw in _AUTOPSY_DECLINE_KEYWORDS:
+            if kw in line:
+                declined = True
+        for kw in _AUTOPSY_CONSENT_KEYWORDS:
+            if kw in line:
+                consented = True
+    if not consented and not declined:
+        return float("nan")
+    if consented and declined:
+        return float("nan")
+    if consented:
+        return 1.0
+    return 0.0
+
+
+def _classify_autopsy_lines_corrected(lines: Iterable[str]) -> float:
+    """Line-level autopsy classification with a few explicit negative phrases.
+
+    This keeps the notebook's overall structure but recognizes common
+    negative phrasings such as ``no autopsy`` that the original notebook
+    left unlabeled.
+    """
+
+    strong_consented = False
+    weak_requested = False
+    declined = False
+    for line in lines:
+        segments = [
+            segment.strip()
+            for segment in _AUTOPSY_SEGMENT_SPLIT_PATTERN.split(line)
+            if segment.strip()
+        ]
+        for idx, segment in enumerate(segments):
+            normalized_segment = segment
+            if "autopsy" not in normalized_segment:
+                continue
+
+            candidate_segments = [normalized_segment]
+            is_autopsy_stub = bool(
+                _AUTOPSY_STUB_SEGMENT_PATTERN.fullmatch(normalized_segment)
+            )
+            if is_autopsy_stub and idx > 0 and "autopsy" not in segments[idx - 1]:
+                candidate_segments.append(f"{segments[idx - 1]} {normalized_segment}")
+            if (
+                is_autopsy_stub
+                and idx + 1 < len(segments)
+                and "autopsy" not in segments[idx + 1]
+                and (
+                    "request" in segments[idx + 1]
+                    or "consent" in segments[idx + 1]
+                    or "agree" in segments[idx + 1]
+                    or any(
+                        phrase in segments[idx + 1]
+                        for phrase in _AUTOPSY_CORRECTED_CONSENT_PHRASES
+                    )
+                )
+            ):
+                candidate_segments.append(f"{normalized_segment} {segments[idx + 1]}")
+
+            segment_declined = False
+            segment_has_request = False
+            segment_has_strong_consent = False
+            for candidate_segment in candidate_segments:
+                segment_declined = (
+                    segment_declined
+                    or bool(
+                        _AUTOPSY_CORRECTED_DECLINE_PATTERN.search(candidate_segment)
+                    )
+                    or any(
+                        phrase in candidate_segment
+                        for phrase in _AUTOPSY_CORRECTED_DECLINE_PHRASES
+                    )
+                )
+                segment_has_request = segment_has_request or (
+                    "request" in candidate_segment
+                )
+                segment_has_strong_consent = segment_has_strong_consent or (
+                    ("consent" in candidate_segment)
+                    or ("agree" in candidate_segment)
+                    or any(
+                        phrase in candidate_segment
+                        for phrase in _AUTOPSY_CORRECTED_CONSENT_PHRASES
+                    )
+                )
+
+            if segment_declined:
+                declined = True
+            # Treat explicit negative phrasing as stronger than generic request
+            # wording. This keeps "request for autopsy was declined" negative
+            # while still allowing clear consent/agreement phrases to remain
+            # genuinely ambiguous if both positive and negative evidence appear.
+            if segment_has_strong_consent and not segment_declined:
+                strong_consented = True
+            elif segment_has_request and not segment_declined:
+                weak_requested = True
+
+    if strong_consented and declined:
+        return float("nan")
+    if strong_consented:
+        return 1.0
+    if declined:
+        return 0.0
+    if weak_requested:
+        return 1.0
+    return float("nan")
+
+
+def _classify_autopsy_lines(
+    lines: Iterable[str],
+    *,
+    mode: str = AUTOPSY_LABEL_MODE_CORRECTED,
+) -> float:
+    normalized_mode = _normalize_autopsy_label_mode(mode)
+    if normalized_mode == AUTOPSY_LABEL_MODE_PAPER_LIKE:
+        return _classify_autopsy_lines_paper_like(lines)
+    return _classify_autopsy_lines_corrected(lines)
 
 
 def _to_datetime(series: pd.Series) -> pd.Series:
-    return pd.to_datetime(series, errors="coerce")
+    parsed = pd.to_datetime(series, errors="coerce", utc=True)
+    return parsed.dt.tz_localize(None)
 
 
 def _normalize_hadm_ids(all_hadm_ids: Iterable[int] | None) -> list[int] | None:
@@ -358,7 +520,9 @@ def _calculate_age_years(admittime: pd.Series, dob: pd.Series) -> pd.Series:
         if pd.isna(admit) or pd.isna(birth):
             ages.append(float("nan"))
             continue
-        age = (admit.to_pydatetime() - birth.to_pydatetime()).total_seconds() / seconds_per_year
+        age = (
+            admit.to_pydatetime() - birth.to_pydatetime()
+        ).total_seconds() / seconds_per_year
         ages.append(90.0 if age > 200 else float(age))
     return pd.Series(ages, index=admittime.index, dtype=float)
 
@@ -379,7 +543,337 @@ def _clean_feature_text(value) -> str:
 
     if value is None or (isinstance(value, float) and pd.isna(value)):
         return ""
-    return re.sub(r"\s+", " ", str(value).strip())
+    cleaned = re.sub(r"\s+", " ", str(value).strip())
+    cleaned = re.sub(r"^[^A-Za-z0-9]+", "", cleaned)
+    cleaned = re.sub(r"[^A-Za-z0-9]+$", "", cleaned)
+    return cleaned.strip()
+
+
+def _normalize_label_match_text(value) -> str:
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return ""
+    cleaned = str(value).strip().lower().replace("_", " ")
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    return cleaned.strip()
+
+
+def _normalize_paper_like_value(value) -> str:
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return "none"
+    cleaned = re.sub(r"\s+", " ", str(value).strip().lower())
+    return cleaned if cleaned else "none"
+
+
+def _feature_text_display_score(value: str) -> tuple:
+    cleaned = _clean_feature_text(value)
+    if cleaned == "":
+        return (-1, -1, -1, -1, -1, -1, "")
+
+    has_alpha = any(char.isalpha() for char in cleaned)
+    is_all_upper = has_alpha and cleaned.upper() == cleaned
+    is_all_lower = has_alpha and cleaned.lower() == cleaned
+    is_title_like = has_alpha and cleaned == cleaned.title()
+    alpha_count = sum(char.isalpha() for char in cleaned)
+    digit_count = sum(char.isdigit() for char in cleaned)
+    punctuation_count = sum(
+        (not char.isalnum()) and (not char.isspace()) for char in cleaned
+    )
+    return (
+        int(is_title_like),
+        int(not is_all_upper),
+        int(not is_all_lower),
+        alpha_count,
+        -digit_count,
+        -punctuation_count,
+        -len(cleaned),
+        cleaned.lower(),
+    )
+
+
+def _choose_preferred_feature_text(values: Iterable[str]) -> str:
+    best = ""
+    best_score = _feature_text_display_score("")
+    for value in values:
+        cleaned = _clean_feature_text(value)
+        if cleaned == "":
+            continue
+        score = _feature_text_display_score(cleaned)
+        if score > best_score:
+            best = cleaned
+            best_score = score
+    return best
+
+
+def _build_feature_label_metadata(
+    items: pd.DataFrame,
+) -> tuple[dict[int, str], dict[str, str]]:
+    working = items.copy()
+    working["normalized_label"] = working["label"].map(_normalize_token)
+    working["display_label"] = working["label"].map(_clean_feature_text)
+
+    label_display_lookup = (
+        working.loc[
+            working["display_label"] != "", ["normalized_label", "display_label"]
+        ]
+        .drop_duplicates()
+        .groupby("normalized_label", sort=True)["display_label"]
+        .agg(lambda series: _choose_preferred_feature_text(series.tolist()))
+        .to_dict()
+    )
+    item_label_lookup = (
+        working[["itemid", "normalized_label"]]
+        .drop_duplicates("itemid")
+        .set_index("itemid")["normalized_label"]
+        .to_dict()
+    )
+    return item_label_lookup, label_display_lookup
+
+
+_FEATURE_VALUE_MEASUREMENT_SUFFIXES = (
+    "ppm",
+    "mmhg",
+    "kg",
+    "kgs",
+    "lb",
+    "lbs",
+    "cm",
+    "mm",
+    "ml",
+    "cc",
+    "mcg",
+    "mg",
+    "meq",
+)
+
+
+def _is_numeric_heavy_or_freeform_feature_value(
+    normalized_value: str,
+    display_value: str,
+) -> bool:
+    cleaned = _clean_feature_text(display_value)
+    if cleaned == "":
+        return True
+    if len(cleaned) > 64 or len(cleaned.split()) > 10:
+        return True
+
+    normalized = str(normalized_value).strip("_")
+    alpha_tokens = re.findall(r"[a-z]+", normalized)
+    if not alpha_tokens:
+        return True
+
+    measurement_stripped = normalized
+    for suffix in _FEATURE_VALUE_MEASUREMENT_SUFFIXES:
+        if measurement_stripped.endswith(suffix):
+            measurement_stripped = measurement_stripped[: -len(suffix)]
+            break
+    measurement_stripped = measurement_stripped.strip("_")
+    if measurement_stripped and re.fullmatch(
+        r"[-+]?\d+(?:_\d+)*", measurement_stripped
+    ):
+        return True
+
+    digit_count = sum(char.isdigit() for char in cleaned)
+    alpha_length = sum(len(token) for token in alpha_tokens)
+    if digit_count >= 2 and alpha_length <= 3:
+        return True
+    return False
+
+
+def _feature_display_name(
+    normalized_label: str,
+    normalized_value: str,
+    label_display_lookup: Mapping[str, str],
+    value_display_lookup: Mapping[tuple[str, str], str],
+) -> str:
+    display_label = label_display_lookup.get(
+        normalized_label, _clean_feature_text(normalized_label)
+    )
+    display_value = value_display_lookup.get(
+        (normalized_label, normalized_value),
+        _clean_feature_text(normalized_value),
+    )
+    return f"{display_label}: {display_value}"
+
+
+def _paper_like_feature_display_name(label: str, value: str) -> str:
+    return f"{label}: {value}"
+
+
+def _matches_paper_like_label(
+    label: str,
+    allowed_labels: Iterable[str] | None = None,
+) -> bool:
+    normalized_label = _normalize_label_match_text(label)
+    if normalized_label == "":
+        return False
+    patterns = (
+        [_normalize_label_match_text(item) for item in allowed_labels]
+        if allowed_labels is not None
+        else [_normalize_label_match_text(item) for item in PAPER_LIKE_RELEVANT_LABELS]
+    )
+    patterns = [pattern for pattern in patterns if pattern]
+    return any(pattern in normalized_label for pattern in patterns)
+
+
+def _paper_like_feature_pair(label: str, value) -> tuple[str, str] | None:
+    normalized_label = _normalize_label_match_text(label)
+    if normalized_label == "":
+        return None
+    normalized_value = _normalize_paper_like_value(value)
+
+    if "reason for restraint" in normalized_label:
+        if normalized_value in {"not applicable", "none"}:
+            normalized_value = "none"
+        elif ("threat" in normalized_value) or ("acute risk of" in normalized_value):
+            normalized_value = "threat of harm"
+        elif (
+            ("confusion" in normalized_value)
+            or ("delirium" in normalized_value)
+            or (normalized_value == "impaired judgment")
+            or (normalized_value == "sundowning")
+        ):
+            normalized_value = "confusion/delirium"
+        elif (
+            ("occurence" in normalized_value)
+            or (normalized_value == "severe physical agitation")
+            or (normalized_value == "violent/self des")
+        ):
+            normalized_value = "prescence of violence"
+        elif normalized_value in {
+            "ext/txinterfere",
+            "protection of lines and tubes",
+            "treatment interference",
+        }:
+            normalized_value = "treatment interference"
+        elif "risk for fall" in normalized_value:
+            normalized_value = "risk for falls"
+        return ("reason for restraint", normalized_value)
+
+    if "restraint location" in normalized_label:
+        if normalized_value == "none":
+            normalized_value = "none"
+        elif "4 point rest" in normalized_value:
+            normalized_value = "4 point restraint"
+        else:
+            normalized_value = "some restraint"
+        return ("restraint location", normalized_value)
+
+    if "restraint device" in normalized_label:
+        if "sitter" in normalized_value:
+            normalized_value = "sitter"
+        elif "limb" in normalized_value:
+            normalized_value = "limb"
+        return ("restraint device", normalized_value)
+
+    if "bath" in normalized_label:
+        if "part" in normalized_label:
+            normalized_value = "partial"
+        elif "self" in normalized_value:
+            normalized_value = "self"
+        elif "refused" in normalized_value:
+            normalized_value = "refused"
+        elif "shave" in normalized_value:
+            normalized_value = "shave"
+        elif "hair" in normalized_value:
+            normalized_value = "hair"
+        elif "none" in normalized_value:
+            normalized_value = "none"
+        else:
+            normalized_value = "done"
+        return ("bath", normalized_value)
+
+    if normalized_label in {"behavior", "behavioral state"}:
+        return None
+
+    if normalized_label.startswith("pain level"):
+        return ("pain level", normalized_value)
+
+    if normalized_label.startswith(
+        ("pain management", "pain type", "pain cause", "pain location")
+    ):
+        return None
+
+    if normalized_label.startswith("education topic"):
+        return ("education topic", normalized_value)
+
+    if normalized_label.startswith("safety measures"):
+        return ("safety measures", normalized_value)
+
+    if normalized_label.startswith("side rails"):
+        return ("side rails", normalized_value)
+
+    if normalized_label.startswith("status and comfort"):
+        return ("status and comfort", normalized_value)
+
+    if "informed" in normalized_label:
+        return ("informed", normalized_value)
+
+    return (normalized_label, normalized_value)
+
+
+def _filter_chartevent_items(
+    d_items: pd.DataFrame,
+    allowed_labels: Iterable[str] | None = None,
+    *,
+    paper_like: bool = False,
+) -> pd.DataFrame:
+    _require_columns(d_items, ["itemid", "label", "dbsource"], "d_items")
+    items = d_items.copy()
+    items["normalized_label"] = items["label"].map(_normalize_token)
+    if paper_like:
+        mask = items["label"].map(
+            lambda label: _matches_paper_like_label(
+                label, allowed_labels=allowed_labels
+            )
+        )
+        items = items.loc[mask].copy()
+    elif allowed_labels is not None:
+        allowed = {_normalize_token(label) for label in allowed_labels}
+        items = items.loc[items["normalized_label"].isin(allowed)].copy()
+    else:
+        allowed_itemids = identify_table2_itemids(items)
+        items = items.loc[items["itemid"].isin(allowed_itemids)].copy()
+
+    items["itemid"] = pd.to_numeric(items["itemid"], errors="coerce")
+    items = items.dropna(subset=["itemid"]).copy()
+    items["itemid"] = items["itemid"].astype(int)
+    return items
+
+
+def _paper_like_feature_sets_from_rows(rows: pd.DataFrame) -> dict[str, set[int]]:
+    feature_to_hadm: dict[str, set[int]] = defaultdict(set)
+    if rows.empty:
+        return feature_to_hadm
+    unique_rows = rows[["hadm_id", "label", "value"]].drop_duplicates()
+    for row in unique_rows.itertuples(index=False):
+        feature_pair = _paper_like_feature_pair(
+            str(getattr(row, "label")), getattr(row, "value")
+        )
+        if feature_pair is None:
+            continue
+        feature_name = _paper_like_feature_display_name(*feature_pair)
+        feature_to_hadm[feature_name].add(int(getattr(row, "hadm_id")))
+    return feature_to_hadm
+
+
+def _binary_feature_matrix_from_feature_sets(
+    feature_to_hadm: Mapping[str, set[int]],
+    hadm_ids: Sequence[int],
+) -> pd.DataFrame:
+    feature_data: dict[str, object] = {"hadm_id": list(hadm_ids)}
+    hadm_index = pd.Index(hadm_ids)
+    for feature_name in sorted(feature_to_hadm, key=str.lower):
+        feature_data[feature_name] = hadm_index.isin(
+            feature_to_hadm[feature_name]
+        ).astype(int)
+    result = pd.DataFrame(feature_data)
+    if "hadm_id" not in result.columns:
+        result = pd.DataFrame(columns=["hadm_id"])
+    feature_cols = [col for col in result.columns if col != "hadm_id"]
+    if feature_cols:
+        result[feature_cols] = result[feature_cols].fillna(0).astype(int)
+    result = result.sort_values("hadm_id").drop_duplicates("hadm_id")
+    return result.reset_index(drop=True)
 
 
 def _matches_table2_concept(label: str) -> bool:
@@ -388,10 +882,7 @@ def _matches_table2_concept(label: str) -> bool:
     normalized_label = _normalize_token(label)
     if normalized_label == "":
         return False
-    return any(
-        (concept in normalized_label) or (normalized_label in concept)
-        for concept in TABLE2_LABELS
-    )
+    return any(concept in normalized_label for concept in TABLE2_LABELS)
 
 
 def _collect_required_join_keys(raw_tables: Mapping[str, pd.DataFrame]) -> set[str]:
@@ -467,50 +958,26 @@ def _validate_bridge_join(
 
 
 def map_ethnicity(ethnicity) -> str:
-    """Map raw MIMIC ethnicity strings to the paper's coarse race groups."""
+    """Dataset-facing alias of the task-owned race mapping helper."""
 
-    text = str(ethnicity or "").upper()
-    if "BLACK" in text or "AFRICAN" in text:
-        return RACE_BLACK
-    if "WHITE" in text or "EUROPEAN" in text or "PORTUGUESE" in text:
-        return RACE_WHITE
-    if "ASIAN" in text:
-        return RACE_ASIAN
-    if "HISPANIC" in text or "LATINO" in text or "SOUTH AMERICAN" in text:
-        return RACE_HISPANIC
-    if (
-        "NATIVE" in text
-        or "AMERICAN INDIAN" in text
-        or "ALASKA NATIVE" in text
-    ):
-        return RACE_NATIVE_AMERICAN
-    return RACE_OTHER
+    return _task_map_ethnicity_to_race(ethnicity)
 
 
 def map_insurance(insurance) -> str:
-    """Collapse raw MIMIC insurance values into the required three groups."""
+    """Dataset-facing alias of the task-owned insurance mapping helper."""
 
-    text = str(insurance or "").strip().lower()
-    normalized = re.sub(r"\s+", " ", text)
-    if normalized in {"medicare", "medicaid", "government", "public"}:
-        return INSURANCE_PUBLIC
-    if normalized in {"private"}:
-        return INSURANCE_PRIVATE
-    if normalized in {"self pay", "self-pay", "self_pay"}:
-        return INSURANCE_SELF_PAY
-    return INSURANCE_SELF_PAY
+    return _task_map_insurance_to_group(insurance)
 
 
 def prepare_note_text_for_sentiment(text) -> str:
-    """Normalize note text using whitespace tokenization and rejoining only."""
+    """Dataset-facing alias of the task-owned note normalization helper."""
 
-    if text is None or (isinstance(text, float) and pd.isna(text)):
-        return ""
-    tokens = str(text).split()
-    return " ".join(tokens)
+    return _task_prepare_note_text(text)
 
 
-def build_base_admissions(admissions: pd.DataFrame, patients: pd.DataFrame) -> pd.DataFrame:
+def build_base_admissions(
+    admissions: pd.DataFrame, patients: pd.DataFrame
+) -> pd.DataFrame:
     """Join admissions to patients and keep only rows with chart events available."""
 
     _require_columns(
@@ -547,8 +1014,18 @@ def build_base_admissions(admissions: pd.DataFrame, patients: pd.DataFrame) -> p
     return merged.reset_index(drop=True)
 
 
-def build_demographics_table(base_admissions: pd.DataFrame) -> pd.DataFrame:
-    """Derive race, age, LOS, and insurance-group fields for each admission."""
+def build_demographics_table(
+    base_admissions: pd.DataFrame,
+    *,
+    paper_like: bool = False,
+) -> pd.DataFrame:
+    """Derive race, age, LOS, and insurance-group fields for each admission.
+
+    When ``paper_like=True``, ``los_days`` mirrors the reference notebook's
+    modulo-24-hour representation (``timedelta.seconds / 3600``), while
+    ``los_hours`` remains the true total LOS in hours so cohort filters keep
+    using the cleaned duration semantics.
+    """
 
     _require_columns(
         base_admissions,
@@ -572,7 +1049,10 @@ def build_demographics_table(base_admissions: pd.DataFrame) -> pd.DataFrame:
 
     age_years = _calculate_age_years(df["admittime"], df["dob"])
     los_hours = (df["dischtime"] - df["admittime"]).dt.total_seconds() / 3600.0
-    los_days = los_hours / 24.0
+    if paper_like:
+        los_days = (df["dischtime"] - df["admittime"]).dt.seconds / 3600.0
+    else:
+        los_days = los_hours / 24.0
     insurance_group = df["insurance"].map(map_insurance)
 
     demographics = pd.DataFrame(
@@ -596,7 +1076,9 @@ def build_demographics_table(base_admissions: pd.DataFrame) -> pd.DataFrame:
     return demographics.reset_index(drop=True)
 
 
-def build_eol_cohort(base_admissions: pd.DataFrame, demographics: pd.DataFrame) -> pd.DataFrame:
+def build_eol_cohort(
+    base_admissions: pd.DataFrame, demographics: pd.DataFrame
+) -> pd.DataFrame:
     """Build the end-of-life cohort used for treatment-disparity analysis."""
 
     _require_columns(
@@ -615,9 +1097,11 @@ def build_eol_cohort(base_admissions: pd.DataFrame, demographics: pd.DataFrame) 
     discharge_location = df["discharge_location"].fillna("").str.upper()
     is_deceased = df["hospital_expire_flag"].fillna(0).astype(int) == 1
     is_hospice = discharge_location.str.contains("HOSPICE", na=False)
-    is_snf = discharge_location.str.contains(r"SKILLED NURSING|\bSNF\b", na=False, regex=True)
+    is_snf = discharge_location.str.contains(
+        r"SKILLED NURSING|\bSNF\b", na=False, regex=True
+    )
 
-    include = (df["los_hours"] > 24) & (is_deceased | is_hospice | is_snf)
+    include = (df["los_hours"] >= 6) & (is_deceased | is_hospice | is_snf)
     df = df.loc[include].copy()
     df["discharge_category"] = "Skilled Nursing Facility"
     df.loc[is_hospice.loc[df.index], "discharge_category"] = "Hospice"
@@ -626,14 +1110,42 @@ def build_eol_cohort(base_admissions: pd.DataFrame, demographics: pd.DataFrame) 
     return df.reset_index(drop=True)
 
 
-def build_all_cohort(base_admissions: pd.DataFrame, icustays: pd.DataFrame) -> pd.DataFrame:
-    """Build the admission-level cohort with at least one ICU stay."""
+def build_all_cohort(
+    base_admissions: pd.DataFrame, icustays: pd.DataFrame
+) -> pd.DataFrame:
+    """Build the adult admission-level cohort with at least 12 cumulative ICU hours."""
 
-    _require_columns(base_admissions, ["hadm_id"], "base_admissions")
-    _require_columns(icustays, ["hadm_id", "icustay_id", "intime", "outtime"], "icustays")
+    _require_columns(
+        base_admissions, ["hadm_id", "admittime", "dob"], "base_admissions"
+    )
+    _require_columns(
+        icustays, ["hadm_id", "icustay_id", "intime", "outtime"], "icustays"
+    )
 
-    qualifying = icustays["hadm_id"].dropna().drop_duplicates()
-    df = base_admissions.loc[base_admissions["hadm_id"].isin(set(qualifying))].copy()
+    base = base_admissions.copy()
+    base["admittime"] = _to_datetime(base["admittime"])
+    base["dob"] = _to_datetime(base["dob"])
+    adult_hadm_ids = set(
+        base.loc[_calculate_age_years(base["admittime"], base["dob"]) >= 18, "hadm_id"]
+        .dropna()
+        .tolist()
+    )
+
+    icu = icustays.copy()
+    icu["intime"] = _to_datetime(icu["intime"])
+    icu["outtime"] = _to_datetime(icu["outtime"])
+    icu["icu_hours"] = (icu["outtime"] - icu["intime"]).dt.total_seconds() / 3600.0
+    icu["hadm_id"] = pd.to_numeric(icu["hadm_id"], errors="coerce")
+    qualifying = set(
+        icu.loc[icu["icu_hours"].ge(0)]
+        .dropna(subset=["hadm_id"])
+        .groupby("hadm_id", sort=True)["icu_hours"]
+        .sum()
+        .loc[lambda totals: totals >= 12]
+        .index.astype(int)
+        .tolist()
+    )
+    df = base.loc[base["hadm_id"].isin(adult_hadm_ids & qualifying)].copy()
     df = df.sort_values("hadm_id").drop_duplicates("hadm_id")
     return df.reset_index(drop=True)
 
@@ -688,13 +1200,26 @@ def _duration_totals_by_hadm(
     if durations.empty:
         return pd.DataFrame(columns=["hadm_id", output_col])
 
-    bridge = icustays[["icustay_id", "hadm_id"]].drop_duplicates()
+    bridge_columns = ["icustay_id", "hadm_id", "intime", "outtime"]
+    bridge = icustays[bridge_columns].drop_duplicates()
     df = durations.copy()
     if "hadm_id" in df.columns:
         df = df.drop(columns=["hadm_id"])
     df["starttime"] = _to_datetime(df["starttime"])
     df["endtime"] = _to_datetime(df["endtime"])
     df = df.merge(bridge, on="icustay_id", how="inner", validate="many_to_one")
+    df["intime"] = _to_datetime(df["intime"])
+    df["outtime"] = _to_datetime(df["outtime"])
+    df = df.loc[
+        df["starttime"].notna()
+        & df["endtime"].notna()
+        & df["intime"].notna()
+        & df["outtime"].notna()
+        & df["starttime"].ge(df["intime"])
+        & df["endtime"].le(df["outtime"])
+    ].copy()
+    if df.empty:
+        return pd.DataFrame(columns=["hadm_id", output_col])
 
     totals = (
         df.groupby("hadm_id", sort=True)
@@ -709,10 +1234,18 @@ def build_treatment_totals(
     icustays: pd.DataFrame,
     ventdurations: pd.DataFrame,
     vasopressordurations: pd.DataFrame,
+    paper_like: bool = False,
 ) -> pd.DataFrame:
-    """Compute admission-level ventilation and vasopressor totals in minutes."""
+    """Compute admission-level ventilation and vasopressor totals in minutes.
 
-    _require_columns(icustays, ["hadm_id", "icustay_id", "intime", "outtime"], "icustays")
+    ``paper_like`` is retained for API compatibility, but ICU-window filtering
+    now applies to both paths.
+    """
+
+    _require_columns(
+        icustays, ["hadm_id", "icustay_id", "intime", "outtime"], "icustays"
+    )
+    del paper_like
 
     vent_totals = _duration_totals_by_hadm(
         ventdurations,
@@ -751,7 +1284,11 @@ def build_note_corpus(
 
     grouped = (
         notes.groupby("hadm_id", sort=True)["text"]
-        .apply(lambda series: prepare_note_text_for_sentiment(" ".join(t for t in series if t)))
+        .apply(
+            lambda series: prepare_note_text_for_sentiment(
+                " ".join(t for t in series if t)
+            )
+        )
         .reset_index(name="note_text")
     )
 
@@ -765,83 +1302,149 @@ def build_note_corpus(
 
 
 def _build_note_labels_from_corpus(note_corpus: pd.DataFrame) -> pd.DataFrame:
-    """Create the two note-derived labels from an admission-level note corpus."""
+    """Create the two note-derived labels from an admission-level note corpus.
+
+    Noncompliance uses the concatenated corpus text.  Autopsy labels are
+    set to NaN here; the caller (``build_note_labels``) overwrites them with
+    line-level results computed from raw noteevents before concatenation.
+    NaN means "autopsy not mentioned" and those rows are excluded from
+    proxy model training (but still scored).
+    """
 
     _require_columns(note_corpus, ["hadm_id", "note_text"], "note_corpus")
     lowered = note_corpus["note_text"].fillna("").astype(str).str.lower()
     noncompliance = lowered.apply(_classify_noncompliance)
-    autopsy = lowered.apply(_classify_autopsy)
 
     labels = pd.DataFrame(
         {
             "hadm_id": note_corpus["hadm_id"],
             "noncompliance_label": noncompliance.astype(int),
-            "autopsy_label": autopsy.astype(int),
+            "autopsy_label": float("nan"),
         }
     )
     labels = labels.sort_values("hadm_id").drop_duplicates("hadm_id")
     return labels.reset_index(drop=True)
 
 
-def build_note_labels(
+def _build_autopsy_labels_from_raw_notes(
     noteevents: pd.DataFrame,
-    all_hadm_ids: Iterable[int] | None = None,
-    categories: Iterable[str] | None = None,
-) -> pd.DataFrame:
-    """Create admission-level noncompliance and autopsy labels from notes.
+    *,
+    autopsy_label_mode: str = AUTOPSY_LABEL_MODE_CORRECTED,
+) -> dict[int, int]:
+    """Compute admission-level autopsy labels from raw (pre-concatenation) notes.
 
-    By default labels are derived from all non-error notes. The optional
-    ``categories`` filter is provided for API symmetry, but the study pipeline
-    should typically leave it unset so labels continue to use all note types.
+    Mirrors the reference notebook: iterate each note's lines individually so
+    that consent/decline keywords are only matched on lines containing 'autopsy'.
     """
+    admission_lines: dict[int, list[str]] = defaultdict(list)
+    for hadm_id, text in zip(noteevents["hadm_id"], noteevents["text"]):
+        raw = (
+            str(text)
+            if text is not None and not (isinstance(text, float) and pd.isna(text))
+            else ""
+        )
+        for line in raw.lower().split("\n"):
+            admission_lines[int(hadm_id)].append(line)
 
+    return {
+        hadm_id: _classify_autopsy_lines(lines, mode=autopsy_label_mode)
+        for hadm_id, lines in admission_lines.items()
+    }
+
+
+def _build_note_labels_for_mode(
+    noteevents: pd.DataFrame,
+    *,
+    all_hadm_ids: Iterable[int] | None,
+    categories: Iterable[str] | None,
+    autopsy_label_mode: str,
+) -> pd.DataFrame:
     _require_columns(noteevents, ["hadm_id", "text", "iserror"], "noteevents")
+
+    filtered = _filter_non_error_notes(noteevents)
+    filtered = _filter_note_categories(filtered, categories=categories)
     corpus = build_note_corpus(
         noteevents,
         all_hadm_ids=all_hadm_ids,
         categories=categories,
     )
-    return _build_note_labels_from_corpus(corpus)
+    labels = _build_note_labels_from_corpus(corpus)
+
+    autopsy_map = _build_autopsy_labels_from_raw_notes(
+        filtered,
+        autopsy_label_mode=autopsy_label_mode,
+    )
+    labels["autopsy_label"] = labels["hadm_id"].map(autopsy_map)
+    return labels
 
 
-def build_note_artifacts_from_csv(
-    noteevents_csv_path: Path | str,
+def build_note_labels(
+    noteevents: pd.DataFrame,
     all_hadm_ids: Iterable[int] | None = None,
     categories: Iterable[str] | None = None,
-    corpus_categories: Iterable[str] | None = None,
-    label_categories: Iterable[str] | None = None,
-    chunksize: int = 100_000,
-) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Build the note corpus and note-derived labels from a large CSV in chunks.
+    autopsy_label_mode: str = AUTOPSY_LABEL_MODE_CORRECTED,
+) -> pd.DataFrame:
+    """Create admission-level noncompliance and autopsy labels from notes.
 
-    Parameters
-    ----------
-    categories:
-        Backward-compatible shared filter applied to both corpus and labels when
-        the more specific ``corpus_categories`` / ``label_categories`` are not
-        provided.
-    corpus_categories:
-        Category filter for the returned corpus. Use
-        ``["Discharge summary"]`` for sentiment features in the study workflow.
-    label_categories:
-        Category filter for label extraction. Leave as ``None`` in the study
-        workflow so noncompliance/autopsy labels continue to use all note types.
+    Normal Path
+        corrected autopsy labeling
+    Paper-like Path
+        notebook-faithful autopsy labeling
     """
 
-    normalized_hadm_ids = _normalize_hadm_ids(all_hadm_ids)
-    hadm_filter = set(normalized_hadm_ids) if normalized_hadm_ids is not None else None
+    normalized_mode = _normalize_autopsy_label_mode(autopsy_label_mode)
+    return _build_note_labels_for_mode(
+        noteevents,
+        all_hadm_ids=all_hadm_ids,
+        categories=categories,
+        autopsy_label_mode=normalized_mode,
+    )
+
+
+def _resolve_note_artifact_category_filters(
+    *,
+    categories: Iterable[str] | None,
+    corpus_categories: Iterable[str] | None,
+    label_categories: Iterable[str] | None,
+) -> tuple[set[str] | None, set[str] | None]:
     if corpus_categories is None:
         corpus_categories = categories
     if label_categories is None:
         label_categories = categories
+    return (
+        _normalize_note_categories(corpus_categories),
+        _normalize_note_categories(label_categories),
+    )
 
-    normalized_corpus_categories = _normalize_note_categories(corpus_categories)
-    normalized_label_categories = _normalize_note_categories(label_categories)
+
+def _build_note_artifacts_from_csv_for_mode(
+    noteevents_csv_path: Path | str,
+    *,
+    all_hadm_ids: Iterable[int] | None,
+    categories: Iterable[str] | None,
+    corpus_categories: Iterable[str] | None,
+    label_categories: Iterable[str] | None,
+    autopsy_label_mode: str,
+    chunksize: int,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    normalized_hadm_ids = _normalize_hadm_ids(all_hadm_ids)
+    hadm_filter = set(normalized_hadm_ids) if normalized_hadm_ids is not None else None
+    normalized_corpus_categories, normalized_label_categories = (
+        _resolve_note_artifact_category_filters(
+            categories=categories,
+            corpus_categories=corpus_categories,
+            label_categories=label_categories,
+        )
+    )
 
     corpus_fragments: dict[int, list[str]] = defaultdict(list)
     label_fragments: dict[int, list[str]] = defaultdict(list)
+    autopsy_lines: dict[int, list[str]] = defaultdict(list)
     required_columns = ["hadm_id", "text", "iserror"]
-    if normalized_corpus_categories is not None or normalized_label_categories is not None:
+    if (
+        normalized_corpus_categories is not None
+        or normalized_label_categories is not None
+    ):
         required_columns.append("category")
 
     for chunk in _iter_csv_chunks(
@@ -862,27 +1465,41 @@ def build_note_artifacts_from_csv(
         if chunk.empty:
             continue
 
+        for hadm_id, raw_text in zip(chunk["hadm_id"], chunk["text"]):
+            raw = (
+                str(raw_text)
+                if raw_text is not None
+                and not (isinstance(raw_text, float) and pd.isna(raw_text))
+                else ""
+            )
+            for line in raw.lower().split("\n"):
+                stripped = line.strip()
+                if stripped:
+                    autopsy_lines[int(hadm_id)].append(stripped)
+
         chunk["text"] = chunk["text"].map(prepare_note_text_for_sentiment)
         chunk = chunk.loc[chunk["text"] != ""]
         if chunk.empty:
             continue
 
-        corpus_chunk = _filter_note_categories(chunk, categories=normalized_corpus_categories)
+        corpus_chunk = _filter_note_categories(
+            chunk, categories=normalized_corpus_categories
+        )
         if not corpus_chunk.empty:
-            grouped = (
-                corpus_chunk.groupby("hadm_id", sort=False)["text"]
-                .apply(lambda series: prepare_note_text_for_sentiment(" ".join(series)))
+            grouped = corpus_chunk.groupby("hadm_id", sort=False)["text"].apply(
+                lambda series: prepare_note_text_for_sentiment(" ".join(series))
             )
             for hadm_id, text in grouped.items():
                 if text:
                     corpus_fragments[int(hadm_id)].append(text)
 
-        label_chunk = _filter_note_categories(chunk, categories=normalized_label_categories)
+        label_chunk = _filter_note_categories(
+            chunk, categories=normalized_label_categories
+        )
         if label_chunk.empty:
             continue
-        grouped = (
-            label_chunk.groupby("hadm_id", sort=False)["text"]
-            .apply(lambda series: prepare_note_text_for_sentiment(" ".join(series)))
+        grouped = label_chunk.groupby("hadm_id", sort=False)["text"].apply(
+            lambda series: prepare_note_text_for_sentiment(" ".join(series))
         )
         for hadm_id, text in grouped.items():
             if text:
@@ -897,24 +1514,70 @@ def build_note_artifacts_from_csv(
         {
             "hadm_id": hadm_ids,
             "note_text": [
-                prepare_note_text_for_sentiment(" ".join(corpus_fragments.get(hadm_id, [])))
+                prepare_note_text_for_sentiment(
+                    " ".join(corpus_fragments.get(hadm_id, []))
+                )
                 for hadm_id in hadm_ids
             ],
         }
     )
-    corpus = corpus.sort_values("hadm_id").drop_duplicates("hadm_id").reset_index(drop=True)
+    corpus = (
+        corpus.sort_values("hadm_id").drop_duplicates("hadm_id").reset_index(drop=True)
+    )
     label_corpus = pd.DataFrame(
         {
             "hadm_id": hadm_ids,
             "note_text": [
-                prepare_note_text_for_sentiment(" ".join(label_fragments.get(hadm_id, [])))
+                prepare_note_text_for_sentiment(
+                    " ".join(label_fragments.get(hadm_id, []))
+                )
                 for hadm_id in hadm_ids
             ],
         }
     )
-    label_corpus = label_corpus.sort_values("hadm_id").drop_duplicates("hadm_id").reset_index(drop=True)
+    label_corpus = (
+        label_corpus.sort_values("hadm_id")
+        .drop_duplicates("hadm_id")
+        .reset_index(drop=True)
+    )
     labels = _build_note_labels_from_corpus(label_corpus)
+
+    autopsy_map = {
+        hadm_id: _classify_autopsy_lines(lines, mode=autopsy_label_mode)
+        for hadm_id, lines in autopsy_lines.items()
+    }
+    labels["autopsy_label"] = labels["hadm_id"].map(autopsy_map)
+
     return corpus, labels
+
+
+def build_note_artifacts_from_csv(
+    noteevents_csv_path: Path | str,
+    all_hadm_ids: Iterable[int] | None = None,
+    categories: Iterable[str] | None = None,
+    corpus_categories: Iterable[str] | None = None,
+    label_categories: Iterable[str] | None = None,
+    autopsy_label_mode: str = AUTOPSY_LABEL_MODE_CORRECTED,
+    chunksize: int = 100_000,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Build the note corpus and note-derived labels from a large CSV in chunks.
+
+    Normal Path
+        corrected autopsy labeling
+    Paper-like Path
+        notebook-faithful autopsy labeling
+    """
+
+    normalized_mode = _normalize_autopsy_label_mode(autopsy_label_mode)
+    return _build_note_artifacts_from_csv_for_mode(
+        noteevents_csv_path,
+        all_hadm_ids=all_hadm_ids,
+        categories=categories,
+        corpus_categories=corpus_categories,
+        label_categories=label_categories,
+        autopsy_label_mode=normalized_mode,
+        chunksize=chunksize,
+    )
 
 
 def build_note_corpus_from_csv(
@@ -938,6 +1601,7 @@ def build_note_labels_from_csv(
     noteevents_csv_path: Path | str,
     all_hadm_ids: Iterable[int] | None = None,
     categories: Iterable[str] | None = None,
+    autopsy_label_mode: str = AUTOPSY_LABEL_MODE_CORRECTED,
     chunksize: int = 100_000,
 ) -> pd.DataFrame:
     """Build note-derived labels from a large CSV in chunks.
@@ -950,6 +1614,7 @@ def build_note_labels_from_csv(
         noteevents_csv_path=noteevents_csv_path,
         all_hadm_ids=all_hadm_ids,
         label_categories=categories,
+        autopsy_label_mode=autopsy_label_mode,
         chunksize=chunksize,
     )
     return labels
@@ -963,47 +1628,28 @@ def identify_table2_itemids(d_items: pd.DataFrame) -> set[int]:
     return set(d_items.loc[matches, "itemid"].tolist())
 
 
-def build_chartevent_artifacts_from_csv(
-    chartevents_csv_path: Path | str,
-    d_items: pd.DataFrame,
-    allowed_labels: Iterable[str] | None = None,
-    all_hadm_ids: Iterable[int] | None = None,
-    chunksize: int = 500_000,
-) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Build the feature matrix and code-status targets from a large CSV in chunks."""
-
-    _require_columns(d_items, ["itemid", "label", "dbsource"], "d_items")
-
-    items = d_items.copy()
-    items["normalized_label"] = items["label"].map(_normalize_token)
-    if allowed_labels is not None:
-        allowed = {_normalize_token(label) for label in allowed_labels}
-        items = items.loc[items["normalized_label"].isin(allowed)].copy()
-    else:
-        allowed_itemids = identify_table2_itemids(items)
-        items = items.loc[items["itemid"].isin(allowed_itemids)].copy()
-
-    items["itemid"] = pd.to_numeric(items["itemid"], errors="coerce")
-    items = items.dropna(subset=["itemid"]).copy()
-    items["itemid"] = items["itemid"].astype(int)
-
-    feature_lookup = (
-        items[["itemid", "label"]]
-        .drop_duplicates("itemid")
-        .set_index("itemid")["label"]
-        .to_dict()
+def _resolve_chartevent_code_status_mode(
+    *,
+    paper_like: bool,
+    code_status_mode: str | None,
+) -> str:
+    return _task_normalize_code_status_mode(
+        code_status_mode
+        if code_status_mode is not None
+        else (CODE_STATUS_MODE_PAPER_LIKE if paper_like else CODE_STATUS_MODE_CORRECTED)
     )
-    feature_itemids = set(feature_lookup)
-    relevant_itemids = feature_itemids | set(CODE_STATUS_ITEMIDS)
-    normalized_hadm_ids = _normalize_hadm_ids(all_hadm_ids)
-    hadm_filter = set(normalized_hadm_ids) if normalized_hadm_ids is not None else None
 
-    feature_to_hadm: dict[str, set[int]] = defaultdict(set)
-    code_status_positive: dict[int, int] = {}
 
+def _iter_relevant_chartevent_csv_chunks(
+    chartevents_csv_path: Path | str,
+    *,
+    relevant_itemids: set[int],
+    hadm_filter: set[int] | None,
+    chunksize: int,
+):
     for chunk in _iter_csv_chunks(
         chartevents_csv_path,
-        required_columns=["hadm_id", "itemid", "value", "icustay_id"],
+        required_columns=["hadm_id", "itemid", "value", "icustay_id", "charttime"],
         chunksize=chunksize,
     ):
         chunk["hadm_id"] = pd.to_numeric(chunk["hadm_id"], errors="coerce")
@@ -1021,75 +1667,362 @@ def build_chartevent_artifacts_from_csv(
             continue
 
         chunk = chunk.loc[chunk["itemid"].isin(relevant_itemids)].copy()
-        if chunk.empty:
-            continue
+        if not chunk.empty:
+            yield chunk
 
-        feature_chunk = chunk.loc[chunk["itemid"].isin(feature_itemids)].copy()
-        if not feature_chunk.empty:
-            feature_chunk["label"] = feature_chunk["itemid"].map(feature_lookup)
-            feature_chunk["normalized_value"] = feature_chunk["value"].map(_normalize_token)
-            feature_chunk["display_label"] = feature_chunk["label"].map(_clean_feature_text)
-            feature_chunk["display_value"] = feature_chunk["value"].map(_clean_feature_text)
-            feature_chunk = feature_chunk.loc[
-                (feature_chunk["normalized_value"] != "")
-                & (feature_chunk["display_label"] != "")
-            ].copy()
-            if not feature_chunk.empty:
-                feature_chunk["feature_name"] = (
-                    feature_chunk["display_label"] + ": " + feature_chunk["display_value"]
-                )
-                unique_pairs = feature_chunk[["hadm_id", "feature_name"]].drop_duplicates()
-                for feature_name, group in unique_pairs.groupby("feature_name", sort=False):
-                    feature_to_hadm[str(feature_name)].update(group["hadm_id"].astype(int).tolist())
 
-        code_chunk = chunk.loc[chunk["itemid"].isin(CODE_STATUS_ITEMIDS)].copy()
-        if not code_chunk.empty:
-            normalized_value = code_chunk["value"].map(_normalize_token)
-            positives = normalized_value.apply(
-                lambda value: int(
-                    ("dnr" in value)
-                    or ("dni" in value)
-                    or ("comfort" in value)
-                    or ("cmo" in value)
-                )
-            )
-            for hadm_id, is_positive in zip(code_chunk["hadm_id"].astype(int), positives):
-                code_status_positive[hadm_id] = max(
-                    code_status_positive.get(hadm_id, 0),
-                    int(is_positive),
-                )
+def _accumulate_normal_feature_rows(
+    feature_chunk: pd.DataFrame,
+    *,
+    item_label_lookup: Mapping[int, str],
+    label_display_lookup: Mapping[str, str],
+    feature_to_hadm: dict[tuple[str, str], set[int]],
+    feature_value_display_lookup: dict[tuple[str, str], str],
+) -> None:
+    if feature_chunk.empty:
+        return
 
-    if normalized_hadm_ids is not None:
-        hadm_ids = normalized_hadm_ids
-    else:
-        hadm_ids = sorted(set().union(*feature_to_hadm.values())) if feature_to_hadm else []
+    working = feature_chunk.copy()
+    working["normalized_label"] = working["itemid"].map(item_label_lookup)
+    working["normalized_value"] = working["value"].map(_normalize_token)
+    working["display_label"] = working["normalized_label"].map(label_display_lookup)
+    working["display_value"] = working["value"].map(_clean_feature_text)
+    working = working.loc[
+        (working["normalized_value"] != "") & (working["display_label"] != "")
+    ].copy()
+    if working.empty:
+        return
 
-    feature_names = sorted(feature_to_hadm)
-    feature_data: dict[str, object] = {"hadm_id": hadm_ids}
+    keep_mask = ~working.apply(
+        lambda row: _is_numeric_heavy_or_freeform_feature_value(
+            str(getattr(row, "normalized_value")),
+            str(getattr(row, "display_value")),
+        ),
+        axis=1,
+    )
+    working = working.loc[keep_mask].copy()
+    if working.empty:
+        return
+
+    unique_pairs = working[
+        ["hadm_id", "normalized_label", "normalized_value", "display_value"]
+    ].drop_duplicates()
+    for row in unique_pairs.itertuples(index=False):
+        key = (str(row.normalized_label), str(row.normalized_value))
+        feature_value_display_lookup[key] = _choose_preferred_feature_text(
+            [feature_value_display_lookup.get(key, ""), str(row.display_value)]
+        )
+        feature_to_hadm[key].add(int(row.hadm_id))
+
+
+def _accumulate_paper_like_feature_rows(
+    feature_chunk: pd.DataFrame,
+    *,
+    item_raw_label_lookup: Mapping[int, str],
+    feature_to_hadm: dict[str, set[int]],
+) -> None:
+    if feature_chunk.empty:
+        return
+
+    working = feature_chunk.copy()
+    working["label"] = working["itemid"].map(item_raw_label_lookup)
+    paper_like_chunk = _paper_like_feature_sets_from_rows(
+        working[["hadm_id", "label", "value"]]
+    )
+    for feature_name, hadm_ids in paper_like_chunk.items():
+        feature_to_hadm[feature_name].update(hadm_ids)
+
+
+def _finalize_normal_feature_matrix(
+    *,
+    feature_to_hadm: Mapping[tuple[str, str], set[int]],
+    hadm_ids: Sequence[int],
+    label_display_lookup: Mapping[str, str],
+    feature_value_display_lookup: Mapping[tuple[str, str], str],
+) -> pd.DataFrame:
+    feature_keys = sorted(
+        feature_to_hadm,
+        key=lambda key: _feature_display_name(
+            key[0],
+            key[1],
+            label_display_lookup,
+            feature_value_display_lookup,
+        ).lower(),
+    )
+    feature_data: dict[str, object] = {"hadm_id": list(hadm_ids)}
     hadm_index = pd.Index(hadm_ids)
-    for feature_name in feature_names:
-        feature_data[feature_name] = hadm_index.isin(feature_to_hadm[feature_name]).astype(int)
+    for feature_key in feature_keys:
+        feature_name = _feature_display_name(
+            feature_key[0],
+            feature_key[1],
+            label_display_lookup,
+            feature_value_display_lookup,
+        )
+        feature_data[feature_name] = hadm_index.isin(
+            feature_to_hadm[feature_key]
+        ).astype(int)
+
     feature_matrix = pd.DataFrame(feature_data)
     if "hadm_id" not in feature_matrix.columns:
         feature_matrix = pd.DataFrame(columns=["hadm_id"])
-    feature_matrix = (
+    return (
         feature_matrix.sort_values("hadm_id")
         .drop_duplicates("hadm_id")
         .reset_index(drop=True)
     )
 
-    code_status_targets = pd.DataFrame(
-        {
-            "hadm_id": sorted(code_status_positive),
-            "code_status_dnr_dni_cmo": [
-                int(code_status_positive[hadm_id]) for hadm_id in sorted(code_status_positive)
-            ],
-        }
+
+def _build_normal_feature_matrix_from_events(
+    events: pd.DataFrame,
+    *,
+    items: pd.DataFrame,
+    normalized_hadm_ids: list[int] | None,
+) -> pd.DataFrame:
+    item_label_lookup, label_display_lookup = _build_feature_label_metadata(items)
+    merged = events.merge(
+        items[["itemid", "normalized_label"]],
+        on="itemid",
+        how="inner",
+        validate="many_to_one",
     )
-    code_status_targets = (
-        code_status_targets.sort_values("hadm_id")
+    feature_to_hadm: dict[tuple[str, str], set[int]] = defaultdict(set)
+    feature_value_display_lookup: dict[tuple[str, str], str] = {}
+    _accumulate_normal_feature_rows(
+        merged[["hadm_id", "itemid", "value", "normalized_label"]],
+        item_label_lookup=item_label_lookup,
+        label_display_lookup=label_display_lookup,
+        feature_to_hadm=feature_to_hadm,
+        feature_value_display_lookup=feature_value_display_lookup,
+    )
+
+    if normalized_hadm_ids is not None:
+        hadm_ids = normalized_hadm_ids
+    else:
+        hadm_ids = (
+            sorted(set().union(*feature_to_hadm.values())) if feature_to_hadm else []
+        )
+    return _finalize_normal_feature_matrix(
+        feature_to_hadm=feature_to_hadm,
+        hadm_ids=hadm_ids,
+        label_display_lookup=label_display_lookup,
+        feature_value_display_lookup=feature_value_display_lookup,
+    )
+
+
+def _build_paper_like_feature_matrix_from_events(
+    events: pd.DataFrame,
+    *,
+    items: pd.DataFrame,
+    normalized_hadm_ids: list[int] | None,
+) -> pd.DataFrame:
+    merged = events.merge(
+        items[["itemid", "label"]],
+        on="itemid",
+        how="inner",
+        validate="many_to_one",
+    )
+    feature_to_hadm = _paper_like_feature_sets_from_rows(
+        merged[["hadm_id", "label", "value"]]
+    )
+    if normalized_hadm_ids is not None:
+        hadm_ids = normalized_hadm_ids
+    else:
+        hadm_ids = (
+            sorted(set().union(*feature_to_hadm.values())) if feature_to_hadm else []
+        )
+    return _binary_feature_matrix_from_feature_sets(feature_to_hadm, hadm_ids)
+
+
+def _accumulate_corrected_code_status_rows(
+    code_chunk: pd.DataFrame,
+    *,
+    code_status_positive: dict[int, int],
+    code_status_latest: dict[int, tuple[tuple[int, int, int], int]],
+    code_status_event_order_start: int,
+) -> int:
+    if code_chunk.empty:
+        return code_status_event_order_start
+
+    if "charttime" not in code_chunk.columns:
+        positives = code_chunk["value"].map(
+            lambda value: int(_task_is_positive_code_status_value(value))
+        )
+        for hadm_id, is_positive in zip(code_chunk["hadm_id"].astype(int), positives):
+            code_status_positive[hadm_id] = max(
+                code_status_positive.get(hadm_id, 0), int(is_positive)
+            )
+        return code_status_event_order_start
+
+    event_order = code_status_event_order_start
+    working = code_chunk.copy()
+    working["charttime"] = pd.to_datetime(working["charttime"], errors="coerce")
+    for row in working.itertuples(index=False):
+        hadm_id = int(row.hadm_id)
+        label = int(_task_is_positive_code_status_value(getattr(row, "value")))
+        charttime = getattr(row, "charttime")
+        has_charttime = int(not pd.isna(charttime))
+        charttime_value = int(charttime.value) if has_charttime else -1
+        sort_key = (has_charttime, charttime_value, event_order)
+        event_order += 1
+        previous = code_status_latest.get(hadm_id)
+        if previous is None or sort_key > previous[0]:
+            code_status_latest[hadm_id] = (sort_key, label)
+    return event_order
+
+
+def _accumulate_paper_like_code_status_rows(
+    code_chunk: pd.DataFrame,
+    *,
+    current_label: int | None,
+    targets: dict[int, int],
+) -> int | None:
+    for row in code_chunk.itertuples(index=False):
+        hadm_id = int(getattr(row, "hadm_id"))
+        current_label = _task_advance_paper_like_code_status_label(
+            current_label,
+            getattr(row, "value"),
+        )
+        if current_label is not None:
+            targets[hadm_id] = int(current_label)
+    return current_label
+
+
+def _finalize_code_status_targets(
+    *,
+    normalized_code_status_mode: str,
+    code_status_positive: Mapping[int, int],
+    code_status_latest: Mapping[int, tuple[tuple[int, int, int], int]],
+    code_status_paper_like: Mapping[int, int],
+) -> pd.DataFrame:
+    if normalized_code_status_mode == CODE_STATUS_MODE_PAPER_LIKE:
+        target_map = code_status_paper_like
+        values = [int(target_map[hadm_id]) for hadm_id in sorted(target_map)]
+    elif code_status_latest:
+        target_map = code_status_latest
+        values = [int(target_map[hadm_id][1]) for hadm_id in sorted(target_map)]
+    else:
+        target_map = code_status_positive
+        values = [int(target_map[hadm_id]) for hadm_id in sorted(target_map)]
+
+    return (
+        pd.DataFrame(
+            {
+                "hadm_id": sorted(target_map),
+                "code_status_dnr_dni_cmo": values,
+            }
+        )
+        .sort_values("hadm_id")
         .drop_duplicates("hadm_id")
         .reset_index(drop=True)
+    )
+
+
+def build_chartevent_artifacts_from_csv(
+    chartevents_csv_path: Path | str,
+    d_items: pd.DataFrame,
+    allowed_labels: Iterable[str] | None = None,
+    all_hadm_ids: Iterable[int] | None = None,
+    chunksize: int = 500_000,
+    paper_like: bool = False,
+    code_status_mode: str | None = None,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Build the feature matrix and code-status targets from a large CSV in chunks."""
+
+    items = _filter_chartevent_items(
+        d_items,
+        allowed_labels=allowed_labels,
+        paper_like=paper_like,
+    )
+    item_label_lookup = _build_feature_label_metadata(items)[0]
+    item_raw_label_lookup = (
+        items.drop_duplicates("itemid").set_index("itemid")["label"].to_dict()
+    )
+    feature_itemids = set(item_label_lookup)
+    relevant_itemids = feature_itemids | set(CODE_STATUS_ITEMIDS)
+    normalized_hadm_ids = _normalize_hadm_ids(all_hadm_ids)
+    hadm_filter = set(normalized_hadm_ids) if normalized_hadm_ids is not None else None
+    normalized_code_status_mode = _resolve_chartevent_code_status_mode(
+        paper_like=paper_like,
+        code_status_mode=code_status_mode,
+    )
+
+    paper_like_feature_to_hadm: dict[str, set[int]] = defaultdict(set)
+    feature_to_hadm: dict[tuple[str, str], set[int]] = defaultdict(set)
+    feature_value_display_lookup: dict[tuple[str, str], str] = {}
+    code_status_positive: dict[int, int] = {}
+    code_status_latest: dict[int, tuple[tuple[int, int, int], int]] = {}
+    code_status_paper_like: dict[int, int] = {}
+    code_status_current_label: int | None = None
+    code_status_event_order = 0
+
+    item_label_lookup, label_display_lookup = _build_feature_label_metadata(items)
+    for chunk in _iter_relevant_chartevent_csv_chunks(
+        chartevents_csv_path,
+        relevant_itemids=relevant_itemids,
+        hadm_filter=hadm_filter,
+        chunksize=chunksize,
+    ):
+        feature_chunk = chunk.loc[chunk["itemid"].isin(feature_itemids)].copy()
+        if paper_like:
+            _accumulate_paper_like_feature_rows(
+                feature_chunk,
+                item_raw_label_lookup=item_raw_label_lookup,
+                feature_to_hadm=paper_like_feature_to_hadm,
+            )
+        else:
+            _accumulate_normal_feature_rows(
+                feature_chunk,
+                item_label_lookup=item_label_lookup,
+                label_display_lookup=label_display_lookup,
+                feature_to_hadm=feature_to_hadm,
+                feature_value_display_lookup=feature_value_display_lookup,
+            )
+
+        code_chunk = chunk.loc[chunk["itemid"].isin(CODE_STATUS_ITEMIDS)].copy()
+        if normalized_code_status_mode == CODE_STATUS_MODE_PAPER_LIKE:
+            code_status_current_label = _accumulate_paper_like_code_status_rows(
+                code_chunk,
+                current_label=code_status_current_label,
+                targets=code_status_paper_like,
+            )
+        else:
+            code_status_event_order = _accumulate_corrected_code_status_rows(
+                code_chunk,
+                code_status_positive=code_status_positive,
+                code_status_latest=code_status_latest,
+                code_status_event_order_start=code_status_event_order,
+            )
+
+    if normalized_hadm_ids is not None:
+        hadm_ids = normalized_hadm_ids
+    elif paper_like:
+        hadm_ids = (
+            sorted(set().union(*paper_like_feature_to_hadm.values()))
+            if paper_like_feature_to_hadm
+            else []
+        )
+    else:
+        hadm_ids = (
+            sorted(set().union(*feature_to_hadm.values())) if feature_to_hadm else []
+        )
+
+    if paper_like:
+        feature_matrix = _binary_feature_matrix_from_feature_sets(
+            paper_like_feature_to_hadm, hadm_ids
+        )
+    else:
+        feature_matrix = _finalize_normal_feature_matrix(
+            feature_to_hadm=feature_to_hadm,
+            hadm_ids=hadm_ids,
+            label_display_lookup=label_display_lookup,
+            feature_value_display_lookup=feature_value_display_lookup,
+        )
+
+    code_status_targets = _finalize_code_status_targets(
+        normalized_code_status_mode=normalized_code_status_mode,
+        code_status_positive=code_status_positive,
+        code_status_latest=code_status_latest,
+        code_status_paper_like=code_status_paper_like,
     )
     return feature_matrix, code_status_targets
 
@@ -1099,66 +2032,53 @@ def build_chartevent_feature_matrix(
     d_items: pd.DataFrame,
     allowed_labels: Iterable[str] | None = None,
     all_hadm_ids: Iterable[int] | None = None,
+    paper_like: bool = False,
 ) -> pd.DataFrame:
     """Build a binary admission-by-feature matrix from selected chart events."""
 
-    _require_columns(chartevents, ["hadm_id", "itemid", "value", "icustay_id"], "chartevents")
-    _require_columns(d_items, ["itemid", "label", "dbsource"], "d_items")
+    _require_columns(
+        chartevents, ["hadm_id", "itemid", "value", "icustay_id"], "chartevents"
+    )
 
     events = chartevents.copy()
-    items = d_items.copy()
-    items["normalized_label"] = items["label"].map(_normalize_token)
-
-    if allowed_labels is not None:
-        allowed = {_normalize_token(label) for label in allowed_labels}
-        items = items.loc[items["normalized_label"].isin(allowed)].copy()
-    else:
-        allowed_itemids = identify_table2_itemids(items)
-        items = items.loc[items["itemid"].isin(allowed_itemids)].copy()
-
-    merged = events.merge(
-        items[["itemid", "label", "normalized_label"]],
-        on="itemid",
-        how="inner",
-        validate="many_to_one",
+    items = _filter_chartevent_items(
+        d_items,
+        allowed_labels=allowed_labels,
+        paper_like=paper_like,
     )
-    merged["normalized_value"] = merged["value"].map(_normalize_token)
-    merged["display_label"] = merged["label"].map(_clean_feature_text)
-    merged["display_value"] = merged["value"].map(_clean_feature_text)
-    merged = merged.loc[
-        (merged["normalized_value"] != "") & (merged["display_label"] != "")
-    ].copy()
 
-    if merged.empty:
-        result = pd.DataFrame(columns=["hadm_id"])
-    else:
-        merged["feature_name"] = merged["display_label"] + ": " + merged["display_value"]
-        pivot = (
-            merged.assign(feature_value=1)
-            .pivot_table(
-                index="hadm_id",
-                columns="feature_name",
-                values="feature_value",
-                aggfunc="max",
-                fill_value=0,
-            )
-            .reset_index()
+    normalized_hadm_ids = (
+        _normalize_hadm_ids(all_hadm_ids) if all_hadm_ids is not None else None
+    )
+    if paper_like and normalized_hadm_ids is not None:
+        events["hadm_id"] = pd.to_numeric(events["hadm_id"], errors="coerce")
+        events = events.dropna(subset=["hadm_id"]).copy()
+        events["hadm_id"] = events["hadm_id"].astype(int)
+        events = events.loc[events["hadm_id"].isin(set(normalized_hadm_ids))].copy()
+
+    if paper_like:
+        return _build_paper_like_feature_matrix_from_events(
+            events,
+            items=items,
+            normalized_hadm_ids=normalized_hadm_ids,
         )
-        pivot.columns.name = None
-        result = pivot
 
+    result = _build_normal_feature_matrix_from_events(
+        events,
+        items=items,
+        normalized_hadm_ids=normalized_hadm_ids,
+    )
     if all_hadm_ids is not None:
-        hadm_frame = pd.DataFrame({"hadm_id": list(all_hadm_ids)})
-        result = hadm_frame.merge(result, on="hadm_id", how="left")
-
-    if "hadm_id" not in result.columns:
-        result = pd.DataFrame(columns=["hadm_id"])
+        result = pd.DataFrame({"hadm_id": list(all_hadm_ids)}).merge(
+            result, on="hadm_id", how="left"
+        )
 
     feature_cols = [col for col in result.columns if col != "hadm_id"]
     if feature_cols:
         result[feature_cols] = result[feature_cols].fillna(0).astype(int)
-    result = result.sort_values("hadm_id").drop_duplicates("hadm_id")
-    return result.reset_index(drop=True)
+    return (
+        result.sort_values("hadm_id").drop_duplicates("hadm_id").reset_index(drop=True)
+    )
 
 
 def build_chartevent_feature_matrix_from_csv(
@@ -1167,6 +2087,7 @@ def build_chartevent_feature_matrix_from_csv(
     allowed_labels: Iterable[str] | None = None,
     all_hadm_ids: Iterable[int] | None = None,
     chunksize: int = 500_000,
+    paper_like: bool = False,
 ) -> pd.DataFrame:
     """Build the binary feature matrix from a large chartevents CSV in chunks."""
 
@@ -1176,35 +2097,9 @@ def build_chartevent_feature_matrix_from_csv(
         allowed_labels=allowed_labels,
         all_hadm_ids=all_hadm_ids,
         chunksize=chunksize,
+        paper_like=paper_like,
     )
     return feature_matrix
-
-
-def z_normalize_scores(
-    df: pd.DataFrame,
-    columns: Sequence[str] | None = None,
-) -> pd.DataFrame:
-    """Apply independent z-score normalization to the requested score columns."""
-
-    normalized = df.copy()
-    if columns is None:
-        score_columns = [
-            column
-            for column in normalized.columns
-            if column != "hadm_id" and (column.endswith("_score") or column.endswith("_score_z"))
-        ]
-    else:
-        score_columns = list(columns)
-    for column in score_columns:
-        _require_columns(normalized, [column], "score_table")
-        values = normalized[column].astype(float)
-        mean = values.mean()
-        std = values.std(ddof=0)
-        if pd.isna(std) or std == 0:
-            normalized[column] = 0.0
-        else:
-            normalized[column] = (values - mean) / std
-    return normalized
 
 
 def build_acuity_scores(oasis: pd.DataFrame, sapsii: pd.DataFrame) -> pd.DataFrame:
@@ -1220,135 +2115,6 @@ def build_acuity_scores(oasis: pd.DataFrame, sapsii: pd.DataFrame) -> pd.DataFra
     return acuity.reset_index(drop=True)
 
 
-def build_proxy_probability_scores(
-    feature_matrix: pd.DataFrame,
-    note_labels: pd.DataFrame,
-    label_column: str,
-    estimator_factory: Callable[[], object] | None = None,
-) -> pd.DataFrame:
-    """Fit the proxy label model and return positive-class probabilities."""
-
-    _require_columns(feature_matrix, ["hadm_id"], "feature_matrix")
-    _require_columns(note_labels, ["hadm_id", label_column], "note_labels")
-
-    feature_columns = [column for column in feature_matrix.columns if column != "hadm_id"]
-    merged = feature_matrix.merge(
-        note_labels[["hadm_id", label_column]],
-        on="hadm_id",
-        how="inner",
-        validate="one_to_one",
-    ).sort_values("hadm_id")
-
-    feature_values = merged[feature_columns]
-    y = merged[label_column].astype(int)
-
-    if estimator_factory is None:
-        estimator = LogisticRegression(
-            penalty="l1",
-            C=DEFAULT_LOGISTIC_C,
-            solver="liblinear",
-            max_iter=1000,
-        )
-    else:
-        estimator = estimator_factory()
-
-    estimator.fit(feature_values, y)
-    probabilities = estimator.predict_proba(feature_values)
-    score_column = _score_column_name(label_column)
-
-    scores = pd.DataFrame(
-        {
-            "hadm_id": merged["hadm_id"].tolist(),
-            score_column: _extract_positive_class_probabilities(probabilities).astype(float),
-        }
-    )
-    scores = scores.sort_values("hadm_id").drop_duplicates("hadm_id")
-    return scores.reset_index(drop=True)
-
-
-def build_negative_sentiment_scores(
-    note_corpus: pd.DataFrame,
-    sentiment_fn: Callable[[str], tuple[float, float]] | None = None,
-) -> pd.DataFrame:
-    """Convert note sentiment polarity into an admission-level mistrust score."""
-
-    _require_columns(note_corpus, ["hadm_id", "note_text"], "note_corpus")
-
-    if sentiment_fn is None:
-        sentiment_fn = pattern_sentiment
-
-    rows = []
-    for row in note_corpus.sort_values("hadm_id").itertuples(index=False):
-        text = prepare_note_text_for_sentiment(row.note_text)
-        if text == "":
-            score = 0.0
-        else:
-            polarity, _ = sentiment_fn(text)
-            score = -1.0 * float(polarity)
-        rows.append({"hadm_id": row.hadm_id, "negative_sentiment_score": score})
-
-    scores = pd.DataFrame(rows).sort_values("hadm_id").drop_duplicates("hadm_id")
-    return scores.reset_index(drop=True)
-
-
-def build_mistrust_score_table(
-    feature_matrix: pd.DataFrame,
-    note_labels: pd.DataFrame,
-    note_corpus: pd.DataFrame,
-    estimator_factory: Callable[[], object] | None = None,
-    sentiment_fn: Callable[[str], tuple[float, float]] | None = None,
-) -> pd.DataFrame:
-    """Build and normalize the three admission-level mistrust score vectors."""
-
-    _require_columns(feature_matrix, ["hadm_id"], "feature_matrix")
-    _require_columns(
-        note_labels,
-        ["hadm_id", "noncompliance_label", "autopsy_label"],
-        "note_labels",
-    )
-    _require_columns(note_corpus, ["hadm_id", "note_text"], "note_corpus")
-
-    noncompliance_scores = build_proxy_probability_scores(
-        feature_matrix=feature_matrix,
-        note_labels=note_labels,
-        label_column="noncompliance_label",
-        estimator_factory=estimator_factory,
-    )
-    autopsy_scores = build_proxy_probability_scores(
-        feature_matrix=feature_matrix,
-        note_labels=note_labels,
-        label_column="autopsy_label",
-        estimator_factory=estimator_factory,
-    )
-    negative_sentiment_scores = build_negative_sentiment_scores(
-        note_corpus,
-        sentiment_fn=sentiment_fn,
-    )
-
-    merged = (
-        noncompliance_scores.merge(autopsy_scores, on="hadm_id", how="inner")
-        .merge(negative_sentiment_scores, on="hadm_id", how="inner")
-        .sort_values("hadm_id")
-    )
-    normalized = z_normalize_scores(
-        merged,
-        columns=[
-            "noncompliance_score",
-            "autopsy_score",
-            "negative_sentiment_score",
-        ],
-    )
-    normalized = normalized.rename(
-        columns={
-            "noncompliance_score": "noncompliance_score_z",
-            "autopsy_score": "autopsy_score_z",
-            "negative_sentiment_score": "negative_sentiment_score_z",
-        }
-    )
-    normalized = normalized.sort_values("hadm_id").drop_duplicates("hadm_id")
-    return normalized.reset_index(drop=True)
-
-
 def _build_gender_one_hot(df: pd.DataFrame) -> pd.DataFrame:
     output = pd.DataFrame({"hadm_id": df["hadm_id"]})
     gender = df["gender"].fillna("").str.upper()
@@ -1359,7 +2125,9 @@ def _build_gender_one_hot(df: pd.DataFrame) -> pd.DataFrame:
 
 def _build_insurance_one_hot(df: pd.DataFrame) -> pd.DataFrame:
     output = pd.DataFrame({"hadm_id": df["hadm_id"]})
-    insurance_column = "insurance_group" if "insurance_group" in df.columns else "insurance"
+    insurance_column = (
+        "insurance_group" if "insurance_group" in df.columns else "insurance"
+    )
     insurance = df[insurance_column].fillna("")
     output["insurance_private"] = (insurance == INSURANCE_PRIVATE).astype(int)
     output["insurance_public"] = (insurance == INSURANCE_PUBLIC).astype(int)
@@ -1379,15 +2147,10 @@ def _build_race_one_hot(df: pd.DataFrame) -> pd.DataFrame:
     return output
 
 
-def _build_code_status_target(chartevents: pd.DataFrame, d_items: pd.DataFrame) -> pd.DataFrame:
-    _require_columns(chartevents, ["hadm_id", "itemid", "value", "icustay_id"], "chartevents")
-    _require_columns(d_items, ["itemid", "label", "dbsource"], "d_items")
-    return _build_task_code_status_target(chartevents, itemids=CODE_STATUS_ITEMIDS)
-
-
 def build_code_status_target_from_csv(
     chartevents_csv_path: Path | str,
     chunksize: int = 500_000,
+    code_status_mode: str = CODE_STATUS_MODE_CORRECTED,
 ) -> pd.DataFrame:
     """Build the code-status target from a large chartevents CSV in chunks."""
 
@@ -1396,6 +2159,7 @@ def build_code_status_target_from_csv(
         d_items=pd.DataFrame(columns=["itemid", "label", "dbsource"]),
         all_hadm_ids=None,
         chunksize=chunksize,
+        code_status_mode=code_status_mode,
     )
     return code_status_targets
 
@@ -1419,7 +2183,7 @@ def _assemble_final_model_table(
     _require_columns(all_cohort, ["hadm_id"], "all_cohort")
     _require_columns(
         admissions,
-        ["hadm_id", "discharge_location", "hospital_expire_flag"],
+        ["hadm_id", "subject_id", "discharge_location", "hospital_expire_flag"],
         "admissions",
     )
     _require_columns(
@@ -1435,16 +2199,32 @@ def _assemble_final_model_table(
     _require_columns(code_status, ["hadm_id", "code_status_dnr_dni_cmo"], "code_status")
 
     cohort_hadm = pd.DataFrame(
-        {"hadm_id": sorted(pd.to_numeric(all_cohort["hadm_id"], errors="coerce").dropna().astype(int).unique())}
+        {
+            "hadm_id": sorted(
+                pd.to_numeric(all_cohort["hadm_id"], errors="coerce")
+                .dropna()
+                .astype(int)
+                .unique()
+            )
+        }
     )
     demo = cohort_hadm.merge(demographics, on="hadm_id", how="left")
 
     final = cohort_hadm.copy()
     final = final.merge(
+        admissions[["hadm_id", "subject_id"]].drop_duplicates("hadm_id"),
+        on="hadm_id",
+        how="left",
+    )
+    final = final.merge(
         demo[["hadm_id", "age", "los_days"]],
         on="hadm_id",
         how="left",
     )
+    for col in ("age", "los_days"):
+        std = final[col].std(ddof=0)
+        if std > 0:
+            final[col] = (final[col] - final[col].mean()) / std
     final = final.merge(_build_gender_one_hot(demo), on="hadm_id", how="left")
     final = final.merge(_build_insurance_one_hot(demo), on="hadm_id", how="left")
 
@@ -1468,7 +2248,7 @@ def _assemble_final_model_table(
     final["code_status_dnr_dni_cmo"] = pd.to_numeric(
         final["code_status_dnr_dni_cmo"],
         errors="coerce",
-    ).fillna(0).astype(int)
+    ).astype("Int64")
 
     fill_zero_columns = [
         "gender_f",
@@ -1477,7 +2257,6 @@ def _assemble_final_model_table(
         "insurance_public",
         "insurance_self_pay",
         "left_ama",
-        "code_status_dnr_dni_cmo",
         "in_hospital_mortality",
     ]
     if include_race:
@@ -1495,6 +2274,12 @@ def _assemble_final_model_table(
         if column in final.columns:
             final[column] = final[column].fillna(0).astype(int)
 
+    if final["subject_id"].isna().any():
+        raise ValueError(
+            "Final model table contains null subject_id values after admissions merge."
+        )
+    final["subject_id"] = pd.to_numeric(final["subject_id"], errors="raise").astype(int)
+
     final = final.sort_values("hadm_id").drop_duplicates("hadm_id")
     return final.reset_index(drop=True)
 
@@ -1509,13 +2294,25 @@ def build_final_model_table(  # pylint: disable=too-many-arguments,too-many-posi
     include_race: bool = True,
     include_mistrust: bool = True,
 ) -> pd.DataFrame:
-    """Assemble baseline, optional race, mistrust, and target columns."""
-    code_status = _build_code_status_target(chartevents, d_items)
-    return _assemble_final_model_table(
+    """Assemble the final model table from raw chartevents.
+
+    ``d_items`` is retained for API compatibility; the normal path uses the
+    fixed code-status itemids defined by the task layer.
+    """
+    _require_columns(
+        chartevents, ["hadm_id", "itemid", "value", "icustay_id"], "chartevents"
+    )
+    del d_items
+    code_status = _build_task_code_status_target(
+        chartevents,
+        itemids=CODE_STATUS_ITEMIDS,
+        code_status_mode=CODE_STATUS_MODE_CORRECTED,
+    )
+    return build_final_model_table_from_code_status_targets(
         demographics=demographics,
         all_cohort=all_cohort,
         admissions=admissions,
-        code_status=code_status,
+        code_status_targets=code_status,
         mistrust_scores=mistrust_scores,
         include_race=include_race,
         include_mistrust=include_mistrust,
@@ -1544,7 +2341,9 @@ def build_final_model_table_from_code_status_targets(  # pylint: disable=too-man
     )
 
 
-def write_minimal_deliverables(artifacts: dict[str, pd.DataFrame], output_dir: Path | str) -> None:
+def write_minimal_deliverables(
+    artifacts: dict[str, pd.DataFrame], output_dir: Path | str
+) -> None:
     """Write the required CSV deliverables to disk without index columns."""
 
     output_path = Path(output_dir)
@@ -1661,3 +2460,73 @@ def validate_database_environment(  # pylint: disable=too-many-locals
         "materialized_views": sorted(materialized_views.keys()),
         "supports_multiple_icustays_per_hadm": supports_multiple_icustays,
     }
+
+
+# ---------------------------------------------------------------------------
+# Compatibility Wrappers
+# ---------------------------------------------------------------------------
+
+
+def _call_model_compat(function_name: str, /, **kwargs):
+    """Delegate deprecated dataset wrappers to the model-owned implementation."""
+
+    model_module = _load_eol_mistrust_model_module()
+    return getattr(model_module, function_name)(**kwargs)
+
+
+def z_normalize_scores(
+    df: pd.DataFrame,
+    columns: Sequence[str] | None = None,
+) -> pd.DataFrame:
+    """Deprecated wrapper around the model-owned score normalization helper."""
+
+    return _call_model_compat("z_normalize_scores", score_table=df, columns=columns)
+
+
+def build_proxy_probability_scores(
+    feature_matrix: pd.DataFrame,
+    note_labels: pd.DataFrame,
+    label_column: str,
+    estimator_factory: Callable[[], object] | None = None,
+) -> pd.DataFrame:
+    """Deprecated wrapper around the model-owned proxy score helper."""
+
+    return _call_model_compat(
+        "build_proxy_probability_scores",
+        feature_matrix=feature_matrix,
+        note_labels=note_labels,
+        label_column=label_column,
+        estimator_factory=estimator_factory,
+    )
+
+
+def build_negative_sentiment_scores(
+    note_corpus: pd.DataFrame,
+    sentiment_fn: Callable[[str], tuple[float, float]] | None = None,
+) -> pd.DataFrame:
+    """Deprecated wrapper around the model-owned sentiment score helper."""
+
+    return _call_model_compat(
+        "build_negative_sentiment_mistrust_scores",
+        note_corpus=note_corpus,
+        sentiment_fn=sentiment_fn,
+    )
+
+
+def build_mistrust_score_table(
+    feature_matrix: pd.DataFrame,
+    note_labels: pd.DataFrame,
+    note_corpus: pd.DataFrame,
+    estimator_factory: Callable[[], object] | None = None,
+    sentiment_fn: Callable[[str], tuple[float, float]] | None = None,
+) -> pd.DataFrame:
+    """Deprecated wrapper around the model-owned mistrust table builder."""
+
+    return _call_model_compat(
+        "build_mistrust_score_table",
+        feature_matrix=feature_matrix,
+        note_labels=note_labels,
+        note_corpus=note_corpus,
+        estimator_factory=estimator_factory,
+        sentiment_fn=sentiment_fn,
+    )

@@ -5,6 +5,12 @@ from unittest.mock import patch
 
 import pandas as pd
 
+from pyhealth.models.eol_mistrust import (
+    build_mistrust_score_table as _model_build_mistrust_score_table,
+    build_negative_sentiment_mistrust_scores as _model_build_negative_sentiment_scores,
+    build_proxy_probability_scores as _model_build_proxy_probability_scores,
+)
+
 
 def _load_eol_mistrust_module():
     module_path = (
@@ -208,7 +214,7 @@ class TestEOLMistrustModuleImplementation(unittest.TestCase):
                 {
                     "hadm_id": 303,
                     "category": "Physician",
-                    "text": "Patient remained non-adher with follow up after counseling.",
+                    "text": "Patient remained non-adher with follow up after counseling.\nFamily declined autopsy.",
                     "iserror": None,
                 },
                 {
@@ -439,7 +445,7 @@ class TestEOLMistrustModuleImplementation(unittest.TestCase):
         }
 
     def _build_mistrust_scores(self):
-        build_mistrust_score_table = self._get_callable("build_mistrust_score_table")
+        build_mistrust_score_table = _model_build_mistrust_score_table
         probability_sequences = [
             [0.05, 0.90, 0.10, 0.80, 0.20, 0.40],
             [0.15, 0.70, 0.20, 0.30, 0.60, 0.50],
@@ -453,7 +459,7 @@ class TestEOLMistrustModuleImplementation(unittest.TestCase):
 
         sentiment_map = {
             "Patient was NONCOMPLIANT with care plan. Family provided AUTOPSY consent.": -0.6,
-            "Patient remained non-adher with follow up after counseling.": -0.2,
+            "Patient remained non-adher with follow up after counseling. Family declined autopsy.": -0.2,
             "Patient refuses medication.": 0.1,
             "Patient refused treatment. Date:[**5-1-18**]": -0.4,
             "": 0.0,
@@ -485,12 +491,14 @@ class TestEOLMistrustModuleImplementation(unittest.TestCase):
 
     def test_eol_cohort_applies_los_and_discharge_criteria(self):
         eol = self._build_eol()
-        self.assertEqual(set(eol["hadm_id"]), {302})
+        self.assertEqual(set(eol["hadm_id"]), {302, 303, 304})
         by_hadm = eol.set_index("hadm_id")
         self.assertEqual(by_hadm.loc[302, "discharge_category"], "Hospice")
+        self.assertEqual(by_hadm.loc[303, "discharge_category"], "Skilled Nursing Facility")
+        self.assertEqual(by_hadm.loc[304, "discharge_category"], "Deceased")
         self._assert_hadm_unique(eol, "EOL cohort")
 
-    def test_eol_cohort_requires_stay_longer_than_twenty_four_hours(self):
+    def test_eol_cohort_requires_stay_of_at_least_six_hours(self):
         build_base_admissions = self._get_callable("build_base_admissions")
         build_demographics_table = self._get_callable("build_demographics_table")
         build_eol_cohort = self._get_callable("build_eol_cohort")
@@ -500,7 +508,7 @@ class TestEOLMistrustModuleImplementation(unittest.TestCase):
                     "hadm_id": 920,
                     "subject_id": 920,
                     "admittime": "2100-09-01 00:00:00",
-                    "dischtime": "2100-09-02 00:00:00",
+                    "dischtime": "2100-09-01 06:00:00",
                     "ethnicity": "WHITE",
                     "insurance": "Medicare",
                     "discharge_location": "HOME HOSPICE",
@@ -511,7 +519,7 @@ class TestEOLMistrustModuleImplementation(unittest.TestCase):
                     "hadm_id": 921,
                     "subject_id": 921,
                     "admittime": "2100-09-01 00:00:00",
-                    "dischtime": "2100-09-02 00:01:00",
+                    "dischtime": "2100-09-01 05:59:00",
                     "ethnicity": "BLACK/AFRICAN AMERICAN",
                     "insurance": "Private",
                     "discharge_location": "HOME HOSPICE",
@@ -530,8 +538,8 @@ class TestEOLMistrustModuleImplementation(unittest.TestCase):
         base = build_base_admissions(admissions, patients)
         demographics = build_demographics_table(base)
         eol = build_eol_cohort(base, demographics)
-        self.assertNotIn(920, set(eol["hadm_id"]))
-        self.assertIn(921, set(eol["hadm_id"]))
+        self.assertIn(920, set(eol["hadm_id"]))
+        self.assertNotIn(921, set(eol["hadm_id"]))
 
     def test_eol_cohort_size_is_within_expected_mimic_range(self):
         self._pending_real_data(
@@ -794,7 +802,7 @@ class TestEOLMistrustModuleImplementation(unittest.TestCase):
             "Noncompliance label prevalence on real data should be between 1% and 30%."
         )
 
-    def test_autopsy_label_distinguishes_consent_decline_and_ambiguous_mentions(self):
+    def test_autopsy_label_requires_consent_agree_or_request_on_autopsy_line(self):
         build_note_labels = self._get_callable("build_note_labels")
         notes = pd.DataFrame(
             [
@@ -816,12 +824,29 @@ class TestEOLMistrustModuleImplementation(unittest.TestCase):
                     "text": "Autopsy was discussed with the family.",
                     "iserror": 0,
                 },
+                {
+                    "hadm_id": 4,
+                    "category": "Nursing",
+                    "text": "Family agreed to autopsy after lengthy discussion.",
+                    "iserror": 0,
+                },
+                {
+                    "hadm_id": 5,
+                    "category": "Nursing",
+                    "text": "Family requested autopsy be performed.",
+                    "iserror": 0,
+                },
             ]
         )
         labels = build_note_labels(notes).set_index("hadm_id")
         self.assertEqual(labels.loc[1, "autopsy_label"], 1)
         self.assertEqual(labels.loc[2, "autopsy_label"], 0)
-        self.assertEqual(labels.loc[3, "autopsy_label"], 0)
+        self.assertTrue(
+            pd.isna(labels.loc[3, "autopsy_label"]),
+            msg="discussed without consent/agree/request → NaN (unlabeled)",
+        )
+        self.assertEqual(labels.loc[4, "autopsy_label"], 1)
+        self.assertEqual(labels.loc[5, "autopsy_label"], 1)
 
     def test_autopsy_positive_rate_is_within_expected_range(self):
         self._pending_real_data(
@@ -841,7 +866,7 @@ class TestEOLMistrustModuleImplementation(unittest.TestCase):
         self.assertEqual(cleaned, "Patient refused treatment Date:[**5-1-18**]")
 
     def test_noncompliance_proxy_model_uses_l1_liblinear_logistic_regression(self):
-        build_proxy_probability_scores = self._get_callable("build_proxy_probability_scores")
+        build_proxy_probability_scores = _model_build_proxy_probability_scores
         created = []
 
         class _RecordingLogisticRegression:
@@ -853,7 +878,7 @@ class TestEOLMistrustModuleImplementation(unittest.TestCase):
                 return self
 
             def predict_proba(self, X):
-                return [[0.25, 0.75] for _ in range(len(X))]
+                return [[0.5, 0.5]] * len(X)
 
         feature_matrix = pd.DataFrame(
             [{"hadm_id": 1, "feature_a": 1}, {"hadm_id": 2, "feature_a": 0}]
@@ -862,16 +887,20 @@ class TestEOLMistrustModuleImplementation(unittest.TestCase):
             [{"hadm_id": 1, "noncompliance_label": 1}, {"hadm_id": 2, "noncompliance_label": 0}]
         )
 
-        with patch.object(self.module, "LogisticRegression", _RecordingLogisticRegression):
+        with patch(
+            "pyhealth.models.eol_mistrust.LogisticRegression",
+            _RecordingLogisticRegression,
+        ):
             build_proxy_probability_scores(feature_matrix, labels, "noncompliance_label")
 
         self.assertEqual(created[0].get("penalty"), "l1")
         self.assertEqual(created[0].get("C"), 0.1)
         self.assertEqual(created[0].get("solver"), "liblinear")
-        self.assertEqual(created[0].get("max_iter"), 1000)
+        self.assertEqual(created[0].get("max_iter"), 100)
+        self.assertEqual(created[0].get("tol"), 0.01)
 
     def test_autopsy_proxy_model_uses_l1_liblinear_logistic_regression(self):
-        build_proxy_probability_scores = self._get_callable("build_proxy_probability_scores")
+        build_proxy_probability_scores = _model_build_proxy_probability_scores
         created = []
 
         class _RecordingLogisticRegression:
@@ -883,7 +912,7 @@ class TestEOLMistrustModuleImplementation(unittest.TestCase):
                 return self
 
             def predict_proba(self, X):
-                return [[0.40, 0.60] for _ in range(len(X))]
+                return [[0.5, 0.5]] * len(X)
 
         feature_matrix = pd.DataFrame(
             [{"hadm_id": 1, "feature_a": 1}, {"hadm_id": 2, "feature_a": 0}]
@@ -892,16 +921,20 @@ class TestEOLMistrustModuleImplementation(unittest.TestCase):
             [{"hadm_id": 1, "autopsy_label": 1}, {"hadm_id": 2, "autopsy_label": 0}]
         )
 
-        with patch.object(self.module, "LogisticRegression", _RecordingLogisticRegression):
+        with patch(
+            "pyhealth.models.eol_mistrust.LogisticRegression",
+            _RecordingLogisticRegression,
+        ):
             build_proxy_probability_scores(feature_matrix, labels, "autopsy_label")
 
         self.assertEqual(created[0].get("penalty"), "l1")
         self.assertEqual(created[0].get("C"), 0.1)
         self.assertEqual(created[0].get("solver"), "liblinear")
-        self.assertEqual(created[0].get("max_iter"), 1000)
+        self.assertEqual(created[0].get("max_iter"), 100)
+        self.assertEqual(created[0].get("tol"), 0.01)
 
     def test_proxy_models_fit_on_full_all_cohort_without_train_test_split(self):
-        build_proxy_probability_scores = self._get_callable("build_proxy_probability_scores")
+        build_proxy_probability_scores = _model_build_proxy_probability_scores
         estimator = _FakeProbEstimator([0.9, 0.2, 0.8, 0.1, 0.4, 0.3])
         feature_matrix = self._build_feature_matrix()
         labels = self._build_note_labels()
@@ -915,8 +948,8 @@ class TestEOLMistrustModuleImplementation(unittest.TestCase):
         self.assertEqual(len(estimator.fit_X), len(feature_matrix))
         self.assertEqual(set(scores["hadm_id"]), set(self.all_hadm_ids))
 
-    def test_proxy_model_scores_use_predict_proba_positive_class(self):
-        build_proxy_probability_scores = self._get_callable("build_proxy_probability_scores")
+    def test_proxy_model_scores_use_predict_proba(self):
+        build_proxy_probability_scores = _model_build_proxy_probability_scores
         estimator = _FakeProbEstimator([0.3, 0.8])
         feature_matrix = pd.DataFrame(
             [{"hadm_id": 1, "feature_a": 1}, {"hadm_id": 2, "feature_a": 0}]
@@ -933,7 +966,7 @@ class TestEOLMistrustModuleImplementation(unittest.TestCase):
         self.assertEqual(list(scores["noncompliance_score"]), [0.3, 0.8])
 
     def test_sentiment_mistrust_score_is_negative_polarity(self):
-        build_negative_sentiment_scores = self._get_callable("build_negative_sentiment_scores")
+        build_negative_sentiment_scores = _model_build_negative_sentiment_scores
         note_corpus = pd.DataFrame(
             [
                 {"hadm_id": 1, "note_text": "very negative"},
@@ -951,7 +984,7 @@ class TestEOLMistrustModuleImplementation(unittest.TestCase):
         self.assertAlmostEqual(scores.loc[3, "negative_sentiment_score"], -0.2)
 
     def test_negative_sentiment_scores_send_cleaned_text_to_sentiment_function(self):
-        build_negative_sentiment_scores = self._get_callable("build_negative_sentiment_scores")
+        build_negative_sentiment_scores = _model_build_negative_sentiment_scores
         seen = []
 
         def sentiment_fn(text):
@@ -1232,6 +1265,33 @@ class TestEOLMistrustModuleImplementation(unittest.TestCase):
         self.assertEqual(final.loc[305, "left_ama"], 1)
         self.assertEqual(final.loc[306, "left_ama"], 0)
 
+    def test_left_ama_target_accepts_truncated_mimic_discharge_location(self):
+        build_final_model_table = self._get_callable("build_final_model_table")
+        admissions = self._build_base().copy()
+        admissions.loc[admissions["hadm_id"] == 305, "discharge_location"] = "LEFT AGAINST MEDICAL ADVI"
+        final = build_final_model_table(
+            demographics=self._build_demographics(),
+            all_cohort=self._build_all(),
+            admissions=admissions,
+            chartevents=self.chartevents,
+            d_items=self.d_items,
+            mistrust_scores=pd.DataFrame(
+                [
+                    {
+                        "hadm_id": hadm_id,
+                        "noncompliance_score_z": 0.0,
+                        "autopsy_score_z": 0.0,
+                        "negative_sentiment_score_z": 0.0,
+                    }
+                    for hadm_id in self.all_hadm_ids
+                ]
+            ),
+            include_race=False,
+            include_mistrust=False,
+        ).set_index("hadm_id")
+        self.assertEqual(int(final.loc[305, "left_ama"]), 1)
+        self.assertEqual(int(final.loc[306, "left_ama"]), 0)
+
     def test_code_status_target_uses_required_itemids_and_values(self):
         build_code_status_target = getattr(self.module, "_build_code_status_target")
         target = build_code_status_target(self.chartevents, self.d_items).set_index("hadm_id")
@@ -1239,6 +1299,60 @@ class TestEOLMistrustModuleImplementation(unittest.TestCase):
         self.assertEqual(target.loc[303, "code_status_dnr_dni_cmo"], 1)
         self.assertEqual(target.loc[305, "code_status_dnr_dni_cmo"], 0)
         self.assertNotIn(304, set(target.index))
+
+    def test_code_status_target_recognizes_common_truncated_positive_values(self):
+        build_code_status_target = getattr(self.module, "_build_code_status_target")
+        chartevents = pd.DataFrame(
+            [
+                {"hadm_id": 401, "itemid": 128, "value": "Do Not Resuscita", "icustay_id": 4011},
+                {"hadm_id": 402, "itemid": 223758, "value": "Do Not Intubate", "icustay_id": 4021},
+                {"hadm_id": 403, "itemid": 128, "value": "CPR Not Indicate", "icustay_id": 4031},
+            ]
+        )
+
+        target = build_code_status_target(chartevents, self.d_items).set_index("hadm_id")
+        self.assertEqual(int(target.loc[401, "code_status_dnr_dni_cmo"]), 1)
+        self.assertEqual(int(target.loc[402, "code_status_dnr_dni_cmo"]), 1)
+        self.assertEqual(int(target.loc[403, "code_status_dnr_dni_cmo"]), 1)
+
+    def test_code_status_target_uses_last_charted_status_when_charttime_is_present(self):
+        build_code_status_target = getattr(self.module, "_build_code_status_target")
+        chartevents = pd.DataFrame(
+            [
+                {
+                    "hadm_id": 451,
+                    "itemid": 128,
+                    "value": "Full Code",
+                    "icustay_id": 4511,
+                    "charttime": "2100-01-01 01:00:00",
+                },
+                {
+                    "hadm_id": 451,
+                    "itemid": 128,
+                    "value": "Do Not Resuscita",
+                    "icustay_id": 4511,
+                    "charttime": "2100-01-01 03:00:00",
+                },
+                {
+                    "hadm_id": 452,
+                    "itemid": 128,
+                    "value": "DNR / DNI",
+                    "icustay_id": 4521,
+                    "charttime": "2100-01-02 01:00:00",
+                },
+                {
+                    "hadm_id": 452,
+                    "itemid": 128,
+                    "value": "Full Code",
+                    "icustay_id": 4521,
+                    "charttime": "2100-01-02 04:00:00",
+                },
+            ]
+        )
+
+        target = build_code_status_target(chartevents, self.d_items).set_index("hadm_id")
+        self.assertEqual(int(target.loc[451, "code_status_dnr_dni_cmo"]), 1)
+        self.assertEqual(int(target.loc[452, "code_status_dnr_dni_cmo"]), 0)
 
     def test_code_status_task_excludes_admissions_without_charted_code_status(self):
         build_code_status_target = getattr(self.module, "_build_code_status_target")
@@ -1324,9 +1438,9 @@ class TestEOLMistrustModuleImplementation(unittest.TestCase):
             "Downstream results must cover all three tasks across all six required configurations."
         )
 
-    def test_downstream_result_table_has_eighteen_task_configuration_entries(self):
+    def test_downstream_result_table_has_twelve_task_configuration_entries(self):
         self._pending_real_data(
-            "Downstream outputs should expose 18 task-configuration result entries: 3 tasks x 6 configurations."
+            "Downstream outputs should expose 12 task-configuration result entries: 2 tasks x 6 configurations."
         )
 
     def test_final_model_table_contains_required_downstream_feature_columns(self):
@@ -1449,7 +1563,7 @@ class TestEOLMistrustModuleImplementation(unittest.TestCase):
 
     def test_downstream_estimator_and_metric_match_spec(self):
         self._pending_real_data(
-            'Downstream evaluation must use LogisticRegression(penalty="l1", solver="liblinear", max_iter=1000) and roc_auc_score.'
+            'Downstream evaluation must use LogisticRegression(penalty="l1", solver="liblinear", max_iter=100, tol=0.01) and roc_auc_score.'
         )
 
     def test_downstream_auc_uses_predicted_probabilities_on_the_test_split(self):

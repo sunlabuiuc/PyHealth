@@ -110,6 +110,30 @@ class _AUCRecorder:
         return self.value
 
 
+class _GroupSplitRecorder:
+    def __init__(self):
+        self.calls = []
+
+    def __call__(self, n_splits, test_size, random_state):
+        self.calls.append(
+            {
+                "n_splits": n_splits,
+                "test_size": test_size,
+                "random_state": random_state,
+            }
+        )
+        outer = self
+
+        class _Splitter:
+            def split(self, X, y, groups):
+                del y
+                outer.calls[-1]["n_rows"] = len(X)
+                outer.calls[-1]["groups"] = list(pd.Series(groups).reset_index(drop=True))
+                yield [0, 1, 2, 3], [4, 5]
+
+        return _Splitter()
+
+
 class TestEOLMistrustModel(unittest.TestCase):
     """Model-level unit tests for the EOL mistrust workflow."""
 
@@ -189,6 +213,7 @@ class TestEOLMistrustModel(unittest.TestCase):
             [
                 {
                     "hadm_id": hadm_id,
+                    "subject_id": [201, 202, 201, 203, 202, 204][index],
                     "age": float(50 + index),
                     "los_days": float(1 + index),
                     "gender_f": int(index % 2 == 1),
@@ -237,7 +262,12 @@ class TestEOLMistrustModel(unittest.TestCase):
         self.assertTrue(expected.issubset(set(self.module.__all__)))
 
     def test_package_import_path_exposes_model_module_api(self):
-        imported = importlib.import_module("pyhealth.models.eol_mistrust")
+        try:
+            imported = importlib.import_module("pyhealth.models.eol_mistrust")
+        except ModuleNotFoundError as exc:
+            if exc.name == "dask":
+                self.skipTest("pyhealth.models package import currently requires optional dask dependency")
+            raise
         self.assertTrue(hasattr(imported, "EOLMistrustModel"))
         self.assertTrue(callable(getattr(imported, "build_mistrust_score_table")))
 
@@ -338,15 +368,48 @@ class TestEOLMistrustModel(unittest.TestCase):
         self.assertEqual(created[0].kwargs.get("C"), 0.1)
         self.assertEqual(created[0].kwargs.get("solver"), "liblinear")
         self.assertEqual(created[0].kwargs.get("max_iter"), 1000)
+        self.assertEqual(created[0].kwargs.get("tol"), 0.001)
         self.assertEqual(len(created[0].fit_X), len(self.feature_matrix))
         self.assertEqual(len(created[0].fit_y), len(self.note_labels))
 
-    def test_build_proxy_probability_scores_returns_positive_class_probabilities_sorted(self):
+    def test_fit_proxy_mistrust_model_returns_constant_estimator_for_single_class_labels(self):
+        fit_proxy_mistrust_model = self._get_callable("fit_proxy_mistrust_model")
+        note_labels = self.note_labels.assign(noncompliance_label=0)
+
+        estimator = fit_proxy_mistrust_model(
+            self.feature_matrix,
+            note_labels,
+            "noncompliance_label",
+            estimator_factory=lambda: (_ for _ in ()).throw(AssertionError("factory should not be called")),
+        )
+
+        probabilities = estimator.predict_proba(self.feature_matrix.drop(columns=["hadm_id"]))
+        self.assertTrue(all(row[1] == 0.0 for row in probabilities))
+        self.assertEqual(estimator.coef_.shape, (1, self.feature_matrix.shape[1] - 1))
+
+    def test_build_proxy_probability_scores_uses_predict_proba_not_decision_function(self):
+        """Proxy scores must use predict_proba (positive-class probability)
+        matching the paper methodology, not decision_function (raw log-odds)."""
+        import numpy as np
+
         build_proxy_probability_scores = self._get_callable("build_proxy_probability_scores")
         feature_matrix = self.feature_matrix.iloc[[2, 0, 1]].copy()
         note_labels = self.note_labels.iloc[[1, 2, 0]].copy()
-        estimator = _FakeProbEstimator([0.1, 0.7, 0.4])
 
+        # Estimator where decision_function and predict_proba return DIFFERENT values
+        class _SplitEstimator:
+            def __init__(self):
+                self.was_fit = False
+            def fit(self, X, y):
+                self.was_fit = True
+                self.coef_ = [[0.1] * X.shape[1]]
+                return self
+            def decision_function(self, X):
+                return np.array([-1.5, 2.3, 0.0])  # raw log-odds (unbounded)
+            def predict_proba(self, X):
+                return [[0.9, 0.1], [0.3, 0.7], [0.5, 0.5]]  # probabilities [0,1]
+
+        estimator = _SplitEstimator()
         scores = build_proxy_probability_scores(
             feature_matrix=feature_matrix,
             note_labels=note_labels,
@@ -355,7 +418,10 @@ class TestEOLMistrustModel(unittest.TestCase):
         )
 
         self.assertEqual(scores["hadm_id"].tolist(), [101, 102, 103])
-        self.assertEqual(scores["noncompliance_score"].tolist(), [0.1, 0.7, 0.4])
+        # Must match predict_proba[:,1] output, NOT decision_function
+        self.assertAlmostEqual(scores.iloc[0]["noncompliance_score"], 0.1)
+        self.assertAlmostEqual(scores.iloc[1]["noncompliance_score"], 0.7)
+        self.assertAlmostEqual(scores.iloc[2]["noncompliance_score"], 0.5)
         self.assertTrue(estimator.was_fit)
 
     def test_build_proxy_probability_scores_names_autopsy_output_column(self):
@@ -367,6 +433,20 @@ class TestEOLMistrustModel(unittest.TestCase):
             estimator_factory=lambda: _FakeProbEstimator([0.3, 0.6]),
         )
         self.assertEqual(scores.columns.tolist(), ["hadm_id", "autopsy_score"])
+
+    def test_build_proxy_probability_scores_returns_constant_scores_for_single_class_labels(self):
+        build_proxy_probability_scores = self._get_callable("build_proxy_probability_scores")
+        note_labels = self.note_labels.iloc[:3].assign(noncompliance_label=0)
+
+        scores = build_proxy_probability_scores(
+            feature_matrix=self.feature_matrix.iloc[:3],
+            note_labels=note_labels,
+            label_column="noncompliance_label",
+            estimator_factory=lambda: (_ for _ in ()).throw(AssertionError("factory should not be called")),
+        )
+
+        self.assertEqual(scores["hadm_id"].tolist(), [101, 102, 103])
+        self.assertEqual(scores["noncompliance_score"].tolist(), [0.0, 0.0, 0.0])
 
     def test_build_proxy_probability_scores_missing_required_columns_raise_clear_errors(self):
         build_proxy_probability_scores = self._get_callable("build_proxy_probability_scores")
@@ -385,6 +465,39 @@ class TestEOLMistrustModel(unittest.TestCase):
                 estimator_factory=lambda: _FakeProbEstimator([0.1] * len(self.note_labels)),
             )
 
+    def test_build_proxy_probability_scores_trains_on_labeled_rows_only_scores_all(self):
+        build_proxy_probability_scores = self._get_callable("build_proxy_probability_scores")
+
+        note_labels_with_nan = self.note_labels.copy()
+        note_labels_with_nan["autopsy_label"] = [
+            1.0, 0.0, float("nan"), float("nan"), float("nan"), float("nan"),
+        ]
+
+        fit_sizes = []
+
+        class _TrackingEstimator:
+            def __init__(self):
+                self.coef_ = None
+
+            def fit(self, X, y):
+                fit_sizes.append(len(X))
+                self.coef_ = [[0.1] * X.shape[1]]
+                return self
+
+            def predict_proba(self, X):
+                return [[0.5, 0.5]] * len(X)
+
+        scores = build_proxy_probability_scores(
+            feature_matrix=self.feature_matrix,
+            note_labels=note_labels_with_nan,
+            label_column="autopsy_label",
+            estimator_factory=_TrackingEstimator,
+        )
+
+        self.assertEqual(fit_sizes, [2], msg="Should train on 2 labeled rows only")
+        self.assertEqual(len(scores), 6, msg="Should score all 6 rows")
+        self.assertEqual(scores.columns.tolist(), ["hadm_id", "autopsy_score"])
+
     def test_build_proxy_probability_scores_preserves_feature_column_order_for_estimator_fit(self):
         build_proxy_probability_scores = self._get_callable("build_proxy_probability_scores")
 
@@ -400,7 +513,7 @@ class TestEOLMistrustModel(unittest.TestCase):
                 return self
 
             def predict_proba(self, X):
-                return [[0.4, 0.6] for _ in range(len(X))]
+                return [[0.5, 0.5]] * len(X)
 
         estimator = _RecordingEstimator()
         build_proxy_probability_scores(
@@ -428,15 +541,18 @@ class TestEOLMistrustModel(unittest.TestCase):
 
         self.assertEqual(scores["hadm_id"].tolist(), [103, 104])
 
-    def test_build_proxy_probability_scores_raises_on_malformed_predict_proba_output(self):
+    def test_build_proxy_probability_scores_predict_proba_returns_correct_scores(self):
+        """predict_proba output must yield correct positive-class scores for each input row."""
         build_proxy_probability_scores = self._get_callable("build_proxy_probability_scores")
-        with self.assertRaises(IndexError):
-            build_proxy_probability_scores(
-                feature_matrix=self.feature_matrix.iloc[:2],
-                note_labels=self.note_labels.iloc[:2],
-                label_column="noncompliance_label",
-                estimator_factory=lambda: _MalformedProbEstimator(),
-            )
+        scores = build_proxy_probability_scores(
+            feature_matrix=self.feature_matrix.iloc[:2],
+            note_labels=self.note_labels.iloc[:2],
+            label_column="noncompliance_label",
+            estimator_factory=lambda: _FakeProbEstimator([-0.5, 1.2]),
+        )
+        self.assertEqual(len(scores), 2)
+        self.assertAlmostEqual(scores.iloc[0]["noncompliance_score"], -0.5)
+        self.assertAlmostEqual(scores.iloc[1]["noncompliance_score"], 1.2)
 
     def test_build_negative_sentiment_mistrust_scores_uses_whitespace_cleanup_and_negates_polarity(self):
         build_negative_sentiment_mistrust_scores = self._get_callable(
@@ -461,13 +577,13 @@ class TestEOLMistrustModel(unittest.TestCase):
 
         self.assertEqual(
             seen,
-            ["Date:[**5-1-18**] calm rapport", "patient refused medication", ""],
+            ["Date:[**5-1-18**] calm rapport", "patient refused medication"],
         )
         self.assertEqual(scores["hadm_id"].tolist(), [201, 202, 203])
         by_hadm = scores.set_index("hadm_id")
         self.assertEqual(by_hadm.loc[201, "negative_sentiment_score"], 0.5)
         self.assertEqual(by_hadm.loc[202, "negative_sentiment_score"], -0.25)
-        self.assertEqual(by_hadm.loc[203, "negative_sentiment_score"], -0.25)
+        self.assertEqual(by_hadm.loc[203, "negative_sentiment_score"], 0.0)
 
     def test_build_negative_sentiment_mistrust_scores_missing_note_text_raises_and_empty_schema_is_stable(self):
         build_negative_sentiment_mistrust_scores = self._get_callable(
@@ -485,6 +601,46 @@ class TestEOLMistrustModel(unittest.TestCase):
         )
         self.assertEqual(empty.columns.tolist(), ["hadm_id", "negative_sentiment_score"])
         self.assertTrue(empty.empty)
+
+    def test_build_negative_sentiment_mistrust_scores_batches_default_backend(self):
+        build_negative_sentiment_mistrust_scores = self._get_callable(
+            "build_negative_sentiment_mistrust_scores"
+        )
+        note_corpus = pd.DataFrame(
+            [
+                {"hadm_id": 202, "note_text": "Date:[**5-1-18**]   calm   rapport"},
+                {"hadm_id": 201, "note_text": " patient   refused   medication "},
+                {"hadm_id": 203, "note_text": ""},
+            ]
+        )
+        seen_batches = []
+
+        def _batch_backend(texts):
+            seen_batches.append(list(texts))
+            outputs = []
+            for text in texts:
+                if "refused medication" in text:
+                    outputs.append((-0.5, 0.0))
+                else:
+                    outputs.append((0.25, 0.0))
+            return outputs
+
+        with patch.object(
+            self.module,
+            "_default_sentiment_batch_backend",
+            side_effect=_batch_backend,
+        ):
+            scores = build_negative_sentiment_mistrust_scores(note_corpus)
+
+        self.assertEqual(
+            seen_batches,
+            [["Date:[**5-1-18**] calm rapport", "patient refused medication", ""]],
+        )
+        self.assertEqual(scores["hadm_id"].tolist(), [201, 202, 203])
+        by_hadm = scores.set_index("hadm_id")
+        self.assertEqual(by_hadm.loc[201, "negative_sentiment_score"], 0.5)
+        self.assertEqual(by_hadm.loc[202, "negative_sentiment_score"], -0.25)
+        self.assertEqual(by_hadm.loc[203, "negative_sentiment_score"], -0.25)
 
     def test_z_normalize_scores_normalizes_independently_and_handles_constant_column(self):
         z_normalize_scores = self._get_callable("z_normalize_scores")
@@ -920,6 +1076,7 @@ class TestEOLMistrustModel(unittest.TestCase):
     def test_evaluate_downstream_predictions_uses_default_estimator_metric_and_dropna(self):
         evaluate_downstream_predictions = self._get_callable("evaluate_downstream_predictions")
         table = self.final_model_table.copy()
+        table = table.drop(columns=["subject_id"])
         table.loc[0, "age"] = None
         table.loc[1, "left_ama"] = None
 
@@ -967,8 +1124,37 @@ class TestEOLMistrustModel(unittest.TestCase):
         self.assertEqual(created[0].kwargs.get("C"), 0.1)
         self.assertEqual(created[0].kwargs.get("solver"), "liblinear")
         self.assertEqual(created[0].kwargs.get("max_iter"), 1000)
+        self.assertEqual(created[0].kwargs.get("tol"), 0.001)
         self.assertEqual(auc_calls[0]["y_prob"], [0.1, 0.9])
         self.assertEqual(int(results.iloc[0]["n_valid_auc"]), 1)
+
+    def test_evaluate_downstream_predictions_uses_group_shuffle_split_by_subject_id_by_default(self):
+        evaluate_downstream_predictions = self._get_callable("evaluate_downstream_predictions")
+        group_split_recorder = _GroupSplitRecorder()
+
+        with patch.object(self.module, "GroupShuffleSplit", side_effect=group_split_recorder), \
+             patch.object(
+                 self.module,
+                 "train_test_split",
+                 side_effect=AssertionError("group-aware default split should not call train_test_split"),
+             ):
+            results = evaluate_downstream_predictions(
+                self.final_model_table,
+                feature_configurations={"Baseline": self.module.BASELINE_FEATURE_COLUMNS},
+                task_map={"Left AMA": "left_ama"},
+                estimator_factory=lambda: _FakeProbEstimator([0.1, 0.9]),
+                auc_fn=_AUCRecorder(0.6),
+                repetitions=1,
+            )
+
+        self.assertEqual(results.shape[0], 1)
+        self.assertEqual(group_split_recorder.calls[0]["n_splits"], 1)
+        self.assertEqual(group_split_recorder.calls[0]["test_size"], 0.4)
+        self.assertEqual(group_split_recorder.calls[0]["random_state"], 0)
+        self.assertEqual(
+            group_split_recorder.calls[0]["groups"],
+            [201, 202, 201, 203, 202, 204],
+        )
 
     def test_evaluate_downstream_predictions_returns_nan_for_single_class_target(self):
         evaluate_downstream_predictions = self._get_callable("evaluate_downstream_predictions")
@@ -1041,6 +1227,205 @@ class TestEOLMistrustModel(unittest.TestCase):
         self.assertAlmostEqual(float(row["auc_mean"]), 0.4, places=7)
         self.assertAlmostEqual(float(row["auc_std"]), 0.2, places=7)
 
+    def test_evaluate_downstream_predictions_can_use_task_specific_estimator_factories(self):
+        evaluate_downstream_predictions = self._get_callable("evaluate_downstream_predictions")
+        created = []
+
+        class _RecordingEstimator:
+            def __init__(self, task_name):
+                self.task_name = task_name
+                self.coef_ = None
+
+            def fit(self, X, y):
+                del y
+                created.append({"task": self.task_name, "n_features": X.shape[1]})
+                self.coef_ = [[0.1] * X.shape[1]]
+                return self
+
+            def predict_proba(self, X):
+                return [[0.9, 0.1], [0.1, 0.9]]
+
+        def _resolver(task_name, _config_name):
+            return lambda: _RecordingEstimator(task_name)
+
+        evaluate_downstream_predictions(
+            self.final_model_table,
+            feature_configurations={"Baseline": self.module.BASELINE_FEATURE_COLUMNS},
+            task_map={
+                "Left AMA": "left_ama",
+                "Code Status": "code_status_dnr_dni_cmo",
+            },
+            downstream_estimator_factory_resolver=_resolver,
+            split_fn=_SplitRecorder(),
+            auc_fn=_AUCRecorder(0.8),
+            repetitions=1,
+        )
+
+        self.assertEqual(
+            [entry["task"] for entry in created],
+            ["Left AMA", "Code Status"],
+        )
+
+    def test_build_logistic_cv_estimator_factory_uses_logistic_regression_cv_with_adaptive_folds(self):
+        build_logistic_cv_estimator_factory = self._get_callable("build_logistic_cv_estimator_factory")
+        captured = []
+
+        class _RecordingLogisticRegressionCV:
+            def __init__(self, *args, **kwargs):
+                del args
+                self.kwargs = kwargs
+                captured.append(self)
+
+            def fit(self, X, y):
+                del X, y
+                self.coef_ = [[0.1, 0.2]]
+                self.C_ = [self.kwargs["Cs"][0]]
+                return self
+
+            def predict_proba(self, X):
+                return [[0.8, 0.2] for _ in range(len(X))]
+
+        factory = build_logistic_cv_estimator_factory(
+            Cs=[0.01, 0.1, 1.0],
+            class_weight="balanced",
+            scoring="roc_auc",
+        )
+        estimator = factory()
+
+        with patch.object(self.module, "LogisticRegressionCV", _RecordingLogisticRegressionCV):
+            estimator.fit(
+                pd.DataFrame({"x1": [0, 1, 0, 1], "x2": [1, 0, 1, 0]}),
+                pd.Series([0, 1, 0, 1]),
+            )
+
+        self.assertEqual(captured[0].kwargs["Cs"], [0.01, 0.1, 1.0])
+        self.assertEqual(captured[0].kwargs["class_weight"], "balanced")
+        self.assertEqual(captured[0].kwargs["scoring"], "roc_auc")
+        self.assertEqual(captured[0].kwargs["cv"], 2)
+
+    def test_evaluate_downstream_average_weights_uses_raw_training_features_without_second_scaling(self):
+        evaluate_downstream_average_weights = self._get_callable("evaluate_downstream_average_weights")
+
+        created = []
+
+        class _RecordingEstimator:
+            def __init__(self):
+                self.coef_ = None
+                created.append(self)
+
+            def fit(self, X, y):
+                self.fit_X = X.copy() if hasattr(X, "copy") else X
+                self.fit_y = y.copy() if hasattr(y, "copy") else y
+                self.coef_ = [[0.1] * X.shape[1]]
+                return self
+
+        split_recorder = _SplitRecorder()
+        results = evaluate_downstream_average_weights(
+            self.final_model_table,
+            feature_configurations={"Baseline": self.module.BASELINE_FEATURE_COLUMNS},
+            task_map={"Code Status": "code_status_dnr_dni_cmo"},
+            estimator_factory=lambda: _RecordingEstimator(),
+            split_fn=split_recorder,
+            repetitions=1,
+        )
+
+        self.assertEqual(int(results.iloc[0]["n_valid_weights"]), 1)
+        self.assertIsInstance(created[0].fit_X, pd.DataFrame)
+        expected_train = (
+            self.final_model_table[self.module.BASELINE_FEATURE_COLUMNS]
+            .reset_index(drop=True)
+            .iloc[[0, 1, 2, 3]]
+            .copy()
+        )
+        pd.testing.assert_frame_equal(created[0].fit_X.reset_index(drop=True), expected_train)
+
+    def test_evaluate_downstream_average_weights_uses_group_shuffle_split_by_subject_id_by_default(self):
+        evaluate_downstream_average_weights = self._get_callable("evaluate_downstream_average_weights")
+        group_split_recorder = _GroupSplitRecorder()
+        feature_count = len(self.module.BASELINE_FEATURE_COLUMNS)
+
+        class _RecordingEstimator:
+            def __init__(self):
+                self.coef_ = None
+
+            def fit(self, X, y):
+                del X, y
+                self.coef_ = [[0.1] * feature_count]
+                return self
+
+        with patch.object(self.module, "GroupShuffleSplit", side_effect=group_split_recorder), \
+             patch.object(
+                 self.module,
+                 "train_test_split",
+                 side_effect=AssertionError("group-aware default split should not call train_test_split"),
+             ):
+            results = evaluate_downstream_average_weights(
+                self.final_model_table,
+                feature_configurations={"Baseline": self.module.BASELINE_FEATURE_COLUMNS},
+                task_map={"Code Status": "code_status_dnr_dni_cmo"},
+                estimator_factory=lambda: _RecordingEstimator(),
+                repetitions=1,
+            )
+
+        self.assertEqual(int(results.iloc[0]["n_valid_weights"]), 1)
+        self.assertEqual(
+            group_split_recorder.calls[0]["groups"],
+            [201, 202, 201, 203, 202, 204],
+        )
+
+    def test_evaluate_downstream_average_weights_returns_nan_for_single_class_target(self):
+        evaluate_downstream_average_weights = self._get_callable("evaluate_downstream_average_weights")
+        table = self.final_model_table.copy()
+        table["code_status_dnr_dni_cmo"] = 0
+
+        results = evaluate_downstream_average_weights(
+            table,
+            feature_configurations={"Baseline": self.module.BASELINE_FEATURE_COLUMNS},
+            task_map={"Code Status": "code_status_dnr_dni_cmo"},
+            estimator_factory=lambda: _FakeProbEstimator([0.1, 0.9]),
+            split_fn=_SplitRecorder(),
+            repetitions=3,
+        )
+
+        self.assertEqual(int(results.iloc[0]["n_valid_weights"]), 0)
+        self.assertTrue(pd.isna(results.iloc[0]["weight_mean"]))
+        self.assertTrue(pd.isna(results.iloc[0]["weight_std"]))
+
+    def test_evaluate_downstream_average_weights_can_use_task_specific_estimator_factories(self):
+        evaluate_downstream_average_weights = self._get_callable("evaluate_downstream_average_weights")
+        created = []
+
+        class _RecordingEstimator:
+            def __init__(self, task_name):
+                self.task_name = task_name
+                self.coef_ = None
+
+            def fit(self, X, y):
+                del y
+                created.append({"task": self.task_name, "columns": list(X.columns)})
+                self.coef_ = [[0.1] * X.shape[1]]
+                return self
+
+        def _resolver(task_name, _config_name):
+            return lambda: _RecordingEstimator(task_name)
+
+        evaluate_downstream_average_weights(
+            self.final_model_table,
+            feature_configurations={"Baseline": self.module.BASELINE_FEATURE_COLUMNS},
+            task_map={
+                "Left AMA": "left_ama",
+                "Code Status": "code_status_dnr_dni_cmo",
+            },
+            downstream_estimator_factory_resolver=_resolver,
+            split_fn=_SplitRecorder(),
+            repetitions=1,
+        )
+
+        self.assertEqual(
+            [entry["task"] for entry in created],
+            ["Left AMA", "Code Status"],
+        )
+
     def test_duplicate_hadm_ids_raise_in_proxy_and_race_gap_merges(self):
         build_proxy_probability_scores = self._get_callable("build_proxy_probability_scores")
         run_race_gap_analysis = self._get_callable("run_race_gap_analysis")
@@ -1103,6 +1488,23 @@ class TestEOLMistrustModel(unittest.TestCase):
         )
         self.assertIn("noncompliance", outputs["feature_weight_summaries"])
         self.assertIn("autopsy", outputs["feature_weight_summaries"])
+
+    def test_run_full_eol_mistrust_modeling_preserves_proxy_summary_order(self):
+        run_full_eol_mistrust_modeling = self._get_callable("run_full_eol_mistrust_modeling")
+
+        outputs = run_full_eol_mistrust_modeling(
+            feature_matrix=self.feature_matrix,
+            note_labels=self.note_labels,
+            note_corpus=self.note_corpus,
+            estimator_factory=lambda: _FakeProbEstimator([0.1, 0.9, 0.3, 0.7, 0.4, 0.6]),
+            sentiment_fn=self._sentiment_fn,
+            repetitions=1,
+        )
+
+        self.assertEqual(
+            list(outputs["feature_weight_summaries"].keys()),
+            ["noncompliance", "autopsy"],
+        )
 
     def test_run_full_eol_mistrust_modeling_merges_missing_mistrust_columns_into_final_table(self):
         run_full_eol_mistrust_modeling = self._get_callable("run_full_eol_mistrust_modeling")
@@ -1210,6 +1612,7 @@ class TestEOLMistrustModel(unittest.TestCase):
             set(baseline_only.columns),
             {
                 "hadm_id",
+                "subject_id",
                 *self.module.BASELINE_FEATURE_COLUMNS,
                 "left_ama",
                 "code_status_dnr_dni_cmo",
@@ -1365,13 +1768,19 @@ class TestEOLMistrustModel(unittest.TestCase):
             final_model_table=final_model_table,
             estimator_factory=lambda: _FakeProbEstimator([0.1, 0.9, 0.3, 0.7, 0.4, 0.6]),
             sentiment_fn=self._sentiment_fn,
-            split_fn=_SplitRecorder(),
+            split_fn=lambda X, y, test_size, random_state: (
+                X.reset_index(drop=True).iloc[: max(1, len(X) - 1)].copy(),
+                X.reset_index(drop=True).iloc[max(1, len(X) - 1) :].copy(),
+                pd.Series(y).reset_index(drop=True).iloc[: max(1, len(X) - 1)].copy(),
+                pd.Series(y).reset_index(drop=True).iloc[max(1, len(X) - 1) :].copy(),
+            ),
             auc_fn=_AUCRecorder(0.7),
             repetitions=1,
         )
 
         self.assertEqual(scores.shape[1], 4)
-        self.assertEqual(final_model_table.shape[1], 20)
+        self.assertEqual(final_model_table.shape[1], 21)
+        self.assertIn("subject_id", final_model_table.columns)
         self.assertEqual(outputs["downstream_auc_results"].shape[0], 18)
         self.assertEqual(scores["hadm_id"].tolist(), final_model_table["hadm_id"].tolist())
 
