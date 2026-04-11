@@ -96,6 +96,8 @@ class InHospitalMortalityTemporalMIMIC4(BaseTask):
             if len(drugs) == 0:
                 continue
 
+            if admission.hospital_expire_flag is None:
+                continue
             mortality = int(admission.hospital_expire_flag)
 
             samples.append({

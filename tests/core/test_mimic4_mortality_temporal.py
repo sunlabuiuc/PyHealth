@@ -10,6 +10,8 @@ from pathlib import Path
 import tempfile
 import unittest
 
+import numpy as np
+
 from pyhealth.datasets import MIMIC4Dataset
 from pyhealth.tasks import InHospitalMortalityTemporalMIMIC4
 
@@ -70,7 +72,7 @@ class TestTemporalMortalityMIMIC4(unittest.TestCase):
     def test_admission_year_type_and_values(self):
         year_map = {s["admission_id"]: s["admission_year"] for s in self.samples}
         for yr in year_map.values():
-            self.assertIsInstance(yr, int)
+            self.assertIsInstance(yr, (int, np.integer))
         # spot check known years from the csv
         if "20001" in year_map:
             self.assertEqual(year_map["20001"], 2150)
