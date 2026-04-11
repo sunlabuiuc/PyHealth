@@ -101,11 +101,11 @@ class TUSZTask(BaseTask):
             byte_labels, label_bitgt_1, label_bitgt_2 = self.helper.convert_labels(sliced_labels)
 
             # 7. create bipolar signals and construct sample
-            for i, (
+            for (
                 raw, label, label_bitgt_1, label_bitgt_2, label_name
-            ) in enumerate(zip(
+            ) in zip(
                 sliced_raws, byte_labels, label_bitgt_1, label_bitgt_2, label_names
-            )):
+            ):
                 sample = {
                     "patient_id": pid,
                     "signal": self.helper.create_bipolar_signals(raw),

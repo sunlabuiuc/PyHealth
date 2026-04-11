@@ -124,11 +124,11 @@ if __name__ == "__main__":
     ##################################################
     # LOOP
     ##################################################
-    # for train_batch in train_loader:
-    #     train_x, train_y, seq_lengths, target_lengths = train_batch
-    #     print("**********")
-    #     print(len(train_x))
-    #     print(len(train_y))
-    #     print(len(seq_lengths))
-    #     print(len(target_lengths))
-    #     print("**********")
+    for train_batch in train_loader:
+        train_x, train_y, seq_lengths, target_lengths = train_batch
+        print('Batch structure:')
+        print(f"  x: {describe(x)}")
+        print(f"  y: {describe(y)}")
+        print(f"  seq_lengths: {describe(seq_lengths)}")
+        print(f"  target_lengths: {describe(target_lengths)}")
+        break

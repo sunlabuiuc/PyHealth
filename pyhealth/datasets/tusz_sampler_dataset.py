@@ -31,7 +31,3 @@ class TUSZSamplerDataset(IterableDataset):
 
         for data in buffer:
             yield data
-            
-        # while True:
-        #     idx = torch.multinomial(self.weights, 1).item()
-        #     yield self.get_sample(idx)
