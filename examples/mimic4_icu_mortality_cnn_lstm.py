@@ -34,6 +34,11 @@ Usage:
         --mimic4_root /path/to/mimiciv/3.0/
 
 Results:
+
+    Baseline (lr=0.001, hidden_dim=128, dropout=0.3, batch_size=64):
+    AUROC=0.9514
+
+    Ablation results:
     Learning Rate Ablation (hidden_dim=128, dropout=0.3, batch_size=64):
     | LR     | AUROC  | PR-AUC | F1     |
     |--------|--------|--------|--------|
@@ -66,15 +71,15 @@ Results:
     | 64     | 0.9436 | 0.6608 | 0.6037 |
     | 128    | 0.9480 | 0.6832 | 0.5643 |
 
-Best Hyperparameters:
-    The best AUROC configuration is lr=0.001, hidden_dim=256, dropout=0.0,
-    batch_size=128. However, performance differences are small (AUROC range:
-    0.9271-0.9524), indicating robustness to hyperparameter choices.
+    Best Hyperparameters:
+    The best overall configuration has AUROC of 0.9524 with hidden_dim=256,
+    lr=0.001, dropout=0.3, batch_size=64.
 
-    - Learning rate: Best at 0.001 (mid), AUROC=0.9514.
-    - Hidden dimension: Best at 256 (high), AUROC=0.9524.
-    - Dropout: Best at 0.0 (low), AUROC=0.9518.
-    - Batch size: Best at 128 (high), AUROC=0.9480.
+    Best hyperparameter value for each ablation:
+    - Learning rate: 0.001 (mid), AUROC=0.9514
+    - Hidden dimension: 256 (high), AUROC=0.9524
+    - Dropout: 0.0 (low), AUROC=0.9518
+    - Batch size: 128 (high), AUROC=0.9480
 """
 
 import argparse
