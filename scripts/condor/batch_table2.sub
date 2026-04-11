@@ -6,8 +6,8 @@
 # model for 3 seeds sequentially.  6 jobs = 6 A100s in parallel.
 #
 # Prerequisites:
-#   1. Fill in CONDA_SH, CONDA_ENV, PROJECT_DIR, EHR_ROOT, NOTE_ROOT
-#      inside scripts/condor/run_table2.sh
+#   1. Fill in CONDA_ENV, PROJECT_DIR, EHR_ROOT, NOTE_ROOT, CACHE_DIR
+#      (and optionally CONDA_SH) inside scripts/condor/run_table2.sh
 #   2. mkdir -p logs/condor
 #
 # Submit:
@@ -19,17 +19,18 @@
 
 executable = scripts/condor/run_table2.sh
 arguments  = $(model)
+getenv = True
 
 # Per-job output / error / shared Condor log
-output = logs/condor/table2_$(model).out
-error  = logs/condor/table2_$(model).err
-log    = logs/condor/table2.log
+output = logs/condor/table2_$(ClusterId)_$(model).out
+error  = logs/condor/table2_$(ClusterId)_$(model).err
+log    = logs/condor/table2_$(ClusterId).log
 
-# ── Resource requests ────────────────────────────────────────────
+# Resource requests
 request_gpus   = 1
-request_cpus   = 8          # data-loading workers
-request_memory = 32768MB    # 32 GB RAM
-request_disk   = 50GB
+request_cpus   = 8
+request_memory = 32768MB
+request_disk   = 20GB
 
 # ── Target: sunlab-c01 (8 × NVIDIA A100 80GB PCIe) ───────────────
 Requirements = (Machine == "sunlab-c01.cs.illinois.edu")
