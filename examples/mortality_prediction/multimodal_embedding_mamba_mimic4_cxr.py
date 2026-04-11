@@ -22,6 +22,7 @@ Smoke test (single forward + inference, no train):
 from __future__ import annotations
 
 import argparse
+import time
 from typing import Any, Tuple
 
 import numpy as np
@@ -45,9 +46,43 @@ def _split_dataset(dataset: Any, seed: int) -> Tuple[Any, Any, Any]:
     return train_ds, val_ds, test_ds
 
 
+def _resolve_device(device: str) -> str:
+    if not device.startswith("cuda"):
+        return device
+
+    if not torch.cuda.is_available():
+        print("CUDA requested but not available. Falling back to CPU.")
+        return "cpu"
+
+    device_count = torch.cuda.device_count()
+    if device == "cuda":
+        return "cuda:0"
+
+    try:
+        requested_idx = int(device.split(":", maxsplit=1)[1])
+    except (IndexError, ValueError):
+        print(f"Could not parse CUDA device '{device}'. Falling back to cuda:0.")
+        return "cuda:0"
+
+    if requested_idx < 0 or requested_idx >= device_count:
+        print(
+            f"Requested device '{device}' is out of range for {device_count} visible "
+            "GPU(s). Falling back to cuda:0."
+        )
+        return "cuda:0"
+
+    return device
+
+
 def run(args: argparse.Namespace) -> Tuple[int, int]:
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
+    total_start = time.perf_counter()
+
+    cuda_device_index = None
+    if args.device.startswith("cuda") and torch.cuda.is_available():
+        device_index = torch.device(args.device).index
+        cuda_device_index = 0 if device_index is None else device_index
 
     print("Using dataset roots:")
     print(f"  ehr_root:     {args.ehr_root}")
@@ -156,6 +191,11 @@ def run(args: argparse.Namespace) -> Tuple[int, int]:
     )
 
     if not args.smoke_forward and args.epochs > 0 and len(train_ds) > 0:
+        if cuda_device_index is not None:
+            torch.cuda.reset_peak_memory_stats(cuda_device_index)
+            torch.cuda.synchronize(cuda_device_index)
+
+        train_start = time.perf_counter()
         trainer.train(
             train_dataloader=train_loader,
             val_dataloader=val_loader,
@@ -164,11 +204,38 @@ def run(args: argparse.Namespace) -> Tuple[int, int]:
             monitor=None,
             load_best_model_at_last=False,
         )
+        if cuda_device_index is not None:
+            torch.cuda.synchronize(cuda_device_index)
+            peak_train_bytes = torch.cuda.max_memory_allocated(cuda_device_index)
+            peak_train_vram_mb = peak_train_bytes / (1024**2)
+        else:
+            peak_train_vram_mb = None
+        train_runtime_sec = time.perf_counter() - train_start
+    else:
+        peak_train_vram_mb = None
+        train_runtime_sec = None
 
     inference_loader = test_loader or val_loader or train_loader
     y_true, y_prob, _, patient_ids = trainer.inference(
         inference_loader, return_patient_ids=True
     )
+
+    if cuda_device_index is not None:
+        torch.cuda.synchronize(cuda_device_index)
+
+    total_runtime_sec = time.perf_counter() - total_start
+    print("Benchmark summary:")
+    print(f"  total_runtime_sec: {total_runtime_sec:.2f}")
+    if train_runtime_sec is None:
+        print("  training_runtime_sec: N/A (training skipped)")
+        print("  peak_train_vram_mb: N/A (training skipped)")
+    else:
+        print(f"  training_runtime_sec: {train_runtime_sec:.2f}")
+        if peak_train_vram_mb is None:
+            print("  peak_train_vram_mb: N/A (non-CUDA device)")
+        else:
+            print(f"  peak_train_vram_mb: {peak_train_vram_mb:.2f}")
+
     return len(patient_ids), y_true.shape[0]
 
 
@@ -213,9 +280,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--observation-window-hours", type=int, default=24)
 
     parser.add_argument("--epochs", type=int, default=1)
-    parser.add_argument("--batch-size", type=int, default=8)
+    parser.add_argument("--batch-size", type=int, default=4)
     parser.add_argument("--lr", type=float, default=1e-3)
-    parser.add_argument("--device", type=str, default="cuda:0")
+    parser.add_argument("--device", type=str, default="cuda:1")
     parser.add_argument("--num-workers", type=int, default=16)
     parser.add_argument("--seed", type=int, default=42)
 
@@ -229,8 +296,7 @@ def parse_args() -> argparse.Namespace:
         args.epochs = 1
         args.batch_size = min(args.batch_size, 4)
 
-    if args.device.startswith("cuda") and not torch.cuda.is_available():
-        args.device = "cpu"
+    args.device = _resolve_device(args.device)
 
     return args
 
