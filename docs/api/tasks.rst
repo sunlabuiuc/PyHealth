@@ -13,6 +13,8 @@ We support various real-world healthcare predictive tasks defined by **function 
 
 (v) Sleep Staging [Yang et al. ArXix 2021]
 
+(vi) Hallucination Detection (Clinical Summary Faithfulness) [Hegselmann et al. 2023]
+
 Getting Started
 ---------------
 
@@ -229,3 +231,4 @@ Available Tasks
     Mutation Pathogenicity (COSMIC) <tasks/pyhealth.tasks.MutationPathogenicityPrediction>
     Cancer Survival Prediction (TCGA) <tasks/pyhealth.tasks.CancerSurvivalPrediction>
     Cancer Mutation Burden (TCGA) <tasks/pyhealth.tasks.CancerMutationBurden>
+    Hallucination Detection <tasks/pyhealth.tasks.HallucinationDetectionTask>
