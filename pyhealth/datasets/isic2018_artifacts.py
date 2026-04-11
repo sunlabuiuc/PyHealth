@@ -470,9 +470,22 @@ class ISIC2018ArtifactsDataset(BaseDataset):
         """
         df = pd.read_csv(self._bias_csv_path, sep=";", index_col=0)
 
-        # Keep only rows whose image file exists on disk
-        available = {f.name for f in Path(self._image_dir).iterdir() if f.is_file()}
-        df = df[df["image"].isin(available)].copy()
+        # Keep only rows whose image file exists on disk.
+        # Resolve extension mismatches (e.g. CSV lists .png but files are .jpg).
+        available = {f.name: f.name for f in Path(self._image_dir).iterdir() if f.is_file()}
+        stem_to_actual = {
+            Path(name).stem: name for name in available
+        }
+
+        def _resolve_filename(csv_name: str) -> str:
+            """Return the actual on-disk filename, resolving extension mismatches."""
+            if csv_name in available:
+                return csv_name
+            stem = Path(csv_name).stem
+            return stem_to_actual.get(stem, "")
+
+        df["image"] = df["image"].apply(_resolve_filename)
+        df = df[df["image"] != ""].copy()
 
         if df.empty:
             raise ValueError(
