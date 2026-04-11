@@ -4,8 +4,6 @@ from pyhealth.tasks import BaseTask
 from pyedflib import highlevel
 from .tusz_utility_class import TUSZHelper, TUSZSignalHeader, LOG_INFO, LOG_WARN
 
-# logger = logging.getLogger(__name__)
-
 class TUSZTask(BaseTask):
     """Multi-class classification task for seizure detection on TUSZ.
 
@@ -120,6 +118,3 @@ class TUSZTask(BaseTask):
             self.helper.log(LOG_INFO, data_file_name, "** completed successfullly **")
 
         return samples
-
-
-# path = f"{SAVE_DIR}/{data_file_name}_c{i}_label_{label}.pkl"
