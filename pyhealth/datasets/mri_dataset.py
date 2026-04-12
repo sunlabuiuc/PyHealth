@@ -225,6 +225,7 @@ class MRIDataset(BaseDataset):
                             'OriginalImagePixelSpacing[x': 'original_image_pixel_spacing_x',
                             'y]': 'original_image_pixel_spacing_y'}, inplace=True)
         df['path'] = df['path'].apply(lambda p: os.path.join(self._image_path, p))
-        df.to_csv(os.path.join(root, "chestxray14-metadata-pyhealth.csv"), index=False)
         '''
+        df.to_csv(os.path.join(root, "mri-metadata-pyhealth.csv"), index=False)
+
         return df
