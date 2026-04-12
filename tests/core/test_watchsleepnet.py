@@ -1,29 +1,29 @@
 import unittest
-
 import numpy as np
 import torch
-
 from pyhealth.datasets import create_sample_dataset, get_dataloader
 from pyhealth.models import WatchSleepNet
 
 
 SEQ_LEN = 4
-SEQ_SAMPLE_SIZE = 750  # 30s * 25Hz, matches default model parameter
+SEQ_SAMPLE_SIZE = 750
 NUM_CLASSES = 3
 
 
 def make_dataset(num_samples=4, num_classes=NUM_CLASSES, seed=0):
     """Create a small synthetic dataset for WatchSleepNet testing."""
     rng = np.random.RandomState(seed)
-    samples = [
-        {
-            "patient_id": f"patient-{i}",
-            "record_id": f"patient-{i}-0",
-            "signal": rng.randn(SEQ_LEN, SEQ_SAMPLE_SIZE).astype(np.float32),
-            "label": i % num_classes,
-        }
-        for i in range(num_samples)
-    ]
+    samples = []
+    for i in range(num_samples):
+        samples.append(
+            {
+                "patient_id": f"patient-{i}",
+                "record_id": f"patient-{i}-0",
+                "signal": rng.randn(SEQ_LEN, SEQ_SAMPLE_SIZE).astype(np.float32),
+                "label": i % num_classes,
+            }
+        )
+
     return create_sample_dataset(
         samples=samples,
         input_schema={"signal": "tensor"},
