@@ -2,18 +2,18 @@ import gzip
 import tempfile
 import unittest
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Dict, List
 
 import orjson
 import polars as pl
 
+from pyhealth.data import Patient
 from pyhealth.datasets import MIMIC4FHIRDataset
 from pyhealth.datasets.mimic4_fhir import (
     ConceptVocab,
-    FHIR_RESOURCE_JSON_COL,
-    FHIR_EVENT_TYPE,
+    _flatten_resource_to_table_row,
     build_cehr_sequences,
-    fhir_patient_from_patient,
+    collect_cehr_timeline_events,
     infer_mortality_label,
     synthetic_mpf_two_patient_ndjson_text,
 )
@@ -25,9 +25,7 @@ from tests.core.mimic4_fhir_ndjson_fixtures import (
 )
 
 
-def _third_patient_loinc_resources() -> List[Dict[str, Any]]:
-    """Third synthetic patient with a LOINC code not present on p-synth-1/2."""
-
+def _third_patient_loinc_resources() -> List[Dict[str, object]]:
     return [
         {
             "resourceType": "Patient",
@@ -53,21 +51,82 @@ def _third_patient_loinc_resources() -> List[Dict[str, Any]]:
 
 
 def write_two_class_plus_third_ndjson(directory: Path, *, name: str = "fixture.ndjson") -> Path:
-    """Two-class PhysioNet-style fixture plus an extra patient (LOINC 999-9)."""
-
     lines = synthetic_mpf_two_patient_ndjson_text().strip().split("\n")
-    lines.extend(
-        orjson.dumps(r).decode("utf-8") for r in _third_patient_loinc_resources()
-    )
+    lines.extend(orjson.dumps(r).decode("utf-8") for r in _third_patient_loinc_resources())
     path = directory / name
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return path
 
 
+def _patient_from_rows(patient_id: str, rows: List[Dict[str, object]]) -> Patient:
+    return Patient(patient_id=patient_id, data_source=pl.DataFrame(rows))
+
+
+class TestDeceasedBooleanFlattening(unittest.TestCase):
+    def test_string_false_not_coerced_by_python_bool(self) -> None:
+        """Non-conformant ``\"false\"`` string must not become stored ``\"true\"``."""
+        row = _flatten_resource_to_table_row(
+            {
+                "resourceType": "Patient",
+                "id": "p-str-false",
+                "deceasedBoolean": "false",
+            }
+        )
+        self.assertIsNotNone(row)
+        _table, payload = row
+        self.assertEqual(payload.get("deceased_boolean"), "false")
+
+    def test_string_true_parsed(self) -> None:
+        row = _flatten_resource_to_table_row(
+            {
+                "resourceType": "Patient",
+                "id": "p-str-true",
+                "deceasedBoolean": "true",
+            }
+        )
+        self.assertIsNotNone(row)
+        self.assertEqual(row[1].get("deceased_boolean"), "true")
+
+    def test_json_booleans_unchanged(self) -> None:
+        for raw, expected in ((True, "true"), (False, "false")):
+            with self.subTest(raw=raw):
+                row = _flatten_resource_to_table_row(
+                    {
+                        "resourceType": "Patient",
+                        "id": "p-bool",
+                        "deceasedBoolean": raw,
+                    }
+                )
+                self.assertIsNotNone(row)
+                self.assertEqual(row[1].get("deceased_boolean"), expected)
+
+    def test_unknown_deceased_type_stored_as_none(self) -> None:
+        row = _flatten_resource_to_table_row(
+            {
+                "resourceType": "Patient",
+                "id": "p-garbage",
+                "deceasedBoolean": {"unexpected": "object"},
+            }
+        )
+        self.assertIsNotNone(row)
+        self.assertIsNone(row[1].get("deceased_boolean"))
+
+    def test_infer_mortality_respects_string_false_row(self) -> None:
+        patient = _patient_from_rows(
+            "p1",
+            [
+                {
+                    "event_type": "patient",
+                    "timestamp": "2020-01-01T00:00:00",
+                    "patient/deceased_boolean": "false",
+                },
+            ],
+        )
+        self.assertEqual(infer_mortality_label(patient), 0)
+
+
 class TestMIMIC4FHIRDataset(unittest.TestCase):
     def test_concept_vocab_from_json_empty_token_to_id(self) -> None:
-        """Corrupted save with empty ``token_to_id`` must not call ``max()`` on []."""
-
         v = ConceptVocab.from_json({"token_to_id": {}})
         self.assertIn("<pad>", v.token_to_id)
         self.assertIn("<unk>", v.token_to_id)
@@ -77,18 +136,61 @@ class TestMIMIC4FHIRDataset(unittest.TestCase):
         v = ConceptVocab.from_json({"token_to_id": {}, "next_id": 50})
         self.assertEqual(v._next_id, 50)
 
-    def test_disk_fixture_resolves_events_per_patient(self) -> None:
-        """NDJSON on disk → Parquet cache carries multiple rows for ``p-synth-1``."""
+    def test_sorted_ndjson_files_accepts_sequence_and_dedupes(self) -> None:
+        from pyhealth.datasets.mimic4_fhir import sorted_ndjson_files
 
         with tempfile.TemporaryDirectory() as tmp:
-            tdir = Path(tmp)
-            write_one_patient_ndjson(tdir)
+            root = Path(tmp)
+            (root / "MimicPatient.ndjson.gz").write_text("x", encoding="utf-8")
+            (root / "MimicMedication.ndjson.gz").write_text("y", encoding="utf-8")
+            (root / "notes.txt").write_text("z", encoding="utf-8")
+            wide = sorted_ndjson_files(root, "**/*.ndjson.gz")
+            narrow = sorted_ndjson_files(
+                root,
+                ["MimicPatient*.ndjson.gz", "**/MimicPatient*.ndjson.gz"],
+            )
+            self.assertEqual(len(wide), 2)
+            self.assertEqual(len(narrow), 1)
+            self.assertEqual(narrow[0].name, "MimicPatient.ndjson.gz")
+
+    def test_dataset_accepts_glob_patterns_kwarg(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            write_one_patient_ndjson(Path(tmp))
+            ds = MIMIC4FHIRDataset(
+                root=tmp, glob_patterns=["*.ndjson"], cache_dir=tmp
+            )
+            self.assertEqual(ds.glob_patterns, ["*.ndjson"])
+            _ = ds.global_event_df.collect(engine="streaming")
+
+    def test_dataset_rejects_both_glob_kwargs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(ValueError):
+                MIMIC4FHIRDataset(
+                    root=tmp,
+                    glob_pattern="*.ndjson",
+                    glob_patterns=["*.ndjson"],
+                    cache_dir=tmp,
+                )
+
+    def test_disk_fixture_resolves_events_per_patient(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            write_one_patient_ndjson(Path(tmp))
             ds = MIMIC4FHIRDataset(root=tmp, glob_pattern="*.ndjson", cache_dir=tmp)
-            sub = (
-                ds.global_event_df.filter(pl.col("patient_id") == "p-synth-1")
-                .collect(engine="streaming")
+            sub = ds.global_event_df.filter(pl.col("patient_id") == "p-synth-1").collect(
+                engine="streaming"
             )
             self.assertGreaterEqual(len(sub), 2)
+            self.assertIn("condition/concept_key", sub.columns)
+
+    def test_prepared_flat_tables_exist(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            write_two_class_ndjson(Path(tmp))
+            ds = MIMIC4FHIRDataset(root=tmp, glob_pattern="*.ndjson", cache_dir=tmp)
+            _ = ds.global_event_df.collect(engine="streaming")
+            prepared = ds.prepared_tables_dir
+            self.assertTrue((prepared / "patient.parquet").is_file())
+            self.assertTrue((prepared / "encounter.parquet").is_file())
+            self.assertTrue((prepared / "condition.parquet").is_file())
 
     def test_build_cehr_non_empty(self) -> None:
         from pyhealth.tasks.mpf_clinical_prediction import MPFClinicalPredictionTask
@@ -102,8 +204,6 @@ class TestMIMIC4FHIRDataset(unittest.TestCase):
             self.assertGreater(ds.vocab.vocab_size, 2)
 
     def test_set_task_vocab_warm_on_litdata_cache_hit(self) -> None:
-        """MPF ``set_task`` must fill ``ds.vocab`` even when ``_task_transform`` skips."""
-
         from pyhealth.tasks.mpf_clinical_prediction import MPFClinicalPredictionTask
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -112,9 +212,7 @@ class TestMIMIC4FHIRDataset(unittest.TestCase):
             ds1 = MIMIC4FHIRDataset(root=tmp, glob_pattern="*.ndjson", cache_dir=tmp)
             ds1.set_task(MPFClinicalPredictionTask(**task_kw), num_workers=1)
             warm_size = ds1.vocab.vocab_size
-            self.assertGreater(
-                warm_size, 6, "fixture plus MPF specials should exceed pad/unk only"
-            )
+            self.assertGreater(warm_size, 6)
             ds2 = MIMIC4FHIRDataset(root=tmp, glob_pattern="*.ndjson", cache_dir=tmp)
             ds2.set_task(MPFClinicalPredictionTask(**task_kw), num_workers=1)
             self.assertEqual(ds2.vocab.vocab_size, warm_size)
@@ -125,125 +223,83 @@ class TestMIMIC4FHIRDataset(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             write_two_class_ndjson(Path(tmp))
             ds = MIMIC4FHIRDataset(root=tmp, glob_pattern="*.ndjson", cache_dir=tmp)
-            task = MPFClinicalPredictionTask(max_len=64, use_mpf=False)
-            samples = ds.gather_samples(task)
-            labels = {s["label"] for s in samples}
-            self.assertEqual(labels, {0, 1})
+            samples = ds.gather_samples(MPFClinicalPredictionTask(max_len=64, use_mpf=False))
+            self.assertEqual({s["label"] for s in samples}, {0, 1})
 
     def test_infer_deceased(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             write_two_class_ndjson(Path(tmp))
             ds = MIMIC4FHIRDataset(root=tmp, glob_pattern="*.ndjson", cache_dir=tmp)
-            dead = fhir_patient_from_patient(ds.get_patient("p-synth-2"))
+            dead = ds.get_patient("p-synth-2")
             self.assertEqual(infer_mortality_label(dead), 1)
 
     def test_disk_ndjson_gz_physionet_style(self) -> None:
-        """Gzip NDJSON (PhysioNet ``*.ndjson.gz``) matches default glob when set."""
-
         with tempfile.TemporaryDirectory() as tmp:
             gz_path = Path(tmp) / "fixture.ndjson.gz"
             with gzip.open(gz_path, "wt", encoding="utf-8") as gz:
                 gz.write(ndjson_two_class_text())
-            ds = MIMIC4FHIRDataset(
-                root=tmp, glob_pattern="*.ndjson.gz", max_patients=5
-            )
+            ds = MIMIC4FHIRDataset(root=tmp, glob_pattern="*.ndjson.gz", max_patients=5)
             self.assertGreaterEqual(len(ds.unique_patient_ids), 1)
 
     def test_disk_ndjson_temp_dir(self) -> None:
-        """Load from a temp directory (cleanup via context manager)."""
+        from pyhealth.tasks.mpf_clinical_prediction import MPFClinicalPredictionTask
 
         with tempfile.TemporaryDirectory() as tmp:
             write_two_class_ndjson(Path(tmp))
-            ds = MIMIC4FHIRDataset(
-                root=tmp, glob_pattern="*.ndjson", max_patients=5
-            )
+            ds = MIMIC4FHIRDataset(root=tmp, glob_pattern="*.ndjson", max_patients=5)
             self.assertEqual(len(ds.unique_patient_ids), 2)
-            from pyhealth.tasks.mpf_clinical_prediction import (
-                MPFClinicalPredictionTask,
-            )
-
-            task = MPFClinicalPredictionTask(max_len=48, use_mpf=True)
-            samples = ds.gather_samples(task)
+            samples = ds.gather_samples(MPFClinicalPredictionTask(max_len=48, use_mpf=True))
             self.assertGreaterEqual(len(samples), 1)
-            for s in samples:
-                self.assertIn("concept_ids", s)
-                self.assertIn("label", s)
+            for sample in samples:
+                self.assertIn("concept_ids", sample)
+                self.assertIn("label", sample)
 
-    def test_sharded_ingest_sorted_patient_ids_multi_part_cache(self) -> None:
-        """Hash shards → ``part-*.parquet``; patient ids exposed in sorted order."""
-
+    def test_global_event_df_schema_and_flattened_columns(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             write_two_class_ndjson(Path(tmp))
-            ds = MIMIC4FHIRDataset(
-                root=tmp,
-                glob_pattern="*.ndjson",
-                cache_dir=tmp,
-                ingest_num_shards=8,
-            )
-            ids = ds.unique_patient_ids
-            self.assertEqual(ids, sorted(ids))
-            self.assertEqual(set(ids), {"p-synth-1", "p-synth-2"})
-            part_dir = ds.cache_dir / "global_event_df.parquet"
-            parts = sorted(part_dir.glob("part-*.parquet"))
-            self.assertGreaterEqual(len(parts), 1)
-            # ``p-synth-1`` / ``p-synth-2`` crc32 to different slots for 8 shards.
-            self.assertGreaterEqual(len(parts), 2)
-
-    def test_global_event_df_schema_and_streaming_path(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            write_two_class_ndjson(Path(tmp))
-            ds = MIMIC4FHIRDataset(
-                root=tmp,
-                glob_pattern="*.ndjson",
-                cache_dir=tmp,
-                max_patients=5,
-            )
-            lf = ds.global_event_df
-            df = lf.collect(engine="streaming")
+            ds = MIMIC4FHIRDataset(root=tmp, glob_pattern="*.ndjson", cache_dir=tmp)
+            df = ds.global_event_df.collect(engine="streaming")
             self.assertGreater(len(df), 0)
             self.assertIn("patient_id", df.columns)
             self.assertIn("timestamp", df.columns)
             self.assertIn("event_type", df.columns)
-            self.assertIn(FHIR_RESOURCE_JSON_COL, df.columns)
-            self.assertTrue((df["event_type"] == FHIR_EVENT_TYPE).all())
+            self.assertIn("condition/concept_key", df.columns)
+            self.assertIn("observation/concept_key", df.columns)
+            self.assertIn("patient/deceased_boolean", df.columns)
 
     def test_set_task_parity_with_gather_samples_ndjson(self) -> None:
+        from pyhealth.tasks.mpf_clinical_prediction import MPFClinicalPredictionTask
+
         with tempfile.TemporaryDirectory() as tmp:
             write_two_class_ndjson(Path(tmp), name="fx.ndjson")
-            from pyhealth.tasks.mpf_clinical_prediction import (
-                MPFClinicalPredictionTask,
-            )
-
             ds = MIMIC4FHIRDataset(
                 root=tmp, glob_pattern="*.ndjson", cache_dir=tmp, num_workers=1
             )
-            task = MPFClinicalPredictionTask(max_len=48, use_mpf=True)
-            ref = sorted(ds.gather_samples(task), key=lambda s: s["patient_id"])
-            task2 = MPFClinicalPredictionTask(max_len=48, use_mpf=True)
-            sample_ds = ds.set_task(task2, num_workers=1)
+            ref = sorted(
+                ds.gather_samples(MPFClinicalPredictionTask(max_len=48, use_mpf=True)),
+                key=lambda s: s["patient_id"],
+            )
+            sample_ds = ds.set_task(
+                MPFClinicalPredictionTask(max_len=48, use_mpf=True), num_workers=1
+            )
             got = sorted(
                 [sample_ds[i] for i in range(len(sample_ds))],
                 key=lambda s: s["patient_id"],
             )
             self.assertEqual(len(got), len(ref))
-            for a, b in zip(ref, got):
-                self.assertEqual(a["label"], int(b["label"]))
-                ac = a["concept_ids"]
-                bc = b["concept_ids"]
-                if hasattr(bc, "tolist"):
-                    bc = bc.tolist()
-                self.assertEqual(ac, bc)
+            for expected, actual in zip(ref, got):
+                self.assertEqual(expected["label"], int(actual["label"]))
+                actual_ids = actual["concept_ids"]
+                if hasattr(actual_ids, "tolist"):
+                    actual_ids = actual_ids.tolist()
+                self.assertEqual(expected["concept_ids"], actual_ids)
 
     def test_gather_samples_resets_frozen_vocab_after_set_task(self) -> None:
-        """Reusing the same task after ``set_task`` must grow a new dataset's vocab."""
+        from pyhealth.tasks.mpf_clinical_prediction import MPFClinicalPredictionTask
 
         with tempfile.TemporaryDirectory() as tmp_a, tempfile.TemporaryDirectory() as tmp_b:
             write_two_class_ndjson(Path(tmp_a), name="a.ndjson")
             write_two_class_ndjson(Path(tmp_b), name="b.ndjson")
-            from pyhealth.tasks.mpf_clinical_prediction import (
-                MPFClinicalPredictionTask,
-            )
-
             ds_a = MIMIC4FHIRDataset(
                 root=tmp_a, glob_pattern="*.ndjson", cache_dir=tmp_a, num_workers=1
             )
@@ -252,7 +308,6 @@ class TestMIMIC4FHIRDataset(unittest.TestCase):
             )
             task = MPFClinicalPredictionTask(max_len=48, use_mpf=True)
             ds_a.set_task(task, num_workers=1)
-            # Single-process transform: vocab grows during caching; no pre-warm pass.
             self.assertFalse(task.frozen_vocab)
 
             ref = sorted(
@@ -261,23 +316,15 @@ class TestMIMIC4FHIRDataset(unittest.TestCase):
             )
             got = sorted(ds_b.gather_samples(task), key=lambda s: s["patient_id"])
             self.assertEqual(len(got), len(ref))
-            for a, b in zip(ref, got):
-                self.assertEqual(a["label"], b["label"])
-                ac = a["concept_ids"]
-                bc = b["concept_ids"]
-                if hasattr(bc, "tolist"):
-                    bc = bc.tolist()
-                self.assertEqual(ac, bc)
+            for expected, actual in zip(ref, got):
+                self.assertEqual(expected["label"], actual["label"])
+                self.assertEqual(expected["concept_ids"], actual["concept_ids"])
 
     def test_set_task_multi_worker_sets_frozen_vocab(self) -> None:
-        """``effective_workers > 1`` requires main-process warmup and frozen ids."""
+        from pyhealth.tasks.mpf_clinical_prediction import MPFClinicalPredictionTask
 
         with tempfile.TemporaryDirectory() as tmp:
             write_two_class_ndjson(Path(tmp))
-            from pyhealth.tasks.mpf_clinical_prediction import (
-                MPFClinicalPredictionTask,
-            )
-
             ds = MIMIC4FHIRDataset(
                 root=tmp, glob_pattern="*.ndjson", cache_dir=tmp, num_workers=2
             )
@@ -286,8 +333,6 @@ class TestMIMIC4FHIRDataset(unittest.TestCase):
             self.assertTrue(task.frozen_vocab)
 
     def test_mpf_pre_filter_vocab_warmup_excludes_dropped_patients(self) -> None:
-        """Warmup must not deserialize patients omitted by ``pre_filter``."""
-
         from pyhealth.tasks.mpf_clinical_prediction import MPFClinicalPredictionTask
 
         class TwoPatientMPFTask(MPFClinicalPredictionTask):
@@ -306,8 +351,6 @@ class TestMIMIC4FHIRDataset(unittest.TestCase):
             self.assertIn("http://loinc.org|789-0", ds.vocab.token_to_id)
 
     def test_mpf_pre_filter_patient_ids_drive_effective_workers(self) -> None:
-        """``len(_mpf_patient_ids_for_task)`` must match ``_task_transform`` slicing."""
-
         from pyhealth.tasks.mpf_clinical_prediction import MPFClinicalPredictionTask
 
         class OnePatientMPFTask(MPFClinicalPredictionTask):
@@ -322,303 +365,260 @@ class TestMIMIC4FHIRDataset(unittest.TestCase):
             task = OnePatientMPFTask(max_len=48, use_mpf=True)
             warmup_pids = ds._mpf_patient_ids_for_task(task)
             self.assertEqual(warmup_pids, ["p-synth-1"])
-            nw = 2
-            pid_n = len(warmup_pids)
-            effective_workers = min(nw, pid_n) if pid_n else 1
+            effective_workers = min(2, len(warmup_pids)) if warmup_pids else 1
             self.assertEqual(effective_workers, 1)
-            self.assertFalse(effective_workers > 1)
 
     def test_encounter_reference_requires_exact_id(self) -> None:
-        """``e1`` must not match reference ``Encounter/e10`` (substring bug)."""
-
-        from pyhealth.datasets.mimic4_fhir import FHIRPatient
-
-        patient_r = {
-            "resourceType": "Patient",
-            "id": "p1",
-            "birthDate": "1950-01-01",
-        }
-        enc1 = {
-            "resourceType": "Encounter",
-            "id": "e1",
-            "subject": {"reference": "Patient/p1"},
-            "period": {"start": "2020-06-01T10:00:00Z"},
-            "class": {"code": "AMB"},
-        }
-        enc10 = {
-            "resourceType": "Encounter",
-            "id": "e10",
-            "subject": {"reference": "Patient/p1"},
-            "period": {"start": "2020-07-02T10:00:00Z"},
-            "class": {"code": "IMP"},
-        }
-        cond_e10 = {
-            "resourceType": "Condition",
-            "id": "c99",
-            "subject": {"reference": "Patient/p1"},
-            "encounter": {"reference": "Encounter/e10"},
-            "code": {
-                "coding": [{"system": "http://hl7.org/fhir/sid/icd-10-cm", "code": "I99"}]
-            },
-            "onsetDateTime": "2020-07-02T11:00:00Z",
-        }
-        pr = FHIRPatient(
-            patient_id="p1",
-            resources=[patient_r, enc1, enc10, cond_e10],
+        patient = _patient_from_rows(
+            "p1",
+            [
+                {
+                    "patient_id": "p1",
+                    "event_type": "patient",
+                    "timestamp": None,
+                    "patient/birth_date": "1950-01-01",
+                },
+                {
+                    "patient_id": "p1",
+                    "event_type": "encounter",
+                    "timestamp": "2020-06-01T10:00:00",
+                    "encounter/encounter_id": "e1",
+                    "encounter/encounter_class": "AMB",
+                },
+                {
+                    "patient_id": "p1",
+                    "event_type": "encounter",
+                    "timestamp": "2020-07-02T10:00:00",
+                    "encounter/encounter_id": "e10",
+                    "encounter/encounter_class": "IMP",
+                },
+                {
+                    "patient_id": "p1",
+                    "event_type": "condition",
+                    "timestamp": "2020-07-02T11:00:00",
+                    "condition/encounter_id": "e10",
+                    "condition/concept_key": "http://hl7.org/fhir/sid/icd-10-cm|I99",
+                },
+            ],
         )
         vocab = ConceptVocab()
-        concept_ids, *_ = build_cehr_sequences(pr, vocab, max_len=64)
+        concept_ids, *_ = build_cehr_sequences(patient, vocab, max_len=64)
         tid = vocab["http://hl7.org/fhir/sid/icd-10-cm|I99"]
         self.assertEqual(concept_ids.count(tid), 1)
 
     def test_unlinked_condition_emitted_once_with_two_encounters(self) -> None:
-        """No encounter.reference: must not duplicate once per encounter loop."""
-
-        from pyhealth.datasets.mimic4_fhir import FHIRPatient
-
-        patient_r = {
-            "resourceType": "Patient",
-            "id": "p1",
-            "birthDate": "1950-01-01",
-        }
-        enc_a = {
-            "resourceType": "Encounter",
-            "id": "ea",
-            "subject": {"reference": "Patient/p1"},
-            "period": {"start": "2020-06-01T10:00:00Z"},
-            "class": {"code": "AMB"},
-        }
-        enc_b = {
-            "resourceType": "Encounter",
-            "id": "eb",
-            "subject": {"reference": "Patient/p1"},
-            "period": {"start": "2020-07-01T10:00:00Z"},
-            "class": {"code": "IMP"},
-        }
-        cond = {
-            "resourceType": "Condition",
-            "id": "cx",
-            "subject": {"reference": "Patient/p1"},
-            "code": {
-                "coding": [{"system": "http://hl7.org/fhir/sid/icd-10-cm", "code": "Z00"}]
-            },
-            "onsetDateTime": "2020-06-15T12:00:00Z",
-        }
-        pr = FHIRPatient(
-            patient_id="p1",
-            resources=[patient_r, enc_a, enc_b, cond],
+        patient = _patient_from_rows(
+            "p1",
+            [
+                {
+                    "patient_id": "p1",
+                    "event_type": "patient",
+                    "timestamp": None,
+                    "patient/birth_date": "1950-01-01",
+                },
+                {
+                    "patient_id": "p1",
+                    "event_type": "encounter",
+                    "timestamp": "2020-06-01T10:00:00",
+                    "encounter/encounter_id": "ea",
+                    "encounter/encounter_class": "AMB",
+                },
+                {
+                    "patient_id": "p1",
+                    "event_type": "encounter",
+                    "timestamp": "2020-07-01T10:00:00",
+                    "encounter/encounter_id": "eb",
+                    "encounter/encounter_class": "IMP",
+                },
+                {
+                    "patient_id": "p1",
+                    "event_type": "condition",
+                    "timestamp": "2020-06-15T12:00:00",
+                    "condition/concept_key": "http://hl7.org/fhir/sid/icd-10-cm|Z00",
+                },
+            ],
         )
         vocab = ConceptVocab()
-        concept_ids, *_ = build_cehr_sequences(pr, vocab, max_len=64)
-        z00 = vocab["http://hl7.org/fhir/sid/icd-10-cm|Z00"]
-        self.assertEqual(concept_ids.count(z00), 1)
+        concept_ids, *_ = build_cehr_sequences(patient, vocab, max_len=64)
+        self.assertEqual(concept_ids.count(vocab["http://hl7.org/fhir/sid/icd-10-cm|Z00"]), 1)
 
     def test_cehr_sequence_shapes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             write_one_patient_ndjson(Path(tmp))
             ds = MIMIC4FHIRDataset(root=tmp, glob_pattern="*.ndjson", cache_dir=tmp)
-            p = fhir_patient_from_patient(ds.get_patient("p-synth-1"))
-        v = ConceptVocab()
-        c, tt, ts, ag, vo, vs = build_cehr_sequences(p, v, max_len=32)
-        n = len(c)
-        self.assertEqual(len(tt), n)
-        self.assertEqual(len(ts), n)
+            patient = ds.get_patient("p-synth-1")
+        vocab = ConceptVocab()
+        concept_ids, token_types, time_stamps, ages, visit_orders, visit_segments = (
+            build_cehr_sequences(patient, vocab, max_len=32)
+        )
+        n = len(concept_ids)
+        self.assertEqual(len(token_types), n)
+        self.assertEqual(len(time_stamps), n)
+        self.assertEqual(len(ages), n)
+        self.assertEqual(len(visit_orders), n)
+        self.assertEqual(len(visit_segments), n)
         self.assertGreater(n, 0)
 
     def test_build_cehr_max_len_zero_no_clinical_tokens(self) -> None:
-        """``max_len=0`` must not use ``events[-0:]`` (full list); emit nothing."""
-
-        from pyhealth.datasets.mimic4_fhir import FHIRPatient
-
-        patient_r = {
-            "resourceType": "Patient",
-            "id": "p1",
-            "birthDate": "1950-01-01",
-        }
-        enc = {
-            "resourceType": "Encounter",
-            "id": "e1",
-            "subject": {"reference": "Patient/p1"},
-            "period": {"start": "2020-06-01T10:00:00Z"},
-            "class": {"code": "AMB"},
-        }
-        cond = {
-            "resourceType": "Condition",
-            "id": "c1",
-            "subject": {"reference": "Patient/p1"},
-            "encounter": {"reference": "Encounter/e1"},
-            "code": {
-                "coding": [{"system": "http://hl7.org/fhir/sid/icd-10-cm", "code": "I10"}]
-            },
-            "onsetDateTime": "2020-06-01T11:00:00Z",
-        }
-        pr = FHIRPatient(patient_id="p1", resources=[patient_r, enc, cond])
+        patient = _patient_from_rows(
+            "p1",
+            [
+                {
+                    "patient_id": "p1",
+                    "event_type": "patient",
+                    "timestamp": None,
+                    "patient/birth_date": "1950-01-01",
+                },
+                {
+                    "patient_id": "p1",
+                    "event_type": "encounter",
+                    "timestamp": "2020-06-01T10:00:00",
+                    "encounter/encounter_id": "e1",
+                    "encounter/encounter_class": "AMB",
+                },
+                {
+                    "patient_id": "p1",
+                    "event_type": "condition",
+                    "timestamp": "2020-06-01T11:00:00",
+                    "condition/encounter_id": "e1",
+                    "condition/concept_key": "http://hl7.org/fhir/sid/icd-10-cm|I10",
+                },
+            ],
+        )
         vocab = ConceptVocab()
-        c, tt, ts, ag, vo, vs = build_cehr_sequences(pr, vocab, max_len=0)
+        c, _, _, _, _, vs = build_cehr_sequences(patient, vocab, max_len=0)
         self.assertEqual(c, [])
         self.assertEqual(vs, [])
 
     def test_visit_segments_alternate_by_visit_index(self) -> None:
-        """CEHR-style segments: all tokens in visit ``k`` share ``k % 2``."""
-
-        from pyhealth.datasets.mimic4_fhir import FHIRPatient
-
-        patient_r = {
-            "resourceType": "Patient",
-            "id": "p1",
-            "birthDate": "1950-01-01",
-        }
-        enc0 = {
-            "resourceType": "Encounter",
-            "id": "e0",
-            "subject": {"reference": "Patient/p1"},
-            "period": {"start": "2020-06-01T10:00:00Z"},
-            "class": {"code": "AMB"},
-        }
-        enc1 = {
-            "resourceType": "Encounter",
-            "id": "e1",
-            "subject": {"reference": "Patient/p1"},
-            "period": {"start": "2020-07-01T10:00:00Z"},
-            "class": {"code": "IMP"},
-        }
-        c0 = {
-            "resourceType": "Condition",
-            "id": "c0",
-            "subject": {"reference": "Patient/p1"},
-            "encounter": {"reference": "Encounter/e0"},
-            "code": {
-                "coding": [{"system": "http://hl7.org/fhir/sid/icd-10-cm", "code": "I10"}]
-            },
-            "onsetDateTime": "2020-06-01T11:00:00Z",
-        }
-        c1 = {
-            "resourceType": "Condition",
-            "id": "c1",
-            "subject": {"reference": "Patient/p1"},
-            "encounter": {"reference": "Encounter/e1"},
-            "code": {
-                "coding": [{"system": "http://hl7.org/fhir/sid/icd-10-cm", "code": "I20"}]
-            },
-            "onsetDateTime": "2020-07-01T11:00:00Z",
-        }
-        pr = FHIRPatient(
-            patient_id="p1",
-            resources=[patient_r, enc0, enc1, c0, c1],
+        patient = _patient_from_rows(
+            "p1",
+            [
+                {
+                    "patient_id": "p1",
+                    "event_type": "patient",
+                    "timestamp": None,
+                    "patient/birth_date": "1950-01-01",
+                },
+                {
+                    "patient_id": "p1",
+                    "event_type": "encounter",
+                    "timestamp": "2020-06-01T10:00:00",
+                    "encounter/encounter_id": "e0",
+                    "encounter/encounter_class": "AMB",
+                },
+                {
+                    "patient_id": "p1",
+                    "event_type": "condition",
+                    "timestamp": "2020-06-01T11:00:00",
+                    "condition/encounter_id": "e0",
+                    "condition/concept_key": "http://hl7.org/fhir/sid/icd-10-cm|I10",
+                },
+                {
+                    "patient_id": "p1",
+                    "event_type": "encounter",
+                    "timestamp": "2020-07-01T10:00:00",
+                    "encounter/encounter_id": "e1",
+                    "encounter/encounter_class": "IMP",
+                },
+                {
+                    "patient_id": "p1",
+                    "event_type": "condition",
+                    "timestamp": "2020-07-01T11:00:00",
+                    "condition/encounter_id": "e1",
+                    "condition/concept_key": "http://hl7.org/fhir/sid/icd-10-cm|I20",
+                },
+            ],
         )
         vocab = ConceptVocab()
-        _, _, _, _, _, vs = build_cehr_sequences(pr, vocab, max_len=64)
-        self.assertEqual(len(vs), 4)
-        self.assertEqual(vs, [0, 0, 1, 1])
+        _, _, _, _, _, visit_segments = build_cehr_sequences(patient, vocab, max_len=64)
+        self.assertEqual(visit_segments, [0, 0, 1, 1])
 
     def test_unlinked_visit_idx_matches_sequential_counter(self) -> None:
-        """Skipped encounters (no ``period.start``) must not shift unlinked ``visit_idx``."""
-
-        from pyhealth.datasets.mimic4_fhir import FHIRPatient
-
-        patient_r = {
-            "resourceType": "Patient",
-            "id": "p1",
-            "birthDate": "1950-01-01",
-        }
-        enc_no_start = {
-            "resourceType": "Encounter",
-            "id": "e_bad",
-            "subject": {"reference": "Patient/p1"},
-            "class": {"code": "AMB"},
-        }
-        enc_ok = {
-            "resourceType": "Encounter",
-            "id": "e_ok",
-            "subject": {"reference": "Patient/p1"},
-            "period": {"start": "2020-03-01T10:00:00Z"},
-            "class": {"code": "IMP"},
-        }
-        cond_linked = {
-            "resourceType": "Condition",
-            "id": "c_link",
-            "subject": {"reference": "Patient/p1"},
-            "encounter": {"reference": "Encounter/e_ok"},
-            "code": {
-                "coding": [{"system": "http://hl7.org/fhir/sid/icd-10-cm", "code": "I10"}]
-            },
-            "onsetDateTime": "2020-03-05T11:00:00Z",
-        }
-        cond_unlinked = {
-            "resourceType": "Condition",
-            "id": "c_free",
-            "subject": {"reference": "Patient/p1"},
-            "code": {
-                "coding": [{"system": "http://hl7.org/fhir/sid/icd-10-cm", "code": "Z00"}]
-            },
-            "onsetDateTime": "2020-03-15T12:00:00Z",
-        }
-        pr = FHIRPatient(
-            patient_id="p1",
-            resources=[patient_r, enc_no_start, enc_ok, cond_linked, cond_unlinked],
+        patient = _patient_from_rows(
+            "p1",
+            [
+                {
+                    "patient_id": "p1",
+                    "event_type": "patient",
+                    "timestamp": None,
+                    "patient/birth_date": "1950-01-01",
+                },
+                {
+                    "patient_id": "p1",
+                    "event_type": "encounter",
+                    "timestamp": None,
+                    "encounter/encounter_id": "e_bad",
+                    "encounter/encounter_class": "AMB",
+                },
+                {
+                    "patient_id": "p1",
+                    "event_type": "encounter",
+                    "timestamp": "2020-03-01T10:00:00",
+                    "encounter/encounter_id": "e_ok",
+                    "encounter/encounter_class": "IMP",
+                },
+                {
+                    "patient_id": "p1",
+                    "event_type": "condition",
+                    "timestamp": "2020-03-05T11:00:00",
+                    "condition/encounter_id": "e_ok",
+                    "condition/concept_key": "http://hl7.org/fhir/sid/icd-10-cm|I10",
+                },
+                {
+                    "patient_id": "p1",
+                    "event_type": "condition",
+                    "timestamp": "2020-03-15T12:00:00",
+                    "condition/concept_key": "http://hl7.org/fhir/sid/icd-10-cm|Z00",
+                },
+            ],
         )
         vocab = ConceptVocab()
-        c, _, _, _, vo, vs = build_cehr_sequences(pr, vocab, max_len=64)
+        concept_ids, _, _, _, visit_orders, visit_segments = build_cehr_sequences(
+            patient, vocab, max_len=64
+        )
         i10 = vocab["http://hl7.org/fhir/sid/icd-10-cm|I10"]
         z00 = vocab["http://hl7.org/fhir/sid/icd-10-cm|Z00"]
-        i_link = c.index(i10)
-        i_free = c.index(z00)
-        self.assertEqual(vo[i_link], vo[i_free])
-        self.assertEqual(vs[i_link], vs[i_free])
+        i_link = concept_ids.index(i10)
+        i_free = concept_ids.index(z00)
+        self.assertEqual(visit_orders[i_link], visit_orders[i_free])
+        self.assertEqual(visit_segments[i_link], visit_segments[i_free])
 
     def test_medication_request_uses_medication_codeable_concept(self) -> None:
-        """FHIR R4 MedicationRequest carries Rx in ``medicationCodeableConcept``, not ``code``."""
-
-        from pyhealth.datasets.mimic4_fhir import FHIRPatient
-
-        patient_r = {
-            "resourceType": "Patient",
-            "id": "p1",
-            "birthDate": "1950-01-01",
-        }
-        enc = {
-            "resourceType": "Encounter",
-            "id": "e1",
-            "subject": {"reference": "Patient/p1"},
-            "period": {"start": "2020-06-01T10:00:00Z"},
-            "class": {"code": "IMP"},
-        }
-        mr_a = {
-            "resourceType": "MedicationRequest",
-            "id": "m1",
-            "subject": {"reference": "Patient/p1"},
-            "encounter": {"reference": "Encounter/e1"},
-            "authoredOn": "2020-06-01T11:00:00Z",
-            "medicationCodeableConcept": {
-                "coding": [
-                    {
-                        "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
-                        "code": "111",
-                    }
-                ]
-            },
-        }
-        mr_b = {
-            "resourceType": "MedicationRequest",
-            "id": "m2",
-            "subject": {"reference": "Patient/p1"},
-            "encounter": {"reference": "Encounter/e1"},
-            "authoredOn": "2020-06-01T12:00:00Z",
-            "medicationCodeableConcept": {
-                "coding": [
-                    {
-                        "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
-                        "code": "222",
-                    }
-                ]
-            },
-        }
-        pr = FHIRPatient(
-            patient_id="p1",
-            resources=[patient_r, enc, mr_a, mr_b],
+        patient = _patient_from_rows(
+            "p1",
+            [
+                {
+                    "patient_id": "p1",
+                    "event_type": "patient",
+                    "timestamp": None,
+                    "patient/birth_date": "1950-01-01",
+                },
+                {
+                    "patient_id": "p1",
+                    "event_type": "encounter",
+                    "timestamp": "2020-06-01T10:00:00",
+                    "encounter/encounter_id": "e1",
+                    "encounter/encounter_class": "IMP",
+                },
+                {
+                    "patient_id": "p1",
+                    "event_type": "medication_request",
+                    "timestamp": "2020-06-01T11:00:00",
+                    "medication_request/encounter_id": "e1",
+                    "medication_request/concept_key": "http://www.nlm.nih.gov/research/umls/rxnorm|111",
+                },
+                {
+                    "patient_id": "p1",
+                    "event_type": "medication_request",
+                    "timestamp": "2020-06-01T12:00:00",
+                    "medication_request/encounter_id": "e1",
+                    "medication_request/concept_key": "http://www.nlm.nih.gov/research/umls/rxnorm|222",
+                },
+            ],
         )
         vocab = ConceptVocab()
-        c, _, _, _, _, _ = build_cehr_sequences(pr, vocab, max_len=64)
+        c, *_ = build_cehr_sequences(patient, vocab, max_len=64)
         ka = "http://www.nlm.nih.gov/research/umls/rxnorm|111"
         kb = "http://www.nlm.nih.gov/research/umls/rxnorm|222"
         self.assertNotEqual(vocab[ka], vocab[kb])
@@ -626,36 +626,72 @@ class TestMIMIC4FHIRDataset(unittest.TestCase):
         self.assertEqual(c.count(vocab[kb]), 1)
 
     def test_medication_request_medication_reference_token(self) -> None:
-        """When only ``medicationReference`` is present, use a stable ref-based key."""
-
-        from pyhealth.datasets.mimic4_fhir import FHIRPatient
-
-        patient_r = {
-            "resourceType": "Patient",
-            "id": "p1",
-            "birthDate": "1950-01-01",
-        }
-        enc = {
-            "resourceType": "Encounter",
-            "id": "e1",
-            "subject": {"reference": "Patient/p1"},
-            "period": {"start": "2020-06-01T10:00:00Z"},
-            "class": {"code": "IMP"},
-        }
-        mr = {
-            "resourceType": "MedicationRequest",
-            "id": "m1",
-            "subject": {"reference": "Patient/p1"},
-            "encounter": {"reference": "Encounter/e1"},
-            "authoredOn": "2020-06-01T11:00:00Z",
-            "medicationReference": {"reference": "Medication/med-abc"},
-        }
-        pr = FHIRPatient(patient_id="p1", resources=[patient_r, enc, mr])
+        patient = _patient_from_rows(
+            "p1",
+            [
+                {
+                    "patient_id": "p1",
+                    "event_type": "patient",
+                    "timestamp": None,
+                    "patient/birth_date": "1950-01-01",
+                },
+                {
+                    "patient_id": "p1",
+                    "event_type": "encounter",
+                    "timestamp": "2020-06-01T10:00:00",
+                    "encounter/encounter_id": "e1",
+                    "encounter/encounter_class": "IMP",
+                },
+                {
+                    "patient_id": "p1",
+                    "event_type": "medication_request",
+                    "timestamp": "2020-06-01T11:00:00",
+                    "medication_request/encounter_id": "e1",
+                    "medication_request/concept_key": "MedicationRequest/reference|med-abc",
+                },
+            ],
+        )
         vocab = ConceptVocab()
-        c, _, _, _, _, _ = build_cehr_sequences(pr, vocab, max_len=64)
+        c, *_ = build_cehr_sequences(patient, vocab, max_len=64)
         key = "MedicationRequest/reference|med-abc"
         self.assertIn(vocab[key], c)
         self.assertEqual(c.count(vocab[key]), 1)
+
+    def test_collect_cehr_timeline_events_orders_by_timestamp(self) -> None:
+        patient = _patient_from_rows(
+            "p1",
+            [
+                {
+                    "patient_id": "p1",
+                    "event_type": "patient",
+                    "timestamp": None,
+                    "patient/birth_date": "1950-01-01",
+                },
+                {
+                    "patient_id": "p1",
+                    "event_type": "encounter",
+                    "timestamp": "2020-06-01T10:00:00",
+                    "encounter/encounter_id": "e1",
+                    "encounter/encounter_class": "AMB",
+                },
+                {
+                    "patient_id": "p1",
+                    "event_type": "condition",
+                    "timestamp": "2020-06-01T11:00:00",
+                    "condition/encounter_id": "e1",
+                    "condition/concept_key": "a|1",
+                },
+                {
+                    "patient_id": "p1",
+                    "event_type": "observation",
+                    "timestamp": "2020-06-01T12:00:00",
+                    "observation/encounter_id": "e1",
+                    "observation/concept_key": "b|2",
+                },
+            ],
+        )
+        events = collect_cehr_timeline_events(patient)
+        self.assertEqual([event[1] for event in events], ["encounter|AMB", "a|1", "b|2"])
 
 
 if __name__ == "__main__":

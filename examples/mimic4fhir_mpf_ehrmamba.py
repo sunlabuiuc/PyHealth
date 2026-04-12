@@ -26,8 +26,8 @@ real FHIR.
     needed for conclusive comparisons. Paste your table from ``--ablation``
     into the PR description.
 
-**Scaling:** :class:`~pyhealth.datasets.MIMIC4FHIRDataset` streams NDJSON to
-hash-sharded Parquet (bounded RAM during ingest). This example trains via
+**Scaling:** :class:`~pyhealth.datasets.MIMIC4FHIRDataset` streams NDJSON into
+flattened per-resource Parquet tables (bounded RAM during ingest). This example trains via
 ``dataset.set_task(MPFClinicalPredictionTask)`` → LitData-backed
 :class:`~pyhealth.datasets.sample_dataset.SampleDataset` →
 :class:`~pyhealth.trainer.Trainer` (PyHealth’s standard path), instead of
@@ -35,15 +35,16 @@ materializing all samples with ``gather_samples()``. Prefer ``--max-patients`` t
  bound ingest when possible. Very large cohorts still need RAM/disk for task
 caches and MPF vocabulary warmup.
 
-**Offline Parquet (NDJSON → Parquet already done):** pass
-``--prebuilt-global-event-dir`` pointing at a directory of ``shard-*.parquet``
-(from ingest / ``stream_fhir_ndjson_root_to_sharded_parquet``). The example seeds
-``global_event_df.parquet/`` under the usual PyHealth cache UUID so
-``BaseDataset.global_event_df`` skips re-ingest — the downstream path is still
+**Offline flattened tables (NDJSON normalization already done):** pass
+``--prebuilt-global-event-dir`` pointing at a directory containing the normalized
+FHIR tables (``patient.parquet``, ``encounter.parquet``, ``condition.parquet``,
+etc.). The example seeds ``flattened_tables/`` under the usual PyHealth cache UUID,
+then lets :class:`~pyhealth.datasets.BaseDataset` rebuild
+``global_event_df.parquet/`` from those tables — the downstream path is still
 ``global_event_df`` → :class:`~pyhealth.data.Patient` →
 :class:`~pyhealth.tasks.mpf_clinical_prediction.MPFClinicalPredictionTask` →
 :class:`~pyhealth.trainer.Trainer``. Use ``--fhir-root`` / ``--glob-pattern`` /
-``--ingest-num-shards`` / ``--max-patients -1`` matching the ingest fingerprint.
+``--max-patients -1`` matching the ingest fingerprint.
 ``--train-patient-cap`` restricts task transforms via ``task.pre_filter`` using a
 label-aware deterministic patient subset. The full ``unique_patient_ids`` scan and MPF vocab warmup
 in the dataset still walk the cached cohort.
@@ -60,11 +61,10 @@ Usage:
     export MIMIC4_FHIR_ROOT=/path/to/fhir
     pixi run -e base python examples/mimic4fhir_mpf_ehrmamba.py --fhir-root "$MIMIC4_FHIR_ROOT"
 
-    # Prebuilt Parquet shards (skip NDJSON re-ingest); cap patients for a smoke train
+    # Prebuilt flattened FHIR tables (skip NDJSON normalization); cap patients for a smoke train
     pixi run -e base python examples/mimic4fhir_mpf_ehrmamba.py \\
-      --prebuilt-global-event-dir /path/to/shard_parquet_dir \\
-      --fhir-root /same/as/ndjson/ingest/root \\
-      --glob-pattern 'Mimic*.ndjson.gz' --ingest-num-shards 16 --max-patients -1 \\
+      --prebuilt-global-event-dir /path/to/flattened_table_dir \\
+      --fhir-root /same/as/ndjson/ingest/root --glob-pattern 'Mimic*.ndjson.gz' --max-patients -1 \\
       --train-patient-cap 2048 --epochs 2 \\
       --ntfy-url 'https://ntfy.sh/your-topic'
 """
@@ -150,8 +150,8 @@ _parser.add_argument(
     type=int,
     default=500,
     help=(
-        "Fingerprint for cache dir: cap patients during ingest (-1 = full cohort, "
-        "match an uncapped NDJSON→Parquet export)."
+        "Fingerprint for cache dir: cap patients during normalization (-1 = full cohort, "
+        "match an uncapped NDJSON→flattened-table export)."
     ),
 )
 _parser.add_argument(
@@ -159,16 +159,16 @@ _parser.add_argument(
     type=str,
     default=None,
     help=(
-        "Directory with shard-*.parquet from NDJSON ingest. Seeds "
-        "cache/global_event_df.parquet/ so training skips re-ingest (downstream "
-        "unchanged: Patient + MPF + Trainer)."
+        "Directory with normalized flattened FHIR tables (*.parquet). Seeds "
+        "cache/flattened_tables/ so training skips NDJSON normalization "
+        "(downstream unchanged: Patient + MPF + Trainer)."
     ),
 )
 _parser.add_argument(
     "--ingest-num-shards",
     type=int,
     default=None,
-    help="Fingerprint only: must match NDJSON→Parquet ingest (default: dataset YAML / heuristic).",
+    help="Compatibility no-op: retained for CLI stability with older runs.",
 )
 _parser.add_argument(
     "--train-patient-cap",
@@ -216,7 +216,7 @@ import torch
 import polars as pl
 
 from pyhealth.datasets import MIMIC4FHIRDataset, get_dataloader
-from pyhealth.datasets.mimic4_fhir import fhir_patient_from_patient, infer_mortality_label
+from pyhealth.datasets.mimic4_fhir import infer_mortality_label
 from pyhealth.models import EHRMambaCEHR
 from pyhealth.tasks.mpf_clinical_prediction import MPFClinicalPredictionTask
 from pyhealth.trainer import Trainer
@@ -251,20 +251,20 @@ def _max_patients_arg(v: int) -> Optional[int]:
     return None if v is not None and v < 0 else v
 
 
-def _seed_global_event_cache_from_shards(prebuilt_dir: Path, ds: MIMIC4FHIRDataset) -> None:
-    """Link shard-*.parquet into the dataset cache as part-*.parquet (PyHealth layout)."""
+def _seed_flattened_table_cache(prebuilt_dir: Path, ds: MIMIC4FHIRDataset) -> None:
+    """Copy normalized per-resource parquet tables into the dataset cache."""
 
-    shards = sorted(prebuilt_dir.glob("shard-*.parquet"))
-    if not shards:
+    tables = sorted(prebuilt_dir.glob("*.parquet"))
+    if not tables:
         raise FileNotFoundError(
-            f"No shard-*.parquet under {prebuilt_dir} — use ingest output directory."
+            f"No *.parquet tables under {prebuilt_dir} — expected flattened FHIR tables."
         )
-    ge = ds.cache_dir / "global_event_df.parquet"
-    if ge.exists() and any(ge.glob("*.parquet")):
+    prepared = ds.prepared_tables_dir
+    if prepared.exists() and any(prepared.glob("*.parquet")):
         return
-    ge.mkdir(parents=True, exist_ok=True)
-    for i, src in enumerate(shards):
-        dest = ge / f"part-{i:05d}.parquet"
+    prepared.mkdir(parents=True, exist_ok=True)
+    for src in tables:
+        dest = prepared / src.name
         if dest.exists():
             continue
         try:
@@ -348,7 +348,7 @@ def _quick_test_ndjson_dir() -> str:
 
 def _patient_label(ds: MIMIC4FHIRDataset, patient_id: str) -> int:
     patient = ds.get_patient(patient_id)
-    return int(infer_mortality_label(fhir_patient_from_patient(patient)))
+    return int(infer_mortality_label(patient))
 
 
 def _ensure_binary_label_coverage(ds: MIMIC4FHIRDataset) -> None:
@@ -552,7 +552,7 @@ def run_single_train(
         ds_kw["ingest_num_shards"] = ingest_num_shards
     ds = MIMIC4FHIRDataset(**ds_kw)
     if prebuilt_global_event_dir:
-        _seed_global_event_cache_from_shards(
+        _seed_flattened_table_cache(
             Path(prebuilt_global_event_dir).expanduser().resolve(), ds
         )
     if train_patient_cap is not None:
@@ -699,8 +699,8 @@ def _main_train(args: argparse.Namespace) -> None:
         )
         try:
             print(
-                "pipeline: synthetic NDJSON → ingest Parquet → set_task → "
-                "SampleDataset → Trainer"
+                "pipeline: synthetic NDJSON → flattened tables → global_event_df "
+                "→ set_task → SampleDataset → Trainer"
             )
             task = MPFClinicalPredictionTask(
                 max_len=args.max_len,
@@ -744,14 +744,15 @@ def _main_train(args: argparse.Namespace) -> None:
             if not pb.is_dir():
                 raise SystemExit(f"--prebuilt-global-event-dir not a directory: {pb}")
             print(
-                "pipeline: offline NDJSON→Parquet shards → seed global_event_df cache → "
-                "set_task → SampleDataset → Trainer (no NDJSON re-ingest)"
+                "pipeline: offline flattened FHIR tables → seed flattened table cache "
+                "→ global_event_df → set_task → SampleDataset → Trainer "
+                "(no NDJSON normalization)"
             )
-            _seed_global_event_cache_from_shards(pb, ds)
+            _seed_flattened_table_cache(pb, ds)
         else:
             print(
-                "pipeline: NDJSON root → MIMIC4FHIRDataset ingest → Parquet cache → "
-                "set_task → SampleDataset → Trainer"
+                "pipeline: NDJSON root → MIMIC4FHIRDataset flattening → global_event_df "
+                "→ set_task → SampleDataset → Trainer"
             )
         print("glob_pattern:", ds.glob_pattern, "| max_patients fingerprint:", mp)
         if args.train_patient_cap is not None:
@@ -788,9 +789,9 @@ def _main_train(args: argparse.Namespace) -> None:
         if len(sample_ds) == 0:
             raise SystemExit(
                 "No training samples (0 patients or empty sequences). "
-                "PhysioNet MIMIC-IV FHIR uses *.ndjson.gz (default glob **/*.ndjson.gz). "
-                "If your tree is plain *.ndjson, construct MIMIC4FHIRDataset with "
-                "glob_pattern='**/*.ndjson'."
+                "PhysioNet MIMIC-IV FHIR uses *.ndjson.gz (see default glob_patterns in "
+                "pyhealth/datasets/configs/mimic4_fhir.yaml). If your tree is plain *.ndjson, "
+                "construct MIMIC4FHIRDataset with glob_pattern='**/*.ndjson'."
             )
 
         sample_ds, train_loader, val_loader, test_loader, vocab_size = (

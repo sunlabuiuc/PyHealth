@@ -2,17 +2,15 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
 import torch
 
 from pyhealth.data import Patient
 from pyhealth.datasets.mimic4_fhir import (
     ConceptVocab,
-    FHIRPatient,
     build_cehr_sequences,
     ensure_special_tokens,
-    fhir_patient_from_patient,
     infer_mortality_label,
 )
 
@@ -46,9 +44,9 @@ def _left_pad_float(seq: List[float], max_len: int, pad: float = 0.0) -> List[fl
 class MPFClinicalPredictionTask(BaseTask):
     """Binary mortality prediction from FHIR CEHR sequences with optional MPF tokens.
 
-    Works on :class:`~pyhealth.data.Patient` (standard ``global_event_df`` /
-    :meth:`~pyhealth.datasets.MIMIC4FHIRDataset.set_task` path) or legacy
-    :class:`~pyhealth.datasets.mimic4_fhir.FHIRPatient`. For :meth:`set_task`,
+    Works on :class:`~pyhealth.data.Patient` via the standard
+    ``global_event_df`` / :meth:`~pyhealth.datasets.MIMIC4FHIRDataset.set_task`
+    path. For :meth:`set_task`,
     :class:`~pyhealth.datasets.MIMIC4FHIRDataset` reserves specials, warms concept
     keys in the main process over the same patient cohort as
     :meth:`~pyhealth.tasks.base_task.BaseTask.pre_filter` (including when LitData
@@ -90,14 +88,11 @@ class MPFClinicalPredictionTask(BaseTask):
             self._specials = ensure_special_tokens(self.vocab)
         return self.vocab
 
-    def __call__(
-        self, patient: Union[Patient, FHIRPatient]
-    ) -> List[Dict[str, Any]]:
+    def __call__(self, patient: Patient) -> List[Dict[str, Any]]:
         """Build one labeled sample dict per patient.
 
         Args:
-            patient: Tabular :class:`~pyhealth.data.Patient` or legacy
-                :class:`~pyhealth.datasets.mimic4_fhir.FHIRPatient`.
+            patient: A tabular :class:`~pyhealth.data.Patient`.
 
         Returns:
             A one-element list with ``concept_ids``, tensor-ready feature lists, and
@@ -105,12 +100,7 @@ class MPFClinicalPredictionTask(BaseTask):
             ``max_len == 2`` the sequence is ``<mor>``/``<cls>`` and ``<reg>`` only.
         """
         vocab = self._ensure_vocab()
-        if isinstance(patient, Patient):
-            fhir_patient = fhir_patient_from_patient(patient)
-            pid = patient.patient_id
-        else:
-            fhir_patient = patient
-            pid = patient.patient_id
+        pid = patient.patient_id
         clinical_cap = max(0, self.max_len - 2)
         (
             concept_ids,
@@ -120,7 +110,7 @@ class MPFClinicalPredictionTask(BaseTask):
             visit_orders,
             visit_segments,
         ) = build_cehr_sequences(
-            fhir_patient,
+            patient,
             vocab,
             clinical_cap,
             grow_vocab=not self.frozen_vocab,
@@ -146,7 +136,7 @@ class MPFClinicalPredictionTask(BaseTask):
         visit_orders = _left_pad_int(visit_orders, ml, 0)
         visit_segments = _left_pad_int(visit_segments, ml, 0)
 
-        label = infer_mortality_label(fhir_patient)
+        label = infer_mortality_label(patient)
         return [
             {
                 "patient_id": pid,
