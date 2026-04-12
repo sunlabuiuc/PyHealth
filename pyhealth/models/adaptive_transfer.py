@@ -15,96 +15,60 @@ DistanceFn = Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
 class AdaptiveTransferModel(BaseModel):
     """Adaptive transfer model for multi-source time-series classification.
 
-    This model is a practical PyHealth-style implementation inspired by
+    This model is inspired by
     "Daily Physical Activity Monitoring: Adaptive Learning from Multi-Source
     Motion Sensor Data".
 
-    This class provides:
-
-    1. a standard forward pass for supervised training/evaluation.
-    2. utilities to compute source-target similarity using paired samples.
-    3. utilities for similarity-weighted transfer in example scripts.
-    4. dependency injection for both the neural encoder and the distance
-       function used inside IPD-style similarity computation.
-
-    Expected input format
-    ---------------------
-    The selected feature_key should correspond to a dense time-series input.
-    The processor schema should expose at least a "value" tensor, optionally
-    a "mask" tensor.
-
-    Supported shapes for value:
-    - [batch, seq_len] -> interpreted as 1 feature per timestep
-    - [batch, seq_len, input_dim]
-
-    Supported shapes for mask:
-    - [batch, seq_len]
-    - [batch, seq_len, input_dim] (collapsed across feature dimension)
-
-    Custom backbone contract
-    ------------------------
-    If a custom backbone is provided, it should accept a tensor of shape
-    [batch, seq_len, input_dim] and return either:
-    - [batch, backbone_output_dim], or
-    - [batch, seq_len, backbone_output_dim] (we will pool over time).
+    The model supports:
+        1. standard supervised forward passes;
+        2. paired source-target similarity computation;
+        3. similarity-weighted transfer utilities for example scripts;
+        4. dependency injection for both the backbone and distance function.
 
     Args:
         dataset: PyHealth sample dataset.
-        feature_key: The dense time-series feature to use. If None, the first
-            feature in dataset.input_schema is used.
-        hidden_dim: Hidden size of the default LSTM backbone.
-        num_layers: Number of LSTM layers for the default backbone.
-        dropout: Dropout used in the encoder/classifier.
-        bidirectional: Whether to use a bidirectional LSTM for the default
-            backbone.
-        backbone: Optional injected encoder module. If None, a default LSTM
-            encoder is used.
-        backbone_name: Name for the backbone. Supported strings:
-            "lstm" (default), "gru", "mlp".
-            Ignored if backbone is explicitly provided.
-        backbone_output_dim: Output embedding dimension for the injected
-            backbone. If None, we try to infer it from common attributes.
-        distance_fn: Distance function used for IPD-style similarity.
-            Supported strings: "euclidean", "cosine", "manhattan".
-            A custom callable can also be passed.
-        use_similarity_weighting: Whether transfer learning rates should be
-            scaled by source-target similarity.
-        use_kde_smoothing: Whether to smooth pairwise distances before forming
-            a similarity score. This is a lightweight approximation for the
-            smoothing idea in the paper.
-        smoothing_std: Standard deviation used in the smoothing approximation.
+        feature_key: Dense time-series feature key. If None, uses the first
+            available feature key.
+        hidden_dim: Hidden size for built-in backbones.
+        num_layers: Number of recurrent layers for built-in backbones.
+        dropout: Dropout probability.
+        bidirectional: Whether recurrent backbones are bidirectional.
+        backbone: Backbone encoder specification. Supported string values are
+            {"lstm", "gru", "mlp"}, or a custom ``nn.Module`` can be passed.
+        backbone_output_dim: Output dimension of a custom backbone. Required
+            when it cannot be inferred from the module itself.
+        distance_fn: Distance function for IPD-style similarity. One of
+            {"euclidean", "manhattan", "cosine"} or a callable.
+        use_similarity_weighting: Whether to scale learning rates by similarity.
+        use_kde_smoothing: Whether to smooth pairwise distances before
+            averaging.
+        smoothing_std: Standard deviation of Gaussian smoothing noise.
         eps: Small constant for numerical stability.
 
     Raises:
         ValueError: If the dataset does not expose exactly one label key.
 
     Example:
-        >>> model = AdaptiveTransferModel(
-        ...     dataset=dataset,
-        ...     feature_key="signal",
-        ...     backbone_name="lstm",
-        ...     distance_fn="euclidean",
-        ... )
+        >>> model = AdaptiveTransferModel(dataset=dataset, feature_key="signal")
         >>> output = model(**batch)
         >>> output["logit"].shape
     """
 
     def __init__(
-            self,
-            dataset: SampleDataset,
-            feature_key: Optional[str] = None,
-            hidden_dim: int = 128,
-            num_layers: int = 1,
-            dropout: float = 0.2,
-            bidirectional: bool = False,
-            backbone: Optional[nn.Module] = None,
-            backbone_name: str = "lstm",
-            backbone_output_dim: Optional[int] = None,
-            distance_fn: Union[str, DistanceFn] = "euclidean",
-            use_similarity_weighting: bool = True,
-            use_kde_smoothing: bool = True,
-            smoothing_std: float = 0.01,
-            eps: float = 1e-8,
+        self,
+        dataset: SampleDataset,
+        feature_key: Optional[str] = None,
+        hidden_dim: int = 128,
+        num_layers: int = 1,
+        dropout: float = 0.2,
+        bidirectional: bool = False,
+        backbone: Union[str, nn.Module] = "lstm",
+        backbone_output_dim: Optional[int] = None,
+        distance_fn: Union[str, DistanceFn] = "euclidean",
+        use_similarity_weighting: bool = True,
+        use_kde_smoothing: bool = True,
+        smoothing_std: float = 0.01,
+        eps: float = 1e-8,
     ) -> None:
         """Initialize the adaptive transfer model.
 
@@ -112,16 +76,13 @@ class AdaptiveTransferModel(BaseModel):
             dataset: PyHealth sample dataset.
             feature_key: Dense input feature key. If None, uses the first
                 available feature key from the dataset.
-            hidden_dim: Hidden size for the default recurrent encoder.
-            num_layers: Number of recurrent layers in the default encoder.
-            dropout: Dropout probability applied in encoder/classifier.
-            bidirectional: Whether the default recurrent encoder is
-                bidirectional.
-            backbone: Optional custom encoder module.
-            backbone_name: Name of built-in fallback encoder to construct when
-                backbone is not provided.
-            backbone_output_dim: Output embedding dimension for a custom
-                backbone.
+            hidden_dim: Hidden size for built-in backbones.
+            num_layers: Number of recurrent layers for built-in backbones.
+            dropout: Dropout probability.
+            bidirectional: Whether recurrent backbones are bidirectional.
+            backbone: Backbone encoder specification. Supported string values
+                are {"lstm", "gru", "mlp"}, or a custom ``nn.Module``.
+            backbone_output_dim: Output dimension of a custom backbone.
             distance_fn: Distance function identifier or callable used for
                 IPD-style similarity.
             use_similarity_weighting: Whether adaptive learning rates should be
@@ -143,115 +104,70 @@ class AdaptiveTransferModel(BaseModel):
         self.feature_key = feature_key or self.feature_keys[0]
         self.hidden_dim = hidden_dim
         self.num_layers = num_layers
-        self.dropout_prob = dropout
         self.bidirectional = bidirectional
         self.use_similarity_weighting = use_similarity_weighting
         self.use_kde_smoothing = use_kde_smoothing
         self.smoothing_std = smoothing_std
         self.eps = eps
-        self.backbone_name = backbone_name.lower()
 
-        # Infer input dimension from dataset statistics, if possible.
         input_dim = self._infer_input_dim(self.feature_key)
-
-        # Build encoder through dependency injection:
-        # 1. explicit module injection takes highest priority.
-        # 2. otherwise build from a string backbone name.
-        self.encoder, inferred_output_dim, self._is_recurrent_backbone = (
-            self._build_encoder(
-                input_dim=input_dim,
-                hidden_dim=hidden_dim,
-                num_layers=num_layers,
-                dropout=dropout,
-                bidirectional=bidirectional,
-                backbone=backbone,
-                backbone_name=self.backbone_name,
-                backbone_output_dim=backbone_output_dim,
-            )
+        self.encoder, encoder_output_dim = self._build_encoder(
+            input_dim=input_dim,
+            hidden_dim=hidden_dim,
+            num_layers=num_layers,
+            dropout=dropout,
+            bidirectional=bidirectional,
+            backbone=backbone,
+            backbone_output_dim=backbone_output_dim,
         )
 
-        classifier_in_dim = inferred_output_dim
-
         self.dropout = nn.Dropout(dropout)
-        self.classifier = nn.Linear(classifier_in_dim, self.get_output_size())
-
-        # Distance function injection:
-        # allow simple strings for common metrics, but also support any custom
-        # callable with signature (source_emb, target_emb) -> [batch] distance.
+        self.classifier = nn.Linear(encoder_output_dim, self.get_output_size())
         self.distance_fn = self._resolve_distance_fn(distance_fn)
 
     def _build_encoder(
-            self,
-            input_dim: int,
-            hidden_dim: int,
-            num_layers: int,
-            dropout: float,
-            bidirectional: bool,
-            backbone: Optional[nn.Module],
-            backbone_name: str,
-            backbone_output_dim: Optional[int],
-    ) -> Tuple[nn.Module, int, bool]:
-        """Build the encoder module and infer its output size.
+        self,
+        input_dim: int,
+        hidden_dim: int,
+        num_layers: int,
+        dropout: float,
+        bidirectional: bool,
+        backbone: Union[str, nn.Module],
+        backbone_output_dim: Optional[int],
+    ) -> Tuple[nn.Module, int]:
+        """Build the encoder and infer its output size."""
+        if isinstance(backbone, nn.Module):
+            output_dim = self._infer_backbone_output_dim(
+                backbone, backbone_output_dim
+            )
+            return backbone, output_dim
 
-        Args:
-            input_dim: Input feature dimension per timestep.
-            hidden_dim: Hidden dimension for built-in encoders.
-            num_layers: Number of recurrent layers for built-in encoders.
-            dropout: Dropout probability for built-in encoders.
-            bidirectional: Whether built-in recurrent encoders are
-                bidirectional.
-            backbone: Explicit custom backbone module, if provided.
-            backbone_name: Name of built-in encoder to construct when
-                backbone is not provided.
-            backbone_output_dim: Explicit output dimension for a custom
-                backbone.
+        backbone_name = backbone.lower()
 
-        Returns:
-            A tuple containing:
-                - the constructed encoder module,
-                - the encoder output dimension,
-                - whether the encoder is recurrent.
-
-        Raises:
-            ValueError: If backbone_name is unsupported.
-        """
-        if backbone is not None:
-            encoder = backbone
-            output_dim = self._infer_backbone_output_dim(backbone, backbone_output_dim)
-            return encoder, output_dim, isinstance(backbone, (nn.LSTM, nn.GRU))
-
-        # Default recurrent encoder.
         if backbone_name == "lstm":
-            recurrent_dropout = dropout if num_layers > 1 else 0.0
             encoder = nn.LSTM(
                 input_size=input_dim,
                 hidden_size=hidden_dim,
                 num_layers=num_layers,
                 batch_first=True,
-                dropout=recurrent_dropout,
+                dropout=dropout if num_layers > 1 else 0.0,
                 bidirectional=bidirectional,
             )
-            direction_factor = 2 if bidirectional else 1
-            output_dim = hidden_dim * direction_factor
-            return encoder, output_dim, True
+            output_dim = hidden_dim * (2 if bidirectional else 1)
+            return encoder, output_dim
 
-        # Alternative recurrent encoder.
         if backbone_name == "gru":
-            recurrent_dropout = dropout if num_layers > 1 else 0.0
             encoder = nn.GRU(
                 input_size=input_dim,
                 hidden_size=hidden_dim,
                 num_layers=num_layers,
                 batch_first=True,
-                dropout=recurrent_dropout,
+                dropout=dropout if num_layers > 1 else 0.0,
                 bidirectional=bidirectional,
             )
-            direction_factor = 2 if bidirectional else 1
-            output_dim = hidden_dim * direction_factor
-            return encoder, output_dim, True
+            output_dim = hidden_dim * (2 if bidirectional else 1)
+            return encoder, output_dim
 
-        # Simple feed-forward baseline:
-        # pool over time, then run through an MLP.
         if backbone_name == "mlp":
             encoder = nn.Sequential(
                 nn.Linear(input_dim, hidden_dim),
@@ -259,132 +175,75 @@ class AdaptiveTransferModel(BaseModel):
                 nn.Dropout(dropout),
                 nn.Linear(hidden_dim, hidden_dim),
             )
-            return encoder, hidden_dim, False
+            return encoder, hidden_dim
 
         raise ValueError(
-            f"Unsupported backbone_name: {backbone_name}. "
-            "Expected one of {'lstm', 'gru', 'mlp'} or pass a custom backbone."
+            f"Unsupported backbone: {backbone}. Expected one of "
+            "{'lstm', 'gru', 'mlp'} or a custom backbone module."
         )
 
     def _infer_backbone_output_dim(
-            self, backbone: nn.Module, backbone_output_dim: Optional[int]
+        self,
+        backbone: nn.Module,
+        backbone_output_dim: Optional[int],
     ) -> int:
-        """Infer the embedding size of a custom backbone.
-
-        Args:
-            backbone: Custom encoder module.
-            backbone_output_dim: Explicit output dimension, if provided.
-
-        Returns:
-            The inferred output embedding dimension.
-
-        Raises:
-            ValueError: If the output dimension cannot be inferred from either
-                the argument or common module attributes.
-        """
+        """Infer output size for a custom backbone."""
         if backbone_output_dim is not None:
             return backbone_output_dim
 
-        # Common attribute names used by many custom modules.
-        candidate_attrs = [
-            "output_dim",
-            "hidden_dim",
-            "hidden_size",
-            "embedding_dim",
-        ]
-        for attr in candidate_attrs:
+        for attr in ["output_dim", "hidden_dim", "hidden_size", "embedding_dim"]:
             if hasattr(backbone, attr):
                 value = getattr(backbone, attr)
                 if isinstance(value, int) and value > 0:
                     return value
 
         raise ValueError(
-            "Could not infer backbone output dimension. "
-            "Please provide backbone_output_dim when injecting a custom backbone."
+            "Could not infer backbone output dimension. Please provide "
+            "backbone_output_dim for a custom backbone."
         )
 
     def _resolve_distance_fn(
-            self, distance_fn: Union[str, DistanceFn]
+        self,
+        distance_fn: Union[str, DistanceFn],
     ) -> DistanceFn:
-        """Resolve a distance function specification into a callable.
-
-        Args:
-            distance_fn: String name of a built-in distance function or a
-                callable that maps two embedding tensors of shape [B, D] to a
-                distance tensor of shape [B].
-
-        Returns:
-            A callable distance function.
-
-        Raises:
-            ValueError: If a string distance name is provided but is not
-                supported.
-        """
+        """Resolve a string or callable distance function."""
         if callable(distance_fn):
             return distance_fn
 
-        distance_name = distance_fn.lower()
-
-        if distance_name == "euclidean":
+        name = distance_fn.lower()
+        if name == "euclidean":
             return lambda x, y: torch.norm(x - y, p=2, dim=1)
-
-        if distance_name == "manhattan":
+        if name == "manhattan":
             return lambda x, y: torch.norm(x - y, p=1, dim=1)
-
-        if distance_name == "cosine":
+        if name == "cosine":
             return lambda x, y: 1.0 - F.cosine_similarity(x, y, dim=1)
 
         raise ValueError(
-            f"Unsupported distance_fn: {distance_fn}. "
-            "Expected one of {'euclidean', 'manhattan', 'cosine'} "
-            "or a custom callable."
+            f"Unsupported distance_fn: {distance_fn}. Expected one of "
+            "{'euclidean', 'manhattan', 'cosine'} or a callable."
         )
 
     def _infer_input_dim(self, feature_key: str) -> int:
-        """Infer dense input dimensionality from dataset metadata.
-
-        Args:
-            feature_key: Feature name whose dimension should be inferred.
-
-        Returns:
-            The inferred input dimension. Returns 1 as a conservative fallback
-            when metadata is unavailable.
-        """
+        """Infer dense feature dimensionality from dataset metadata."""
         if self.dataset is None:
             return 1
 
-        # Prefer explicit dimension statistics if they exist.
         try:
             stats = self.dataset.input_info[feature_key]
             if "len" in stats and isinstance(stats["len"], int):
-                # For dense vectors represented at each timestep.
                 return max(1, int(stats["len"]))
             if "dim" in stats and isinstance(stats["dim"], int):
                 return max(1, int(stats["dim"]))
-        except Exception:
+        except (KeyError, TypeError, AttributeError):
             pass
 
-        # Conservative fallback.
         return 1
 
     def _get_feature_value_and_mask(
-            self, feature: Union[torch.Tensor, Tuple[torch.Tensor, ...]]
+        self,
+        feature: Union[torch.Tensor, Tuple[torch.Tensor, ...]],
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
-        """Extract dense value and optional mask tensors from a feature input.
-
-        Args:
-            feature: Either a raw tensor or a PyHealth processor tuple that
-                contains a "value" tensor and optionally a "mask" tensor.
-
-        Returns:
-            A tuple of:
-                - value tensor with normalized shape [B, T, D]
-                - optional mask tensor with shape [B, T]
-
-        Raises:
-            ValueError: If the feature schema is missing "value", or if the
-                value/mask shapes are unsupported.
-        """
+        """Extract normalized value and mask tensors from a feature input."""
         if isinstance(feature, torch.Tensor):
             value = feature
             mask = None
@@ -392,7 +251,7 @@ class AdaptiveTransferModel(BaseModel):
             schema = self.dataset.input_processors[self.feature_key].schema()
             if "value" not in schema:
                 raise ValueError(
-                    f"Feature '{self.feature_key}' must contain 'value' in its schema."
+                    f"Feature '{self.feature_key}' must contain 'value'."
                 )
 
             value = feature[schema.index("value")]
@@ -405,13 +264,13 @@ class AdaptiveTransferModel(BaseModel):
         if mask is not None:
             mask = mask.to(self.device).float()
 
-        # Normalize shapes:
         # [B, T] -> [B, T, 1]
         if value.dim() == 2:
             value = value.unsqueeze(-1)
         elif value.dim() != 3:
             raise ValueError(
-                f"Unsupported input shape for '{self.feature_key}': {tuple(value.shape)}"
+                f"Unsupported input shape for '{self.feature_key}': "
+                f"{tuple(value.shape)}"
             )
 
         if mask is not None:
@@ -419,23 +278,18 @@ class AdaptiveTransferModel(BaseModel):
                 mask = mask.any(dim=-1).float()
             elif mask.dim() != 2:
                 raise ValueError(
-                    f"Unsupported mask shape for '{self.feature_key}': {tuple(mask.shape)}"
+                    f"Unsupported mask shape for '{self.feature_key}': "
+                    f"{tuple(mask.shape)}"
                 )
 
         return value, mask
 
     def _masked_mean_pool(
-            self, x: torch.Tensor, mask: Optional[torch.Tensor]
+        self,
+        x: torch.Tensor,
+        mask: Optional[torch.Tensor],
     ) -> torch.Tensor:
-        """Apply masked mean pooling over the time dimension.
-
-        Args:
-            x: Sequence tensor of shape [B, T, D].
-            mask: Optional binary mask of shape [B, T].
-
-        Returns:
-            Pooled tensor of shape [B, D].
-        """
+        """Apply masked mean pooling over the time dimension."""
         if mask is None:
             return x.mean(dim=1)
 
@@ -444,63 +298,50 @@ class AdaptiveTransferModel(BaseModel):
         return (x * weights).sum(dim=1) / denom
 
     def _encode_sequence(
-            self, value: torch.Tensor, mask: Optional[torch.Tensor] = None
+        self,
+        value: torch.Tensor,
+        mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        """Encode a dense time series into a fixed-size embedding.
-
-        Args:
-            value: Input value tensor of shape [B, T, D].
-            mask: Optional mask tensor of shape [B, T].
-
-        Returns:
-            Embedding tensor of shape [B, H], where H is the backbone output
-            dimension.
-
-        Raises:
-            ValueError: If a custom non-recurrent backbone returns an
-                unsupported tensor rank.
-        """
-        # Recurrent backbones return full hidden state structures that need to be
-        # handled explicitly.
+        """Encode a dense time series into a fixed-size embedding."""
         if isinstance(self.encoder, nn.LSTM):
             if mask is not None:
                 lengths = mask.sum(dim=1).long().clamp(min=1).cpu()
                 packed = nn.utils.rnn.pack_padded_sequence(
-                    value, lengths, batch_first=True, enforce_sorted=False
+                    value,
+                    lengths,
+                    batch_first=True,
+                    enforce_sorted=False,
                 )
                 _, (h_n, _) = self.encoder(packed)
             else:
                 _, (h_n, _) = self.encoder(value)
 
             if self.bidirectional:
-                # Last layer forward/backward states.
-                h_last = torch.cat([h_n[-2], h_n[-1]], dim=-1)
+                emb = torch.cat([h_n[-2], h_n[-1]], dim=-1)
             else:
-                h_last = h_n[-1]
-
-            return self.dropout(h_last)
+                emb = h_n[-1]
+            return self.dropout(emb)
 
         if isinstance(self.encoder, nn.GRU):
             if mask is not None:
                 lengths = mask.sum(dim=1).long().clamp(min=1).cpu()
                 packed = nn.utils.rnn.pack_padded_sequence(
-                    value, lengths, batch_first=True, enforce_sorted=False
+                    value,
+                    lengths,
+                    batch_first=True,
+                    enforce_sorted=False,
                 )
                 _, h_n = self.encoder(packed)
             else:
                 _, h_n = self.encoder(value)
 
             if self.bidirectional:
-                # Last layer forward/backward states.
-                h_last = torch.cat([h_n[-2], h_n[-1]], dim=-1)
+                emb = torch.cat([h_n[-2], h_n[-1]], dim=-1)
             else:
-                h_last = h_n[-1]
+                emb = h_n[-1]
+            return self.dropout(emb)
 
-            return self.dropout(h_last)
-
-        # Non-recurrent encoders are treated more generically.
-        # If the encoder returns [B, T, D], we pool over time.
-        # If it already returns [B, D], we use it directly.
+        # Non-recurrent encoders may return [B, D] or [B, T, D].
         encoder_out = self.encoder(value)
 
         if encoder_out.dim() == 3:
@@ -509,13 +350,15 @@ class AdaptiveTransferModel(BaseModel):
             emb = encoder_out
         else:
             raise ValueError(
-                "Custom backbone must return a tensor of shape [B, D] or [B, T, D]."
+                "Custom backbone must return a tensor of shape [B, D] "
+                "or [B, T, D]."
             )
 
         return self.dropout(emb)
 
     def forward(
-            self, **kwargs: Union[torch.Tensor, Tuple[torch.Tensor, ...]]
+        self,
+        **kwargs: Union[torch.Tensor, Tuple[torch.Tensor, ...]],
     ) -> Dict[str, torch.Tensor]:
         """Run the forward pass and optionally compute loss.
 
@@ -524,10 +367,8 @@ class AdaptiveTransferModel(BaseModel):
                 configured feature key. May also contain the label key.
 
         Returns:
-            A dictionary containing:
-                - "logit": raw logits
-                - "y_prob": post-processed prediction probabilities
-                - optionally "loss" and "y_true" when labels are provided
+            A dictionary containing model outputs and, when labels are
+            provided, the loss and ground-truth labels.
 
         Raises:
             ValueError: If the configured feature key is missing from inputs.
@@ -550,7 +391,6 @@ class AdaptiveTransferModel(BaseModel):
         if self.label_key in kwargs:
             y_true = cast(torch.Tensor, kwargs[self.label_key]).to(self.device)
 
-            # Cross-entropy expects [B] labels for multiclass.
             if self.mode == "multiclass" and y_true.dim() > 1:
                 y_true = y_true.squeeze(-1).long()
             elif self.mode == "binary":
@@ -558,32 +398,25 @@ class AdaptiveTransferModel(BaseModel):
                 if y_true.dim() == 1:
                     y_true = y_true.unsqueeze(-1)
 
-            loss_fn = self.get_loss_function()
-            loss = loss_fn(logits, y_true)
-
+            loss = self.get_loss_function()(logits, y_true)
             results["loss"] = loss
             results["y_true"] = y_true
 
         return results
 
     def forward_from_embedding(
-            self, **kwargs: Union[torch.Tensor, Tuple[torch.Tensor, ...]]
+        self,
+        **kwargs: Union[torch.Tensor, Tuple[torch.Tensor, ...]],
     ) -> Dict[str, torch.Tensor]:
-        """Forward method used for compatibility with PyHealth hooks.
-
-        Args:
-            **kwargs: Same keyword arguments accepted by ``forward``.
-
-        Returns:
-            The same dictionary returned by ``forward``.
-        """
+        """Forward hook kept for compatibility with PyHealth interfaces."""
         return self.forward(**kwargs)
 
     @torch.no_grad()
     def extract_embedding(
-            self, batch: Dict[str, Union[torch.Tensor, Tuple[torch.Tensor, ...]]]
+        self,
+        batch: Dict[str, Union[torch.Tensor, Tuple[torch.Tensor, ...]]],
     ) -> torch.Tensor:
-        """Extract latent embeddings for a batch without gradient tracking.
+        """Extract latent embeddings for a batch.
 
         Args:
             batch: Batch dictionary containing the configured feature key.
@@ -596,21 +429,18 @@ class AdaptiveTransferModel(BaseModel):
 
     @torch.no_grad()
     def compute_pairwise_distances(
-            self,
-            source_batch: Dict[str, Union[torch.Tensor, Tuple[torch.Tensor, ...]]],
-            target_batch: Dict[str, Union[torch.Tensor, Tuple[torch.Tensor, ...]]],
+        self,
+        source_batch: Dict[str, Union[torch.Tensor, Tuple[torch.Tensor, ...]]],
+        target_batch: Dict[str, Union[torch.Tensor, Tuple[torch.Tensor, ...]]],
     ) -> torch.Tensor:
         """Compute paired distances between source and target embeddings.
-
-        The two batches are assumed to be aligned by row index.
 
         Args:
             source_batch: Source-domain batch dictionary.
             target_batch: Target-domain batch dictionary.
 
         Returns:
-            Distance tensor of shape [B], where each entry is the distance
-            between paired source and target embeddings.
+            Distance tensor of shape [B].
 
         Raises:
             ValueError: If the source and target batch sizes differ.
@@ -620,24 +450,19 @@ class AdaptiveTransferModel(BaseModel):
 
         if source_emb.shape[0] != target_emb.shape[0]:
             raise ValueError(
-                "Source and target batches must have the same batch size for paired IPD."
+                "Source and target batches must have the same batch size "
+                "for paired IPD."
             )
 
         return self.distance_fn(source_emb, target_emb)
 
     @torch.no_grad()
     def compute_ipd(
-            self,
-            source_batch: Dict[str, Union[torch.Tensor, Tuple[torch.Tensor, ...]]],
-            target_batch: Dict[str, Union[torch.Tensor, Tuple[torch.Tensor, ...]]],
+        self,
+        source_batch: Dict[str, Union[torch.Tensor, Tuple[torch.Tensor, ...]]],
+        target_batch: Dict[str, Union[torch.Tensor, Tuple[torch.Tensor, ...]]],
     ) -> float:
         """Compute an IPD-style distance between one source and target batch.
-
-        This implementation is a lightweight approximation of the paper's
-        similarity computation:
-        1. compute paired embedding distances,
-        2. optionally smooth them with Gaussian perturbation,
-        3. average the result.
 
         Args:
             source_batch: Source-domain batch dictionary.
@@ -656,38 +481,34 @@ class AdaptiveTransferModel(BaseModel):
 
     @torch.no_grad()
     def compute_source_similarities(
-            self,
-            source_batches: Sequence[
-                Dict[str, Union[torch.Tensor, Tuple[torch.Tensor, ...]]]
-            ],
-            target_batch: Dict[str, Union[torch.Tensor, Tuple[torch.Tensor, ...]]],
+        self,
+        source_batches: Sequence[
+            Dict[str, Union[torch.Tensor, Tuple[torch.Tensor, ...]]]
+        ],
+        target_batch: Dict[str, Union[torch.Tensor, Tuple[torch.Tensor, ...]]],
     ) -> List[float]:
-        """Compute source-target similarities for multiple source domains.
-
-        Similarity is defined as inverse distance:
-            similarity = 1 / (ipd + eps)
+        """Compute inverse-distance similarities for multiple source batches.
 
         Args:
             source_batches: Sequence of source-domain batches.
             target_batch: Target-domain batch dictionary.
 
         Returns:
-            A list of similarity scores, one per source batch.
+            List of similarity scores, one per source batch.
         """
         similarities: List[float] = []
         for source_batch in source_batches:
             ipd = self.compute_ipd(source_batch, target_batch)
-            sim = 1.0 / (ipd + self.eps)
-            similarities.append(sim)
+            similarities.append(1.0 / (ipd + self.eps))
         return similarities
 
     @torch.no_grad()
     def rank_source_domains(
-            self,
-            source_batches: Sequence[
-                Dict[str, Union[torch.Tensor, Tuple[torch.Tensor, ...]]]
-            ],
-            target_batch: Dict[str, Union[torch.Tensor, Tuple[torch.Tensor, ...]]],
+        self,
+        source_batches: Sequence[
+            Dict[str, Union[torch.Tensor, Tuple[torch.Tensor, ...]]]
+        ],
+        target_batch: Dict[str, Union[torch.Tensor, Tuple[torch.Tensor, ...]]],
     ) -> List[int]:
         """Rank source domains by descending similarity to the target.
 
@@ -700,23 +521,21 @@ class AdaptiveTransferModel(BaseModel):
             similar.
         """
         similarities = self.compute_source_similarities(source_batches, target_batch)
-        ranked = sorted(
+        return sorted(
             range(len(similarities)),
             key=lambda i: similarities[i],
             reverse=True,
         )
-        return ranked
 
     def get_adaptive_lr(self, base_lr: float, similarity: float) -> float:
-        """Compute the learning rate used for a source domain.
+        """Scale the base learning rate by similarity if enabled.
 
         Args:
             base_lr: Base learning rate before adaptation.
             similarity: Source-target similarity score.
 
         Returns:
-            Adapted learning rate. If similarity weighting is disabled,
-            returns the base learning rate unchanged.
+            Adapted learning rate.
         """
         if not self.use_similarity_weighting:
             return base_lr
