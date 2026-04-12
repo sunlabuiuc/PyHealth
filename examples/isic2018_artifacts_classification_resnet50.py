@@ -28,6 +28,40 @@ Usage::
 
     python isic2018_artifacts_classification.py --root /path/to/isic2018_data
     python isic2018_artifacts_classification.py --root /path/to/isic2018_data --mode lesion
+
+Results
+-------
+Parameters: ResNet-50, ImageNet pretrained, 10 epochs, batch_size=32, lr=1e-4,
+5-fold stratified CV, seed=42. Hardware: NVIDIA H200.
+
+5-fold stratified CV results:
+
+    Mode              Mean AUROC   Mean Accuracy
+    ──────────────────────────────────────────────
+    whole                  0.796         0.822
+    lesion                 0.767         0.805
+    background             0.729         0.793
+    bbox                   0.736         0.790
+    bbox70                 0.641         0.765
+    bbox90                 0.642         0.771
+    high_whole             0.591         0.750
+    high_lesion            0.654         0.753
+    high_background        0.658         0.767
+    low_whole              0.809         0.829
+    low_lesion             0.779         0.822
+    low_background         0.733         0.801
+
+Note: high_* and low_* modes used cv2.GaussianBlur (sigma=1) instead of the
+original scipy.ndimage.gaussian_filter (sigma=1).
+
+Ablation — low_whole with different sigma (cv2.GaussianBlur, auto ksize):
+
+    Sigma    Mean AUROC   Mean Accuracy
+    ─────────────────────────────────────
+    0.5           0.800         0.835
+    1.0           0.809         0.829   ← default
+    2.0           0.795         0.821
+    4.0           0.786         0.813
 """
 
 import argparse
@@ -105,58 +139,6 @@ logging.getLogger("pyhealth.trainer").addHandler(_handler)
 logging.getLogger("pyhealth.trainer").setLevel(logging.INFO)
 
 
-# =============================================================================
-# Example run & results
-# =============================================================================
-# Command:
-#   python isic2018_artifacts_classification_resnet50.py --root /path/to/isic2018_data --mode <mode>
-#
-# Parameters:
-#   --model       resnet50
-#   --epochs      10
-#   --batch_size  32
-#   --lr          1e-4
-#   --n_splits    5
-#   --seed        42
-#
-# Hardware: GPU strongly recommended (results below obtained on NVIDIA H200).
-#   Estimated training time per mode (5-fold CV, 10 epochs):
-#     - First run (cold cache):  ~30-90 min  (includes cache build ~5-10 min)
-#     - Subsequent runs (warm cache): ~10-20 min
-#
-# 5-fold stratified CV results (ResNet-50, ImageNet pretrained):
-#
-#   Mode              Mean AUROC   Mean Accuracy
-#   ──────────────────────────────────────────────
-#   whole                  0.796         0.822
-#   lesion                 0.767         0.805
-#   background             0.729         0.793
-#   bbox                   0.736         0.790
-#   bbox70                 0.641         0.765
-#   bbox90                 0.642         0.771
-#   high_whole             0.591         0.750
-#   high_lesion            0.654         0.753
-#   high_background        0.658         0.767
-#   low_whole              0.809         0.829
-#   low_lesion             0.779         0.822
-#   low_background         0.733         0.801
-#
-# Note: high_* and low_* modes used cv2.GaussianBlur (sigma=1) instead of the
-# original scipy.ndimage.gaussian_filter (sigma=1).
-#
-# Ablation — low_whole with different sigma (cv2.GaussianBlur, auto ksize):
-#
-#   Sigma    Mean AUROC   Mean Accuracy
-#   ─────────────────────────────────────
-#   0.5           0.800         0.835
-#   1.0           0.809         0.829   ← default
-#   2.0           0.795         0.821
-#   4.0           0.786         0.813
-#
-# Matches findings from:
-#   "A Study of Artifacts on Melanoma Classification under
-#    Diffusion-Based Perturbations"
-# =============================================================================
 
 if __name__ == "__main__":
     # ------------------------------------------------------------------
