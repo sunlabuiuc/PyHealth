@@ -1,3 +1,10 @@
+"""PTBXL MI classification task for PyHealth.
+
+This module defines a task that loads PTB-XL ECG records, maps SCP
+diagnostic codes to myocardial infarction (MI) labels, and returns one
+binary-labeled sample per record.
+"""
+
 import ast
 import os
 from typing import Dict, List
@@ -10,6 +17,17 @@ from pyhealth.tasks import BaseTask
 
 
 class PTBXLMIClassificationTask(BaseTask):
+    """Task for classifying myocardial infarction (MI) in PTB-XL ECG records.
+
+    This task converts the PTB-XL SCP diagnostic codes into a binary MI label
+    and loads the corresponding ECG signal for each record.
+
+    Attributes:
+        task_name (str): The name of the task.
+        input_schema (Dict[str, str]): Input schema mapping signal to tensor.
+        output_schema (Dict[str, str]): Output schema mapping label to binary.
+    """
+
     task_name = "ptbxl_mi_classification"
     input_schema = {
         "signal": "tensor",
@@ -24,6 +42,14 @@ class PTBXLMIClassificationTask(BaseTask):
         signal_length: int = 1000,
         normalize: bool = True,
     ):
+        """Initialize the PTBXL MI classification task.
+
+        Args:
+            root: PTB-XL dataset root directory containing `scp_statements.csv`.
+            signal_length: Number of samples to use for each ECG signal.
+            normalize: Whether to z-score normalize each ECG channel.
+        """
+
         self.root = root
         self.signal_length = signal_length
         self.normalize = normalize
@@ -60,6 +86,20 @@ class PTBXLMIClassificationTask(BaseTask):
         return signal
 
     def __call__(self, patient) -> List[Dict]:
+        """Generate PTB-XL MI samples from a patient record.
+
+        Args:
+            patient: Patient object containing PTB-XL event data.
+
+        Returns:
+            A list of sample dictionaries with keys:
+                - patient_id
+                - visit_id
+                - record_id
+                - signal
+                - label
+        """
+
         samples = []
 
         rows = patient.data_source.to_dicts()
