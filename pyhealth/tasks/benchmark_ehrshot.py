@@ -71,7 +71,8 @@ class BenchmarkEHRShot(BaseTask):
     def __call__(self, patient: Any) -> List[Dict[str, Any]]:
         samples = []
         split = patient.get_events("splits")
-        assert len(split) == 1, "Only one split is allowed"
+        if len(split) != 1:
+            raise ValueError(f"Only one split is allowed, got {len(split)}")
         split = split[0].split
         labels = patient.get_events(self.task)
         for label in labels:
