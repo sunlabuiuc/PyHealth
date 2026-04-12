@@ -29,3 +29,18 @@ def test_tuple_time_text_processor():
     from pyhealth.processors import get_processor
     ProcessorClass = get_processor("tuple_time_text")
     assert ProcessorClass is TupleTimeTextProcessor
+
+
+def test_tuple_time_text_processor_empty_input_fallback():
+    """Empty or whitespace-only text lists should not crash processing."""
+    processor = TupleTimeTextProcessor(type_tag="clinical_note")
+
+    texts = ["   ", None, ""]
+    time_diffs = [1.0, 2.0, 3.0]
+    result_texts, time_tensor, tag = processor.process((texts, time_diffs))
+
+    assert result_texts == ["[MISSING_TEXT]"]
+    assert isinstance(time_tensor, torch.Tensor)
+    assert time_tensor.shape == (1,)
+    assert torch.equal(time_tensor, torch.tensor([0.0]))
+    assert tag == "clinical_note"

@@ -165,14 +165,29 @@ class StageNetProcessor(TemporalFeatureProcessor, TokenProcessorInterface):
             # Flat codes: ["code1", "code2"]
             value_tensor = self._encode_codes(value_data)
 
-        # Process time if present
-        time_tensor = None
-        if time_data is not None and len(time_data) > 0:
+        # Ensure temporal output is always a tensor for serialization stability.
+        # Length must align with the first axis of value_tensor.
+        seq_len = int(value_tensor.shape[0]) if value_tensor.ndim > 0 else 1
+        if time_data is None or len(time_data) == 0:
+            time_tensor = torch.zeros(seq_len, dtype=torch.float)
+        else:
             # Handle both [0.0, 1.5] and [[0.0], [1.5]] formats
             if isinstance(time_data[0], list):
-                # Flatten [[0.0], [1.5]] -> [0.0, 1.5]
-                time_data = [t[0] if isinstance(t, list) else t for t in time_data]
-            time_tensor = torch.tensor(time_data, dtype=torch.float)
+                time_data = [t[0] if isinstance(t, list) and len(t) > 0 else t for t in time_data]
+
+            cleaned_times: List[float] = []
+            for t in time_data:
+                try:
+                    cleaned_times.append(float(t))
+                except (TypeError, ValueError):
+                    cleaned_times.append(0.0)
+
+            if len(cleaned_times) < seq_len:
+                cleaned_times.extend([0.0] * (seq_len - len(cleaned_times)))
+            elif len(cleaned_times) > seq_len:
+                cleaned_times = cleaned_times[:seq_len]
+
+            time_tensor = torch.tensor(cleaned_times, dtype=torch.float)
 
         return (time_tensor, value_tensor)
 
@@ -424,14 +439,29 @@ class StageNetTensorProcessor(TemporalFeatureProcessor):
         # Convert to float tensor
         value_tensor = torch.tensor(value_array, dtype=torch.float)
 
-        # Process time if present
-        time_tensor = None
-        if time_data is not None and len(time_data) > 0:
+        # Ensure temporal output is always a tensor for serialization stability.
+        # Length must align with the first axis of value_tensor.
+        seq_len = int(value_tensor.shape[0]) if value_tensor.ndim > 0 else 1
+        if time_data is None or len(time_data) == 0:
+            time_tensor = torch.zeros(seq_len, dtype=torch.float)
+        else:
             # Handle both [0.0, 1.5] and [[0.0], [1.5]] formats
             if isinstance(time_data[0], list):
-                # Flatten [[0.0], [1.5]] -> [0.0, 1.5]
-                time_data = [t[0] if isinstance(t, list) else t for t in time_data]
-            time_tensor = torch.tensor(time_data, dtype=torch.float)
+                time_data = [t[0] if isinstance(t, list) and len(t) > 0 else t for t in time_data]
+
+            cleaned_times: List[float] = []
+            for t in time_data:
+                try:
+                    cleaned_times.append(float(t))
+                except (TypeError, ValueError):
+                    cleaned_times.append(0.0)
+
+            if len(cleaned_times) < seq_len:
+                cleaned_times.extend([0.0] * (seq_len - len(cleaned_times)))
+            elif len(cleaned_times) > seq_len:
+                cleaned_times = cleaned_times[:seq_len]
+
+            time_tensor = torch.tensor(cleaned_times, dtype=torch.float)
 
         return (time_tensor, value_tensor)
 

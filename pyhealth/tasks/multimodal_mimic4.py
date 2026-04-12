@@ -494,15 +494,18 @@ class ClinicalNotesICDLabsMIMIC4(BaseMultimodalMIMIC4Task):
         for admission in admissions_to_process:
             admission_time = admission.timestamp
 
+            # Some rows can have missing/malformed discharge timestamps.
+            # Do not skip the entire admission, or downstream temporal
+            # processors may receive empty time sequences for this patient.
             try:
                 admission_dischtime = datetime.strptime(
                     admission.dischtime, "%Y-%m-%d %H:%M:%S"
                 )
             except (ValueError, AttributeError):
-                continue
+                admission_dischtime = admission_time
 
             if admission_dischtime < admission_time:
-                continue
+                admission_dischtime = admission_time
 
             discharge_texts, discharge_times = self._collect_notes(
                 patient,
