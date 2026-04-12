@@ -1,115 +1,183 @@
-import os
+import logging
+from pathlib import Path
+from typing import Optional
+import pandas as pd
+from pyhealth.datasets import BaseDataset
+from pyhealth.tasks.shhs_sleep_staging import SleepStagingSHHS
 
-import numpy as np
+logger = logging.getLogger(__name__)
 
-from pyhealth.datasets import BaseSignalDataset
+_VISIT_ECG_RATES = {"shhs1": 125, "shhs2": 256}
 
 
-class SHHSDataset(BaseSignalDataset):
-    """Base EEG dataset for Sleep Heart Health Study (SHHS)
+class SHHSDataset(BaseDataset):
+    """Dataset for the Sleep Heart Health Study (SHHS).
 
     Dataset is available at https://sleepdata.org/datasets/shhs
 
-    The Sleep Heart Health Study (SHHS) is a multi-center cohort study implemented by the National Heart Lung & Blood Institute to determine the cardiovascular and other consequences of sleep-disordered breathing. It tests whether sleep-related breathing is associated with an increased risk of coronary heart disease, stroke, all cause mortality, and hypertension.  In all, 6,441 men and women aged 40 years and older were enrolled between November 1, 1995 and January 31, 1998 to take part in SHHS Visit 1. During exam cycle 3 (January 2001- June 2003), a second polysomnogram (SHHS Visit 2) was obtained in 3,295 of the participants. CVD Outcomes data were monitored and adjudicated by parent cohorts between baseline and 2011. More than 130 manuscripts have been published investigating predictors and outcomes of sleep disorders.
+    The Sleep Heart Health Study (SHHS) is a multi-center cohort study implemented
+    by the National Heart Lung & Blood Institute to determine the cardiovascular and
+    other consequences of sleep-disordered breathing. It tests whether sleep-related
+    breathing is associated with an increased risk of coronary heart disease, stroke,
+    all cause mortality, and hypertension.
+
+    In all, 6,441 men and women aged 40 years and older were enrolled between
+    November 1, 1995 and January 31, 1998 to take part in SHHS Visit 1.
+
+    During exam cycle 3 (January 2001- June 2003), a second
+    polysomnogram (SHHS Visit 2) was obtained in 3,295 of the participants.
+
+    CVD Outcomes data were monitored and adjudicated by parent cohorts between baseline
+    and 2011. More than 130 manuscripts have been published investigating predictors
+    and outcomes of sleep disorders.
+
+    This loader expects the standard NSRR directory layout:
+
+        root/
+            polysomnography/
+                edfs/shhs1/  # EDF signal files
+                edfs/shhs2/  # EDF signal files
+                annotations-events-profusion/shhs1/  # Profusion XML
+                annotations-events-profusion/shhs2/  # Profusion XML
+            datasets/
+                shhs-harmonized-dataset-0.21.0.csv
 
     Args:
-        dataset_name: name of the dataset.
-        root: root directory of the raw data (should contain many csv files).
-        dev: whether to enable dev mode (only use a small subset of the data).
-            Default is False.
-        refresh_cache: whether to refresh the cache; if true, the dataset will
-            be processed from scratch and the cache will be updated. Default is False.
-
-    Attributes:
-        task: Optional[str], name of the task (e.g., "sleep staging").
-            Default is None.
-        samples: Optional[List[Dict]], a list of samples, each sample is a dict with
-            patient_id, record_id, and other task-specific attributes as key.
-            Default is None.
-        patient_to_index: Optional[Dict[str, List[int]]], a dict mapping patient_id to
-            a list of sample indices. Default is None.
-        visit_to_index: Optional[Dict[str, List[int]]], a dict mapping visit_id to a
-            list of sample indices. Default is None.
+        root: Root directory containing the SHHS download.
+        dataset_name: Optional name override.
+        config_path: Optional path to a custom YAML config.
+        cache_dir: Optional directory for caching processed data.
+        num_workers: Number of worker processes for parallel operations.
+        dev: Whether to run in dev mode (limits to 1000 patients).
 
     Examples:
         >>> from pyhealth.datasets import SHHSDataset
-        >>> dataset = SHHSDataset(
-        ...         root="/srv/local/data/SHHS/",
-        ...     )
-        >>> dataset.stat()
-        >>> dataset.info()
+        >>> dataset = SHHSDataset(root="/path/to/shhs")
+        >>> dataset.stats()
     """
 
-    def parse_patient_id(self, file_name):
+    def __init__(
+        self,
+        root: str,
+        dataset_name: Optional[str] = None,
+        config_path: Optional[str] = None,
+        cache_dir: Optional[str] = None,
+        num_workers: int = 1,
+        dev: bool = False,
+    ) -> None:
+        if config_path is None:
+            config_path = str(Path(__file__).parent / "configs" / "shhs.yaml")
+
+        metadata_path = Path(root) / "shhs-metadata.csv"
+        if not metadata_path.exists():
+            self.prepare_metadata(root)
+
+        super().__init__(
+            root=root,
+            tables=["shhs_sleep"],
+            dataset_name=dataset_name or "shhs_sleep",
+            config_path=config_path,
+            cache_dir=cache_dir,
+            num_workers=num_workers,
+            dev=dev,
+        )
+
+    @property
+    def default_task(self) -> SleepStagingSHHS:
+        return SleepStagingSHHS()
+
+    @staticmethod
+    def prepare_metadata(root: str) -> None:
+        """Build shhs-metadata.csv by joining EDF paths with demographics.
+
+        Only recordings that have both an EDF and a matching Profusion XML
+        annotation file are included.
         """
-        Args:
-            file_name: the file name of the shhs datasets. e.g., shhs1-200001.edf
-        Returns:
-            patient_id: the patient id of the shhs datasets. e.g., 200001
-        """
-        return file_name.split("-")[1].split(".")[0]
+        poly_root = Path(root) / "polysomnography"
 
-    def process_EEG_data(self):
+        records: list[dict] = []
+        for visit in ("shhs1", "shhs2"):
+            edf_dir = poly_root / "edfs" / visit
+            ann_dir = poly_root / "annotations-events-profusion" / visit
 
-        # get shhs1
-        shhs1 = []
-        if os.path.exists(os.path.join(self.root, "edfs/shhs1")):
-            print("shhs1 exists and load shhs1")
-            shhs1 = os.listdir(os.path.join(self.root, "edfs/shhs1"))
-        else:
-            print("shhs1 does not exist")
+            if not edf_dir.is_dir():
+                logger.info("EDF directory not found, skipping: %s", edf_dir)
+                continue
 
-        # get shhs2
-        shhs2 = []
-        if os.path.exists(os.path.join(self.root, "edfs/shhs2")):
-            print("shhs2 exists and load shhs2")
-            shhs2 = os.listdir(os.path.join(self.root, "edfs/shhs2"))
-        else:
-            print("shhs2 does not exist")
+            ecg_rate = _VISIT_ECG_RATES[visit]
 
-        # get all patient ids
-        patient_ids = np.unique([self.parse_patient_id(file) for file in shhs1 + shhs2])
-        if self.dev:
-            patient_ids = patient_ids[:5]
-        # get patient to record maps
-        #    - key: pid:
-        #    - value: [{"load_from_path": None, "file": None, "save_to_path": None}, ...]
-        patients = {pid: [] for pid in patient_ids}
+            for edf_file in sorted(edf_dir.iterdir()):
+                if edf_file.suffix != ".edf":
+                    continue
 
-        # parse shhs1
-        for file in shhs1:
-            pid = self.parse_patient_id(file)
-            if pid in patient_ids:
-                patients[pid].append(
+                # filename pattern: shhs1-200001.edf
+                nsrrid = edf_file.stem.split("-")[1]
+
+                ann_file = ann_dir / f"{edf_file.stem}-profusion.xml"
+                if not ann_file.exists():
+                    logger.debug("No annotation for %s, skipping", edf_file.name)
+                    continue
+
+                records.append(
                     {
-                        "load_from_path": self.root,
-                        "signal_file": os.path.join("edfs/shhs1", file),
-                        "label_file": os.path.join("annotations-events-profusion/shhs1", f"shhs1-{pid}-profusion.xml"),
-                        "save_to_path": os.path.join(self.filepath),
+                        "patient_id": nsrrid,
+                        "visitnumber": 1 if visit == "shhs1" else 2,
+                        "signal_file": str(edf_file),
+                        "annotation_file": str(ann_file),
+                        "ecg_sample_rate": ecg_rate,
                     }
                 )
 
-        # parse shhs2
-        for file in shhs2:
-            pid = self.parse_patient_id(file)
-            if pid in patient_ids:
-                patients[pid].append(
-                    {
-                        "load_from_path": self.root,
-                        "signal_file": os.path.join("edfs/shhs2", file),
-                        "label_file": os.path.join("annotations-events-profusion/label", f"shhs2-{pid}-profusion.xml"),
-                        "save_to_path": os.path.join(self.filepath),
-                    }
-                )
-        return patients
+        if not records:
+            raise FileNotFoundError(
+                f"No matched EDF/XML pairs found under {poly_root}"
+            )
+
+        metadata = pd.DataFrame(records)
+
+        # Merge demographics from harmonized CSV
+        harmonized = _find_harmonized_csv(root)
+        if harmonized is not None:
+            demo = pd.read_csv(
+                harmonized,
+                usecols=[
+                    "nsrrid",
+                    "visitnumber",
+                    "nsrr_age",
+                    "nsrr_sex",
+                    "nsrr_bmi",
+                    "nsrr_ahi_hp3r_aasm15",
+                ],
+                dtype={"nsrrid": str},
+            )
+            demo = demo.rename(
+                columns={
+                    "nsrrid": "patient_id",
+                    "nsrr_age": "age",
+                    "nsrr_sex": "sex",
+                    "nsrr_bmi": "bmi",
+                    "nsrr_ahi_hp3r_aasm15": "ahi",
+                }
+            )
+            metadata = metadata.merge(
+                demo, on=["patient_id", "visitnumber"], how="left"
+            )
+        else:
+            logger.warning("Harmonized CSV not found; demographics will be empty")
+            for col in ("age", "sex", "bmi", "ahi"):
+                metadata[col] = None
+
+        output_path = Path(root) / "shhs-metadata.csv"
+        metadata.to_csv(output_path, index=False)
+        logger.info("Wrote %d records to %s", len(metadata), output_path)
 
 
-if __name__ == "__main__":
-    dataset = SHHSDataset(
-        root="/srv/local/data/SHHS/polysomnography",
-        dev=True,
-        refresh_cache=True,
-    )
-    dataset.stat()
-    dataset.info()
-    print(list(dataset.patients.items())[0])
+def _find_harmonized_csv(root: str) -> Optional[str]:
+    """Locate the harmonized dataset CSV under root/datasets/."""
+    datasets_dir = Path(root) / "datasets"
+    if not datasets_dir.is_dir():
+        return None
+    for f in sorted(datasets_dir.iterdir(), reverse=True):
+        if f.name.startswith("shhs-harmonized-dataset") and f.suffix == ".csv":
+            return str(f)
+    return None
