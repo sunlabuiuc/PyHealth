@@ -26,96 +26,73 @@ class SparseAutoencoder(nn.Module):
                   + lambda_l2 * mean(||f||²₂)
 
     Args:
-        input_dim: Dimensionality of the input embeddings (e.g. 768 for RoBERTa).
-        dict_size: Number of dictionary features (m). Typically alpha * input_dim.
-        lambda_l1: L1 sparsity coefficient. Default: 1e-4.
-        lambda_l2: L2 weight-decay coefficient. Default: 1e-5.
+            input_dim: The dimensionality of the input PLM embeddings.
+            dict_size: The number of features in the sparse dictionary.
+            lambda_l1: L1 sparsity penalty coefficient. Default: 1e-4.
+            lambda_l2: L2 weight-decay coefficient. Default: 1e-5.
+        """
 
-    Examples:
-        >>> sae = SparseAutoencoder(input_dim=768, dict_size=4096)
-        >>> x = torch.randn(32, 768)
-        >>> f, x_hat, losses = sae(x)
-        >>> f.shape
-        torch.Size([32, 4096])
-        >>> x_hat.shape
-        torch.Size([32, 768])
-        >>> set(losses.keys())
-        {'loss_saenc', 'loss_recon', 'loss_l1'}
-    """
+    def __init__(self, input_dim: int, dict_size: int, lambda_l1: float = 1e-4, lambda_l2: float = 1e-5):
+        """Initializes the SparseAutoencoder module.
 
-    def __init__(
-        self,
-        input_dim: int,
-        dict_size: int,
-        lambda_l1: float = 1e-4,
-        lambda_l2: float = 1e-5,
-    ):
-        super().__init__()
-        self.input_dim = input_dim
-        self.dict_size = dict_size
+        Args:
+            input_dim: The dimensionality of the input PLM embeddings.
+            dict_size: The number of features in the sparse dictionary.
+        """
+        super(SparseAutoencoder, self).__init__()
+        self.encoder = nn.Linear(input_dim, dict_size)
+        self.decoder = nn.Linear(dict_size, input_dim)
         self.lambda_l1 = lambda_l1
         self.lambda_l2 = lambda_l2
+        self.dict_size = dict_size
+        self.input_dim = input_dim
 
-        self.encoder = nn.Linear(input_dim, dict_size, bias=True)
-        self.decoder = nn.Linear(dict_size, input_dim, bias=True)
-
-    def encode(self, x: torch.Tensor) -> torch.Tensor:
-        """Encode inputs to sparse non-negative feature activations.
-
-        Centers the input by the decoder bias before encoding, so the encoder
-        learns to represent deviations from the mean activation pattern.
+    def forward(self, x: torch.Tensor):
+        """Performs a forward pass to generate sparse features and reconstruction.
 
         Args:
-            x: Input tensor of shape (..., input_dim).
+            x: Input dense embeddings of shape [batch, seq_len, input_dim].
 
         Returns:
-            Sparse feature tensor of shape (..., dict_size). All values >= 0.
+            A tuple containing:
+                - features: Sparse dictionary features [batch, seq_len, dict_size].
+                - reconstructed: Reconstructed embeddings [batch, seq_len, input_dim].
+                - loss_dict: Dictionary containing 'loss_saenc', 'loss_recon', and 'loss_l1'.
         """
-        x_centered = x - self.decoder.bias
-        return F.relu(self.encoder(x_centered))
-
-    def forward(
-        self, x: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor, dict]:
-        """Forward pass computing sparse features, reconstruction, and losses.
-
-        Args:
-            x: Input tensor of shape (batch, input_dim).
-
-        Returns:
-            Tuple of:
-                f (Tensor): Sparse feature activations of shape (batch, dict_size).
-                    All values are non-negative (ReLU output).
-                x_hat (Tensor): Reconstructed input of shape (batch, input_dim).
-                loss_dict (dict): Loss components with keys:
-                    - "loss_saenc": Combined SAE loss (scalar).
-                    - "loss_recon": Reconstruction loss (scalar).
-                    - "loss_l1": L1 sparsity loss before lambda scaling (scalar).
-        """
-        f = self.encode(x)
-        x_hat = self.decoder(f)
-
-        # Mean of per-sample squared L2 reconstruction error
-        loss_recon = (x - x_hat).pow(2).sum(dim=-1).mean()
-        # Mean of per-sample L1 and squared L2 feature norms
-        loss_l1 = f.abs().sum(dim=-1).mean()
-        loss_l2 = f.pow(2).sum(dim=-1).mean()
-
+        # f = ReLU(W_e * x + b_e)
+        features = F.relu(self.encoder(x))
+        reconstructed = self.decoder(features)
+        
+        # Add the loss math here
+        loss_recon = F.mse_loss(reconstructed, x)
+        loss_l1 = features.abs().mean()
+        loss_l2 = (features ** 2).mean()
         loss_saenc = loss_recon + self.lambda_l1 * loss_l1 + self.lambda_l2 * loss_l2
-
-        return f, x_hat, {
+        
+        loss_dict = {
             "loss_saenc": loss_saenc,
             "loss_recon": loss_recon,
             "loss_l1": loss_l1,
         }
+        return features, reconstructed, loss_dict
+    
+    def encode(self, x: torch.Tensor) -> torch.Tensor:
+        """Encodes input embeddings directly into sparse features without reconstructing.
 
-    def normalize_decoder(self) -> None:
-        """Normalize decoder weight columns to unit L2 norm.
+        Args:
+            x: Input dense embeddings of shape [batch, seq_len, input_dim].
 
-        Should be called after each optimizer step. Prevents the decoder
-        from absorbing feature scale into its column norms, keeping feature
-        activations and decoder directions cleanly separated.
+        Returns:
+            Sparse dictionary features of shape [batch, seq_len, dict_size].
         """
-        with torch.no_grad():
-            col_norms = self.decoder.weight.norm(dim=0, keepdim=True).clamp(min=1e-8)
-            self.decoder.weight.div_(col_norms)
+        return F.relu(self.encoder(x))
+
+    @torch.no_grad()
+    def normalize_decoder(self) -> None:
+        """Normalizes the decoder weights to have unit column norms.
+
+        This prevents the autoencoder from cheating the sparsity penalty by 
+        scaling down feature activations and scaling up decoder weights.
+        """
+        norms = torch.norm(self.decoder.weight, dim=0, keepdim=True)
+        self.decoder.weight.copy_(self.decoder.weight / torch.clamp(norms, min=1e-8))

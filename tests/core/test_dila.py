@@ -26,7 +26,6 @@ from pyhealth.models.dila_sparse_autoencoder import SparseAutoencoder
 from pyhealth.models.dila_dict_label_attention import DictionaryLabelAttention
 from pyhealth.models.dila import DILA, pretrain_sparse_autoencoder
 
-
 # ---------------------------------------------------------------------------
 # Shared constants
 # ---------------------------------------------------------------------------
