@@ -1,4 +1,3 @@
-# import logging
 from typing import Any, Dict, List
 from pyhealth.tasks import BaseTask
 from pyedflib import highlevel

@@ -5,15 +5,6 @@ from pyhealth.sampler import TUSZSampler
 
 
 class TUSZSamplerDataset(IterableDataset):
-    def __init__(
-            self,
-            dataset,
-            is_training_set,
-            buffer_size = 1000
-    ):
-        self.dataset = dataset
-        self.is_training_set = is_training_set
-        self.buffer_size = buffer_size
 
     task_name: str = "tusz_sampler_task"
     input_schema: Dict[str, str] = { "signal": "tensor" }
@@ -24,6 +15,15 @@ class TUSZSamplerDataset(IterableDataset):
         "label_name": "text",
     }
 
+    def __init__(
+            self,
+            dataset,
+            is_training_set,
+            buffer_size = 1000
+    ):
+        self.dataset = dataset
+        self.is_training_set = is_training_set
+        self.buffer_size = buffer_size
         
     def __len__(self):
         return len(self.dataset)
