@@ -1,10 +1,10 @@
 import ast
 import os
-import pickle
 from typing import Dict, List
 
 import numpy as np
 import pandas as pd
+import wfdb
 
 from pyhealth.tasks import BaseTask
 
@@ -18,14 +18,46 @@ class PTBXLMIClassificationTask(BaseTask):
         "label": "binary",
     }
 
-    def __init__(self, root: str):
+    def __init__(
+        self,
+        root: str,
+        signal_length: int = 1000,
+        normalize: bool = True,
+    ):
         self.root = root
+        self.signal_length = signal_length
+        self.normalize = normalize
 
         scp_path = os.path.join(self.root, "scp_statements.csv")
         scp_df = pd.read_csv(scp_path, index_col=0)
         self.mi_codes = set(
             scp_df[scp_df["diagnostic_class"] == "MI"].index.astype(str).tolist()
         )
+
+    def _load_ecg_signal(self, record_rel_path: str) -> np.ndarray:
+        """Loads a PTB-XL WFDB record and returns shape (12, signal_length)."""
+        record_path = os.path.join(self.root, record_rel_path)
+
+        # WFDB expects the record path without file extension.
+        signal, _ = wfdb.rdsamp(record_path)
+
+        # rdsamp returns shape (num_samples, num_channels)
+        signal = signal.T.astype(np.float32)  # -> (channels, time)
+
+        if self.normalize:
+            mean = signal.mean(axis=1, keepdims=True)
+            std = signal.std(axis=1, keepdims=True)
+            std = np.where(std < 1e-6, 1.0, std)
+            signal = (signal - mean) / std
+
+        current_len = signal.shape[1]
+        if current_len >= self.signal_length:
+            signal = signal[:, : self.signal_length]
+        else:
+            pad_width = self.signal_length - current_len
+            signal = np.pad(signal, ((0, 0), (0, pad_width)), mode="constant")
+
+        return signal
 
     def __call__(self, patient) -> List[Dict]:
         samples = []
@@ -34,6 +66,7 @@ class PTBXLMIClassificationTask(BaseTask):
 
         for idx, row in enumerate(rows):
             raw_label = row["ptbxl/scp_codes"]
+            record_rel_path = row["ptbxl/record_path"]
 
             try:
                 scp_codes = (
@@ -45,18 +78,9 @@ class PTBXLMIClassificationTask(BaseTask):
                 scp_codes = {}
 
             label = 1 if any(code in self.mi_codes for code in scp_codes.keys()) else 0
-
-            signal = np.zeros((12, 1000), dtype=np.float32)
+            signal = self._load_ecg_signal(record_rel_path)
 
             visit_id = str(row["ptbxl/ecg_id"])
-            cache_dir = os.path.join("/tmp", "ptbxl_task_cache")
-            os.makedirs(cache_dir, exist_ok=True)
-            save_file_path = os.path.join(
-                cache_dir, f"{patient.patient_id}-MI-{visit_id}.pkl"
-            )
-
-            with open(save_file_path, "wb") as f:
-                pickle.dump({"signal": signal, "label": label}, f)
 
             samples.append(
                 {
@@ -65,7 +89,6 @@ class PTBXLMIClassificationTask(BaseTask):
                     "record_id": idx + 1,
                     "signal": signal.tolist(),
                     "label": label,
-                    "epoch_path": save_file_path,
                 }
             )
 

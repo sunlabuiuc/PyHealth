@@ -17,7 +17,9 @@ class PTBXLDataset(BaseDataset):
         dev: bool = False,
         cache_dir: Optional[str] = None,
         num_workers: int = 1,
+        use_high_resolution: bool = False,
     ):
+        self.use_high_resolution = use_high_resolution
         super().__init__(
             root=root,
             tables=["ptbxl"],
@@ -31,14 +33,15 @@ class PTBXLDataset(BaseDataset):
         metadata_path = os.path.join(self.root, "ptbxl_database.csv")
         df = pd.read_csv(metadata_path)
 
+        record_path_col = "filename_hr" if self.use_high_resolution else "filename_lr"
+
         event_df = pd.DataFrame(
             {
                 "patient_id": df["patient_id"].astype(str),
                 "event_type": "ptbxl",
                 "timestamp": pd.NaT,
                 "ptbxl/ecg_id": df["ecg_id"],
-                "ptbxl/filename_lr": df["filename_lr"],
-                "ptbxl/filename_hr": df["filename_hr"],
+                "ptbxl/record_path": df[record_path_col],
                 "ptbxl/scp_codes": df["scp_codes"],
             }
         )

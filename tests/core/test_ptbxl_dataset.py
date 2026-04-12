@@ -26,7 +26,7 @@ class TestPTBXLDataset(unittest.TestCase):
             self.assertIn("patient_id", df.columns)
             self.assertIn("event_type", df.columns)
             self.assertIn("ptbxl/ecg_id", df.columns)
-            self.assertIn("ptbxl/filename_lr", df.columns)
+            self.assertIn("ptbxl/record_path", df.columns)
             self.assertIn("ptbxl/scp_codes", df.columns)
             self.assertEqual(str(df.iloc[0]["patient_id"]), "100")
             self.assertEqual(df.iloc[0]["event_type"], "ptbxl")
