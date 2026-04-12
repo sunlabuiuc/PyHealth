@@ -71,7 +71,10 @@ class ReadmissionPredictionMIMIC3(BaseTask):
             ValueError: If any `str` to `datetime` conversions fail.
         """
         patients: List[Event] = patient.get_events(event_type="patients")
-        assert len(patients) == 1
+        if len(patients) != 1:
+            raise ValueError(
+                f"Expected exactly 1 patient record, got {len(patients)}"
+            )
 
         if self.exclude_minors:
             try:
@@ -203,10 +206,13 @@ class ReadmissionPredictionMIMIC4(BaseTask):
 
         Raises:
             ValueError: If any `str` to `datetime` conversions fail.
-            AssertionError: If any icd_version value in the diagnoses_icd or procedures_icd tables is not "9" or "10"
+            ValueError: If any icd_version value in the diagnoses_icd or procedures_icd tables is not "9" or "10"
         """
         patients: List[Event] = patient.get_events(event_type="patients")
-        assert len(patients) == 1
+        if len(patients) != 1:
+            raise ValueError(
+                f"Expected exactly 1 patient record, got {len(patients)}"
+            )
 
         if self.exclude_minors and int(patients[0]["anchor_age"]) < 18:
             return []
@@ -224,7 +230,10 @@ class ReadmissionPredictionMIMIC4(BaseTask):
             for event in patient.get_events(
                 event_type="diagnoses_icd", filters=[filter]
             ):
-                assert event.icd_version in ("9", "10")
+                if event.icd_version not in ("9", "10"):
+                    raise ValueError(
+                        f"Unexpected icd_version {event.icd_version!r}, expected '9' or '10'"
+                    )
                 diagnoses.append(f"{event.icd_version}_{event.icd_code}")
             if len(diagnoses) == 0:
                 continue
@@ -233,7 +242,10 @@ class ReadmissionPredictionMIMIC4(BaseTask):
             for event in patient.get_events(
                 event_type="procedures_icd", filters=[filter]
             ):
-                assert event.icd_version in ("9", "10")
+                if event.icd_version not in ("9", "10"):
+                    raise ValueError(
+                        f"Unexpected icd_version {event.icd_version!r}, expected '9' or '10'"
+                    )
                 procedures.append(f"{event.icd_version}_{event.icd_code}")
             if len(procedures) == 0:
                 continue
@@ -483,7 +495,10 @@ class ReadmissionPredictionOMOP(BaseTask):
                 - 'readmission': binary label.
         """
         patients: List[Event] = patient.get_events(event_type="person")
-        assert len(patients) == 1
+        if len(patients) != 1:
+            raise ValueError(
+                f"Expected exactly 1 person record, got {len(patients)}"
+            )
 
         if self.exclude_minors:
             year = int(patients[0].year_of_birth)
