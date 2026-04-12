@@ -72,7 +72,7 @@ class SleepStagingSHHS(BaseTask):
             try:
                 samples = self._process_event(pid, event)
                 all_samples.extend(samples)
-            except Exception:
+            except (ValueError, RuntimeError, OSError):
                 logger.warning(
                     "Skipping %s visit %s due to processing error",
                     pid,
@@ -190,4 +190,4 @@ def _downsample(signal: np.ndarray, source_hz: int, target_hz: int) -> np.ndarra
 
     from scipy.signal import resample_poly
 
-    return resample_poly(signal, target_hz, source_hz).astype(np.float32)
+    return np.asarray(resample_poly(signal, target_hz, source_hz), dtype=np.float32)

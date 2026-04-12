@@ -6,7 +6,6 @@ from pyhealth.datasets import BaseDataset
 
 logger = logging.getLogger(__name__)
 
-# ECG sampling rates per SHHS visit (from montage specs)
 _VISIT_ECG_RATES = {"shhs1": 125, "shhs2": 256}
 
 class SHHSDataset(BaseDataset):
@@ -49,7 +48,7 @@ class SHHSDataset(BaseDataset):
         config_path: Optional[str] = None,
     ) -> None:
         if config_path is None:
-            config_path = Path(__file__).parent / "configs" / "shhs.yaml"
+            config_path = str(Path(__file__).parent / "configs" / "shhs.yaml")
 
         metadata_path = Path(root) / "shhs-metadata.csv"
         if not metadata_path.exists():
@@ -153,7 +152,7 @@ class SHHSDataset(BaseDataset):
         logger.info("Wrote %d records to %s", len(metadata), output_path)
 
 def _find_harmonized_csv(root: str) -> Optional[str]:
-    """Locate the harmonized dataset CSV under ``root/datasets/``."""
+    """Locate the harmonized dataset CSV under root/datasets/."""
     datasets_dir = Path(root) / "datasets"
     if not datasets_dir.is_dir():
         return None
