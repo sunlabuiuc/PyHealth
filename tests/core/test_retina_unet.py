@@ -106,6 +106,10 @@ class TestRetinaUNet(unittest.TestCase):
             ret = self.model(**data_batch)
 
         self.assertIn("loss", ret)
+        self.assertIn("total_loss", ret)
+        self.assertIn("class_loss", ret)
+        self.assertIn("bbox_loss", ret)
+        self.assertIn("seg_loss", ret)
         self.assertIn("y_prob", ret)
         self.assertIn("y_true", ret)
         self.assertIn("logit", ret)
@@ -114,6 +118,8 @@ class TestRetinaUNet(unittest.TestCase):
         self.assertEqual(ret["y_true"].shape[0], 2)
         self.assertEqual(ret["logit"].shape[0], 2)
         self.assertEqual(ret["loss"].dim(), 0)
+        self.assertEqual(ret["total_loss"].dim(), 0)
+        self.assertTrue(torch.allclose(ret["loss"], ret["total_loss"]))
 
     def test_model_forward_with_aux_outputs(self):
         """Test optional Retina-specific outputs."""
@@ -138,6 +144,10 @@ class TestRetinaUNet(unittest.TestCase):
         self.assertEqual(ret["detections"].dim(), 2)
         self.assertTrue(torch.equal(ret["boxes"], ret["detections"]))
         self.assertIsInstance(ret["monitor_values"], dict)
+        self.assertIn("total_loss", ret["monitor_values"])
+        self.assertIn("class_loss", ret["monitor_values"])
+        self.assertIn("bbox_loss", ret["monitor_values"])
+        self.assertIn("seg_loss", ret["monitor_values"])
 
     def test_model_inference_without_labels(self):
         """Test inference mode works when only image inputs are provided."""
@@ -168,6 +178,48 @@ class TestRetinaUNet(unittest.TestCase):
             for param in self.model.parameters()
         )
         self.assertTrue(has_grad, "No parameters have gradients after backward pass")
+
+    def test_model_auto_generates_detection_targets_from_seg(self):
+        """Mask-only batches should still produce full loss components."""
+        h, w = 64, 64
+        y1, x1, y2, x2 = h // 4, w // 4, h // 2, w // 2
+        seg = np.zeros((h, w), dtype=np.int64)
+        seg[y1:y2, x1:x2] = 1
+
+        samples = [
+            {
+                "patient_id": "patient-0",
+                "visit_id": "visit-0",
+                "image": torch.randn(1, h, w).numpy().tolist(),
+                "seg": seg.tolist(),
+            },
+            {
+                "patient_id": "patient-1",
+                "visit_id": "visit-1",
+                "image": torch.randn(1, h, w).numpy().tolist(),
+                "seg": seg.tolist(),
+            },
+        ]
+
+        dataset = create_sample_dataset(
+            samples=samples,
+            input_schema={"image": "tensor", "seg": "tensor"},
+            output_schema={"seg": "tensor"},
+            dataset_name="retina_unet_auto_targets",
+        )
+        model = RetinaUNet(dataset=dataset, feature_key="image", seg_label_key="seg", dim=2)
+        batch = next(iter(get_dataloader(dataset, batch_size=2, shuffle=False)))
+
+        with torch.no_grad():
+            ret = model(return_aux=True, **batch)
+
+        self.assertIn("class_loss", ret)
+        self.assertIn("bbox_loss", ret)
+        self.assertIn("seg_loss", ret)
+        self.assertIn("total_loss", ret)
+        self.assertGreaterEqual(float(ret["class_loss"].item()), 0.0)
+        self.assertGreaterEqual(float(ret["bbox_loss"].item()), 0.0)
+        self.assertGreater(float(ret["seg_loss"].item()), 0.0)
 
     def test_model_forward_3d(self):
         """Test the 3D RetinaUNet path returns standard outputs."""
