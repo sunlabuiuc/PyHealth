@@ -87,22 +87,35 @@ class SleepStagingSHHS(BaseTask):
         self, pid: str, event: Any
     ) -> list[dict[str, Any]]:
         import mne
+        import time
 
-        samples_per_epoch = self.target_hz * self.epoch_seconds  # 750
+        visit = getattr(event, "visitnumber", "?")
+        samples_per_epoch = self.target_hz * self.epoch_seconds
 
-        # Read ECG from EDF
+        logger.info("Patient %s visit %s: reading EDF...", pid, visit)
+        t0 = time.time()
         raw = mne.io.read_raw_edf(
             event.signal_file, preload=True, verbose="error"
         )
         ecg_idx = _pick_ecg_channel(raw.ch_names)
         ecg_signal = raw.get_data(picks=[ecg_idx]).squeeze()
         source_hz = int(float(event.ecg_sample_rate))
+        logger.info(
+            "Patient %s visit %s: EDF loaded (%.1fs, %d samples at %d Hz)",
+            pid, visit, time.time() - t0, len(ecg_signal), source_hz,
+        )
 
-        # Parse sleep-stage annotations from Profusion XML
         stages = _parse_profusion_stages(event.annotation_file)
 
-        # R-peak detection → IBI → outlier removal
+        logger.info(
+            "Patient %s visit %s: detecting R-peaks...", pid, visit
+        )
+        t0 = time.time()
         ibi = _ecg_to_ibi(ecg_signal, source_hz)
+        logger.info(
+            "Patient %s visit %s: R-peak detection done (%.1fs)",
+            pid, visit, time.time() - t0,
+        )
 
         # Downsample IBI to target_hz
         ibi_ds = _downsample(ibi, source_hz, self.target_hz)
@@ -123,7 +136,6 @@ class SleepStagingSHHS(BaseTask):
         valid_mask = [lbl != -1 for lbl in epoch_labels]
 
         # Build samples: slide a window of seq_len epochs, label = last epoch
-        visit = getattr(event, "visitnumber", "1")
         samples: list[dict[str, Any]] = []
         for i in range(num_epochs - self.seq_len + 1):
             window_end = i + self.seq_len
@@ -139,6 +151,10 @@ class SleepStagingSHHS(BaseTask):
                 }
             )
 
+        logger.info(
+            "Patient %s visit %s: %d epochs, %d samples generated",
+            pid, visit, num_epochs, len(samples),
+        )
         return samples
 
 

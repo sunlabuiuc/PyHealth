@@ -13,6 +13,8 @@ Dataset: SHHS (Sleep Heart Health Study)
 Note: Update the `root` path below to point to your local SHHS download.
 """
 
+import logging
+
 from pyhealth.trainer import Trainer
 from pyhealth.datasets import SHHSDataset, get_dataloader, split_by_patient
 from pyhealth.models import WatchSleepNet
@@ -22,10 +24,16 @@ _EPOCHS = 10
 _DECAY_WEIGHT = 1e-5
 
 if __name__ == "__main__":
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(name)s %(levelname)s: %(message)s",
+        datefmt="%H:%M:%S",
+    )
 
     # Initialize SHHS dataset
     # Note: if SHHS root is None, will use sample data
-    SHHS_ROOT = "/Users/cpenquit/Desktop/shhs/2.1.0" # Update this path to your local SHHS download
+    # SHHS_ROOT = "/path/to/shhs"  # Update this path to your local SHHS download
+    SHHS_ROOT = "/Users/maxafinder/Documents/UIUC/spring-2026/cs598/project/data-download/shhs"
     dataset = SHHSDataset(root=SHHS_ROOT)
 
     print("=" * 70)
@@ -54,12 +62,14 @@ if __name__ == "__main__":
     # Access clinical attributes
     event = patient.get_events(event_type="shhs_sleep")[0]
     print("Clinical attributes:")
+    print(f"  Visit: {event.visitnumber}")
     print(f"  Age: {event.age}")
-    print(f"  Gender: {event.gender}")
+    print(f"  Sex: {event.sex}")
     print(f"  BMI: {event.bmi}")
     print(f"  AHI: {event.ahi}")
-    print(f"  64Hz data file: {event.file_64hz}")
-    print(f"  100Hz data file: {event.file_100hz}")
+    print(f"  Signal file: {event.signal_file}")
+    print(f"  Annotation file: {event.annotation_file}")
+    print(f"  ECG sample rate: {event.ecg_sample_rate} Hz")
     print()
 
     # Set sleep staging task
