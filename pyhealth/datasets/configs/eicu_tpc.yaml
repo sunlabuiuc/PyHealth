@@ -1,3 +1,22 @@
+# Custom eICU dataset configuration for the TPC hourly length-of-stay project.
+#
+# This configuration extends the standard PyHealth eICU dataset mapping to
+# support the Temporal Pointwise Convolution (TPC) replication pipeline.
+# It exposes the tables and attributes needed for hourly ICU remaining
+# length-of-stay prediction, including time-series measurements, static
+# patient features, and diagnosis/history sources used by the custom task.
+#
+# Intended use:
+#   - pyhealth.tasks.hourly_los.HourlyLOSEICU
+#   - examples/eicu_hourly_los_tpc.py
+#
+# Notes:
+#   - Table names are normalized to the lowercase names used by the custom
+#     task pipeline.
+#   - Several tables join through patient.csv on patientunitstayid in order
+#     to recover uniquepid and visit-level context for task construction.
+#   - This file is project-specific and should be kept aligned with the
+#     expected table/attribute names used in the eICU TPC task code.
 version: "2.0"
 tables:
   patient:

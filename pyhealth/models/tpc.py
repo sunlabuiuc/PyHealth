@@ -1,3 +1,67 @@
+"""
+Temporal Pointwise Convolution (TPC) model implementation for hourly ICU
+length-of-stay (LoS) prediction.
+
+This module provides a PyTorch implementation of the Temporal Pointwise
+Convolution (TPC) architecture described in:
+
+Rocheteau, E., Liò, P., and Hyland, S. (2021).
+"Temporal Pointwise Convolutional Networks for Length of Stay Prediction
+in the Intensive Care Unit."
+
+Overview:
+    The TPC model is designed for multivariate, irregularly sampled EHR
+    time-series. It combines two complementary operations at each layer:
+
+    1. Temporal Convolution (TC):
+        Feature-wise or shared causal convolutions over time, enabling
+        each clinical variable to learn independent temporal dynamics.
+
+    2. Pointwise Convolution (PC):
+        Per-time-step feature mixing (1×1 convolution equivalent) to
+        capture cross-feature interactions without temporal leakage.
+
+    These components are combined with optional skip connections and
+    domain-specific inputs such as decay indicators and static features.
+
+Key Components:
+    - TemporalConvBlock: Feature-wise or shared causal temporal convolution
+    - PointwiseConvBlock: Per-time-step feature interaction layer
+    - TPCLayer: Combined temporal + pointwise layer with skip connections
+    - TPC: Full stacked model for LoS regression
+
+Inputs:
+    x_values: Tensor of shape [B, T, F]
+        Hourly time-series feature values.
+
+    x_decay: Tensor of shape [B, T, F]
+        Decay indicators representing time since last observation.
+
+    static: Optional Tensor of shape [B, S]
+        Static patient-level features.
+
+Outputs:
+    - Sequence mode: [B, T] predictions (default)
+    - Final-step mode: [B] prediction
+
+Implementation Notes:
+    - Initial feature channels are constructed as [value, decay].
+    - Causal padding ensures no future information leakage.
+    - Supports ablations:
+        * shared vs feature-wise temporal convolutions
+        * temporal-only / pointwise-only configurations
+        * skip connections on/off
+        * decay inclusion in pointwise branch
+    - Positive outputs can be enforced via Softplus.
+
+Example:
+    >>> model = TPC(input_dim=F, static_dim=S)
+    >>> y_pred = model(x_values, x_decay, static)
+
+This implementation is intended for integration with PyHealth task pipelines
+for hourly ICU length-of-stay prediction and supports reproducible ablation
+studies using synthetic or real EHR datasets.
+"""
 from __future__ import annotations
 
 from typing import Optional

@@ -1,3 +1,27 @@
+# Custom MIMIC-IV dataset configuration for the TPC hourly length-of-stay project.
+#
+# This configuration defines the table mappings and joins required to load
+# MIMIC-IV data into PyHealth for the Temporal Pointwise Convolution (TPC)
+# replication pipeline. It is tailored to support hourly ICU remaining
+# length-of-stay prediction using time-series EHR data.
+#
+# Intended use:
+#   - pyhealth.tasks.hourly_los.HourlyLOSEICU (MIMIC-IV variant)
+#   - examples/mimic4_hourly_los_tpc.py
+#
+# Notes:
+#   - Core ICU time-series data is sourced from `chartevents`, joined with
+#     `d_items` to obtain human-readable labels and feature metadata.
+#   - Laboratory features are sourced from `labevents`, joined with
+#     `d_labitems` for standardized naming and categorization.
+#   - Static and contextual patient information is derived from `patients`,
+#     `admissions`, and `icustays`.
+#   - Diagnosis and procedure codes are included for optional feature
+#     engineering and cohort analysis.
+#   - Timestamps are defined per table to enable temporal alignment and
+#     hourly resampling within the task pipeline.
+#   - This configuration is project-specific and should remain aligned with
+#     the feature extraction logic implemented in the MIMIC-IV LoS task.
 version: "2.2"
 tables:
   patients:

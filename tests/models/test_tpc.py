@@ -1,3 +1,50 @@
+"""
+Unit tests for the Temporal Pointwise Convolution (TPC) model.
+
+This module contains fast synthetic tests for validating the PyHealth TPC
+model implementation. The tests are designed to run quickly and verify core
+model behavior without requiring real datasets.
+
+Overview:
+    The test suite checks:
+
+    1. Output tensor shapes in both sequence and last-step prediction modes.
+    2. Forward-pass correctness across major ablation variants.
+    3. Configuration validation for invalid branch settings.
+    4. Gradient propagation through the model during backpropagation.
+
+    These tests provide lightweight coverage of the TPC model's core API and
+    expected tensor behavior.
+
+Key Coverage:
+    - Sequence output mode
+    - Last-step output mode
+    - Temporal-only, pointwise-only, shared-temporal, and no-skip variants
+    - Invalid configuration handling
+    - Backward pass / gradient computation
+
+Inputs:
+    Synthetic tensors generated in-memory:
+        - x_values: [B, T, F]
+        - x_decay: [B, T, F]
+        - static: [B, S]
+
+Outputs:
+    - PyTest assertions validating tensor shapes, finite outputs, raised
+      exceptions, and gradient flow
+
+Implementation Notes:
+    - Uses only small synthetic tensors for speed and reproducibility.
+    - Does not depend on eICU, MIMIC-IV, or any external files.
+    - Intended to satisfy the project requirement for fast model tests using
+      pseudo data.
+
+Example:
+    >>> python -m pytest tests/models/test_tpc.py -q
+
+This test module is part of the TPC replication pipeline and validates the
+core model implementation in ``pyhealth.models.tpc``.
+"""
 import pytest
 import torch
 

@@ -1,3 +1,59 @@
+"""
+Unit tests for the Hourly ICU length-of-stay (LoS) task.
+
+This module contains synthetic unit tests for validating the behavior of the
+HourlyLOSEICU task implementation. The tests verify correct construction of
+hourly time-series features, target generation, and dataset-specific handling
+for both eICU and MIMIC-IV style inputs.
+
+Overview:
+    The test suite checks:
+
+    1. Hourly time-series construction:
+        - Latest observation within each hour is retained
+        - Forward-filling of missing values
+        - Correct decay feature computation (0.75^j)
+
+    2. Pre-ICU handling:
+        - Inclusion of pre-ICU observations during processing
+        - Proper cropping of pre-ICU rows after feature construction
+
+    3. Sample generation:
+        - eICU-style patient processing (offset-based timestamps)
+        - MIMIC-IV-style patient processing (datetime-based timestamps)
+        - Presence and correctness of expected output fields
+
+    4. Output structure:
+        - time_series tensor-like structure
+        - static feature encoding
+        - target_los_hours and target_los_sequence
+
+Key Components:
+    - DummyEvent: Minimal event object for simulating dataset records
+    - DummyPatient: Minimal patient object with table-based event access
+    - Synthetic observations for controlled validation of task logic
+
+Inputs:
+    Synthetic patient and event objects constructed in-memory.
+
+Outputs:
+    - PyTest assertions validating correctness of:
+        * time-series construction
+        * decay behavior
+        * cropping logic
+        * sample generation and structure
+
+Implementation Notes:
+    - Tests use lightweight synthetic data for speed and reproducibility.
+    - No dependency on real eICU or MIMIC-IV datasets.
+    - Designed to validate core preprocessing logic independent of model code.
+
+Example:
+    >>> python -m pytest tests/tasks/test_hourly_los.py -q
+
+This test module validates the task implementation in
+``pyhealth.tasks.hourly_los.HourlyLOSEICU``.
+"""
 from datetime import datetime, timedelta
 
 import torch

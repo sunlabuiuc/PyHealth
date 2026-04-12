@@ -1,3 +1,81 @@
+"""
+Hourly ICU remaining length-of-stay (LoS) task implementation for PyHealth.
+
+This module defines the HourlyLOSEICU task, which constructs supervised
+learning samples for predicting remaining ICU length-of-stay at hourly
+intervals using electronic health record (EHR) time-series data.
+
+The implementation is designed to replicate the preprocessing pipeline
+described in:
+
+Rocheteau, E., Liò, P., and Hyland, S. (2021).
+"Temporal Pointwise Convolutional Networks for Length of Stay Prediction
+in the Intensive Care Unit."
+
+Overview:
+    This task converts raw ICU patient data into autoregressive hourly
+    prediction samples. For each ICU stay, it:
+
+    1. Extracts observations from both pre-ICU and ICU time windows
+       (typically up to 24 hours before ICU admission).
+    2. Buckets observations into hourly intervals.
+    3. Retains the most recent measurement within each hour.
+    4. Applies forward-filling to handle missing data.
+    5. Computes decay features to represent time since last observation.
+    6. Removes pre-ICU rows after feature construction.
+    7. Generates hourly prediction targets for remaining LoS.
+
+    The resulting samples are suitable for training sequence models such as
+    the Temporal Pointwise Convolution (TPC) network.
+
+Key Features:
+    - Supports both eICU and MIMIC-IV datasets within a unified task class
+    - Handles irregularly sampled multivariate time-series data
+    - Implements domain-specific preprocessing:
+        * forward-filling with decay indicators
+        * pre-ICU context inclusion and cropping
+        * autoregressive target construction
+    - Supports optional diagnosis extraction and encoding
+    - Supports numeric and categorical static feature encoding
+
+Inputs:
+    - PyHealth Patient objects containing hierarchical event data
+    - Configurable time-series tables and feature mappings
+    - Optional static and diagnosis feature configurations
+
+Outputs:
+    Each generated sample contains:
+        - time_series: Tensor-like structure [T, 3F] with
+            [value, mask, decay] per feature
+        - static: Encoded static feature vector
+        - target_los_hours: Remaining ICU length-of-stay at prediction time
+        - target_los_sequence: Historical sequence of remaining LoS targets
+
+Implementation Notes:
+    - This task closely follows the preprocessing logic described in the
+      original TPC paper, including pre-ICU forward-fill and decay features.
+    - Time-series features are normalized and indexed consistently across
+      tables to support reproducible model input construction.
+    - Categorical static features are one-hot encoded using task-local
+      vocabularies built during processing.
+    - Designed for compatibility with PyHealth dataset loaders and model APIs.
+
+Example:
+    >>> task = HourlyLOSEICU(
+    ...     time_series_tables=["lab", "vitalPeriodic"],
+    ...     time_series_features={
+    ...         "lab": ["glucose", "sodium"],
+    ...         "vitalPeriodic": ["heartrate"]
+    ...     },
+    ...     min_history_hours=5,
+    ...     max_hours=48
+    ... )
+    >>> samples = task(patient)
+
+This task is a core component of the TPC replication pipeline and is used by:
+    - examples/eicu_hourly_los_tpc.py
+    - examples/mimic4_hourly_los_tpc.py
+"""
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
