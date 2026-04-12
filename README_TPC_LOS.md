@@ -6,9 +6,9 @@ CS598 Deep Learning for Healthcare project contribution for reproducing:
 
 ## Contributors
 
-* Michael Edukonis (`meduk2`)
-* Keon Young Lee
-* Tanmay Thareja
+* Michael Edukonis (`meduk2@illinois.edu`)
+* Keon Young Lee (`kylee7@illinois.edu`)
+* Tanmay Thareja (`tanmayt3@illinois.edu`)
 
 ## Project Overview
 
