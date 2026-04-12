@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 # Profusion stages → 3-class: 0=Wake, 1=NREM, 2=REM
 _STAGE_MAP = {0: 0, 1: 1, 2: 1, 3: 1, 4: 1, 5: 2}
 
+
 class SleepStagingSHHS(BaseTask):
     """Sleep staging task for WatchSleepNet on the SHHS dataset.
 
@@ -140,12 +141,14 @@ class SleepStagingSHHS(BaseTask):
 
         return samples
 
+
 def _pick_ecg_channel(ch_names: list[str]) -> int:
     """Return the index of the ECG channel."""
     for i, name in enumerate(ch_names):
         if "ecg" in name.lower():
             return i
     raise ValueError(f"No ECG channel found in {ch_names}")
+
 
 def _parse_profusion_stages(xml_path: str) -> list[int]:
     """Parse per-epoch sleep stages from a Profusion XML file.
@@ -157,7 +160,12 @@ def _parse_profusion_stages(xml_path: str) -> list[int]:
     stage_elements = root.find("SleepStages")
     if stage_elements is None:
         raise ValueError(f"No <SleepStages> element in {xml_path}")
-    return [int(s.text) for s in stage_elements.findall("SleepStage") if s.text is not None]
+    return [
+        int(s.text)
+        for s in stage_elements.findall("SleepStage")
+        if s.text is not None
+    ]
+
 
 def _ecg_to_ibi(ecg_signal: np.ndarray, fs: int) -> np.ndarray:
     """Compute continuous IBI array from an ECG signal.
@@ -180,6 +188,7 @@ def _ecg_to_ibi(ecg_signal: np.ndarray, fs: int) -> np.ndarray:
 
     ibi[ibi >= 2.0] = 0.0
     return ibi
+
 
 def _downsample(signal: np.ndarray, source_hz: int, target_hz: int) -> np.ndarray:
     """Downsample a signal from source_hz to target_hz."""

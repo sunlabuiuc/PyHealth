@@ -3,10 +3,12 @@ from pathlib import Path
 from typing import Optional
 import pandas as pd
 from pyhealth.datasets import BaseDataset
+from pyhealth.tasks.shhs_sleep_staging import SleepStagingSHHS
 
 logger = logging.getLogger(__name__)
 
 _VISIT_ECG_RATES = {"shhs1": 125, "shhs2": 256}
+
 
 class SHHSDataset(BaseDataset):
     """Dataset for the Sleep Heart Health Study (SHHS).
@@ -44,6 +46,9 @@ class SHHSDataset(BaseDataset):
         root: Root directory containing the SHHS download.
         dataset_name: Optional name override.
         config_path: Optional path to a custom YAML config.
+        cache_dir: Optional directory for caching processed data.
+        num_workers: Number of worker processes for parallel operations.
+        dev: Whether to run in dev mode (limits to 1000 patients).
 
     Examples:
         >>> from pyhealth.datasets import SHHSDataset
@@ -56,6 +61,9 @@ class SHHSDataset(BaseDataset):
         root: str,
         dataset_name: Optional[str] = None,
         config_path: Optional[str] = None,
+        cache_dir: Optional[str] = None,
+        num_workers: int = 1,
+        dev: bool = False,
     ) -> None:
         if config_path is None:
             config_path = str(Path(__file__).parent / "configs" / "shhs.yaml")
@@ -69,11 +77,13 @@ class SHHSDataset(BaseDataset):
             tables=["shhs_sleep"],
             dataset_name=dataset_name or "shhs_sleep",
             config_path=config_path,
+            cache_dir=cache_dir,
+            num_workers=num_workers,
+            dev=dev,
         )
 
     @property
-    def default_task(self):
-        from pyhealth.tasks.shhs_sleep_staging import SleepStagingSHHS
+    def default_task(self) -> SleepStagingSHHS:
         return SleepStagingSHHS()
 
     @staticmethod
@@ -97,7 +107,7 @@ class SHHSDataset(BaseDataset):
             ecg_rate = _VISIT_ECG_RATES[visit]
 
             for edf_file in sorted(edf_dir.iterdir()):
-                if not edf_file.suffix == ".edf":
+                if edf_file.suffix != ".edf":
                     continue
 
                 # filename pattern: shhs1-200001.edf
@@ -160,6 +170,7 @@ class SHHSDataset(BaseDataset):
         output_path = Path(root) / "shhs-metadata.csv"
         metadata.to_csv(output_path, index=False)
         logger.info("Wrote %d records to %s", len(metadata), output_path)
+
 
 def _find_harmonized_csv(root: str) -> Optional[str]:
     """Locate the harmonized dataset CSV under root/datasets/."""
