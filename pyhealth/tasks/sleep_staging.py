@@ -42,7 +42,10 @@ def sleep_staging_isruc_fn(record, epoch_seconds=10, label_id=1):
         }
     """
     SAMPLE_RATE = 200
-    assert 30 % epoch_seconds == 0, "ISRUC is annotated every 30 seconds."
+    if 30 % epoch_seconds != 0:
+        raise ValueError(
+            f"epoch_seconds must be a factor of 30 (ISRUC is annotated every 30 seconds), got {epoch_seconds!r}"
+        )
     _channels = [
         "F3",
         "F4",
@@ -63,11 +66,11 @@ def sleep_staging_isruc_fn(record, epoch_seconds=10, label_id=1):
                 .replace("-A1", "")
             )
             if new_c in _channels:
-                assert new_c not in keep, f"Unrecognized channels: {potential_channels}"
+                if new_c in keep:
+                    raise ValueError(f"Duplicate channel mapping for {new_c!r}: {potential_channels}")
                 keep[new_c] = c
-        assert len(keep) == len(
-            _channels
-        ), f"Unrecognized channels: {potential_channels}"
+        if len(keep) != len(_channels):
+            raise ValueError(f"Unrecognized channels: {potential_channels}")
         return {v: k for k, v in keep.items()}
 
     record = record[0]
@@ -89,7 +92,8 @@ def sleep_staging_isruc_fn(record, epoch_seconds=10, label_id=1):
         header=None,
     )[0]
     ann = ann.map(["W", "N1", "N2", "N3", "Unknown", "R"].__getitem__)
-    assert "Unknown" not in ann.values, "bad annotations"
+    if "Unknown" in ann.values:
+        raise ValueError("bad annotations: found 'Unknown' stage labels")
     samples = []
     sample_length = SAMPLE_RATE * epoch_seconds
     for i, epoch_label in enumerate(np.repeat(ann.values, 30 // epoch_seconds)):

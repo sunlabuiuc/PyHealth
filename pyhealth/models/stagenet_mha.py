@@ -149,13 +149,13 @@ class StageNetAttentionLayer(nn.Module):
             return x
 
     def step(self, inputs, c_last, h_last, interval, device):
-        x_in = inputs.to(device=device)
+        x_in = inputs
 
         # Integrate inter-visit time intervals
-        interval = interval.unsqueeze(-1).to(device=device)
-        x_out1 = self.kernel(torch.cat((x_in, interval), dim=-1)).to(device)
+        interval = interval.unsqueeze(-1)
+        x_out1 = self.kernel(torch.cat((x_in, interval), dim=-1))
         x_out2 = self.recurrent_kernel(
-            torch.cat((h_last.to(device=device), interval), dim=-1)
+            torch.cat((h_last, interval), dim=-1)
         )
 
         if self.dropconnect:
@@ -163,19 +163,17 @@ class StageNetAttentionLayer(nn.Module):
             x_out2 = self.nn_dropconnect_r(x_out2)
         x_out = x_out1 + x_out2
         f_master_gate = self.cumax(x_out[:, : self.levels], "l2r")
-        f_master_gate = f_master_gate.unsqueeze(2).to(device=device)
+        f_master_gate = f_master_gate.unsqueeze(2)
         i_master_gate = self.cumax(x_out[:, self.levels : self.levels * 2], "r2l")
         i_master_gate = i_master_gate.unsqueeze(2)
         x_out = x_out[:, self.levels * 2 :]
         x_out = x_out.reshape(-1, self.levels * 4, self.chunk_size)
-        f_gate = self.sigmoid(x_out[:, : self.levels]).to(device=device)
-        i_gate = self.sigmoid(x_out[:, self.levels : self.levels * 2]).to(
-            device=device
-        )
+        f_gate = self.sigmoid(x_out[:, : self.levels])
+        i_gate = self.sigmoid(x_out[:, self.levels : self.levels * 2])
         o_gate = self.sigmoid(x_out[:, self.levels * 2 : self.levels * 3])
-        c_in = self.tanh(x_out[:, self.levels * 3 :]).to(device=device)
-        c_last = c_last.reshape(-1, self.levels, self.chunk_size).to(device=device)
-        overlap = (f_master_gate * i_master_gate).to(device=device)
+        c_in = self.tanh(x_out[:, self.levels * 3 :])
+        c_last = c_last.reshape(-1, self.levels, self.chunk_size)
+        overlap = f_master_gate * i_master_gate
         c_out = (
             overlap * (f_gate * c_last + i_gate * c_in)
             + (f_master_gate - overlap) * c_last

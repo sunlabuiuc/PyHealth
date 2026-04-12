@@ -24,16 +24,19 @@ def _nudge(matrix, delta):
 
 
 def _bin_points(scores, bin_edges):
-    assert bin_edges is not None, "Bins have not been defined"
+    if bin_edges is None:
+        raise ValueError("Bins have not been defined")
     scores = scores.squeeze()
-    assert np.size(scores.shape) < 2, "scores should be a 1D vector or singleton"
+    if np.size(scores.shape) >= 2:
+        raise ValueError(f"scores should be a 1D vector or singleton, got shape {scores.shape}")
     scores = np.reshape(scores, (scores.size, 1))
     bin_edges = np.reshape(bin_edges, (1, bin_edges.size))
     return np.sum(scores > bin_edges, axis=1)
 
 
 def _get_uniform_mass_bins(probs, n_bins):
-    assert probs.size >= n_bins, "Fewer points than bins"
+    if probs.size < n_bins:
+        raise ValueError(f"Fewer points than bins ({probs.size} < {n_bins})")
 
     probs_sorted = np.sort(probs)
 
@@ -63,13 +66,19 @@ class HB_binary(object):
         self.fitted = False
 
     def fit(self, y_score, y):
-        assert self.n_bins is not None, "Number of bins has to be specified"
+        if self.n_bins is None:
+            raise ValueError("Number of bins has to be specified")
         y_score = y_score.squeeze()
         y = y.squeeze()
-        assert y_score.size == y.size, "Check dimensions of input matrices"
-        assert (
-            y.size >= self.n_bins
-        ), "Number of bins should be less than the number of calibration points"
+        if y_score.size != y.size:
+            raise ValueError(
+                f"y_score and y must have the same size, got {y_score.size} and {y.size}"
+            )
+        if y.size < self.n_bins:
+            raise ValueError(
+                f"Number of bins should be less than the number of calibration points "
+                f"({self.n_bins} bins > {y.size} points)"
+            )
 
         ### All required (hyper-)parameters have been passed correctly
         ### Uniform-mass binning/histogram binning code starts below
@@ -104,7 +113,8 @@ class HB_binary(object):
         return self
 
     def predict_proba(self, y_score):
-        assert self.fitted is True, "Call HB_binary.fit() first"
+        if not self.fitted:
+            raise ValueError("Call HB_binary.fit() first")
         y_score = y_score.squeeze()
 
         # delta-randomization
@@ -222,7 +232,8 @@ class HistogramBinning(PostHocCalibrator):
             ``loss``: Cross entropy loss  with the new y_prob.
         :rtype: Dict[str, torch.Tensor]
         """
-        assert normalization is None or normalization == "sum"
+        if normalization is not None and normalization != "sum":
+            raise ValueError(f"normalization must be None or 'sum', got {normalization!r}")
         ret = self.model(**kwargs)
         y_prob = ret["y_prob"].cpu().numpy()
         for k in range(self.num_classes):
