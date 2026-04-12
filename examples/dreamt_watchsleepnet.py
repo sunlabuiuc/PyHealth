@@ -14,12 +14,13 @@ Multisensor wearable Technology)
 Note: Update the `root` path below to point to your local DREAMT download.
 """
 
-import torch
-import torch.nn as nn
-
+from pyhealth.trainer import Trainer
 from pyhealth.datasets import DREAMTDataset, get_dataloader, split_by_patient
 from pyhealth.models import WatchSleepNet
 from pyhealth.tasks import SleepStagingDREAMT
+
+_EPOCHS = 10
+_DECAY_WEIGHT = 1e-5
 
 if __name__ == "__main__":
 
@@ -96,108 +97,42 @@ if __name__ == "__main__":
     # Define and train WatchSleepNet
 
     print("=" * 70)
-    print("Training WatchSleepNet")
+    print("Train and Test WatchSleepNet")
     print("=" * 70)
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Using device: {device}")
-
-    model = WatchSleepNet(dataset=sample_dataset).to(device)
+    model = WatchSleepNet(dataset=sample_dataset)
 
     print(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
     print()
 
-    # define optimizer and loss function
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
-    criterion = nn.CrossEntropyLoss()
+    trainer = Trainer(
+        model=model,
+        metrics=["cohen_kappa", "f1_macro", "f1_weighted", "accuracy"],
+        exp_name="watchsleepnet_sleep_staging"
+    )
 
-    num_epochs = 10
+    trainer.train(
+        train_dataloader=train_loader,
+        val_dataloader=val_loader,
+        test_dataloader=test_loader,
+        epochs=_EPOCHS,
+        monitor="cohen_kappa",
+        monitor_criterion="max",
+        weight_decay=_DECAY_WEIGHT
+    )
 
-    for epoch in range(num_epochs):
-        # Train
-        model.train()
-        train_loss = 0.0
-        train_correct = 0
-        train_total = 0
-
-        for batch in train_loader:
-            batch_signals = batch["signal"].to(device)
-            batch_labels = batch["label"].to(device)
-
-            optimizer.zero_grad()
-            output = model(batch_signals)
-
-            # Use prediction from the last epoch in the sequence to match label
-            last_epoch_output = output[:, -1, :]
-            loss = criterion(last_epoch_output, batch_labels)
-            loss.backward()
-            optimizer.step()
-
-            train_loss += loss.item() * batch_signals.size(0)
-            preds = last_epoch_output.argmax(dim=-1)
-            train_correct += (preds == batch_labels).sum().item()
-            train_total += batch_labels.size(0)
-
-        train_loss /= len(train_dataset)
-        train_acc = train_correct / train_total
-
-        # Validate
-        model.eval()
-        val_correct = 0
-        val_total = 0
-
-        with torch.no_grad():
-            for batch in val_loader:
-                batch_signals = batch["signal"].to(device)
-                batch_labels = batch["label"].to(device)
-                output = model(batch_signals)
-                preds = output[:, -1, :].argmax(dim=-1)
-                val_correct += (preds == batch_labels).sum().item()
-                val_total += batch_labels.size(0)
-
-        val_acc = val_correct / val_total
-
-        print(
-            f"Epoch {epoch + 1:2d}/{num_epochs}  "
-            f"Train Loss: {train_loss:.4f}  Train Acc: {train_acc:.4f}  "
-            f"Val Acc: {val_acc:.4f}"
-        )
-
+    scores = trainer.evaluate(test_loader)
     print()
-
-    # Evaluate on test set
-
     print("=" * 70)
-    print("Test Set Evaluation")
+    print("Results on Test Set")
     print("=" * 70)
-
-    stage_names = {0: "Wake", 1: "Light Sleep", 2: "Deep Sleep"}
-
-    model.eval()
-    all_preds = []
-    all_true = []
-
-    with torch.no_grad():
-        for batch in test_loader:
-            batch_signals = batch["signal"].to(device)
-            batch_labels = batch["label"].to(device)
-            output = model(batch_signals)
-            all_preds.append(output[:, -1, :].argmax(dim=-1).cpu())
-            all_true.append(batch_labels.cpu())
-
-    all_preds = torch.cat(all_preds).numpy()
-    all_true = torch.cat(all_true).numpy()
-
-    test_acc = (all_preds == all_true).mean()
-    print(f"Test Accuracy: {test_acc:.4f}")
-    print()
-
-    # Per-class accuracy
-    for cls_id, cls_name in stage_names.items():
-        mask = all_true == cls_id
-        if mask.sum() > 0:
-            cls_acc = (all_preds[mask] == cls_id).mean()
-            print(f"  {cls_name}: {cls_acc:.4f} ({mask.sum()} samples)")
+    print(
+        f"Cohen's Kappa: {scores['cohen_kappa']:.4f}\n"
+        f"F1 Macro: {scores['f1_macro']:.4f}\n"
+        f"F1 Weighted: {scores['f1_weighted']:.4f}\n"
+        f"Accuracy: {scores['accuracy']:.4f}\n"
+        f"Loss: {scores['loss']:.4f}"
+    )
 
     print()
     print("=" * 70)

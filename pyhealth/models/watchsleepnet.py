@@ -1,9 +1,6 @@
-from typing import List, Optional
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
-from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
 
 class ResidualBlock(nn.Module):
@@ -155,6 +152,42 @@ class WatchSleepNet(BaseModel):
 
     Note:
         Default hyperparameters are based on the original WatchSleepNet paper
+
+    Examples:
+        >>> from pyhealth.trainer import Trainer
+        >>> from pyhealth.datasets import DREAMTDataset, get_dataloader, split_by_patient
+        >>> from pyhealth.models import WatchSleepNet
+        >>> from pyhealth.tasks import SleepStagingDREAMT
+        >>>
+        >>> # Load DREAMT dataset
+        >>> dataset = DREAMTDataset(root="/path/to/dreamt")
+        >>> task = SleepStagingDREAMT()
+        >>> sample_dataset = dataset.set_task(task=task)
+        >>>
+        >>> # Initialize model
+        >>> model = WatchSleepNet(dataset=sample_dataset)
+        >>>
+        >>> # Create dataloaders
+        >>> train_loader = get_dataloader(train_dataset, batch_size=32, shuffle=True)
+        >>> val_loader = get_dataloader(val_dataset, batch_size=32, shuffle=False)
+        >>> test_loader = get_dataloader(test_dataset, batch_size=32, shuffle=False)
+        >>>
+        >>> # Train model
+        >>> trainer = Trainer(
+        ...     model=model,
+        ...     metrics=["cohen_kappa", "f1_macro", "f1_weighted", "accuracy"],
+        ...     exp_name="watchsleepnet_sleep_staging"
+        ... )
+
+        >>> trainer.train(
+        ...     train_dataloader=train_loader,
+        ...     val_dataloader=val_loader,
+        ...     test_dataloader=test_loader,
+        ...     epochs=_EPOCHS,
+        ...     monitor="cohen_kappa",
+        ...     monitor_criterion="max",
+        ...     weight_decay=_DECAY_WEIGHT
+        ... )
     """
 
     def __init__(
@@ -194,18 +227,36 @@ class WatchSleepNet(BaseModel):
 
         self.classifier = nn.Linear(lstm_out_size, num_classes)
 
-    def forward(self, x: torch.FloatTensor) -> torch.FloatTensor:
+    def get_metrics(self, output: torch.FloatTensor, label: torch.LongTensor) -> dict:
+        criterion = nn.CrossEntropyLoss()
+
+        last_output = output[:, -1, :]
+        loss = criterion(last_output, label)                                                                                                                                                                          
+    
+        y_prob = torch.softmax(last_output, dim=-1)                                                                                                                                     
+
+        return {
+            "loss": loss,
+            "y_prob": y_prob,
+            "y_true": label
+        }
+
+    def forward(self, signal: torch.FloatTensor, label: torch.LongTensor, **kwargs) -> dict:
         """Forward propagation.
 
         Args:
-            x: input tensor of shape (batch, seq_len, input_size).
+            signal: (batch, seq_len, seq_sample_size)                                                                                                                              
+            label:  (batch, seq_len) — integer class per epoch
 
         Returns:
             output tensor of shape (batch, seq_len, num_classes).
         """
-        batch_size, seq_len, seq_sample_size = x.shape
+        signal = signal.to(self.device)                                                                                                                                            
+        label = label.to(self.device) 
 
-        x = x.view(batch_size * seq_len, 1, seq_sample_size)
+        batch_size, seq_len, seq_sample_size = signal.shape
+
+        x = signal.view(batch_size * seq_len, 1, seq_sample_size)
         x = self.feature_extractor(x)
 
         x = x.view(batch_size, seq_len, -1).permute(0, 2, 1)
@@ -219,4 +270,4 @@ class WatchSleepNet(BaseModel):
 
         output = self.classifier(x)
 
-        return output
+        return self.get_metrics(output, label)
