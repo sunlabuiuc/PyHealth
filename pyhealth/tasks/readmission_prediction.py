@@ -206,7 +206,7 @@ class ReadmissionPredictionMIMIC4(BaseTask):
 
         Raises:
             ValueError: If any `str` to `datetime` conversions fail.
-            AssertionError: If any icd_version value in the diagnoses_icd or procedures_icd tables is not "9" or "10"
+            ValueError: If any icd_version value in the diagnoses_icd or procedures_icd tables is not "9" or "10"
         """
         patients: List[Event] = patient.get_events(event_type="patients")
         if len(patients) != 1:
