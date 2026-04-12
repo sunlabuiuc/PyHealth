@@ -113,6 +113,10 @@ class AMAPredictionMIMIC3(BaseTask):
     These baselines can be toggled via the model's ``feature_keys``
     parameter without changing the task.
 
+    Only administrative and demographic features are extracted; no
+    clinical code tables (diagnoses, procedures, prescriptions) are
+    required.
+
     Unlike mortality or readmission prediction, the label is a property
     of the **current** admission, so patients with only one visit are
     eligible.
@@ -127,7 +131,7 @@ class AMAPredictionMIMIC3(BaseTask):
         >>> from pyhealth.tasks import AMAPredictionMIMIC3
         >>> dataset = MIMIC3Dataset(
         ...     root="/path/to/mimic-iii/1.4",
-        ...     tables=["diagnoses_icd", "procedures_icd", "prescriptions"],
+        ...     tables=[],
         ... )
         >>> task = AMAPredictionMIMIC3()
         >>> samples = dataset.set_task(task)
@@ -147,9 +151,6 @@ class AMAPredictionMIMIC3(BaseTask):
         "los": "tensor",
         "race": "multi_hot",
         "has_substance_use": "tensor",
-        "conditions": "sequence",
-        "procedures": "sequence",
-        "drugs": "sequence",
     }
     output_schema: Dict[str, str] = {"ama": "binary"}
 
@@ -166,8 +167,7 @@ class AMAPredictionMIMIC3(BaseTask):
     def __call__(self, patient: Any) -> List[Dict[str, Any]]:
         """Processes a single patient for AMA discharge prediction.
 
-        Each admission with at least one diagnosis code, one procedure
-        code, and one prescription is emitted as a sample.  The binary
+        Each non-newborn admission is emitted as a sample.  The binary
         label is derived from the admission's ``discharge_location``.
 
         Args:
@@ -213,30 +213,6 @@ class AMAPredictionMIMIC3(BaseTask):
                 if discharge_location == self.AMA_DISCHARGE_LOCATION
                 else 0
             )
-
-            # --- Clinical codes ---
-            hadm_filter = ("hadm_id", "==", admission.hadm_id)
-
-            diagnoses = patient.get_events(
-                event_type="diagnoses_icd", filters=[hadm_filter]
-            )
-            conditions = [event.icd9_code for event in diagnoses]
-            if len(conditions) == 0:
-                continue
-
-            procedures = patient.get_events(
-                event_type="procedures_icd", filters=[hadm_filter]
-            )
-            procedures_list = [event.icd9_code for event in procedures]
-            if len(procedures_list) == 0:
-                continue
-
-            prescriptions = patient.get_events(
-                event_type="prescriptions", filters=[hadm_filter]
-            )
-            drugs = [event.drug for event in prescriptions]
-            if len(drugs) == 0:
-                continue
 
             # --- BASELINE demographics (gender + insurance) ---
             insurance = getattr(admission, "insurance", None)
@@ -298,9 +274,6 @@ class AMAPredictionMIMIC3(BaseTask):
                     "los": [los_days],
                     "race": race_tokens,
                     "has_substance_use": [substance],
-                    "conditions": conditions,
-                    "procedures": procedures_list,
-                    "drugs": drugs,
                     "ama": ama_label,
                 }
             )

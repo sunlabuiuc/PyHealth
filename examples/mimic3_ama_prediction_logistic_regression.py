@@ -38,7 +38,6 @@ from pyhealth.trainer import Trainer
 SYNTHETIC_ROOT = (
     "https://storage.googleapis.com/pyhealth/Synthetic_MIMIC-III"
 )
-TABLES = ["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"]
 
 BASELINES = {
     "BASELINE": ["demographics", "age", "los"],
@@ -356,7 +355,7 @@ def main():
     print("\n[1/4] Loading dataset...")
     t0 = time.time()
     dataset = MIMIC3Dataset(
-        root=args.root, tables=TABLES,
+        root=args.root, tables=[],
         cache_dir=cache_dir, dev=args.dev,
     )
     print(f"  Loaded in {time.time()-t0:.1f}s")

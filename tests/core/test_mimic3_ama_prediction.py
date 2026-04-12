@@ -75,9 +75,6 @@ def _build_patient(
 SAMPLE_KEYS = {
     "visit_id",
     "patient_id",
-    "conditions",
-    "procedures",
-    "drugs",
     "demographics",
     "age",
     "los",
@@ -220,9 +217,6 @@ class TestAMAPredictionMIMIC3Schema(unittest.TestCase):
         self.assertEqual(
             schema["has_substance_use"], "tensor"
         )
-        self.assertEqual(schema["conditions"], "sequence")
-        self.assertEqual(schema["procedures"], "sequence")
-        self.assertEqual(schema["drugs"], "sequence")
 
     def test_output_schema(self):
         self.assertEqual(
@@ -358,62 +352,6 @@ class TestAMAPredictionMIMIC3Mock(unittest.TestCase):
     # Filtering / edge cases
     # ----------------------------------------------------------
 
-    def test_skip_missing_diagnoses(self):
-        """No diagnosis codes -> skip admission."""
-        patient = _build_patient(
-            patient_id="P4",
-            admissions=[
-                self._default_admission(hadm_id="400")
-            ],
-            diagnoses=[],
-            procedures=[
-                {"hadm_id": "400", "icd9_code": "3893"}
-            ],
-            prescriptions=[
-                {"hadm_id": "400", "drug": "Aspirin"}
-            ],
-        )
-        self.assertEqual(self.task(patient), [])
-
-    def test_skip_missing_procedures(self):
-        """No procedure codes -> skip admission."""
-        patient = _build_patient(
-            patient_id="P5",
-            admissions=[
-                self._default_admission(hadm_id="500")
-            ],
-            diagnoses=[
-                {"hadm_id": "500", "icd9_code": "4019"}
-            ],
-            procedures=[],
-            prescriptions=[
-                {"hadm_id": "500", "drug": "Aspirin"}
-            ],
-        )
-        self.assertEqual(self.task(patient), [])
-
-    def test_skip_missing_prescriptions(self):
-        """No prescriptions -> skip admission."""
-        patient = _build_patient(
-            patient_id="P6",
-            admissions=[
-                self._default_admission(
-                    hadm_id="600",
-                    discharge_location=(
-                        "LEFT AGAINST MEDICAL ADVI"
-                    ),
-                ),
-            ],
-            diagnoses=[
-                {"hadm_id": "600", "icd9_code": "4019"}
-            ],
-            procedures=[
-                {"hadm_id": "600", "icd9_code": "3893"}
-            ],
-            prescriptions=[],
-        )
-        self.assertEqual(self.task(patient), [])
-
     def test_exclude_newborns(self):
         """NEWBORN admissions skipped when flag is True."""
         patient = _build_patient(
@@ -485,38 +423,6 @@ class TestAMAPredictionMIMIC3Mock(unittest.TestCase):
         samples = self.task(patient)
         self.assertEqual(len(samples), 1)
         self.assertEqual(set(samples[0].keys()), SAMPLE_KEYS)
-
-    def test_clinical_codes_content(self):
-        """Extracted codes match the input data."""
-        patient = _build_patient(
-            patient_id="P9",
-            admissions=[
-                self._default_admission(
-                    hadm_id="900",
-                    timestamp=datetime(2150, 4, 1),
-                ),
-            ],
-            diagnoses=[
-                {"hadm_id": "900", "icd9_code": "4019"},
-                {"hadm_id": "900", "icd9_code": "25000"},
-            ],
-            procedures=[
-                {"hadm_id": "900", "icd9_code": "3893"},
-            ],
-            prescriptions=[
-                {"hadm_id": "900", "drug": "Lisinopril"},
-                {"hadm_id": "900", "drug": "Metformin"},
-            ],
-        )
-        samples = self.task(patient)
-        self.assertEqual(
-            samples[0]["conditions"], ["4019", "25000"]
-        )
-        self.assertEqual(samples[0]["procedures"], ["3893"])
-        self.assertEqual(
-            samples[0]["drugs"],
-            ["Lisinopril", "Metformin"],
-        )
 
     def test_demographics_baseline_tokens(self):
         """BASELINE demographics: gender + insurance, no race."""
@@ -783,6 +689,201 @@ class TestAMAPredictionMIMIC3Mock(unittest.TestCase):
         )
         self.assertEqual(s2["has_substance_use"], [0.0])
         self.assertAlmostEqual(s2["age"][0], 60.0, places=0)
+
+
+class TestAMAAblationBaselines(unittest.TestCase):
+    """Tests for the three ablation study feature baselines.
+
+    These tests verify that each baseline can be used to select
+    different subsets of features via the model's feature_keys parameter.
+    """
+
+    def setUp(self):
+        """Create a simple test patient with mixed demographics."""
+        self.task = AMAPredictionMIMIC3()
+        self.patient = _build_patient(
+            patient_id="ABLATION_TEST",
+            admissions=[
+                {
+                    "hadm_id": "A1",
+                    "admission_type": "EMERGENCY",
+                    "discharge_location": "HOME",
+                    "ethnicity": "HISPANIC OR LATINO",
+                    "insurance": "Medicaid",
+                    "dischtime": "2150-01-10 14:00:00",
+                    "timestamp": datetime(2150, 1, 1),
+                    "diagnosis": "ALCOHOL WITHDRAWAL",
+                },
+                {
+                    "hadm_id": "A2",
+                    "admission_type": "URGENT",
+                    "discharge_location": "LEFT AGAINST MEDICAL ADVI",
+                    "ethnicity": "WHITE",
+                    "insurance": "Private",
+                    "dischtime": "2150-06-05 10:00:00",
+                    "timestamp": datetime(2150, 6, 1),
+                    "diagnosis": "PNEUMONIA",
+                },
+            ],
+            diagnoses=[
+                {"hadm_id": "A1", "icd9_code": "29181"},
+                {"hadm_id": "A2", "icd9_code": "486"},
+            ],
+            procedures=[
+                {"hadm_id": "A1", "icd9_code": "3893"},
+                {"hadm_id": "A2", "icd9_code": "9604"},
+            ],
+            prescriptions=[
+                {"hadm_id": "A1", "drug": "Lorazepam"},
+                {"hadm_id": "A2", "drug": "Levofloxacin"},
+            ],
+            gender="M",
+            dob="2100-01-01 00:00:00",
+        )
+
+    def test_baseline_features_present(self):
+        """BASELINE includes demographics, age, los."""
+        samples = self.task(self.patient)
+        self.assertGreaterEqual(len(samples), 1)
+
+        sample = samples[0]
+        self.assertIn("demographics", sample)
+        self.assertIn("age", sample)
+        self.assertIn("los", sample)
+        self.assertTrue(isinstance(sample["age"][0], float))
+        self.assertTrue(isinstance(sample["los"][0], float))
+        self.assertTrue(isinstance(sample["demographics"], list))
+
+    def test_baseline_race_feature_present(self):
+        """BASELINE + RACE adds race feature."""
+        samples = self.task(self.patient)
+        self.assertGreaterEqual(len(samples), 1)
+
+        for sample in samples:
+            self.assertIn("race", sample)
+            self.assertTrue(isinstance(sample["race"], list))
+            # Race should be one of the normalized values
+            race_val = sample["race"][0].split(":", 1)[1]
+            self.assertIn(
+                race_val,
+                ["White", "Black", "Hispanic", "Asian",
+                 "Native American", "Other"],
+            )
+
+    def test_baseline_substance_use_feature_present(self):
+        """BASELINE + RACE + SUBSTANCE adds has_substance_use."""
+        samples = self.task(self.patient)
+        self.assertGreaterEqual(len(samples), 1)
+
+        for sample in samples:
+            self.assertIn("has_substance_use", sample)
+            self.assertTrue(isinstance(sample["has_substance_use"], list))
+            self.assertIn(sample["has_substance_use"][0], [0.0, 1.0])
+
+    def test_substance_use_detection_in_ablation(self):
+        """Verify substance use detection for ablation patient."""
+        samples = self.task(self.patient)
+
+        # First admission has substance use (ALCOHOL WITHDRAWAL)
+        s1 = next(s for s in samples if s["visit_id"] == "A1")
+        self.assertEqual(s1["has_substance_use"], [1.0])
+
+        # Second admission has no substance use (PNEUMONIA)
+        s2 = next(s for s in samples if s["visit_id"] == "A2")
+        self.assertEqual(s2["has_substance_use"], [0.0])
+
+    def test_race_normalization_in_ablation(self):
+        """Verify race normalization for ablation patient."""
+        samples = self.task(self.patient)
+
+        # First admission: Hispanic
+        s1 = next(s for s in samples if s["visit_id"] == "A1")
+        self.assertEqual(s1["race"], ["race:Hispanic"])
+
+        # Second admission: White
+        s2 = next(s for s in samples if s["visit_id"] == "A2")
+        self.assertEqual(s2["race"], ["race:White"])
+
+    def test_age_and_los_computed(self):
+        """Verify age and LOS are computed correctly."""
+        samples = self.task(self.patient)
+
+        for sample in samples:
+            age = sample["age"][0]
+            los = sample["los"][0]
+
+            # Age should be 50 (2150 - 2100)
+            self.assertAlmostEqual(age, 50.0, places=1)
+
+            # LOS should be positive
+            self.assertGreater(los, 0.0)
+
+    def test_demographics_includes_gender_and_insurance(self):
+        """BASELINE demographics include gender and insurance."""
+        samples = self.task(self.patient)
+
+        for sample in samples:
+            demo = sample["demographics"]
+            # Should have gender and insurance tokens
+            has_gender = any(t.startswith("gender:") for t in demo)
+            has_insurance = any(t.startswith("insurance:") for t in demo)
+            self.assertTrue(has_gender)
+            self.assertTrue(has_insurance)
+
+    def test_insurance_normalization_in_ablation(self):
+        """Verify insurance normalization (Medicaid -> Public)."""
+        samples = self.task(self.patient)
+
+        # First admission: Medicaid -> Public
+        s1 = next(s for s in samples if s["visit_id"] == "A1")
+        demo1 = s1["demographics"]
+        self.assertIn("insurance:Public", demo1)
+
+        # Second admission: Private
+        s2 = next(s for s in samples if s["visit_id"] == "A2")
+        demo2 = s2["demographics"]
+        self.assertIn("insurance:Private", demo2)
+
+    def test_label_correctness_in_ablation(self):
+        """Verify AMA label is correct."""
+        samples = self.task(self.patient)
+
+        # First admission: not AMA
+        s1 = next(s for s in samples if s["visit_id"] == "A1")
+        self.assertEqual(s1["ama"], 0)
+
+        # Second admission: AMA
+        s2 = next(s for s in samples if s["visit_id"] == "A2")
+        self.assertEqual(s2["ama"], 1)
+
+    def test_baseline_minimal_features(self):
+        """BASELINE (minimal) has only required keys."""
+        samples = self.task(self.patient)
+        self.assertGreaterEqual(len(samples), 1)
+
+        sample = samples[0]
+        baseline_keys = {
+            "demographics", "age", "los", "race",
+            "has_substance_use", "visit_id", "patient_id", "ama",
+        }
+        self.assertEqual(set(sample.keys()), baseline_keys)
+
+    def test_multiple_admissions_all_included(self):
+        """All non-newborn admissions are included (no filtering)."""
+        samples = self.task(self.patient)
+        self.assertEqual(len(samples), 2)
+
+        visit_ids = {s["visit_id"] for s in samples}
+        self.assertEqual(visit_ids, {"A1", "A2"})
+
+    def test_ablation_patient_no_clinical_codes(self):
+        """Ablation samples do not contain clinical code fields."""
+        samples = self.task(self.patient)
+
+        for sample in samples:
+            self.assertNotIn("conditions", sample)
+            self.assertNotIn("procedures", sample)
+            self.assertNotIn("drugs", sample)
 
 
 if __name__ == "__main__":
