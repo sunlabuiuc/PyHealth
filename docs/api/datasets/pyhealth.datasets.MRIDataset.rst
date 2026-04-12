@@ -13,7 +13,7 @@ During the dataset preparation, the .nii MRI scans were converted to .jpg files.
 
 With this comprehensive dataset, the project aims to explore various neural network models and achieve optimal results in Alzheimer's disease detection and analysis.
 
-Refer to `doc <https://www.kaggle.com/datasets/ninadaithal/imagesoasis>`_ for more information.
+Refer to `doc <https://www.kaggle.com/datasets/ninadaithal/imagesoasis>`_ for more information. 
 
 .. autoclass:: pyhealth.datasets.MRIDataset
     :members:
