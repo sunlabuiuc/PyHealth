@@ -401,10 +401,14 @@ class HiCu(BaseModel):
         embedded = self.word_embedding(text)
         encoded = self.encoder(embedded.permute(0, 2, 1))
         logits = self.decoder(encoded)
-
-        y_true_full = kwargs[self.label_key].to(self.device).float()
-        y_true = self._remap_labels(y_true_full, self.current_depth)
-        loss = self.asl_loss(logits, y_true)
         y_prob = torch.sigmoid(logits)
 
-        return {"loss": loss, "y_prob": y_prob, "y_true": y_true, "logit": logits}
+        results: Dict[str, torch.Tensor] = {"y_prob": y_prob, "logit": logits}
+
+        if self.label_key in kwargs:
+            y_true_full = kwargs[self.label_key].to(self.device).float()
+            y_true = self._remap_labels(y_true_full, self.current_depth)
+            results["loss"] = self.asl_loss(logits, y_true)
+            results["y_true"] = y_true
+
+        return results

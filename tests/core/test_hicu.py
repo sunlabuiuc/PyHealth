@@ -71,6 +71,20 @@ class TestHiCu(unittest.TestCase):
         self.assertEqual(ret["loss"].dim(), 0)  # scalar
         self.assertEqual(ret["y_prob"].shape[0], 2)  # batch size
 
+    def test_forward_inference_only(self):
+        """Forward without labels returns logit/y_prob only (no loss/y_true)."""
+        loader = get_dataloader(self.dataset, batch_size=2)
+        batch = next(iter(loader))
+        inference_batch = {"text": batch["text"]}
+
+        with torch.no_grad():
+            ret = self.model(**inference_batch)
+
+        self.assertIn("logit", ret)
+        self.assertIn("y_prob", ret)
+        self.assertNotIn("loss", ret)
+        self.assertNotIn("y_true", ret)
+
     def test_backward_pass(self):
         """Gradients flow after loss.backward()."""
         loader = get_dataloader(self.dataset, batch_size=2)
