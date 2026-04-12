@@ -1,7 +1,14 @@
+import re
 from datetime import datetime
 from typing import Any, Dict, List
 
 from .base_task import BaseTask
+
+_SUBSTANCE_PATTERN = re.compile(
+    r"alcohol|opioid|opiate|heroin|cocaine|drug|withdrawal"
+    r"|intoxication|overdose|substance|etoh",
+    re.IGNORECASE,
+)
 
 
 def _normalize_race(ethnicity: str) -> str:
@@ -63,29 +70,48 @@ def _safe_parse_datetime(value: Any) -> datetime:
     raise ValueError(f"Cannot parse datetime: {value!r}")
 
 
+def _has_substance_use(diagnosis: Any) -> int:
+    """Detect substance-use related admission from the free-text
+    ``DIAGNOSIS`` field in MIMIC-III ``ADMISSIONS``.
+
+    Args:
+        diagnosis: Raw ``diagnosis`` string from the admissions table.
+
+    Returns:
+        1 if a substance-use keyword is found, 0 otherwise.
+    """
+    if diagnosis is None:
+        return 0
+    return 1 if _SUBSTANCE_PATTERN.search(str(diagnosis)) else 0
+
+
 class AMAPredictionMIMIC3(BaseTask):
     """Predict whether a patient leaves the hospital against medical advice.
 
     This task reproduces the AMA (Against Medical Advice) discharge
     prediction target from Boag et al. 2018, "Racial Disparities and
-    Mistrust in End-of-Life Care." A positive label indicates that the
+    Mistrust in End-of-Life Care."  A positive label indicates that the
     patient's ``discharge_location`` is ``"LEFT AGAINST MEDICAL ADVI"``
     in the MIMIC-III admissions table.
 
-    The feature set follows the paper's **BASELINE+RACE**
-    configuration:
+    The feature set supports three ablation baselines:
 
-    * **demographics** (multi-hot) -- gender, normalized race, and
-      normalized insurance category.
-    * **age** (tensor) -- patient age at admission in years.
-    * **los** (tensor) -- length of hospital stay in days.
-    * **conditions** (sequence) -- ICD-9 diagnosis codes.
-    * **procedures** (sequence) -- ICD-9 procedure codes.
-    * **drugs** (sequence) -- prescription drug names.
+    * **BASELINE** -- ``demographics`` (gender, insurance),
+      ``age``, and ``los``.  Select with
+      ``feature_keys=["demographics", "age", "los"]``.
 
-    The demographic and clinical-code features can be used
-    independently or together via the model's ``feature_keys``
-    parameter, enabling ablation studies that mirror the paper.
+    * **BASELINE + RACE** -- adds ``race`` (normalized ethnicity).
+      Select with
+      ``feature_keys=["demographics", "age", "los", "race"]``.
+
+    * **BASELINE + RACE + SUBSTANCE** -- adds ``has_substance_use``
+      (derived from ``ADMISSIONS.DIAGNOSIS`` free-text field).
+      Select with
+      ``feature_keys=["demographics", "age", "los", "race",
+      "has_substance_use"]``.
+
+    These baselines can be toggled via the model's ``feature_keys``
+    parameter without changing the task.
 
     Unlike mortality or readmission prediction, the label is a property
     of the **current** admission, so patients with only one visit are
@@ -116,12 +142,14 @@ class AMAPredictionMIMIC3(BaseTask):
 
     task_name: str = "AMAPredictionMIMIC3"
     input_schema: Dict[str, str] = {
-        "conditions": "sequence",
-        "procedures": "sequence",
-        "drugs": "sequence",
         "demographics": "multi_hot",
         "age": "tensor",
         "los": "tensor",
+        "race": "multi_hot",
+        "has_substance_use": "tensor",
+        "conditions": "sequence",
+        "procedures": "sequence",
+        "drugs": "sequence",
     }
     output_schema: Dict[str, str] = {"ama": "binary"}
 
@@ -146,17 +174,9 @@ class AMAPredictionMIMIC3(BaseTask):
             patient: A Patient object from ``MIMIC3Dataset``.
 
         Returns:
-            A list of sample dictionaries, each containing:
-                - ``visit_id``: MIMIC-III ``hadm_id``.
-                - ``patient_id``: MIMIC-III ``subject_id``.
-                - ``conditions``: List of ICD-9 diagnosis codes.
-                - ``procedures``: List of ICD-9 procedure codes.
-                - ``drugs``: List of drug names from prescriptions.
-                - ``demographics``: List of categorical tokens
-                  (gender, race, insurance).
-                - ``age``: Patient age at admission in years (float).
-                - ``los``: Hospital length of stay in days (float).
-                - ``ama``: Binary label (1 = AMA discharge, 0 = other).
+            A list of sample dictionaries.  Each dictionary contains
+            the features described in the class docstring plus
+            ``visit_id``, ``patient_id``, and the ``ama`` label.
         """
         admissions = patient.get_events(event_type="admissions")
         if len(admissions) == 0:
@@ -218,17 +238,21 @@ class AMAPredictionMIMIC3(BaseTask):
             if len(drugs) == 0:
                 continue
 
-            # --- Demographics (categorical) ---
-            ethnicity = getattr(admission, "ethnicity", None)
+            # --- BASELINE demographics (gender + insurance) ---
             insurance = getattr(admission, "insurance", None)
 
             demo_tokens: List[str] = []
             if gender:
                 demo_tokens.append(f"gender:{gender}")
-            demo_tokens.append(f"race:{_normalize_race(ethnicity)}")
             demo_tokens.append(
                 f"insurance:{_normalize_insurance(insurance)}"
             )
+
+            # --- Race (separate feature for ablation) ---
+            ethnicity = getattr(admission, "ethnicity", None)
+            race_tokens: List[str] = [
+                f"race:{_normalize_race(ethnicity)}"
+            ]
 
             # --- Age (continuous) ---
             age_years = 0.0
@@ -261,16 +285,22 @@ class AMAPredictionMIMIC3(BaseTask):
                 except (ValueError, TypeError):
                     los_days = 0.0
 
+            # --- Substance use (from ADMISSIONS.DIAGNOSIS) ---
+            diagnosis_text = getattr(admission, "diagnosis", None)
+            substance = float(_has_substance_use(diagnosis_text))
+
             samples.append(
                 {
                     "visit_id": admission.hadm_id,
                     "patient_id": patient.patient_id,
-                    "conditions": conditions,
-                    "procedures": procedures_list,
-                    "drugs": drugs,
                     "demographics": demo_tokens,
                     "age": [age_years],
                     "los": [los_days],
+                    "race": race_tokens,
+                    "has_substance_use": [substance],
+                    "conditions": conditions,
+                    "procedures": procedures_list,
+                    "drugs": drugs,
                     "ama": ama_label,
                 }
             )

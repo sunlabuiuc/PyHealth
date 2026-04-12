@@ -1,10 +1,16 @@
-"""AMA Prediction -- LogisticRegression Ablation with Fairness Analysis.
+"""AMA Prediction -- RNN Ablation with Fairness Analysis.
 
 Reproduces the Against-Medical-Advice discharge prediction from:
 
     Boag, W.; Suresh, H.; Celi, L. A.; Szolovits, P.; Ghassemi, M.
     "Racial Disparities and Mistrust in End-of-Life Care."
     Machine Learning for Healthcare Conference, PMLR, 2018.
+
+This script uses PyHealth's RNN model instead of LogisticRegression.
+For the paper's demographic-only baselines the RNN degenerates to a
+single-step recurrence (effectively a non-linear transform), which
+lets us directly compare the impact of model capacity vs. the
+LogisticRegression ablation in the companion script.
 
 For each baseline the script reports:
   1. Overall AUROC / PR-AUC averaged over N random 60/40 splits.
@@ -15,10 +21,10 @@ For each baseline the script reports:
      - Equal Opportunity   = True Positive Rate (P(Y_hat=1 | Y=1, Group=g))
 
 Usage (synthetic demo data -- illustrative only, likely no AMA positives):
-    python examples/mimic3_ama_prediction_logistic_regression.py
+    python examples/mimic3_ama_prediction_rnn.py
 
 Usage (real MIMIC-III):
-    python examples/mimic3_ama_prediction_logistic_regression.py \\
+    python examples/mimic3_ama_prediction_rnn.py \\
         --root /path/to/mimic-iii/1.4 --splits 100 --epochs 10
 """
 
@@ -31,7 +37,7 @@ import torch
 from sklearn.metrics import average_precision_score, roc_auc_score
 
 from pyhealth.datasets import MIMIC3Dataset, get_dataloader, split_by_patient
-from pyhealth.models import LogisticRegression
+from pyhealth.models import RNN
 from pyhealth.tasks import AMAPredictionMIMIC3
 from pyhealth.trainer import Trainer
 
@@ -150,15 +156,18 @@ def _safe_prauc(y, p):
 # Single split
 # ------------------------------------------------------------------
 
-def _create_model(sample_dataset, feature_keys, embedding_dim=128):
-    """Create a LogisticRegression with the requested feature subset."""
-    model = LogisticRegression(
-        dataset=sample_dataset, embedding_dim=embedding_dim,
+def _create_model(sample_dataset, feature_keys,
+                  embedding_dim=128, hidden_dim=64):
+    """Create an RNN with the requested feature subset."""
+    model = RNN(
+        dataset=sample_dataset,
+        embedding_dim=embedding_dim,
+        hidden_dim=hidden_dim,
     )
     model.feature_keys = list(feature_keys)
     output_size = model.get_output_size()
     model.fc = torch.nn.Linear(
-        len(feature_keys) * embedding_dim, output_size,
+        len(feature_keys) * hidden_dim, output_size,
     )
     return model
 
@@ -291,7 +300,7 @@ def _fmt(val, digits=4):
 def _print_results(name, feature_keys, agg):
     w = 70
     print(f"\n{'=' * w}")
-    print(f"  {name}  (LogisticRegression)")
+    print(f"  {name}  (RNN  hidden_dim=64)")
     print(f"  Features: {feature_keys}")
     print(f"{'=' * w}")
 
@@ -336,7 +345,7 @@ def _print_results(name, feature_keys, agg):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="AMA prediction ablation -- LogisticRegression",
+        description="AMA prediction ablation -- RNN",
     )
     parser.add_argument("--root", default=SYNTHETIC_ROOT,
                         help="MIMIC-III root (local path or URL)")
@@ -348,7 +357,7 @@ def main():
                         help="Use dev mode (1000 patients)")
     args = parser.parse_args()
 
-    cache_dir = tempfile.mkdtemp(prefix="ama_lr_")
+    cache_dir = tempfile.mkdtemp(prefix="ama_rnn_")
     print(f"Cache: {cache_dir}")
     print(f"Root:  {args.root}")
     print(f"Splits: {args.splits}  |  Epochs: {args.epochs}")
@@ -381,7 +390,7 @@ def main():
         print(f"  Task produced {total} samples (all label=0)")
         print("\n  Re-run with real MIMIC-III for ablation:")
         print("    python examples/"
-              "mimic3_ama_prediction_logistic_regression.py \\")
+              "mimic3_ama_prediction_rnn.py \\")
         print("        --root /path/to/mimic-iii/1.4")
         print("\nDone.")
         return
