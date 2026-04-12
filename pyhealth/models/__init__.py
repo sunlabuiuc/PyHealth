@@ -44,3 +44,6 @@ from .text_embedding import TextEmbedding
 from .sdoh import SdohClassifier
 from .medlink import MedLink
 from .unified_embedding import UnifiedMultimodalEmbeddingModel, SinusoidalTimeEmbedding
+from .dila import DILA, pretrain_sparse_autoencoder
+from .dila_sparse_autoencoder import SparseAutoencoder
+from .dila_dict_label_attention import DictionaryLabelAttention
