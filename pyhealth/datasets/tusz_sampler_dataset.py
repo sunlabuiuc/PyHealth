@@ -1,4 +1,5 @@
 import torch
+from typing import Dict
 from torch.utils.data import IterableDataset
 from pyhealth.sampler import TUSZSampler
 
@@ -13,6 +14,16 @@ class TUSZSamplerDataset(IterableDataset):
         self.dataset = dataset
         self.is_training_set = is_training_set
         self.buffer_size = buffer_size
+
+    task_name: str = "tusz_sampler_task"
+    input_schema: Dict[str, str] = { "signal": "tensor" }
+    output_schema: Dict[str, str] = {
+        "label": "tensor",
+        "label_bitgt_1": "tensor",
+        "label_bitgt_2": "tensor",
+        "label_name": "text",
+    }
+
         
     def __len__(self):
         return len(self.dataset)
