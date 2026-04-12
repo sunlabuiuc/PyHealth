@@ -9,9 +9,7 @@ from pyhealth.datasets import BaseDataset
 class DermoscopyDataset(BaseDataset):
     """Dataset loader for Dermoscopy image collections (ISIC 2018, HAM10000, PH2).
     
-    This dataset integrates three prominent skin lesion datasets to facilitate 
-    melanoma classification and artifact robustness studies. It natively parses 
-    the distinct metadata formats of each source into a unified PyHealth schema.
+    Supports combining arbitrary combinations of datasets to replicate the transfer-learning methodologies detailed in Jin (2025).
 
     Paper Reference:
         - "A Study of Artifacts on Melanoma Classification under Diffusion-Based Perturbations" (CHIL 2025)
@@ -51,16 +49,22 @@ class DermoscopyDataset(BaseDataset):
 
     Args:
         root (str): Root directory containing the dataset folders.
-        dataset_name (str, optional): Name of the dataset to load. If "isic2018", 
-            loads both ISIC and HAM10000. If "ph2" (or a synthetic trap set name), 
-            loads just that folder. Defaults to "isic2018".
-        dev (bool, optional): If True, runs in development mode and only loads a 
-            small subset of the data for fast testing. Defaults to False.
-        **kwargs: Additional keyword arguments passed to BaseDataset.
+        datasets (list of str, optional): List of dataset folders to include 
+            (e.g., ["isic2018", "ham10000"]). 
+        dataset_name (str, optional): Backwards compatibility for PyHealth loader.
+        dev (bool, optional): If True, runs in development mode.
     """
-    def __init__(self, root, dataset_name="isic2018", **kwargs):
-        self.dataset_name = dataset_name
-        self.target_folders = ["isic2018", "ham10000"] if dataset_name == "isic2018" else [dataset_name] 
+    def __init__(self, root, datasets=None, dataset_name=None, **kwargs):
+        # 1. Allow flexible dataset combinations for transfer learning
+        if datasets is not None:
+            self.datasets = datasets
+            name = "_".join(datasets)
+        elif dataset_name is not None:
+            self.datasets = [dataset_name]
+            name = dataset_name
+        else:
+            self.datasets = ["isic2018"]
+            name = "isic2018"
             
         self._index_data(root)
         config_path = str(Path(__file__).parent / "configs" / "dermoscopy.yaml")
@@ -68,35 +72,38 @@ class DermoscopyDataset(BaseDataset):
         super().__init__(
             root=root,
             tables=["dermoscopy"],
-            dataset_name=dataset_name, 
+            dataset_name=name, 
             config_path=config_path, 
             **kwargs
         )
 
     def _index_data(self, root):
-        """Internal method to aggregate metadata from multiple sources into a single CSV."""
+        """Internal method to aggregate metadata from targeted sources."""
         all_dfs = []
-        for folder in self.target_folders:
-            if folder == "ph2":
+        for folder in self.datasets:
+            # Handle native PH2 format and generated PH2 Trap Sets
+            if "ph2" in folder:
                 txt_path = os.path.join(root, folder, "PH2_dataset.txt")
                 img_root_dir = os.path.join(root, folder, "PH2 Dataset images")
-                if not os.path.exists(txt_path): continue
-                    
-                records = []
-                with open(txt_path, 'r') as f:
-                    for line in f:
-                        if line.startswith('|| IMD'):
-                            parts = line.split('||')
-                            if len(parts) >= 4:
-                                imd_id = parts[1].strip()
-                                label = 1 if parts[3].strip() == '2' else 0
-                                patient_folder = os.path.join(img_root_dir, imd_id)
-                                img_path = os.path.join(patient_folder, f"{imd_id}_Dermoscopic_Image", f"{imd_id}.bmp")
-                                mask_path = os.path.join(patient_folder, f"{imd_id}_lesion", f"{imd_id}_lesion.bmp")
-                                records.append({"image_path": img_path, "mask_path": mask_path, "label": label, "source_dataset": "ph2", "patient_id": imd_id, "visit_id": imd_id})
-                all_dfs.append(pd.DataFrame(records))
-                continue
                 
+                # If it's a generated trap set with a standard CSV, it skips this and uses the CSV parser below
+                if os.path.exists(txt_path): 
+                    records = []
+                    with open(txt_path, 'r') as f:
+                        for line in f:
+                            if line.startswith('|| IMD'):
+                                parts = line.split('||')
+                                if len(parts) >= 4:
+                                    imd_id = parts[1].strip()
+                                    label = 1 if parts[3].strip() == '2' else 0
+                                    patient_folder = os.path.join(img_root_dir, imd_id)
+                                    img_path = os.path.join(patient_folder, f"{imd_id}_Dermoscopic_Image", f"{imd_id}.bmp")
+                                    mask_path = os.path.join(patient_folder, f"{imd_id}_lesion", f"{imd_id}_lesion.bmp")
+                                    records.append({"image_path": img_path, "mask_path": mask_path, "label": label, "source_dataset": folder, "patient_id": imd_id, "visit_id": imd_id})
+                    all_dfs.append(pd.DataFrame(records))
+                    continue
+                
+            # Standard ISIC/HAM10000 CSV metadata parsing
             csv_path = os.path.join(root, folder, "images", "metadata.csv")
             img_dir = os.path.join(root, folder, "images")
             if not os.path.exists(csv_path): continue
@@ -114,5 +121,5 @@ class DermoscopyDataset(BaseDataset):
             all_dfs.append(df)
 
         combined_df = pd.concat(all_dfs, ignore_index=True)
-        out_path = os.path.join(root, "dermoscopy-metadata-pyhealth.csv")
+        out_path = os.path.join(root, f"dermoscopy-metadata-{'_'.join(self.datasets)}.csv")
         combined_df.to_csv(out_path, index=False)
