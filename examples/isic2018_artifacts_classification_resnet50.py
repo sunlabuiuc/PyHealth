@@ -73,6 +73,7 @@ from sklearn.model_selection import StratifiedKFold
 
 from pyhealth.datasets import ISIC2018ArtifactsDataset, get_dataloader
 from pyhealth.models import TorchvisionModel
+from pyhealth.processors import DermoscopicImageProcessor
 from pyhealth.processors.dermoscopic_image_processor import VALID_MODES
 from pyhealth.tasks import ISIC2018ArtifactsBinaryClassification
 from pyhealth.trainer import Trainer
@@ -149,8 +150,6 @@ if __name__ == "__main__":
         annotations_csv=args.annotations_csv,
         image_dir=args.image_dir,
         mask_dir=args.mask_dir,
-        mode=args.mode,
-        sigma=args.sigma,
         download=args.download,
     )
     dataset.stats()
@@ -158,8 +157,13 @@ if __name__ == "__main__":
     # ------------------------------------------------------------------
     # 2. Apply task → SampleDataset with binary labels
     # ------------------------------------------------------------------
+    processor = DermoscopicImageProcessor(
+        mode=args.mode,
+        sigma=args.sigma,
+        mask_dir=dataset.mask_dir,
+    )
     task = ISIC2018ArtifactsBinaryClassification()
-    samples = dataset.set_task(task)
+    samples = dataset.set_task(task, input_processors={"image": processor})
 
     # ------------------------------------------------------------------
     # 3. Generate stratified K-fold splits from sample labels

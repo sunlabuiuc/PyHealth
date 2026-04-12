@@ -63,17 +63,11 @@ Label              Description
 
 Image preprocessing
 --------------------
-Image preprocessing is handled by the independent
-``DermoscopicImageProcessor`` class, which defines
-12 modes (``whole``, ``lesion``, ``background``, ``bbox``, ``bbox70``,
-``bbox90``, and six frequency-filter variants).  See that class for full mode
-descriptions.
-
-``ISIC2018ArtifactsDataset`` accepts a ``mode`` constructor argument purely
-as a convenience: when ``set_task`` auto-injects a
-``DermoscopicImageProcessor``, it forwards this
-value.  Supply an explicit ``input_processors={"image": processor}`` to
-``set_task`` to use any processor configuration independently.
+Image preprocessing is not handled by this dataset.  Pass an
+``input_processors={"image": <processor>}`` argument to ``set_task`` to
+apply any image transformation.  The dataset exposes ``dataset.mask_dir``
+so downstream processors can locate segmentation masks without hard-coding
+the path.
 
 CSV format
 ----------
@@ -97,7 +91,6 @@ on artifact-biased data learn spurious correlations.
 
 import logging
 import os
-from functools import wraps
 from pathlib import Path
 from typing import List
 
@@ -117,8 +110,6 @@ from pyhealth.datasets.isic2018 import (
     _download_file,
     _extract_zip,
 )
-from pyhealth.processors.dermoscopic_image_processor import VALID_MODES as _VALID_MODES
-
 logger = logging.getLogger(__name__)
 
 _BIAS_CSV = "isic_bias.csv"  # default Bissoto et al. annotation filename
@@ -150,18 +141,16 @@ class ISIC2018ArtifactsDataset(BaseDataset):
     supported.  The default CSV is ``isic_bias.csv`` from Bissoto et al. (2020),
     annotated on the ISIC 2018 Task 1/2 image set.
 
-    Image preprocessing is delegated entirely to the independent
-    ``DermoscopicImageProcessor`` class.  When
-    ``set_task`` is called without an explicit ``image`` processor,
-    the dataset auto-injects one using the ``mode`` passed to the constructor.
-    Pass ``input_processors={"image": processor}`` to ``set_task`` to use a
-    custom processor configuration.
+    Image preprocessing is decoupled from this dataset.  Supply an image
+    processor via ``input_processors={"image": <processor>}`` when calling
+    ``set_task``.  The resolved mask directory is available as
+    ``dataset.mask_dir`` for convenience.
 
     Attributes:
         artifact_labels (List[str]): The seven well-known artifact types from
             Bissoto et al. (2020).  Any subset present in the CSV is exposed.
-        mode (str): The ``mode`` forwarded to the auto-injected
-            ``DermoscopicImageProcessor``.
+        mask_dir (str): Resolved absolute path to the segmentation-mask
+            directory.
 
     The expected directory structure under ``root`` is::
 
@@ -188,16 +177,12 @@ class ISIC2018ArtifactsDataset(BaseDataset):
     ``mask_dir="ISIC2018_Task1_Training_GroundTruth"`` to match the
     extracted layout.
 
-    ``image_dir`` and ``mask_dir`` can be sub-directory names (relative to
-    ``root``) or absolute paths.
-
     Example — Bissoto et al. default CSV with on-demand download::
 
         >>> dataset = ISIC2018ArtifactsDataset(
         ...     root="/data/isic",
         ...     image_dir="ISIC2018_Task1-2_Training_Input",
         ...     mask_dir="ISIC2018_Task1_Training_GroundTruth",
-        ...     mode="whole",
         ...     download=True,   # fetches CSV + ~8 GB images on first run
         ... )
 
@@ -207,9 +192,8 @@ class ISIC2018ArtifactsDataset(BaseDataset):
         ...     root="/data/isic",
         ...     image_dir="2018_train_task1-2",
         ...     mask_dir="2018_train_task1-2_segmentations",
-        ...     mode="whole",
         ... )
-        >>> sample_ds = dataset.set_task(dataset.default_task)
+        >>> sample_ds = dataset.set_task(dataset.default_task, input_processors={"image": my_processor})
 
     Example — custom annotation CSV::
 
@@ -229,8 +213,6 @@ class ISIC2018ArtifactsDataset(BaseDataset):
         annotations_csv: str = _BIAS_CSV,
         image_dir: str = "images",
         mask_dir: str = "masks",
-        mode: str = "whole",
-        sigma: float = 1.0,
         download: bool = False,
         **kwargs,
     ) -> None:
@@ -246,17 +228,8 @@ class ISIC2018ArtifactsDataset(BaseDataset):
             image_dir (str): Sub-directory name (or absolute path) for the
                 dermoscopy images.  Defaults to ``"images"``.
             mask_dir (str): Sub-directory name (or absolute path) for the
-                segmentation masks.  Defaults to ``"masks"``.  Only required
-                for preprocessing modes other than ``"whole"``.
-            mode (str): Forwarded to the auto-injected
-                ``DermoscopicImageProcessor`` when
-                ``set_task`` is called without an explicit ``image`` processor.
-                Must be a valid mode supported by
-                ``DermoscopicImageProcessor``.
-                Defaults to ``"whole"``.
-            sigma (float): Gaussian sigma for ``high_*`` and ``low_*`` filter
-                modes.  Forwarded to ``DermoscopicImageProcessor``.
-                Defaults to ``1.0``.
+                segmentation masks.  Defaults to ``"masks"``.  The resolved
+                path is exposed as ``dataset.mask_dir``.
             download (bool): If ``True`` and ``annotations_csv`` is the
                 default ``"isic_bias.csv"``, download all missing data
                 automatically:
@@ -277,19 +250,13 @@ class ISIC2018ArtifactsDataset(BaseDataset):
                 :class:`~pyhealth.datasets.BaseDataset`.
 
         Raises:
-            ValueError: If *mode* is not a valid ``DermoscopicImageProcessor``
-                mode,
-                ``download=True`` is used with a custom ``annotations_csv``,
-                or no images match the CSV.
+            ValueError: If ``download=True`` is used with a custom
+                ``annotations_csv``, or no images match the CSV.
             FileNotFoundError: If ``root``, the annotation CSV, the image
                 directory, or the mask directory is missing.
             requests.HTTPError: If ``download=True`` and the CSV download
                 fails.
         """
-        if mode not in _VALID_MODES:
-            raise ValueError(
-                f"Invalid mode '{mode}'. Choose from: {_VALID_MODES}"
-            )
         if download and annotations_csv != _BIAS_CSV:
             raise ValueError(
                 "download=True is only supported for the default "
@@ -297,13 +264,11 @@ class ISIC2018ArtifactsDataset(BaseDataset):
                 "Provide your own CSV or omit the download flag."
             )
 
-        self.mode = mode
-        self.sigma = sigma
         self.annotations_csv = annotations_csv
 
         self._image_dir = (image_dir if os.path.isabs(
             image_dir) else os.path.join(root, image_dir))
-        self._mask_dir = (mask_dir if os.path.isabs(
+        self.mask_dir = (mask_dir if os.path.isabs(
             mask_dir) else os.path.join(root, mask_dir))
         self._bias_csv_path = os.path.join(root, annotations_csv)
 
@@ -331,25 +296,6 @@ class ISIC2018ArtifactsDataset(BaseDataset):
             are available. Use ``dataset.set_task(task)`` directly.
         """
         return None
-
-    @wraps(BaseDataset.set_task)
-    def set_task(self, *args, **kwargs):
-        input_processors = kwargs.get("input_processors", None)
-
-        if input_processors is None:
-            input_processors = {}
-
-        if "image" not in input_processors:
-            from pyhealth.processors import DermoscopicImageProcessor
-
-            input_processors["image"] = DermoscopicImageProcessor(
-                mask_dir=self._mask_dir,
-                mode=self.mode,
-                sigma=self.sigma,
-            )
-
-        kwargs["input_processors"] = input_processors
-        return super().set_task(*args, **kwargs)
 
     def _download_bias_csv(self, root: str) -> None:
         """Download the default Bissoto et al. ``isic_bias.csv`` from GitHub.
@@ -460,9 +406,9 @@ class ISIC2018ArtifactsDataset(BaseDataset):
                 "https://challenge.isic-archive.com/data/#2018"
             )
 
-        if not os.path.isdir(self._mask_dir):
+        if not os.path.isdir(self.mask_dir):
             raise FileNotFoundError(
-                f"Mask directory not found: {self._mask_dir}\n"
+                f"Mask directory not found: {self.mask_dir}\n"
                 "Download masks with download=True, or "
                 "obtain them manually from: "
                 "https://challenge.isic-archive.com/data/#2018"
@@ -517,7 +463,7 @@ class ISIC2018ArtifactsDataset(BaseDataset):
             r"\.[A-Za-z]+$", "", regex=True)
         df["patient_id"] = df["image_id"]
 
-        # Absolute path to the image (consumed by the processor)
+        # Absolute path to the image file
         df["path"] = df["image"].apply(
             lambda name: os.path.join(self._image_dir, name)
         )
