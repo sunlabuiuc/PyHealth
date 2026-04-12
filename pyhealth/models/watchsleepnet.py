@@ -3,8 +3,17 @@ import torch.nn as nn
 
 from pyhealth.models import BaseModel
 
+
 class ResidualBlock(nn.Module):
-    """Residual block with strided convolution for temporal downsampling and channel expansion."""
+    """Residual block with strided convolution for temporal downsampling
+        and channel expansion.
+
+    Args:
+        in_channels: Number of input channels.
+        out_channels: Number of output channels.
+        kernel_size: Convolution kernel size. Default is 3.
+        stride: Stride for the first convolution. Default is 1.
+    """
 
     def __init__(
         self,
@@ -16,10 +25,10 @@ class ResidualBlock(nn.Module):
         super().__init__()
 
         self.conv1 = nn.Conv1d(
-            in_channels, 
-            out_channels, 
-            kernel_size=kernel_size, 
-            stride=stride, 
+            in_channels,
+            out_channels,
+            kernel_size=kernel_size,
+            stride=stride,
             padding=kernel_size // 2,
             bias=False
         )
@@ -28,9 +37,9 @@ class ResidualBlock(nn.Module):
         self.dropout1 = nn.Dropout(0.2)
 
         self.conv2 = nn.Conv1d(
-            out_channels, 
-            out_channels, 
-            kernel_size=kernel_size, 
+            out_channels,
+            out_channels,
+            kernel_size=kernel_size,
             stride=1,
             padding=kernel_size // 2,
             bias=False
@@ -41,7 +50,8 @@ class ResidualBlock(nn.Module):
 
         if in_channels != out_channels or stride != 1:
             self.skip = nn.Sequential(
-                nn.Conv1d(in_channels, out_channels, kernel_size=1, stride=stride, bias=False),
+                nn.Conv1d(in_channels, out_channels, kernel_size=1,
+                          stride=stride, bias=False),
                 nn.BatchNorm1d(out_channels),
             )
         else:
@@ -59,8 +69,16 @@ class ResidualBlock(nn.Module):
         x = self.dropout2(x)
         return x + residual
 
+
 class TCNBlock(nn.Module):
-    """A single TCN block with dilated causal convolution."""
+    """A single TCN block with dilated causal convolution.
+
+    Args:
+        in_channels: Number of input channels.
+        out_channels: Number of output channels.
+        kernel_size: Convolution kernel size. Default is 3.
+        dilation: Initial dilation factor, doubled after each layer. Default is 1.
+    """
 
     def __init__(
         self,
@@ -77,9 +95,9 @@ class TCNBlock(nn.Module):
         for _ in range(num_layers):
             conv = nn.Conv1d(
                 current_channels,
-                out_channels, 
+                out_channels,
                 kernel_size,
-                dilation=dilation, 
+                dilation=dilation,
                 padding=(kernel_size - 1) * dilation // 2
             )
             bn = nn.BatchNorm1d(out_channels)
@@ -94,8 +112,13 @@ class TCNBlock(nn.Module):
             x = layer(x)
         return x
 
+
 class FeatureExtractor(nn.Module):
-    """Feature extractor using residual blocks for each epoch independently."""
+    """Feature extractor using residual blocks for each epoch independently.
+
+    Args:
+        in_channels: Number of input channels (e.g., 1 for a single IBI signal).
+    """
 
     def __init__(
         self,
@@ -109,7 +132,8 @@ class FeatureExtractor(nn.Module):
         res_channels = [32, 64, 128, 256]
 
         blocks.append(
-            nn.Conv1d(in_channels, out_channels, kernel_size=7, stride=stride, padding=3)
+            nn.Conv1d(in_channels, out_channels,
+                      kernel_size=7, stride=stride, padding=3)
         )
 
         blocks.append(nn.ReLU(inplace=True))
@@ -130,6 +154,7 @@ class FeatureExtractor(nn.Module):
         x = x.view(x.size(0), -1)
         return x
 
+
 class WatchSleepNet(BaseModel):
     """WatchSleepNet model for sleep stage classification.
 
@@ -142,20 +167,23 @@ class WatchSleepNet(BaseModel):
         5. Fully connected layer with softmax for classification.
 
     Args:
-        input_size: features per epoch
-        num_classes: number of output classes
-        tcn_kernel_size: kernel size for TCN layers
-        lstm_hidden_size: hidden size for each LSTM direction
-        lstm_num_layers: number of LSTM layers
-        num_heads: number of multi-head attention heads
-        dropout: dropout probability
+        dataset: A SampleDataset object.
+        seq_sample_size: Number of samples per epoch (e.g., 750 for 30s at 25Hz).
+            Default is 750.
+        num_features: Number of input signal channels per epoch. Default is 1.
+        num_classes: Number of output sleep stage classes. Default is 3.
+        tcn_kernel_size: Kernel size for TCN layers. Default is 3.
+        lstm_hidden_size: Hidden size for each LSTM direction. Default is 128.
+        lstm_num_layers: Number of LSTM layers. Default is 2.
+        num_heads: Number of multi-head attention heads. Default is 4.
 
     Note:
         Default hyperparameters are based on the original WatchSleepNet paper
 
     Examples:
         >>> from pyhealth.trainer import Trainer
-        >>> from pyhealth.datasets import DREAMTDataset, get_dataloader, split_by_patient
+        >>> from pyhealth.datasets import DREAMTDataset
+        >>> from pyhealth.datasets import get_dataloader, split_by_patient
         >>> from pyhealth.models import WatchSleepNet
         >>> from pyhealth.tasks import SleepStagingDREAMT
         >>>
@@ -206,7 +234,8 @@ class WatchSleepNet(BaseModel):
         self.feature_extractor = FeatureExtractor(in_channels=num_features)
         feature_out_channels = 256
 
-        self.tcn = TCNBlock(feature_out_channels, seq_sample_size, tcn_kernel_size, dilation=1)
+        self.tcn = TCNBlock(feature_out_channels,
+                            seq_sample_size, tcn_kernel_size, dilation=1)
         tcn_out_channels = seq_sample_size
 
         self.lstm = nn.LSTM(
@@ -228,12 +257,24 @@ class WatchSleepNet(BaseModel):
         self.classifier = nn.Linear(lstm_out_size, num_classes)
 
     def get_metrics(self, output: torch.FloatTensor, label: torch.LongTensor) -> dict:
+        """Computes loss and prediction tensors from the classifier output.
+
+        Args:
+            output: Output tensor of shape (batch, seq_len, num_classes).
+            label: Ground truth class indices of shape (batch,), one per sequence.
+
+        Returns:
+            A dictionary with the following keys:
+                loss: Cross-entropy loss.
+                y_prob: Softmax probabilities of shape (batch, num_classes).
+                y_true: Ground truth labels of shape (batch,).
+        """
         criterion = nn.CrossEntropyLoss()
 
         last_output = output[:, -1, :]
-        loss = criterion(last_output, label)                                                                                                                                                                          
-    
-        y_prob = torch.softmax(last_output, dim=-1)                                                                                                                                     
+        loss = criterion(last_output, label)
+
+        y_prob = torch.softmax(last_output, dim=-1)
 
         return {
             "loss": loss,
@@ -241,18 +282,23 @@ class WatchSleepNet(BaseModel):
             "y_true": label
         }
 
-    def forward(self, signal: torch.FloatTensor, label: torch.LongTensor, **kwargs) -> dict:
+    def forward(self, signal: torch.FloatTensor, label: torch.LongTensor, **_) -> dict:
         """Forward propagation.
 
         Args:
-            signal: (batch, seq_len, seq_sample_size)                                                                                                                              
-            label:  (batch, seq_len) — integer class per epoch
+            signal: Input IBI tensor of shape (batch, seq_len, seq_sample_size).
+            label: Ground truth class indices of shape (batch,), one per sequence.
+            **kwargs: Additional keys from the batch (e.g., patient_id, record_id) that
+                are ignored.
 
         Returns:
-            output tensor of shape (batch, seq_len, num_classes).
+            A dictionary with the following keys:
+                loss: Cross-entropy loss.
+                y_prob: Softmax probabilities of shape (batch, num_classes).
+                y_true: Ground truth labels of shape (batch,).
         """
-        signal = signal.to(self.device)                                                                                                                                            
-        label = label.to(self.device) 
+        signal = signal.to(self.device)
+        label = label.to(self.device)
 
         batch_size, seq_len, seq_sample_size = signal.shape
 
