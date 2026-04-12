@@ -230,6 +230,7 @@ class ISIC2018ArtifactsDataset(BaseDataset):
         image_dir: str = "images",
         mask_dir: str = "masks",
         mode: str = "whole",
+        sigma: float = 1.0,
         download: bool = False,
         **kwargs,
     ) -> None:
@@ -253,6 +254,9 @@ class ISIC2018ArtifactsDataset(BaseDataset):
                 Must be a valid mode supported by
                 ``DermoscopicImageProcessor``.
                 Defaults to ``"whole"``.
+            sigma (float): Gaussian sigma for ``high_*`` and ``low_*`` filter
+                modes.  Forwarded to ``DermoscopicImageProcessor``.
+                Defaults to ``1.0``.
             download (bool): If ``True`` and ``annotations_csv`` is the
                 default ``"isic_bias.csv"``, download all missing data
                 automatically:
@@ -294,6 +298,7 @@ class ISIC2018ArtifactsDataset(BaseDataset):
             )
 
         self.mode = mode
+        self.sigma = sigma
         self.annotations_csv = annotations_csv
 
         self._image_dir = (
@@ -342,6 +347,7 @@ class ISIC2018ArtifactsDataset(BaseDataset):
             input_processors["image"] = DermoscopicImageProcessor(
                 mask_dir=self._mask_dir,
                 mode=self.mode,
+                sigma=self.sigma,
             )
 
         kwargs["input_processors"] = input_processors

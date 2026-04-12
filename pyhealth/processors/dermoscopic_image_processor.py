@@ -96,6 +96,8 @@ class DermoscopicImageProcessor(FeatureProcessor):
             used in ``high_*`` and ``low_*`` modes.  Both values must be odd
             positive integers.  Defaults to ``(0, 0)``, letting OpenCV
             auto-compute the kernel size from sigma.
+        sigma: Standard deviation for the Gaussian filter used in ``high_*``
+            and ``low_*`` modes.  Defaults to ``1.0``.
 
     Raises:
         ValueError: If *mode* is not in :data:`VALID_MODES`.
@@ -107,6 +109,7 @@ class DermoscopicImageProcessor(FeatureProcessor):
         mode: str = "whole",
         image_size: int = 224,
         filter_size: tuple = (0, 0),
+        sigma: float = 1.0,
     ) -> None:
         if mode not in VALID_MODES:
             raise ValueError(
@@ -116,6 +119,7 @@ class DermoscopicImageProcessor(FeatureProcessor):
         self.mode = mode
         self.image_size = image_size
         self.filter_size = filter_size
+        self.sigma = sigma
 
         self.transform = transforms.Compose([
             transforms.Resize((image_size, image_size)),
@@ -199,8 +203,8 @@ class DermoscopicImageProcessor(FeatureProcessor):
             base = image * (1 - mask[:, :, np.newaxis])
 
         if self.mode.startswith("high_"):
-            return _high_pass_filter(base.astype(np.uint8), filter_size=self.filter_size)
-        return _low_pass_filter(base.astype(np.uint8), filter_size=self.filter_size)
+            return _high_pass_filter(base.astype(np.uint8), sigma=self.sigma, filter_size=self.filter_size)
+        return _low_pass_filter(base.astype(np.uint8), sigma=self.sigma, filter_size=self.filter_size)
 
     # ------------------------------------------------------------------
     # FeatureProcessor interface
