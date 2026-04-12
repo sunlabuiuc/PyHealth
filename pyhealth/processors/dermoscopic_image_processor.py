@@ -1,7 +1,8 @@
 """
 Dermoscopic image processor for ISIC 2018 artifact experiments.
 
-Implements the 12 preprocessing modes from the Bissoto et al. (2020) codebase,
+Implements the 12 preprocessing modes from 'A Study of Artifacts on Melanoma Classification under
+Diffusion-Based Perturbations',
 adapted as a PyHealth :class:`~pyhealth.processors.base_processor.FeatureProcessor`.
 
 Modes
@@ -55,19 +56,19 @@ _IMAGENET_MEAN = [0.485, 0.456, 0.406]
 _IMAGENET_STD = [0.229, 0.224, 0.225]
 
 
-def _high_pass_filter(image: np.ndarray, sigma: float = 1) -> np.ndarray:
+def _high_pass_filter(image: np.ndarray, sigma: float = 1, filter_size: tuple = (0, 0)) -> np.ndarray:
     """Return a grayscale high-pass–filtered image (3-channel output)."""
     gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY).astype(np.float32)
-    blurred = cv2.GaussianBlur(gray, (0, 0), sigma)
+    blurred = cv2.GaussianBlur(gray, filter_size, sigma)
     hp = gray - blurred
     hp = cv2.normalize(hp, None, 0, 255, cv2.NORM_MINMAX)
     hp_uint8 = hp.astype(np.uint8)
     return cv2.cvtColor(hp_uint8, cv2.COLOR_GRAY2RGB)
 
 
-def _low_pass_filter(image: np.ndarray, sigma: float = 1) -> np.ndarray:
+def _low_pass_filter(image: np.ndarray, sigma: float = 1, filter_size: tuple = (0, 0)) -> np.ndarray:
     """Return a Gaussian-blurred (low-pass) image."""
-    blurred = cv2.GaussianBlur(image, (0, 0), sigma)
+    blurred = cv2.GaussianBlur(image, filter_size, sigma)
     return blurred.astype(np.uint8)
 
 
@@ -78,12 +79,23 @@ class DermoscopicImageProcessor(FeatureProcessor):
     ``dermoscopic_artifacts`` experiment codebase so that PyHealth training
     scripts reproduce the same pixel-level transformations.
 
+    .. note::
+        The reference implementation (``dermoscopic_artifacts/datasets.py``)
+        uses ``scipy.ndimage.gaussian_filter`` for ``high_*`` and ``low_*``
+        modes, which defaults to ``truncate=4.0`` (effective kernel 9×9 at
+        σ=1).  This implementation uses ``cv2.GaussianBlur`` instead; pass
+        ``filter_size=(9, 9)`` to match the scipy kernel size exactly.
+
     Args:
         mask_dir: Directory containing ``*_segmentation.png`` masks.
             Required for all modes except ``"whole"``.
         mode: One of the 12 valid mode strings (see module docstring).
             Defaults to ``"whole"``.
         image_size: Square resize target.  Defaults to 224.
+        filter_size: Kernel size ``(width, height)`` for the Gaussian filter
+            used in ``high_*`` and ``low_*`` modes.  Both values must be odd
+            positive integers.  Defaults to ``(0, 0)``, letting OpenCV
+            auto-compute the kernel size from sigma.
 
     Raises:
         ValueError: If *mode* is not in :data:`VALID_MODES`.
@@ -94,6 +106,7 @@ class DermoscopicImageProcessor(FeatureProcessor):
         mask_dir: str = "",
         mode: str = "whole",
         image_size: int = 224,
+        filter_size: tuple = (0, 0),
     ) -> None:
         if mode not in VALID_MODES:
             raise ValueError(
@@ -102,6 +115,7 @@ class DermoscopicImageProcessor(FeatureProcessor):
         self.mask_dir = mask_dir
         self.mode = mode
         self.image_size = image_size
+        self.filter_size = filter_size
 
         self.transform = transforms.Compose([
             transforms.Resize((image_size, image_size)),
@@ -121,13 +135,8 @@ class DermoscopicImageProcessor(FeatureProcessor):
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
         img_name = os.path.basename(image_path)
-        mask_name = (
-            img_name
-            .replace(".jpg", "_segmentation.png")
-            .replace(".JPG", "_segmentation.png")
-            .replace(".png", "_segmentation.png")
-        )
-        mask_path = os.path.join(self.mask_dir, mask_name)
+        stem = Path(img_name).stem
+        mask_path = os.path.join(self.mask_dir, f"{stem}_segmentation.png")
         mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
         if mask is None:
             raise FileNotFoundError(f"Mask not found: {mask_path}")
@@ -190,8 +199,8 @@ class DermoscopicImageProcessor(FeatureProcessor):
             base = image * (1 - mask[:, :, np.newaxis])
 
         if self.mode.startswith("high_"):
-            return _high_pass_filter(base.astype(np.uint8))
-        return _low_pass_filter(base.astype(np.uint8))
+            return _high_pass_filter(base.astype(np.uint8), filter_size=self.filter_size)
+        return _low_pass_filter(base.astype(np.uint8), filter_size=self.filter_size)
 
     # ------------------------------------------------------------------
     # FeatureProcessor interface

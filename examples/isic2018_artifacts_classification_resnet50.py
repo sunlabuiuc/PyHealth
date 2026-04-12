@@ -100,10 +100,9 @@ logging.getLogger("pyhealth.trainer").setLevel(logging.INFO)
 # Example run & results
 # =============================================================================
 # Command:
-#   python isic2018_artifacts_classification_resnet50.py --root /path/to/isic2018_data
+#   python isic2018_artifacts_classification_resnet50.py --root /path/to/isic2018_data --mode <mode>
 #
 # Parameters:
-#   --mode        whole
 #   --model       resnet50
 #   --epochs      10
 #   --batch_size  32
@@ -111,15 +110,30 @@ logging.getLogger("pyhealth.trainer").setLevel(logging.INFO)
 #   --n_splits    5
 #   --seed        42
 #
-# 5-fold stratified CV results (whole mode, ResNet-50, ImageNet pretrained):
+# Hardware: GPU strongly recommended (results below obtained on NVIDIA H200).
+#   Estimated training time per mode (5-fold CV, 10 epochs):
+#     - First run (cold cache):  ~30-90 min  (includes cache build ~5-10 min)
+#     - Subsequent runs (warm cache): ~10-20 min
 #
-#   Split 1  AUROC: 0.800  Accuracy: 0.844
-#   Split 2  AUROC: 0.803  Accuracy: 0.829
-#   Split 3  AUROC: 0.758  Accuracy: 0.788
-#   Split 4  AUROC: 0.790  Accuracy: 0.807
-#   Split 5  AUROC: 0.829  Accuracy: 0.840
-#   ─────────────────────────────────────
-#   Mean     AUROC: 0.796  Accuracy: 0.822
+# 5-fold stratified CV results (ResNet-50, ImageNet pretrained):
+#
+#   Mode              Mean AUROC   Mean Accuracy
+#   ──────────────────────────────────────────────
+#   whole                  0.796         0.822
+#   lesion                 0.767         0.805
+#   background             0.729         0.793
+#   bbox                   0.736         0.790
+#   bbox70                 0.641         0.765
+#   bbox90                 0.642         0.771
+#   high_whole             0.591         0.750
+#   high_lesion            0.654         0.753
+#   high_background        0.658         0.767
+#   low_whole              0.809         0.829
+#   low_lesion             0.779         0.822
+#   low_background         0.733         0.801
+#
+# Note: high_* and low_* modes used cv2.GaussianBlur (sigma=1) instead of the
+# original scipy.ndimage.gaussian_filter (sigma=1).
 #
 # Matches findings from:
 #   "A Study of Artifacts on Melanoma Classification under
