@@ -304,14 +304,19 @@ class HSLPart2(nn.Module):
         enriched_H = H + delta_H
 
         # Gumbel-Softmax node sampling
-        eps = torch.empty_like(incident_mask_prob).uniform_(1e-6, 1 - 1e-6)
-        logit = torch.log(eps) - torch.log(1 - eps)
-        logit = (torch.log(incident_mask_prob + 1e-8)
-                 - torch.log(1 - incident_mask_prob + 1e-8)
-                 + logit)
-        soft = torch.sigmoid(logit / self.temperature)
-        hard = (soft > 0.5).float()
-        incident_mask = hard - soft.detach() + soft  # straight-through
+        if self.training:
+            eps = torch.empty_like(incident_mask_prob).uniform_(1e-6, 1 - 1e-6)
+            logit = torch.log(eps) - torch.log(1 - eps)
+            logit = (
+                    torch.log(incident_mask_prob + 1e-8)
+                    - torch.log(1 - incident_mask_prob + 1e-8)
+                    + logit
+            )
+            soft = torch.sigmoid(logit / self.temperature)
+            hard = (soft > 0.5).float()
+            incident_mask = hard - soft.detach() + soft
+        else:
+            incident_mask = (incident_mask_prob > 0.5).float()
 
         enriched_H = enriched_H * incident_mask
         return enriched_H
