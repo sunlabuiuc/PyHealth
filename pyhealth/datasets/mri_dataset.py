@@ -65,8 +65,8 @@ class MRIDataset(BaseDataset):
         Example::
             >>> dataset = MRIDataset(root="./data")
         """
-        self._label_path: str = os.path.join(root, "labels")
-        self._image_path: str = os.path.join(root, "images")
+        self._label_path: str = os.path.join(root, "oasis_cross-sectional.csv")
+        self._image_path: str = os.path.join(root, "oasis/OASIS")
 
         if download:
             self._download(root, partial)
@@ -141,7 +141,7 @@ class MRIDataset(BaseDataset):
         
         curl -L -o root/imagesoasis.zip https://www.kaggle.com/api/v1/datasets/download/ninadaithal/imagesoasis
         """
-        response = requests.get('https://www.kaggle.com/api/v1/datasets/download/ninadaithal/imagesoasis', stream=True)
+        response = requests.get('https://www.kaggle.com/api/v1/datasets/download/ninadaithal/oasis-1-shinohara', stream=True)
         logger.info("Downloading dataset for processing")
 
         zip_path = Path(root) / "imagesoasis.zip"
@@ -149,10 +149,10 @@ class MRIDataset(BaseDataset):
         with open(zip_path, "wb") as f:
             f.write(response.content)
         with zipfile.ZipFile(zip_path, "r") as zip_ref:
-            zip_ref.extractall(self._image_path)
-        logger.info(f"Counting MRIs in {self._image_path}")
+            zip_ref.extractall(Path(root))
+        logger.info(f"Counting MRIs in {Path(root)}")
         num_mris = 0
-        for root, dirs, files in os.walk(self._image_path):
+        for root, dirs, files in os.walk(Path(root)):
             num_mris += len(files)
         
         logger.info(f"Downloaded {num_mris} mris")
@@ -185,16 +185,14 @@ class MRIDataset(BaseDataset):
             msg = "Dataset path must contain an 'images' directory!"
             logger.error(msg)
             raise FileNotFoundError(msg)
-        ''' not sure these tests are needed
         if not os.path.isfile(self._label_path):
-            msg = "Dataset path must contain 'Data_Entry_2017_v2020.csv'!"
+            msg = "Dataset path must contain 'oasis_cross-sectional.csv'!"
             logger.error(msg)
             raise FileNotFoundError(msg)
-        if not list(Path(self._image_path).glob("*.png")):
-            msg = "Dataset 'images' directory must contain PNG files!"
+        if not list(Path(self._image_path).glob("*.nii")):
+            msg = "Dataset 'images' directory must contain NII files!"
             logger.error(msg)
-            raise ValueError(msg)
-        '''       
+            raise ValueError(msg)    
 
     def _index_data(self, root: str) -> pd.DataFrame:
         """Parses and indexes metadata for all available images in the dataset.
@@ -210,24 +208,23 @@ class MRIDataset(BaseDataset):
             ValueError: If no matching image files are found in the CSV.
         """
         df = pd.read_csv(self._label_path)
-        image_names = [f.name for f in Path(self._image_path).iterdir() if f.is_file()]
-        df = df[df["Image Index"].isin(image_names)]
-
+        # image_names = [f.name[0:f.name.find("_mpr")] for f in Path(self._image_path).iterdir() if f.is_file()]
+        df['img_path'] = df['ID'] + '_mpr_n3_anon_sbj_111_normalised.nii'
+        ''' don't think we need this piece 
         for _class in self.classes:
             df[_class] = df['Finding Labels'].str.contains(_class, case=False).astype(int)
-
         df.drop(columns=["Finding Labels"], inplace=True)
         df.rename(columns={'Image Index': 'path',
-                           'Follow-up #': 'visit_id',
-                           'Patient ID': 'patient_id',
-                           'Patient Age': 'patient_age',
-                           'Patient Sex': 'patient_sex',
-                           'View Position': 'view_position',
-                           'OriginalImage[Width': 'original_image_width',
-                           'Height]': 'original_image_height',
-                           'OriginalImagePixelSpacing[x': 'original_image_pixel_spacing_x',
-                           'y]': 'original_image_pixel_spacing_y'}, inplace=True)
+                            'Follow-up #': 'visit_id',
+                            'Patient ID': 'patient_id',
+                            'Patient Age': 'patient_age',
+                            'Patient Sex': 'patient_sex',
+                            'View Position': 'view_position',
+                            'OriginalImage[Width': 'original_image_width',
+                            'Height]': 'original_image_height',
+                            'OriginalImagePixelSpacing[x': 'original_image_pixel_spacing_x',
+                            'y]': 'original_image_pixel_spacing_y'}, inplace=True)
         df['path'] = df['path'].apply(lambda p: os.path.join(self._image_path, p))
         df.to_csv(os.path.join(root, "chestxray14-metadata-pyhealth.csv"), index=False)
-
+        '''
         return df
