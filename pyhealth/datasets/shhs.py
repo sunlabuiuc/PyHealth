@@ -13,11 +13,21 @@ class SHHSDataset(BaseDataset):
 
     Dataset is available at https://sleepdata.org/datasets/shhs
 
-    The SHHS is a multi-center cohort study implemented by the National
-    Heart, Lung, and Blood Institute to determine the cardiovascular and
-    other consequences of sleep-disordered breathing.
-        - Visit 1 (shhs1) enrolled 6,441 participants.
-        - Visit 2 (shhs2) re-examined 3,295 of them.
+    The Sleep Heart Health Study (SHHS) is a multi-center cohort study implemented
+    by the National Heart Lung & Blood Institute to determine the cardiovascular and
+    other consequences of sleep-disordered breathing. It tests whether sleep-related
+    breathing is associated with an increased risk of coronary heart disease, stroke,
+    all cause mortality, and hypertension.
+
+    In all, 6,441 men and women aged 40 years and older were enrolled between
+    November 1, 1995 and January 31, 1998 to take part in SHHS Visit 1.
+
+    During exam cycle 3 (January 2001- June 2003), a second
+    polysomnogram (SHHS Visit 2) was obtained in 3,295 of the participants.
+
+    CVD Outcomes data were monitored and adjudicated by parent cohorts between baseline
+    and 2011. More than 130 manuscripts have been published investigating predictors
+    and outcomes of sleep disorders.
 
     This loader expects the standard NSRR directory layout:
 
