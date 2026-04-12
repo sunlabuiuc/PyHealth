@@ -14,6 +14,8 @@ class TUSZSamplerDataset(IterableDataset):
         self.is_training_set = is_training_set
         self.buffer_size = buffer_size
         
+    def __len__(self):
+        return len(self.dataset)
     
     def __iter__(self):
         buffer = []
