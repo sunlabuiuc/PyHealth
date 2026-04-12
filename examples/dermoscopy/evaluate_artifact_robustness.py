@@ -5,22 +5,29 @@
 Artifact Robustness Evaluation Script.
 
 Evaluates trained models against synthetic out-of-distribution artifact datasets (Trap Sets).
-Supports dynamic targeting of base datasets (e.g., ph2, isic2018).
+Computes full clinical metrics (ROC-AUC, Accuracy, Precision, Recall) using the 
+custom MelanomaClassifier to ensure weight-loading compatibility.
 """
 
 import argparse
 import os
 import torch
 import numpy as np
-from sklearn.metrics import roc_auc_score
+from sklearn.metrics import roc_auc_score, accuracy_score, precision_score, recall_score
 
 from pyhealth.datasets import get_dataloader
+
+# Native PyHealth Dermoscopy Imports
 from pyhealth.datasets import DermoscopyDataset
 from pyhealth.tasks import DermoscopyMelanomaClassification
 from pyhealth.processors import DermoscopyImageProcessor
-from pyhealth.models import TorchvisionModel, DINOv2
+from pyhealth.models import DINOv2
+
+# Local wrapper import to match the training script's architecture layer names
+from train_dermoscopy import MelanomaClassifier
 
 def load_weights(model, weights_path, device):
+    """Safely loads state dict weights into the architecture."""
     state_dict = torch.load(weights_path, map_location=device, weights_only=True)
     model.load_state_dict(state_dict['model'] if 'model' in state_dict else state_dict)
     model.to(device).eval()
@@ -29,35 +36,31 @@ def load_weights(model, weights_path, device):
 def main():
     parser = argparse.ArgumentParser(description="Smart Artifact Evaluation")
     parser.add_argument('--model', type=str, choices=['resnet50', 'swin', 'dinov2'], default='resnet50')
-    parser.add_argument('--mode', type=str, choices=[
-        'whole', 'lesion', 'background', 'bbox', 'bbox70', 'bbox90', 
-        'high_whole', 'high_lesion', 'high_background', 
-        'low_whole', 'low_lesion', 'low_background'
-    ], default='whole')
+    parser.add_argument('--mode', type=str, default='whole')
     parser.add_argument('--exp_dir', type=str, required=True, help="Path to the parent experiment directory")
     parser.add_argument('--strategy', type=str, choices=['master', 'ensemble', 'fold_average'], default='fold_average')
     parser.add_argument('--data_dir', type=str, required=True)
-    parser.add_argument('--eval_dataset', type=str, default='ph2', help="The base dataset the artifacts were generated on (e.g., ph2)")
+    parser.add_argument('--eval_dataset', type=str, default='ph2', help="The base dataset")
     parser.add_argument('--artifact', type=str, required=True)
     args = parser.parse_args()
 
-    # 1. Load the Trap Set dynamically based on the requested dataset
     dataset_target = f"{args.eval_dataset}_with_{args.artifact}"
     dataset = DermoscopyDataset(root=args.data_dir, dataset_name=dataset_target, dev=False)
     processor = DermoscopyImageProcessor(mode=args.mode)
+    
+    # Clear out output_schema for barebones binary classification
+    DermoscopyMelanomaClassification.output_schema = {}
     task_dataset = dataset.set_task(task=DermoscopyMelanomaClassification, input_processors={"image": processor})
     test_loader = get_dataloader(task_dataset, batch_size=32, shuffle=False)
 
-    # 2. Initialize Base Architecture
+    # Architecture Initialization (Matches train_dermoscopy.py to prevent load_state_dict crashes)
     if args.model == "dinov2":
-        base_model = DINOv2(dataset=task_dataset, model_size="vits14")
+        base_model = DINOv2(dataset=task_dataset, feature_keys=["image"], label_key="melanoma", mode="binary", model_size="vits14")
     else:
-        model_name = "swin_t" if args.model == "swin" else "resnet50"
-        base_model = TorchvisionModel(dataset=task_dataset, model_name=model_name, model_config={"weights": "DEFAULT"})
+        base_model = MelanomaClassifier(dataset=task_dataset, feature_keys=["image"], label_key="melanoma", mode="binary", arch=args.model)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
-    # 3. Locate Weights based on Strategy
     weight_paths = []
     if args.strategy == "master":
         weight_paths.append(os.path.join(args.exp_dir, "master", "best_model.pth"))
@@ -65,12 +68,11 @@ def main():
         for i in range(5): 
             weight_paths.append(os.path.join(args.exp_dir, f"fold_{i}", "best_model.pth"))
 
-    print(f"[*] Evaluation Strategy: {args.strategy.upper()} on {dataset_target.upper()} (Loading {len(weight_paths)} models)")
+    print(f"[*] Evaluation Strategy: {args.strategy.upper()} on {dataset_target.upper()}")
 
-    # 4. Perform Inference
     y_true_all = []
     y_prob_ensemble = None
-    fold_aucs = []
+    fold_aucs, fold_accs, fold_precs, fold_recs = [], [], [], []
 
     for i, w_path in enumerate(weight_paths):
         if not os.path.exists(w_path):
@@ -89,30 +91,52 @@ def main():
                 if i == 0: y_true_all.extend(res['y_true'].cpu().numpy())
                 current_y_true.extend(res['y_true'].cpu().numpy())
         
-        # 5a. Strategy: Fold Average (Paper baseline)
+        # Calculate full suite of metrics
+        y_pred_binary = (np.array(y_prob_current_model) >= 0.5).astype(int)
+        
         if args.strategy == "fold_average":
             fold_auc = roc_auc_score(current_y_true, y_prob_current_model)
-            fold_aucs.append(fold_auc)
-            print(f"  -> Fold {i} ROC-AUC: {fold_auc:.4f}")
+            fold_acc = accuracy_score(current_y_true, y_pred_binary)
+            fold_prec = precision_score(current_y_true, y_pred_binary, zero_division=0)
+            fold_rec = recall_score(current_y_true, y_pred_binary)
             
-        # Accumulate probabilities for ensembling or master
+            fold_aucs.append(fold_auc)
+            fold_accs.append(fold_acc)
+            fold_precs.append(fold_prec)
+            fold_recs.append(fold_rec)
+            
+            print(f"  -> Fold {i} | AUC: {fold_auc:.4f} | ACC: {fold_acc:.4f} | Prec: {fold_prec:.4f} | Rec: {fold_rec:.4f}")
+            
         if y_prob_ensemble is None:
             y_prob_ensemble = np.array(y_prob_current_model)
         else:
             y_prob_ensemble += np.array(y_prob_current_model)
 
-    # 5b. Output Final Results
     if args.strategy == "fold_average":
-        final_auc = np.mean(fold_aucs)
-        final_std = np.std(fold_aucs)
-        print(f"\n[!] FINAL PAPER METRIC ({args.artifact}): {final_auc:.4f} ± {final_std:.4f}")
-    elif args.strategy == "ensemble":
-        y_prob_final = y_prob_ensemble / len(weight_paths)
+        print(f"\n[!] FINAL PAPER METRIC ({args.artifact}):")
+        print(f"    ROC-AUC:   {np.mean(fold_aucs):.4f} ± {np.std(fold_aucs):.4f}")
+        print(f"    Accuracy:  {np.mean(fold_accs):.4f} ± {np.std(fold_accs):.4f}")
+        print(f"    Precision: {np.mean(fold_precs):.4f} ± {np.std(fold_precs):.4f}")
+        print(f"    Recall:    {np.mean(fold_recs):.4f} ± {np.std(fold_recs):.4f}")
+        
+    elif args.strategy in ["ensemble", "master"]:
+        if args.strategy == "ensemble":
+            y_prob_final = y_prob_ensemble / len(weight_paths)
+        else:
+            y_prob_final = y_prob_ensemble
+            
+        y_pred_final = (y_prob_final >= 0.5).astype(int)
+        
         final_auc = roc_auc_score(y_true_all, y_prob_final)
-        print(f"\n[!] FINAL ENSEMBLE ROC-AUC ({args.artifact}): {final_auc:.4f}")
-    elif args.strategy == "master":
-        final_auc = roc_auc_score(y_true_all, y_prob_ensemble)
-        print(f"\n[!] FINAL MASTER ROC-AUC ({args.artifact}): {final_auc:.4f}")
+        final_acc = accuracy_score(y_true_all, y_pred_final)
+        final_prec = precision_score(y_true_all, y_pred_final, zero_division=0)
+        final_rec = recall_score(y_true_all, y_pred_final)
+        
+        print(f"\n[!] FINAL {args.strategy.upper()} METRICS ({args.artifact}):")
+        print(f"    ROC-AUC:   {final_auc:.4f}")
+        print(f"    Accuracy:  {final_acc:.4f}")
+        print(f"    Precision: {final_prec:.4f}")
+        print(f"    Recall:    {final_rec:.4f}")
 
 if __name__ == "__main__":
     main()

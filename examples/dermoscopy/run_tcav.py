@@ -16,13 +16,14 @@ import numpy as np
 from sklearn.linear_model import SGDClassifier
 from tqdm import tqdm
 
-from pyhealth.datasets import DermoscopyDataset, get_dataloader
+# Native PyHealth Dermoscopy Imports
+from pyhealth.datasets import DermoscopyDataset
 from pyhealth.tasks import DermoscopyMelanomaClassification
 from pyhealth.processors import DermoscopyImageProcessor
+from pyhealth.models import DINOv2
 
 # Import your PyHealth-wrapped models
 from train_dermoscopy import MelanomaClassifier
-from dinov2 import DINOv2
 
 def load_weights(model, weights_path, device):
     state_dict = torch.load(weights_path, map_location=device, weights_only=True)

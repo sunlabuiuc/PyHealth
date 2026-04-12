@@ -5,7 +5,10 @@
 Learning Dynamics and Epoch Ablation Study.
 
 Automates the training process to periodically halt and evaluate model robustness 
-on an out-of-domain Trap Set at varying epochs. 
+on an out-of-domain Trap Set at varying epochs. Prevents data leakage by utilizing
+a custom PyTorch loop, strictly adhering to PyHealth 2.0 object schemas.
+
+Paper: "A Study of Artifacts on Melanoma Classification under Diffusion-Based Perturbations" (CHIL 2025)
 """
 
 import argparse
@@ -21,7 +24,10 @@ from pyhealth.trainer import Trainer
 from pyhealth.datasets import DermoscopyDataset
 from pyhealth.tasks import DermoscopyMelanomaClassification
 from pyhealth.processors import DermoscopyImageProcessor
-from pyhealth.models import TorchvisionModel, DINOv2
+from pyhealth.models import DINOv2
+
+# Base Models
+from train_dermoscopy import MelanomaClassifier
 
 def main():
     parser = argparse.ArgumentParser(description="Run the single-pass epoch ablation study.")
@@ -34,12 +40,13 @@ def main():
     args = parser.parse_args()
 
     print("="*60)
-    print(f"AUTOMATED EPOCH ABLATION: {args.model.upper()} ({args.mode}) on {args.eval_dataset.upper()}_{args.artifact.upper()}")
+    print(f"AUTOMATED EPOCH ABLATION: {args.model.upper()} ({args.mode}) vs {args.eval_dataset.upper()}_{args.artifact.upper()}")
     print("="*60)
 
     processor = DermoscopyImageProcessor(mode=args.mode)
+    DermoscopyMelanomaClassification.output_schema = {} 
 
-    # 1. Load the clean Training Data (ISIC2018)
+    # 1. Load Training Data
     print("[*] Loading Training Data...")
     train_dataset = DermoscopyDataset(root=args.data_dir, dataset_name="isic2018", dev=False)
     train_task_dataset = train_dataset.set_task(task=DermoscopyMelanomaClassification, input_processors={"image": processor})
@@ -47,24 +54,19 @@ def main():
     train_ds, val_ds, _ = split_by_sample(train_task_dataset, [0.9, 0.1, 0.0]) 
     train_loader = get_dataloader(train_ds, batch_size=32, shuffle=True)
 
-    # 2. Load the out-of-distribution Trap Set dynamically
+    # 2. Load Trap Set Data dynamically
     dataset_target = f"{args.eval_dataset}_with_{args.artifact}"
     print(f"[*] Loading Trap Set ({dataset_target})...")
     trap_dataset = DermoscopyDataset(root=args.data_dir, dataset_name=dataset_target, dev=False)
     trap_task_dataset = trap_dataset.set_task(task=DermoscopyMelanomaClassification, input_processors={"image": processor})
     trap_loader = get_dataloader(trap_task_dataset, batch_size=32, shuffle=False)
 
-    # 3. Model Initialization
+    # 3. Model Initialization (Fixed for PyHealth 2.0 Compliance)
     print(f"[*] Initializing {args.model.upper()} Architecture...")
     if args.model == "dinov2":
-        model = DINOv2(dataset=train_task_dataset, model_size="vits14")
+        model = DINOv2(dataset=train_task_dataset, feature_keys=["image"], label_key="melanoma", mode="binary", model_size="vits14")
     else:
-        model_name = "swin_t" if args.model == "swin" else "resnet50"
-        model = TorchvisionModel(
-            dataset=train_task_dataset, 
-            model_name=model_name,
-            model_config={"weights": "DEFAULT"}
-        )
+        model = MelanomaClassifier(dataset=train_task_dataset, feature_keys=["image"], label_key="melanoma", mode="binary", arch=args.model)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)

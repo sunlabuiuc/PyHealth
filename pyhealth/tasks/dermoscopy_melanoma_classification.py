@@ -31,7 +31,7 @@ def DermoscopyMelanomaClassification(patient):
         samples.append({
             "patient_id": patient.patient_id,
             "visit_id": patient.patient_id,
-            "image": event.attr_dict["image_path"],
+            "image": (event.attr_dict["image_path"], event.attr_dict.get("mask_path", "")),
             "melanoma": int(float(event.attr_dict["label"]))
         })
     return samples
