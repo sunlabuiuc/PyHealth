@@ -42,7 +42,7 @@ class COVID19CXRClassification(BaseTask):
                 - "disease": The disease classification label
 
         Raises:
-            AssertionError: If the patient has more than one chest X-ray event.
+            ValueError: If the patient has more than one chest X-ray event.
         """
         event = patient.get_events(event_type="covid19_cxr")
         # There should be only one event
