@@ -4,6 +4,7 @@ import io
 import shutil
 import unittest
 import uuid
+import warnings
 from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
@@ -40,7 +41,11 @@ def _load_model_module():
 
 
 def _load_example_module():
-    module_path = Path(__file__).resolve().parents[2] / "examples" / "eol_mistrust.py"
+    module_path = (
+        Path(__file__).resolve().parents[2]
+        / "examples"
+        / "eol_mistrust_mortality_classifier.py"
+    )
     spec = importlib.util.spec_from_file_location(
         "examples.eol_mistrust_integration_tests",
         module_path,
@@ -127,6 +132,18 @@ class TestEOLMistrustIntegration(unittest.TestCase):
         cls.model = _load_model_module()
 
     def setUp(self):
+        self._warning_context = warnings.catch_warnings()
+        self._warning_context.__enter__()
+        warnings.filterwarnings(
+            "ignore",
+            message=r".*minimum 10 recommended.*",
+            category=UserWarning,
+        )
+        warnings.filterwarnings(
+            "ignore",
+            message=r".*autopsy_label.*has no joined training rows.*",
+            category=UserWarning,
+        )
         self.admissions = pd.DataFrame(
             [
                 {
@@ -283,6 +300,9 @@ class TestEOLMistrustIntegration(unittest.TestCase):
                 {"hadm_id": 106, "icustay_id": 1007, "sapsii": 22},
             ]
         )
+
+    def tearDown(self):
+        self._warning_context.__exit__(None, None, None)
 
     def _sentiment_fn(self, text):
         if "non" in text or "refused" in text:
@@ -627,7 +647,8 @@ class TestEOLMistrustIntegration(unittest.TestCase):
         self.assertEqual(int(row_101["Education Readiness: No"]), 1)
         self.assertEqual(int(row_101["Pain Level: 7-Mod to Severe"]), 1)
         row_104 = feature_matrix.set_index("hadm_id").loc[104]
-        self.assertTrue((row_104.fillna(0).astype(int) == 0).all())
+        row_104 = pd.to_numeric(row_104, errors="coerce").fillna(0).astype(int)
+        self.assertTrue((row_104 == 0).all())
 
     def test_dataset_identify_table2_itemids_does_not_overmatch_unrelated_labels(self):
         d_items = pd.DataFrame(
@@ -668,7 +689,8 @@ class TestEOLMistrustIntegration(unittest.TestCase):
         empty_vaso = pd.DataFrame(columns=["icustay_id", "vasonum", "starttime", "endtime", "duration_hours"])
         totals = self.dataset.build_treatment_totals(boundary_icu, boundary_vent, empty_vaso)
         self.assertEqual(totals.columns.tolist(), ["hadm_id", "total_vent_min", "total_vaso_min"])
-        row = totals.fillna(0).set_index("hadm_id").loc[1]
+        row = totals.set_index("hadm_id").loc[1]
+        row = pd.to_numeric(row, errors="coerce").fillna(0.0)
         self.assertEqual(float(row["total_vent_min"]), 780.0)
 
     def test_dataset_build_final_model_table_returns_exact_full_schema_order(self):
@@ -769,8 +791,8 @@ class TestEOLMistrustIntegration(unittest.TestCase):
         self.assertEqual(created[0].kwargs["penalty"], "l1")
         self.assertEqual(created[0].kwargs["C"], 0.1)
         self.assertEqual(created[0].kwargs["solver"], "liblinear")
-        self.assertEqual(created[0].kwargs["max_iter"], 1000)
-        self.assertEqual(created[0].kwargs["tol"], 0.001)
+        self.assertEqual(created[0].kwargs["max_iter"], 100)
+        self.assertEqual(created[0].kwargs["tol"], 0.01)
         self.assertEqual(len(created[0].fit_X), len(artifacts["feature_matrix"]))
 
         scores = self.model.build_proxy_probability_scores(
@@ -1741,17 +1763,24 @@ class TestEOLMistrustIntegration(unittest.TestCase):
             with_extra["final_model_table"],
         )
 
-    def test_integration_package_import_and_direct_load_modules_are_compatible(self):
-        dataset_pkg = importlib.import_module("pyhealth.datasets.eol_mistrust")
-        model_pkg = importlib.import_module("pyhealth.models.eol_mistrust")
-        self.assertTrue(callable(dataset_pkg.build_final_model_table))
-        self.assertTrue(callable(model_pkg.run_full_eol_mistrust_modeling))
-        self.assertEqual(model_pkg.MISTRUST_SCORE_COLUMNS, self.model.MISTRUST_SCORE_COLUMNS)
-
-    def test_example_run_task_demo_uses_stable_mkdtemp_cache_dir(self):
+    def test_example_run_task_demo_uses_managed_temp_cache_dir(self):
         example_module = _load_example_module()
         captured = {}
-        factory_kwargs = []
+        classifier_kwargs = {}
+        dataloader_calls = []
+        task_kwargs = {}
+        close_calls = []
+
+        class _FakeTempDir:
+            def __init__(self, path):
+                self.path = path
+
+            def __enter__(self):
+                return self.path
+
+            def __exit__(self, exc_type, exc, tb):
+                del exc_type, exc, tb
+                return False
 
         class _FakeDataset:
             def __init__(self, *args, **kwargs):
@@ -1762,15 +1791,222 @@ class TestEOLMistrustIntegration(unittest.TestCase):
                 return None
 
             def set_task(self, task, num_workers=0):
-                del task, num_workers
-                return self
+                captured["task_dataset_prepare_mode"] = getattr(
+                    task,
+                    "dataset_prepare_mode",
+                    None,
+                )
+                del num_workers
+                return _FakeSampleDataset()
 
-        with patch.object(example_module.tempfile, "mkdtemp", return_value="stable-cache-dir"), patch.object(
-            example_module, "MIMIC3Dataset", _FakeDataset
+        class _FakeSampleDataset:
+            def close(self):
+                close_calls.append("sample")
+
+        class _FakeModel:
+            def __init__(self, *args, **kwargs):
+                del args
+                classifier_kwargs.update(kwargs)
+
+            def __call__(self, **kwargs):
+                return {"loss": 0, "logit": 0, "y_prob": 0, "y_true": 0}
+
+        def _fake_get_dataloader(dataset, batch_size=0, shuffle=False):
+            del dataset
+            dataloader_calls.append(
+                {"batch_size": batch_size, "shuffle": shuffle}
+            )
+            return [{"dummy": "batch"}]
+
+        def _fake_split_by_patient(dataset, ratios, seed=None):
+            del dataset, ratios, seed
+            return None, None, None
+
+        class _FakeTask:
+            def __init__(self, **kwargs):
+                task_kwargs.update(kwargs)
+                self.dataset_prepare_mode = kwargs.get("dataset_prepare_mode")
+
+        with patch.object(
+            example_module.tempfile,
+            "TemporaryDirectory",
+            return_value=_FakeTempDir("stable-cache-dir"),
+        ), patch.object(
+            example_module, "EOLMistrustDataset", _FakeDataset
+        ), patch.object(
+            example_module, "EOLMistrustClassifier", _FakeModel
+        ), patch.object(
+            example_module,
+            "EOLMistrustMortalityPredictionMIMIC3",
+            _FakeTask,
+        ), patch.object(
+            example_module, "split_by_patient", _fake_split_by_patient
+        ), patch.object(
+            example_module, "get_dataloader", _fake_get_dataloader
         ):
-            example_module.run_task_demo(Path("root"), Path("config"))
+            example_module.run_task_demo(
+                Path("root"),
+                Path("config"),
+                dataset_prepare_mode="paper_like",
+            )
 
         self.assertEqual(captured["cache_dir"], "stable-cache-dir")
+        self.assertEqual(captured["dataset_prepare_mode"], "paper_like")
+        self.assertEqual(task_kwargs["dataset_prepare_mode"], "paper_like")
+        self.assertEqual(captured["task_dataset_prepare_mode"], "paper_like")
+        self.assertEqual(classifier_kwargs["dataset"].__class__, _FakeSampleDataset)
+        self.assertEqual(dataloader_calls, [{"batch_size": 2, "shuffle": False}])
+        self.assertEqual(close_calls, ["sample"])
+
+    def test_example_run_task_demo_can_train_and_evaluate_on_normal_path(self):
+        example_module = _load_example_module()
+        captured = {}
+        trainer_calls = {}
+        dataloader_calls = []
+        task_kwargs = {}
+        close_calls = []
+
+        class _FakeTempDir:
+            def __init__(self, path):
+                self.path = path
+
+            def __enter__(self):
+                return self.path
+
+            def __exit__(self, exc_type, exc, tb):
+                del exc_type, exc, tb
+                return False
+
+        class _FakeDataset:
+            def __init__(self, *args, **kwargs):
+                del args
+                captured.update(kwargs)
+
+            def stats(self):
+                return None
+
+            def set_task(self, task, num_workers=0):
+                del num_workers
+                captured["task_dataset_prepare_mode"] = getattr(
+                    task,
+                    "dataset_prepare_mode",
+                    None,
+                )
+                return _FakeSampleDataset()
+
+        class _FakeSampleDataset:
+            def close(self):
+                close_calls.append("sample")
+
+        class _FakeModel:
+            def __init__(self, *args, **kwargs):
+                del args
+                captured["model_dataset"] = kwargs["dataset"]
+
+            def __call__(self, **kwargs):
+                del kwargs
+                return {"loss": 0, "logit": 0, "y_prob": 0, "y_true": 0}
+
+        class _FakeTask:
+            def __init__(self, **kwargs):
+                task_kwargs.update(kwargs)
+                self.dataset_prepare_mode = kwargs.get("dataset_prepare_mode")
+
+        class _FakeTrainer:
+            def __init__(self, model, metrics=None, enable_logging=True, device=None):
+                trainer_calls["model"] = model
+                trainer_calls["metrics"] = metrics
+                trainer_calls["enable_logging"] = enable_logging
+                trainer_calls["device"] = device
+
+            def train(self, **kwargs):
+                trainer_calls["train_kwargs"] = kwargs
+
+            def evaluate(self, dataloader):
+                trainer_calls["evaluate_loader"] = dataloader
+                return {"accuracy": 0.5, "loss": 0.1}
+
+        def _fake_split_by_patient(dataset, ratios, seed=None):
+            trainer_calls["split_dataset"] = dataset
+            trainer_calls["split_ratios"] = list(ratios)
+            trainer_calls["split_seed"] = seed
+            return dataset, dataset, dataset
+
+        def _fake_get_dataloader(dataset, batch_size=0, shuffle=False):
+            dataloader_calls.append(
+                {"dataset": dataset, "batch_size": batch_size, "shuffle": shuffle}
+            )
+            return f"loader-{len(dataloader_calls)}"
+
+        with patch.object(
+            example_module.tempfile,
+            "TemporaryDirectory",
+            return_value=_FakeTempDir("stable-cache-dir"),
+        ), patch.object(
+            example_module, "EOLMistrustDataset", _FakeDataset
+        ), patch.object(
+            example_module, "EOLMistrustClassifier", _FakeModel
+        ), patch.object(
+            example_module,
+            "EOLMistrustMortalityPredictionMIMIC3",
+            _FakeTask,
+        ), patch.object(
+            example_module, "split_by_patient", _fake_split_by_patient
+        ), patch.object(
+            example_module, "get_dataloader", _fake_get_dataloader
+        ), patch.object(
+            example_module, "Trainer", _FakeTrainer
+        ):
+            example_module.run_task_demo(
+                Path("root"),
+                Path("config"),
+                dataset_prepare_mode="default",
+                train_and_evaluate=True,
+            )
+
+        self.assertEqual(captured["cache_dir"], "stable-cache-dir")
+        self.assertEqual(captured["dataset_prepare_mode"], "default")
+        self.assertEqual(task_kwargs["dataset_prepare_mode"], "default")
+        self.assertEqual(captured["task_dataset_prepare_mode"], "default")
+        self.assertEqual(trainer_calls["split_dataset"].__class__, _FakeSampleDataset)
+        self.assertEqual(trainer_calls["split_ratios"], [0.6, 0.2, 0.2])
+        self.assertEqual(trainer_calls["metrics"], ["accuracy"])
+        self.assertFalse(trainer_calls["enable_logging"])
+        self.assertEqual(
+            trainer_calls["train_kwargs"],
+            {
+                "train_dataloader": "loader-1",
+                "val_dataloader": "loader-2",
+                "test_dataloader": "loader-3",
+                "epochs": 1,
+                "monitor": "accuracy",
+                "load_best_model_at_last": False,
+            },
+        )
+        self.assertEqual(trainer_calls["evaluate_loader"], "loader-3")
+        self.assertEqual(
+            dataloader_calls,
+            [
+                {"dataset": trainer_calls["split_dataset"], "batch_size": 32, "shuffle": True},
+                {"dataset": trainer_calls["split_dataset"], "batch_size": 32, "shuffle": False},
+                {"dataset": trainer_calls["split_dataset"], "batch_size": 32, "shuffle": False},
+            ],
+        )
+        self.assertEqual(close_calls, ["sample"])
+
+    def test_example_run_task_demo_rejects_train_eval_for_paper_like_path(self):
+        example_module = _load_example_module()
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "only supported for the default normal path",
+        ):
+            example_module.run_task_demo(
+                Path("root"),
+                Path("config"),
+                dataset_prepare_mode="paper_like",
+                train_and_evaluate=True,
+            )
 
     def test_example_build_outputs_routes_model_stage_through_eol_mistrust_model(self):
         example_module = _load_example_module()
@@ -2158,519 +2394,6 @@ class TestEOLMistrustIntegration(unittest.TestCase):
         self.assertEqual(outputs["validation_summary"]["dataset_prepare_mode"], "paper_like")
         self.assertTrue(bool(outputs["validation_summary"]["autopsy_proxy_enabled"]))
 
-    def test_example_build_outputs_checkpoints_note_corpus_immediately_before_later_stage_failure(self):
-        example_module = _load_example_module()
-
-        raw_tables = {
-            "admissions": self.admissions.copy(),
-            "patients": self.patients.copy(),
-            "icustays": self.icustays.copy(),
-            "d_items": self.d_items.copy(),
-        }
-        materialized_views = {
-            "ventdurations": self.ventdurations.copy(),
-            "vasopressordurations": self.vasopressordurations.copy(),
-            "oasis": self.oasis.copy(),
-            "sapsii": self.sapsii.copy(),
-        }
-        note_corpus = pd.DataFrame(
-            [
-                {"hadm_id": 101, "note_text": "note-101"},
-                {"hadm_id": 102, "note_text": "note-102"},
-            ]
-        )
-
-        with _workspace_tempdir() as temp_dir, patch.object(
-            example_module,
-            "load_eol_mistrust_tables",
-            return_value=(raw_tables, materialized_views),
-        ), patch.object(
-            example_module,
-            "build_note_corpus_from_csv",
-            return_value=note_corpus,
-        ), patch.object(
-            example_module,
-            "build_note_labels_from_csv",
-            side_effect=RuntimeError("boom after note corpus"),
-        ):
-            with self.assertRaisesRegex(RuntimeError, "boom after note corpus"):
-                example_module.build_eol_mistrust_outputs(
-                    Path("ignored-root"),
-                    repetitions=1,
-                    output_dir=Path(temp_dir),
-                )
-
-            saved_note_corpus = pd.read_csv(Path(temp_dir) / "note_corpus.csv")
-            pd.testing.assert_frame_equal(saved_note_corpus, note_corpus)
-            self.assertFalse((Path(temp_dir) / "note_labels.csv").exists())
-
-    def test_example_build_outputs_checkpoints_streamed_reuse_artifacts_before_model_failure(self):
-        example_module = _load_example_module()
-
-        raw_tables = {
-            "admissions": self.admissions.copy(),
-            "patients": self.patients.copy(),
-            "icustays": self.icustays.copy(),
-            "d_items": self.d_items.copy(),
-        }
-        materialized_views = {
-            "ventdurations": self.ventdurations.copy(),
-            "vasopressordurations": self.vasopressordurations.copy(),
-            "oasis": self.oasis.copy(),
-            "sapsii": self.sapsii.copy(),
-        }
-        note_corpus = pd.DataFrame(
-            [
-                {"hadm_id": 101, "note_text": "note-101"},
-                {"hadm_id": 102, "note_text": "note-102"},
-                {"hadm_id": 103, "note_text": "note-103"},
-            ]
-        )
-        note_labels = pd.DataFrame(
-            [
-                {"hadm_id": 101, "noncompliance_label": 0, "autopsy_label": float("nan")},
-                {"hadm_id": 102, "noncompliance_label": 1, "autopsy_label": 1.0},
-                {"hadm_id": 103, "noncompliance_label": 0, "autopsy_label": 0.0},
-            ]
-        )
-        feature_matrix = pd.DataFrame(
-            [
-                {"hadm_id": 101, "Education Readiness: No": 1},
-                {"hadm_id": 102, "Education Readiness: No": 0},
-                {"hadm_id": 103, "Education Readiness: No": 0},
-            ]
-        )
-        code_status_targets = pd.DataFrame(
-            [
-                {"hadm_id": 101, "code_status_dnr_dni_cmo": 0},
-                {"hadm_id": 102, "code_status_dnr_dni_cmo": 1},
-                {"hadm_id": 103, "code_status_dnr_dni_cmo": 0},
-            ]
-        )
-
-        class _ExplodingModel:
-            def __init__(self, repetitions):
-                self.repetitions = repetitions
-
-            def build_mistrust_scores(self, **kwargs):
-                del kwargs
-                raise RuntimeError("boom after streamed artifacts")
-
-        with _workspace_tempdir() as temp_dir, patch.object(
-            example_module,
-            "load_eol_mistrust_tables",
-            return_value=(raw_tables, materialized_views),
-        ), patch.object(
-            example_module,
-            "build_note_corpus_from_csv",
-            return_value=note_corpus,
-        ), patch.object(
-            example_module,
-            "build_note_labels_from_csv",
-            return_value=note_labels,
-        ), patch.object(
-            example_module,
-            "build_chartevent_artifacts_from_csv",
-            return_value=(feature_matrix, code_status_targets),
-        ), patch.object(
-            example_module,
-            "EOLMistrustModel",
-            _ExplodingModel,
-        ):
-            with self.assertRaisesRegex(RuntimeError, "boom after streamed artifacts"):
-                example_module.build_eol_mistrust_outputs(
-                    Path("ignored-root"),
-                    repetitions=1,
-                    output_dir=Path(temp_dir),
-                )
-
-            pd.testing.assert_frame_equal(
-                pd.read_csv(Path(temp_dir) / "note_corpus.csv"),
-                note_corpus,
-            )
-            pd.testing.assert_frame_equal(
-                pd.read_csv(Path(temp_dir) / "note_labels.csv"),
-                note_labels,
-            )
-            pd.testing.assert_frame_equal(
-                pd.read_csv(Path(temp_dir) / "chartevent_feature_matrix.csv"),
-                feature_matrix,
-            )
-            pd.testing.assert_frame_equal(
-                pd.read_csv(Path(temp_dir) / "code_status_targets.csv"),
-                code_status_targets,
-            )
-
-    def test_example_build_outputs_checkpoints_mistrust_scores_before_final_table_failure(self):
-        example_module = _load_example_module()
-
-        raw_tables = {
-            "admissions": self.admissions.copy(),
-            "patients": self.patients.copy(),
-            "icustays": self.icustays.copy(),
-            "d_items": self.d_items.copy(),
-        }
-        materialized_views = {
-            "ventdurations": self.ventdurations.copy(),
-            "vasopressordurations": self.vasopressordurations.copy(),
-            "oasis": self.oasis.copy(),
-            "sapsii": self.sapsii.copy(),
-        }
-        note_corpus = pd.DataFrame(
-            [
-                {"hadm_id": 101, "note_text": "note-101"},
-                {"hadm_id": 102, "note_text": "note-102"},
-                {"hadm_id": 103, "note_text": "note-103"},
-            ]
-        )
-        note_labels = pd.DataFrame(
-            [
-                {"hadm_id": 101, "noncompliance_label": 0, "autopsy_label": float("nan")},
-                {"hadm_id": 102, "noncompliance_label": 1, "autopsy_label": 1.0},
-                {"hadm_id": 103, "noncompliance_label": 0, "autopsy_label": 0.0},
-            ]
-        )
-        feature_matrix = pd.DataFrame(
-            [
-                {"hadm_id": 101, "Education Readiness: No": 1},
-                {"hadm_id": 102, "Education Readiness: No": 0},
-                {"hadm_id": 103, "Education Readiness: No": 0},
-            ]
-        )
-        code_status_targets = pd.DataFrame(
-            [
-                {"hadm_id": 101, "code_status_dnr_dni_cmo": 0},
-                {"hadm_id": 102, "code_status_dnr_dni_cmo": 1},
-                {"hadm_id": 103, "code_status_dnr_dni_cmo": 0},
-            ]
-        )
-        mistrust_scores = pd.DataFrame(
-            [
-                {
-                    "hadm_id": 101,
-                    "noncompliance_score_z": -0.5,
-                    "autopsy_score_z": 0.0,
-                    "negative_sentiment_score_z": 0.1,
-                },
-                {
-                    "hadm_id": 102,
-                    "noncompliance_score_z": 1.0,
-                    "autopsy_score_z": 1.0,
-                    "negative_sentiment_score_z": -1.0,
-                },
-                {
-                    "hadm_id": 103,
-                    "noncompliance_score_z": -0.5,
-                    "autopsy_score_z": -1.0,
-                    "negative_sentiment_score_z": 0.9,
-                },
-            ]
-        )
-
-        class _FakeModel:
-            def __init__(self, repetitions):
-                self.repetitions = repetitions
-
-            def build_mistrust_scores(self, **kwargs):
-                del kwargs
-                return mistrust_scores
-
-        with _workspace_tempdir() as temp_dir, patch.object(
-            example_module,
-            "load_eol_mistrust_tables",
-            return_value=(raw_tables, materialized_views),
-        ), patch.object(
-            example_module,
-            "build_note_corpus_from_csv",
-            return_value=note_corpus,
-        ), patch.object(
-            example_module,
-            "build_note_labels_from_csv",
-            return_value=note_labels,
-        ), patch.object(
-            example_module,
-            "build_chartevent_artifacts_from_csv",
-            return_value=(feature_matrix, code_status_targets),
-        ), patch.object(
-            example_module,
-            "EOLMistrustModel",
-            _FakeModel,
-        ), patch.object(
-            example_module,
-            "build_final_model_table_from_code_status_targets",
-            side_effect=RuntimeError("boom after mistrust scores"),
-        ):
-            with self.assertRaisesRegex(RuntimeError, "boom after mistrust scores"):
-                example_module.build_eol_mistrust_outputs(
-                    Path("ignored-root"),
-                    repetitions=1,
-                    output_dir=Path(temp_dir),
-                )
-
-            expected_scores = mistrust_scores.copy()
-            expected_scores["autopsy_score_z"] = 0.0
-            pd.testing.assert_frame_equal(
-                pd.read_csv(Path(temp_dir) / "mistrust_scores.csv"),
-                expected_scores,
-            )
-
-    def test_example_build_outputs_can_reuse_cached_mistrust_scores(self):
-        example_module = _load_example_module()
-
-        raw_tables = {
-            "admissions": self.admissions.copy(),
-            "patients": self.patients.copy(),
-            "icustays": self.icustays.copy(),
-            "d_items": self.d_items.copy(),
-        }
-        materialized_views = {
-            "ventdurations": self.ventdurations.copy(),
-            "vasopressordurations": self.vasopressordurations.copy(),
-            "oasis": self.oasis.copy(),
-            "sapsii": self.sapsii.copy(),
-        }
-        note_corpus = pd.DataFrame(
-            [
-                {"hadm_id": 101, "note_text": "note-101"},
-                {"hadm_id": 102, "note_text": "note-102"},
-            ]
-        )
-        note_labels = pd.DataFrame(
-            [
-                {"hadm_id": 101, "noncompliance_label": 0, "autopsy_label": float("nan")},
-                {"hadm_id": 102, "noncompliance_label": 1, "autopsy_label": 1.0},
-            ]
-        )
-        feature_matrix = pd.DataFrame(
-            [
-                {"hadm_id": 101, "education topic: medications": 1},
-                {"hadm_id": 102, "education topic: medications": 0},
-            ]
-        )
-        code_status_targets = pd.DataFrame(
-            [
-                {"hadm_id": 101, "code_status_dnr_dni_cmo": 0},
-                {"hadm_id": 102, "code_status_dnr_dni_cmo": 1},
-            ]
-        )
-        mistrust_scores = pd.DataFrame(
-            [
-                {
-                    "hadm_id": 101,
-                    "noncompliance_score_z": -1.0,
-                    "autopsy_score_z": 0.5,
-                    "negative_sentiment_score_z": 0.1,
-                },
-                {
-                    "hadm_id": 102,
-                    "noncompliance_score_z": 1.0,
-                    "autopsy_score_z": -0.5,
-                    "negative_sentiment_score_z": -0.1,
-                },
-            ]
-        )
-        captured = {}
-
-        class _FakeModel:
-            def __init__(self, repetitions):
-                self.repetitions = repetitions
-
-            def build_mistrust_scores(self, **kwargs):
-                del kwargs
-                raise AssertionError("should reuse mistrust_scores from cache")
-
-            def run(self, **kwargs):
-                captured["precomputed_mistrust_scores"] = kwargs["precomputed_mistrust_scores"].copy()
-                return {
-                    "downstream_auc_results": pd.DataFrame(
-                        [
-                            {
-                                "task": "Left AMA",
-                                "configuration": "Baseline",
-                                "target_column": "left_ama",
-                                "n_rows": 2,
-                                "n_features": 7,
-                                "n_repeats": 1,
-                                "n_valid_auc": 1,
-                                "auc_mean": 0.7,
-                                "auc_std": 0.0,
-                            }
-                        ]
-                    ),
-                    "feature_weight_summaries": {},
-                }
-
-        with _workspace_tempdir() as temp_dir:
-            cache_dir = Path(temp_dir)
-            note_corpus.to_csv(cache_dir / "note_corpus.csv", index=False)
-            note_labels.to_csv(cache_dir / "note_labels.csv", index=False)
-            feature_matrix.to_csv(cache_dir / "chartevent_feature_matrix.csv", index=False)
-            code_status_targets.to_csv(cache_dir / "code_status_targets.csv", index=False)
-            mistrust_scores.to_csv(cache_dir / "mistrust_scores.csv", index=False)
-
-            with patch.object(
-                example_module,
-                "load_eol_mistrust_tables",
-                return_value=(raw_tables, materialized_views),
-            ), patch.object(
-                example_module,
-                "build_note_corpus_from_csv",
-                side_effect=AssertionError("should reuse note_corpus from cache"),
-            ), patch.object(
-                example_module,
-                "build_note_labels_from_csv",
-                side_effect=AssertionError("should reuse note_labels from cache"),
-            ), patch.object(
-                example_module,
-                "build_chartevent_artifacts_from_csv",
-                side_effect=AssertionError("should reuse chartevent artifacts from cache"),
-            ), patch.object(
-                example_module,
-                "EOLMistrustModel",
-                _FakeModel,
-            ):
-                outputs = example_module.build_eol_mistrust_outputs(
-                    Path("ignored-root"),
-                    repetitions=1,
-                    reuse_intermediates=cache_dir,
-                )
-
-        expected_scores = mistrust_scores.copy()
-        expected_scores["autopsy_score_z"] = 0.0
-        pd.testing.assert_frame_equal(outputs["mistrust_scores"], expected_scores)
-        pd.testing.assert_frame_equal(captured["precomputed_mistrust_scores"], expected_scores)
-
-    def test_example_build_outputs_preserves_cached_autopsy_scores_in_paper_like_route(self):
-        example_module = _load_example_module()
-
-        raw_tables = {
-            "admissions": self.admissions.copy(),
-            "patients": self.patients.copy(),
-            "icustays": self.icustays.copy(),
-            "d_items": self.d_items.copy(),
-        }
-        materialized_views = {
-            "ventdurations": self.ventdurations.copy(),
-            "vasopressordurations": self.vasopressordurations.copy(),
-            "oasis": self.oasis.copy(),
-            "sapsii": self.sapsii.copy(),
-        }
-        note_corpus = pd.DataFrame(
-            [
-                {"hadm_id": 101, "note_text": "note-101"},
-                {"hadm_id": 102, "note_text": "note-102"},
-            ]
-        )
-        note_labels = pd.DataFrame(
-            [
-                {"hadm_id": 101, "noncompliance_label": 0, "autopsy_label": float("nan")},
-                {"hadm_id": 102, "noncompliance_label": 1, "autopsy_label": 1.0},
-            ]
-        )
-        feature_matrix = pd.DataFrame(
-            [
-                {"hadm_id": 101, "education topic: medications": 1},
-                {"hadm_id": 102, "education topic: medications": 0},
-            ]
-        )
-        code_status_targets = pd.DataFrame(
-            [
-                {"hadm_id": 101, "code_status_dnr_dni_cmo": 0},
-                {"hadm_id": 102, "code_status_dnr_dni_cmo": 1},
-            ]
-        )
-        mistrust_scores = pd.DataFrame(
-            [
-                {
-                    "hadm_id": 101,
-                    "noncompliance_score_z": -1.0,
-                    "autopsy_score_z": 0.5,
-                    "negative_sentiment_score_z": 0.1,
-                },
-                {
-                    "hadm_id": 102,
-                    "noncompliance_score_z": 1.0,
-                    "autopsy_score_z": -0.5,
-                    "negative_sentiment_score_z": -0.1,
-                },
-            ]
-        )
-        captured = {}
-
-        class _FakeModel:
-            def __init__(self, repetitions):
-                self.repetitions = repetitions
-
-            def build_mistrust_scores(self, **kwargs):
-                del kwargs
-                raise AssertionError("should reuse mistrust_scores from cache")
-
-            def run(self, **kwargs):
-                captured["precomputed_mistrust_scores"] = kwargs["precomputed_mistrust_scores"].copy()
-                return {
-                    "downstream_auc_results": pd.DataFrame(
-                        [
-                            {
-                                "task": "Left AMA",
-                                "configuration": "Baseline + Autopsy",
-                                "target_column": "left_ama",
-                                "n_rows": 2,
-                                "n_features": 8,
-                                "n_repeats": 1,
-                                "n_valid_auc": 1,
-                                "auc_mean": 0.7,
-                                "auc_std": 0.0,
-                            }
-                        ]
-                    ),
-                    "feature_weight_summaries": {
-                        "autopsy": pd.DataFrame(
-                            [{"feature": "pain present: no", "weight": -0.2}]
-                        )
-                    },
-                }
-
-        with _workspace_tempdir() as temp_dir:
-            cache_base = Path(temp_dir) / "EOL_Workspace"
-            cache_dir = cache_base / "paper_like"
-            cache_dir.mkdir(parents=True, exist_ok=True)
-            note_corpus.to_csv(cache_dir / "note_corpus.csv", index=False)
-            note_labels.to_csv(cache_dir / "note_labels.csv", index=False)
-            feature_matrix.to_csv(cache_dir / "chartevent_feature_matrix.csv", index=False)
-            code_status_targets.to_csv(cache_dir / "code_status_targets.csv", index=False)
-            mistrust_scores.to_csv(cache_dir / "mistrust_scores.csv", index=False)
-
-            with patch.object(
-                example_module,
-                "load_eol_mistrust_tables",
-                return_value=(raw_tables, materialized_views),
-            ), patch.object(
-                example_module,
-                "build_note_corpus_from_csv",
-                side_effect=AssertionError("should reuse note_corpus from cache"),
-            ), patch.object(
-                example_module,
-                "build_note_labels_from_csv",
-                side_effect=AssertionError("should reuse note_labels from cache"),
-            ), patch.object(
-                example_module,
-                "build_chartevent_artifacts_from_csv",
-                side_effect=AssertionError("should reuse chartevent artifacts from cache"),
-            ), patch.object(
-                example_module,
-                "EOLMistrustModel",
-                _FakeModel,
-            ):
-                outputs = example_module.build_eol_mistrust_outputs(
-                    Path("ignored-root"),
-                    repetitions=1,
-                    reuse_intermediates=cache_base,
-                    paper_like_dataset_prepare=True,
-                )
-
-        pd.testing.assert_frame_equal(outputs["mistrust_scores"], mistrust_scores)
-        pd.testing.assert_frame_equal(captured["precomputed_mistrust_scores"], mistrust_scores)
-        self.assertIn("autopsy", outputs["feature_weight_summaries"])
 
     def test_example_build_outputs_disables_autopsy_outputs_only_in_default_route(self):
         example_module = _load_example_module()
@@ -3123,322 +2846,7 @@ class TestEOLMistrustIntegration(unittest.TestCase):
         self.assertEqual(outputs["validation_summary"]["dataset_prepare_mode"], "paper_like")
         self.assertTrue(bool(outputs["validation_summary"]["autopsy_proxy_enabled"]))
 
-    def test_example_build_outputs_can_write_stream_cache_to_separate_base_directory(self):
-        example_module = _load_example_module()
-
-        raw_tables = {
-            "admissions": self.admissions.copy(),
-            "patients": self.patients.copy(),
-            "icustays": self.icustays.copy(),
-            "d_items": self.d_items.copy(),
-        }
-        materialized_views = {
-            "ventdurations": self.ventdurations.copy(),
-            "vasopressordurations": self.vasopressordurations.copy(),
-            "oasis": self.oasis.copy(),
-            "sapsii": self.sapsii.copy(),
-        }
-        note_corpus = pd.DataFrame(
-            [
-                {"hadm_id": 101, "note_text": "note-101"},
-                {"hadm_id": 102, "note_text": "note-102"},
-            ]
-        )
-
-        with _workspace_tempdir() as temp_dir, patch.object(
-            example_module,
-            "load_eol_mistrust_tables",
-            return_value=(raw_tables, materialized_views),
-        ), patch.object(
-            example_module,
-            "build_note_corpus_from_csv",
-            return_value=note_corpus,
-        ), patch.object(
-            example_module,
-            "build_note_labels_from_csv",
-            side_effect=RuntimeError("stop after note corpus"),
-        ):
-            output_dir = Path(temp_dir) / "runs" / "paper_eval"
-            stream_cache_base = Path(temp_dir) / "EOL_Workspace"
-
-            with self.assertRaisesRegex(RuntimeError, "stop after note corpus"):
-                example_module.build_eol_mistrust_outputs(
-                    Path("ignored-root"),
-                    repetitions=1,
-                    output_dir=output_dir,
-                    stream_cache_dir=stream_cache_base,
-                    paper_like_dataset_prepare=True,
-                )
-
-            expected_cache_dir = stream_cache_base / "paper_like"
-            pd.testing.assert_frame_equal(
-                pd.read_csv(expected_cache_dir / "note_corpus.csv"),
-                note_corpus,
-            )
-            self.assertFalse((output_dir / "note_corpus.csv").exists())
-
-    def test_example_build_outputs_can_reuse_from_stream_cache_base_directory(self):
-        example_module = _load_example_module()
-
-        raw_tables = {
-            "admissions": self.admissions.copy(),
-            "patients": self.patients.copy(),
-            "icustays": self.icustays.copy(),
-            "d_items": self.d_items.copy(),
-        }
-        materialized_views = {
-            "ventdurations": self.ventdurations.copy(),
-            "vasopressordurations": self.vasopressordurations.copy(),
-            "oasis": self.oasis.copy(),
-            "sapsii": self.sapsii.copy(),
-        }
-        note_corpus = pd.DataFrame(
-            [
-                {"hadm_id": 101, "note_text": "note-101"},
-                {"hadm_id": 102, "note_text": "note-102"},
-            ]
-        )
-        note_labels = pd.DataFrame(
-            [
-                {"hadm_id": 101, "noncompliance_label": 0, "autopsy_label": float("nan")},
-                {"hadm_id": 102, "noncompliance_label": 1, "autopsy_label": 1.0},
-            ]
-        )
-        feature_matrix = pd.DataFrame(
-            [
-                {"hadm_id": 101, "education topic: medications": 1},
-                {"hadm_id": 102, "education topic: medications": 0},
-            ]
-        )
-        code_status_targets = pd.DataFrame(
-            [
-                {"hadm_id": 101, "code_status_dnr_dni_cmo": 0},
-                {"hadm_id": 102, "code_status_dnr_dni_cmo": 1},
-            ]
-        )
-        mistrust_scores = pd.DataFrame(
-            [
-                {
-                    "hadm_id": hadm_id,
-                    "noncompliance_score_z": 0.0,
-                    "autopsy_score_z": 0.0,
-                    "negative_sentiment_score_z": 0.0,
-                }
-                for hadm_id in [101, 102]
-            ]
-        )
-        captured = {}
-
-        class _FakeModel:
-            def __init__(self, repetitions):
-                self.repetitions = repetitions
-
-            def build_mistrust_scores(self, **kwargs):
-                del kwargs
-                return mistrust_scores
-
-            def run(self, **kwargs):
-                del kwargs
-                return {
-                    "downstream_auc_results": pd.DataFrame(
-                        [
-                            {
-                                "task": "Left AMA",
-                                "configuration": "Baseline",
-                                "target_column": "left_ama",
-                                "n_rows": 2,
-                                "n_features": 7,
-                                "n_repeats": 1,
-                                "n_valid_auc": 1,
-                                "auc_mean": 0.7,
-                                "auc_std": 0.0,
-                            }
-                        ]
-                    ),
-                    "feature_weight_summaries": {},
-                }
-
-        with _workspace_tempdir() as temp_dir:
-            stream_cache_base = Path(temp_dir) / "EOL_Workspace"
-            cache_dir = stream_cache_base / "paper_like"
-            cache_dir.mkdir(parents=True, exist_ok=True)
-            note_corpus.to_csv(cache_dir / "note_corpus.csv", index=False)
-            note_labels.to_csv(cache_dir / "note_labels.csv", index=False)
-            feature_matrix.to_csv(cache_dir / "chartevent_feature_matrix.csv", index=False)
-            code_status_targets.to_csv(cache_dir / "code_status_targets.csv", index=False)
-
-            with patch.object(
-                example_module,
-                "load_eol_mistrust_tables",
-                return_value=(raw_tables, materialized_views),
-            ), patch.object(
-                example_module,
-                "build_note_corpus_from_csv",
-                side_effect=AssertionError("should reuse note_corpus from cache"),
-            ), patch.object(
-                example_module,
-                "build_note_labels_from_csv",
-                side_effect=AssertionError("should reuse note_labels from cache"),
-            ), patch.object(
-                example_module,
-                "build_chartevent_artifacts_from_csv",
-                side_effect=AssertionError("should reuse chartevent artifacts from cache"),
-            ), patch.object(
-                example_module,
-                "EOLMistrustModel",
-                _FakeModel,
-            ):
-                outputs = example_module.build_eol_mistrust_outputs(
-                    Path("ignored-root"),
-                    repetitions=1,
-                    reuse_intermediates=stream_cache_base,
-                    paper_like_dataset_prepare=True,
-                )
-
-        self.assertEqual(outputs["validation_summary"]["dataset_prepare_mode"], "paper_like")
-        self.assertEqual(
-            outputs["validation_summary"]["all_cohort_rows"],
-            len(outputs["all_cohort"]),
-        )
-
-    def test_example_build_paper_comparison_outputs_emits_expected_delta_tables(self):
-        example_module = _load_example_module()
-
-        eol_cohort = pd.DataFrame(
-            [
-                {
-                    "race": "BLACK",
-                    "insurance_group": "Public",
-                    "discharge_category": "Deceased",
-                    "gender": "F",
-                    "los_days": 10.0,
-                    "age": 72.0,
-                },
-                {
-                    "race": "WHITE",
-                    "insurance_group": "Private",
-                    "discharge_category": "Hospice",
-                    "gender": "M",
-                    "los_days": 12.0,
-                    "age": 78.0,
-                },
-            ]
-        )
-        feature_weight_summaries = {
-            "noncompliance": pd.DataFrame(
-                [
-                    {"feature": "Education Readiness: No", "weight": 0.4},
-                    {"feature": "Riker-SAS Scale: Agitated", "weight": 0.3},
-                    {"feature": "Richmond-RAS Scale: 0 Alert and calm", "weight": -0.2},
-                ]
-            )
-        }
-        acuity_correlations = pd.DataFrame(
-            [
-                {
-                    "feature_a": "oasis",
-                    "feature_b": "sapsii",
-                    "correlation": 0.70,
-                }
-            ]
-        )
-        downstream_auc_results = pd.DataFrame(
-            [
-                {
-                    "task": "Left AMA",
-                    "configuration": "Baseline",
-                    "target_column": "left_ama",
-                    "n_rows": 48071,
-                    "n_features": 7,
-                    "n_repeats": 100,
-                    "n_valid_auc": 100,
-                    "auc_mean": 0.860,
-                    "auc_std": 0.014,
-                }
-            ]
-        )
-        downstream_weight_results = pd.DataFrame(
-            [
-                {
-                    "task": "Left AMA",
-                    "configuration": "Baseline + ALL",
-                    "target_column": "left_ama",
-                    "feature": "noncompliance_score_z",
-                    "n_repeats": 100,
-                    "n_valid_weights": 100,
-                    "weight_mean": 0.50,
-                    "weight_std": 0.08,
-                }
-            ]
-        )
-
-        outputs = example_module.build_paper_comparison_outputs(
-            {
-                "eol_cohort": eol_cohort,
-                "feature_weight_summaries": feature_weight_summaries,
-                "acuity_correlations": acuity_correlations,
-                "downstream_auc_results": downstream_auc_results,
-                "downstream_weight_results": downstream_weight_results,
-            },
-            repetitions=100,
-        )
-
-        self.assertIn("table1_comparison", outputs)
-        self.assertIn("table3_snapshot", outputs)
-        self.assertIn("table4_comparison", outputs)
-        self.assertIn("table5_comparison", outputs)
-        self.assertIn("table6_comparison", outputs)
-        table5 = outputs["table5_comparison"]
-        self.assertEqual(len(table5), 1)
-        self.assertAlmostEqual(table5.iloc[0]["delta_auc_mean"], 0.001)
-        table6 = outputs["table6_comparison"]
-        self.assertEqual(len(table6), 1)
-        self.assertAlmostEqual(table6.iloc[0]["delta_weight_mean"], -0.02)
-        # Paper Table 6 reports 1.96*std (95% CI half-width); run_weight_std must match
-        # run raw std = 0.08, so run_weight_std should be 0.08 * 1.96 = 0.1568
-        self.assertAlmostEqual(table6.iloc[0]["run_weight_std"], 0.08 * 1.96, places=4)
-        self.assertFalse(outputs["table3_snapshot"].empty)
-
-    def test_build_paper_comparison_outputs_omits_autopsy_rows_when_disabled_in_validation(self):
-        example_module = _load_example_module()
-
-        outputs = example_module.build_paper_comparison_outputs(
-            {
-                "validation_summary": {"autopsy_proxy_enabled": False},
-                "downstream_weight_results": pd.DataFrame(
-                    [
-                        {
-                            "task": "Left AMA",
-                            "configuration": "Baseline + ALL",
-                            "target_column": "left_ama",
-                            "feature": "autopsy_score_z",
-                            "n_repeats": 100,
-                            "n_valid_weights": 100,
-                            "weight_mean": 0.0,
-                            "weight_std": 0.0,
-                        },
-                        {
-                            "task": "Left AMA",
-                            "configuration": "Baseline + ALL",
-                            "target_column": "left_ama",
-                            "feature": "noncompliance_score_z",
-                            "n_repeats": 100,
-                            "n_valid_weights": 100,
-                            "weight_mean": 0.5,
-                            "weight_std": 0.08,
-                        },
-                    ]
-                ),
-            },
-            repetitions=100,
-        )
-
-        self.assertEqual(
-            outputs["table6_comparison"]["feature"].tolist(),
-            ["noncompliant"],
-        )
-
-    def test_build_paper_table1_comparison_reports_median_and_iqr_for_continuous_metrics(self):
+    def test_build_run_table1_summary_reports_median_and_iqr_for_continuous_metrics(self):
         example_module = _load_example_module()
         eol_cohort = pd.DataFrame(
             [
@@ -3453,7 +2861,7 @@ class TestEOLMistrustIntegration(unittest.TestCase):
             ]
         )
 
-        table1 = example_module.build_paper_table1_comparison(eol_cohort)
+        table1 = example_module._build_run_table1_summary(eol_cohort)
         los_black = table1[(table1["metric"] == "Length of stay (median days)") & (table1["race"] == "BLACK")].iloc[0]
         age_white = table1[(table1["metric"] == "Age (median years)") & (table1["race"] == "WHITE")].iloc[0]
 
@@ -3461,7 +2869,6 @@ class TestEOLMistrustIntegration(unittest.TestCase):
         self.assertAlmostEqual(float(los_black["run_numeric"]), 2.5)
         self.assertAlmostEqual(float(los_black["run_interval_lower"]), 1.75)
         self.assertAlmostEqual(float(los_black["run_interval_upper"]), 3.25)
-        self.assertIn("[", str(los_black["paper_value"]))
         self.assertIn("[", str(los_black["run_value"]))
 
         self.assertEqual(age_white["summary_stat"], "median_iqr")
@@ -3469,582 +2876,9 @@ class TestEOLMistrustIntegration(unittest.TestCase):
         self.assertAlmostEqual(float(age_white["run_interval_lower"]), 57.5)
         self.assertAlmostEqual(float(age_white["run_interval_upper"]), 72.5)
 
-    def test_example_build_outputs_can_attach_paper_comparison_and_write_artifacts(self):
+    def test_main_writes_managed_normal_run_archive_with_default_output_dir(self):
         example_module = _load_example_module()
 
-        raw_tables = {
-            "admissions": self.admissions.copy(),
-            "patients": self.patients.copy(),
-            "icustays": self.icustays.copy(),
-            "d_items": self.d_items.copy(),
-        }
-        materialized_views = {
-            "ventdurations": self.ventdurations.copy(),
-            "vasopressordurations": self.vasopressordurations.copy(),
-            "oasis": self.oasis.copy(),
-            "sapsii": self.sapsii.copy(),
-        }
-        note_corpus = pd.DataFrame(
-            [{"hadm_id": hadm_id, "note_text": f"note-{hadm_id}"} for hadm_id in range(101, 107)]
-        )
-        note_labels = pd.DataFrame(
-            [
-                {
-                    "hadm_id": hadm_id,
-                    "noncompliance_label": int(hadm_id % 2 == 0),
-                    "autopsy_label": int(hadm_id % 3 == 0),
-                }
-                for hadm_id in range(101, 107)
-            ]
-        )
-        feature_matrix = pd.DataFrame(
-            [
-                {
-                    "hadm_id": hadm_id,
-                    "Education Readiness: No": int(hadm_id % 2 == 0),
-                    "Pain Level: 7-Mod to Severe": int(hadm_id % 2 == 1),
-                }
-                for hadm_id in range(101, 107)
-            ]
-        )
-        code_status_targets = pd.DataFrame(
-            [
-                {"hadm_id": 101, "code_status_dnr_dni_cmo": 0},
-                {"hadm_id": 102, "code_status_dnr_dni_cmo": 1},
-                {"hadm_id": 103, "code_status_dnr_dni_cmo": 0},
-                {"hadm_id": 104, "code_status_dnr_dni_cmo": 1},
-                {"hadm_id": 105, "code_status_dnr_dni_cmo": 0},
-                {"hadm_id": 106, "code_status_dnr_dni_cmo": 0},
-            ]
-        )
-        mistrust_scores = pd.DataFrame(
-            [
-                {
-                    "hadm_id": hadm_id,
-                    "noncompliance_score_z": 0.0,
-                    "autopsy_score_z": 0.0,
-                    "negative_sentiment_score_z": 0.0,
-                }
-                for hadm_id in range(101, 107)
-            ]
-        )
-        comparison_outputs = {
-            "summary": {"table5_max_abs_delta": 0.123},
-            "table5_comparison": pd.DataFrame([{"task": "Left AMA"}]),
-        }
-
-        class _FakeModel:
-            def __init__(self, repetitions):
-                self.repetitions = repetitions
-
-            def build_mistrust_scores(self, **kwargs):
-                del kwargs
-                return mistrust_scores
-
-            def run(self, **kwargs):
-                del kwargs
-                return {
-                    "downstream_auc_results": pd.DataFrame(
-                        [
-                            {
-                                "task": "Left AMA",
-                                "configuration": "Baseline",
-                                "target_column": "left_ama",
-                                "n_rows": 6,
-                                "n_features": 7,
-                                "n_repeats": 2,
-                                "n_valid_auc": 2,
-                                "auc_mean": 0.7,
-                                "auc_std": 0.0,
-                            }
-                        ]
-                    ),
-                    "feature_weight_summaries": {},
-                }
-
-        with _workspace_tempdir() as temp_dir, patch.object(
-            example_module,
-            "load_eol_mistrust_tables",
-            return_value=(raw_tables, materialized_views),
-        ), patch.object(
-            example_module,
-            "build_note_corpus_from_csv",
-            return_value=note_corpus,
-        ), patch.object(
-            example_module,
-            "build_note_labels_from_csv",
-            return_value=note_labels,
-        ), patch.object(
-            example_module,
-            "build_chartevent_artifacts_from_csv",
-            return_value=(feature_matrix, code_status_targets),
-        ), patch.object(
-            example_module,
-            "EOLMistrustModel",
-            _FakeModel,
-        ), patch.object(
-            example_module,
-            "build_paper_comparison_outputs",
-            return_value=comparison_outputs,
-        ) as comparison_builder, patch.object(
-            example_module,
-            "write_paper_comparison_artifacts",
-        ) as comparison_writer:
-            outputs = example_module.build_eol_mistrust_outputs(
-                Path("ignored-root"),
-                repetitions=2,
-                compare_to_paper=True,
-                output_dir=Path(temp_dir),
-            )
-
-        self.assertEqual(outputs["paper_comparison"], comparison_outputs)
-        comparison_builder.assert_called_once()
-        comparison_writer.assert_called_once()
-        self.assertTrue(bool(comparison_writer.call_args.kwargs["include_summary"]))
-
-    def test_example_build_outputs_always_writes_paper_table_artifacts_when_compare_disabled(self):
-        example_module = _load_example_module()
-
-        raw_tables = {
-            "admissions": self.admissions.copy(),
-            "patients": self.patients.copy(),
-            "icustays": self.icustays.copy(),
-            "d_items": self.d_items.copy(),
-        }
-        materialized_views = {
-            "ventdurations": self.ventdurations.copy(),
-            "vasopressordurations": self.vasopressordurations.copy(),
-            "oasis": self.oasis.copy(),
-            "sapsii": self.sapsii.copy(),
-        }
-        note_corpus = pd.DataFrame(
-            [{"hadm_id": hadm_id, "note_text": f"note-{hadm_id}"} for hadm_id in range(101, 107)]
-        )
-        note_labels = pd.DataFrame(
-            [
-                {
-                    "hadm_id": hadm_id,
-                    "noncompliance_label": int(hadm_id % 2 == 0),
-                    "autopsy_label": int(hadm_id % 3 == 0),
-                }
-                for hadm_id in range(101, 107)
-            ]
-        )
-        feature_matrix = pd.DataFrame(
-            [
-                {
-                    "hadm_id": hadm_id,
-                    "Education Readiness: No": int(hadm_id % 2 == 0),
-                    "Pain Level: 7-Mod to Severe": int(hadm_id % 2 == 1),
-                }
-                for hadm_id in range(101, 107)
-            ]
-        )
-        code_status_targets = pd.DataFrame(
-            [
-                {"hadm_id": 101, "code_status_dnr_dni_cmo": 0},
-                {"hadm_id": 102, "code_status_dnr_dni_cmo": 1},
-                {"hadm_id": 103, "code_status_dnr_dni_cmo": 0},
-                {"hadm_id": 104, "code_status_dnr_dni_cmo": 1},
-                {"hadm_id": 105, "code_status_dnr_dni_cmo": 0},
-                {"hadm_id": 106, "code_status_dnr_dni_cmo": 0},
-            ]
-        )
-        mistrust_scores = pd.DataFrame(
-            [
-                {
-                    "hadm_id": hadm_id,
-                    "noncompliance_score_z": 0.0,
-                    "autopsy_score_z": 0.0,
-                    "negative_sentiment_score_z": 0.0,
-                }
-                for hadm_id in range(101, 107)
-            ]
-        )
-        comparison_outputs = {
-            "summary": {"table5_max_abs_delta": 0.123},
-            "table5_comparison": pd.DataFrame([{"task": "Left AMA"}]),
-        }
-
-        class _FakeModel:
-            def __init__(self, repetitions):
-                self.repetitions = repetitions
-
-            def build_mistrust_scores(self, **kwargs):
-                del kwargs
-                return mistrust_scores
-
-            def run(self, **kwargs):
-                del kwargs
-                return {
-                    "downstream_auc_results": pd.DataFrame(
-                        [
-                            {
-                                "task": "Left AMA",
-                                "configuration": "Baseline",
-                                "target_column": "left_ama",
-                                "n_rows": 6,
-                                "n_features": 7,
-                                "n_repeats": 2,
-                                "n_valid_auc": 2,
-                                "auc_mean": 0.7,
-                                "auc_std": 0.0,
-                            }
-                        ]
-                    ),
-                    "feature_weight_summaries": {},
-                }
-
-        with _workspace_tempdir() as temp_dir, patch.object(
-            example_module,
-            "load_eol_mistrust_tables",
-            return_value=(raw_tables, materialized_views),
-        ), patch.object(
-            example_module,
-            "build_note_corpus_from_csv",
-            return_value=note_corpus,
-        ), patch.object(
-            example_module,
-            "build_note_labels_from_csv",
-            return_value=note_labels,
-        ), patch.object(
-            example_module,
-            "build_chartevent_artifacts_from_csv",
-            return_value=(feature_matrix, code_status_targets),
-        ), patch.object(
-            example_module,
-            "EOLMistrustModel",
-            _FakeModel,
-        ), patch.object(
-            example_module,
-            "build_paper_comparison_outputs",
-            return_value=comparison_outputs,
-        ) as comparison_builder, patch.object(
-            example_module,
-            "write_paper_comparison_artifacts",
-        ) as comparison_writer:
-            outputs = example_module.build_eol_mistrust_outputs(
-                Path("ignored-root"),
-                repetitions=2,
-                compare_to_paper=False,
-                output_dir=Path(temp_dir),
-            )
-
-        self.assertEqual(outputs["paper_comparison"], comparison_outputs)
-        comparison_builder.assert_called_once()
-        comparison_writer.assert_called_once()
-        self.assertFalse(bool(comparison_writer.call_args.kwargs["include_summary"]))
-
-    def test_write_paper_comparison_artifacts_writes_human_readable_summary_txt(self):
-        example_module = _load_example_module()
-
-        comparison_outputs = {
-            "summary": {
-                "table1_rows": 1,
-                "table2_rows": 1,
-                "table3_snapshot_rows": 1,
-                "table4_rows": 1,
-                "table5_rows": 1,
-                "table6_rows": 1,
-                "table4_max_abs_delta": 0.1,
-                "table5_max_abs_delta": 0.2,
-                "table6_max_abs_delta": 0.3,
-            },
-            "table1_comparison": pd.DataFrame(
-                [
-                    {
-                        "metric": "Population Size",
-                        "race": "BLACK",
-                        "paper_value": "1214",
-                        "run_value": "1215",
-                    }
-                ]
-            ),
-            "table2_comparison": pd.DataFrame(
-                [
-                    {
-                        "treatment": "total_vent_min",
-                        "paper_n_black": 510,
-                        "run_n_black": 587,
-                        "paper_n_white": 4810,
-                        "run_n_white": 5603,
-                        "paper_median_black": 3180.0,
-                        "run_median_black": 2700.0,
-                        "paper_median_white": 2520.0,
-                        "run_median_white": 2280.0,
-                    }
-                ]
-            ),
-            "table3_comparison": pd.DataFrame(
-                [
-                    {
-                        "proxy_model": "noncompliance",
-                        "direction": "positive",
-                        "rank": 1,
-                        "paper_feature": "riker-sas scale: agitated",
-                        "paper_weight": 0.7013,
-                        "run_weight": 0.6642,
-                        "run_feature_found": True,
-                    }
-                ]
-            ),
-            "table4_comparison": pd.DataFrame(
-                [
-                    {
-                        "feature_a": "oasis",
-                        "feature_b": "sapsii",
-                        "paper_correlation": 0.679,
-                        "run_correlation": 0.695,
-                    }
-                ]
-            ),
-            "table5_comparison": pd.DataFrame(
-                [
-                    {
-                        "task": "Left AMA",
-                        "configuration": "Baseline",
-                        "paper_auc_mean": 0.859,
-                        "run_auc_mean": 0.870,
-                        "paper_n_rows": 48071,
-                        "run_n_rows": 48289,
-                    }
-                ]
-            ),
-            "table6_comparison": pd.DataFrame(
-                [
-                    {
-                        "task": "Left AMA",
-                        "feature": "age",
-                        "paper_weight_mean": -2.10,
-                        "run_weight_mean": -0.78,
-                    }
-                ]
-            ),
-        }
-
-        with _workspace_tempdir() as temp_dir:
-            output_dir = Path(temp_dir) / "paper_comparison"
-            example_module.write_paper_comparison_artifacts(
-                comparison_outputs,
-                output_dir=output_dir,
-            )
-
-            summary_text = (output_dir / "paper_comparison_summary.txt").read_text()
-
-        self.assertIn("Paper comparison summary:", summary_text)
-        self.assertIn("Table 1 vs Paper:", summary_text)
-        self.assertIn("Population Size | BLACK | paper=1214 | run=1215", summary_text)
-        self.assertIn("Table 5 vs Paper:", summary_text)
-        self.assertIn("Left AMA | Baseline | n 48071->48289 | auc 0.859->0.870", summary_text)
-
-    def test_write_paper_comparison_artifacts_can_skip_human_readable_summary_txt(self):
-        example_module = _load_example_module()
-
-        comparison_outputs = {
-            "summary": {
-                "table1_rows": 1,
-            },
-            "table1_comparison": pd.DataFrame(
-                [
-                    {
-                        "metric": "Population Size",
-                        "race": "BLACK",
-                        "paper_value": "1214",
-                        "run_value": "1215",
-                    }
-                ]
-            ),
-        }
-
-        with _workspace_tempdir() as temp_dir:
-            output_dir = Path(temp_dir) / "paper_comparison"
-            example_module.write_paper_comparison_artifacts(
-                comparison_outputs,
-                output_dir=output_dir,
-                include_summary=False,
-            )
-
-            self.assertTrue((output_dir / "table1_comparison.csv").exists())
-            self.assertTrue((output_dir / "summary.json").exists())
-            self.assertFalse((output_dir / "paper_comparison_summary.txt").exists())
-
-    def test_main_prints_full_paper_table_summary_with_paper_and_run_values(self):
-        example_module = _load_example_module()
-
-        comparison_outputs = {
-            "summary": {
-                "table1_rows": 2,
-                "table2_rows": 1,
-                "table3_snapshot_rows": 1,
-                "table4_rows": 1,
-                "table5_rows": 1,
-                "table6_rows": 1,
-                "table4_max_abs_delta": 0.1,
-                "table5_max_abs_delta": 0.2,
-                "table6_max_abs_delta": 0.3,
-            },
-            "table1_comparison": pd.DataFrame(
-                [
-                    {
-                        "metric": "Population Size",
-                        "race": "BLACK",
-                        "paper_value": "1214",
-                        "run_value": "1215",
-                    }
-                ]
-            ),
-            "table2_comparison": pd.DataFrame(
-                [
-                    {
-                        "treatment": "total_vent_min",
-                        "paper_n_black": 510,
-                        "run_n_black": 587,
-                        "paper_n_white": 4810,
-                        "run_n_white": 5603,
-                        "paper_median_black": 3180.0,
-                        "run_median_black": 2700.0,
-                        "paper_median_white": 2520.0,
-                        "run_median_white": 2280.0,
-                    }
-                ]
-            ),
-            "table3_comparison": pd.DataFrame(
-                [
-                    {
-                        "proxy_model": "noncompliance",
-                        "direction": "positive",
-                        "rank": 1,
-                        "paper_feature": "riker-sas scale: agitated",
-                        "paper_weight": 0.7013,
-                        "run_weight": 0.6642,
-                        "run_feature_found": True,
-                    }
-                ]
-            ),
-            "table4_comparison": pd.DataFrame(
-                [
-                    {
-                        "feature_a": "oasis",
-                        "feature_b": "sapsii",
-                        "paper_correlation": 0.679,
-                        "run_correlation": 0.695,
-                    }
-                ]
-            ),
-            "table5_comparison": pd.DataFrame(
-                [
-                    {
-                        "task": "Left AMA",
-                        "configuration": "Baseline",
-                        "paper_auc_mean": 0.859,
-                        "run_auc_mean": 0.870,
-                        "paper_n_rows": 48071,
-                        "run_n_rows": 48289,
-                    }
-                ]
-            ),
-            "table6_comparison": pd.DataFrame(
-                [
-                    {
-                        "task": "Left AMA",
-                        "feature": "age",
-                        "paper_weight_mean": -2.10,
-                        "run_weight_mean": -0.78,
-                    }
-                ]
-            ),
-        }
-        artifacts = {
-            "validation_summary": {
-                "database_flavor": "postgresql",
-                "schema_name": "mimiciii",
-            },
-            "base_admissions": pd.DataFrame(columns=["hadm_id"]),
-            "all_cohort": pd.DataFrame(columns=["hadm_id"]),
-            "eol_cohort": pd.DataFrame(columns=["hadm_id"]),
-            "chartevent_feature_matrix": pd.DataFrame(columns=["hadm_id"]),
-            "note_labels": pd.DataFrame(columns=["hadm_id"]),
-            "mistrust_scores": pd.DataFrame(columns=["hadm_id"]),
-            "final_model_table": pd.DataFrame(columns=["hadm_id"]),
-            "paper_comparison": comparison_outputs,
-        }
-
-        args = type(
-            "Args",
-            (),
-            {
-                "root": Path("ignored-root"),
-                "config_path": Path("ignored-config"),
-                "output_dir": Path("out"),
-                "stream_cache_dir": None,
-                "repetitions": 1,
-                "include_downstream_weight_summary": False,
-                "include_cdf_plot_data": False,
-                "compare_to_paper": True,
-                "task_demo": False,
-                "note_chunksize": 100_000,
-                "chartevent_chunksize": 500_000,
-                "reuse_intermediates": None,
-                "paper_like_dataset_prepare": False,
-            },
-        )()
-
-        stdout = io.StringIO()
-        with patch.object(
-            example_module,
-            "parse_args",
-            return_value=args,
-        ), patch.object(
-            example_module,
-            "build_eol_mistrust_outputs",
-            return_value=artifacts,
-        ), patch(
-            "sys.stdout",
-            stdout,
-        ):
-            example_module.main()
-
-        output = stdout.getvalue()
-        self.assertIn("Paper comparison summary:", output)
-        self.assertIn("Table 1 vs Paper:", output)
-        self.assertIn("Population Size | BLACK | paper=1214 | run=1215", output)
-        self.assertIn("Table 2 vs Paper:", output)
-        self.assertIn("total_vent_min | black n 510->587", output)
-        self.assertIn("Table 3 vs Paper:", output)
-        self.assertIn("noncompliance | positive #1 | riker-sas scale: agitated", output)
-        self.assertIn("Table 4 vs Paper:", output)
-        self.assertIn("oasis vs sapsii | paper=0.679 | run=0.695", output)
-        self.assertIn("Table 5 vs Paper:", output)
-        self.assertIn("Left AMA | Baseline | n 48071->48289 | auc 0.859->0.870", output)
-        self.assertIn("Table 6 vs Paper:", output)
-        self.assertIn("Left AMA | age | paper=-2.100 | run=-0.780", output)
-
-    def test_main_writes_managed_normal_run_archive_with_default_output_and_cache_dirs(self):
-        example_module = _load_example_module()
-
-        comparison_outputs = {
-            "summary": {
-                "table1_rows": 1,
-                "table2_rows": 1,
-                "table3_snapshot_rows": 1,
-                "table4_rows": 1,
-                "table5_rows": 1,
-                "table6_rows": 1,
-                "table4_max_abs_delta": 0.1,
-                "table5_max_abs_delta": 0.2,
-                "table6_max_abs_delta": 0.3,
-            },
-            "table1_comparison": pd.DataFrame(
-                [
-                    {
-                        "metric": "Population Size",
-                        "race": "BLACK",
-                        "paper_value": "1214",
-                        "run_value": "1215",
-                    }
-                ]
-            ),
-        }
         artifacts = {
             "validation_summary": {
                 "database_flavor": "postgresql",
@@ -4059,7 +2893,6 @@ class TestEOLMistrustIntegration(unittest.TestCase):
             "note_labels": pd.DataFrame(columns=["hadm_id"]),
             "mistrust_scores": pd.DataFrame(columns=["hadm_id"]),
             "final_model_table": pd.DataFrame(columns=["hadm_id"]),
-            "paper_comparison": comparison_outputs,
         }
 
         with _workspace_tempdir() as temp_dir:
@@ -4071,16 +2904,13 @@ class TestEOLMistrustIntegration(unittest.TestCase):
                     "root": Path("ignored-root"),
                     "config_path": Path("ignored-config"),
                     "output_dir": None,
-                    "stream_cache_dir": None,
                     "result_root": result_root,
                     "repetitions": 1,
                     "include_downstream_weight_summary": False,
                     "include_cdf_plot_data": False,
-                    "compare_to_paper": True,
                     "task_demo": False,
                     "note_chunksize": 100_000,
                     "chartevent_chunksize": 500_000,
-                    "reuse_intermediates": None,
                     "paper_like_dataset_prepare": False,
                 },
             )()
@@ -4106,46 +2936,23 @@ class TestEOLMistrustIntegration(unittest.TestCase):
 
             run_dir = result_root / "EOL_normal_20260410_153045"
             expected_output_dir = run_dir / "result"
-            expected_cache_dir = run_dir / "cache"
 
             build_outputs.assert_called_once()
             self.assertEqual(build_outputs.call_args.kwargs["output_dir"], expected_output_dir)
-            self.assertEqual(
-                build_outputs.call_args.kwargs["stream_cache_dir"],
-                expected_cache_dir,
-            )
 
             run_summary = (run_dir / "RUN_SUMMARY.txt").read_text(encoding="utf-8")
-            run_time = (run_dir / "RUN_TIME.txt").read_text(encoding="utf-8")
-            paper_summary = (run_dir / "paper_comparison_summary.txt").read_text(
-                encoding="utf-8"
-            )
 
             self.assertIn("managed_run_name: EOL_normal_20260410_153045", run_summary)
             self.assertIn(f"result_dir: {expected_output_dir}", run_summary)
-            self.assertIn(f"stream_cache_base_dir: {expected_cache_dir}", run_summary)
             self.assertIn("route_mode: default", run_summary)
-            self.assertIn("paper_comparison_summary_file:", run_summary)
-            self.assertNotIn("Paper comparison summary:", run_summary)
-            self.assertIn("Population Size | BLACK | paper=1214 | run=1215", paper_summary)
-            self.assertIn("total_runtime_seconds:", run_time)
+            self.assertIn("total_runtime_seconds:", run_summary)
+            self.assertNotIn("paper_comparison_summary_file", run_summary)
+            self.assertFalse((run_dir / "paper_comparison_summary.txt").exists())
+            self.assertFalse((run_dir / "RUN_TIME.txt").exists())
 
     def test_main_writes_managed_paperlike_run_archive_name(self):
         example_module = _load_example_module()
 
-        comparison_outputs = {
-            "summary": {"table1_rows": 1},
-            "table1_comparison": pd.DataFrame(
-                [
-                    {
-                        "metric": "Population Size",
-                        "race": "BLACK",
-                        "paper_value": "1214",
-                        "run_value": "1215",
-                    }
-                ]
-            ),
-        }
         artifacts = {
             "validation_summary": {
                 "database_flavor": "postgresql",
@@ -4160,7 +2967,6 @@ class TestEOLMistrustIntegration(unittest.TestCase):
             "note_labels": pd.DataFrame(columns=["hadm_id"]),
             "mistrust_scores": pd.DataFrame(columns=["hadm_id"]),
             "final_model_table": pd.DataFrame(columns=["hadm_id"]),
-            "paper_comparison": comparison_outputs,
         }
 
         with _workspace_tempdir() as temp_dir:
@@ -4172,16 +2978,13 @@ class TestEOLMistrustIntegration(unittest.TestCase):
                     "root": Path("ignored-root"),
                     "config_path": Path("ignored-config"),
                     "output_dir": None,
-                    "stream_cache_dir": None,
                     "result_root": result_root,
                     "repetitions": 1,
                     "include_downstream_weight_summary": False,
                     "include_cdf_plot_data": False,
-                    "compare_to_paper": False,
                     "task_demo": False,
                     "note_chunksize": 100_000,
                     "chartevent_chunksize": 500_000,
-                    "reuse_intermediates": None,
                     "paper_like_dataset_prepare": True,
                 },
             )()
@@ -4206,9 +3009,162 @@ class TestEOLMistrustIntegration(unittest.TestCase):
             run_summary = (run_dir / "RUN_SUMMARY.txt").read_text(encoding="utf-8")
             self.assertIn("managed_run_name: EOL_Paperlike_20260410_153046", run_summary)
             self.assertIn("route_mode: paper_like", run_summary)
-            self.assertIn("paper_comparison_summary_file: disabled", run_summary)
+            self.assertIn("total_runtime_seconds:", run_summary)
+            self.assertNotIn("paper_comparison_summary_file", run_summary)
             self.assertTrue((run_dir / "run_table_summary.txt").exists())
             self.assertFalse((run_dir / "paper_comparison_summary.txt").exists())
+            self.assertFalse((run_dir / "RUN_TIME.txt").exists())
+
+    def test_main_runs_normal_vs_paperlike_ablation_study(self):
+        example_module = _load_example_module()
+
+        normal_artifacts = {
+            "validation_summary": {
+                "database_flavor": "postgresql",
+                "schema_name": "mimiciii",
+                "dataset_prepare_mode": "default",
+                "autopsy_proxy_enabled": False,
+            },
+            "base_admissions": pd.DataFrame(columns=["hadm_id"]),
+            "all_cohort": pd.DataFrame(columns=["hadm_id"]),
+            "eol_cohort": pd.DataFrame(columns=["hadm_id"]),
+            "chartevent_feature_matrix": pd.DataFrame(columns=["hadm_id"]),
+            "note_labels": pd.DataFrame(columns=["hadm_id"]),
+            "mistrust_scores": pd.DataFrame(columns=["hadm_id"]),
+            "final_model_table": pd.DataFrame(columns=["hadm_id"]),
+            "downstream_auc_results": pd.DataFrame(
+                [
+                    {
+                        "task": "In-hospital mortality",
+                        "configuration": "Baseline + ALL",
+                        "n_rows": 48289,
+                        "auc_mean": 0.648,
+                        "auc_std": 0.012,
+                    }
+                ]
+            ),
+            "downstream_weight_results": pd.DataFrame(
+                [
+                    {
+                        "task": "In-hospital mortality",
+                        "configuration": "Baseline + ALL",
+                        "feature": "negative_sentiment_score_z",
+                        "weight_mean": 0.090,
+                        "weight_std": 0.000,
+                    }
+                ]
+            ),
+        }
+        paperlike_artifacts = {
+            "validation_summary": {
+                "database_flavor": "postgresql",
+                "schema_name": "mimiciii",
+                "dataset_prepare_mode": "paper_like",
+                "autopsy_proxy_enabled": True,
+            },
+            "base_admissions": pd.DataFrame(columns=["hadm_id"]),
+            "all_cohort": pd.DataFrame(columns=["hadm_id"]),
+            "eol_cohort": pd.DataFrame(columns=["hadm_id"]),
+            "chartevent_feature_matrix": pd.DataFrame(columns=["hadm_id"]),
+            "note_labels": pd.DataFrame(columns=["hadm_id"]),
+            "mistrust_scores": pd.DataFrame(columns=["hadm_id"]),
+            "final_model_table": pd.DataFrame(columns=["hadm_id"]),
+            "downstream_auc_results": pd.DataFrame(
+                [
+                    {
+                        "task": "In-hospital mortality",
+                        "configuration": "Baseline + ALL",
+                        "n_rows": 48289,
+                        "auc_mean": 0.635,
+                        "auc_std": 0.010,
+                    }
+                ]
+            ),
+            "downstream_weight_results": pd.DataFrame(
+                [
+                    {
+                        "task": "In-hospital mortality",
+                        "configuration": "Baseline + ALL",
+                        "feature": "autopsy_score_z",
+                        "weight_mean": 0.020,
+                        "weight_std": 0.000,
+                    }
+                ]
+            ),
+        }
+
+        with _workspace_tempdir() as temp_dir:
+            result_root = Path(temp_dir) / "EOL_Result"
+            args = type(
+                "Args",
+                (),
+                {
+                    "root": Path("ignored-root"),
+                    "config_path": Path("ignored-config"),
+                    "output_dir": None,
+                    "result_root": result_root,
+                    "repetitions": 1,
+                    "task_demo": False,
+                    "task_demo_train_eval": False,
+                    "paper_like_dataset_prepare": False,
+                    "ablation_study": True,
+                },
+            )()
+
+            stdout = io.StringIO()
+            with patch.object(
+                example_module,
+                "parse_args",
+                return_value=args,
+            ), patch.object(
+                example_module,
+                "_current_run_timestamp",
+                return_value="20260411_120000",
+            ), patch.object(
+                example_module,
+                "build_eol_mistrust_outputs",
+                side_effect=[normal_artifacts, paperlike_artifacts],
+            ) as build_outputs, patch(
+                "sys.stdout",
+                stdout,
+            ):
+                example_module.main()
+
+            ablation_dir = (
+                result_root / "EOL_ablation_normal_vs_paperlike_20260411_120000"
+            )
+            normal_dir = ablation_dir / "normal"
+            paperlike_dir = ablation_dir / "paper_like"
+
+            self.assertEqual(build_outputs.call_count, 2)
+            self.assertFalse(
+                build_outputs.call_args_list[0].kwargs["paper_like_dataset_prepare"]
+            )
+            self.assertTrue(
+                build_outputs.call_args_list[1].kwargs["paper_like_dataset_prepare"]
+            )
+            self.assertEqual(
+                build_outputs.call_args_list[0].kwargs["output_dir"],
+                normal_dir / "result",
+            )
+            self.assertEqual(
+                build_outputs.call_args_list[1].kwargs["output_dir"],
+                paperlike_dir / "result",
+            )
+            self.assertTrue((normal_dir / "RUN_SUMMARY.txt").exists())
+            self.assertTrue((paperlike_dir / "RUN_SUMMARY.txt").exists())
+            self.assertTrue((normal_dir / "run_table_summary.txt").exists())
+            self.assertTrue((paperlike_dir / "run_table_summary.txt").exists())
+            ablation_summary = (ablation_dir / "ABLATION_SUMMARY.txt").read_text(
+                encoding="utf-8"
+            )
+            self.assertIn("Route Ablation Study", ablation_summary)
+            self.assertIn("Normal", ablation_summary)
+            self.assertIn("Paper-like", ablation_summary)
+            self.assertIn("autopsy_proxy_enabled: False", ablation_summary)
+            self.assertIn("autopsy_proxy_enabled: True", ablation_summary)
+            self.assertIn("auc_mean: 0.648", ablation_summary)
+            self.assertIn("auc_mean: 0.635", ablation_summary)
 
     def test_write_run_table_summary_artifacts_writes_run_only_table_summary_txt(self):
         example_module = _load_example_module()
@@ -4216,8 +3172,28 @@ class TestEOLMistrustIntegration(unittest.TestCase):
         artifacts = {
             "validation_summary": {
                 "autopsy_proxy_enabled": False,
+                "dataset_prepare_mode": "default",
             },
-            "eol_cohort": pd.DataFrame(columns=["hadm_id"]),
+            "eol_cohort": pd.DataFrame(
+                [
+                    {
+                        "race": "BLACK",
+                        "insurance_group": "Public",
+                        "discharge_category": "Deceased",
+                        "gender": "F",
+                        "los_days": 7.88,
+                        "age": 71.31,
+                    },
+                    {
+                        "race": "WHITE",
+                        "insurance_group": "Private",
+                        "discharge_category": "Skilled Nursing Facility",
+                        "gender": "M",
+                        "los_days": 7.77,
+                        "age": 77.85,
+                    },
+                ]
+            ),
             "race_treatment_results": pd.DataFrame(
                 [
                     {
@@ -4311,73 +3287,83 @@ class TestEOLMistrustIntegration(unittest.TestCase):
             summary_text = (run_dir / "run_table_summary.txt").read_text(encoding="utf-8")
 
         self.assertIn("Run Table Results", summary_text)
+        self.assertIn("Route: Normal", summary_text)
+        self.assertEqual(summary_text.count("- Population Size"), 1)
+        self.assertIn("  BLACK: 1", summary_text)
+        self.assertIn("  WHITE: 1", summary_text)
         self.assertIn("Table 2", summary_text)
         self.assertIn("BLACK: n=510, median=2782.5", summary_text)
+        self.assertIn("Table 4", summary_text)
+        self.assertIn("- oasis vs sapsii: 0.695", summary_text)
         self.assertIn("Table 5", summary_text)
         self.assertIn("Left AMA | Baseline", summary_text)
+        self.assertIn("Table 6", summary_text)
+        self.assertIn("age: mean=-0.782, std=0.200", summary_text)
         self.assertNotIn("paper=", summary_text)
+        self.assertNotIn("autopsy:", summary_text)
 
-    def test_build_paper_table3_comparison_matches_autopsy_alias_features(self):
+    def test_build_run_table3_summary_returns_top_positive_and_negative_weights(self):
         example_module = _load_example_module()
 
         feature_weight_summaries = {
-            "autopsy": {
+            "noncompliance": {
                 "all": pd.DataFrame(
                     [
                         {
-                            "feature": "restraints evaluated: restraintreapply",
-                            "weight": 0.1600,
+                            "feature": "riker-sas scale: agitated",
+                            "weight": 0.6648,
                         },
                         {
-                            "feature": "orientation: oriented x 3",
-                            "weight": 0.0360,
+                            "feature": "education readiness: no",
+                            "weight": 0.1665,
                         },
                         {
-                            "feature": "is the spokesperson the health care proxy: 1",
-                            "weight": -0.2200,
+                            "feature": "pain level: 7-mod to severe",
+                            "weight": 0.1243,
                         },
                         {
-                            "feature": "family communication: family talked to md",
-                            "weight": -0.1200,
+                            "feature": "richmond-ras scale: 0 alert and calm",
+                            "weight": -0.3854,
+                        },
+                        {
+                            "feature": "state: alert",
+                            "weight": -0.9000,
+                        },
+                        {
+                            "feature": "pain: none",
+                            "weight": -0.5000,
                         },
                     ]
                 )
             }
         }
 
-        comparison = example_module.build_paper_table3_comparison(feature_weight_summaries)
+        summary = example_module._build_run_table3_summary(feature_weight_summaries)
 
-        by_feature = comparison.set_index("paper_feature")
+        positive = summary.loc[
+            (summary["proxy_model"] == "noncompliance")
+            & (summary["direction"] == "positive")
+        ].sort_values("rank")
+        negative = summary.loc[
+            (summary["proxy_model"] == "noncompliance")
+            & (summary["direction"] == "negative")
+        ].sort_values("rank")
 
-        self.assertTrue(bool(by_feature.loc["reapplied restraints", "run_feature_found"]))
         self.assertEqual(
-            by_feature.loc["reapplied restraints", "run_feature"],
-            "restraints evaluated: restraintreapply",
-        )
-        self.assertAlmostEqual(
-            float(by_feature.loc["reapplied restraints", "run_weight"]),
-            0.1600,
-            places=4,
-        )
-
-        self.assertTrue(bool(by_feature.loc["orientation: oriented 3x", "run_feature_found"]))
-        self.assertEqual(
-            by_feature.loc["orientation: oriented 3x", "run_feature"],
-            "orientation: oriented x 3",
-        )
-
-        self.assertTrue(bool(by_feature.loc["spokesperson is healthcare proxy", "run_feature_found"]))
-        self.assertEqual(
-            by_feature.loc["spokesperson is healthcare proxy", "run_feature"],
-            "is the spokesperson the health care proxy: 1",
-        )
-
-        self.assertTrue(
-            bool(by_feature.loc["family communication: talked to m.d.", "run_feature_found"])
+            positive["feature"].tolist(),
+            [
+                "riker-sas scale: agitated",
+                "education readiness: no",
+                "pain level: 7-mod to severe",
+            ],
         )
         self.assertEqual(
-            by_feature.loc["family communication: talked to m.d.", "run_feature"],
-            "family communication: family talked to md",
+            negative["feature"].tolist(),
+            [
+                "state: alert",
+                "pain: none",
+                "richmond-ras scale: 0 alert and calm",
+            ],
         )
 
     def test_integration_minimal_boundary_scale_pipeline_runs_with_two_admissions(self):

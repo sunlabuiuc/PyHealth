@@ -21,6 +21,12 @@ from .drug_recommendation import (
     drug_recommendation_mimic4_fn,
     drug_recommendation_omop_fn,
 )
+from .eol_mistrust import (
+    EOLMistrustCodeStatusPredictionMIMIC3,
+    EOLMistrustDownstreamMIMIC3,
+    EOLMistrustLeftAMAPredictionMIMIC3,
+    EOLMistrustMortalityPredictionMIMIC3,
+)
 from .in_hospital_mortality_mimic4 import InHospitalMortalityMIMIC4
 from .length_of_stay_prediction import (
     LengthOfStayPredictioneICU,

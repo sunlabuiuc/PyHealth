@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pandas as pd
+from pyhealth.datasets.base_dataset import BaseDataset
 
 def _load_model_build_mistrust_score_table():
     module_path = (
@@ -31,6 +32,23 @@ def _load_eol_mistrust_module():
     )
     spec = importlib.util.spec_from_file_location(
         "pyhealth.datasets.eol_mistrust_dataset_tests",
+        module_path,
+    )
+    module = importlib.util.module_from_spec(spec)
+    assert spec is not None and spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+def _load_eol_mistrust_dataset_class_module():
+    module_path = (
+        Path(__file__).resolve().parents[2]
+        / "pyhealth"
+        / "datasets"
+        / "eol_mistrust_dataset.py"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "pyhealth.datasets.eol_mistrust_dataset_class_tests",
         module_path,
     )
     module = importlib.util.module_from_spec(spec)
@@ -2864,7 +2882,6 @@ class TestEOLMistrustPreprocessing(unittest.TestCase):
         )
         expected_columns = {
             "hadm_id",
-            "subject_id",
             "age",
             "los_days",
             "gender_f",
@@ -2877,7 +2894,7 @@ class TestEOLMistrustPreprocessing(unittest.TestCase):
             "in_hospital_mortality",
         }
         self.assertEqual(set(final_table.columns), expected_columns)
-        self.assertEqual(len(final_table.columns), 12)
+        self.assertEqual(len(final_table.columns), 11)
 
     def test_build_final_model_table_from_code_status_targets_matches_raw_chartevents_path(self):
         build_base_admissions = self._get_callable("build_base_admissions")
@@ -3522,6 +3539,388 @@ class TestEOLMistrustPreprocessing(unittest.TestCase):
             output_dir = Path(temp_dir)
             write_minimal_deliverables(artifacts, output_dir)
             self.assertEqual(len(list(output_dir.iterdir())), 9)
+
+
+class TestEOLMistrustDatasetClass(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.dataset_class_module = _load_eol_mistrust_dataset_class_module()
+        cls.task_module = importlib.util.module_from_spec(
+            spec := importlib.util.spec_from_file_location(
+                "pyhealth.tasks.eol_mistrust_dataset_class_tests",
+                Path(__file__).resolve().parents[2]
+                / "pyhealth"
+                / "tasks"
+                / "eol_mistrust.py",
+            )
+        )
+        assert spec is not None and spec.loader is not None
+        spec.loader.exec_module(cls.task_module)
+
+    def _write_minimal_root(self, root: Path) -> None:
+        (root / "mimiciii_clinical").mkdir(parents=True, exist_ok=True)
+        (root / "mimiciii_notes").mkdir(parents=True, exist_ok=True)
+        (root / "mimiciii_derived").mkdir(parents=True, exist_ok=True)
+
+        pd.DataFrame(
+            [
+                {
+                    "subject_id": 1,
+                    "gender": "F",
+                    "dob": "2070-01-01 00:00:00",
+                    "dod": "",
+                    "dod_hosp": "",
+                    "dod_ssn": "",
+                    "expire_flag": 0,
+                },
+                {
+                    "subject_id": 2,
+                    "gender": "M",
+                    "dob": "2065-01-01 00:00:00",
+                    "dod": "",
+                    "dod_hosp": "",
+                    "dod_ssn": "",
+                    "expire_flag": 0,
+                },
+            ]
+        ).to_csv(root / "mimiciii_clinical" / "patients.csv", index=False)
+        pd.DataFrame(
+            [
+                {
+                    "subject_id": 1,
+                    "hadm_id": 11,
+                    "admittime": "2100-01-01 00:00:00",
+                    "dischtime": "2100-01-03 00:00:00",
+                    "deathtime": "",
+                    "admission_type": "EMERGENCY",
+                    "admission_location": "EMERGENCY ROOM ADMIT",
+                    "discharge_location": "HOME",
+                    "insurance": "Private",
+                    "language": "ENGLISH",
+                    "religion": "",
+                    "marital_status": "MARRIED",
+                    "ethnicity": "WHITE",
+                    "edregtime": "",
+                    "edouttime": "",
+                    "diagnosis": "Sepsis",
+                    "hospital_expire_flag": 0,
+                    "has_chartevents_data": 1,
+                },
+                {
+                    "subject_id": 2,
+                    "hadm_id": 22,
+                    "admittime": "2100-02-01 00:00:00",
+                    "dischtime": "2100-02-04 12:00:00",
+                    "deathtime": "",
+                    "admission_type": "URGENT",
+                    "admission_location": "TRANSFER FROM HOSPITAL",
+                    "discharge_location": "HOME",
+                    "insurance": "Medicare",
+                    "language": "ENGLISH",
+                    "religion": "",
+                    "marital_status": "SINGLE",
+                    "ethnicity": "BLACK/AFRICAN AMERICAN",
+                    "edregtime": "",
+                    "edouttime": "",
+                    "diagnosis": "Pneumonia",
+                    "hospital_expire_flag": 1,
+                    "has_chartevents_data": 1,
+                },
+            ]
+        ).to_csv(root / "mimiciii_clinical" / "admissions.csv", index=False)
+        pd.DataFrame(
+            [
+                {
+                    "subject_id": 1,
+                    "hadm_id": 11,
+                    "icustay_id": 111,
+                    "dbsource": "metavision",
+                    "first_careunit": "MICU",
+                    "last_careunit": "MICU",
+                    "intime": "2100-01-01 01:00:00",
+                    "outtime": "2100-01-02 12:00:00",
+                    "los": 1.5,
+                },
+                {
+                    "subject_id": 2,
+                    "hadm_id": 22,
+                    "icustay_id": 222,
+                    "dbsource": "metavision",
+                    "first_careunit": "SICU",
+                    "last_careunit": "SICU",
+                    "intime": "2100-02-01 03:00:00",
+                    "outtime": "2100-02-03 12:00:00",
+                    "los": 2.3,
+                },
+            ]
+        ).to_csv(root / "mimiciii_clinical" / "icustays.csv", index=False)
+        pd.DataFrame(
+            [
+                {
+                    "subject_id": 1,
+                    "hadm_id": 11,
+                    "row_id": 1,
+                    "charttime": "",
+                    "chartdate": "2100-01-01",
+                    "text": "Family meeting note",
+                    "category": "Discharge summary",
+                    "description": "Report",
+                    "storetime": "2100-01-01 12:00:00",
+                    "iserror": "",
+                },
+                {
+                    "subject_id": 2,
+                    "hadm_id": 22,
+                    "row_id": 2,
+                    "charttime": "2100-02-01 08:00:00",
+                    "chartdate": "2100-02-01",
+                    "text": "Patient declining treatment",
+                    "category": "Nursing",
+                    "description": "Note",
+                    "storetime": "2100-02-01 09:00:00",
+                    "iserror": "",
+                },
+            ]
+        ).to_csv(root / "mimiciii_notes" / "noteevents.csv", index=False)
+        pd.DataFrame(
+            [
+                {
+                    "itemid": 128,
+                    "label": "Code Status",
+                    "abbreviation": "",
+                    "dbsource": "carevue",
+                    "linksto": "chartevents",
+                    "category": "",
+                    "unitname": "",
+                    "param_type": "",
+                    "conceptid": "",
+                }
+            ]
+        ).to_csv(root / "mimiciii_clinical" / "d_items.csv", index=False)
+        pd.DataFrame(
+            [
+                {
+                    "subject_id": 1,
+                    "hadm_id": 11,
+                    "icustay_id": 111,
+                    "itemid": 128,
+                    "charttime": "2100-01-01 08:00:00",
+                    "storetime": "2100-01-01 08:30:00",
+                    "cgid": 1,
+                    "value": "Full Code",
+                    "valuenum": "",
+                    "valueuom": "",
+                    "warning": "",
+                    "error": "",
+                    "resultstatus": "",
+                    "stopped": "",
+                },
+                {
+                    "subject_id": 2,
+                    "hadm_id": 22,
+                    "icustay_id": 222,
+                    "itemid": 128,
+                    "charttime": "2100-02-01 08:00:00",
+                    "storetime": "2100-02-01 08:30:00",
+                    "cgid": 2,
+                    "value": "DNR/DNI",
+                    "valuenum": "",
+                    "valueuom": "",
+                    "warning": "",
+                    "error": "",
+                    "resultstatus": "",
+                    "stopped": "",
+                },
+            ]
+        ).to_csv(root / "mimiciii_clinical" / "chartevents.csv", index=False)
+
+    def _write_optional_context_tables(self, root: Path) -> None:
+        pd.DataFrame(
+            [
+                {
+                    "subject_id": 1,
+                    "hadm_id": 11,
+                    "seq_num": 1,
+                    "icd9_code": "0389",
+                },
+                {
+                    "subject_id": 2,
+                    "hadm_id": 22,
+                    "seq_num": 1,
+                    "icd9_code": "486",
+                },
+            ]
+        ).to_csv(root / "mimiciii_clinical" / "diagnoses_icd.csv", index=False)
+        pd.DataFrame(
+            [
+                {
+                    "subject_id": 1,
+                    "hadm_id": 11,
+                    "seq_num": 1,
+                    "icd9_code": "3893",
+                },
+                {
+                    "subject_id": 2,
+                    "hadm_id": 22,
+                    "seq_num": 1,
+                    "icd9_code": "9671",
+                },
+            ]
+        ).to_csv(root / "mimiciii_clinical" / "procedures_icd.csv", index=False)
+        pd.DataFrame(
+            [
+                {
+                    "subject_id": 1,
+                    "hadm_id": 11,
+                    "startdate": "2100-01-01 00:00:00",
+                    "enddate": "2100-01-02 00:00:00",
+                    "drug": "Aspirin",
+                    "drug_type": "MAIN",
+                    "drug_name_poe": "Aspirin",
+                    "drug_name_generic": "Aspirin",
+                    "formulary_drug_cd": "ASP",
+                    "gsn": "",
+                    "ndc": "",
+                    "prod_strength": "81 mg",
+                    "dose_val_rx": "81",
+                    "dose_unit_rx": "mg",
+                    "form_val_disp": "1",
+                    "form_unit_disp": "tab",
+                    "route": "PO",
+                },
+                {
+                    "subject_id": 2,
+                    "hadm_id": 22,
+                    "startdate": "2100-02-01 00:00:00",
+                    "enddate": "2100-02-02 00:00:00",
+                    "drug": "Heparin",
+                    "drug_type": "MAIN",
+                    "drug_name_poe": "Heparin",
+                    "drug_name_generic": "Heparin",
+                    "formulary_drug_cd": "HEP",
+                    "gsn": "",
+                    "ndc": "",
+                    "prod_strength": "5000 unit",
+                    "dose_val_rx": "5000",
+                    "dose_unit_rx": "unit",
+                    "form_val_disp": "1",
+                    "form_unit_disp": "dose",
+                    "route": "IV",
+                },
+            ]
+        ).to_csv(root / "mimiciii_clinical" / "prescriptions.csv", index=False)
+
+    def test_dataset_class_inherits_base_dataset_and_keeps_core_tables(self):
+        dataset_cls = self.dataset_class_module.EOLMistrustDataset
+
+        self.assertTrue(issubclass(dataset_cls, BaseDataset))
+
+        with _workspace_tempdir() as temp_dir:
+            root = Path(temp_dir)
+            self._write_minimal_root(root)
+            dataset = dataset_cls(
+                root=str(root),
+                tables=["noteevents"],
+                cache_dir=root / "cache",
+                num_workers=1,
+            )
+
+            self.assertIn("patients", dataset.tables)
+            self.assertIn("admissions", dataset.tables)
+            self.assertIn("icustays", dataset.tables)
+            self.assertIn("noteevents", dataset.tables)
+
+    def test_dataset_class_can_set_eol_task_on_minimal_synthetic_tables(self):
+        dataset_cls = self.dataset_class_module.EOLMistrustDataset
+        task = self.task_module.EOLMistrustMortalityPredictionMIMIC3(include_notes=True)
+
+        with _workspace_tempdir() as temp_dir:
+            root = Path(temp_dir)
+            self._write_minimal_root(root)
+            dataset = dataset_cls(
+                root=str(root),
+                tables=["noteevents"],
+                cache_dir=root / "cache",
+                num_workers=1,
+            )
+
+            sample_dataset = dataset.set_task(task, num_workers=1)
+            sample = sample_dataset[0]
+
+            self.assertIn("age", sample)
+            self.assertIn("los_days", sample)
+            self.assertIn("gender", sample)
+            self.assertIn("insurance", sample)
+            self.assertIn("race", sample)
+            self.assertIn("clinical_notes", sample)
+            self.assertIn("in_hospital_mortality", sample)
+
+    def test_dataset_class_defaults_include_available_optional_tables(self):
+        dataset_cls = self.dataset_class_module.EOLMistrustDataset
+
+        with _workspace_tempdir() as temp_dir:
+            root = Path(temp_dir)
+            self._write_minimal_root(root)
+            self._write_optional_context_tables(root)
+            dataset = dataset_cls(
+                root=str(root),
+                cache_dir=root / "cache",
+                num_workers=1,
+            )
+
+            self.assertIn("noteevents", dataset.tables)
+            self.assertIn("chartevents", dataset.tables)
+            self.assertIn("diagnoses_icd", dataset.tables)
+            self.assertIn("procedures_icd", dataset.tables)
+            self.assertIn("prescriptions", dataset.tables)
+
+    def test_dataset_class_tracks_dataset_prepare_mode_for_normal_and_paper_like(self):
+        dataset_cls = self.dataset_class_module.EOLMistrustDataset
+
+        with _workspace_tempdir() as temp_dir:
+            root = Path(temp_dir)
+            self._write_minimal_root(root)
+
+            normal_dataset = dataset_cls(
+                root=str(root),
+                tables=["noteevents"],
+                dataset_prepare_mode="default",
+                cache_dir=root / "cache_normal",
+                num_workers=1,
+            )
+            paper_like_dataset = dataset_cls(
+                root=str(root),
+                tables=["noteevents"],
+                dataset_prepare_mode="paper_like",
+                cache_dir=root / "cache_paper_like",
+                num_workers=1,
+            )
+
+            self.assertEqual(normal_dataset.dataset_prepare_mode, "default")
+            self.assertFalse(normal_dataset.paper_like_dataset_prepare)
+            self.assertEqual(normal_dataset.code_status_mode, "corrected")
+            self.assertEqual(normal_dataset.autopsy_label_mode, "corrected")
+
+            self.assertEqual(paper_like_dataset.dataset_prepare_mode, "paper_like")
+            self.assertTrue(paper_like_dataset.paper_like_dataset_prepare)
+            self.assertEqual(paper_like_dataset.code_status_mode, "paper_like")
+            self.assertEqual(paper_like_dataset.autopsy_label_mode, "paper_like")
+
+    def test_dataset_class_rejects_unknown_dataset_prepare_mode(self):
+        dataset_cls = self.dataset_class_module.EOLMistrustDataset
+
+        with _workspace_tempdir() as temp_dir:
+            root = Path(temp_dir)
+            self._write_minimal_root(root)
+
+            with self.assertRaisesRegex(ValueError, "dataset_prepare_mode"):
+                dataset_cls(
+                    root=str(root),
+                    tables=["noteevents"],
+                    dataset_prepare_mode="mystery_mode",
+                    cache_dir=root / "cache",
+                    num_workers=1,
+                )
 
 
 if __name__ == "__main__":

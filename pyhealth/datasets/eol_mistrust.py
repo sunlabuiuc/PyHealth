@@ -2279,6 +2279,7 @@ def _assemble_final_model_table(
             "Final model table contains null subject_id values after admissions merge."
         )
     final["subject_id"] = pd.to_numeric(final["subject_id"], errors="raise").astype(int)
+    final = final.drop(columns=["subject_id"])
 
     final = final.sort_values("hadm_id").drop_duplicates("hadm_id")
     return final.reset_index(drop=True)

@@ -173,6 +173,75 @@ class TestEOLMistrustTask(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Unsupported EOL mistrust target"):
             self.module.EOLMistrustDownstreamMIMIC3(target="unknown")
 
+    def test_numeric_inputs_use_supported_tensor_processors(self):
+        task = self.module.EOLMistrustMortalityPredictionMIMIC3(include_notes=True)
+
+        self.assertEqual(task.input_schema["age"], "tensor")
+        self.assertEqual(task.input_schema["los_days"], "tensor")
+
+    def test_task_rejects_unknown_dataset_prepare_mode(self):
+        with self.assertRaisesRegex(ValueError, "dataset_prepare_mode"):
+            self.module.EOLMistrustMortalityPredictionMIMIC3(
+                dataset_prepare_mode="mystery_mode"
+            )
+
+    def test_paper_like_task_route_changes_code_status_and_los_representation(self):
+        normal_task = self.module.EOLMistrustCodeStatusPredictionMIMIC3(
+            include_notes=False,
+            dataset_prepare_mode="default",
+        )
+        paper_like_task = self.module.EOLMistrustCodeStatusPredictionMIMIC3(
+            include_notes=False,
+            dataset_prepare_mode="paper_like",
+        )
+        patient = _DummyPatient(
+            patient_id="subject-2",
+            events_by_type={
+                "patients": [
+                    _DummyEvent(gender="M", dob="2070-01-01 00:00:00"),
+                ],
+                "admissions": [
+                    _DummyEvent(
+                        hadm_id=302,
+                        admittime="2100-01-01 00:00:00",
+                        dischtime="2100-01-02 12:00:00",
+                        discharge_location="HOME",
+                        hospital_expire_flag=0,
+                        insurance="Medicare",
+                        ethnicity="WHITE",
+                    ),
+                ],
+                "chartevents": [
+                    _DummyEvent(
+                        hadm_id=302,
+                        itemid=128,
+                        value="Full Code",
+                        charttime="2100-01-02 11:00:00",
+                    ),
+                    _DummyEvent(
+                        hadm_id=302,
+                        itemid=128,
+                        value="DNR/DNI",
+                        charttime="2100-01-01 08:00:00",
+                    ),
+                ],
+            },
+        )
+
+        normal_sample = normal_task(patient)[0]
+        paper_like_sample = paper_like_task(patient)[0]
+
+        self.assertEqual(normal_task.dataset_prepare_mode, "default")
+        self.assertEqual(normal_task.code_status_mode, "corrected")
+        self.assertFalse(normal_task.paper_like_dataset_prepare)
+        self.assertEqual(paper_like_task.dataset_prepare_mode, "paper_like")
+        self.assertEqual(paper_like_task.code_status_mode, "paper_like")
+        self.assertTrue(paper_like_task.paper_like_dataset_prepare)
+        self.assertEqual(normal_sample["code_status_dnr_dni_cmo"], 0)
+        self.assertEqual(paper_like_sample["code_status_dnr_dni_cmo"], 1)
+        self.assertAlmostEqual(normal_sample["los_days"], 1.5)
+        self.assertAlmostEqual(paper_like_sample["los_days"], 12.0)
+
 
 if __name__ == "__main__":
     unittest.main()

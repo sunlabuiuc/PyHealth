@@ -48,6 +48,63 @@ tables:
       - "outtime"
       - "los"
 
+  diagnoses_icd:
+    file_path: "mimiciii_clinical/diagnoses_icd.csv"
+    patient_id: "subject_id"
+    join:
+      - file_path: "mimiciii_clinical/admissions.csv"
+        "on": "hadm_id"
+        how: "inner"
+        columns:
+          - "dischtime"
+    timestamp: "dischtime"
+    attributes:
+      - "hadm_id"
+      - "icd9_code"
+      - "seq_num"
+
+  prescriptions:
+    file_path: "mimiciii_clinical/prescriptions.csv"
+    patient_id: "subject_id"
+    timestamp: "startdate"
+    join:
+      - file_path: "mimiciii_clinical/admissions.csv"
+        "on": "hadm_id"
+        how: "inner"
+        columns:
+          - "dischtime"
+    attributes:
+      - "hadm_id"
+      - "drug"
+      - "drug_type"
+      - "drug_name_poe"
+      - "drug_name_generic"
+      - "formulary_drug_cd"
+      - "gsn"
+      - "ndc"
+      - "prod_strength"
+      - "dose_val_rx"
+      - "dose_unit_rx"
+      - "form_val_disp"
+      - "form_unit_disp"
+      - "route"
+      - "enddate"
+
+  procedures_icd:
+    file_path: "mimiciii_clinical/procedures_icd.csv"
+    patient_id: "subject_id"
+    join:
+      - file_path: "mimiciii_clinical/admissions.csv"
+        "on": "hadm_id"
+        how: "inner"
+        columns:
+          - "dischtime"
+    timestamp: "dischtime"
+    attributes:
+      - "hadm_id"
+      - "icd9_code"
+      - "seq_num"
+
   noteevents:
     file_path: "mimiciii_notes/noteevents.csv"
     patient_id: "subject_id"

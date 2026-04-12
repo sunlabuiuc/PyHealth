@@ -23,6 +23,8 @@ from .base_task import BaseTask
 CODE_STATUS_ITEMIDS = {128, 223758}
 CODE_STATUS_MODE_CORRECTED = "corrected"
 CODE_STATUS_MODE_PAPER_LIKE = "paper_like"
+DATASET_PREPARE_MODE_DEFAULT = "default"
+DATASET_PREPARE_MODE_PAPER_LIKE = "paper_like"
 
 CODE_STATUS_POSITIVE_SUBSTRINGS = (
     "dnr",
@@ -43,6 +45,17 @@ EOL_MISTRUST_TASK_MAP = OrderedDict(
         ("In-hospital mortality", "in_hospital_mortality"),
     ]
 )
+
+_DATASET_PREPARE_ROUTE_SETTINGS = {
+    DATASET_PREPARE_MODE_DEFAULT: {
+        "paper_like_dataset_prepare": False,
+        "code_status_mode": CODE_STATUS_MODE_CORRECTED,
+    },
+    DATASET_PREPARE_MODE_PAPER_LIKE: {
+        "paper_like_dataset_prepare": True,
+        "code_status_mode": CODE_STATUS_MODE_PAPER_LIKE,
+    },
+}
 
 
 def _require_columns(df: pd.DataFrame, required: Sequence[str], df_name: str) -> None:
@@ -75,6 +88,19 @@ def _normalize_code_status_mode(mode: str | None) -> str:
     return normalized
 
 
+def _normalize_dataset_prepare_mode(mode: str | None) -> str:
+    normalized = (
+        DATASET_PREPARE_MODE_DEFAULT if mode is None else str(mode).strip().lower()
+    )
+    if normalized not in _DATASET_PREPARE_ROUTE_SETTINGS:
+        raise ValueError(
+            "dataset_prepare_mode must be one of "
+            f"{DATASET_PREPARE_MODE_DEFAULT!r} or "
+            f"{DATASET_PREPARE_MODE_PAPER_LIKE!r}"
+        )
+    return normalized
+
+
 def _calculate_age_years(admittime, dob) -> float:
     admit_time = _coerce_timestamp(admittime)
     birth_time = _coerce_timestamp(dob)
@@ -94,6 +120,14 @@ def _calculate_los_days(admittime, dischtime) -> float:
     if pd.isna(admit_time) or pd.isna(discharge_time):
         return float("nan")
     return float((discharge_time - admit_time).total_seconds() / 86400.0)
+
+
+def _calculate_paper_like_los_days(admittime, dischtime) -> float:
+    admit_time = _coerce_timestamp(admittime)
+    discharge_time = _coerce_timestamp(dischtime)
+    if pd.isna(admit_time) or pd.isna(discharge_time):
+        return float("nan")
+    return float((discharge_time - admit_time).seconds / 3600.0)
 
 
 # ---------------------------------------------------------------------------
@@ -302,19 +336,30 @@ class EOLMistrustDownstreamMIMIC3(BaseTask):
     task_name = "EOLMistrustDownstreamMIMIC3"
 
     def __init__(
-        self, target: str = "in_hospital_mortality", include_notes: bool = False
+        self,
+        target: str = "in_hospital_mortality",
+        include_notes: bool = False,
+        dataset_prepare_mode: str = DATASET_PREPARE_MODE_DEFAULT,
     ) -> None:
         if target not in set(EOL_MISTRUST_TASK_MAP.values()):
             raise ValueError(f"Unsupported EOL mistrust target: {target}")
 
         self.target = target
         self.include_notes = include_notes
+        self.dataset_prepare_mode = _normalize_dataset_prepare_mode(
+            dataset_prepare_mode
+        )
+        route_settings = _DATASET_PREPARE_ROUTE_SETTINGS[self.dataset_prepare_mode]
+        self.paper_like_dataset_prepare = bool(
+            route_settings["paper_like_dataset_prepare"]
+        )
+        self.code_status_mode = str(route_settings["code_status_mode"])
         self.input_schema: dict[str, str] = {
             "conditions": "sequence",
             "procedures": "sequence",
             "drugs": "sequence",
-            "age": "float",
-            "los_days": "float",
+            "age": "tensor",
+            "los_days": "tensor",
             "gender": "text",
             "insurance": "text",
             "race": "text",
@@ -326,9 +371,7 @@ class EOLMistrustDownstreamMIMIC3(BaseTask):
     def _get_codes_for_admission(
         self, patient: Any, event_type: str, hadm_id
     ) -> list[str]:
-        events = patient.get_events(
-            event_type=event_type, filters=[("hadm_id", "==", hadm_id)]
-        )
+        events = self._get_events_for_admission(patient, event_type, hadm_id)
         values: list[str] = []
         for event in events:
             for attribute in ("icd9_code", "icd_code", "drug", "ndc"):
@@ -338,29 +381,39 @@ class EOLMistrustDownstreamMIMIC3(BaseTask):
                     break
         return values
 
+    def _get_events_for_admission(
+        self, patient: Any, event_type: str, hadm_id
+    ) -> list[Any]:
+        events = patient.get_events(event_type=event_type)
+        return [
+            event
+            for event in events
+            if getattr(event, "hadm_id", None) == hadm_id
+        ]
+
     def _get_note_text(self, patient: Any, hadm_id) -> str:
-        notes = patient.get_events(
-            event_type="noteevents", filters=[("hadm_id", "==", hadm_id)]
-        )
+        notes = self._get_events_for_admission(patient, "noteevents", hadm_id)
         return prepare_note_text(
             " ".join(str(getattr(note, "text", "")) for note in notes)
         )
 
     def _get_code_status_label(self, patient: Any, hadm_id) -> int:
-        events = patient.get_events(
-            event_type="chartevents", filters=[("hadm_id", "==", hadm_id)]
-        )
+        events = self._get_events_for_admission(patient, "chartevents", hadm_id)
         rows = [
             {
                 "hadm_id": getattr(event, "hadm_id", hadm_id),
                 "itemid": getattr(event, "itemid", None),
                 "value": getattr(event, "value", None),
+                "charttime": getattr(event, "charttime", None),
             }
             for event in events
         ]
         if not rows:
             return 0
-        target = build_code_status_target(pd.DataFrame(rows))
+        target = build_code_status_target(
+            pd.DataFrame(rows),
+            code_status_mode=self.code_status_mode,
+        )
         return 0 if target.empty else int(target["code_status_dnr_dni_cmo"].max())
 
     def _get_target_value(self, patient: Any, admission: Any) -> int:
@@ -417,8 +470,16 @@ class EOLMistrustDownstreamMIMIC3(BaseTask):
                         else None
                     ),
                 ),
-                "los_days": _calculate_los_days(
-                    admit_time, getattr(admission, "dischtime", None)
+                "los_days": (
+                    _calculate_paper_like_los_days(
+                        admit_time,
+                        getattr(admission, "dischtime", None),
+                    )
+                    if self.paper_like_dataset_prepare
+                    else _calculate_los_days(
+                        admit_time,
+                        getattr(admission, "dischtime", None),
+                    )
                 ),
                 "gender": (
                     getattr(patient_event, "gender", None)
@@ -442,8 +503,16 @@ class EOLMistrustLeftAMAPredictionMIMIC3(EOLMistrustDownstreamMIMIC3):
 
     task_name = "EOLMistrustLeftAMAPredictionMIMIC3"
 
-    def __init__(self, include_notes: bool = False) -> None:
-        super().__init__(target="left_ama", include_notes=include_notes)
+    def __init__(
+        self,
+        include_notes: bool = False,
+        dataset_prepare_mode: str = DATASET_PREPARE_MODE_DEFAULT,
+    ) -> None:
+        super().__init__(
+            target="left_ama",
+            include_notes=include_notes,
+            dataset_prepare_mode=dataset_prepare_mode,
+        )
 
 
 class EOLMistrustCodeStatusPredictionMIMIC3(EOLMistrustDownstreamMIMIC3):
@@ -451,8 +520,16 @@ class EOLMistrustCodeStatusPredictionMIMIC3(EOLMistrustDownstreamMIMIC3):
 
     task_name = "EOLMistrustCodeStatusPredictionMIMIC3"
 
-    def __init__(self, include_notes: bool = False) -> None:
-        super().__init__(target="code_status_dnr_dni_cmo", include_notes=include_notes)
+    def __init__(
+        self,
+        include_notes: bool = False,
+        dataset_prepare_mode: str = DATASET_PREPARE_MODE_DEFAULT,
+    ) -> None:
+        super().__init__(
+            target="code_status_dnr_dni_cmo",
+            include_notes=include_notes,
+            dataset_prepare_mode=dataset_prepare_mode,
+        )
 
 
 class EOLMistrustMortalityPredictionMIMIC3(EOLMistrustDownstreamMIMIC3):
@@ -460,14 +537,24 @@ class EOLMistrustMortalityPredictionMIMIC3(EOLMistrustDownstreamMIMIC3):
 
     task_name = "EOLMistrustMortalityPredictionMIMIC3"
 
-    def __init__(self, include_notes: bool = False) -> None:
-        super().__init__(target="in_hospital_mortality", include_notes=include_notes)
+    def __init__(
+        self,
+        include_notes: bool = False,
+        dataset_prepare_mode: str = DATASET_PREPARE_MODE_DEFAULT,
+    ) -> None:
+        super().__init__(
+            target="in_hospital_mortality",
+            include_notes=include_notes,
+            dataset_prepare_mode=dataset_prepare_mode,
+        )
 
 
 __all__ = [
     "CODE_STATUS_ITEMIDS",
     "CODE_STATUS_MODE_CORRECTED",
     "CODE_STATUS_MODE_PAPER_LIKE",
+    "DATASET_PREPARE_MODE_DEFAULT",
+    "DATASET_PREPARE_MODE_PAPER_LIKE",
     "EOL_MISTRUST_TASK_MAP",
     "EOLMistrustCodeStatusPredictionMIMIC3",
     "EOLMistrustDownstreamMIMIC3",

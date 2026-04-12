@@ -259,8 +259,8 @@ def _default_estimator_factory() -> object:
         penalty="l1",
         C=DEFAULT_LOGISTIC_C,
         solver="liblinear",
-        max_iter=1000,
-        tol=0.001,
+        max_iter=100,
+        tol=0.01,
     )
 
 
@@ -270,8 +270,8 @@ def build_logistic_estimator_factory(
     class_weight: str | Mapping[int, float] | None = None,
     penalty: str = "l1",
     solver: str = "liblinear",
-    max_iter: int = 1000,
-    tol: float = 0.001,
+    max_iter: int = 100,
+    tol: float = 0.01,
 ) -> Callable[[], object]:
     """Return a reusable sklearn logistic-regression factory."""
 

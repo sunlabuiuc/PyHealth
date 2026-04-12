@@ -1,10 +1,17 @@
 import importlib.util
 import importlib
+import shutil
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 import pandas as pd
+import torch
+from pyhealth.datasets.sample_dataset import create_sample_dataset
+from pyhealth.datasets.utils import get_dataloader
+from pyhealth.models.base_model import BaseModel
+from pyhealth.trainer import Trainer
 
 
 def _load_model_module():
@@ -13,6 +20,57 @@ def _load_model_module():
     )
     spec = importlib.util.spec_from_file_location(
         "pyhealth.models.eol_mistrust_model_tests",
+        module_path,
+    )
+    module = importlib.util.module_from_spec(spec)
+    assert spec is not None and spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+def _load_classifier_module():
+    module_path = (
+        Path(__file__).resolve().parents[2]
+        / "pyhealth"
+        / "models"
+        / "eol_mistrust_classifier.py"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "pyhealth.models.eol_mistrust_classifier_tests",
+        module_path,
+    )
+    module = importlib.util.module_from_spec(spec)
+    assert spec is not None and spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+def _load_dataset_class_module():
+    module_path = (
+        Path(__file__).resolve().parents[2]
+        / "pyhealth"
+        / "datasets"
+        / "eol_mistrust_dataset.py"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "pyhealth.datasets.eol_mistrust_classifier_integration_tests",
+        module_path,
+    )
+    module = importlib.util.module_from_spec(spec)
+    assert spec is not None and spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+def _load_task_module():
+    module_path = (
+        Path(__file__).resolve().parents[2]
+        / "pyhealth"
+        / "tasks"
+        / "eol_mistrust.py"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "pyhealth.tasks.eol_mistrust_classifier_integration_tests",
         module_path,
     )
     module = importlib.util.module_from_spec(spec)
@@ -367,8 +425,8 @@ class TestEOLMistrustModel(unittest.TestCase):
         self.assertEqual(created[0].kwargs.get("penalty"), "l1")
         self.assertEqual(created[0].kwargs.get("C"), 0.1)
         self.assertEqual(created[0].kwargs.get("solver"), "liblinear")
-        self.assertEqual(created[0].kwargs.get("max_iter"), 1000)
-        self.assertEqual(created[0].kwargs.get("tol"), 0.001)
+        self.assertEqual(created[0].kwargs.get("max_iter"), 100)
+        self.assertEqual(created[0].kwargs.get("tol"), 0.01)
         self.assertEqual(len(created[0].fit_X), len(self.feature_matrix))
         self.assertEqual(len(created[0].fit_y), len(self.note_labels))
 
@@ -1123,8 +1181,8 @@ class TestEOLMistrustModel(unittest.TestCase):
         self.assertEqual(created[0].kwargs.get("penalty"), "l1")
         self.assertEqual(created[0].kwargs.get("C"), 0.1)
         self.assertEqual(created[0].kwargs.get("solver"), "liblinear")
-        self.assertEqual(created[0].kwargs.get("max_iter"), 1000)
-        self.assertEqual(created[0].kwargs.get("tol"), 0.001)
+        self.assertEqual(created[0].kwargs.get("max_iter"), 100)
+        self.assertEqual(created[0].kwargs.get("tol"), 0.01)
         self.assertEqual(auc_calls[0]["y_prob"], [0.1, 0.9])
         self.assertEqual(int(results.iloc[0]["n_valid_auc"]), 1)
 
@@ -1612,7 +1670,6 @@ class TestEOLMistrustModel(unittest.TestCase):
             set(baseline_only.columns),
             {
                 "hadm_id",
-                "subject_id",
                 *self.module.BASELINE_FEATURE_COLUMNS,
                 "left_ama",
                 "code_status_dnr_dni_cmo",
@@ -1779,8 +1836,8 @@ class TestEOLMistrustModel(unittest.TestCase):
         )
 
         self.assertEqual(scores.shape[1], 4)
-        self.assertEqual(final_model_table.shape[1], 21)
-        self.assertIn("subject_id", final_model_table.columns)
+        self.assertEqual(final_model_table.shape[1], 20)
+        self.assertNotIn("subject_id", final_model_table.columns)
         self.assertEqual(outputs["downstream_auc_results"].shape[0], 18)
         self.assertEqual(scores["hadm_id"].tolist(), final_model_table["hadm_id"].tolist())
 
@@ -2117,6 +2174,559 @@ class TestEOLMistrustModel(unittest.TestCase):
             repetitions=4,
         )
         pd.testing.assert_frame_equal(first, second)
+
+
+class TestEOLMistrustClassifier(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.module = _load_classifier_module()
+        cls.dataset_class_module = _load_dataset_class_module()
+        cls.task_module = _load_task_module()
+        cls._tmp_dirs: list[Path] = []
+        cls._default_full = cls._build_route(
+            dataset_prepare_mode="default",
+            cache_subdir="cache_default_shared",
+        )
+        cls._paperlike_full = cls._build_route(
+            dataset_prepare_mode="paper_like",
+            cache_subdir="cache_paperlike_shared",
+        )
+
+    @classmethod
+    def tearDownClass(cls):
+        for path in getattr(cls, "_tmp_dirs", []):
+            shutil.rmtree(path, ignore_errors=True)
+        cls._tmp_dirs = []
+
+    @classmethod
+    def _build_route(
+        cls,
+        *,
+        dataset_prepare_mode: str,
+        cache_subdir: str,
+    ) -> dict[str, object]:
+        temp_dir = Path(
+            tempfile.mkdtemp(dir=Path(__file__).resolve().parents[2])
+        )
+        cls._tmp_dirs.append(temp_dir)
+
+        cls._write_minimal_root(temp_dir)
+        cls._write_full_feature_tables(temp_dir)
+
+        dataset_cls = cls.dataset_class_module.EOLMistrustDataset
+        dataset = dataset_cls(
+            root=str(temp_dir),
+            tables=None,
+            dataset_prepare_mode=dataset_prepare_mode,
+            cache_dir=temp_dir / cache_subdir,
+            num_workers=1,
+        )
+        task = cls.task_module.EOLMistrustMortalityPredictionMIMIC3(
+            include_notes=True,
+            dataset_prepare_mode=dataset_prepare_mode,
+        )
+        sample_dataset = dataset.set_task(task, num_workers=1)
+        model = cls.module.EOLMistrustClassifier(
+            dataset=sample_dataset,
+            embedding_dim=8,
+            hidden_dim=16,
+            text_hash_buckets=64,
+        )
+        batch = next(
+            iter(
+                get_dataloader(
+                    sample_dataset,
+                    batch_size=2,
+                    shuffle=False,
+                )
+            )
+        )
+        outputs = model(**batch)
+        sample_by_visit = {
+            int(sample_dataset[index]["visit_id"]): sample_dataset[index]
+            for index in range(len(sample_dataset))
+        }
+        return {
+            "dataset": dataset,
+            "task": task,
+            "sample_dataset": sample_dataset,
+            "model": model,
+            "outputs": outputs,
+            "sample_by_visit": sample_by_visit,
+        }
+
+    @staticmethod
+    def _write_minimal_root(root: Path) -> None:
+        (root / "mimiciii_clinical").mkdir(parents=True, exist_ok=True)
+        (root / "mimiciii_notes").mkdir(parents=True, exist_ok=True)
+        (root / "mimiciii_derived").mkdir(parents=True, exist_ok=True)
+
+        pd.DataFrame(
+            [
+                {
+                    "subject_id": 1,
+                    "gender": "F",
+                    "dob": "2070-01-01 00:00:00",
+                    "dod": "",
+                    "dod_hosp": "",
+                    "dod_ssn": "",
+                    "expire_flag": 0,
+                },
+                {
+                    "subject_id": 2,
+                    "gender": "M",
+                    "dob": "2065-01-01 00:00:00",
+                    "dod": "",
+                    "dod_hosp": "",
+                    "dod_ssn": "",
+                    "expire_flag": 0,
+                },
+            ]
+        ).to_csv(root / "mimiciii_clinical" / "patients.csv", index=False)
+
+        pd.DataFrame(
+            [
+                {
+                    "row_id": 1,
+                    "subject_id": 1,
+                    "hadm_id": 101,
+                    "admittime": "2100-01-01 00:00:00",
+                    "dischtime": "2100-01-03 00:00:00",
+                    "deathtime": "",
+                    "admission_type": "EMERGENCY",
+                    "admission_location": "EMERGENCY ROOM",
+                    "discharge_location": "HOME",
+                    "insurance": "Private",
+                    "language": "ENGLISH",
+                    "religion": "CATHOLIC",
+                    "marital_status": "MARRIED",
+                    "ethnicity": "WHITE",
+                    "edregtime": "",
+                    "edouttime": "",
+                    "diagnosis": "SEPSIS",
+                    "hospital_expire_flag": 0,
+                    "has_chartevents_data": 1,
+                },
+                {
+                    "row_id": 2,
+                    "subject_id": 2,
+                    "hadm_id": 102,
+                    "admittime": "2100-02-01 00:00:00",
+                    "dischtime": "2100-02-04 12:00:00",
+                    "deathtime": "",
+                    "admission_type": "EMERGENCY",
+                    "admission_location": "EMERGENCY ROOM",
+                    "discharge_location": "HOME",
+                    "insurance": "Medicare",
+                    "language": "ENGLISH",
+                    "religion": "CATHOLIC",
+                    "marital_status": "WIDOWED",
+                    "ethnicity": "BLACK/AFRICAN AMERICAN",
+                    "edregtime": "",
+                    "edouttime": "",
+                    "diagnosis": "PNEUMONIA",
+                    "hospital_expire_flag": 1,
+                    "has_chartevents_data": 1,
+                },
+            ]
+        ).to_csv(root / "mimiciii_clinical" / "admissions.csv", index=False)
+
+        pd.DataFrame(
+            [
+                {
+                    "row_id": 1,
+                    "subject_id": 1,
+                    "hadm_id": 101,
+                    "icustay_id": 1001,
+                    "dbsource": "metavision",
+                    "first_careunit": "MICU",
+                    "last_careunit": "MICU",
+                    "first_wardid": 1,
+                    "last_wardid": 1,
+                    "intime": "2100-01-01 00:00:00",
+                    "outtime": "2100-01-02 00:00:00",
+                    "los": 1.0,
+                },
+                {
+                    "row_id": 2,
+                    "subject_id": 2,
+                    "hadm_id": 102,
+                    "icustay_id": 1002,
+                    "dbsource": "metavision",
+                    "first_careunit": "MICU",
+                    "last_careunit": "MICU",
+                    "first_wardid": 1,
+                    "last_wardid": 1,
+                    "intime": "2100-02-01 00:00:00",
+                    "outtime": "2100-02-02 00:00:00",
+                    "los": 1.0,
+                },
+            ]
+        ).to_csv(root / "mimiciii_clinical" / "icustays.csv", index=False)
+
+        pd.DataFrame(
+            [
+                {
+                    "row_id": 1,
+                    "subject_id": 1,
+                    "hadm_id": 101,
+                    "chartdate": "2100-01-01",
+                    "charttime": "2100-01-01 12:00:00",
+                    "storetime": "2100-01-01 13:00:00",
+                    "category": "Nursing",
+                    "description": "Report",
+                    "cgid": 1,
+                    "iserror": 0,
+                    "text": "Family meeting note and goals of care discussion.",
+                },
+                {
+                    "row_id": 2,
+                    "subject_id": 2,
+                    "hadm_id": 102,
+                    "chartdate": "2100-02-01",
+                    "charttime": "2100-02-01 12:00:00",
+                    "storetime": "2100-02-01 13:00:00",
+                    "category": "Nursing",
+                    "description": "Report",
+                    "cgid": 2,
+                    "iserror": 0,
+                    "text": "Patient declining treatment and family distressed.",
+                },
+            ]
+        ).to_csv(root / "mimiciii_notes" / "noteevents.csv", index=False)
+
+    @staticmethod
+    def _write_full_feature_tables(root: Path) -> None:
+        pd.DataFrame(
+            [
+                {
+                    "itemid": 128,
+                    "label": "Code Status",
+                    "abbreviation": "",
+                    "dbsource": "carevue",
+                    "linksto": "chartevents",
+                    "category": "",
+                    "unitname": "",
+                    "param_type": "",
+                    "conceptid": "",
+                }
+            ]
+        ).to_csv(root / "mimiciii_clinical" / "d_items.csv", index=False)
+
+        pd.DataFrame(
+            [
+                {
+                    "subject_id": 1,
+                    "hadm_id": 101,
+                    "icustay_id": 1001,
+                    "itemid": 128,
+                    "charttime": "2100-01-01 08:00:00",
+                    "storetime": "2100-01-01 08:30:00",
+                    "cgid": 1,
+                    "value": "DNR/DNI",
+                    "valuenum": "",
+                    "valueuom": "",
+                    "warning": "",
+                    "error": "",
+                    "resultstatus": "",
+                    "stopped": "",
+                },
+                {
+                    "subject_id": 2,
+                    "hadm_id": 102,
+                    "icustay_id": 1002,
+                    "itemid": 128,
+                    "charttime": "2100-02-04 11:00:00",
+                    "storetime": "2100-02-04 11:30:00",
+                    "cgid": 2,
+                    "value": "Full Code",
+                    "valuenum": "",
+                    "valueuom": "",
+                    "warning": "",
+                    "error": "",
+                    "resultstatus": "",
+                    "stopped": "",
+                },
+                {
+                    "subject_id": 2,
+                    "hadm_id": 102,
+                    "icustay_id": 1002,
+                    "itemid": 128,
+                    "charttime": "2100-02-01 08:00:00",
+                    "storetime": "2100-02-01 08:30:00",
+                    "cgid": 2,
+                    "value": "DNR/DNI",
+                    "valuenum": "",
+                    "valueuom": "",
+                    "warning": "",
+                    "error": "",
+                    "resultstatus": "",
+                    "stopped": "",
+                },
+            ]
+        ).to_csv(root / "mimiciii_clinical" / "chartevents.csv", index=False)
+
+        pd.DataFrame(
+            [
+                {"subject_id": 1, "hadm_id": 101, "seq_num": 1, "icd9_code": "0389"},
+                {"subject_id": 2, "hadm_id": 102, "seq_num": 1, "icd9_code": "486"},
+            ]
+        ).to_csv(root / "mimiciii_clinical" / "diagnoses_icd.csv", index=False)
+
+        pd.DataFrame(
+            [
+                {"subject_id": 1, "hadm_id": 101, "seq_num": 1, "icd9_code": "3893"},
+                {"subject_id": 2, "hadm_id": 102, "seq_num": 1, "icd9_code": "9671"},
+            ]
+        ).to_csv(root / "mimiciii_clinical" / "procedures_icd.csv", index=False)
+
+        pd.DataFrame(
+            [
+                {
+                    "subject_id": 1,
+                    "hadm_id": 101,
+                    "startdate": "2100-01-01 00:00:00",
+                    "enddate": "2100-01-02 00:00:00",
+                    "drug": "Aspirin",
+                    "drug_type": "MAIN",
+                    "drug_name_poe": "Aspirin",
+                    "drug_name_generic": "Aspirin",
+                    "formulary_drug_cd": "ASP",
+                    "gsn": "",
+                    "ndc": "",
+                    "prod_strength": "81 mg",
+                    "dose_val_rx": "81",
+                    "dose_unit_rx": "mg",
+                    "form_val_disp": "1",
+                    "form_unit_disp": "tab",
+                    "route": "PO",
+                },
+                {
+                    "subject_id": 2,
+                    "hadm_id": 102,
+                    "startdate": "2100-02-01 00:00:00",
+                    "enddate": "2100-02-02 00:00:00",
+                    "drug": "Heparin",
+                    "drug_type": "MAIN",
+                    "drug_name_poe": "Heparin",
+                    "drug_name_generic": "Heparin",
+                    "formulary_drug_cd": "HEP",
+                    "gsn": "",
+                    "ndc": "",
+                    "prod_strength": "5000 unit",
+                    "dose_val_rx": "5000",
+                    "dose_unit_rx": "unit",
+                    "form_val_disp": "1",
+                    "form_unit_disp": "dose",
+                    "route": "IV",
+                },
+            ]
+        ).to_csv(root / "mimiciii_clinical" / "prescriptions.csv", index=False)
+
+    def test_classifier_inherits_base_model_and_supports_task_like_inputs(self):
+        samples = [
+            {
+                "patient_id": "p1",
+                "visit_id": "v1",
+                "conditions": ["4019", "25000"],
+                "procedures": ["3893"],
+                "drugs": ["Aspirin"],
+                "age": 70.0,
+                "los_days": 5.0,
+                "gender": "F",
+                "insurance": "Private",
+                "race": "WHITE",
+                "clinical_notes": "family meeting note",
+                "label": 1,
+            },
+            {
+                "patient_id": "p2",
+                "visit_id": "v2",
+                "conditions": ["486"],
+                "procedures": ["9671"],
+                "drugs": ["Heparin"],
+                "age": 80.0,
+                "los_days": 8.0,
+                "gender": "M",
+                "insurance": "Public",
+                "race": "BLACK",
+                "clinical_notes": "patient declining treatment",
+                "label": 0,
+            },
+        ]
+        dataset = create_sample_dataset(
+            samples=samples,
+            input_schema={
+                "conditions": "sequence",
+                "procedures": "sequence",
+                "drugs": "sequence",
+                "age": "tensor",
+                "los_days": "tensor",
+                "gender": "text",
+                "insurance": "text",
+                "race": "text",
+                "clinical_notes": "text",
+            },
+            output_schema={"label": "binary"},
+            dataset_name="eol_mistrust_classifier_test",
+        )
+
+        model = self.module.EOLMistrustClassifier(
+            dataset=dataset,
+            embedding_dim=8,
+            hidden_dim=16,
+            text_hash_buckets=64,
+        )
+        self.assertTrue(issubclass(self.module.EOLMistrustClassifier, BaseModel))
+
+        batch = next(iter(get_dataloader(dataset, batch_size=2, shuffle=False)))
+        outputs = model(**batch)
+
+        self.assertEqual(set(outputs.keys()), {"loss", "y_prob", "y_true", "logit"})
+        self.assertEqual(tuple(outputs["logit"].shape), (2, 1))
+        self.assertEqual(tuple(outputs["y_prob"].shape), (2, 1))
+        self.assertEqual(tuple(outputs["y_true"].shape), (2, 1))
+
+        outputs["loss"].backward()
+        self.assertIsNotNone(model.output_layer.weight.grad)
+        self.assertTrue(torch.isfinite(outputs["loss"]).item())
+
+    def test_classifier_runs_on_samples_from_eol_mistrust_dataset_task_pipeline(self):
+        dataset_cls = self.dataset_class_module.EOLMistrustDataset
+        task = self.task_module.EOLMistrustMortalityPredictionMIMIC3(
+            include_notes=True
+        )
+
+        temp_dir = tempfile.mkdtemp(dir=Path(__file__).resolve().parents[2])
+        try:
+            root = Path(temp_dir)
+            self._write_minimal_root(root)
+            dataset = dataset_cls(
+                root=str(root),
+                tables=["noteevents"],
+                cache_dir=root / "cache",
+                num_workers=1,
+            )
+            sample_dataset = dataset.set_task(task, num_workers=1)
+            model = self.module.EOLMistrustClassifier(
+                dataset=sample_dataset,
+                embedding_dim=8,
+                hidden_dim=16,
+                text_hash_buckets=64,
+            )
+
+            batch = next(iter(get_dataloader(sample_dataset, batch_size=2, shuffle=False)))
+            outputs = model(**batch)
+            del batch
+            del model
+            del sample_dataset
+            del dataset
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+        self.assertEqual(tuple(outputs["logit"].shape), (2, 1))
+        self.assertEqual(tuple(outputs["y_prob"].shape), (2, 1))
+        self.assertEqual(tuple(outputs["y_true"].shape), (2, 1))
+        self.assertTrue(torch.isfinite(outputs["loss"]).item())
+
+    def test_classifier_runs_end_to_end_for_normal_full_feature_path(self):
+        results = self._default_full
+
+        dataset = results["dataset"]
+        task = results["task"]
+        sample_by_visit = results["sample_by_visit"]
+        outputs = results["outputs"]
+
+        self.assertEqual(dataset.dataset_prepare_mode, "default")
+        self.assertFalse(dataset.paper_like_dataset_prepare)
+        self.assertEqual(task.dataset_prepare_mode, "default")
+        self.assertIn("diagnoses_icd", dataset.tables)
+        self.assertIn("procedures_icd", dataset.tables)
+        self.assertIn("prescriptions", dataset.tables)
+        self.assertIn("chartevents", dataset.tables)
+        self.assertIn("noteevents", dataset.tables)
+        self.assertGreater(
+            int(torch.count_nonzero(sample_by_visit[101]["conditions"]).item()),
+            0,
+        )
+        self.assertGreater(
+            int(torch.count_nonzero(sample_by_visit[101]["procedures"]).item()),
+            0,
+        )
+        self.assertGreater(
+            int(torch.count_nonzero(sample_by_visit[101]["drugs"]).item()),
+            0,
+        )
+        self.assertAlmostEqual(
+            float(sample_by_visit[102]["los_days"].view(-1)[0].item()),
+            3.5,
+        )
+        self.assertEqual(tuple(outputs["logit"].shape), (2, 1))
+        self.assertTrue(torch.isfinite(outputs["loss"]).item())
+
+    def test_classifier_runs_end_to_end_for_paper_like_full_feature_path(self):
+        results = self._paperlike_full
+
+        dataset = results["dataset"]
+        task = results["task"]
+        sample_by_visit = results["sample_by_visit"]
+        outputs = results["outputs"]
+
+        self.assertEqual(dataset.dataset_prepare_mode, "paper_like")
+        self.assertTrue(dataset.paper_like_dataset_prepare)
+        self.assertEqual(task.dataset_prepare_mode, "paper_like")
+        self.assertEqual(task.code_status_mode, "paper_like")
+        self.assertGreater(
+            int(torch.count_nonzero(sample_by_visit[101]["conditions"]).item()),
+            0,
+        )
+        self.assertGreater(
+            int(torch.count_nonzero(sample_by_visit[101]["procedures"]).item()),
+            0,
+        )
+        self.assertGreater(
+            int(torch.count_nonzero(sample_by_visit[101]["drugs"]).item()),
+            0,
+        )
+        self.assertAlmostEqual(
+            float(sample_by_visit[102]["los_days"].view(-1)[0].item()),
+            12.0,
+        )
+        self.assertEqual(tuple(outputs["logit"].shape), (2, 1))
+        self.assertTrue(torch.isfinite(outputs["loss"]).item())
+
+    def test_classifier_can_train_and_evaluate_on_normal_full_feature_path(self):
+        sample_dataset = self._default_full["sample_dataset"]
+        model = self.module.EOLMistrustClassifier(
+            dataset=sample_dataset,
+            embedding_dim=8,
+            hidden_dim=16,
+            text_hash_buckets=64,
+        )
+
+        train_loader = get_dataloader(sample_dataset, batch_size=2, shuffle=True)
+        eval_loader = get_dataloader(sample_dataset, batch_size=2, shuffle=False)
+        trainer = Trainer(
+            model=model,
+            metrics=["accuracy"],
+            device="cpu",
+            enable_logging=False,
+        )
+        trainer.train(
+            train_dataloader=train_loader,
+            val_dataloader=eval_loader,
+            test_dataloader=eval_loader,
+            epochs=1,
+            monitor="accuracy",
+            load_best_model_at_last=False,
+        )
+        scores = trainer.evaluate(eval_loader)
+
+        self.assertIn("accuracy", scores)
+        self.assertIn("loss", scores)
+        self.assertGreaterEqual(float(scores["accuracy"]), 0.0)
+        self.assertLessEqual(float(scores["accuracy"]), 1.0)
+        self.assertTrue(torch.isfinite(torch.tensor(float(scores["loss"]))).item())
 
 
 if __name__ == "__main__":

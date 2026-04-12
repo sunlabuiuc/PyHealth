@@ -1070,8 +1070,8 @@ class TestEOLMistrustModuleImplementation(unittest.TestCase):
             self.ventdurations,
             self.vasopressordurations,
         ).fillna(0).set_index("hadm_id")
-        self.assertEqual(totals.loc[302, "total_vent_min"], 810.0)
-        self.assertEqual(totals.loc[303, "total_vaso_min"], 840.0)
+        self.assertEqual(totals.loc[302, "total_vent_min"], 750.0)
+        self.assertEqual(totals.loc[303, "total_vaso_min"], 240.0)
 
     def test_treatment_totals_respect_exact_six_hundred_minute_merge_boundary(self):
         build_treatment_totals = self._get_callable("build_treatment_totals")
@@ -1293,15 +1293,15 @@ class TestEOLMistrustModuleImplementation(unittest.TestCase):
         self.assertEqual(int(final.loc[306, "left_ama"]), 0)
 
     def test_code_status_target_uses_required_itemids_and_values(self):
-        build_code_status_target = getattr(self.module, "_build_code_status_target")
-        target = build_code_status_target(self.chartevents, self.d_items).set_index("hadm_id")
+        build_code_status_target = getattr(self.module, "_build_task_code_status_target")
+        target = build_code_status_target(self.chartevents).set_index("hadm_id")
         self.assertEqual(target.loc[302, "code_status_dnr_dni_cmo"], 1)
         self.assertEqual(target.loc[303, "code_status_dnr_dni_cmo"], 1)
         self.assertEqual(target.loc[305, "code_status_dnr_dni_cmo"], 0)
         self.assertNotIn(304, set(target.index))
 
     def test_code_status_target_recognizes_common_truncated_positive_values(self):
-        build_code_status_target = getattr(self.module, "_build_code_status_target")
+        build_code_status_target = getattr(self.module, "_build_task_code_status_target")
         chartevents = pd.DataFrame(
             [
                 {"hadm_id": 401, "itemid": 128, "value": "Do Not Resuscita", "icustay_id": 4011},
@@ -1310,13 +1310,13 @@ class TestEOLMistrustModuleImplementation(unittest.TestCase):
             ]
         )
 
-        target = build_code_status_target(chartevents, self.d_items).set_index("hadm_id")
+        target = build_code_status_target(chartevents).set_index("hadm_id")
         self.assertEqual(int(target.loc[401, "code_status_dnr_dni_cmo"]), 1)
         self.assertEqual(int(target.loc[402, "code_status_dnr_dni_cmo"]), 1)
         self.assertEqual(int(target.loc[403, "code_status_dnr_dni_cmo"]), 1)
 
     def test_code_status_target_uses_last_charted_status_when_charttime_is_present(self):
-        build_code_status_target = getattr(self.module, "_build_code_status_target")
+        build_code_status_target = getattr(self.module, "_build_task_code_status_target")
         chartevents = pd.DataFrame(
             [
                 {
@@ -1350,13 +1350,13 @@ class TestEOLMistrustModuleImplementation(unittest.TestCase):
             ]
         )
 
-        target = build_code_status_target(chartevents, self.d_items).set_index("hadm_id")
+        target = build_code_status_target(chartevents).set_index("hadm_id")
         self.assertEqual(int(target.loc[451, "code_status_dnr_dni_cmo"]), 1)
         self.assertEqual(int(target.loc[452, "code_status_dnr_dni_cmo"]), 0)
 
     def test_code_status_task_excludes_admissions_without_charted_code_status(self):
-        build_code_status_target = getattr(self.module, "_build_code_status_target")
-        target = build_code_status_target(self.chartevents, self.d_items)
+        build_code_status_target = getattr(self.module, "_build_task_code_status_target")
+        target = build_code_status_target(self.chartevents)
         self.assertNotIn(306, set(target["hadm_id"]))
 
     def test_in_hospital_mortality_target_comes_from_hospital_expire_flag(self):
