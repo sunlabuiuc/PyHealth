@@ -43,7 +43,8 @@ from pyhealth.processors.dermoscopic_image_processor import VALID_MODES
 from pyhealth.tasks import ISIC2018ArtifactsBinaryClassification
 from pyhealth.trainer import Trainer
 
-parser = argparse.ArgumentParser(description="Train ISIC2018 artifact classifier")
+parser = argparse.ArgumentParser(
+    description="Train ISIC2018 artifact classifier")
 parser.add_argument(
     "--root",
     type=str,
@@ -86,9 +87,15 @@ parser.add_argument("--batch_size", type=int, default=32)
 parser.add_argument("--lr", type=float, default=1e-4)
 parser.add_argument("--n_splits", type=int, default=5)
 parser.add_argument("--seed", type=int, default=42)
-parser.add_argument("--sigma", type=float, default=1.0,
+parser.add_argument(
+    "--sigma",
+    type=float,
+    default=1.0,
     help="Gaussian sigma for high_* / low_* filter modes (default: 1.0).")
-parser.add_argument("--download", action="store_true", help="Auto-download data.")
+parser.add_argument(
+    "--download",
+    action="store_true",
+    help="Auto-download data.")
 args = parser.parse_args()
 
 # Route PyHealth trainer logs to stdout so per-epoch metrics are visible.
@@ -178,15 +185,22 @@ if __name__ == "__main__":
     labels = np.array([samples[i]["label"] for i in range(len(samples))])
     indices = np.arange(len(labels))
 
-    skf = StratifiedKFold(n_splits=args.n_splits, shuffle=True, random_state=args.seed)
+    skf = StratifiedKFold(
+        n_splits=args.n_splits,
+        shuffle=True,
+        random_state=args.seed)
 
-    output_dir = os.path.join(args.root, "checkpoints", f"{args.mode}_sigma{args.sigma}")
+    output_dir = os.path.join(
+        args.root, "checkpoints", f"{
+            args.mode}_sigma{
+            args.sigma}")
     os.makedirs(output_dir, exist_ok=True)
 
-    for fold, (train_val_idx, test_idx) in enumerate(skf.split(indices, labels), start=1):
-        print(f"\n{'='*60}")
+    for fold, (train_val_idx, test_idx) in enumerate(
+            skf.split(indices, labels), start=1):
+        print(f"\n{'=' * 60}")
         print(f"  Mode: {args.mode}  |  Split {fold}/{args.n_splits}")
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
 
         # Use 10% of train_val as validation
         val_size = max(1, int(0.1 * len(train_val_idx)))
@@ -235,4 +249,3 @@ if __name__ == "__main__":
         print(f"Mode: {args.mode}  Split {fold} test results: {scores}")
 
     samples.close()
-

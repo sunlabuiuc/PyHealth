@@ -56,7 +56,12 @@ _IMAGENET_MEAN = [0.485, 0.456, 0.406]
 _IMAGENET_STD = [0.229, 0.224, 0.225]
 
 
-def _high_pass_filter(image: np.ndarray, sigma: float = 1, filter_size: tuple = (0, 0)) -> np.ndarray:
+def _high_pass_filter(
+    image: np.ndarray,
+    sigma: float = 1,
+    filter_size: tuple = (
+        0,
+        0)) -> np.ndarray:
     """Return a grayscale high-pass–filtered image (3-channel output)."""
     gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY).astype(np.float32)
     blurred = cv2.GaussianBlur(gray, filter_size, sigma)
@@ -66,7 +71,12 @@ def _high_pass_filter(image: np.ndarray, sigma: float = 1, filter_size: tuple = 
     return cv2.cvtColor(hp_uint8, cv2.COLOR_GRAY2RGB)
 
 
-def _low_pass_filter(image: np.ndarray, sigma: float = 1, filter_size: tuple = (0, 0)) -> np.ndarray:
+def _low_pass_filter(
+    image: np.ndarray,
+    sigma: float = 1,
+    filter_size: tuple = (
+        0,
+        0)) -> np.ndarray:
     """Return a Gaussian-blurred (low-pass) image."""
     blurred = cv2.GaussianBlur(image, filter_size, sigma)
     return blurred.astype(np.uint8)
@@ -175,7 +185,8 @@ class DermoscopicImageProcessor(FeatureProcessor):
 
             if self.mode == "bbox":
                 out = image.copy()
-                cv2.rectangle(out, (x_min, y_min), (x_max, y_max), (0, 0, 0), thickness=-1)
+                cv2.rectangle(
+                    out, (x_min, y_min), (x_max, y_max), (0, 0, 0), thickness=-1)
                 return out
 
             expand_ratio = 0.7 if self.mode == "bbox70" else 0.9
@@ -191,7 +202,8 @@ class DermoscopicImageProcessor(FeatureProcessor):
             x_min = max(0, cx - new_w // 2)
             x_max = min(img_w, cx + new_w // 2)
             out = image.copy()
-            cv2.rectangle(out, (x_min, y_min), (x_max, y_max), (0, 0, 0), thickness=-1)
+            cv2.rectangle(out, (x_min, y_min), (x_max, y_max),
+                          (0, 0, 0), thickness=-1)
             return out
 
         # Frequency-filter modes
@@ -203,8 +215,16 @@ class DermoscopicImageProcessor(FeatureProcessor):
             base = image * (1 - mask[:, :, np.newaxis])
 
         if self.mode.startswith("high_"):
-            return _high_pass_filter(base.astype(np.uint8), sigma=self.sigma, filter_size=self.filter_size)
-        return _low_pass_filter(base.astype(np.uint8), sigma=self.sigma, filter_size=self.filter_size)
+            return _high_pass_filter(
+                base.astype(
+                    np.uint8),
+                sigma=self.sigma,
+                filter_size=self.filter_size)
+        return _low_pass_filter(
+            base.astype(
+                np.uint8),
+            sigma=self.sigma,
+            filter_size=self.filter_size)
 
     # ------------------------------------------------------------------
     # FeatureProcessor interface

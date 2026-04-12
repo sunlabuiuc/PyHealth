@@ -113,13 +113,17 @@ class TestISIC2018ArtifactsDataset(unittest.TestCase):
         self.assertIsNone(self.dataset.default_task)
 
     def test_metadata_csv_created(self):
-        self.assertTrue((self.root / "isic-artifact-metadata-pyhealth.csv").exists())
+        self.assertTrue(
+            (self.root / "isic-artifact-metadata-pyhealth.csv").exists())
 
     def test_config_yaml_created(self):
-        self.assertTrue((self.root / "isic-artifact-config-pyhealth.yaml").exists())
+        self.assertTrue(
+            (self.root / "isic-artifact-config-pyhealth.yaml").exists())
 
     def test_artifact_labels_class_attribute(self):
-        self.assertEqual(ISIC2018ArtifactsDataset.artifact_labels, ARTIFACT_LABELS)
+        self.assertEqual(
+            ISIC2018ArtifactsDataset.artifact_labels,
+            ARTIFACT_LABELS)
 
     # ── Event field access ───────────────────────────────────────────────────
 
@@ -206,7 +210,8 @@ class TestISIC2018ArtifactsDataset(unittest.TestCase):
         mock_resp.raise_for_status = MagicMock()
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            # Instantiate without calling __init__ to test the method in isolation
+            # Instantiate without calling __init__ to test the method in
+            # isolation
             obj = ISIC2018ArtifactsDataset.__new__(ISIC2018ArtifactsDataset)
             obj.annotations_csv = _BIAS_CSV
             obj._bias_csv_path = str(Path(tmpdir) / "isic_bias.csv")
@@ -354,7 +359,7 @@ class TestISIC2018ArtifactsDownload(unittest.TestCase):
     """Covers _download_bias_csv fetch, _download_images branches, and
     the no-matching-images ValueError — the remaining coverage gaps."""
 
-    # ── _download_bias_csv fetch ──────────────────────────────────────────────
+    # ── _download_bias_csv fetch ────────────────────────────────────────────
 
     def test_download_bias_csv_fetches_when_absent(self):
         from pyhealth.datasets.isic2018_artifacts import _BIAS_CSV
@@ -376,7 +381,7 @@ class TestISIC2018ArtifactsDownload(unittest.TestCase):
             mock_resp.raise_for_status.assert_called_once()
             self.assertTrue(Path(tmpdir, _BIAS_CSV).exists())
 
-    # ── _download_images branches ─────────────────────────────────────────────
+    # ── _download_images branches ───────────────────────────────────────────
 
     def test_download_images_fetches_when_dirs_absent(self):
         """Both image and mask dirs missing → _download_file called twice."""
@@ -418,7 +423,7 @@ class TestISIC2018ArtifactsDownload(unittest.TestCase):
                 obj._download_images(tmpdir)
             self.assertEqual(mock_dl.call_count, 1)
 
-    # ── no-matching-images ValueError ─────────────────────────────────────────
+    # ── no-matching-images ValueError ───────────────────────────────────────
 
     def test_no_matching_images_raises(self):
         """CSV present but no image files match → ValueError."""
@@ -437,7 +442,7 @@ class TestISIC2018ArtifactsDownload(unittest.TestCase):
                     mask_dir="masks",
                 )
 
-    # ── download=True constructor path ────────────────────────────────────────
+    # ── download=True constructor path ──────────────────────────────────────
 
     def test_constructor_download_true_calls_both_downloads(self):
         """download=True triggers both _download_bias_csv and _download_images."""
@@ -451,14 +456,16 @@ class TestISIC2018ArtifactsDownload(unittest.TestCase):
             ), patch.object(
                 ISIC2018ArtifactsDataset, "_index_data", return_value=None
             ), patch("pyhealth.datasets.base_dataset.BaseDataset.__init__"):
-                obj = ISIC2018ArtifactsDataset.__new__(ISIC2018ArtifactsDataset)
+                obj = ISIC2018ArtifactsDataset.__new__(
+                    ISIC2018ArtifactsDataset)
                 obj.mode = "whole"
                 obj.annotations_csv = "isic_bias.csv"
                 obj._image_dir = tmpdir
                 obj._mask_dir = tmpdir
                 obj._bias_csv_path = str(Path(tmpdir) / "isic_bias.csv")
                 # Call __init__ manually with download=True
-                ISIC2018ArtifactsDataset.__init__(obj, root=tmpdir, download=True)
+                ISIC2018ArtifactsDataset.__init__(
+                    obj, root=tmpdir, download=True)
             mock_csv.assert_called_once_with(tmpdir)
             mock_img.assert_called_once_with(tmpdir)
 

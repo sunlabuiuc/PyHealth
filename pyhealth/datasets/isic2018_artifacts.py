@@ -301,12 +301,10 @@ class ISIC2018ArtifactsDataset(BaseDataset):
         self.sigma = sigma
         self.annotations_csv = annotations_csv
 
-        self._image_dir = (
-            image_dir if os.path.isabs(image_dir) else os.path.join(root, image_dir)
-        )
-        self._mask_dir = (
-            mask_dir if os.path.isabs(mask_dir) else os.path.join(root, mask_dir)
-        )
+        self._image_dir = (image_dir if os.path.isabs(
+            image_dir) else os.path.join(root, image_dir))
+        self._mask_dir = (mask_dir if os.path.isabs(
+            mask_dir) else os.path.join(root, mask_dir))
         self._bias_csv_path = os.path.join(root, annotations_csv)
 
         if download:
@@ -365,7 +363,9 @@ class ISIC2018ArtifactsDataset(BaseDataset):
             requests.HTTPError: If the HTTP request returns an error status.
         """
         if os.path.isfile(self._bias_csv_path):
-            logger.info("%s already present, skipping download.", self.annotations_csv)
+            logger.info(
+                "%s already present, skipping download.",
+                self.annotations_csv)
             return
 
         os.makedirs(root, exist_ok=True)
@@ -398,16 +398,21 @@ class ISIC2018ArtifactsDataset(BaseDataset):
             # Skip download if ZIP already exists (may be partial/incomplete)
             if not os.path.isfile(zip_path):
                 logger.info(
-                    "Downloading ISIC 2018 Task 1/2 images (~8 GB): %s", _IMAGES_URL
-                )
-                _download_file(_IMAGES_URL, zip_path, _ISIC_CHECKSUMS.get(_IMAGES_ZIP))
+                    "Downloading ISIC 2018 Task 1/2 images (~8 GB): %s",
+                    _IMAGES_URL)
+                _download_file(
+                    _IMAGES_URL,
+                    zip_path,
+                    _ISIC_CHECKSUMS.get(_IMAGES_ZIP))
             if os.path.isfile(zip_path):
                 logger.info("Extracting images to %s ...", root)
                 _extract_zip(zip_path, root)
                 os.remove(zip_path)
                 logger.info("Images ready at %s", images_dest)
         else:
-            logger.info("Image directory already present, skipping: %s", images_dest)
+            logger.info(
+                "Image directory already present, skipping: %s",
+                images_dest)
 
         masks_dest = os.path.join(root, _MASKS_DIR)
         if not os.path.isdir(masks_dest):
@@ -415,16 +420,21 @@ class ISIC2018ArtifactsDataset(BaseDataset):
             # Skip download if ZIP already exists (may be partial/incomplete)
             if not os.path.isfile(zip_path):
                 logger.info(
-                    "Downloading ISIC 2018 Task 1 segmentation masks: %s", _MASKS_URL
-                )
-                _download_file(_MASKS_URL, zip_path, _ISIC_CHECKSUMS.get(_MASKS_ZIP))
+                    "Downloading ISIC 2018 Task 1 segmentation masks: %s",
+                    _MASKS_URL)
+                _download_file(
+                    _MASKS_URL,
+                    zip_path,
+                    _ISIC_CHECKSUMS.get(_MASKS_ZIP))
             if os.path.isfile(zip_path):
                 logger.info("Extracting masks to %s ...", root)
                 _extract_zip(zip_path, root)
                 os.remove(zip_path)
                 logger.info("Masks ready at %s", masks_dest)
         else:
-            logger.info("Mask directory already present, skipping: %s", masks_dest)
+            logger.info(
+                "Mask directory already present, skipping: %s",
+                masks_dest)
 
     def _verify_data(self, root: str) -> None:
         """Check required paths exist and raise informative errors if not."""
@@ -477,8 +487,10 @@ class ISIC2018ArtifactsDataset(BaseDataset):
         df = pd.read_csv(self._bias_csv_path, sep=";", index_col=0)
 
         # Keep only rows whose image file exists on disk.
-        # Resolve extension mismatches (e.g. CSV lists .png but files are .jpg).
-        available = {f.name: f.name for f in Path(self._image_dir).iterdir() if f.is_file()}
+        # Resolve extension mismatches (e.g. CSV lists .png but files are
+        # .jpg).
+        available = {f.name: f.name for f in Path(
+            self._image_dir).iterdir() if f.is_file()}
         stem_to_actual = {
             Path(name).stem: name for name in available
         }
@@ -501,7 +513,8 @@ class ISIC2018ArtifactsDataset(BaseDataset):
             )
 
         # Derive image_id (stem without extension) and patient_id
-        df["image_id"] = df["image"].str.replace(r"\.[A-Za-z]+$", "", regex=True)
+        df["image_id"] = df["image"].str.replace(
+            r"\.[A-Za-z]+$", "", regex=True)
         df["patient_id"] = df["image_id"]
 
         # Absolute path to the image (consumed by the processor)
@@ -509,7 +522,8 @@ class ISIC2018ArtifactsDataset(BaseDataset):
             lambda name: os.path.join(self._image_dir, name)
         )
 
-        metadata_path = os.path.join(root, "isic-artifact-metadata-pyhealth.csv")
+        metadata_path = os.path.join(
+            root, "isic-artifact-metadata-pyhealth.csv")
         df.to_csv(metadata_path, index=False)
 
         # Build YAML config dynamically so all CSV columns are accessible

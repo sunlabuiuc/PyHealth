@@ -71,7 +71,9 @@ class TestISIC2018Dataset(unittest.TestCase):
         self.assertEqual(len(self.dataset.unique_patient_ids), 10)
 
     def test_default_task(self):
-        self.assertIsInstance(self.dataset.default_task, ISIC2018Classification)
+        self.assertIsInstance(
+            self.dataset.default_task,
+            ISIC2018Classification)
 
     def test_metadata_csv_created(self):
         self.assertTrue(
@@ -213,10 +215,12 @@ class TestISIC2018Task12Dataset(unittest.TestCase):
     # ── Config / metadata files ───────────────────────────────
 
     def test_metadata_csv_created(self):
-        self.assertTrue((self.root / "isic2018-task12-metadata-pyhealth.csv").exists())
+        self.assertTrue(
+            (self.root / "isic2018-task12-metadata-pyhealth.csv").exists())
 
     def test_config_yaml_created(self):
-        self.assertTrue((self.root / "isic2018-task12-config-pyhealth.yaml").exists())
+        self.assertTrue(
+            (self.root / "isic2018-task12-config-pyhealth.yaml").exists())
 
     # ── Event attributes ──────────────────────────────────────
 
@@ -245,7 +249,8 @@ class TestISIC2018Task12Dataset(unittest.TestCase):
         mask_path.rename(tmp_path)
         try:
             with tempfile.TemporaryDirectory() as cache:
-                ds = ISIC2018Dataset(str(self.root), task="task1_2", cache_dir=cache)
+                ds = ISIC2018Dataset(
+                    str(self.root), task="task1_2", cache_dir=cache)
             event = ds.get_patient(pid).get_events()[0]
             self.assertIsNone(event["mask_path"])
         finally:
@@ -377,7 +382,8 @@ class TestISIC2018Download(unittest.TestCase):
                 "pyhealth.datasets.isic2018.requests.get", return_value=mock_resp
             ):
                 with self.assertRaises(requests.HTTPError):
-                    _download_file("http://example.com/bad", str(Path(tmpdir) / "f"))
+                    _download_file("http://example.com/bad",
+                                   str(Path(tmpdir) / "f"))
 
     # ── _extract_zip ──────────────────────────────────────────
 
@@ -411,7 +417,8 @@ class TestISIC2018Download(unittest.TestCase):
             ds = ISIC2018Dataset.__new__(ISIC2018Dataset)
             ds.task = "task3"
             ds._image_dir = str(root / "ISIC2018_Task3_Training_Input")
-            ds._label_path = str(root / "ISIC2018_Task3_Training_GroundTruth.csv")
+            ds._label_path = str(
+                root / "ISIC2018_Task3_Training_GroundTruth.csv")
             with patch("pyhealth.datasets.isic2018._download_file") as mock_dl:
                 ds._download(str(root))
             mock_dl.assert_not_called()
@@ -427,10 +434,11 @@ class TestISIC2018Download(unittest.TestCase):
             ds = ISIC2018Dataset.__new__(ISIC2018Dataset)
             ds.task = "task3"
             ds._image_dir = str(root / "ISIC2018_Task3_Training_Input")
-            ds._label_path = str(root / "ISIC2018_Task3_Training_GroundTruth.csv")
+            ds._label_path = str(
+                root / "ISIC2018_Task3_Training_GroundTruth.csv")
 
             with patch("pyhealth.datasets.isic2018._download_file") as mock_dl, \
-                 patch("pyhealth.datasets.isic2018._extract_zip"):
+                    patch("pyhealth.datasets.isic2018._extract_zip"):
                 ds._download(str(root))
             # Should not call download if ZIP already exists
             mock_dl.assert_not_called()
@@ -456,10 +464,11 @@ class TestISIC2018Download(unittest.TestCase):
             ds = ISIC2018Dataset.__new__(ISIC2018Dataset)
             ds.task = "task3"
             ds._image_dir = str(root / "ISIC2018_Task3_Training_Input")
-            ds._label_path = str(root / "ISIC2018_Task3_Training_GroundTruth.csv")
+            ds._label_path = str(
+                root / "ISIC2018_Task3_Training_GroundTruth.csv")
             with patch("pyhealth.datasets.isic2018._download_file") as mock_dl, \
-                 patch("pyhealth.datasets.isic2018._extract_zip"), \
-                 patch("pyhealth.datasets.isic2018.os.remove"):
+                    patch("pyhealth.datasets.isic2018._extract_zip"), \
+                    patch("pyhealth.datasets.isic2018.os.remove"):
                 ds._download(str(root))
             self.assertEqual(mock_dl.call_count, 2)  # labels zip + images zip
 
@@ -470,10 +479,11 @@ class TestISIC2018Download(unittest.TestCase):
             ds = ISIC2018Dataset.__new__(ISIC2018Dataset)
             ds.task = "task3"
             ds._image_dir = str(root / "ISIC2018_Task3_Training_Input")
-            ds._label_path = str(root / "ISIC2018_Task3_Training_GroundTruth.csv")
+            ds._label_path = str(
+                root / "ISIC2018_Task3_Training_GroundTruth.csv")
             with patch("pyhealth.datasets.isic2018._download_file") as mock_dl, \
-                 patch("pyhealth.datasets.isic2018._extract_zip"), \
-                 patch("pyhealth.datasets.isic2018.os.remove"):
+                    patch("pyhealth.datasets.isic2018._extract_zip"), \
+                    patch("pyhealth.datasets.isic2018.os.remove"):
                 ds._download(str(root))
             self.assertEqual(mock_dl.call_count, 1)  # only images zip
 
@@ -485,8 +495,8 @@ class TestISIC2018Download(unittest.TestCase):
             ds._image_dir = str(root / "ISIC2018_Task1-2_Training_Input")
             ds._mask_dir = str(root / "ISIC2018_Task1_Training_GroundTruth")
             with patch("pyhealth.datasets.isic2018._download_file") as mock_dl, \
-                 patch("pyhealth.datasets.isic2018._extract_zip"), \
-                 patch("pyhealth.datasets.isic2018.os.remove"):
+                    patch("pyhealth.datasets.isic2018._extract_zip"), \
+                    patch("pyhealth.datasets.isic2018.os.remove"):
                 ds._download(str(root))
             self.assertEqual(mock_dl.call_count, 2)  # images zip + masks zip
 
@@ -499,8 +509,8 @@ class TestISIC2018Download(unittest.TestCase):
             ds._image_dir = str(root / "ISIC2018_Task1-2_Training_Input")
             ds._mask_dir = str(root / "ISIC2018_Task1_Training_GroundTruth")
             with patch("pyhealth.datasets.isic2018._download_file") as mock_dl, \
-                 patch("pyhealth.datasets.isic2018._extract_zip"), \
-                 patch("pyhealth.datasets.isic2018.os.remove"):
+                    patch("pyhealth.datasets.isic2018._extract_zip"), \
+                    patch("pyhealth.datasets.isic2018.os.remove"):
                 ds._download(str(root))
             self.assertEqual(mock_dl.call_count, 1)  # only masks zip
 

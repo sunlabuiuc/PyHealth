@@ -19,9 +19,6 @@ Dataset paper: (please cite if you use this dataset)
 
 Dataset paper link:
     https://doi.org/10.1038/sdata.2018.161
-
-Author:
-    Fan Zhang (fanz6@illinois.edu)
 """
 
 import logging

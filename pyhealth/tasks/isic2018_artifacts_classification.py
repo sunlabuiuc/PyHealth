@@ -12,9 +12,6 @@ Annotation source:
 
 License:
     CC-0 (Public Domain) — https://creativecommons.org/public-domain/cc0/
-
-Author:
-    Fan Zhang (fanz6@illinois.edu)
 """
 
 import logging

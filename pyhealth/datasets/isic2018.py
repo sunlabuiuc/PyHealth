@@ -108,7 +108,10 @@ _CHECKSUMS: Dict[str, str] = {
 # Public download helpers (also imported by isic2018_artifacts.py)
 # ---------------------------------------------------------------------------
 
-def _download_file(url: str, dest: str, expected_md5: Optional[str] = None) -> None:
+def _download_file(
+        url: str,
+        dest: str,
+        expected_md5: Optional[str] = None) -> None:
     """Stream *url* to *dest* with 1 MB chunks, logging % progress.
 
     Args:
@@ -166,9 +169,12 @@ def _extract_zip(zip_path: str, dest_dir: str, flatten: bool = False) -> None:
     with zipfile.ZipFile(zip_path, "r") as zf:
         # Security check: prevent path traversal
         for member in zf.infolist():
-            member_path = os.path.abspath(os.path.join(abs_dest, member.filename))
+            member_path = os.path.abspath(
+                os.path.join(abs_dest, member.filename))
             if not member_path.startswith(abs_dest + os.sep):
-                raise ValueError(f"Unsafe path in zip archive: '{member.filename}'")
+                raise ValueError(
+                    f"Unsafe path in zip archive: '{
+                        member.filename}'")
 
         if flatten:
             # Check if all files are in a single top-level directory
@@ -184,8 +190,10 @@ def _extract_zip(zip_path: str, dest_dir: str, flatten: bool = False) -> None:
                 # If only one top-level item and it's a directory, flatten it
                 if len(top_level) == 1:
                     top_dir = list(top_level)[0]
-                    # Check if it's a directory (has trailing slash or contains files)
-                    is_dir = any(name.startswith(top_dir + '/') for name in names)
+                    # Check if it's a directory (has trailing slash or contains
+                    # files)
+                    is_dir = any(name.startswith(top_dir + '/')
+                                 for name in names)
                     if is_dir:
                         # Extract to temp location and move contents up
                         temp_dir = os.path.join(abs_dest, '.extract_temp')
@@ -201,7 +209,8 @@ def _extract_zip(zip_path: str, dest_dir: str, flatten: bool = False) -> None:
                                 os.makedirs(dst, exist_ok=True)
                                 shutil.copytree(src, dst, dirs_exist_ok=True)
                             else:
-                                os.makedirs(os.path.dirname(dst), exist_ok=True)
+                                os.makedirs(
+                                    os.path.dirname(dst), exist_ok=True)
                                 shutil.copy2(src, dst)
 
                         # Clean up temp dir
@@ -275,7 +284,8 @@ class ISIC2018Dataset(BaseDataset):
 
     def __init__(self, root=".", task="task3", download=False, **kwargs):
         if task not in VALID_TASKS:
-            raise ValueError(f"task must be one of {VALID_TASKS}, got '{task}'")
+            raise ValueError(
+                f"task must be one of {VALID_TASKS}, got '{task}'")
         self.task = task
 
         if task == "task3":
@@ -316,46 +326,56 @@ class ISIC2018Dataset(BaseDataset):
         if self.task == "task3":
             if not os.path.isfile(self._label_path):
                 zip_path = os.path.join(root, _T3_LABELS_ZIP)
-                # Skip download if ZIP already exists (may be partial/incomplete)
+                # Skip download if ZIP already exists (may be
+                # partial/incomplete)
                 if not os.path.isfile(zip_path):
                     logger.info("Downloading ISIC 2018 Task 3 labels...")
                     _download_file(
-                        _T3_LABELS_URL, zip_path, _CHECKSUMS.get(_T3_LABELS_ZIP)
-                    )
+                        _T3_LABELS_URL,
+                        zip_path,
+                        _CHECKSUMS.get(_T3_LABELS_ZIP))
                 if os.path.isfile(zip_path):
                     _extract_zip(zip_path, root, flatten=True)
                     os.remove(zip_path)
             if not os.path.isdir(self._image_dir):
                 zip_path = os.path.join(root, _T3_IMAGES_ZIP)
-                # Skip download if ZIP already exists (may be partial/incomplete)
+                # Skip download if ZIP already exists (may be
+                # partial/incomplete)
                 if not os.path.isfile(zip_path):
-                    logger.info("Downloading ISIC 2018 Task 3 images (~8 GB)...")
+                    logger.info(
+                        "Downloading ISIC 2018 Task 3 images (~8 GB)...")
                     _download_file(
-                        _T3_IMAGES_URL, zip_path, _CHECKSUMS.get(_T3_IMAGES_ZIP)
-                    )
+                        _T3_IMAGES_URL,
+                        zip_path,
+                        _CHECKSUMS.get(_T3_IMAGES_ZIP))
                 if os.path.isfile(zip_path):
                     _extract_zip(zip_path, root, flatten=False)
                     os.remove(zip_path)
         else:  # task1_2
             if not os.path.isdir(self._image_dir):
                 zip_path = os.path.join(root, _T12_IMAGES_ZIP)
-                # Skip download if ZIP already exists (may be partial/incomplete)
+                # Skip download if ZIP already exists (may be
+                # partial/incomplete)
                 if not os.path.isfile(zip_path):
-                    logger.info("Downloading ISIC 2018 Task 1/2 images (~8 GB)...")
+                    logger.info(
+                        "Downloading ISIC 2018 Task 1/2 images (~8 GB)...")
                     _download_file(
-                        TASK12_IMAGES_URL, zip_path, _CHECKSUMS.get(_T12_IMAGES_ZIP)
-                    )
+                        TASK12_IMAGES_URL,
+                        zip_path,
+                        _CHECKSUMS.get(_T12_IMAGES_ZIP))
                 if os.path.isfile(zip_path):
                     _extract_zip(zip_path, root, flatten=False)
                     os.remove(zip_path)
             if not os.path.isdir(self._mask_dir):
                 zip_path = os.path.join(root, _T12_MASKS_ZIP)
-                # Skip download if ZIP already exists (may be partial/incomplete)
+                # Skip download if ZIP already exists (may be
+                # partial/incomplete)
                 if not os.path.isfile(zip_path):
                     logger.info("Downloading ISIC 2018 Task 1 masks...")
                     _download_file(
-                        TASK12_MASKS_URL, zip_path, _CHECKSUMS.get(_T12_MASKS_ZIP)
-                    )
+                        TASK12_MASKS_URL,
+                        zip_path,
+                        _CHECKSUMS.get(_T12_MASKS_ZIP))
                 if os.path.isfile(zip_path):
                     _extract_zip(zip_path, root, flatten=False)
                     os.remove(zip_path)
@@ -377,7 +397,9 @@ class ISIC2018Dataset(BaseDataset):
                     "https://challenge.isic-archive.com/data/#2018"
                 )
             if not list(Path(self._image_dir).glob("*.jpg")):
-                raise ValueError(f"No JPEG images found in '{self._image_dir}'")
+                raise ValueError(
+                    f"No JPEG images found in '{
+                        self._image_dir}'")
         else:  # task1_2
             if not os.path.isdir(self._mask_dir):
                 raise FileNotFoundError(
@@ -419,14 +441,16 @@ class ISIC2018Dataset(BaseDataset):
         with open(config_path, "w") as fh:
             yaml.dump(config, fh, default_flow_style=False, sort_keys=False)
         logger.info(
-            "ISIC2018Dataset (task3): indexed %d images → %s", len(df), metadata_path
-        )
+            "ISIC2018Dataset (task3): indexed %d images → %s",
+            len(df),
+            metadata_path)
         return config_path
 
     def _index_task12(self, root):
         image_dir = Path(self._image_dir)
         mask_dir = Path(self._mask_dir)
-        images = sorted(image_dir.glob("*.jpg")) + sorted(image_dir.glob("*.JPG"))
+        images = sorted(image_dir.glob("*.jpg")) + \
+            sorted(image_dir.glob("*.JPG"))
         if not images:
             raise ValueError(f"No images found in '{self._image_dir}'")
         records = []
@@ -440,7 +464,8 @@ class ISIC2018Dataset(BaseDataset):
                 "mask_path": str(mask_path) if mask_path.exists() else None,
             })
         df = pd.DataFrame(records)
-        metadata_path = os.path.join(root, "isic2018-task12-metadata-pyhealth.csv")
+        metadata_path = os.path.join(
+            root, "isic2018-task12-metadata-pyhealth.csv")
         df.to_csv(metadata_path, index=False)
         config = {
             "version": "1.0",
@@ -453,7 +478,8 @@ class ISIC2018Dataset(BaseDataset):
                 }
             },
         }
-        config_path = os.path.join(root, "isic2018-task12-config-pyhealth.yaml")
+        config_path = os.path.join(
+            root, "isic2018-task12-config-pyhealth.yaml")
         with open(config_path, "w") as fh:
             yaml.dump(config, fh, default_flow_style=False, sort_keys=False)
         logger.info(

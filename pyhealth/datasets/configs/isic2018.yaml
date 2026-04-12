@@ -1,4 +1,3 @@
-# Author: Fan Zhang (fanz6@illinois.edu)
 version: "1.0"
 tables:
   isic2018:
