@@ -1,4 +1,6 @@
-from .adacare import AdaCare, AdaCareLayer, MultimodalAdaCare
+from .adacare import AdaCare, AdaCareLayer
+from .eeg_gcnn import EEGGraphConvNet
+from .eeg_gatcnn import EEGGATConvNet
 from .agent import Agent, AgentLayer
 from .base_model import BaseModel
 from .biot import BIOT
