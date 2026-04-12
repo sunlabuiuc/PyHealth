@@ -5,10 +5,14 @@ import torch.nn as nn
 
 from pyhealth.datasets import SampleDataset
 from pyhealth.processors import (
-    SequenceProcessor,
-    NestedSequenceProcessor,
-    NestedFloatsProcessor,
     DeepNestedFloatsProcessor,
+    DeepNestedSequenceProcessor,
+    MultiHotProcessor,
+    NestedFloatsProcessor,
+    NestedSequenceProcessor,
+    SequenceProcessor,
+    TensorProcessor,
+    TimeseriesProcessor,
 )
 from .base_model import BaseModel
 from .embedding import EmbeddingModel
@@ -362,10 +366,7 @@ class AdaCare(BaseModel):
         hidden_dim: int = 128,
         **kwargs,
     ):
-        super().__init__(
-            dataset=dataset,
-            **kwargs,
-        )
+        super().__init__(dataset=dataset)
 
         self.embedding_dim = embedding_dim
         self.hidden_dim = hidden_dim
@@ -374,7 +375,7 @@ class AdaCare(BaseModel):
             raise ValueError("input_dim is automatically determined")
 
         assert len(self.label_keys) == 1, "Only one label key is supported"
-        
+
         # Use EmbeddingModel for unified embedding handling
         self.embedding_model = EmbeddingModel(dataset, embedding_dim)
         # AdaCare layers for each feature
@@ -390,11 +391,12 @@ class AdaCare(BaseModel):
                     NestedSequenceProcessor,
                     NestedFloatsProcessor,
                     DeepNestedFloatsProcessor,
+                    TimeseriesProcessor,
                 ),
             ):
                 raise ValueError(
                     """AdaCare only supports SequenceProcessor, NestedSequenceProcessor,
-                    NestedFloatsProcessor, DeepNestedFloatsProcessor."""
+                    NestedFloatsProcessor, DeepNestedFloatsProcessor, TimeseriesProcessor."""
                 )
 
             self.adacare[feature_key] = AdaCareLayer(
@@ -429,19 +431,22 @@ class AdaCare(BaseModel):
         embedded, masks = self.embedding_model(kwargs, output_mask=True)
         feature_importance = []
         conv_feature_importance = []
-        
+
         for _, feature_key in enumerate(self.feature_keys):
             embeds = embedded[feature_key]
             mask = masks[feature_key]
             processor = self.dataset.input_processors[feature_key]
-            
+
             if embeds.dim() == 3:
-                if isinstance(processor, NestedFloatsProcessor):
+                if isinstance(processor, (NestedFloatsProcessor, TimeseriesProcessor)):
+                    # Both produce [batch, seq_len, num_features] masks — reduce to [batch, seq_len]
                     mask = torch.any(mask, dim=2)
                 elif isinstance(processor, SequenceProcessor):
-                    pass
+                    pass  # mask already [batch, seq_len]
                 else:
-                    raise ValueError(f"Expected NestedFloatsProcessor or SequenceProcessor for 3D input, got {type(processor)}")
+                    raise ValueError(
+                        f"Expected NestedFloatsProcessor, TimeseriesProcessor, or SequenceProcessor for 3D input, got {type(processor)}"
+                    )
             elif embeds.dim() == 4:
                 if isinstance(processor, NestedSequenceProcessor):
                     embeds = torch.sum(embeds, dim=2)
@@ -450,10 +455,14 @@ class AdaCare(BaseModel):
                     embeds = torch.sum(embeds, dim=2)
                     mask = torch.any(mask, dim=(2, 3))
                 else:
-                    raise ValueError(f"Expected NestedSequenceProcessor or DeepNestedFloatsProcessor for 4D input, got {type(processor)}")
+                    raise ValueError(
+                        f"Expected NestedSequenceProcessor or DeepNestedFloatsProcessor for 4D input, got {type(processor)}"
+                    )
             else:
-                raise NotImplementedError(f"Unsupported input dimension {feature_key}: {embeds.dim()} for AdaCare")
-            
+                raise NotImplementedError(
+                    f"Unsupported input dimension {feature_key}: {embeds.dim()} for AdaCare"
+                )
+
             embeds, _, inputatt, convatt = self.adacare[feature_key](embeds, mask)
             feature_importance.append(inputatt)
             conv_feature_importance.append(convatt)
@@ -466,6 +475,261 @@ class AdaCare(BaseModel):
         y_true = kwargs[self.label_keys[0]].to(self.device)
         loss = self.get_loss_function()(logits, y_true)
         y_prob = self.prepare_y_prob(logits)
+        results = {
+            "loss": loss,
+            "y_prob": y_prob,
+            "y_true": y_true,
+            "logit": logits,
+            "feature_importance": feature_importance,
+            "conv_feature_importance": conv_feature_importance,
+        }
+        if kwargs.get("embed", False):
+            results["embed"] = patient_emb
+        return results
+
+
+class MultimodalAdaCare(BaseModel):
+    """Multimodal AdaCare model for mixed sequential and non-sequential features.
+
+    This model extends AdaCare to support mixed input modalities:
+    - Sequential features (sequences, timeseries) go through AdaCareLayer
+    - Non-sequential features (multi-hot, tensor) bypass AdaCareLayer, use embeddings
+
+    The model automatically classifies input features based on their processor types:
+    - Sequential processors (apply AdaCareLayer): SequenceProcessor,
+        NestedSequenceProcessor, DeepNestedSequenceProcessor, NestedFloatsProcessor,
+        DeepNestedFloatsProcessor, TimeseriesProcessor
+    - Non-sequential processors (embeddings only): MultiHotProcessor, TensorProcessor
+
+    For sequential features, the model:
+    1. Embeds the input using EmbeddingModel
+    2. Applies AdaCareLayer with scale-adaptive feature extraction and recalibration
+    3. Extracts the patient representation
+
+    For non-sequential features, the model:
+    1. Embeds the input using EmbeddingModel
+    2. Applies mean pooling if needed to reduce to 2D
+    3. Uses the embedding directly
+
+    All feature representations are concatenated and passed through a final
+    fully connected layer for predictions. Feature importance outputs from
+    AdaCareLayer are preserved for sequential features.
+
+    Args:
+        dataset (SampleDataset): the dataset to train the model. It is used to query
+            certain information such as the set of all tokens and processor types.
+        embedding_dim (int): the embedding dimension. Default is 128.
+        hidden_dim (int): the hidden dimension for AdaCare layers. Default is 128.
+        **kwargs: other parameters for the AdaCareLayer (e.g., kernel_size, kernel_num,
+            r_v, r_c, activation, rnn_type, dropout).
+
+    Examples:
+        >>> from pyhealth.datasets import create_sample_dataset
+        >>> samples = [
+        ...     {
+        ...         "patient_id": "patient-0",
+        ...         "visit_id": "visit-0",
+        ...         "conditions": ["cond-33", "cond-86"],  # sequential
+        ...         "demographics": ["asian", "male"],      # multi-hot
+        ...         "vitals": [120.0, 80.0, 98.6],        # tensor
+        ...         "label": 1,
+        ...     },
+        ...     {
+        ...         "patient_id": "patient-1",
+        ...         "visit_id": "visit-1",
+        ...         "conditions": ["cond-12", "cond-52"],  # sequential
+        ...         "demographics": ["white", "female"],    # multi-hot
+        ...         "vitals": [110.0, 75.0, 98.2],        # tensor
+        ...         "label": 0,
+        ...     },
+        ... ]
+        >>> dataset = create_sample_dataset(
+        ...     samples=samples,
+        ...     input_schema={
+        ...         "conditions": "sequence",
+        ...         "demographics": "multi_hot",
+        ...         "vitals": "tensor",
+        ...     },
+        ...     output_schema={"label": "binary"},
+        ...     dataset_name="test"
+        ... )
+        >>>
+        >>> from pyhealth.datasets import get_dataloader
+        >>> train_loader = get_dataloader(dataset, batch_size=2, shuffle=True)
+        >>>
+        >>> model = MultimodalAdaCare(dataset=dataset, hidden_dim=64)
+        >>>
+        >>> data_batch = next(iter(train_loader))
+        >>>
+        >>> ret = model(**data_batch)
+        >>> print(ret)
+        {
+            'loss': tensor(...),
+            'y_prob': tensor(...),
+            'y_true': tensor(...),
+            'logit': tensor(...),
+            'feature_importance': [...],
+            'conv_feature_importance': [...]
+        }
+    """
+
+    def __init__(
+        self,
+        dataset: SampleDataset,
+        embedding_dim: int = 128,
+        hidden_dim: int = 128,
+        **kwargs,
+    ):
+        super(MultimodalAdaCare, self).__init__(dataset=dataset)
+        self.embedding_dim = embedding_dim
+        self.hidden_dim = hidden_dim
+
+        # validate kwargs
+        if "input_dim" in kwargs:
+            raise ValueError("input_dim is determined by embedding_dim")
+
+        assert len(self.label_keys) == 1, "Only one label key is supported"
+
+        self.embedding_model = EmbeddingModel(dataset, embedding_dim)
+
+        # Classify features as sequential or non-sequential
+        self.sequential_features = []
+        self.non_sequential_features = []
+
+        self.adacare = nn.ModuleDict()
+        for feature_key in self.feature_keys:
+            processor = dataset.input_processors[feature_key]
+            if self._is_sequential_processor(processor):
+                self.sequential_features.append(feature_key)
+                self.adacare[feature_key] = AdaCareLayer(
+                    input_dim=embedding_dim, hidden_dim=hidden_dim, **kwargs
+                )
+            else:
+                self.non_sequential_features.append(feature_key)
+
+        # Calculate final concatenated dimension
+        final_dim = (
+            len(self.sequential_features) * hidden_dim
+            + len(self.non_sequential_features) * embedding_dim
+        )
+        output_size = self.get_output_size()
+        self.fc = nn.Linear(final_dim, output_size)
+
+    def _is_sequential_processor(self, processor) -> bool:
+        """Check if processor represents sequential data.
+
+        Sequential processors are those that benefit from AdaCare processing,
+        including sequences of codes and timeseries data.
+
+        Note:
+            StageNetProcessor and StageNetTensorProcessor are excluded as they
+            are specialized for the StageNet model architecture and should be
+            treated as non-sequential for standard AdaCare processing.
+
+        Args:
+            processor: The processor instance to check.
+
+        Returns:
+            bool: True if processor is sequential, False otherwise.
+        """
+        return isinstance(
+            processor,
+            (
+                SequenceProcessor,
+                NestedSequenceProcessor,
+                DeepNestedSequenceProcessor,
+                NestedFloatsProcessor,
+                DeepNestedFloatsProcessor,
+                TimeseriesProcessor,
+            ),
+        )
+
+    def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
+        """Forward propagation handling mixed modalities.
+
+        Args:
+            **kwargs: keyword arguments for the model. The keys must contain
+                all the feature keys and the label key.
+
+        Returns:
+            Dict[str, torch.Tensor]: A dictionary with the following keys:
+                - loss: a scalar tensor representing the loss.
+                - y_prob: a tensor representing the predicted probabilities.
+                - y_true: a tensor representing the true labels.
+                - logit: a tensor representing the logits.
+                - feature_importance: list of tensors representing input
+                    feature importance for sequential features.
+                - conv_feature_importance: list of tensors representing
+                    convolutional feature importance for sequential features.
+                - embed (optional): a tensor representing the patient
+                    embeddings if requested.
+        """
+        patient_emb = []
+        embedded, masks = self.embedding_model(kwargs, output_mask=True)
+        feature_importance = []
+        conv_feature_importance = []
+
+        # Process sequential features through AdaCare
+        for feature_key in self.sequential_features:
+            embeds = embedded[feature_key]
+            mask = masks[feature_key]
+            processor = self.dataset.input_processors[feature_key]
+
+            # Handle different dimensions
+            if embeds.dim() == 3:
+                if isinstance(processor, (NestedFloatsProcessor, TimeseriesProcessor)):
+                    # Both produce [batch, seq_len, num_features] masks — reduce to [batch, seq_len]
+                    mask = torch.any(mask, dim=2)
+                elif isinstance(processor, SequenceProcessor):
+                    pass  # mask already [batch, seq_len]
+                else:
+                    raise ValueError(
+                        f"Expected NestedFloatsProcessor, TimeseriesProcessor, or "
+                        f"SequenceProcessor for 3D input, got {type(processor)}"
+                    )
+            elif embeds.dim() == 4:
+                if isinstance(processor, NestedSequenceProcessor):
+                    embeds = torch.sum(embeds, dim=2)
+                    mask = torch.any(mask, dim=2)
+                elif isinstance(processor, DeepNestedFloatsProcessor):
+                    embeds = torch.sum(embeds, dim=2)
+                    mask = torch.any(mask, dim=(2, 3))
+                else:
+                    raise ValueError(
+                        f"Expected NestedSequenceProcessor or "
+                        f"DeepNestedFloatsProcessor for 4D input, "
+                        f"got {type(processor)}"
+                    )
+            else:
+                raise NotImplementedError(
+                    f"Unsupported input dimension {feature_key}: "
+                    f"{embeds.dim()} for AdaCare"
+                )
+
+            # Apply AdaCare layer
+            embeds, _, inputatt, convatt = self.adacare[feature_key](embeds, mask)
+            feature_importance.append(inputatt)
+            conv_feature_importance.append(convatt)
+            patient_emb.append(embeds)
+
+        # Process non-sequential features (use embeddings directly)
+        for feature_key in self.non_sequential_features:
+            x = embedded[feature_key]
+            # If multi-dimensional, aggregate (mean pooling)
+            while x.dim() > 2:
+                x = x.mean(dim=1)
+            patient_emb.append(x)
+
+        # Concatenate all representations
+        patient_emb = torch.cat(patient_emb, dim=1)
+        # (patient, label_size)
+        logits = self.fc(patient_emb)
+
+        # Calculate loss and predictions
+        y_true = kwargs[self.label_keys[0]].to(self.device)
+        loss = self.get_loss_function()(logits, y_true)
+        y_prob = self.prepare_y_prob(logits)
+
         results = {
             "loss": loss,
             "y_prob": y_prob,
