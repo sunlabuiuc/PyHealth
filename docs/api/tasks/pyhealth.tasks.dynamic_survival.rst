@@ -1,0 +1,58 @@
+DynamicSurvivalTask
+==================
+
+This module implements a dynamic survival analysis task for early event prediction.
+
+The task follows the anchor-based discrete-time survival formulation proposed in:
+
+Yèche et al. (2024), *Dynamic Survival Analysis for Early Event Prediction*.
+
+Key Features
+------------
+- Multiple anchors per patient
+- Discrete-time hazard prediction
+- Support for censoring
+- Configurable observation windows and anchor strategies
+
+Output Format
+-------------
+Each processed sample contains:
+
+- **patient_id**: unique patient identifier
+- **visit_id**: unique anchor-based visit ID
+- **x**: input features (temporal sequence)
+- **y**: hazard label vector (0/1)
+- **mask**: indicates valid risk set:
+    - 1 = patient is at risk at this timestep
+    - 0 = timestep excluded (post-event or post-censoring)
+
+Usage Example
+-------------
+
+.. code-block:: python
+
+    from pyhealth.tasks.dynamic_survival import DynamicSurvivalTask
+
+    task = DynamicSurvivalTask(
+        observation_window=24,
+        horizon=24,
+    )
+
+    samples = task(patient)
+
+Example Output
+--------------
+
+Each sample:
+
+- x: shape (T, d)
+- y: shape (horizon,)
+- mask: shape (horizon,)
+
+API Reference
+-------------
+
+.. autoclass:: pyhealth.tasks.dynamic_survival.DynamicSurvivalTask
+   :members:
+   :undoc-members:
+   :show-inheritance:
