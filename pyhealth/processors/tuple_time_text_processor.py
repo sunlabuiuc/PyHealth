@@ -5,6 +5,7 @@ from .base_processor import FeatureProcessor, ModalityType, TemporalFeatureProce
 from . import register_processor
 
 logger = logging.getLogger(__name__)
+_MISSING_TEXT_TOKEN = "[MISSING_TEXT]"
 
 @register_processor("tuple_time_text")
 class TupleTimeTextProcessor(TemporalFeatureProcessor):
@@ -81,6 +82,41 @@ class TupleTimeTextProcessor(TemporalFeatureProcessor):
                     - str: Type tag
         """
         texts, time_diffs = value
+        texts = list(texts or [])
+        time_diffs = list(time_diffs or [])
+
+        # Keep text/time aligned and filter malformed text entries.
+        pair_count = min(len(texts), len(time_diffs))
+        cleaned_texts: List[str] = []
+        cleaned_times: List[float] = []
+        for i in range(pair_count):
+            raw_text = texts[i]
+            raw_time = time_diffs[i]
+
+            # Normalize text; skip null/whitespace-only entries.
+            if raw_text is None:
+                continue
+            text = str(raw_text).strip()
+            if text == "":
+                continue
+
+            # Best-effort float normalization; skip unparseable timestamps.
+            try:
+                t = float(raw_time)
+            except (TypeError, ValueError):
+                continue
+
+            cleaned_texts.append(text)
+            cleaned_times.append(t)
+
+        # Fast tokenizer path crashes on empty batches; force a single
+        # missingness token when all notes are empty/malformed.
+        if len(cleaned_texts) == 0:
+            cleaned_texts = [_MISSING_TEXT_TOKEN]
+            cleaned_times = [0.0]
+
+        texts = cleaned_texts
+        time_diffs = cleaned_times
         time_tensor = torch.tensor(time_diffs, dtype=torch.float32)
 
         if self.tokenizer is not None:
@@ -93,16 +129,18 @@ class TupleTimeTextProcessor(TemporalFeatureProcessor):
                 return_tensors="pt"
             )
             
-            input_ids = encoded["input_ids"]
-            attention_mask = encoded["attention_mask"]
+            input_ids = encoded.get("input_ids")
+            if input_ids is None:
+                raise ValueError("Tokenizer output is missing required `input_ids`.")
+
+            attention_mask = encoded.get("attention_mask")
+            if attention_mask is None:
+                attention_mask = torch.ones_like(input_ids)
             
             # Not all tokenizers return token_type_ids (e.g. RoBERTa might not, BERT does)
-            if "token_type_ids" in encoded:
-                token_type_ids = encoded["token_type_ids"]
-            else:
-                # meaningful text usually 0, padding 0? BERT uses 0 for sent A. 
-                # If not provided, we can just use zeros or omit. 
-                # For consistency with schema, let's provide zeros if expected.
+            token_type_ids = encoded.get("token_type_ids")
+            if token_type_ids is None:
+                # Some tokenizers do not return token_type_ids.
                 token_type_ids = torch.zeros_like(input_ids)
 
             return input_ids, attention_mask, token_type_ids, time_tensor, self.type_tag

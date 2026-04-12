@@ -1,0 +1,46 @@
+# HTCondor submission file — Table 2: Structured EHR + Clinical Notes
+# Benchmarks all 6 backbone architectures on the clinical_notes_icd_labs
+# task (ICD codes + lab events + discharge/radiology notes).
+#
+# Each job claims one A100 80GB on sunlab-c01 and trains the assigned
+# model for 3 seeds sequentially.  6 jobs = 6 A100s in parallel.
+#
+# Prerequisites:
+#   1. Fill in CONDA_ENV, PROJECT_DIR, EHR_ROOT, NOTE_ROOT, CACHE_DIR
+#      (and optionally CONDA_SH) inside scripts/condor/run_table2.sh
+#   2. mkdir -p logs/condor
+#
+# Submit:
+#   condor_submit scripts/condor/batch_table2.sub
+#
+# Monitor:
+#   condor_q
+#   condor_status -gpus
+
+executable = scripts/condor/run_table2.sh
+arguments  = $(model)
+getenv = True
+
+# Per-job output / error / shared Condor log
+output = logs/condor/table2_$(ClusterId)_$(model).out
+error  = logs/condor/table2_$(ClusterId)_$(model).err
+log    = logs/condor/table2_$(ClusterId).log
+
+# Resource requests
+request_gpus   = 1
+request_cpus   = 8
+request_memory = 32768MB
+request_disk   = 20GB
+
+# ── Target: sunlab-c01 (8 × NVIDIA A100 80GB PCIe) ───────────────
+Requirements = (Machine == "sunlab-c01.cs.illinois.edu")
+
+# ── Queue one job per backbone model ─────────────────────────────
+queue model from (
+    mlp
+    rnn
+    transformer
+    bottleneck_transformer
+    ehrmamba
+    jambaehr
+)
