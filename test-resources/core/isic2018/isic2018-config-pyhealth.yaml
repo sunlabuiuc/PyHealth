@@ -1,0 +1,16 @@
+version: '1.0'
+tables:
+  isic2018:
+    file_path: isic2018-metadata-pyhealth.csv
+    patient_id: patient_id
+    timestamp: null
+    attributes:
+    - path
+    - image_id
+    - mel
+    - nv
+    - bcc
+    - akiec
+    - bkl
+    - df
+    - vasc

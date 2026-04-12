@@ -11,6 +11,8 @@ from .cardiology_detect import (
 )
 from .chestxray14_binary_classification import ChestXray14BinaryClassification
 from .chestxray14_multilabel_classification import ChestXray14MultilabelClassification
+from .isic2018_classification import ISIC2018Classification
+from .isic2018_artifacts_classification import ISIC2018ArtifactsBinaryClassification
 from .covid19_cxr_classification import COVID19CXRClassification
 from .dka import DKAPredictionMIMIC4, T1DDKAPredictionMIMIC4
 from .drug_recommendation import (

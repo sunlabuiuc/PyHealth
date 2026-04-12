@@ -225,6 +225,8 @@ Available Tasks
     Benchmark EHRShot <tasks/pyhealth.tasks.benchmark_ehrshot>
     ChestX-ray14 Binary Classification <tasks/pyhealth.tasks.ChestXray14BinaryClassification>
     ChestX-ray14 Multilabel Classification <tasks/pyhealth.tasks.ChestXray14MultilabelClassification>
+    ISIC 2018 Skin Lesion Classification <tasks/pyhealth.tasks.ISIC2018Classification>
+    ISIC 2018 Dermoscopic Artifacts Classification <tasks/pyhealth.tasks.ISIC2018ArtifactsBinaryClassification>
     Variant Classification (ClinVar) <tasks/pyhealth.tasks.VariantClassificationClinVar>
     Mutation Pathogenicity (COSMIC) <tasks/pyhealth.tasks.MutationPathogenicityPrediction>
     Cancer Survival Prediction (TCGA) <tasks/pyhealth.tasks.CancerSurvivalPrediction>
