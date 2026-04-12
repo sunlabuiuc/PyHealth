@@ -13,8 +13,6 @@ Dataset: SHHS (Sleep Heart Health Study)
 Note: Update the `root` path below to point to your local SHHS download.
 """
 
-import logging
-
 from pyhealth.trainer import Trainer
 from pyhealth.datasets import SHHSDataset, get_dataloader, split_by_patient
 from pyhealth.models import WatchSleepNet
@@ -24,16 +22,9 @@ _EPOCHS = 10
 _DECAY_WEIGHT = 1e-5
 
 if __name__ == "__main__":
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(name)s %(levelname)s: %(message)s",
-        datefmt="%H:%M:%S",
-    )
 
     # Initialize SHHS dataset
-    # Note: if SHHS root is None, will use sample data
-    # SHHS_ROOT = "/path/to/shhs"  # Update this path to your local SHHS download
-    SHHS_ROOT = "/Users/maxafinder/Documents/UIUC/spring-2026/cs598/project/data-download/shhs"
+    SHHS_ROOT = "/path/to/shhs"  # Update this path to your local SHHS download
     dataset = SHHSDataset(root=SHHS_ROOT)
 
     print("=" * 70)
@@ -110,7 +101,12 @@ if __name__ == "__main__":
     print("Train and Test WatchSleepNet")
     print("=" * 70)
 
-    model = WatchSleepNet(dataset=sample_dataset)
+    model = WatchSleepNet(
+        dataset=sample_dataset,
+        lstm_hidden_size=128 # default hidden size for WatchSleepNet as used in the original paper
+        # lstm_hidden_size=64 # ablation with smaller hidden size as there are only 3 classes in this task (Wake, NREM, REM)
+        # lstm_hidden_size=256 # ablation with larger hidden size to test if it improves performance on this task
+    )
 
     print(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
     print()
