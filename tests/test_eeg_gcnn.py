@@ -296,7 +296,7 @@ class TestDatasetMetadata:
 
     def test_prepare_tuab_csv(self):
         """Verify TUAB CSV is generated from synthetic directory structure."""
-        from pyhealth.datasets.eeg_gcnn import EEGGCNNDataset
+        from pyhealth.datasets.eeg_gcnn_raw import EEGGCNNRawDataset
 
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create synthetic TUAB directory structure
@@ -315,7 +315,7 @@ class TestDatasetMetadata:
             # Instantiate dataset just to trigger prepare_metadata
             # We can't fully instantiate BaseDataset without CSV content,
             # so we test prepare_metadata directly.
-            ds = EEGGCNNDataset.__new__(EEGGCNNDataset)
+            ds = EEGGCNNRawDataset.__new__(EEGGCNNRawDataset)
             ds.root = tmpdir
             ds.prepare_metadata()
 
@@ -334,14 +334,14 @@ class TestDatasetMetadata:
 
     def test_prepare_lemon_csv(self):
         """Verify LEMON CSV is generated from synthetic directory structure."""
-        from pyhealth.datasets.eeg_gcnn import EEGGCNNDataset
+        from pyhealth.datasets.eeg_gcnn_raw import EEGGCNNRawDataset
 
         with tempfile.TemporaryDirectory() as tmpdir:
             subj_dir = Path(tmpdir) / "lemon" / "sub-010002"
             subj_dir.mkdir(parents=True)
             (subj_dir / "sub-010002.vhdr").touch()
 
-            ds = EEGGCNNDataset.__new__(EEGGCNNDataset)
+            ds = EEGGCNNRawDataset.__new__(EEGGCNNRawDataset)
             ds.root = tmpdir
             ds.prepare_metadata()
 
