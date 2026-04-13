@@ -72,6 +72,32 @@ def extract_patient_codes_from_df(
     "To establish the presence of a disease in a patient's history,
     we require at least two occurrences."
 
+    No temporal censoring:
+        This function uses the patient's COMPLETE medical history with
+        no date cutoff. KEEP embedding training intentionally uses all
+        history to capture population-level co-occurrence patterns
+        (paper Appendix A.4: "Co-occurrence is determined based on the
+        patient's complete medical history, rather than being restricted
+        to individual visits").
+
+        The reference code's ``create_cohort_sentence.py`` applies a
+        censoring rule (2nd-occurrence date must precede the outcome
+        date) for extrinsic evaluation tasks where patients have a
+        specific index date. We do NOT apply that rule here because:
+
+        1. KEEP embeddings are population-level, trained once and reused.
+           They don't know about any specific prediction task.
+        2. For downstream prediction, PyHealth's task processors
+           (e.g., ``MortalityPredictionMIMIC3``) apply the temporal
+           cutoff automatically when generating samples.
+        3. Using all history gives richer co-occurrence signal for
+           embedding training; censoring would discard real clinical
+           patterns for no benefit in this phase.
+
+        If you later need to reproduce the paper's exact UK Biobank
+        tasks (which require per-patient index dates), implement the
+        censoring rule in your task extractor, not in KEEP training.
+
     Args:
         patient_id_col: List of patient ID strings, one per diagnosis row.
         code_col: List of ICD code strings, one per diagnosis row.
