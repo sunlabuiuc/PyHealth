@@ -34,6 +34,13 @@ CONCEPT_CSV = (
     "600\tDiabetes mellitus\tCondition\tSNOMED\tDisorder\tS\t73211009\t20020131\t20991231\t\n"
     # An invalid SNOMED concept (should be filtered out)
     "700\tDeprecated concept\tCondition\tSNOMED\tDisorder\tS\t99999999\t20020131\t20201231\tD\n"
+    # ORPHAN: Condition concept whose only direct parent is in Observation domain.
+    # Its only "Is a" edge points to 900 (Observation), which gets filtered out
+    # by our domain filter. Without rescue, 800 is unreachable from root.
+    # With rescue via CONCEPT_ANCESTOR: 800's closest in-graph ancestor is 300
+    # (Heart failure) at distance 2, so a rescue edge 800 -> 300 is added.
+    "800\tDrug-induced heart failure\tCondition\tSNOMED\tDisorder\tS\t88888888\t20020131\t20991231\t\n"
+    "900\tAdverse drug reaction\tObservation\tSNOMED\tObservation\tS\t282100009\t20020131\t20991231\t\n"
     # ICD9CM concepts
     "1001\tCongestive heart failure\tCondition\tICD9CM\t4-dig nonbill code\t\t428.0\t19700101\t20991231\t\n"
     "1002\tEssential hypertension\tCondition\tICD9CM\t4-dig nonbill code\t\t401.9\t19700101\t20991231\t\n"
@@ -53,6 +60,9 @@ RELATIONSHIP_CSV = (
     "400\t200\tIs a\t20020131\t20991231\t\n"  # Hypertension Is a Cardiovascular
     "500\t100\tIs a\t20020131\t20991231\t\n"  # Metabolic Is a Clinical finding
     "600\t500\tIs a\t20020131\t20991231\t\n"  # Diabetes Is a Metabolic
+    # Orphan edge: drug-induced HF (800) -> Adverse drug reaction (900, Observation)
+    # This edge gets filtered by domain filter, orphaning 800.
+    "800\t900\tIs a\t20020131\t20991231\t\n"
     # "Maps to" edges (ICD -> SNOMED)
     "1001\t300\tMaps to\t20020131\t20991231\t\n"  # ICD9 428.0 -> Heart failure
     "1002\t400\tMaps to\t20020131\t20991231\t\n"  # ICD9 401.9 -> Hypertension
@@ -63,6 +73,33 @@ RELATIONSHIP_CSV = (
     "300\t100\tIs a\t20020131\t20201231\tD\n"
 )
 
+# Minimal CONCEPT_ANCESTOR.csv (tab-separated).
+# Contains transitive closure of "Is a" relationships for orphan rescue.
+# The orphan 800 "Drug-induced heart failure" has these ancestors:
+#   - 900 "Adverse drug reaction" (Observation, distance 1) — filtered
+#   - 300 "Heart failure" (Condition, distance 2 via a conceptual path) — rescue target
+#   - 200 "Cardiovascular" (distance 3)
+#   - 100 "Clinical finding" (distance 4)
+# The closest in-graph ancestor is 300, so rescue adds edge 800 -> 300.
+ANCESTOR_CSV = (
+    "ancestor_concept_id\tdescendant_concept_id\t"
+    "min_levels_of_separation\tmax_levels_of_separation\n"
+    # Ancestors of 800 (the orphan) — only these matter for rescue
+    "900\t800\t1\t1\n"   # direct parent (Observation, filtered)
+    "300\t800\t2\t2\n"   # rescue target (Condition, in graph)
+    "200\t800\t3\t3\n"   # further ancestor
+    "100\t800\t4\t4\n"   # root's grandchild
+    # Other ancestor relationships (for completeness, not strictly needed for tests)
+    "100\t200\t1\t1\n"
+    "100\t300\t2\t2\n"
+    "100\t400\t2\t2\n"
+    "100\t500\t1\t1\n"
+    "100\t600\t2\t2\n"
+    "200\t300\t1\t1\n"
+    "200\t400\t1\t1\n"
+    "500\t600\t1\t1\n"
+)
+
 
 @pytest.fixture
 def athena_dir(tmp_path):
@@ -71,6 +108,8 @@ def athena_dir(tmp_path):
     concept_path.write_text(CONCEPT_CSV)
     rel_path = tmp_path / "CONCEPT_RELATIONSHIP.csv"
     rel_path.write_text(RELATIONSHIP_CSV)
+    ancestor_path = tmp_path / "CONCEPT_ANCESTOR.csv"
+    ancestor_path.write_text(ANCESTOR_CSV)
     return tmp_path
 
 
@@ -150,11 +189,17 @@ class TestLoadRelationships:
         df = load_relationships(athena_dir / "CONCEPT_RELATIONSHIP.csv")
         # There is 1 invalid "Is a" relationship -- should be excluded
         is_a_edges = df[df["relationship_id"] == "Is a"]
-        assert len(is_a_edges) == 5  # 5 valid, 1 invalid excluded
+        # 6 valid "Is a" edges (5 in main hierarchy + 1 orphan edge 800->900),
+        # 1 invalid excluded.
+        assert len(is_a_edges) == 6
 
 
 class TestBuildHierarchyGraph:
-    """Tests for build_hierarchy_graph()."""
+    """Tests for build_hierarchy_graph().
+
+    Uses root_concept_id=100 (our fixture's root) as a stand-in for
+    the paper's 4274025 "Disease" concept.
+    """
 
     def test_returns_networkx_digraph(self, athena_dir):
         from pyhealth.medcode.pretrained_embeddings.keep_emb.build_omop_graph import (
@@ -164,6 +209,7 @@ class TestBuildHierarchyGraph:
         G = build_hierarchy_graph(
             athena_dir / "CONCEPT.csv",
             athena_dir / "CONCEPT_RELATIONSHIP.csv",
+            root_concept_id=100,
         )
         assert isinstance(G, nx.DiGraph)
 
@@ -175,8 +221,9 @@ class TestBuildHierarchyGraph:
         G = build_hierarchy_graph(
             athena_dir / "CONCEPT.csv",
             athena_dir / "CONCEPT_RELATIONSHIP.csv",
+            root_concept_id=100,
         )
-        # Our fixture has 6 valid SNOMED concepts (100-600)
+        # Our fixture has 6 valid SNOMED concepts (100-600) all under root 100
         assert G.number_of_nodes() == 6
         assert 100 in G  # Root
         assert 300 in G  # Heart failure
@@ -190,6 +237,7 @@ class TestBuildHierarchyGraph:
         G = build_hierarchy_graph(
             athena_dir / "CONCEPT.csv",
             athena_dir / "CONCEPT_RELATIONSHIP.csv",
+            root_concept_id=100,
         )
         assert 700 not in G  # Invalid concept
 
@@ -201,6 +249,7 @@ class TestBuildHierarchyGraph:
         G = build_hierarchy_graph(
             athena_dir / "CONCEPT.csv",
             athena_dir / "CONCEPT_RELATIONSHIP.csv",
+            root_concept_id=100,
         )
         # Heart failure (300) -> Cardiovascular (200)
         assert G.has_edge(300, 200)
@@ -215,6 +264,7 @@ class TestBuildHierarchyGraph:
         G = build_hierarchy_graph(
             athena_dir / "CONCEPT.csv",
             athena_dir / "CONCEPT_RELATIONSHIP.csv",
+            root_concept_id=100,
         )
         assert G.nodes[300]["concept_name"] == "Heart failure"
 
@@ -228,6 +278,7 @@ class TestBuildHierarchyGraph:
             athena_dir / "CONCEPT.csv",
             athena_dir / "CONCEPT_RELATIONSHIP.csv",
             max_depth=1,
+            root_concept_id=100,
         )
         # Root(100), Cardiovascular(200), Metabolic(500) = 3 nodes
         assert G.number_of_nodes() == 3
@@ -236,6 +287,174 @@ class TestBuildHierarchyGraph:
         assert 500 in G
         # Heart failure (300) is at depth 2, should be excluded
         assert 300 not in G
+
+
+class TestBuildHierarchyGraphSingleRoot:
+    """Tests for paper-faithful single-root graph construction.
+
+    Paper Appendix A.1.1: root is concept_id 4274025 "Disease".
+    We BFS from this single concept, not from every node with
+    out-degree 0. Graph must be a single connected DAG.
+    """
+
+    def test_root_concept_is_in_graph(self, athena_dir):
+        from pyhealth.medcode.pretrained_embeddings.keep_emb.build_omop_graph import (
+            build_hierarchy_graph,
+        )
+
+        # Using 100 as the "root" in our fixture (stand-in for 4274025)
+        G = build_hierarchy_graph(
+            athena_dir / "CONCEPT.csv",
+            athena_dir / "CONCEPT_RELATIONSHIP.csv",
+            root_concept_id=100,
+        )
+        assert 100 in G.nodes()
+
+    def test_single_root_only(self, athena_dir):
+        """Graph must have exactly one root node (out-degree 0)."""
+        from pyhealth.medcode.pretrained_embeddings.keep_emb.build_omop_graph import (
+            build_hierarchy_graph,
+        )
+
+        G = build_hierarchy_graph(
+            athena_dir / "CONCEPT.csv",
+            athena_dir / "CONCEPT_RELATIONSHIP.csv",
+            root_concept_id=100,
+        )
+        roots = [n for n in G.nodes() if G.out_degree(n) == 0]
+        assert roots == [100], f"Expected single root [100], got {roots}"
+
+    def test_all_nodes_reachable_from_root(self, athena_dir):
+        """Every node must be reachable from the root via BFS.
+
+        This catches the orphan bug: concepts whose only parent is in a
+        different domain would be unreachable from the root in a naive
+        implementation.
+        """
+        from pyhealth.medcode.pretrained_embeddings.keep_emb.build_omop_graph import (
+            build_hierarchy_graph,
+        )
+
+        G = build_hierarchy_graph(
+            athena_dir / "CONCEPT.csv",
+            athena_dir / "CONCEPT_RELATIONSHIP.csv",
+            root_concept_id=100,
+        )
+        # Reverse graph so root -> descendants direction
+        reverse = G.reverse()
+        reachable = {100} | nx.descendants(reverse, 100)
+        assert reachable == set(G.nodes()), (
+            f"{len(set(G.nodes()) - reachable)} nodes unreachable from root"
+        )
+
+    def test_excludes_nodes_outside_root_subtree(self, athena_dir):
+        """Nodes not descended from the root must be excluded.
+
+        Using root_concept_id=200 (Cardiovascular) should give us only
+        {200, 300, 400} — the Metabolic subtree (500, 600) must be excluded.
+        """
+        from pyhealth.medcode.pretrained_embeddings.keep_emb.build_omop_graph import (
+            build_hierarchy_graph,
+        )
+
+        G = build_hierarchy_graph(
+            athena_dir / "CONCEPT.csv",
+            athena_dir / "CONCEPT_RELATIONSHIP.csv",
+            root_concept_id=200,  # Cardiovascular subtree only
+        )
+        assert set(G.nodes()) == {200, 300, 400}
+        assert 500 not in G.nodes()  # Metabolic root
+        assert 600 not in G.nodes()  # Diabetes (under Metabolic)
+
+    def test_default_root_is_paper_disease_concept(self, athena_dir):
+        """Default root should be 4274025 per paper Appendix A.1.1.
+
+        Since our fixture doesn't contain 4274025, the graph should
+        be empty (or raise) when no explicit root is passed and 4274025
+        is not in the CSV.
+        """
+        from pyhealth.medcode.pretrained_embeddings.keep_emb.build_omop_graph import (
+            build_hierarchy_graph,
+        )
+
+        # Default root=4274025 doesn't exist in our fixture → empty graph
+        G = build_hierarchy_graph(
+            athena_dir / "CONCEPT.csv",
+            athena_dir / "CONCEPT_RELATIONSHIP.csv",
+        )
+        assert G.number_of_nodes() == 0
+
+
+class TestOrphanRescue:
+    """Tests for orphan rescue via CONCEPT_ANCESTOR.
+
+    Some SNOMED Condition concepts have direct "Is a" parents only in
+    the Observation domain. Our domain-filtered BFS can't reach them.
+    The rescue step uses CONCEPT_ANCESTOR to find each orphan's closest
+    in-graph ancestor and adds a direct edge.
+
+    Our fixture has orphan concept 800 "Drug-induced heart failure"
+    whose only direct parent (900 "Adverse drug reaction") is in the
+    Observation domain. Without rescue, 800 is unreachable from root
+    100. With rescue, 800 gets a rescue edge to its closest in-graph
+    ancestor: 300 "Heart failure" (distance 2 in CONCEPT_ANCESTOR).
+    """
+
+    def test_orphan_not_in_graph_without_rescue(self, athena_dir):
+        """Sanity check: without rescue, orphan is excluded."""
+        from pyhealth.medcode.pretrained_embeddings.keep_emb.build_omop_graph import (
+            build_hierarchy_graph,
+        )
+        # No CONCEPT_ANCESTOR passed → no rescue
+        G = build_hierarchy_graph(
+            athena_dir / "CONCEPT.csv",
+            athena_dir / "CONCEPT_RELATIONSHIP.csv",
+            root_concept_id=100,
+        )
+        assert 800 not in G.nodes()
+
+    def test_orphan_rescued_with_ancestor_csv(self, athena_dir):
+        """With CONCEPT_ANCESTOR, orphan is rescued."""
+        from pyhealth.medcode.pretrained_embeddings.keep_emb.build_omop_graph import (
+            build_hierarchy_graph,
+        )
+        G = build_hierarchy_graph(
+            athena_dir / "CONCEPT.csv",
+            athena_dir / "CONCEPT_RELATIONSHIP.csv",
+            root_concept_id=100,
+            ancestor_csv=athena_dir / "CONCEPT_ANCESTOR.csv",
+        )
+        assert 800 in G.nodes(), "Orphan 800 should be rescued"
+
+    def test_rescue_edge_points_to_closest_ancestor(self, athena_dir):
+        """Rescue edge must go to the closest in-graph ancestor."""
+        from pyhealth.medcode.pretrained_embeddings.keep_emb.build_omop_graph import (
+            build_hierarchy_graph,
+        )
+        G = build_hierarchy_graph(
+            athena_dir / "CONCEPT.csv",
+            athena_dir / "CONCEPT_RELATIONSHIP.csv",
+            root_concept_id=100,
+            ancestor_csv=athena_dir / "CONCEPT_ANCESTOR.csv",
+        )
+        # 800's ancestors in graph: 300 (dist 2), 200 (dist 3), 100 (dist 4)
+        # Closest is 300 → edge 800 -> 300 must exist
+        assert G.has_edge(800, 300), "Rescue edge 800 -> 300 missing"
+
+    def test_rescued_orphan_reachable_from_root(self, athena_dir):
+        """After rescue, every node is reachable from root."""
+        from pyhealth.medcode.pretrained_embeddings.keep_emb.build_omop_graph import (
+            build_hierarchy_graph,
+        )
+        G = build_hierarchy_graph(
+            athena_dir / "CONCEPT.csv",
+            athena_dir / "CONCEPT_RELATIONSHIP.csv",
+            root_concept_id=100,
+            ancestor_csv=athena_dir / "CONCEPT_ANCESTOR.csv",
+        )
+        reverse = G.reverse()
+        reachable = {100} | nx.descendants(reverse, 100)
+        assert 800 in reachable, "Rescued orphan unreachable from root"
 
 
 class TestBuildIcdToSnomed:

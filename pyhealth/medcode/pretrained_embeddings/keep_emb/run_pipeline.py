@@ -136,6 +136,11 @@ def run_keep_pipeline(
     relationship_csv = athena_dir / "CONCEPT_RELATIONSHIP.csv"
     if not relationship_csv.exists():
         relationship_csv = athena_dir / "CONCEPT_RELATIONSHIP.csv.gz"
+    # CONCEPT_ANCESTOR is optional but enables orphan rescue (paper-faithful)
+    ancestor_csv = athena_dir / "CONCEPT_ANCESTOR.csv"
+    if not ancestor_csv.exists():
+        ancestor_csv_gz = athena_dir / "CONCEPT_ANCESTOR.csv.gz"
+        ancestor_csv = ancestor_csv_gz if ancestor_csv_gz.exists() else None
 
     if not concept_csv.exists():
         raise FileNotFoundError(
@@ -146,6 +151,12 @@ def run_keep_pipeline(
         raise FileNotFoundError(
             f"CONCEPT_RELATIONSHIP.csv(.gz) not found in {athena_dir}."
         )
+    if ancestor_csv is None:
+        logger.warning(
+            "CONCEPT_ANCESTOR.csv not found. Skipping orphan rescue. "
+            "For paper-faithful reproduction, include CONCEPT_ANCESTOR.csv "
+            "in the Athena download."
+        )
 
     # Override params for dev/testing speed
     if dev:
@@ -153,10 +164,12 @@ def run_keep_pipeline(
         glove_epochs = 10
         logger.info("DEV MODE: num_walks=10, glove_epochs=10")
 
-    # Step 1: Build SNOMED graph
+    # Step 1: Build SNOMED graph (with orphan rescue if ancestor_csv available)
     print("KEEP [1/6] Building SNOMED hierarchy graph...")
     graph = build_hierarchy_graph(
-        concept_csv, relationship_csv, max_depth=max_depth,
+        concept_csv, relationship_csv,
+        max_depth=max_depth,
+        ancestor_csv=ancestor_csv,
     )
     print(f"  Graph: {graph.number_of_nodes()} nodes, {graph.number_of_edges()} edges")
 
