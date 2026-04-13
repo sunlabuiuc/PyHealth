@@ -48,6 +48,12 @@ CONCEPT_CSV = (
     # ICD10CM concepts
     "2001\tHeart failure unspecified\tCondition\tICD10CM\t4-char nonbill code\t\tI50.9\t20150101\t20991231\t\n"
     "2002\tType 2 diabetes mellitus\tCondition\tICD10CM\t3-char nonbill code\t\tE11\t20150101\t20991231\t\n"
+    # Multi-target ICD: combination code that maps to TWO SNOMED concepts.
+    # Example pattern: ICD code "A01.04 Typhoid arthritis" maps to BOTH
+    # "Typhoid fever" AND "Secondary inflammatory arthritis" in Athena.
+    # Here we use "250.01" as a synthetic multi-target code mapping to
+    # both Diabetes (600) and Heart failure (300).
+    "1004\tDiabetes with heart complications\tCondition\tICD9CM\t5-dig billing code\t\t250.01\t19700101\t20991231\t\n"
 )
 
 # Minimal CONCEPT_RELATIONSHIP.csv (tab-separated)
@@ -69,6 +75,10 @@ RELATIONSHIP_CSV = (
     "1003\t600\tMaps to\t20020131\t20991231\t\n"  # ICD9 250.00 -> Diabetes
     "2001\t300\tMaps to\t20020131\t20991231\t\n"  # ICD10 I50.9 -> Heart failure
     "2002\t600\tMaps to\t20020131\t20991231\t\n"  # ICD10 E11 -> Diabetes
+    # Multi-target: ICD9 250.01 "Diabetes with heart complications"
+    # maps to BOTH Diabetes (600) AND Heart failure (300).
+    "1004\t600\tMaps to\t20020131\t20991231\t\n"
+    "1004\t300\tMaps to\t20020131\t20991231\t\n"
     # An invalid relationship (should be filtered)
     "300\t100\tIs a\t20020131\t20201231\tD\n"
 )
@@ -516,5 +526,5 @@ class TestBuildAllMappings:
             athena_dir / "CONCEPT.csv",
             athena_dir / "CONCEPT_RELATIONSHIP.csv",
         )
-        assert len(icd9_map) == 3   # 3 ICD-9 codes
+        assert len(icd9_map) == 4   # 4 ICD-9 codes (3 single + 1 multi-target)
         assert len(icd10_map) == 2  # 2 ICD-10 codes

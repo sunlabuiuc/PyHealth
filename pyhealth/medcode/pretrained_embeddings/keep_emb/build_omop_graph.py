@@ -174,94 +174,57 @@ def load_relationships(
 PAPER_ROOT_CONCEPT_ID = 4274025  # "Disease" concept (paper Appendix A.1.1)
 
 
-def _rescue_orphans(
+def _rescue_orphan_edges(
     graph: nx.DiGraph,
-    full_graph: nx.DiGraph,
-    ancestor_csv: str | Path,
+    ancestor_df: pd.DataFrame,
     root_concept_id: int,
 ) -> int:
-    """Rescue Condition concepts excluded by domain-filtered BFS.
+    """Add edges for orphans (nodes with no in-graph parent).
 
-    Some SNOMED Condition concepts have direct "Is a" parents only in
-    non-Condition domains (typically Observation). Our domain-filtered
-    BFS drops those edges, orphaning the concept. Example: "Drug
-    reaction with eosinophilia" has parents "Adverse reaction to drug"
-    and "Hypersensitivity reaction" — both Observation domain — so it
-    has no incoming Condition edges and is unreachable from root.
+    Some Condition concepts have direct "Is a" parents only in non-Condition
+    domains (typically Observation). Example: "DRESS syndrome" has parents
+    "Adverse reaction to drug" and "Hypersensitivity reaction", both in the
+    Observation domain. When we filter CONCEPT_RELATIONSHIP edges to
+    Condition-only endpoints, these edges vanish and the concept has no
+    incoming edge in our graph.
 
-    The paper's approach using CONCEPT_ANCESTOR.csv (transitive closure
-    of "Is a") naturally includes these concepts because it sees
-    ancestors at any distance without caring about intermediate domains.
-    Our CONCEPT_RELATIONSHIP approach is faster but creates orphans.
-
-    This function rescues each orphan by:
-      1. Looking up its ancestors in CONCEPT_ANCESTOR
-      2. Filtering to ancestors present in the graph
-      3. Picking the closest one (smallest min_levels_of_separation,
-         ties broken by smaller concept_id for determinism)
-      4. Adding the orphan node and a direct edge to its closest ancestor
+    The paper's approach using CONCEPT_ANCESTOR naturally includes these
+    concepts (step 2 above). But they still end up with no direct edges in
+    CONCEPT_RELATIONSHIP. This function adds a direct edge from each orphan
+    to its closest in-graph ancestor, making the graph connected.
 
     Discovered and documented by Desmond Fung in keep-mimic4.
 
     Args:
-        graph: The current (depth-limited) graph. Rescued nodes and
-            edges are added to this graph in place.
-        full_graph: The unfiltered graph containing all Condition nodes
-            (with attributes) — used to copy node attributes for orphans
-            being added to ``graph``.
-        ancestor_csv: Path to Athena CONCEPT_ANCESTOR.csv.
-        root_concept_id: The root concept (used to identify potential orphans).
+        graph: The current graph. Rescue edges are added in place.
+        ancestor_df: CONCEPT_ANCESTOR DataFrame (already loaded).
+        root_concept_id: The root concept (excluded from orphan set).
 
     Returns:
         int: Number of orphans rescued.
     """
-    # Load CONCEPT_ANCESTOR — find all descendants of root within depth <= 5
-    # that should be in our graph but aren't.
-    ancestor_df = pd.read_csv(
-        ancestor_csv,
-        sep="\t",
-        usecols=[
-            "ancestor_concept_id",
-            "descendant_concept_id",
-            "min_levels_of_separation",
-        ],
-        dtype={
-            "ancestor_concept_id": int,
-            "descendant_concept_id": int,
-            "min_levels_of_separation": int,
-        },
-    )
+    # Orphans = nodes in graph with no outgoing "Is a" edge (no parent),
+    # excluding the root (which legitimately has no parent).
+    orphans = [
+        n for n in graph.nodes()
+        if n != root_concept_id and graph.out_degree(n) == 0
+    ]
 
-    # Candidates for rescue: descendants of root within our depth limit
-    # that are in the full Condition set but NOT in our depth-limited graph.
-    # NOTE: we trust the BFS for depth; rescue only restores nodes whose
-    # ancestors reach the root within a reasonable distance.
-    root_descendants = ancestor_df[
-        (ancestor_df["ancestor_concept_id"] == root_concept_id)
-        & (ancestor_df["min_levels_of_separation"] <= 5)
-    ]["descendant_concept_id"].tolist()
-
-    full_graph_nodes = set(full_graph.nodes())
-    graph_nodes = set(graph.nodes())
-    orphan_candidates = (
-        set(root_descendants) & full_graph_nodes
-    ) - graph_nodes
-
-    if not orphan_candidates:
+    if not orphans:
         return 0
 
-    logger.info(
-        "Found %d orphan candidates via CONCEPT_ANCESTOR",
-        len(orphan_candidates),
-    )
+    logger.info("Found %d orphans (no parent in graph)", len(orphans))
 
-    # For each orphan, find closest in-graph ancestor.
+    graph_nodes = set(graph.nodes())
+    orphan_set = set(orphans)
+
+    # Pre-filter ancestor_df to rows relevant to our orphans.
     orphan_ancestors = ancestor_df[
-        ancestor_df["descendant_concept_id"].isin(orphan_candidates)
+        ancestor_df["descendant_concept_id"].isin(orphan_set)
     ]
 
     rescued = 0
-    for orphan in orphan_candidates:
+    for orphan in orphans:
         candidates = orphan_ancestors[
             (orphan_ancestors["descendant_concept_id"] == orphan)
             & (orphan_ancestors["ancestor_concept_id"].isin(graph_nodes))
@@ -273,26 +236,62 @@ def _rescue_orphans(
             )
             continue
 
-        # Closest in-graph ancestor; ties broken by smaller concept_id.
+        # Closest in-graph ancestor; ties broken by smaller concept_id
+        # for deterministic output across Athena versions.
         best = candidates.sort_values(
             ["min_levels_of_separation", "ancestor_concept_id"],
             ascending=[True, True],
         ).iloc[0]
         closest_ancestor = int(best["ancestor_concept_id"])
-
-        # Add the orphan with its attributes from the full graph.
-        if orphan in full_graph.nodes():
-            attrs = full_graph.nodes[orphan]
-            graph.add_node(orphan, **attrs)
-        else:
-            graph.add_node(orphan)
-
-        # Add rescue edge (child -> parent convention).
         graph.add_edge(orphan, closest_ancestor)
         rescued += 1
 
     logger.info("Rescued %d orphans via CONCEPT_ANCESTOR", rescued)
     return rescued
+
+
+def _bfs_fallback(
+    concept_csv: str | Path,
+    relationship_csv: str | Path,
+    root_concept_id: int,
+    max_depth: int,
+    valid_condition_ids: Set[int],
+) -> Set[int]:
+    """BFS-based fallback when CONCEPT_ANCESTOR is unavailable.
+
+    Builds a node set by BFS over "Is a" edges from the root within depth.
+    This can miss concepts whose direct parent is in a non-Condition domain
+    (see ``_rescue_orphan_edges`` docstring). Not paper-faithful — included
+    only for users who lack CONCEPT_ANCESTOR.csv.
+    """
+    rels = load_relationships(relationship_csv, relationship_ids=["Is a"])
+    rels = rels[
+        rels["concept_id_1"].isin(valid_condition_ids)
+        & rels["concept_id_2"].isin(valid_condition_ids)
+    ]
+    # Build temporary graph for BFS
+    tmp = nx.DiGraph()
+    tmp.add_nodes_from(valid_condition_ids)
+    for _, row in rels.iterrows():
+        if row["concept_id_1"] != row["concept_id_2"]:
+            tmp.add_edge(row["concept_id_1"], row["concept_id_2"])
+
+    if root_concept_id not in tmp:
+        return set()
+
+    reverse = tmp.reverse()
+    keep: Set[int] = set()
+    queue: deque[Tuple[int, int]] = deque([(root_concept_id, 0)])
+    while queue:
+        node, depth = queue.popleft()
+        if node in keep:
+            continue
+        keep.add(node)
+        if depth < max_depth:
+            for child in reverse.successors(node):
+                if child not in keep:
+                    queue.append((child, depth + 1))
+    return keep
 
 
 def build_hierarchy_graph(
@@ -312,27 +311,32 @@ def build_hierarchy_graph(
     will be visited in similar random walk contexts, producing similar
     Node2Vec embeddings.
 
-    Algorithm:
-        1. Load all SNOMED Condition concepts (standard concepts only).
-        2. Load all "Is a" relationships between those concepts.
-        3. Build a DiGraph with child -> parent edges.
-        4. BFS from the single ``root_concept_id`` (paper: 4274025 "Disease"),
-           keeping only nodes within ``max_depth`` levels.
-        5. Optionally rescue orphans via CONCEPT_ANCESTOR (if provided).
+    Algorithm (paper Appendix A.1.1):
+        1. Load CONCEPT_ANCESTOR, get all descendants of root within depth.
+        2. Intersect with standard SNOMED Condition concepts.
+        3. Load "Is a" edges from CONCEPT_RELATIONSHIP (direct parent only).
+        4. Build DiGraph with node attributes (name, code) and edges.
+        5. Rescue orphans: nodes with no incoming edge (their direct
+           parent was in a non-Condition domain and got filtered out).
 
     Why a single root (4274025)?
         Paper Appendix A.1.1: "we filter concepts based on their hierarchical
         distance from the root node, 'Disease' (concept ID: 4274025)."
-        The paper uses one specific root, not every top-level SNOMED
-        Condition concept. This excludes non-disease findings like body
-        temperature observations, pain findings, family history, etc.
+        This excludes non-disease findings like body temperature observations,
+        pain findings, family history, etc.
+
+    Why CONCEPT_ANCESTOR?
+        The paper uses "the 'CONCEPT_ANCESTOR' table" to calculate distance
+        from root. CONCEPT_ANCESTOR is the transitive closure of "Is a"
+        relationships with pre-computed distances — one query gives us
+        every descendant within depth 5, regardless of intermediate domains.
+        Using CONCEPT_RELATIONSHIP alone with BFS would miss concepts whose
+        direct parent is in a non-Condition domain.
 
     Why depth-limit to 5?
         The KEEP paper (Section 4.2) limits to 5 levels from root. Deeper
         levels contain overly specific concepts that few patients have,
-        adding noise to Node2Vec walks. At depth 5, the KEEP paper reports
-        ~5,686 concepts -- rich enough for meaningful walks, sparse enough
-        to avoid noise.
+        adding noise to Node2Vec walks.
 
     Args:
         concept_csv: Path to Athena CONCEPT.csv.
@@ -340,116 +344,135 @@ def build_hierarchy_graph(
         max_depth: Maximum hierarchy depth from root. Default: 5.
         vocabulary_id: Vocabulary to build graph from. Default: "SNOMED".
         domain_id: Domain to filter concepts. Default: "Condition".
-        root_concept_id: Single root for BFS. Default: 4274025 "Disease"
+        root_concept_id: Single root. Default: 4274025 "Disease"
             (KEEP paper Appendix A.1.1). Configurable for tests.
-        ancestor_csv: Optional path to Athena CONCEPT_ANCESTOR.csv. If
-            provided, runs orphan rescue after BFS (see ``_rescue_orphans``).
-            Recommended for paper-faithful reproduction.
+        ancestor_csv: Path to Athena CONCEPT_ANCESTOR.csv. Required for
+            paper-faithful reproduction. If None, falls back to a naive
+            BFS over CONCEPT_RELATIONSHIP only (misses cross-domain paths).
 
     Returns:
         nx.DiGraph: Directed graph where each edge is (child, parent).
             Node attributes include "concept_name" and "concept_code".
-            The graph contains only descendants of ``root_concept_id``
-            within ``max_depth`` levels. If the root is not present in
-            the loaded concepts, returns an empty graph.
+            All descendants of ``root_concept_id`` within ``max_depth``
+            levels are included. Returns empty graph if root is absent.
 
     Example:
-        >>> G = build_hierarchy_graph("data/athena/CONCEPT.csv",
-        ...                           "data/athena/CONCEPT_RELATIONSHIP.csv")
-        >>> G.number_of_nodes()  # approximately
+        >>> G = build_hierarchy_graph(
+        ...     "data/athena/CONCEPT.csv",
+        ...     "data/athena/CONCEPT_RELATIONSHIP.csv",
+        ...     ancestor_csv="data/athena/CONCEPT_ANCESTOR.csv",
+        ... )
+        >>> G.number_of_nodes()
         68396
     """
-    # Step 1: Load SNOMED Condition concepts (standard only)
+    # Step 1: Load SNOMED Condition standard concepts
     concepts = load_concepts(
         concept_csv,
         vocabulary_ids=[vocabulary_id],
         domain_ids=[domain_id],
     )
-    # Keep only standard concepts (standard_concept == "S")
     concepts = concepts[concepts["standard_concept"] == "S"]
-    valid_ids: Set[int] = set(concepts["concept_id"])
-    logger.info("Found %d standard %s %s concepts", len(valid_ids),
-                vocabulary_id, domain_id)
-
-    # Step 2: Load "Is a" relationships where BOTH endpoints are in our set
-    rels = load_relationships(relationship_csv, relationship_ids=["Is a"])
-    rels = rels[
-        rels["concept_id_1"].isin(valid_ids)
-        & rels["concept_id_2"].isin(valid_ids)
-    ]
-    logger.info("Found %d 'Is a' edges between valid concepts", len(rels))
-
-    # Step 3: Build directed graph (child -> parent)
-    # In Athena's "Is a": concept_id_1 "Is a" concept_id_2
-    # meaning concept_id_1 is a child of concept_id_2
-    full_graph = nx.DiGraph()
-
-    # Add nodes with attributes
+    valid_condition_ids: Set[int] = set(concepts["concept_id"])
     id_to_name = dict(zip(concepts["concept_id"], concepts["concept_name"]))
     id_to_code = dict(zip(concepts["concept_id"], concepts["concept_code"]))
-    for cid in valid_ids:
-        full_graph.add_node(
+    logger.info(
+        "Found %d standard %s %s concepts",
+        len(valid_condition_ids),
+        vocabulary_id,
+        domain_id,
+    )
+
+    # Step 2: Determine node set via CONCEPT_ANCESTOR (paper-faithful)
+    # This gives us descendants of root within depth, regardless of
+    # intermediate domains — naturally handles cross-domain paths.
+    if ancestor_csv is not None:
+        ancestor_df = pd.read_csv(
+            ancestor_csv,
+            sep="\t",
+            usecols=[
+                "ancestor_concept_id",
+                "descendant_concept_id",
+                "min_levels_of_separation",
+            ],
+            dtype={
+                "ancestor_concept_id": int,
+                "descendant_concept_id": int,
+                "min_levels_of_separation": int,
+            },
+        )
+        descendants = set(
+            ancestor_df[
+                (ancestor_df["ancestor_concept_id"] == root_concept_id)
+                & (ancestor_df["min_levels_of_separation"] <= max_depth)
+            ]["descendant_concept_id"]
+        )
+        # Include root itself (CONCEPT_ANCESTOR typically doesn't have self-loops)
+        descendants.add(root_concept_id)
+        # Intersect with standard Condition concepts
+        node_set = descendants & valid_condition_ids
+        logger.info(
+            "CONCEPT_ANCESTOR: %d descendants of root %d within depth %d, "
+            "intersected with Condition concepts -> %d nodes",
+            len(descendants),
+            root_concept_id,
+            max_depth,
+            len(node_set),
+        )
+    else:
+        # Fallback: no CONCEPT_ANCESTOR available.
+        # Use naive BFS over "Is a" edges, which misses cross-domain paths.
+        # This is not paper-faithful but works when CONCEPT_ANCESTOR is missing.
+        logger.warning(
+            "CONCEPT_ANCESTOR.csv not provided. Falling back to BFS over "
+            "'Is a' edges — may miss cross-domain paths (not paper-faithful)."
+        )
+        ancestor_df = None
+        node_set = _bfs_fallback(
+            concept_csv,
+            relationship_csv,
+            root_concept_id,
+            max_depth,
+            valid_condition_ids,
+        )
+
+    if not node_set:
+        logger.warning("Empty node set. Returning empty graph.")
+        return nx.DiGraph()
+
+    # Step 3: Build DiGraph with node attributes
+    graph = nx.DiGraph()
+    for cid in node_set:
+        graph.add_node(
             cid,
             concept_name=id_to_name.get(cid, ""),
             concept_code=id_to_code.get(cid, ""),
         )
 
-    # Add edges: child -> parent
+    # Step 4: Load "Is a" edges and filter to edges between node_set members
+    rels = load_relationships(relationship_csv, relationship_ids=["Is a"])
+    rels = rels[
+        rels["concept_id_1"].isin(node_set)
+        & rels["concept_id_2"].isin(node_set)
+    ]
     for _, row in rels.iterrows():
         child = row["concept_id_1"]
         parent = row["concept_id_2"]
         if child != parent:  # skip self-loops
-            full_graph.add_edge(child, parent)
+            graph.add_edge(child, parent)
 
     logger.info(
-        "Full graph: %d nodes, %d edges",
-        full_graph.number_of_nodes(),
-        full_graph.number_of_edges(),
-    )
-
-    # Step 4: BFS from the single root concept (paper Appendix A.1.1)
-    if root_concept_id not in full_graph:
-        logger.warning(
-            "Root concept_id %d not found in loaded concepts. "
-            "Returning empty graph.",
-            root_concept_id,
-        )
-        return nx.DiGraph()
-
-    logger.info("Using single root: concept_id %d", root_concept_id)
-
-    # Step 5: BFS from root, depth-limited.
-    # We traverse parent -> child direction, so we need the reverse graph.
-    reverse_graph = full_graph.reverse()
-    keep_nodes: Set[int] = set()
-
-    # BFS from root in reverse graph (root -> children -> grandchildren)
-    queue: deque[Tuple[int, int]] = deque([(root_concept_id, 0)])
-    while queue:
-        node, depth = queue.popleft()
-        if node in keep_nodes:
-            continue
-        keep_nodes.add(node)
-        if depth < max_depth:
-            for child in reverse_graph.successors(node):
-                if child not in keep_nodes:
-                    queue.append((child, depth + 1))
-
-    # Build the depth-limited subgraph
-    graph = full_graph.subgraph(keep_nodes).copy()
-    logger.info(
-        "Depth-limited graph (max_depth=%d): %d nodes, %d edges",
-        max_depth,
+        "Graph (before rescue): %d nodes, %d edges",
         graph.number_of_nodes(),
         graph.number_of_edges(),
     )
 
-    # Step 6: Optional orphan rescue via CONCEPT_ANCESTOR.
-    # Some Condition concepts have direct parents only in non-Condition
-    # domains and get orphaned by our domain filter. Rescue them using
-    # the transitive ancestor table.
-    if ancestor_csv is not None:
-        _rescue_orphans(graph, full_graph, ancestor_csv, root_concept_id)
+    # Step 5: Rescue orphans (nodes with no outgoing "Is a" edge)
+    # These are Condition concepts whose only direct parents are in
+    # non-Condition domains. They got included by CONCEPT_ANCESTOR (which
+    # sees transitive paths) but lack direct edges in CONCEPT_RELATIONSHIP
+    # (which was filtered to Condition-only endpoints).
+    if ancestor_df is not None:
+        _rescue_orphan_edges(graph, ancestor_df, root_concept_id)
         logger.info(
             "After orphan rescue: %d nodes, %d edges",
             graph.number_of_nodes(),
