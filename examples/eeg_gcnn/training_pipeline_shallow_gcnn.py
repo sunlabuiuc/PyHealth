@@ -1,32 +1,50 @@
-"""PyHealth 2.0 training pipeline for shallow EEG-GAT.
+"""PyHealth 2.0 training pipeline for shallow EEG-GCNN.
 
 10-fold cross-validation using PyHealth 2.0 Trainer, EEGGCNNDataset, and
-the shallow EEGGATConvNet (2 GAT layers).  Dropout ablation is supported via
-DROPOUT_VALUES — one full 10-fold CV run is executed per dropout value.
+the shallow EEGGraphConvNet (2 GCN layers).  Mirrors the subject-level 70/30
+train+val / heldout-test split used in the deep pipeline.
 
 Dataset loading:
   EEGGCNNDataset.set_task() is called once to build and cache a SampleDataset
   on disk.  Subject-level 70/30 and fold splits are then made by indexing into
   SampleDataset.patient_to_index — no data is re-loaded between folds.
 
-Checkpoints are saved as pure state-dicts: 
-    {EXPERIMENT_NAME}_drop{dropout*10}_fold_{fold_idx}.ckpt
+Checkpoints are saved as pure state-dicts:
+    {EXPERIMENT_NAME}_fold_{fold_idx}.ckpt
 
 Load with:
-    model.load_state_dict(torch.load("psd_gat_shallow_ph_drop3_fold_0.ckpt"))
+    model.load_state_dict(torch.load("psd_gnn_shallow_ph_alpha0.50_fold_0.ckpt"))
 
-Usage (from the examples/eeg_gatcnn directory):
+Usage (from the examples/eeg_gcnn directory):
     conda activate pyhealth (assuming PyHealth is installed in this conda env)
-    python training_pipeline_short_gatcnn.py
+    python training_pipeline_shallow_gcnn.py
 
-    Requires precumputed data in the folder specified by DATA_ROOT.
+    Requires precomputed data in the folder specified by DATA_ROOT.
     Outputs (checkpoints, logs) are saved to the folder specified by output_dir.
     See the Configuration section below for these and other settings.
+
+Ablations:
+    Edge weight mix (ALPHA):
+        Controls the blend between geodesic distance and coherence-based
+        edge weights. Set ALPHA in the Configuration section:
+            ALPHA = 1.0   # geodesic only
+            ALPHA = 0.0   # coherence only
+            ALPHA = 0.5   # equal mix (default)
+        Note: changing ALPHA requires clearing the PyHealth dataset cache,
+        which this script does automatically on each run.
+
+    Patient subset (MAX_PATIENTS):
+        Set MAX_PATIENTS to an integer to limit the number of patients used,
+        which is useful for quick smoke-tests:
+            MAX_PATIENTS = 20   # fast dev run
+            MAX_PATIENTS = None # full dataset (default)
 """
 
 import os
+import shutil
 import sys
 from itertools import chain
+from pathlib import Path
 from typing import Dict, List, Optional
 
 import numpy as np
@@ -43,7 +61,7 @@ from tqdm.autonotebook import trange
 
 from pyhealth.trainer import Trainer, is_best
 
-from pyhealth.models import EEGGATConvNet
+from pyhealth.models import EEGGraphConvNet
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -51,7 +69,8 @@ from pyhealth.models import EEGGATConvNet
 
 DATA_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "precomputed_data")
 
-EXPERIMENT_NAME = "psd_gat_shallow_ph"
+ALPHA           = 0.5     # edge weight mix: 1.0=geodesic only, 0.0=coherence only
+EXPERIMENT_NAME = f"psd_gnn_shallow_ph_alpha{ALPHA:.2f}"
 BATCH_SIZE      = 512
 NUM_EPOCHS      = 100
 NUM_FOLDS       = 10
@@ -60,7 +79,6 @@ SEED            = 42
 LEARNING_RATE   = 0.01
 WEIGHT_DECAY    = 0.0
 TEST_RATIO      = 0.30
-DROPOUT_VALUES  = [0.3]
 MAX_PATIENTS: Optional[int] = None  # None uses the full dataset.
                                     # Set to an int (e.g. 20) to cap patients
                                     # for faster runs.
@@ -330,10 +348,25 @@ if __name__ == "__main__":
     torch.manual_seed(SEED)
 
     # ------------------------------------------------------------------
+    # Clear PyHealth dataset cache so EEGGCNNDataset rebuilds from the
+    # correct alpha-specific npy files rather than returning stale data.
+    # Both global_event_df.parquet (stores npy paths) and tasks/ (stores
+    # processed samples) must be cleared when alpha changes.
+    # ------------------------------------------------------------------
+    for cache_root in [
+        Path.home() / "Library" / "Caches" / "pyhealth",
+        Path.home() / ".cache" / "pyhealth",
+    ]:
+        for dataset_dir in cache_root.glob("*"):
+            if dataset_dir.is_dir():
+                shutil.rmtree(dataset_dir, ignore_errors=True)
+                print(f"[MAIN] Cleared PyHealth dataset cache: {dataset_dir}")
+
+    # ------------------------------------------------------------------
     # Load dataset and build SampleDataset once (cached to disk)
     # ------------------------------------------------------------------
     print(f"[MAIN] Loading EEGGCNNDataset from: {DATA_ROOT}")
-    dataset = EEGGCNNDataset(root=DATA_ROOT)
+    dataset = EEGGCNNDataset(root=DATA_ROOT, alpha=ALPHA)
     dataset.stats()
 
     print("[MAIN] Building sample dataset (cached after first run)...")
@@ -359,7 +392,10 @@ if __name__ == "__main__":
             replace=False,
         )
         all_patients = np.sort(all_patients)
-        print(f"[MAIN] Capped to {len(all_patients)} patients (MAX_PATIENTS={MAX_PATIENTS})")
+        print(
+            f"[MAIN] Capped to {len(all_patients)} patients "
+            f"(MAX_PATIENTS={MAX_PATIENTS})"
+        )
 
     train_val_patients, test_patients = train_test_split(
         all_patients, test_size=TEST_RATIO, random_state=SEED
@@ -376,97 +412,88 @@ if __name__ == "__main__":
     output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output_data")
 
     kfold = KFold(n_splits=NUM_FOLDS, shuffle=True, random_state=SEED)
+    fold_results: List[Dict] = []
 
-    # dropout -> list of per-fold val score dicts
-    ablation_results: Dict[float, List[dict]] = {d: [] for d in DROPOUT_VALUES}
+    for fold_idx, (train_idx, val_idx) in enumerate(
+        kfold.split(train_val_patients)
+    ):
+        print(f"\n[MAIN] ========== Fold {fold_idx + 1}/{NUM_FOLDS} ==========")
 
-    for dropout in DROPOUT_VALUES:
-        print(f"\n[MAIN] ========== Dropout {dropout} ==========")
+        train_patients = train_val_patients[train_idx]
+        val_patients = train_val_patients[val_idx]
 
-        for fold_idx, (train_idx, val_idx) in enumerate(
-            kfold.split(train_val_patients)
-        ):
-            print(f"\n[MAIN]   ===== Fold {fold_idx + 1}/{NUM_FOLDS} =====")
+        train_samples = patient_subset_samples(
+            all_samples, train_patients, patient_to_index
+        )
+        val_samples = patient_subset_samples(
+            all_samples, val_patients, patient_to_index
+        )
 
-            train_patients = train_val_patients[train_idx]
-            val_patients = train_val_patients[val_idx]
+        print(
+            f"[MAIN]   Train windows: {len(train_samples)} | "
+            f"Val windows: {len(val_samples)}"
+        )
 
-            train_samples = patient_subset_samples(
-                all_samples, train_patients, patient_to_index
-            )
-            val_samples = patient_subset_samples(
-                all_samples, val_patients, patient_to_index
-            )
+        train_ds = _MapStyleDataset(train_samples)
+        val_ds = _MapStyleDataset(val_samples)
 
-            print(
-                f"[MAIN]   Train windows: {len(train_samples)} | "
-                f"Val windows: {len(val_samples)}"
-            )
+        # Class-balanced training loader; sequential validation loader.
+        train_loader = DataLoader(
+            train_ds,
+            batch_size=BATCH_SIZE,
+            sampler=make_weighted_sampler(train_samples),
+            num_workers=NUM_WORKERS,
+            pin_memory=False,
+            collate_fn=collate_temporal,
+        )
+        val_loader = DataLoader(
+            val_ds,
+            batch_size=BATCH_SIZE,
+            shuffle=False,
+            num_workers=NUM_WORKERS,
+            pin_memory=False,
+            collate_fn=collate_temporal,
+        )
 
-            train_ds = _MapStyleDataset(train_samples)
-            val_ds = _MapStyleDataset(val_samples)
+        # Fresh model for each fold, initialised from the full sample_ds schema.
+        model = EEGGraphConvNet(dataset=sample_ds)
 
-            # Class-balanced training loader; sequential validation loader.
-            train_loader = DataLoader(
-                train_ds,
-                batch_size=BATCH_SIZE,
-                sampler=make_weighted_sampler(train_samples),
-                num_workers=NUM_WORKERS,
-                pin_memory=False,
-                collate_fn=collate_temporal,
-            )
-            val_loader = DataLoader(
-                val_ds,
-                batch_size=BATCH_SIZE,
-                shuffle=False,
-                num_workers=NUM_WORKERS,
-                pin_memory=False,
-                collate_fn=collate_temporal,
-            )
+        trainer = ScheduledTrainer(
+            model=model,
+            metrics=METRICS,
+            device=None,          # auto: GPU if available, else CPU
+            enable_logging=True,
+            output_path=output_dir,
+            exp_name=f"{EXPERIMENT_NAME}_fold_{fold_idx}",
+        )
 
-            exp_name = f"{EXPERIMENT_NAME}_drop{int(dropout * 10)}_fold_{fold_idx}"
+        trainer.train(
+            train_dataloader=train_loader,
+            val_dataloader=val_loader,
+            epochs=NUM_EPOCHS,
+            optimizer_class=torch.optim.SGD,
+            optimizer_params={"lr": LEARNING_RATE},
+            scheduler_milestones=[i * 10 for i in range(1, 26)],
+            scheduler_gamma=0.1,
+            weight_decay=WEIGHT_DECAY,
+            max_grad_norm=None,
+            monitor="roc_auc",
+            monitor_criterion="max",
+            load_best_model_at_last=True,
+        )
 
-            # Fresh model for each fold, initialised from the full sample_ds schema.
-            model = EEGGATConvNet(dataset=sample_ds, dropout=dropout)
+        val_scores = trainer.evaluate(val_loader)
+        print(f"[MAIN] Fold {fold_idx} final val scores: {val_scores}")
+        fold_results.append(val_scores)
 
-            trainer = ScheduledTrainer(
-                model=model,
-                metrics=METRICS,
-                device=None,          # auto: GPU if available, else CPU
-                enable_logging=True,
-                output_path=output_dir,
-                exp_name=exp_name,
-            )
-
-            trainer.train(
-                train_dataloader=train_loader,
-                val_dataloader=val_loader,
-                epochs=NUM_EPOCHS,
-                optimizer_class=torch.optim.SGD,
-                optimizer_params={"lr": LEARNING_RATE},
-                scheduler_milestones=[i * 10 for i in range(1, 26)],
-                scheduler_gamma=0.5,
-                weight_decay=WEIGHT_DECAY,
-                max_grad_norm=None,
-                monitor="roc_auc",
-                monitor_criterion="max",
-                load_best_model_at_last=True,
-            )
-
-            val_scores = trainer.evaluate(val_loader)
-            print(f"[MAIN] Fold {fold_idx} dropout={dropout} val scores: {val_scores}")
-            ablation_results[dropout].append(val_scores)
-
-            ckpt_path = os.path.join(output_dir, f"{exp_name}.ckpt")
-            trainer.save_ckpt(ckpt_path)
-            print(f"[MAIN] Checkpoint saved: {ckpt_path}")
+        ckpt_path = os.path.join(output_dir, f"{EXPERIMENT_NAME}_fold_{fold_idx}.ckpt")
+        trainer.save_ckpt(ckpt_path)
+        print(f"[MAIN] Checkpoint saved: {ckpt_path}")
 
     # ------------------------------------------------------------------
-    # Ablation summary
+    # Cross-fold summary
     # ------------------------------------------------------------------
-    print(f"\n[MAIN] ========== Dropout Ablation Summary ==========")
-    for dropout, fold_results in ablation_results.items():
-        print(f"\n  Dropout={dropout}")
-        for metric in fold_results[0].keys():
-            vals = [r[metric] for r in fold_results if metric in r]
-            print(f"    {metric:20s}: {np.mean(vals):.4f} ± {np.std(vals):.4f}")
+    print(f"\n[MAIN] ========== {NUM_FOLDS}-Fold CV Summary ==========")
+    for metric in fold_results[0].keys():
+        vals = [r[metric] for r in fold_results if metric in r]
+        print(f"  {metric:20s}: {np.mean(vals):.4f} ± {np.std(vals):.4f}")
