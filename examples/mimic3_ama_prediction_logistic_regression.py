@@ -1,43 +1,237 @@
-"""AMA Prediction -- LogisticRegression Ablation with Fairness Analysis.
+"""Ablation study for AMA discharge prediction on MIMIC-III.
 
-Reproduces the Against-Medical-Advice discharge prediction from:
+This script demonstrates the AMAPredictionMIMIC3 task with three feature
+ablations and evaluates model fairness using AUROC across demographic
+subgroups (race, age, insurance). A logistic regression classifier is
+trained on the extracted features to analyze how demographic information
+affects prediction of against-medical-advice (AMA) discharge.
 
-    Boag, W.; Suresh, H.; Celi, L. A.; Szolovits, P.; Ghassemi, M.
-    "Racial Disparities and Mistrust in End-of-Life Care."
-    Machine Learning for Healthcare Conference, PMLR, 2018.
+Paper: Boag, W.; Suresh, H.; Celi, L. A.; Szolovits, P.; and Ghassemi, M.
+"Racial Disparities and Mistrust in End-of-Life Care." Machine Learning
+for Healthcare Conference, PMLR 106:211-235, 2018.
 
-For each baseline the script reports:
-  1. Overall AUROC / PR-AUC averaged over N random 60/40 splits.
-  2. Subgroup performance (AUROC, PR-AUC) sliced by Race, Age Group,
-     and Insurance Type.
-  3. Fairness metrics per subgroup:
-     - Demographic Parity  = % predicted AMA  (P(Y_hat=1 | Group=g))
-     - Equal Opportunity   = True Positive Rate (P(Y_hat=1 | Y=1, Group=g))
+Ablation configurations tested:
+    1. BASELINE: demographics (gender, insurance) + age + los
+    2. BASELINE+RACE: adds normalized ethnicity feature
+    3. BASELINE+RACE+SUBSTANCE: adds substance use diagnosis flag
 
-Usage (synthetic demo data -- illustrative only, likely no AMA positives):
+Results:
+    For each baseline, we report:
+    - Overall AUROC averaged over N random 60/40 train/test splits
+    - Subgroup performance (AUROC) stratified by:
+      * Race (White, Black, Hispanic, Asian, Native American, Other)
+      * Age Group (Young 18-44, Middle 45-64, Senior 65+)
+      * Insurance (Public, Private, Self Pay)
+    - Fairness metrics per subgroup:
+      * Demographic Parity: % predicted AMA per group
+      * Equal Opportunity: True Positive Rate per group
+    These reveal disparities in model behavior across demographics.
+
+Usage (synthetic demo data -- default, fast):
     python examples/mimic3_ama_prediction_logistic_regression.py
 
-Usage (real MIMIC-III):
+Usage (with more patients and more splits):
+    python examples/mimic3_ama_prediction_logistic_regression.py \\
+        --patients 500 --splits 10 --epochs 5
+
+Usage (with real MIMIC-III data):
     python examples/mimic3_ama_prediction_logistic_regression.py \\
         --root /path/to/mimic-iii/1.4 --splits 100 --epochs 10
 """
 
 import argparse
+import gzip
 import tempfile
 import time
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import List
 
 import numpy as np
+import pandas as pd
 import torch
-from sklearn.metrics import average_precision_score, roc_auc_score
+from sklearn.metrics import roc_auc_score
 
 from pyhealth.datasets import MIMIC3Dataset, get_dataloader, split_by_patient
 from pyhealth.models import LogisticRegression
 from pyhealth.tasks import AMAPredictionMIMIC3
 from pyhealth.trainer import Trainer
 
-SYNTHETIC_ROOT = (
-    "https://storage.googleapis.com/pyhealth/Synthetic_MIMIC-III"
-)
+
+def generate_synthetic_mimic3(
+    root: str,
+    n_patients: int = 50,
+    avg_admissions_per_patient: int = 2,
+    seed: int = 42,
+) -> None:
+    """Write gzipped PATIENTS, ADMISSIONS, and ICUSTAYS CSVs for local demos.
+
+    Covers rotated gender, ethnicity, insurance, mixed AMA and substance-use
+    diagnoses. Used when ``--root`` is omitted so the example runs without
+    network access or a full MIMIC-III install.
+
+    Args:
+        root: Directory to write CSV files to.
+        n_patients: Number of synthetic patients to generate.
+        avg_admissions_per_patient: Poisson mean for admissions per patient.
+        seed: Random seed for reproducibility.
+    """
+    np.random.seed(seed)
+    root_path = Path(root)
+    root_path.mkdir(parents=True, exist_ok=True)
+
+    genders = ["M", "F"]
+    ethnicities = [
+        "WHITE",
+        "BLACK/AFRICAN AMERICAN",
+        "HISPANIC OR LATINO",
+        "ASIAN - CHINESE",
+        "AMERICAN INDIAN/ALASKA NATIVE",
+        "UNKNOWN/NOT SPECIFIED",
+    ]
+    insurances = ["Medicare", "Medicaid", "Private", "Self Pay", "Government"]
+    admission_types = ["EMERGENCY", "URGENT", "NEWBORN", "ELECTIVE"]
+    discharge_locations = [
+        "HOME",
+        "SKILLED NURSING FACILITY",
+        "LONG TERM CARE",
+        "LEFT AGAINST MEDICAL ADVI",
+        "EXPIRED",
+    ]
+    diagnoses_substance = [
+        "ALCOHOL WITHDRAWAL",
+        "OPIOID DEPENDENCE",
+        "HEROIN OVERDOSE",
+        "COCAINE INTOXICATION",
+        "DRUG WITHDRAWAL SEIZURE",
+        "ETOH ABUSE",
+        "SUBSTANCE ABUSE",
+        "OVERDOSE - ACCIDENTAL",
+    ]
+    diagnoses_other = [
+        "PNEUMONIA",
+        "ACUTE MYOCARDIAL INFARCTION",
+        "CHEST PAIN",
+        "CONGESTIVE HEART FAILURE",
+        "SEPSIS",
+        "ACUTE KIDNEY INJURY",
+        "ACUTE RESPIRATORY FAILURE",
+        "ASPIRATION",
+    ]
+
+    patients_data: List[dict] = []
+    admissions_data: List[dict] = []
+    icustays_data: List[dict] = []
+
+    subject_id = 1
+    hadm_id = 100
+    icustay_id = 1000
+
+    for i in range(n_patients):
+        gender = genders[i % len(genders)]
+        ethnicity = ethnicities[i % len(ethnicities)]
+        insurance = insurances[i % len(insurances)]
+
+        age_at_visit = int(
+            np.random.choice([25, 45, 65, 85]) + np.random.randint(-5, 5)
+        )
+        dob = datetime(2000, 1, 1) - timedelta(days=age_at_visit * 365)
+
+        patients_data.append({
+            "subject_id": subject_id,
+            "gender": gender,
+            "dob": dob.strftime("%Y-%m-%d %H:%M:%S"),
+            "dod": None,
+            "dod_hosp": None,
+            "dod_ssn": None,
+            "expire_flag": 0,
+        })
+
+        n_admissions = max(1, int(np.random.poisson(avg_admissions_per_patient)))
+        for j in range(n_admissions):
+            admit_time = datetime(2150, 1, 1) + timedelta(days=int(j * 100))
+            discharge_time = admit_time + timedelta(
+                days=int(np.random.randint(1, 30))
+            )
+
+            admission_type = admission_types[(i + j) % len(admission_types)]
+
+            if np.random.random() < 0.15:
+                discharge_loc = "LEFT AGAINST MEDICAL ADVI"
+            elif np.random.random() < 0.05:
+                discharge_loc = "EXPIRED"
+            else:
+                discharge_loc = discharge_locations[
+                    (i + j) % (len(discharge_locations) - 2)
+                ]
+
+            if np.random.random() < 0.2:
+                diagnosis = diagnoses_substance[
+                    np.random.randint(0, len(diagnoses_substance))
+                ]
+            else:
+                diagnosis = diagnoses_other[
+                    np.random.randint(0, len(diagnoses_other))
+                ]
+
+            admissions_data.append({
+                "subject_id": subject_id,
+                "hadm_id": hadm_id,
+                "admission_type": admission_type,
+                "admission_location": "EMERGENCY ROOM ADMIT",
+                "insurance": insurance,
+                "language": "ENGLISH",
+                "religion": "CHRISTIAN",
+                "marital_status": "SINGLE",
+                "ethnicity": ethnicity,
+                "edregtime": admit_time.strftime("%Y-%m-%d %H:%M:%S"),
+                "edouttime": admit_time.strftime("%Y-%m-%d %H:%M:%S"),
+                "diagnosis": diagnosis,
+                "discharge_location": discharge_loc,
+                "dischtime": discharge_time.strftime("%Y-%m-%d %H:%M:%S"),
+                "admittime": admit_time.strftime("%Y-%m-%d %H:%M:%S"),
+                "hospital_expire_flag": 1
+                if discharge_loc == "EXPIRED"
+                else 0,
+            })
+
+            icu_intime = admit_time + timedelta(
+                hours=int(np.random.randint(0, 12))
+            )
+            icu_outtime = discharge_time - timedelta(
+                hours=int(np.random.randint(0, 12))
+            )
+
+            if icu_intime < icu_outtime:
+                icustays_data.append({
+                    "subject_id": subject_id,
+                    "hadm_id": hadm_id,
+                    "icustay_id": icustay_id,
+                    "first_careunit": "MICU",
+                    "last_careunit": "MICU",
+                    "dbsource": "metavision",
+                    "intime": icu_intime.strftime("%Y-%m-%d %H:%M:%S"),
+                    "outtime": icu_outtime.strftime("%Y-%m-%d %H:%M:%S"),
+                })
+                icustay_id += 1
+
+            hadm_id += 1
+
+        subject_id += 1
+
+    def write_csv_gz(filename: str, data: List[dict]) -> None:
+        df = pd.DataFrame(data)
+        filepath = root_path / f"{filename}.gz"
+        with gzip.open(filepath, "wt") as f:
+            df.to_csv(f, index=False)
+        print(f"  Created {filename}.gz ({len(data)} rows)")
+
+    print(f"Generating synthetic MIMIC-III dataset in {root_path}...")
+    write_csv_gz("PATIENTS.csv", patients_data)
+    write_csv_gz("ADMISSIONS.csv", admissions_data)
+    write_csv_gz("ICUSTAYS.csv", icustays_data)
+    print("Done.")
+
 
 BASELINES = {
     "BASELINE": ["demographics", "age", "los"],
@@ -136,15 +330,6 @@ def _safe_auroc(y, p):
         return float("nan")
 
 
-def _safe_prauc(y, p):
-    if np.sum(y) == 0:
-        return float("nan")
-    try:
-        return average_precision_score(y, p)
-    except ValueError:
-        return float("nan")
-
-
 # ------------------------------------------------------------------
 # Single split
 # ------------------------------------------------------------------
@@ -187,7 +372,6 @@ def _run_single_split(sample_dataset, feature_keys, lookup,
     y_pred = (y_prob >= threshold).astype(int)
 
     overall_auroc = _safe_auroc(y_true, y_prob)
-    overall_prauc = _safe_prauc(y_true, y_prob)
 
     subgroup = {}
     for attr_name, attr_vals in groups.items():
@@ -201,7 +385,6 @@ def _run_single_split(sample_dataset, feature_keys, lookup,
             pos = yt.sum()
             subgroup[attr_name][grp] = {
                 "auroc": _safe_auroc(yt, yp),
-                "pr_auc": _safe_prauc(yt, yp),
                 "pct_pred": float(yd.mean()) * 100,
                 "tpr": float(yd[yt == 1].mean()) * 100 if pos > 0
                        else float("nan"),
@@ -210,7 +393,6 @@ def _run_single_split(sample_dataset, feature_keys, lookup,
 
     return {
         "auroc": overall_auroc,
-        "pr_auc": overall_prauc,
         "subgroups": subgroup,
     }
 
@@ -239,8 +421,6 @@ def _aggregate(results):
         "n": len(valid),
         "auroc_mean": _nanmean([r["auroc"] for r in valid]),
         "auroc_std": _nanstd([r["auroc"] for r in valid]),
-        "pr_auc_mean": _nanmean([r["pr_auc"] for r in valid]),
-        "pr_auc_std": _nanstd([r["pr_auc"] for r in valid]),
     }
 
     all_attrs = set()
@@ -256,13 +436,12 @@ def _aggregate(results):
                 all_grps.update(r["subgroups"][attr].keys())
 
         for grp in sorted(all_grps):
-            aurocs, praucs, pcts, tprs, ns = [], [], [], [], []
+            aurocs, pcts, tprs, ns = [], [], [], []
             for r in valid:
                 m = r["subgroups"].get(attr, {}).get(grp)
                 if m is None:
                     continue
                 aurocs.append(m["auroc"])
-                praucs.append(m["pr_auc"])
                 pcts.append(m["pct_pred"])
                 tprs.append(m["tpr"])
                 ns.append(m["n"])
@@ -270,8 +449,6 @@ def _aggregate(results):
             agg["subgroups"][attr][grp] = {
                 "auroc_mean": _nanmean(aurocs),
                 "auroc_std": _nanstd(aurocs),
-                "pr_auc_mean": _nanmean(praucs),
-                "pr_auc_std": _nanstd(praucs),
                 "pct_pred_mean": _nanmean(pcts),
                 "tpr_mean": _nanmean(tprs),
                 "n_avg": int(np.mean(ns)) if ns else 0,
@@ -303,17 +480,15 @@ def _print_results(name, feature_keys, agg):
     print(f"\n  1. Overall Performance ({agg['n']} splits)")
     print(f"     AUROC:  {_fmt(agg['auroc_mean'])} +/- {_fmt(agg['auroc_std'])}"
           f"  95% CI ({_fmt(ci_lo)}, {_fmt(ci_hi)})")
-    print(f"     PR-AUC: {_fmt(agg['pr_auc_mean'])} +/- {_fmt(agg['pr_auc_std'])}")
 
     print(f"\n  2. Subgroup Performance")
     for attr, grps in agg["subgroups"].items():
         print(f"     {attr}:")
-        print(f"       {'Group':<20} {'AUROC':>15} {'PR-AUC':>15} {'n_avg':>7}")
-        print(f"       {'-'*58}")
+        print(f"       {'Group':<20} {'AUROC':>15} {'n_avg':>7}")
+        print(f"       {'-'*42}")
         for grp, m in grps.items():
             a_str = f"{_fmt(m['auroc_mean'])}+/-{_fmt(m['auroc_std'])}"
-            p_str = f"{_fmt(m['pr_auc_mean'])}+/-{_fmt(m['pr_auc_std'])}"
-            print(f"       {grp:<20} {a_str:>15} {p_str:>15} {m['n_avg']:>7}")
+            print(f"       {grp:<20} {a_str:>15} {m['n_avg']:>7}")
 
     print(f"\n  3. Fairness Metrics")
     print(f"     Demographic Parity (% Predicted AMA):")
@@ -337,17 +512,49 @@ def main():
     parser = argparse.ArgumentParser(
         description="AMA prediction ablation -- LogisticRegression",
     )
-    parser.add_argument("--root", default=SYNTHETIC_ROOT,
-                        help="MIMIC-III root (local path or URL)")
-    parser.add_argument("--splits", type=int, default=100,
-                        help="Number of random 60/40 splits (default 100)")
-    parser.add_argument("--epochs", type=int, default=10,
-                        help="Training epochs per split")
-    parser.add_argument("--dev", action="store_true",
-                        help="Use dev mode (1000 patients)")
+    parser.add_argument(
+        "--root",
+        default=None,
+        help="MIMIC-III root (local path). If not provided, uses synthetic data.",
+    )
+    parser.add_argument(
+        "--patients",
+        type=int,
+        default=100,
+        help="Number of synthetic patients (default 100, only used if --root not provided)",
+    )
+    parser.add_argument(
+        "--splits",
+        type=int,
+        default=5,
+        help="Number of random 60/40 splits (default 5 for speed with synthetic data)",
+    )
+    parser.add_argument(
+        "--epochs",
+        type=int,
+        default=3,
+        help="Training epochs per split (default 3 for speed with synthetic data)",
+    )
+    parser.add_argument(
+        "--dev",
+        action="store_true",
+        help="Use dev mode (fewer patients/splits for testing)",
+    )
     args = parser.parse_args()
 
     cache_dir = tempfile.mkdtemp(prefix="ama_lr_")
+
+    # If no root provided, generate synthetic data
+    if args.root is None:
+        print("[Setup] Generating synthetic MIMIC-III dataset...")
+        data_dir = tempfile.mkdtemp(prefix="synthetic_mimic3_")
+        n_patients = 10 if args.dev else args.patients
+        generate_synthetic_mimic3(data_dir, n_patients=n_patients, seed=42)
+        args.root = data_dir
+        print(f"        Synthetic data: {data_dir}\n")
+    else:
+        print(f"Using real MIMIC-III from: {args.root}\n")
+
     print(f"Cache: {cache_dir}")
     print(f"Root:  {args.root}")
     print(f"Splits: {args.splits}  |  Epochs: {args.epochs}")
@@ -355,8 +562,10 @@ def main():
     print("\n[1/4] Loading dataset...")
     t0 = time.time()
     dataset = MIMIC3Dataset(
-        root=args.root, tables=[],
-        cache_dir=cache_dir, dev=args.dev,
+        root=args.root,
+        tables=[],
+        cache_dir=cache_dir,
+        dev=args.dev,
     )
     print(f"  Loaded in {time.time()-t0:.1f}s")
     dataset.stats()
@@ -370,15 +579,12 @@ def main():
             raise
         print(f"\n  {exc}")
         print("  The dataset contains no AMA-positive cases.")
-        print("  AMA prevalence is ~2% so small/synthetic data")
-        print("  often lacks positives.  Demonstrating the task")
-        print("  on raw patients instead:\n")
-        total = 0
-        for patient in dataset.iter_patients():
-            samples = task(patient)
-            total += len(samples)
-        print(f"  Task produced {total} samples (all label=0)")
-        print("\n  Re-run with real MIMIC-III for ablation:")
+        print("  For synthetic data: this is expected if AMA rate is low.")
+        print("  To increase AMA cases, re-run with:")
+        print("    python examples/"
+              "mimic3_ama_prediction_logistic_regression.py \\")
+        print("        --patients 500\n")
+        print("  For real MIMIC-III with better AMA coverage:")
         print("    python examples/"
               "mimic3_ama_prediction_logistic_regression.py \\")
         print("        --root /path/to/mimic-iii/1.4")
