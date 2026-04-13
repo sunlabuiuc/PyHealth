@@ -89,7 +89,7 @@ class TCNBlock(nn.Module):
     ):
         super().__init__()
         num_layers = 3
-        self.layers = []
+        self.layers = nn.ModuleList()
         current_channels = in_channels
 
         for _ in range(num_layers):
