@@ -23,6 +23,7 @@ from .drug_recommendation import (
 )
 from .EEG_abnormal import EEG_isAbnormal_fn
 from .EEG_events import EEG_events_fn
+from .HiRID_fairness_audit import FAMEWS_fairness_audit
 from .in_hospital_mortality_mimic4 import InHospitalMortalityMIMIC4
 from .length_of_stay_prediction import (
     LengthOfStayPredictioneICU,
