@@ -91,12 +91,14 @@ class TestParseProfusionStages(unittest.TestCase):
 
 class TestEcgToIbi(unittest.TestCase):
 
-    @patch("pyhealth.tasks.shhs_sleep_staging.nk.ecg_process")
-    def test_regular_heartbeat(self, mock_ecg):
+    @patch("pyhealth.tasks.shhs_sleep_staging.nk.ecg_peaks")
+    @patch("pyhealth.tasks.shhs_sleep_staging.nk.ecg_clean")
+    def test_regular_heartbeat(self, mock_clean, mock_peaks):
         fs = 125
         n_samples = 1000
         rpeaks = np.arange(125, n_samples, 125)
-        mock_ecg.return_value = (
+        mock_clean.side_effect = lambda sig, **kw: sig
+        mock_peaks.return_value = (
             None, {"ECG_R_Peaks": rpeaks}
         )
 
@@ -107,13 +109,15 @@ class TestEcgToIbi(unittest.TestCase):
         self.assertAlmostEqual(ibi[200], 1.0, places=5)
         self.assertEqual(ibi[0], 0.0)
 
-    @patch("pyhealth.tasks.shhs_sleep_staging.nk.ecg_process")
-    def test_outlier_removal(self, mock_ecg):
+    @patch("pyhealth.tasks.shhs_sleep_staging.nk.ecg_peaks")
+    @patch("pyhealth.tasks.shhs_sleep_staging.nk.ecg_clean")
+    def test_outlier_removal(self, mock_clean, mock_peaks):
         fs = 125
         n_samples = 1000
         # Peaks at 100, 200, 700 -> IBIs: 0.8s, 4.0s
         rpeaks = np.array([100, 200, 700])
-        mock_ecg.return_value = (
+        mock_clean.side_effect = lambda sig, **kw: sig
+        mock_peaks.return_value = (
             None, {"ECG_R_Peaks": rpeaks}
         )
 
@@ -124,9 +128,11 @@ class TestEcgToIbi(unittest.TestCase):
         self.assertEqual(ibi[400], 0.0)
         self.assertEqual(ibi[800], 0.0)
 
-    @patch("pyhealth.tasks.shhs_sleep_staging.nk.ecg_process")
-    def test_fewer_than_two_peaks(self, mock_ecg):
-        mock_ecg.return_value = (
+    @patch("pyhealth.tasks.shhs_sleep_staging.nk.ecg_peaks")
+    @patch("pyhealth.tasks.shhs_sleep_staging.nk.ecg_clean")
+    def test_fewer_than_two_peaks(self, mock_clean, mock_peaks):
+        mock_clean.side_effect = lambda sig, **kw: sig
+        mock_peaks.return_value = (
             None, {"ECG_R_Peaks": np.array([100])}
         )
 
@@ -265,7 +271,11 @@ class TestSleepStagingProcessing(unittest.TestCase):
                 "mne.io.read_raw_edf", return_value=mock_raw
             ),
             patch(
-                "pyhealth.tasks.shhs_sleep_staging.nk.ecg_process",
+                "pyhealth.tasks.shhs_sleep_staging.nk.ecg_clean",
+                side_effect=lambda sig, **kw: sig,
+            ),
+            patch(
+                "pyhealth.tasks.shhs_sleep_staging.nk.ecg_peaks",
                 return_value=(
                     None, {"ECG_R_Peaks": self.rpeaks}
                 ),
@@ -340,7 +350,11 @@ class TestSleepStagingProcessing(unittest.TestCase):
                 "mne.io.read_raw_edf", return_value=mock_raw
             ),
             patch(
-                "pyhealth.tasks.shhs_sleep_staging.nk.ecg_process",
+                "pyhealth.tasks.shhs_sleep_staging.nk.ecg_clean",
+                side_effect=lambda sig, **kw: sig,
+            ),
+            patch(
+                "pyhealth.tasks.shhs_sleep_staging.nk.ecg_peaks",
                 return_value=(
                     None, {"ECG_R_Peaks": rpeaks}
                 ),
@@ -373,7 +387,11 @@ class TestSleepStagingProcessing(unittest.TestCase):
                 "mne.io.read_raw_edf", return_value=mock_raw
             ),
             patch(
-                "pyhealth.tasks.shhs_sleep_staging.nk.ecg_process",
+                "pyhealth.tasks.shhs_sleep_staging.nk.ecg_clean",
+                side_effect=lambda sig, **kw: sig,
+            ),
+            patch(
+                "pyhealth.tasks.shhs_sleep_staging.nk.ecg_peaks",
                 return_value=(
                     None, {"ECG_R_Peaks": self.rpeaks}
                 ),
@@ -418,7 +436,11 @@ class TestSleepStagingProcessing(unittest.TestCase):
                 "mne.io.read_raw_edf", return_value=mock_raw
             ),
             patch(
-                "pyhealth.tasks.shhs_sleep_staging.nk.ecg_process",
+                "pyhealth.tasks.shhs_sleep_staging.nk.ecg_clean",
+                side_effect=lambda sig, **kw: sig,
+            ),
+            patch(
+                "pyhealth.tasks.shhs_sleep_staging.nk.ecg_peaks",
                 return_value=(
                     None, {"ECG_R_Peaks": self.rpeaks}
                 ),

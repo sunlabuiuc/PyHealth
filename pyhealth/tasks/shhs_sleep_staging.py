@@ -190,7 +190,8 @@ def _ecg_to_ibi(ecg_signal: np.ndarray, fs: int) -> np.ndarray:
     between consecutive peaks. IBIs >= 2.0 s are zeroed out.
     """
 
-    _, info = nk.ecg_process(ecg_signal, sampling_rate=fs)
+    cleaned = nk.ecg_clean(ecg_signal, sampling_rate=fs)
+    _, info = nk.ecg_peaks(cleaned, sampling_rate=fs)
     rpeaks = info["ECG_R_Peaks"]
 
     ibi = np.zeros(len(ecg_signal), dtype=np.float32)
