@@ -30,13 +30,16 @@ Hyperparameters from KEEP paper (Appendix A.3, Table 6):
     embedding_dim=100, lr=0.05, epochs=300, batch_size=1024,
     x_max=75th percentile, alpha=0.75, lambda=1e-3.
 
-    Note: The paper's code uses Adagrad optimizer, but Table 6 does not
-    explicitly state the optimizer. The paper's Algorithm 1 says "AdamW"
-    but the code uses Adagrad. We default to Adagrad to match the code.
+    Paper vs G2Lab code deviation (configurable defaults):
+        Paper text (Algorithm 1, Table 6) and reference code (G2Lab/keep)
+        disagree on several details. We don't know with certainty which
+        variant produced the paper's Table 4 AUPRC numbers; we expose
+        both as configurable parameters and default to paper-faithful:
 
-    The KEEP paper's code also uses cosine distance for regularization
-    rather than L2 distance. We implement cosine distance to match the
-    code, with L2 as a configurable alternative.
+        - Reg distance:   "l2"    (paper) or "cosine" (reference code)
+        - Reg reduction:  "mean"  (paper) or "sum"    (reference code)
+        - Optimizer:      "adamw" (paper) or "adagrad" (reference code)
+        - Lambda:         1e-3    (paper) or 1e-5     (reference code)
 
 Authors: Colton Loew, Desmond Fung, Lookman Olowo, Christiana Beard
 Paper: Elhussein et al., "KEEP: Integrating Medical Ontologies with Clinical
