@@ -314,6 +314,14 @@ class ClusterLabel(SetPredictor):
             cluster_thresholds = cluster_thresholds.view(view_shape)
 
         pred["y_predset"] = pred["y_prob"] >= cluster_thresholds
+
+        # Guarantee non-empty prediction sets: for any sample where no class
+        # exceeds its cluster threshold, fall back to the argmax class.
+        empty_mask = ~pred["y_predset"].any(dim=-1)
+        if empty_mask.any():
+            argmax_classes = pred["y_prob"].argmax(dim=-1)
+            pred["y_predset"][empty_mask, argmax_classes[empty_mask]] = True
+
         pred.pop("embed", None)  # do not expose internal embedding to caller
         return pred
 
