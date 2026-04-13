@@ -42,7 +42,19 @@ def node_ids():
 
 @pytest.fixture
 def icd9_to_snomed():
-    return {"428.0": 300, "401.9": 400}
+    """Multi-target format: ICD code -> list of SNOMED IDs."""
+    return {"428.0": [300], "401.9": [400]}
+
+
+@pytest.fixture
+def icd9_to_snomed_multi():
+    """Fixture with a multi-target code for testing averaging."""
+    # "250.01" maps to both 300 (Heart failure) and 400 (Hypertension)
+    return {
+        "428.0": [300],
+        "401.9": [400],
+        "250.01": [300, 400],
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -162,6 +174,28 @@ class TestExportIcd:
                 vectors["428.0"].numpy(), embeddings[2], atol=1e-5,
             )
 
+    def test_multi_target_icd_averages_embeddings(
+        self, embeddings, node_ids, icd9_to_snomed_multi,
+    ):
+        """Multi-target ICD codes get the average of their SNOMED vectors."""
+        from pyhealth.medcode.pretrained_embeddings.keep_emb.export_embeddings import (
+            export_icd,
+        )
+        from pyhealth.models.embedding import _iter_text_vectors
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = export_icd(
+                embeddings, node_ids, icd9_to_snomed_multi,
+                Path(tmpdir) / "keep_icd9.txt",
+            )
+            vectors = _iter_text_vectors(str(path), 4, {"250.01"})
+            # "250.01" maps to [300, 400] — averages their vectors
+            # 300 is node_ids[2], 400 is node_ids[3]
+            expected = (embeddings[2] + embeddings[3]) / 2.0
+            np.testing.assert_allclose(
+                vectors["250.01"].numpy(), expected, atol=1e-5,
+            )
+
 
 # ---------------------------------------------------------------------------
 # Test generate_medcode_files
@@ -226,7 +260,7 @@ class TestGenerateMedcodeFiles:
             generate_all_medcode_files,
         )
 
-        icd10_to_snomed = {"I50.9": 300}
+        icd10_to_snomed = {"I50.9": [300]}
 
         with tempfile.TemporaryDirectory() as tmpdir:
             generate_all_medcode_files(

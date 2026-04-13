@@ -109,43 +109,56 @@ def export_snomed(
 def export_icd(
     embeddings: np.ndarray,
     node_ids: List[int],
-    icd_to_snomed: Dict[str, int],
+    icd_to_snomed: Dict[str, List[int]],
     output_path: str | Path,
 ) -> Path:
     """Export KEEP embeddings with ICD codes as tokens (Option B fallback).
 
-    Maps each SNOMED concept back to ICD codes and writes the embedding
-    under the ICD code token. 1:1 mapping (lossless). For use without
-    code_mapping.
+    Maps each ICD code to a single embedding vector and writes it to a
+    text file. For use without code_mapping.
 
-    When multiple ICD codes map to the same SNOMED concept, each ICD
-    code gets a copy of that concept's embedding.
+    Multi-target handling:
+        When one ICD code maps to multiple SNOMED concepts (combination
+        codes like "A01.04 Typhoid arthritis"), the ICD code's exported
+        vector is the **average** of those SNOMED embeddings. This is
+        the natural reconciliation when the downstream model sees one
+        token per ICD code.
+
+    Single-target handling:
+        When an ICD code maps to one SNOMED concept, the exported vector
+        is identical to that concept's KEEP embedding.
 
     Args:
         embeddings: KEEP embedding matrix, shape ``(N, dim)``.
         node_ids: List of SNOMED concept_ids (integers).
-        icd_to_snomed: Mapping from ICD code strings to SNOMED concept_ids.
+        icd_to_snomed: Mapping from ICD code strings to lists of SNOMED
+            concept_ids.
         output_path: Path to write the file.
 
     Returns:
         Path to the written file.
     """
-    # Reverse the mapping: snomed_id -> list of ICD codes
-    snomed_to_icd: Dict[int, List[str]] = {}
-    for icd_code, snomed_id in icd_to_snomed.items():
-        snomed_to_icd.setdefault(snomed_id, []).append(icd_code)
-
     # Build node_id -> embedding index
     nid_to_idx = {nid: i for i, nid in enumerate(node_ids)}
 
-    tokens = []
-    vecs = []
-    for snomed_id, icd_codes in snomed_to_icd.items():
-        if snomed_id in nid_to_idx:
-            idx = nid_to_idx[snomed_id]
-            for icd_code in icd_codes:
-                tokens.append(icd_code)
-                vecs.append(embeddings[idx])
+    tokens: List[str] = []
+    vecs: List[np.ndarray] = []
+    for icd_code, snomed_ids in icd_to_snomed.items():
+        # Gather embeddings for all in-graph SNOMED targets
+        target_vecs = [
+            embeddings[nid_to_idx[sid]]
+            for sid in snomed_ids
+            if sid in nid_to_idx
+        ]
+        if not target_vecs:
+            continue  # No in-graph targets, skip this ICD code
+        # Average across multi-target (single-target = the vector itself)
+        avg = (
+            target_vecs[0] if len(target_vecs) == 1
+            else np.mean(target_vecs, axis=0)
+        )
+        tokens.append(icd_code)
+        vecs.append(avg)
 
     if vecs:
         emb_matrix = np.stack(vecs)
@@ -159,9 +172,9 @@ def export_all(
     embeddings: np.ndarray,
     node_ids: List[int],
     graph: nx.DiGraph,
-    icd9_to_snomed: Dict[str, int],
+    icd9_to_snomed: Dict[str, List[int]],
     output_dir: str | Path,
-    icd10_to_snomed: Optional[Dict[str, int]] = None,
+    icd10_to_snomed: Optional[Dict[str, List[int]]] = None,
 ) -> Dict[str, Path]:
     """Export KEEP embeddings in all supported formats.
 

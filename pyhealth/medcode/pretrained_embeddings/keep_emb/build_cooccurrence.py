@@ -44,9 +44,9 @@ logger = logging.getLogger(__name__)
 def extract_patient_codes_from_df(
     patient_id_col: list,
     code_col: list,
-    icd_to_snomed: Dict[str, int],
+    icd_to_snomed: Dict[str, List[int]],
     version_col: Optional[list] = None,
-    icd10_to_snomed: Optional[Dict[str, int]] = None,
+    icd10_to_snomed: Optional[Dict[str, List[int]]] = None,
     standardize_icd9: Optional[callable] = None,
     standardize_icd10: Optional[callable] = None,
     min_occurrences: int = 2,
@@ -61,6 +61,13 @@ def extract_patient_codes_from_df(
     Handles both MIMIC-III (ICD-9 only, no version column) and
     MIMIC-IV (mixed ICD-9 + ICD-10, version column present).
 
+    Multi-target ICD handling:
+        When an ICD code maps to multiple SNOMED concepts (combination
+        codes like "A01.04 Typhoid arthritis" mapping to BOTH typhoid
+        fever AND inflammatory arthritis), each occurrence of the ICD
+        code counts as an occurrence of ALL its SNOMED targets. This
+        "dense" expansion matches the paper's atomic-concept assumption.
+
     The minimum occurrence filter follows the KEEP paper (Appendix A.4):
     "To establish the presence of a disease in a patient's history,
     we require at least two occurrences."
@@ -69,12 +76,12 @@ def extract_patient_codes_from_df(
         patient_id_col: List of patient ID strings, one per diagnosis row.
         code_col: List of ICD code strings, one per diagnosis row.
         icd_to_snomed: Mapping from ICD-9 code strings (dotted format,
-            e.g., "428.0") to SNOMED concept IDs.
+            e.g., "428.0") to lists of SNOMED concept IDs.
         version_col: List of ICD version strings ("9" or "10"), one per
             diagnosis row. If None, assumes all codes are ICD-9
             (MIMIC-III behavior).
-        icd10_to_snomed: Mapping from ICD-10 code strings to SNOMED
-            concept IDs. Required if ``version_col`` is provided.
+        icd10_to_snomed: Mapping from ICD-10 code strings to lists of
+            SNOMED concept IDs. Required if ``version_col`` is provided.
         standardize_icd9: Function to standardize ICD-9 codes (e.g.,
             "4280" -> "428.0"). If None, codes are used as-is.
         standardize_icd10: Function to standardize ICD-10 codes (e.g.,
@@ -91,14 +98,17 @@ def extract_patient_codes_from_df(
     Example:
         >>> patient_ids = ["P1", "P1", "P1", "P2", "P2"]
         >>> codes = ["428.0", "428.0", "250.00", "401.9", "401.9"]
-        >>> icd9_map = {"428.0": 319835, "250.00": 201826, "401.9": 320128}
+        >>> icd9_map = {"428.0": [319835], "250.00": [201826],
+        ...             "401.9": [320128]}
         >>> result = extract_patient_codes_from_df(
         ...     patient_ids, codes, icd9_map, min_occurrences=2,
         ... )
         >>> result["P1"]  # 428.0 appears 2x, 250.00 only 1x
         {319835}
     """
-    # Count (patient_id, snomed_id) occurrences
+    # Count (patient_id, snomed_id) occurrences.
+    # Multi-target ICD: each occurrence of the ICD increments ALL its
+    # SNOMED targets (dense expansion, matches paper's atomic-concept model).
     patient_code_counts: Dict[str, Dict[int, int]] = defaultdict(
         lambda: defaultdict(int)
     )
@@ -118,12 +128,14 @@ def extract_patient_codes_from_df(
                 raw_code = standardize_icd9(raw_code)
             mapping = icd_to_snomed
 
-        snomed_id = mapping.get(raw_code)
-        if snomed_id is None:
+        snomed_ids = mapping.get(raw_code)
+        if not snomed_ids:
             unmapped += 1
             continue
 
-        patient_code_counts[pid][snomed_id] += 1
+        # Increment count for each SNOMED target (dense expansion)
+        for snomed_id in snomed_ids:
+            patient_code_counts[pid][snomed_id] += 1
 
     # Apply min_occurrences filter
     patient_codes: Dict[str, Set[int]] = {}

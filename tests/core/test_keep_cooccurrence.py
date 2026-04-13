@@ -16,20 +16,20 @@ import pytest
 
 @pytest.fixture
 def icd9_to_snomed():
-    """Minimal ICD-9 to SNOMED mapping."""
+    """Minimal ICD-9 to SNOMED mapping (multi-target format)."""
     return {
-        "428.0": 300,    # Heart failure
-        "401.9": 400,    # Hypertension
-        "250.00": 600,   # Diabetes
+        "428.0": [300],    # Heart failure
+        "401.9": [400],    # Hypertension
+        "250.00": [600],   # Diabetes
     }
 
 
 @pytest.fixture
 def icd10_to_snomed():
-    """Minimal ICD-10 to SNOMED mapping."""
+    """Minimal ICD-10 to SNOMED mapping (multi-target format)."""
     return {
-        "I50.9": 300,    # Heart failure
-        "E11": 600,      # Diabetes
+        "I50.9": [300],    # Heart failure
+        "E11": [600],      # Diabetes
     }
 
 
@@ -137,6 +137,31 @@ class TestExtractPatientCodes:
             min_occurrences=2,
         )
         assert result["P1"] == {300, 600}  # Heart failure + Diabetes
+
+    def test_multi_target_icd_dense_expansion(self):
+        """Multi-target ICD codes count as multiple SNOMED occurrences.
+
+        Patient has ICD "250.01" which maps to [300, 600]. Each occurrence
+        of "250.01" increments BOTH SNOMED 300 and 600 (dense expansion).
+        """
+        from pyhealth.medcode.pretrained_embeddings.keep_emb.build_cooccurrence import (
+            extract_patient_codes_from_df,
+        )
+
+        icd_map = {
+            "250.01": [300, 600],  # multi-target combination code
+            "428.0": [300],         # single-target
+        }
+
+        # Patient has 250.01 twice — that's 2x for SNOMED 300 AND 2x for 600
+        # (dense expansion: each ICD occurrence counts for all targets)
+        patient_ids = ["P1", "P1"]
+        codes = ["250.01", "250.01"]
+
+        result = extract_patient_codes_from_df(
+            patient_ids, codes, icd_map, min_occurrences=2,
+        )
+        assert result["P1"] == {300, 600}  # both targets pass filter
 
     def test_standardize_functions(self, icd9_to_snomed):
         from pyhealth.medcode.pretrained_embeddings.keep_emb.build_cooccurrence import (

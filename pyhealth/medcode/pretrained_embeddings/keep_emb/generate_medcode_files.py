@@ -35,7 +35,7 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
-from typing import Dict, Optional, Set
+from typing import Dict, List, Optional, Set
 
 import networkx as nx
 import pandas as pd
@@ -127,7 +127,7 @@ def generate_snomed_csv(
 
 
 def generate_crossmap_csv(
-    icd_to_snomed: Dict[str, int],
+    icd_to_snomed: Dict[str, List[int]],
     graph: nx.DiGraph,
     source_vocabulary: str = "ICD9CM",
     output_dir: Optional[str] = None,
@@ -138,9 +138,14 @@ def generate_crossmap_csv(
     ICD codes to SNOMED concept codes. This enables
     ``CrossMap.load("ICD9CM", "SNOMED")``.
 
+    Multi-target support:
+        When an ICD code maps to multiple SNOMED concepts, this function
+        emits one row per (ICD, SNOMED) pair. PyHealth's ``CrossMap.load()``
+        natively aggregates these into a list when you call ``.map(code)``.
+
     Args:
-        icd_to_snomed: Mapping from ICD code strings to SNOMED
-            concept_ids (integers), from ``build_icd_to_snomed``.
+        icd_to_snomed: Mapping from ICD code strings to lists of SNOMED
+            concept_ids, from ``build_icd_to_snomed``.
         graph: SNOMED hierarchy DiGraph. Used to look up concept_code
             attributes for each SNOMED concept_id.
         source_vocabulary: Source vocabulary name for the CSV column
@@ -159,6 +164,8 @@ def generate_crossmap_csv(
         >>> mapping = CrossMap.load("ICD9CM", "SNOMED", refresh_cache=True)
         >>> mapping.map("428.0")
         ['84114007']
+        >>> mapping.map("250.01")  # multi-target combination code
+        ['42343007', '73211009']
     """
     if output_dir is None:
         output_dir = MODULE_CACHE_PATH
@@ -171,9 +178,13 @@ def generate_crossmap_csv(
         )
 
     rows = []
-    for icd_code, snomed_id in icd_to_snomed.items():
-        snomed_code = id_to_code.get(snomed_id)
-        if snomed_code is not None:
+    # Emit one row per (ICD, SNOMED) pair — multi-target codes produce
+    # multiple rows. PyHealth's CrossMap aggregates them into a list.
+    for icd_code, snomed_ids in icd_to_snomed.items():
+        for snomed_id in snomed_ids:
+            snomed_code = id_to_code.get(snomed_id)
+            if snomed_code is None:
+                continue
             rows.append({
                 source_vocabulary: icd_code,
                 "SNOMED": snomed_code,
@@ -195,8 +206,8 @@ def generate_crossmap_csv(
 
 def generate_all_medcode_files(
     graph: nx.DiGraph,
-    icd9_to_snomed: Dict[str, int],
-    icd10_to_snomed: Optional[Dict[str, int]] = None,
+    icd9_to_snomed: Dict[str, List[int]],
+    icd10_to_snomed: Optional[Dict[str, List[int]]] = None,
     output_dir: Optional[str] = None,
 ) -> None:
     """Generate all medcode files needed for SNOMED code_mapping support.

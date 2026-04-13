@@ -468,9 +468,15 @@ class TestOrphanRescue:
 
 
 class TestBuildIcdToSnomed:
-    """Tests for build_icd_to_snomed()."""
+    """Tests for build_icd_to_snomed() with multi-target support.
 
-    def test_icd9_mapping(self, athena_dir):
+    Returns Dict[str, List[int]] where each ICD code maps to a sorted
+    list of SNOMED concept IDs. This handles combination codes like
+    "A01.04 Typhoid arthritis" that map to multiple atomic SNOMED
+    concepts (typhoid fever + inflammatory arthritis).
+    """
+
+    def test_icd9_mapping_returns_lists(self, athena_dir):
         from pyhealth.medcode.pretrained_embeddings.keep_emb.build_omop_graph import (
             build_icd_to_snomed,
         )
@@ -480,9 +486,54 @@ class TestBuildIcdToSnomed:
             athena_dir / "CONCEPT_RELATIONSHIP.csv",
             source_vocabulary="ICD9CM",
         )
-        assert mapping["428.0"] == 300   # Heart failure
-        assert mapping["401.9"] == 400   # Hypertension
-        assert mapping["250.00"] == 600  # Diabetes
+        # Every value is a non-empty list of ints
+        for icd, snomeds in mapping.items():
+            assert isinstance(snomeds, list), f"{icd} value is not a list"
+            assert all(isinstance(s, int) for s in snomeds)
+            assert len(snomeds) > 0
+
+    def test_icd9_single_target_codes(self, athena_dir):
+        from pyhealth.medcode.pretrained_embeddings.keep_emb.build_omop_graph import (
+            build_icd_to_snomed,
+        )
+
+        mapping = build_icd_to_snomed(
+            athena_dir / "CONCEPT.csv",
+            athena_dir / "CONCEPT_RELATIONSHIP.csv",
+            source_vocabulary="ICD9CM",
+        )
+        # Single-target codes wrap the one target in a list
+        assert mapping["428.0"] == [300]   # Heart failure
+        assert mapping["401.9"] == [400]   # Hypertension
+        assert mapping["250.00"] == [600]  # Diabetes
+
+    def test_icd9_multi_target_code(self, athena_dir):
+        """ICD9 250.01 maps to BOTH Diabetes (600) AND Heart failure (300)."""
+        from pyhealth.medcode.pretrained_embeddings.keep_emb.build_omop_graph import (
+            build_icd_to_snomed,
+        )
+
+        mapping = build_icd_to_snomed(
+            athena_dir / "CONCEPT.csv",
+            athena_dir / "CONCEPT_RELATIONSHIP.csv",
+            source_vocabulary="ICD9CM",
+        )
+        # Multi-target code preserves both; list is sorted for determinism
+        assert mapping["250.01"] == [300, 600]
+
+    def test_icd9_mapping_is_sorted(self, athena_dir):
+        """List entries must be sorted for reproducibility."""
+        from pyhealth.medcode.pretrained_embeddings.keep_emb.build_omop_graph import (
+            build_icd_to_snomed,
+        )
+
+        mapping = build_icd_to_snomed(
+            athena_dir / "CONCEPT.csv",
+            athena_dir / "CONCEPT_RELATIONSHIP.csv",
+            source_vocabulary="ICD9CM",
+        )
+        for icd, snomeds in mapping.items():
+            assert snomeds == sorted(snomeds), f"{icd} list not sorted"
 
     def test_icd10_mapping(self, athena_dir):
         from pyhealth.medcode.pretrained_embeddings.keep_emb.build_omop_graph import (
@@ -494,24 +545,44 @@ class TestBuildIcdToSnomed:
             athena_dir / "CONCEPT_RELATIONSHIP.csv",
             source_vocabulary="ICD10CM",
         )
-        assert mapping["I50.9"] == 300  # Heart failure
-        assert mapping["E11"] == 600    # Diabetes
+        assert mapping["I50.9"] == [300]  # Heart failure
+        assert mapping["E11"] == [600]    # Diabetes
 
-    def test_filter_to_graph_nodes(self, athena_dir):
+    def test_filter_to_graph_nodes_keeps_partial_multi_target(self, athena_dir):
+        """When filter is applied, multi-target codes may lose some targets."""
         from pyhealth.medcode.pretrained_embeddings.keep_emb.build_omop_graph import (
             build_icd_to_snomed,
         )
 
-        # Only keep mappings to SNOMED IDs {300, 400} (not 600)
+        # 250.01 maps to [300, 600]. Filter to {300, 400} means we keep
+        # only the 300 target; 600 is filtered out.
         mapping = build_icd_to_snomed(
             athena_dir / "CONCEPT.csv",
             athena_dir / "CONCEPT_RELATIONSHIP.csv",
             source_vocabulary="ICD9CM",
             snomed_concept_ids={300, 400},
         )
-        assert "428.0" in mapping   # Maps to 300, which is in our set
-        assert "401.9" in mapping   # Maps to 400, which is in our set
-        assert "250.00" not in mapping  # Maps to 600, excluded
+        assert mapping["428.0"] == [300]    # Maps to 300, in set
+        assert mapping["401.9"] == [400]    # Maps to 400, in set
+        assert "250.00" not in mapping       # Maps to 600, excluded entirely
+        assert mapping["250.01"] == [300]   # Multi-target: kept 300, dropped 600
+
+    def test_filter_drops_code_when_no_targets_match(self, athena_dir):
+        from pyhealth.medcode.pretrained_embeddings.keep_emb.build_omop_graph import (
+            build_icd_to_snomed,
+        )
+
+        # Filter to {400} only — drops everything that doesn't map to 400
+        mapping = build_icd_to_snomed(
+            athena_dir / "CONCEPT.csv",
+            athena_dir / "CONCEPT_RELATIONSHIP.csv",
+            source_vocabulary="ICD9CM",
+            snomed_concept_ids={400},
+        )
+        assert "401.9" in mapping   # Maps to 400
+        assert "428.0" not in mapping
+        assert "250.00" not in mapping
+        assert "250.01" not in mapping
 
 
 class TestBuildAllMappings:

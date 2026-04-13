@@ -487,12 +487,21 @@ def build_icd_to_snomed(
     relationship_csv: str | Path,
     source_vocabulary: str = "ICD9CM",
     snomed_concept_ids: Optional[Set[int]] = None,
-) -> Dict[str, int]:
-    """Build a mapping from ICD codes to SNOMED concept IDs.
+) -> Dict[str, List[int]]:
+    """Build a mapping from ICD codes to SNOMED concept IDs (multi-target).
 
     Uses Athena's "Maps to" relationships to translate ICD codes into
     SNOMED concepts. This is the bridge between what MIMIC stores
     (ICD-9/ICD-10 codes) and what KEEP operates on (SNOMED concept IDs).
+
+    Multi-target handling:
+        ~24% of ICD-10 codes are "combination codes" that map to multiple
+        SNOMED concepts. For example, "A01.04 Typhoid arthritis" maps to
+        BOTH "Typhoid fever" AND "Inflammatory arthritis" — these are
+        separate atomic concepts in SNOMED. We preserve all in-graph
+        targets as a sorted list. Downstream code treats a patient with
+        a combination code as having all its SNOMED targets (matching
+        the paper's atomic-concept assumption from UK Biobank data).
 
     The mapping chain:
         ICD concept (e.g., concept_id=44826773, code="428.0")
@@ -503,14 +512,16 @@ def build_icd_to_snomed(
         relationship_csv: Path to Athena CONCEPT_RELATIONSHIP.csv.
         source_vocabulary: Source vocabulary ID. One of "ICD9CM" or
             "ICD10CM". Default: "ICD9CM".
-        snomed_concept_ids: If provided, only keep mappings whose SNOMED
-            target is in this set (e.g., nodes in the depth-limited graph).
-            If None, keeps all valid SNOMED targets.
+        snomed_concept_ids: If provided, only keep targets that are in
+            this set. Multi-target ICD codes may keep only a subset of
+            their SNOMED targets if only some are in the graph. Codes
+            with no remaining targets are excluded entirely.
 
     Returns:
-        Dict[str, int]: Mapping from ICD code string (dotted format,
-            e.g., "428.0") to SNOMED concept_id (int). Codes that don't
-            map to SNOMED are excluded.
+        Dict[str, List[int]]: Mapping from ICD code string (dotted
+            format, e.g., "428.0") to a sorted list of SNOMED concept_ids.
+            Lists are always non-empty and sorted ascending for
+            deterministic output.
 
     Example:
         >>> icd9_to_snomed = build_icd_to_snomed(
@@ -518,8 +529,10 @@ def build_icd_to_snomed(
         ...     "data/athena/CONCEPT_RELATIONSHIP.csv",
         ...     source_vocabulary="ICD9CM",
         ... )
-        >>> icd9_to_snomed["428.0"]  # Congestive heart failure
-        316139
+        >>> icd9_to_snomed["428.0"]  # CHF — single target
+        [316139]
+        >>> icd9_to_snomed["250.01"]  # combination code — multi-target
+        [201826, 316139]
     """
     # Load source vocabulary concepts (ICD-9 or ICD-10)
     icd_concepts = load_concepts(
@@ -553,16 +566,20 @@ def build_icd_to_snomed(
     if snomed_concept_ids is not None:
         rels = rels[rels["concept_id_2"].isin(snomed_concept_ids)]
 
-    # Build mapping: ICD code string -> SNOMED concept_id
-    # If an ICD code maps to multiple SNOMED concepts, keep the first
-    # (in practice, most ICD codes map to exactly one SNOMED concept)
-    mapping: Dict[str, int] = {}
+    # Build mapping: ICD code string -> List[SNOMED concept_id]
+    # Multi-target codes (~24% of ICD-10) preserve all in-graph targets.
+    # Lists sorted ascending for deterministic output across Athena versions.
+    mapping_sets: Dict[str, Set[int]] = {}
     for _, row in rels.iterrows():
         icd_id = row["concept_id_1"]
-        snomed_id = row["concept_id_2"]
+        snomed_id = int(row["concept_id_2"])
         icd_code = icd_id_to_code.get(icd_id, "")
-        if icd_code and icd_code not in mapping:
-            mapping[icd_code] = snomed_id
+        if icd_code:
+            mapping_sets.setdefault(icd_code, set()).add(snomed_id)
+
+    mapping: Dict[str, List[int]] = {
+        code: sorted(targets) for code, targets in mapping_sets.items()
+    }
 
     logger.info(
         "Built %s -> SNOMED mapping: %d codes mapped",
@@ -576,7 +593,7 @@ def build_all_mappings(
     concept_csv: str | Path,
     relationship_csv: str | Path,
     snomed_concept_ids: Optional[Set[int]] = None,
-) -> Tuple[Dict[str, int], Dict[str, int]]:
+) -> Tuple[Dict[str, List[int]], Dict[str, List[int]]]:
     """Build ICD-9 and ICD-10 to SNOMED mappings in one call.
 
     Convenience function that calls ``build_icd_to_snomed`` twice.
