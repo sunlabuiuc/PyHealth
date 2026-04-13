@@ -1,3 +1,16 @@
+"""CaliForest: Calibrated Random Forest using OOB-based Calibration.
+
+This module implements CaliForest, a model that addresses poor calibration
+in Random Forests by using Out-of-Bag (OOB) predictions as an internal
+calibration set. This avoids the need for a separate holdout set.
+
+Note on PyHealth Architecture: Since CaliForest is a traditional machine
+learning ensemble based on Scikit-Learn (not a PyTorch neural network), it
+inherits from `BaseEstimator` and `ClassifierMixin` rather than PyHealth's
+PyTorch `BaseModel`. It implements `fit` and `predict_proba` instead of a
+tensor `forward` pass.
+"""
+
 from typing import Literal, Optional, Tuple, Union
 
 import numpy as np
@@ -13,29 +26,14 @@ class CaliForest(BaseEstimator, ClassifierMixin):
 
     CaliForest trains a Random Forest with OOB scoring enabled, then uses
     the OOB predictions to train a calibration model (Isotonic Regression
-    or Platt Scaling) without requiring a separate calibration set.
-
-    Args:
-        n_estimators: Number of trees in the forest. Defaults to 100.
-        max_depth: Maximum depth of trees. None means unlimited.
-        min_samples_split: Minimum samples required to split a node.
-        min_samples_leaf: Minimum samples required at a leaf node.
-        max_features: Number of features to consider for best split.
-        random_state: Random seed for reproducibility.
-        n_jobs: Number of parallel jobs. -1 uses all processors.
-        calibration_method: Calibration method to use.
-            - "isotonic": Isotonic Regression (default)
-            - "platt": Platt Scaling (Logistic Regression)
-        min_oob_trees: Minimum number of OOB trees required for a sample
-            to be included in calibration training.
-        use_sample_weights: If True, weight calibration samples by OOB
-            tree count (novel extension).
+    or Platt Scaling) without requiring a separate data split.
 
     Attributes:
-        rf_: Fitted RandomForestClassifier.
-        calibrator_: Fitted calibration model.
-        classes_: Class labels.
-        oob_tree_counts_: Number of OOB trees per training sample.
+        rf_ (RandomForestClassifier): Fitted Random Forest estimator.
+        calibrator_ (Union[IsotonicRegression, LogisticRegression]): Fitted
+            calibration model.
+        classes_ (np.ndarray): Class labels.
+        oob_tree_counts_ (np.ndarray): Number of OOB trees per training sample.
 
     Example:
         >>> import numpy as np
@@ -60,6 +58,23 @@ class CaliForest(BaseEstimator, ClassifierMixin):
         min_oob_trees: int = 1,
         use_sample_weights: bool = False,
     ) -> None:
+        """Initializes the CaliForest model.
+
+        Args:
+            n_estimators: Number of trees in the forest.
+            max_depth: Maximum depth of trees. None means unlimited.
+            min_samples_split: Minimum samples required to split an internal node.
+            min_samples_leaf: Minimum samples required at a leaf node.
+            max_features: Number of features to consider for best split.
+            random_state: Random seed for reproducibility.
+            n_jobs: Number of parallel jobs. -1 means use all processors.
+            calibration_method: "isotonic" (Isotonic Regression) or "platt"
+                (Logistic Regression).
+            min_oob_trees: Minimum number of OOB trees required for a sample
+                to be included in the reliable calibration training set.
+            use_sample_weights: If True, weights calibration samples by their
+                OOB tree count reliability (forces Platt scaling).
+        """
         self.n_estimators = n_estimators
         self.max_depth = max_depth
         self.min_samples_split = min_samples_split
@@ -74,49 +89,40 @@ class CaliForest(BaseEstimator, ClassifierMixin):
     def _compute_oob_predictions(
         self, X: np.ndarray, y: np.ndarray
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Compute OOB predictions for each training sample.
-
-        For each sample, predictions are averaged only from trees where
-        that sample was out-of-bag.
+        """Computes average OOB predictions for each training sample.
 
         Args:
             X: Training features of shape (n_samples, n_features).
-            y: Training labels (used to determine n_classes).
+            y: Training labels.
 
         Returns:
             Tuple containing:
-                - oob_predictions: OOB probability predictions (n_samples,)
-                - oob_tree_counts: Number of OOB trees per sample (n_samples,)
-                - valid_mask: Boolean mask for samples with enough OOB trees
+                - np.ndarray: OOB probability predictions (n_samples,).
+                - np.ndarray: Number of OOB trees per sample (n_samples,).
+                - np.ndarray: Boolean mask for valid samples with enough trees.
         """
         n_samples = X.shape[0]
         n_classes = len(self.classes_)
 
-        # Accumulate predictions from OOB trees
         oob_decision = np.zeros((n_samples, n_classes))
         oob_tree_counts = np.zeros(n_samples, dtype=np.int32)
 
-        # Get the indices of samples used to train each tree
-        # estimators_samples_ contains the indices of samples in the bootstrap
-        for i, (tree, sample_indices) in enumerate(
-            zip(self.rf_.estimators_, self.rf_.estimators_samples_)
+        for tree, sample_indices in zip(
+            self.rf_.estimators_, self.rf_.estimators_samples_
         ):
-            # Create mask for OOB samples (samples NOT in this tree's bootstrap)
             oob_mask = np.ones(n_samples, dtype=bool)
             oob_mask[list(sample_indices)] = False
 
             if oob_mask.sum() == 0:
                 continue
 
-            # Get predictions for OOB samples
             oob_samples = X[oob_mask]
-            
+
             try:
                 tree_pred = tree.predict_proba(oob_samples)
             except Exception:
                 continue
 
-            # Handle case where tree may not have seen all classes
             if tree_pred.shape[1] != n_classes:
                 full_pred = np.zeros((oob_samples.shape[0], n_classes))
                 for j, cls in enumerate(tree.classes_):
@@ -128,69 +134,52 @@ class CaliForest(BaseEstimator, ClassifierMixin):
             oob_decision[oob_mask] += tree_pred
             oob_tree_counts[oob_mask] += 1
 
-        # Compute average predictions
         valid_mask = oob_tree_counts >= self.min_oob_trees
         oob_predictions = np.zeros(n_samples)
 
         if valid_mask.sum() > 0:
-            # Get probability of positive class (class index 1)
-            positive_class_idx = 1 if n_classes > 1 else 0
-            with np.errstate(divide='ignore', invalid='ignore'):
+            pos_idx = 1 if n_classes > 1 else 0
+            with np.errstate(divide="ignore", invalid="ignore"):
                 oob_predictions[valid_mask] = (
-                    oob_decision[valid_mask, positive_class_idx] 
-                    / oob_tree_counts[valid_mask]
+                    oob_decision[valid_mask, pos_idx] / oob_tree_counts[valid_mask]
                 )
 
         return oob_predictions, oob_tree_counts, valid_mask
 
     def _compute_sample_weights(self, oob_tree_counts: np.ndarray) -> np.ndarray:
-        """Compute confidence weights based on OOB tree counts.
-
-        Samples with more OOB trees are more reliable and receive higher
-        weight during calibration training.
+        """Computes confidence weights based on OOB tree counts.
 
         Args:
-            oob_tree_counts: Number of OOB trees per sample.
+            oob_tree_counts: Array of OOB tree counts per sample.
 
         Returns:
-            Normalized weights array.
+            np.ndarray: Normalized sample weights.
         """
         max_count = oob_tree_counts.max()
         if max_count == 0:
             return np.ones_like(oob_tree_counts, dtype=float)
-        weights = oob_tree_counts.astype(float) / max_count
-        return weights
+        return oob_tree_counts.astype(float) / max_count
 
     def fit(self, X: np.ndarray, y: np.ndarray) -> "CaliForest":
-        """Fit the CaliForest model.
-
-        This involves:
-        1. Training a Random Forest with OOB scoring
-        2. Computing OOB predictions for training samples
-        3. Training calibration model on (OOB prediction, true label) pairs
+        """Fits the CaliForest model and internal calibrator.
 
         Args:
             X: Training features of shape (n_samples, n_features).
             y: Training labels of shape (n_samples,).
 
         Returns:
-            Self: The fitted model.
+            CaliForest: The fitted model instance.
 
         Raises:
-            ValueError: If calibration_method is not supported.
-            ValueError: If no valid OOB samples available for calibration.
+            ValueError: If an unsupported calibration method is provided.
+            ValueError: If no valid OOB samples meet min_oob_trees criteria.
         """
-        # Validate inputs
         X = np.asarray(X)
         y = np.asarray(y)
 
         if self.calibration_method not in ["isotonic", "platt"]:
-            raise ValueError(
-                f"calibration_method must be 'isotonic' or 'platt', "
-                f"got '{self.calibration_method}'"
-            )
+            raise ValueError(f"Unsupported calibration: {self.calibration_method}")
 
-        # Step 1: Train Random Forest with OOB enabled
         self.rf_ = RandomForestClassifier(
             n_estimators=self.n_estimators,
             max_depth=self.max_depth,
@@ -205,31 +194,24 @@ class CaliForest(BaseEstimator, ClassifierMixin):
         self.rf_.fit(X, y)
         self.classes_ = self.rf_.classes_
 
-        # Step 2: Compute OOB predictions
         oob_predictions, self.oob_tree_counts_, valid_mask = (
             self._compute_oob_predictions(X, y)
         )
 
         if valid_mask.sum() == 0:
             raise ValueError(
-                f"No samples have at least {self.min_oob_trees} OOB trees. "
-                "Try reducing min_oob_trees or increasing n_estimators."
+                f"No samples have >= {self.min_oob_trees} OOB trees. "
+                "Decrease min_oob_trees or increase n_estimators."
             )
 
-        # Step 3: Train calibration model on valid OOB samples
         oob_preds_valid = oob_predictions[valid_mask]
         y_valid = y[valid_mask]
 
         if self.use_sample_weights:
-            # Novel: weight by OOB reliability (forces Platt scaling)
-            weights = self._compute_sample_weights(
-                self.oob_tree_counts_[valid_mask]
-            )
+            weights = self._compute_sample_weights(self.oob_tree_counts_[valid_mask])
             self.calibrator_ = LogisticRegression(solver="lbfgs", max_iter=1000)
             self.calibrator_.fit(
-                oob_preds_valid.reshape(-1, 1),
-                y_valid,
-                sample_weight=weights
+                oob_preds_valid.reshape(-1, 1), y_valid, sample_weight=weights
             )
             self._calibration_type = "platt"
         elif self.calibration_method == "isotonic":
@@ -238,7 +220,7 @@ class CaliForest(BaseEstimator, ClassifierMixin):
             )
             self.calibrator_.fit(oob_preds_valid, y_valid)
             self._calibration_type = "isotonic"
-        else:  # platt
+        else:
             self.calibrator_ = LogisticRegression(solver="lbfgs", max_iter=1000)
             self.calibrator_.fit(oob_preds_valid.reshape(-1, 1), y_valid)
             self._calibration_type = "platt"
@@ -246,56 +228,60 @@ class CaliForest(BaseEstimator, ClassifierMixin):
         return self
 
     def predict_proba(self, X: np.ndarray) -> np.ndarray:
-        """Predict calibrated class probabilities.
+        """Predicts calibrated class probabilities.
 
         Args:
             X: Features of shape (n_samples, n_features).
 
         Returns:
-            Calibrated probabilities of shape (n_samples, n_classes).
+            np.ndarray: Calibrated probabilities of shape (n_samples, n_classes).
         """
         check_is_fitted(self, ["rf_", "calibrator_", "classes_"])
 
         X = np.asarray(X)
-
-        # Get raw RF predictions (probability of positive class)
         raw_proba = self.rf_.predict_proba(X)[:, 1]
 
-        # Apply calibration
         if self._calibration_type == "isotonic":
             calibrated_proba = self.calibrator_.predict(raw_proba)
-        else:  # platt
+        else:
             calibrated_proba = self.calibrator_.predict_proba(
                 raw_proba.reshape(-1, 1)
             )[:, 1]
 
-        # Ensure valid probability range
         calibrated_proba = np.clip(calibrated_proba, 0.0, 1.0)
-
-        # Return probabilities for both classes
         return np.column_stack([1 - calibrated_proba, calibrated_proba])
 
     def predict(self, X: np.ndarray) -> np.ndarray:
-        """Predict class labels.
+        """Predicts class labels.
 
         Args:
             X: Features of shape (n_samples, n_features).
 
         Returns:
-            Predicted class labels of shape (n_samples,).
+            np.ndarray: Predicted class labels of shape (n_samples,).
         """
         probas = self.predict_proba(X)
         return self.classes_[np.argmax(probas, axis=1)]
 
+    def forward(self, X: np.ndarray) -> np.ndarray:
+        """Alias for predict_proba to align loosely with PyHealth conventions.
+
+        Args:
+            X: Features of shape (n_samples, n_features).
+            
+        Returns:
+            np.ndarray: Calibrated probabilities of shape (n_samples, n_classes).
+        """
+        return self.predict_proba(X)
+
     def get_oob_calibration_data(self) -> Tuple[np.ndarray, float]:
-        """Get the OOB predictions and tree counts used for calibration.
+        """Retrieves OOB prediction metadata.
 
         Returns:
-            Tuple of (oob_tree_counts, valid_sample_ratio).
-
-        Raises:
-            NotFittedError: If model has not been fitted.
+            Tuple containing:
+                - np.ndarray: Array of OOB tree counts.
+                - float: Ratio of samples that met the minimum OOB tree threshold.
         """
         check_is_fitted(self, ["oob_tree_counts_"])
         valid_ratio = (self.oob_tree_counts_ >= self.min_oob_trees).mean()
-        return self.oob_tree_counts_, valid_ratio
+        return self.oob_tree_counts_, float(valid_ratio)
