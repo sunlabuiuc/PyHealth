@@ -17,27 +17,30 @@ class SleepStagingSHHS(BaseTask):
 
     Implements the ECG to IBI preprocessing pipeline described in the
     WatchSleepNet paper (Wang et al., CHIL 2025). Each sample is a
-    sequence of seq_len consecutive 30 second IBI epochs.
+    sequence of seq_len consecutive 30-second IBI epochs.
 
-    Preprocessing pipeline:
-        1. Read EDF, extract ECG channel
-        2. Parse Profusion XML for 30-second sleep-stage annotations
-        3. Detect R-peaks (biosppy) and compute inter-beat intervals (IBI)
-        4. Remove physiologically implausible IBIs (>= 2 s)
-        5. Downsample the IBI signal to target_hz (default 25 Hz)
-        6. Segment into 30-second epochs (750 samples at 25 Hz)
-        7. Map stages to 3 classes: Wake (0), NREM (1), REM (2)
-        8. Generate sliding-window sequences of seq_len epochs
+    Note:
+        Preprocessing pipeline:
 
-    Each returned sample contains:
-        - signal: ndarray of shape (seq_len, target_hz * epoch_seconds)
-        - label: int in {0, 1, 2} — the stage of the last epoch
+        1. Read EDF, extract ECG channel.
+        2. Parse Profusion XML for 30-second sleep-stage annotations.
+        3. Detect R-peaks (neurokit2) and compute inter-beat intervals (IBI).
+        4. Remove physiologically implausible IBIs (>= 2 s).
+        5. Downsample the IBI signal to target_hz (default 25 Hz).
+        6. Segment into 30-second epochs (750 samples at 25 Hz).
+        7. Map stages to 3 classes: Wake (0), NREM (1), REM (2).
+        8. Generate sliding-window sequences of seq_len epochs.
+
+        Each returned sample contains:
+
+        - signal: ndarray of shape (seq_len, target_hz * epoch_seconds).
+        - label: int in {0, 1, 2} — the stage of the last epoch.
 
     Args:
-        epoch_seconds: Duration of each epoch in seconds (default 30)
-        seq_len: Number of consecutive epochs per sample (default 20)
-        target_hz: Target sampling rate after downsampling (default 25)
-        max_epochs: Maximum epochs to keep per recording (default 1100)
+        epoch_seconds: Duration of each epoch in seconds. Default is 30.
+        seq_len: Number of consecutive epochs per sample. Default is 20.
+        target_hz: Target sampling rate after downsampling. Default is 25.
+        max_epochs: Maximum epochs to keep per recording. Default is 1100.
 
     Examples:
         >>> from pyhealth.datasets import SHHSDataset
@@ -65,6 +68,19 @@ class SleepStagingSHHS(BaseTask):
         super().__init__()
 
     def __call__(self, patient: Patient) -> list[dict[str, Any]]:
+        """Process a single patient and return all sleep staging samples.
+
+        Iterates over all SHHS sleep events for the patient, processes each
+        visit, and silently skips any visit that raises a processing error.
+
+        Args:
+            patient: A Patient object from the SHHSDataset.
+
+        Returns:
+            A list of sample dicts, each containing patient_id, record_id,
+            signal, and label. Returns an empty list if no valid samples
+            can be generated.
+        """
         pid = patient.patient_id
         events = patient.get_events(event_type="shhs_sleep")
         all_samples: list[dict[str, Any]] = []
@@ -86,6 +102,21 @@ class SleepStagingSHHS(BaseTask):
     def _process_event(
         self, pid: str, event: Any
     ) -> list[dict[str, Any]]:
+        """Process a single patient visit and return sliding-window samples.
+
+        Reads the EDF signal file, extracts the ECG channel, computes IBI,
+        downsamples, segments into epochs, and builds sliding-window samples.
+
+        Args:
+            pid: Patient ID string.
+            event: An event object with signal_file, annotation_file,
+                ecg_sample_rate, and visitnumber attributes.
+
+        Returns:
+            A list of sample dicts, each containing patient_id, record_id,
+            signal of shape (seq_len, samples_per_epoch), and label.
+            Returns an empty list if fewer than seq_len valid epochs exist.
+        """
         import mne
         import time
 
@@ -159,7 +190,17 @@ class SleepStagingSHHS(BaseTask):
 
 
 def _pick_ecg_channel(ch_names: list[str]) -> int:
-    """Return the index of the ECG channel."""
+    """Return the index of the ECG channel.
+
+    Args:
+        ch_names: List of channel name strings from an EDF file.
+
+    Returns:
+        Index of the first channel whose name contains "ecg".
+
+    Raises:
+        ValueError: If no channel containing "ecg" is found.
+    """
     for i, name in enumerate(ch_names):
         if "ecg" in name.lower():
             return i
@@ -167,9 +208,16 @@ def _pick_ecg_channel(ch_names: list[str]) -> int:
 
 
 def _parse_profusion_stages(xml_path: str) -> list[int]:
-    """Parse per-epoch sleep stages from a Profusion XML file.
+    """Parse per-epoch sleep stages from a Profusion XML annotation file.
 
-    Returns a list of integer stage codes (0-5), one per 30-second epoch.
+    Args:
+        xml_path: Path to the Profusion XML annotation file.
+
+    Returns:
+        A list of integer stage codes (0-5), one per 30-second epoch.
+
+    Raises:
+        ValueError: If the XML file has no <SleepStages> element.
     """
     tree = ET.parse(xml_path)
     root = tree.getroot()
@@ -184,10 +232,19 @@ def _parse_profusion_stages(xml_path: str) -> list[int]:
 
 
 def _ecg_to_ibi(ecg_signal: np.ndarray, fs: int) -> np.ndarray:
-    """Compute continuous IBI array from an ECG signal.
+    """Compute a continuous IBI array from an ECG signal.
 
     Uses neurokit2 for R-peak detection, then forward-fills the IBI value
-    between consecutive peaks. IBIs >= 2.0 s are zeroed out.
+    between consecutive peaks. IBIs >= 2.0 s are zeroed out as physiologically
+    implausible.
+
+    Args:
+        ecg_signal: Raw ECG signal array of shape (n_samples,).
+        fs: Sampling frequency of the ECG signal in Hz.
+
+    Returns:
+        IBI array of shape (n_samples,) with forward-filled inter-beat
+        intervals in seconds. Implausible values (>= 2.0 s) are set to 0.
     """
 
     cleaned = nk.ecg_clean(ecg_signal, sampling_rate=fs)
@@ -208,7 +265,16 @@ def _ecg_to_ibi(ecg_signal: np.ndarray, fs: int) -> np.ndarray:
 
 
 def _downsample(signal: np.ndarray, source_hz: int, target_hz: int) -> np.ndarray:
-    """Downsample a signal from source_hz to target_hz."""
+    """Downsample a signal from source_hz to target_hz.
+
+    Args:
+        signal: Input signal array of shape (n_samples,).
+        source_hz: Original sampling frequency in Hz.
+        target_hz: Target sampling frequency in Hz.
+
+    Returns:
+        Downsampled signal array of shape (n_samples * target_hz / source_hz,).
+    """
     if source_hz == target_hz:
         return signal
     if source_hz % target_hz == 0:

@@ -31,16 +31,17 @@ class SHHSDataset(BaseDataset):
     and 2011. More than 130 manuscripts have been published investigating predictors
     and outcomes of sleep disorders.
 
-    This loader expects the standard NSRR directory layout:
+    Note:
+        This loader expects the standard NSRR directory layout::
 
-        root/
-            polysomnography/
-                edfs/shhs1/  # EDF signal files
-                edfs/shhs2/  # EDF signal files
-                annotations-events-profusion/shhs1/  # Profusion XML
-                annotations-events-profusion/shhs2/  # Profusion XML
-            datasets/
-                shhs-harmonized-dataset-0.21.0.csv
+            root/
+                polysomnography/
+                    edfs/shhs1/  # EDF signal files
+                    edfs/shhs2/  # EDF signal files
+                    annotations-events-profusion/shhs1/  # Profusion XML
+                    annotations-events-profusion/shhs2/  # Profusion XML
+                datasets/
+                    shhs-harmonized-dataset-0.21.0.csv
 
     Args:
         root: Root directory containing the SHHS download.
@@ -92,6 +93,13 @@ class SHHSDataset(BaseDataset):
 
         Only recordings that have both an EDF and a matching Profusion XML
         annotation file are included.
+
+        Args:
+            root: Root directory containing the SHHS download.
+
+        Raises:
+            FileNotFoundError: If no matched EDF/XML pairs are found under
+                the polysomnography directory.
         """
         poly_root = Path(root) / "polysomnography"
 
@@ -173,7 +181,17 @@ class SHHSDataset(BaseDataset):
 
 
 def _find_harmonized_csv(root: str) -> Optional[str]:
-    """Locate the harmonized dataset CSV under root/datasets/."""
+    """Locate the harmonized dataset CSV under root/datasets/.
+
+    Searches for the most recent file whose name starts with
+    shhs-harmonized-dataset and has a .csv extension.
+
+    Args:
+        root: Root directory containing the SHHS download.
+
+    Returns:
+        Absolute path to the harmonized CSV file, or None if not found.
+    """
     datasets_dir = Path(root) / "datasets"
     if not datasets_dir.is_dir():
         return None
