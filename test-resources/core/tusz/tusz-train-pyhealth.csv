@@ -1,0 +1,2 @@
+patient_id,record_id,signal_file
+1,s001_t001,/Users/bena/Documents/coursera/cs_598_dlh/project/PyHealth/test-resources/core/tusz/train/1/s001_t001/01_tcp_ar/1_s001_t001.edf

@@ -49,10 +49,11 @@ class TUSZDataset(BaseDataset):
         self.dataset_name = dataset_name or "tusz"
         self.cache_dir = Path.home() / ".cache" / "pyhealth" / self.dataset_name
         tables = self.__set_tables(subset)
+        self.final_tables = tables
 
-        use_cache = self.__use_cache(tables)
+        use_cache = self.__use_cache()
         if not use_cache:
-            self.prepare_metadata(tables)
+            self.prepare_metadata()
 
         super().__init__(
             root=root,
@@ -62,10 +63,10 @@ class TUSZDataset(BaseDataset):
             **kwargs
         )
     
-    def prepare_metadata(self, tables) -> None:
+    def prepare_metadata(self) -> None:
         """Build and save processed metadata CSVs for TUSZ train/eval separately."""
         
-        for table in tables:
+        for table in self.final_tables:
             self.__create_csv(table)
 
     @property
@@ -76,12 +77,14 @@ class TUSZDataset(BaseDataset):
     def __set_tables(self, subset):
         if subset in ['train', 'eval', 'dev']:
             return [ subset ]
+        if ',' in subset:
+            return subset.split(',')
         if subset == 'all':
             return ['train', 'eval', 'dev']
         raise ValueError("subset must be one of None, 'train', 'dev', 'eval', or 'all'")
 
-    def __use_cache(self, tables):
-        for table in tables:
+    def __use_cache(self):
+        for table in self.final_tables:
             cache_csv = self.__get_cache_csv_name(table)
             if not cache_csv.exists():
                 return False
