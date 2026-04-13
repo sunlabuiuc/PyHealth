@@ -381,6 +381,7 @@ class MedFlamingo(BaseModel):
         self.num_resampler_tokens = num_resampler_tokens
         self.freeze_vision = freeze_vision
         self.freeze_lm = freeze_lm
+        self._fc: Optional[nn.Linear] = None
 
         # Initialize components in order
         self._init_vision_encoder()
@@ -467,6 +468,50 @@ class MedFlamingo(BaseModel):
         output_size = self.get_output_size()
         self._fc = nn.Linear(lang_dim, output_size)
 
+    def _move_to_device(self, obj: Any) -> Any:
+        """Recursively move tensors and tokenizer batches onto the model device."""
+        if torch.is_tensor(obj):
+            return obj.to(self.device)
+        if hasattr(obj, "to"):
+            return obj.to(self.device)
+        if isinstance(obj, dict):
+            return {key: self._move_to_device(val) for key, val in obj.items()}
+        if isinstance(obj, list):
+            return [self._move_to_device(val) for val in obj]
+        if isinstance(obj, tuple):
+            return tuple(self._move_to_device(val) for val in obj)
+        return obj
+
+    def _embed_inputs(self, input_ids: torch.Tensor) -> torch.Tensor:
+        """Return token embeddings for the configured language model."""
+        if hasattr(self._lang_model, "get_input_embeddings"):
+            embedding_layer = self._lang_model.get_input_embeddings()
+            if embedding_layer is not None:
+                return embedding_layer(input_ids)
+
+        return self._lang_model.model.embed_tokens(input_ids)
+
+    def _run_lm(
+        self,
+        inputs_embeds: torch.Tensor,
+        attention_mask: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        """Contextualize embeddings with the frozen language model when supported."""
+        try:
+            outputs = self._lang_model(
+                inputs_embeds=inputs_embeds,
+                attention_mask=attention_mask,
+                output_hidden_states=True,
+                return_dict=True,
+            )
+        except (TypeError, AttributeError, NotImplementedError):
+            return inputs_embeds
+
+        hidden_states = getattr(outputs, "hidden_states", None)
+        if hidden_states:
+            return hidden_states[-1]
+        return inputs_embeds
+
     def forward(
         self,
         **kwargs: torch.Tensor,
@@ -508,11 +553,14 @@ class MedFlamingo(BaseModel):
         question_key = "question" if "question" in self.feature_keys else (
             self.feature_keys[1] if len(self.feature_keys) > 1 else None
         )
-        
+
         images = kwargs.get(image_key)
         questions = kwargs.get(question_key, None)
         labels = kwargs.get(self.label_key) if self.label_key else None
-        
+        images = self._move_to_device(images)
+        if labels is not None:
+            labels = self._move_to_device(labels)
+
         batch_size = images.shape[0]
         
         # Step 1: Encode images with frozen CLIP ViT
@@ -528,7 +576,7 @@ class MedFlamingo(BaseModel):
                 padding=True,
                 truncation=True,
                 max_length=512,
-            ).to(images.device)
+            )
         elif isinstance(questions, (list, tuple)):
             # Questions are strings
             encoded_text = self._tokenizer(
@@ -537,13 +585,14 @@ class MedFlamingo(BaseModel):
                 padding=True,
                 truncation=True,
                 max_length=512,
-            ).to(images.device)
+            )
         else:
             # Questions are already tokens
             encoded_text = questions
-        
+        encoded_text = self._move_to_device(encoded_text)
+
         # Get initial text embeddings from language model
-        text_embeds = self._lang_model.model.embed_tokens(encoded_text["input_ids"])
+        text_embeds = self._embed_inputs(encoded_text["input_ids"])
         # Shape: (batch_size, seq_len, lang_dim)
         
         # Step 3: Interleave image features into text sequence
@@ -556,9 +605,21 @@ class MedFlamingo(BaseModel):
         for i, xattn_layer in enumerate(self._xattn_layers):
             # Apply cross-attention to condition text on images
             lang_hidden = xattn_layer(lang_hidden, vision_features)
-        
-        # Step 5: Get final representation (use [EOS] or last token)
-        final_hidden = lang_hidden[:, -1, :]  # (batch_size, lang_dim)
+
+        # Contextualize with the frozen LM after visual conditioning.
+        lang_hidden = self._run_lm(
+            inputs_embeds=lang_hidden,
+            attention_mask=encoded_text.get("attention_mask"),
+        )
+
+        # Step 5: Pool over non-padding question tokens.
+        attention_mask = encoded_text.get("attention_mask")
+        if attention_mask is not None:
+            mask = attention_mask.unsqueeze(-1).to(lang_hidden.dtype)
+            denom = mask.sum(dim=1).clamp(min=1.0)
+            final_hidden = (lang_hidden * mask).sum(dim=1) / denom
+        else:
+            final_hidden = lang_hidden.mean(dim=1)
         
         # Step 6: Project to classification logits (if classification head exists)
         if self._fc is not None:
@@ -650,7 +711,7 @@ class MedFlamingo(BaseModel):
             [img.unsqueeze(0) if img.ndim == 3 else img for img in images],
             dim=0
         )  # (batch_size, 3, 224, 224) or adapt to input shape
-        images_batch = images_batch.to(self.device)
+        images_batch = self._move_to_device(images_batch)
         
         # Step 1: Encode images with CLIP ViT
         with torch.no_grad():
@@ -686,11 +747,12 @@ class MedFlamingo(BaseModel):
             padding=True,
             truncation=True,
             max_length=1024,
-        ).to(self.device)
-        
+        )
+        encoded_context = self._move_to_device(encoded_context)
+
         # Get text embeddings
         with torch.no_grad():
-            text_embeds = self._lang_model.model.embed_tokens(encoded_context["input_ids"])
+            text_embeds = self._embed_inputs(encoded_context["input_ids"])
             # (1, seq_len, lang_dim)
         
         # Step 4: Apply cross-attention for conditioning
@@ -702,6 +764,11 @@ class MedFlamingo(BaseModel):
         
         for xattn_layer in self._xattn_layers:
             lang_hidden = xattn_layer(lang_hidden, all_vision_features[:1])  # Use first batch's features for single sample
+
+        lang_hidden = self._run_lm(
+            inputs_embeds=lang_hidden,
+            attention_mask=encoded_context.get("attention_mask"),
+        )
         
         # Step 5: Prepare input for generation
         # Reuse the encoded input IDs but with updated hidden states
@@ -712,14 +779,24 @@ class MedFlamingo(BaseModel):
         # We'll craft the generation call to use the conditioned embeddings
         with torch.no_grad():
             # Generate from the LLM conditioned on visual features
-            output = self._lang_model.generate(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                max_new_tokens=max_new_tokens,
-                temperature=temperature,
-                do_sample=(temperature > 1.0),
-                **generation_kwargs
-            )
+            try:
+                output = self._lang_model.generate(
+                    inputs_embeds=lang_hidden,
+                    attention_mask=attention_mask,
+                    max_new_tokens=max_new_tokens,
+                    temperature=temperature,
+                    do_sample=(temperature > 1.0),
+                    **generation_kwargs
+                )
+            except (TypeError, ValueError):
+                output = self._lang_model.generate(
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    max_new_tokens=max_new_tokens,
+                    temperature=temperature,
+                    do_sample=(temperature > 1.0),
+                    **generation_kwargs
+                )
         
         # Step 7: Decode generated tokens
         generated_text = self._tokenizer.decode(
