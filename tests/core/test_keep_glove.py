@@ -100,6 +100,86 @@ class TestKeepGloVe:
         emb = model.get_embeddings()
         assert emb.shape == (10, 8)
 
+    def test_paper_variant_defaults(self):
+        """Default construction uses paper-faithful values."""
+        from pyhealth.medcode.pretrained_embeddings.keep_emb.train_glove import (
+            KeepGloVe,
+        )
+
+        model = KeepGloVe(vocab_size=5, embedding_dim=4)
+        assert model.reg_distance == "l2"
+        assert model.reg_reduction == "mean"
+        assert model.lambd == 1e-3
+
+    def test_code_variant_configurable(self):
+        """Can switch to code-faithful values via parameters."""
+        from pyhealth.medcode.pretrained_embeddings.keep_emb.train_glove import (
+            KeepGloVe,
+        )
+
+        model = KeepGloVe(
+            vocab_size=5, embedding_dim=4,
+            reg_distance="cosine",
+            reg_reduction="sum",
+            lambd=1e-5,
+        )
+        assert model.reg_distance == "cosine"
+        assert model.reg_reduction == "sum"
+        assert model.lambd == 1e-5
+
+    def test_invalid_reg_distance_raises(self):
+        from pyhealth.medcode.pretrained_embeddings.keep_emb.train_glove import (
+            KeepGloVe,
+        )
+
+        with pytest.raises(ValueError, match="reg_distance"):
+            KeepGloVe(vocab_size=5, embedding_dim=4, reg_distance="invalid")
+
+    def test_invalid_reg_reduction_raises(self):
+        from pyhealth.medcode.pretrained_embeddings.keep_emb.train_glove import (
+            KeepGloVe,
+        )
+
+        with pytest.raises(ValueError, match="reg_reduction"):
+            KeepGloVe(vocab_size=5, embedding_dim=4, reg_reduction="invalid")
+
+    def test_l2_and_cosine_produce_different_reg_loss(self):
+        """L2 and cosine distance give different reg values for same embeddings."""
+        from pyhealth.medcode.pretrained_embeddings.keep_emb.train_glove import (
+            KeepGloVe,
+        )
+
+        np.random.seed(42)
+        init = np.random.randn(5, 4).astype(np.float32)
+
+        model_l2 = KeepGloVe(
+            5, 4, init_embeddings=init, lambd=1.0,
+            reg_distance="l2", reg_reduction="sum",
+        )
+        model_cos = KeepGloVe(
+            5, 4, init_embeddings=init, lambd=1.0,
+            reg_distance="cosine", reg_reduction="sum",
+        )
+
+        # Perturb weights so reg is non-zero
+        with torch.no_grad():
+            torch.manual_seed(0)
+            noise = torch.randn_like(model_l2.emb_u.weight)
+            model_l2.emb_u.weight.add_(noise)
+            model_cos.emb_u.weight.add_(noise)
+
+        row = torch.tensor([0, 1])
+        col = torch.tensor([1, 2])
+        counts = torch.tensor([3.0, 1.0])
+
+        _, reg_l2 = model_l2(row, col, counts)
+        _, reg_cos = model_cos(row, col, counts)
+
+        # Both should be non-zero but of different magnitudes
+        assert reg_l2.item() > 0
+        assert reg_cos.item() > 0
+        assert reg_l2.item() != reg_cos.item()
+
     def test_get_embeddings_averages_u_and_v(self):
         from pyhealth.medcode.pretrained_embeddings.keep_emb.train_glove import (
             KeepGloVe,
@@ -216,3 +296,66 @@ class TestTrainKeep:
         emb1 = train_keep(matrix, embedding_dim=4, epochs=5, seed=42)
         emb2 = train_keep(matrix, embedding_dim=4, epochs=5, seed=42)
         np.testing.assert_array_equal(emb1, emb2)
+
+    def test_adamw_optimizer(self):
+        """AdamW optimizer runs without errors."""
+        from pyhealth.medcode.pretrained_embeddings.keep_emb.train_glove import (
+            train_keep,
+        )
+
+        matrix = np.array([[2, 3], [3, 2]], dtype=np.float32)
+        emb = train_keep(
+            matrix, embedding_dim=4, epochs=5, seed=42, optimizer="adamw",
+        )
+        assert emb.shape == (2, 4)
+
+    def test_adagrad_optimizer(self):
+        """Adagrad optimizer (code variant) runs without errors."""
+        from pyhealth.medcode.pretrained_embeddings.keep_emb.train_glove import (
+            train_keep,
+        )
+
+        matrix = np.array([[2, 3], [3, 2]], dtype=np.float32)
+        emb = train_keep(
+            matrix, embedding_dim=4, epochs=5, seed=42, optimizer="adagrad",
+        )
+        assert emb.shape == (2, 4)
+
+    def test_invalid_optimizer_raises(self):
+        from pyhealth.medcode.pretrained_embeddings.keep_emb.train_glove import (
+            train_keep,
+        )
+
+        matrix = np.array([[2, 3], [3, 2]], dtype=np.float32)
+        with pytest.raises(ValueError, match="optimizer"):
+            train_keep(
+                matrix, embedding_dim=4, epochs=1, optimizer="sgd",
+            )
+
+    def test_code_variant_end_to_end(self):
+        """Full code-faithful variant runs successfully."""
+        from pyhealth.medcode.pretrained_embeddings.keep_emb.train_glove import (
+            train_keep,
+        )
+
+        np.random.seed(42)
+        matrix = np.array([
+            [2, 5, 1],
+            [5, 3, 2],
+            [1, 2, 1],
+        ], dtype=np.float32)
+        init = np.random.randn(3, 4).astype(np.float32)
+
+        emb = train_keep(
+            matrix,
+            init_embeddings=init,
+            embedding_dim=4,
+            epochs=10,
+            seed=42,
+            # Code-faithful overrides:
+            reg_distance="cosine",
+            reg_reduction="sum",
+            lambd=1e-5,
+            optimizer="adagrad",
+        )
+        assert emb.shape == (3, 4)
