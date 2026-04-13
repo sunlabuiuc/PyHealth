@@ -631,9 +631,6 @@ class ICDLabsMIMIC4(BaseMultimodalMIMIC4Task):
     - **Lab values**: 10-dimensional lab vectors (one per lab category) at each
       measurement timestamp, processed by ``StageNetTensorProcessor``.
 
-    Suitable as a lightweight alternative to ``MortalityPredictionStageNetMIMIC4``
-    when notes are unavailable or not needed.
-
     Examples:
         >>> from pyhealth.datasets import MIMIC4Dataset
         >>> from pyhealth.tasks.multimodal_mimic4 import ICDLabsMIMIC4

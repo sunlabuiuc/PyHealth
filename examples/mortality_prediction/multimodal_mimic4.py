@@ -6,6 +6,7 @@ import os
 from pyhealth.datasets import MIMIC4Dataset
 from pyhealth.tasks.multimodal_mimic4 import (
     ClinicalNotesMIMIC4,
+    ICDLabsMIMIC4,
     ClinicalNotesICDLabsMIMIC4,
     ClinicalNotesICDLabsCXRMIMIC4,
 )
@@ -15,7 +16,7 @@ from pyhealth.tasks.base_task import BaseTask
 # There's probably better ways dealing with this on the cluster, but working locally for now
 # (see: https://github.com/sunlabuiuc/PyHealth/blob/master/examples/mortality_prediction/multimodal_mimic4_minimal.py)
 
-TASK = "ClinicalNotesICDLabsMIMIC4"  # The idea here is that we want additive tasks so we can evaluate the value in adding more modalities
+TASK = "ClinicalNotesICDLabsMIMIC4"  # Options: ClinicalNotesMIMIC4, ICDLabsMIMIC4, ClinicalNotesICDLabsMIMIC4, ClinicalNotesICDLabsCXRMIMIC4  # The idea here is that we want additive tasks so we can evaluate the value in adding more modalities
 DEV_MODE = True
 ENVIRONMENT = "SunLabCluster"  # Either 'Local' or 'Cluster' or "SunLabCluster"
 NETID = "wp14" # For personal cache
@@ -73,6 +74,28 @@ if __name__ == "__main__":
 
         # Apply multimodal task
         task = ClinicalNotesMIMIC4()
+        samples = dataset.set_task(task)
+
+        # Get and print sample
+        sample = samples[0]
+        print(sample)
+
+    elif TASK == "ICDLabsMIMIC4":
+        dataset = MIMIC4Dataset(
+            ehr_root=ehr_root,
+            ehr_tables=[
+                "diagnoses_icd",
+                "procedures_icd",
+                "labevents",
+                "prescriptions",
+            ],
+            cache_dir=cache_dir,
+            num_workers=8,
+            dev=DEV_MODE,
+        )
+
+        # Apply multimodal task
+        task = ICDLabsMIMIC4()
         samples = dataset.set_task(task)
 
         # Get and print sample
