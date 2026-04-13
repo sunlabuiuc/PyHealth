@@ -32,7 +32,7 @@ from sklearn.metrics import roc_auc_score
 from torch.utils.data import DataLoader
 
 from pyhealth.datasets import (
-    EEGGCNNDataset,
+    EEGGCNNRawDataset,
     create_sample_dataset,
     get_dataloader,
     split_by_patient,
@@ -182,7 +182,7 @@ def evaluate(
 
 
 def run_experiment(
-    dataset: EEGGCNNDataset,
+    dataset: EEGGCNNRawDataset,
     task: EEGGCNNDiseaseDetection,
     epochs: int = 20,
     batch_size: int = 32,
@@ -239,7 +239,7 @@ def run_experiment(
 # -------------------------------------------------------------------
 
 def ablation_adjacency(
-    dataset: EEGGCNNDataset, **kwargs
+    dataset: EEGGCNNRawDataset, **kwargs
 ) -> Dict[str, Dict[str, float]]:
     """Experiment 1: Adjacency type ablation."""
     results = {}
@@ -251,7 +251,7 @@ def ablation_adjacency(
 
 
 def ablation_frequency_bands(
-    dataset: EEGGCNNDataset, **kwargs
+    dataset: EEGGCNNRawDataset, **kwargs
 ) -> Dict[str, Dict[str, float]]:
     """Experiment 2: Frequency band ablation.
 
@@ -281,7 +281,7 @@ def ablation_frequency_bands(
 
 
 def ablation_connectivity(
-    dataset: EEGGCNNDataset, **kwargs
+    dataset: EEGGCNNRawDataset, **kwargs
 ) -> Dict[str, Dict[str, float]]:
     """Experiment 3: Connectivity measure ablation."""
     results = {}
@@ -328,7 +328,7 @@ def main():
 
     dataset = None
     if not args.demo:
-        dataset = EEGGCNNDataset(root=args.root)
+        dataset = EEGGCNNRawDataset(root=args.root)
         dataset.stats()
 
     if args.demo:

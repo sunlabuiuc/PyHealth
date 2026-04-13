@@ -9,8 +9,12 @@ from .base_dataset import BaseDataset
 logger = logging.getLogger(__name__)
 
 
-class EEGGCNNDataset(BaseDataset):
-    """EEG-GCNN dataset pooling TUAB normal-subset and MPI LEMON controls.
+class EEGGCNNRawDataset(BaseDataset):
+    """EEG-GCNN raw EEG dataset pooling TUAB normal-subset and MPI LEMON.
+
+    Processes raw EDF/BrainVision files directly (as opposed to
+    :class:`~pyhealth.datasets.EEGGCNNDataset` which uses pre-computed
+    FigShare features).
 
     This dataset supports the EEG-GCNN paper (Wagh & Varatharajah, ML4H @
     NeurIPS 2020) which distinguishes "normal-appearing" patient EEGs (from
@@ -58,9 +62,9 @@ class EEGGCNNDataset(BaseDataset):
         visit_to_index: Maps visit/record IDs to sample indices.
 
     Examples:
-        >>> from pyhealth.datasets import EEGGCNNDataset
+        >>> from pyhealth.datasets import EEGGCNNRawDataset
         >>> from pyhealth.tasks import EEGGCNNDiseaseDetection
-        >>> dataset = EEGGCNNDataset(
+        >>> dataset = EEGGCNNRawDataset(
         ...     root="/data/eeg-gcnn/",
         ... )
         >>> dataset.stats()
@@ -79,7 +83,7 @@ class EEGGCNNDataset(BaseDataset):
     ) -> None:
         if config_path is None:
             config_path = (
-                Path(__file__).parent / "configs" / "eeg_gcnn.yaml"
+                Path(__file__).parent / "configs" / "eeg_gcnn_raw.yaml"
             )
 
         self.root = root
