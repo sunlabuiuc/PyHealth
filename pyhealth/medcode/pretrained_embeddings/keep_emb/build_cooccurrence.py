@@ -319,3 +319,96 @@ def build_cooccurrence_matrix(
         density * 100,
     )
     return matrix, code_to_idx, idx_to_code
+
+
+def apply_count_filter(
+    graph: nx.DiGraph,
+    cooc_matrix: np.ndarray,
+    code_to_idx: Dict[int, int],
+    idx_to_code: List[int],
+) -> Tuple[nx.DiGraph, np.ndarray, Dict[int, int], List[int]]:
+    """Drop SNOMED concepts with zero patient observations.
+
+    Implements the count filter implicit in the KEEP paper (visible in
+    G2Lab's ``_ct_filter`` file suffix). After dense rollup, the
+    co-occurrence matrix diagonal contains the patient count per concept.
+    Concepts with zero count never appeared in any patient's confirmed
+    disease set — they're ontologically valid but clinically unobserved
+    in the training data.
+
+    Why this matters for KEEP:
+        Without this filter, Stage 1 (Node2Vec) trains on ~68K concepts
+        but Stage 2 (GloVe) only refines the ~5K observed ones. The
+        unobserved concepts end up with Stage 1 embeddings only — mixed
+        quality in the exported file. The filter ensures every exported
+        embedding has undergone both stages.
+
+    Why this matches the paper:
+        The paper reports ~5,686 concepts at depth 5. Our raw graph has
+        ~68K. The gap is this filter. G2Lab's pipeline applies it
+        upstream (not in the public repo); we replicate it here.
+
+    Args:
+        graph: SNOMED hierarchy DiGraph (from ``build_hierarchy_graph``).
+        cooc_matrix: Co-occurrence matrix from ``build_cooccurrence_matrix``.
+            Diagonal contains per-concept patient counts.
+        code_to_idx: Dict mapping concept_id to current matrix row/column.
+        idx_to_code: List mapping matrix index to concept_id.
+
+    Returns:
+        Tuple of:
+            - filtered_graph: Subgraph containing only observed concepts.
+            - filtered_matrix: Reindexed co-occurrence matrix, shape
+              ``(N_obs, N_obs)`` where N_obs is the observed concept count.
+            - filtered_code_to_idx: New code_to_idx for filtered matrix.
+            - filtered_idx_to_code: New idx_to_code for filtered matrix.
+
+    Example:
+        >>> patient_codes = {"P1": {100, 200}}  # only 100, 200 observed
+        >>> matrix, c2i, i2c = build_cooccurrence_matrix(
+        ...     patient_codes, valid_codes={100, 200, 300, 400}
+        ... )
+        >>> # matrix includes 300, 400 but their diagonals are zero
+        >>> fg, fm, fc2i, fi2c = apply_count_filter(graph, matrix, c2i, i2c)
+        >>> sorted(fc2i.keys())  # only observed concepts remain
+        [100, 200]
+    """
+    # Identify observed concepts (non-zero on diagonal)
+    diagonal = np.diagonal(cooc_matrix)
+    observed_indices = [
+        i for i, count in enumerate(diagonal) if count > 0
+    ]
+    observed_codes = {idx_to_code[i] for i in observed_indices}
+
+    logger.info(
+        "Count filter: %d / %d concepts have >0 patient observations",
+        len(observed_codes),
+        len(idx_to_code),
+    )
+
+    # Rebuild graph as subgraph, copy to be safe for downstream modifications
+    filtered_graph = graph.subgraph(observed_codes).copy()
+
+    # Rebuild matrix with only observed indices
+    if observed_indices:
+        filtered_matrix = cooc_matrix[np.ix_(observed_indices, observed_indices)]
+    else:
+        filtered_matrix = np.zeros((0, 0), dtype=cooc_matrix.dtype)
+
+    # Rebuild code_to_idx / idx_to_code for the filtered matrix
+    filtered_idx_to_code = [idx_to_code[i] for i in observed_indices]
+    filtered_code_to_idx = {
+        code: i for i, code in enumerate(filtered_idx_to_code)
+    }
+
+    logger.info(
+        "After count filter: graph %d nodes, matrix %s",
+        filtered_graph.number_of_nodes(),
+        filtered_matrix.shape,
+    )
+    return (
+        filtered_graph,
+        filtered_matrix,
+        filtered_code_to_idx,
+        filtered_idx_to_code,
+    )

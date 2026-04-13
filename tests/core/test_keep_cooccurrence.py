@@ -307,3 +307,109 @@ class TestBuildCooccurrenceMatrix:
         matrix, code_to_idx, idx_to_code = build_cooccurrence_matrix({})
         assert matrix.shape == (0, 0)
         assert len(code_to_idx) == 0
+
+
+# ---------------------------------------------------------------------------
+# Test apply_count_filter
+# ---------------------------------------------------------------------------
+
+class TestApplyCountFilter:
+    """Tests for apply_count_filter().
+
+    Drops SNOMED concepts with zero observations in the co-occurrence
+    matrix diagonal. This ensures Stage 1 (Node2Vec) and Stage 2 (GloVe)
+    operate on the same set of concepts, matching the paper's implicit
+    count filter (visible in G2Lab's "_ct_filter" file suffix).
+    """
+
+    def test_drops_unobserved_concepts(self, snomed_graph):
+        from pyhealth.medcode.pretrained_embeddings.keep_emb.build_cooccurrence import (
+            build_cooccurrence_matrix, apply_count_filter,
+        )
+
+        # P1 has 100, 200, 300. Concepts 400, 500, 600 never appear.
+        patient_codes = {"P1": {100, 200, 300}}
+        matrix, code_to_idx, idx_to_code = build_cooccurrence_matrix(
+            patient_codes, valid_codes=set(snomed_graph.nodes()),
+        )
+        # Matrix includes only observed codes (100, 200, 300)
+        # because build_cooccurrence_matrix filters to all_codes
+        assert set(code_to_idx.keys()) == {100, 200, 300}
+
+        # Apply filter — should keep all since all have non-zero diagonals
+        (filtered_graph, filtered_matrix,
+         filtered_code_to_idx, filtered_idx_to_code) = apply_count_filter(
+            snomed_graph, matrix, code_to_idx, idx_to_code,
+        )
+        assert set(filtered_graph.nodes()) == {100, 200, 300}
+
+    def test_filter_with_zero_diagonals(self, snomed_graph):
+        """Codes in matrix but with zero diagonal should be dropped."""
+        from pyhealth.medcode.pretrained_embeddings.keep_emb.build_cooccurrence import (
+            apply_count_filter,
+        )
+
+        # Build a matrix where 500 has zero diagonal
+        code_to_idx = {100: 0, 200: 1, 300: 2, 500: 3}
+        idx_to_code = [100, 200, 300, 500]
+        matrix = np.array([
+            [3.0, 2.0, 1.0, 0.0],
+            [2.0, 2.0, 1.0, 0.0],
+            [1.0, 1.0, 1.0, 0.0],
+            [0.0, 0.0, 0.0, 0.0],  # 500 never observed
+        ], dtype=np.float32)
+
+        (filtered_graph, filtered_matrix,
+         filtered_code_to_idx, filtered_idx_to_code) = apply_count_filter(
+            snomed_graph, matrix, code_to_idx, idx_to_code,
+        )
+        # 500 should be dropped (zero diagonal)
+        assert 500 not in filtered_graph.nodes()
+        assert 500 not in filtered_code_to_idx
+        # 100, 200, 300 should remain
+        assert {100, 200, 300} == set(filtered_code_to_idx.keys())
+
+    def test_matrix_reindexed_after_filter(self, snomed_graph):
+        """Filtered matrix should have correct dimensions and values."""
+        from pyhealth.medcode.pretrained_embeddings.keep_emb.build_cooccurrence import (
+            apply_count_filter,
+        )
+
+        code_to_idx = {100: 0, 200: 1, 500: 2}
+        idx_to_code = [100, 200, 500]
+        matrix = np.array([
+            [2.0, 1.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [0.0, 0.0, 0.0],  # 500 unobserved
+        ], dtype=np.float32)
+
+        _, filtered_matrix, filtered_code_to_idx, filtered_idx_to_code = (
+            apply_count_filter(
+                snomed_graph, matrix, code_to_idx, idx_to_code,
+            )
+        )
+
+        # New matrix is 2x2 (dropped 500)
+        assert filtered_matrix.shape == (2, 2)
+        # Values preserved
+        assert filtered_matrix[filtered_code_to_idx[100],
+                               filtered_code_to_idx[200]] == 1.0
+        # Indices are 0-based and contiguous
+        assert sorted(filtered_code_to_idx.values()) == [0, 1]
+
+    def test_graph_subgraph_is_copy(self, snomed_graph):
+        """Filtered graph should be a copy, not a view — safe to modify."""
+        from pyhealth.medcode.pretrained_embeddings.keep_emb.build_cooccurrence import (
+            apply_count_filter,
+        )
+
+        code_to_idx = {100: 0, 200: 1}
+        idx_to_code = [100, 200]
+        matrix = np.array([[1.0, 1.0], [1.0, 1.0]], dtype=np.float32)
+
+        filtered_graph, _, _, _ = apply_count_filter(
+            snomed_graph, matrix, code_to_idx, idx_to_code,
+        )
+        # Modifying filtered_graph should not affect original
+        filtered_graph.add_node(999)
+        assert 999 not in snomed_graph.nodes()

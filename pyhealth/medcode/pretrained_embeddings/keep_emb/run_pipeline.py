@@ -120,6 +120,7 @@ def run_keep_pipeline(
         extract_patient_codes_from_df,
         rollup_codes,
         build_cooccurrence_matrix,
+        apply_count_filter,
     )
     from .train_glove import train_keep
     from .export_embeddings import export_snomed
@@ -165,7 +166,7 @@ def run_keep_pipeline(
         logger.info("DEV MODE: num_walks=10, glove_epochs=10")
 
     # Step 1: Build SNOMED graph (with orphan rescue if ancestor_csv available)
-    print("KEEP [1/6] Building SNOMED hierarchy graph...")
+    print("KEEP [1/7] Building SNOMED hierarchy graph...")
     graph = build_hierarchy_graph(
         concept_csv, relationship_csv,
         max_depth=max_depth,
@@ -174,7 +175,7 @@ def run_keep_pipeline(
     print(f"  Graph: {graph.number_of_nodes()} nodes, {graph.number_of_edges()} edges")
 
     # Step 2: Build ICD-to-SNOMED mappings + generate medcode files
-    print("KEEP [2/6] Building ICD-to-SNOMED mappings...")
+    print("KEEP [2/7] Building ICD-to-SNOMED mappings...")
     icd9_map, icd10_map = build_all_mappings(
         concept_csv, relationship_csv,
         snomed_concept_ids=set(graph.nodes()),
@@ -184,7 +185,7 @@ def run_keep_pipeline(
     generate_all_medcode_files(graph, icd9_map, icd10_map)
 
     # Step 3: Extract patient codes from dataset
-    print("KEEP [3/6] Extracting patient codes...")
+    print("KEEP [3/7] Extracting patient codes...")
     diag_df = (
         dataset.global_event_df
         .filter(pl.col("event_type") == "diagnoses_icd")
@@ -201,15 +202,23 @@ def run_keep_pipeline(
     print(f"  Patients with qualifying codes: {len(patient_codes)}")
 
     # Step 4: Roll up + co-occurrence matrix
-    print("KEEP [4/6] Building co-occurrence matrix...")
+    print("KEEP [4/7] Building co-occurrence matrix...")
     patient_codes = rollup_codes(patient_codes, graph)
     matrix, code_to_idx, idx_to_code = build_cooccurrence_matrix(
         patient_codes, valid_codes=set(graph.nodes()),
     )
     print(f"  Matrix: {matrix.shape[0]} codes, {int((matrix > 0).sum())} non-zero entries")
 
-    # Step 5: Node2Vec (Stage 1)
-    print("KEEP [5/6] Training Node2Vec (Stage 1)...")
+    # Step 5: Count filter — drop concepts with zero patient observations
+    # (paper-faithful, matches G2Lab's "_ct_filter" file suffix)
+    print("KEEP [5/7] Applying count filter...")
+    graph, matrix, code_to_idx, idx_to_code = apply_count_filter(
+        graph, matrix, code_to_idx, idx_to_code,
+    )
+    print(f"  Filtered graph: {graph.number_of_nodes()} nodes, matrix {matrix.shape}")
+
+    # Step 6: Node2Vec (Stage 1) — on filtered graph
+    print("KEEP [6/7] Training Node2Vec (Stage 1)...")
     n2v_embeddings, node_ids = train_node2vec(
         graph,
         embedding_dim=embedding_dim,
@@ -228,8 +237,8 @@ def run_keep_pipeline(
         if code_id in nid_to_idx:
             init_emb[i] = n2v_embeddings[nid_to_idx[code_id]]
 
-    # Step 6: Regularized GloVe (Stage 2)
-    print("KEEP [6/6] Training regularized GloVe (Stage 2)...")
+    # Step 7: Regularized GloVe (Stage 2)
+    print("KEEP [7/7] Training regularized GloVe (Stage 2)...")
     keep_embeddings = train_keep(
         matrix,
         init_embeddings=init_emb,
