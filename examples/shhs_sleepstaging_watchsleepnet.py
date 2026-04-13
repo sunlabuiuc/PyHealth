@@ -101,11 +101,15 @@ if __name__ == "__main__":
     print("Train and Test WatchSleepNet")
     print("=" * 70)
 
+    # The original WatchSleepNet paper used an LSTM hidden size of 128.
+    # Ablations:
+    #   smaller (64) - as there are only 3 classes in this task (Wake, NREM, REM)
+    #   larger (256) - to test if it improves performance on this task
     model = WatchSleepNet(
         dataset=sample_dataset,
-        lstm_hidden_size=128 # default hidden size for WatchSleepNet as used in the original paper
-        # lstm_hidden_size=64 # ablation with smaller hidden size as there are only 3 classes in this task (Wake, NREM, REM)
-        # lstm_hidden_size=256 # ablation with larger hidden size to test if it improves performance on this task
+        lstm_hidden_size=128
+        # lstm_hidden_size=64
+        # lstm_hidden_size=256
     )
 
     print(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
@@ -113,7 +117,13 @@ if __name__ == "__main__":
 
     trainer = Trainer(
         model=model,
-        metrics=["cohen_kappa", "f1_macro", "f1_weighted", "accuracy", "roc_auc_macro_ovr"],
+        metrics=[
+            "cohen_kappa",
+            "f1_macro",
+            "f1_weighted",
+            "accuracy",
+            "roc_auc_macro_ovr"
+        ],
         exp_name="watchsleepnet_sleep_staging"
     )
 

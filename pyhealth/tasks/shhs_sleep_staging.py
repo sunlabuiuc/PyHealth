@@ -199,8 +199,8 @@ def _ecg_to_ibi(ecg_signal: np.ndarray, fs: int) -> np.ndarray:
 
     ibi_values = np.diff(rpeaks) / float(fs)
     for i in range(len(rpeaks) - 1):
-        ibi[rpeaks[i] : rpeaks[i + 1]] = ibi_values[i]
-    ibi[rpeaks[-1] :] = ibi_values[-1]
+        ibi[rpeaks[i]:rpeaks[i + 1]] = ibi_values[i]
+    ibi[rpeaks[-1]:] = ibi_values[-1]
 
     ibi[ibi >= 2.0] = 0.0
     return ibi
