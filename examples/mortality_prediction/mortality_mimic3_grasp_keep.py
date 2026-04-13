@@ -97,7 +97,27 @@ def print_hardware_info():
 # ── Configuration ─────────────────────────────────────────
 USE_KEEP = True                 # False = random embeddings, True = KEEP pipeline
 ATHENA_DIR = "data/athena"       # path to Athena OMOP vocabulary download
+KEEP_VARIANT = "paper"           # "paper" (L2+1e-3+AdamW+mean) or "code" (cosine+1e-5+Adagrad+sum)
+RUN_INTRINSIC_EVAL = True        # compute Resnik/co-occ correlations after pipeline
 # ──────────────────────────────────────────────────────────
+
+# Paper-faithful vs G2Lab code-faithful variants.
+# Both are valid KEEP; we don't know which produced the published Table 4
+# numbers. See docs/plans/keep/keep-implementation-comparison.md.
+KEEP_VARIANTS = {
+    "paper": {
+        "reg_distance": "l2",
+        "reg_reduction": "mean",
+        "optimizer": "adamw",
+        "lambd": 1e-3,
+    },
+    "code": {
+        "reg_distance": "cosine",
+        "reg_reduction": "sum",
+        "optimizer": "adagrad",
+        "lambd": 1e-5,
+    },
+}
 
 if __name__ == "__main__":
     print_hardware_info()
@@ -114,16 +134,75 @@ if __name__ == "__main__":
     # STEP 2: build KEEP embeddings (skip if USE_KEEP=False)
     keep_emb_path = None
 
+    intrinsic_results = None
+
     if USE_KEEP:
         from pyhealth.medcode.pretrained_embeddings.keep_emb.run_pipeline import (
             run_keep_pipeline,
         )
+        variant_params = KEEP_VARIANTS[KEEP_VARIANT]
+        print(f"KEEP variant: {KEEP_VARIANT} ({variant_params})")
         keep_emb_path = run_keep_pipeline(
             athena_dir=ATHENA_DIR,
             dataset=base_dataset,
             output_dir="keep_output",
             dev=True,  # fast params for testing; set False for real runs
+            **variant_params,
         )
+
+        # STEP 2b: intrinsic evaluation against paper Table 2 targets
+        if RUN_INTRINSIC_EVAL:
+            print("\nKEEP intrinsic eval: Resnik/co-occurrence correlations...")
+            from pyhealth.medcode.pretrained_embeddings.keep_emb import (
+                build_hierarchy_graph, load_keep_embeddings,
+                resnik_correlation,
+            )
+            # Rebuild graph (fast since Athena files are cached in memory)
+            athena_concept = Path(ATHENA_DIR) / "CONCEPT.csv"
+            athena_rel = Path(ATHENA_DIR) / "CONCEPT_RELATIONSHIP.csv"
+            athena_ancestor = Path(ATHENA_DIR) / "CONCEPT_ANCESTOR.csv"
+            if not athena_ancestor.exists():
+                athena_ancestor = None
+            eval_graph = build_hierarchy_graph(
+                athena_concept, athena_rel,
+                ancestor_csv=athena_ancestor,
+            )
+
+            # Load exported embeddings (keyed by SNOMED concept_code string)
+            eval_emb, token_strings = load_keep_embeddings(
+                keep_emb_path, embedding_dim=100,
+            )
+            # Map concept_code back to concept_id for graph lookup
+            code_to_id = {
+                str(eval_graph.nodes[n].get("concept_code", n)): n
+                for n in eval_graph.nodes()
+            }
+            eval_node_ids = [
+                code_to_id[tok] for tok in token_strings if tok in code_to_id
+            ]
+            # Filter embeddings to matching subset
+            valid_mask = [tok in code_to_id for tok in token_strings]
+            eval_emb = eval_emb[valid_mask]
+
+            if len(eval_node_ids) >= 11:
+                # Smaller K to keep eval tractable in dev mode
+                k1 = min(10, len(eval_node_ids) // 10)
+                k2 = min(150, len(eval_node_ids) - k1 - 1)
+                runs = 50  # paper uses 250; 50 is enough for a smoke check
+                intrinsic_results = resnik_correlation(
+                    eval_emb, eval_node_ids, eval_graph,
+                    k1=k1, k2=k2, num_runs=runs, seed=42,
+                )
+                print(
+                    f"  Resnik correlation (median): {intrinsic_results['median']:.4f} "
+                    f"(paper target: 0.68)"
+                )
+            else:
+                print(
+                    f"  Skipped: only {len(eval_node_ids)} in-graph concepts "
+                    "(need >= 11 for K1=10 + K2>=1). Real MIMIC runs will have "
+                    "thousands of concepts."
+                )
     else:
         print("USE_KEEP=False, using random embeddings.")
 
@@ -225,6 +304,10 @@ if __name__ == "__main__":
     config = {
         "run_name": run_name,
         "embedding": "KEEP" if keep_emb_path else "random",
+        "keep_variant": KEEP_VARIANT if keep_emb_path else None,
+        "keep_variant_params": (
+            KEEP_VARIANTS[KEEP_VARIANT] if keep_emb_path else None
+        ),
         "embedding_dim": 100,
         "hidden_dim": 32,
         "cluster_num": 8,
@@ -249,6 +332,11 @@ if __name__ == "__main__":
     if emissions_data:
         run_results["energy_kwh"] = emissions_data.energy_consumed
         run_results["co2_kg"] = emissions_data.emissions
+    if intrinsic_results:
+        run_results["intrinsic_eval"] = {
+            "resnik": intrinsic_results,
+            "paper_resnik_target": 0.68,
+        }
     with open(run_dir / "results.json", "w") as f:
         json.dump(run_results, f, indent=2)
 
