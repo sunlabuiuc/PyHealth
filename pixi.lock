@@ -2225,6 +2225,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/tk-8.6.13-noxft_hd72426e_102.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/tzdata-2025b-h78e105d_0.conda
       - pypi: https://files.pythonhosted.org/packages/18/a6/907a406bb7d359e6a63f99c313846d9eec4f7e6f7437809e03aa00fa3074/absl_py-2.4.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/18/a6/907a406bb7d359e6a63f99c313846d9eec4f7e6f7437809e03aa00fa3074/absl_py-2.4.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/30/dd/0107f0aa179869ee9f47ef5a2686abd5e022fdc82af901d535e52fe91ce1/accelerate-1.10.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/78/b6/6307fbef88d9b5ee7421e68d78a9f162e0da4900bc5f5793f6d3d0e34fb8/annotated_types-0.7.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/e7/f9/25753b9de3029d3eb2487755520b98eb72b0cb562d8974329c6e19831063/axial_positional_embedding-0.3.12-py3-none-any.whl
@@ -7082,7 +7083,7 @@ packages:
 - pypi: ./
   name: pyhealth
   version: 2.0.0
-  sha256: a62b244ceb0cb779c8c4a4f8817853fb8936512f225f45c1e568f1a4d8d4b005
+  sha256: f07719f9dceb759c35507216c8033d2f915d241418d4fad2ab51b37c0e73260f
   requires_dist:
   - torch~=2.7.1
   - torchvision
@@ -7107,11 +7108,7 @@ packages:
   - more-itertools~=10.8.0
   - einops>=0.8.0
   - linear-attention-transformer>=0.19.1
-  - torch-geometric>=2.6.0 ; extra == 'graph'
-  - editdistance~=0.8.1 ; extra == 'nlp'
-  - rouge-score~=0.1.2 ; extra == 'nlp'
-  - nltk~=3.9.1 ; extra == 'nlp'
-  requires_python: '>=3.12,<3.15'
+  requires_python: '>=3.12,<3.14'
 - pypi: https://files.pythonhosted.org/packages/05/e7/df2285f3d08fee213f2d041540fa4fc9ca6c2d44cf36d3a035bf2a8d2bcc/pyparsing-3.2.3-py3-none-any.whl
   name: pyparsing
   version: 3.2.3
