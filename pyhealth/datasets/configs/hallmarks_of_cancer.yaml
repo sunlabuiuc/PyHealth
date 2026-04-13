@@ -1,0 +1,11 @@
+version: "1.0"
+tables:
+  hoc:
+    file_path: "hallmarks_of_cancer.csv"
+    patient_id: "sentence_id"
+    timestamp: null
+    attributes:
+      - "document_id"
+      - "text"
+      - "labels"
+      - "split"
