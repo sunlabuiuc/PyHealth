@@ -13,8 +13,6 @@ Dataset: SHHS (Sleep Heart Health Study)
 Note: Update the `root` path below to point to your local SHHS download.
 """
 
-import logging
-
 from pyhealth.trainer import Trainer
 from pyhealth.datasets import SHHSDataset, get_dataloader, split_by_patient
 from pyhealth.models import WatchSleepNet
@@ -24,6 +22,7 @@ _EPOCHS = 10
 _DECAY_WEIGHT = 1e-5
 
 if __name__ == "__main__":
+
     # Initialize SHHS dataset
     SHHS_ROOT = "/path/to/shhs"  # Update this path to your local SHHS download
     dataset = SHHSDataset(root=SHHS_ROOT)
@@ -102,14 +101,29 @@ if __name__ == "__main__":
     print("Train and Test WatchSleepNet")
     print("=" * 70)
 
-    model = WatchSleepNet(dataset=sample_dataset)
+    # The original WatchSleepNet paper used an LSTM hidden size of 128.
+    # Ablations:
+    #   smaller (64) - as there are only 3 classes in this task (Wake, NREM, REM)
+    #   larger (256) - to test if it improves performance on this task
+    model = WatchSleepNet(
+        dataset=sample_dataset,
+        lstm_hidden_size=128
+        # lstm_hidden_size=64
+        # lstm_hidden_size=256
+    )
 
     print(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
     print()
 
     trainer = Trainer(
         model=model,
-        metrics=["cohen_kappa", "f1_macro", "f1_weighted", "accuracy"],
+        metrics=[
+            "cohen_kappa",
+            "f1_macro",
+            "f1_weighted",
+            "accuracy",
+            "roc_auc_macro_ovr"
+        ],
         exp_name="watchsleepnet_sleep_staging"
     )
 
@@ -129,10 +143,11 @@ if __name__ == "__main__":
     print("Results on Test Set")
     print("=" * 70)
     print(
-        f"Cohen's Kappa: {scores['cohen_kappa']:.4f}\n"
+        f"Accuracy: {scores['accuracy']:.4f}\n"
         f"F1 Macro: {scores['f1_macro']:.4f}\n"
         f"F1 Weighted: {scores['f1_weighted']:.4f}\n"
-        f"Accuracy: {scores['accuracy']:.4f}\n"
+        f"AUROC: {scores['roc_auc_macro_ovr']:.4f}\n"
+        f"Cohen's Kappa: {scores['cohen_kappa']:.4f}\n"
         f"Loss: {scores['loss']:.4f}"
     )
 
