@@ -1,9 +1,31 @@
-"""VQA-RAD dataset for medical visual question answering.
+"""VQA-RAD dataset for medical Visual Question Answering.
 
-The VQA-RAD dataset (Lau et al., 2018) contains radiology images with
-paired question-answer annotations. On first load, the raw JSON file is
-flattened into ``vqarad-metadata-pyhealth.csv`` so it can be consumed by
-PyHealth's ``BaseDataset`` pipeline.
+The VQA-RAD dataset (Lau et al., 2018) contains 315 radiology images
+with 3,515 question-answer pairs spanning multiple imaging modalities
+(CT, MRI, X-ray) and organs (head, chest, abdomen). Questions are both
+open-ended and closed-ended (yes/no).
+
+The dataset is commonly used to evaluate medical VQA models such as
+MedFlamingo (Moor et al., 2023).
+
+Download:
+    The dataset can be obtained from:
+    https://osf.io/89kps/
+
+    Expected directory structure after download::
+
+        root/
+            VQA_RAD Dataset Public.json
+
+    The official OSF archive may keep images in ``VQA_RAD Image Folder/``
+    rather than ``images/``. This loader accepts either layout and rewrites
+    the raw export into ``vqarad-metadata-pyhealth.csv`` for the standard
+    PyHealth pipeline.
+
+Citation:
+    Lau, J. J., Gayen, S., Ben Abacha, A., & Demner-Fushman, D. (2018).
+    A dataset of clinically generated visual questions and answers about
+    radiology images. Scientific Data, 5, 180251.
 """
 
 import json

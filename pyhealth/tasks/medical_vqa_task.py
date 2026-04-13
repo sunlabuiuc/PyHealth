@@ -1,4 +1,20 @@
-"""Medical Visual Question Answering (VQA) task."""
+"""Medical Visual Question Answering task for the VQA-RAD dataset.
+
+This module defines :class:`MedicalVQATask`, which converts raw VQA-RAD
+patient events (each consisting of a radiology image, a clinical question,
+and a free-text answer) into image-question-answer samples suitable for
+multiclass classification.
+
+The task frames VQA as **closed-set multiclass classification** over the
+vocabulary of all answers seen during training.  At inference time the model
+selects the most probable answer from this fixed vocabulary.  Open-ended
+generation is supported separately via :meth:`~pyhealth.models.MedFlamingo.generate`.
+
+Paper:
+    Lau et al. "A dataset of clinically generated visual questions and
+    answers about radiology images." Scientific Data 5, 180251 (2018).
+    https://doi.org/10.1038/sdata.2018.251
+"""
 
 from typing import Any, Dict, List
 
