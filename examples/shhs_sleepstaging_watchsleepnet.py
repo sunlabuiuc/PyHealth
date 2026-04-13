@@ -113,7 +113,7 @@ if __name__ == "__main__":
 
     trainer = Trainer(
         model=model,
-        metrics=["cohen_kappa", "f1_macro", "f1_weighted", "accuracy"],
+        metrics=["cohen_kappa", "f1_macro", "f1_weighted", "accuracy", "roc_auc_macro_ovr"],
         exp_name="watchsleepnet_sleep_staging"
     )
 
@@ -133,10 +133,11 @@ if __name__ == "__main__":
     print("Results on Test Set")
     print("=" * 70)
     print(
-        f"Cohen's Kappa: {scores['cohen_kappa']:.4f}\n"
+        f"Accuracy: {scores['accuracy']:.4f}\n"
         f"F1 Macro: {scores['f1_macro']:.4f}\n"
         f"F1 Weighted: {scores['f1_weighted']:.4f}\n"
-        f"Accuracy: {scores['accuracy']:.4f}\n"
+        f"AUROC: {scores['roc_auc_macro_ovr']:.4f}\n"
+        f"Cohen's Kappa: {scores['cohen_kappa']:.4f}\n"
         f"Loss: {scores['loss']:.4f}"
     )
 
