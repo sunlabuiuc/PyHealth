@@ -90,7 +90,7 @@ class TestCaliForestFit:
         """Test that invalid calibration method raises error."""
         X, y = minimal_data
         model = CaliForest(n_estimators=5, calibration_method="invalid")
-        with pytest.raises(ValueError, match="calibration_method"):
+        with pytest.raises(ValueError, match="Unsupported calibration"):
             model.fit(X, y)
 
 
