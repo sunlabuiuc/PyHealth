@@ -30,17 +30,13 @@ Citation:
 
 import json
 import logging
-import os
 from functools import wraps
 from pathlib import Path
 from typing import Optional
 
 import pandas as pd
 
-from pyhealth.datasets.sample_dataset import SampleDataset
-from pyhealth.processors.base_processor import FeatureProcessor
-from pyhealth.processors.image_processor import ImageProcessor
-
+from ..processors import ImageProcessor
 from ..tasks import MedicalVQATask
 from .base_dataset import BaseDataset
 
@@ -56,9 +52,8 @@ class VQARADDataset(BaseDataset):
 
     Args:
         root: Root directory containing the VQA-RAD data files.
-            Expected to contain ``VQA_RAD Dataset Public.json`` and either
-            an ``images/`` subdirectory or the original OSF
-            ``VQA_RAD Image Folder/`` directory with the radiology images.
+            Expected to contain ``VQA_RAD Dataset Public.json`` and an
+            ``images/`` subdirectory with the radiology images.
         dataset_name: Optional name. Defaults to ``"vqarad"``.
         config_path: Optional path to a YAML config. If ``None``, uses the
             bundled ``configs/vqarad.yaml``.
@@ -79,7 +74,7 @@ class VQARADDataset(BaseDataset):
         root: str,
         dataset_name: Optional[str] = None,
         config_path: Optional[str] = None,
-        cache_dir: Optional[str] = None,
+        cache_dir=None,
         num_workers: int = 1,
         dev: bool = False,
     ) -> None:
@@ -87,14 +82,13 @@ class VQARADDataset(BaseDataset):
             logger.info("No config path provided, using default config")
             config_path = Path(__file__).parent / "configs" / "vqarad.yaml"
 
-        metadata_csv = os.path.join(root, "vqarad-metadata-pyhealth.csv")
-        if not os.path.exists(metadata_csv):
+        metadata_path = Path(root) / "vqarad-metadata-pyhealth.csv"
+        if not metadata_path.exists():
             self.prepare_metadata(root)
 
-        default_tables = ["vqarad"]
         super().__init__(
             root=root,
-            tables=default_tables,
+            tables=["vqarad"],
             dataset_name=dataset_name or "vqarad",
             config_path=config_path,
             cache_dir=cache_dir,
@@ -105,113 +99,63 @@ class VQARADDataset(BaseDataset):
     def prepare_metadata(self, root: str) -> None:
         """Convert the raw VQA-RAD JSON into a flat CSV.
 
-        The raw VQA-RAD export may come from different mirrors. This method
-        accepts both the original OSF field names (for example
-        ``image_name``, ``question``, ``answer``) and alternate uppercase
-        field names (for example ``IMAGE_PATH``, ``QUESTION``, ``ANSWER``),
-        then normalizes them into a CSV with columns matching the YAML config.
+        The JSON file contains a list of QA entries, each with fields like
+        ``"IMAGES_PATH"``, ``"QUESTION"``, and ``"ANSWER"``. This method
+        normalizes them into a CSV with columns matching the YAML config.
 
         Args:
             root: Root directory containing ``VQA_RAD Dataset Public.json``.
         """
-        json_path = os.path.join(root, "VQA_RAD Dataset Public.json")
-        if not os.path.exists(json_path):
+        root_path = Path(root)
+        json_path = root_path / "VQA_RAD Dataset Public.json"
+        if not json_path.exists():
             raise FileNotFoundError(
                 f"Expected VQA-RAD JSON at {json_path}. "
                 "Download the dataset from https://osf.io/89kps/"
             )
 
-        with open(json_path, "r") as f:
+        with json_path.open("r", encoding="utf-8") as f:
             data = json.load(f)
 
-        image_root = self._resolve_image_root(root)
         rows = []
         for entry in data:
-            image_name = (
-                entry.get("IMAGE_PATH")
-                or entry.get("IMAGES_PATH")
-                or entry.get("image_name")
-                or ""
-            )
-            image_path = os.path.join(image_root, image_name) if image_name else ""
+            image_name = entry.get("IMAGE_PATH", entry.get("IMAGES_PATH", ""))
             rows.append(
                 {
-                    "image_path": image_path,
-                    "question": entry.get("QUESTION", entry.get("question", "")),
-                    "answer": str(entry.get("ANSWER", entry.get("answer", ""))),
-                    "answer_type": entry.get(
-                        "ANSWER_TYPE", entry.get("answer_type", "")
-                    ),
-                    "question_type": entry.get(
-                        "QUESTION_TYPE", entry.get("question_type", "")
-                    ),
-                    "image_organ": entry.get(
-                        "IMAGE_ORGAN", entry.get("image_organ", "")
-                    ),
+                    "image_path": str(root_path / "images" / image_name),
+                    "question": entry.get("QUESTION", ""),
+                    "answer": str(entry.get("ANSWER", "")),
+                    "answer_type": entry.get("ANSWER_TYPE", ""),
+                    "question_type": entry.get("QUESTION_TYPE", ""),
+                    "image_organ": entry.get("IMAGE_ORGAN", ""),
                 }
             )
 
-        df = pd.DataFrame(rows)
-
-        # Filter out rows whose image file is missing so that the processor
-        # pipeline does not fail on incomplete dataset downloads.
-        before = len(df)
-        df = df[df["image_path"].apply(lambda p: bool(p) and os.path.isfile(p))]
-        skipped = before - len(df)
-        if skipped:
-            logger.warning(
-                f"Skipped {skipped} entries with missing image files "
-                f"(out of {before} total)."
-            )
-
-        out_path = os.path.join(root, "vqarad-metadata-pyhealth.csv")
-        df.to_csv(out_path, index=False)
-        logger.info(f"Saved VQA-RAD metadata ({len(df)} rows) to {out_path}")
-
-    @staticmethod
-    def _resolve_image_root(root: str) -> str:
-        """Finds the VQA-RAD image directory for the supported raw layouts."""
-        candidate_dirs = [
-            os.path.join(root, "images"),
-            os.path.join(root, "VQA_RAD Image Folder"),
-        ]
-
-        for candidate in candidate_dirs:
-            if os.path.isdir(candidate):
-                return candidate
-
-        raise FileNotFoundError(
-            "Expected VQA-RAD images in either "
-            f"{candidate_dirs[0]} or {candidate_dirs[1]}."
-        )
+        metadata_path = root_path / "vqarad-metadata-pyhealth.csv"
+        pd.DataFrame(rows).to_csv(metadata_path, index=False)
+        logger.info("Saved VQA-RAD metadata (%s rows) to %s", len(rows), metadata_path)
 
     @property
     def default_task(self) -> MedicalVQATask:
-        """Returns the default task for this dataset.
-
-        Returns:
-            A :class:`~pyhealth.tasks.MedicalVQATask` instance.
-        """
+        """Returns the default task for this dataset."""
         return MedicalVQATask()
 
     @wraps(BaseDataset.set_task)
-    def set_task(
-        self,
-        *args,
-        image_processor: Optional[FeatureProcessor] = None,
-        **kwargs,
-    ) -> SampleDataset:
-        """Set a task and inject the default image processor when needed."""
+    def set_task(self, *args, **kwargs):
         input_processors = kwargs.get("input_processors", None)
-
         if input_processors is None:
             input_processors = {}
 
-        if image_processor is None:
-            image_processor = ImageProcessor(mode="RGB", image_size=224)
-
         if "image" not in input_processors:
-            input_processors["image"] = image_processor
+            input_processors["image"] = ImageProcessor(mode="RGB", image_size=224)
 
         kwargs["input_processors"] = input_processors
         return super().set_task(*args, **kwargs)
+
+    set_task.__doc__ = (
+        f"{set_task.__doc__}\n"
+        "        Note:\n"
+        "            If no image processor is provided, a default RGB "
+        "`ImageProcessor(mode='RGB', image_size=224)` is injected so VQA-RAD "
+        "images are loaded with the expected channel format and resolution."
+    )

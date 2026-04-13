@@ -23,39 +23,23 @@ from .base_task import BaseTask
 
 
 class MedicalVQATask(BaseTask):
-    """Task for medical visual question answering on the VQA-RAD dataset.
+    """Task for medical Visual Question Answering (VQA).
 
-    Each sample pairs a radiology image with a clinical question and maps
-    the corresponding free-text answer to a class index.  The full answer
-    vocabulary is inferred from the training split by the PyHealth processor
-    pipeline.
-
-    Input schema:
-        - ``image`` (``"image"``): A radiology image path, processed by
-          :class:`~pyhealth.processors.ImageProcessor` into a
-          ``(3, 224, 224)`` float tensor.
-        - ``question`` (``"text"``): A free-text clinical question string
-          (returned as-is by :class:`~pyhealth.processors.TextProcessor`).
-
-    Output schema:
-        - ``answer`` (``"multiclass"``): The free-text answer string, encoded
-          as an integer class index by
-          :class:`~pyhealth.processors.MulticlassProcessor`.
+    Expects a dataset with medical images, questions, and answers. Each
+    sample maps an (image, question) pair to a single answer string,
+    treated as a multiclass classification label.
 
     Attributes:
-        task_name: Unique identifier used for cache-key generation.
-        input_schema: Maps feature names to their processor type strings.
-        output_schema: Maps label names to their processor type strings.
+        task_name: ``"MedicalVQA"``.
+        input_schema: ``{"image": "image", "question": "text"}``.
+        output_schema: ``{"answer": "multiclass"}``.
 
     Examples:
+        >>> from pyhealth.datasets import VQARADDataset
         >>> from pyhealth.tasks import MedicalVQATask
+        >>> dataset = VQARADDataset(root="/path/to/vqarad")
         >>> task = MedicalVQATask()
-        >>> task.task_name
-        'MedicalVQA'
-        >>> task.input_schema
-        {'image': 'image', 'question': 'text'}
-        >>> task.output_schema
-        {'answer': 'multiclass'}
+        >>> samples = dataset.set_task(task)
     """
 
     task_name: str = "MedicalVQA"
@@ -63,35 +47,20 @@ class MedicalVQATask(BaseTask):
     output_schema: Dict[str, str] = {"answer": "multiclass"}
 
     def __call__(self, patient: Patient) -> List[Dict[str, Any]]:
-        """Convert a VQA-RAD patient's events into image-question-answer samples.
+        """Process a patient record into medical VQA samples.
 
-        Iterates over all events of type ``"vqarad"`` attached to ``patient``
-        and emits one sample dict per event.  Events without a valid
-        ``image_path`` are included; the downstream
-        :class:`~pyhealth.processors.ImageProcessor` will raise an error if
-        the path does not point to a readable image file.
+        Each event in the ``"vqarad"`` table becomes one (image, question,
+        answer) sample.
 
         Args:
-            patient: A :class:`~pyhealth.data.Patient` object whose events
-                were populated by :class:`~pyhealth.datasets.VQARADDataset`.
+            patient: Patient record containing VQA-RAD events.
 
         Returns:
-            A list of sample dicts, each with the keys:
-
-            - ``"patient_id"`` (:class:`str`): The patient identifier.
-            - ``"image"`` (:class:`str`): Absolute path to the radiology image.
-            - ``"question"`` (:class:`str`): The clinical question text.
-            - ``"answer"`` (:class:`str`): The free-text answer string (will be
-              encoded as an integer by the multiclass processor).
-
-        Example:
-            >>> # Typically called internally by BaseDataset.set_task()
-            >>> samples = dataset.set_task(MedicalVQATask())
-            >>> samples[0].keys()
-            dict_keys(['patient_id', 'image', 'question', 'answer'])
+            A list of sample dicts with patient ID, image, question,
+            and answer.
         """
-        samples = []
         events = patient.get_events(event_type="vqarad")
+        samples: List[Dict[str, Any]] = []
         for event in events:
             samples.append(
                 {

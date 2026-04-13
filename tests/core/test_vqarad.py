@@ -1,86 +1,107 @@
 import json
-import shutil
 import tempfile
 import unittest
-import warnings
+from datetime import datetime
 from pathlib import Path
 
+import pandas as pd
+import polars as pl
 import torch
 from PIL import Image
 
+from pyhealth.data import Patient
 from pyhealth.datasets import VQARADDataset
 from pyhealth.processors import ImageProcessor
 from pyhealth.tasks import MedicalVQATask
 
-warnings.filterwarnings(
-    "ignore",
-    message=r"A newer version of litdata is available .*",
-    category=UserWarning,
-)
+
+class TestMedicalVQATask(unittest.TestCase):
+    def test_generates_samples_from_vqarad_events(self):
+        task = MedicalVQATask()
+        patient = Patient(
+            patient_id="patient-1",
+            data_source=pl.DataFrame(
+                {
+                    "patient_id": ["patient-1", "patient-1"],
+                    "event_type": ["vqarad", "vqarad"],
+                    "timestamp": [datetime(2024, 1, 1), datetime(2024, 1, 2)],
+                    "vqarad/image_path": ["/tmp/img1.png", "/tmp/img2.png"],
+                    "vqarad/question": ["What is shown?", "Is there a fracture?"],
+                    "vqarad/answer": ["lung", "no"],
+                }
+            ),
+        )
+
+        samples = task(patient)
+
+        self.assertEqual(task.input_schema, {"image": "image", "question": "text"})
+        self.assertEqual(task.output_schema, {"answer": "multiclass"})
+        self.assertEqual(len(samples), 2)
+        self.assertEqual(
+            samples[0],
+            {
+                "patient_id": "patient-1",
+                "image": "/tmp/img1.png",
+                "question": "What is shown?",
+                "answer": "lung",
+            },
+        )
+        self.assertEqual(samples[1]["patient_id"], "patient-1")
+        self.assertEqual(samples[1]["answer"], "no")
 
 
 class TestVQARADDataset(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.root_dir = tempfile.mkdtemp()
-        cls.cache_dir = tempfile.mkdtemp()
-        cls.root = Path(cls.root_dir)
-        cls.image_dir = cls.root / "VQA_RAD Image Folder"
-        cls.image_dir.mkdir(parents=True, exist_ok=True)
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmpdir.name)
+        (self.root / "images").mkdir()
+        self.cache_dir = tempfile.TemporaryDirectory()
 
-        entries = []
-        for idx, (question, answer, organ) in enumerate(
-            [
-                ("is there a fracture", "yes", "chest"),
-                ("is the study normal", "no", "head"),
-                ("is there edema", "yes", "abdomen"),
-            ]
-        ):
-            image_name = f"study_{idx}.png"
-            image = Image.fromarray(
-                torch.randint(0, 255, (12, 12, 3), dtype=torch.uint8).numpy(),
-                mode="RGB",
+        self.entries = [
+            {
+                "IMAGE_PATH": "img1.png",
+                "QUESTION": "What organ is shown?",
+                "ANSWER": "chest",
+                "ANSWER_TYPE": "open",
+                "QUESTION_TYPE": "organ",
+                "IMAGE_ORGAN": "chest",
+            },
+            {
+                "IMAGES_PATH": "img2.png",
+                "QUESTION": "Is there a fracture?",
+                "ANSWER": "no",
+                "ANSWER_TYPE": "closed",
+                "QUESTION_TYPE": "abnormality",
+                "IMAGE_ORGAN": "arm",
+            },
+        ]
+
+        with (self.root / "VQA_RAD Dataset Public.json").open("w", encoding="utf-8") as f:
+            json.dump(self.entries, f)
+
+        for image_name in ("img1.png", "img2.png"):
+            Image.new("RGB", (16, 16), color=(255, 0, 0)).save(
+                self.root / "images" / image_name
             )
-            image.save(cls.image_dir / image_name)
-            entries.append(
-                {
-                    "image_name": image_name,
-                    "question": question,
-                    "answer": answer,
-                    "answer_type": "closed",
-                    "question_type": "presence",
-                    "image_organ": organ,
-                }
-            )
 
-        with (cls.root / "VQA_RAD Dataset Public.json").open("w", encoding="utf-8") as f:
-            json.dump(entries, f)
+        self.sample_dataset = None
 
-        cls.dataset = VQARADDataset(
-            root=str(cls.root),
-            cache_dir=cls.cache_dir,
-            num_workers=1,
-        )
-        cls.samples = cls.dataset.set_task(
-            num_workers=1,
-            image_processor=ImageProcessor(mode="RGB", image_size=16),
-        )
-
-    @classmethod
-    def tearDownClass(cls):
-        cls.samples.close()
-        shutil.rmtree(cls.root_dir)
-        shutil.rmtree(cls.cache_dir)
+    def tearDown(self):
+        if self.sample_dataset is not None:
+            self.sample_dataset.close()
+        self.cache_dir.cleanup()
+        self.tmpdir.cleanup()
 
     def test_prepare_metadata_creates_expected_csv(self):
+        dataset = VQARADDataset.__new__(VQARADDataset)
+        dataset.prepare_metadata(str(self.root))
+
         metadata_path = self.root / "vqarad-metadata-pyhealth.csv"
         self.assertTrue(metadata_path.exists())
 
-        with metadata_path.open("r", encoding="utf-8") as f:
-            header = f.readline().strip().split(",")
-
+        df = pd.read_csv(metadata_path)
         self.assertEqual(
-            header,
+            list(df.columns),
             [
                 "image_path",
                 "question",
@@ -90,37 +111,35 @@ class TestVQARADDataset(unittest.TestCase):
                 "image_organ",
             ],
         )
+        self.assertEqual(df.loc[0, "image_path"], str(self.root / "images" / "img1.png"))
+        self.assertEqual(df.loc[1, "image_path"], str(self.root / "images" / "img2.png"))
+        self.assertEqual(df.loc[1, "answer"], "no")
 
-    def test_dataset_initialization(self):
-        self.assertEqual(self.dataset.dataset_name, "vqarad")
-        self.assertEqual(self.dataset.root, str(self.root))
-        self.assertEqual(len(self.dataset.unique_patient_ids), 3)
+    def test_set_task_builds_samples_and_uses_image_processor(self):
+        dataset = VQARADDataset(
+            root=str(self.root),
+            cache_dir=self.cache_dir.name,
+        )
 
-    def test_get_patient_and_event_parsing(self):
-        patient = self.dataset.get_patient("0")
-        events = patient.get_events(event_type="vqarad")
+        self.assertIsInstance(dataset.default_task, MedicalVQATask)
 
-        self.assertEqual(patient.patient_id, "0")
-        self.assertEqual(len(events), 1)
-        self.assertEqual(events[0].question, "is there a fracture")
-        self.assertEqual(events[0].answer, "yes")
-        self.assertEqual(events[0].answer_type, "closed")
-        self.assertEqual(events[0].question_type, "presence")
-        self.assertEqual(events[0].image_organ, "chest")
-        self.assertTrue(events[0].image_path.endswith("study_0.png"))
+        self.sample_dataset = dataset.set_task()
 
-    def test_default_task(self):
-        self.assertIsInstance(self.dataset.default_task, MedicalVQATask)
+        self.assertEqual(len(self.sample_dataset), 2)
+        self.assertIn("image", self.sample_dataset.input_processors)
+        self.assertIsInstance(
+            self.sample_dataset.input_processors["image"],
+            ImageProcessor,
+        )
+        self.assertIn("answer", self.sample_dataset.output_processors)
+        self.assertEqual(self.sample_dataset.output_processors["answer"].size(), 2)
 
-    def test_set_task_returns_processed_samples(self):
-        self.assertEqual(len(self.samples), 3)
-
-        sample = self.samples[0]
-        self.assertEqual(sample["question"], "is there a fracture")
-        self.assertEqual(sample["patient_id"], "0")
+        sample = self.sample_dataset[0]
+        self.assertIn("patient_id", sample)
+        self.assertIsInstance(sample["image"], torch.Tensor)
+        self.assertEqual(tuple(sample["image"].shape), (3, 224, 224))
+        self.assertIsInstance(sample["question"], str)
         self.assertIsInstance(sample["answer"], torch.Tensor)
-        self.assertEqual(sample["answer"].ndim, 0)
-        self.assertEqual(tuple(sample["image"].shape), (3, 16, 16))
 
 
 if __name__ == "__main__":
