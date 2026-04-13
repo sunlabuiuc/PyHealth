@@ -219,6 +219,7 @@ Available Tasks
     Patient Linkage (MIMIC-III) <tasks/pyhealth.tasks.patient_linkage_mimic3_fn>
     Readmission Prediction <tasks/pyhealth.tasks.readmission_prediction>
     Sleep Staging <tasks/pyhealth.tasks.sleep_staging>
+    Sleep Staging (SHHS) <tasks/pyhealth.tasks.SleepStagingSHHS>
     Sleep Staging (SleepEDF) <tasks/pyhealth.tasks.SleepStagingSleepEDF>
     Temple University EEG Tasks <tasks/pyhealth.tasks.temple_university_EEG_tasks>
     Sleep Staging v2 <tasks/pyhealth.tasks.sleep_staging_v2>

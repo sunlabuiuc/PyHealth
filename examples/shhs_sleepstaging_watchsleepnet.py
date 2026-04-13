@@ -24,16 +24,8 @@ _EPOCHS = 10
 _DECAY_WEIGHT = 1e-5
 
 if __name__ == "__main__":
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(name)s %(levelname)s: %(message)s",
-        datefmt="%H:%M:%S",
-    )
-
     # Initialize SHHS dataset
-    # Note: if SHHS root is None, will use sample data
-    # SHHS_ROOT = "/path/to/shhs"  # Update this path to your local SHHS download
-    SHHS_ROOT = "/Users/maxafinder/Documents/UIUC/spring-2026/cs598/project/data-download/shhs"
+    SHHS_ROOT = "/path/to/shhs"  # Update this path to your local SHHS download
     dataset = SHHSDataset(root=SHHS_ROOT)
 
     print("=" * 70)
