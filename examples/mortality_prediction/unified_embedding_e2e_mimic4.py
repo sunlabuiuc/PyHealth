@@ -10,6 +10,10 @@ Tasks
     MortalityPredictionStageNetMIMIC4: ICD codes + 10-dim lab vectors,
     patient-level samples aggregated across all admissions.
 
+--task icd_labs
+    ICDLabsMIMIC4: ICD codes + 10-dim lab vectors via the unified
+    multimodal pipeline.  No notes required.
+
 --task clinical_notes_icd_labs
     ClinicalNotesICDLabsMIMIC4: discharge/radiology notes + ICD + labs.
     Requires --note-root.  Used for Table 2 (EHR + clinical text).
@@ -58,7 +62,7 @@ from pyhealth.models.bottleneck_transformer import BottleneckTransformer
 from pyhealth.models.ehrmamba import EHRMamba
 from pyhealth.models.jamba_ehr import JambaEHR
 from pyhealth.tasks import MortalityPredictionStageNetMIMIC4
-from pyhealth.tasks.multimodal_mimic4 import ClinicalNotesICDLabsMIMIC4
+from pyhealth.tasks.multimodal_mimic4 import ClinicalNotesICDLabsMIMIC4, ICDLabsMIMIC4
 from pyhealth.trainer import Trainer
 
 
@@ -70,6 +74,9 @@ def _build_base_dataset(args: argparse.Namespace) -> MIMIC4Dataset:
         if not args.note_root:
             raise ValueError("--task clinical_notes_icd_labs requires --note-root.")
         note_tables = ["discharge", "radiology"]
+
+    if args.task == "icd_labs":
+        ehr_tables = ["diagnoses_icd", "procedures_icd", "labevents"]
 
     return MIMIC4Dataset(
         ehr_root=args.ehr_root,
@@ -85,6 +92,8 @@ def _build_base_dataset(args: argparse.Namespace) -> MIMIC4Dataset:
 def _build_task(args: argparse.Namespace):
     if args.task == "stagenet":
         return MortalityPredictionStageNetMIMIC4()
+    if args.task == "icd_labs":
+        return ICDLabsMIMIC4(window_hours=args.observation_window_hours)
     if args.task == "clinical_notes_icd_labs":
         return ClinicalNotesICDLabsMIMIC4(window_hours=args.observation_window_hours)
     raise ValueError(f"Unknown task: {args.task}")
@@ -286,7 +295,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--task",
         type=str,
-        choices=["stagenet", "clinical_notes_icd_labs"],
+        choices=["stagenet", "icd_labs", "clinical_notes_icd_labs"],
         default="stagenet",
     )
     parser.add_argument(
