@@ -54,6 +54,7 @@ from .cosmic import COSMICDataset
 from .covid19_cxr import COVID19CXRDataset
 from .dreamt import DREAMTDataset
 from .ehrshot import EHRShotDataset
+from .hallmarks_of_cancer import HallmarksOfCancerDataset
 from .eicu import eICUDataset
 from .isruc import ISRUCDataset
 from .medical_transcriptions import MedicalTranscriptionsDataset
