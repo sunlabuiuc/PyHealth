@@ -7,15 +7,6 @@ fill-in-the-blank questions.
 
 Dataset source:
     https://github.com/Flora-jia-jfr/diagnosing_our_datasets/tree/main/datasets/MedLingo
-
-Contributor: [Your Name] ([your@email.edu])
-Contribution Type: New Dataset
-Description: Added support for the MedLingo medical abbreviation dataset.
-Files to Review:
-    - pyhealth/datasets/medlingo_dataset.py
-    - pyhealth/datasets/configs/medlingo_dataset.yaml
-    - pyhealth/tasks/medlingo_task.py
-    - tests/test_medlingo_dataset.py
 """
 
 import logging
