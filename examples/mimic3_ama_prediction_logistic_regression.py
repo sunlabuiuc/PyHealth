@@ -27,25 +27,26 @@ Results:
       * Equal Opportunity: True Positive Rate per group
     These reveal disparities in model behavior across demographics.
 
-Usage (synthetic demo data -- default, fast):
+Usage (synthetic exhaustive grid -- default when ``--root`` is omitted):
     python examples/mimic3_ama_prediction_logistic_regression.py
 
-Usage (with more patients and more splits):
+Usage (synthetic random demo):
     python examples/mimic3_ama_prediction_logistic_regression.py \\
-        --patients 500 --splits 10 --epochs 5
+        --data-source synthetic --synthetic-mode random --patients 200
 
-Usage (with real MIMIC-III data):
+Usage (real MIMIC-III; same as ``--root /path`` with ``--data-source auto``):
     python examples/mimic3_ama_prediction_logistic_regression.py \\
-        --root /path/to/mimic-iii/1.4 --splits 100 --epochs 10
+        --data-source real --root /path/to/mimic-iii/1.4 --splits 100 --epochs 10
 """
 
 import argparse
 import gzip
+import itertools
 import tempfile
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 import numpy as np
 import pandas as pd
@@ -63,22 +64,33 @@ def generate_synthetic_mimic3(
     n_patients: int = 50,
     avg_admissions_per_patient: int = 2,
     seed: int = 42,
+    mode: str = "exhaustive",
 ) -> None:
     """Write gzipped PATIENTS, ADMISSIONS, and ICUSTAYS CSVs for local demos.
 
-    Covers rotated gender, ethnicity, insurance, mixed AMA and substance-use
-    diagnoses. Used when ``--root`` is omitted so the example runs without
-    network access or a full MIMIC-III install.
+    ``mode="exhaustive"`` (default) emits one patient per element of the
+    Cartesian product of task-relevant factors so every combination appears
+    at least once: gender × MIMIC ethnicity string × raw insurance × age
+    band (maps to Young / Middle / Senior) × AMA vs non-AMA discharge ×
+    substance vs non-substance diagnosis text.  A few extra rows cover
+    NEWBORN filtering, EXPIRED, SNF, and missing insurance (``Other``).
+
+    ``mode="random"`` reproduces the legacy stochastic generator (use for
+    quick tests via ``--synthetic-mode random``).
 
     Args:
         root: Directory to write CSV files to.
-        n_patients: Number of synthetic patients to generate.
-        avg_admissions_per_patient: Poisson mean for admissions per patient.
-        seed: Random seed for reproducibility.
+        n_patients: Used only when ``mode="random"`` (patient count).
+        avg_admissions_per_patient: Poisson mean per patient (random mode).
+        seed: RNG seed (random mode only).
+        mode: ``"exhaustive"`` or ``"random"``.
     """
-    np.random.seed(seed)
     root_path = Path(root)
     root_path.mkdir(parents=True, exist_ok=True)
+
+    patients_data: List[dict] = []
+    admissions_data: List[dict] = []
+    icustays_data: List[dict] = []
 
     genders = ["M", "F"]
     ethnicities = [
@@ -89,7 +101,15 @@ def generate_synthetic_mimic3(
         "AMERICAN INDIAN/ALASKA NATIVE",
         "UNKNOWN/NOT SPECIFIED",
     ]
-    insurances = ["Medicare", "Medicaid", "Private", "Self Pay", "Government"]
+    # Raw insurance values (normalize to Public / Private / Self Pay / Other)
+    insurances_raw: List[Optional[str]] = [
+        "Medicare",
+        "Medicaid",
+        "Government",
+        "Private",
+        "Self Pay",
+        None,
+    ]
     admission_types = ["EMERGENCY", "URGENT", "NEWBORN", "ELECTIVE"]
     discharge_locations = [
         "HOME",
@@ -119,24 +139,29 @@ def generate_synthetic_mimic3(
         "ASPIRATION",
     ]
 
-    patients_data: List[dict] = []
-    admissions_data: List[dict] = []
-    icustays_data: List[dict] = []
+    def write_csv_gz(filename: str, data: List[dict]) -> None:
+        df = pd.DataFrame(data)
+        filepath = root_path / f"{filename}.gz"
+        with gzip.open(filepath, "wt") as f:
+            df.to_csv(f, index=False)
+        print(f"  Created {filename}.gz ({len(data)} rows)")
 
-    subject_id = 1
-    hadm_id = 100
-    icustay_id = 1000
-
-    for i in range(n_patients):
-        gender = genders[i % len(genders)]
-        ethnicity = ethnicities[i % len(ethnicities)]
-        insurance = insurances[i % len(insurances)]
-
-        age_at_visit = int(
-            np.random.choice([25, 45, 65, 85]) + np.random.randint(-5, 5)
-        )
-        dob = datetime(2000, 1, 1) - timedelta(days=age_at_visit * 365)
-
+    def append_visit(
+        subject_id: int,
+        hadm_id: int,
+        icustay_id: int,
+        *,
+        gender: str,
+        age_years: int,
+        ethnicity: str,
+        insurance_raw: Optional[str],
+        admission_type: str,
+        discharge_loc: str,
+        diagnosis: str,
+        day_offset: int,
+    ) -> int:
+        """Append one patient + admission + icustay; return next icustay_id."""
+        dob = datetime(2000, 1, 1) - timedelta(days=int(age_years * 365))
         patients_data.append({
             "subject_id": subject_id,
             "gender": gender,
@@ -146,87 +171,216 @@ def generate_synthetic_mimic3(
             "dod_ssn": None,
             "expire_flag": 0,
         })
-
-        n_admissions = max(1, int(np.random.poisson(avg_admissions_per_patient)))
-        for j in range(n_admissions):
-            admit_time = datetime(2150, 1, 1) + timedelta(days=int(j * 100))
-            discharge_time = admit_time + timedelta(
-                days=int(np.random.randint(1, 30))
-            )
-
-            admission_type = admission_types[(i + j) % len(admission_types)]
-
-            if np.random.random() < 0.15:
-                discharge_loc = "LEFT AGAINST MEDICAL ADVI"
-            elif np.random.random() < 0.05:
-                discharge_loc = "EXPIRED"
-            else:
-                discharge_loc = discharge_locations[
-                    (i + j) % (len(discharge_locations) - 2)
-                ]
-
-            if np.random.random() < 0.2:
-                diagnosis = diagnoses_substance[
-                    np.random.randint(0, len(diagnoses_substance))
-                ]
-            else:
-                diagnosis = diagnoses_other[
-                    np.random.randint(0, len(diagnoses_other))
-                ]
-
-            admissions_data.append({
+        admit_time = datetime(2150, 1, 1) + timedelta(days=day_offset)
+        discharge_time = admit_time + timedelta(days=7)
+        admissions_data.append({
+            "subject_id": subject_id,
+            "hadm_id": hadm_id,
+            "admission_type": admission_type,
+            "admission_location": "EMERGENCY ROOM ADMIT",
+            "insurance": insurance_raw,
+            "language": "ENGLISH",
+            "religion": "CHRISTIAN",
+            "marital_status": "SINGLE",
+            "ethnicity": ethnicity,
+            "edregtime": admit_time.strftime("%Y-%m-%d %H:%M:%S"),
+            "edouttime": admit_time.strftime("%Y-%m-%d %H:%M:%S"),
+            "diagnosis": diagnosis,
+            "discharge_location": discharge_loc,
+            "dischtime": discharge_time.strftime("%Y-%m-%d %H:%M:%S"),
+            "admittime": admit_time.strftime("%Y-%m-%d %H:%M:%S"),
+            "hospital_expire_flag": 1 if discharge_loc == "EXPIRED" else 0,
+        })
+        icu_intime = admit_time + timedelta(hours=2)
+        icu_outtime = discharge_time - timedelta(hours=2)
+        if icu_intime < icu_outtime:
+            icustays_data.append({
                 "subject_id": subject_id,
                 "hadm_id": hadm_id,
-                "admission_type": admission_type,
-                "admission_location": "EMERGENCY ROOM ADMIT",
-                "insurance": insurance,
-                "language": "ENGLISH",
-                "religion": "CHRISTIAN",
-                "marital_status": "SINGLE",
-                "ethnicity": ethnicity,
-                "edregtime": admit_time.strftime("%Y-%m-%d %H:%M:%S"),
-                "edouttime": admit_time.strftime("%Y-%m-%d %H:%M:%S"),
-                "diagnosis": diagnosis,
-                "discharge_location": discharge_loc,
-                "dischtime": discharge_time.strftime("%Y-%m-%d %H:%M:%S"),
-                "admittime": admit_time.strftime("%Y-%m-%d %H:%M:%S"),
-                "hospital_expire_flag": 1
-                if discharge_loc == "EXPIRED"
-                else 0,
+                "icustay_id": icustay_id,
+                "first_careunit": "MICU",
+                "last_careunit": "MICU",
+                "dbsource": "metavision",
+                "intime": icu_intime.strftime("%Y-%m-%d %H:%M:%S"),
+                "outtime": icu_outtime.strftime("%Y-%m-%d %H:%M:%S"),
             })
+            return icustay_id + 1
+        return icustay_id
 
-            icu_intime = admit_time + timedelta(
-                hours=int(np.random.randint(0, 12))
+    if mode == "exhaustive":
+        # Ages map to Young (18-44) / Middle (45-64) / Senior (65+).
+        age_bands = [30, 52, 72]
+        discharge_ama = ["HOME", "LEFT AGAINST MEDICAL ADVI"]
+        diagnosis_texts = ["PNEUMONIA", "ALCOHOL WITHDRAWAL"]
+        combos = itertools.product(
+            genders,
+            ethnicities,
+            insurances_raw,
+            age_bands,
+            discharge_ama,
+            diagnosis_texts,
+        )
+        subject_id = 1
+        hadm_id = 100
+        icustay_id = 1000
+        for idx, (gender, eth, ins_raw, age_y, disch, diag) in enumerate(combos):
+            icustay_id = append_visit(
+                subject_id,
+                hadm_id,
+                icustay_id,
+                gender=gender,
+                age_years=age_y,
+                ethnicity=eth,
+                insurance_raw=ins_raw,
+                admission_type="EMERGENCY",
+                discharge_loc=disch,
+                diagnosis=diag,
+                day_offset=idx % 500,
             )
-            icu_outtime = discharge_time - timedelta(
-                hours=int(np.random.randint(0, 12))
-            )
-
-            if icu_intime < icu_outtime:
-                icustays_data.append({
-                    "subject_id": subject_id,
-                    "hadm_id": hadm_id,
-                    "icustay_id": icustay_id,
-                    "first_careunit": "MICU",
-                    "last_careunit": "MICU",
-                    "dbsource": "metavision",
-                    "intime": icu_intime.strftime("%Y-%m-%d %H:%M:%S"),
-                    "outtime": icu_outtime.strftime("%Y-%m-%d %H:%M:%S"),
-                })
-                icustay_id += 1
-
+            subject_id += 1
             hadm_id += 1
 
-        subject_id += 1
+        # Extra coverage: SNF discharge, EXPIRED, NEWBORN (skipped by task).
+        exhaustive_grid_n = (
+            len(genders)
+            * len(ethnicities)
+            * len(insurances_raw)
+            * len(age_bands)
+            * len(discharge_ama)
+            * len(diagnosis_texts)
+        )
+        for k, extra in enumerate(
+            (
+                ("M", 45, "WHITE", "Private", "EMERGENCY", "SKILLED NURSING FACILITY", "SEPSIS"),
+                ("F", 55, "BLACK/AFRICAN AMERICAN", "Medicaid", "EMERGENCY", "EXPIRED", "CHEST PAIN"),
+                ("M", 28, "HISPANIC OR LATINO", "Private", "NEWBORN", "HOME", "PNEUMONIA"),
+            ),
+        ):
+            g, age_y, eth, ins, adm_type, disch, diag = extra
+            icustay_id = append_visit(
+                subject_id,
+                hadm_id,
+                icustay_id,
+                gender=g,
+                age_years=age_y,
+                ethnicity=eth,
+                insurance_raw=ins,
+                admission_type=adm_type,
+                discharge_loc=disch,
+                diagnosis=diag,
+                day_offset=(exhaustive_grid_n + k) % 500,
+            )
+            subject_id += 1
+            hadm_id += 1
 
-    def write_csv_gz(filename: str, data: List[dict]) -> None:
-        df = pd.DataFrame(data)
-        filepath = root_path / f"{filename}.gz"
-        with gzip.open(filepath, "wt") as f:
-            df.to_csv(f, index=False)
-        print(f"  Created {filename}.gz ({len(data)} rows)")
+        print(
+            f"Generating exhaustive synthetic MIMIC-III in {root_path} "
+            f"({len(patients_data)} patients, cross-product + edge rows)...",
+        )
+    elif mode == "random":
+        np.random.seed(seed)
+        subject_id = 1
+        hadm_id = 100
+        icustay_id = 1000
+        insurances = ["Medicare", "Medicaid", "Private", "Self Pay", "Government"]
+        for i in range(n_patients):
+            gender = genders[i % len(genders)]
+            ethnicity = ethnicities[i % len(ethnicities)]
+            insurance = insurances[i % len(insurances)]
 
-    print(f"Generating synthetic MIMIC-III dataset in {root_path}...")
+            age_at_visit = int(
+                np.random.choice([25, 45, 65, 85]) + np.random.randint(-5, 5)
+            )
+            dob = datetime(2000, 1, 1) - timedelta(days=age_at_visit * 365)
+
+            patients_data.append({
+                "subject_id": subject_id,
+                "gender": gender,
+                "dob": dob.strftime("%Y-%m-%d %H:%M:%S"),
+                "dod": None,
+                "dod_hosp": None,
+                "dod_ssn": None,
+                "expire_flag": 0,
+            })
+
+            n_admissions = max(
+                1, int(np.random.poisson(avg_admissions_per_patient)),
+            )
+            for j in range(n_admissions):
+                admit_time = datetime(2150, 1, 1) + timedelta(days=int(j * 100))
+                discharge_time = admit_time + timedelta(
+                    days=int(np.random.randint(1, 30)),
+                )
+
+                admission_type = admission_types[(i + j) % len(admission_types)]
+
+                if np.random.random() < 0.15:
+                    discharge_loc = "LEFT AGAINST MEDICAL ADVI"
+                elif np.random.random() < 0.05:
+                    discharge_loc = "EXPIRED"
+                else:
+                    discharge_loc = discharge_locations[
+                        (i + j) % (len(discharge_locations) - 2)
+                    ]
+
+                if np.random.random() < 0.2:
+                    diagnosis = diagnoses_substance[
+                        np.random.randint(0, len(diagnoses_substance))
+                    ]
+                else:
+                    diagnosis = diagnoses_other[
+                        np.random.randint(0, len(diagnoses_other))
+                    ]
+
+                admissions_data.append({
+                    "subject_id": subject_id,
+                    "hadm_id": hadm_id,
+                    "admission_type": admission_type,
+                    "admission_location": "EMERGENCY ROOM ADMIT",
+                    "insurance": insurance,
+                    "language": "ENGLISH",
+                    "religion": "CHRISTIAN",
+                    "marital_status": "SINGLE",
+                    "ethnicity": ethnicity,
+                    "edregtime": admit_time.strftime("%Y-%m-%d %H:%M:%S"),
+                    "edouttime": admit_time.strftime("%Y-%m-%d %H:%M:%S"),
+                    "diagnosis": diagnosis,
+                    "discharge_location": discharge_loc,
+                    "dischtime": discharge_time.strftime("%Y-%m-%d %H:%M:%S"),
+                    "admittime": admit_time.strftime("%Y-%m-%d %H:%M:%S"),
+                    "hospital_expire_flag": 1
+                    if discharge_loc == "EXPIRED"
+                    else 0,
+                })
+
+                icu_intime = admit_time + timedelta(
+                    hours=int(np.random.randint(0, 12)),
+                )
+                icu_outtime = discharge_time - timedelta(
+                    hours=int(np.random.randint(0, 12)),
+                )
+
+                if icu_intime < icu_outtime:
+                    icustays_data.append({
+                        "subject_id": subject_id,
+                        "hadm_id": hadm_id,
+                        "icustay_id": icustay_id,
+                        "first_careunit": "MICU",
+                        "last_careunit": "MICU",
+                        "dbsource": "metavision",
+                        "intime": icu_intime.strftime("%Y-%m-%d %H:%M:%S"),
+                        "outtime": icu_outtime.strftime("%Y-%m-%d %H:%M:%S"),
+                    })
+                    icustay_id += 1
+
+                hadm_id += 1
+
+            subject_id += 1
+
+        print(f"Generating random synthetic MIMIC-III in {root_path}...")
+    else:
+        raise ValueError(f"Unknown mode {mode!r}; use 'exhaustive' or 'random'.")
+
     write_csv_gz("PATIENTS.csv", patients_data)
     write_csv_gz("ADMISSIONS.csv", admissions_data)
     write_csv_gz("ICUSTAYS.csv", icustays_data)
@@ -513,15 +667,36 @@ def main():
         description="AMA prediction ablation -- LogisticRegression",
     )
     parser.add_argument(
+        "--data-source",
+        choices=("auto", "synthetic", "real"),
+        default="auto",
+        help="auto: use --root if set, else synthetic. synthetic: always local CSVs. "
+        "real: require --root to MIMIC-III on disk.",
+    )
+    parser.add_argument(
+        "--synthetic-mode",
+        choices=("exhaustive", "random"),
+        default="exhaustive",
+        help="exhaustive: full cross-product of demographics×AMA×substance (default). "
+        "random: stochastic demo (--patients applies).",
+    )
+    parser.add_argument(
         "--root",
         default=None,
-        help="MIMIC-III root (local path). If not provided, uses synthetic data.",
+        help="MIMIC-III root directory (required for --data-source real, or sets "
+        "auto mode to real when provided).",
     )
     parser.add_argument(
         "--patients",
         type=int,
         default=100,
-        help="Number of synthetic patients (default 100, only used if --root not provided)",
+        help="Synthetic patient count (random mode only; exhaustive ignores this).",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="RNG seed for random synthetic mode.",
     )
     parser.add_argument(
         "--splits",
@@ -538,21 +713,42 @@ def main():
     parser.add_argument(
         "--dev",
         action="store_true",
-        help="Use dev mode (fewer patients/splits for testing)",
+        help="With random synthetic: only 10 patients. Exhaustive grid unchanged.",
     )
     args = parser.parse_args()
 
+    if args.data_source == "real" and not args.root:
+        parser.error("--data-source real requires --root /path/to/mimic-iii/1.4")
+
+    use_synthetic = args.data_source == "synthetic" or (
+        args.data_source == "auto" and args.root is None
+    )
+    if args.data_source == "synthetic" and args.root:
+        print(
+            "Note: --root is ignored with --data-source synthetic "
+            "(data is written to a temporary directory).\n",
+        )
+
     cache_dir = tempfile.mkdtemp(prefix="ama_lr_")
 
-    # If no root provided, generate synthetic data
-    if args.root is None:
+    if use_synthetic:
         print("[Setup] Generating synthetic MIMIC-III dataset...")
         data_dir = tempfile.mkdtemp(prefix="synthetic_mimic3_")
-        n_patients = 10 if args.dev else args.patients
-        generate_synthetic_mimic3(data_dir, n_patients=n_patients, seed=42)
-        args.root = data_dir
-        print(f"        Synthetic data: {data_dir}\n")
+        n_patients = (
+            10 if args.dev and args.synthetic_mode == "random" else args.patients
+        )
+        generate_synthetic_mimic3(
+            data_dir,
+            n_patients=n_patients,
+            avg_admissions_per_patient=2,
+            seed=args.seed,
+            mode=args.synthetic_mode,
+        )
+        args.root = str(data_dir)
+        print(f"        Synthetic data: {data_dir}")
+        print(f"        Mode: {args.synthetic_mode}\n")
     else:
+        assert args.root is not None
         print(f"Using real MIMIC-III from: {args.root}\n")
 
     print(f"Cache: {cache_dir}")
@@ -580,14 +776,15 @@ def main():
         print(f"\n  {exc}")
         print("  The dataset contains no AMA-positive cases.")
         print("  For synthetic data: this is expected if AMA rate is low.")
-        print("  To increase AMA cases, re-run with:")
+        print("  For synthetic random mode with more patients:")
         print("    python examples/"
               "mimic3_ama_prediction_logistic_regression.py \\")
-        print("        --patients 500\n")
-        print("  For real MIMIC-III with better AMA coverage:")
+        print("        --data-source synthetic --synthetic-mode random "
+              "--patients 500\n")
+        print("  For real MIMIC-III:")
         print("    python examples/"
               "mimic3_ama_prediction_logistic_regression.py \\")
-        print("        --root /path/to/mimic-iii/1.4")
+        print("        --data-source real --root /path/to/mimic-iii/1.4")
         print("\nDone.")
         return
     print(f"  Samples: {len(sample_dataset)}")
