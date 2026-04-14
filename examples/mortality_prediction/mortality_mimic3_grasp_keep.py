@@ -101,7 +101,7 @@ KEEP_VARIANT = "paper"           # "paper" (L2+1e-3+AdamW+mean) or "code" (cosin
 RUN_INTRINSIC_EVAL = True        # compute Resnik/co-occ correlations after pipeline
 
 # KEEP embedding caching: reuse previously-trained embeddings if they exist
-USE_KEEP_CACHE = True            # True = reuse keep_output_<variant>/keep_snomed.txt; False = always rebuild
+USE_KEEP_CACHE = False            # True = reuse keep_output_<variant>/keep_snomed.txt; False = always rebuild
 KEEP_CACHE_ROOT = "keep_output"  # resolves to "{root}_{variant}/keep_snomed.txt"
 
 # Data source toggle: local real MIMIC-III vs GCS synthetic
@@ -179,9 +179,10 @@ if __name__ == "__main__":
         # STEP 2b: intrinsic evaluation against paper Table 2 targets
         if RUN_INTRINSIC_EVAL:
             print("\nKEEP intrinsic eval: Resnik/co-occurrence correlations...")
+            import json
             from pyhealth.medcode.pretrained_embeddings.keep_emb import (
                 build_hierarchy_graph, load_keep_embeddings,
-                resnik_correlation,
+                resnik_correlation, cooccurrence_correlation,
             )
             # Rebuild graph (fast since Athena files are cached in memory)
             athena_concept = Path(ATHENA_DIR) / "CONCEPT.csv"
@@ -215,20 +216,56 @@ if __name__ == "__main__":
                 k1 = min(10, len(eval_node_ids) // 10)
                 k2 = min(150, len(eval_node_ids) - k1 - 1)
                 runs = 50  # paper uses 250; 50 is enough for a smoke check
-                intrinsic_results = resnik_correlation(
+
+                # Resnik correlation (paper Table 2 target: 0.68)
+                resnik_results = resnik_correlation(
                     eval_emb, eval_node_ids, eval_graph,
                     k1=k1, k2=k2, num_runs=runs, seed=42,
                 )
                 print(
-                    f"  Resnik correlation (median): {intrinsic_results['median']:.4f} "
+                    f"  Resnik correlation (median): {resnik_results['median']:.4f} "
                     f"(paper target: 0.68)"
                 )
+
+                # Co-occurrence correlation (paper Table 2 target: 0.62)
+                # Load the saved cooc matrix + index from the pipeline output.
+                cooc_matrix_path = variant_output_dir / "cooc_matrix.npy"
+                cooc_index_path = variant_output_dir / "cooc_index.json"
+                cooc_results = None
+                if cooc_matrix_path.exists() and cooc_index_path.exists():
+                    cooc_matrix = np.load(cooc_matrix_path)
+                    with open(cooc_index_path) as f:
+                        idx_to_code_saved = json.load(f)
+                    code_to_idx_saved = {
+                        int(c): i for i, c in enumerate(idx_to_code_saved)
+                    }
+                    cooc_results = cooccurrence_correlation(
+                        eval_emb, eval_node_ids, cooc_matrix, code_to_idx_saved,
+                        k1=k1, k2=k2, num_runs=runs, seed=42,
+                    )
+                    print(
+                        f"  Co-occurrence correlation (median): "
+                        f"{cooc_results['median']:.4f} (paper target: 0.62)"
+                    )
+                else:
+                    print(
+                        "  Co-occurrence correlation skipped: saved cooc matrix "
+                        f"not found at {cooc_matrix_path}. Cached embeddings "
+                        "from before 2026-04-13 don't include the matrix — "
+                        "rerun the pipeline to regenerate."
+                    )
+
+                intrinsic_results = {
+                    "resnik": resnik_results,
+                    "cooccurrence": cooc_results,
+                }
             else:
                 print(
                     f"  Skipped: only {len(eval_node_ids)} in-graph concepts "
                     "(need >= 11 for K1=10 + K2>=1). Real MIMIC runs will have "
                     "thousands of concepts."
                 )
+                intrinsic_results = None
     else:
         print("USE_KEEP=False, using random embeddings.")
 
@@ -360,8 +397,10 @@ if __name__ == "__main__":
         run_results["co2_kg"] = emissions_data.emissions
     if intrinsic_results:
         run_results["intrinsic_eval"] = {
-            "resnik": intrinsic_results,
+            "resnik": intrinsic_results.get("resnik"),
+            "cooccurrence": intrinsic_results.get("cooccurrence"),
             "paper_resnik_target": 0.68,
+            "paper_cooccurrence_target": 0.62,
         }
     with open(run_dir / "results.json", "w") as f:
         json.dump(run_results, f, indent=2)

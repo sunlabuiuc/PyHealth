@@ -261,4 +261,15 @@ def run_keep_pipeline(
     export_snomed(keep_embeddings, idx_to_code, graph, keep_emb_path)
     print(f"  Exported to: {keep_emb_path}")
 
+    # Also save the co-occurrence matrix + index so post-hoc intrinsic
+    # evaluation (co-occurrence correlation, paper Table 2) can run
+    # without rebuilding the matrix from MIMIC.
+    import json
+    cooc_path = output_dir / "cooc_matrix.npy"
+    index_path = output_dir / "cooc_index.json"
+    np.save(cooc_path, matrix)
+    with open(index_path, "w") as f:
+        json.dump([int(c) for c in idx_to_code], f)
+    print(f"  Saved co-occurrence matrix: {cooc_path}")
+
     return keep_emb_path
