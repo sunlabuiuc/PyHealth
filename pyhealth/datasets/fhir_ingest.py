@@ -30,6 +30,34 @@ import pyarrow.parquet as pq
 GlobPatternArg = str | Sequence[str]
 """Single glob string or sequence of strings for NDJSON file discovery."""
 
+__all__ = [
+    # Types
+    "GlobPatternArg",
+    # Constants
+    "FHIR_SCHEMA_VERSION",
+    "FHIR_TABLES",
+    "FHIR_TABLES_FOR_PATIENT_IDS",
+    "FHIR_TABLE_FILE_NAMES",
+    "FHIR_TABLE_COLUMNS",
+    # Datetime helpers (also used by fhir_cehr)
+    "parse_dt",
+    "as_naive",
+    # FHIR iteration
+    "iter_ndjson_objects",
+    "iter_resources_from_ndjson_obj",
+    # Resource extraction
+    "patient_id_for_resource",
+    # Pipeline
+    "sorted_ndjson_files",
+    "stream_fhir_ndjson_to_flat_tables",
+    "filter_flat_tables_by_patient_ids",
+    # Synthetic fixtures
+    "synthetic_mpf_one_patient_resources",
+    "synthetic_mpf_two_patient_resources",
+    "synthetic_mpf_one_patient_ndjson_text",
+    "synthetic_mpf_two_patient_ndjson_text",
+]
+
 FHIR_SCHEMA_VERSION = 3
 
 FHIR_TABLES: List[str] = [
@@ -59,7 +87,7 @@ FHIR_TABLE_COLUMNS: Dict[str, List[str]] = {
 # ---------------------------------------------------------------------------
 
 
-def _parse_dt(s: Optional[str]) -> Optional[datetime]:
+def parse_dt(s: Optional[str]) -> Optional[datetime]:
     if not s:
         return None
     try:
@@ -76,7 +104,7 @@ def _parse_dt(s: Optional[str]) -> Optional[datetime]:
     return dt.replace(tzinfo=None) if dt.tzinfo is not None else dt
 
 
-def _as_naive(dt: Optional[datetime]) -> Optional[datetime]:
+def as_naive(dt: Optional[datetime]) -> Optional[datetime]:
     if dt is None:
         return None
     return dt.replace(tzinfo=None) if dt.tzinfo is not None else dt
@@ -138,7 +166,7 @@ def iter_ndjson_objects(path: Path) -> Iterator[Dict[str, Any]]:
             line = line.strip()
             if not line:
                 continue
-            parsed = orjson.loads(line.encode("utf-8"))
+            parsed = orjson.loads(line)
             if isinstance(parsed, dict):
                 yield parsed
 

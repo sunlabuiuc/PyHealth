@@ -23,10 +23,26 @@ import orjson
 
 from pyhealth.data import Patient
 
-from .fhir_ingest import _as_naive, _parse_dt
+from .fhir_ingest import as_naive, parse_dt
 
 DEFAULT_PAD = 0
 DEFAULT_UNK = 1
+
+__all__ = [
+    # Constants
+    "DEFAULT_PAD",
+    "DEFAULT_UNK",
+    "EVENT_TYPE_TO_TOKEN_TYPE",
+    # Vocabulary
+    "ConceptVocab",
+    "ensure_special_tokens",
+    # Sequence building
+    "collect_cehr_timeline_events",
+    "warm_mpf_vocab_from_patient",
+    "build_cehr_sequences",
+    # Labels
+    "infer_mortality_label",
+]
 
 EVENT_TYPE_TO_TOKEN_TYPE = {
     "encounter": 1,
@@ -122,8 +138,9 @@ def ensure_special_tokens(vocab: ConceptVocab) -> Dict[str, int]:
 def _clean_string(value: Any) -> Optional[str]:
     if value is None:
         return None
-    s = value.strip() if isinstance(value, str) else str(value)
-    return s or None
+    if isinstance(value, str):
+        return value.strip() or None
+    return str(value)
 
 
 def _deceased_boolean_column_means_dead(value: Any) -> bool:
@@ -136,9 +153,9 @@ def _row_datetime(value: Any) -> Optional[datetime]:
     if value is None:
         return None
     if isinstance(value, datetime):
-        return _as_naive(value)
+        return as_naive(value)
     try:
-        return _parse_dt(str(value))
+        return parse_dt(str(value))
     except Exception:
         return None
 
@@ -149,8 +166,8 @@ def _concept_key_from_row(row: Dict[str, Any]) -> str:
     if col:
         return _clean_string(row.get(col)) or f"{event_type}|unknown"
     if event_type == "encounter":
-        cls = _clean_string(row.get("encounter/encounter_class"))
-        return f"encounter|{cls}" if cls else "encounter|unknown"
+        enc_class = _clean_string(row.get("encounter/encounter_class"))
+        return f"encounter|{enc_class}" if enc_class else "encounter|unknown"
     return f"{event_type or 'event'}|unknown"
 
 
@@ -168,7 +185,7 @@ def _birth_datetime_from_patient(patient: Patient) -> Optional[datetime]:
             return birth
         raw = _clean_string(row.get("patient/birth_date"))
         if raw:
-            return _parse_dt(raw)
+            return parse_dt(raw)
     return None
 
 
@@ -180,7 +197,7 @@ def _sequential_visit_idx_for_time(
         return 0
     if event_time is None:
         return visit_encounters[-1][1]
-    event_time = _as_naive(event_time)
+    event_time = as_naive(event_time)
     chosen = visit_encounters[0][1]
     for encounter_start, visit_idx in visit_encounters:
         if encounter_start <= event_time:
@@ -292,8 +309,8 @@ def build_cehr_sequences(
 
     if base_time is None:
         base_time = events[0][0] if events else datetime.now()
-    base_time = _as_naive(base_time)
-    birth = _as_naive(birth)
+    base_time = as_naive(base_time)
+    birth = as_naive(birth)
 
     concept_ids: List[int] = []
     token_types: List[int] = []
@@ -303,7 +320,7 @@ def build_cehr_sequences(
     visit_segments: List[int] = []
 
     for event_time, concept_key, event_type, visit_idx in (events[-max_len:] if max_len > 0 else []):
-        event_time = _as_naive(event_time)
+        event_time = as_naive(event_time)
         concept_id = vocab.add_token(concept_key) if grow_vocab else vocab[concept_key]
         token_type = EVENT_TYPE_TO_TOKEN_TYPE.get(event_type, 0)
         time_delta = (
