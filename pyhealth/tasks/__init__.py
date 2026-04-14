@@ -31,6 +31,7 @@ from .length_of_stay_prediction import (
 from .length_of_stay_stagenet_mimic4 import LengthOfStayStageNetMIMIC4
 from .medical_coding import MIMIC3ICD9Coding
 from .medical_transcriptions_classification import MedicalTranscriptionsClassification
+from .mimic4_er_readmission import ERReadmissionMIMIC4
 from .mortality_prediction import (
     MortalityPredictionEICU,
     MortalityPredictionEICU2,
