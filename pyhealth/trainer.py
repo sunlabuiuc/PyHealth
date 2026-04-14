@@ -199,7 +199,9 @@ class Trainer:
         train_start = time.perf_counter()
 
         # epoch training loop
-        for epoch in range(epochs):
+        epoch_iterator = tqdm(range(epochs), desc="Epochs", unit="epoch")
+        for epoch in epoch_iterator:
+            epoch_iterator.set_postfix_str(f"{epoch + 1}/{epochs}", refresh=False)
             training_loss = []
             self.model.zero_grad()
             self.model.train()
@@ -210,8 +212,9 @@ class Trainer:
             logger.info("")
             for _ in trange(
                 steps_per_epoch,
-                desc=f"Epoch {epoch} / {epochs}",
+                desc=f"Epoch {epoch + 1}/{epochs}",
                 smoothing=0.05,
+                leave=False,
             ):
                 try:
                     data = next(data_iterator)
@@ -236,10 +239,20 @@ class Trainer:
             epoch_time = time.perf_counter() - epoch_start
             vram = _vram_stats(self.device)
 
+            epochs_done = epoch + 1
+            epochs_left = epochs - epochs_done
+            elapsed_total = time.perf_counter() - train_start
+            avg_epoch_time = elapsed_total / epochs_done
+            eta_s = avg_epoch_time * epochs_left
+            eta_h, eta_rem = divmod(int(eta_s), 3600)
+            eta_m = eta_rem // 60
+            eta_str = f"{eta_h}h{eta_m:02d}m"
+
             # log and save
             logger.info(f"--- Train epoch-{epoch}, step-{global_step} ---")
             logger.info(f"loss: {sum(training_loss) / len(training_loss):.4f}")
-            logger.info(f"epoch_time: {epoch_time:.2f}s")
+            logger.info(f"epoch_time: {epoch_time:.2f}s  elapsed: {elapsed_total:.0f}s  ETA: {eta_str} ({epochs_done}/{epochs} epochs)")
+            print(f"[ETA] epoch {epochs_done}/{epochs} done in {epoch_time:.0f}s — ETA to finish: {eta_str}", flush=True)
             if vram:
                 logger.info(
                     f"vram_peak: {vram['vram_peak_mb']:.1f} MB  "
