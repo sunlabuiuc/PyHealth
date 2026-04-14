@@ -1,0 +1,29 @@
+# Configuration for AmiodaroneTrialDataset
+# Defines how BaseDataset should load and parse the amiodarone CSV file.
+#
+# Each row represents a single clinical trial:
+#   - patient_id: unique trial identifier
+#   - visit_id: single visit per trial
+#   - trial_name: human-readable trial name
+#   - log_relative_risk: observed effect (Y)
+#   - variance: within-trial variance (V)
+#   - n_total: total number of patients in the trial
+#   - split: "train" or "test"
+version: "5.0"
+tables:
+  amiodarone_trials:
+    file_path: "amiodarone_trials-metadata-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+    - "visit_id"
+    - "trial_name"
+    - "n_amiodarone"
+    - "n_control"
+    - "events_amiodarone"
+    - "events_control"
+    - "log_relative_risk"
+    - "variance"
+    - "n_total"
+    - "split"
+    - "placebo_controlled"
