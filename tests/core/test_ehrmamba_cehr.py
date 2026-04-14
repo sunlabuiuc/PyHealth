@@ -8,7 +8,7 @@ from pyhealth.tasks.mpf_clinical_prediction import MPFClinicalPredictionTask
 
 
 def _tiny_samples(seq: int = 16) -> tuple:
-    from pyhealth.datasets.mimic4_fhir import ConceptVocab, ensure_special_tokens
+    from pyhealth.datasets.fhir_cehr import ConceptVocab, ensure_special_tokens
 
     task = MPFClinicalPredictionTask(max_len=seq, use_mpf=True)
     task.vocab = ConceptVocab()

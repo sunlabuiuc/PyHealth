@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 import torch
 
 from pyhealth.data import Patient
-from pyhealth.datasets.mimic4_fhir import (
+from pyhealth.datasets.fhir_cehr import (
     ConceptVocab,
     build_cehr_sequences,
     ensure_special_tokens,

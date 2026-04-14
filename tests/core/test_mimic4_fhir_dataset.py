@@ -9,13 +9,15 @@ import polars as pl
 
 from pyhealth.data import Patient
 from pyhealth.datasets import MIMIC4FHIRDataset
-from pyhealth.datasets.mimic4_fhir import (
-    ConceptVocab,
+from pyhealth.datasets.fhir_ingest import (
     _flatten_resource_to_table_row,
+    synthetic_mpf_two_patient_ndjson_text,
+)
+from pyhealth.datasets.fhir_cehr import (
+    ConceptVocab,
     build_cehr_sequences,
     collect_cehr_timeline_events,
     infer_mortality_label,
-    synthetic_mpf_two_patient_ndjson_text,
 )
 
 from tests.core.mimic4_fhir_ndjson_fixtures import (
@@ -137,7 +139,7 @@ class TestMIMIC4FHIRDataset(unittest.TestCase):
         self.assertEqual(v._next_id, 50)
 
     def test_sorted_ndjson_files_accepts_sequence_and_dedupes(self) -> None:
-        from pyhealth.datasets.mimic4_fhir import sorted_ndjson_files
+        from pyhealth.datasets.fhir_ingest import sorted_ndjson_files
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

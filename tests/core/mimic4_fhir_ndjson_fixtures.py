@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pyhealth.datasets.mimic4_fhir import (
+from pyhealth.datasets.fhir_ingest import (
     synthetic_mpf_one_patient_ndjson_text,
     synthetic_mpf_two_patient_ndjson_text,
 )

@@ -216,7 +216,7 @@ import torch
 import polars as pl
 
 from pyhealth.datasets import MIMIC4FHIRDataset, get_dataloader
-from pyhealth.datasets.mimic4_fhir import infer_mortality_label
+from pyhealth.datasets.fhir_cehr import infer_mortality_label
 from pyhealth.models import EHRMambaCEHR
 from pyhealth.tasks.mpf_clinical_prediction import MPFClinicalPredictionTask
 from pyhealth.trainer import Trainer
@@ -336,7 +336,7 @@ def _ntfy(url: str, title: str, message: str) -> None:
 def _quick_test_ndjson_dir() -> str:
     """Write two-patient synthetic NDJSON; returns temp directory (caller cleans up)."""
 
-    from pyhealth.datasets.mimic4_fhir import synthetic_mpf_two_patient_ndjson_text
+    from pyhealth.datasets.fhir_ingest import synthetic_mpf_two_patient_ndjson_text
 
     tmp = tempfile.mkdtemp(prefix="pyhealth_mimic4_fhir_quick_")
     Path(tmp, "fixture.ndjson").write_text(
