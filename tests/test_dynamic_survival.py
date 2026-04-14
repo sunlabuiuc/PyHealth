@@ -121,6 +121,12 @@ def test_dynamic_survival_event():
     assert s["y"][1] == 1.0
     assert s["mask"][2] == 0.0
 
+    # At most one event (DSA constraint)
+    assert np.sum(s["y"]) <= 1
+    # Mask must be binary
+    assert np.all((s["mask"] == 0) | (s["mask"] == 1))
+
+
 
 # ----------------------
 # Test 2: Censor Case
