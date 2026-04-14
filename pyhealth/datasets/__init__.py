@@ -67,6 +67,7 @@ from .sleepedf import SleepEDFDataset
 from .bmd_hs import BMDHSDataset
 from .support2 import Support2Dataset
 from .tcga_prad import TCGAPRADDataset
+from .vqarad import VQARADDataset
 from .splitter import (
     sample_balanced,
     split_by_patient,
@@ -82,6 +83,7 @@ from .splitter import (
 )
 from .tuab import TUABDataset
 from .tuev import TUEVDataset
+from .vqarad import VQARADDataset
 from .utils import (
     collate_fn_dict,
     collate_fn_dict_with_padding,
