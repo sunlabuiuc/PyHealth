@@ -89,7 +89,7 @@ class DrugRecommendationMIMIC3(BaseTask):
                 return_df=True,
             )
             drugs = (
-                prescriptions.select(pl.col("prescriptions/drug")).to_series().to_list()
+                prescriptions.select(pl.col("prescriptions/ndc")).to_series().to_list()
             )
 
             # ATC 3 level (first 4 characters)

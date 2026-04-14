@@ -1,0 +1,13 @@
+version: "1.0"
+tables:
+  vqarad:
+    file_path: "vqarad-metadata-pyhealth.csv"
+    patient_id: null
+    timestamp: null
+    attributes:
+    - "image_path"
+    - "question"
+    - "answer"
+    - "answer_type"
+    - "question_type"
+    - "image_organ"

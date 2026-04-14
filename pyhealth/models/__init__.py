@@ -15,6 +15,7 @@ from .gnn import GAT, GCN
 from .graph_torchvision_model import Graph_TorchvisionModel
 from .graphcare import GraphCare
 from .grasp import GRASP, GRASPLayer
+from .medflamingo import MedFlamingo, MedFlamingoLayer
 from .medlink import MedLink
 from .micron import MICRON, MICRONLayer
 from .mlp import MLP
