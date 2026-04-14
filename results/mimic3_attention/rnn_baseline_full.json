@@ -1,0 +1,270 @@
+{
+  "runs": [
+    {
+      "loss": 0.6916641592979431,
+      "y_true": [
+        0.0,
+        1.0
+      ],
+      "y_prob": [
+        0.38838812708854675,
+        0.40997016429901123
+      ],
+      "roc_auc": 1.0,
+      "pr_auc": 1.0,
+      "seed": 1,
+      "model_name": "rnn_baseline",
+      "history": [
+        {
+          "epoch": 1,
+          "train_loss": 0.7004126310348511,
+          "val_loss": 0.7621049880981445,
+          "val_roc_auc": NaN,
+          "val_pr_auc": NaN
+        },
+        {
+          "epoch": 2,
+          "train_loss": 0.647831916809082,
+          "val_loss": 0.7697348594665527,
+          "val_roc_auc": NaN,
+          "val_pr_auc": NaN
+        },
+        {
+          "epoch": 3,
+          "train_loss": 0.6194562315940857,
+          "val_loss": 0.7766075134277344,
+          "val_roc_auc": NaN,
+          "val_pr_auc": NaN
+        },
+        {
+          "epoch": 4,
+          "train_loss": 0.5747320652008057,
+          "val_loss": 0.7850912809371948,
+          "val_roc_auc": NaN,
+          "val_pr_auc": NaN
+        },
+        {
+          "epoch": 5,
+          "train_loss": 0.5571165680885315,
+          "val_loss": 0.7931939959526062,
+          "val_roc_auc": NaN,
+          "val_pr_auc": NaN
+        }
+      ]
+    },
+    {
+      "loss": 0.774498462677002,
+      "y_true": [
+        0.0,
+        1.0
+      ],
+      "y_prob": [
+        0.40419647097587585,
+        0.3565956652164459
+      ],
+      "roc_auc": 0.0,
+      "pr_auc": 0.5,
+      "seed": 2,
+      "model_name": "rnn_baseline",
+      "history": [
+        {
+          "epoch": 1,
+          "train_loss": 0.7085370421409607,
+          "val_loss": 0.7237400412559509,
+          "val_roc_auc": NaN,
+          "val_pr_auc": NaN
+        },
+        {
+          "epoch": 2,
+          "train_loss": 0.6676845550537109,
+          "val_loss": 0.716072678565979,
+          "val_roc_auc": NaN,
+          "val_pr_auc": NaN
+        },
+        {
+          "epoch": 3,
+          "train_loss": 0.6290420889854431,
+          "val_loss": 0.7126980423927307,
+          "val_roc_auc": NaN,
+          "val_pr_auc": NaN
+        },
+        {
+          "epoch": 4,
+          "train_loss": 0.6048447489738464,
+          "val_loss": 0.7105243802070618,
+          "val_roc_auc": NaN,
+          "val_pr_auc": NaN
+        },
+        {
+          "epoch": 5,
+          "train_loss": 0.5705367922782898,
+          "val_loss": 0.7086041569709778,
+          "val_roc_auc": NaN,
+          "val_pr_auc": NaN
+        }
+      ]
+    },
+    {
+      "loss": 0.6953020691871643,
+      "y_true": [
+        0.0,
+        1.0
+      ],
+      "y_prob": [
+        0.3742179274559021,
+        0.39778202772140503
+      ],
+      "roc_auc": 1.0,
+      "pr_auc": 1.0,
+      "seed": 3,
+      "model_name": "rnn_baseline",
+      "history": [
+        {
+          "epoch": 1,
+          "train_loss": 0.7023540139198303,
+          "val_loss": 0.7334458827972412,
+          "val_roc_auc": NaN,
+          "val_pr_auc": NaN
+        },
+        {
+          "epoch": 2,
+          "train_loss": 0.6476392149925232,
+          "val_loss": 0.7347771525382996,
+          "val_roc_auc": NaN,
+          "val_pr_auc": NaN
+        },
+        {
+          "epoch": 3,
+          "train_loss": 0.610431432723999,
+          "val_loss": 0.7329196929931641,
+          "val_roc_auc": NaN,
+          "val_pr_auc": NaN
+        },
+        {
+          "epoch": 4,
+          "train_loss": 0.5752370357513428,
+          "val_loss": 0.7322924733161926,
+          "val_roc_auc": NaN,
+          "val_pr_auc": NaN
+        },
+        {
+          "epoch": 5,
+          "train_loss": 0.5451843738555908,
+          "val_loss": 0.7305191159248352,
+          "val_roc_auc": NaN,
+          "val_pr_auc": NaN
+        }
+      ]
+    },
+    {
+      "loss": 0.736356258392334,
+      "y_true": [
+        0.0,
+        1.0
+      ],
+      "y_prob": [
+        0.35537075996398926,
+        0.3557124733924866
+      ],
+      "roc_auc": 1.0,
+      "pr_auc": 1.0,
+      "seed": 4,
+      "model_name": "rnn_baseline",
+      "history": [
+        {
+          "epoch": 1,
+          "train_loss": 0.682472825050354,
+          "val_loss": 0.7001410126686096,
+          "val_roc_auc": NaN,
+          "val_pr_auc": NaN
+        },
+        {
+          "epoch": 2,
+          "train_loss": 0.6394457221031189,
+          "val_loss": 0.7126380801200867,
+          "val_roc_auc": NaN,
+          "val_pr_auc": NaN
+        },
+        {
+          "epoch": 3,
+          "train_loss": 0.58785480260849,
+          "val_loss": 0.7230356931686401,
+          "val_roc_auc": NaN,
+          "val_pr_auc": NaN
+        },
+        {
+          "epoch": 4,
+          "train_loss": 0.5637047290802002,
+          "val_loss": 0.7342414259910583,
+          "val_roc_auc": NaN,
+          "val_pr_auc": NaN
+        },
+        {
+          "epoch": 5,
+          "train_loss": 0.5305117964744568,
+          "val_loss": 0.7457444071769714,
+          "val_roc_auc": NaN,
+          "val_pr_auc": NaN
+        }
+      ]
+    },
+    {
+      "loss": 0.7658708691596985,
+      "y_true": [
+        0.0,
+        1.0
+      ],
+      "y_prob": [
+        0.3432968556880951,
+        0.32915762066841125
+      ],
+      "roc_auc": 0.0,
+      "pr_auc": 0.5,
+      "seed": 5,
+      "model_name": "rnn_baseline",
+      "history": [
+        {
+          "epoch": 1,
+          "train_loss": 0.6566501259803772,
+          "val_loss": 0.7239559888839722,
+          "val_roc_auc": NaN,
+          "val_pr_auc": NaN
+        },
+        {
+          "epoch": 2,
+          "train_loss": 0.6256235241889954,
+          "val_loss": 0.7305245995521545,
+          "val_roc_auc": NaN,
+          "val_pr_auc": NaN
+        },
+        {
+          "epoch": 3,
+          "train_loss": 0.5923799872398376,
+          "val_loss": 0.7362953424453735,
+          "val_roc_auc": NaN,
+          "val_pr_auc": NaN
+        },
+        {
+          "epoch": 4,
+          "train_loss": 0.5642302632331848,
+          "val_loss": 0.7431121468544006,
+          "val_roc_auc": NaN,
+          "val_pr_auc": NaN
+        },
+        {
+          "epoch": 5,
+          "train_loss": 0.5298272371292114,
+          "val_loss": 0.74904865026474,
+          "val_roc_auc": NaN,
+          "val_pr_auc": NaN
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "roc_auc_mean": 0.6,
+    "roc_auc_std": 0.48989794855663565,
+    "pr_auc_mean": 0.8,
+    "pr_auc_std": 0.2449489742783178
+  }
+}
