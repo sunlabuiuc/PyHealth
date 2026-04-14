@@ -99,6 +99,15 @@ USE_KEEP = True                 # False = random embeddings, True = KEEP pipelin
 ATHENA_DIR = "data/athena"       # path to Athena OMOP vocabulary download
 KEEP_VARIANT = "paper"           # "paper" (L2+1e-3+AdamW+mean) or "code" (cosine+1e-5+Adagrad+sum)
 RUN_INTRINSIC_EVAL = True        # compute Resnik/co-occ correlations after pipeline
+
+# KEEP embedding caching: reuse previously-trained embeddings if they exist
+USE_KEEP_CACHE = True            # True = reuse keep_output_<variant>/keep_snomed.txt; False = always rebuild
+KEEP_CACHE_ROOT = "keep_output"  # resolves to "{root}_{variant}/keep_snomed.txt"
+
+# Data source toggle: local real MIMIC-III vs GCS synthetic
+USE_LOCAL_MIMIC = True           # True = real MIMIC-III at LOCAL_MIMIC_ROOT, False = GCS synthetic
+LOCAL_MIMIC_ROOT = "data/mimic3"
+DEV_MODE = False                 # True = subset + tiny pipeline, False = full run (real experiment)
 # ──────────────────────────────────────────────────────────
 
 # Paper-faithful vs G2Lab code-faithful variants.
@@ -107,7 +116,7 @@ RUN_INTRINSIC_EVAL = True        # compute Resnik/co-occ correlations after pipe
 KEEP_VARIANTS = {
     "paper": {
         "reg_distance": "l2",
-        "reg_reduction": "mean",
+        "reg_reduction": "sum",
         "optimizer": "adamw",
         "lambd": 1e-3,
     },
@@ -123,11 +132,17 @@ if __name__ == "__main__":
     print_hardware_info()
 
     # STEP 1: load data
+    mimic_root = (
+        LOCAL_MIMIC_ROOT
+        if USE_LOCAL_MIMIC
+        else "https://storage.googleapis.com/pyhealth/Synthetic_MIMIC-III"
+    )
+    print(f"MIMIC-III root: {mimic_root} (dev={DEV_MODE})")
     base_dataset = MIMIC3Dataset(
-        root="https://storage.googleapis.com/pyhealth/Synthetic_MIMIC-III",
+        root=mimic_root,
         tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
         cache_dir=tempfile.TemporaryDirectory().name,
-        dev=True,
+        dev=DEV_MODE,
     )
     base_dataset.stats()
 
@@ -142,13 +157,24 @@ if __name__ == "__main__":
         )
         variant_params = KEEP_VARIANTS[KEEP_VARIANT]
         print(f"KEEP variant: {KEEP_VARIANT} ({variant_params})")
-        keep_emb_path = run_keep_pipeline(
-            athena_dir=ATHENA_DIR,
-            dataset=base_dataset,
-            output_dir="keep_output",
-            dev=True,  # fast params for testing; set False for real runs
-            **variant_params,
-        )
+
+        # Variant-specific cache directory: keep_output_<variant>/keep_snomed.txt
+        variant_output_dir = Path(f"{KEEP_CACHE_ROOT}_{KEEP_VARIANT}")
+        cached_emb = variant_output_dir / "keep_snomed.txt"
+        if USE_KEEP_CACHE and cached_emb.exists():
+            print(f"Using cached KEEP embeddings: {cached_emb}")
+            print(f"  (set USE_KEEP_CACHE=False to force a rebuild)")
+            keep_emb_path = str(cached_emb)
+        else:
+            if cached_emb.exists():
+                print(f"USE_KEEP_CACHE=False; rebuilding and overwriting {cached_emb}")
+            keep_emb_path = run_keep_pipeline(
+                athena_dir=ATHENA_DIR,
+                dataset=base_dataset,
+                output_dir=str(variant_output_dir),
+                dev=DEV_MODE,  # False runs full Node2Vec (walks=750) + GloVe (epochs=300)
+                **variant_params,
+            )
 
         # STEP 2b: intrinsic evaluation against paper Table 2 targets
         if RUN_INTRINSIC_EVAL:
