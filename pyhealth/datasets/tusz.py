@@ -38,6 +38,7 @@ class TUSZDataset(BaseDataset):
         dataset_name: Optional[str] = None,
         config_path: Optional[str] = None,
         subset: Optional[str] = 'train',
+        use_cache: Optional[bool] = True,
         **kwargs
     ) -> None:
         if config_path is None:
@@ -51,8 +52,8 @@ class TUSZDataset(BaseDataset):
         tables = self.__set_tables(subset)
         self.final_tables = tables
 
-        use_cache = self.__use_cache()
-        if not use_cache:
+        self.use_cache = use_cache and self.__use_cache()
+        if not self.use_cache:
             self.prepare_metadata()
 
         super().__init__(
@@ -100,7 +101,7 @@ class TUSZDataset(BaseDataset):
         shared_csv = self.__get_data_csv_name(data_type)
         cache_csv = self.__get_cache_csv_name(data_type)
 
-        if shared_csv.exists() or cache_csv.exists():
+        if self.use_cache and cache_csv.exists():
             return
 
         split_dir = self.root_path / data_type if data_type else self.root_path
