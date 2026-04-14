@@ -1,7 +1,7 @@
 pyhealth.processors.DermoscopyImageProcessor
 ============================================
 
-Processor for dermoscopy image data. Supports standard 'whole' and frequency-filtered 'high_whole' processing modes.
+Processor for dermoscopy image data.
 
 .. autoclass:: pyhealth.processors.DermoscopyImageProcessor
     :members:

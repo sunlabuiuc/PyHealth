@@ -6,33 +6,124 @@
 Master Training Script for Melanoma Classification.
 
 Executes 5-Fold Cross-Validation OR Single Master Model training. Handles 
-out-of-domain transfer learning evaluation and automatically plots training curves.
+out-of-domain transfer learning evaluation, automatically plots training curves,
+and prints formatted Summary Tables.
 """
 
 import argparse
 import os
-import re
+import sys
+import datetime
+import ast
 import numpy as np
 import torch
 import torch.nn as nn
+import copy
 from torchvision import models
 from sklearn.model_selection import KFold
 from torch.utils.data import Subset
 from collections import defaultdict
 import matplotlib.pyplot as plt
 
+
 from pyhealth.datasets import get_dataloader, split_by_sample
 from pyhealth.trainer import Trainer
 from pyhealth.models.base_model import BaseModel
 
-# Native PyHealth Dermoscopy Imports
 from pyhealth.datasets import DermoscopyDataset
 from pyhealth.tasks import DermoscopyMelanomaClassification
 from pyhealth.processors import DermoscopyImageProcessor
 from pyhealth.models import DINOv2
 
+class PyHealthSubset(Subset):
+    """A wrapper for PyTorch's Subset that satisfies PyHealth's DataLoader requirements."""
+    def set_shuffle(self, shuffle):
+        pass # Dummy method to appease PyHealth
+
+# ==========================================
+# LOGGING UTILITIES (Importable by others)
+# ==========================================
+class DualLogger:
+    """Writes standard output to both the terminal and a log file simultaneously."""
+    def __init__(self, log_file_path):
+        self.terminal = sys.stdout
+        self.log = open(log_file_path, "a", encoding="utf-8")
+
+    def write(self, message):
+        self.terminal.write(message)
+        self.log.write(message)
+
+    def flush(self):
+        self.terminal.flush()
+        self.log.flush()
+        
+    def getattr(self, attr):
+        # Fallback for tqdm progress bars
+        return getattr(self.terminal, attr)
+
+def setup_dynamic_logging(prefix: str, run_name: str):
+    """Generates a dynamic filename and starts the DualLogger."""
+    log_dir = os.path.abspath("../dermoscopy_logs")
+    os.makedirs(log_dir, exist_ok=True)
+    
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_name = f"{prefix}_{run_name}_{timestamp}.txt"
+    log_path = os.path.join(log_dir, log_name)
+    sys.stdout = DualLogger(log_path)
+    print(f"[*] Dynamic Logging Initialized: {log_path}")
+
+# ==========================================
+# VISUALIZATION UTILITY
+# ==========================================
+def plot_learning_curves(output_path, fold_num="Master"):
+    """Parses PyHealth's log.txt and generates learning curve graphs."""
+    log_path = os.path.join(output_path, "log.txt")
+    if not os.path.exists(log_path):
+        return
+
+    train_loss, val_loss, val_roc = [], [], []
+    with open(log_path, "r") as f:
+        for line in f.readlines():
+            if "loss:" in line and "roc_auc:" in line:
+                try:
+                    data = ast.literal_eval(line.strip())
+                    if 'loss' in data: train_loss.append(data['loss'])
+                    if 'val_loss' in data: val_loss.append(data['val_loss'])
+                    if 'roc_auc' in data: val_roc.append(data['roc_auc'])
+                except: continue
+
+    if not train_loss: return
+        
+    epochs = range(1, len(train_loss) + 1)
+    plt.figure(figsize=(12, 5))
+    
+    plt.subplot(1, 2, 1)
+    plt.plot(epochs, train_loss, 'b-', label='Train Loss')
+    if val_loss: plt.plot(epochs, val_loss, 'r-', label='Val Loss')
+    plt.title(f'Loss Curve - {fold_num}')
+    plt.xlabel('Epochs')
+    plt.ylabel('Loss')
+    plt.legend()
+    
+    if val_roc:
+        plt.subplot(1, 2, 2)
+        plt.plot(epochs, val_roc, 'g-', label='Val ROC-AUC')
+        plt.title(f'ROC-AUC Curve - {fold_num}')
+        plt.xlabel('Epochs')
+        plt.ylabel('Score')
+        plt.legend()
+        
+    plt.tight_layout()
+    curve_path = os.path.join(output_path, f"learning_curve_fold_{fold_num}.png")
+    plt.savefig(curve_path)
+    plt.close()
+    print(f"[*] Saved learning curves to {curve_path}")
+
+# ==========================================
+# MODEL WRAPPER
+# ==========================================
 class MelanomaClassifier(BaseModel):
-    """Wraps ResNet50 and Swin Transformer into PyHealth BaseModel format."""
+    """Wraps ResNet50 and Swin Transformer."""
     def __init__(self, dataset, feature_keys, label_key, mode, arch="resnet50", **kwargs):
         super().__init__(dataset=dataset)
         self.feature_keys = feature_keys
@@ -41,203 +132,197 @@ class MelanomaClassifier(BaseModel):
         self.mode = mode
 
         if arch == "resnet50":
-            self.backbone = models.resnet50(weights=models.ResNet50_Weights.IMAGENET1K_V2)
-            hidden_dim = self.backbone.fc.in_features
-            self.backbone.fc = nn.Identity()
+            self.model = models.resnet50(weights=models.ResNet50_Weights.IMAGENET1K_V1)
+            num_ftrs = self.model.fc.in_features
+            self.model.fc = nn.Linear(num_ftrs, 1)
         elif arch == "swin":
-            self.backbone = models.swin_t(weights=models.Swin_T_Weights.IMAGENET1K_V1)
-            hidden_dim = self.backbone.head.in_features
-            self.backbone.head = nn.Identity()
+            # Using Torchvision's Swin-T (Tiny) as a baseline
+            from torchvision.models import swin_t, Swin_T_Weights
+            self.model = swin_t(weights=Swin_T_Weights.DEFAULT)
+            # Swin-T outputs a 768-dimensional feature vector
+            num_ftrs = self.model.head.in_features
+            self.model.head = nn.Linear(num_ftrs, 1)
         else:
-            raise ValueError(f"Architecture '{arch}' is not supported here!")
-
-        self.classifier = nn.Linear(hidden_dim, 1)
+            raise ValueError(f"Architecture {arch} not supported.")
 
     def forward(self, **kwargs):
         x = kwargs[self.feature_key]
-        if isinstance(x, (list, tuple)):
-            x = torch.stack(x, dim=0)
-        x = x.to(self.device)
+        logits = self.model(x)
+        loss_fn = nn.BCEWithLogitsLoss()
+        # Force the labels to exactly match the shape of the model's logits
+        loss = loss_fn(logits, kwargs[self.label_key].float().view_as(logits))
+        y_prob = torch.sigmoid(logits)
+        return {"loss": loss, "y_prob": y_prob, "y_true": kwargs[self.label_key]}
 
-        features = self.backbone(x)
-        logits = self.classifier(features)
-        
-        y_prob = torch.sigmoid(logits).squeeze(-1)
-        res = {"logit": logits, "y_prob": y_prob}
-        
-        if self.label_key in kwargs:
-            y_true = kwargs[self.label_key].to(self.device)
-            res["y_true"] = y_true.squeeze(-1)
-            
-            y_true_float = y_true.float()
-            if y_true_float.dim() == 1:
-                y_true_float = y_true_float.unsqueeze(1)
-            
-            loss = nn.BCEWithLogitsLoss()(logits, y_true_float)
-            res["loss"] = loss
 
-        return res
-
-def plot_training_curves(base_out_dir, cv_folds):
-    """Parses PyHealth logs to visualize Validation ROC-AUC across all folds."""
-    plt.figure(figsize=(10, 6))
-    
-    # Handle Master Model visualization
-    folds_to_plot = ["master"] if cv_folds == 1 else [f"fold_{i}" for i in range(cv_folds)]
-    
-    for fold_name in folds_to_plot:
-        log_file = os.path.join(base_out_dir, fold_name, "log.txt")
-        if not os.path.exists(log_file):
-            continue
-            
-        epochs, aucs = [], []
-        with open(log_file, 'r') as f:
-            for line in f:
-                if "roc_auc:" in line and "epoch-" in line:
-                    epoch_match = re.search(r"epoch-(\d+)", line)
-                    auc_match = re.search(r"roc_auc:\s*([\d\.]+)", line)
-                    if epoch_match and auc_match:
-                        epochs.append(int(epoch_match.group(1)))
-                        aucs.append(float(auc_match.group(1)))
-        if epochs:
-            label = "Master Model" if cv_folds == 1 else f"Fold {fold_name.split('_')[1]}"
-            plt.plot(epochs, aucs, marker='o', label=label)
-            
-    plt.title(f"Validation ROC-AUC over Epochs", fontsize=14)
-    plt.xlabel("Training Epoch", fontsize=12)
-    plt.ylabel("Validation ROC-AUC", fontsize=12)
-    plt.legend()
-    plt.grid(True, linestyle='--', alpha=0.7)
-    
-    plot_path = os.path.join(base_out_dir, "training_curves.png")
-    plt.savefig(plot_path, dpi=300)
-    print(f"\n[*] Training visualization saved to {plot_path}")
-
-def main():
-    parser = argparse.ArgumentParser(description="Ultimate Melanoma Training Pipeline.")
-    parser.add_argument('--model', type=str, choices=['resnet50', 'swin', 'dinov2'], default='resnet50')
-    parser.add_argument('--mode', type=str, default='whole')
-    parser.add_argument('--data_dir', type=str, required=True)
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Train Dermoscopy Classification Models")
+    parser.add_argument('--data_dir', type=str, required=True, help="Absolute path to the dataset root folder")
+    parser.add_argument('--out_dir', type=str, default="../dermoscopy_outputs", help="Base directory to save experiment folders")
+    parser.add_argument('--train_datasets', nargs='+', default=["isic2018"])
+    parser.add_argument('--test_datasets', nargs='*', default=[])
+    parser.add_argument('--model', type=str, default="resnet50")
+    parser.add_argument('--mode', type=str, default="whole")
     parser.add_argument('--epochs', type=int, default=10)
-    parser.add_argument('--train_datasets', nargs='+', default=['isic2018'], help="Source datasets")
-    parser.add_argument('--test_datasets', nargs='*', default=[], help="Out-of-domain datasets for Tables 1 & 2")
-    parser.add_argument('--cv_folds', type=int, default=5, help="Number of folds (Set to 1 for Master Model)")
+    parser.add_argument('--cv_folds', type=int, default=5)
+    parser.add_argument('--lr', type=float, default=1e-4)
+    # force_retrain flag defaults to False unless called
+    parser.add_argument('--force_retrain', action='store_true', help="Overwrite existing weights and retrain from scratch.")
     args = parser.parse_args()
 
-    processor = DermoscopyImageProcessor(mode=args.mode)
-    DermoscopyMelanomaClassification.task_name = "melanoma_classification"
-    DermoscopyMelanomaClassification.input_schema = {"image": "image"}
-    DermoscopyMelanomaClassification.output_schema = {} 
-
-    print(f"[*] Initializing Training Dataset(s): {args.train_datasets} in {args.mode} mode...")
-    dataset_name = args.train_datasets[0] if len(args.train_datasets) == 1 else args.train_datasets
-    train_dataset = DermoscopyDataset(root=args.data_dir, dataset_name=dataset_name, dev=False)
-    task_dataset = train_dataset.set_task(DermoscopyMelanomaClassification, input_processors={"image": processor})
-    
-    # Prepare Out-of-Domain Test Loaders
-    test_loaders = {}
-    if args.test_datasets:
-        print(f"[*] Initializing Out-of-Domain Test Datasets: {args.test_datasets}")
-        for td in args.test_datasets:
-            td_ds = DermoscopyDataset(root=args.data_dir, dataset_name=td, dev=False)
-            td_task = td_ds.set_task(DermoscopyMelanomaClassification, input_processors={"image": processor})
-            test_loaders[td] = get_dataloader(td_task, batch_size=32, shuffle=False)
-            
-    train_prefix = "_".join(args.train_datasets) if isinstance(args.train_datasets, list) else args.train_datasets
-    base_out_dir = os.path.expanduser(f"~/dermoscopy_outputs/{train_prefix}_{args.model}_{args.mode}")
+    # START DYNAMIC LOGGING
+    ds_str = "_".join(args.train_datasets)
+    run_details = f"{ds_str}_{args.model}_{args.mode}"
+    base_out_dir = os.path.join(os.path.abspath(args.out_dir), run_details)
     os.makedirs(base_out_dir, exist_ok=True)
+    setup_dynamic_logging("train", run_details)
 
-    ood_results = defaultdict(lambda: defaultdict(list))
+    print(f"[*] Initializing Dataset from {args.data_dir}...")
+
+    dataset = DermoscopyDataset(root=args.data_dir, cache_dir=os.path.join(args.data_dir, ".cache"))
+
+    processor = DermoscopyImageProcessor(mode=args.mode)
+
+    # Setup Tasks
+    train_task = DermoscopyMelanomaClassification(source_datasets=args.train_datasets)
+    task_dataset = dataset.set_task(train_task)
+
+    val_loaders = {}
+    for td in args.test_datasets:
+        test_task = DermoscopyMelanomaClassification(source_datasets=[td])
+        td_dataset = dataset.set_task(test_task)
+        val_loaders[td] = get_dataloader(td_dataset, batch_size=32, shuffle=False)
+
+    metrics_list = ["roc_auc", "pr_auc", "accuracy", "precision", "recall", "f1"]
+    source_results = defaultdict(list)
+    ood_results = {td: defaultdict(list) for td in args.test_datasets}
+
+    print(f"\n" + "="*50 + f"\n PHASE 1: {args.cv_folds}-Fold CV\n" + "="*50)
     
-    # ==========================================
-    # STRATEGY 1: MASTER MODEL (cv_folds == 1)
-    # ==========================================
     if args.cv_folds == 1:
-        print(f"\n" + "="*50 + f"\n PHASE 1: MASTER MODEL TRAINING\n" + "="*50)
-        
-        # 90/10 Split for Master Model
         train_ds, val_ds, _ = split_by_sample(task_dataset, [0.9, 0.1, 0.0])
         train_loader = get_dataloader(train_ds, batch_size=32, shuffle=True)
         val_loader = get_dataloader(val_ds, batch_size=32, shuffle=False)
         
-        if args.model == "dinov2":
-            model = DINOv2(dataset=train_dataset, feature_keys=["image"], label_key="melanoma", mode="binary")
+        if args.model == "dinov2": model = DINOv2(dataset=task_dataset, feature_keys=["image"], label_key="melanoma", mode="binary")
+        else: model = MelanomaClassifier(dataset=task_dataset, feature_keys=["image"], label_key="melanoma", mode="binary", arch=args.model)
+
+        weight_path = os.path.join(base_out_dir, "master", "best.ckpt")
+
+        trainer = Trainer(model=model, output_path=base_out_dir, exp_name="master", metrics=metrics_list)
+        # Check for weights AND make sure the user didn't flag --force_retrain
+        if os.path.exists(weight_path) and not args.force_retrain:
+            print(f"[*] Found existing weights at {weight_path}. Skipping training!")
+            state_dict = torch.load(weight_path, map_location=trainer.device, weights_only=True)
+            
+            # Safely extract the weights whether it's nested under 'state_dict', 'model', or unnested
+            if 'state_dict' in state_dict:
+                model.load_state_dict(state_dict['state_dict'])
+            elif 'model' in state_dict:
+                model.load_state_dict(state_dict['model'])
+            else:
+                model.load_state_dict(state_dict)
         else:
-            model = MelanomaClassifier(dataset=train_dataset, feature_keys=["image"], label_key="melanoma", mode="binary", arch=args.model)
+            print(f"[*] No existing weights found. Training Master from scratch...")
+            trainer.train(
+                train_dataloader=train_loader, 
+                val_dataloader=val_loader, 
+                epochs=args.epochs, 
+                monitor="roc_auc",
+                optimizer_params={"lr": args.lr}
+            )
 
         output_path = os.path.join(base_out_dir, "master")
-        trainer = Trainer(model=model, metrics=["roc_auc", "accuracy", "pr_auc", "f1"], output_path=output_path)
+        plot_learning_curves(output_path, fold_num="Master")
         
-        trainer.train(train_dataloader=train_loader, val_dataloader=val_loader, epochs=args.epochs, monitor="roc_auc")
-        
-        if test_loaders:
-            print(f"\n[*] Evaluating Master Model on Out-Of-Domain Data...")
-            best_model_path = os.path.join(output_path, "best_model.pth")
-            state_dict = torch.load(best_model_path, map_location=trainer.device, weights_only=True)
-            model.load_state_dict(state_dict['model'] if 'model' in state_dict else state_dict)
-            model.eval()
-
-            eval_trainer = Trainer(model=model, metrics=["roc_auc", "accuracy", "pr_auc", "f1"])
-            for test_name, test_loader in test_loaders.items():
-                res = eval_trainer.evaluate(test_dataloader=test_loader)
-                ood_results[test_name]['roc_auc'].append(res['roc_auc'])
-                ood_results[test_name]['accuracy'].append(res['accuracy'])
-                print(f"  -> {test_name.upper()} | ROC-AUC: {res['roc_auc']:.4f} | ACC: {res['accuracy']:.4f}")
-
-    # ==========================================
-    # STRATEGY 2: 5-FOLD CV (cv_folds > 1)
-    # ==========================================
     else:
-        print(f"\n" + "="*50 + f"\n PHASE 1: {args.cv_folds}-Fold CV (For Paper Tables)\n" + "="*50)
         kf = KFold(n_splits=args.cv_folds, shuffle=True, random_state=42)
-        
         for fold, (train_idx, val_idx) in enumerate(kf.split(np.arange(len(task_dataset)))):
-            print(f"\n--- STARTING FOLD {fold} ---")
-            train_loader = get_dataloader(Subset(task_dataset, train_idx), batch_size=32, shuffle=True)
-            val_loader = get_dataloader(Subset(task_dataset, val_idx), batch_size=32, shuffle=False)
+            print(f"\n--- STARTING FOLD {fold+1}/{args.cv_folds} ---")
 
-            if args.model == "dinov2":
-                model = DINOv2(dataset=train_dataset, feature_keys=["image"], label_key="melanoma", mode="binary")
+            # Convert numpy.int64 arrays to pure Python integer lists
+            train_idx = train_idx.tolist()
+            val_idx = val_idx.tolist()
+
+            # Wrap them in our PyHealth-friendly subset
+            train_ds = PyHealthSubset(task_dataset, train_idx)
+            val_ds = PyHealthSubset(task_dataset, val_idx)
+
+            # Generate the loaders
+            train_loader = get_dataloader(train_ds, batch_size=32, shuffle=True)
+            val_loader = get_dataloader(val_ds, batch_size=32, shuffle=False)
+
+            if args.model == "dinov2": model = DINOv2(dataset=task_dataset, feature_keys=["image"], label_key="melanoma", mode="binary")
+            else: model = MelanomaClassifier(dataset=task_dataset, feature_keys=["image"], label_key="melanoma", mode="binary", arch=args.model)
+
+            weight_path = os.path.join(base_out_dir, f"fold_{fold}", "best.ckpt")
+
+            trainer = Trainer(model=model, output_path=base_out_dir, exp_name=f"fold_{fold}", metrics=metrics_list)
+            # Check for weights AND make sure the user didn't flag --force_retrain
+            if os.path.exists(weight_path) and not args.force_retrain:
+                print(f"[*] Found existing weights at {weight_path}. Skipping training!")
+                state_dict = torch.load(weight_path, map_location=trainer.device, weights_only=True)
+                
+                # Safely extract the weights whether it's nested under 'state_dict', 'model', or unnested
+                if 'state_dict' in state_dict:
+                    model.load_state_dict(state_dict['state_dict'])
+                elif 'model' in state_dict:
+                    model.load_state_dict(state_dict['model'])
+                else:
+                    model.load_state_dict(state_dict)
             else:
-                model = MelanomaClassifier(dataset=train_dataset, feature_keys=["image"], label_key="melanoma", mode="binary", arch=args.model)
-
+                print(f"[*] No existing weights found. Training Fold {fold + 1} from scratch...")
+                trainer.train(
+                    train_dataloader=train_loader, 
+                    val_dataloader=val_loader, 
+                    epochs=args.epochs, 
+                    monitor="roc_auc",
+                    optimizer_params={"lr": args.lr}
+                )
+            
+            # Post-training Visualization
             output_path = os.path.join(base_out_dir, f"fold_{fold}")
-            trainer = Trainer(model=model, metrics=["roc_auc", "accuracy", "pr_auc", "f1"], output_path=output_path)
+            plot_learning_curves(output_path, fold_num=fold)
             
-            trainer.train(train_dataloader=train_loader, val_dataloader=val_loader, epochs=args.epochs, monitor="roc_auc")
-            
-            if test_loaders:
-                print(f"\n[*] Evaluating Fold {fold} on Out-Of-Domain Data...")
-                best_model_path = os.path.join(output_path, "best_model.pth")
+            # Internal Source Evaluation (For Table 1/2 Source Column)
+            val_res = trainer.evaluate(dataloader=val_loader)
+            for m in metrics_list: source_results[m].append(val_res[m])
+
+            # OOD Evaluation
+            if val_loaders:
+                best_model_path = os.path.join(output_path, "best.ckpt")
                 state_dict = torch.load(best_model_path, map_location=trainer.device, weights_only=True)
                 model.load_state_dict(state_dict['model'] if 'model' in state_dict else state_dict)
                 model.eval()
 
-                eval_trainer = Trainer(model=model, metrics=["roc_auc", "accuracy", "pr_auc", "f1"])
-                for test_name, test_loader in test_loaders.items():
-                    res = eval_trainer.evaluate(test_dataloader=test_loader)
-                    ood_results[test_name]['roc_auc'].append(res['roc_auc'])
-                    ood_results[test_name]['accuracy'].append(res['accuracy'])
-                    print(f"  -> {test_name.upper()} | ROC-AUC: {res['roc_auc']:.4f} | ACC: {res['accuracy']:.4f}")
+                eval_trainer = Trainer(model=model, output_path=base_out_dir, exp_name=f"fold_{fold}", metrics=metrics_list)
+                for test_name, val_loader in val_loaders.items():
+                    res = eval_trainer.evaluate(dataloader=val_loader)
+                    for m in metrics_list: ood_results[test_name][m].append(res[m])
+                    print(f"  -> {test_name.upper()} | ROC-AUC: {res['roc_auc']:.4f} | PR-AUC: {res['pr_auc']:.4f}")
 
-    # Generate Visualization
-    plot_training_curves(base_out_dir, args.cv_folds)
+    # ==========================================
+    # FINAL TABLES 1 & 2 OUTPUT 
+    # ==========================================
+    if args.cv_folds > 1:
+        print("\n" + "="*60)
+        print(" FINAL SUMMARY: REPRODUCING PAPER TABLES 1 & 2 ")
+        print("="*60)
+        print(f"{'Dataset':<15} | {'Metric':<10} | {'Mean ± Std':<15}")
+        print("-" * 60)
 
-    # Print Final Paper Results
-    if test_loaders:
-        print("\n" + "="*50)
-        print(" FINAL OOD RESULTS")
-        print("="*50)
-        for test_name, metrics in ood_results.items():
-            mean_auc = np.mean(metrics['roc_auc'])
-            std_auc = np.std(metrics['roc_auc']) if args.cv_folds > 1 else 0.0
-            mean_acc = np.mean(metrics['accuracy'])
-            print(f" {test_name.upper()}:")
-            print(f"   ROC-AUC:  {mean_auc:.4f} ± {std_auc:.4f}")
-            print(f"   Accuracy: {mean_acc:.4f}")
-        print("="*50)
-        
-    print(f"[SUCCESS] Training complete! Weights saved to: {base_out_dir}")
+        def print_stats(name, stats_dict):
+            for metric, values in stats_dict.items():
+                if not values: continue
+                mean = np.mean(values)
+                std = np.std(values)
+                print(f"{name:<15} | {metric:<10} | {mean:.4f} ± {std:.4f}")
 
-if __name__ == "__main__":
-    main()
+        # 1. Print Source Dataset Results
+        print_stats(f"SOURCE ({ds_str})", source_results)
+        print("-" * 60)
+
+        # 2. Print Out-of-Domain Results (Target Generalization)
+        for target_name, stats in ood_results.items():
+            print_stats(target_name.upper(), stats)
+            print("-" * 60)

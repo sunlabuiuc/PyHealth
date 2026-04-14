@@ -1,44 +1,89 @@
-# Dermoscopy Melanoma Classification & Artifact Ablation
+# Dermoscopy Artifact Robustness & Interpretability
+**Official PyHealth 2.0 Implementation for CHIL 2025**
 
-This folder contains a complete pipeline for training and evaluating melanoma classification models (ResNet50, Swin Transformer, DINOv2) on dermoscopy datasets (ISIC 2018, HAM10000, PH2).
+> **Paper:** *A Study of Artifacts on Melanoma Classification under Diffusion-Based Perturbations*
 
-It implements the artifact robustness and frequency ablation methodologies detailed in the CHIL 2025 paper: *A Study of Artifacts on Melanoma Classification under Diffusion-Based Perturbations*.
+This repository contains the full execution pipeline for training, evaluating, and interpreting melanoma classification models under synthetic artifact shifts. The architecture is fully integrated into the [PyHealth 2.0](https://github.com/sunlabuiuc/PyHealth) ecosystem, utilizing native `DermoscopyDataset`, `Task`, and `Processor` schemas.
 
-## Directory Setup
+---
 
-To run these examples, you must have your data structured locally as follows:
+## 📁 Repository Manifest
 
-    data/
-    ├── isic2018/
-    │   ├── images/ (contains metadata.csv and .jpg files)
-    ├── ham10000/
-    │   ├── images/ (contains metadata.csv and .jpg files)
-    └── ph2/
-        ├── PH2_dataset.txt
-        └── PH2 Dataset images/
+### Core Pipeline Scripts
+* **`train_dermoscopy.py`**: The master training engine. Executes 5-fold cross-validation or single master model training. Handles out-of-domain transfer learning and dynamically saves model checkpoints.
+* **`evaluate_artifact_robustness.py`**: The "Smart Evaluator." Bypasses standard evaluators to allow raw probability ensembling and strict metric computation (ROC-AUC, PR-AUC, F1, etc.) on out-of-distribution "Trap Sets."
+* **`generate_artifact_data.py`**: The artifact generator. Uses Stable Diffusion Inpainting (LoRA) to synthetically inject clinical artifacts (rulers, ink, gel bubbles) into existing datasets.
+* **`run_tcav.py`**: Interpretability engine. Uses Testing with Concept Activation Vectors (TCAV) to calculate how much human-understandable concepts influence latent space representations.
+* **`run_epoch_ablation.py`**: Learning dynamics study. Halts training at periodic epochs to evaluate robustness against Trap Sets, preventing data leakage.
 
-## Included Scripts
+---
 
-### 1. Model Training (`train_dermoscopy.py`)
+## 🚀 Execution Pipeline
 
-Trains a baseline model on the combined ISIC 2018 and HAM10000 datasets using PyHealth's native `Trainer` and `TorchvisionModel` wrappers.
+### Phase 0: Trap Set Generation
+Generate the synthetic artifact datasets using Stable Diffusion before running evaluations.
+```bash
+python generate_artifact_data.py \
+    --data_dir /path/to/data \
+    --dataset ph2 \
+    --lora_path /path/to/lora \
+    --artifact ruler
+```
+*Supported artifacts: `ruler`, `ink`, `dark-corner`, `gel-bubble`, `patches`.*
 
-    python train_dermoscopy.py --model dinov2 --mode whole --data_dir /path/to/data --epochs 10
+### Phase 1: Model Training & Baselines
+Train models across multiple architectures (ResNet50, Swin, DINOv2) and ablation modes. To ensure a fair comparison of architectural robustness, all models were fine-tuned using a standardized learning rate of 1e-4.
+```bash
+python train_dermoscopy.py \
+    --data_dir /path/to/data \
+    --out_dir ../dermoscopy_outputs \
+    --train_datasets isic2018 \
+    --model resnet50 \
+    --mode whole \
+    --epochs 10 \
+    --cv_folds 5 \
+    --lr 1e-4
+```
 
-### 2. Trap Set Generation (`generate_artifact_data.py`)
+### Phase 2: Artifact Robustness Evaluation
+Evaluate the trained models against the synthetic Trap Sets generated in Phase 0.
+```bash
+python evaluate_artifact_robustness.py \
+    --exp_dir ../dermoscopy_outputs/isic2018_resnet50_whole \
+    --strategy fold_average \
+    --data_dir /path/to/data \
+    --eval_dataset ph2 \
+    --artifact ruler \
+    --mode whole \
+    --model resnet50
+```
 
-Uses Stable Diffusion + LoRA to synthetically inject clinical artifacts (e.g., rulers, ink, gel bubbles) into the PH2 dataset to create out-of-distribution "Trap Sets".
+### Phase 3: Interpretability (TCAV)
+Extract latent representations and train concept activation vectors to understand model bias.
+```bash
+python run_tcav.py \
+    --exp_dir ../dermoscopy_outputs/isic2018_resnet50_whole \
+    --data_dir /path/to/data \
+    --train_datasets isic2018 \
+    --eval_dataset ph2 \
+    --artifact ruler \
+    --model resnet50
+```
 
-    python generate_artifact_data.py --data_dir /path/to/data --lora_path /path/to/lora --artifact ruler
+---
 
-### 3. Artifact Robustness Evaluation (`evaluate_artifact_robustness.py`)
+## 🗂 Logging & File Management
 
-Evaluates a trained PyHealth model on the generated Trap Sets and outputs ROC-AUC curves and Confusion Matrices.
+To maintain repository hygiene, all heavy experimental data and logs are explicitly routed **outside** of the PyHealth repository.
 
-    python evaluate_artifact_robustness.py --model dinov2 --mode whole --weights ./output/dinov2_whole/model.pth --data_dir /path/to/data --artifact ruler
+* **`../dermoscopy_outputs/`**: Centralized, persistent storage for heavy `.pth` model weights, learning curves, and PyHealth's internal epoch tracking data. Inside each specific experiment folder (e.g., `isic2018_resnet50_whole`), you will find:
+  * **`fold_X/`**: Contains the specific weights and evaluation logs for individual folds when running cross-validation (e.g., `--cv_folds 5`).
+  * **`master/`**: Contains the final model weights trained on the entire dataset when cross-validation is bypassed (e.g., by setting `--cv_folds 1`). The Phase 2 and Phase 3 evaluation scripts will automatically default to this folder if a `fold_0` is not present.
+* **`../dermoscopy_logs/`**: Contains time-stamped, permanent text records of every terminal output across all phases.
 
-### 4. Epoch Ablation Study (`run_epoch_ablation.py`)
+---
 
-Automates the training and periodic evaluation of models across multiple epochs (e.g., 3, 5, 10, 20) to plot how artifact reliance changes over time.
-
-    python run_epoch_ablation.py --model resnet50 --mode whole --data_dir /path/to/data --artifact ruler
+## 📚 Acknowledgements & Citations
+* **PyHealth:** Sun, J., et al. (2022). *PyHealth: A Deep Learning Toolkit for Healthcare Predictive Modeling.*
+* **TCAV:** Kim, B., et al. (2018). *Interpretability Beyond Feature Attribution: Quantitative Testing with Concept Activation Vectors (TCAV).* ICML.
+* **Stable Diffusion:** Rombach, R., et al. (2022). *High-Resolution Image Synthesis with Latent Diffusion Models.* CVPR.

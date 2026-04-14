@@ -10,18 +10,32 @@ class DummyDermoscopyDataset:
             {"image": torch.randn(3, 224, 224), "melanoma": 0},
             {"image": torch.randn(3, 224, 224), "melanoma": 1}
         ]
-        # ADDED: Required by PyHealth 2.0 Zero-Config model initialization
         self.input_schema = {"image": "image"}
         self.output_schema = {"melanoma": "binary"}
+        
+        # Create a mock processor that tells get_output_size() the label dim is 1
+        class MockProcessor:
+            def size(self): return 1
+            
+        self.output_processors = {"melanoma": MockProcessor()}
+
+    def __len__(self):
+        return len(self.samples)
+
+    def __getitem__(self, index):
+        return self.samples[index]
 
 class TestDINOv2(unittest.TestCase):
     def setUp(self):
         self.dataset = DummyDermoscopyDataset()
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        
-        # ADDED: Removed explicit kwargs to match native PyHealth 2.0 init
+
+        # Add the required BaseModel schema arguments
         self.model = DINOv2(
             dataset=self.dataset,
+            feature_keys=["image"],
+            label_key="melanoma",
+            mode="binary",
             model_size="vits14"
         )
         self.model.to(self.device)
@@ -58,5 +72,28 @@ class TestDINOv2(unittest.TestCase):
         self.assertIsNotNone(self.model.fc.weight.grad)
         self.assertNotEqual(torch.sum(self.model.fc.weight.grad), 0.0)
 
+        # Verify the backbone is actually frozen (required for Linear Probing)
+        # The first parameter of the backbone should have NO gradient
+        backbone_param = next(self.model.backbone.parameters())
+        self.assertIsNone(backbone_param.grad)
+    
+    def test_embedding_extraction(self):
+        """Verifies the embed=True mode and forward_from_embedding."""
+        batch_size = 2
+        mock_images = torch.randn(batch_size, 3, 224, 224).to(self.device)
+        batch = {"image": mock_images}
+
+        # 1. Extract embeddings
+        self.model.eval()
+        embed_outputs = self.model(embed=True, **batch)
+        self.assertIn("embed", embed_outputs)
+        
+        # vits14 should output 384 dimensions
+        embeddings = embed_outputs["embed"]
+        self.assertEqual(embeddings.shape, (batch_size, 384))
+
+        # 2. Test forward_from_embedding
+        final_outputs = self.model.forward_from_embedding(embeddings)
+        self.assertIn("y_prob", final_outputs)
 if __name__ == '__main__':
     unittest.main()
