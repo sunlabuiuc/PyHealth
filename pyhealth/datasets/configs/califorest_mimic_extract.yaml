@@ -1,0 +1,32 @@
+# CaliForest MIMIC-Extract dataset configuration.
+#
+# This dataset reads from the MIMIC-Extract all_hourly_data.h5 file
+# rather than raw CSVs. The HDF5 contains pre-aggregated hourly
+# vitals/labs with mean, count, and std columns.
+#
+# Tables in the HDF5:
+#   - patients: static demographics and outcomes
+#   - vitals_labs: hourly time-series (LEVEL2 x Aggregation Function)
+#   - interventions: hourly binary intervention indicators
+#   - codes: ICD9 diagnosis codes
+#
+# Reference: Wang et al. "MIMIC-Extract: A Data Extraction,
+# Preprocessing, and Representation Pipeline for MIMIC-III." 2019.
+version: "1.0"
+format: "hdf5"
+tables:
+  patients:
+    hdf5_key: "patients"
+    patient_id: "subject_id"
+    attributes:
+      - "mort_hosp"
+      - "mort_icu"
+      - "los_icu"
+      - "max_hours"
+      - "age"
+      - "gender"
+      - "ethnicity"
+  vitals_labs:
+    hdf5_key: "vitals_labs"
+    patient_id: "subject_id"
+    attributes: "all"

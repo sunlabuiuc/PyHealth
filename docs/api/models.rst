@@ -198,6 +198,7 @@ API Reference
     models/pyhealth.models.TCN
     models/pyhealth.models.TFMTokenizer
     models/pyhealth.models.GAN
+    models/pyhealth.models.CaliForest
     models/pyhealth.models.VAE
     models/pyhealth.models.SDOH
     models/pyhealth.models.VisionEmbeddingModel
