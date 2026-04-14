@@ -1,0 +1,6 @@
+numpy==1.26.4
+torch==2.10.0
+polars==1.39.3
+scikit-learn
+pytest==9.0.3
+pyhealth==1.1.6
