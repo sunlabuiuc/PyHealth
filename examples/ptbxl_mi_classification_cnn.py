@@ -1,11 +1,26 @@
 from pyhealth.datasets import PTBXLDataset
 from pyhealth.tasks import PTBXLMIClassificationTask
 import os
+import argparse
 
 def main():
-    root = os.path.expanduser(
-        "~/Downloads/ptb-xl-a-large-publicly-available-electrocardiography-dataset-1.0.3"
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--root",
+        type=str,
+        default=os.getenv(
+            "PTBXL_ROOT",
+            os.path.expanduser("~/Downloads/ptb-xl-a-large-publicly-available-electrocardiography-dataset-1.0.1"),
+        ),
+        help="Path to PTB-XL root folder (contains ptbxl_database.csv, scp_statements.csv, records100/records500/). "
+        "we can also set PTBXL_ROOT environment variable instead of passing --root.",
     )
+    args = parser.parse_args()
+    root = args.root
+    #root = os.path.expanduser(
+    #"~/Downloads/ptb-xl-a-large-publicly-available-electrocardiography-dataset-1.0.1"
+#)
     dataset = PTBXLDataset(
         root=root,
         dev=True,
