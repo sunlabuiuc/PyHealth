@@ -101,8 +101,8 @@ KEEP_VARIANT = "paper"           # "paper" (L2+1e-3+AdamW+mean) or "code" (cosin
 RUN_INTRINSIC_EVAL = True        # compute Resnik/co-occ correlations after pipeline
 
 # KEEP embedding caching: reuse previously-trained embeddings if they exist
-USE_KEEP_CACHE = False            # True = reuse keep_output_<variant>/keep_snomed.txt; False = always rebuild
-KEEP_CACHE_ROOT = "keep_output"  # resolves to "{root}_{variant}/keep_snomed.txt"
+USE_KEEP_CACHE = False                # True = reuse keep_emb_output_<variant>/keep_snomed.txt; False = always rebuild
+KEEP_CACHE_ROOT = "keep_emb_output"   # resolves to "{root}_{variant}/keep_snomed.txt"
 
 # Data source toggle: local real MIMIC-III vs GCS synthetic
 USE_LOCAL_MIMIC = True           # True = real MIMIC-III at LOCAL_MIMIC_ROOT, False = GCS synthetic
@@ -404,6 +404,16 @@ if __name__ == "__main__":
         }
     with open(run_dir / "results.json", "w") as f:
         json.dump(run_results, f, indent=2)
+
+    # Copy KEEP embedding artifacts into run_dir so everything is in one place
+    if keep_emb_path is not None:
+        import shutil
+        keep_emb_src = Path(keep_emb_path).parent
+        for artifact in ("keep_snomed.txt", "cooc_matrix.npy", "cooc_index.json"):
+            src = keep_emb_src / artifact
+            if src.exists():
+                shutil.copy2(src, run_dir / artifact)
+                print(f"  Copied {artifact} -> {run_dir / artifact}")
 
     # Loss landscape visualization
     print(f"\nGenerating loss landscape -> {run_dir / 'loss_landscape.png'}")
