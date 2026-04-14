@@ -1,130 +1,183 @@
-"""Tests for the cardiology multilabel example.
+"""Unit tests for the Cardiology2Dataset and CardiologyMultilabelClassification."""
 
-These tests use a tiny synthetic ECG dataset so they stay fast. They check that
-the model can be created, run a forward pass, return tensors with the expected
-shapes, produce embeddings, and backpropagate without errors.
-"""
-
+# TestCardiology2Dataset covers the dataset
+# TestCardiologyMultilabelClassification covers the task
+import csv
+from pathlib import Path
+import tempfile
 import unittest
+from unittest.mock import patch
 
 import numpy as np
-import torch
 
-from pyhealth.datasets import create_sample_dataset, get_dataloader
-from pyhealth.models import SparcNet
+from pyhealth.datasets import Cardiology2Dataset
+from pyhealth.tasks import CardiologyMultilabelClassification
 
 
-class TestCardiologyMultilabelSparcNet(unittest.TestCase):
-    """Fast synthetic tests for cardiology-style multilabel classification."""
-
-    def setUp(self):
-        rng = np.random.RandomState(7)
-        n_channels = 12
-        length = 256
-
-        self.samples = [
-            {
-                "patient_id": "patient-0",
-                "visit_id": "visit-0",
-                "signal": rng.randn(n_channels, length).astype(np.float32),
-                "labels": ["164889003", "427172004"],
-            },
-            {
-                "patient_id": "patient-1",
-                "visit_id": "visit-0",
-                "signal": rng.randn(n_channels, length).astype(np.float32),
-                "labels": ["164889003"],
-            },
-            {
-                "patient_id": "patient-2",
-                "visit_id": "visit-0",
-                "signal": rng.randn(n_channels, length).astype(np.float32),
-                "labels": ["426627000", "713427006"],
-            },
-            {
-                "patient_id": "patient-3",
-                "visit_id": "visit-0",
-                "signal": rng.randn(n_channels, length).astype(np.float32),
-                "labels": ["427172004"],
-            },
-            {
-                "patient_id": "patient-4",
-                "visit_id": "visit-0",
-                "signal": rng.randn(n_channels, length).astype(np.float32),
-                "labels": ["426627000"],
-            },
-        ]
-
-        self.dataset = create_sample_dataset(
-            samples=self.samples,
-            input_schema={"signal": "tensor"},
-            output_schema={"labels": "multilabel"},
-            dataset_name="test_cardiology_multilabel",
+class TestCardiology2Dataset(unittest.TestCase):
+    def _write_recording(
+        self,
+        patient_dir: Path,
+        record_name: str,
+        dx: str,
+        sex: str = "Male",
+        age: str = "63",
+        signal_length: int = 2500,
+    ) -> None:
+        patient_dir.mkdir(parents=True, exist_ok=True)
+        (patient_dir / f"{record_name}.mat").write_bytes(b"")
+        (patient_dir / f"{record_name}.hea").write_text(
+            "\n".join(
+                [
+                    f"{record_name} 12 500 {signal_length} 16 0 0 0 0",
+                    f"# Age: {age}",
+                    f"# Sex: {sex}",
+                    f"# Dx: {dx}",
+                ]
+            )
+            + "\n"
         )
 
-        self.model = SparcNet(
-            dataset=self.dataset,
-            block_layers=2,
-            growth_rate=8,
-            bn_size=4,
-            drop_rate=0.1,
+    def test_invalid_chosen_dataset_raises(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(ValueError):
+                Cardiology2Dataset(root=tmp, chosen_dataset=[1, 0, 1])
+
+    def test_dataset_indexes_metadata_and_default_task(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write_recording(
+                root / "cpsc_2018" / "patient_a",
+                "A0001",
+                dx="164889003,427172004",
+                sex="Female",
+                age="54",
+            )
+            self._write_recording(
+                root / "cpsc_2018" / "patient_a",
+                "A0002",
+                dx="426627000",
+                sex="Female",
+                age="54",
+                signal_length=1500,
+            )
+            self._write_recording(
+                root / "georgia" / "patient_b",
+                "E0001",
+                dx="713427006",
+                sex="Male",
+                age="61",
+            )
+
+            cache_dir = root / "cache"
+            dataset = Cardiology2Dataset(
+                root=str(root),
+                chosen_dataset=[1, 0, 1, 0, 0, 0],
+                cache_dir=str(cache_dir),
+            )
+
+            metadata_path = root / "cardiology-metadata-pyhealth.csv"
+            self.assertTrue(metadata_path.exists())
+
+            with metadata_path.open(newline="") as f:
+                metadata = list(csv.DictReader(f))
+            self.assertEqual(len(metadata), 3)
+            self.assertCountEqual(
+                [row["chosen_dataset"] for row in metadata],
+                ["cpsc_2018", "cpsc_2018", "georgia"],
+            )
+            self.assertIn("signal_path", metadata[0])
+            self.assertIn("dx", metadata[0])
+            self.assertIn("sex", metadata[0])
+            self.assertIn("age", metadata[0])
+
+            self.assertEqual(len(dataset.unique_patient_ids), 2)
+            patient = dataset.get_patient("0_0")
+            events = patient.get_events(event_type="cardiology")
+
+            self.assertEqual(len(events), 2)
+            self.assertEqual(events[0]["patient_id"], "0_0")
+            self.assertEqual(events[0]["sex"], "Female")
+            self.assertEqual(events[0]["age"], "54")
+            self.assertEqual(events[0]["chosen_dataset"], "cpsc_2018")
+            self.assertTrue(str(events[0]["signal_path"]).endswith(".mat"))
+
+            self.assertIsInstance(
+                dataset.default_task, CardiologyMultilabelClassification
+            )
+
+
+class TestCardiologyMultilabelClassification(unittest.TestCase):
+    def _write_recording(
+        self,
+        patient_dir: Path,
+        record_name: str,
+        dx: str,
+        signal_length: int,
+    ) -> None:
+        patient_dir.mkdir(parents=True, exist_ok=True)
+        (patient_dir / f"{record_name}.mat").write_bytes(b"")
+        (patient_dir / f"{record_name}.hea").write_text(
+            "\n".join(
+                [
+                    f"{record_name} 12 500 {signal_length} 16 0 0 0 0",
+                    "# Age: 63",
+                    "# Sex: Male",
+                    f"# Dx: {dx}",
+                ]
+            )
+            + "\n"
         )
 
-    def _get_batch(self):
-        loader = get_dataloader(self.dataset, batch_size=5, shuffle=False)
-        return next(iter(loader))
+    def test_task_generates_windowed_samples_and_filters_labels(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            patient_dir = root / "cpsc_2018" / "patient_a"
+            self._write_recording(
+                patient_dir,
+                "A0001",
+                dx="164889003,427172004,999999999",
+                signal_length=2500,
+            )
+            self._write_recording(
+                patient_dir,
+                "A0002",
+                dx="164889003",
+                signal_length=1000,
+            )
 
-    def test_model_initialization(self):
-        """Model initializes with the expected cardiology multilabel setup."""
-        self.assertIsInstance(self.model, SparcNet)
-        self.assertEqual(self.model.mode, "multilabel")
-        self.assertEqual(self.model.feature_keys, ["signal"])
-        self.assertEqual(self.model.label_keys, ["labels"])
-        self.assertEqual(self.model.get_output_size(), 4)
+            dataset = Cardiology2Dataset(
+                root=str(root),
+                chosen_dataset=[1, 0, 0, 0, 0, 0],
+                cache_dir=str(root / "cache"),
+            )
+            patient = dataset.get_patient("0_0")
+            task = CardiologyMultilabelClassification(
+                epoch_sec=2.5,
+                shift=1.25,
+                leads=[0, 2, 4],
+            )
 
-    def test_model_forward_shapes(self):
-        """Forward pass returns multilabel-shaped logits, probabilities, and targets."""
-        batch = self._get_batch()
+            fake_signal = np.arange(12 * 2500, dtype=np.float32).reshape(12, 2500)
+            with patch(
+                "pyhealth.tasks.cardiology_multilabel_classification.loadmat",
+                side_effect=[{"val": fake_signal}, {"val": fake_signal[:, :1000]}],
+            ):
+                samples = task(patient)
 
-        with torch.no_grad():
-            ret = self.model(**batch)
+            self.assertEqual(len(samples), 3)
+            for sample in samples:
+                self.assertEqual(sample["patient_id"], "0_0")
+                self.assertEqual(sample["visit_id"], "A0001")
+                self.assertEqual(sample["signal"].shape, (3, 1250))
+                self.assertEqual(sample["labels"], ["164889003", "427172004"])
 
-        self.assertIn("loss", ret)
-        self.assertIn("y_prob", ret)
-        self.assertIn("y_true", ret)
-        self.assertIn("logit", ret)
-
-        self.assertEqual(ret["y_prob"].shape, (5, 4))
-        self.assertEqual(ret["y_true"].shape, (5, 4))
-        self.assertEqual(ret["logit"].shape, (5, 4))
-        self.assertEqual(ret["loss"].dim(), 0)
-        self.assertTrue(torch.all(ret["y_prob"] >= 0.0))
-        self.assertTrue(torch.all(ret["y_prob"] <= 1.0))
-
-    def test_model_backward(self):
-        """Backward pass computes gradients for trainable parameters."""
-        batch = self._get_batch()
-        ret = self.model(**batch)
-        ret["loss"].backward()
-
-        has_gradient = any(
-            param.requires_grad and param.grad is not None
-            for param in self.model.parameters()
-        )
-        self.assertTrue(has_gradient, "No gradients were produced during backward.")
-
-    def test_model_with_embedding(self):
-        """Embedding requests return a batch-aligned 2D representation."""
-        batch = self._get_batch()
-        batch["embed"] = True
-
-        with torch.no_grad():
-            ret = self.model(**batch)
-
-        self.assertIn("embed", ret)
-        self.assertEqual(ret["embed"].shape[0], 5)
-        self.assertEqual(ret["embed"].dim(), 2)
-        self.assertGreater(ret["embed"].shape[1], 0)
+    def test_task_schema_attributes(self):
+        task = CardiologyMultilabelClassification(leads=[0])
+        self.assertEqual(task.task_name, "CardiologyMultilabelClassification")
+        self.assertEqual(task.input_schema, {"signal": "tensor"})
+        self.assertEqual(task.output_schema, {"labels": "multilabel"})
+        self.assertEqual(task.leads, [0])
 
 
 if __name__ == "__main__":
