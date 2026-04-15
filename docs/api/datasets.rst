@@ -245,3 +245,5 @@ Available Datasets
     datasets/pyhealth.datasets.TCGAPRADDataset
     datasets/pyhealth.datasets.splitter
     datasets/pyhealth.datasets.utils
+
+    datasets/pyhealth.datasets.mimic3_temporal
