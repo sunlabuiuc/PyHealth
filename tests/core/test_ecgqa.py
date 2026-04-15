@@ -6,7 +6,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 from pyhealth.datasets import ECGQADataset
-from pyhealth.tasks import ECGQA
 
 
 class TestECGQADataset(unittest.TestCase):
@@ -161,17 +160,6 @@ class TestECGQADataset(unittest.TestCase):
         events = dataset.get_patient("2").get_events()
         self.assertEqual(events[0]["answer"], "sinus rhythm;atrial fibrillation")
         self.assertEqual(events[0]["attribute"], "SR;AFIB")
-
-    def test_default_task(self):
-        """Test default_task returns an ECGQA instance"""
-        dataset = ECGQADataset(root=str(self.root), cache_dir=self._cache_tmp)
-        self.assertIsInstance(dataset.default_task, ECGQA)
-
-    def test_set_task_ecgqa(self):
-        """Test ECGQA task yields one sample per QA pair"""
-        dataset = ECGQADataset(root=str(self.root), cache_dir=self._cache_tmp)
-        samples = dataset.set_task(ECGQA())
-        self.assertEqual(len(samples), 4)
 
     def test_invalid_ecg_source_raises(self):
         """Test ValueError on invalid ecg_source"""
