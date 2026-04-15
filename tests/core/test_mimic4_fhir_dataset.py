@@ -212,12 +212,16 @@ class TestMIMIC4FHIRDataset(unittest.TestCase):
             write_two_class_ndjson(Path(tmp))
             task_kw = {"max_len": 64, "use_mpf": True}
             ds1 = MIMIC4FHIRDataset(root=tmp, glob_pattern="*.ndjson", cache_dir=tmp)
-            ds1.set_task(MPFClinicalPredictionTask(**task_kw), num_workers=1)
-            warm_size = ds1.vocab.vocab_size
+            task1 = MPFClinicalPredictionTask(**task_kw)
+            task1.warm_vocab(ds1, num_workers=1)
+            ds1.set_task(task1, num_workers=1)
+            warm_size = task1.vocab.vocab_size
             self.assertGreater(warm_size, 6)
             ds2 = MIMIC4FHIRDataset(root=tmp, glob_pattern="*.ndjson", cache_dir=tmp)
-            ds2.set_task(MPFClinicalPredictionTask(**task_kw), num_workers=1)
-            self.assertEqual(ds2.vocab.vocab_size, warm_size)
+            task2 = MPFClinicalPredictionTask(**task_kw)
+            task2.warm_vocab(ds2, num_workers=1)
+            ds2.set_task(task2, num_workers=1)
+            self.assertEqual(task2.vocab.vocab_size, warm_size)
 
     def test_mortality_heuristic(self) -> None:
         from pyhealth.tasks.mpf_clinical_prediction import MPFClinicalPredictionTask
@@ -277,9 +281,9 @@ class TestMIMIC4FHIRDataset(unittest.TestCase):
             ds = MIMIC4FHIRDataset(
                 root=tmp, glob_pattern="*.ndjson", cache_dir=tmp, num_workers=1
             )
-            sample_ds = ds.set_task(
-                MPFClinicalPredictionTask(max_len=48, use_mpf=True), num_workers=1
-            )
+            task = MPFClinicalPredictionTask(max_len=48, use_mpf=True)
+            task.warm_vocab(ds, num_workers=1)
+            sample_ds = ds.set_task(task, num_workers=1)
             samples = sorted(
                 [sample_ds[i] for i in range(len(sample_ds))],
                 key=lambda s: s["patient_id"],
@@ -300,6 +304,7 @@ class TestMIMIC4FHIRDataset(unittest.TestCase):
                 root=tmp, glob_pattern="*.ndjson", cache_dir=tmp, num_workers=2
             )
             task = MPFClinicalPredictionTask(max_len=48, use_mpf=True)
+            task.warm_vocab(ds, num_workers=2)
             ds.set_task(task, num_workers=2)
             self.assertTrue(task.frozen_vocab)
 
@@ -317,9 +322,10 @@ class TestMIMIC4FHIRDataset(unittest.TestCase):
             )
             self.assertEqual(len(ds.unique_patient_ids), 3)
             task = TwoPatientMPFTask(max_len=48, use_mpf=True)
+            task.warm_vocab(ds, num_workers=1)
             ds.set_task(task, num_workers=1)
-            self.assertNotIn("http://loinc.org|999-9", ds.vocab.token_to_id)
-            self.assertIn("http://loinc.org|789-0", ds.vocab.token_to_id)
+            self.assertNotIn("http://loinc.org|999-9", task.vocab.token_to_id)
+            self.assertIn("http://loinc.org|789-0", task.vocab.token_to_id)
 
     def test_mpf_pre_filter_single_patient_limits_effective_workers(self) -> None:
         """Pre-filter that yields one patient should cap effective_workers to 1.

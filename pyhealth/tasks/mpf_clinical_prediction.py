@@ -107,19 +107,31 @@ class MPFClinicalPredictionTask(BaseTask):
         self.processor.frozen_vocab = value
 
     # ------------------------------------------------------------------
-    # Dataset preparation (called by BaseDataset.set_task before workers)
+    # Vocabulary warm-up (call before set_task for multi-worker safety)
     # ------------------------------------------------------------------
 
-    def prepare_for_dataset(self, dataset: Any, num_workers: int) -> None:
-        """Warm CEHR vocabulary and configure multi-worker safety.
+    def warm_vocab(self, dataset: Any, num_workers: int = 1) -> None:
+        """Warm CEHR vocabulary from *dataset* before calling ``set_task``.
+
+        For single-worker pipelines this is **optional** — ``__call__`` grows
+        the vocabulary lazily.  For multi-worker pipelines call this first so
+        that the vocabulary is fully populated before LitData forks workers::
+
+            task = MPFClinicalPredictionTask(max_len=512)
+            task.warm_vocab(ds, num_workers=4)
+            sample_dataset = ds.set_task(task, num_workers=4)
 
         If *dataset* has a ``processor`` attribute (i.e. it is a
-        :class:`~pyhealth.datasets.MIMIC4FHIRDataset`), adopt its vocabulary
-        so that a pre-loaded ``vocab_path`` carries through.
+        :class:`~pyhealth.datasets.MIMIC4FHIRDataset` with a pre-loaded
+        ``vocab_path``), this task adopts its vocabulary.
 
-        Vocabulary warming iterates the task-filtered patient cohort in the
-        main process.  Special tokens are inserted.  ``frozen_vocab`` is set
-        when multiple LitData workers will be forked.
+        Args:
+            dataset: A :class:`~pyhealth.datasets.BaseDataset` instance whose
+                ``global_event_df`` has already been built.
+            num_workers: Number of workers that will be passed to ``set_task``.
+                When > 1, ``frozen_vocab`` is set after warming so that worker
+                processes look up tokens instead of racing on
+                :class:`~pyhealth.processors.ConceptVocab`.
         """
         from litdata.processing.data_processor import in_notebook
 
