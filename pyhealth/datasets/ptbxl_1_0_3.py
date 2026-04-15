@@ -19,8 +19,9 @@ import pandas as pd
 import os
 import urllib.request
 import requests
-from pyhealth.datasets import BaseSignalDataset
 import zipfile
+import random
+from pyhealth.datasets import BaseSignalDataset
 from pathlib import Path
 
 """
@@ -28,7 +29,8 @@ Dataset class for the PTB-XL 1.0.3 dataset.
 
 Args:
     dataset_name: name of the dataset.
-    root: root directory of the raw data (should contain many csv files).
+    root: root directory of the raw data. 
+    	Expected to contain folders for original (records500) or downsampled (records100) data with determined names.
     dev: whether to enable dev mode (only use a small subset of the data).
         Default is False.
     refresh_cache: whether to refresh the cache; if true, the dataset will
@@ -41,11 +43,16 @@ class PTBXLDataset(BaseSignalDataset):
 	Attributes: 
 		root (str): Root directory of the raw data.
 		download (bool): True iff requested to download dataset. Default to False.
+		dev (bool): True iff enable dev mode.
+		downsampled (bool): True iff use downsampled signal data.
 	"""
 	def __init__(self, 
 		root: str = '.',
 		download: bool = False,
-		down_sampled: bool = False) -> None:
+		dev: bool = False,
+		downsampled: bool = False) -> None:
+
+		self.dev = dev
 
 		# Determine the root path, where most of the data is stored
 		# self.data_path: str = os.path.join(root, 'ptb_xl_processed_full.zip')
@@ -53,7 +60,7 @@ class PTBXLDataset(BaseSignalDataset):
 		self.root = root
 
 		# Determine signal path, where to fetch the signal samples
-		signal_folder = 'records100' if down_sampled else 'records500'
+		signal_folder = 'records100' if downsampled else 'records500'
 		root_path = os.path.join(root, 'physionet.org/files/ptb-xl/1.0.3/') if download else root
 		self.signal_path: str = os.path.join(root_path, signal_folder)
 
@@ -107,10 +114,15 @@ class PTBXLDataset(BaseSignalDataset):
 						}
 					]
 
+        if self.dev:
+        	keys = random.sample(list(patients), min(len(patients), 5))
+        	values = [d[k] for k in keys]
+	        return dict(zip(keys, values))
+
 		return patients
 
 if __name__ == "__main__":
-	dataset = PTBXLDataset(root='../../../../', download=False, down_sampled=True)
+	dataset = PTBXLDataset(root='../../../../', download=False, downsampled=True)
 	dataset.stat()
 	dataset.info()
 	print(dataset.process_EEG_data())
