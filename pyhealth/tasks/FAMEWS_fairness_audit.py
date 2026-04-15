@@ -28,7 +28,7 @@ import polars as pl
 from pyhealth.tasks import BaseTask
 
 
-class FAMEWS_fairness_audit(BaseTask):
+class FAMEWSFairnessAudit(BaseTask):
     """Build per-patient samples for FAMEWS-style fairness analysis on HiRID.
 
     This task is designed for :class:`~pyhealth.datasets.HiRIDDataset` and
@@ -41,16 +41,16 @@ class FAMEWS_fairness_audit(BaseTask):
     ``stage_table="merged_stage"``.
 
     The HiRID subgroup configuration used by the original FAMEWS fairness
-    pipeline is bundled at ``FAMEWS_fairness_audit.group_config_path``.
+    pipeline is bundled at ``FAMEWSFairnessAudit.group_config_path``.
 
     Examples:
         >>> from pyhealth.datasets import HiRIDDataset
-        >>> from pyhealth.tasks import FAMEWS_fairness_audit
+        >>> from pyhealth.tasks import FAMEWSFairnessAudit
         >>> dataset = HiRIDDataset(
         ...     root="/path/to/hirid/1.1.1",
         ...     stage="imputed",
         ... )
-        >>> task = FAMEWS_fairness_audit(stage_table="imputed_stage")
+        >>> task = FAMEWSFairnessAudit(stage_table="imputed_stage")
         >>> samples = dataset.set_task(task)
     """
 
@@ -161,7 +161,11 @@ class FAMEWS_fairness_audit(BaseTask):
                 ]
                 # HiRID relative times are commonly encoded in minutes; some exports
                 # may use seconds. Infer units from the median step size.
-                step_median = pd.Series(non_negative_diffs).median() if non_negative_diffs else 0
+                step_median = (
+                    pd.Series(non_negative_diffs).median()
+                    if non_negative_diffs
+                    else 0
+                )
                 as_seconds = bool(step_median and step_median > 20)
                 origin = datetime(1970, 1, 1)
                 return [
