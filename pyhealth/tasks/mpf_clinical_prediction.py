@@ -46,14 +46,12 @@ def _left_pad_float(seq: List[float], max_len: int, pad: float = 0.0) -> List[fl
 class MPFClinicalPredictionTask(BaseTask):
     """Binary mortality prediction from FHIR CEHR sequences with optional MPF tokens.
 
-    Vocabulary warming happens automatically in :meth:`prepare_for_dataset`
-    (called by :meth:`~pyhealth.datasets.BaseDataset.set_task` before the
-    LitData caching pipeline).  If the dataset exposes a
-    :class:`~pyhealth.processors.CehrProcessor` via ``dataset.processor``,
-    this task adopts its vocabulary so that a pre-loaded ``vocab_path`` is
-    honoured.  After warming, :attr:`frozen_vocab` is set when multiple
-    workers will be spawned so that worker processes look up tokens instead
-    of racing on :class:`~pyhealth.processors.ConceptVocab`.
+    The task owns a :class:`~pyhealth.processors.CehrProcessor` and its
+    :class:`~pyhealth.processors.ConceptVocab`.  For single-worker use the
+    vocabulary grows lazily in :meth:`__call__`.  For multi-worker LitData
+    runs, call :meth:`warm_vocab` before
+    :meth:`~pyhealth.datasets.BaseDataset.set_task` so the vocabulary is
+    complete and :attr:`frozen_vocab` prevents races across workers.
 
     Attributes:
         max_len: Truncated sequence length (must be >= 2 for boundary tokens).
@@ -120,10 +118,6 @@ class MPFClinicalPredictionTask(BaseTask):
             task = MPFClinicalPredictionTask(max_len=512)
             task.warm_vocab(ds, num_workers=4)
             sample_dataset = ds.set_task(task, num_workers=4)
-
-        If *dataset* has a ``processor`` attribute (i.e. it is a
-        :class:`~pyhealth.datasets.MIMIC4FHIRDataset` with a pre-loaded
-        ``vocab_path``), this task adopts its vocabulary.
 
         Args:
             dataset: A :class:`~pyhealth.datasets.BaseDataset` instance whose
