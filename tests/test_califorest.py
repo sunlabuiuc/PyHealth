@@ -170,3 +170,75 @@ class TestCaliForestReproducibility:
         probas2 = model2.predict_proba(X_test)
 
         assert np.allclose(probas1, probas2)
+
+class TestCaliForestPrediction:
+    """Tests for model prediction - verifies forward pass equivalent."""
+
+    def test_predict_output_shape(self, fitted_model, minimal_data):
+        """Test that predict returns correct shape."""
+        X, y = minimal_data
+        predictions = fitted_model.predict(X)
+        assert predictions.shape == (X.shape[0],)
+
+    def test_predict_proba_output_shape(self, fitted_model, minimal_data):
+        """Test that predict_proba returns correct shape."""
+        X, y = minimal_data
+        probas = fitted_model.predict_proba(X)
+        assert probas.shape == (X.shape[0], 2)  # Binary classification
+
+    def test_predict_proba_valid_probabilities(self, fitted_model, minimal_data):
+        """Test that probabilities are valid (sum to 1, in [0,1])."""
+        X, y = minimal_data
+        probas = fitted_model.predict_proba(X)
+        assert np.all(probas >= 0.0)
+        assert np.all(probas <= 1.0)
+        assert np.allclose(probas.sum(axis=1), 1.0)
+
+    def test_predict_returns_valid_classes(self, fitted_model, minimal_data):
+        """Test that predictions are valid class labels."""
+        X, y = minimal_data
+        predictions = fitted_model.predict(X)
+        assert set(predictions).issubset({0, 1})
+
+
+class TestCaliForestCalibration:
+    """Tests for calibration functionality."""
+
+    def test_calibration_applied(self, fitted_model):
+        """Test that calibrator was fitted during training."""
+        assert fitted_model.calibrator_ is not None
+
+    def test_isotonic_vs_platt(self, minimal_data):
+        """Test both calibration methods produce valid outputs."""
+        X, y = minimal_data
+        
+        model_iso = CaliForest(n_estimators=5, calibration_method="isotonic", random_state=42)
+        model_platt = CaliForest(n_estimators=5, calibration_method="platt", random_state=42)
+        
+        model_iso.fit(X, y)
+        model_platt.fit(X, y)
+        
+        probas_iso = model_iso.predict_proba(X)
+        probas_platt = model_platt.predict_proba(X)
+        
+        # Both should produce valid probabilities
+        assert probas_iso.shape == probas_platt.shape
+        assert np.all(probas_iso >= 0) and np.all(probas_iso <= 1)
+        assert np.all(probas_platt >= 0) and np.all(probas_platt <= 1)
+
+
+class TestCaliForestEdgeCases:
+    """Tests for edge cases."""
+
+    def test_predict_before_fit_raises(self):
+        """Test that predicting before fitting raises error."""
+        model = CaliForest()
+        X_test = np.random.randn(5, 3)
+        with pytest.raises(NotFittedError):
+            model.predict(X_test)
+
+    def test_single_sample_prediction(self, fitted_model):
+        """Test prediction on a single sample."""
+        X_single = np.random.randn(1, 3)
+        probas = fitted_model.predict_proba(X_single)
+        assert probas.shape == (1, 2)
