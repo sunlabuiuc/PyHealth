@@ -21,7 +21,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import orjson
 
@@ -34,8 +34,15 @@ DEFAULT_PAD = 0
 DEFAULT_UNK = 1
 
 # ---------------------------------------------------------------------------
-# Datetime helpers (no pyhealth dependencies — defined here to avoid circular
-# imports between the processors and datasets packages)
+# Datetime helpers
+#
+# These are intentional copies of the identically-named functions in
+# pyhealth.datasets.fhir_utils.  They exist here to avoid a circular import:
+# importing pyhealth.datasets.fhir_utils (even as a submodule) triggers
+# pyhealth/datasets/__init__.py, which imports MIMIC4FHIRDataset, which in turn
+# imports from this module — creating a cycle.  The implementations are pure
+# stdlib (no pyhealth deps), so keeping them in sync is straightforward;
+# any change to the canonical copy in fhir_utils must be mirrored here.
 # ---------------------------------------------------------------------------
 
 
@@ -62,6 +69,7 @@ def as_naive(dt: Optional[datetime]) -> Optional[datetime]:
     if dt is None:
         return None
     return dt.replace(tzinfo=None) if dt.tzinfo is not None else dt
+
 
 __all__ = [
     # Constants
@@ -140,11 +148,18 @@ class ConceptVocab:
         return self._next_id
 
     def to_json(self) -> Dict[str, Any]:
-        return {"token_to_id": self.token_to_id, "next_id": self._next_id}
+        return {
+            "token_to_id": self.token_to_id,
+            "next_id": self._next_id,
+            "pad_id": self.pad_id,
+            "unk_id": self.unk_id,
+        }
 
     @classmethod
     def from_json(cls, data: Dict[str, Any]) -> "ConceptVocab":
-        vocab = cls()
+        pad_id = int(data.get("pad_id", DEFAULT_PAD))
+        unk_id = int(data.get("unk_id", DEFAULT_UNK))
+        vocab = cls(pad_id=pad_id, unk_id=unk_id)
         loaded = dict(data.get("token_to_id") or {})
         if not loaded:
             vocab._next_id = int(data.get("next_id", 2))
@@ -257,6 +272,8 @@ def collect_cehr_timeline_events(
         patient.data_source.sort(["timestamp", "event_type"], nulls_last=True).iter_rows(named=True)
     )
 
+    # Build encounter list — rows are already timestamp-sorted so the loop
+    # preserves chronological order without an explicit sort.
     encounter_rows: List[Tuple[datetime, str]] = []
     for row in rows:
         if row.get("event_type") != "encounter":
@@ -266,7 +283,6 @@ def collect_cehr_timeline_events(
         if enc_id is not None and enc_start is not None:
             encounter_rows.append((enc_start, enc_id))
 
-    encounter_rows.sort(key=lambda pair: pair[0])
     encounter_visit_idx = {enc_id: idx for idx, (_, enc_id) in enumerate(encounter_rows)}
     encounter_start_by_id = {enc_id: enc_start for enc_start, enc_id in encounter_rows}
     visit_encounters = [(enc_start, idx) for idx, (enc_start, _) in enumerate(encounter_rows)]
@@ -414,17 +430,28 @@ class CehrProcessor(FeatureProcessor):
     :class:`~pyhealth.data.Patient`'s tabular FHIR event rows into
     CEHR-aligned integer sequence lists ready for downstream models.
 
+    This processor departs from the standard ``FeatureProcessor`` contract
+    in two ways that are intentional for this domain:
+
+    * ``process(patient)`` takes a full :class:`~pyhealth.data.Patient` rather
+      than a single scalar field value, because building CEHR sequences
+      requires access to all event rows simultaneously.
+    * ``fit(patients, clinical_cap)`` takes an iterable of
+      :class:`~pyhealth.data.Patient` objects instead of the base-class
+      ``fit(samples, field)`` signature, because vocabulary warming is driven
+      by the Patient timeline, not a pre-aggregated sample dict.
+
     Typical usage::
 
         processor = CehrProcessor(max_len=512)
-        processor.fit(dataset.iter_patients())          # warm vocabulary
-        sequences = processor.process(some_patient)     # build sequences
-        processor.save("vocab.json")                    # persist vocab
+        processor.fit(dataset.iter_patients())      # warm vocabulary
+        sequences = processor.process(some_patient) # build sequences
+        processor.save("vocab.json")                # persist vocab
 
     Attributes:
         vocab: Concept-to-id mapping (PAD=0, UNK=1).
         max_len: Maximum number of clinical tokens per patient (boundary tokens
-            not included; set by the task).
+            not counted; see :class:`~pyhealth.tasks.MPFClinicalPredictionTask`).
         frozen_vocab: When True, unknown concepts map to UNK instead of adding
             new ids — used for multi-worker safety after vocab warm-up.
     """
@@ -439,26 +466,32 @@ class CehrProcessor(FeatureProcessor):
         self.max_len = max_len
         self.frozen_vocab = frozen_vocab
 
-    def fit(
+    def fit(  # type: ignore[override]
         self,
         patients: Iterable[Patient],
         clinical_cap: Optional[int] = None,
     ) -> "CehrProcessor":
         """Warm vocabulary from a stream of patients.
 
-        Adds all concept keys seen in the last *clinical_cap* events of each
-        patient. Also ensures special tokens are present.
+        Note: this method intentionally overrides ``FeatureProcessor.fit(samples,
+        field)`` with a different signature, because CEHR vocabulary warming
+        operates on :class:`~pyhealth.data.Patient` timelines rather than
+        pre-aggregated sample dicts.
+
+        Special tokens are *not* inserted here; they are added lazily by
+        :meth:`~pyhealth.tasks.MPFClinicalPredictionTask._ensure_processor`
+        on the first call to the task.  This keeps ``fit`` focused on concept
+        key discovery.
 
         Args:
             patients: Iterable of :class:`~pyhealth.data.Patient` objects.
             clinical_cap: Maximum number of tail events to scan per patient.
-                Defaults to ``max_len - 2`` (room for boundary tokens).
+                Defaults to ``max_len - 2`` (room for two boundary tokens).
 
         Returns:
             self (for chaining).
         """
         cap = clinical_cap if clinical_cap is not None else max(0, self.max_len - 2)
-        ensure_special_tokens(self.vocab)
         for patient in patients:
             warm_mpf_vocab_from_patient(self.vocab, patient, cap)
         return self
@@ -473,8 +506,9 @@ class CehrProcessor(FeatureProcessor):
             patient: A tabular :class:`~pyhealth.data.Patient`.
 
         Returns:
-            Tuple of six equal-length lists:
-            ``(concept_ids, token_type_ids, time_stamps, ages, visit_orders, visit_segments)``.
+            Six equal-length lists ``(concept_ids, token_type_ids, time_stamps,
+            ages, visit_orders, visit_segments)`` ready for boundary-token
+            insertion and left-padding by the task.
         """
         clinical_cap = max(0, self.max_len - 2)
         return build_cehr_sequences(
@@ -490,6 +524,7 @@ class CehrProcessor(FeatureProcessor):
         self.vocab = ConceptVocab.load(path)
 
     def is_token(self) -> bool:
+        """All six output lists contain discrete token/index values."""
         return True
 
     def schema(self) -> Tuple[str, ...]:
@@ -502,5 +537,18 @@ class CehrProcessor(FeatureProcessor):
             "visit_segments",
         )
 
+    def dim(self) -> Tuple[int, ...]:
+        """Each of the six output lists becomes a 1-D tensor."""
+        return (1, 1, 1, 1, 1, 1)
+
+    def spatial(self) -> Tuple[bool, ...]:
+        """All six outputs are along the sequence (temporal) axis."""
+        return (True, True, True, True, True, True)
+
     def __repr__(self) -> str:
-        return f"CehrProcessor(max_len={self.max_len}, frozen_vocab={self.frozen_vocab})"
+        # frozen_vocab is a runtime flag, not a constructor parameter, so it
+        # must be excluded here.  This repr is used by BaseDataset.set_task to
+        # compute the LitData task-cache UUID via vars(task); including
+        # frozen_vocab would produce different UUIDs for single- vs
+        # multi-worker runs of the same pipeline, defeating caching.
+        return f"CehrProcessor(max_len={self.max_len})"

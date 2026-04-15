@@ -45,7 +45,7 @@ from .fhir_utils import (
     FHIR_SCHEMA_VERSION,
     FHIR_TABLE_FILE_NAMES,
     FHIR_TABLES,
-    _sorted_patient_ids_from_flat_tables,
+    sorted_patient_ids_from_flat_tables,
     filter_flat_tables_by_patient_ids,
     stream_fhir_ndjson_to_flat_tables,
 )
@@ -225,7 +225,7 @@ class MIMIC4FHIRDataset(BaseDataset):
 
             filtered_root = self.create_tmpdir()
             filtered = filtered_root / "flattened_fhir_tables_filtered"
-            patient_ids = _sorted_patient_ids_from_flat_tables(staging)
+            patient_ids = sorted_patient_ids_from_flat_tables(staging)
             filter_flat_tables_by_patient_ids(staging, filtered, patient_ids[: self.max_patients])
             shutil.move(str(filtered), str(self.prepared_tables_dir))
         finally:
@@ -379,5 +379,5 @@ class MIMIC4FHIRDataset(BaseDataset):
                 base.filter(pl.col("patient_id").is_in(batch))
                 .collect(engine="streaming")
             )
-            for patient_key, patient_df in batch_df.partition_by("patient_id", as_dict=True).items():
-                yield Patient(patient_id=patient_key[0], data_source=patient_df)
+            for patient_df in batch_df.partition_by("patient_id"):
+                yield Patient(patient_id=patient_df["patient_id"][0], data_source=patient_df)

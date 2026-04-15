@@ -36,7 +36,7 @@ __all__ = [
     "FHIR_TABLES_FOR_PATIENT_IDS",
     "FHIR_TABLE_FILE_NAMES",
     "FHIR_TABLE_COLUMNS",
-    # Datetime helpers (also used by cehr_processor)
+    # Datetime helpers
     "parse_dt",
     "as_naive",
     # FHIR iteration
@@ -48,6 +48,7 @@ __all__ = [
     "sorted_ndjson_files",
     "stream_fhir_ndjson_to_flat_tables",
     "filter_flat_tables_by_patient_ids",
+    "sorted_patient_ids_from_flat_tables",
 ]
 
 FHIR_SCHEMA_VERSION = 3
@@ -398,7 +399,8 @@ def stream_fhir_ndjson_to_flat_tables(
             writer.close()
 
 
-def _sorted_patient_ids_from_flat_tables(table_dir: Path) -> List[str]:
+def sorted_patient_ids_from_flat_tables(table_dir: Path) -> List[str]:
+    """Return sorted unique patient IDs from a directory of flattened Parquet tables."""
     patient_table = table_dir / FHIR_TABLE_FILE_NAMES["patient"]
     if patient_table.exists():
         return (

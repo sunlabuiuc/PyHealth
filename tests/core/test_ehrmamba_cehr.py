@@ -55,7 +55,7 @@ class TestEHRMambaCEHR(unittest.TestCase):
         from pyhealth.datasets import MIMIC4FHIRDataset, create_sample_dataset
         from pyhealth.datasets import get_dataloader
 
-        from tests.core.test_mimic4_fhir_ndjson_fixtures import write_two_class_ndjson
+        from tests.core.test_mimic4_fhir_ndjson_fixtures import run_task, write_two_class_ndjson
 
         task = MPFClinicalPredictionTask(max_len=32, use_mpf=True)
         with tempfile.TemporaryDirectory() as tmp:
@@ -63,10 +63,7 @@ class TestEHRMambaCEHR(unittest.TestCase):
             ds = MIMIC4FHIRDataset(
                 root=tmp, glob_pattern="*.ndjson", cache_dir=tmp
             )
-            task.vocab = ds.vocab
-            task._specials = None
-            task.frozen_vocab = False
-            samples = [s for patient in ds.iter_patients() for s in task(patient)]
+            samples = run_task(ds, task)
             sample_ds = create_sample_dataset(
                 samples=samples,
                 input_schema=task.input_schema,

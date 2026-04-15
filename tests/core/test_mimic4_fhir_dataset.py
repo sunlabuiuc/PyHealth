@@ -21,6 +21,7 @@ from pyhealth.processors.cehr_processor import (
 
 from tests.core.test_mimic4_fhir_ndjson_fixtures import (
     ndjson_two_class_text,
+    run_task,
     write_one_patient_ndjson,
     write_two_class_ndjson,
 )
@@ -61,14 +62,6 @@ def write_two_class_plus_third_ndjson(directory: Path, *, name: str = "fixture.n
 
 def _patient_from_rows(patient_id: str, rows: List[Dict[str, object]]) -> Patient:
     return Patient(patient_id=patient_id, data_source=pl.DataFrame(rows))
-
-
-def _run_task(ds: MIMIC4FHIRDataset, task) -> List[Dict]:
-    """Run task over all patients without LitData caching (test helper)."""
-    task.vocab = ds.vocab
-    task._specials = None
-    task.frozen_vocab = False
-    return [s for patient in ds.iter_patients() for s in task(patient)]
 
 
 class TestDeceasedBooleanFlattening(unittest.TestCase):
@@ -208,7 +201,7 @@ class TestMIMIC4FHIRDataset(unittest.TestCase):
             write_one_patient_ndjson(Path(tmp))
             ds = MIMIC4FHIRDataset(root=tmp, glob_pattern="*.ndjson", cache_dir=tmp)
             task = MPFClinicalPredictionTask(max_len=64, use_mpf=True)
-            _run_task(ds, task)
+            run_task(ds, task)
             self.assertIsInstance(ds.vocab, ConceptVocab)
             self.assertGreater(ds.vocab.vocab_size, 2)
 
@@ -232,7 +225,7 @@ class TestMIMIC4FHIRDataset(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             write_two_class_ndjson(Path(tmp))
             ds = MIMIC4FHIRDataset(root=tmp, glob_pattern="*.ndjson", cache_dir=tmp)
-            samples = _run_task(ds, MPFClinicalPredictionTask(max_len=64, use_mpf=False))
+            samples = run_task(ds, MPFClinicalPredictionTask(max_len=64, use_mpf=False))
             self.assertEqual({s["label"] for s in samples}, {0, 1})
 
     def test_infer_deceased(self) -> None:
@@ -257,7 +250,7 @@ class TestMIMIC4FHIRDataset(unittest.TestCase):
             write_two_class_ndjson(Path(tmp))
             ds = MIMIC4FHIRDataset(root=tmp, glob_pattern="*.ndjson", max_patients=5)
             self.assertEqual(len(ds.unique_patient_ids), 2)
-            samples = _run_task(ds, MPFClinicalPredictionTask(max_len=48, use_mpf=True))
+            samples = run_task(ds, MPFClinicalPredictionTask(max_len=48, use_mpf=True))
             self.assertGreaterEqual(len(samples), 1)
             for sample in samples:
                 self.assertIn("concept_ids", sample)
@@ -329,6 +322,16 @@ class TestMIMIC4FHIRDataset(unittest.TestCase):
             self.assertIn("http://loinc.org|789-0", ds.vocab.token_to_id)
 
     def test_mpf_pre_filter_single_patient_limits_effective_workers(self) -> None:
+        """Pre-filter that yields one patient should cap effective_workers to 1.
+
+        We verify the effective_workers logic directly rather than via
+        ``set_task`` because ``set_task`` with a 1-patient cohort produces
+        only one label class (p-synth-1 is alive → label=0), which causes
+        ``BinaryLabelProcessor.fit`` to raise "Expected 2 unique labels, got 1".
+        The invariant under test belongs to the ``set_task`` override in
+        ``MIMIC4FHIRDataset``; the Polars pre-filter and worker-count
+        formula are both exercised here without triggering that constraint.
+        """
         from pyhealth.tasks.mpf_clinical_prediction import MPFClinicalPredictionTask
 
         class OnePatientMPFTask(MPFClinicalPredictionTask):
@@ -351,6 +354,7 @@ class TestMIMIC4FHIRDataset(unittest.TestCase):
                 .to_list()
             )
             self.assertEqual(warmup_pids, ["p-synth-1"])
+            # One patient, two requested workers: effective_workers = min(2, 1) = 1
             effective_workers = min(2, len(warmup_pids)) if warmup_pids else 1
             self.assertEqual(effective_workers, 1)
 

@@ -10,7 +10,6 @@ from pyhealth.data import Patient
 from pyhealth.processors.cehr_processor import (
     CehrProcessor,
     ConceptVocab,
-    build_cehr_sequences,
     ensure_special_tokens,
     infer_mortality_label,
 )
@@ -124,7 +123,6 @@ class MPFClinicalPredictionTask(BaseTask):
         """
         processor = self._ensure_processor()
         pid = patient.patient_id
-        clinical_cap = max(0, self.max_len - 2)
         (
             concept_ids,
             token_types,
@@ -132,12 +130,7 @@ class MPFClinicalPredictionTask(BaseTask):
             ages,
             visit_orders,
             visit_segments,
-        ) = build_cehr_sequences(
-            patient,
-            processor.vocab,
-            clinical_cap,
-            grow_vocab=not processor.frozen_vocab,
-        )
+        ) = processor.process(patient)
 
         assert self._specials is not None
         mor_id = self._specials["<mor>"] if self.use_mpf else self._specials["<cls>"]

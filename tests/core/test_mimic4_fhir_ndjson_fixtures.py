@@ -84,3 +84,30 @@ def write_one_patient_ndjson(directory: Path, *, name: str = "fixture.ndjson") -
     path = directory / name
     path.write_text(ndjson_one_patient_text(), encoding="utf-8")
     return path
+
+
+# ---------------------------------------------------------------------------
+# Shared test helper
+# ---------------------------------------------------------------------------
+
+
+def run_task(ds: Any, task: Any) -> List[Dict[str, Any]]:
+    """Run *task* over every patient in *ds* without the LitData caching pipeline.
+
+    This helper mirrors the direct-iteration path that the old
+    ``MIMIC4FHIRDataset.gather_samples`` provided.  It is intentionally kept
+    here (the shared fixture module) so all FHIR test files can import it
+    rather than each maintaining their own copy.
+
+    Args:
+        ds: A :class:`~pyhealth.datasets.MIMIC4FHIRDataset` instance whose
+            ``global_event_df`` has already been built.
+        task: A :class:`~pyhealth.tasks.MPFClinicalPredictionTask` instance.
+
+    Returns:
+        Flat list of sample dicts, one per patient.
+    """
+    task.vocab = ds.vocab
+    task._specials = None
+    task.frozen_vocab = False
+    return [s for patient in ds.iter_patients() for s in task(patient)]
