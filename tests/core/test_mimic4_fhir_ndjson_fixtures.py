@@ -107,7 +107,6 @@ def run_task(ds: Any, task: Any) -> List[Dict[str, Any]]:
     Returns:
         Flat list of sample dicts, one per patient.
     """
-    task.vocab = ds.vocab
     task._specials = None
     task.frozen_vocab = False
     return [s for patient in ds.iter_patients() for s in task(patient)]

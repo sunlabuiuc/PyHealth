@@ -135,9 +135,6 @@ class MPFClinicalPredictionTask(BaseTask):
         """
         from litdata.processing.data_processor import in_notebook
 
-        if hasattr(dataset, "processor") and isinstance(dataset.processor, CehrProcessor):
-            self.processor.vocab = dataset.processor.vocab
-
         worker_count = 1 if in_notebook() else num_workers
         filtered = self.pre_filter(dataset.global_event_df)
         warmup_pids = (

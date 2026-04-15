@@ -202,8 +202,8 @@ class TestMIMIC4FHIRDataset(unittest.TestCase):
             ds = MIMIC4FHIRDataset(root=tmp, glob_pattern="*.ndjson", cache_dir=tmp)
             task = MPFClinicalPredictionTask(max_len=64, use_mpf=True)
             run_task(ds, task)
-            self.assertIsInstance(ds.vocab, ConceptVocab)
-            self.assertGreater(ds.vocab.vocab_size, 2)
+            self.assertIsInstance(task.vocab, ConceptVocab)
+            self.assertGreater(task.vocab.vocab_size, 2)
 
     def test_set_task_vocab_warm_on_litdata_cache_hit(self) -> None:
         from pyhealth.tasks.mpf_clinical_prediction import MPFClinicalPredictionTask

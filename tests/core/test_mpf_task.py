@@ -26,7 +26,7 @@ class TestMPFClinicalPredictionTask(unittest.TestCase):
         task = MPFClinicalPredictionTask(max_len=32, use_mpf=True)
         ds = self._two_patient_ds()
         samples = run_task(ds, task)
-        vocab = ds.vocab
+        vocab = task.vocab
         self.assertGreater(len(samples), 0)
         s0 = samples[0]
         mor = vocab["<mor>"]
@@ -43,7 +43,7 @@ class TestMPFClinicalPredictionTask(unittest.TestCase):
         task = MPFClinicalPredictionTask(max_len=32, use_mpf=False)
         ds = self._two_patient_ds()
         samples = run_task(ds, task)
-        vocab = ds.vocab
+        vocab = task.vocab
         s0 = samples[0]
         cls_id = vocab["<cls>"]
         reg_id = vocab["<reg>"]
@@ -69,7 +69,7 @@ class TestMPFClinicalPredictionTask(unittest.TestCase):
         task = MPFClinicalPredictionTask(max_len=2, use_mpf=True)
         ds = self._two_patient_ds()
         samples = run_task(ds, task)
-        vocab = ds.vocab
+        vocab = task.vocab
         mor = vocab["<mor>"]
         reg = vocab["<reg>"]
         pad_id = vocab.pad_id
