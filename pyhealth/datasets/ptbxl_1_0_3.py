@@ -55,13 +55,12 @@ class PTBXLDataset(BaseSignalDataset):
 		self.dev = dev
 
 		# Determine the root path, where most of the data is stored
-		# self.data_path: str = os.path.join(root, 'ptb_xl_processed_full.zip')
-		self.data_path: str = os.path.join(root, 'test.zip')
+		self.data_path: str = os.path.join(root, 'ptb_xl_processed_final.zip')
 		self.root = root
 
 		# Determine signal path, where to fetch the signal samples
 		signal_folder = 'records100' if downsampled else 'records500'
-		root_path = os.path.join(root, 'physionet.org/files/ptb-xl/1.0.3/') if download else root
+		root_path = os.path.join(root, 'ptb_xl_processed_final/ptb-xl-a-large-publicly-available-electrocardiography-dataset-1.0.3') if download else root
 		self.signal_path: str = os.path.join(root_path, signal_folder)
 
 		# Download the dataset from online source to root if needed
@@ -81,8 +80,7 @@ class PTBXLDataset(BaseSignalDataset):
 	def _download(self, download) -> None:
 		
 		if download:
-			# zip_id = '1IE-4Co1fLRoEI9jez2pwuf9HPmFRzuLX' # full
-			zip_id = '1Q9Ksxj4gSrsHVb6qqICI0nm0K8HWtDW2' # test
+			zip_id = '1btbPiHEOUBLNLfUYkLnKzs50ZTmgqdI2'
 			response = requests.get(f'https://drive.google.com/uc?export=download&id={zip_id}')
 			with open(self.data_path, 'wb') as file:
 				file.write(response.content)
@@ -114,15 +112,15 @@ class PTBXLDataset(BaseSignalDataset):
 						}
 					]
 
-        if self.dev:
-        	keys = random.sample(list(patients), min(len(patients), 5))
-        	values = [d[k] for k in keys]
-	        return dict(zip(keys, values))
+		if self.dev:
+			keys = random.sample(list(patients), min(len(patients), 5))
+			values = [d[k] for k in keys]
+			return dict(zip(keys, values))
 
 		return patients
 
 if __name__ == "__main__":
-	dataset = PTBXLDataset(root='../../../../', download=False, downsampled=True)
+	dataset = PTBXLDataset(root='../../../../', download=False, downsampled=True, dev=False)
 	dataset.stat()
 	dataset.info()
 	print(dataset.process_EEG_data())
