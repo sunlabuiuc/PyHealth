@@ -32,6 +32,103 @@ GLOBAL_DRUG_MAPPER = CrossMap("NDC", "ATC")
 # ======================
 
 
+def build_daily_time_series_from_df(patient):
+    """
+    Build daily time series from a dataframe-based patient.
+
+    This function handles the PyHealth main dataset structure where
+    all events are stored in a single dataframe (patient.data_source).
+    It extracts relevant medical events and aggregates them into
+    daily time steps.
+
+    Args:
+        patient (Any): A PyHealth patient object with a dataframe
+            stored in `patient.data_source`.
+
+    Returns:
+        List[Dict[str, Any]]: A list of daily aggregated visits where
+        each entry contains:
+            - time (int): day index
+            - diagnosis (List[str])
+            - procedure (List[str])
+            - drug (List[str])
+    """
+    df = patient.data_source
+
+    events = []
+
+    for row in df.iter_rows(named=True):
+        timestamp = row.get("timestamp")
+        event_type = str(row.get("event_type")).lower()
+
+        # Extract code based on event type
+        if event_type == "diagnoses_icd":
+            code = row.get("diagnoses_icd/icd9_code")
+
+        elif event_type == "procedures_icd":
+            code = row.get("procedures_icd/icd9_code")
+
+        elif event_type == "prescriptions":
+            code = row.get("prescriptions/ndc")
+
+        else:
+            # Ignore non-medical tables (patients, admissions, icustays)
+            continue
+
+        # Skip invalid rows
+        if timestamp is None or code is None:
+            continue
+
+        events.append((timestamp, code, event_type))
+
+    if not events:
+        return []
+
+    # Sort events by time
+    events.sort(key=lambda x: x[0])
+    first_time = events[0][0]
+
+    # Map time -> codes
+    time_to_codes = defaultdict(
+        lambda: {"diagnosis": set(), "procedure": set(), "drug": set()}
+    )
+
+    for timestamp, code, event_type in events:
+        delta_day = (timestamp - first_time).days
+
+        if event_type == "diagnoses_icd":
+            time_to_codes[delta_day]["diagnosis"].add(code)
+
+        elif event_type == "procedures_icd":
+            time_to_codes[delta_day]["procedure"].add(code)
+
+        elif event_type == "prescriptions":
+            time_to_codes[delta_day]["drug"].add(code)
+
+    max_day = max(time_to_codes.keys())
+
+    visits = []
+    current_diag, current_proc, current_drug = set(), set(), set()
+
+    # Build cumulative daily visits
+    for day in range(max_day + 1):
+        if day in time_to_codes:
+            current_diag.update(time_to_codes[day]["diagnosis"])
+            current_proc.update(time_to_codes[day]["procedure"])
+            current_drug.update(time_to_codes[day]["drug"])
+
+        visits.append(
+            {
+                "time": day,
+                "diagnosis": list(current_diag),
+                "procedure": list(current_proc),
+                "drug": list(current_drug),
+            }
+        )
+
+    return visits
+
+
 def build_daily_time_series(patient) -> List[Dict[str, Any]]:
     """
     Convert patient events into a daily time series.
@@ -43,8 +140,17 @@ def build_daily_time_series(patient) -> List[Dict[str, Any]]:
         List of daily aggregated visits.
     """
     events = []
+    
+    if hasattr(patient, "data_source"):
+        return build_daily_time_series_from_df(patient)
 
-    for visit in patient.visits.values():
+
+    if hasattr(patient, "get_visits"):
+        visits = patient.get_visits()
+    else:
+        visits = patient.visits.values()
+
+    for visit in visits:
         for table in [
             "DIAGNOSES_ICD",
             "PROCEDURES_ICD",
@@ -274,10 +380,26 @@ class DynamicSurvivalTask(BaseTask):
         )
 
     def build_vocab(self, dataset):
-        """Build vocabularies from dataset."""
+        """
+        Build vocabularies from a dataset.
+
+        This function supports both PyHealth datasets (which provide
+        iter_patients()) and mock datasets (which provide patients dict).
+
+        Args:
+            dataset (Any): Dataset object containing patient data.
+
+        Returns:
+            None
+        """
         diag_set, proc_set, drug_set = set(), set(), set()
 
-        for i, patient in enumerate(dataset.patients.values()):
+        if hasattr(dataset, "iter_patients"):
+            patient_iter = dataset.iter_patients()
+        else:
+            patient_iter = dataset.patients.values()
+
+        for i, patient in enumerate(patient_iter):
             if i > 5:
                 break
 
@@ -285,34 +407,17 @@ class DynamicSurvivalTask(BaseTask):
 
             for visit in visits:
                 if self.use_diag:
-                    diag_set.update(
-                        m
-                        for c in visit["diagnosis"]
-                        for m in self.diag_mapper.map(c)
-                        if m
-                    )
-
+                    diag_set.update(visit["diagnosis"])
                 if self.use_proc:
-                    proc_set.update(
-                        m
-                        for c in visit["procedure"]
-                        for m in self.proc_mapper.map(c)
-                        if m
-                    )
-
+                    proc_set.update(visit["procedure"])
                 if self.use_drug:
-                    drug_set.update(
-                        m
-                        for c in visit["drug"]
-                        for m in self.drug_mapper.map(c)
-                        if m
-                    )
+                    drug_set.update(visit["drug"])
 
-        return (
-            {c: i for i, c in enumerate(sorted(diag_set))},
-            {c: i for i, c in enumerate(sorted(proc_set))},
-            {c: i for i, c in enumerate(sorted(drug_set))},
-        )
+        self.diag_vocab = {c: i for i, c in enumerate(diag_set)}
+        self.proc_vocab = {c: i for i, c in enumerate(proc_set)}
+        self.drug_vocab = {c: i for i, c in enumerate(drug_set)}
+
+        return self.diag_vocab, self.proc_vocab, self.drug_vocab
 
     def encode_multi_hot(self, codes, vocab):
         """Convert codes into multi-hot vector."""
@@ -323,6 +428,98 @@ class DynamicSurvivalTask(BaseTask):
         return vec
 
     def __call__(self, patient) -> List[Dict[str, Any]]:
+        """
+        Convert a patient into dynamic survival samples.
+
+        Args:
+            patient (Any): A patient object from a PyHealth dataset
+                or a mock patient.
+
+        Returns:
+            List[Dict[str, Any]]: A list of survival samples.
+        """
+
+        # =========================
+        # Mock / PyHealth object patient (visits dict)
+        # =========================
+        if hasattr(patient, "visits") and isinstance(patient.visits, dict):
+            visits_list = list(patient.visits.values())
+
+            if len(visits_list) == 0:
+                return []
+
+            processed_visits = []
+            start_time = visits_list[0].encounter_time
+
+            for visit in visits_list:
+                features = []
+
+                if self.use_diag:
+                    codes = [
+                        e.code for e in visit.event_list_dict.get("DIAGNOSES_ICD", [])
+                    ]
+                    features.append(
+                        self.encode_multi_hot(codes, self.diag_vocab)
+                    )
+
+                if self.use_proc:
+                    codes = [
+                        e.code for e in visit.event_list_dict.get("PROCEDURES_ICD", [])
+                    ]
+                    features.append(
+                        self.encode_multi_hot(codes, self.proc_vocab)
+                    )
+
+                if self.use_drug:
+                    codes = [
+                        e.code for e in visit.event_list_dict.get("PRESCRIPTIONS", [])
+                    ]
+                    features.append(
+                        self.encode_multi_hot(codes, self.drug_vocab)
+                    )
+
+                x = (
+                    np.concatenate(features).astype(np.float32)
+                    if features
+                    else np.zeros(1, dtype=np.float32)
+                )
+
+                time_idx = (visit.encounter_time - start_time).days
+
+                processed_visits.append(
+                    {
+                        "time": time_idx,
+                        "feature": x,
+                    }
+                )
+
+            death_time = getattr(patient, "death_datetime", None)
+
+            if death_time:
+                outcome_time = (death_time - start_time).days
+                censor_time = None
+            else:
+                outcome_time = None
+                censor_time = processed_visits[-1]["time"]
+
+            patient_dict = {
+                "patient_id": patient.patient_id,
+                "visits": processed_visits,
+                "outcome_time": outcome_time,
+                "censor_time": censor_time,
+            }
+
+            return self.engine.process_patient(patient_dict)
+
+        # =========================
+        # Dict-style patient (used in some tests)
+        # =========================
+        if isinstance(patient, dict):
+            return self.engine.process_patient(patient)
+
+        # =========================
+        # PyHealth dataframe-based patient
+        # =========================
         visits_raw = build_daily_time_series(patient)
         if not visits_raw:
             return []
@@ -365,22 +562,30 @@ class DynamicSurvivalTask(BaseTask):
                     self.encode_multi_hot(mapped, self.drug_vocab)
                 )
 
-            x = np.concatenate(features) if features else np.zeros(1)
+            x = (
+                np.concatenate(features).astype(np.float32)
+                if features
+                else np.zeros(1, dtype=np.float32)
+            )
 
-            processed_visits.append({"time": visit["time"], "feature": x})
+            processed_visits.append(
+                {
+                    "time": visit["time"],
+                    "feature": x,
+                }
+            )
 
-        first_time = list(patient.visits.values())[0].encounter_time
         death_time = getattr(patient, "death_datetime", None)
 
         if death_time:
-            outcome_time = (death_time - first_time).days
+            outcome_time = processed_visits[-1]["time"]
             censor_time = None
         else:
             outcome_time = None
             censor_time = processed_visits[-1]["time"]
 
         patient_dict = {
-            "patient_id": patient.patient_id,
+            "patient_id": getattr(patient, "patient_id", "unknown"),
             "visits": processed_visits,
             "outcome_time": outcome_time,
             "censor_time": censor_time,
