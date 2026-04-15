@@ -13,16 +13,6 @@ from .base_dataset import BaseDataset
 
 logger = logging.getLogger(__name__)
 
-# (owner, commit_sha) for each variant of the dataset.
-# Pinning to a commit SHA keeps the URL and MD5 stable as either repo evolves.
-_REPO_BY_VARIANT = {
-    False: ("Tang-Jia-Lu", "b0ec9bd84ae2337052ca977941e37a703dcb492e"),
-    True: ("jovianw", "2e2d4ac185d6069c741d083269ea40ca01bfd50b"),
-}
-_MD5_BY_VARIANT = {
-    False: "894b4af304e99c48ecd62a914ba3ba2b",
-    True: "e65c4b6ae127103ad92a33ec9246039e",
-}
 _VALID_ECG_SOURCES = {"ptbxl": "ptbxl", "mimic": "mimic-iv-ecg"}
 
 
@@ -101,19 +91,6 @@ class ECGQADataset(BaseDataset):
 
         self.prepare_metadata()
 
-        # Check if CSV is in cache rather than root
-        root_path = Path(root)
-        cache_dir = Path.home() / ".cache" / "pyhealth" / "ecg_qa"
-        csv_name = "ecg-qa-pyhealth.csv"
-
-        use_cache = False
-        if not (root_path / csv_name).exists() and (cache_dir / csv_name).exists():
-            use_cache = True
-
-        if use_cache:
-            logger.info(f"Using cached metadata from {cache_dir}")
-            root = str(cache_dir)
-
         super().__init__(
             root=root,
             tables=["ecg_qa"],
@@ -132,31 +109,16 @@ class ECGQADataset(BaseDataset):
             attribute_type, template_id, question_id, sample_id, attribute
         """
         root = Path(self.root)
-        cache_dir = Path.home() / ".cache" / "pyhealth" / "ecg_qa"
-        csv_name = "ecg-qa-pyhealth.csv"
-
-        shared_csv = root / csv_name
-        cache_csv = cache_dir / csv_name
-        if shared_csv.exists() or cache_csv.exists():
+        csv_path = root / "ecg-qa-pyhealth.csv"
+        if csv_path.exists():
             return
 
-        # Load all JSON files from all split directories
         data = []
         for split_dir in ("train", "valid", "test"):
-            json_dir = root / split_dir
-            if not json_dir.is_dir():
-                logger.warning("JSON directory not found: %s", json_dir)
-                continue
-            for fpath in sorted(json_dir.glob("*.json")):
+            for fpath in sorted((root / split_dir).glob("*.json")):
                 with open(fpath, "r") as f:
                     data.extend(json.load(f))
 
-        if not data:
-            raise FileNotFoundError(
-                f"No JSON files found in train/valid/test subdirectories of {root}"
-            )
-
-        # Filter to single-* question types and build rows
         rows: list[dict] = []
         for record in data:
             qt = record.get("question_type", "")
@@ -186,28 +148,19 @@ class ECGQADataset(BaseDataset):
         df = pd.DataFrame(rows)
         df.sort_values(["patient_id", "question_type", "template_id"], inplace=True)
         df.reset_index(drop=True, inplace=True)
-
-        # Try shared location first, fall back to cache
-        try:
-            shared_csv.parent.mkdir(parents=True, exist_ok=True)
-            df.to_csv(shared_csv, index=False)
-            logger.info(f"Wrote metadata to {shared_csv}")
-        except (PermissionError, OSError):
-            cache_dir.mkdir(parents=True, exist_ok=True)
-            df.to_csv(cache_csv, index=False)
-            logger.info(f"Wrote metadata to cache: {cache_csv}")
+        df.to_csv(csv_path, index=False)
+        logger.info(f"Wrote metadata to {csv_path}")
 
     def _download_data(
         self, root: str, ecg_source: str, include_demographics: bool
     ) -> None:
-        """Downloads the requested ECG-QA variant from GitHub into ``root``.
+        """Downloads the requested ECG-QA dataset from GitHub into ``root``.
 
-        Fetches a commit-pinned tarball of the upstream ``Tang-Jia-Lu`` repo
-        (or the user's ``jovianw`` fork when ``include_demographics`` is True),
+        Fetches a commit-pinned tarball from the original ``Tang-Jia-Lu`` repo
+        (or a modified fork when ``include_demographics`` is True),
         verifies its MD5, and extracts only the
         ``ecgqa/<ecg_source>/paraphrased/{train,valid,test}/`` subtree directly
-        into ``root``. The tarball itself is cached under ``{root}/.ecgqa-cache/``
-        so a second call with the other ``ecg_source`` value can reuse it.
+        into ``root``. The tarball is deleted after extraction.
 
         Args:
             root: directory the splits will land in.
@@ -218,44 +171,46 @@ class ECGQADataset(BaseDataset):
             ValueError: if the downloaded tarball fails MD5 verification or
                 if it contains an unsafe path during extraction.
         """
-        owner, sha = _REPO_BY_VARIANT[include_demographics]
-        expected_md5 = _MD5_BY_VARIANT[include_demographics]
-        url = f"https://github.com/{owner}/FSL_ECG_QA/archive/{sha}.tar.gz"
+        # URLs are pinned to specific commit SHAs so the MD5s below stay stable
+        # even if either repo gains new commits later.
+        if include_demographics:
+            url = (
+                "https://github.com/jovianw/FSL_ECG_QA/archive/"
+                "2e2d4ac185d6069c741d083269ea40ca01bfd50b.tar.gz"
+            )
+            expected_md5 = "e65c4b6ae127103ad92a33ec9246039e"
+            archive_prefix = "FSL_ECG_QA-2e2d4ac185d6069c741d083269ea40ca01bfd50b"
+        else:
+            url = (
+                "https://github.com/Tang-Jia-Lu/FSL_ECG_QA/archive/"
+                "b0ec9bd84ae2337052ca977941e37a703dcb492e.tar.gz"
+            )
+            expected_md5 = "894b4af304e99c48ecd62a914ba3ba2b"
+            archive_prefix = "FSL_ECG_QA-b0ec9bd84ae2337052ca977941e37a703dcb492e"
 
         os.makedirs(root, exist_ok=True)
-        cache_dir = os.path.join(root, ".ecgqa-cache")
-        os.makedirs(cache_dir, exist_ok=True)
-        archive_path = os.path.join(cache_dir, f"{sha}.tar.gz")
+        archive_path = os.path.join(root, "ecgqa-download.tar.gz")
 
-        need_download = True
-        if os.path.isfile(archive_path):
-            with open(archive_path, "rb") as f:
-                if hashlib.md5(f.read()).hexdigest() == expected_md5:
-                    logger.info(f"Reusing cached archive {archive_path}")
-                    need_download = False
+        logger.info(f"Downloading {url} -> {archive_path}")
+        urllib.request.urlretrieve(url, archive_path)
 
-        if need_download:
-            logger.info(f"Downloading {url} -> {archive_path}")
-            urllib.request.urlretrieve(url, archive_path)
-
-            logger.info(f"Checking MD5 checksum for {archive_path}...")
-            with open(archive_path, "rb") as f:
-                file_md5 = hashlib.md5(f.read()).hexdigest()
-            if file_md5 != expected_md5:
-                msg = (
-                    f"Invalid MD5 checksum for {archive_path}: "
-                    f"expected {expected_md5}, got {file_md5}"
-                )
-                logger.error(msg)
-                raise ValueError(msg)
+        logger.info(f"Checking MD5 checksum for {archive_path}...")
+        with open(archive_path, "rb") as f:
+            file_md5 = hashlib.md5(f.read()).hexdigest()
+        if file_md5 != expected_md5:
+            msg = (
+                f"Invalid MD5 checksum for {archive_path}: "
+                f"expected {expected_md5}, got {file_md5}"
+            )
+            logger.error(msg)
+            raise ValueError(msg)
 
         ecg_source_dir = _VALID_ECG_SOURCES[ecg_source]
-        prefix = f"FSL_ECG_QA-{sha}/ecgqa/{ecg_source_dir}/paraphrased/"
+        prefix = f"{archive_prefix}/ecgqa/{ecg_source_dir}/paraphrased/"
         abs_root = os.path.abspath(root)
 
         logger.info(f"Extracting {prefix}* from {archive_path} into {root}")
         with tarfile.open(archive_path, "r:gz") as tar:
-            extracted = 0
             for member in tar.getmembers():
                 if not member.name.startswith(prefix):
                     continue
@@ -273,9 +228,9 @@ class ECGQADataset(BaseDataset):
 
                 member.name = rel
                 tar.extract(member, path=root)
-                extracted += 1
 
-        logger.info(f"Download complete ({extracted} entries extracted)")
+        os.remove(archive_path)
+        logger.info("Download complete")
 
     def _verify_data(self, root: str) -> None:
         """Verifies the presence and structure of the dataset directory.

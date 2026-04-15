@@ -3,7 +3,6 @@ import tempfile
 import shutil
 import json
 from pathlib import Path
-from unittest.mock import patch
 
 from pyhealth.datasets import ECGQADataset
 
@@ -85,17 +84,10 @@ class TestECGQADataset(unittest.TestCase):
         (self.root / "valid" / "00.json").write_text(json.dumps(valid_records))
         (self.root / "test" / "00.json").write_text(json.dumps(test_records))
 
-        # Redirect Path.home() into the temp dir so that prepare_metadata's
-        # ~/.cache/pyhealth/ecg_qa fallback cannot find a pre-existing user
-        # cache and shadow the test fixture with stale data.
-        self._home_patch = patch.object(Path, "home", return_value=self.root)
-        self._home_patch.start()
-
         self._cache_tmp = tempfile.mkdtemp()
 
     def tearDown(self):
         """Clean up temporary files"""
-        self._home_patch.stop()
         shutil.rmtree(self.temp_dir, ignore_errors=True)
         shutil.rmtree(self._cache_tmp, ignore_errors=True)
 
