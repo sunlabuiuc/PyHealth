@@ -1,5 +1,5 @@
 """
-Author: Simona Bernfeld
+Author: Elizabeth Binkina
 Paper: Feature Robustness in Non-stationary Health Records:
 Caveats to Deployable Model Performance in Common Clinical Machine Learning Tasks
 Paper link: https://proceedings.mlr.press/v106/nestor19a.html
