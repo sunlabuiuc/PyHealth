@@ -1,0 +1,5 @@
+patientid,pharmaid,givenat,enteredentryat,givendose,cumulativedose,fluidamount_calc,cumulfluidamount_calc,doseunit,route,infusionid,typeid,subtypeid,recordstatus
+148,1000251,2183-05-12 12:54:00,2183-05-12 14:03:39,25.0,25.0,0.5,0.5,ug,iv-inj,1616089,1,8,780
+148,1000251,2183-05-12 12:58:00,2183-05-12 14:03:56,25.0,50.0,0.5,1.0,ug,iv-inj,257507,1,8,780
+229,1000302,2151-03-02 07:45:00,2151-03-02 08:00:00,2.0,2.0,10.0,10.0,mg,iv,200001,1,4,780
+307,1000403,2160-09-18 19:10:00,2160-09-18 19:22:00,1.0,1.0,5.0,5.0,mg,iv,300002,2,6,780
