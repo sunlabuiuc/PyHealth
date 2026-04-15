@@ -4,8 +4,8 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 import numpy as np
-from pyhealth.tasks.shhs_sleep_staging import (
-    SleepStagingSHHS,
+from pyhealth.tasks.shhs_ibi_sleep_staging import (
+    SleepStagingSHHSIBI,
     _STAGE_MAP,
     _downsample,
     _ecg_to_ibi,
@@ -91,8 +91,8 @@ class TestParseProfusionStages(unittest.TestCase):
 
 class TestEcgToIbi(unittest.TestCase):
 
-    @patch("pyhealth.tasks.shhs_sleep_staging.nk.ecg_peaks")
-    @patch("pyhealth.tasks.shhs_sleep_staging.nk.ecg_clean")
+    @patch("pyhealth.tasks.shhs_ibi_sleep_staging.nk.ecg_peaks")
+    @patch("pyhealth.tasks.shhs_ibi_sleep_staging.nk.ecg_clean")
     def test_regular_heartbeat(self, mock_clean, mock_peaks):
         fs = 125
         n_samples = 1000
@@ -109,8 +109,8 @@ class TestEcgToIbi(unittest.TestCase):
         self.assertAlmostEqual(ibi[200], 1.0, places=5)
         self.assertEqual(ibi[0], 0.0)
 
-    @patch("pyhealth.tasks.shhs_sleep_staging.nk.ecg_peaks")
-    @patch("pyhealth.tasks.shhs_sleep_staging.nk.ecg_clean")
+    @patch("pyhealth.tasks.shhs_ibi_sleep_staging.nk.ecg_peaks")
+    @patch("pyhealth.tasks.shhs_ibi_sleep_staging.nk.ecg_clean")
     def test_outlier_removal(self, mock_clean, mock_peaks):
         fs = 125
         n_samples = 1000
@@ -128,8 +128,8 @@ class TestEcgToIbi(unittest.TestCase):
         self.assertEqual(ibi[400], 0.0)
         self.assertEqual(ibi[800], 0.0)
 
-    @patch("pyhealth.tasks.shhs_sleep_staging.nk.ecg_peaks")
-    @patch("pyhealth.tasks.shhs_sleep_staging.nk.ecg_clean")
+    @patch("pyhealth.tasks.shhs_ibi_sleep_staging.nk.ecg_peaks")
+    @patch("pyhealth.tasks.shhs_ibi_sleep_staging.nk.ecg_clean")
     def test_fewer_than_two_peaks(self, mock_clean, mock_peaks):
         mock_clean.side_effect = lambda sig, **kw: sig
         mock_peaks.return_value = (
@@ -176,28 +176,28 @@ class TestDownsample(unittest.TestCase):
         np.testing.assert_array_equal(result, signal)
 
 
-class TestSleepStagingSHHSTask(unittest.TestCase):
+class TestSleepStagingSHHSIBITask(unittest.TestCase):
 
     def test_task_schema(self):
         self.assertEqual(
-            SleepStagingSHHS.task_name, "SleepStagingSHHS"
+            SleepStagingSHHSIBI.task_name, "SleepStagingSHHSIBI"
         )
         self.assertEqual(
-            SleepStagingSHHS.input_schema, {"signal": "tensor"}
+            SleepStagingSHHSIBI.input_schema, {"signal": "tensor"}
         )
         self.assertEqual(
-            SleepStagingSHHS.output_schema, {"label": "multiclass"}
+            SleepStagingSHHSIBI.output_schema, {"label": "multiclass"}
         )
 
     def test_defaults(self):
-        task = SleepStagingSHHS()
+        task = SleepStagingSHHSIBI()
         self.assertEqual(task.epoch_seconds, 30)
         self.assertEqual(task.seq_len, 20)
         self.assertEqual(task.target_hz, 25)
         self.assertEqual(task.max_epochs, 1100)
 
     def test_custom_params(self):
-        task = SleepStagingSHHS(
+        task = SleepStagingSHHSIBI(
             epoch_seconds=10,
             seq_len=5,
             target_hz=50,
@@ -227,7 +227,7 @@ class TestSleepStagingProcessing(unittest.TestCase):
         self.source_hz = 125
         self.samples_per_epoch = self.target_hz * self.epoch_seconds
 
-        self.task = SleepStagingSHHS(
+        self.task = SleepStagingSHHSIBI(
             epoch_seconds=self.epoch_seconds,
             seq_len=self.seq_len,
             target_hz=self.target_hz,
@@ -271,11 +271,11 @@ class TestSleepStagingProcessing(unittest.TestCase):
                 "mne.io.read_raw_edf", return_value=mock_raw
             ),
             patch(
-                "pyhealth.tasks.shhs_sleep_staging.nk.ecg_clean",
+                "pyhealth.tasks.shhs_ibi_sleep_staging.nk.ecg_clean",
                 side_effect=lambda sig, **kw: sig,
             ),
             patch(
-                "pyhealth.tasks.shhs_sleep_staging.nk.ecg_peaks",
+                "pyhealth.tasks.shhs_ibi_sleep_staging.nk.ecg_peaks",
                 return_value=(
                     None, {"ECG_R_Peaks": self.rpeaks}
                 ),
@@ -350,11 +350,11 @@ class TestSleepStagingProcessing(unittest.TestCase):
                 "mne.io.read_raw_edf", return_value=mock_raw
             ),
             patch(
-                "pyhealth.tasks.shhs_sleep_staging.nk.ecg_clean",
+                "pyhealth.tasks.shhs_ibi_sleep_staging.nk.ecg_clean",
                 side_effect=lambda sig, **kw: sig,
             ),
             patch(
-                "pyhealth.tasks.shhs_sleep_staging.nk.ecg_peaks",
+                "pyhealth.tasks.shhs_ibi_sleep_staging.nk.ecg_peaks",
                 return_value=(
                     None, {"ECG_R_Peaks": rpeaks}
                 ),
@@ -387,11 +387,11 @@ class TestSleepStagingProcessing(unittest.TestCase):
                 "mne.io.read_raw_edf", return_value=mock_raw
             ),
             patch(
-                "pyhealth.tasks.shhs_sleep_staging.nk.ecg_clean",
+                "pyhealth.tasks.shhs_ibi_sleep_staging.nk.ecg_clean",
                 side_effect=lambda sig, **kw: sig,
             ),
             patch(
-                "pyhealth.tasks.shhs_sleep_staging.nk.ecg_peaks",
+                "pyhealth.tasks.shhs_ibi_sleep_staging.nk.ecg_peaks",
                 return_value=(
                     None, {"ECG_R_Peaks": self.rpeaks}
                 ),
@@ -419,7 +419,7 @@ class TestSleepStagingProcessing(unittest.TestCase):
         self.assertEqual(samples, [])
 
     def test_max_epochs_limits_output(self):
-        task = SleepStagingSHHS(
+        task = SleepStagingSHHSIBI(
             epoch_seconds=self.epoch_seconds,
             seq_len=self.seq_len,
             target_hz=self.target_hz,
@@ -436,11 +436,11 @@ class TestSleepStagingProcessing(unittest.TestCase):
                 "mne.io.read_raw_edf", return_value=mock_raw
             ),
             patch(
-                "pyhealth.tasks.shhs_sleep_staging.nk.ecg_clean",
+                "pyhealth.tasks.shhs_ibi_sleep_staging.nk.ecg_clean",
                 side_effect=lambda sig, **kw: sig,
             ),
             patch(
-                "pyhealth.tasks.shhs_sleep_staging.nk.ecg_peaks",
+                "pyhealth.tasks.shhs_ibi_sleep_staging.nk.ecg_peaks",
                 return_value=(
                     None, {"ECG_R_Peaks": self.rpeaks}
                 ),
