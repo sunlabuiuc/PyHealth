@@ -30,6 +30,7 @@ Usage (synthetic exhaustive grid, default):
 Usage (real MIMIC-III):
     python examples/mimic3_ama_prediction_rnn.py \\
         --data-source real --root /path/to/mimic-iii/1.4 --splits 100 --epochs 10
+
 """
 
 import argparse

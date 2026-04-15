@@ -37,6 +37,7 @@ Usage (synthetic random demo):
 Usage (real MIMIC-III; same as ``--root /path`` with ``--data-source auto``):
     python examples/mimic3_ama_prediction_logistic_regression.py \\
         --data-source real --root /path/to/mimic-iii/1.4 --splits 100 --epochs 10
+
 """
 
 import argparse
@@ -249,13 +250,36 @@ def generate_synthetic_mimic3(
             * len(discharge_ama)
             * len(diagnosis_texts)
         )
-        for k, extra in enumerate(
+        extra_rows = (
             (
-                ("M", 45, "WHITE", "Private", "EMERGENCY", "SKILLED NURSING FACILITY", "SEPSIS"),
-                ("F", 55, "BLACK/AFRICAN AMERICAN", "Medicaid", "EMERGENCY", "EXPIRED", "CHEST PAIN"),
-                ("M", 28, "HISPANIC OR LATINO", "Private", "NEWBORN", "HOME", "PNEUMONIA"),
+                "M",
+                45,
+                "WHITE",
+                "Private",
+                "EMERGENCY",
+                "SKILLED NURSING FACILITY",
+                "SEPSIS",
             ),
-        ):
+            (
+                "F",
+                55,
+                "BLACK/AFRICAN AMERICAN",
+                "Medicaid",
+                "EMERGENCY",
+                "EXPIRED",
+                "CHEST PAIN",
+            ),
+            (
+                "M",
+                28,
+                "HISPANIC OR LATINO",
+                "Private",
+                "NEWBORN",
+                "HOME",
+                "PNEUMONIA",
+            ),
+        )
+        for k, extra in enumerate(extra_rows):
             g, age_y, eth, ins, adm_type, disch, diag = extra
             icustay_id = append_visit(
                 subject_id,

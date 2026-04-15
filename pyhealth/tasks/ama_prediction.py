@@ -1,6 +1,12 @@
+"""MIMIC-III Against-Medical-Advice (AMA) discharge prediction task.
+
+Defines :class:`AMAPredictionMIMIC3` and helpers for Boag et al. 2018-style
+demographic baselines (race / substance-use ablations).
+"""
+
 import re
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from .base_task import BaseTask
 
@@ -11,7 +17,7 @@ _SUBSTANCE_PATTERN = re.compile(
 )
 
 
-def _normalize_race(ethnicity: str) -> str:
+def _normalize_race(ethnicity: Optional[str]) -> str:
     """Map MIMIC-III ethnicity strings to the race categories used by
     Boag et al. 2018.
 
@@ -39,7 +45,7 @@ def _normalize_race(ethnicity: str) -> str:
     return "Other"
 
 
-def _normalize_insurance(insurance: str) -> str:
+def _normalize_insurance(insurance: Optional[str]) -> str:
     """Map MIMIC-III insurance strings to the categories used by
     Boag et al. 2018.
 
@@ -120,6 +126,14 @@ class AMAPredictionMIMIC3(BaseTask):
     Unlike mortality or readmission prediction, the label is a property
     of the **current** admission, so patients with only one visit are
     eligible.
+
+    **Processor mapping (schemas):** Each value in ``input_schema`` and
+    ``output_schema`` must be a processor string key understood by
+    ``dataset.set_task`` (see the Tasks docs processor table).  Here,
+    ``"multi_hot"`` feeds ``MultiHotProcessor`` (token lists for
+    ``demographics`` and ``race``), ``"tensor"`` feeds ``TensorProcessor``
+    (``age``, ``los``, ``has_substance_use``), and ``"binary"`` labels
+    ``ama`` for the binary label path.
 
     Attributes:
         task_name (str): The name of the task.

@@ -1,12 +1,27 @@
+"""Unit and integration tests for AMA discharge prediction on MIMIC-III.
+
+Aligned with the PyHealth PR checklist ("What makes a good PyHealth PR?",
+see course slides): task inherits ``BaseTask`` with explicit schemas;
+integration tests use a **five-row** shared synthetic slice so runs stay
+fast; mocks cover edge cases without loading full MIMIC-III.  End-to-end
+usage lives in ``examples/mimic3_ama_prediction_logistic_regression.py`` and
+``examples/mimic3_ama_prediction_rnn.py``.
+"""
+
+import gc
 import gzip
 import importlib.util
+import io
 import shutil
+import sys
 import tempfile
 import unittest
+import warnings
 from datetime import datetime
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import pandas as pd
 import torch
 
 from pyhealth.datasets import MIMIC3Dataset, get_dataloader, split_by_patient
@@ -18,6 +33,11 @@ from pyhealth.tasks.ama_prediction import (
     _normalize_race,
 )
 from pyhealth.trainer import Trainer
+
+warnings.filterwarnings("ignore", category=ResourceWarning)
+if "ignore::ResourceWarning" not in getattr(sys, "warnoptions", []):
+    sys.warnoptions.append("ignore::ResourceWarning")
+    warnings._filters_mutated()
 
 _EXAMPLE_PATH = (
     Path(__file__).resolve().parents[2]
@@ -31,6 +51,277 @@ _example_mod = importlib.util.module_from_spec(_spec)
 assert _spec.loader is not None
 _spec.loader.exec_module(_example_mod)
 generate_synthetic_mimic3 = _example_mod.generate_synthetic_mimic3
+
+
+# Fixed 5-row MIMIC-III-like slice for integration tests (3 non-AMA, 2 AMA).
+# Race (normalized): 2 White, 2 Black, 1 Hispanic.
+# Age at admit (task uses calendar year from DOB vs admittime): two young
+# (18-44), two middle (45-64), one senior (65+).
+CURATED_SYNTHETIC_N = 5
+CURATED_SYNTHETIC_AMA_NEGATIVE = 3
+CURATED_SYNTHETIC_AMA_POSITIVE = 2
+
+_CURATED_MIMIC3_PATIENTS = [
+    {
+        "subject_id": 1,
+        "gender": "M",
+        "dob": "2118-01-01 00:00:00",
+        "dod": None,
+        "dod_hosp": None,
+        "dod_ssn": None,
+        "expire_flag": 0,
+    },
+    {
+        "subject_id": 2,
+        "gender": "F",
+        "dob": "2096-01-02 00:00:00",
+        "dod": None,
+        "dod_hosp": None,
+        "dod_ssn": None,
+        "expire_flag": 0,
+    },
+    {
+        "subject_id": 3,
+        "gender": "M",
+        "dob": "2098-01-03 00:00:00",
+        "dod": None,
+        "dod_hosp": None,
+        "dod_ssn": None,
+        "expire_flag": 0,
+    },
+    {
+        "subject_id": 4,
+        "gender": "F",
+        "dob": "2115-01-11 00:00:00",
+        "dod": None,
+        "dod_hosp": None,
+        "dod_ssn": None,
+        "expire_flag": 0,
+    },
+    {
+        "subject_id": 5,
+        "gender": "M",
+        "dob": "2079-01-12 00:00:00",
+        "dod": None,
+        "dod_hosp": None,
+        "dod_ssn": None,
+        "expire_flag": 0,
+    },
+]
+
+_CURATED_MIMIC3_ADMISSIONS = [
+    {
+        "subject_id": 1,
+        "hadm_id": 100,
+        "admission_type": "EMERGENCY",
+        "admission_location": "EMERGENCY ROOM ADMIT",
+        "insurance": "Private",
+        "language": "ENGLISH",
+        "religion": "CHRISTIAN",
+        "marital_status": "SINGLE",
+        "ethnicity": "WHITE",
+        "edregtime": "2150-01-01 00:00:00",
+        "edouttime": "2150-01-01 00:00:00",
+        "diagnosis": "PNEUMONIA",
+        "discharge_location": "HOME",
+        "dischtime": "2150-01-08 00:00:00",
+        "admittime": "2150-01-01 00:00:00",
+        "hospital_expire_flag": 0,
+    },
+    {
+        "subject_id": 2,
+        "hadm_id": 101,
+        "admission_type": "EMERGENCY",
+        "admission_location": "EMERGENCY ROOM ADMIT",
+        "insurance": "Private",
+        "language": "ENGLISH",
+        "religion": "CHRISTIAN",
+        "marital_status": "SINGLE",
+        "ethnicity": "WHITE",
+        "edregtime": "2150-01-02 00:00:00",
+        "edouttime": "2150-01-02 00:00:00",
+        "diagnosis": "CHEST PAIN",
+        "discharge_location": "HOME",
+        "dischtime": "2150-01-09 00:00:00",
+        "admittime": "2150-01-02 00:00:00",
+        "hospital_expire_flag": 0,
+    },
+    {
+        "subject_id": 3,
+        "hadm_id": 102,
+        "admission_type": "EMERGENCY",
+        "admission_location": "EMERGENCY ROOM ADMIT",
+        "insurance": "Medicaid",
+        "language": "ENGLISH",
+        "religion": "CHRISTIAN",
+        "marital_status": "SINGLE",
+        "ethnicity": "BLACK/AFRICAN AMERICAN",
+        "edregtime": "2150-01-03 00:00:00",
+        "edouttime": "2150-01-03 00:00:00",
+        "diagnosis": "SEPSIS",
+        "discharge_location": "HOME",
+        "dischtime": "2150-01-10 00:00:00",
+        "admittime": "2150-01-03 00:00:00",
+        "hospital_expire_flag": 0,
+    },
+    {
+        "subject_id": 4,
+        "hadm_id": 103,
+        "admission_type": "EMERGENCY",
+        "admission_location": "EMERGENCY ROOM ADMIT",
+        "insurance": "Medicaid",
+        "language": "ENGLISH",
+        "religion": "CHRISTIAN",
+        "marital_status": "SINGLE",
+        "ethnicity": "BLACK/AFRICAN AMERICAN",
+        "edregtime": "2150-01-11 00:00:00",
+        "edouttime": "2150-01-11 00:00:00",
+        "diagnosis": "PNEUMONIA",
+        "discharge_location": "LEFT AGAINST MEDICAL ADVI",
+        "dischtime": "2150-01-18 00:00:00",
+        "admittime": "2150-01-11 00:00:00",
+        "hospital_expire_flag": 0,
+    },
+    {
+        "subject_id": 5,
+        "hadm_id": 104,
+        "admission_type": "EMERGENCY",
+        "admission_location": "EMERGENCY ROOM ADMIT",
+        "insurance": "Medicare",
+        "language": "ENGLISH",
+        "religion": "CHRISTIAN",
+        "marital_status": "SINGLE",
+        "ethnicity": "HISPANIC OR LATINO",
+        "edregtime": "2150-01-12 00:00:00",
+        "edouttime": "2150-01-12 00:00:00",
+        "diagnosis": "OPIOID DEPENDENCE",
+        "discharge_location": "LEFT AGAINST MEDICAL ADVI",
+        "dischtime": "2150-01-19 00:00:00",
+        "admittime": "2150-01-12 00:00:00",
+        "hospital_expire_flag": 0,
+    },
+]
+
+_CURATED_MIMIC3_ICUSTAYS = [
+    {
+        "subject_id": 1,
+        "hadm_id": 100,
+        "icustay_id": 1000,
+        "first_careunit": "MICU",
+        "last_careunit": "MICU",
+        "dbsource": "metavision",
+        "intime": "2150-01-01 02:00:00",
+        "outtime": "2150-01-07 22:00:00",
+    },
+    {
+        "subject_id": 2,
+        "hadm_id": 101,
+        "icustay_id": 1001,
+        "first_careunit": "MICU",
+        "last_careunit": "MICU",
+        "dbsource": "metavision",
+        "intime": "2150-01-02 02:00:00",
+        "outtime": "2150-01-08 22:00:00",
+    },
+    {
+        "subject_id": 3,
+        "hadm_id": 102,
+        "icustay_id": 1002,
+        "first_careunit": "MICU",
+        "last_careunit": "MICU",
+        "dbsource": "metavision",
+        "intime": "2150-01-03 02:00:00",
+        "outtime": "2150-01-09 22:00:00",
+    },
+    {
+        "subject_id": 4,
+        "hadm_id": 103,
+        "icustay_id": 1003,
+        "first_careunit": "MICU",
+        "last_careunit": "MICU",
+        "dbsource": "metavision",
+        "intime": "2150-01-11 02:00:00",
+        "outtime": "2150-01-17 22:00:00",
+    },
+    {
+        "subject_id": 5,
+        "hadm_id": 104,
+        "icustay_id": 1004,
+        "first_careunit": "MICU",
+        "last_careunit": "MICU",
+        "dbsource": "metavision",
+        "intime": "2150-01-12 02:00:00",
+        "outtime": "2150-01-18 22:00:00",
+    },
+]
+
+
+def _write_curated_synthetic_mimic3_for_tests(root: str) -> None:
+    """Write ``_CURATED_MIMIC3_*`` to gzipped PATIENTS/ADMISSIONS/ICUSTAYS."""
+    root_path = Path(root)
+    root_path.mkdir(parents=True, exist_ok=True)
+    for name, rows in (
+        ("PATIENTS", _CURATED_MIMIC3_PATIENTS),
+        ("ADMISSIONS", _CURATED_MIMIC3_ADMISSIONS),
+        ("ICUSTAYS", _CURATED_MIMIC3_ICUSTAYS),
+    ):
+        df = pd.DataFrame(rows)
+        with gzip.open(root_path / f"{name}.csv.gz", "wt") as f:
+            df.to_csv(f, index=False)
+
+
+# ------------------------------------------------------------------
+# Module-level shared dataset (loaded once for all integration tests)
+# ------------------------------------------------------------------
+
+_shared_tmpdir = None
+_shared_cache_dir = None
+_shared_dataset = None
+_shared_sample_dataset = None
+
+
+def setUpModule():
+    global _shared_tmpdir, _shared_cache_dir
+    global _shared_dataset, _shared_sample_dataset
+    _shared_tmpdir = tempfile.mkdtemp(prefix="ama_shared_")
+    _shared_cache_dir = tempfile.mkdtemp(prefix="ama_shared_cache_")
+    _write_curated_synthetic_mimic3_for_tests(_shared_tmpdir)
+    _shared_dataset = MIMIC3Dataset(
+        root=_shared_tmpdir, tables=[], cache_dir=_shared_cache_dir,
+    )
+    _shared_sample_dataset = _shared_dataset.set_task(AMAPredictionMIMIC3())
+
+
+def tearDownModule():
+    global _shared_dataset, _shared_sample_dataset
+    if _shared_sample_dataset is not None:
+        _shared_sample_dataset.close()
+    _shared_sample_dataset = None
+    _shared_dataset = None
+    gc.collect()
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        for obj in gc.get_objects():
+            if isinstance(obj, io.FileIO) and not obj.closed:
+                name = getattr(obj, "name", "")
+                if (
+                    isinstance(name, str)
+                    and _shared_cache_dir
+                    and _shared_cache_dir in name
+                ):
+                    try:
+                        obj.close()
+                    except Exception:
+                        pass
+    gc.collect()
+    for d in (_shared_tmpdir, _shared_cache_dir):
+        if d:
+            shutil.rmtree(d, ignore_errors=True)
+
+
+# ------------------------------------------------------------------
+# Helpers
+# ------------------------------------------------------------------
 
 
 def _make_event(**attrs):
@@ -51,8 +342,6 @@ def _build_patient(
     dob="2100-01-01 00:00:00",
 ):
     """Build a mock Patient with ``get_events`` that respects filters.
-
-    Uses 2-5 synthetic patients max.  No real dataset is loaded.
 
     Args:
         patient_id: Patient identifier string.
@@ -785,7 +1074,6 @@ class TestAMAAblationBaselines(unittest.TestCase):
         for sample in samples:
             self.assertIn("race", sample)
             self.assertTrue(isinstance(sample["race"], list))
-            # Race should be one of the normalized values
             race_val = sample["race"][0].split(":", 1)[1]
             self.assertIn(
                 race_val,
@@ -807,11 +1095,9 @@ class TestAMAAblationBaselines(unittest.TestCase):
         """Verify substance use detection for ablation patient."""
         samples = self.task(self.patient)
 
-        # First admission has substance use (ALCOHOL WITHDRAWAL)
         s1 = next(s for s in samples if s["visit_id"] == "A1")
         self.assertEqual(s1["has_substance_use"], [1.0])
 
-        # Second admission has no substance use (PNEUMONIA)
         s2 = next(s for s in samples if s["visit_id"] == "A2")
         self.assertEqual(s2["has_substance_use"], [0.0])
 
@@ -819,11 +1105,9 @@ class TestAMAAblationBaselines(unittest.TestCase):
         """Verify race normalization for ablation patient."""
         samples = self.task(self.patient)
 
-        # First admission: Hispanic
         s1 = next(s for s in samples if s["visit_id"] == "A1")
         self.assertEqual(s1["race"], ["race:Hispanic"])
 
-        # Second admission: White
         s2 = next(s for s in samples if s["visit_id"] == "A2")
         self.assertEqual(s2["race"], ["race:White"])
 
@@ -834,11 +1118,7 @@ class TestAMAAblationBaselines(unittest.TestCase):
         for sample in samples:
             age = sample["age"][0]
             los = sample["los"][0]
-
-            # Age should be 50 (2150 - 2100)
             self.assertAlmostEqual(age, 50.0, places=1)
-
-            # LOS should be positive
             self.assertGreater(los, 0.0)
 
     def test_demographics_includes_gender_and_insurance(self):
@@ -847,7 +1127,6 @@ class TestAMAAblationBaselines(unittest.TestCase):
 
         for sample in samples:
             demo = sample["demographics"]
-            # Should have gender and insurance tokens
             has_gender = any(t.startswith("gender:") for t in demo)
             has_insurance = any(t.startswith("insurance:") for t in demo)
             self.assertTrue(has_gender)
@@ -857,12 +1136,10 @@ class TestAMAAblationBaselines(unittest.TestCase):
         """Verify insurance normalization (Medicaid -> Public)."""
         samples = self.task(self.patient)
 
-        # First admission: Medicaid -> Public
         s1 = next(s for s in samples if s["visit_id"] == "A1")
         demo1 = s1["demographics"]
         self.assertIn("insurance:Public", demo1)
 
-        # Second admission: Private
         s2 = next(s for s in samples if s["visit_id"] == "A2")
         demo2 = s2["demographics"]
         self.assertIn("insurance:Private", demo2)
@@ -871,11 +1148,9 @@ class TestAMAAblationBaselines(unittest.TestCase):
         """Verify AMA label is correct."""
         samples = self.task(self.patient)
 
-        # First admission: not AMA
         s1 = next(s for s in samples if s["visit_id"] == "A1")
         self.assertEqual(s1["ama"], 0)
 
-        # Second admission: AMA
         s2 = next(s for s in samples if s["visit_id"] == "A2")
         self.assertEqual(s2["ama"], 1)
 
@@ -910,41 +1185,19 @@ class TestAMAAblationBaselines(unittest.TestCase):
 
 
 # ------------------------------------------------------------------
-# Synthetic MIMIC-III + LogisticRegression (loads example generator)
+# Integration tests using shared curated 5-row dataset
 # ------------------------------------------------------------------
 
 
 class TestAMAWithSyntheticData(unittest.TestCase):
-    """AMA task on small random synthetic CSVs (fast pipeline checks)."""
-
-    @classmethod
-    def setUpClass(cls):
-        cls.tmpdir = tempfile.mkdtemp(prefix="ama_test_")
-        cls.cache_dir = tempfile.mkdtemp(prefix="ama_test_cache_")
-
-        generate_synthetic_mimic3(
-            cls.tmpdir,
-            n_patients=50,
-            avg_admissions_per_patient=2,
-            seed=42,
-            mode="random",
-        )
-
-        cls.dataset = MIMIC3Dataset(
-            root=cls.tmpdir,
-            tables=[],
-            cache_dir=cls.cache_dir,
-        )
-
-        cls.task = AMAPredictionMIMIC3()
-        cls.sample_dataset = cls.dataset.set_task(cls.task)
+    """AMA task on curated minimal synthetic CSVs (fast pipeline checks)."""
 
     def test_dataset_loads_successfully(self):
-        self.assertIsNotNone(self.dataset)
-        self.assertGreater(len(self.sample_dataset), 0)
+        self.assertIsNotNone(_shared_dataset)
+        self.assertGreater(len(_shared_sample_dataset), 0)
 
     def test_samples_have_expected_features(self):
-        sample = self.sample_dataset[0]
+        sample = _shared_sample_dataset[0]
 
         expected_keys = {
             "visit_id",
@@ -959,7 +1212,7 @@ class TestAMAWithSyntheticData(unittest.TestCase):
         self.assertEqual(set(sample.keys()), expected_keys)
 
     def test_demographics_values(self):
-        for sample in self.sample_dataset:
+        for sample in _shared_sample_dataset:
             demo = sample["demographics"]
             self.assertTrue(
                 torch.is_tensor(demo) or isinstance(demo, (int, float)),
@@ -967,34 +1220,34 @@ class TestAMAWithSyntheticData(unittest.TestCase):
             )
 
     def test_age_in_valid_range(self):
-        for sample in self.sample_dataset:
+        for sample in _shared_sample_dataset:
             age = sample["age"]
             self.assertTrue(torch.is_tensor(age) or isinstance(age, (int, float)))
 
     def test_los_positive(self):
-        for sample in self.sample_dataset:
+        for sample in _shared_sample_dataset:
             los = sample["los"]
             self.assertTrue(torch.is_tensor(los) or isinstance(los, (int, float)))
 
     def test_race_normalized(self):
-        for sample in self.sample_dataset:
+        for sample in _shared_sample_dataset:
             race = sample["race"]
             self.assertTrue(torch.is_tensor(race) or isinstance(race, (int, float)))
 
     def test_substance_use_binary(self):
-        for sample in self.sample_dataset:
+        for sample in _shared_sample_dataset:
             substance = sample["has_substance_use"]
             self.assertTrue(
                 torch.is_tensor(substance) or isinstance(substance, (int, float)),
             )
 
     def test_ama_label_binary(self):
-        for sample in self.sample_dataset:
+        for sample in _shared_sample_dataset:
             ama = sample["ama"]
             self.assertIn(ama, [0, 1])
 
     def test_has_positive_and_negative_labels(self):
-        labels = [sample["ama"] for sample in self.sample_dataset]
+        labels = [sample["ama"] for sample in _shared_sample_dataset]
         has_positive = any(l == 1 for l in labels)
         has_negative = any(l == 0 for l in labels)
 
@@ -1007,30 +1260,9 @@ class TestAMAWithSyntheticData(unittest.TestCase):
 class TestAMABaselineFeatures(unittest.TestCase):
     """LogisticRegression ablation feature subsets on synthetic data."""
 
-    @classmethod
-    def setUpClass(cls):
-        cls.tmpdir = tempfile.mkdtemp(prefix="ama_baseline_test_")
-        cls.cache_dir = tempfile.mkdtemp(prefix="ama_baseline_cache_")
-
-        generate_synthetic_mimic3(
-            cls.tmpdir,
-            n_patients=30,
-            seed=42,
-            mode="random",
-        )
-
-        cls.dataset = MIMIC3Dataset(
-            root=cls.tmpdir,
-            tables=[],
-            cache_dir=cls.cache_dir,
-        )
-
-        cls.task = AMAPredictionMIMIC3()
-        cls.sample_dataset = cls.dataset.set_task(cls.task)
-
     def _create_model_with_features(self, feature_keys):
         model = LogisticRegression(
-            dataset=self.sample_dataset,
+            dataset=_shared_sample_dataset,
             embedding_dim=64,
         )
         model.feature_keys = list(feature_keys)
@@ -1070,7 +1302,7 @@ class TestAMABaselineFeatures(unittest.TestCase):
         )
 
         train_ds, _, test_ds = split_by_patient(
-            self.sample_dataset, [0.8, 0.0, 0.2], seed=0
+            _shared_sample_dataset, [0.8, 0.0, 0.2], seed=0
         )
         test_dl = get_dataloader(test_ds, batch_size=8, shuffle=False)
 
@@ -1089,7 +1321,7 @@ class TestAMABaselineFeatures(unittest.TestCase):
         )
 
         train_ds, _, test_ds = split_by_patient(
-            self.sample_dataset, [0.8, 0.0, 0.2], seed=0
+            _shared_sample_dataset, [0.8, 0.0, 0.2], seed=0
         )
         test_dl = get_dataloader(test_ds, batch_size=8, shuffle=False)
 
@@ -1107,7 +1339,7 @@ class TestAMABaselineFeatures(unittest.TestCase):
         )
 
         train_ds, _, test_ds = split_by_patient(
-            self.sample_dataset, [0.8, 0.0, 0.2], seed=0
+            _shared_sample_dataset, [0.8, 0.0, 0.2], seed=0
         )
         test_dl = get_dataloader(test_ds, batch_size=8, shuffle=False)
 
@@ -1123,39 +1355,18 @@ class TestAMABaselineFeatures(unittest.TestCase):
 class TestAMATrainingSpeed(unittest.TestCase):
     """Short training runs on tiny synthetic data."""
 
-    @classmethod
-    def setUpClass(cls):
-        cls.tmpdir = tempfile.mkdtemp(prefix="ama_speed_test_")
-        cls.cache_dir = tempfile.mkdtemp(prefix="ama_speed_cache_")
-
-        generate_synthetic_mimic3(
-            cls.tmpdir,
-            n_patients=20,
-            seed=42,
-            mode="random",
-        )
-
-        cls.dataset = MIMIC3Dataset(
-            root=cls.tmpdir,
-            tables=[],
-            cache_dir=cls.cache_dir,
-        )
-
-        cls.task = AMAPredictionMIMIC3()
-        cls.sample_dataset = cls.dataset.set_task(cls.task)
-
     def test_training_completes_quickly(self):
         import time
 
         train_ds, _, test_ds = split_by_patient(
-            self.sample_dataset, [0.6, 0.0, 0.4], seed=0
+            _shared_sample_dataset, [0.6, 0.0, 0.4], seed=0
         )
         train_dl = get_dataloader(
             train_ds, batch_size=8, shuffle=True
         )
 
         model = LogisticRegression(
-            dataset=self.sample_dataset,
+            dataset=_shared_sample_dataset,
             embedding_dim=64,
         )
         model.feature_keys = ["demographics", "age", "los"]
@@ -1181,15 +1392,9 @@ class TestAMATrainingSpeed(unittest.TestCase):
         self.assertGreater(elapsed, 0, "Training should take some time")
 
     def test_multiple_splits_complete_quickly(self):
-        split_by_patient(
-            self.sample_dataset,
-            [0.6, 0.0, 0.4],
-            seed=0,
-        )
-
         for split_seed in range(2):
             train_ds, _, _ = split_by_patient(
-                self.sample_dataset,
+                _shared_sample_dataset,
                 [0.6, 0.0, 0.4],
                 seed=split_seed,
             )
@@ -1198,7 +1403,7 @@ class TestAMATrainingSpeed(unittest.TestCase):
             )
 
             model = LogisticRegression(
-                dataset=self.sample_dataset,
+                dataset=_shared_sample_dataset,
                 embedding_dim=64,
             )
             model.feature_keys = ["demographics", "age", "los"]
@@ -1242,6 +1447,41 @@ class TestExhaustiveSyntheticGrid(unittest.TestCase):
             self.assertEqual(data_rows, EXHAUSTIVE_PATIENT_ROWS)
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
+
+
+class TestCuratedSyntheticGrid(unittest.TestCase):
+    """Curated synthetic: fixed small CSV (integration test data)."""
+
+    def test_curated_csv_row_counts(self):
+        tmp = tempfile.mkdtemp(prefix="ama_curated_")
+        try:
+            _write_curated_synthetic_mimic3_for_tests(tmp)
+            for name in ("PATIENTS", "ADMISSIONS", "ICUSTAYS"):
+                with gzip.open(Path(tmp) / f"{name}.csv.gz", "rt") as f:
+                    n = len(f.readlines()) - 1
+                self.assertEqual(n, CURATED_SYNTHETIC_N, name)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_curated_task_label_counts(self):
+        self.assertEqual(len(_shared_sample_dataset), CURATED_SYNTHETIC_N)
+
+        def _ama_int(x):
+            if torch.is_tensor(x):
+                return int(x.item())
+            return int(x)
+
+        labels = [
+            _ama_int(_shared_sample_dataset[i]["ama"])
+            for i in range(CURATED_SYNTHETIC_N)
+        ]
+        self.assertEqual(sum(labels), CURATED_SYNTHETIC_AMA_POSITIVE)
+        self.assertEqual(
+            labels.count(0), CURATED_SYNTHETIC_AMA_NEGATIVE,
+        )
+        self.assertEqual(
+            labels.count(1), CURATED_SYNTHETIC_AMA_POSITIVE,
+        )
 
 
 if __name__ == "__main__":

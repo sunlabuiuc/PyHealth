@@ -1,4 +1,4 @@
-﻿pyhealth.datasets.MIMIC3Dataset
+pyhealth.datasets.MIMIC3Dataset
 ===================================
 
 The open Medical Information Mart for Intensive Care (MIMIC-III) database, refer to `doc <https://mimic.mit.edu/>`_ for more information. We process this database into well-structured dataset object and give user the **best flexibility and convenience** for supporting modeling and analysis.
@@ -8,8 +8,8 @@ The open Medical Information Mart for Intensive Care (MIMIC-III) database, refer
     :undoc-members:
     :show-inheritance:
 
-   
+.. seealso::
 
-   
-   
+   Administrative AMA discharge prediction (no ICD / Rx tables required):
+   :class:`pyhealth.tasks.ama_prediction.AMAPredictionMIMIC3`.
    
