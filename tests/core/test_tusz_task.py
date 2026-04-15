@@ -5,9 +5,7 @@ import torch
 from pyhealth.tasks.tusz_task import TUSZTask
 
 
-# -------------------------
 # Dummy objects
-# -------------------------
 
 class DummyEvent:
     def __init__(self):
@@ -22,9 +20,7 @@ class DummyPatient:
         return [DummyEvent()]
 
 
-# -------------------------
 # Test Class
-# -------------------------
 
 class TestTUSZTask(unittest.TestCase):
 
@@ -32,7 +28,6 @@ class TestTUSZTask(unittest.TestCase):
         self.task = TUSZTask()
         self.patient = DummyPatient()
 
-        # ---- Default helper mocks (pipeline runs fully) ----
         self.task.helper.skip_file = MagicMock(return_value=False)
         self.task.helper.process_label = MagicMock(return_value="0011")
         self.task.helper.is_seizure_patient = MagicMock(return_value=True)
@@ -65,9 +60,7 @@ class TestTUSZTask(unittest.TestCase):
             return_value=torch.randn(20, 1000)
         )
 
-    # =====================================================
-    # ORIGINAL TESTS (call verification)
-    # =====================================================
+    # call verification
 
     @patch("pyhealth.tasks.tusz_task.TUSZSignalHeader")
     @patch("pyhealth.tasks.tusz_task.highlevel.read_edf")
@@ -152,9 +145,9 @@ class TestTUSZTask(unittest.TestCase):
 
         self.assertIsInstance(sample["signal"], torch.Tensor)
 
-    # =====================================================
-    # NEW TESTS (behavior validation)
-    # =====================================================
+
+    # behavior validation
+
 
     @patch("pyhealth.tasks.tusz_task.TUSZSignalHeader")
     @patch("pyhealth.tasks.tusz_task.highlevel.read_edf")

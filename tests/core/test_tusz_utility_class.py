@@ -37,31 +37,30 @@ class TestTUSZUtilityClass(unittest.TestCase):
 
         self.signals = [np.random.randn(1000) for _ in range(19)]
 
-    # --------------------------------------------------
-    # SINGLE FULL TEST (logic-focused)
-    # --------------------------------------------------
+    # (logic-focused)
+
     @patch("pandas.read_csv")
     def test_full_logic(self, mock_read_csv):
 
-        # -------------------------
+
         # skip_file TRUE case
-        # -------------------------
+
         bad_header = TUSZSignalHeader(self.invalid_headers)
         self.assertTrue(
             self.helper.skip_file("file", bad_header)
         )
 
-        # -------------------------
+
         # skip_file FALSE case
-        # -------------------------
+
         good_header = TUSZSignalHeader(self.valid_headers)
         self.assertFalse(
             self.helper.skip_file("file", good_header)
         )
 
-        # -------------------------
+
         # mock labels
-        # -------------------------
+
         mock_read_csv.return_value = MagicMock(
             iterrows=lambda: iter([
                 (0, {"start_time": 0, "stop_time": 2, "label": "bckg"}),
@@ -69,29 +68,29 @@ class TestTUSZUtilityClass(unittest.TestCase):
             ])
         )
 
-        # -------------------------
+
         # process_label
-        # -------------------------
+
         y = self.helper.process_label("fake_file")
         self.assertTrue(len(y) > 0)
 
-        # -------------------------
+
         # resample
-        # -------------------------
+
         resampled = self.helper.resample("file", self.signals, good_header)
         self.assertEqual(len(resampled), 19)
 
-        # -------------------------
+
         # transform labels
-        # -------------------------
+
         y2 = self.helper.transform_labels_with_resampled_signals(
             resampled, y
         )
         self.assertTrue(len(y2) > 0)
 
-        # -------------------------
+
         # segmentation
-        # -------------------------
+
         raws, labels, names = self.helper.segment_signals(
             y2, resampled, is_seiz_patient=True
         )
@@ -100,18 +99,18 @@ class TestTUSZUtilityClass(unittest.TestCase):
         self.assertIsInstance(labels, list)
         self.assertIsInstance(names, list)
 
-        # -------------------------
+
         # convert labels
-        # -------------------------
+
         if len(raws) > 0:
             y1, y2b, y3 = self.helper.convert_labels(labels)
 
             self.assertEqual(len(y1), len(labels))
             self.assertTrue(torch.is_tensor(y1[0]))
 
-            # -------------------------
+
             # bipolar signals
-            # -------------------------
+
             bipolar = self.helper.create_bipolar_signals(
                 torch.tensor(raws[0], dtype=torch.float32)
             )
