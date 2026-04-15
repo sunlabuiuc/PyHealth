@@ -621,6 +621,122 @@ class ClinicalNotesICDLabsMIMIC4(BaseMultimodalMIMIC4Task):
         return [single_patient_longitudinal_record]
 
 
+class ICDLabsMIMIC4(BaseMultimodalMIMIC4Task):
+    """Task for ICD codes + lab values mortality prediction using MIMIC-IV.
+
+    A notes-free variant of ``ClinicalNotesICDLabsMIMIC4`` that uses only:
+
+    - **ICD codes**: diagnosis and procedure codes per admission, processed by
+      ``StageNetProcessor`` with inter-admission time offsets.
+    - **Lab values**: 10-dimensional lab vectors (one per lab category) at each
+      measurement timestamp, processed by ``StageNetTensorProcessor``.
+
+    Examples:
+        >>> from pyhealth.datasets import MIMIC4Dataset
+        >>> from pyhealth.tasks.multimodal_mimic4 import ICDLabsMIMIC4
+        >>> dataset = MIMIC4Dataset(
+        ...     ehr_root="/path/to/mimic-iv/2.2",
+        ...     ehr_tables=["diagnoses_icd", "procedures_icd", "labevents"],
+        ... )
+        >>> task = ICDLabsMIMIC4()
+        >>> samples = dataset.set_task(task)
+    """
+
+    PADDING: int = 0
+
+    task_name: str = "ICDLabsMIMIC4"
+    input_schema: Dict[str, Union[str, Tuple[str, Dict]]] = {
+        "icd_codes": ("stagenet", {"padding": PADDING}),
+        "labs": ("stagenet_tensor", {}),
+        "labs_mask": ("stagenet_tensor", {}),
+    }
+    output_schema: Dict[str, str] = {"mortality": "binary"}
+
+    def __call__(self, patient: Any) -> List[Dict[str, Any]]:
+        demographics = patient.get_events(event_type="patients")
+        if not demographics:
+            return []
+
+        admissions_to_process, mortality_label = self._build_admissions_to_process(
+            patient
+        )
+
+        if len(admissions_to_process) == 0:
+            return []
+
+        effective_start, effective_end = self._compute_effective_window(
+            admissions_to_process
+        )
+
+        all_icd_codes: List[List[str]] = []
+        all_icd_times: List[float] = []
+        all_lab_values: List[List[float]] = []
+        all_lab_masks: List[List[bool]] = []
+        all_lab_times: List[float] = []
+        previous_admission_time = None
+
+        for admission in admissions_to_process:
+            admission_time = admission.timestamp
+
+            try:
+                admission_dischtime = datetime.strptime(
+                    admission.dischtime, "%Y-%m-%d %H:%M:%S"
+                )
+            except (ValueError, AttributeError):
+                continue
+
+            if admission_dischtime < admission_time:
+                continue
+
+            visit_icd_codes = self._collect_icd_codes(patient, admission.hadm_id)
+            if visit_icd_codes:
+                if previous_admission_time is None:
+                    time_from_previous = 0.0
+                else:
+                    time_from_previous = self._to_hours(
+                        (admission_time - previous_admission_time).total_seconds()
+                    )
+                all_icd_codes.append(visit_icd_codes)
+                all_icd_times.append(time_from_previous)
+            else:
+                all_icd_codes.append([self.MISSING_CODE_TOKEN])
+                all_icd_times.append(self.MISSING_FLOAT_TOKEN)
+
+            previous_admission_time = admission_time
+
+            lab_times, lab_values, lab_masks = self._collect_labs(
+                patient=patient,
+                admission_time=admission_time,
+                end_time=admission_dischtime,
+            )
+            all_lab_times.extend(lab_times)
+            all_lab_values.extend(lab_values)
+            all_lab_masks.extend(lab_masks)
+
+        if len(all_lab_values) == 0:
+            all_lab_values.append(
+                [self.MISSING_FLOAT_TOKEN] * len(self.LAB_CATEGORY_NAMES)
+            )
+            all_lab_masks.append([False] * len(self.LAB_CATEGORY_NAMES))
+            all_lab_times.append(self.MISSING_FLOAT_TOKEN)
+
+        if len(all_icd_codes) == 0:
+            all_icd_codes.append([self.MISSING_CODE_TOKEN])
+            all_icd_times.append(self.MISSING_FLOAT_TOKEN)
+
+        single_patient_longitudinal_record = {
+            "patient_id": patient.patient_id,
+            "icd_codes": (all_icd_times, all_icd_codes),
+            "labs": (all_lab_times, all_lab_values),
+            "labs_mask": (all_lab_times, all_lab_masks),
+            "mortality": mortality_label,
+            "window_start": effective_start,
+            "window_end": effective_end,
+        }
+
+        return [single_patient_longitudinal_record]
+
+
 class ClinicalNotesICDLabsCXRMIMIC4(BaseMultimodalMIMIC4Task):
     """Task combining notes, ICD, labs, and CXR for MIMIC-IV mortality.
 
