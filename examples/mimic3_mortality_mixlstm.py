@@ -1,6 +1,9 @@
 """
 Ablation Study and Training Pipeline for MixLSTM (MLHC 2019).
 
+Reference: Oh, J., et al. (2019). Relaxed Parameter Sharing: Effectively Modeling 
+Time-Varying Relationships in Clinical Time-Series (MLHC 2019).
+
 This script executes a Data-Level and Hyperparameter Ablation Study for the 
 in-hospital mortality prediction task. 
 

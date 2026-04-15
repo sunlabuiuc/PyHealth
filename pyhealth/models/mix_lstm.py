@@ -1,12 +1,16 @@
 """
-Mixture of Experts Long Short-Term Memory (MixLSTM) Model.
+Relaxed Parameter Sharing LSTM Models.
 
-This module contains the implementation of the MixLSTM and its baseline comparison model.
-The underlying Mixture of Experts (MoE) architecture and gating mechanisms are adapted 
-from the original MixLSTM implementation.
+This module implements the mixLSTM and BaselineLSTM architectures.
+Unlike standard LSTMs with complete parameter sharing, mixLSTM relaxes this 
+constraint by dynamically mixing multiple LSTM cell parameters at each timestep 
+using learnable mixing coefficients. This approach is specifically designed to 
+model temporal conditional shift in clinical time-series data.
 
-Reference: https://gitlab.eecs.umich.edu/mld3/mlhc2019_relaxed_parameter_sharing
+Reference: Oh, J., et al. (2019). Relaxed Parameter Sharing: Effectively Modeling 
+           Time-Varying Relationships in Clinical Time-Series (MLHC 2019).
            https://arxiv.org/abs/1906.02898
+           https://gitlab.eecs.umich.edu/mld3/mlhc2019_relaxed_parameter_sharing          
 """
 
 from typing import Optional, Tuple, Callable, List, Union
@@ -360,11 +364,13 @@ class ExampleMowLSTM(nn.Module):
 # Part 3: PyHealth BaseModel Wrappers
 ###########################################################################
 class MixLSTM(BaseModel):
-    """Mixture of Experts Long Short-Term Memory (MixLSTM) model.
+    """MixLSTM model with Relaxed Parameter Sharing.
     
-    This model implements the MixLSTM architecture for clinical time-series prediction,
-    utilizing a mixture of experts with gating mechanisms to capture complex temporal dynamics,
-    particularly suited for irregular and imbalanced clinical data.
+    This model implements the mixLSTM architecture for clinical time-series prediction.
+    Instead of assuming complete parameter sharing over time like a standard LSTM, 
+    it utilizes a mixture of LSTM cells. The parameters are dynamically combined at 
+    each timestep using learned mixing coefficients to effectively capture 
+    temporal conditional shift in irregular clinical data.
     
     Args:
         dataset: The PyHealth dataset object.
