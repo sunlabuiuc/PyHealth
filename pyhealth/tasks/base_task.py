@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Dict, List, Optional, Tuple, Union, Type
+from typing import Any, Dict, List, Optional, Tuple, Union, Type
 
 import polars as pl
 
@@ -46,6 +46,21 @@ class BaseTask(ABC):
 
     def pre_filter(self, df: pl.LazyFrame) -> pl.LazyFrame:
         return df
+
+    def prepare_for_dataset(
+        self, dataset: Any, num_workers: int
+    ) -> None:
+        """Hook called by :meth:`~pyhealth.datasets.BaseDataset.set_task` before
+        the LitData caching pipeline.
+
+        Override this to perform task-specific preparation that requires access
+        to the dataset (e.g., vocabulary warming that must happen in the main
+        process before workers are forked).
+
+        Args:
+            dataset: The :class:`~pyhealth.datasets.BaseDataset` instance.
+            num_workers: Effective number of workers that will be used.
+        """
 
     @abstractmethod
     def __call__(self, patient) -> List[Dict]:

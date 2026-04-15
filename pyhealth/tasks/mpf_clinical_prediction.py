@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import itertools
 from typing import Any, Dict, List, Optional
 
+import polars as pl
 import torch
 
 from pyhealth.data import Patient
@@ -44,15 +46,14 @@ def _left_pad_float(seq: List[float], max_len: int, pad: float = 0.0) -> List[fl
 class MPFClinicalPredictionTask(BaseTask):
     """Binary mortality prediction from FHIR CEHR sequences with optional MPF tokens.
 
-    Works on :class:`~pyhealth.data.Patient` via the standard
-    ``global_event_df`` / :meth:`~pyhealth.datasets.MIMIC4FHIRDataset.set_task`
-    path. For :meth:`set_task`,
-    :class:`~pyhealth.datasets.MIMIC4FHIRDataset` warms the shared
-    :class:`~pyhealth.processors.CehrProcessor` in the main process over the
-    task-filtered patient cohort (including when LitData skips
-    ``_task_transform`` on cache hit) and sets :attr:`frozen_vocab` when
-    multiple workers run :meth:`~pyhealth.datasets.BaseDataset._task_transform`
-    so worker processes do not race on :class:`~pyhealth.processors.ConceptVocab`.
+    Vocabulary warming happens automatically in :meth:`prepare_for_dataset`
+    (called by :meth:`~pyhealth.datasets.BaseDataset.set_task` before the
+    LitData caching pipeline).  If the dataset exposes a
+    :class:`~pyhealth.processors.CehrProcessor` via ``dataset.processor``,
+    this task adopts its vocabulary so that a pre-loaded ``vocab_path`` is
+    honoured.  After warming, :attr:`frozen_vocab` is set when multiple
+    workers will be spawned so that worker processes look up tokens instead
+    of racing on :class:`~pyhealth.processors.ConceptVocab`.
 
     Attributes:
         max_len: Truncated sequence length (must be >= 2 for boundary tokens).
@@ -86,7 +87,7 @@ class MPFClinicalPredictionTask(BaseTask):
         self._specials: Optional[Dict[str, int]] = None
 
     # ------------------------------------------------------------------
-    # Backward-compatible property aliases used by set_task and tests
+    # Backward-compatible property aliases
     # ------------------------------------------------------------------
 
     @property
@@ -104,6 +105,62 @@ class MPFClinicalPredictionTask(BaseTask):
     @frozen_vocab.setter
     def frozen_vocab(self, value: bool) -> None:
         self.processor.frozen_vocab = value
+
+    # ------------------------------------------------------------------
+    # Dataset preparation (called by BaseDataset.set_task before workers)
+    # ------------------------------------------------------------------
+
+    def prepare_for_dataset(self, dataset: Any, num_workers: int) -> None:
+        """Warm CEHR vocabulary and configure multi-worker safety.
+
+        If *dataset* has a ``processor`` attribute (i.e. it is a
+        :class:`~pyhealth.datasets.MIMIC4FHIRDataset`), adopt its vocabulary
+        so that a pre-loaded ``vocab_path`` carries through.
+
+        Vocabulary warming iterates the task-filtered patient cohort in the
+        main process.  Special tokens are inserted.  ``frozen_vocab`` is set
+        when multiple LitData workers will be forked.
+        """
+        from litdata.processing.data_processor import in_notebook
+
+        if hasattr(dataset, "processor") and isinstance(dataset.processor, CehrProcessor):
+            self.processor.vocab = dataset.processor.vocab
+
+        worker_count = 1 if in_notebook() else num_workers
+        filtered = self.pre_filter(dataset.global_event_df)
+        warmup_pids = (
+            filtered.select("patient_id")
+            .unique()
+            .collect(engine="streaming")
+            .to_series()
+            .sort()
+            .to_list()
+        )
+        patient_count = len(warmup_pids)
+        effective_workers = min(worker_count, patient_count) if patient_count else 1
+
+        clinical_cap = max(0, self.max_len - 2)
+        base = dataset.global_event_df
+
+        def _iter_warmup_patients():
+            for batch in itertools.batched(warmup_pids, 128):
+                batch_df = (
+                    base.filter(pl.col("patient_id").is_in(batch))
+                    .collect(engine="streaming")
+                )
+                for patient_df in batch_df.partition_by("patient_id"):
+                    yield Patient(
+                        patient_id=patient_df["patient_id"][0],
+                        data_source=patient_df,
+                    )
+
+        self.processor.fit(_iter_warmup_patients(), clinical_cap=clinical_cap)
+        self.frozen_vocab = effective_workers > 1
+        self._specials = ensure_special_tokens(self.processor.vocab)
+
+    # ------------------------------------------------------------------
+    # Per-patient sample generation
+    # ------------------------------------------------------------------
 
     def _ensure_processor(self) -> CehrProcessor:
         if self._specials is None:

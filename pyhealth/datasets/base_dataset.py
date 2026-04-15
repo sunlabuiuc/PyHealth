@@ -957,6 +957,8 @@ class BaseDataset(ABC):
         if num_workers is None:
             num_workers = self.num_workers
 
+        task.prepare_for_dataset(self, num_workers)
+
         logger.info(
             f"Setting task {task.task_name} for {self.dataset_name} base dataset..."
         )

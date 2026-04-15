@@ -21,14 +21,13 @@ from __future__ import annotations
 
 import functools
 import hashlib
-import itertools
 import logging
 import operator
 import os
 import shutil
 import uuid
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence
 
 import dask.dataframe as dd
 import narwhals as nw
@@ -36,7 +35,6 @@ import orjson
 import pandas as pd
 import platformdirs
 import polars as pl
-from litdata.processing.data_processor import in_notebook
 from yaml import safe_load
 
 from ..data import Patient
@@ -49,7 +47,7 @@ from .fhir_utils import (
     filter_flat_tables_by_patient_ids,
     stream_fhir_ndjson_to_flat_tables,
 )
-from ..processors.cehr_processor import CehrProcessor, ConceptVocab, ensure_special_tokens
+from ..processors.cehr_processor import CehrProcessor, ConceptVocab
 
 logger = logging.getLogger(__name__)
 
@@ -315,69 +313,3 @@ class MIMIC4FHIRDataset(BaseDataset):
             )
             logger.info("Found %d unique patient IDs", len(self._unique_patient_ids))
         return self._unique_patient_ids
-
-    def set_task(
-        self,
-        task: Any = None,
-        num_workers: Optional[int] = None,
-        input_processors: Optional[Any] = None,
-        output_processors: Optional[Any] = None,
-    ) -> Any:
-        """Prepare a task-specific sample dataset with FHIR CEHR vocabulary warm-up.
-
-        For :class:`~pyhealth.tasks.MPFClinicalPredictionTask`, warm-up runs the
-        CEHR processor over the task-filtered patient cohort in the main process
-        before spawning LitData workers, ensuring the vocabulary is fully populated
-        and consistent.
-
-        Args:
-            task: Task instance. Must not be ``None`` for FHIR datasets.
-            num_workers: Workers for LitData task transformation.
-            input_processors: Pre-fitted input feature processors.
-            output_processors: Pre-fitted output feature processors.
-
-        Returns:
-            :class:`~pyhealth.datasets.SampleDataset` from the base class.
-        """
-        self._main_guard(self.set_task.__name__)
-        if task is None:
-            raise ValueError("Pass a task instance, e.g. MPFClinicalPredictionTask(max_len=512).")
-
-        from pyhealth.tasks.mpf_clinical_prediction import MPFClinicalPredictionTask
-
-        if isinstance(task, MPFClinicalPredictionTask):
-            worker_count = (
-                1 if in_notebook() else (num_workers if num_workers is not None else self.num_workers)
-            )
-            warmup_pids = (
-                task.pre_filter(self.global_event_df)
-                .select("patient_id")
-                .unique()
-                .collect(engine="streaming")
-                .to_series()
-                .sort()
-                .to_list()
-            )
-            patient_count = len(warmup_pids)
-            effective_workers = min(worker_count, patient_count) if patient_count else 1
-            clinical_cap = max(0, task.max_len - 2)
-            self.processor.fit(
-                self._iter_patients_for_warmup(warmup_pids),
-                clinical_cap=clinical_cap,
-            )
-            task.frozen_vocab = effective_workers > 1
-            task.vocab = self.processor.vocab
-            task._specials = ensure_special_tokens(self.processor.vocab)
-
-        return super().set_task(task, num_workers, input_processors, output_processors)
-
-    def _iter_patients_for_warmup(self, patient_ids: List[str]) -> Iterator[Patient]:
-        """Yield patients batch-loaded from global_event_df for vocabulary warming."""
-        base = self.global_event_df
-        for batch in itertools.batched(patient_ids, 128):
-            batch_df = (
-                base.filter(pl.col("patient_id").is_in(batch))
-                .collect(engine="streaming")
-            )
-            for patient_df in batch_df.partition_by("patient_id"):
-                yield Patient(patient_id=patient_df["patient_id"][0], data_source=patient_df)
