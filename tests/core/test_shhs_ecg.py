@@ -4,10 +4,10 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 import pandas as pd
-from pyhealth.datasets.shhs import SHHSDataset
+from pyhealth.datasets.shhs_ecg import SHHSECGDataset
 
 
-class TestSHHSPrepareMetadata(unittest.TestCase):
+class TestSHHSECGPrepareMetadata(unittest.TestCase):
 
     def setUp(self):
         self.tmpdir = tempfile.TemporaryDirectory()
@@ -48,7 +48,7 @@ class TestSHHSPrepareMetadata(unittest.TestCase):
         )
 
     def test_generates_metadata_csv(self):
-        SHHSDataset.prepare_metadata(self.root)
+        SHHSECGDataset.prepare_metadata(self.root)
         df = self._read_metadata()
         expected_cols = {
             "patient_id", "visitnumber", "signal_file",
@@ -57,7 +57,7 @@ class TestSHHSPrepareMetadata(unittest.TestCase):
         self.assertTrue(expected_cols.issubset(set(df.columns)))
 
     def test_patient_ids_from_filenames(self):
-        SHHSDataset.prepare_metadata(self.root)
+        SHHSECGDataset.prepare_metadata(self.root)
         df = self._read_metadata()
         ids = set(df["patient_id"])
         self.assertEqual(
@@ -65,12 +65,12 @@ class TestSHHSPrepareMetadata(unittest.TestCase):
         )
 
     def test_row_count_excludes_unmatched(self):
-        SHHSDataset.prepare_metadata(self.root)
+        SHHSECGDataset.prepare_metadata(self.root)
         df = self._read_metadata()
         self.assertEqual(len(df), 4)
 
     def test_visit_numbers(self):
-        SHHSDataset.prepare_metadata(self.root)
+        SHHSECGDataset.prepare_metadata(self.root)
         df = self._read_metadata()
         shhs1 = df[df["patient_id"].isin(["200001", "200002"])]
         shhs2 = df[df["patient_id"].isin(["200077", "200078"])]
@@ -78,14 +78,14 @@ class TestSHHSPrepareMetadata(unittest.TestCase):
         self.assertTrue((shhs2["visitnumber"] == 2).all())
 
     def test_ecg_sample_rates(self):
-        SHHSDataset.prepare_metadata(self.root)
+        SHHSECGDataset.prepare_metadata(self.root)
         df = self._read_metadata()
         for _, row in df.iterrows():
             expected = 125 if row["visitnumber"] == 1 else 256
             self.assertEqual(row["ecg_sample_rate"], expected)
 
     def test_signal_and_annotation_paths(self):
-        SHHSDataset.prepare_metadata(self.root)
+        SHHSECGDataset.prepare_metadata(self.root)
         df = self._read_metadata()
         for _, row in df.iterrows():
             self.assertTrue(Path(row["signal_file"]).exists())
@@ -109,7 +109,7 @@ class TestSHHSPrepareMetadata(unittest.TestCase):
         (poly / "shhs1-999999.edf").touch()
 
         with self.assertRaises(FileNotFoundError):
-            SHHSDataset.prepare_metadata(empty_root)
+            SHHSECGDataset.prepare_metadata(empty_root)
 
     def test_demographics_merged(self):
         datasets_dir = Path(self.root) / "datasets"
@@ -127,7 +127,7 @@ class TestSHHSPrepareMetadata(unittest.TestCase):
             index=False,
         )
 
-        SHHSDataset.prepare_metadata(self.root)
+        SHHSECGDataset.prepare_metadata(self.root)
         df = self._read_metadata()
 
         self.assertIn("age", df.columns)
@@ -141,14 +141,14 @@ class TestSHHSPrepareMetadata(unittest.TestCase):
         self.assertAlmostEqual(row["bmi"], 28.5)
 
     def test_no_harmonized_csv_fills_none(self):
-        SHHSDataset.prepare_metadata(self.root)
+        SHHSECGDataset.prepare_metadata(self.root)
         df = self._read_metadata()
         for col in ("age", "sex", "bmi", "ahi"):
             self.assertIn(col, df.columns)
             self.assertTrue(df[col].isna().all())
 
 
-class TestSHHSDataset(unittest.TestCase):
+class TestSHHSECGDataset(unittest.TestCase):
 
     def setUp(self):
         self.tmpdir = tempfile.TemporaryDirectory()
@@ -184,14 +184,14 @@ class TestSHHSDataset(unittest.TestCase):
             ".user_cache_dir",
             return_value=self.cache_tmpdir.name,
         ):
-            self.dataset = SHHSDataset(root=self.root)
+            self.dataset = SHHSECGDataset(root=self.root)
 
     def tearDown(self):
         self.tmpdir.cleanup()
         self.cache_tmpdir.cleanup()
 
     def test_dataset_loads(self):
-        self.assertIsInstance(self.dataset, SHHSDataset)
+        self.assertIsInstance(self.dataset, SHHSECGDataset)
 
     def test_patient_ids(self):
         ids = set(self.dataset.unique_patient_ids)
@@ -219,11 +219,11 @@ class TestSHHSDataset(unittest.TestCase):
         self.assertTrue(rates.issubset({"125", "256"}))
 
     def test_default_task(self):
-        from pyhealth.tasks.shhs_sleep_staging import (
-            SleepStagingSHHS,
+        from pyhealth.tasks.shhs_ibi_sleep_staging import (
+            SleepStagingSHHSIBI,
         )
         task = self.dataset.default_task
-        self.assertIsInstance(task, SleepStagingSHHS)
+        self.assertIsInstance(task, SleepStagingSHHSIBI)
 
 
 if __name__ == "__main__":

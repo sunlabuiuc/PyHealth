@@ -4,7 +4,7 @@ Demo script for WatchSleepNet on the SHHS dataset.
 This example demonstrates how to:
 1. Load the SHHS dataset
 2. Access patient data and wearable signal files
-3. Set the sleep staging task using SleepStagingSHHS
+3. Set the sleep staging task using SleepStagingSHHSIBI
 4. Split by patient and create DataLoaders
 5. Train and evaluate the WatchSleepNet model
 
@@ -28,9 +28,9 @@ import neurokit2 as nk
 import pandas as pd
 
 from pyhealth.trainer import Trainer
-from pyhealth.datasets import SHHSDataset, get_dataloader, split_by_patient
+from pyhealth.datasets import SHHSECGDataset, get_dataloader, split_by_patient
 from pyhealth.models import WatchSleepNet
-from pyhealth.tasks import SleepStagingSHHS
+from pyhealth.tasks import SleepStagingSHHSIBI
 
 _EPOCHS = 10
 _DECAY_WEIGHT = 1e-5
@@ -54,13 +54,13 @@ def main(seq_len: int = 20, lstm_hidden_size: int = 128) -> None:
         print()
 
     if SHHS_ROOT is not None:
-        dataset = SHHSDataset(root=SHHS_ROOT)
+        dataset = SHHSECGDataset(root=SHHS_ROOT)
     else:
         print("=" * 70)
         print("SHHS root not set, using synthetic sample data")
         print("=" * 70)
         _tmpdir = _build_sample_dataset_root(num_patients=3)
-        dataset = SHHSDataset(root=_tmpdir.name)
+        dataset = SHHSECGDataset(root=_tmpdir.name)
 
     print("=" * 70)
     print("Loading SHHS Dataset")
@@ -103,7 +103,7 @@ def main(seq_len: int = 20, lstm_hidden_size: int = 128) -> None:
     print("Setting Sleep Staging Task")
     print("=" * 70)
 
-    task = SleepStagingSHHS(seq_len=seq_len)
+    task = SleepStagingSHHSIBI(seq_len=seq_len)
     sample_dataset = dataset.set_task(task=task)
 
     print(f"Generated {len(sample_dataset)} samples")

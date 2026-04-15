@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 _STAGE_MAP = {0: 0, 1: 1, 2: 1, 3: 1, 4: 1, 5: 2}
 
 
-class SleepStagingSHHS(BaseTask):
+class SleepStagingSHHSIBI(BaseTask):
     """Sleep staging task for WatchSleepNet on the SHHS dataset.
 
     Implements the ECG to IBI preprocessing pipeline described in the
@@ -43,14 +43,14 @@ class SleepStagingSHHS(BaseTask):
         max_epochs: Maximum epochs to keep per recording. Default is 1100.
 
     Examples:
-        >>> from pyhealth.datasets import SHHSDataset
-        >>> from pyhealth.tasks import SleepStagingSHHS
-        >>> dataset = SHHSDataset(root="/path/to/shhs")
-        >>> task = SleepStagingSHHS()
+        >>> from pyhealth.datasets import SHHSECGDataset
+        >>> from pyhealth.tasks import SleepStagingSHHSIBI
+        >>> dataset = SHHSECGDataset(root="/path/to/shhs")
+        >>> task = SleepStagingSHHSIBI()
         >>> samples = dataset.set_task(task)
     """
 
-    task_name: str = "SleepStagingSHHS"
+    task_name: str = "SleepStagingSHHSIBI"
     input_schema: Dict[str, str] = {"signal": "tensor"}
     output_schema: Dict[str, str] = {"label": "multiclass"}
 
@@ -74,7 +74,7 @@ class SleepStagingSHHS(BaseTask):
         visit, and silently skips any visit that raises a processing error.
 
         Args:
-            patient: A Patient object from the SHHSDataset.
+            patient: A Patient object from the SHHSECGDataset.
 
         Returns:
             A list of sample dicts, each containing patient_id, record_id,
