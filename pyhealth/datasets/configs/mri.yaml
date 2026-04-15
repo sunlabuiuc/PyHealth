@@ -1,0 +1,19 @@
+version: "1.0"
+tables:
+  mri:
+    file_path: "mri-metadata-pyhealth.csv"
+    patient_id: "id"
+    timestamp: null
+    attributes:
+    - "img_path"
+    - "sex"
+    - "dominant_hand"
+    - "age"
+    - "education"
+    - "ses"
+    - "mmse"
+    - "cdr"
+    - "etiv"
+    - "nwbv"
+    - "asf"
+    - "delay"
