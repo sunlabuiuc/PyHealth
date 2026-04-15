@@ -1,0 +1,7 @@
+dataset_name: mimic3_temporal
+base_dataset: MIMIC3Dataset
+description: Temporal MIMIC-III wrapper for mortality prediction experiments
+required_tables:
+  - diagnoses_icd
+  - procedures_icd
+  - prescriptions

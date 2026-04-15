@@ -7,8 +7,16 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple, Union, Type
 import inspect
 import random
 from bisect import bisect_right
-import litdata
-from litdata.utilities.train_test_split import deepcopy_dataset
+try:
+    import litdata
+except Exception:
+    litdata = None
+try:
+    from litdata.utilities.train_test_split import deepcopy_dataset
+except Exception:
+    import copy
+    def deepcopy_dataset(dataset):
+        return copy.deepcopy(dataset)
 import copy
 
 from ..processors import get_processor, IgnoreProcessor
@@ -252,7 +260,9 @@ class SampleBuilder:
         return builder
 
 
-class SampleDataset(litdata.StreamingDataset):
+BaseStreamingDataset = litdata.StreamingDataset if litdata is not None else object
+
+class SampleDataset(BaseStreamingDataset):
     """A streaming dataset that loads sample metadata and processors from disk.
 
     SampleDataset expects the `path` directory to contain a `schema.pkl`
