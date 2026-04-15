@@ -5,6 +5,11 @@ import pytest
 from pyhealth.tasks.dynamic_survival import DynamicSurvivalTask
 
 
+class MockDataset:
+    def __init__(self):
+        self.patients = {}
+
+
 def create_patients(n=10):
     """
     Creates a small deterministic synthetic dataset for unit tests.
@@ -18,7 +23,7 @@ def create_patients(n=10):
     """
     patients = []
     for i in range(n):
-        visits = [{"time": t} for t in range(5, 50, 5)]
+        visits = [{"time": t, "feature": np.zeros(1)} for t in range(5, 50, 5)]
 
         patients.append({
             "patient_id": f"p{i}",
@@ -30,19 +35,19 @@ def create_patients(n=10):
 
 
 def test_multiple_patients_processing():
-    task = DynamicSurvivalTask()
+    task = DynamicSurvivalTask(MockDataset())
     patients = create_patients(25)
 
     all_samples = []
     for p in patients:
-        all_samples.extend(task(p))
+        all_samples.extend(task.engine.process_patient(p))
 
     assert len(all_samples) > 0
 
 
 def test_censoring_mask():
-    task = DynamicSurvivalTask(horizon=5)
-    y, mask = task.generate_survival_label(
+    task = DynamicSurvivalTask(MockDataset(), horizon=5)
+    y, mask = task.engine.generate_survival_label(
         anchor_time=10,
         event_time=None,
         censor_time=12,
@@ -53,36 +58,36 @@ def test_censoring_mask():
 
 
 def test_single_anchor_strategy():
-    task = DynamicSurvivalTask(anchor_strategy="single")
+    task = DynamicSurvivalTask(MockDataset(), anchor_strategy="single")
 
-    anchors = task.generate_anchors([5, 10], outcome_time=20)
+    anchors = task.engine.generate_anchors([5, 10], outcome_time=20)
 
     assert len(anchors) == 1
     assert anchors[0] == 20
 
 
 def test_empty_events():
-    task = DynamicSurvivalTask()
+    task = DynamicSurvivalTask(MockDataset())
     patient = {
         "patient_id": "p",
         "visits": [],
     }
 
-    samples = task(patient)
+    samples = task.engine.process_patient(patient)
 
     assert samples == []
 
 
 def test_output_format():
-    task = DynamicSurvivalTask(observation_window=5, horizon=5)
+    task = DynamicSurvivalTask(MockDataset(), observation_window=5, horizon=5)
 
     patient = {
         "patient_id": "p1",
-        "visits": [{"time": t} for t in [5, 10, 15]],
+        "visits": [{"time": t, "feature": np.zeros(1)} for t in [5, 10, 15]],
         "outcome_time": 20,
     }
 
-    samples = task(patient)
+    samples = task.engine.process_patient(patient)
 
     assert len(samples) > 0, "No samples were generated for the patient"
     s = samples[0]
@@ -93,9 +98,9 @@ def test_output_format():
 
 
 def test_event_before_anchor():
-    task = DynamicSurvivalTask(horizon=5)
+    task = DynamicSurvivalTask(MockDataset(), horizon=5)
 
-    y, mask = task.generate_survival_label(
+    y, mask = task.engine.generate_survival_label(
         anchor_time=10,
         event_time=8,
     )
@@ -104,9 +109,9 @@ def test_event_before_anchor():
 
 
 def test_event_within_horizon():
-    task = DynamicSurvivalTask(horizon=5)
+    task = DynamicSurvivalTask(MockDataset(), horizon=5)
 
-    y, mask = task.generate_survival_label(
+    y, mask = task.engine.generate_survival_label(
         anchor_time=10,
         event_time=12,
     )
@@ -119,9 +124,9 @@ def test_event_within_horizon():
 
 
 def test_event_outside_horizon():
-    task = DynamicSurvivalTask(horizon=5)
+    task = DynamicSurvivalTask(MockDataset(), horizon=5)
 
-    y, mask = task.generate_survival_label(
+    y, mask = task.engine.generate_survival_label(
         anchor_time=10,
         event_time=20,
     )
@@ -131,23 +136,23 @@ def test_event_outside_horizon():
 
 
 def test_no_valid_anchors():
-    task = DynamicSurvivalTask(observation_window=100)
+    task = DynamicSurvivalTask(MockDataset(), observation_window=100)
 
     patient = {
         "patient_id": "p1",
-        "visits": [{"time": 1}, {"time": 2}],
+        "visits": [{"time": 1, "feature": np.zeros(1)}, {"time": 2, "feature": np.zeros(1)}],
         "outcome_time": 3,
     }
 
-    samples = task(patient)
+    samples = task.engine.process_patient(patient)
 
     assert samples == []
 
 
 def test_label_shape_consistency():
-    task = DynamicSurvivalTask(horizon=7)
+    task = DynamicSurvivalTask(MockDataset(), horizon=7)
 
-    y, mask = task.generate_survival_label(
+    y, mask = task.engine.generate_survival_label(
         anchor_time=10,
         event_time=15,
     )
@@ -157,15 +162,15 @@ def test_label_shape_consistency():
 
 
 def test_full_pipeline_shapes():
-    task = DynamicSurvivalTask(horizon=6)
+    task = DynamicSurvivalTask(MockDataset(), horizon=6)
 
     patient = {
         "patient_id": "p1",
-        "visits": [{"time": t} for t in range(5, 50, 5)],
+        "visits": [{"time": t, "feature": np.zeros(1)} for t in range(5, 50, 5)],
         "outcome_time": 60,
     }
 
-    samples = task(patient)
+    samples = task.engine.process_patient(patient)
 
     for s in samples:
         assert s["y"].shape[0] == 6
@@ -174,23 +179,23 @@ def test_full_pipeline_shapes():
 
 
 def test_anchor_with_no_observation_window():
-    task = DynamicSurvivalTask(observation_window=10)
+    task = DynamicSurvivalTask(MockDataset(), observation_window=10)
 
     patient = {
         "patient_id": "p1",
-        "visits": [{"time": 5}],  # before window
+        "visits": [{"time": 5, "feature": np.zeros(1)}],  # before window
         "outcome_time": 20,
     }
 
-    samples = task(patient)
+    samples = task.engine.process_patient(patient)
 
     assert isinstance(samples, list)
 
 
 def test_anchor_respects_censor_time():
-    task = DynamicSurvivalTask(anchor_interval=5)
+    task = DynamicSurvivalTask(MockDataset(), anchor_interval=5)
 
-    anchors = task.generate_anchors(
+    anchors = task.engine.generate_anchors(
         event_times=[5, 10, 15],
         outcome_time=None,
         censor_time=20,
@@ -200,13 +205,13 @@ def test_anchor_respects_censor_time():
 
 
 def test_end_to_end_pipeline():
-    task = DynamicSurvivalTask()
+    task = DynamicSurvivalTask(MockDataset())
 
     patients = create_patients(5)
     samples = []
 
     for p in patients:
-        samples.extend(task(p))
+        samples.extend(task.engine.process_patient(p))
 
     assert len(samples) > 0
 
