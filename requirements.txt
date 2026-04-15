@@ -1,6 +1,14 @@
-numpy==1.26.4
-torch==2.10.0
-polars==1.39.3
-scikit-learn
-pytest==9.0.3
+# IMPORTANT:
+# Install PyTorch via conda BEFORE installing these packages:
+# conda install pytorch cpuonly torchvision -c pytorch
+# (Do NOT install torch via pip, it may cause DLL or compatibility issues)
+
 pyhealth==1.1.6
+numpy==1.26.4
+pandas==1.5.3
+scipy==1.10.1
+polars==1.39.3
+mne
+scikit-learn
+matplotlib
+pytest==9.0.3
