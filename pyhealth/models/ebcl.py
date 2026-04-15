@@ -3,9 +3,6 @@
 This module implements a tensor-first PyHealth model for contrastive pretraining on
 paired pre-event and post-event medical time-series windows.
 
-The model is intentionally lightweight and self-contained so it is easy to test with
-synthetic data and easy to plug into a downstream example script.
-
 Expected tensor shapes:
     left_x:  [batch_size, seq_len, input_dim]
     right_x: [batch_size, seq_len, input_dim]
@@ -13,19 +10,6 @@ Expected tensor shapes:
 Optional masks:
     left_mask:  [batch_size, seq_len] with 1/True for valid tokens
     right_mask: [batch_size, seq_len] with 1/True for valid tokens
-
-Forward return:
-    {
-        "left_emb": ...,
-        "right_emb": ...,
-        "patient_emb": ...,
-        "logit": ... (if classifier head is enabled),
-        "y_prob": ... (if classifier head is enabled),
-        "loss": ...,
-        "contrastive_loss": ...,
-        "supervised_loss": ... (if labels are provided),
-        "y_true": ... (if labels are provided),
-    }
 """
 
 from __future__ import annotations
@@ -41,15 +25,7 @@ from pyhealth.models import BaseModel
 
 
 class AttentionPooling(nn.Module):
-    """Attention pooling over a sequence.
-
-    Args:
-        hidden_dim: Dimensionality of the sequence embeddings.
-
-    Shape:
-        x: [batch_size, seq_len, hidden_dim]
-        mask: [batch_size, seq_len] where True means valid token
-    """
+    """Attention pooling over a sequence."""
 
     def __init__(self, hidden_dim: int):
         super().__init__()
@@ -60,22 +36,14 @@ class AttentionPooling(nn.Module):
         x: torch.Tensor,
         mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        """Pool a sequence into a single vector.
-
-        Args:
-            x: Sequence embeddings of shape [batch_size, seq_len, hidden_dim].
-            mask: Optional validity mask of shape [batch_size, seq_len].
-
-        Returns:
-            Pooled tensor of shape [batch_size, hidden_dim].
-        """
+        """Pool a sequence into a single vector."""
         attn_logits = self.score(x).squeeze(-1)  # [B, T]
 
         if mask is not None:
             mask = mask.bool()
             attn_logits = attn_logits.masked_fill(~mask, -1e9)
 
-        attn_weights = torch.softmax(attn_logits, dim=-1)  # [B, T]
+        attn_weights = torch.softmax(attn_logits, dim=-1)
         pooled = torch.einsum("bt,bth->bh", attn_weights, x)
         return pooled
 
@@ -88,33 +56,6 @@ class EBCL(BaseModel):
 
     It also optionally supports a lightweight supervised prediction head on top of the
     concatenated pair embedding for downstream tasks.
-
-    Args:
-        dataset: Optional PyHealth dataset. Can be None for synthetic tests.
-        input_dim: Feature dimension of each time step.
-        hidden_dim: Transformer hidden dimension.
-        projection_dim: Dimension of the final contrastive embedding.
-        num_layers: Number of Transformer encoder layers.
-        num_heads: Number of attention heads.
-        ff_dim: Feed-forward dimension inside the Transformer encoder.
-        dropout: Dropout probability.
-        temperature: Temperature for contrastive loss.
-        classifier_out_dim: Output dimension for optional supervised head.
-            Use 1 for binary classification, >1 for multiclass, or 0 to disable.
-        max_seq_len: Maximum supported sequence length for positional embeddings.
-
-    Example:
-        >>> model = EBCL(
-        ...     dataset=None,
-        ...     input_dim=16,
-        ...     hidden_dim=32,
-        ...     projection_dim=32,
-        ... )
-        >>> left_x = torch.randn(4, 8, 16)
-        >>> right_x = torch.randn(4, 8, 16)
-        >>> out = model(left_x=left_x, right_x=right_x)
-        >>> sorted(out.keys())
-        ['contrastive_loss', 'left_emb', 'loss', 'patient_emb', 'right_emb']
     """
 
     def __init__(
@@ -195,7 +136,6 @@ class EBCL(BaseModel):
         else:
             self.classifier = None
 
-        # Match PyHealth convention where possible.
         if classifier_out_dim == 1:
             self.mode = "binary"
         elif classifier_out_dim > 1:
@@ -228,12 +168,7 @@ class EBCL(BaseModel):
 
     @staticmethod
     def _validate_input_tensor(name: str, x: torch.Tensor) -> None:
-        """Validate a sequence input tensor.
-
-        Args:
-            name: Name of the tensor for error messages.
-            x: Tensor expected to have shape [batch_size, seq_len, input_dim].
-        """
+        """Validate a sequence input tensor."""
         if x.dim() != 3:
             raise ValueError(
                 f"{name} must have shape [batch_size, seq_len, input_dim], "
@@ -245,17 +180,7 @@ class EBCL(BaseModel):
         mask: Optional[torch.Tensor],
         x: torch.Tensor,
     ) -> torch.Tensor:
-        """Normalize a mask to boolean [batch_size, seq_len].
-
-        If mask is None, all positions are treated as valid.
-
-        Args:
-            mask: Optional mask tensor.
-            x: Input sequence tensor used to infer shape.
-
-        Returns:
-            Boolean mask of shape [batch_size, seq_len].
-        """
+        """Normalize a mask to boolean [batch_size, seq_len]."""
         if mask is None:
             return torch.ones(
                 x.size(0),
@@ -272,7 +197,6 @@ class EBCL(BaseModel):
 
         mask = mask.to(device=x.device).bool()
 
-        # Ensure each sample has at least one valid token.
         empty_rows = ~mask.any(dim=1)
         if empty_rows.any():
             mask = mask.clone()
@@ -285,15 +209,7 @@ class EBCL(BaseModel):
         x: torch.Tensor,
         mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        """Encode a sequence into a single normalized embedding.
-
-        Args:
-            x: Input tensor of shape [batch_size, seq_len, input_dim].
-            mask: Optional boolean/0-1 mask of shape [batch_size, seq_len].
-
-        Returns:
-            Normalized embedding tensor of shape [batch_size, projection_dim].
-        """
+        """Encode a sequence into a single normalized embedding."""
         self._validate_input_tensor("x", x)
         mask = self._normalize_mask(mask, x)
 
@@ -305,7 +221,6 @@ class EBCL(BaseModel):
         h = h + self.pos_embedding[:, : h.size(1), :]
         h = self.input_dropout(h)
 
-        # PyTorch transformer uses True for padding in src_key_padding_mask.
         src_key_padding_mask = ~mask
         h = self.encoder(h, src_key_padding_mask=src_key_padding_mask)
 
@@ -320,17 +235,7 @@ class EBCL(BaseModel):
         left_emb: torch.Tensor,
         right_emb: torch.Tensor,
     ) -> torch.Tensor:
-        """Compute symmetric batch contrastive loss.
-
-        Diagonal pairs are treated as positives. Off-diagonal pairs are negatives.
-
-        Args:
-            left_emb: Left embeddings [batch_size, projection_dim].
-            right_emb: Right embeddings [batch_size, projection_dim].
-
-        Returns:
-            Scalar contrastive loss.
-        """
+        """Compute symmetric batch contrastive loss."""
         if left_emb.shape != right_emb.shape:
             raise ValueError(
                 "left_emb and right_emb must have the same shape, got "
@@ -353,16 +258,7 @@ class EBCL(BaseModel):
         right_emb: torch.Tensor,
         y: Optional[torch.Tensor] = None,
     ) -> dict[str, torch.Tensor]:
-        """Compute optional supervised outputs from pair embeddings.
-
-        Args:
-            left_emb: Left embeddings [batch_size, projection_dim].
-            right_emb: Right embeddings [batch_size, projection_dim].
-            y: Optional labels.
-
-        Returns:
-            Dictionary containing supervised outputs if classifier is enabled.
-        """
+        """Compute optional supervised outputs from pair embeddings."""
         outputs: dict[str, torch.Tensor] = {}
 
         if self.classifier is None:
@@ -396,15 +292,7 @@ class EBCL(BaseModel):
         x: torch.Tensor,
         mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        """Public helper to encode a single sequence.
-
-        Args:
-            x: Input tensor [batch_size, seq_len, input_dim].
-            mask: Optional mask [batch_size, seq_len].
-
-        Returns:
-            Embedding tensor [batch_size, projection_dim].
-        """
+        """Public helper to encode a single sequence."""
         return self._encode_sequence(x, mask)
 
     def forward(
@@ -416,19 +304,7 @@ class EBCL(BaseModel):
         y: Optional[torch.Tensor] = None,
         supervised_weight: float = 1.0,
     ) -> dict[str, torch.Tensor]:
-        """Forward pass for contrastive pretraining and optional supervision.
-
-        Args:
-            left_x: Pre-event window tensor [batch_size, seq_len, input_dim].
-            right_x: Post-event window tensor [batch_size, seq_len, input_dim].
-            left_mask: Optional mask for left_x.
-            right_mask: Optional mask for right_x.
-            y: Optional labels for downstream prediction.
-            supervised_weight: Weight applied to supervised loss if enabled.
-
-        Returns:
-            A dictionary containing embeddings and losses.
-        """
+        """Forward pass for contrastive pretraining and optional supervision."""
         self._validate_input_tensor("left_x", left_x)
         self._validate_input_tensor("right_x", right_x)
 
@@ -470,22 +346,7 @@ class EBCL(BaseModel):
         y: Optional[torch.Tensor] = None,
         supervised_weight: float = 1.0,
     ) -> dict[str, torch.Tensor]:
-        """Compatibility wrapper for PyHealth interpretability APIs.
-
-        Since this model already accepts dense tensors directly, this method simply
-        calls ``forward``.
-
-        Args:
-            left_x: Embedded pre-event input.
-            right_x: Embedded post-event input.
-            left_mask: Optional mask for left_x.
-            right_mask: Optional mask for right_x.
-            y: Optional labels.
-            supervised_weight: Weight for supervised loss.
-
-        Returns:
-            Same dictionary as ``forward``.
-        """
+        """Compatibility wrapper for embedding-based calls."""
         return self.forward(
             left_x=left_x,
             right_x=right_x,
