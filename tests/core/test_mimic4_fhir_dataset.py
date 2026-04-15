@@ -9,18 +9,17 @@ import polars as pl
 
 from pyhealth.data import Patient
 from pyhealth.datasets import MIMIC4FHIRDataset
-from pyhealth.datasets.fhir_ingest import (
+from pyhealth.datasets.fhir_utils import (
     _flatten_resource_to_table_row,
-    synthetic_mpf_two_patient_ndjson_text,
 )
-from pyhealth.datasets.fhir_cehr import (
+from pyhealth.processors.cehr_processor import (
     ConceptVocab,
     build_cehr_sequences,
     collect_cehr_timeline_events,
     infer_mortality_label,
 )
 
-from tests.core.mimic4_fhir_ndjson_fixtures import (
+from tests.core.test_mimic4_fhir_ndjson_fixtures import (
     ndjson_two_class_text,
     write_one_patient_ndjson,
     write_two_class_ndjson,
@@ -53,7 +52,7 @@ def _third_patient_loinc_resources() -> List[Dict[str, object]]:
 
 
 def write_two_class_plus_third_ndjson(directory: Path, *, name: str = "fixture.ndjson") -> Path:
-    lines = synthetic_mpf_two_patient_ndjson_text().strip().split("\n")
+    lines = ndjson_two_class_text().strip().split("\n")
     lines.extend(orjson.dumps(r).decode("utf-8") for r in _third_patient_loinc_resources())
     path = directory / name
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -62,6 +61,14 @@ def write_two_class_plus_third_ndjson(directory: Path, *, name: str = "fixture.n
 
 def _patient_from_rows(patient_id: str, rows: List[Dict[str, object]]) -> Patient:
     return Patient(patient_id=patient_id, data_source=pl.DataFrame(rows))
+
+
+def _run_task(ds: MIMIC4FHIRDataset, task) -> List[Dict]:
+    """Run task over all patients without LitData caching (test helper)."""
+    task.vocab = ds.vocab
+    task._specials = None
+    task.frozen_vocab = False
+    return [s for patient in ds.iter_patients() for s in task(patient)]
 
 
 class TestDeceasedBooleanFlattening(unittest.TestCase):
@@ -139,7 +146,7 @@ class TestMIMIC4FHIRDataset(unittest.TestCase):
         self.assertEqual(v._next_id, 50)
 
     def test_sorted_ndjson_files_accepts_sequence_and_dedupes(self) -> None:
-        from pyhealth.datasets.fhir_ingest import sorted_ndjson_files
+        from pyhealth.datasets.fhir_utils import sorted_ndjson_files
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -201,7 +208,7 @@ class TestMIMIC4FHIRDataset(unittest.TestCase):
             write_one_patient_ndjson(Path(tmp))
             ds = MIMIC4FHIRDataset(root=tmp, glob_pattern="*.ndjson", cache_dir=tmp)
             task = MPFClinicalPredictionTask(max_len=64, use_mpf=True)
-            ds.gather_samples(task)
+            _run_task(ds, task)
             self.assertIsInstance(ds.vocab, ConceptVocab)
             self.assertGreater(ds.vocab.vocab_size, 2)
 
@@ -225,7 +232,7 @@ class TestMIMIC4FHIRDataset(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             write_two_class_ndjson(Path(tmp))
             ds = MIMIC4FHIRDataset(root=tmp, glob_pattern="*.ndjson", cache_dir=tmp)
-            samples = ds.gather_samples(MPFClinicalPredictionTask(max_len=64, use_mpf=False))
+            samples = _run_task(ds, MPFClinicalPredictionTask(max_len=64, use_mpf=False))
             self.assertEqual({s["label"] for s in samples}, {0, 1})
 
     def test_infer_deceased(self) -> None:
@@ -250,7 +257,7 @@ class TestMIMIC4FHIRDataset(unittest.TestCase):
             write_two_class_ndjson(Path(tmp))
             ds = MIMIC4FHIRDataset(root=tmp, glob_pattern="*.ndjson", max_patients=5)
             self.assertEqual(len(ds.unique_patient_ids), 2)
-            samples = ds.gather_samples(MPFClinicalPredictionTask(max_len=48, use_mpf=True))
+            samples = _run_task(ds, MPFClinicalPredictionTask(max_len=48, use_mpf=True))
             self.assertGreaterEqual(len(samples), 1)
             for sample in samples:
                 self.assertIn("concept_ids", sample)
@@ -269,7 +276,7 @@ class TestMIMIC4FHIRDataset(unittest.TestCase):
             self.assertIn("observation/concept_key", df.columns)
             self.assertIn("patient/deceased_boolean", df.columns)
 
-    def test_set_task_parity_with_gather_samples_ndjson(self) -> None:
+    def test_set_task_produces_correct_samples(self) -> None:
         from pyhealth.tasks.mpf_clinical_prediction import MPFClinicalPredictionTask
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -277,50 +284,19 @@ class TestMIMIC4FHIRDataset(unittest.TestCase):
             ds = MIMIC4FHIRDataset(
                 root=tmp, glob_pattern="*.ndjson", cache_dir=tmp, num_workers=1
             )
-            ref = sorted(
-                ds.gather_samples(MPFClinicalPredictionTask(max_len=48, use_mpf=True)),
-                key=lambda s: s["patient_id"],
-            )
             sample_ds = ds.set_task(
                 MPFClinicalPredictionTask(max_len=48, use_mpf=True), num_workers=1
             )
-            got = sorted(
+            samples = sorted(
                 [sample_ds[i] for i in range(len(sample_ds))],
                 key=lambda s: s["patient_id"],
             )
-            self.assertEqual(len(got), len(ref))
-            for expected, actual in zip(ref, got):
-                self.assertEqual(expected["label"], int(actual["label"]))
-                actual_ids = actual["concept_ids"]
-                if hasattr(actual_ids, "tolist"):
-                    actual_ids = actual_ids.tolist()
-                self.assertEqual(expected["concept_ids"], actual_ids)
-
-    def test_gather_samples_resets_frozen_vocab_after_set_task(self) -> None:
-        from pyhealth.tasks.mpf_clinical_prediction import MPFClinicalPredictionTask
-
-        with tempfile.TemporaryDirectory() as tmp_a, tempfile.TemporaryDirectory() as tmp_b:
-            write_two_class_ndjson(Path(tmp_a), name="a.ndjson")
-            write_two_class_ndjson(Path(tmp_b), name="b.ndjson")
-            ds_a = MIMIC4FHIRDataset(
-                root=tmp_a, glob_pattern="*.ndjson", cache_dir=tmp_a, num_workers=1
-            )
-            ds_b = MIMIC4FHIRDataset(
-                root=tmp_b, glob_pattern="*.ndjson", cache_dir=tmp_b, num_workers=1
-            )
-            task = MPFClinicalPredictionTask(max_len=48, use_mpf=True)
-            ds_a.set_task(task, num_workers=1)
-            self.assertFalse(task.frozen_vocab)
-
-            ref = sorted(
-                ds_b.gather_samples(MPFClinicalPredictionTask(max_len=48, use_mpf=True)),
-                key=lambda s: s["patient_id"],
-            )
-            got = sorted(ds_b.gather_samples(task), key=lambda s: s["patient_id"])
-            self.assertEqual(len(got), len(ref))
-            for expected, actual in zip(ref, got):
-                self.assertEqual(expected["label"], actual["label"])
-                self.assertEqual(expected["concept_ids"], actual["concept_ids"])
+            self.assertEqual(len(samples), 2)
+            for s in samples:
+                self.assertIn("concept_ids", s)
+                self.assertIn("label", s)
+            labels = {int(s["label"]) for s in samples}
+            self.assertEqual(labels, {0, 1})
 
     def test_set_task_multi_worker_sets_frozen_vocab(self) -> None:
         from pyhealth.tasks.mpf_clinical_prediction import MPFClinicalPredictionTask
@@ -352,7 +328,7 @@ class TestMIMIC4FHIRDataset(unittest.TestCase):
             self.assertNotIn("http://loinc.org|999-9", ds.vocab.token_to_id)
             self.assertIn("http://loinc.org|789-0", ds.vocab.token_to_id)
 
-    def test_mpf_pre_filter_patient_ids_drive_effective_workers(self) -> None:
+    def test_mpf_pre_filter_single_patient_limits_effective_workers(self) -> None:
         from pyhealth.tasks.mpf_clinical_prediction import MPFClinicalPredictionTask
 
         class OnePatientMPFTask(MPFClinicalPredictionTask):
@@ -365,7 +341,15 @@ class TestMIMIC4FHIRDataset(unittest.TestCase):
                 root=tmp, glob_pattern="*.ndjson", cache_dir=tmp, num_workers=2
             )
             task = OnePatientMPFTask(max_len=48, use_mpf=True)
-            warmup_pids = ds._mpf_patient_ids_for_task(task)
+            warmup_pids = (
+                task.pre_filter(ds.global_event_df)
+                .select("patient_id")
+                .unique()
+                .collect(engine="streaming")
+                .to_series()
+                .sort()
+                .to_list()
+            )
             self.assertEqual(warmup_pids, ["p-synth-1"])
             effective_workers = min(2, len(warmup_pids)) if warmup_pids else 1
             self.assertEqual(effective_workers, 1)

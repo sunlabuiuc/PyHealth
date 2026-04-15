@@ -59,7 +59,6 @@ from .isruc import ISRUCDataset
 from .medical_transcriptions import MedicalTranscriptionsDataset
 from .mimic3 import MIMIC3Dataset
 from .mimic4 import MIMIC4CXRDataset, MIMIC4Dataset, MIMIC4EHRDataset, MIMIC4NoteDataset
-from .fhir_cehr import ConceptVocab
 from .mimic4_fhir import MIMIC4FHIRDataset
 from .mimicextract import MIMICExtractDataset
 from .omop import OMOPDataset

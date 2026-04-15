@@ -6,7 +6,15 @@ from pathlib import Path
 from pyhealth.datasets import MIMIC4FHIRDataset
 from pyhealth.tasks.mpf_clinical_prediction import MPFClinicalPredictionTask
 
-from tests.core.mimic4_fhir_ndjson_fixtures import write_two_class_ndjson
+from tests.core.test_mimic4_fhir_ndjson_fixtures import write_two_class_ndjson
+
+
+def _run_task(ds: MIMIC4FHIRDataset, task) -> list:
+    """Run task over all patients without LitData caching (test helper)."""
+    task.vocab = ds.vocab
+    task._specials = None
+    task.frozen_vocab = False
+    return [s for patient in ds.iter_patients() for s in task(patient)]
 
 
 class TestMPFClinicalPredictionTask(unittest.TestCase):
@@ -25,7 +33,7 @@ class TestMPFClinicalPredictionTask(unittest.TestCase):
     def test_mpf_sets_boundary_tokens(self) -> None:
         task = MPFClinicalPredictionTask(max_len=32, use_mpf=True)
         ds = self._two_patient_ds()
-        samples = ds.gather_samples(task)
+        samples = _run_task(ds, task)
         vocab = ds.vocab
         self.assertGreater(len(samples), 0)
         s0 = samples[0]
@@ -42,7 +50,7 @@ class TestMPFClinicalPredictionTask(unittest.TestCase):
     def test_no_mpf_uses_cls_reg(self) -> None:
         task = MPFClinicalPredictionTask(max_len=32, use_mpf=False)
         ds = self._two_patient_ds()
-        samples = ds.gather_samples(task)
+        samples = _run_task(ds, task)
         vocab = ds.vocab
         s0 = samples[0]
         cls_id = vocab["<cls>"]
@@ -58,7 +66,7 @@ class TestMPFClinicalPredictionTask(unittest.TestCase):
     def test_schema_keys(self) -> None:
         task = MPFClinicalPredictionTask(max_len=16, use_mpf=True)
         ds = self._two_patient_ds()
-        samples = ds.gather_samples(task)
+        samples = _run_task(ds, task)
         for k in task.input_schema:
             self.assertIn(k, samples[0])
         self.assertIn("label", samples[0])
@@ -68,7 +76,7 @@ class TestMPFClinicalPredictionTask(unittest.TestCase):
 
         task = MPFClinicalPredictionTask(max_len=2, use_mpf=True)
         ds = self._two_patient_ds()
-        samples = ds.gather_samples(task)
+        samples = _run_task(ds, task)
         vocab = ds.vocab
         mor = vocab["<mor>"]
         reg = vocab["<reg>"]
