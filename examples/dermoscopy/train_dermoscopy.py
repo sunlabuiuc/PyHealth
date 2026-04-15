@@ -146,14 +146,21 @@ class MelanomaClassifier(BaseModel):
             raise ValueError(f"Architecture {arch} not supported.")
 
     def forward(self, **kwargs):
-        x = kwargs[self.feature_key]
-        logits = self.model(x)
-        loss_fn = nn.BCEWithLogitsLoss()
-        # Force the labels to exactly match the shape of the model's logits
-        loss = loss_fn(logits, kwargs[self.label_key].float().view_as(logits))
-        y_prob = torch.sigmoid(logits)
-        return {"loss": loss, "y_prob": y_prob, "y_true": kwargs[self.label_key]}
+        # Extract the image tensor and move it to the device first
+        x = kwargs[self.feature_key].to(self.device)
 
+        # 2. Pass the GPU images into the GPU model
+        logits = self.model(x)
+
+        # 3. Extract labels and move them to the device
+        y_true = kwargs[self.label_key].to(self.device)
+
+        # 4. Calculate loss (Both logits and y_true are now on the GPU)
+        loss_fn = nn.BCEWithLogitsLoss()
+        loss = loss_fn(logits, y_true.float().view_as(logits))
+
+        y_prob = torch.sigmoid(logits)
+        return {"loss": loss, "y_prob": y_prob, "y_true": y_true}
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train Dermoscopy Classification Models")
