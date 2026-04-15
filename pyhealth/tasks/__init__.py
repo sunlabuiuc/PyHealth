@@ -13,6 +13,7 @@ from .chestxray14_binary_classification import ChestXray14BinaryClassification
 from .chestxray14_multilabel_classification import ChestXray14MultilabelClassification
 from .covid19_cxr_classification import COVID19CXRClassification
 from .dka import DKAPredictionMIMIC4, T1DDKAPredictionMIMIC4
+from .dsa_activity_classification import DSAActivityClassification
 from .drug_recommendation import (
     DrugRecommendationEICU,
     DrugRecommendationMIMIC3,
