@@ -13,18 +13,17 @@ and prints formatted Summary Tables.
 import argparse
 import os
 import sys
+import logging
 import datetime
 import ast
 import numpy as np
 import torch
 import torch.nn as nn
-import copy
 from torchvision import models
 from sklearn.model_selection import KFold
 from torch.utils.data import Subset
 from collections import defaultdict
 import matplotlib.pyplot as plt
-
 
 from pyhealth.datasets import get_dataloader, split_by_sample
 from pyhealth.trainer import Trainer
@@ -45,32 +44,51 @@ class PyHealthSubset(Subset):
 # ==========================================
 class DualLogger:
     """Writes standard output to both the terminal and a log file simultaneously."""
-    def __init__(self, log_file_path):
-        self.terminal = sys.stdout
-        self.log = open(log_file_path, "a", encoding="utf-8")
+    def __init__(self, filepath, stream):
+        self.terminal = stream
+        self.log = open(filepath, "a", encoding="utf-8")
 
     def write(self, message):
         self.terminal.write(message)
         self.log.write(message)
 
     def flush(self):
+        # This flush method is needed for Python 3 compatibility
         self.terminal.flush()
         self.log.flush()
-        
-    def getattr(self, attr):
-        # Fallback for tqdm progress bars
-        return getattr(self.terminal, attr)
 
-def setup_dynamic_logging(prefix: str, run_name: str):
-    """Generates a dynamic filename and starts the DualLogger."""
-    log_dir = os.path.abspath("../dermoscopy_logs")
+def setup_dynamic_logging(folder_name, run_name):
+    """Sets up a catch-all logger for standard prints, errors, tqdm, and PyHealth logs."""
+    import datetime
+
+    # Create the directory safely
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    log_dir = os.path.join(current_dir, "logs", folder_name)
     os.makedirs(log_dir, exist_ok=True)
-    
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_name = f"{prefix}_{run_name}_{timestamp}.txt"
-    log_path = os.path.join(log_dir, log_name)
-    sys.stdout = DualLogger(log_path)
-    print(f"[*] Dynamic Logging Initialized: {log_path}")
+
+    # Build the filename
+    timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+    log_filepath = os.path.join(log_dir, f"{run_name}_{timestamp}.txt")
+
+    # Hijack Standard Output (print statements)
+    sys.stdout = DualLogger(log_filepath, sys.stdout)
+
+    # Hijack Standard Error (tqdm progress bars and crash tracebacks)
+    sys.stderr = DualLogger(log_filepath, sys.stderr)
+
+    # Capture internal PyHealth / PyTorch warnings via the logging module
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(message)s",
+        handlers=[
+            logging.FileHandler(log_filepath, encoding="utf-8"),
+            logging.StreamHandler(sys.stdout)
+        ],
+        force=True # This forces PyHealth to abandon its default loggers and use ours
+    )
+
+    print(f"[*] Dynamic Logging initialized: {log_filepath}")
+    return log_filepath
 
 # ==========================================
 # VISUALIZATION UTILITY
