@@ -1,3 +1,20 @@
+"""
+PyHealth task for extracting features with STFT and Frequency Bands using the Temple University Hospital (TUH) EEG Seizure Corpus (TUSZ) dataset V2.0.5.
+
+Dataset link:
+    https://isip.piconepress.com/projects/nedc/html/tuh_eeg/index.shtml
+
+Dataset paper:
+    Vinit Shah, Eva von Weltin, Silvia Lopez, et al., “The Temple University Hospital Seizure Detection Corpus,” arXiv preprint arXiv:1801.08085, 2018. Available: https://arxiv.org/abs/1801.08085
+
+Dataset paper link:
+    https://arxiv.org/abs/1801.08085
+
+Author:
+    Fernando Kenji Sakabe (fks@illinois.edu), 
+    Jesica Hirsch (jesicah2@illinois.edu), 
+    Jung-Jung Hsieh (jhsieh8@illinois.edu)
+"""
 import logging
 import pandas as pd
 from pathlib import Path
@@ -11,24 +28,51 @@ logger = logging.getLogger(__name__)
 class TUSZDataset(BaseDataset):
     """Base EEG dataset for the TUH Seizure Corpus (TUSZ)
 
-    Dataset is available at ......
+    Dataset is available at https://isip.piconepress.com/projects/nedc/html/tuh_eeg/index.shtml.
     
-    This corpus contains EEG recordings with seizure annotations.
+    This corpus contains EEG recordings with seizure annotations (start time, stop, channel and seizure type).
+
+    File Structure:
+        edf/
+        ├── train/                             # train set
+        ├── dev/                               # development set (test/validation)
+        ├── eval/                              # evaluation set (test/validation)
+            └── <subject_id>/                  # e.g., aaaaaajy
+                └── sXXX_YYYY/                 # session ID + year
+                        └── <montage_type>/    # e.g., 02_tcp_le
+                            ├── *.edf          # raw EEG signal
+                            ├── *.csv          # annotations (events)
+                            ├── *.csv_bi       # binary labels
+                            └── *.tse / *.lbl  # (sometimes present)
 
     Args:
-        root: root directory of the raw data.
+        root        : root directory of the raw data.
         dataset_name: optional name of the dataset.
-        config_path: optional config file name, defaults to "tusz.yaml".
-        subset: which split to use: "train", "eval", or "both".
-        **kwargs: other arguments passed to BaseDataset.
+        config_path : optional config file name, defaults to "tusz.yaml".
+        subset      : which split to use: "train", "eval", or "both".
+        use_cache   : optional boolean to determine whether to use cached results or not
+        **kwargs    : other arguments passed to BaseDataset.
+
+    Attributes:
+        samples: Optional[List[Dict]], a list of samples, each sample is a dict with
+            patient_id, record_id, and other task-specific attributes as key.
+            Default is None.
+        patient_to_index: Optional[Dict[str, List[int]]], a dict mapping patient_id to
+            a list of sample indices. Default is None.
+        visit_to_index: Optional[Dict[str, List[int]]], a dict mapping visit_id/session_id to a
+            list of sample indices. Default is None.
 
     Examples:
         >>> from pyhealth.datasets import TUSZDataset
         >>> from pyhealth.tasks import TUSZTask
-        >>> dataset = TUSZDataset(root="/srv/local/data/TUH/tuh_eeg_seizure/v1.5.2/")
+        >>> dataset = TUSZDataset(root = 'tuh_eeg_v2.0.5', subset = 'train')
         >>> dataset.stats()
-        >>> sample_dataset = dataset.set_task(TUSZTask())
-        >>> sample = sample_dataset[0]
+        >>> task = TUSZTask(
+        >>>     sample_rate = SAMPLE_RATE,
+        >>>     feature_sample_rate = FEATURE_SAMPLE_RATE,
+        >>> )
+        >>> samples = dataset.set_task(task)
+        >>> sample = samples[0]
         >>> print(sample['signal'].shape)
     """
 
@@ -65,7 +109,7 @@ class TUSZDataset(BaseDataset):
         )
     
     def prepare_metadata(self) -> None:
-        """Build and save processed metadata CSVs for TUSZ train/eval separately."""
+        """Build and save processed metadata CSVs for TUSZ train/eval/dev separately."""
         
         for table in self.final_tables:
             self.__create_csv(table)
@@ -76,6 +120,7 @@ class TUSZDataset(BaseDataset):
         return TUSZTask()
 
     def __set_tables(self, subset):
+        """Returns tables from the subset if valid."""
         if subset in ['train', 'eval', 'dev']:
             return [ subset ]
         if ',' in subset:
@@ -85,6 +130,7 @@ class TUSZDataset(BaseDataset):
         raise ValueError("subset must be one of None, 'train', 'dev', 'eval', or 'all'")
 
     def __use_cache(self):
+        """Returns whether or not to use cached results."""
         for table in self.final_tables:
             cache_csv = self.__get_cache_csv_name(table)
             if not cache_csv.exists():
@@ -92,12 +138,15 @@ class TUSZDataset(BaseDataset):
         return True
 
     def __get_data_csv_name(self, data_type):
+        """Returns where to store current result."""
         return self.root_path / f"{self.dataset_name}-{data_type}-pyhealth.csv"
 
     def __get_cache_csv_name(self, data_type):
+        """Returns where to store cached results."""
         return self.cache_dir / f"{self.dataset_name}-{data_type}-pyhealth.csv"
 
     def __create_csv(self, data_type):
+        """Saves patient records into csvs."""
         shared_csv = self.__get_data_csv_name(data_type)
         cache_csv = self.__get_cache_csv_name(data_type)
 

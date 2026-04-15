@@ -1,3 +1,7 @@
+# Author: 
+#     Fernando Kenji Sakabe (fks@illinois.edu), 
+#     Jesica Hirsch (jesicah2@illinois.edu), 
+#     Jung-Jung Hsieh (jhsieh8@illinois.edu)
 version: "2.0.1"
 tables:
   train:

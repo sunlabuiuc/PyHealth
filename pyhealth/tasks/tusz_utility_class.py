@@ -220,7 +220,7 @@ class TUSZHelper:
 
     def convert_labels(self, sliced_labels):
         y1, y2, y3 = [], [], []
-        for i, labels in enumerate(sliced_labels):
+        for _, labels in enumerate(sliced_labels):
             y_map = list(map(int, labels))
             y1.append(torch.tensor(y_map).byte())
 
