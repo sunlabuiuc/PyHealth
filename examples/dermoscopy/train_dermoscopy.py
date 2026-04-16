@@ -14,11 +14,11 @@ import argparse
 import os
 import sys
 import logging
-import datetime
 import ast
 import numpy as np
 import torch
 import torch.nn as nn
+from pathlib import Path
 from torchvision import models
 from sklearn.model_selection import KFold
 from torch.utils.data import Subset
@@ -57,18 +57,22 @@ class DualLogger:
         self.terminal.flush()
         self.log.flush()
 
-def setup_dynamic_logging(folder_name, run_name):
+def setup_dynamic_logging(arg_log_dir, folder_name, run_name):
     """Sets up a catch-all logger for standard prints, errors, tqdm, and PyHealth logs."""
     import datetime
 
-    # Create the directory safely
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    log_dir = os.path.join(current_dir, "logs", folder_name)
-    os.makedirs(log_dir, exist_ok=True)
+    if arg_log_dir is None:
+        log_dir = Path.home() / "dermoscopy_logs"
+    else:
+        log_dir = Path(arg_log_dir)
+
+    base_log_dir = log_dir / folder_name
+    base_log_dir.mkdir(parents=True, exist_ok=True)
+    base_log_dir = str(base_log_dir)
 
     # Build the filename
     timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-    log_filepath = os.path.join(log_dir, f"{run_name}_{timestamp}.txt")
+    log_filepath = os.path.join(base_log_dir, f"{run_name}_{timestamp}.txt")
 
     # Hijack Standard Output (print statements)
     sys.stdout = DualLogger(log_filepath, sys.stdout)
@@ -183,7 +187,8 @@ class MelanomaClassifier(BaseModel):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train Dermoscopy Classification Models")
     parser.add_argument('--data_dir', type=str, required=True, help="Absolute path to the dataset root folder")
-    parser.add_argument('--out_dir', type=str, default="../dermoscopy_outputs", help="Base directory to save experiment folders")
+    parser.add_argument('--out_dir', type=str, default=None, help="Parent output directory to save experiment folders (defaults to dermoscopy_outputs in home directory)")
+    parser.add_argument('--log_dir', type=str, default=None, help="Parent log directory to save session output logs (defaults to dermoscopy_logs in home directory)")
     parser.add_argument('--train_datasets', nargs='+', default=["isic2018"])
     parser.add_argument('--test_datasets', nargs='*', default=[])
     parser.add_argument('--model', type=str, default="resnet50")
@@ -195,12 +200,20 @@ if __name__ == "__main__":
     parser.add_argument('--force_retrain', action='store_true', help="Overwrite existing weights and retrain from scratch.")
     args = parser.parse_args()
 
-    # START DYNAMIC LOGGING
     ds_str = "_".join(args.train_datasets)
     run_details = f"{ds_str}_{args.model}_{args.mode}"
-    base_out_dir = os.path.join(os.path.abspath(args.out_dir), run_details)
-    os.makedirs(base_out_dir, exist_ok=True)
-    setup_dynamic_logging("train", run_details)
+    
+    if args.out_dir is None:
+        out_dir = Path.home() / "dermoscopy_outputs"
+    else:
+        out_dir = Path(args.out_dir)
+    
+    base_out_dir = out_dir / run_details
+    base_out_dir.mkdir(parents=True, exist_ok=True)
+    base_out_dir = str(base_out_dir)
+
+    # START DYNAMIC LOGGING
+    setup_dynamic_logging(args.log_dir, "train", run_details)
 
     print(f"[*] Initializing Dataset from {args.data_dir}...")
 

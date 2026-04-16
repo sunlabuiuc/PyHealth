@@ -25,6 +25,7 @@ Generate the synthetic artifact datasets using Stable Diffusion before running e
 ```bash
 python generate_artifact_data.py \
     --data_dir /path/to/data \
+	--log_dir ~/dermoscopy_logs \
     --dataset ph2 \
     --lora_path /path/to/lora \
     --artifact ruler
@@ -36,7 +37,8 @@ Train models across multiple architectures (ResNet50, Swin, DINOv2) and ablation
 ```bash
 python train_dermoscopy.py \
     --data_dir /path/to/data \
-    --out_dir ../dermoscopy_outputs \
+    --out_dir ~/dermoscopy_outputs \
+	--log_dir ~/dermoscopy_logs \
     --train_datasets isic2018 \
     --model resnet50 \
     --mode whole \
@@ -49,7 +51,8 @@ python train_dermoscopy.py \
 Evaluate the trained models against the synthetic Trap Sets generated in Phase 0.
 ```bash
 python evaluate_artifact_robustness.py \
-    --exp_dir ../dermoscopy_outputs/isic2018_resnet50_whole \
+    --exp_dir ~/dermoscopy_outputs/isic2018_resnet50_whole \
+	--log_dir ~/dermoscopy_logs \
     --strategy fold_average \
     --data_dir /path/to/data \
     --eval_dataset ph2 \
@@ -62,7 +65,8 @@ python evaluate_artifact_robustness.py \
 Extract latent representations and train concept activation vectors to understand model bias.
 ```bash
 python run_tcav.py \
-    --exp_dir ../dermoscopy_outputs/isic2018_resnet50_whole \
+    --exp_dir ~/dermoscopy_outputs/isic2018_resnet50_whole \
+	--log_dir ~/dermoscopy_logs \
     --data_dir /path/to/data \
     --train_datasets isic2018 \
     --eval_dataset ph2 \
@@ -76,10 +80,10 @@ python run_tcav.py \
 
 To maintain repository hygiene, all heavy experimental data and logs are explicitly routed **outside** of the PyHealth repository.
 
-* **`../dermoscopy_outputs/`**: Centralized, persistent storage for heavy `.pth` model weights, learning curves, and PyHealth's internal epoch tracking data. Inside each specific experiment folder (e.g., `isic2018_resnet50_whole`), you will find:
+* **`~/dermoscopy_outputs/`**: Centralized, persistent storage for heavy `.pth` model weights, learning curves, and PyHealth's internal epoch tracking data. Inside each specific experiment folder (e.g., `isic2018_resnet50_whole`), you will find:
   * **`fold_X/`**: Contains the specific weights and evaluation logs for individual folds when running cross-validation (e.g., `--cv_folds 5`).
   * **`master/`**: Contains the final model weights trained on the entire dataset when cross-validation is bypassed (e.g., by setting `--cv_folds 1`). The Phase 2 and Phase 3 evaluation scripts will automatically default to this folder if a `fold_0` is not present.
-* **`../dermoscopy_logs/`**: Contains time-stamped, permanent text records of every terminal output across all phases.
+* **`~/dermoscopy_logs/`**: Contains time-stamped, permanent text records of every terminal output across all phases.
 
 ---
 

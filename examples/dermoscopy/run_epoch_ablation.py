@@ -31,6 +31,7 @@ def main():
     parser.add_argument('--model', type=str, choices=['resnet50', 'swin', 'dinov2'], required=True)
     parser.add_argument('--mode', type=str, choices=['whole', 'high_whole', 'low_whole'], required=True)
     parser.add_argument('--data_dir', type=str, required=True)
+    parser.add_argument('--log_dir', type=str, default=None, help="Parent log directory to save session output logs (defaults to dermoscopy_logs in home directory)")
     parser.add_argument('--train_datasets', nargs='+', default=['isic2018'])
     parser.add_argument('--eval_dataset', type=str, default='ph2')
     parser.add_argument('--artifact', type=str, default=None, help="Optional diffusion artifact to test against.")
@@ -42,10 +43,11 @@ def main():
     else:
         dataset_target = args.eval_dataset
 
-    setup_dynamic_logging("ablation_test", f"{args.model}_{args.mode}_{dataset_target}")
+    run_details = f"{args.model}_{args.mode}_{dataset_target}"
+
+    setup_dynamic_logging(args.log_dir, "ablation_test", run_details)
 
     processor = DermoscopyImageProcessor(mode=args.mode)
-    dataset_target = f"{args.eval_dataset}_with_{args.artifact}"
 
     print("[*] Loading Dataset (Train and Trap Set)...")
     all_datasets = args.train_datasets + [dataset_target]

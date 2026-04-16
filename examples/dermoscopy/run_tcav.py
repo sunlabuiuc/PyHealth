@@ -67,6 +67,7 @@ def main():
     parser.add_argument('--model', type=str, choices=['resnet50', 'swin', 'dinov2'], required=True)
     parser.add_argument('--exp_dir', type=str, required=True)
     parser.add_argument('--data_dir', type=str, required=True)
+    parser.add_argument('--log_dir', type=str, default=None, help="Parent log directory to save session output logs (defaults to dermoscopy_logs in home directory)")
     parser.add_argument('--train_datasets', nargs='+', default=['isic2018'])
     parser.add_argument('--eval_dataset', type=str, default='ph2', help="The base dataset to evaluate concepts on")
     parser.add_argument('--artifact', type=str, default=None, help="Optional diffusion artifact to use as the concept.")
@@ -81,7 +82,7 @@ def main():
         print("[!] WARNING: No artifact provided. TCAV will compare the eval dataset against itself as a baseline sanity check.")
 
     # Start Dynamic Logging
-    setup_dynamic_logging("tcav", run_details)
+    setup_dynamic_logging(args.log_dir, "tcav", run_details)
 
     processor = DermoscopyImageProcessor(mode="whole")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

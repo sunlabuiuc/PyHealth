@@ -33,16 +33,18 @@ ARTIFACT_MAP = {"dark-corner": "lun",
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--data_dir', type=str, required=True)
+    parser.add_argument('--log_dir', type=str, default=None, help="Parent log directory to save session output logs (defaults to dermoscopy_logs in home directory)")
     parser.add_argument('--dataset', type=str, default='ph2')
     parser.add_argument('--lora_path', type=str, required=True)
     parser.add_argument('--artifact', type=str, choices=list(ARTIFACT_MAP.keys()), required=True)
     args = parser.parse_args()
-
-    setup_dynamic_logging("data_prep", f"{args.dataset}_with_{args.artifact}")
+    
+    run_details = f"{args.dataset}_with_{args.artifact}"
+    setup_dynamic_logging(args.log_dir, "generate_artifacts", run_details)
 
     token = ARTIFACT_MAP[args.artifact]
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    
+
     pipeline = StableDiffusionInpaintPipeline.from_pretrained(
         "runwayml/stable-diffusion-inpainting", torch_dtype=torch.float16 if device == "cuda" else torch.float32
     ).to(device)
@@ -58,24 +60,24 @@ def main():
 
     records = []
     valid_images = [f for f in os.listdir(input_images_dir) if f.endswith('.jpg') or f.endswith('.bmp')]
-    
+
     print(f"[*] Generating Trap Set ({len(valid_images)} images) for Architecture...")
-    
+
     for img_name in valid_images:
         img_path = os.path.join(input_images_dir, img_name)
         mask_name = img_name.replace(".jpg", ".bmp") 
         mask_path = os.path.join(input_masks_dir, mask_name)
         if not os.path.exists(mask_path): continue
-            
+
         raw_img = Image.open(img_path).convert("RGB").resize((512, 512))
         inverted_mask = Image.eval(Image.open(mask_path).convert("L").resize((512, 512)), lambda x: 255 - x)
 
         augmented_img = pipeline(prompt=f"a dermoscopic image of {token} benign", image=raw_img, mask_image=inverted_mask, strength=0.8, guidance_scale=10.0).images[0]
-        
+
         patient_id = img_name.split('.')[0]
         new_img_name = f"{patient_id}_artifact.jpg"
         augmented_img.save(os.path.join(output_dir, new_img_name))
-        
+
         records.append({"isic_id": f"{patient_id}_artifact", "diagnosis_1": "Benign"})
 
     # Save a CSV so `prepare_metadata` dynamic scanner can pick it up instantly

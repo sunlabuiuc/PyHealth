@@ -35,18 +35,21 @@ def main():
     parser.add_argument('--model', type=str, choices=['resnet50', 'swin', 'dinov2'], default='resnet50')
     parser.add_argument('--mode', type=str, default='whole')
     parser.add_argument('--exp_dir', type=str, required=True, help="Path to the parent experiment directory")
+    parser.add_argument('--log_dir', type=str, default=None, help="Parent log directory to save session output logs (defaults to dermoscopy_logs in home directory)")
     parser.add_argument('--strategy', type=str, choices=['master', 'ensemble', 'fold_average'], default='fold_average')
     parser.add_argument('--data_dir', type=str, required=True, help="Path to the dataset root folder")
     parser.add_argument('--eval_dataset', type=str, default='ph2', help="The base dataset")
     parser.add_argument('--artifact', type=str, required=True, help="The artifact to evaluate (e.g., ruler, ink)")
     args = parser.parse_args()
 
+    run_details = f"{args.eval_dataset}_{args.artifact}_{args.model}_{args.mode}"
+
     # START DYNAMIC LOGGING
-    setup_dynamic_logging("eval_artifacts", f"{args.eval_dataset}_{args.artifact}_{args.model}_{args.mode}")
+    setup_dynamic_logging(args.log_dir, "eval_artifacts", run_details)
 
     dataset_target = f"{args.eval_dataset}_with_{args.artifact}"
     print(f"[*] Loading Dataset from {args.data_dir}...")
-    
+
     # 1. Load Dataset and apply Processor
     dataset = DermoscopyDataset(root=args.data_dir, dataset_name=[dataset_target], cache_dir=os.path.join(args.data_dir, ".cache"))
 
