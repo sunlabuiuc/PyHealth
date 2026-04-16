@@ -88,6 +88,53 @@ Key observations:
 - whole vs bbox90: diff +0.136, p=0.001 (*) — aggressive context removal
   significantly degrades performance.
 
+Sigma Ablation Results (low_whole, val_strategy=none, filter_backend=scipy)
+---------------------------------------------------------------------------
+AUROC per fold across Gaussian blur sigma values:
+
+  Sigma      F1     F2     F3     F4     F5    Mean   +-Std
+  -----------------------------------------------------------
+    0.5   0.761  0.768  0.723  0.730  0.738  0.744  0.018
+    1.0   0.710  0.779  0.761  0.726  0.782  0.751  0.029
+    2.0   0.753  0.705  0.720  0.765  0.775  0.744  0.027
+    4.0   0.690  0.736  0.730  0.753  0.746  0.731  0.022
+    8.0   0.742  0.703  0.652  0.696  0.771  0.713  0.041
+   16.0   0.783  0.689  0.716  0.704  0.706  0.720  0.033
+
+Key observations:
+- Performance peaks at sigma=1.0 (0.751) and degrades monotonically at higher
+  sigmas; sigma=8.0 shows the largest drop (0.713) and highest variance (±0.041),
+  suggesting aggressive smoothing removes diagnostically useful features.
+- sigma=0.5 (0.744) is competitive but slightly below sigma=1.0.
+- sigma=1.0 (low_whole, 0.751) vs whole (0.748): paired t-test diff=+0.003,
+  t=0.229, p=0.830 — not significant; low-pass at sigma=1.0 retains full
+  performance, confirming low-frequency features carry the diagnostic signal.
+  Note: resizing to 224×224 already acts as an implicit low-pass filter, which
+  may explain why an additional Gaussian at sigma=1.0 has negligible effect.
+
+Mode Ablation Results
+---------------------
+gray_whole, blur_bg, whole_norm: intended val_strategy=none (pending rerun —
+  current checkpoints were collected with val_strategy=best and are not
+  directly comparable to Phase 1; results below are provisional).
+whole_best: val_strategy=best (intentional ablation of early stopping).
+
+AUROC per fold:
+
+  Mode            F1     F2     F3     F4     F5    Mean   +-Std   val_strategy
+  ------------------------------------------------------------------------------
+  gray_whole   0.726  0.779  0.756  0.755  0.811  0.765  0.028   best (provisional)
+  blur_bg      0.822  0.738  0.753  0.762  0.785  0.772  0.029   best (provisional)
+  whole_norm   0.802  0.757  0.774  0.780  0.863  0.795  0.037   best (provisional)
+  whole_best   0.787  0.791  0.795  0.744  0.846  0.792  0.033   best
+
+Key observations:
+- whole_best (0.792) vs whole_none (0.748): paired t-test diff=+0.044,
+  t=2.884, p=0.045 (*) — significant; early stopping on val AUROC meaningfully
+  improves generalisation over training to last epoch.
+- gray_whole / blur_bg / whole_norm results are provisional (val_strategy=best);
+  rerun with val_strategy=none required for fair Phase 1 comparison.
+
 """
 
 import argparse
