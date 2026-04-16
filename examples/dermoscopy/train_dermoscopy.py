@@ -250,12 +250,12 @@ if __name__ == "__main__":
 
     # Setup Tasks
     train_task = DermoscopyMelanomaClassification(source_datasets=args.train_datasets)
-    task_dataset = dataset.set_task(train_task)
+    task_dataset = dataset.set_task(train_task, input_processors={"image": processor})
 
     val_loaders = {}
     for td in args.test_datasets:
         test_task = DermoscopyMelanomaClassification(source_datasets=[td])
-        td_dataset = dataset.set_task(test_task)
+        td_dataset = dataset.set_task(test_task, input_processors={"image": processor})
         val_loaders[td] = get_dataloader(td_dataset, batch_size=32, shuffle=False)
 
     metrics_list = ["roc_auc", "pr_auc", "accuracy", "precision", "recall", "f1"]
