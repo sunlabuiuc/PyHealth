@@ -36,15 +36,15 @@ logger = logging.getLogger(__name__)
 Dataset class for the PTB-XL 1.0.3 dataset.
 
 Args:
-    dataset_name: name of the dataset.
-    root: root directory of the raw data.
-    	Expected to contain folders for original (records500) or
-    	downsampled (records100) data with determined names.
-    dev: whether to enable dev mode (only use a small subset of the data).
-        Default is False.
-    refresh_cache: whether to refresh the cache; if true, the dataset will
-        be processed from scratch and the cache will be updated.
-        Default is False.
+	dataset_name: name of the dataset.
+	root: root directory of the raw data.
+		Expected to contain folders for original (records500) or
+		downsampled (records100) data with determined names.
+	dev: whether to enable dev mode (only use a small subset of the data).
+		Default is False.
+	refresh_cache: whether to refresh the cache; if true, the dataset will
+		be processed from scratch and the cache will be updated.
+		Default is False.
 """
 class PTBXLDataset(BaseDataset):
 	"""
@@ -63,7 +63,7 @@ class PTBXLDataset(BaseDataset):
 		download: bool = False,
 		dev: bool = False,
 		downsampled: bool = False,
-        config_path: Optional[str] = None,
+		config_path: Optional[str] = None,
 		**kwargs) -> None:
 
 		self.dev = dev
@@ -129,9 +129,9 @@ class PTBXLDataset(BaseDataset):
 	and there"s no other unexpected type of files in the directory.
 
 	Raises:
-        FileNotFoundError: if any directory is not found.
-        ValueError: if a patient directory contains not .dat/.hea file
-        	or if there"s a mismatch of .dat/.hea.
+		FileNotFoundError: if any directory is not found.
+		ValueError: if a patient directory contains not .dat/.hea file
+			or if there"s a mismatch of .dat/.hea.
 	"""
 	def _validate(self) -> None:
 		if not os.path.exists(self.root):
