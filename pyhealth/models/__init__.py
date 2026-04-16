@@ -43,5 +43,5 @@ from .vision_embedding import VisionEmbeddingModel
 from .text_embedding import TextEmbedding
 from .sdoh import SdohClassifier
 from .medlink import MedLink
-from .retina_unet import RetinaUNet, RetinaUNetLayer
+from .retina_unet import RetinaUNet, RetinaUNetCore
 from .unified_embedding import UnifiedMultimodalEmbeddingModel, SinusoidalTimeEmbedding

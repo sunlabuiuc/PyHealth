@@ -1,9 +1,8 @@
 """
-Clean Retina U-Net Implementation for Medical Image Object Detection
+Retina U-Net Implementation for Medical Image Object Detection
 
-Reference: Retina U-Net: Embarrassingly Simple Exploitation of
-Segmentation Supervision for Medical Object Detection
-(https://arxiv.org/abs/1811.08661)
+Reference: Retina U-Net: Embarrassingly Simple Exploitation of Segmentation Supervision 
+for Medical Object Detection (https://arxiv.org/abs/1811.08661)
 
 This implementation uses only standard PyTorch without custom CUDA operations.
 """
@@ -13,13 +12,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 from typing import Any, Dict, List, Tuple, Optional
 from collections import OrderedDict
-import numpy as np
-import warnings
 
 from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
-from pyhealth.processors import ImageProcessor, TensorProcessor
-
 
 
 class ConvBlock(nn.Module):
@@ -419,7 +414,6 @@ class FPN(nn.Module):
         p2_pre_out = self.p2(c2_out) + F.interpolate(p3_pre_out, scale_factor=2)
         p1_pre_out = self.p1(c1_out) + self.p2_upsample(p2_pre_out)
         p0_pre_out = self.p0(c0_out) + self.p1_upsample(p1_pre_out)
-
         
         # Smooth
         p5 = self.smooth_p5(p5_pre_out)
@@ -504,7 +498,11 @@ class AnchorGenerator(nn.Module):
         ) -> torch.Tensor:
         """Vectorized 2D anchor generation, matching original generate_anchors."""
         # Get feature stride and anchor scales for the current level
-        scales_xy = torch.tensor(self.rpn_anchor_scales['xy'][f'P{level}'], dtype=torch.float32, device=device)
+        scales_xy = torch.tensor(
+            self.rpn_anchor_scales['xy'][f'P{level}'], 
+            dtype=torch.float32, 
+            device=device
+        )
         ratios = self.rpn_anchor_ratios.to(device)
 
         fs_xy = self.feature_strides['xy'][f'P{level}']
@@ -548,8 +546,16 @@ class AnchorGenerator(nn.Module):
         ) -> torch.Tensor:
         """Vectorized 3D anchor generation, matching original generate_anchors_3D."""
         # Get feature stride and anchor scales for the current level
-        scales_xy = torch.tensor(self.rpn_anchor_scales['xy'][f'P{level}'], dtype=torch.float32, device=device)
-        scales_z = torch.tensor(self.rpn_anchor_scales['z'][f'P{level}'], dtype=torch.float32, device=device)
+        scales_xy = torch.tensor(
+            self.rpn_anchor_scales['xy'][f'P{level}'], 
+            dtype=torch.float32, 
+            device=device
+        )
+        scales_z = torch.tensor(
+            self.rpn_anchor_scales['z'][f'P{level}'], 
+            dtype=torch.float32, 
+            device=device
+        )
         ratios = self.rpn_anchor_ratios.to(device)
 
         fs_xy = self.feature_strides['xy'][f'P{level}']
@@ -683,7 +689,10 @@ def _apply_box_deltas_3d(boxes: torch.Tensor, deltas: torch.Tensor) -> torch.Ten
     return torch.stack([pred_y1, pred_x1, pred_y2, pred_x2, pred_z1, pred_z2], dim=1)
 
 
-def _clip_boxes_2d(boxes: torch.Tensor, window: Tuple[float, float]) -> torch.Tensor:
+def _clip_boxes_2d(
+        boxes: torch.Tensor, 
+        window: Tuple[float, float]
+    ) -> torch.Tensor:
     y1 = boxes[:, 0].clamp(min=0, max=window[0])
     x1 = boxes[:, 1].clamp(min=0, max=window[1])
     y2 = boxes[:, 2].clamp(min=0, max=window[0])
@@ -692,7 +701,10 @@ def _clip_boxes_2d(boxes: torch.Tensor, window: Tuple[float, float]) -> torch.Te
     return torch.stack([y1, x1, y2, x2], dim=1)
 
 
-def _clip_boxes_3d(boxes: torch.Tensor, window: Tuple[float, float, float]) -> torch.Tensor:
+def _clip_boxes_3d(
+        boxes: torch.Tensor, 
+        window: Tuple[float, float, float]
+    ) -> torch.Tensor:
     y1 = boxes[:, 0].clamp(min=0, max=window[0])
     x1 = boxes[:, 1].clamp(min=0, max=window[1])
     y2 = boxes[:, 2].clamp(min=0, max=window[0])
@@ -703,7 +715,11 @@ def _clip_boxes_3d(boxes: torch.Tensor, window: Tuple[float, float, float]) -> t
     return torch.stack([y1, x1, y2, x2, z1, z2], dim=1)
 
 
-def _nms_2d(boxes: torch.Tensor, scores: torch.Tensor, iou_threshold: float) -> torch.Tensor:
+def _nms_2d(
+        boxes: torch.Tensor, 
+        scores: torch.Tensor, 
+        iou_threshold: float
+    ) -> torch.Tensor:
     """Pure torch NMS for 2D boxes."""
     if boxes.numel() == 0:
         return torch.empty((0,), dtype=torch.long, device=boxes.device)
@@ -735,8 +751,11 @@ def _nms_2d(boxes: torch.Tensor, scores: torch.Tensor, iou_threshold: float) -> 
 
     return torch.as_tensor(keep, dtype=torch.long, device=boxes.device)
 
-
-def _nms_3d(boxes: torch.Tensor, scores: torch.Tensor, iou_threshold: float) -> torch.Tensor:
+def _nms_3d(
+        boxes: torch.Tensor, 
+        scores: torch.Tensor, 
+        iou_threshold: float
+    ) -> torch.Tensor:
     """Pure torch NMS for 3D boxes."""
     if boxes.numel() == 0:
         return torch.empty((0,), dtype=torch.long, device=boxes.device)
@@ -774,241 +793,6 @@ def _nms_3d(boxes: torch.Tensor, scores: torch.Tensor, iou_threshold: float) -> 
 
     return torch.as_tensor(keep, dtype=torch.long, device=boxes.device)
 
-
-def _box_deltas_2d(anchors: torch.Tensor, gt_boxes: torch.Tensor) -> torch.Tensor:
-    """Encode 2D gt boxes relative to anchors as dy, dx, dh, dw."""
-    anchor_h = (anchors[:, 2] - anchors[:, 0]).clamp(min=1e-6)
-    anchor_w = (anchors[:, 3] - anchors[:, 1]).clamp(min=1e-6)
-    anchor_ctr_y = anchors[:, 0] + 0.5 * anchor_h
-    anchor_ctr_x = anchors[:, 1] + 0.5 * anchor_w
-
-    gt_h = (gt_boxes[:, 2] - gt_boxes[:, 0]).clamp(min=1e-6)
-    gt_w = (gt_boxes[:, 3] - gt_boxes[:, 1]).clamp(min=1e-6)
-    gt_ctr_y = gt_boxes[:, 0] + 0.5 * gt_h
-    gt_ctr_x = gt_boxes[:, 1] + 0.5 * gt_w
-
-    dy = (gt_ctr_y - anchor_ctr_y) / anchor_h
-    dx = (gt_ctr_x - anchor_ctr_x) / anchor_w
-    dh = torch.log(gt_h / anchor_h)
-    dw = torch.log(gt_w / anchor_w)
-    return torch.stack([dy, dx, dh, dw], dim=1)
-
-
-def _box_deltas_3d(anchors: torch.Tensor, gt_boxes: torch.Tensor) -> torch.Tensor:
-    """Encode 3D gt boxes relative to anchors as dy, dx, dz, dh, dw, dd."""
-    anchor_h = (anchors[:, 2] - anchors[:, 0]).clamp(min=1e-6)
-    anchor_w = (anchors[:, 3] - anchors[:, 1]).clamp(min=1e-6)
-    anchor_d = (anchors[:, 5] - anchors[:, 4]).clamp(min=1e-6)
-    anchor_ctr_y = anchors[:, 0] + 0.5 * anchor_h
-    anchor_ctr_x = anchors[:, 1] + 0.5 * anchor_w
-    anchor_ctr_z = anchors[:, 4] + 0.5 * anchor_d
-
-    gt_h = (gt_boxes[:, 2] - gt_boxes[:, 0]).clamp(min=1e-6)
-    gt_w = (gt_boxes[:, 3] - gt_boxes[:, 1]).clamp(min=1e-6)
-    gt_d = (gt_boxes[:, 5] - gt_boxes[:, 4]).clamp(min=1e-6)
-    gt_ctr_y = gt_boxes[:, 0] + 0.5 * gt_h
-    gt_ctr_x = gt_boxes[:, 1] + 0.5 * gt_w
-    gt_ctr_z = gt_boxes[:, 4] + 0.5 * gt_d
-
-    dy = (gt_ctr_y - anchor_ctr_y) / anchor_h
-    dx = (gt_ctr_x - anchor_ctr_x) / anchor_w
-    dz = (gt_ctr_z - anchor_ctr_z) / anchor_d
-    dh = torch.log(gt_h / anchor_h)
-    dw = torch.log(gt_w / anchor_w)
-    dd = torch.log(gt_d / anchor_d)
-    return torch.stack([dy, dx, dz, dh, dw, dd], dim=1)
-
-
-def _pairwise_iou_2d(boxes1: torch.Tensor, boxes2: torch.Tensor) -> torch.Tensor:
-    """Compute pairwise IoU matrix for 2D boxes."""
-    if boxes1.numel() == 0 or boxes2.numel() == 0:
-        return torch.zeros((boxes1.shape[0], boxes2.shape[0]), device=boxes1.device)
-
-    y1 = torch.maximum(boxes1[:, None, 0], boxes2[None, :, 0])
-    x1 = torch.maximum(boxes1[:, None, 1], boxes2[None, :, 1])
-    y2 = torch.minimum(boxes1[:, None, 2], boxes2[None, :, 2])
-    x2 = torch.minimum(boxes1[:, None, 3], boxes2[None, :, 3])
-
-    inter_h = (y2 - y1).clamp(min=0)
-    inter_w = (x2 - x1).clamp(min=0)
-    inter = inter_h * inter_w
-
-    area1 = ((boxes1[:, 2] - boxes1[:, 0]).clamp(min=0) * (boxes1[:, 3] - boxes1[:, 1]).clamp(min=0))[:, None]
-    area2 = ((boxes2[:, 2] - boxes2[:, 0]).clamp(min=0) * (boxes2[:, 3] - boxes2[:, 1]).clamp(min=0))[None, :]
-    union = area1 + area2 - inter
-    return inter / (union + 1e-6)
-
-
-def _pairwise_iou_3d(boxes1: torch.Tensor, boxes2: torch.Tensor) -> torch.Tensor:
-    """Compute pairwise IoU matrix for 3D boxes."""
-    if boxes1.numel() == 0 or boxes2.numel() == 0:
-        return torch.zeros((boxes1.shape[0], boxes2.shape[0]), device=boxes1.device)
-
-    y1 = torch.maximum(boxes1[:, None, 0], boxes2[None, :, 0])
-    x1 = torch.maximum(boxes1[:, None, 1], boxes2[None, :, 1])
-    y2 = torch.minimum(boxes1[:, None, 2], boxes2[None, :, 2])
-    x2 = torch.minimum(boxes1[:, None, 3], boxes2[None, :, 3])
-    z1 = torch.maximum(boxes1[:, None, 4], boxes2[None, :, 4])
-    z2 = torch.minimum(boxes1[:, None, 5], boxes2[None, :, 5])
-
-    inter_h = (y2 - y1).clamp(min=0)
-    inter_w = (x2 - x1).clamp(min=0)
-    inter_d = (z2 - z1).clamp(min=0)
-    inter = inter_h * inter_w * inter_d
-
-    vol1 = (
-        (boxes1[:, 2] - boxes1[:, 0]).clamp(min=0)
-        * (boxes1[:, 3] - boxes1[:, 1]).clamp(min=0)
-        * (boxes1[:, 5] - boxes1[:, 4]).clamp(min=0)
-    )[:, None]
-    vol2 = (
-        (boxes2[:, 2] - boxes2[:, 0]).clamp(min=0)
-        * (boxes2[:, 3] - boxes2[:, 1]).clamp(min=0)
-        * (boxes2[:, 5] - boxes2[:, 4]).clamp(min=0)
-    )[None, :]
-    union = vol1 + vol2 - inter
-    return inter / (union + 1e-6)
-
-
-def shem_sampling(probs: torch.Tensor, count: int, poolsize: int) -> torch.Tensor:
-    """Select hard negatives from a low-background-confidence pool."""
-    bg_probs = probs[:, 0]
-    num_candidates = min(count * poolsize, len(bg_probs))
-    _, candidate_indices = torch.topk(bg_probs, num_candidates, largest=False)
-    if candidate_indices.numel() <= count:
-        return candidate_indices
-    perm = torch.randperm(len(candidate_indices), device=probs.device)[:count]
-    return candidate_indices[perm]
-
-
-def compute_class_loss(
-    class_pred_logits: torch.Tensor,
-    anchor_matches: torch.Tensor,
-    shem_poolsize: int = 20,
-) -> torch.Tensor:
-    """
-    Compute focal loss for object detection.
-
-    Replaces the previous OHEM-based classification loss with focal loss.
-    """
-    alpha = 0.25
-    gamma = 2.0
-
-    probs = F.softmax(class_pred_logits, dim=-1)
-    valid_mask = anchor_matches >= 0
-    if valid_mask.sum() == 0:
-        return torch.tensor(0.0, device=class_pred_logits.device)
-
-    valid_logits = class_pred_logits[valid_mask]
-    valid_targets = anchor_matches[valid_mask].long()
-    valid_probs = probs[valid_mask]
-
-    ce_loss = F.cross_entropy(valid_logits, valid_targets, reduction='none')
-    p_t = valid_probs.gather(1, valid_targets.unsqueeze(1)).squeeze(1)
-    focal_loss = alpha * ((1 - p_t) ** gamma) * ce_loss
-    return focal_loss.mean()
-
-
-def compute_bbox_loss(
-    anchor_target_deltas: torch.Tensor,
-    bbox_deltas: torch.Tensor,
-    anchor_class_match: torch.Tensor,
-) -> torch.Tensor:
-    """Smooth L1 bbox loss on positive anchors only."""
-    pos_mask = anchor_class_match > 0
-    if pos_mask.sum() == 0:
-        return torch.tensor(0.0, device=bbox_deltas.device)
-    return F.smooth_l1_loss(bbox_deltas[pos_mask], anchor_target_deltas[pos_mask], reduction="mean")
-
-
-def compute_segmentation_loss(
-    seg_logits: torch.Tensor,
-    seg_masks: torch.Tensor
-) -> torch.Tensor:
-    """
-    Compute segmentation loss (combined Dice + Cross-entropy).
-    
-    Args:
-        seg_logits: (B, 1, H, W[, D]) raw segmentation outputs
-        seg_masks: (B, 1, H, W[, D]) ground truth masks
-    
-    Returns:
-        Scalar loss value
-    """
-    # Handle multi-class segmentation (C>1) with cross-entropy + dice on foreground
-    if seg_logits.dim() == seg_masks.dim() + 1 and seg_logits.shape[1] > 1:
-        # seg_masks expected shape: (B, H, W[, D]) with integer class labels
-        ce_loss = F.cross_entropy(seg_logits, seg_masks.long(), reduction='mean')
-        probs = F.softmax(seg_logits, dim=1)
-        # Compute Dice on foreground (class 1) if binary foreground/background
-        if seg_logits.shape[1] >= 2:
-            probs_fg = probs[:, 1]
-            intersection = (probs_fg * seg_masks).sum()
-            dice_loss = 1 - (2 * intersection) / (probs_fg.sum() + seg_masks.sum() + 1e-5)
-        else:
-            dice_loss = torch.tensor(0.0, device=seg_logits.device)
-        return 0.5 * ce_loss + 0.5 * dice_loss
-
-    # Binary segmentation path: seg_logits expected to be (B,1,H,W[,D]) and seg_masks (B,H,W[,D])
-    if seg_logits.shape[1] == 1:
-        ce_loss = F.binary_cross_entropy_with_logits(seg_logits.squeeze(1), seg_masks, reduction='mean')
-        probs = torch.sigmoid(seg_logits.squeeze(1))
-        intersection = (probs * seg_masks).sum()
-        dice_loss = 1 - (2 * intersection) / (probs.sum() + seg_masks.sum() + 1e-5)
-        return 0.5 * ce_loss + 0.5 * dice_loss
-
-    # Fallback (match shapes) - keep original behavior
-    ce_loss = F.binary_cross_entropy_with_logits(seg_logits, seg_masks, reduction='mean')
-    probs = torch.sigmoid(seg_logits)
-    intersection = (probs * seg_masks).sum()
-    dice_loss = 1 - (2 * intersection) / (probs.sum() + seg_masks.sum() + 1e-5)
-    return 0.5 * ce_loss + 0.5 * dice_loss
-
-
-def _extract_connected_boxes_from_mask(mask: np.ndarray, dim: int, min_area: int = 10) -> np.ndarray:
-    """Extract per-component bounding boxes from a binary mask.
-
-    Prefers scipy connected components when available. Falls back to a single
-    bounding box over all foreground pixels if scipy is unavailable.
-    """
-    fg = mask > 0
-    if fg.max() == 0:
-        return np.zeros((0, 2 * dim), dtype=np.float32)
-
-    try:
-        from scipy import ndimage
-
-        labeled, num_features = ndimage.label(fg)
-        boxes: List[List[float]] = []
-        for component_id in range(1, num_features + 1):
-            component = labeled == component_id
-            if component.sum() < min_area:
-                continue
-            coords = np.argwhere(component)
-            if coords.size == 0:
-                continue
-            mins = coords.min(axis=0)
-            maxs = coords.max(axis=0) + 1
-            if dim == 2:
-                y1, x1 = mins
-                y2, x2 = maxs
-                boxes.append([float(y1), float(x1), float(y2), float(x2)])
-            else:
-                y1, x1, z1 = mins
-                y2, x2, z2 = maxs
-                boxes.append([float(y1), float(x1), float(y2), float(x2), float(z1), float(z2)])
-        return np.asarray(boxes, dtype=np.float32) if boxes else np.zeros((0, 2 * dim), dtype=np.float32)
-    except Exception:
-        coords = np.argwhere(fg)
-        mins = coords.min(axis=0)
-        maxs = coords.max(axis=0) + 1
-        if dim == 2:
-            y1, x1 = mins
-            y2, x2 = maxs
-            return np.asarray([[float(y1), float(x1), float(y2), float(x2)]], dtype=np.float32)
-        y1, x1, z1 = mins
-        y2, x2, z2 = maxs
-        return np.asarray([[float(y1), float(x1), float(y2), float(x2), float(z1), float(z2)]], dtype=np.float32)
 
 
 class ClassificationHead(nn.Module):
@@ -1197,21 +981,20 @@ class SegmentationHead(nn.Module):
         return seg_out
 
 
-class RetinaUNetLayer(nn.Module):
-    """Core Retina U-Net layer.
+class RetinaUNetCore(nn.Module):
+    """
     Retina U-Net: Multi-task detection and segmentation model for medical images.
     
     Combines:
     - Retina Net architecture for object detection (classification + bbox regression)
     - U-Net style segmentation decoder
-    - FPN backbone for multi-scale features    
+    - FPN backbone for multi-scale features
     """
     
     def __init__(
         self,
         in_channels: int = 1,
         num_classes: int = 2,
-        num_seg_classes: int = 2,
         dim: int = 2,
         fpn_base_channels: int = 48,
         fpn_out_channels: int = 192,
@@ -1227,24 +1010,21 @@ class RetinaUNetLayer(nn.Module):
         super().__init__()
         self.in_channels = in_channels
         self.num_classes_head = num_classes
-        # Enforce binary segmentation (background + foreground). The
-        # segmentation head will output a single-channel logits map
-        # representing foreground probability. If the caller provided
-        # a different value, warn and force to binary.
-        if num_seg_classes != 2:
-            warnings.warn("num_seg_classes forced to 2 (binary segmentation).", UserWarning)
-        self.num_classes_seg = 2
-        self.cf = type('cf', (), {'dim': dim})()
+        self.num_classes_seg = 2 # Binary segmentation (foreground vs background)
         self.pyramid_levels = pyramid_levels
         self.num_anchors = len(rpn_anchor_ratios) * 3  # Anchor Sub-scaling
         self.dim = dim
         if self.dim == 2:
-            self.rpn_bbox_std_dev = torch.tensor([0.1, 0.1, 0.2, 0.2], dtype=torch.float32)
+            self.rpn_bbox_std_dev = torch.tensor(
+                [0.1, 0.1, 0.2, 0.2], dtype=torch.float32
+            )
         else:
-            self.rpn_bbox_std_dev = torch.tensor([0.1, 0.1, 0.1, 0.2, 0.2, 0.2], dtype=torch.float32)
+            self.rpn_bbox_std_dev = torch.tensor(
+                [0.1, 0.1, 0.1, 0.2, 0.2, 0.2], dtype=torch.float32
+            )
         self.pre_nms_limit = 3000
         self.nms_threshold = 1e-5
-        self.model_max_instances_per_batch_element = 10
+        self.max_instances_per_batch_element = 10
         
         # Backbone
         self.fpn = FPN(
@@ -1273,15 +1053,9 @@ class RetinaUNetLayer(nn.Module):
             activation, 
             dim
         )
-        seg_output_channels = 1 if self.num_classes_seg == 2 else self.num_classes_seg
         self.segmentation_head = SegmentationHead(
-            fpn_out_channels, seg_output_channels, dim
+            fpn_out_channels, self.num_classes_seg, dim
         )
-        
-        # Backward-compatible aliases used by existing tests
-        self.Fpn = self.fpn
-        self.Classifier = self.classification_head
-        self.BBRegressor = self.bbox_head
         
         # Anchor generator
         self.anchor_generator = AnchorGenerator(
@@ -1382,8 +1156,8 @@ class RetinaUNetLayer(nn.Module):
             'class_logits': class_logits,
             'bbox_deltas': bbox_deltas,
             'segmentation': segmentation,
-            'anchors': anchors,
-            'detections': detections
+            'detections': detections,
+            'anchors': anchors
         }
 
     def refine_detections(
@@ -1419,7 +1193,8 @@ class RetinaUNetLayer(nn.Module):
 
         anchor_ids = proposal_ids % anchors.shape[0]
         selected_anchors = anchors[anchor_ids]
-        selected_deltas = bbox_deltas.view(batch_size * anchors.shape[0], -1)[proposal_ids]
+        selected_deltas = bbox_deltas.view(batch_size * anchors.shape[0], -1)
+        selected_deltas = selected_deltas[proposal_ids]
         selected_scores = scores
 
         bbox_std_dev = self.rpn_bbox_std_dev.to(selected_deltas.device)
@@ -1450,20 +1225,46 @@ class RetinaUNetLayer(nn.Module):
                     keep_idx = _nms_2d(cls_boxes, cls_scores, self.nms_threshold)
                 else:
                     keep_idx = _nms_3d(cls_boxes, cls_scores, self.nms_threshold)
-                keep.append(torch.stack([torch.where(cls_mask)[0][keep_idx], torch.full((keep_idx.numel(),), cls, device=cls_scores.device)], dim=1))
+                keep.append(
+                    torch.stack(
+                        [
+                            torch.where(cls_mask)[0][keep_idx], 
+                            torch.full(
+                                (keep_idx.numel(),), cls, device=cls_scores.device
+                            )
+                        ], 
+                        dim=1)
+                )
             if keep:
                 batch_keep = torch.cat(keep, dim=0)
                 kept_boxes = batch_boxes[batch_keep[:, 0].long()]
                 kept_scores = batch_scores[batch_keep[:, 0].long()]
                 kept_classes = batch_keep[:, 1].long()
-                batch_ids = torch.full((kept_boxes.shape[0], 1), b, device=kept_boxes.device, dtype=torch.long)
-                if kept_boxes.shape[0] > self.model_max_instances_per_batch_element:
-                    selected_idx = kept_scores.argsort(descending=True)[:self.model_max_instances_per_batch_element]
+                batch_ids = torch.full(
+                    (kept_boxes.shape[0], 1), 
+                    b, 
+                    device=kept_boxes.device, 
+                    dtype=torch.long
+                )
+                if kept_boxes.shape[0] > self.max_instances_per_batch_element:
+                    selected_idx = kept_scores.argsort(descending=True)
+                    selected_idx = selected_idx[:self.max_instances_per_batch_element]
                     kept_boxes = kept_boxes[selected_idx]
                     kept_scores = kept_scores[selected_idx]
                     kept_classes = kept_classes[selected_idx]
                     batch_ids = batch_ids[selected_idx]
-                detections.append(torch.cat([kept_boxes, batch_ids.float(), kept_classes.float().unsqueeze(1), kept_scores.unsqueeze(1)], dim=1))
+
+                detections.append(
+                    torch.cat(
+                        [
+                            kept_boxes, 
+                            batch_ids.float(), 
+                            kept_classes.float().unsqueeze(1), 
+                            kept_scores.unsqueeze(1)
+                        ], 
+                        dim=1
+                    )
+                )
         
         # detections for 2D [y1, x1, y2, x2, batch_id, class_id, score]
         # detections for 3D [y1, x1, y2, x2, z1, z2, batch_id, class_id, score]
@@ -1490,56 +1291,25 @@ class RetinaUNet(BaseModel):
     def __init__(
         self,
         dataset: SampleDataset,
-        feature_key: str = "image",
-        seg_label_key: str = "seg",
-        box_label_key: Optional[str] = "bb_target",
-        class_label_key: Optional[str] = "roi_labels",
         in_channels: int = 1,
         num_classes: int = 2,
-        head_classes: Optional[int] = None,
-        num_seg_classes: int = 2,
         dim: int = 2,
         fpn_base_channels: int = 48,
         fpn_out_channels: int = 192,
-        fpn_num_blocks: Optional[List[int]] = None,
+        fpn_num_blocks: Optional[List[int]] = None, # default restnet-style [3, 4, 6, 3]
         rpn_hidden_channels: int = 256,
         norm_type: Optional[str] = None,
         activation: str = "relu",
-        rpn_anchor_ratios: Optional[List[float]] = None,
+        rpn_anchor_ratios: Optional[List[float]] = [0.5, 1.0, 2.0],
         rpn_anchor_scales: Optional[Dict[str, Dict[str, List[float]]]] = None,
         rpn_anchor_stride: int = 1,
-        pyramid_levels: Optional[List[int]] = None,
-        auto_generate_detection_targets: bool = True,
-        min_detection_box_area: int = 10,
+        pyramid_levels: Optional[List[int]] = [2, 3, 4, 5],
     ):
         super().__init__(dataset=dataset)
 
-        self.feature_key = feature_key
-        self.seg_label_key = seg_label_key
-        self.box_label_key = box_label_key
-        self.class_label_key = class_label_key
-        self.auto_generate_detection_targets = auto_generate_detection_targets
-        self.min_detection_box_area = min_detection_box_area
-
-        self.label_key = self.seg_label_key
-        self.mode = self.dataset.output_schema[self.label_key]
-
-        self.image_processor = ImageProcessor()
-        self.tensor_processor = TensorProcessor()
-
-        if rpn_anchor_ratios is None:
-            rpn_anchor_ratios = [0.5, 1.0, 2.0]
-        if pyramid_levels is None:
-            pyramid_levels = [2, 3, 4, 5]
-        if head_classes is not None:
-            num_classes = head_classes
-        if num_seg_classes != 2:
-            warnings.warn("RetinaUNet enforces binary segmentation; num_seg_classes ignored.", UserWarning)
-
-        self.core = RetinaUNetLayer(
+        self.core = RetinaUNetCore(
             in_channels=in_channels,
             num_classes=num_classes,
-            num_seg_classes=2,
             dim=dim,
             fpn_base_channels=fpn_base_channels,
             fpn_out_channels=fpn_out_channels,
@@ -1553,241 +1323,282 @@ class RetinaUNet(BaseModel):
             pyramid_levels=pyramid_levels,
         ).to(self.device)
 
-    def _prepare_input_tensor(self, x: Any) -> torch.Tensor:
-        if isinstance(x, torch.Tensor):
-            return x.to(self.device)
-        if isinstance(x, np.ndarray):
-            return torch.from_numpy(x).float().to(self.device)
-        x_tensor = self.tensor_processor.process([x]) if not isinstance(x, list) else self.tensor_processor.process(x)
-        if x_tensor.ndim >= 3 and x_tensor.shape[1] not in (1, 3):
-            x_tensor = self.image_processor.process([x]).to(self.device)
-        return x_tensor.float().to(self.device)
 
-    def _prepare_seg_target(self, seg_target: Any) -> torch.Tensor:
-        if isinstance(seg_target, torch.Tensor):
-            target = seg_target.to(self.device)
-        elif isinstance(seg_target, np.ndarray):
-            target = torch.from_numpy(seg_target).to(self.device)
+    def forward(
+            self, 
+            images, 
+            gt_seg_masks=None, 
+            gt_boxes_list=None, 
+            gt_classes_list=None, 
+            **kwargs
+        ) -> dict[str, torch.Tensor]:
+        """Forward pass through the model."""
+
+        # Retina U-Net forward pass
+        outputs = self.core(images.to(self.device))
+
+        detections = outputs['detections']
+        class_logits = outputs['class_logits']
+        bbox_deltas = outputs['bbox_deltas']
+        seg_logits = outputs['segmentation']
+        anchors = outputs['anchors']
+
+        if gt_seg_masks is None:
+            batch_class_loss = torch.tensor(0.0, device=self.device)
+            batch_bbox_loss = torch.tensor(0.0, device=self.device)
+            seg_loss = torch.tensor(0.0, device=self.device)
         else:
-            target = self.tensor_processor.process([seg_target]) if not isinstance(seg_target, list) else self.tensor_processor.process(seg_target)
-            target = target.to(self.device)
-
-        if target.ndim >= 4 and target.shape[1] == 1:
-            target = target[:, 0]
-        return target.long()
-
-    def _prepare_detection_targets(
-        self,
-        box_target: Any,
-        class_target: Any,
-        batch_size: int,
-    ) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
-        """Normalize detection supervision to per-sample tensors."""
-        if isinstance(box_target, torch.Tensor):
-            boxes = box_target.to(self.device).float()
-        elif isinstance(box_target, np.ndarray):
-            boxes = torch.from_numpy(box_target).to(self.device).float()
-        else:
-            boxes = self.tensor_processor.process(box_target if isinstance(box_target, list) else [box_target]).to(self.device).float()
-
-        if isinstance(class_target, torch.Tensor):
-            classes = class_target.to(self.device).long()
-        elif isinstance(class_target, np.ndarray):
-            classes = torch.from_numpy(class_target).to(self.device).long()
-        else:
-            classes = self.tensor_processor.process(class_target if isinstance(class_target, list) else [class_target]).to(self.device).long()
-
-        if boxes.ndim == 2 and boxes.shape[0] == batch_size:
-            boxes = boxes.unsqueeze(1)
-        elif boxes.ndim == 2 and batch_size == 1:
-            boxes = boxes.unsqueeze(0)
-
-        if classes.ndim == 1 and classes.shape[0] == batch_size:
-            classes = classes.unsqueeze(1)
-        elif classes.ndim == 1 and batch_size == 1:
-            classes = classes.unsqueeze(0)
-
-        boxes_list: List[torch.Tensor] = []
-        classes_list: List[torch.Tensor] = []
-        for batch_idx in range(batch_size):
-            boxes_i = boxes[batch_idx]
-            classes_i = classes[batch_idx]
-
-            if boxes_i.ndim == 1:
-                boxes_i = boxes_i.unsqueeze(0)
-            if classes_i.ndim == 0:
-                classes_i = classes_i.unsqueeze(0)
-
-            valid = classes_i > 0
-            if boxes_i.numel() > 0:
-                spatial_valid = (boxes_i[:, self.core.dim:self.core.dim * 2] > boxes_i[:, :self.core.dim]).all(dim=1)
-                valid = valid & spatial_valid
-
-            boxes_list.append(boxes_i[valid])
-            classes_list.append(classes_i[valid])
-
-        return boxes_list, classes_list
-
-    def _generate_detection_targets_from_seg(
-        self,
-        seg_target: torch.Tensor,
-    ) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
-        """Build detection targets from segmentation masks when boxes/classes are absent."""
-        boxes_list: List[torch.Tensor] = []
-        classes_list: List[torch.Tensor] = []
-
-        seg_np = seg_target.detach().cpu().numpy()
-        for batch_idx in range(seg_np.shape[0]):
-            boxes_np = _extract_connected_boxes_from_mask(
-                seg_np[batch_idx],
-                dim=self.core.dim,
-                min_area=self.min_detection_box_area,
+            batch_class_loss = 0.0
+            batch_bbox_loss = 0.0
+            
+            # Per-image Matching and Loss
+            batch_size = images.shape[0]
+            for b in range(batch_size):
+                if len(gt_boxes_list[b]) > 0:
+                    gt_boxes = torch.stack(gt_boxes_list[b]).to(self.device).contiguous()
+                    # 0 index is for PyHealth dataset schema compatibility
+                    gt_class_ids = gt_classes_list[b][0].to(self.device).contiguous()
+                else:
+                    # Create empty tensors with correct shapes and dtypes
+                    gt_boxes = torch.zeros((0, 4), device=self.device)
+                    gt_class_ids = torch.tensor([], dtype=torch.int64, device=self.device)
+                
+                anchor_class_match, anchor_target_deltas = self._compute_anchor_matches(
+                    anchors, gt_boxes, gt_class_ids
+                )
+                
+                batch_class_loss += self._compute_class_loss(
+                    class_logits[b], 
+                    anchor_class_match
+                    )
+                batch_bbox_loss += self._compute_bbox_loss(
+                    bbox_deltas[b], anchor_target_deltas, anchor_class_match
+                )
+            
+            # Average batch detection losses
+            batch_class_loss /= batch_size
+            batch_bbox_loss /= batch_size
+            
+            # Segmentation Loss (Foreground-only Dice + CE)
+            seg_loss = self._compute_segmentation_loss(
+                seg_logits, gt_seg_masks.to(self.device)
             )
-            if boxes_np.shape[0] == 0:
-                boxes = torch.zeros((0, self.core.dim * 2), dtype=torch.float32, device=self.device)
-                classes = torch.zeros((0,), dtype=torch.long, device=self.device)
-            else:
-                boxes = torch.from_numpy(boxes_np).to(self.device)
-                classes = torch.ones((boxes.shape[0],), dtype=torch.long, device=self.device)
-            boxes_list.append(boxes)
-            classes_list.append(classes)
+        
+        # Standard weights: Class=1.0, Bbox=1.0, Seg=0.5
+        total_loss = batch_class_loss + batch_bbox_loss + (0.5 * seg_loss)
 
-        return boxes_list, classes_list
+        # Mandatory PyHealth return format
+        results = {
+            "loss": total_loss,
+            "class_loss": batch_class_loss,
+            "bbox_loss": batch_bbox_loss,
+            "seg_loss": seg_loss,
+            "det_bboxes": detections,
+            "class_logits": class_logits,
+            "bbox_deltas": bbox_deltas,
+            "seg_logits": seg_logits,
+            "anchors": anchors
+        }
+        return results
 
-    def _match_anchors_to_gt(
-        self,
-        anchors: torch.Tensor,
-        gt_boxes: torch.Tensor,
-        gt_class_ids: torch.Tensor,
-        iou_threshold: float = 0.5,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Match anchors to gt boxes and build regression targets."""
+    @staticmethod
+    def _compute_iou_matrix_2d(anchors, gt_boxes):
+        """
+        Corrected Vectorized IoU in PyTorch.
+        anchors: (N, 4) tensor [y1, x1, y2, x2]
+        gt_boxes: (M, 4) tensor [y1, x1, y2, x2]
+        """
+        # 1. Areas
+        a_area = (anchors[:, 2] - anchors[:, 0]) * (anchors[:, 3] - anchors[:, 1])
+        g_area = (gt_boxes[:, 2] - gt_boxes[:, 0]) * (gt_boxes[:, 3] - gt_boxes[:, 1])
+
+        # 2. Intersections
+        lt = torch.max(anchors[:, None, :2], gt_boxes[None, :, :2]) 
+        rb = torch.min(anchors[:, None, 2:], gt_boxes[None, :, 2:]) 
+        
+        wh = (rb - lt).clamp(min=0)  # [h, w]
+        inter_area = wh[:, :, 0] * wh[:, :, 1] # (N, M)
+
+        # 3. Union
+        union_area = a_area[:, None] + g_area[None, :] - inter_area
+        
+        # Return (M, N) matrix to keep GTs as rows and Anchors as columns
+        return (inter_area / union_area.clamp(min=1e-6)).T
+
+    @staticmethod
+    def _compute_iou_matrix_3d(anchors, gt_boxes):
+        """
+        Optimized Vectorized 3D IoU.
+        Order: [y1, x1, y2, x2, z1, z2]
+        """
+        if anchors.numel() == 0 or gt_boxes.numel() == 0:
+            return torch.zeros(
+                (gt_boxes.shape[0], anchors.shape[0]), device=anchors.device
+            )
+
+        # 1. Define index groups for [y, x, z]
+        mins = [0, 1, 4]
+        maxs = [2, 3, 5]
+
+        # 2. Compute Volumes
+        # (y2-y1) * (x2-x1) * (z2-z1)
+        a_vol = (anchors[:, maxs] - anchors[:, mins]).clamp(min=0).prod(dim=1)
+        g_vol = (gt_boxes[:, maxs] - gt_boxes[:, mins]).clamp(min=0).prod(dim=1)
+
+        # 3. Intersections (The Vectorized Step)
+        # Resulting 'lt' and 'rb' are (N, M, 3)
+        lt = torch.max(anchors[:, None, mins], gt_boxes[None, :, mins]) 
+        rb = torch.min(anchors[:, None, maxs], gt_boxes[None, :, maxs]) 
+        
+        # Compute width, height, and depth at once
+        inter_vol = (rb - lt).clamp(min=0).prod(dim=2) # (N, M)
+
+        # 4. Union and Final IoU
+        union_vol = a_vol[:, None] + g_vol[None, :] - inter_vol
+        
+        # Return (M, N) to match your original implementation's shape
+        return (inter_vol / union_vol.clamp(min=1e-6)).T
+
+    def _compute_anchor_matches(
+            self, 
+            anchors, 
+            gt_boxes, 
+            gt_class_ids, 
+            pos_thresh=0.5, 
+            neg_thresh=0.4, 
+            dim=2
+        ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Adaptive Anchor Matching for 2D or 3D.
+        dim=2: [y1, x1, y2, x2]
+        dim=3: [y1, x1, y2, x2, z1, z2]
+        """
+        device = anchors.device
         num_anchors = anchors.shape[0]
-        anchor_class_match = torch.full((num_anchors,), -1, dtype=torch.long, device=anchors.device)
-        anchor_target_deltas = torch.zeros((num_anchors, anchors.shape[1]), dtype=torch.float32, device=anchors.device)
+        
+        if gt_boxes.shape[0] == 0:
+            # Returns (num_anchors,) for matches and (num_anchors, 4 or 6) for deltas
+            return torch.full((num_anchors,), -1, device=device), torch.zeros_like(anchors)
 
-        if gt_boxes.numel() == 0:
-            return anchor_class_match, anchor_target_deltas
-
-        if self.core.dim == 2:
-            ious = _pairwise_iou_2d(anchors, gt_boxes)
+        # 1. Select the correct IoU function based on dimension
+        if dim == 2:
+            iou_matrix = self._compute_iou_matrix_2d(anchors, gt_boxes)
         else:
-            ious = _pairwise_iou_3d(anchors, gt_boxes)
+            iou_matrix = self._compute_iou_matrix_3d(anchors, gt_boxes)
 
-        best_iou, best_gt_idx = ious.max(dim=1)
-        pos_mask = best_iou >= iou_threshold
+        # 2. Find best GT for each anchor
+        max_iou_per_anchor, best_gt_idx_per_anchor = torch.max(iou_matrix, dim=0)
 
-        if pos_mask.any():
-            matched_gt = gt_boxes[best_gt_idx[pos_mask]]
-            matched_classes = gt_class_ids[best_gt_idx[pos_mask]].long()
-            anchor_class_match[pos_mask] = matched_classes
-            # Use simplified delta computation matching user's implementation:
-            # delta = (gt_box - anchor) / (anchor + eps)
-            eps = 1e-5
-            anchor_target_deltas[pos_mask] = (matched_gt - anchors[pos_mask]) / (anchors[pos_mask] + eps)
+        # Initialize as Neutral/Ignore (-1)
+        anchor_class_match = torch.full((num_anchors,), -1, dtype=torch.int32, device=device)
+
+        # 3. Assign Background (0) and Positives (class_id)
+        anchor_class_match[max_iou_per_anchor < neg_thresh] = 0
+        
+        pos_mask = max_iou_per_anchor >= pos_thresh
+        anchor_class_match[pos_mask] = gt_class_ids[best_gt_idx_per_anchor[pos_mask]].to(torch.int32)
+
+        # 4. SAFETY NET: Force best anchor for every GT
+        _, best_anchor_idx_per_gt = torch.max(iou_matrix, dim=1)
+        
+        # Force these to be positive and update the index tracker for deltas
+        anchor_class_match[best_anchor_idx_per_gt] = gt_class_ids.to(torch.int32)
+        best_gt_idx_per_anchor[best_anchor_idx_per_gt] = torch.arange(len(gt_boxes), device=device)
+
+        # 5. Regression Targets (Deltas)
+        matched_gt_boxes = gt_boxes[best_gt_idx_per_anchor]
+        anchor_target_deltas = (matched_gt_boxes - anchors) / (anchors + 1e-5)
 
         return anchor_class_match, anchor_target_deltas
 
-    def forward(self, **kwargs) -> Dict[str, Any]:
-        x = self._prepare_input_tensor(kwargs[self.feature_key])
-        outputs = self.core(x)
+    @staticmethod
+    def _compute_class_loss(class_pred_logits, anchor_matches, alpha=0.25, gamma=2.0):
+        """
+        Handles [-1=ignore, 0=background, 1+=class_id]
+        """
+        # 1. Mask out anchors labeled as -1 (ignore/neutral)
+        valid_indices = torch.nonzero(anchor_matches != -1).reshape(-1)
+        if valid_indices.numel() == 0:
+            return torch.tensor(0.0, device=class_pred_logits.device, requires_grad=True)
 
-        seg_logits = outputs["segmentation"]
-        if seg_logits.shape[1] > 1:
-            y_prob = torch.softmax(seg_logits, dim=1)
-        else:
-            y_prob = torch.sigmoid(seg_logits)
+        logits = class_pred_logits[valid_indices]
+        targets = anchor_matches[valid_indices].long()
 
-        results: Dict[str, Any] = {
-            "logit": seg_logits,
-            "y_prob": y_prob,
-        }
+        # 2. Focal Loss Math
+        ce_loss = F.cross_entropy(logits, targets, reduction='none')
+        pt = torch.exp(-ce_loss)
+        f_loss = alpha * (1 - pt)**gamma * ce_loss
 
-        class_loss = torch.tensor(0.0, device=self.device)
-        bbox_loss = torch.tensor(0.0, device=self.device)
-        seg_loss = torch.tensor(0.0, device=self.device)
-        total_loss: Optional[torch.Tensor] = None
+        # 3. Normalize by POSITIVE anchors only
+        num_pos = torch.clamp(torch.sum(anchor_matches > 0).float(), min=1.0)
+        return f_loss.sum() / num_pos
 
-        if self.seg_label_key in kwargs:
-            y_true = self._prepare_seg_target(kwargs[self.seg_label_key])
-            results["y_true"] = y_true
-            seg_loss = compute_segmentation_loss(seg_logits, y_true)
+    @staticmethod
+    def _compute_bbox_loss(
+        bbox_deltas, 
+        anchor_target_deltas, 
+        anchor_class_match, 
+        beta=0.11 # beta ~1/9 is standard for many Retina implementations
+    ):
+        """
+        Improved Bbox loss aligned with RetinaNet normalization.
+        """
+        # 1. Mask for positive anchors only
+        pos_mask = anchor_class_match > 0
+        num_pos = pos_mask.sum().float()
+        
+        if num_pos == 0:
+            return torch.tensor(0.0, device=bbox_deltas.device, requires_grad=True)
+        
+        # 2. Extract positive predictions and targets
+        pos_deltas = bbox_deltas[pos_mask]
+        pos_targets = anchor_target_deltas[pos_mask]
+        
+        # 3. Smooth L1 Loss 
+        # Use reduction='sum' so we can normalize manually
+        bbox_loss = F.smooth_l1_loss(
+            pos_deltas, pos_targets, beta=beta, reduction='sum'
+        )
+        
+        # 4. Normalize by the SAME num_pos used in Class Loss
+        # This keeps the 'weight' of classification and regression balanced.
+        return bbox_loss / torch.clamp(num_pos, min=1.0)
 
-            gt_boxes_list: Optional[List[torch.Tensor]] = None
-            gt_class_ids_list: Optional[List[torch.Tensor]] = None
-            has_detection_targets = (
-                self.box_label_key
-                and self.class_label_key
-                and self.box_label_key in kwargs
-                and self.class_label_key in kwargs
-            )
+    @staticmethod
+    def _compute_segmentation_loss(
+        seg_logits: torch.Tensor,
+        seg_masks: torch.Tensor,
+        n_classes=2
+    ) -> torch.Tensor:
+        # 1. Cross-Entropy: Use weights if possible, but keep reduction='mean'
+        target_masks = seg_masks.squeeze(1).long()
+        ce_loss = F.cross_entropy(seg_logits, target_masks)
 
-            if has_detection_targets:
-                gt_boxes_list, gt_class_ids_list = self._prepare_detection_targets(
-                    kwargs[self.box_label_key],
-                    kwargs[self.class_label_key],
-                    batch_size=x.shape[0],
-                )
-            elif self.auto_generate_detection_targets:
-                gt_boxes_list, gt_class_ids_list = self._generate_detection_targets_from_seg(y_true)
+        # 2. Dice Loss: Focus on Foreground
+        probs = F.softmax(seg_logits, dim=1)
+        
+        # One-hot encoding
+        target_ohe = F.one_hot(target_masks, num_classes=n_classes)
+        target_ohe = target_ohe.permute(0, 3, 1, 2).float() # [B, C, H, W]
 
-            if gt_boxes_list is not None and gt_class_ids_list is not None:
-                anchors = outputs["anchors"]
-                batch_class_loss = torch.tensor(0.0, device=self.device)
-                batch_bbox_loss = torch.tensor(0.0, device=self.device)
-
-                for batch_idx in range(x.shape[0]):
-                    anchor_class_match, anchor_target_deltas = self._match_anchors_to_gt(
-                        anchors,
-                        gt_boxes_list[batch_idx],
-                        gt_class_ids_list[batch_idx],
-                    )
-                    batch_class_loss = batch_class_loss + compute_class_loss(
-                        outputs["class_logits"][batch_idx],
-                        anchor_class_match,
-                    ) / x.shape[0]
-                    batch_bbox_loss = batch_bbox_loss + compute_bbox_loss(
-                        anchor_target_deltas,
-                        outputs["bbox_deltas"][batch_idx],
-                        anchor_class_match,
-                    ) / x.shape[0]
-
-                class_loss = batch_class_loss
-                bbox_loss = batch_bbox_loss
-
-            total_loss = class_loss + bbox_loss + 0.5 * seg_loss
-            results["class_loss"] = class_loss
-            results["bbox_loss"] = bbox_loss
-            results["seg_loss"] = seg_loss
-            results["total_loss"] = total_loss
-            results["loss"] = total_loss
-
-        if kwargs.get("return_aux", False):
-            results.update(
-                {
-                    "seg_preds": torch.argmax(seg_logits, dim=1) if seg_logits.shape[1] > 1 else (y_prob > 0.5).long().squeeze(1),
-                    "class_logits": outputs["class_logits"],
-                    "bbox_deltas": outputs["bbox_deltas"],
-                    "detections": outputs["detections"],
-                    "boxes": outputs["detections"],
-                    "monitor_values": {
-                        "total_loss": float(total_loss.detach().cpu().item()) if total_loss is not None else None,
-                        "class_loss": float(class_loss.detach().cpu().item()),
-                        "bbox_loss": float(bbox_loss.detach().cpu().item()),
-                        "seg_loss": float(seg_loss.detach().cpu().item()),
-                    },
-                }
-            )
-
-        return results
-
-
+        # Compute intersection and cardinality per class
+        # Sum over spatial dimensions only (H, W)
+        dims = (2, 3) 
+        intersection = torch.sum(probs * target_ohe, dim=dims)
+        cardinality = torch.sum(probs + target_ohe, dim=dims)
+        
+        dice_score = (2. * intersection + 1e-5) / (cardinality + 1e-5)
+        
+        # IMPORTANT: Exclude background (index 0) from the Dice Loss
+        # Only average Dice for classes 1, 2, ...
+        foreground_dice_loss = 1 - dice_score[:, 1:].mean() 
+        
+        return 0.5 * ce_loss + 0.5 * foreground_dice_loss
 
 if __name__ == '__main__':
-    # Test the core layer directly
-    print("Testing RetinaUNetLayer (core PyTorch module):")
-    model_2d = RetinaUNetLayer(in_channels=1, num_classes=2, dim=2)
-    x_2d = torch.randn(2, 1, 256, 256)
+    # Test 2D
+    model_2d = RetinaUNetCore(in_channels=1, num_classes=2, dim=2)
+    x_2d = torch.randn(2, 1, 64, 64)
     output_2d = model_2d(x_2d)
     print("2D Output shapes:")
     print(f"  class_logits: {output_2d['class_logits'].shape}")
@@ -1795,7 +1606,8 @@ if __name__ == '__main__':
     print(f"  segmentation: {output_2d['segmentation'].shape}")
     print(f"  detections: {output_2d['detections'].shape}")
     
-    model_3d = RetinaUNetLayer(in_channels=1, num_classes=2, dim=3)
+    # Test 3D
+    model_3d = RetinaUNetCore(in_channels=1, num_classes=2, dim=3)
     x_3d = torch.randn(2, 1, 64, 64, 32)
     output_3d = model_3d(x_3d)
     print("\n3D Output shapes:")
@@ -1803,40 +1615,6 @@ if __name__ == '__main__':
     print(f"  bbox_deltas: {output_3d['bbox_deltas'].shape}")
     print(f"  segmentation: {output_3d['segmentation'].shape}")
     print(f"  detections: {output_3d['detections'].shape}")
-    
-    # Test the BaseModel wrapper with a sample dataset
-    print("\n" + "="*50)
-    print("Testing RetinaUNet (PyHealth BaseModel wrapper):")
-    from pyhealth.datasets import create_sample_dataset
-    
-    # Create a minimal sample dataset
-    samples = [
-        {
-            "patient_id": "p0",
-            "visit_id": "v0",
-            "image": torch.randn(1, 64, 64).numpy().tolist(),
-            "seg": torch.randint(0, 2, (64, 64)).numpy().tolist(),
-        },
-        {
-            "patient_id": "p1",
-            "visit_id": "v1",
-            "image": torch.randn(1, 64, 64).numpy().tolist(),
-            "seg": torch.randint(0, 2, (64, 64)).numpy().tolist(),
-        },
-    ]
-    
-    input_schema = {"image": "tensor", "seg": "tensor"}
-    output_schema = {"seg": "tensor"}
-    
-    dataset = create_sample_dataset(
-        samples=samples,
-        input_schema=input_schema,
-        output_schema=output_schema,
-        dataset_name="retina_unet_demo"
-    )
-    model = RetinaUNet(dataset=dataset, in_channels=1, num_classes=2, dim=2)
-    
-    print(f"Model created successfully on device: {model.device}")
-    print(f"Feature key: {model.feature_key}")
-    print(f"Segmentation label key: {model.seg_label_key}")
-    print(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
+
+
+

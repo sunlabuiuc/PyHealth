@@ -3,7 +3,7 @@ pyhealth.models.RetinaUNet
 
 Retina U-Net model for medical image object detection and segmentation.
 
-.. autoclass:: pyhealth.models.RetinaUNetLayer
+.. autoclass:: pyhealth.models.RetinaUNetCore
     :members:
     :undoc-members:
     :show-inheritance:
