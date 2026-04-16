@@ -5,8 +5,7 @@ Modeling for Laboratory Data", ML4H 2024.
 https://arxiv.org/abs/2312.11502
 """
 
-import math
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Optional
 
 import torch
 import torch.nn as nn
@@ -16,16 +15,7 @@ from pyhealth.models import BaseModel
 
 
 class LabradorEmbedding(nn.Module):
-    """Joint embedding of lab code (integer) and lab value (float in [0,1]).
-
-    Labrador's key novelty: it concatenates a learned code embedding
-    with a scalar value projected into embedding space, then projects
-    the combined vector to hidden_dim.
-
-    Args:
-        vocab_size: Number of unique lab codes + special tokens.
-        hidden_dim: Embedding dimension.
-    """
+    """Joint embedding of lab code (integer) and lab value (float in [0,1])."""
 
     def __init__(self, vocab_size: int, hidden_dim: int) -> None:
         super().__init__()
@@ -33,58 +23,30 @@ class LabradorEmbedding(nn.Module):
         self.value_projection = nn.Linear(1, hidden_dim // 2)
         self.output_projection = nn.Linear(hidden_dim, hidden_dim)
 
-    def forward(
-        self,
-        lab_codes: torch.Tensor,       # (B, seq_len) int
-        lab_values: torch.Tensor,      # (B, seq_len) float, already in [0,1]
-    ) -> torch.Tensor:
-        code_emb = self.code_embedding(lab_codes)            # (B, L, H/2)
-        val_emb = self.value_projection(
-            lab_values.unsqueeze(-1)                         # (B, L, 1)
-        )                                                    # (B, L, H/2)
-        combined = torch.cat([code_emb, val_emb], dim=-1)   # (B, L, H)
-        return self.output_projection(combined)              # (B, L, H)
+    def forward(self, lab_codes: torch.Tensor, lab_values: torch.Tensor) -> torch.Tensor:
+        code_emb = self.code_embedding(lab_codes)
+        val_emb = self.value_projection(lab_values.unsqueeze(-1))
+        combined = torch.cat([code_emb, val_emb], dim=-1)
+        return self.output_projection(combined)
+
+
+class LabradorMLMHead(nn.Module):
+    """MLM head that predicts masked categorical codes and continuous values."""
+
+    def __init__(self, hidden_dim: int, vocab_size: int) -> None:
+        super().__init__()
+        self.code_head = nn.Linear(hidden_dim, vocab_size)
+        self.value_head = nn.Linear(hidden_dim, 1)
+
+    def forward(self, hidden_states: torch.Tensor) -> Dict[str, torch.Tensor]:
+        return {
+            "mlm_code_logit": self.code_head(hidden_states),
+            "mlm_value_pred": self.value_head(hidden_states).squeeze(-1),
+        }
 
 
 class LabradorModel(BaseModel):
-    """Labrador: masked language model for EHR laboratory data.
-
-    Implements the Labrador architecture from Bellamy et al. (2024).
-    The model jointly embeds lab test codes and continuous values,
-    then applies a Transformer encoder for downstream classification.
-
-    Args:
-        dataset: PyHealth dataset object (provides output_size).
-        vocab_size: Number of unique lab codes. Default: 532 (MIMIC-IV).
-        hidden_dim: Transformer hidden dimension. Default: 128.
-        num_heads: Number of attention heads. Default: 4.
-        num_layers: Number of Transformer encoder layers. Default: 2.
-        dropout: Dropout rate. Default: 0.1.
-        max_seq_len: Maximum number of labs per bag. Default: 64.
-
-    Examples:
-        >>> from pyhealth.datasets import create_sample_dataset
-        >>> samples = [
-        ...     {
-        ...         "patient_id": "p0",
-        ...         "visit_id": "v0",
-        ...         "lab_codes": [1, 5, 10],
-        ...         "lab_values": [0.3, 0.7, 0.5],
-        ...         "label": 1,
-        ...     },
-        ... ]
-        >>> dataset = create_sample_dataset(
-        ...     samples=samples,
-        ...     input_schema={
-        ...         "lab_codes": "sequence",
-        ...         "lab_values": "sequence",
-        ...     },
-        ...     output_schema={"label": "binary"},
-        ...     dataset_name="test",
-        ... )
-        >>> model = LabradorModel(dataset=dataset)
-        >>> # forward pass handled by PyHealth trainer
-    """
+    """Labrador model with optional classification and MLM prediction heads."""
 
     def __init__(
         self,
@@ -95,80 +57,115 @@ class LabradorModel(BaseModel):
         num_layers: int = 2,
         dropout: float = 0.1,
         max_seq_len: int = 64,
+        include_classifier_head: bool = True,
+        include_mlm_head: bool = False,
     ) -> None:
         super().__init__(dataset)
+        if vocab_size <= 0:
+            raise ValueError("vocab_size must be > 0")
+        if hidden_dim % num_heads != 0:
+            raise ValueError("hidden_dim must be divisible by num_heads")
+
         self.hidden_dim = hidden_dim
+        self.vocab_size = vocab_size
+        self.max_seq_len = max_seq_len
+        self.include_classifier_head = include_classifier_head
+        self.include_mlm_head = include_mlm_head
 
-        # Joint lab code + value embedding
         self.embedding = LabradorEmbedding(vocab_size, hidden_dim)
-
-        # Transformer encoder
         encoder_layer = nn.TransformerEncoderLayer(
             d_model=hidden_dim,
             nhead=num_heads,
             dropout=dropout,
             batch_first=True,
         )
-        self.transformer = nn.TransformerEncoder(
-            encoder_layer, num_layers=num_layers
-        )
-
-        # Classification head
-        output_size = self.get_output_size()
-        self.classifier = nn.Linear(hidden_dim, output_size)
+        self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
         self.dropout = nn.Dropout(dropout)
+
+        if self.include_classifier_head:
+            output_size = self.get_output_size()
+            self.classifier = nn.Linear(hidden_dim, output_size)
+
+        if self.include_mlm_head:
+            self.mlm_head = LabradorMLMHead(hidden_dim=hidden_dim, vocab_size=vocab_size)
+
+    def categorical_mlm_loss(
+        self,
+        logits: torch.Tensor,
+        target_codes: torch.Tensor,
+        mlm_mask: torch.Tensor,
+    ) -> torch.Tensor:
+        """Cross-entropy on masked code positions only."""
+        if mlm_mask.sum() == 0:
+            return logits.new_zeros(())
+        return F.cross_entropy(logits[mlm_mask], target_codes[mlm_mask])
+
+    def continuous_mlm_loss(
+        self,
+        pred_values: torch.Tensor,
+        target_values: torch.Tensor,
+        mlm_mask: torch.Tensor,
+    ) -> torch.Tensor:
+        """MSE on masked value positions only."""
+        if mlm_mask.sum() == 0:
+            return pred_values.new_zeros(())
+        return F.mse_loss(pred_values[mlm_mask], target_values[mlm_mask])
 
     def forward(
         self,
-        lab_codes: torch.Tensor,          # (B, seq_len) int
-        lab_values: torch.Tensor,         # (B, seq_len) float
-        padding_mask: Optional[torch.Tensor] = None,  # (B, seq_len) bool
+        lab_codes: torch.Tensor,
+        lab_values: torch.Tensor,
+        padding_mask: Optional[torch.Tensor] = None,
         label: Optional[torch.Tensor] = None,
+        mlm_mask: Optional[torch.Tensor] = None,
+        mlm_target_codes: Optional[torch.Tensor] = None,
+        mlm_target_values: Optional[torch.Tensor] = None,
         **kwargs,
     ) -> Dict[str, torch.Tensor]:
-        """Forward pass.
-
-        Args:
-            lab_codes: Integer tensor of lab test codes, shape (B, L).
-            lab_values: Float tensor of normalized lab values in [0,1],
-                shape (B, L).
-            padding_mask: Boolean mask where True = padding, shape (B, L).
-            labels: Ground truth labels, shape (B,).
-
-        Returns:
-            Dict with keys:
-                - loss: scalar cross-entropy loss (if labels provided).
-                - y_prob: predicted probabilities, shape (B, output_size).
-                - y_true: ground truth labels, shape (B,).
-                - logit: raw logits, shape (B, output_size).
-        """
-        # Embed: (B, L, H)
         x = self.embedding(lab_codes, lab_values.float())
         x = self.dropout(x)
-
-        # Transformer encoder
         x = self.transformer(x, src_key_padding_mask=padding_mask)
 
-        # Pool: mean over non-padding positions
-        if padding_mask is not None:
-            mask = (~padding_mask).unsqueeze(-1).float()  # (B, L, 1)
-            x = (x * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1e-9)
-        else:
-            x = x.mean(dim=1)  # (B, H)
+        result: Dict[str, torch.Tensor] = {}
 
-        # Classify
-        logit = self.classifier(x)                        # (B, output_size)
-        y_prob = self.prepare_y_prob(logit)               # softmax/sigmoid
+        if self.include_classifier_head:
+            if padding_mask is not None:
+                mask = (~padding_mask).unsqueeze(-1).float()
+                pooled = (x * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1e-9)
+            else:
+                pooled = x.mean(dim=1)
 
-        result = {"logit": logit, "y_prob": y_prob}
+            logit = self.classifier(pooled)
+            y_prob = self.prepare_y_prob(logit)
+            result.update({"logit": logit, "y_prob": y_prob})
 
-        if label is not None:
-            if self.mode == "binary":
-                label = label.float().view_as(logit)
-            elif self.mode == "multilabel":
-                label = label.float().view_as(logit)
-        
-            result["loss"] = self.get_loss_function()(logit, label)
-            result["y_true"] = label
-        
+            if label is not None:
+                if self.mode in {"binary", "multilabel"}:
+                    label = label.float().view_as(logit)
+                result["loss"] = self.get_loss_function()(logit, label)
+                result["y_true"] = label
+        elif label is not None:
+            raise ValueError("label is provided but include_classifier_head=False")
+
+        if self.include_mlm_head:
+            mlm_outputs = self.mlm_head(x)
+            result.update(mlm_outputs)
+
+            if (
+                mlm_mask is not None
+                and mlm_target_codes is not None
+                and mlm_target_values is not None
+            ):
+                c_loss = self.categorical_mlm_loss(
+                    mlm_outputs["mlm_code_logit"],
+                    mlm_target_codes,
+                    mlm_mask,
+                )
+                r_loss = self.continuous_mlm_loss(
+                    mlm_outputs["mlm_value_pred"],
+                    mlm_target_values,
+                    mlm_mask,
+                )
+                result["mlm_loss"] = c_loss + r_loss
+
         return result
