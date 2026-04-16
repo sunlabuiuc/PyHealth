@@ -10,7 +10,7 @@ from .cardiology_detect import (
     cardiology_isWA_fn,
 )
 from .chestxray14_binary_classification import ChestXray14BinaryClassification
-# from .ecgqa_preprocess import ECGQA
+from .ecgqa_preprocess import ECGQA
 from .ptbxl_diagnostic_classification import PTBXLDiagnosticClassification
 from .chestxray14_multilabel_classification import ChestXray14MultilabelClassification
 from .covid19_cxr_classification import COVID19CXRClassification
