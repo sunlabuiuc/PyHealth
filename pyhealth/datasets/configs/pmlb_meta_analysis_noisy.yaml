@@ -1,0 +1,22 @@
+version: "5.0"
+tables:
+  pmlb_meta_analysis:
+    file_path: null
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+    - "visit_id"
+    - "Inst"
+    - "sex"
+    - "Treatment"
+    - "Grade"
+    - "Age"
+    - "Condition"
+    - "Site"
+    - "T"
+    - "N"
+    - "Status"
+    - "true_effect"
+    - "observed_effect"
+    - "variance"
+    - "prior_mean"
