@@ -14,6 +14,7 @@ import torch.nn.functional as F
 from typing import Any, Dict, List, Tuple, Optional
 from collections import OrderedDict
 import numpy as np
+import warnings
 
 from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
@@ -885,28 +886,27 @@ def compute_class_loss(
     anchor_matches: torch.Tensor,
     shem_poolsize: int = 20,
 ) -> torch.Tensor:
-    """Retina-style classification loss with OHEM negatives."""
-    pos_indices = torch.nonzero(anchor_matches > 0, as_tuple=False).view(-1)
-    neg_indices = torch.nonzero(anchor_matches == -1, as_tuple=False).view(-1)
+    """
+    Compute focal loss for object detection.
 
-    if pos_indices.numel() > 0:
-        roi_logits_pos = class_pred_logits[pos_indices]
-        targets_pos = anchor_matches[pos_indices].long()
-        pos_loss = F.cross_entropy(roi_logits_pos, targets_pos)
-    else:
-        pos_loss = torch.tensor(0.0, device=class_pred_logits.device)
+    Replaces the previous OHEM-based classification loss with focal loss.
+    """
+    alpha = 0.25
+    gamma = 2.0
 
-    if neg_indices.numel() > 0:
-        roi_logits_neg = class_pred_logits[neg_indices]
-        negative_count = max(1, pos_indices.numel())
-        roi_probs_neg = F.softmax(roi_logits_neg, dim=1)
-        neg_ix = shem_sampling(roi_probs_neg, negative_count, shem_poolsize)
-        neg_targets = torch.zeros(len(neg_ix), dtype=torch.long, device=class_pred_logits.device)
-        neg_loss = F.cross_entropy(roi_logits_neg[neg_ix], neg_targets)
-    else:
-        neg_loss = torch.tensor(0.0, device=class_pred_logits.device)
+    probs = F.softmax(class_pred_logits, dim=-1)
+    valid_mask = anchor_matches >= 0
+    if valid_mask.sum() == 0:
+        return torch.tensor(0.0, device=class_pred_logits.device)
 
-    return 0.5 * (pos_loss + neg_loss)
+    valid_logits = class_pred_logits[valid_mask]
+    valid_targets = anchor_matches[valid_mask].long()
+    valid_probs = probs[valid_mask]
+
+    ce_loss = F.cross_entropy(valid_logits, valid_targets, reduction='none')
+    p_t = valid_probs.gather(1, valid_targets.unsqueeze(1)).squeeze(1)
+    focal_loss = alpha * ((1 - p_t) ** gamma) * ce_loss
+    return focal_loss.mean()
 
 
 def compute_bbox_loss(
@@ -921,25 +921,47 @@ def compute_bbox_loss(
     return F.smooth_l1_loss(bbox_deltas[pos_mask], anchor_target_deltas[pos_mask], reduction="mean")
 
 
-def compute_segmentation_loss(seg_logits: torch.Tensor, seg_masks: torch.Tensor) -> torch.Tensor:
-    """Combined CE/BCE and Dice loss for segmentation supervision."""
-    if seg_logits.shape[1] > 1:
-        target_masks = seg_masks.long()
-        ce_loss = F.cross_entropy(seg_logits, target_masks, reduction="mean")
+def compute_segmentation_loss(
+    seg_logits: torch.Tensor,
+    seg_masks: torch.Tensor
+) -> torch.Tensor:
+    """
+    Compute segmentation loss (combined Dice + Cross-entropy).
+    
+    Args:
+        seg_logits: (B, 1, H, W[, D]) raw segmentation outputs
+        seg_masks: (B, 1, H, W[, D]) ground truth masks
+    
+    Returns:
+        Scalar loss value
+    """
+    # Handle multi-class segmentation (C>1) with cross-entropy + dice on foreground
+    if seg_logits.dim() == seg_masks.dim() + 1 and seg_logits.shape[1] > 1:
+        # seg_masks expected shape: (B, H, W[, D]) with integer class labels
+        ce_loss = F.cross_entropy(seg_logits, seg_masks.long(), reduction='mean')
         probs = F.softmax(seg_logits, dim=1)
-        target_ohe = F.one_hot(target_masks, num_classes=seg_logits.shape[1])
-        target_ohe = target_ohe.movedim(target_ohe.ndim - 1, 1).float()
-    else:
-        target_masks = seg_masks.float().unsqueeze(1)
-        ce_loss = F.binary_cross_entropy_with_logits(seg_logits, target_masks)
-        probs = torch.sigmoid(seg_logits)
-        target_ohe = target_masks
+        # Compute Dice on foreground (class 1) if binary foreground/background
+        if seg_logits.shape[1] >= 2:
+            probs_fg = probs[:, 1]
+            intersection = (probs_fg * seg_masks).sum()
+            dice_loss = 1 - (2 * intersection) / (probs_fg.sum() + seg_masks.sum() + 1e-5)
+        else:
+            dice_loss = torch.tensor(0.0, device=seg_logits.device)
+        return 0.5 * ce_loss + 0.5 * dice_loss
 
-    dims = tuple(dim for dim in range(target_ohe.ndim) if dim != 1)
-    intersection = torch.sum(probs * target_ohe, dim=dims)
-    cardinality = torch.sum(probs + target_ohe, dim=dims)
-    dice_score = (2.0 * intersection + 1e-5) / (cardinality + 1e-5)
-    dice_loss = 1.0 - dice_score.mean()
+    # Binary segmentation path: seg_logits expected to be (B,1,H,W[,D]) and seg_masks (B,H,W[,D])
+    if seg_logits.shape[1] == 1:
+        ce_loss = F.binary_cross_entropy_with_logits(seg_logits.squeeze(1), seg_masks, reduction='mean')
+        probs = torch.sigmoid(seg_logits.squeeze(1))
+        intersection = (probs * seg_masks).sum()
+        dice_loss = 1 - (2 * intersection) / (probs.sum() + seg_masks.sum() + 1e-5)
+        return 0.5 * ce_loss + 0.5 * dice_loss
+
+    # Fallback (match shapes) - keep original behavior
+    ce_loss = F.binary_cross_entropy_with_logits(seg_logits, seg_masks, reduction='mean')
+    probs = torch.sigmoid(seg_logits)
+    intersection = (probs * seg_masks).sum()
+    dice_loss = 1 - (2 * intersection) / (probs.sum() + seg_masks.sum() + 1e-5)
     return 0.5 * ce_loss + 0.5 * dice_loss
 
 
@@ -1205,7 +1227,13 @@ class RetinaUNetLayer(nn.Module):
         super().__init__()
         self.in_channels = in_channels
         self.num_classes_head = num_classes
-        self.num_classes_seg = num_seg_classes
+        # Enforce binary segmentation (background + foreground). The
+        # segmentation head will output a single-channel logits map
+        # representing foreground probability. If the caller provided
+        # a different value, warn and force to binary.
+        if num_seg_classes != 2:
+            warnings.warn("num_seg_classes forced to 2 (binary segmentation).", UserWarning)
+        self.num_classes_seg = 2
         self.cf = type('cf', (), {'dim': dim})()
         self.pyramid_levels = pyramid_levels
         self.num_anchors = len(rpn_anchor_ratios) * 3  # Anchor Sub-scaling
@@ -1245,8 +1273,9 @@ class RetinaUNetLayer(nn.Module):
             activation, 
             dim
         )
+        seg_output_channels = 1 if self.num_classes_seg == 2 else self.num_classes_seg
         self.segmentation_head = SegmentationHead(
-            fpn_out_channels, self.num_classes_seg, dim
+            fpn_out_channels, seg_output_channels, dim
         )
         
         # Backward-compatible aliases used by existing tests
@@ -1504,11 +1533,13 @@ class RetinaUNet(BaseModel):
             pyramid_levels = [2, 3, 4, 5]
         if head_classes is not None:
             num_classes = head_classes
+        if num_seg_classes != 2:
+            warnings.warn("RetinaUNet enforces binary segmentation; num_seg_classes ignored.", UserWarning)
 
         self.core = RetinaUNetLayer(
             in_channels=in_channels,
             num_classes=num_classes,
-            num_seg_classes=num_seg_classes,
+            num_seg_classes=2,
             dim=dim,
             fpn_base_channels=fpn_base_channels,
             fpn_out_channels=fpn_out_channels,
@@ -1650,10 +1681,10 @@ class RetinaUNet(BaseModel):
             matched_gt = gt_boxes[best_gt_idx[pos_mask]]
             matched_classes = gt_class_ids[best_gt_idx[pos_mask]].long()
             anchor_class_match[pos_mask] = matched_classes
-            if self.core.dim == 2:
-                anchor_target_deltas[pos_mask] = _box_deltas_2d(anchors[pos_mask], matched_gt)
-            else:
-                anchor_target_deltas[pos_mask] = _box_deltas_3d(anchors[pos_mask], matched_gt)
+            # Use simplified delta computation matching user's implementation:
+            # delta = (gt_box - anchor) / (anchor + eps)
+            eps = 1e-5
+            anchor_target_deltas[pos_mask] = (matched_gt - anchors[pos_mask]) / (anchors[pos_mask] + eps)
 
         return anchor_class_match, anchor_target_deltas
 
