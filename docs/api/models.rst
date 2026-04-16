@@ -33,6 +33,9 @@ routes each feature type automatically.
    * - :doc:`models/pyhealth.models.Transformer`
      - You have longer code histories and want attention to capture long-range dependencies
      - Self-attention across the sequence; tends to work well when visit order matters
+   * - :doc:`models/pyhealth.models.TransformerFusionModel`
+     - You want to fuse multiple temporal modalities before prediction
+     - Embeds each feature, aligns modalities in time, and applies transformer fusion
    * - :doc:`models/pyhealth.models.MLP`
      - Features are static numeric vectors (aggregated lab values, demographics)
      - Fully connected; no notion of sequence order
@@ -176,6 +179,7 @@ API Reference
     models/pyhealth.models.RNN
     models/pyhealth.models.GNN
     models/pyhealth.models.Transformer
+    models/pyhealth.models.TransformerFusionModel
     models/pyhealth.models.TransformersModel
     models/pyhealth.models.RETAIN
     models/pyhealth.models.GAMENet
