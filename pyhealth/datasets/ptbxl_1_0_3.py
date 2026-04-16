@@ -1,5 +1,4 @@
 """
-
 Pyhealth dataset for the 1.0.3 PTB-XL dataset.
 
 Dataset link: 
@@ -12,8 +11,9 @@ Dataset paper link:
 	https://arxiv.org/abs/2410.14464
 
 Author:
-	Yiyun Wang (yiyunw3@illinois.edu)
-
+    Jovian Wang (jovianw2@illinois.edu)
+    Matthew Pham (mdpham2@illinois.edu)
+    Yiyun Wang (yiyunw3@illinois.edu)
 """
 import pandas as pd
 import os
