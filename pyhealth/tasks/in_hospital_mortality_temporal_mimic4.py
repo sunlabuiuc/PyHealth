@@ -60,8 +60,20 @@ class InHospitalMortalityTemporalMIMIC4(BaseTask):
         """
         demographics = patient.get_events(event_type="patients")
         assert len(demographics) == 1
-        if int(demographics[0].anchor_age) < 18:
+        demo = demographics[0]
+        if int(demo.anchor_age) < 18:
             return []
+
+        # compute date shift to recover real calendar years
+        # anchor_year_group is like "2017 - 2019", take midpoint
+        anchor_year = int(demo.anchor_year)
+        group = getattr(demo, "anchor_year_group", None)
+        if group and " - " in str(group):
+            parts = str(group).split(" - ")
+            real_anchor = (int(parts[0]) + int(parts[1])) // 2
+            year_shift = anchor_year - real_anchor
+        else:
+            year_shift = 0
 
         admissions = patient.get_events(event_type="admissions")
         if len(admissions) == 0:
@@ -107,7 +119,7 @@ class InHospitalMortalityTemporalMIMIC4(BaseTask):
                 "procedures": procedures,
                 "drugs": drugs,
                 "mortality": mortality,
-                "admission_year": admission.timestamp.year,
+                "admission_year": admission.timestamp.year - year_shift,
             })
 
         return samples

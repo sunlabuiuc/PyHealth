@@ -14,8 +14,11 @@ from pyhealth.tasks import InHospitalMortalityTemporalMIMIC4
 # -- mock classes to simulate PyHealth Patient/Event objects --
 
 class DummyDemographics:
-    def __init__(self, anchor_age):
+    def __init__(self, anchor_age, anchor_year=2150,
+                 anchor_year_group="2017 - 2019"):
         self.anchor_age = anchor_age
+        self.anchor_year = anchor_year
+        self.anchor_year_group = anchor_year_group
 
 
 class DummyAdmission:
@@ -82,7 +85,9 @@ class DummyPatient:
 
 # -- helpers to build patients quickly --
 
-def make_patient(patient_id, age, admissions_data):
+def make_patient(patient_id, age, admissions_data,
+                 anchor_year=2150,
+                 anchor_year_group="2017 - 2019"):
     """Build a DummyPatient from a compact spec.
 
     admissions_data is a list of dicts like:
@@ -90,7 +95,9 @@ def make_patient(patient_id, age, admissions_data):
          "dx": [("E10", "10")], "px": [("5A19", "10")],
          "drugs": ["Insulin"]}
     """
-    demographics = [DummyDemographics(age)]
+    demographics = [DummyDemographics(
+        age, anchor_year, anchor_year_group
+    )]
     admissions = []
     diagnoses = []
     procedures = []
@@ -195,15 +202,18 @@ class TestTemporalMortalityMIMIC4(unittest.TestCase):
 
     # -- feature extraction --
 
-    def test_admission_year(self):
+    def test_admission_year_deshifted(self):
+        # anchor_year=2150, group="2017 - 2019" -> midpoint 2018
+        # shift = 2150 - 2018 = 132
+        # admission in shifted year 2151 -> real year 2151 - 132 = 2019
         patient = make_patient("p1", 40, [{
             "hadm_id": "1", "year": 2151, "died": False,
             "dx": [("E10", "10")],
             "px": [("5A19", "10")],
             "drugs": ["Insulin"],
-        }])
+        }], anchor_year=2150, anchor_year_group="2017 - 2019")
         samples = self.task(patient)
-        self.assertEqual(samples[0]["admission_year"], 2151)
+        self.assertEqual(samples[0]["admission_year"], 2019)
 
     def test_icd_codes_have_version_prefix(self):
         patient = make_patient("p1", 40, [{
