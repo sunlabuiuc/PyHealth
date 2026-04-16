@@ -8,12 +8,12 @@ recordings from PTB-XL or MIMIC-IV-ECG.
 The QA data originates from the ECG-QA dataset (Oh et al., 2024),
 restructured for few-shot learning by Tang et al. (CHIL 2025).
 
-Dataset link: 
+Dataset link:
     Dataset is available at https://github.com/Tang-Jia-Lu/FSL_ECG_QA
 
-Dataset paper: 
+Dataset paper:
     J. Tang, T. Xia, Y. Lu, C. Mascolo, and A. Saeed, "Electrocardiogram-language model
-    for few-shot question answering with meta learning," 
+    for few-shot question answering with meta learning,"
     arXiv preprint arXiv:2410.14464, 2024.
 
 Dataset paper link:

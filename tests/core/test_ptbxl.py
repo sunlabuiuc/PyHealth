@@ -16,37 +16,37 @@ class TestPTBXLDataset(unittest.TestCase):
 		'signal_file': '00001_lr.dat',
 		'label_file': '00001_lr.hea',
 		'save_to_path': 'sample/path',
-		}, 
+		},
 		'00002': {
 		'load_from_path': 'sample/path',
 		'signal_file': '00002_lr.dat',
 		'label_file': '00002_lr.hea',
 		'save_to_path': 'sample/path',
-		}, 
+		},
 		'00003': {
 		'load_from_path': 'sample/path',
 		'signal_file': '00003_lr.dat',
 		'label_file': '00003_lr.hea',
 		'save_to_path': 'sample/path',
-		}, 
+		},
 		'00004': {
 		'load_from_path': 'sample/path',
 		'signal_file': '00004_lr.dat',
 		'label_file': '00004_lr.hea',
 		'save_to_path': 'sample/path',
-		}, 
+		},
 		'00005': {
 		'load_from_path': 'sample/path',
 		'signal_file': '00005_lr.dat',
 		'label_file': '00005_lr.hea',
 		'save_to_path': 'sample/path',
-		}, 
+		},
 		'00006': {
 		'load_from_path': 'sample/path',
 		'signal_file': '00006_lr.dat',
 		'label_file': '00006_lr.hea',
 		'save_to_path': 'sample/path',
-		}, 
+		},
 		}
 
 		self.temp_dir = tempfile.mkdtemp()

@@ -1,12 +1,12 @@
 """
 Pyhealth dataset for the 1.0.3 PTB-XL dataset.
 
-Dataset link: 
+Dataset link:
 	https://physionet.org/content/ptb-xl/1.0.3/
 
-Dataset paper: 
-	J. Tang, T. Xia, Y. Lu, C. Mascolo, and A. Saeed, 
-	"Electrocardiogram-language model for few-shot question answering with meta 
+Dataset paper:
+	J. Tang, T. Xia, Y. Lu, C. Mascolo, and A. Saeed,
+	"Electrocardiogram-language model for few-shot question answering with meta
 	learning," arXiv preprint arXiv:2410.14464, 2024.
 
 Dataset paper link:
@@ -37,13 +37,13 @@ Dataset class for the PTB-XL 1.0.3 dataset.
 
 Args:
     dataset_name: name of the dataset.
-    root: root directory of the raw data. 
-    	Expected to contain folders for original (records500) or 
+    root: root directory of the raw data.
+    	Expected to contain folders for original (records500) or
     	downsampled (records100) data with determined names.
     dev: whether to enable dev mode (only use a small subset of the data).
         Default is False.
     refresh_cache: whether to refresh the cache; if true, the dataset will
-        be processed from scratch and the cache will be updated. 
+        be processed from scratch and the cache will be updated.
         Default is False.
 """
 class PTBXLDataset(BaseDataset):
@@ -52,7 +52,7 @@ class PTBXLDataset(BaseDataset):
 	
 	Attributes: 
 		root (str): Root directory of the raw data.
-		download (bool): True iff requested to download dataset. 
+		download (bool): True iff requested to download dataset.
 			Default to False.
 		dev (bool): True iff enable dev mode.
 		downsampled (bool): True iff use downsampled signal data.
@@ -107,8 +107,8 @@ class PTBXLDataset(BaseDataset):
 
 
 	"""
-	Download PTB-XL dataset from public google drive sources. 
-	It will contain both the original and downsampled versions, 
+	Download PTB-XL dataset from public google drive sources.
+	It will contain both the original and downsampled versions,
 	in /records500 and /records100 folder respectively.
 	"""
 	def _download(self, download) -> None:
@@ -130,7 +130,7 @@ class PTBXLDataset(BaseDataset):
 
 	Raises:
         FileNotFoundError: if any directory is not found.
-        ValueError: if a patient directory contains not .dat/.hea file 
+        ValueError: if a patient directory contains not .dat/.hea file
         	or if there"s a mismatch of .dat/.hea.
 	"""
 	def _validate(self) -> None:
@@ -165,7 +165,7 @@ class PTBXLDataset(BaseDataset):
 
 	"""
 	Process and return a dictionary of the requested PTB-XL data for each patient.
-	Each patient will have a corresponding object that contains 
+	Each patient will have a corresponding object that contains
 	load_from_path, patient_id, signal_file, label_file, and save_to_path.
 	"""
 	def _prepare_metadata(self) -> None:
@@ -193,10 +193,10 @@ class PTBXLDataset(BaseDataset):
 
 		with open(os.path.join(self.root, "ptbxl.csv"), "w") as file:
 			w = csv.DictWriter(file, fieldnames=[
-				"load_from_path", 
-				"patient_id", 
-				"signal_file", 
-				"label_file", 
+				"load_from_path",
+				"patient_id",
+				"signal_file",
+				"label_file",
 				"save_to_path"])
 			w.writeheader()
 			w.writerows(list(patients.values()))
