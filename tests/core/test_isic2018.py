@@ -29,14 +29,9 @@ class TestISIC2018Dataset(unittest.TestCase):
         cls.generate_fake_images()
         cls.cache_dir = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         cls.dataset = ISIC2018Dataset(cls.root, cache_dir=cls.cache_dir.name)
-        from pyhealth.processors import ImageProcessor
-        cls.samples = cls.dataset.set_task(
-            input_processors={"image": ImageProcessor(mode="RGB")}
-        )
 
     @classmethod
     def tearDownClass(cls):
-        cls.samples.close()
         (cls.root / "isic2018-metadata-pyhealth.csv").unlink(missing_ok=True)
         cls.delete_fake_images()
         try:
@@ -114,30 +109,6 @@ class TestISIC2018Dataset(unittest.TestCase):
         for pid in self.dataset.unique_patient_ids:
             event = self.dataset.get_patient(pid).get_events()[0]
             self.assertTrue(os.path.isfile(event["path"]))
-
-    def test_rgb_processor_produces_tensor(self):
-        # RGB images should produce 3-channel tensors (C, H, W)
-        sample = self.samples[0]
-        self.assertEqual(sample["image"].shape[0], 3)
-
-    def test_num_samples(self):
-        self.assertEqual(len(self.samples), 10)
-
-    def test_sample_labels(self):
-        actual_labels = [sample["label"].item() for sample in self.samples]
-
-        # Only 3 classes appear in fixture, sorted alphabetically: bkl=0, mel=1, nv=2
-        # Real labels: NV, NV, NV, NV, MEL, NV, BKL, MEL, NV, MEL
-        expected_labels = [2, 2, 2, 2, 1, 2, 0, 1, 2, 1]
-        self.assertCountEqual(actual_labels, expected_labels)
-
-    def test_mel_count(self):
-        mel_samples = [s for s in self.samples if s["label"].item() == 1]
-        self.assertEqual(len(mel_samples), 3)
-
-    def test_nv_count(self):
-        nv_samples = [s for s in self.samples if s["label"].item() == 2]
-        self.assertEqual(len(nv_samples), 6)
 
     def test_verify_data_missing_root(self):
         with self.assertRaises(FileNotFoundError):

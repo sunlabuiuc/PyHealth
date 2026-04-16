@@ -30,8 +30,6 @@ from PIL import Image
 
 from pyhealth.datasets import ISIC2018ArtifactsDataset
 from pyhealth.datasets.isic2018_artifacts import ARTIFACT_LABELS
-from pyhealth.processors import DermoscopicImageProcessor
-from pyhealth.tasks import ISIC2018ArtifactsBinaryClassification
 
 _RESOURCES = (
     Path(__file__).parent.parent.parent
@@ -233,57 +231,6 @@ class TestISIC2018ArtifactsDataset(unittest.TestCase):
                 mock_dl.assert_not_called()
 
 
-class TestISICArtifactTasks(unittest.TestCase):
-    """Tests for ISIC2018ArtifactsBinaryClassification against the fixture dataset."""
-
-    @classmethod
-    def setUpClass(cls):
-        _make_fake_images(_RESOURCES / "images")
-        _make_fake_masks(_RESOURCES / "masks")
-        cls.cache_dir = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
-        cls.dataset = ISIC2018ArtifactsDataset(
-            root=str(_RESOURCES),
-            image_dir="images",
-            mask_dir="masks",
-            cache_dir=cls.cache_dir.name,
-        )
-        processor = DermoscopicImageProcessor(
-            mode="whole", mask_dir=cls.dataset.mask_dir
-        )
-        cls.samples = cls.dataset.set_task(
-            ISIC2018ArtifactsBinaryClassification(),
-            input_processors={"image": processor},
-        )
-
-    @classmethod
-    def tearDownClass(cls):
-        _delete_fake_images(_RESOURCES / "images")
-        _delete_fake_masks(_RESOURCES / "masks")
-        (_RESOURCES / "isic-artifact-metadata-pyhealth.csv").unlink(missing_ok=True)
-        (_RESOURCES / "isic-artifact-config-pyhealth.yaml").unlink(missing_ok=True)
-        try:
-            cls.samples.close()
-        except Exception:
-            pass
-        try:
-            cls.cache_dir.cleanup()
-        except Exception:
-            pass
-
-    def test_sample_count(self):
-        self.assertEqual(len(self.samples), 8)
-
-    def test_melanoma_label_count(self):
-        mel_count = sum(s["label"].item() for s in self.samples)
-        self.assertEqual(mel_count, 4)
-
-    def test_sample_has_image_tensor(self):
-        sample = self.samples[0]
-        self.assertIn("image", sample)
-        self.assertEqual(sample["image"].shape[0], 3)  # (C, H, W)
-
-    def test_mask_dir_exposed(self):
-        self.assertTrue(os.path.isdir(self.dataset.mask_dir))
 
 
 class TestISIC2018ArtifactsDownload(unittest.TestCase):

@@ -24,7 +24,6 @@ requires-python = ">=3.12,<3.14"
 dependencies = [
   "torch~=2.7.1",
   "torchvision",
-  "opencv-python-headless",
   "transformers~=4.53.2",
   "peft",
   "accelerate",

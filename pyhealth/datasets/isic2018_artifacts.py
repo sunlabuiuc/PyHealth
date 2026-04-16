@@ -491,8 +491,10 @@ class ISIC2018ArtifactsDataset(BaseDataset):
         }
 
         config_path = os.path.join(root, "isic-artifact-config-pyhealth.yaml")
-        with open(config_path, "w") as fh:
+        tmp_path = config_path + f".tmp.{os.getpid()}"
+        with open(tmp_path, "w") as fh:
             yaml.dump(config, fh, default_flow_style=False, sort_keys=False)
+        os.replace(tmp_path, config_path)  # atomic on Linux — safe for parallel workers
 
         logger.info(
             "ISIC2018ArtifactsDataset: indexed %d images → %s",

@@ -23,14 +23,31 @@ Modes
     High-pass–filtered version of the respective region.
 ``low_whole``  / ``low_lesion``  / ``low_background``
     Low-pass–filtered version of the respective region.
+``blur_bg``
+    Lesion region kept sharp; background blurred with a Gaussian low-pass
+    filter.  Composite of the original lesion pixels and the blurred
+    background pixels.
+``gray_whole``
+    Full image converted to grayscale and broadcast back to 3 channels.
+    Removes all colour information while preserving spatial structure.
+``whole_norm``
+    Full image with per-channel min-max normalisation applied (each channel
+    stretched to [0, 255]).
+
+Filter backend
+--------------
+Uses ``scipy.ndimage.gaussian_filter`` (truncate=4.0, σ=1 → effective ~9×9
+kernel).  High-pass output is raw float residuals cast to uint8 with no
+normalisation, faithfully replicating the reference implementation
+(``dermoscopic_artifacts/datasets.py``).
 """
 
 import os
 from pathlib import Path
 from typing import Any, Union
 
-import cv2
 import numpy as np
+import scipy.ndimage
 import torchvision.transforms as transforms
 from PIL import Image
 
@@ -50,6 +67,9 @@ VALID_MODES = (
     "low_whole",
     "low_lesion",
     "low_background",
+    "blur_bg",
+    "gray_whole",
+    "whole_norm",
 )
 
 _IMAGENET_MEAN = [0.485, 0.456, 0.406]
@@ -59,27 +79,35 @@ _IMAGENET_STD = [0.229, 0.224, 0.225]
 def _high_pass_filter(
     image: np.ndarray,
     sigma: float = 1,
-    filter_size: tuple = (
-        0,
-        0)) -> np.ndarray:
-    """Return a grayscale high-pass–filtered image (3-channel output)."""
-    gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY).astype(np.float32)
-    blurred = cv2.GaussianBlur(gray, filter_size, sigma)
-    hp = gray - blurred
-    hp = cv2.normalize(hp, None, 0, 255, cv2.NORM_MINMAX)
-    hp_uint8 = hp.astype(np.uint8)
-    return cv2.cvtColor(hp_uint8, cv2.COLOR_GRAY2RGB)
+    grayscale: bool = True,
+) -> np.ndarray:
+    """Return a high-pass–filtered image (3-channel uint8 output).
+
+    Args:
+        sigma: Gaussian sigma for the low-pass kernel.
+        grayscale: If ``True`` (default), convert to BT.601 grayscale first,
+            apply HPF on the single channel, then stack to 3 channels —
+            matches ``high_pass_filter(image, grayscale=True)`` in the
+            reference.  If ``False``, apply HPF independently on each RGB
+            channel.
+    """
+    if grayscale:
+        image_gray = np.dot(image[..., :3], [0.2989, 0.587, 0.114])
+        low_frequencies = scipy.ndimage.gaussian_filter(image_gray, sigma=sigma)
+        high_frequencies = image_gray - low_frequencies
+        out = np.stack([high_frequencies] * 3, axis=-1)
+    else:
+        out = np.empty(image.shape[:2] + (3,), dtype=np.float32)
+        for c in range(3):
+            ch = image[:, :, c].astype(np.float64)
+            low_frequencies = scipy.ndimage.gaussian_filter(ch, sigma=sigma)
+            out[:, :, c] = ch - low_frequencies
+    return out.astype(np.uint8)
 
 
-def _low_pass_filter(
-    image: np.ndarray,
-    sigma: float = 1,
-    filter_size: tuple = (
-        0,
-        0)) -> np.ndarray:
-    """Return a Gaussian-blurred (low-pass) image."""
-    blurred = cv2.GaussianBlur(image, filter_size, sigma)
-    return blurred.astype(np.uint8)
+def _low_pass_filter(image: np.ndarray, sigma: float = 1) -> np.ndarray:
+    """Return a Gaussian-blurred (low-pass) image (uint8 output)."""
+    return scipy.ndimage.gaussian_filter(image, sigma=sigma).astype(np.uint8)
 
 
 class DermoscopicImageProcessor(FeatureProcessor):
@@ -89,23 +117,12 @@ class DermoscopicImageProcessor(FeatureProcessor):
     ``dermoscopic_artifacts`` experiment codebase so that PyHealth training
     scripts reproduce the same pixel-level transformations.
 
-    .. note::
-        The reference implementation (``dermoscopic_artifacts/datasets.py``)
-        uses ``scipy.ndimage.gaussian_filter`` for ``high_*`` and ``low_*``
-        modes, which defaults to ``truncate=4.0`` (effective kernel 9×9 at
-        σ=1).  This implementation uses ``cv2.GaussianBlur`` instead; pass
-        ``filter_size=(9, 9)`` to match the scipy kernel size exactly.
-
     Args:
         mask_dir: Directory containing ``*_segmentation.png`` masks.
             Required for all modes except ``"whole"``.
-        mode: One of the 12 valid mode strings (see module docstring).
+        mode: One of the valid mode strings (see module docstring).
             Defaults to ``"whole"``.
         image_size: Square resize target.  Defaults to 224.
-        filter_size: Kernel size ``(width, height)`` for the Gaussian filter
-            used in ``high_*`` and ``low_*`` modes.  Both values must be odd
-            positive integers.  Defaults to ``(0, 0)``, letting OpenCV
-            auto-compute the kernel size from sigma.
         sigma: Standard deviation for the Gaussian filter used in ``high_*``
             and ``low_*`` modes.  Defaults to ``1.0``.
 
@@ -118,8 +135,8 @@ class DermoscopicImageProcessor(FeatureProcessor):
         mask_dir: str = "",
         mode: str = "whole",
         image_size: int = 224,
-        filter_size: tuple = (0, 0),
         sigma: float = 1.0,
+        high_grayscale: bool = True,
     ) -> None:
         if mode not in VALID_MODES:
             raise ValueError(
@@ -128,8 +145,8 @@ class DermoscopicImageProcessor(FeatureProcessor):
         self.mask_dir = mask_dir
         self.mode = mode
         self.image_size = image_size
-        self.filter_size = filter_size
         self.sigma = sigma
+        self.high_grayscale = high_grayscale
 
         self.transform = transforms.Compose([
             transforms.Resize((image_size, image_size)),
@@ -143,23 +160,24 @@ class DermoscopicImageProcessor(FeatureProcessor):
 
     def _load_image_and_mask(self, image_path: str):
         """Return ``(image_rgb, mask_binary)`` as uint8 numpy arrays."""
-        image = cv2.imread(image_path, cv2.IMREAD_COLOR)
-        if image is None:
-            raise FileNotFoundError(f"Image not found: {image_path}")
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        try:
+            image = np.array(Image.open(image_path).convert("RGB"))
+        except Exception as exc:
+            raise FileNotFoundError(f"Image not found: {image_path}") from exc
 
         img_name = os.path.basename(image_path)
         stem = Path(img_name).stem
         mask_path = os.path.join(self.mask_dir, f"{stem}_segmentation.png")
-        mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
-        if mask is None:
-            raise FileNotFoundError(f"Mask not found: {mask_path}")
+        try:
+            mask = np.array(Image.open(mask_path).convert("L"))
+        except Exception as exc:
+            raise FileNotFoundError(f"Mask not found: {mask_path}") from exc
 
         if image.shape[:2] != mask.shape:
-            mask = cv2.resize(
-                mask,
-                (image.shape[1], image.shape[0]),
-                interpolation=cv2.INTER_NEAREST,
+            mask = np.array(
+                Image.fromarray(mask).resize(
+                    (image.shape[1], image.shape[0]), Image.NEAREST
+                )
             )
         mask = (mask > 0).astype(np.uint8)
         return image, mask
@@ -185,8 +203,7 @@ class DermoscopicImageProcessor(FeatureProcessor):
 
             if self.mode == "bbox":
                 out = image.copy()
-                cv2.rectangle(
-                    out, (x_min, y_min), (x_max, y_max), (0, 0, 0), thickness=-1)
+                out[y_min:y_max + 1, x_min:x_max + 1] = 0
                 return out
 
             expand_ratio = 0.7 if self.mode == "bbox70" else 0.9
@@ -202,8 +219,29 @@ class DermoscopicImageProcessor(FeatureProcessor):
             x_min = max(0, cx - new_w // 2)
             x_max = min(img_w, cx + new_w // 2)
             out = image.copy()
-            cv2.rectangle(out, (x_min, y_min), (x_max, y_max),
-                          (0, 0, 0), thickness=-1)
+            out[y_min:y_max + 1, x_min:x_max + 1] = 0
+            return out
+
+        # Blur background, keep lesion sharp — alpha blend across the boundary
+        if self.mode == "blur_bg":
+            blurred = _low_pass_filter(image.astype(np.uint8), sigma=self.sigma)
+            alpha = mask[:, :, np.newaxis].astype(np.float32)  # 0.0 or 1.0
+            sharp = image.astype(np.float32)
+            soft = blurred.astype(np.float32)
+            return (alpha * sharp + (1.0 - alpha) * soft).astype(np.uint8)
+
+        # Grayscale whole image — broadcast single channel back to 3
+        if self.mode == "gray_whole":
+            gray = np.dot(image[..., :3], [0.2989, 0.5870, 0.1140]).astype(np.uint8)
+            return np.stack([gray] * 3, axis=-1)
+
+        # Per-channel min-max normalisation of whole image
+        if self.mode == "whole_norm":
+            out = np.empty_like(image)
+            for c in range(3):
+                ch = image[:, :, c].astype(np.float32)
+                mn, mx = ch.min(), ch.max()
+                out[:, :, c] = ((ch - mn) / (mx - mn) * 255).astype(np.uint8) if mx > mn else ch.astype(np.uint8)
             return out
 
         # Frequency-filter modes
@@ -216,15 +254,12 @@ class DermoscopicImageProcessor(FeatureProcessor):
 
         if self.mode.startswith("high_"):
             return _high_pass_filter(
-                base.astype(
-                    np.uint8),
+                base,
                 sigma=self.sigma,
-                filter_size=self.filter_size)
-        return _low_pass_filter(
-            base.astype(
-                np.uint8),
-            sigma=self.sigma,
-            filter_size=self.filter_size)
+                grayscale=self.high_grayscale,
+            )
+        # low_* modes
+        return _low_pass_filter(base, sigma=self.sigma)
 
     # ------------------------------------------------------------------
     # FeatureProcessor interface
@@ -243,10 +278,10 @@ class DermoscopicImageProcessor(FeatureProcessor):
         image_path = str(value)
 
         if self.mode == "whole":
-            image = cv2.imread(image_path, cv2.IMREAD_COLOR)
-            if image is None:
-                raise FileNotFoundError(f"Image not found: {image_path}")
-            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            try:
+                image = np.array(Image.open(image_path).convert("RGB"))
+            except Exception as exc:
+                raise FileNotFoundError(f"Image not found: {image_path}") from exc
         else:
             image, mask = self._load_image_and_mask(image_path)
             image = self._apply_mode(image, mask)

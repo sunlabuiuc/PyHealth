@@ -1,75 +1,75 @@
 """
-ISIC 2018 — Binary melanoma classification under artifact modes.
+ISIC 2018 — Binary Melanoma Classification Under Artifact Modes
+================================================================
 
 Replicates image-mode experiments from:
-    "A Study of Artifacts on Melanoma Classification under Diffusion-Based Perturbations"
+  "A Study of Artifacts on Melanoma Classification under Diffusion-Based
+  Perturbations"
 
-Supports all 12 preprocessing modes (whole, lesion, background, bbox, bbox70,
-bbox90, high_whole, low_whole, high_lesion, low_lesion, high_background,
-low_background) via ``--mode``.
+Supports 14 preprocessing modes via ``--mode``:
+  whole, lesion, background, bbox, bbox70, bbox90,
+  high_whole, high_lesion, high_background,
+  low_whole, low_lesion, low_background,
+  blur_bg, gray_whole
 
-5-fold stratified cross-validation splits are generated from sample labels.
+Dataset
+-------
+Images / masks (~9 GB):  https://challenge.isic-archive.com/data/#2018
+Artifact annotations:    https://github.com/alceubissoto/debiasing-skin
 
-Expected directory structure under ``--root``::
+Expected layout under ``--root``::
 
     <root>/
-        <annotations_csv>                       ← annotation file (--annotations_csv)
-        <image_dir>/                            ← images          (--image_dir)
-        <mask_dir>/                             ← masks           (--mask_dir)
+        isic_bias.csv                           (--annotations_csv)
+        ISIC2018_Task1-2_Training_Input/        (--image_dir)
+        ISIC2018_Task1_Training_GroundTruth/    (--mask_dir)
 
-Annotation file:
-    https://github.com/alceubissoto/debiasing-skin/tree/main/artefacts-annotation
+Pass ``--download`` to fetch automatically.
 
-Images / masks (~9 GB total):
-    https://challenge.isic-archive.com/data/#2018
-    (or pass ``--download`` to fetch automatically)
+Usage
+-----
+    # Whole-image mode (default)
+    python isic2018_artifacts_classification_resnet50.py --root /path/to/data
 
-Usage::
+    # Specific mode
+    python isic2018_artifacts_classification_resnet50.py --root /path/to/data --mode lesion
 
-    python isic2018_artifacts_classification.py --root /path/to/isic2018_data
-    python isic2018_artifacts_classification.py --root /path/to/isic2018_data --mode lesion
+    # Sigma ablation
+    python isic2018_artifacts_classification_resnet50.py --root /path/to/data --mode low_whole --sigma 2.0
 
-Results
--------
-Parameters: ResNet-50, ImageNet pretrained, 10 epochs, batch_size=32, lr=1e-4,
-5-fold stratified CV, seed=42. Hardware: NVIDIA H200.
+Experimental Setup
+------------------
+All runs use ResNet-50 with ImageNet pretrained weights.
 
-5-fold stratified CV results:
+Common parameters:
 
-    Mode              Mean AUROC   Mean Accuracy
-    ──────────────────────────────────────────────
-    whole                  0.796         0.822
-    lesion                 0.767         0.805
-    background             0.729         0.793
-    bbox                   0.736         0.790
-    bbox70                 0.641         0.765
-    bbox90                 0.642         0.771
-    high_whole             0.591         0.750
-    high_lesion            0.654         0.753
-    high_background        0.658         0.767
-    low_whole              0.809         0.829
-    low_lesion             0.779         0.822
-    low_background         0.733         0.801
+    Model        : ResNet-50, ImageNet pretrained (weights="DEFAULT")
+    Optimizer    : Adam, lr=1e-4, weight_decay=0.0
+    Epochs       : 10
+    Batch size   : 32
+    CV           : 5-fold KFold (shuffle=True, random_state=42) — matches reference
+    Sigma        : 1.0  [GaussianBlur for high_* / low_* modes]
+    Filter backend: scipy.ndimage.gaussian_filter (reference-faithful)
 
-Note: high_* and low_* modes used cv2.GaussianBlur (sigma=1) instead of the
-original scipy.ndimage.gaussian_filter (sigma=1).
+Two validation strategies are supported via ``--val_strategy``:
 
-Ablation — low_whole with different sigma (cv2.GaussianBlur, auto ksize):
+    none (default)  Train on full train_val split, evaluate at last epoch.
+                    Matches reference methodology. Use for replication.
+    best            Hold out 10% val per fold, load best checkpoint by val
+                    AUROC. Use for ablation / model selection.
 
-    Sigma    Mean AUROC   Mean Accuracy
-    ─────────────────────────────────────
-    0.5           0.800         0.835
-    1.0           0.809         0.829   ← default
-    2.0           0.795         0.821
-    4.0           0.786         0.813
+All results are 5-fold CV on the ISIC 2018 *training* partition only
+(no independent test set); metrics may overestimate generalization.
+
 """
 
 import argparse
 import logging
 import os
+import sys
 
 import numpy as np
-from sklearn.model_selection import StratifiedKFold
+from sklearn.model_selection import KFold, StratifiedKFold
 
 from pyhealth.datasets import ISIC2018ArtifactsDataset, get_dataloader
 from pyhealth.models import TorchvisionModel
@@ -123,14 +123,49 @@ parser.add_argument("--lr", type=float, default=1e-4)
 parser.add_argument("--n_splits", type=int, default=5)
 parser.add_argument("--seed", type=int, default=42)
 parser.add_argument(
+    "--stratified",
+    action="store_true",
+    help="Use StratifiedKFold instead of KFold to preserve class balance per fold.")
+parser.add_argument(
     "--sigma",
     type=float,
     default=1.0,
     help="Gaussian sigma for high_* / low_* filter modes (default: 1.0).")
 parser.add_argument(
+    "--high_grayscale",
+    action=argparse.BooleanOptionalAction,
+    default=True,
+    help="If True (default), apply high-pass filter in grayscale then stack to 3 channels "
+         "(matches reference grayscale=True). "
+         "Use --no-high-grayscale to apply HPF per RGB channel instead.")
+parser.add_argument(
+    "--val_strategy",
+    type=str,
+    default="none",
+    choices=["none", "best"],
+    help="Validation strategy. "
+         "'none' (default): train on full train_val split, no val holdout, "
+         "evaluate last epoch — matches the reference implementation. "
+         "'best': hold out 10%% of train_val as validation and load the "
+         "best-scoring checkpoint at the end (ablation).")
+parser.add_argument(
+    "--resume",
+    action="store_true",
+    help="Skip folds whose checkpoint already exists in the output directory.")
+parser.add_argument(
+    "--cache_only",
+    action="store_true",
+    help="Build the litdata sample cache and exit without training. "
+         "Use this to pre-warm caches in parallel before training runs.")
+parser.add_argument(
     "--download",
     action="store_true",
     help="Auto-download data.")
+parser.add_argument(
+    "--num_workers",
+    type=int,
+    default=8,
+    help="Number of worker processes for building the litdata cache (default: 8).")
 args = parser.parse_args()
 
 # Route PyHealth trainer logs to stdout so per-epoch metrics are visible.
@@ -151,6 +186,7 @@ if __name__ == "__main__":
         image_dir=args.image_dir,
         mask_dir=args.mask_dir,
         download=args.download,
+        num_workers=args.num_workers,
     )
     dataset.stats()
 
@@ -161,9 +197,15 @@ if __name__ == "__main__":
         mode=args.mode,
         sigma=args.sigma,
         mask_dir=dataset.mask_dir,
+        high_grayscale=args.high_grayscale,
     )
     task = ISIC2018ArtifactsBinaryClassification()
     samples = dataset.set_task(task, input_processors={"image": processor})
+
+    if args.cache_only:
+        print(f"Cache built for mode={args.mode} sigma={args.sigma}. Exiting (--cache_only).")
+        samples.close()
+        sys.exit(0)
 
     # ------------------------------------------------------------------
     # 3. Generate stratified K-fold splits from sample labels
@@ -171,38 +213,55 @@ if __name__ == "__main__":
     labels = np.array([samples[i]["label"] for i in range(len(samples))])
     indices = np.arange(len(labels))
 
-    skf = StratifiedKFold(
+    splitter_cls = StratifiedKFold if args.stratified else KFold
+    skf = splitter_cls(
         n_splits=args.n_splits,
         shuffle=True,
         random_state=args.seed)
 
+    color_tag = "" if args.high_grayscale else "_color"
+    strat_tag = "_stratified" if args.stratified else ""
     output_dir = os.path.join(
-        args.root, "checkpoints", f"{
-            args.mode}_sigma{
-            args.sigma}")
+        args.root, "checkpoints",
+        f"{args.mode}_sigma{args.sigma}{color_tag}{strat_tag}_{args.val_strategy}")
     os.makedirs(output_dir, exist_ok=True)
 
+    split_input = (indices, labels) if args.stratified else (indices,)
     for fold, (train_val_idx, test_idx) in enumerate(
-            skf.split(indices, labels), start=1):
+            skf.split(*split_input), start=1):
+        ckpt_path = os.path.join(output_dir, f"fold{fold}.pt")
+        if args.resume and os.path.exists(ckpt_path):
+            print(f"\nSkipping fold {fold}/{args.n_splits} — checkpoint exists: {ckpt_path}")
+            continue
+
         print(f"\n{'=' * 60}")
-        print(f"  Mode: {args.mode}  |  Split {fold}/{args.n_splits}")
+        print(f"  Mode: {args.mode}  |  Split {fold}/{args.n_splits}"
+              f"  |  val_strategy={args.val_strategy}")
         print(f"{'=' * 60}")
 
-        # Use 10% of train_val as validation
-        val_size = max(1, int(0.1 * len(train_val_idx)))
-        rng = np.random.default_rng(args.seed + fold)
-        rng.shuffle(train_val_idx)
-        val_idx = train_val_idx[:val_size]
-        train_idx = train_val_idx[val_size:]
+        if args.val_strategy == "best":
+            # Hold out 10% of train_val for model selection
+            val_size = max(1, int(0.1 * len(train_val_idx)))
+            rng = np.random.default_rng(args.seed + fold)
+            rng.shuffle(train_val_idx)
+            val_idx = train_val_idx[:val_size]
+            train_idx = train_val_idx[val_size:]
+            val_loader = get_dataloader(
+                samples.subset(val_idx), batch_size=args.batch_size, shuffle=False,
+                num_workers=args.num_workers,
+            )
+        else:
+            # Reference-faithful: train on full train_val, no validation
+            train_idx = train_val_idx
+            val_loader = None
 
         train_loader = get_dataloader(
-            samples.subset(train_idx), batch_size=args.batch_size, shuffle=True
-        )
-        val_loader = get_dataloader(
-            samples.subset(val_idx), batch_size=args.batch_size, shuffle=False
+            samples.subset(train_idx), batch_size=args.batch_size, shuffle=True,
+            num_workers=args.num_workers,
         )
         test_loader = get_dataloader(
-            samples.subset(test_idx), batch_size=args.batch_size, shuffle=False
+            samples.subset(test_idx), batch_size=args.batch_size, shuffle=False,
+            num_workers=args.num_workers,
         )
 
         # --------------------------------------------------------------
@@ -226,6 +285,7 @@ if __name__ == "__main__":
             val_dataloader=val_loader,
             epochs=args.epochs,
             optimizer_params={"lr": args.lr},
+            load_best_model_at_last=(args.val_strategy == "best"),
         )
 
         # --------------------------------------------------------------
@@ -233,5 +293,11 @@ if __name__ == "__main__":
         # --------------------------------------------------------------
         scores = trainer.evaluate(test_loader)
         print(f"Mode: {args.mode}  Split {fold} test results: {scores}")
+
+        # --------------------------------------------------------------
+        # 7. Save checkpoint
+        # --------------------------------------------------------------
+        trainer.save_ckpt(ckpt_path)
+        print(f"Checkpoint saved → {ckpt_path}")
 
     samples.close()
