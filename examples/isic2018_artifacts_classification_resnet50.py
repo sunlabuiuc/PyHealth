@@ -47,7 +47,7 @@ Common parameters:
     Optimizer    : Adam, lr=1e-4, weight_decay=0.0
     Epochs       : 10
     Batch size   : 32
-    CV           : 5-fold KFold (shuffle=True, random_state=42) — matches reference
+    CV           : 5-fold KFold (shuffle=True, random_state=42)
     Sigma        : 1.0  [GaussianBlur for high_* / low_* modes]
     Filter backend: scipy.ndimage.gaussian_filter (reference-faithful)
 
@@ -73,7 +73,7 @@ AUROC per fold (canonical mode order):
   bbox             0.764  0.655  0.673  0.720  0.661  0.695  0.046
   bbox70           0.707  0.624  0.611  0.620  0.634  0.639  0.039
   bbox90           0.653  0.599  0.563  0.632  0.612  0.612  0.034
-  high_whole       0.650  0.670  0.680  0.602  0.639  0.648  0.027
+  high_whole       0.650  0.670  0.680  0.602  0.639  0.648  0.031
   high_lesion      0.645  0.714  0.652  0.682  0.741  0.687  0.041
   high_background  0.723  0.681  0.655  0.684  0.685  0.686  0.024
   low_whole        0.710  0.779  0.761  0.726  0.782  0.751  0.032
@@ -94,12 +94,12 @@ AUROC per fold across Gaussian blur sigma values:
 
   Sigma      F1     F2     F3     F4     F5    Mean   +-Std
   -----------------------------------------------------------
-    0.5   0.761  0.768  0.723  0.730  0.738  0.744  0.018
-    1.0   0.710  0.779  0.761  0.726  0.782  0.751  0.029
-    2.0   0.753  0.705  0.720  0.765  0.775  0.744  0.027
-    4.0   0.690  0.736  0.730  0.753  0.746  0.731  0.022
-    8.0   0.742  0.703  0.652  0.696  0.771  0.713  0.041
-   16.0   0.783  0.689  0.716  0.704  0.706  0.720  0.033
+    0.5   0.761  0.768  0.723  0.730  0.738  0.744  0.020
+    1.0   0.710  0.779  0.761  0.726  0.782  0.751  0.032
+    2.0   0.753  0.705  0.720  0.765  0.775  0.744  0.030
+    4.0   0.690  0.736  0.730  0.753  0.746  0.731  0.025
+    8.0   0.742  0.703  0.652  0.696  0.771  0.713  0.046
+   16.0   0.783  0.689  0.716  0.704  0.706  0.720  0.037
 
 Key observations:
 - Performance peaks at sigma=1.0 (0.751) and degrades monotonically at higher
@@ -111,29 +111,70 @@ Key observations:
   performance, confirming low-frequency features carry the diagnostic signal.
   Note: resizing to 224×224 already acts as an implicit low-pass filter, which
   may explain why an additional Gaussian at sigma=1.0 has negligible effect.
+- sigma=1.0 vs sigma=16.0 (low_whole): paired t-test diff=+0.032,
+  t=1.095, p=0.335 — not significant (df=4); the trend of degradation at
+  high sigma is consistent but underpowered with 5 folds.
 
 Mode Ablation Results
 ---------------------
-gray_whole, blur_bg, whole_norm: intended val_strategy=none (pending rerun —
-  current checkpoints were collected with val_strategy=best and are not
-  directly comparable to Phase 1; results below are provisional).
-whole_best: val_strategy=best (intentional ablation of early stopping).
+gray_whole, blur_bg, whole_norm, whole_stratified: val_strategy=none.
+whole_best, whole_best_stratified: val_strategy=best.
+blur_bg_best_stratified: val_strategy=best, stratified (pending).
 
 AUROC per fold:
 
-  Mode            F1     F2     F3     F4     F5    Mean   +-Std   val_strategy
-  ------------------------------------------------------------------------------
-  gray_whole   0.726  0.779  0.756  0.755  0.811  0.765  0.028   best (provisional)
-  blur_bg      0.822  0.738  0.753  0.762  0.785  0.772  0.029   best (provisional)
-  whole_norm   0.802  0.757  0.774  0.780  0.863  0.795  0.037   best (provisional)
-  whole_best   0.787  0.791  0.795  0.744  0.846  0.792  0.033   best
+  Mode                    F1     F2     F3     F4     F5    Mean   +-Std   val_strategy
+  --------------------------------------------------------------------------------------
+  gray_whole           0.777  0.749  0.691  0.763  0.772  0.750  0.035   none
+  blur_bg              0.767  0.801  0.747  0.752  0.756  0.765  0.022   none
+  whole_norm           0.734  0.738  0.718  0.730  0.775  0.739  0.022   none
+  whole_stratified     0.772  0.799  0.745  0.737  0.778  0.766  0.025   none
+  whole_best           0.787  0.791  0.795  0.744  0.846  0.792  0.036   best
+  whole_best_stratified 0.824 0.814  0.738  0.710  0.807  0.779  0.051   best
 
 Key observations:
-- whole_best (0.792) vs whole_none (0.748): paired t-test diff=+0.044,
-  t=2.884, p=0.045 (*) — significant; early stopping on val AUROC meaningfully
-  improves generalisation over training to last epoch.
-- gray_whole / blur_bg / whole_norm results are provisional (val_strategy=best);
-  rerun with val_strategy=none required for fair Phase 1 comparison.
+- whole_best (0.792) vs whole/none (0.748): diff=+0.044, t=2.884, p=0.045 (*) —
+  early stopping meaningfully improves generalisation.
+- whole_best_stratified (0.779) vs whole/none (0.748): diff=+0.031, t=1.501,
+  p=0.208 (n.s., df=4) — combining best+stratified is not significantly better
+  than none alone; high variance across folds.
+- whole_best_stratified (0.779) vs whole_best (0.792): diff=-0.013, t=-0.750,
+  p=0.495 (n.s., df=4) — stratified folding does not add benefit over best alone.
+- whole_stratified (0.766) vs whole/none (0.748): diff=+0.018, t=1.931,
+  p=0.126 (n.s., df=4) — class balance is not a confound.
+- gray_whole (0.750) vs whole/none (0.748): diff=+0.002, t=0.224, p=0.834 (n.s., df=4) —
+  colour loss does not degrade training performance; the model learns effectively
+  from grayscale images alone.
+- blur_bg (0.765) vs whole/none (0.748): diff=+0.016, t=1.634, p=0.178 (n.s., df=4) —
+  background blurring does not significantly improve performance.
+- whole_norm (0.739) vs whole/none (0.748): diff=-0.009, t=-1.754, p=0.154 (n.s., df=4) —
+  per-image normalisation does not significantly affect performance.
+
+Per-Artifact AUROC Analysis (whole/none baseline, 5-fold CV on training set)
+----------------------------------------------------------------------------
+AUROC computed on held-out test folds of the ISIC 2018 training partition,
+separately on images with vs. without each artifact type.
+Paired t-test (df varies per artifact; folds with single-class subsets excluded).
+
+  Artifact       With Artifact  Without Artifact   Diff     p
+  ─────────────────────────────────────────────────────────────
+  dark_corner        0.7543          0.7460        +0.008   0.807
+  hair               0.7363          0.7567        -0.020   0.373
+  gel_border         0.7658          0.7414        +0.024   0.295
+  gel_bubble         0.7569          0.7461        +0.011   0.675
+  ruler              0.7412          0.7593        -0.018   0.602
+  ink                0.7256          0.7518        -0.026   0.518
+  patches            0.9762          0.7370        +0.239   0.048 (*)
+
+Key observations:
+- patches is a strong outlier: the model achieves near-perfect AUROC (0.976) on
+  images containing patches, vs 0.737 on images without (diff=+0.239, p=0.048).
+  This suggests the model exploits patch presence as a diagnostic shortcut rather
+  than learning true lesion features. Most folds have single-class patch subsets
+  (AUROC undefined), so the significant result is based on limited valid pairs.
+- All other artifacts show negligible and non-significant effects (|diff| <= 0.026,
+  p >= 0.295), indicating the model is not strongly biased by common dermoscopic
+  artifacts such as hair, ruler marks, or gel borders.
 
 """
 
