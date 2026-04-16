@@ -22,7 +22,7 @@ import logging
 import os
 from typing import Optional
 
-from pyhealth.datasets import BaseDataset
+from pyhealth.datasets.base_dataset import BaseDataset
 
 logger = logging.getLogger(__name__)
 
