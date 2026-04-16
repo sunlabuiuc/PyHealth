@@ -177,6 +177,7 @@ API Reference
     models/pyhealth.models.GNN
     models/pyhealth.models.Transformer
     models/pyhealth.models.TransformersModel
+    models/pyhealth.models.RetinaUNet
     models/pyhealth.models.RETAIN
     models/pyhealth.models.GAMENet
     models/pyhealth.models.GraphCare
