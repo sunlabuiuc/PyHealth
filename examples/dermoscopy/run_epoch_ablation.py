@@ -14,7 +14,7 @@ Paper: "A Study of Artifacts on Melanoma Classification under Diffusion-Based Pe
 import argparse
 import os
 import torch
-import matplotlib.pyplot as plt
+import logging
 from tqdm import tqdm
 
 from pyhealth.datasets import split_by_sample, get_dataloader
@@ -45,6 +45,8 @@ def main():
 
     run_details = f"{args.model}_{args.mode}_{dataset_target}"
 
+    # Strip PyHealth's redundant default console handlers so only custom logger is used for the session logs
+    logging.getLogger("pyhealth").handlers.clear()
     setup_dynamic_logging(args.log_dir, "ablation_test", run_details)
 
     processor = DermoscopyImageProcessor(mode=args.mode)

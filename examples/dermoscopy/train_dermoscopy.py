@@ -240,6 +240,8 @@ if __name__ == "__main__":
     base_out_dir = str(base_out_dir)
 
     # START DYNAMIC LOGGING
+    # Strip PyHealth's redundant default console handlers so only custom logger is used for the session logs
+    logging.getLogger("pyhealth").handlers.clear()
     setup_dynamic_logging(args.log_dir, "train", run_details)
 
     print(f"[*] Initializing Dataset from {args.data_dir}...")

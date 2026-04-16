@@ -16,6 +16,7 @@ import argparse
 import os
 import torch
 import numpy as np
+import logging
 from sklearn.linear_model import SGDClassifier
 from tqdm import tqdm
 
@@ -82,6 +83,8 @@ def main():
         print("[!] WARNING: No artifact provided. TCAV will compare the eval dataset against itself as a baseline sanity check.")
 
     # Start Dynamic Logging
+    # Strip PyHealth's redundant default console handlers so only custom logger is used for the session logs
+    logging.getLogger("pyhealth").handlers.clear()
     setup_dynamic_logging(args.log_dir, "tcav", run_details)
 
     processor = DermoscopyImageProcessor(mode="whole")

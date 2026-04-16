@@ -13,6 +13,7 @@ import argparse
 import os
 import torch
 import numpy as np
+import logging
 from sklearn.metrics import roc_auc_score, accuracy_score, precision_score, recall_score, average_precision_score, f1_score
 
 from pyhealth.datasets import get_dataloader
@@ -45,6 +46,8 @@ def main():
     run_details = f"{args.eval_dataset}_{args.artifact}_{args.model}_{args.mode}"
 
     # START DYNAMIC LOGGING
+    # Strip PyHealth's redundant default console handlers so only custom logger is used for the session logs
+    logging.getLogger("pyhealth").handlers.clear()
     setup_dynamic_logging(args.log_dir, "eval_artifacts", run_details)
 
     dataset_target = f"{args.eval_dataset}_with_{args.artifact}"
