@@ -22,11 +22,11 @@ import urllib.request
 import requests
 import zipfile
 import random
+import csv
 from pathlib import Path
 from typing import Optional
-from . import BaseDataset
 from pyhealth.datasets.utils import hash_str, MODULE_CACHE_PATH
-import csv
+from . import BaseDataset
 
 logger = logging.getLogger(__name__)
 
@@ -143,8 +143,9 @@ class PTBXLDataset(BaseDataset):
 					e = f"Unexpected file format {suffix} in the directory"
 					logger.error(e)
 					raise ValueError(e)
-		if len(dat - hea) != 0:
-			e = f".dat and .hea files mismatch for patient id {dat - hea}."
+
+		if len(dat ^ hea) != 0:
+			e = f".dat and .hea files mismatch for patient id {dat ^ hea}."
 			logger.error(e)
 			raise ValueError(e)
 
