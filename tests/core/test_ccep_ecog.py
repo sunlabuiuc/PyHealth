@@ -6,6 +6,7 @@ from pathlib import Path
 import pandas as pd
 
 from pyhealth.datasets import CCEPECoGDataset
+from pyhealth.tasks.localize_soz.py import LocalizeSOZ, DatasetCreator, StimulationDataProcessor
 
 
 class TestCCEPECoGDataset(unittest.TestCase):
@@ -177,5 +178,50 @@ class TestCCEPECoGDataset(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "contains no 'events.tsv' files"):
                 CCEPECoGDataset(root=temp_dir)
 
+class _DummyPatient:
+	def __init__(self, patient_id: str, events: List[_DummyEvent]):
+		self.patient_id = patient_id
+		self._events = events
+
+	def get_events(self, event_type=None) -> List[_DummyEvent]:
+		# Treat all dummy events as belonging to the train split so each event
+		# is processed exactly once (eval returns empty).
+		if event_type == "eval":
+			return []
+		return self._events
+
+class TestLocalizeSOZ(unittest.TestCase):
+    
+    def test_default_task(self):
+        self.assertIsInstance(self.dataset.default_task, LocalizeSOZ)
+
+    def test_call_returns_samples_length(self):
+        task = LocalizeSOZ()
+        
+
+        self.temp_dir = tempfile.mkdtemp()
+        root = Path(self.temp_dir)
+        dataset = CCEPECoGDataset(root=self.temp_dir, dev=True)
+        
+
+        
+        self.assertEqual(len(samples[0]), 15)
+        self.assertEqual(samples[0]["patient_id"], whatever the entered pid was)
+        self.assertIn("header_file",samples[0])
+        self.assertIn("events_file",samples[0])
+        self.assertIn("channels_file",samples[0])
+        self.assertIn("electrodes_file",samples[0])
+        self.assertIn("mean_y",samples[0])
+        self.assertIn("mean_X_stim",samples[0])
+        self.assertIn("mean_X_recording",samples[0])
+        self.assertIn("mean_electrode_lobes",samples[0])
+        self.assertIn("mean_electrode_coords",samples[0])
+        self.assertIn("std_y",samples[0])
+        self.assertIn("std_X_stim",samples[0])
+        self.assertIn("std_X_recording",samples[0])
+        self.assertIn("std_electrode_lobes",samples[0])
+        self.assertIn("std_electrode_coords",samples[0])
+        
+        
 if __name__ == "__main__":
     unittest.main()
