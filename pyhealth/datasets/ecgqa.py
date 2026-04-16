@@ -1,3 +1,27 @@
+"""
+ECG Question Answering dataset.
+
+This dataset provides natural language question-answer pairs linked to
+ECG recordings via ecg_id. It is an annotation layer on top of ECG
+recordings from PTB-XL or MIMIC-IV-ECG.
+
+The QA data originates from the ECG-QA dataset (Oh et al., 2024),
+restructured for few-shot learning by Tang et al. (CHIL 2025).
+
+Dataset link: 
+    Dataset is available at https://github.com/Tang-Jia-Lu/FSL_ECG_QA
+
+Dataset paper: 
+    J. Tang, T. Xia, Y. Lu, C. Mascolo, and A. Saeed, "Electrocardiogram-language model for few-shot question answering with meta learning," arXiv preprint arXiv:2410.14464, 2024.
+
+Dataset paper link:
+    https://arxiv.org/abs/2410.14464
+
+Author:
+    Jovian Wang (jovianw2@illinois.edu)
+    Matthew Pham (mdpham2@illinois.edu)
+    Yiyun Wang (yiyunw3@illinois.edu)
+"""
 import hashlib
 import json
 import logging
@@ -15,53 +39,43 @@ logger = logging.getLogger(__name__)
 
 _VALID_ECG_SOURCES = {"ptbxl": "ptbxl", "mimic": "mimic-iv-ecg"}
 
+"""
+Three question types are supported:
+    - single-verify: yes/no questions about ECG findings
+    - single-choose: multi-choice questions (answer is one option, "both", or "none")
+    - single-query: open-ended questions with free-form answers
 
+Args:
+    root: directory that holds (or will hold) the paraphrased QA splits as
+        train/, valid/, test/ subdirectories of JSON files.
+    dataset_name: name of the dataset. Default is "ecg_qa".
+    config_path: path to the YAML config file. Default uses built-in config.
+    download: if True, download the chosen variant from GitHub into ``root``
+        before loading. Defaults to False.
+    ecg_source: which underlying ECG dataset the QA pairs are grounded in.
+        One of ``"ptbxl"`` (PTB-XL) or ``"mimic"`` (MIMIC-IV-ECG).
+        Defaults to ``"ptbxl"``.
+    include_demographics: if True, download the modified variant whose
+        question text includes patient sex and age. Defaults to False
+        (the original Tang et al. release).
+
+Examples:
+    >>> from pyhealth.datasets import ECGQADataset
+    >>> # Use a pre-downloaded local copy
+    >>> dataset = ECGQADataset(
+    ...     root="/path/to/ecgqa/ptbxl/paraphrased/",
+    ... )
+    >>> # Or download the modified PTB-XL variant on the fly
+    >>> dataset = ECGQADataset(
+    ...     root="./ecg_qa_ptbxl_demo",
+    ...     download=True,
+    ...     ecg_source="ptbxl",
+    ...     include_demographics=True,
+    ... )
+    >>> dataset.stats()
+"""
 class ECGQADataset(BaseDataset):
-    """ECG Question Answering dataset.
 
-    This dataset provides natural language question-answer pairs linked to
-    ECG recordings via ecg_id. It is an annotation layer on top of ECG
-    recordings from PTB-XL or MIMIC-IV-ECG.
-
-    The QA data originates from the ECG-QA dataset (Oh et al., 2024),
-    restructured for few-shot learning by Tang et al. (CHIL 2025).
-
-    Dataset is available at https://github.com/Tang-Jia-Lu/FSL_ECG_QA
-
-    Three question types are supported:
-        - single-verify: yes/no questions about ECG findings
-        - single-choose: multi-choice questions (answer is one option, "both", or "none")
-        - single-query: open-ended questions with free-form answers
-
-    Args:
-        root: directory that holds (or will hold) the paraphrased QA splits as
-            train/, valid/, test/ subdirectories of JSON files.
-        dataset_name: name of the dataset. Default is "ecg_qa".
-        config_path: path to the YAML config file. Default uses built-in config.
-        download: if True, download the chosen variant from GitHub into ``root``
-            before loading. Defaults to False.
-        ecg_source: which underlying ECG dataset the QA pairs are grounded in.
-            One of ``"ptbxl"`` (PTB-XL) or ``"mimic"`` (MIMIC-IV-ECG).
-            Defaults to ``"ptbxl"``.
-        include_demographics: if True, download the modified variant whose
-            question text includes patient sex and age. Defaults to False
-            (the original Tang et al. release).
-
-    Examples:
-        >>> from pyhealth.datasets import ECGQADataset
-        >>> # Use a pre-downloaded local copy
-        >>> dataset = ECGQADataset(
-        ...     root="/path/to/ecgqa/ptbxl/paraphrased/",
-        ... )
-        >>> # Or download the modified PTB-XL variant on the fly
-        >>> dataset = ECGQADataset(
-        ...     root="./ecg_qa_ptbxl_demo",
-        ...     download=True,
-        ...     ecg_source="ptbxl",
-        ...     include_demographics=True,
-        ... )
-        >>> dataset.stats()
-    """
 
     def __init__(
         self,
