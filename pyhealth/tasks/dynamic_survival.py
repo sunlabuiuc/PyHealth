@@ -353,8 +353,14 @@ class DynamicSurvivalTask(BaseTask):
 
     task_name: str = "dynamic_survival"
 
-    input_schema = {}
-    output_schema = {}
+    input_schema = {
+        "x": "tensor",
+    }
+
+    output_schema = {
+        "y": "tensor",
+        "mask": "tensor",
+    }
    
 
     def __init__(
@@ -438,17 +444,24 @@ class DynamicSurvivalTask(BaseTask):
         """
         Convert a patient into dynamic survival samples.
 
+        This function supports three types of patient inputs:
+        1. Mock patients with visit dictionaries
+        2. Dict-style patients (used in tests)
+        3. PyHealth dataframe-based patients
+
+        For dataframe-based patients, mortality is extracted using
+        the 'expire_flag' field from patient-level events.
+
         Args:
-            patient (Any): A patient object from a PyHealth dataset
-                or a mock patient.
+            patient (Any): Patient object.
 
         Returns:
-            List[Dict[str, Any]]: A list of survival samples.
+            List[Dict[str, Any]]: Survival samples.
         """
 
-        # =========================
-        # Mock / PyHealth object patient (visits dict)
-        # =========================
+        # -------------------------
+        # Mock patient (visits dict)
+        # -------------------------
         if hasattr(patient, "visits") and isinstance(patient.visits, dict):
             visits_list = list(patient.visits.values())
 
@@ -463,7 +476,8 @@ class DynamicSurvivalTask(BaseTask):
 
                 if self.use_diag:
                     codes = [
-                        e.code for e in visit.event_list_dict.get("DIAGNOSES_ICD", [])
+                        e.code
+                        for e in visit.event_list_dict.get("DIAGNOSES_ICD", [])
                     ]
                     features.append(
                         self.encode_multi_hot(codes, self.diag_vocab)
@@ -471,7 +485,8 @@ class DynamicSurvivalTask(BaseTask):
 
                 if self.use_proc:
                     codes = [
-                        e.code for e in visit.event_list_dict.get("PROCEDURES_ICD", [])
+                        e.code
+                        for e in visit.event_list_dict.get("PROCEDURES_ICD", [])
                     ]
                     features.append(
                         self.encode_multi_hot(codes, self.proc_vocab)
@@ -479,7 +494,8 @@ class DynamicSurvivalTask(BaseTask):
 
                 if self.use_drug:
                     codes = [
-                        e.code for e in visit.event_list_dict.get("PRESCRIPTIONS", [])
+                        e.code
+                        for e in visit.event_list_dict.get("PRESCRIPTIONS", [])
                     ]
                     features.append(
                         self.encode_multi_hot(codes, self.drug_vocab)
@@ -518,15 +534,15 @@ class DynamicSurvivalTask(BaseTask):
 
             return self.engine.process_patient(patient_dict)
 
-        # =========================
-        # Dict-style patient (used in some tests)
-        # =========================
+        # -------------------------
+        # Dict-style patient (tests)
+        # -------------------------
         if isinstance(patient, dict):
             return self.engine.process_patient(patient)
 
-        # =========================
-        # PyHealth dataframe-based patient
-        # =========================
+        # -------------------------
+        # PyHealth dataframe patient
+        # -------------------------
         visits_raw = build_daily_time_series(patient)
         if not visits_raw:
             return []
@@ -582,9 +598,17 @@ class DynamicSurvivalTask(BaseTask):
                 }
             )
 
-        death_time = getattr(patient, "death_datetime", None)
+        # Extract mortality signal
+        death_flag = False
 
-        if death_time:
+        if hasattr(patient, "get_events"):
+            for event in patient.get_events():
+                if event.event_type == "patients":
+                    if event.attr_dict.get("expire_flag") == "1":
+                        death_flag = True
+                        break
+
+        if death_flag:
             outcome_time = processed_visits[-1]["time"]
             censor_time = None
         else:
