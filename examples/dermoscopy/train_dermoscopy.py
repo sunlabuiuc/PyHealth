@@ -24,6 +24,7 @@ from sklearn.model_selection import KFold
 from torch.utils.data import Subset
 from collections import defaultdict
 import matplotlib.pyplot as plt
+from torch.utils.tensorboard import SummaryWriter
 
 from pyhealth.datasets import get_dataloader, split_by_sample
 from pyhealth.trainer import Trainer
@@ -97,49 +98,75 @@ def setup_dynamic_logging(arg_log_dir, folder_name, run_name):
 # ==========================================
 # VISUALIZATION UTILITY
 # ==========================================
-def plot_learning_curves(output_path, fold_num="Master"):
-    """Parses PyHealth's log.txt and generates learning curve graphs."""
-    log_path = os.path.join(output_path, "log.txt")
+def generate_all_visualizations(base_out_dir, fold_num="Master"):
+    """Parses PyHealth logs to automatically generate PNG curves and TensorBoard events."""
+    log_path = os.path.join(base_out_dir, "log.txt")
     if not os.path.exists(log_path):
+        print(f"[-] No log.txt found in {base_out_dir}")
         return
 
-    train_loss, val_loss, val_roc = [], [], []
+    train_loss, val_roc = [], []
+    
+    # 1. Setup TensorBoard Writer
+    tb_dir = os.path.join(base_out_dir, f"tb_logs_fold_{fold_num}")
+    writer = SummaryWriter(log_dir=tb_dir)
+
+    epoch = 1
     with open(log_path, "r") as f:
         for line in f.readlines():
-            if "loss:" in line and "roc_auc:" in line:
-                try:
-                    data = ast.literal_eval(line.strip())
-                    if 'loss' in data: train_loss.append(data['loss'])
-                    if 'val_loss' in data: val_loss.append(data['val_loss'])
-                    if 'roc_auc' in data: val_roc.append(data['roc_auc'])
-                except: continue
+            # Catch Training Loss
+            if "loss:" in line and "roc_auc" not in line:
+                match = re.search(r"loss:\s*([0-9\.]+)", line)
+                if match: 
+                    loss_val = float(match.group(1))
+                    train_loss.append(loss_val)
+                    writer.add_scalar("Loss/Train", loss_val, epoch)
+            
+            # Catch Validation Metrics (This marks the end of an epoch)
+            if "roc_auc:" in line:
+                roc_match = re.search(r"roc_auc:\s*([0-9\.]+)", line)
+                pr_match = re.search(r"pr_auc:\s*([0-9\.]+)", line)
+                
+                if roc_match: 
+                    roc_val = float(roc_match.group(1))
+                    val_roc.append(roc_val)
+                    writer.add_scalar("Metrics/Val_ROC_AUC", roc_val, epoch)
+                if pr_match:
+                    writer.add_scalar("Metrics/Val_PR_AUC", float(pr_match.group(1)), epoch)
+                
+                epoch += 1
+    
+    writer.close()
 
-    if not train_loss: return
+    # 2. Generate standard PNG Learning Curves
+    if not train_loss:
+        return
         
-    epochs = range(1, len(train_loss) + 1)
+    epochs_x = range(1, len(train_loss) + 1)
     plt.figure(figsize=(12, 5))
     
     plt.subplot(1, 2, 1)
-    plt.plot(epochs, train_loss, 'b-', label='Train Loss')
-    if val_loss: plt.plot(epochs, val_loss, 'r-', label='Val Loss')
-    plt.title(f'Loss Curve - {fold_num}')
+    plt.plot(epochs_x, train_loss, 'b-', label='Train Loss')
+    plt.title(f'Loss Curve - Fold {fold_num}')
     plt.xlabel('Epochs')
     plt.ylabel('Loss')
     plt.legend()
     
     if val_roc:
+        val_epochs_x = range(1, len(val_roc) + 1)
         plt.subplot(1, 2, 2)
-        plt.plot(epochs, val_roc, 'g-', label='Val ROC-AUC')
-        plt.title(f'ROC-AUC Curve - {fold_num}')
+        plt.plot(val_epochs_x, val_roc, 'g-', label='Val ROC-AUC')
+        plt.title(f'ROC-AUC Curve - Fold {fold_num}')
         plt.xlabel('Epochs')
         plt.ylabel('Score')
         plt.legend()
         
     plt.tight_layout()
-    curve_path = os.path.join(output_path, f"learning_curve_fold_{fold_num}.png")
+    curve_path = os.path.join(base_out_dir, f"learning_curve_fold_{fold_num}.png")
     plt.savefig(curve_path)
     plt.close()
-    print(f"[*] Saved learning curves to {curve_path}")
+    
+    print(f"[*] Visualizations Complete! PNGs and TensorBoard logs saved to {base_out_dir}")
 
 # ==========================================
 # MODEL WRAPPER
@@ -271,8 +298,8 @@ if __name__ == "__main__":
             )
 
         output_path = os.path.join(base_out_dir, "master")
-        plot_learning_curves(output_path, fold_num="Master")
-        
+        generate_all_visualizations(output_path, fold_num="Master")
+
     else:
         kf = KFold(n_splits=args.cv_folds, shuffle=True, random_state=42)
         for fold, (train_idx, val_idx) in enumerate(kf.split(np.arange(len(task_dataset)))):
@@ -320,7 +347,7 @@ if __name__ == "__main__":
             
             # Post-training Visualization
             output_path = os.path.join(base_out_dir, f"fold_{fold}")
-            plot_learning_curves(output_path, fold_num=fold)
+            generate_all_visualizations(output_path, fold_num=fold)
             
             # Internal Source Evaluation (For Table 1/2 Source Column)
             val_res = trainer.evaluate(dataloader=val_loader)
