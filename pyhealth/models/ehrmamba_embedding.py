@@ -226,9 +226,9 @@ class EHRMambaEmbedding(BaseModel):
 
     def __init__(
         self,
-        dataset: SampleDataset,
         vocab_size: int,
         hidden_size: int,
+        dataset: Optional[SampleDataset] = None,
         padding_idx: int = 0,
         type_vocab_size: int = NUM_TOKEN_TYPES,
         max_num_visits: int = MAX_NUM_VISITS,
