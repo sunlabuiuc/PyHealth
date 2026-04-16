@@ -21,7 +21,6 @@ Results:
     For each baseline configuration we report:
     - Overall AUROC over N random 60/40 patient-level splits.
     - Subgroup AUROC by race, age group, and insurance.
-    - Demographic parity and equal-opportunity (TPR) tables per subgroup.
 
 Synthetic data:
     ``generate_synthetic_mimic3`` is imported from
@@ -239,7 +238,7 @@ def _run_single_split(
     epochs: int,
     batch_size: int = 32,
 ) -> Optional[Dict[str, Any]]:
-    """One patient-level split: train RNN, then test + fairness stats.
+    """One patient-level split: train RNN, then test + subgroup AUROC.
 
     Args:
         sample_dataset: AMA task samples.
@@ -275,12 +274,9 @@ def _run_single_split(
         return None
 
     y_prob, y_true, groups = _get_predictions(model, test_dl, lookup)
-    threshold = 0.5
-    y_pred = (y_prob >= threshold).astype(int)
 
     overall_auroc = _safe_auroc(y_true, y_prob)
 
-    # Nested: attribute name -> group label -> AUROC, % predicted AMA, TPR, n.
     subgroup = {}
     for attr_name, attr_vals in groups.items():
         subgroup[attr_name] = {}
@@ -289,12 +285,9 @@ def _run_single_split(
             n = int(mask.sum())
             if n < 2:
                 continue
-            yt, yp, yd = y_true[mask], y_prob[mask], y_pred[mask]
-            pos = yt.sum()
+            yt, yp = y_true[mask], y_prob[mask]
             subgroup[attr_name][grp] = {
                 "auroc": _safe_auroc(yt, yp),
-                "pct_pred": float(yd.mean()) * 100,
-                "tpr": float(yd[yt == 1].mean()) * 100 if pos > 0 else float("nan"),
                 "n": n,
             }
 
@@ -348,21 +341,17 @@ def _aggregate(
                 all_grps.update(r["subgroups"][attr].keys())
 
         for grp in sorted(all_grps):
-            aurocs, pcts, tprs, ns = [], [], [], []
+            aurocs, ns = [], []
             for r in valid:
                 m = r["subgroups"].get(attr, {}).get(grp)
                 if m is None:
                     continue
                 aurocs.append(m["auroc"])
-                pcts.append(m["pct_pred"])
-                tprs.append(m["tpr"])
                 ns.append(m["n"])
 
             agg["subgroups"][attr][grp] = {
                 "auroc_mean": _nanmean(aurocs),
                 "auroc_std": _nanstd(aurocs),
-                "pct_pred_mean": _nanmean(pcts),
-                "tpr_mean": _nanmean(tprs),
                 "n_avg": int(np.mean(ns)) if ns else 0,
             }
     return agg
@@ -410,17 +399,6 @@ def _print_results(
         for grp, m in grps.items():
             a_str = f"{_fmt(m['auroc_mean'])}+/-{_fmt(m['auroc_std'])}"
             print(f"       {grp:<20} {a_str:>15} {m['n_avg']:>7}")
-
-    print("\n  3. Fairness Metrics")
-    print("     Demographic Parity (% Predicted AMA):")
-    for attr, grps in agg["subgroups"].items():
-        parts = [f"{g}: {_fmt(m['pct_pred_mean'], 2)}%" for g, m in grps.items()]
-        print(f"       {attr}: {',  '.join(parts)}")
-
-    print("     Equal Opportunity (True Positive Rate):")
-    for attr, grps in agg["subgroups"].items():
-        parts = [f"{g}: {_fmt(m['tpr_mean'], 2)}%" for g, m in grps.items()]
-        print(f"       {attr}: {',  '.join(parts)}")
 
 
 # ------------------------------------------------------------------

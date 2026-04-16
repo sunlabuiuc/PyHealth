@@ -2,8 +2,8 @@
 
 This script demonstrates ``AMAPredictionMIMIC3`` with three feature ablations,
 trains a ``LogisticRegression`` model on processed samples, and evaluates how
-demographic and administrative features affect AMA discharge prediction and
-fairness.  Labels come from ``discharge_location``; inputs follow the task
+demographic and administrative features affect AMA discharge prediction.
+Labels come from ``discharge_location``; inputs follow the task
 ``input_schema`` / ``output_schema`` (multi_hot, tensor, binary).
 
 Paper:
@@ -24,8 +24,6 @@ Results:
       (patient-level ``split_by_patient``).
     - Subgroup AUROC by race, age band (Young / Middle / Senior), and
       insurance category.
-    - Fairness-style summaries: demographic parity (% predicted AMA per
-      group) and equal opportunity (TPR per group).
 
 Usage:
     # Default: synthetic exhaustive grid when ``--root`` is omitted
@@ -196,7 +194,13 @@ def generate_synthetic_mimic3(
         Returns:
             Next ``icustay_id`` if an ICU row was written; else unchanged id.
         """
-        dob = datetime(2000, 1, 1) - timedelta(days=int(age_years * 365))
+        # Align DOB with ``admittime`` so ``AMAPredictionMIMIC3`` age (year diff
+        # from PATIENTS.DOB to admission) matches ``age_years``.  A fixed DOB
+        # anchor with 2150 admissions would yield ~150y ages capped at 90, so
+        # every row mapped to "Senior (65+)" in subgroup reports.
+        admit_time = datetime(2150, 1, 1) + timedelta(days=day_offset)
+        discharge_time = admit_time + timedelta(days=7)
+        dob = admit_time - timedelta(days=int(age_years * 365))
         patients_data.append(
             {
                 "subject_id": subject_id,
@@ -208,8 +212,6 @@ def generate_synthetic_mimic3(
                 "expire_flag": 0,
             }
         )
-        admit_time = datetime(2150, 1, 1) + timedelta(days=day_offset)
-        discharge_time = admit_time + timedelta(days=7)
         admissions_data.append(
             {
                 "subject_id": subject_id,
@@ -355,8 +357,13 @@ def generate_synthetic_mimic3(
             age_at_visit = int(
                 np.random.choice([25, 45, 65, 85]) + np.random.randint(-5, 5)
             )
-            dob = datetime(2000, 1, 1) - timedelta(days=age_at_visit * 365)
 
+            n_admissions = max(
+                1,
+                int(np.random.poisson(avg_admissions_per_patient)),
+            )
+            first_admit = datetime(2150, 1, 1)
+            dob = first_admit - timedelta(days=int(age_at_visit * 365))
             patients_data.append(
                 {
                     "subject_id": subject_id,
@@ -369,10 +376,6 @@ def generate_synthetic_mimic3(
                 }
             )
 
-            n_admissions = max(
-                1,
-                int(np.random.poisson(avg_admissions_per_patient)),
-            )
             for j in range(n_admissions):
                 admit_time = datetime(2150, 1, 1) + timedelta(days=int(j * 100))
                 discharge_time = admit_time + timedelta(
@@ -478,7 +481,7 @@ def _build_demographics_lookup(
     dataset: Any,
     task: AMAPredictionMIMIC3,
 ) -> Dict[Tuple[str, str], Dict[str, Any]]:
-    """Build a post-hoc lookup for fairness reporting (not model inputs).
+    """Build a post-hoc lookup for subgroup AUROC labels (not model inputs).
 
     Re-runs ``task`` on each patient from ``dataset`` to recover string
     race label, scalar age, and insurance token for each visit.  Keys match
@@ -688,10 +691,8 @@ def _run_single_split(
         print(f"    train failed: {exc}")
         return None
 
-    # Fairness slices use ``lookup`` (not part of the forward batch tensors).
+    # Subgroup labels use ``lookup`` (not part of the forward batch tensors).
     y_prob, y_true, groups = _get_predictions(model, test_dl, lookup)
-    threshold = 0.5
-    y_pred = (y_prob >= threshold).astype(int)
 
     overall_auroc = _safe_auroc(y_true, y_prob)
 
@@ -703,12 +704,9 @@ def _run_single_split(
             n = int(mask.sum())
             if n < 2:
                 continue
-            yt, yp, yd = y_true[mask], y_prob[mask], y_pred[mask]
-            pos = yt.sum()
+            yt, yp = y_true[mask], y_prob[mask]
             subgroup[attr_name][grp] = {
                 "auroc": _safe_auroc(yt, yp),
-                "pct_pred": float(yd.mean()) * 100,
-                "tpr": float(yd[yt == 1].mean()) * 100 if pos > 0 else float("nan"),
                 "n": n,
             }
 
@@ -771,21 +769,17 @@ def _aggregate(
                 all_grps.update(r["subgroups"][attr].keys())
 
         for grp in sorted(all_grps):
-            aurocs, pcts, tprs, ns = [], [], [], []
+            aurocs, ns = [], []
             for r in valid:
                 m = r["subgroups"].get(attr, {}).get(grp)
                 if m is None:
                     continue
                 aurocs.append(m["auroc"])
-                pcts.append(m["pct_pred"])
-                tprs.append(m["tpr"])
                 ns.append(m["n"])
 
             agg["subgroups"][attr][grp] = {
                 "auroc_mean": _nanmean(aurocs),
                 "auroc_std": _nanstd(aurocs),
-                "pct_pred_mean": _nanmean(pcts),
-                "tpr_mean": _nanmean(tprs),
                 "n_avg": int(np.mean(ns)) if ns else 0,
             }
     return agg
@@ -806,7 +800,7 @@ def _print_results(
     feature_keys: List[str],
     agg: Optional[Dict[str, Any]],
 ) -> None:
-    """Pretty-print one ablation block (overall, subgroup AUROC, fairness).
+    """Pretty-print one ablation block (overall and subgroup AUROC).
 
     Args:
         name: Baseline label (e.g. ``"BASELINE+RACE"``).
@@ -840,17 +834,6 @@ def _print_results(
             a_str = f"{_fmt(m['auroc_mean'])}+/-{_fmt(m['auroc_std'])}"
             print(f"       {grp:<20} {a_str:>15} {m['n_avg']:>7}")
 
-    print("\n  3. Fairness Metrics")
-    print("     Demographic Parity (% Predicted AMA):")
-    for attr, grps in agg["subgroups"].items():
-        parts = [f"{g}: {_fmt(m['pct_pred_mean'], 2)}%" for g, m in grps.items()]
-        print(f"       {attr}: {',  '.join(parts)}")
-
-    print("     Equal Opportunity (True Positive Rate):")
-    for attr, grps in agg["subgroups"].items():
-        parts = [f"{g}: {_fmt(m['tpr_mean'], 2)}%" for g, m in grps.items()]
-        print(f"       {attr}: {',  '.join(parts)}")
-
 
 # ------------------------------------------------------------------
 # Main
@@ -863,7 +846,7 @@ def main() -> None:
     Pipeline:
         1. Resolve synthetic vs real ``root`` and LitData ``cache_dir``.
         2. ``MIMIC3Dataset`` -> ``AMAPredictionMIMIC3`` -> ``SampleDataset``.
-        3. Demographics lookup for fairness slices (not passed to the model).
+        3. Demographics lookup for subgroup AUROC (not passed to the model).
         4. For each entry in ``BASELINES``, repeat ``--splits`` train/eval
            loops with the corresponding ``feature_keys`` (task I/O schema
            unchanged; model uses a subset of keys).

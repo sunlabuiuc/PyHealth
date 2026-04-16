@@ -15,7 +15,7 @@ covering:
       and absence of clinical code fields in samples.
     - Integration: curated five-row gzipped MIMIC-style CSVs with
       ``MIMIC3Dataset`` + ``set_task`` + ``LogisticRegression`` forward passes
-      and short ``Trainer`` smoke runs.
+      and short ``Trainer`` smoke runs (example CLI tables are not asserted).
     - Synthetic generator sanity: exhaustive grid patient row count.
 
 Paper (task motivation):
