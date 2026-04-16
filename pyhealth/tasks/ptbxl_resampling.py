@@ -1,5 +1,5 @@
 """
-A PyHealth task for ECG signal resampling/super-resolution on the PTB-XL dataset.
+A PyHealth task that performs dynamic resampling of ECG signals.
 
 Dataset link:
     https://physionet.org/content/ptb-xl/1.0.1/
@@ -19,7 +19,9 @@ Author:
 """
 import logging
 import os
-import scipy.io as sio
+import wfdb
+import numpy as np
+from scipy import signal
 from typing import Dict, List
 
 from pyhealth.data import Patient, Event
@@ -27,30 +29,25 @@ from pyhealth.tasks import BaseTask
 
 logger = logging.getLogger(__name__)
 
-class PTBXLResamplingTask(BaseTask):
+class PTBXLResampling(BaseTask):
     """
-    This task maps a low-resolution (100Hz) ECG signal to its 
-    high-resolution (500Hz) counterpart.
-
-    Attributes:
-        task_name (str): The name of the task ("PTBXLResampling").
-        input_schema (Dict[str, str]): "low_res": signal at 100Hz.
-        output_schema (Dict[str, str]): "high_res": signal at 500Hz.
+    This task reads the 100Hz (low-res) raw signal and uses scipy to 
+    mathematically generate the 500Hz (high-res) version as the target.
     """
-
     task_name: str = "PTBXLResampling"
     
-    # Input: 100Hz Signal | Output: 500Hz Signal (the ground truth)
+    # Input: The original 100Hz signal
+    # Output: The target signal generated via resampling logic
     input_schema: Dict[str, str] = {"low_res": "signal"}
     output_schema: Dict[str, str] = {"high_res": "signal"}
 
     def __init__(self, root: str) -> None:
         """
         Args:
-            root (str): Root directory containing BOTH 'records100' and 'records500'.
+            root (str): The path to the PTB-XL dataset (containing records100).
         """
         if not os.path.exists(root):
-            raise FileNotFoundError(f"Root path does not exist: {root}")
+            raise FileNotFoundError(f"Path not found: {root}")
         self.root = root
 
     def __call__(self, patient: Patient) -> List[Dict]:
@@ -62,22 +59,21 @@ class PTBXLResamplingTask(BaseTask):
             subfolder = f"{str((ecg_id // 1000) * 1000).zfill(5)}"
             
             lr_path = os.path.join(self.root, "records100", subfolder, f"{str(ecg_id).zfill(5)}_lr")
-            hr_path = os.path.join(self.root, "records500", subfolder, f"{str(ecg_id).zfill(5)}_hr")
 
             try:
-                lr_record = wfdb.rdrecord(lr_path)
-                lr_signal = lr_record.p_signal.T # Transpose to (12, 1000)
-                
-                hr_record = wfdb.rdrecord(hr_path)
-                hr_signal = hr_record.p_signal.T # Transpose to (12, 2500)
+                record = wfdb.rdrecord(lr_path)
+                lr_data = record.p_signal.T  # Shape: (12, 1000)
+                num_samples_target = 2500
+                hr_data = signal.resample(lr_data, num_samples_target, axis=1)
 
                 samples.append({
-                    "low_res": lr_signal.astype(np.float32),
-                    "high_res": hr_signal.astype(np.float32),
+                    "low_res": lr_data.astype(np.float32),
+                    "high_res": hr_data.astype(np.float32),
                     "record_id": ecg_id
                 })
                 
             except Exception as e:
+                logger.debug(f"Skipping record {ecg_id}: {e}")
                 continue
 
         return samples
