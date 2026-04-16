@@ -5,7 +5,9 @@ Dataset link:
 	https://physionet.org/content/ptb-xl/1.0.3/
 
 Dataset paper: 
-	J. Tang, T. Xia, Y. Lu, C. Mascolo, and A. Saeed, "Electrocardiogram-language model for few-shot question answering with meta learning," arXiv preprint arXiv:2410.14464, 2024.
+	J. Tang, T. Xia, Y. Lu, C. Mascolo, and A. Saeed, 
+	"Electrocardiogram-language model for few-shot question answering with meta 
+	learning," arXiv preprint arXiv:2410.14464, 2024.
 
 Dataset paper link:
 	https://arxiv.org/abs/2410.14464
@@ -36,11 +38,13 @@ Dataset class for the PTB-XL 1.0.3 dataset.
 Args:
     dataset_name: name of the dataset.
     root: root directory of the raw data. 
-    	Expected to contain folders for original (records500) or downsampled (records100) data with determined names.
+    	Expected to contain folders for original (records500) or 
+    	downsampled (records100) data with determined names.
     dev: whether to enable dev mode (only use a small subset of the data).
         Default is False.
     refresh_cache: whether to refresh the cache; if true, the dataset will
-        be processed from scratch and the cache will be updated. Default is False.
+        be processed from scratch and the cache will be updated. 
+        Default is False.
 """
 class PTBXLDataset(BaseDataset):
 	"""
@@ -48,7 +52,8 @@ class PTBXLDataset(BaseDataset):
 	
 	Attributes: 
 		root (str): Root directory of the raw data.
-		download (bool): True iff requested to download dataset. Default to False.
+		download (bool): True iff requested to download dataset. 
+			Default to False.
 		dev (bool): True iff enable dev mode.
 		downsampled (bool): True iff use downsampled signal data.
 	"""
@@ -69,7 +74,13 @@ class PTBXLDataset(BaseDataset):
 
 		# Determine signal path, where to fetch the signal samples
 		signal_folder = "records100" if downsampled else "records500"
-		root_path = os.path.join(root, "ptb_xl_processed_final/ptb-xl-a-large-publicly-available-electrocardiography-dataset-1.0.3") if download else root
+
+		if download:
+			root_path = os.path.join(root, "ptb_xl_processed_final/\
+				ptb-xl-a-large-publicly-available-electrocardiography-dataset-1.0.3")
+		else:
+			root_path = root
+
 		self.signal_path: str = os.path.join(root_path, signal_folder)
 
 		# Download the dataset from online source to root if needed
@@ -78,7 +89,8 @@ class PTBXLDataset(BaseDataset):
 		# Determine config_path if it isn't provided
 		if config_path is None:
 			logger.info("No config path provided. Using default config.")
-			config_path = os.path.join(os.path.dirname(__file__), "configs", "ptbxl.yaml")
+			config_path = os.path.join(
+				os.path.dirname(__file__), "configs", "ptbxl.yaml")
 
 		# Validate data
 		self._validate()
@@ -102,7 +114,8 @@ class PTBXLDataset(BaseDataset):
 	def _download(self, download) -> None:
 		if download:
 			zip_id = "1btbPiHEOUBLNLfUYkLnKzs50ZTmgqdI2"
-			response = requests.get(f"https://drive.google.com/uc?export=download&id={zip_id}")
+			response = requests.get(
+				f"https://drive.google.com/uc?export=download&id={zip_id}")
 			with open(self.data_path, "wb") as file:
 				file.write(response.content)
 
@@ -117,7 +130,8 @@ class PTBXLDataset(BaseDataset):
 
 	Raises:
         FileNotFoundError: if any directory is not found.
-        ValueError: if a patient directory contains not .dat/.hea file or if there"s a mismatch of .dat/.hea.
+        ValueError: if a patient directory contains not .dat/.hea file 
+        	or if there"s a mismatch of .dat/.hea.
 	"""
 	def _validate(self) -> None:
 		if not os.path.exists(self.root):
@@ -168,17 +182,22 @@ class PTBXLDataset(BaseDataset):
 						"patient_id": pid,
 						"signal_file": f + ".dat",
 						"label_file": f + ".hea",
-						"save_to_path": os.path.join(MODULE_CACHE_PATH, hash_str(filename)),
+						"save_to_path": os.path.join(
+							MODULE_CACHE_PATH, hash_str(filename)),
 					}
 
 		if self.dev:
 			keys = random.sample(list(patients), min(len(patients), 5))
-			values = [d[k] for k in keys]
-			return dict(zip(keys, values))
+			values = [patients[k] for k in keys]
+			patients = dict(zip(keys, values))
 
-		# patients.to_csv(os.path.join(self.root, "ptbxl.csv"), index=False)
 		with open(os.path.join(self.root, "ptbxl.csv"), "w") as file:
-			w = csv.DictWriter(file, fieldnames=["load_from_path", "patient_id", "signal_file", "label_file", "save_to_path"])
+			w = csv.DictWriter(file, fieldnames=[
+				"load_from_path", 
+				"patient_id", 
+				"signal_file", 
+				"label_file", 
+				"save_to_path"])
 			w.writeheader()
 			w.writerows(list(patients.values()))
 		return None
