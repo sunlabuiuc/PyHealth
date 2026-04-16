@@ -31,49 +31,41 @@ logger = logging.getLogger(__name__)
 
 class PTBXLResampling(BaseTask):
     """
-    This task reads the 100Hz (low-res) raw signal and uses scipy to 
-    mathematically generate the 500Hz (high-res) version as the target.
+    Task: Downsample high-resolution (500Hz) signals to 250Hz.
+    This provides a balance between detail and computational efficiency.
     """
     task_name: str = "PTBXLResampling"
-    
-    # Input: The original 100Hz signal
-    # Output: The target signal generated via resampling logic
-    input_schema: Dict[str, str] = {"low_res": "signal"}
-    output_schema: Dict[str, str] = {"high_res": "signal"}
+    input_schema: Dict[str, str] = {"signal": "signal"}
+    output_schema: Dict[str, str] = {"label": "multilabel"}
 
     def __init__(self, root: str) -> None:
-        """
-        Args:
-            root (str): The path to the PTB-XL dataset (containing records100).
-        """
-        if not os.path.exists(root):
-            raise FileNotFoundError(f"Path not found: {root}")
         self.root = root
 
     def __call__(self, patient: Patient) -> List[Dict]:
-        events: List[Event] = patient.get_events(event_type="ptbxl")
+        events = patient.get_events(event_type="ptbxl")
         samples = []
 
         for event in events:
             ecg_id = int(event["ecg_id"])
             subfolder = f"{str((ecg_id // 1000) * 1000).zfill(5)}"
             
-            lr_path = os.path.join(self.root, "records100", subfolder, f"{str(ecg_id).zfill(5)}_lr")
+            # Use the 500Hz records as the source
+            hr_path = os.path.join(self.root, "records500", subfolder, f"{str(ecg_id).zfill(5)}_hr")
 
             try:
-                record = wfdb.rdrecord(lr_path)
-                lr_data = record.p_signal.T  # Shape: (12, 1000)
-                num_samples_target = 2500
-                hr_data = signal.resample(lr_data, num_samples_target, axis=1)
+                record = wfdb.rdrecord(hr_path)
+                data_500hz = record.p_signal.T # Shape: (12, 5000)
+
+                # Downsample to 250Hz (2500 samples for a 10s record)
+                num_samples_target = 2500 
+                data_250hz = signal.resample(data_500hz, num_samples_target, axis=1)
 
                 samples.append({
-                    "low_res": lr_data.astype(np.float32),
-                    "high_res": hr_data.astype(np.float32),
+                    "signal": data_250hz.astype(np.float32),
+                    "label": event["label"],
                     "record_id": ecg_id
                 })
-                
             except Exception as e:
-                logger.debug(f"Skipping record {ecg_id}: {e}")
                 continue
 
         return samples
