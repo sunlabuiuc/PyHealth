@@ -208,14 +208,15 @@ class SignalEncoder(nn.Module):
         self.residual = residual
         self.causal = causal
         self.chunk_causal = chunk_causal
+        self.activation = get_activation(activation)
+
+        blocks = []
 
         if samples_per_epoch & (samples_per_epoch - 1) != 0:
             raise ValueError("samples_per_epoch must be even")
-        
         num_conv_blocks = int(math.log2(samples_per_epoch)) - 2
-        blocks = []
-
         num_channels_per_block = [min(init_feature_channels * 2**(i//2), max_channels) for i in range(num_conv_blocks)]
+        self.epoch_size = num_channels_per_block[-1] * 4
 
         in_ch = input_num_channels
         for i, dim in enumerate(num_channels_per_block):
@@ -228,9 +229,7 @@ class SignalEncoder(nn.Module):
             in_ch = dim
 
         self.cnn = nn.Sequential(*blocks)
-        self.epoch_size = num_channels_per_block[-1] * 4
         self.linear = nn.Linear(self.epoch_size, epoch_embedding_dim)
-        self.activation = get_activation(activation)
         self.output_norm = nn.LayerNorm(epoch_embedding_dim) if output_norm else nn.Identity()
 
 
@@ -239,21 +238,19 @@ class SignalEncoder(nn.Module):
             raise ValueError(f"Input length must be a multiple of {self.samples_per_epoch}")
         
         batch = x.size(0)
-        epochs = x.size(-1) // self.samples_per_epoch
+        epochs = x.size(-1) // self.samples_per_epoch #number of epochs in the batch
 
-        if self.causal and self.chunk_causal:
-            y = x.view(batch, epochs, self.samples_per_epoch)
-            y = y.reshape(batch * epochs, 1, self.samples_per_epoch)
-            y = self.cnn(y)
-            y = y.transpose(-1,-2).reshape(batch, epochs, self.epoch_size)
-        else:
+        if self.causal and self.chunk_causal: #CNN runs separately on each epoch's S samples - no overlap between epochs
+            y = x.view(batch, epochs, self.samples_per_epoch) #split the batch into epochs
+            y = y.reshape(batch * epochs, 1, self.samples_per_epoch) #reshape the batch into [B*E, 1, S]
+            y = self.cnn(y) #run the CNN on the batch
+            y = y.transpose(-1,-2).reshape(batch, epochs, self.epoch_size) #reshape the batch back into [B, E, epoch_size]
+        else:   #CNN runs on the entire batch [B, 1, T*S] at once - overlap between epochs
             y = x.unsqueeze(1)
             y = self.cnn(y)
             y = y.transpose(-1, -2).reshape(batch, -1, self.epoch_size)
 
-        y = self.linear(y)
-        y = self.activation(y)
-        y = self.output_norm(y)
+        y = self.output_norm(self.activation(self.linear(y)))
         return y
 
 
@@ -296,16 +293,16 @@ class SignalEncoders(nn.Module):
         self.causal = causal
         self.chunk_causal = chunk_causal
 
-        encoders = {}
+        signal_encoders = {}
 
         for signal, encoder in signal_encoder_map.items():
-            if encoder in encoders:
+            if encoder in signal_encoders:
                 continue
             if signal not in SIGNAL_TO_SAMPLES_PER_EPOCH:
                 raise ValueError(f"Signal {signal} not found in SIGNAL_TO_SAMPLES_PER_EPOCH")
             samples_per_epoch = SIGNAL_TO_SAMPLES_PER_EPOCH[signal]
 
-            encoders[encoder] = SignalEncoder(
+            signal_encoders[encoder] = SignalEncoder(
                 input_num_channels=1,
                 epoch_embedding_dim=feature_dim,
                 activation=activation,
@@ -319,24 +316,25 @@ class SignalEncoders(nn.Module):
                 chunk_causal=chunk_causal,
             )
 
-        self.include_signal = include_signal
-        self.encoders = nn.ModuleDict(encoders)
-        self.signal_to_idx = {signal: i for i, signal in enumerate(sorted(signal_encoder_map.keys()))}
-
         if self.include_signal:
-            self.embedding = nn.Embedding(num_embeddings=len(signal_encoder_map), embedding_dim=self.feature_dim)
+            self.embedding = nn.Embedding(num_embeddings=len(signal_encoder_map), embedding_dim=self.feature_dim) #embedding is a lookup table that maps a signal to a feature vector
         else:
             self.register_parameter('embedding', None)
 
-    def __len__(self) -> int:
-        return len(self.encoders)
+        self.include_signal = include_signal
+        self.signal_encoders = nn.ModuleDict(signal_encoders)
+        self.signal_to_idx = {signal: i for i, signal in enumerate(sorted(signal_encoder_map.keys()))}
 
-    def get_encoder(self, signal: str) -> 'SignalEncoder':
+
+    def __len__(self) -> int:
+        return len(self.signal_encoders)
+
+    def get_signal_encoder(self, signal: str) -> 'SignalEncoder':
 
         if self.signal_encoder_map is not None:
-            return self.encoders[self.signal_encoder_map[signal]]
+            return self.signal_encoders[self.signal_encoder_map[signal]]
         else:
-            return self.encoders[signal]
+            return self.signal_encoders[signal]
     
     def forward(self, x: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
 
@@ -344,51 +342,17 @@ class SignalEncoders(nn.Module):
 
         for signal, x_signal in x.items():
             inf_batch_mask = torch.isinf(x_signal[:,0])
-            x_signal = torch.where(torch.isinf(x_signal), 0.0, x_signal)
-            out_BSF = self.get_encoder(signal)(x_signal)
-            out_BSF = torch.where(inf_batch_mask[:,None,None], float('-inf'), out_BSF)
+            x_signal = torch.where(torch.isinf(x_signal), 0.0, x_signal) #mask out inf values for batches with no signal
+            out_BSF = self.get_signal_encoder(signal)(x_signal) #encode the signal with 1D CNN
+            out_BSF = torch.where(inf_batch_mask[:,None,None], float('-inf'), out_BSF) #mask out inf values for batches with no signal
 
             if self.include_signal:
                 embed = self.embedding(
-                    torch.tensor(
-                        [self.signal_to_idx[signal]], 
-                        device=out_BSF.device, 
-                        dtype=torch.int64
-                    )
+                    torch.tensor([self.signal_to_idx[signal]], device=out_BSF.device, dtype=torch.int64) #embed the signal through embedding lookup table
                 )
-                embed_BSF = embed[None,:,:].repeat(out_BSF.size(0), out_BSF.size(1), 1)
-                out_BSF += embed_BSF
+                out_BSF = out_BSF + embed.view(1,1,-1) #reshape embedding to match the shape of the encoded signal and apply activation function
             out[signal] = out_BSF
         return out
-
-    
-class ConvLayerNorm(nn.Module):
-
-    def __init__(self, num_features: int, eps: float = 1e-5):
-        super().__init__()
-        self.eps = eps
-        self.weight = nn.Parameter(torch.ones(1, num_features, 1))
-        self.bias = nn.Parameter(torch.zeros(1, num_features, 1))
-    
-    def forward(self, x: Tensor) -> Tensor:
-        mean = x.mean(1,keepdim=True)
-        sigma = (x - mean).pow(2).mean(1,keepdim=True)
-        x = (x - mean) / torch.sqrt(sigma + self.eps)
-        x = self.bias + self.weight * x
-        return x
-
-class ConvRMSNorm(nn.Module):
-
-    def __init__(self, num_features: int, eps: float = 1e-5):
-        super().__init__()
-        self.weight = nn.Parameter(torch.ones(1, num_features, 1))
-        self.eps = eps
-    
-    def forward(self, x: Tensor) -> Tensor:
-        sigma = x.pow(2).mean(1,keepdim=True)
-        x = x / torch.sqrt(sigma + self.eps)
-        x = self.weight * x
-        return x
 
 class ConvLayerNorm(nn.Module):
 
