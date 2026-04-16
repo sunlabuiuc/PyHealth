@@ -17,6 +17,16 @@ def _build_mock_dataset(mode: str = "binary"):
     )
 
 
+def _build_mock_dataset(mode: str = "binary"):
+    """Creates a minimal dataset-like object expected by BaseModel."""
+    output_processor = SimpleNamespace(size=lambda: 1)
+    return SimpleNamespace(
+        output_schema={"label": mode},
+        input_schema={"lab_codes": "sequence", "lab_values": "sequence"},
+        output_processors={"label": output_processor},
+    )
+
+
 @pytest.fixture
 def mock_dataset_binary():
     return _build_mock_dataset(mode="binary")
