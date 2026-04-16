@@ -1,11 +1,37 @@
-"""Unit and integration tests for AMA discharge prediction on MIMIC-III.
+"""Test suite for MIMIC-III Against-Medical-Advice (AMA) discharge prediction.
 
-Aligned with the PyHealth PR checklist ("What makes a good PyHealth PR?",
-see course slides): task inherits ``BaseTask`` with explicit schemas;
-integration tests use a **five-row** shared synthetic slice so runs stay
-fast; mocks cover edge cases without loading full MIMIC-III.  End-to-end
-usage lives in ``examples/mimic3_ama_prediction_logistic_regression.py`` and
-``examples/mimic3_ama_prediction_rnn.py``.
+This is the automated test module for ``AMAPredictionMIMIC3``
+(``pyhealth.tasks.ama_prediction``).  It provides a comprehensive set of checks
+covering:
+
+    - Task helpers: race and insurance normalization, substance-use
+      detection from diagnosis text.
+    - Task contract: ``task_name``, ``input_schema``, ``output_schema``, and
+      default flags (e.g. newborn filtering).
+    - Feature engineering on mock patients: AMA vs non-AMA labels, age and
+      LOS from timestamps, demographics vs separate ``race`` tokens,
+      ``has_substance_use``, multi-admission behavior, and schema key sets.
+    - Ablation-oriented checks: baseline feature presence, label correctness,
+      and absence of clinical code fields in samples.
+    - Integration: curated five-row gzipped MIMIC-style CSVs with
+      ``MIMIC3Dataset`` + ``set_task`` + ``LogisticRegression`` forward passes
+      and short ``Trainer`` smoke runs.
+    - Synthetic generator sanity: exhaustive grid patient row count.
+
+Paper (task motivation):
+    Boag, W.; Suresh, H.; Celi, L. A.; Szolovits, P.; and Ghassemi, M.
+    "Racial Disparities and Mistrust in End-of-Life Care." MLHC / PMLR, 2018.
+
+Usage:
+    # From the PyHealth repository root (quiet summary)
+    cd /path/to/PyHealth && python -m unittest tests.core.test_mimic3_ama_prediction -q
+
+    # Verbose per-test output
+    cd /path/to/PyHealth && python -m unittest tests.core.test_mimic3_ama_prediction -v
+
+    # Run this file directly
+    cd /path/to/PyHealth && python tests/core/test_mimic3_ama_prediction.py
+
 """
 
 import gc
@@ -19,6 +45,7 @@ import unittest
 import warnings
 from datetime import datetime
 from pathlib import Path
+from typing import Any, Dict, List
 from unittest.mock import MagicMock
 
 import pandas as pd
@@ -45,7 +72,8 @@ _EXAMPLE_PATH = (
     / "mimic3_ama_prediction_logistic_regression.py"
 )
 _spec = importlib.util.spec_from_file_location(
-    "mimic3_ama_prediction_example", _EXAMPLE_PATH,
+    "mimic3_ama_prediction_example",
+    _EXAMPLE_PATH,
 )
 _example_mod = importlib.util.module_from_spec(_spec)
 assert _spec.loader is not None
@@ -257,7 +285,20 @@ _CURATED_MIMIC3_ICUSTAYS = [
 
 
 def _write_curated_synthetic_mimic3_for_tests(root: str) -> None:
-    """Write ``_CURATED_MIMIC3_*`` to gzipped PATIENTS/ADMISSIONS/ICUSTAYS."""
+    """Materialize the fixed 5-row MIMIC-III-like CSV.gz bundle for tests.
+
+    Args:
+        root: Directory receiving ``PATIENTS.csv.gz``, ``ADMISSIONS.csv.gz``,
+            ``ICUSTAYS.csv.gz`` (column names match ``MIMIC3Dataset`` ingest).
+
+    Returns:
+        None.
+
+    Note:
+        Row mix matches ``CURATED_SYNTHETIC_*`` constants so
+        ``AMAPredictionMIMIC3`` yields both AMA labels and varied demographics
+        without loading real MIMIC-III.
+    """
     root_path = Path(root)
     root_path.mkdir(parents=True, exist_ok=True)
     for name, rows in (
@@ -280,25 +321,36 @@ _shared_dataset = None
 _shared_sample_dataset = None
 
 
-def setUpModule():
+def setUpModule() -> None:
+    """Load one shared ``MIMIC3Dataset`` + ``SampleDataset`` for integration tests.
+
+    Runs once per test module import: writes curated CSVs, builds the base
+    dataset with ``tables=[]``, applies ``AMAPredictionMIMIC3`` via
+    ``set_task`` (task ``input_schema`` / ``output_schema`` drive processors).
+    """
     global _shared_tmpdir, _shared_cache_dir
     global _shared_dataset, _shared_sample_dataset
     _shared_tmpdir = tempfile.mkdtemp(prefix="ama_shared_")
     _shared_cache_dir = tempfile.mkdtemp(prefix="ama_shared_cache_")
     _write_curated_synthetic_mimic3_for_tests(_shared_tmpdir)
     _shared_dataset = MIMIC3Dataset(
-        root=_shared_tmpdir, tables=[], cache_dir=_shared_cache_dir,
+        root=_shared_tmpdir,
+        tables=[],
+        cache_dir=_shared_cache_dir,
     )
     _shared_sample_dataset = _shared_dataset.set_task(AMAPredictionMIMIC3())
 
 
-def tearDownModule():
+def tearDownModule() -> None:
+    """Release LitData handles and remove temp CSV/cache directories."""
     global _shared_dataset, _shared_sample_dataset
     if _shared_sample_dataset is not None:
         _shared_sample_dataset.close()
     _shared_sample_dataset = None
     _shared_dataset = None
     gc.collect()
+    # Proactively close lingering ``.ld`` chunk readers to avoid shutdown
+    # ``ResourceWarning`` from litdata after temp dirs are removed.
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         for obj in gc.get_objects():
@@ -324,8 +376,15 @@ def tearDownModule():
 # ------------------------------------------------------------------
 
 
-def _make_event(**attrs):
-    """Create a mock event with the given attributes."""
+def _make_event(**attrs: Any) -> MagicMock:
+    """Build a ``MagicMock`` admission/drug/etc. row for unit tests.
+
+    Args:
+        **attrs: Field names and values (e.g. ``hadm_id=``, ``icd9_code=``).
+
+    Returns:
+        Mock object whose attributes match ``attrs``.
+    """
     event = MagicMock()
     for key, value in attrs.items():
         setattr(event, key, value)
@@ -333,24 +392,33 @@ def _make_event(**attrs):
 
 
 def _build_patient(
-    patient_id,
-    admissions,
-    diagnoses,
-    procedures,
-    prescriptions,
-    gender="M",
-    dob="2100-01-01 00:00:00",
-):
-    """Build a mock Patient with ``get_events`` that respects filters.
+    patient_id: str,
+    admissions: List[Dict[str, Any]],
+    diagnoses: List[Dict[str, Any]],
+    procedures: List[Dict[str, Any]],
+    prescriptions: List[Dict[str, Any]],
+    gender: str = "M",
+    dob: str = "2100-01-01 00:00:00",
+) -> MagicMock:
+    """Build a mock ``Patient`` whose ``get_events`` mirrors PyHealth filters.
 
     Args:
-        patient_id: Patient identifier string.
-        admissions: List of dicts for admission events.
-        diagnoses: List of dicts for diagnosis events.
-        procedures: List of dicts for procedure events.
-        prescriptions: List of dicts for prescription events.
-        gender: Gender string for the demographics event.
-        dob: Date-of-birth string for computing age.
+        patient_id: ``patient.patient_id`` string.
+        admissions: kwargs for each admission ``MagicMock``.
+        diagnoses: kwargs for diagnosis events (``hadm_id`` aligned).
+        procedures: kwargs for procedure events.
+        prescriptions: kwargs for prescription events.
+        gender: Demographics token for ``patients`` event.
+        dob: DOB string feeding age logic in ``AMAPredictionMIMIC3``.
+
+    Returns:
+        ``MagicMock`` with ``get_events`` routing ``event_type`` to the proper
+        list and honoring simple ``filters`` tuples on code tables.
+
+    Note:
+        Output samples follow ``AMAPredictionMIMIC3.input_schema`` /
+        ``output_schema`` (same keys as real ``set_task`` tensors after
+        processors run on CSV-backed data).
     """
     patient = MagicMock()
     patient.patient_id = patient_id
@@ -373,11 +441,7 @@ def _build_patient(
         }.get(event_type, [])
         if filters:
             col, op, val = filters[0]
-            source = [
-                e
-                for e in source
-                if getattr(e, col, None) == val
-            ]
+            source = [e for e in source if getattr(e, col, None) == val]
         return source
 
     patient.get_events = _get_events
@@ -401,27 +465,17 @@ class TestNormalizeRace(unittest.TestCase):
 
     def test_white(self):
         self.assertEqual(_normalize_race("WHITE"), "White")
-        self.assertEqual(
-            _normalize_race("WHITE - RUSSIAN"), "White"
-        )
+        self.assertEqual(_normalize_race("WHITE - RUSSIAN"), "White")
 
     def test_black(self):
-        self.assertEqual(
-            _normalize_race("BLACK/AFRICAN AMERICAN"), "Black"
-        )
+        self.assertEqual(_normalize_race("BLACK/AFRICAN AMERICAN"), "Black")
 
     def test_hispanic(self):
-        self.assertEqual(
-            _normalize_race("HISPANIC OR LATINO"), "Hispanic"
-        )
-        self.assertEqual(
-            _normalize_race("SOUTH AMERICAN"), "Hispanic"
-        )
+        self.assertEqual(_normalize_race("HISPANIC OR LATINO"), "Hispanic")
+        self.assertEqual(_normalize_race("SOUTH AMERICAN"), "Hispanic")
 
     def test_asian(self):
-        self.assertEqual(
-            _normalize_race("ASIAN - CHINESE"), "Asian"
-        )
+        self.assertEqual(_normalize_race("ASIAN - CHINESE"), "Asian")
 
     def test_native_american(self):
         self.assertEqual(
@@ -430,27 +484,15 @@ class TestNormalizeRace(unittest.TestCase):
         )
 
     def test_other(self):
-        self.assertEqual(
-            _normalize_race("UNKNOWN/NOT SPECIFIED"), "Other"
-        )
+        self.assertEqual(_normalize_race("UNKNOWN/NOT SPECIFIED"), "Other")
         self.assertEqual(_normalize_race(None), "Other")
 
     def test_normalize_insurance(self):
-        self.assertEqual(
-            _normalize_insurance("Medicare"), "Public"
-        )
-        self.assertEqual(
-            _normalize_insurance("Medicaid"), "Public"
-        )
-        self.assertEqual(
-            _normalize_insurance("Government"), "Public"
-        )
-        self.assertEqual(
-            _normalize_insurance("Private"), "Private"
-        )
-        self.assertEqual(
-            _normalize_insurance("Self Pay"), "Self Pay"
-        )
+        self.assertEqual(_normalize_insurance("Medicare"), "Public")
+        self.assertEqual(_normalize_insurance("Medicaid"), "Public")
+        self.assertEqual(_normalize_insurance("Government"), "Public")
+        self.assertEqual(_normalize_insurance("Private"), "Private")
+        self.assertEqual(_normalize_insurance("Self Pay"), "Self Pay")
         self.assertEqual(_normalize_insurance(None), "Other")
 
 
@@ -458,42 +500,28 @@ class TestHasSubstanceUse(unittest.TestCase):
     """Unit tests for the substance-use detection helper."""
 
     def test_alcohol(self):
-        self.assertEqual(
-            _has_substance_use("ALCOHOL WITHDRAWAL"), 1
-        )
+        self.assertEqual(_has_substance_use("ALCOHOL WITHDRAWAL"), 1)
 
     def test_opioid(self):
-        self.assertEqual(
-            _has_substance_use("OPIOID DEPENDENCE"), 1
-        )
+        self.assertEqual(_has_substance_use("OPIOID DEPENDENCE"), 1)
 
     def test_heroin(self):
-        self.assertEqual(
-            _has_substance_use("HEROIN OVERDOSE"), 1
-        )
+        self.assertEqual(_has_substance_use("HEROIN OVERDOSE"), 1)
 
     def test_cocaine(self):
-        self.assertEqual(
-            _has_substance_use("COCAINE INTOXICATION"), 1
-        )
+        self.assertEqual(_has_substance_use("COCAINE INTOXICATION"), 1)
 
     def test_drug_withdrawal(self):
-        self.assertEqual(
-            _has_substance_use("DRUG WITHDRAWAL SEIZURE"), 1
-        )
+        self.assertEqual(_has_substance_use("DRUG WITHDRAWAL SEIZURE"), 1)
 
     def test_etoh(self):
         self.assertEqual(_has_substance_use("ETOH ABUSE"), 1)
 
     def test_substance(self):
-        self.assertEqual(
-            _has_substance_use("SUBSTANCE ABUSE"), 1
-        )
+        self.assertEqual(_has_substance_use("SUBSTANCE ABUSE"), 1)
 
     def test_overdose(self):
-        self.assertEqual(
-            _has_substance_use("OVERDOSE - ACCIDENTAL"), 1
-        )
+        self.assertEqual(_has_substance_use("OVERDOSE - ACCIDENTAL"), 1)
 
     def test_negative(self):
         self.assertEqual(_has_substance_use("PNEUMONIA"), 0)
@@ -503,12 +531,8 @@ class TestHasSubstanceUse(unittest.TestCase):
         self.assertEqual(_has_substance_use(None), 0)
 
     def test_case_insensitive(self):
-        self.assertEqual(
-            _has_substance_use("alcohol withdrawal"), 1
-        )
-        self.assertEqual(
-            _has_substance_use("Heroin Overdose"), 1
-        )
+        self.assertEqual(_has_substance_use("alcohol withdrawal"), 1)
+        self.assertEqual(_has_substance_use("Heroin Overdose"), 1)
 
 
 class TestAMAPredictionMIMIC3Schema(unittest.TestCase):
@@ -526,14 +550,10 @@ class TestAMAPredictionMIMIC3Schema(unittest.TestCase):
         self.assertEqual(schema["age"], "tensor")
         self.assertEqual(schema["los"], "tensor")
         self.assertEqual(schema["race"], "multi_hot")
-        self.assertEqual(
-            schema["has_substance_use"], "tensor"
-        )
+        self.assertEqual(schema["has_substance_use"], "tensor")
 
     def test_output_schema(self):
-        self.assertEqual(
-            AMAPredictionMIMIC3.output_schema, {"ama": "binary"}
-        )
+        self.assertEqual(AMAPredictionMIMIC3.output_schema, {"ama": "binary"})
 
     def test_defaults(self):
         task = AMAPredictionMIMIC3()
@@ -548,11 +568,25 @@ class TestAMAPredictionMIMIC3Mock(unittest.TestCase):
     All tests complete in milliseconds.
     """
 
-    def setUp(self):
+    def setUp(self) -> None:
+        """Fresh task instance per test (default ``exclude_newborns=True``)."""
         self.task = AMAPredictionMIMIC3()
 
-    def _default_admission(self, hadm_id="100", **overrides):
-        """Return a standard admission dict."""
+    def _default_admission(
+        self,
+        hadm_id: str = "100",
+        **overrides: Any,
+    ) -> Dict[str, Any]:
+        """Admission kwargs for ``_build_patient`` with sane AMA-test defaults.
+
+        Args:
+            hadm_id: Visit id string stored on the mock admission.
+            **overrides: Fields to replace (e.g. ``discharge_location=``).
+
+        Returns:
+            Dict passed to ``_make_event`` via ``_build_patient`` admissions
+            list; keys mirror post-ingest MIMIC attribute names.
+        """
         adm = {
             "hadm_id": hadm_id,
             "admission_type": "EMERGENCY",
@@ -583,20 +617,12 @@ class TestAMAPredictionMIMIC3Mock(unittest.TestCase):
             admissions=[
                 self._default_admission(
                     hadm_id="100",
-                    discharge_location=(
-                        "LEFT AGAINST MEDICAL ADVI"
-                    ),
+                    discharge_location=("LEFT AGAINST MEDICAL ADVI"),
                 ),
             ],
-            diagnoses=[
-                {"hadm_id": "100", "icd9_code": "4019"}
-            ],
-            procedures=[
-                {"hadm_id": "100", "icd9_code": "3893"}
-            ],
-            prescriptions=[
-                {"hadm_id": "100", "drug": "Aspirin"}
-            ],
+            diagnoses=[{"hadm_id": "100", "icd9_code": "4019"}],
+            procedures=[{"hadm_id": "100", "icd9_code": "3893"}],
+            prescriptions=[{"hadm_id": "100", "drug": "Aspirin"}],
         )
         samples = self.task(patient)
         self.assertEqual(len(samples), 1)
@@ -611,15 +637,9 @@ class TestAMAPredictionMIMIC3Mock(unittest.TestCase):
             admissions=[
                 self._default_admission(hadm_id="200"),
             ],
-            diagnoses=[
-                {"hadm_id": "200", "icd9_code": "25000"}
-            ],
-            procedures=[
-                {"hadm_id": "200", "icd9_code": "3995"}
-            ],
-            prescriptions=[
-                {"hadm_id": "200", "drug": "Metformin"}
-            ],
+            diagnoses=[{"hadm_id": "200", "icd9_code": "25000"}],
+            procedures=[{"hadm_id": "200", "icd9_code": "3995"}],
+            prescriptions=[{"hadm_id": "200", "drug": "Metformin"}],
         )
         samples = self.task(patient)
         self.assertEqual(len(samples), 1)
@@ -634,9 +654,7 @@ class TestAMAPredictionMIMIC3Mock(unittest.TestCase):
                 self._default_admission(
                     hadm_id="301",
                     admission_type="URGENT",
-                    discharge_location=(
-                        "LEFT AGAINST MEDICAL ADVI"
-                    ),
+                    discharge_location=("LEFT AGAINST MEDICAL ADVI"),
                     timestamp=datetime(2150, 6, 1),
                     dischtime="2150-06-05 10:00:00",
                 ),
@@ -674,15 +692,9 @@ class TestAMAPredictionMIMIC3Mock(unittest.TestCase):
                     admission_type="NEWBORN",
                 ),
             ],
-            diagnoses=[
-                {"hadm_id": "700", "icd9_code": "V3000"}
-            ],
-            procedures=[
-                {"hadm_id": "700", "icd9_code": "9904"}
-            ],
-            prescriptions=[
-                {"hadm_id": "700", "drug": "Vitamin K"}
-            ],
+            diagnoses=[{"hadm_id": "700", "icd9_code": "V3000"}],
+            procedures=[{"hadm_id": "700", "icd9_code": "9904"}],
+            prescriptions=[{"hadm_id": "700", "drug": "Vitamin K"}],
         )
         task_ex = AMAPredictionMIMIC3(exclude_newborns=True)
         self.assertEqual(task_ex(patient), [])
@@ -722,15 +734,9 @@ class TestAMAPredictionMIMIC3Mock(unittest.TestCase):
                     timestamp=datetime(2150, 2, 15),
                 ),
             ],
-            diagnoses=[
-                {"hadm_id": "800", "icd9_code": "4280"}
-            ],
-            procedures=[
-                {"hadm_id": "800", "icd9_code": "3722"}
-            ],
-            prescriptions=[
-                {"hadm_id": "800", "drug": "Furosemide"}
-            ],
+            diagnoses=[{"hadm_id": "800", "icd9_code": "4280"}],
+            procedures=[{"hadm_id": "800", "icd9_code": "3722"}],
+            prescriptions=[{"hadm_id": "800", "drug": "Furosemide"}],
         )
         samples = self.task(patient)
         self.assertEqual(len(samples), 1)
@@ -748,15 +754,9 @@ class TestAMAPredictionMIMIC3Mock(unittest.TestCase):
                     timestamp=datetime(2150, 5, 1),
                 ),
             ],
-            diagnoses=[
-                {"hadm_id": "1000", "icd9_code": "4019"}
-            ],
-            procedures=[
-                {"hadm_id": "1000", "icd9_code": "3893"}
-            ],
-            prescriptions=[
-                {"hadm_id": "1000", "drug": "Aspirin"}
-            ],
+            diagnoses=[{"hadm_id": "1000", "icd9_code": "4019"}],
+            procedures=[{"hadm_id": "1000", "icd9_code": "3893"}],
+            prescriptions=[{"hadm_id": "1000", "drug": "Aspirin"}],
             gender="F",
         )
         samples = self.task(patient)
@@ -780,21 +780,13 @@ class TestAMAPredictionMIMIC3Mock(unittest.TestCase):
                     timestamp=datetime(2150, 5, 1),
                 ),
             ],
-            diagnoses=[
-                {"hadm_id": "1001", "icd9_code": "4019"}
-            ],
-            procedures=[
-                {"hadm_id": "1001", "icd9_code": "3893"}
-            ],
-            prescriptions=[
-                {"hadm_id": "1001", "drug": "Aspirin"}
-            ],
+            diagnoses=[{"hadm_id": "1001", "icd9_code": "4019"}],
+            procedures=[{"hadm_id": "1001", "icd9_code": "3893"}],
+            prescriptions=[{"hadm_id": "1001", "drug": "Aspirin"}],
         )
         samples = self.task(patient)
         self.assertIn("race", samples[0])
-        self.assertEqual(
-            samples[0]["race"], ["race:Black"]
-        )
+        self.assertEqual(samples[0]["race"], ["race:Black"])
 
     def test_substance_use_positive(self):
         """Substance-use diagnosis -> has_substance_use=1."""
@@ -807,20 +799,12 @@ class TestAMAPredictionMIMIC3Mock(unittest.TestCase):
                     timestamp=datetime(2150, 7, 1),
                 ),
             ],
-            diagnoses=[
-                {"hadm_id": "1400", "icd9_code": "29181"}
-            ],
-            procedures=[
-                {"hadm_id": "1400", "icd9_code": "3893"}
-            ],
-            prescriptions=[
-                {"hadm_id": "1400", "drug": "Lorazepam"}
-            ],
+            diagnoses=[{"hadm_id": "1400", "icd9_code": "29181"}],
+            procedures=[{"hadm_id": "1400", "icd9_code": "3893"}],
+            prescriptions=[{"hadm_id": "1400", "drug": "Lorazepam"}],
         )
         samples = self.task(patient)
-        self.assertEqual(
-            samples[0]["has_substance_use"], [1.0]
-        )
+        self.assertEqual(samples[0]["has_substance_use"], [1.0])
 
     def test_substance_use_negative(self):
         """Non-substance diagnosis -> has_substance_use=0."""
@@ -833,20 +817,12 @@ class TestAMAPredictionMIMIC3Mock(unittest.TestCase):
                     timestamp=datetime(2150, 8, 1),
                 ),
             ],
-            diagnoses=[
-                {"hadm_id": "1500", "icd9_code": "486"}
-            ],
-            procedures=[
-                {"hadm_id": "1500", "icd9_code": "3893"}
-            ],
-            prescriptions=[
-                {"hadm_id": "1500", "drug": "Levofloxacin"}
-            ],
+            diagnoses=[{"hadm_id": "1500", "icd9_code": "486"}],
+            procedures=[{"hadm_id": "1500", "icd9_code": "3893"}],
+            prescriptions=[{"hadm_id": "1500", "drug": "Levofloxacin"}],
         )
         samples = self.task(patient)
-        self.assertEqual(
-            samples[0]["has_substance_use"], [0.0]
-        )
+        self.assertEqual(samples[0]["has_substance_use"], [0.0])
 
     def test_age_calculation(self):
         """Age computed from dob and admission timestamp."""
@@ -859,15 +835,9 @@ class TestAMAPredictionMIMIC3Mock(unittest.TestCase):
                     dischtime="2150-06-20 12:00:00",
                 ),
             ],
-            diagnoses=[
-                {"hadm_id": "1100", "icd9_code": "4019"}
-            ],
-            procedures=[
-                {"hadm_id": "1100", "icd9_code": "3893"}
-            ],
-            prescriptions=[
-                {"hadm_id": "1100", "drug": "Aspirin"}
-            ],
+            diagnoses=[{"hadm_id": "1100", "icd9_code": "4019"}],
+            procedures=[{"hadm_id": "1100", "icd9_code": "3893"}],
+            prescriptions=[{"hadm_id": "1100", "drug": "Aspirin"}],
             dob="2100-01-01 00:00:00",
         )
         samples = self.task(patient)
@@ -883,15 +853,9 @@ class TestAMAPredictionMIMIC3Mock(unittest.TestCase):
                     timestamp=datetime(2150, 6, 15),
                 ),
             ],
-            diagnoses=[
-                {"hadm_id": "1200", "icd9_code": "4019"}
-            ],
-            procedures=[
-                {"hadm_id": "1200", "icd9_code": "3893"}
-            ],
-            prescriptions=[
-                {"hadm_id": "1200", "drug": "Aspirin"}
-            ],
+            diagnoses=[{"hadm_id": "1200", "icd9_code": "4019"}],
+            procedures=[{"hadm_id": "1200", "icd9_code": "3893"}],
+            prescriptions=[{"hadm_id": "1200", "drug": "Aspirin"}],
             dob="1850-01-01 00:00:00",
         )
         samples = self.task(patient)
@@ -908,20 +872,12 @@ class TestAMAPredictionMIMIC3Mock(unittest.TestCase):
                     dischtime="2150-03-06 08:00:00",
                 ),
             ],
-            diagnoses=[
-                {"hadm_id": "1300", "icd9_code": "4019"}
-            ],
-            procedures=[
-                {"hadm_id": "1300", "icd9_code": "3893"}
-            ],
-            prescriptions=[
-                {"hadm_id": "1300", "drug": "Aspirin"}
-            ],
+            diagnoses=[{"hadm_id": "1300", "icd9_code": "4019"}],
+            procedures=[{"hadm_id": "1300", "icd9_code": "3893"}],
+            prescriptions=[{"hadm_id": "1300", "drug": "Aspirin"}],
         )
         samples = self.task(patient)
-        self.assertAlmostEqual(
-            samples[0]["los"][0], 5.0, places=2
-        )
+        self.assertAlmostEqual(samples[0]["los"][0], 5.0, places=2)
 
     # ----------------------------------------------------------
     # Multi-patient synthetic "dataset" (2 patients)
@@ -934,9 +890,7 @@ class TestAMAPredictionMIMIC3Mock(unittest.TestCase):
             admissions=[
                 self._default_admission(
                     hadm_id="A1",
-                    discharge_location=(
-                        "LEFT AGAINST MEDICAL ADVI"
-                    ),
+                    discharge_location=("LEFT AGAINST MEDICAL ADVI"),
                     ethnicity="HISPANIC OR LATINO",
                     insurance="Medicaid",
                     diagnosis="HEROIN OVERDOSE",
@@ -944,15 +898,9 @@ class TestAMAPredictionMIMIC3Mock(unittest.TestCase):
                     dischtime="2150-01-03 12:00:00",
                 ),
             ],
-            diagnoses=[
-                {"hadm_id": "A1", "icd9_code": "96500"}
-            ],
-            procedures=[
-                {"hadm_id": "A1", "icd9_code": "9604"}
-            ],
-            prescriptions=[
-                {"hadm_id": "A1", "drug": "Naloxone"}
-            ],
+            diagnoses=[{"hadm_id": "A1", "icd9_code": "96500"}],
+            procedures=[{"hadm_id": "A1", "icd9_code": "9604"}],
+            prescriptions=[{"hadm_id": "A1", "drug": "Naloxone"}],
             gender="M",
             dob="2100-06-15 00:00:00",
         )
@@ -969,15 +917,9 @@ class TestAMAPredictionMIMIC3Mock(unittest.TestCase):
                     dischtime="2150-03-12 08:00:00",
                 ),
             ],
-            diagnoses=[
-                {"hadm_id": "A2", "icd9_code": "78650"}
-            ],
-            procedures=[
-                {"hadm_id": "A2", "icd9_code": "8856"}
-            ],
-            prescriptions=[
-                {"hadm_id": "A2", "drug": "Aspirin"}
-            ],
+            diagnoses=[{"hadm_id": "A2", "icd9_code": "78650"}],
+            procedures=[{"hadm_id": "A2", "icd9_code": "8856"}],
+            prescriptions=[{"hadm_id": "A2", "drug": "Aspirin"}],
             gender="F",
             dob="2090-01-01 00:00:00",
         )
@@ -996,9 +938,7 @@ class TestAMAPredictionMIMIC3Mock(unittest.TestCase):
         s2 = all_samples[1]
         self.assertEqual(s2["ama"], 0)
         self.assertEqual(s2["race"], ["race:White"])
-        self.assertIn(
-            "insurance:Private", s2["demographics"]
-        )
+        self.assertIn("insurance:Private", s2["demographics"])
         self.assertEqual(s2["has_substance_use"], [0.0])
         self.assertAlmostEqual(s2["age"][0], 60.0, places=0)
 
@@ -1010,8 +950,13 @@ class TestAMAAblationBaselines(unittest.TestCase):
     different subsets of features via the model's feature_keys parameter.
     """
 
-    def setUp(self):
-        """Create a simple test patient with mixed demographics."""
+    def setUp(self) -> None:
+        """Build one multi-visit mock patient covering baseline feature keys.
+
+        Samples include all ``AMAPredictionMIMIC3.input_schema`` fields so
+        tests can reason about ``feature_keys`` subsets the same way models
+        do after ``set_task``.
+        """
         self.task = AMAPredictionMIMIC3()
         self.patient = _build_patient(
             patient_id="ABLATION_TEST",
@@ -1077,8 +1022,7 @@ class TestAMAAblationBaselines(unittest.TestCase):
             race_val = sample["race"][0].split(":", 1)[1]
             self.assertIn(
                 race_val,
-                ["White", "Black", "Hispanic", "Asian",
-                 "Native American", "Other"],
+                ["White", "Black", "Hispanic", "Asian", "Native American", "Other"],
             )
 
     def test_baseline_substance_use_feature_present(self):
@@ -1161,8 +1105,14 @@ class TestAMAAblationBaselines(unittest.TestCase):
 
         sample = samples[0]
         baseline_keys = {
-            "demographics", "age", "los", "race",
-            "has_substance_use", "visit_id", "patient_id", "ama",
+            "demographics",
+            "age",
+            "los",
+            "race",
+            "has_substance_use",
+            "visit_id",
+            "patient_id",
+            "ama",
         }
         self.assertEqual(set(sample.keys()), baseline_keys)
 
@@ -1248,8 +1198,8 @@ class TestAMAWithSyntheticData(unittest.TestCase):
 
     def test_has_positive_and_negative_labels(self):
         labels = [sample["ama"] for sample in _shared_sample_dataset]
-        has_positive = any(l == 1 for l in labels)
-        has_negative = any(l == 0 for l in labels)
+        has_positive = any(label == 1 for label in labels)
+        has_negative = any(label == 0 for label in labels)
 
         self.assertTrue(
             has_positive and has_negative,
@@ -1270,22 +1220,16 @@ class TestAMABaselineFeatures(unittest.TestCase):
         embedding_dim = model.embedding_model.embedding_layers[
             feature_keys[0]
         ].out_features
-        model.fc = torch.nn.Linear(
-            len(feature_keys) * embedding_dim, output_size
-        )
+        model.fc = torch.nn.Linear(len(feature_keys) * embedding_dim, output_size)
         return model
 
     def test_baseline_model_can_be_created(self):
-        model = self._create_model_with_features(
-            ["demographics", "age", "los"]
-        )
+        model = self._create_model_with_features(["demographics", "age", "los"])
         self.assertIsNotNone(model)
         self.assertIsNotNone(model.fc)
 
     def test_baseline_plus_race_model(self):
-        model = self._create_model_with_features(
-            ["demographics", "age", "los", "race"]
-        )
+        model = self._create_model_with_features(["demographics", "age", "los", "race"])
         self.assertIsNotNone(model)
         self.assertIsNotNone(model.fc)
 
@@ -1297,9 +1241,7 @@ class TestAMABaselineFeatures(unittest.TestCase):
         self.assertIsNotNone(model.fc)
 
     def test_baseline_forward_pass(self):
-        model = self._create_model_with_features(
-            ["demographics", "age", "los"]
-        )
+        model = self._create_model_with_features(["demographics", "age", "los"])
 
         train_ds, _, test_ds = split_by_patient(
             _shared_sample_dataset, [0.8, 0.0, 0.2], seed=0
@@ -1316,9 +1258,7 @@ class TestAMABaselineFeatures(unittest.TestCase):
         self.assertEqual(output["y_prob"].shape[0], len(test_ds))
 
     def test_baseline_plus_race_forward_pass(self):
-        model = self._create_model_with_features(
-            ["demographics", "age", "los", "race"]
-        )
+        model = self._create_model_with_features(["demographics", "age", "los", "race"])
 
         train_ds, _, test_ds = split_by_patient(
             _shared_sample_dataset, [0.8, 0.0, 0.2], seed=0
@@ -1361,9 +1301,7 @@ class TestAMATrainingSpeed(unittest.TestCase):
         train_ds, _, test_ds = split_by_patient(
             _shared_sample_dataset, [0.6, 0.0, 0.4], seed=0
         )
-        train_dl = get_dataloader(
-            train_ds, batch_size=8, shuffle=True
-        )
+        train_dl = get_dataloader(train_ds, batch_size=8, shuffle=True)
 
         model = LogisticRegression(
             dataset=_shared_sample_dataset,
@@ -1374,9 +1312,7 @@ class TestAMATrainingSpeed(unittest.TestCase):
         embedding_dim = model.embedding_model.embedding_layers[
             "demographics"
         ].out_features
-        model.fc = torch.nn.Linear(
-            3 * embedding_dim, output_size
-        )
+        model.fc = torch.nn.Linear(3 * embedding_dim, output_size)
 
         trainer = Trainer(model=model)
 
@@ -1398,9 +1334,7 @@ class TestAMATrainingSpeed(unittest.TestCase):
                 [0.6, 0.0, 0.4],
                 seed=split_seed,
             )
-            train_dl = get_dataloader(
-                train_ds, batch_size=8, shuffle=True
-            )
+            train_dl = get_dataloader(train_ds, batch_size=8, shuffle=True)
 
             model = LogisticRegression(
                 dataset=_shared_sample_dataset,
@@ -1411,9 +1345,7 @@ class TestAMATrainingSpeed(unittest.TestCase):
             embedding_dim = model.embedding_model.embedding_layers[
                 "demographics"
             ].out_features
-            model.fc = torch.nn.Linear(
-                3 * embedding_dim, output_size
-            )
+            model.fc = torch.nn.Linear(3 * embedding_dim, output_size)
 
             trainer = Trainer(model=model)
             trainer.train(
@@ -1477,10 +1409,12 @@ class TestCuratedSyntheticGrid(unittest.TestCase):
         ]
         self.assertEqual(sum(labels), CURATED_SYNTHETIC_AMA_POSITIVE)
         self.assertEqual(
-            labels.count(0), CURATED_SYNTHETIC_AMA_NEGATIVE,
+            labels.count(0),
+            CURATED_SYNTHETIC_AMA_NEGATIVE,
         )
         self.assertEqual(
-            labels.count(1), CURATED_SYNTHETIC_AMA_POSITIVE,
+            labels.count(1),
+            CURATED_SYNTHETIC_AMA_POSITIVE,
         )
 
 

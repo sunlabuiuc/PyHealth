@@ -1,7 +1,34 @@
-"""MIMIC-III Against-Medical-Advice (AMA) discharge prediction task.
+"""MIMIC-III Against-Medical-Advice (AMA) discharge prediction task module.
 
-Defines :class:`AMAPredictionMIMIC3` and helpers for Boag et al. 2018-style
-demographic baselines (race / substance-use ablations).
+Defines :class:`AMAPredictionMIMIC3`, a :class:`~pyhealth.tasks.base_task.BaseTask`
+subclass that emits one sample per eligible ICU admission from MIMIC-III
+administrative tables (patients, admissions, icustays).  No ICD / procedure /
+prescription sequences are required.  Module-level helpers normalize race and
+insurance strings, parse datetimes, and flag substance-related diagnoses from
+free-text ``ADMISSIONS.DIAGNOSIS``.
+
+Paper:
+    Boag, W.; Suresh, H.; Celi, L. A.; Szolovits, P.; and Ghassemi, M.
+    "Racial Disparities and Mistrust in End-of-Life Care." Machine Learning
+    for Healthcare Conference, PMLR 106:211-235, 2018.
+
+Model-side ablations (task schema is fixed; select ``feature_keys`` on the
+model, as in the example scripts):
+    1. BASELINE: ``demographics`` (gender + insurance), ``age``, ``los``.
+    2. BASELINE+RACE: adds ``race`` (normalized ethnicity tokens).
+    3. BASELINE+RACE+SUBSTANCE: adds ``has_substance_use`` (0/1 tensor).
+
+Task I/O (schemas for ``dataset.set_task``):
+    - ``input_schema``: ``multi_hot`` demographics and race; ``tensor`` age,
+      LOS, substance flag.
+    - ``output_schema``: binary ``ama`` from ``discharge_location``.
+
+Usage:
+    >>> from pyhealth.datasets import MIMIC3Dataset
+    >>> from pyhealth.tasks.ama_prediction import AMAPredictionMIMIC3
+    >>> dataset = MIMIC3Dataset(root="/path/to/mimic-iii/1.4", tables=[])
+    >>> sample_ds = dataset.set_task(AMAPredictionMIMIC3())
+
 """
 
 import re
@@ -212,21 +239,13 @@ class AMAPredictionMIMIC3(BaseTask):
 
         for admission in admissions:
             if self.exclude_newborns:
-                admission_type = getattr(
-                    admission, "admission_type", None
-                )
+                admission_type = getattr(admission, "admission_type", None)
                 if admission_type == "NEWBORN":
                     continue
 
             # --- Label ---
-            discharge_location = getattr(
-                admission, "discharge_location", None
-            )
-            ama_label = (
-                1
-                if discharge_location == self.AMA_DISCHARGE_LOCATION
-                else 0
-            )
+            discharge_location = getattr(admission, "discharge_location", None)
+            ama_label = 1 if discharge_location == self.AMA_DISCHARGE_LOCATION else 0
 
             # --- BASELINE demographics (gender + insurance) ---
             insurance = getattr(admission, "insurance", None)
@@ -234,15 +253,11 @@ class AMAPredictionMIMIC3(BaseTask):
             demo_tokens: List[str] = []
             if gender:
                 demo_tokens.append(f"gender:{gender}")
-            demo_tokens.append(
-                f"insurance:{_normalize_insurance(insurance)}"
-            )
+            demo_tokens.append(f"insurance:{_normalize_insurance(insurance)}")
 
             # --- Race (separate feature for ablation) ---
             ethnicity = getattr(admission, "ethnicity", None)
-            race_tokens: List[str] = [
-                f"race:{_normalize_race(ethnicity)}"
-            ]
+            race_tokens: List[str] = [f"race:{_normalize_race(ethnicity)}"]
 
             # --- Age (continuous) ---
             age_years = 0.0
@@ -252,10 +267,7 @@ class AMAPredictionMIMIC3(BaseTask):
                     age_years = (
                         admit_dt.year
                         - dob.year
-                        - int(
-                            (admit_dt.month, admit_dt.day)
-                            < (dob.month, dob.day)
-                        )
+                        - int((admit_dt.month, admit_dt.day) < (dob.month, dob.day))
                     )
                     age_years = float(min(age_years, 90))
 
@@ -268,8 +280,7 @@ class AMAPredictionMIMIC3(BaseTask):
                     admit_dt = admission.timestamp
                     if isinstance(admit_dt, datetime):
                         los_days = max(
-                            (dischtime - admit_dt).total_seconds()
-                            / 86400.0,
+                            (dischtime - admit_dt).total_seconds() / 86400.0,
                             0.0,
                         )
                 except (ValueError, TypeError):
