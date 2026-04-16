@@ -248,6 +248,35 @@ class LabradorModel(BaseModel):
             reduction="mean",
         )
 
+        if self.include_classifier_head:
+            output_size = self.get_output_size()
+            self.classifier = nn.Linear(hidden_dim, output_size)
+
+        if self.include_mlm_head:
+            self.mlm_head = LabradorMLMHead(hidden_dim=hidden_dim, vocab_size=vocab_size)
+
+    def categorical_mlm_loss(
+        self,
+        logits: torch.Tensor,
+        target_codes: torch.Tensor,
+        mlm_mask: torch.Tensor,
+    ) -> torch.Tensor:
+        """Cross-entropy on masked code positions only."""
+        if mlm_mask.sum() == 0:
+            return logits.new_zeros(())
+        return F.cross_entropy(logits[mlm_mask], target_codes[mlm_mask])
+
+    def continuous_mlm_loss(
+        self,
+        pred_values: torch.Tensor,
+        target_values: torch.Tensor,
+        mlm_mask: torch.Tensor,
+    ) -> torch.Tensor:
+        """MSE on masked value positions only."""
+        if mlm_mask.sum() == 0:
+            return pred_values.new_zeros(())
+        return F.mse_loss(pred_values[mlm_mask], target_values[mlm_mask])
+
     def forward(
         self,
         lab_codes: torch.Tensor,
