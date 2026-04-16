@@ -139,4 +139,7 @@ data/physionet.org/
 .vscode/
 
 # Model weight files (large binaries, distributed separately)
-weightfiles/notebooks/ 
+weightfiles/
+
+# personal experiments
+notebooks/

@@ -11,7 +11,8 @@ for survival modeling.
 """
 
 from collections import defaultdict
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Union, Tuple, Type
+
 
 import numpy as np
 from pyhealth.medcode import CrossMap
@@ -349,6 +350,12 @@ class DynamicSurvivalEngine:
 
 class DynamicSurvivalTask(BaseTask):
     """PyHealth-compatible dynamic survival task."""
+
+    task_name: str = "dynamic_survival"
+
+    input_schema = {}
+    output_schema = {}
+   
 
     def __init__(
         self,
