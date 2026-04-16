@@ -12,12 +12,14 @@ References:
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple
+from pathlib import Path
+from typing import Any, Dict, List, Mapping, Optional, Tuple, Union
 import mne
 import numpy as np
 import torch
 import torch.fft as fft
 
+from pyhealth.datasets.sample_dataset import create_sample_dataset
 from pyhealth.tasks import BaseTask
 
 
@@ -253,3 +255,135 @@ def preprocess_mvcl_views(
         xf = add_time_feature(xf)
 
     return xt, dx, xf
+
+
+def _to_tensor(data: Any, key_name: str) -> torch.Tensor:
+    """Convert input payloads to a detached CPU tensor for validation."""
+    if isinstance(data, torch.Tensor):
+        return data.detach().cpu()
+    try:
+        return torch.as_tensor(data).detach().cpu()
+    except Exception as err:  # pragma: no cover - defensive branch
+        raise TypeError(f"Could not convert `{key_name}` to tensor: {err}") from err
+
+
+def _normalize_signal_array(samples_obj: Any) -> np.ndarray:
+    """Normalize `.pt` sample tensor to [N, L] float32."""
+    signal_tensor = _to_tensor(samples_obj, "samples").float().contiguous()
+    if signal_tensor.ndim == 2:
+        return signal_tensor.numpy().astype(np.float32, copy=False)
+    if signal_tensor.ndim != 3:
+        raise ValueError(
+            "Expected `samples` shape [N, L], [N, 1, L], or [N, L, 1], "
+            f"got {tuple(signal_tensor.shape)}"
+        )
+
+    if signal_tensor.shape[1] == 1:
+        signal_tensor = signal_tensor[:, 0, :]
+    elif signal_tensor.shape[2] == 1:
+        signal_tensor = signal_tensor[:, :, 0]
+    else:
+        raise ValueError(
+            "Expected a single-channel tensor for `samples` when rank is 3; "
+            f"got {tuple(signal_tensor.shape)}"
+        )
+    return signal_tensor.numpy().astype(np.float32, copy=False)
+
+
+def _normalize_label_array(labels_obj: Any) -> np.ndarray:
+    """Normalize labels to [N] int64."""
+    label_tensor = _to_tensor(labels_obj, "labels").long().contiguous()
+    if label_tensor.ndim == 1:
+        return label_tensor.numpy().astype(np.int64, copy=False)
+    if label_tensor.ndim == 2 and 1 in label_tensor.shape:
+        return label_tensor.reshape(-1).numpy().astype(np.int64, copy=False)
+    raise ValueError(
+        "Expected `labels` shape [N] or [N, 1], "
+        f"got {tuple(label_tensor.shape)}"
+    )
+
+
+def pt_dict_to_pyhealth_samples(
+    tensor_dict: Mapping[str, Any],
+    *,
+    patient_id_prefix: str = "epilepsy_patient",
+    record_id_prefix: str = "epilepsy_record",
+    time_as_feature: bool = False,
+) -> List[Dict[str, Any]]:
+    """Convert `{samples, labels}` tensors into PyHealth raw sample dicts."""
+    if "samples" not in tensor_dict or "labels" not in tensor_dict:
+        keys = sorted(tensor_dict.keys())
+        raise KeyError(
+            "Expected keys `samples` and `labels` in tensor dict, "
+            f"but found keys: {keys}"
+        )
+
+    signal_array = _normalize_signal_array(tensor_dict["samples"])
+    label_array = _normalize_label_array(tensor_dict["labels"])
+
+    if signal_array.shape[0] != label_array.shape[0]:
+        raise ValueError(
+            "`samples` and `labels` length mismatch: "
+            f"{signal_array.shape[0]} vs {label_array.shape[0]}"
+        )
+
+    # preprocess_mvcl_views expects [N, L, D], use D=1 for single-channel EEG.
+    signal_tensor = torch.from_numpy(np.ascontiguousarray(signal_array)).float().unsqueeze(-1)
+    xt, dx, xf = preprocess_mvcl_views(signal_tensor, time_as_feature=time_as_feature)
+
+    samples: List[Dict[str, Any]] = []
+    for i in range(signal_array.shape[0]):
+        samples.append(
+            {
+                "patient_id": f"{patient_id_prefix}_{i}",
+                "record_id": f"{record_id_prefix}_{i}",
+                "signal": signal_array[i][np.newaxis, :],
+                "xt": xt[i].detach().cpu().numpy().astype(np.float32),
+                "xd": dx[i].detach().cpu().numpy().astype(np.float32),
+                "xf": xf[i].detach().cpu().numpy().astype(np.float32),
+                "label": int(label_array[i]),
+            }
+        )
+    return samples
+
+
+def pt_file_to_sample_dataset(
+    pt_path: Union[str, Path],
+    *,
+    dataset_name: str = "epilepsy_pt",
+    task_name: str = "MVCLTrainingEpilepsyPT",
+    in_memory: bool = True,
+    patient_id_prefix: str = "epilepsy_patient",
+    record_id_prefix: str = "epilepsy_record",
+    time_as_feature: bool = False,
+):
+    """Load one `.pt` file and return a PyHealth SampleDataset."""
+    try:
+        tensor_dict = torch.load(pt_path, map_location="cpu", weights_only=False)
+    except TypeError:
+        tensor_dict = torch.load(pt_path, map_location="cpu")
+
+    if not isinstance(tensor_dict, Mapping):
+        raise TypeError(
+            f"Expected `{pt_path}` to load as a mapping, got {type(tensor_dict)}"
+        )
+
+    samples = pt_dict_to_pyhealth_samples(
+        tensor_dict,
+        patient_id_prefix=patient_id_prefix,
+        record_id_prefix=record_id_prefix,
+        time_as_feature=time_as_feature,
+    )
+    return create_sample_dataset(
+        samples=samples,
+        input_schema={
+            "signal": "tensor",
+            "xt": "tensor",
+            "xd": "tensor",
+            "xf": "tensor",
+        },
+        output_schema={"label": "multiclass"},
+        dataset_name=dataset_name,
+        task_name=task_name,
+        in_memory=in_memory,
+    )

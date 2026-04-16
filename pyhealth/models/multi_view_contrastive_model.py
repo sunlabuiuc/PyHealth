@@ -16,6 +16,7 @@ class MultiViewContrastiveModel(BaseModel):
         self.training_stage = training_stage
         self.lambda_cl = 0.1
         self.tau = 0.07
+        self.num_classes = num_classes
 
         self.proj_t = nn.Linear(1, self.hidden_dim)
         self.proj_d = nn.Linear(1, self.hidden_dim)
@@ -45,7 +46,15 @@ class MultiViewContrastiveModel(BaseModel):
         self.F_d = projector()
         self.F_f = projector()
 
-        self.classifier = nn.Linear(self.hidden_dim, num_classes)
+        # self.classifier = nn.Linear(self.hidden_dim, num_classes)
+        self.classifier = nn.Sequential(
+            nn.Linear(self.hidden_dim * 3 , 1024),
+            nn.ReLU(),
+            nn.Linear(1024 , 512),
+            nn.ReLU(),
+            nn.Dropout(0.5),
+            nn.Linear(512, self.num_classes)
+        )
 
     def augment(self, x):
         # Placeholder for time-series augmentation (e.g., adding Gaussian noise)
@@ -106,14 +115,17 @@ class MultiViewContrastiveModel(BaseModel):
         elif self.training_stage == "finetune":
             z_t, z_d, z_f = self._forward_features(temporal_tensor, derivative_tensor, frequency_tensor)
             z_combined = torch.cat([z_t, z_d, z_f], dim=1)
+            z_combined = z_combined.view(z_combined.size(0), -1) 
             logits = self.classifier(z_combined)
             
             # Use PyHealth's automatic label parsing
             label_key = self.label_keys[0]
             y_true = cast(torch.Tensor, kwargs[label_key])
+            y_true = y_true.to(logits.device)
             
             # Use PyHealth's automatic loss function mapping
             criterion = self.get_loss_function()
+            # Cross entropy expects raw logits, not argmax class indices.
             loss_ce = criterion(logits, y_true)
             
             # Contrastive penalty during finetuning
