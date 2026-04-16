@@ -240,6 +240,7 @@ Available Datasets
     datasets/pyhealth.datasets.ChestXray14Dataset
     datasets/pyhealth.datasets.ISIC2018Dataset
     datasets/pyhealth.datasets.ISIC2018ArtifactsDataset
+    datasets/pyhealth.datasets.PH2Dataset
     datasets/pyhealth.datasets.TUABDataset
     datasets/pyhealth.datasets.TUEVDataset
     datasets/pyhealth.datasets.ClinVarDataset

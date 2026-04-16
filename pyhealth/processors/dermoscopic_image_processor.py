@@ -72,6 +72,11 @@ VALID_MODES = (
     "whole_norm",
 )
 
+#: Modes that operate on the full image and do not require a segmentation mask.
+MASK_FREE_MODES = frozenset(
+    ("whole", "high_whole", "low_whole", "gray_whole", "whole_norm")
+)
+
 _IMAGENET_MEAN = [0.485, 0.456, 0.406]
 _IMAGENET_STD = [0.229, 0.224, 0.225]
 
@@ -159,11 +164,20 @@ class DermoscopicImageProcessor(FeatureProcessor):
     # ------------------------------------------------------------------
 
     def _load_image_and_mask(self, image_path: str):
-        """Return ``(image_rgb, mask_binary)`` as uint8 numpy arrays."""
+        """Return ``(image_rgb, mask_binary)`` as uint8 numpy arrays.
+
+        For mask-free modes (``whole``, ``high_whole``, ``low_whole``,
+        ``gray_whole``, ``whole_norm``) the mask is a dummy all-ones array
+        and no mask file is read from disk.
+        """
         try:
             image = np.array(Image.open(image_path).convert("RGB"))
         except Exception as exc:
             raise FileNotFoundError(f"Image not found: {image_path}") from exc
+
+        if self.mode in MASK_FREE_MODES:
+            mask = np.ones(image.shape[:2], dtype=np.uint8)
+            return image, mask
 
         img_name = os.path.basename(image_path)
         stem = Path(img_name).stem

@@ -61,6 +61,33 @@ Two validation strategies are supported via ``--val_strategy``:
 All results are 5-fold CV on the ISIC 2018 *training* partition only
 (no independent test set); metrics may overestimate generalization.
 
+Replication Results (10 epochs, val_strategy=none, sigma=1.0)
+----------------------------------------------------------
+AUROC per fold (canonical mode order):
+
+  Mode               F1     F2     F3     F4     F5    Mean   +-Std
+  ------------------------------------------------------------------
+  whole            0.742  0.760  0.717  0.750  0.771  0.748  0.021
+  lesion           0.708  0.687  0.732  0.722  0.805  0.731  0.045
+  background       0.744  0.717  0.733  0.731  0.741  0.733  0.010
+  bbox             0.764  0.655  0.673  0.720  0.661  0.695  0.046
+  bbox70           0.707  0.624  0.611  0.620  0.634  0.639  0.039
+  bbox90           0.653  0.599  0.563  0.632  0.612  0.612  0.034
+  high_whole       0.650  0.670  0.680  0.602  0.639  0.648  0.027
+  high_lesion      0.645  0.714  0.652  0.682  0.741  0.687  0.041
+  high_background  0.723  0.681  0.655  0.684  0.685  0.686  0.024
+  low_whole        0.710  0.779  0.761  0.726  0.782  0.751  0.032
+  low_lesion       0.701  0.690  0.728  0.691  0.764  0.715  0.032
+  low_background   0.749  0.637  0.716  0.755  0.718  0.715  0.047
+
+Key observations:
+- low_whole (0.751) matches whole (0.748); diff +0.003, p=0.83 (n.s.).
+- low_whole vs high_whole: diff +0.103, p=0.002 (*) — the low/high-pass gap
+  is the only significant within-region contrast; low-frequency colour/texture
+  carries the signal, not fine-grained edges.
+- whole vs bbox90: diff +0.136, p=0.001 (*) — aggressive context removal
+  significantly degrades performance.
+
 """
 
 import argparse

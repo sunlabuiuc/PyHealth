@@ -57,6 +57,7 @@ from .ehrshot import EHRShotDataset
 from .eicu import eICUDataset
 from .isic2018 import ISIC2018Dataset
 from .isic2018_artifacts import ISIC2018ArtifactsDataset
+from .ph2 import PH2Dataset
 from .isruc import ISRUCDataset
 from .medical_transcriptions import MedicalTranscriptionsDataset
 from .mimic3 import MIMIC3Dataset
