@@ -6,18 +6,18 @@ import sys, types
 # pyhealth.models.__init__ imports MoleRec and SafeDrug which pull in rdkit.
 # rdkit's DLL is blocked by Application Control policy so the real import
 # fails.  Stubbing these out lets BaseModel load; EHRMamba never uses rdkit.
-for _mod_name in [
-    "rdkit",
-    "rdkit.Chem",
-    "rdkit.Chem.rdchem",
-    "rdkit.Chem.BRICS",
-    "rdkit.Geometry",
-    "rdkit.Geometry.rdGeometry",
-]:
-    if _mod_name not in sys.modules:
-        _stub = types.ModuleType(_mod_name)
-        _stub.__path__ = []   # marks it as a package so sub-imports don't error
-        sys.modules[_mod_name] = _stub
+# for _mod_name in [
+#     "rdkit",
+#     "rdkit.Chem",
+#     "rdkit.Chem.rdchem",
+#     "rdkit.Chem.BRICS",
+#     "rdkit.Geometry",
+#     "rdkit.Geometry.rdGeometry",
+# ]:
+#     if _mod_name not in sys.modules:
+#         _stub = types.ModuleType(_mod_name)
+#         _stub.__path__ = []   # marks it as a package so sub-imports don't error
+#         sys.modules[_mod_name] = _stub
 # ── end rdkit stub ────────────────────────────────────────────────────────────
 
 import torch
