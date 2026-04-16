@@ -28,6 +28,16 @@ from pyhealth.tasks import BaseTask
 logger = logging.getLogger(__name__)
 
 class PTBXLResamplingTask(BaseTask):
+    """
+    This task maps a low-resolution (100Hz) ECG signal to its 
+    high-resolution (500Hz) counterpart.
+
+    Attributes:
+        task_name (str): The name of the task ("PTBXLResampling").
+        input_schema (Dict[str, str]): "low_res": signal at 100Hz.
+        output_schema (Dict[str, str]): "high_res": signal at 500Hz.
+    """
+
     task_name: str = "PTBXLResampling"
     
     # Input: 100Hz Signal | Output: 500Hz Signal (the ground truth)
