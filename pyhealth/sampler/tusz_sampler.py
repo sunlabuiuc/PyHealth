@@ -1,3 +1,20 @@
+"""
+PyHealth task for extracting features with STFT and Frequency Bands using the Temple University Hospital (TUH) EEG Seizure Corpus (TUSZ) dataset V2.0.5.
+
+Dataset link:
+    https://isip.piconepress.com/projects/nedc/html/tuh_eeg/index.shtml
+
+Dataset paper:
+    Vinit Shah, Eva von Weltin, Silvia Lopez, et al., “The Temple University Hospital Seizure Detection Corpus,” arXiv preprint arXiv:1801.08085, 2018. Available: https://arxiv.org/abs/1801.08085
+
+Dataset paper link:
+    https://arxiv.org/abs/1801.08085
+
+Author:
+    Fernando Kenji Sakabe (fks@illinois.edu), 
+    Jesica Hirsch (jesicah2@illinois.edu), 
+    Jung-Jung Hsieh (jhsieh8@illinois.edu)
+"""
 import logging
 import torch
 import numpy as np
@@ -8,6 +25,14 @@ TYPES_6 = "6types"
 TYPES_30 = "30types"
 
 class TUSZSampler():
+    """Sampler for TUSZ Dataset implements how samples are chosen.
+
+    Dataset is available at https://isip.piconepress.com/projects/nedc/html/tuh_eeg/index.shtml.
+    
+    Args:
+        dataset        : an instance of BaseDataset.
+        is_training_set: is dataset a training set.
+    """
     def __init__(self, 
         dataset,
         is_training_set,
@@ -23,6 +48,7 @@ class TUSZSampler():
 
 
     def get_weights(self):
+        """Returns weights for each label."""
         self.__get_unique_labels()
         
         class_counts = np.bincount(self.unique_label_indices)
@@ -45,6 +71,7 @@ class TUSZSampler():
         return sample_weights
     
     def __get_unique_labels(self):
+        """Returns a unique set of labels."""
         patient_dev_dict = {}
         for sample in self.dataset:
             patient_id = sample['patient_id']
@@ -63,6 +90,7 @@ class TUSZSampler():
             self.unique_label_indices.append(self.unique_labels.index(label))
 
     def __skip_process(self, label_name, patient_dev_dict, patient_id):
+        """Skips patients for certain conditions."""
         if label_name == "8":
             return self.output_dim == 8 or self.binary_sampler_type == TYPES_30
         if self.is_training_set:
@@ -74,11 +102,13 @@ class TUSZSampler():
         return False
 
     def __init_dev_patient_dict(self, patient_dev_dict, patient_id):
+        """Initializes dictionary for patient labels."""
         if not self.is_training_set:
             patient_dev_dict[patient_id] = [0, 0, 0]
         return patient_dev_dict
 
     def __extract_label(self, label_name):
+        """Returns processed label name."""
         if self.binary_sampler_type == TYPES_6:
             return label_name
         elif self.binary_sampler_type == TYPES_30:
@@ -87,6 +117,7 @@ class TUSZSampler():
             raise ValueError("Invalid sampler type")
 
     def __update_dev_patient_dict(self, patient_dev_dict, patient_id, label_name):
+        """Updates patient-label dictionary according to the label name."""
         if self.is_training_set:
             return patient_dev_dict
 

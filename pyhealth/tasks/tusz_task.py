@@ -49,9 +49,9 @@ class TUSZTask(BaseTask):
         >>> from pyhealth.tasks import TUSZTask
         >>> dataset = TUSZDataset(root = 'tuh_eeg_v2.0.5', subset = 'train')
         >>> task = TUSZTask(
-        >>>     sample_rate = SAMPLE_RATE,
-        >>>     feature_sample_rate = FEATURE_SAMPLE_RATE,
-        >>> )
+        ...     sample_rate = SAMPLE_RATE,
+        ...     feature_sample_rate = FEATURE_SAMPLE_RATE,
+        ... )
         >>> samples = dataset.set_task(task)
         >>> sample = samples[0]
         >>> print(sample['signal'].shape)

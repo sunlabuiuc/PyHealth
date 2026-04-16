@@ -46,13 +46,13 @@ class TUSZHelper:
 
     Examples:
         >>>  self.helper = TUSZHelper(
-        >>>      sample_rate            = sample_rate,
-        >>>      feature_sample_rate    = feature_sample_rate,
-        >>>      label_type             = label_type,
-        >>>      eeg_type               = eeg_type,
-        >>>      min_binary_slicelength = min_binary_slicelength,
-        >>>      min_binary_edge_seiz   = min_binary_edge_seiz,
-        >>>  )
+        ...      sample_rate            = sample_rate,
+        ...      feature_sample_rate    = feature_sample_rate,
+        ...      label_type             = label_type,
+        ...      eeg_type               = eeg_type,
+        ...      min_binary_slicelength = min_binary_slicelength,
+        ...      min_binary_edge_seiz   = min_binary_edge_seiz,
+        ...  )
         >>>  self.helper.skip_file(file_name, signal_headers)
     """
 
