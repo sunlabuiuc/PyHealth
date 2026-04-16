@@ -72,8 +72,9 @@ class TestLabradorMLMUtilities:
         head = LabradorMLMHead(hidden_dim=4, vocab_size=8)
         hidden = torch.randn(2, 3, 4)
         out = head(hidden)
-        assert out["mlm_code_logit"].shape == (2, 3, 8)
-        assert out["mlm_value_pred"].shape == (2, 3)
+        assert out["categorical_logits"].shape == (2, 3, 8)
+        assert out["categorical_output"].shape == (2, 3, 8)
+        assert out["continuous_output"].shape == (2, 3, 1)
 
     def test_categorical_mlm_loss_computes(self, mock_dataset_binary):
         model = LabradorModel(
@@ -85,9 +86,8 @@ class TestLabradorMLMUtilities:
             dropout=0.0,
         )
         logits = torch.randn(2, 3, 8)
-        targets = torch.tensor([[1, 2, 0], [3, 0, 0]])
-        mlm_mask = torch.tensor([[True, False, False], [True, False, False]])
-        loss = model.categorical_mlm_loss(logits, targets, mlm_mask)
+        targets = torch.tensor([[1, 2, -1], [3, -1, -1]])
+        loss = model.categorical_mlm_loss(logits, targets)
         assert loss.ndim == 0
         assert torch.isfinite(loss)
 
@@ -100,10 +100,9 @@ class TestLabradorMLMUtilities:
             num_layers=1,
             dropout=0.0,
         )
-        preds = torch.tensor([[0.1, 0.2, 0.0], [0.3, 0.0, 0.0]])
-        targets = torch.tensor([[0.0, 0.2, 0.1], [0.5, 0.1, 0.0]])
-        mlm_mask = torch.tensor([[True, False, False], [True, False, False]])
-        loss = model.continuous_mlm_loss(preds, targets, mlm_mask)
+        preds = torch.tensor([[[0.1], [0.2], [0.0]], [[0.3], [0.0], [0.0]]])
+        targets = torch.tensor([[0.0, 0.2, -1.0], [0.5, -1.0, -1.0]])
+        loss = model.continuous_mlm_loss(preds, targets)
         assert loss.ndim == 0
         assert torch.isfinite(loss)
 
@@ -128,7 +127,7 @@ class TestLabradorForward:
                 label=tiny_batch["label"],
             )
 
-    def test_forward_without_mlm_head_has_no_mlm_outputs(
+    def test_forward_without_mlm_head_has_no_categorical_continuous_outputs(
         self, mock_dataset_binary, tiny_batch
     ):
         model = LabradorModel(
@@ -145,8 +144,8 @@ class TestLabradorForward:
             lab_values=tiny_batch["lab_values"],
             label=tiny_batch["label"],
         )
-        assert "mlm_code_logit" not in out
-        assert "mlm_value_pred" not in out
+        assert "categorical_output" not in out
+        assert "continuous_output" not in out
 
     def test_all_padding_true_no_nan(self, mock_dataset_binary, tiny_batch):
         model = LabradorModel(
@@ -177,16 +176,18 @@ class TestLabradorForward:
             dropout=0.0,
             include_mlm_head=True,
         )
-        mlm_mask = torch.tensor([[True, False, False], [True, False, False]])
+        masked_codes = torch.tensor([[1, -1, -1], [3, -1, -1]])
+        masked_values = torch.tensor([[0.1, -1.0, -1.0], [0.3, -1.0, -1.0]])
         out = model(
             lab_codes=tiny_batch["lab_codes"],
             lab_values=tiny_batch["lab_values"],
             padding_mask=tiny_batch["padding_mask"],
             label=tiny_batch["label"],
-            mlm_mask=mlm_mask,
-            mlm_target_codes=tiny_batch["lab_codes"],
-            mlm_target_values=tiny_batch["lab_values"],
+            masked_lab_codes=masked_codes,
+            masked_lab_values=masked_values,
         )
-        total_loss = out["loss"] + out["mlm_loss"]
+        assert "categorical_mlm_loss" in out
+        assert "continuous_mlm_loss" in out
+        total_loss = out["loss"] + out["categorical_mlm_loss"] + out["continuous_mlm_loss"]
         total_loss.backward()
         assert any(param.grad is not None for param in model.parameters())
