@@ -168,6 +168,7 @@ class DILA(BaseModel):
 # Stage-1 utility: pretrain the sparse autoencoder
 # ---------------------------------------------------------------------------
 
+
 def pretrain_sparse_autoencoder(
     autoencoder: SparseAutoencoder,
     embeddings: Union[torch.Tensor, DataLoader],
@@ -254,4 +255,3 @@ def pretrain_sparse_autoencoder(
         logger.info("Autoencoder weights saved to %s", save_path)
 
     return autoencoder
-
