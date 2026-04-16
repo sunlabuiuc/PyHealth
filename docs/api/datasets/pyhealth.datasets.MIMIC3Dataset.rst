@@ -7,9 +7,3 @@ The open Medical Information Mart for Intensive Care (MIMIC-III) database, refer
     :members:
     :undoc-members:
     :show-inheritance:
-
-.. seealso::
-
-   Administrative AMA discharge prediction (no ICD / Rx tables required):
-   :class:`pyhealth.tasks.ama_prediction.AMAPredictionMIMIC3`.
-   
