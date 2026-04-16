@@ -1,3 +1,20 @@
+"""
+PyHealth task for extracting features with STFT and Frequency Bands using the Temple University Hospital (TUH) EEG Seizure Corpus (TUSZ) dataset V2.0.5.
+
+Dataset link:
+    https://isip.piconepress.com/projects/nedc/html/tuh_eeg/index.shtml
+
+Dataset paper:
+    Vinit Shah, Eva von Weltin, Silvia Lopez, et al., “The Temple University Hospital Seizure Detection Corpus,” arXiv preprint arXiv:1801.08085, 2018. Available: https://arxiv.org/abs/1801.08085
+
+Dataset paper link:
+    https://arxiv.org/abs/1801.08085
+
+Author:
+    Fernando Kenji Sakabe (fks@illinois.edu), 
+    Jesica Hirsch (jesicah2@illinois.edu), 
+    Jung-Jung Hsieh (jhsieh8@illinois.edu)
+"""
 import logging
 import torch
 import pandas as pd
@@ -14,6 +31,31 @@ LOG_WARN = 'warn'
 LOG_ERR = 'err'
 
 class TUSZHelper:
+    """Preprocessing steps for realtime seizure detection on TUSZ dataset used in TUSZTask.
+
+    Main steps of preprocessing:
+      1) reads the EDF
+      2) skips certain conditions
+      3) gets labels
+      4) gets patient status
+      5) resamples signals
+      6) transforms labels with resampled signals
+      7) segments signals
+      8) converts labels to binary targets and bytes
+      9) creates bipolar signals
+
+    Examples:
+        >>>  self.helper = TUSZHelper(
+        >>>      sample_rate            = sample_rate,
+        >>>      feature_sample_rate    = feature_sample_rate,
+        >>>      label_type             = label_type,
+        >>>      eeg_type               = eeg_type,
+        >>>      min_binary_slicelength = min_binary_slicelength,
+        >>>      min_binary_edge_seiz   = min_binary_edge_seiz,
+        >>>  )
+        >>>  self.helper.skip_file(file_name, signal_headers)
+    """
+
     def __init__(self,
           sample_rate,
           feature_sample_rate,
@@ -44,6 +86,7 @@ class TUSZHelper:
     # substeps
     ##################################################
     def skip_file(self, file_name, signal_headers):
+        """Skips the current edf/event if the following conditions are met."""
         signal_sample_rate = signal_headers.get_signal_sample_rate()
         if self.sample_rate > signal_sample_rate:
             self.log(LOG_WARN, file_name, "*** signal sample rate is smaller than required.")
@@ -59,6 +102,7 @@ class TUSZHelper:
         return False
 
     def is_seizure_patient(self, file):
+        """Checks if the patient has seizure or not."""
         patient_wise_dir = self.__get_patientwise_dir(file)
         edf_list = self.__search_walk(patient_wise_dir, f".{self.label_type}_bi")
 
@@ -71,6 +115,7 @@ class TUSZHelper:
         return False
 
     def process_label(self, file_name):
+        """Extracts multi-class labels from csv/tse files."""
         df = self.__read_file(f"{file_name}.{self.label_type}")
         y_target = ""
         remained = 0
@@ -87,8 +132,8 @@ class TUSZHelper:
             y_target += int(intv_count) * str(self.disease_labels[label])
         return y_target
     
-    # resample from edf file
     def resample(self, file_name, signals, signal_headers):
+        """Resamples signals at the required sample rate."""
         signal_sample_rate = signal_headers.get_signal_sample_rate()
 
         signal_list = []
@@ -115,6 +160,7 @@ class TUSZHelper:
         return [ signal_list[signal_label_list.index(lead)] for lead in self.label_list ]
 
     def transform_labels_with_resampled_signals(self, signals, y_sampled):
+        """Transforms labels according to the resampled signals."""
         new_length = len(signals[0]) * (self.feature_sample_rate / self.sample_rate)
         if len(y_sampled) > new_length:
             y_sampled = y_sampled[:int(new_length)]
@@ -134,6 +180,13 @@ class TUSZHelper:
         return y_sampled
 
     def segment_signals(self, y_sampled, signals, is_seiz_patient):
+        """Segments signals into feature frames.
+        
+        Final shapes of returning values for default parameters:
+            sliced_raws: [(19, 6000), (19, 6000)] shape=(2, 19, 6000)
+            sliced_labels: shape=(2, 1500)
+            label_names: shape=(2, 1)
+        """
         raw_data = torch.Tensor(np.array(signals)).permute(1,0).to(torch.float16)
 
         min_seg_len_label = self.min_binary_slicelength * self.feature_sample_rate
@@ -212,13 +265,10 @@ class TUSZHelper:
                 sliced_raws.append(sliced_raw)
                 sliced_labels.append(sliced_y)
                 label_names.append(label)
-
-        # sliced_raws: [(19, 6000), (19, 6000)] shape=(2, 19, 6000)
-        # sliced_labels: shape=(2, 1500)
-        # label_names: shape=(2, 1)
         return sliced_raws, sliced_labels, label_names
 
     def convert_labels(self, sliced_labels):
+        """Converts multi-class labels into binary and other types of classification."""
         y1, y2, y3 = [], [], []
         for _, labels in enumerate(sliced_labels):
             y_map = list(map(int, labels))
@@ -233,6 +283,7 @@ class TUSZHelper:
         return y1, y2, y3
     
     def create_bipolar_signals(self, signals):
+        """Creates bipolar channels by taking voltage difference between 2 eletrotrodes."""
         electrode_pairs = [
             (0, 4), (1, 5), (4, 9), (5, 10),
             (9, 15), (10, 16), (15, 13), (16, 14),
@@ -244,7 +295,7 @@ class TUSZHelper:
             signals[a] - signals[b] for a, b in electrode_pairs
         ])
         if self.eeg_type == "uni_bipolar":
-            signals = torch.cat((signals, stacked_signals))
+            stacked_signals = torch.cat((signals, stacked_signals))
 
         return stacked_signals
 
@@ -252,6 +303,7 @@ class TUSZHelper:
     # utilities
     ##################################################
     def __read_file(self, file):
+        """Reads a file in tse or csv format."""
         if self.label_type == 'tse':
             return pd.read_csv(
               file,
@@ -266,24 +318,29 @@ class TUSZHelper:
         )
     
     def __get_patientwise_dir(self, file):
-        patient_wise_dir = "/".join(file.split("/")[:-2])
+        """Returns the directory path of the patient."""
+        patient_wise_dir = "/".join(file.split("/")[:-3])
         return patient_wise_dir
     
     def __search_walk(self, full_path, extension):
+        """Searches under a directory for a specific extension."""
         return [
             ('%s/%s' % (path, filename))
             for path, _, files in os.walk(full_path)
             for filename in files
-            if Path(path).suffix == extension
+            if Path(filename).suffix == extension
         ]
 
     def __get_unique_labels(self, seq):
+        """Returns unique list of labels from a sequence."""
         return [x[0] for x in groupby(seq)]
 
     def __get_event_label(self, labels):
+        """Returns multi-class classification labels."""
         return str(max(map(int, labels)))
 
     def log(self, level, file_name, msg):
+        """Unifies log format."""
         if level == LOG_INFO:
             logger.info(f"[{file_name}] {msg}")
         elif level == LOG_WARN:
@@ -296,15 +353,18 @@ class TUSZHelper:
     # variable functions
     ##################################################
     def __get_label_type(self):
+        """Returns label type according to the file type."""
         if self.label_type == "tse" or self.label_type == 'csv':
             return {'bckg':0,'cpsz':1,'mysz':2,'gnsz':3,'fnsz':4,'tnsz':5,'tcsz':6,'spsz':7,'absz':8}
         else:
             return {'bckg':0,'seiz':1}
 
     def __set_selected_diseases(self):
+        """Returns labels for the specific disease types from the dataset."""
         return [str(self.disease_labels[i]) for i in self.disease_type]
 
     def __set_target_dir(self):
+        """Transforms labels to target labels."""
         target_dictionary = {0:0}
         for idx, i in enumerate(self.disease_type):
             target_dictionary[self.disease_labels[i]] = idx + 1
@@ -312,17 +372,32 @@ class TUSZHelper:
 
 
 class TUSZSignalHeader:
+    """Wraps TUSZ signal headers into a class to avoid repeated processing.
+
+    Methods for the signal headers:
+      1) extracts and transforms labels
+      2) returns signal sample rate
+
+    Examples:
+        >>> signals, signal_headers, _ = highlevel.read_edf(file)
+        >>> signal_headers = TUSZSignalHeader(signal_headers)
+        >>> signal_headers.get_signal_sample_rate()
+    """
+
     def __init__(self, signal_headers):
         self.signal_headers = self.__extract_labels__(signal_headers)
         self.signal_sample_rate = int(self.signal_headers[0]['sample_frequency'])
 
     def __extract_labels__(self, signal_headers):
+        """Returns the labels of the signal."""
         for sh in signal_headers:
             sh['label'] = sh['label'].split("-")[0]
         return signal_headers
 
     def get_signal_sample_rate(self):
+        """Returns the sample rate of the signal."""
         return self.signal_sample_rate
 
     def __getitem__(self, key):
+        """Returns the signal header from index key."""
         return self.signal_headers[key]

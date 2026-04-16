@@ -1,5 +1,0 @@
-# version = csv_v1.0.0
-# duration = 500.0000 secs
-#
-channel,start_time,stop_time,label,confidence
-TERM,0.0000,500.0000,bckg,1.0000

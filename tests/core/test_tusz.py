@@ -1,35 +1,21 @@
-import os
+"""
+Unit tests for the TUSZDataset class.
+
+Author:
+    Fernando Kenji Sakabe (fks@illinois.edu), 
+    Jesica Hirsch (jesicah2@illinois.edu), 
+    Jung-Jung Hsieh (jhsieh8@illinois.edu)
+"""
 import tempfile
 import unittest
-from dataclasses import dataclass
 from pathlib import Path
-from typing import List
 import pandas as pd
-import numpy as np
-from unittest.mock import patch
 
 from pyhealth.datasets import TUSZDataset
 from pyhealth.tasks import TUSZTask
 
 SAMPLE_RATE = 200
 FEATURE_SAMPLE_RATE = 50
-
-@dataclass
-class _DummyEvent:
-	signal_file: str
-
-
-class _DummyPatient:
-	def __init__(self, patient_id: str, events: List[_DummyEvent]):
-		self.patient_id = patient_id
-		self._events = events
-
-	def get_events(self, event_type=None) -> List[_DummyEvent]:
-		# Treat all dummy events as belonging to the train split so each event
-		# is processed exactly once (eval returns empty).
-		if event_type == "eval":
-			return []
-		return self._events
 
 class TestTUSZDataset(unittest.TestCase):
 
