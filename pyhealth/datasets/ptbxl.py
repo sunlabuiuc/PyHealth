@@ -100,7 +100,7 @@ class PTBXLDataset(BaseDataset):
 		super().__init__(
 			root=root,
 			dataset_name="PTB-XL",
-			tables=["PTB-XL"],
+			tables=["ptb-xl"],
 			config_path=config_path,
 			**kwargs,
 		)

@@ -146,7 +146,7 @@ class ECGQADataset(BaseDataset):
             attribute = ";".join(record.get("attribute", []))
 
             rows.append({
-                "patient_id": str(ecg_id),
+                "patient_id": f"{ecg_id:05d}",
                 "ecg_id": ecg_id,
                 "question": record["question"],
                 "answer": answer,
