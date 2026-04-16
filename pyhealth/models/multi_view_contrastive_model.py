@@ -24,7 +24,7 @@ class MultiViewContrastiveModel(BaseModel):
 
         def make_encoder():
             encoder_layer = nn.TransformerEncoderLayer(
-                d_model=self.hidden_dim, nhead=4, batch_first=True
+                d_model=self.hidden_dim, nhead=4, batch_first=True, dropout=0.2
             )
             return nn.TransformerEncoder(encoder_layer, num_layers=3)
         self.encoder_t = make_encoder()
@@ -61,15 +61,22 @@ class MultiViewContrastiveModel(BaseModel):
         noise = torch.randn_like(x) * 0.01
         return x + noise
         
-    def info_nce_loss(self, z_i, z_j, tau):
+    def info_nce_loss(self, z_i, z_j, tau, symmetric=True):
         # Compute cosine similarity
         z_i = F.normalize(z_i, dim=1)
         z_j = F.normalize(z_j, dim=1)
-        sim = torch.mm(z_i, z_j.T) / tau
         
+        sim_ij = torch.mm(z_i, z_j.T) / tau
         # Positive pairs are on the diagonal
-        labels = torch.arange(sim.size(0), device=sim.device)
-        return F.cross_entropy(sim, labels)
+        labels = torch.arange(sim_ij.size(0), device=sim_ij.device)
+        loss_ij = F.cross_entropy(sim_ij, labels)
+        
+        if symmetric:
+            sim_ji = torch.mm(z_j, z_i.T) / tau
+            loss_ji = F.cross_entropy(sim_ji, labels)
+            return (loss_ij + loss_ji) / 2
+            
+        return loss_ij
     
     def _forward_features(self, x_t, x_d, x_f):
         x_t = self.proj_t(x_t)
@@ -109,8 +116,10 @@ class MultiViewContrastiveModel(BaseModel):
             loss = self.info_nce_loss(z_t, z_t_aug, self.tau) + \
                    self.info_nce_loss(z_d, z_d_aug, self.tau) + \
                    self.info_nce_loss(z_f, z_f_aug, self.tau)
-            print (f"Pretrain Loss: {loss.item():.4f}")
-            return {"loss": loss}
+            # print (f"Pretrain Loss: {loss.item():.4f}")
+            return {"loss": loss, 
+                    "zs":[z_t, z_d, z_f]
+                    } # Return the embeddings for each view
             
         elif self.training_stage == "finetune":
             z_t, z_d, z_f = self._forward_features(temporal_tensor, derivative_tensor, frequency_tensor)
