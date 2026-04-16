@@ -2,7 +2,7 @@
 Unit tests for MedLingoDataset and abbreviation_expansion_medlingo_fn.
 
 Run with:
-    pytest tests/test_medlingo_dataset.py -v
+    pytest tests/test_medlingo.py -v
 
 Unit tests (TestMedLingoDatasetStructure) use small synthetic data and run
 fast without any external downloads.
@@ -194,7 +194,8 @@ class TestMedLingoDatasetIntegration(unittest.TestCase):
         from pyhealth.datasets.medlingo_dataset import MedLingoDataset
         from pyhealth.tasks.medlingo_task import AbbreviationExpansionMedLingo
 
-        ds = MedLingoDataset(root=self.data_dir, dev=False)
+        cache_dir = tempfile.mkdtemp()
+        ds = MedLingoDataset(root=self.data_dir, cache_dir=cache_dir, dev=False)
         sample_ds = ds.set_task(AbbreviationExpansionMedLingo())
         self.assertGreater(len(sample_ds), 0)
 
