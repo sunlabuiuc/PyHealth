@@ -321,6 +321,10 @@ if __name__ == "__main__":
             else: model = MelanomaClassifier(dataset=task_dataset, feature_keys=["image"], label_key="melanoma", mode="binary", arch=args.model)
 
             weight_path = os.path.join(base_out_dir, f"fold_{fold}", "best.ckpt")
+            
+            # avoid logging echoes
+            logging.getLogger("pyhealth").handlers.clear()
+            logging.getLogger().handlers.clear()
 
             trainer = Trainer(model=model, output_path=base_out_dir, exp_name=f"fold_{fold}", metrics=metrics_list)
             # Check for weights AND make sure the user didn't flag --force_retrain
@@ -359,6 +363,10 @@ if __name__ == "__main__":
                 state_dict = torch.load(best_model_path, map_location=trainer.device, weights_only=True)
                 model.load_state_dict(state_dict['model'] if 'model' in state_dict else state_dict)
                 model.eval()
+
+                # avoid logging echoes
+                logging.getLogger("pyhealth").handlers.clear()
+                logging.getLogger().handlers.clear()
 
                 eval_trainer = Trainer(model=model, output_path=base_out_dir, exp_name=f"fold_{fold}", metrics=metrics_list)
                 for test_name, val_loader in val_loaders.items():
