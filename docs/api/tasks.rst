@@ -226,6 +226,7 @@ Available Tasks
     ChestX-ray14 Binary Classification <tasks/pyhealth.tasks.ChestXray14BinaryClassification>
     ChestX-ray14 Multilabel Classification <tasks/pyhealth.tasks.ChestXray14MultilabelClassification>
     ECG Question Answering <tasks/pyhealth.tasks.ECGQA>
+    PTB-XL Signal Resampling <tasks/ptbxl_resampling>
     Variant Classification (ClinVar) <tasks/pyhealth.tasks.VariantClassificationClinVar>
     Mutation Pathogenicity (COSMIC) <tasks/pyhealth.tasks.MutationPathogenicityPrediction>
     Cancer Survival Prediction (TCGA) <tasks/pyhealth.tasks.CancerSurvivalPrediction>
