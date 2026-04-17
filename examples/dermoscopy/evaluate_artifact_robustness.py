@@ -21,8 +21,8 @@ from pyhealth.datasets import get_dataloader
 from pyhealth.datasets import DermoscopyDataset
 from pyhealth.tasks import DermoscopyMelanomaClassification
 from pyhealth.processors import DermoscopyImageProcessor
-from pyhealth.models import DINOv2
-from train_dermoscopy import setup_dynamic_logging, MelanomaClassifier
+from pyhealth.models import DINOv2, TorchvisionModel
+from train_dermoscopy import setup_dynamic_logging
 
 def load_weights(model, weights_path, device):
     """Safely loads state dict weights into the architecture."""
@@ -68,7 +68,7 @@ def main():
     if args.model == "dinov2":
         base_model = DINOv2(dataset=task_dataset, feature_keys=["image"], label_key="melanoma", mode="binary")
     else:
-        base_model = MelanomaClassifier(dataset=task_dataset, feature_keys=["image"], label_key="melanoma", mode="binary", arch=args.model)
+        base_model = TorchvisionModel(dataset=task_dataset, feature_keys=["image"], label_key="melanoma", mode="binary", arch=args.model)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     

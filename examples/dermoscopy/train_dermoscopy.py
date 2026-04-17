@@ -17,9 +17,7 @@ import logging
 import re
 import numpy as np
 import torch
-import torch.nn as nn
 from pathlib import Path
-from torchvision import models
 from sklearn.model_selection import KFold
 from torch.utils.data import Subset
 from collections import defaultdict
@@ -28,12 +26,11 @@ from torch.utils.tensorboard import SummaryWriter
 
 from pyhealth.datasets import get_dataloader, split_by_sample
 from pyhealth.trainer import Trainer
-from pyhealth.models.base_model import BaseModel
 
 from pyhealth.datasets import DermoscopyDataset
 from pyhealth.tasks import DermoscopyMelanomaClassification
 from pyhealth.processors import DermoscopyImageProcessor
-from pyhealth.models import DINOv2
+from pyhealth.models import DINOv2, TorchvisionModel
 
 class PyHealthSubset(Subset):
     """A wrapper for PyTorch's Subset that satisfies PyHealth's DataLoader requirements."""
@@ -168,49 +165,6 @@ def generate_all_visualizations(base_out_dir, fold_num="Master"):
     
     print(f"[*] Visualizations Complete! PNGs and TensorBoard logs saved to {base_out_dir}")
 
-# ==========================================
-# MODEL WRAPPER
-# ==========================================
-class MelanomaClassifier(BaseModel):
-    """Wraps ResNet50 and Swin Transformer."""
-    def __init__(self, dataset, feature_keys, label_key, mode, arch="resnet50", **kwargs):
-        super().__init__(dataset=dataset)
-        self.feature_keys = feature_keys
-        self.feature_key = feature_keys[0]
-        self.label_key = label_key
-        self.mode = mode
-
-        if arch == "resnet50":
-            self.model = models.resnet50(weights=models.ResNet50_Weights.IMAGENET1K_V1)
-            num_ftrs = self.model.fc.in_features
-            self.model.fc = nn.Linear(num_ftrs, 1)
-        elif arch == "swin":
-            # Using Torchvision's Swin-T (Tiny) as a baseline
-            from torchvision.models import swin_t, Swin_T_Weights
-            self.model = swin_t(weights=Swin_T_Weights.DEFAULT)
-            # Swin-T outputs a 768-dimensional feature vector
-            num_ftrs = self.model.head.in_features
-            self.model.head = nn.Linear(num_ftrs, 1)
-        else:
-            raise ValueError(f"Architecture {arch} not supported.")
-
-    def forward(self, **kwargs):
-        # Extract the image tensor and move it to the device first
-        x = kwargs[self.feature_key].to(self.device)
-
-        # 2. Pass the GPU images into the GPU model
-        logits = self.model(x)
-
-        # 3. Extract labels and move them to the device
-        y_true = kwargs[self.label_key].to(self.device)
-
-        # 4. Calculate loss (Both logits and y_true are now on the GPU)
-        loss_fn = nn.BCEWithLogitsLoss()
-        loss = loss_fn(logits, y_true.float().view_as(logits))
-
-        y_prob = torch.sigmoid(logits)
-        return {"loss": loss, "y_prob": y_prob, "y_true": y_true}
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train Dermoscopy Classification Models")
     parser.add_argument('--data_dir', type=str, required=True, help="Absolute path to the dataset root folder")
@@ -272,7 +226,7 @@ if __name__ == "__main__":
         val_loader = get_dataloader(val_ds, batch_size=32, shuffle=False)
         
         if args.model == "dinov2": model = DINOv2(dataset=task_dataset, feature_keys=["image"], label_key="melanoma", mode="binary")
-        else: model = MelanomaClassifier(dataset=task_dataset, feature_keys=["image"], label_key="melanoma", mode="binary", arch=args.model)
+        else: model = TorchvisionModel(dataset=task_dataset, feature_keys=["image"], label_key="melanoma", mode="binary", arch=args.model)
 
         weight_path = os.path.join(base_out_dir, "master", "best.ckpt")
 
@@ -320,7 +274,7 @@ if __name__ == "__main__":
             val_loader = get_dataloader(val_ds, batch_size=32, shuffle=False)
 
             if args.model == "dinov2": model = DINOv2(dataset=task_dataset, feature_keys=["image"], label_key="melanoma", mode="binary")
-            else: model = MelanomaClassifier(dataset=task_dataset, feature_keys=["image"], label_key="melanoma", mode="binary", arch=args.model)
+            else: model = TorchvisionModel(dataset=task_dataset, feature_keys=["image"], label_key="melanoma", mode="binary", arch=args.model)
 
             weight_path = os.path.join(base_out_dir, f"fold_{fold}", "best.ckpt")
             

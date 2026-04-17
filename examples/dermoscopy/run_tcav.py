@@ -25,8 +25,8 @@ from pyhealth.datasets import get_dataloader
 from pyhealth.datasets import DermoscopyDataset
 from pyhealth.tasks import DermoscopyMelanomaClassification
 from pyhealth.processors import DermoscopyImageProcessor
-from pyhealth.models import DINOv2
-from train_dermoscopy import MelanomaClassifier, setup_dynamic_logging
+from pyhealth.models import DINOv2, TorchvisionModel
+from train_dermoscopy import setup_dynamic_logging
 
 def load_weights(model, weights_path, device):
     state_dict = torch.load(weights_path, map_location=device, weights_only=True)
@@ -120,7 +120,7 @@ def main():
         base_model = DINOv2(dataset=dataset, feature_keys=["image"], label_key="melanoma", mode="binary")
         target_layer = base_model.fc
     else:
-        base_model = MelanomaClassifier(dataset=dataset, feature_keys=["image"], label_key="melanoma", mode="binary", arch=args.model)
+        base_model = TorchvisionModel(dataset=dataset, feature_keys=["image"], label_key="melanoma", mode="binary", arch=args.model)
         target_layer = base_model.model.fc if hasattr(base_model, 'model') else base_model.classifier
 
     weight_path = os.path.join(args.exp_dir, "fold_0", "best.ckpt")

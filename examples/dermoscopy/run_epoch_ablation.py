@@ -23,8 +23,8 @@ from pyhealth.trainer import Trainer
 from pyhealth.datasets import DermoscopyDataset
 from pyhealth.tasks import DermoscopyMelanomaClassification
 from pyhealth.processors import DermoscopyImageProcessor
-from pyhealth.models import DINOv2
-from train_dermoscopy import MelanomaClassifier, setup_dynamic_logging
+from pyhealth.models import DINOv2, TorchvisionModel
+from train_dermoscopy import setup_dynamic_logging
 
 def main():
     parser = argparse.ArgumentParser(description="Epoch Ablation")
@@ -75,7 +75,7 @@ def main():
     trap_loader = get_dataloader(trap_task_dataset, batch_size=32, shuffle=False)
 
     if args.model == "dinov2": model = DINOv2(dataset=dataset, feature_keys=["image"], label_key="melanoma", mode="binary")
-    else: model = MelanomaClassifier(dataset=dataset, feature_keys=["image"], label_key="melanoma", mode="binary", arch=args.model)
+    else: model = TorchvisionModel(dataset=dataset, feature_keys=["image"], label_key="melanoma", mode="binary", arch=args.model)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
