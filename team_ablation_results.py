@@ -7,7 +7,7 @@ Run:
     python run_dsa.py
 
 Requirements:
-    pip install pyhealth torch numpy matplotlib pandas scikit-learn lifelines
+    pip install pyhealth torch numpy matplotlib pandas scikit-learn scikit-survival
 
 Important:
     Change dataset path below before running.
@@ -21,7 +21,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 from sklearn.metrics import average_precision_score
-from lifelines.utils import concordance_index
+from sksurv.metrics import concordance_index_censored
 from pyhealth.tasks.dynamic_survival import DynamicSurvivalTask
 from pyhealth.datasets import MIMIC3Dataset
 
@@ -118,26 +118,43 @@ def evaluate_3metrics(model, samples):
         auprc = None if y_true.sum() == 0 else average_precision_score(y_true, y_pred)
 
         # C-index
-        times, risks = [], []
+        times, risks, events = [], [], []
 
         for i in range(len(Y)):
             y_i = Y[i].cpu().numpy()
             pred_i = pred[i].cpu().numpy()
+            m_i = M[i].cpu().numpy()
 
-            idx = np.where(y_i > 0)[0]
-            if len(idx) == 0:
+            event_idx = np.where(y_i > 0)[0]
+            valid_idx = np.where(m_i > 0)[0]
+            if len(valid_idx) == 0:
+                # Skip samples with no usable data (fully zeroed mask).
                 continue
 
-            t = idx[0]
-            r = pred_i[:t + 1].sum()
+            if len(event_idx) > 0:
+                # y is one-hot by construction (generate_survival_label sets exactly one
+                # index), so event_idx always has one element and [0] is the event time.
+                event_time = event_idx[0]
+                observed = True
+            else:
+                # No event within horizon, use last unmasked step as the censoring time
+                # (i.e., last time we know the patient was event-free).
+                event_time = valid_idx[-1]
+                observed = False
 
-            times.append(t)
-            risks.append(r)
+            cumulative_risk = pred_i[:event_time + 1].sum()
+            times.append(event_time)
+            risks.append(cumulative_risk)
+            events.append(observed)
 
         if len(times) < 2 or len(set(times)) < 2:
             cindex = None
         else:
-            cindex = concordance_index(times, -np.array(risks))
+            cindex = concordance_index_censored(
+                    np.array(events, dtype=bool),
+                    np.array(times),
+                    np.array(risks)
+                ).concordance
 
     return bce.item(), auprc, cindex
 
