@@ -1,14 +1,3 @@
-# Configuration for AmiodaroneTrialDataset
-# Defines how BaseDataset should load and parse the amiodarone CSV file.
-#
-# Each row represents a single clinical trial:
-#   - patient_id: unique trial identifier
-#   - visit_id: single visit per trial
-#   - trial_name: human-readable trial name
-#   - log_relative_risk: observed effect (Y)
-#   - variance: within-trial variance (V)
-#   - n_total: total number of patients in the trial
-#   - split: "train" or "test"
 version: "5.0"
 tables:
   amiodarone_trials:
@@ -18,12 +7,19 @@ tables:
     attributes:
     - "visit_id"
     - "trial_name"
-    - "n_amiodarone"
-    - "n_control"
-    - "events_amiodarone"
-    - "events_control"
+    - "amiodarone_total_24h_mg"
+    - "comparison_intensity"
+    - "af_duration_gt_48h"
+    - "outcome_time_gt_48h"
+    - "mean_age"
+    - "mean_la_size"
+    - "fraction_male"
+    - "fraction_cv_disease"
+    - "followup_fraction"
+    - "adequate_concealment"
+    - "masked_patients"
+    - "masked_caregiver"
+    - "masked_assessor"
     - "log_relative_risk"
     - "variance"
-    - "n_total"
     - "split"
-    - "placebo_controlled"

@@ -1,40 +1,46 @@
 """Amiodarone Clinical Trial Dataset for PyHealth.
 
-Dataset containing clinical trial data for the amiodarone case study
-from Kaul & Gordon (2024). Amiodarone is assessed for its effectiveness
-in converting atrial fibrillation (AF) to normal sinus rhythm.
+Dataset for the amiodarone case study from Kaul & Gordon (2024).
+Amiodarone is assessed for its effectiveness in converting atrial
+fibrillation (AF) to normal sinus rhythm.
 
-Data Sources:
-    - 21 training trials from Letelier et al. (2003)
-    - 4 test trials published after the review (Thomas 2004,
-      Kochiadakis 2007, Balla 2011, Karacaglar 2019)
-    - 8 non-placebo-controlled trials used for prior training
+The embedded AMIODARONE_RAW_TRIALS data below was extracted from the
+21 trials reviewed in Letelier et al. (2003). Feature values were
+extracted using an LLM following the prompt in Figure 5 of
+Kaul & Gordon (2024). Numeric conversion follows the rules in
+Figure 6 of the same paper.
 
-The trial data CSV is bundled in the repository at:
-    pyhealth/datasets/data/amiodarone_trials.csv
+Data split:
+    - 11 non-placebo trials ("untrusted"): training data for the
+      prior encoder
+    - 10 placebo-controlled trials ("trusted"): used by the CMA model
+      for conformal meta-analysis
+
+Mapping to PyHealth's Patient-Visit-Event structure:
+    - Patient = one clinical trial
+    - Visit   = single aggregated observation from that trial
+    - Event   = the trial's features, computed effect, and variance
 
 References:
     Kaul, S.; and Gordon, G. J. 2024. Meta-Analysis with Untrusted Data.
-    In Proceedings of Machine Learning Research, volume 259, 563-593.
+    Proceedings of Machine Learning Research, 259:563-593.
 
-    Letelier, L. M., et al. 2003. Effectiveness of amiodarone for
-    conversion of atrial fibrillation to sinus rhythm: a meta-analysis.
-    Archives of Internal Medicine, 163(7):777-785.
+    Letelier, L. M., Udol, K., Ena, J., Weaver, B., and Guyatt, G. H.
+    2003. Effectiveness of amiodarone for conversion of atrial
+    fibrillation to sinus rhythm: a meta-analysis. Archives of Internal
+    Medicine, 163(7):777-785.
 
 Examples:
     >>> from pyhealth.datasets import AmiodaroneTrialDataset
-    >>> dataset = AmiodaroneTrialDataset(
-    ...     root="/path/to/data",
-    ... )
-    >>> dataset.stats()
+    >>> dataset = AmiodaroneTrialDataset(root="./data/amiodarone")
     >>> samples = dataset.set_task()
-    >>> print(samples[0])
 """
 
 import logging
 import os
+import re
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 import pandas as pd
@@ -44,110 +50,206 @@ from .base_dataset import BaseDataset
 logger = logging.getLogger(__name__)
 
 
-# Trial data from Letelier et al. (2003) and subsequent publications.
-# Columns: name, n_amiodarone, n_control, events_amiodarone, events_control,
-#          split (train/test), placebo_controlled (True/False)
-AMIODARONE_TRIALS = [
-    # === 21 Training trials (Letelier et al. 2003) ===
-    ("Galve 1996", 50, 50, 42, 30, "train", True),
-    ("Zehender 1994", 32, 22, 26, 7, "train", True),
-    ("Hou 1995", 20, 20, 19, 7, "train", True),
-    ("Donovan 1995", 30, 30, 21, 12, "train", True),
-    ("Cybulski 1996", 25, 13, 16, 3, "train", True),
-    ("Faniel 1983", 19, 11, 14, 3, "train", True),
-    ("Noc 1990", 52, 25, 42, 10, "train", True),
-    ("Peuhkurinen 2000", 36, 38, 10, 12, "train", True),
-    ("Kerin 1996", 15, 15, 7, 3, "train", True),
-    ("Cotter 1999", 100, 100, 82, 60, "train", True),
-    ("Vardas 2000", 102, 108, 76, 44, "train", True),
-    ("Joseph 2000", 30, 30, 26, 16, "train", True),
-    ("Hofmann 2006", 67, 61, 48, 39, "train", True),
-    ("Moran 1995", 13, 13, 11, 3, "train", True),
-    ("Tse 2001", 55, 55, 32, 21, "train", True),
-    ("Delle Karth 2001 IV", 38, 38, 33, 24, "train", True),
-    ("Delle Karth 2001 Oral", 38, 38, 27, 24, "train", True),
-    ("Vietti-Ramus 1993", 22, 18, 14, 4, "train", True),
-    ("Cowan 1998", 19, 20, 14, 11, "train", True),
-    ("Hilleman 2002", 82, 72, 76, 59, "train", True),
-    ("Letelier 2003", 21, 21, 18, 10, "train", True),
-    # === 4 Test trials (published after review) ===
-    ("Thomas 2004", 30, 30, 23, 18, "test", True),
-    ("Kochiadakis 2007", 39, 38, 31, 20, "test", True),
-    ("Balla 2011", 30, 30, 28, 14, "test", True),
-    ("Karacaglar 2019", 25, 25, 19, 14, "test", True),
+# ---------------------------------------------------------------------
+# Raw trial data (extracted via LLM per Figures 5-7 of the paper)
+# ---------------------------------------------------------------------
+AMIODARONE_RAW_TRIALS = [
+    {'Name': 'Cowan et al.16 (England) 1986', 'Features': {'Amiodarone Therapy Protocol': 'IV, 7 mg/kg in 30 min + 1000 mg in 23 h', 'Comparison Treatment': 'IV digoxin, 0.5 mg in 30 min twice, 30 min apart', 'Time to Outcome Measure': '24 h', 'Number of Amiodarone Patients': 18, 'Number of Control Patients': 16, 'Fraction with CV Disease': 76, 'Mean Left Atrium Size, mm': 'NA', 'Mean AF Duration': 'NA', 'Mean Age': 68, 'Fraction Male': 'NA', 'Adequate Concealment of Treatment': 'Yes', 'Follow-up Fraction': 100, 'Masked Patients': 'No', 'Masked Caregiver': 'no', 'Masked Assessor': 'no'}, 'Results': [5, 18, 4, 16]},
+    {'Name': 'Noc et al.17 (Slovenia) 1990', 'Features': {'Amiodarone Therapy Protocol': 'IV, 5 mg/kg in 3 min', 'Comparison Treatment': 'IV verapamil hydrochloride, 0.075 mg/kg in 1 min, repeated after 10 min', 'Time to Outcome Measure': '3 h', 'Number of Amiodarone Patients': 13, 'Number of Control Patients': 11, 'Fraction with CV Disease': 'NA', 'Mean Left Atrium Size, mm': 'NA', 'Mean AF Duration': '20 min to 48 h', 'Mean Age': 71, 'Fraction Male': 63, 'Adequate Concealment of Treatment': 'No', 'Follow-up Fraction': 100, 'Masked Patients': 'Yes', 'Masked Caregiver': 'no', 'Masked Assessor': 'no'}, 'Results': [10, 13, 0, 11]},
+    {'Name': 'Capucci et al.18 (Italy) 1992', 'Features': {'Amiodarone Therapy Protocol': 'IV, 5 mg/kg in 5 min + 1.8 g in 24 h', 'Comparison Treatment': 'Placebo', 'Time to Outcome Measure': '3 and 8 h', 'Number of Amiodarone Patients': 19, 'Number of Control Patients': 21, 'Fraction with CV Disease': 31, 'Mean Left Atrium Size, mm': 46, 'Mean AF Duration': '28 h', 'Mean Age': 58, 'Fraction Male': 56, 'Adequate Concealment of Treatment': 'NA', 'Follow-up Fraction': 100, 'Masked Patients': 'Yes', 'Masked Caregiver': 'no', 'Masked Assessor': 'no'}, 'Results': [7, 19, 10, 21]},
+    {'Name': 'Cochrane et al.19 (Australia) 1994', 'Features': {'Amiodarone Therapy Protocol': 'IV, 5 mg/kg in 30 min + 25-40 mg/h in 24 h', 'Comparison Treatment': 'IV digoxin, 0.5 mg in 30 min + 0.25 mg at 2 h + 0.125 mg at 5 h + 0.125 mg at 9 h', 'Time to Outcome Measure': '24 h', 'Number of Amiodarone Patients': 15, 'Number of Control Patients': 15, 'Fraction with CV Disease': 100, 'Mean Left Atrium Size, mm': 'NA', 'Mean AF Duration': '1 h', 'Mean Age': 63, 'Fraction Male': 70, 'Adequate Concealment of Treatment': 'No', 'Follow-up Fraction': 100, 'Masked Patients': 'Yes', 'Masked Caregiver': 'no', 'Masked Assessor': 'no'}, 'Results': [15, 15, 13, 15]},
+    {'Name': 'Donovan et al.20 (Australia) 1995', 'Features': {'Amiodarone Therapy Protocol': 'IV, 7 mg/kg in 30 min', 'Comparison Treatment': 'Placebo', 'Time to Outcome Measure': '2 and 8 h', 'Number of Amiodarone Patients': 32, 'Number of Control Patients': 32, 'Fraction with CV Disease': 65, 'Mean Left Atrium Size, mm': 'NA', 'Mean AF Duration': '10 h', 'Mean Age': 58, 'Fraction Male': 'NA', 'Adequate Concealment of Treatment': 'Yes', 'Follow-up Fraction': 100, 'Masked Patients': 'Yes', 'Masked Caregiver': 'yes', 'Masked Assessor': 'yes'}, 'Results': [21, 32, 20, 32]},
+    {'Name': 'Hou et al.21 (Taiwan) 1995', 'Features': {'Amiodarone Therapy Protocol': 'IV, 5 mg/min for 1 h + 3 mg/min for 3 h + 1 mg/min for 6 h + 0.5 mg/min for 14 h', 'Comparison Treatment': 'IV digoxin, 0.0043 mg/kg in 30 min every 2 h for 3 dosages', 'Time to Outcome Measure': '24 h', 'Number of Amiodarone Patients': 20, 'Number of Control Patients': 19, 'Fraction with CV Disease': 62, 'Mean Left Atrium Size, mm': 48, 'Mean AF Duration': '9 h', 'Mean Age': 70, 'Fraction Male': 86, 'Adequate Concealment of Treatment': 'NA', 'Follow-up Fraction': 100, 'Masked Patients': 'No', 'Masked Caregiver': 'no', 'Masked Assessor': 'no'}, 'Results': [19, 20, 14, 19]},
+    {'Name': 'Kondili et al.22 (Albania) 1995', 'Features': {'Amiodarone Therapy Protocol': 'IV, 300 mg + 900 mg in 24 h', 'Comparison Treatment': 'IV verapamil, 2 bolus of 5 mg each in 30 min', 'Time to Outcome Measure': '3, 6, and 12 h', 'Number of Amiodarone Patients': 21, 'Number of Control Patients': 21, 'Fraction with CV Disease': 72, 'Mean Left Atrium Size, mm': 31, 'Mean AF Duration': '30 h', 'Mean Age': 'NA', 'Fraction Male': 'NA', 'Adequate Concealment of Treatment': 'No', 'Follow-up Fraction': 100, 'Masked Patients': 'Yes', 'Masked Caregiver': 'no', 'Masked Assessor': 'no'}, 'Results': [4, 21, 3, 21]},
+    {'Name': 'Galve et al.23 (Spain) 1996', 'Features': {'Amiodarone Therapy Protocol': 'IV, 5 mg/kg in 30 min + 1.2 g in 24 h', 'Comparison Treatment': 'Placebo', 'Time to Outcome Measure': '2, 6, and 12 h', 'Number of Amiodarone Patients': 50, 'Number of Control Patients': 50, 'Fraction with CV Disease': 52, 'Mean Left Atrium Size, mm': 42, 'Mean AF Duration': '21 h', 'Mean Age': 61, 'Fraction Male': 55, 'Adequate Concealment of Treatment': 'Yes', 'Follow-up Fraction': 100, 'Masked Patients': 'NA', 'Masked Caregiver': 'yes', 'Masked Assessor': 'no'}, 'Results': [26, 50, 23, 50]},
+    {'Name': 'Kontoyannis et al.24 (Greece) 2001', 'Features': {'Amiodarone Therapy Protocol': 'IV, 300 mg in 2 h + 44 mg/h in 22 h', 'Comparison Treatment': 'IV digoxin, 0.5 mg bolus + 0.25 mg 1 h later + PRN', 'Time to Outcome Measure': '2, 8, and 96 h', 'Number of Amiodarone Patients': 16, 'Number of Control Patients': 26, 'Fraction with CV Disease': 100, 'Mean Left Atrium Size, mm': 43, 'Mean AF Duration': '30 min', 'Mean Age': 'NA', 'Fraction Male': 'NA', 'Adequate Concealment of Treatment': 'NA', 'Follow-up Fraction': 100, 'Masked Patients': 'Yes', 'Masked Caregiver': 'no', 'Masked Assessor': 'no'}, 'Results': [7, 16, 8, 26]},
+    {'Name': 'Bellandi et al.26 (Italy) 1999', 'Features': {'Amiodarone Therapy Protocol': 'IV, 120 mg/h for 24 h', 'Comparison Treatment': 'Placebo', 'Time to Outcome Measure': '24 h', 'Number of Amiodarone Patients': 60, 'Number of Control Patients': 60, 'Fraction with CV Disease': 'NA', 'Mean Left Atrium Size, mm': 'NA', 'Mean AF Duration': '48 h', 'Mean Age': 'NA', 'Fraction Male': 'NA', 'Adequate Concealment of Treatment': 'NA', 'Follow-up Fraction': 100, 'Masked Patients': 'NA', 'Masked Caregiver': 'NA', 'Masked Assessor': 'NA'}, 'Results': [55, 60, 39, 60]},
+    {'Name': 'Cotter et al.27 (Israel) 1999', 'Features': {'Amiodarone Therapy Protocol': 'IV, 125 mg/h for 24 h', 'Comparison Treatment': 'Placebo', 'Time to Outcome Measure': '24 h', 'Number of Amiodarone Patients': 50, 'Number of Control Patients': 50, 'Fraction with CV Disease': 67, 'Mean Left Atrium Size, mm': 45, 'Mean AF Duration': '10 h', 'Mean Age': 66, 'Fraction Male': 43, 'Adequate Concealment of Treatment': 'NA', 'Follow-up Fraction': 100, 'Masked Patients': 'Yes', 'Masked Caregiver': 'NA', 'Masked Assessor': 'NA'}, 'Results': [10, 50, 7, 50]},
+    {'Name': 'Kochiadakis et al.12 (Greece) 1999', 'Features': {'Amiodarone Therapy Protocol': 'IV, 300 mg in 1 h + 20 mg/kg in 1 d + 15 mg/kg in 1 d or oral 500 mg 4 times for 1 d + 200 mg 4 times for 1 d', 'Comparison Treatment': 'Placebo', 'Time to Outcome Measure': '48 h', 'Number of Amiodarone Patients': 135, 'Number of Control Patients': 69, 'Fraction with CV Disease': 60, 'Mean Left Atrium Size, mm': 42, 'Mean AF Duration': '13 h', 'Mean Age': 65, 'Fraction Male': 47, 'Adequate Concealment of Treatment': 'Yes', 'Follow-up Fraction': 100, 'Masked Patients': 'Yes', 'Masked Caregiver': 'no', 'Masked Assessor': 'no'}, 'Results': [20, 135, 7, 69]},
+    {'Name': 'Peuhkurinen et al.30 (Finland) 2000', 'Features': {'Amiodarone Therapy Protocol': 'Oral, 30 mg/kg single dose', 'Comparison Treatment': 'Placebo', 'Time to Outcome Measure': '24 h', 'Number of Amiodarone Patients': 31, 'Number of Control Patients': 31, 'Fraction with CV Disease': 74, 'Mean Left Atrium Size, mm': 39, 'Mean AF Duration': '3 to 48 h', 'Mean Age': 59, 'Fraction Male': 73, 'Adequate Concealment of Treatment': 'Yes', 'Follow-up Fraction': 86, 'Masked Patients': 'Yes', 'Masked Caregiver': 'yes', 'Masked Assessor': 'yes'}, 'Results': [27, 31, 11, 31]},
+    {'Name': 'Vardas et al.31 (Greece) 2000', 'Features': {'Amiodarone Therapy Protocol': 'IV, 300 mg in 1 h + 20 mg/kg in 24 h + oral 600 mg/d for 1 wk + 400 mg/d for 3 wk', 'Comparison Treatment': 'Placebo', 'Time to Outcome Measure': '1 and 24 h, 28 d', 'Number of Amiodarone Patients': 108, 'Number of Control Patients': 100, 'Fraction with CV Disease': 43, 'Mean Left Atrium Size, mm': 43, 'Mean AF Duration': '26 h', 'Mean Age': 65, 'Fraction Male': 49, 'Adequate Concealment of Treatment': 'Yes', 'Follow-up Fraction': 100, 'Masked Patients': 'Yes', 'Masked Caregiver': 'no', 'Masked Assessor': 'no'}, 'Results': [89, 108, 41, 100]},
+    {'Name': 'Joseph and Ward32 (Australia) 2000', 'Features': {'Amiodarone Therapy Protocol': 'IV, 5 mg/kg in 30 min + oral, 400 mg 3 times per day for 2 d', 'Comparison Treatment': 'IV digoxin, 0.5 mg in 30 min + oral 0.25 mg every 6 h for 24 h + 0.25 mg/d', 'Time to Outcome Measure': '4, 24, and 48 h', 'Number of Amiodarone Patients': 39, 'Number of Control Patients': 36, 'Fraction with CV Disease': 46, 'Mean Left Atrium Size, mm': 39, 'Mean AF Duration': '24 h', 'Mean Age': 63, 'Fraction Male': 56, 'Adequate Concealment of Treatment': 'No', 'Follow-up Fraction': 96, 'Masked Patients': 'No', 'Masked Caregiver': 'no', 'Masked Assessor': 'no'}, 'Results': [30, 39, 21, 36]},
+    {'Name': 'Cybulski et al.33 (Poland) 2001', 'Features': {'Amiodarone Therapy Protocol': 'IV, 5 mg/kg in 30 min + 10 mg/kg in 20 h', 'Comparison Treatment': 'Control group', 'Time to Outcome Measure': '20 h', 'Number of Amiodarone Patients': 106, 'Number of Control Patients': 54, 'Fraction with CV Disease': 92, 'Mean Left Atrium Size, mm': 41, 'Mean AF Duration': '18 h', 'Mean Age': 'NA', 'Fraction Male': 'NA', 'Adequate Concealment of Treatment': 'Yes', 'Follow-up Fraction': 100, 'Masked Patients': 'Yes', 'Masked Caregiver': 'no', 'Masked Assessor': 'no'}, 'Results': [11, 106, 3, 54]},
+    {'Name': 'Natale et al.25 (United States) 1998', 'Features': {'Amiodarone Therapy Protocol': 'IV, 600 mg in 20 min + 66 mg/h', 'Comparison Treatment': 'IV diltiazem hydrochloride', 'Time to Outcome Measure': '12 h', 'Number of Amiodarone Patients': 42, 'Number of Control Patients': 43, 'Fraction with CV Disease': 'NA', 'Mean Left Atrium Size, mm': 'NA', 'Mean AF Duration': '48 h', 'Mean Age': 'NA', 'Fraction Male': 'NA', 'Adequate Concealment of Treatment': 'NA', 'Follow-up Fraction': 100, 'Masked Patients': 'NA', 'Masked Caregiver': 'NA', 'Masked Assessor': 'NA'}, 'Results': [15, 42, 3, 43]},
+    {'Name': 'Bianconi et al.28 (Italy) 2000', 'Features': {'Amiodarone Therapy Protocol': 'IV 5 mg/kg in 15 min', 'Comparison Treatment': 'Placebo', 'Time to Outcome Measure': '3 h', 'Number of Amiodarone Patients': 41, 'Number of Control Patients': 42, 'Fraction with CV Disease': 73, 'Mean Left Atrium Size, mm': 44, 'Mean AF Duration': '7 d', 'Mean Age': 64, 'Fraction Male': 56, 'Adequate Concealment of Treatment': 'Yes', 'Follow-up Fraction': 94, 'Masked Patients': 'Yes', 'Masked Caregiver': 'no', 'Masked Assessor': 'no'}, 'Results': [2, 41, 1, 42]},
+    {'Name': 'Galperin et al.29 (Argentina) 2000', 'Features': {'Amiodarone Therapy Protocol': 'Oral, 600 mg/d for 4 wk', 'Comparison Treatment': 'Placebo', 'Time to Outcome Measure': '28 d', 'Number of Amiodarone Patients': 47, 'Number of Control Patients': 48, 'Fraction with CV Disease': 94, 'Mean Left Atrium Size, mm': 48, 'Mean AF Duration': '35 mo', 'Mean Age': 63, 'Fraction Male': 73, 'Adequate Concealment of Treatment': 'Yes', 'Follow-up Fraction': 100, 'Masked Patients': 'Yes', 'Masked Caregiver': 'yes', 'Masked Assessor': 'yes'}, 'Results': [33, 47, 1, 48]},
+    {'Name': 'Hohnloser et al.3 (Germany) 2000', 'Features': {'Amiodarone Therapy Protocol': 'Oral, 600 mg/d for 3 wk', 'Comparison Treatment': 'Oral diltiazem hydrochloride 180-270 mg/d for 3 wk', 'Time to Outcome Measure': '3 wk', 'Number of Amiodarone Patients': 95, 'Number of Control Patients': 108, 'Fraction with CV Disease': 85, 'Mean Left Atrium Size, mm': 46, 'Mean AF Duration': '16 wk', 'Mean Age': 61, 'Fraction Male': 73, 'Adequate Concealment of Treatment': 'NA', 'Follow-up Fraction': 81, 'Masked Patients': 'No', 'Masked Caregiver': 'no', 'Masked Assessor': 'no'}, 'Results': [33, 95, 12, 108]},
+    {'Name': 'Villani et al.11 (Italy) 2000', 'Features': {'Amiodarone Therapy Protocol': 'Oral, 400 mg/d for 1 mo', 'Comparison Treatment': 'Oral digoxin, 0.25 mg/d or oral diltiazem hydrochloride 180-360 mg/d for 1 mo', 'Time to Outcome Measure': '1 mo', 'Number of Amiodarone Patients': 44, 'Number of Control Patients': 76, 'Fraction with CV Disease': 47, 'Mean Left Atrium Size, mm': 50, 'Mean AF Duration': '17 wk', 'Mean Age': 58, 'Fraction Male': 67, 'Adequate Concealment of Treatment': 'No', 'Follow-up Fraction': 100, 'Masked Patients': 'Yes', 'Masked Caregiver': 'no', 'Masked Assessor': 'no'}, 'Results': [11, 44, 4, 76]},
 ]
 
 
-def compute_log_relative_risk(
-    events_treat: int,
-    n_treat: int,
-    events_ctrl: int,
-    n_ctrl: int,
-) -> tuple:
-    """Compute log relative risk and its variance.
+# ---------------------------------------------------------------------
+# Manually computed total amiodarone dose (mg) in first 24 hours.
+# The paper's LLM-generated parser (Figure 7) had bugs, so these were
+# hand-computed from each trial's protocol. Using AVG_WEIGHT_KG = 70.
+# ---------------------------------------------------------------------
+MANUAL_AMIODARONE_DOSE_MG = {
+    "Cowan et al.16 (England) 1986": 1490.0,
+    "Noc et al.17 (Slovenia) 1990": 350.0,
+    "Capucci et al.18 (Italy) 1992": 2150.0,
+    "Cochrane et al.19 (Australia) 1994": 1130.0,
+    "Donovan et al.20 (Australia) 1995": 490.0,
+    "Hou et al.21 (Taiwan) 1995": 1620.0,
+    "Kondili et al.22 (Albania) 1995": 1200.0,
+    "Galve et al.23 (Spain) 1996": 1550.0,
+    "Kontoyannis et al.24 (Greece) 2001": 1268.0,
+    "Bellandi et al.26 (Italy) 1999": 2880.0,
+    "Cotter et al.27 (Israel) 1999": 3000.0,
+    "Kochiadakis et al.12 (Greece) 1999": 1700.0,
+    "Peuhkurinen et al.30 (Finland) 2000": 2100.0,
+    "Vardas et al.31 (Greece) 2000": 1700.0,
+    "Joseph and Ward32 (Australia) 2000": 1550.0,
+    "Cybulski et al.33 (Poland) 2001": 1050.0,
+    "Natale et al.25 (United States) 1998": 2162.0,
+    "Bianconi et al.28 (Italy) 2000": 350.0,
+    "Galperin et al.29 (Argentina) 2000": 600.0,
+    "Hohnloser et al.3 (Germany) 2000": 600.0,
+    "Villani et al.11 (Italy) 2000": 400.0,
+}
 
-    Applies a 0.5 continuity correction if any cell is zero.
 
-    Args:
-        events_treat: Events in treatment group.
-        n_treat: Total in treatment group.
-        events_ctrl: Events in control group.
-        n_ctrl: Total in control group.
+# ---------------------------------------------------------------------
+# Feature conversion helpers (Figure 6 of the paper)
+# ---------------------------------------------------------------------
+def _parse_comparison_treatment(treatment: str) -> float:
+    """Map comparison treatment to [0, 1].
 
-    Returns:
-        Tuple of (log_relative_risk, variance).
+    0 = placebo, 0.5 = single oral drug, 0.75 = IV drug,
+    1 = intensive high-dose combination.
     """
-    e_t, n_t = float(events_treat), float(n_treat)
-    e_c, n_c = float(events_ctrl), float(n_ctrl)
+    if not treatment:
+        return 0.5
+    t = treatment.lower().strip()
+    if "placebo" in t or ("control" in t and "group" in t):
+        return 0.0
 
-    # Continuity correction for zero cells
+    intensive_drugs = ["diltiazem", "verapamil", "digoxin", "procainamide"]
+    is_iv = "iv" in t or "intravenous" in t
+    drug_hits = sum(1 for d in intensive_drugs if d in t)
+
+    if is_iv and drug_hits >= 1:
+        return 0.75
+    if drug_hits >= 1:
+        return 0.5
+    return 0.5
+
+
+def _parse_duration_48h(duration: Any) -> float:
+    """Return -1 if duration <= 48h, +1 if > 48h, 0 if NA."""
+    if duration is None:
+        return 0.0
+    s = str(duration).strip().lower()
+    if s in ("", "na", "none"):
+        return 0.0
+    m = re.search(r"(\d+\.?\d*)\s*(min|h|d|wk|mo|y)", s)
+    if not m:
+        return 0.0
+    amount = float(m.group(1))
+    unit = m.group(2)
+    to_hours = {
+        "min": 1 / 60, "h": 1.0, "d": 24.0,
+        "wk": 24.0 * 7, "mo": 24.0 * 30, "y": 24.0 * 365,
+    }
+    return -1.0 if amount * to_hours.get(unit, 0) <= 48 else 1.0
+
+
+def _to_float_or_na(value: Any) -> Optional[float]:
+    """Convert to float, or None if NA."""
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    s = str(value).strip()
+    if s.upper() in ("NA", "", "NONE"):
+        return None
+    try:
+        return float(s)
+    except ValueError:
+        return None
+
+
+def _parse_boolean(value: Any) -> float:
+    """Convert Yes/No/NA strings to 1 / -1 / 0."""
+    if value is None:
+        return 0.0
+    s = str(value).strip().lower()
+    if s in ("yes", "true"):
+        return 1.0
+    if s in ("no", "false"):
+        return -1.0
+    return 0.0
+
+
+def _parse_percent(value: Any) -> float:
+    """Parse a percent value to [0, 1]. Returns 0.5 if NA."""
+    v = _to_float_or_na(value)
+    if v is None:
+        return 0.5
+    return v / 100.0 if v > 1.0 else v
+
+
+def _compute_log_relative_risk(
+    events_treat: int, n_treat: int,
+    events_ctrl: int, n_ctrl: int,
+) -> Dict[str, float]:
+    """Compute log relative risk and variance from event counts."""
+    e_t = float(events_treat)
+    n_t = float(n_treat)
+    e_c = float(events_ctrl)
+    n_c = float(n_ctrl)
     if e_t == 0 or e_c == 0:
         e_t += 0.5
         n_t += 1.0
         e_c += 0.5
         n_c += 1.0
-
     p_t = e_t / n_t
     p_c = e_c / n_c
+    return {
+        "log_relative_risk": float(np.log(p_t / p_c)),
+        "variance": float((1.0 - p_t) / e_t + (1.0 - p_c) / e_c),
+    }
 
-    log_rr = np.log(p_t / p_c)
-    variance = (1.0 - p_t) / e_t + (1.0 - p_c) / e_c
 
-    return log_rr, variance
+# ---------------------------------------------------------------------
+# The dataset class
+# ---------------------------------------------------------------------
+FEATURE_COLUMNS = [
+    "amiodarone_total_24h_mg",
+    "comparison_intensity",
+    "af_duration_gt_48h",
+    "outcome_time_gt_48h",
+    "mean_age",
+    "mean_la_size",
+    "fraction_male",
+    "fraction_cv_disease",
+    "followup_fraction",
+    "adequate_concealment",
+    "masked_patients",
+    "masked_caregiver",
+    "masked_assessor",
+]
 
 
 class AmiodaroneTrialDataset(BaseDataset):
     """Amiodarone clinical trial dataset for conformal meta-analysis.
 
-    Contains trial-level data on amiodarone for atrial fibrillation,
-    including observed effects (log relative risk), variances, and
-    trial features.
-
-    Mapping to PyHealth's Patient-Visit-Event structure:
-
-        - Patient = one clinical trial (e.g., "Thomas 2004")
-        - Visit   = single observation from that trial
-        - Event   = the trial's effect size, variance, and features
-
-    The trial data is bundled in the repository. No external download
-    is required.
+    All trial data is bundled inside this module (AMIODARONE_RAW_TRIALS).
+    No external download or data file is required. The dataset processes
+    the embedded raw trials into a numeric CSV on first use.
 
     Args:
         root: Directory where the processed CSV will be stored.
         dataset_name: Optional name override. Defaults to
             "amiodarone_trials".
-        config_path: Optional path to config YAML. If None, uses
-            the default config in the configs directory.
-        cache_dir: Optional directory for caching processed data.
-        num_workers: Number of parallel workers. Defaults to 1.
-        dev: If True, loads only a small subset for development.
-
-    Attributes:
-        root: Root directory for data storage.
+        config_path: Optional path to the YAML config. If None,
+            uses the default in the configs directory.
+        cache_dir: Optional cache directory.
+        num_workers: Parallel workers. Defaults to 1.
+        dev: Load only a small subset for development if True.
 
     Examples:
         >>> dataset = AmiodaroneTrialDataset(root="./data/amiodarone")
-        >>> print(len(dataset.patients))  # 25 trials
+        >>> print(len(dataset.unique_patient_ids))  # 21
     """
 
     def __init__(
@@ -183,39 +285,42 @@ class AmiodaroneTrialDataset(BaseDataset):
 
     @staticmethod
     def prepare_metadata(root: str) -> None:
-        """Generate the trial metadata CSV from hardcoded trial data.
+        """Convert embedded raw trials to a PyHealth-compatible CSV.
 
-        Computes log relative risk and variance for each trial and
-        saves a PyHealth-compatible CSV.
+        Applies feature conversion rules from Figure 6 of the paper,
+        computes log relative risk and variance from event counts,
+        and splits trials into "trusted" (placebo-controlled) and
+        "untrusted" (other comparisons) groups.
 
         Args:
-            root: Directory to save the CSV file.
+            root: Directory to save the processed CSV.
         """
         rows = []
-        for (
-            name, n_amio, n_ctrl, e_amio, e_ctrl, split, placebo
-        ) in AMIODARONE_TRIALS:
-            log_rr, variance = compute_log_relative_risk(
-                e_amio, n_amio, e_ctrl, n_ctrl
-            )
-            rows.append(
-                {
-                    "patient_id": name.replace(" ", "_").lower(),
-                    "visit_id": f"visit_{name.replace(' ', '_').lower()}",
-                    "trial_name": name,
-                    "n_amiodarone": n_amio,
-                    "n_control": n_ctrl,
-                    "events_amiodarone": e_amio,
-                    "events_control": e_ctrl,
-                    "log_relative_risk": round(log_rr, 6),
-                    "variance": round(variance, 6),
-                    "n_total": n_amio + n_ctrl,
-                    "split": split,
-                    "placebo_controlled": placebo,
-                }
-            )
-
+        for raw in AMIODARONE_RAW_TRIALS:
+            rows.append(_convert_trial(raw))
         df = pd.DataFrame(rows)
+        df = _rescale_continuous(df)
+
+        # Compute effects
+        effects = df.apply(
+            lambda r: _compute_log_relative_risk(
+                r["events_amiodarone"], r["n_amiodarone"],
+                r["events_control"], r["n_control"],
+            ),
+            axis=1,
+            result_type="expand",
+        )
+        df = pd.concat([df, effects], axis=1)
+
+        df["split"] = df["placebo_controlled"].apply(
+            lambda p: "trusted" if p else "untrusted"
+        )
+        df.insert(0, "patient_id", df["trial_name"].apply(
+            lambda n: re.sub(r"[^a-z0-9]+", "_", n.lower()).strip("_")
+        ))
+        df.insert(1, "visit_id", df["patient_id"].apply(
+            lambda p: f"visit_{p}"
+        ))
 
         os.makedirs(root, exist_ok=True)
         csv_path = os.path.join(
@@ -226,12 +331,76 @@ class AmiodaroneTrialDataset(BaseDataset):
 
     @property
     def default_task(self):
-        """Returns the default task for this dataset.
-
-        Returns:
-            ConformalMetaAnalysisTask: The default meta-analysis task.
-        """
+        """Returns the default task for this dataset."""
         from pyhealth.tasks.conformal_meta_analysis_task import (
             ConformalMetaAnalysisTask,
         )
-        return ConformalMetaAnalysisTask()
+        return ConformalMetaAnalysisTask(feature_columns=FEATURE_COLUMNS)
+
+
+# ---------------------------------------------------------------------
+# Per-trial conversion used by prepare_metadata
+# ---------------------------------------------------------------------
+def _convert_trial(raw: Dict[str, Any]) -> Dict[str, Any]:
+    """Convert one raw trial entry to a numeric feature dict."""
+    f = raw["Features"]
+    results = raw["Results"]
+    return {
+        "trial_name": raw["Name"],
+        "events_amiodarone": int(results[0]),
+        "n_amiodarone": int(results[1]),
+        "events_control": int(results[2]),
+        "n_control": int(results[3]),
+        "amiodarone_total_24h_mg": MANUAL_AMIODARONE_DOSE_MG.get(
+            raw["Name"], 0.0
+        ),
+        "comparison_intensity": _parse_comparison_treatment(
+            f.get("Comparison Treatment", "")
+        ),
+        "af_duration_gt_48h": _parse_duration_48h(
+            f.get("Mean AF Duration")
+        ),
+        "outcome_time_gt_48h": _parse_duration_48h(
+            f.get("Time to Outcome Measure")
+        ),
+        "mean_age_raw": _to_float_or_na(f.get("Mean Age")),
+        "mean_la_size_raw": _to_float_or_na(
+            f.get("Mean Left Atrium Size, mm")
+        ),
+        "fraction_male": _parse_percent(f.get("Fraction Male")),
+        "fraction_cv_disease": _parse_percent(
+            f.get("Fraction with CV Disease")
+        ),
+        "followup_fraction": _parse_percent(f.get("Follow-up Fraction")),
+        "adequate_concealment": _parse_boolean(
+            f.get("Adequate Concealment of Treatment")
+        ),
+        "masked_patients": _parse_boolean(f.get("Masked Patients")),
+        "masked_caregiver": _parse_boolean(f.get("Masked Caregiver")),
+        "masked_assessor": _parse_boolean(f.get("Masked Assessor")),
+        "placebo_controlled": (
+            str(f.get("Comparison Treatment", "")).strip().lower()
+            == "placebo"
+        ),
+    }
+
+
+def _rescale_continuous(df: pd.DataFrame) -> pd.DataFrame:
+    """Rescale mean_age and mean_la_size to [-1, 1] over the dataset range."""
+    for raw_col, scaled_col in [
+        ("mean_age_raw", "mean_age"),
+        ("mean_la_size_raw", "mean_la_size"),
+    ]:
+        values = df[raw_col].astype(float)
+        valid = values.dropna()
+        if len(valid) > 0:
+            vmin, vmax = float(valid.min()), float(valid.max())
+            rng = vmax - vmin
+            if rng > 0:
+                df[scaled_col] = 2.0 * (values - vmin) / rng - 1.0
+            else:
+                df[scaled_col] = 0.0
+            df[scaled_col] = df[scaled_col].fillna(0.0)
+        else:
+            df[scaled_col] = 0.0
+    return df

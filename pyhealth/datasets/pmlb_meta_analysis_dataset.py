@@ -100,18 +100,19 @@ class PMLBMetaAnalysisDataset(BaseDataset):
     """
 
     def __init__(
-        self,
-        root: str,
-        pmlb_dataset_name: str = "1196_BNG_pharynx",
-        dataset_name: Optional[str] = None,
-        config_path: Optional[str] = None,
-        cache_dir: Optional[str] = None,
-        num_workers: int = 1,
-        dev: bool = False,
-        synthesize_noise: bool = False,
-        prior_error: float = 0.9,
-        effect_noise: float = 0.5,
-        seed: Optional[int] = None,
+            self,
+            root: str,
+            pmlb_dataset_name: str = "1196_BNG_pharynx",
+            dataset_name: Optional[str] = None,
+            config_path: Optional[str] = None,
+            cache_dir: Optional[str] = None,
+            num_workers: int = 1,
+            dev: bool = False,
+            synthesize_noise: bool = False,
+            prior_error: float = 0.9,
+            effect_noise: float = 0.5,
+            seed: Optional[int] = None,
+            n_samples: Optional[int] = 2000,  # NEW
     ) -> None:
         if pmlb_dataset_name not in SUPPORTED_PMLB_DATASETS:
             raise ValueError(
@@ -147,6 +148,7 @@ class PMLBMetaAnalysisDataset(BaseDataset):
                 prior_error=prior_error,
                 effect_noise=effect_noise,
                 seed=seed,
+                n_samples=n_samples,  # NEW
             )
 
         default_tables = ["pmlb_meta_analysis"]
@@ -169,6 +171,7 @@ class PMLBMetaAnalysisDataset(BaseDataset):
         prior_error: float = 0.9,
         effect_noise: float = 0.5,
         seed: Optional[int] = None,
+        n_samples: Optional[int] = 2000,
     ) -> None:
         """Fetch PMLB data and save as a PyHealth-compatible CSV.
 
@@ -193,7 +196,12 @@ class PMLBMetaAnalysisDataset(BaseDataset):
             )
 
         logger.info(f"Fetching PMLB dataset: {pmlb_dataset_name}")
-        data = fetch_data(pmlb_dataset_name)
+        data = fetch_data(pmlb_dataset_name, local_cache_dir="./data/pmlb_raw_cache")
+
+        if n_samples is not None and n_samples < len(data):
+            data = data.sample(
+                n=n_samples, random_state=seed or 0
+            ).reset_index(drop=True)
 
         df = pd.DataFrame(data.values, columns=data.columns)
         df.insert(0, "patient_id", [f"trial_{i}" for i in range(len(df))])
