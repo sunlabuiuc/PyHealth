@@ -22,8 +22,8 @@ class HallucinationDetectionTask(BaseTask):
         """
         super(HallucinationDetectionTask, self).__init__(**kwargs)
         self.input_schema = {
-            "source_text": str, 
-            "summary_text": str
+            "source_text": List[str], 
+            "summary_text": List[str]
         }
         self.output_schema = {
             "label": int
@@ -46,14 +46,11 @@ class HallucinationDetectionTask(BaseTask):
             and the binary 'label'.
         """
         samples = []
-
-        # Get all visits for the patient using the polars partition
         visit_df = patient.get_events(event_type="visits", return_df=True)
         
         for visit_row in visit_df.to_dicts():
             v_id = visit_row.get("visits/visit_id")
             
-            # Grab all notes linked to this specific hospital stay
             try: 
                 notes = patient.get_events(
                     event_type="noteevents",
@@ -61,17 +58,15 @@ class HallucinationDetectionTask(BaseTask):
                     return_df=False
                 )
 
-                # Combine all note text into a single context string
-                source_context = " ".join(
-                    [str(n.attr_dict.get("text", "")) for n in notes]
-                ).strip()
+                source_context = []
+                for n in notes:
+                    source_context.extend(n.attr_dict.get("text", []))
 
-                # Retrieve the summary and label from the visit attributes
                 summary = visit_row.get("visits/ai_summary")
                 label = visit_row.get("visits/hallucination_label")
 
-                # Only add the sample if we have both the text and the target label
-                if summary is not None and label is not None:
+                # Create data sample
+                if summary and label is not None:
                     samples.append({
                         "visit_id": v_id,
                         "patient_id": patient.patient_id,
@@ -79,10 +74,7 @@ class HallucinationDetectionTask(BaseTask):
                         "summary_text": summary,
                         "label": int(label)
                     })
-
             except:
                 pass
-
-            
 
         return samples

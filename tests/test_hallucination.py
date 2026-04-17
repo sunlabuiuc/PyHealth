@@ -27,14 +27,14 @@ class TestHallucinationDetectionTask(unittest.TestCase):
             ],
             "event_type": ["noteevents", "visits", "noteevents", "visits"],
             "noteevents/text": [
-                "Stable vitals, mild cough.", None,
-                "Laceration on left hand.", None
+                ["Stable",  "vitals", "mild", "cough"], None,
+                ["Laceration", "on", "left", "hand"], None
             ],
             "noteevents/visit_id": ["V1", None, "V2", None],
             "visits/visit_id": [None, "V1", None, "V2"],
             "visits/ai_summary": [
-                None, "Patient has a cough.", 
-                None, "Patient has a broken leg." # Hallucination
+                None, ["Patient", "has", "a", "cough"], 
+                None, ["Patient", "has", "a", "broken", "leg"] # Hallucination
             ],
             "visits/hallucination_label": [None, 0, None, 1] 
         })
@@ -60,7 +60,7 @@ class TestHallucinationDetectionTask(unittest.TestCase):
         # Check hallucination case
         s2 = next(s for s in samples if s["visit_id"] == "V2")
         self.assertEqual(s2["label"], 1)
-        self.assertIn("broken leg", s2["summary_text"])
+        self.assertIn("broken", s2["summary_text"])
 
     def test_edge_case_no_notes(self) -> None:
         """Tests that visits without supporting clinical notes are skipped.
