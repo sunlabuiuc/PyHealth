@@ -1,7 +1,7 @@
 """
 Retina U-Net Implementation for Medical Image Object Detection
 
-Reference: Retina U-Net: Embarrassingly Simple Exploitation of Segmentation Supervision 
+Reference: Retina U-Net: Embarrassingly Simple Exploitation of Segmentation Supervision
 for Medical Object Detection (https://arxiv.org/abs/1811.08661)
 
 This implementation uses only standard PyTorch without custom CUDA operations.
@@ -19,28 +19,28 @@ from pyhealth.models import BaseModel
 
 class ConvBlock(nn.Module):
     """Reusable convolution block with normalization and activation."""
-    
+
     def __init__(
-        self, 
-        in_channels: int, 
-        out_channels: int, 
+        self,
+        in_channels: int,
+        out_channels: int,
         kernel_size: int,
         stride: int = 1,
         padding: int = 0,
-        norm_type: str = None,
+        norm_type: Optional[str] = None,
         activation: str = 'relu',
         dim: int = 2
     ):
         super().__init__()
         self.dim = dim
-        
+
         # Select appropriate convolution
         Conv = nn.Conv2d if dim == 2 else nn.Conv3d
-        
+
         # Build block
         layers = []
         layers.append(Conv(in_channels, out_channels, kernel_size, stride, padding))
-        
+
         # Normalization
         if norm_type == 'batch':
             if dim == 2:
@@ -52,29 +52,29 @@ class ConvBlock(nn.Module):
                 layers.append(nn.InstanceNorm2d(out_channels))
             else:
                 layers.append(nn.InstanceNorm3d(out_channels))
-        
+
         # Activation
         if activation == 'relu':
             layers.append(nn.ReLU(inplace=True))
         elif activation == 'leaky_relu':
             layers.append(nn.LeakyReLU(0.1, inplace=True))
-        
+
         self.conv = nn.Sequential(*layers)
-    
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.conv(x)
 
 
 class ResidualBlock(nn.Module):
     """Residual block for feature learning."""
-    
+
     def __init__(
         self,
         in_channels: int,
         out_channels: int,
         stride: int = 1,
         expansion: int = 4,
-        norm_type: str = None,
+        norm_type: Optional[str] = None,
         activation: str = 'relu',
         dim: int = 2
     ):
@@ -84,36 +84,36 @@ class ResidualBlock(nn.Module):
         hidden_channels = out_channels // expansion
 
         self.conv1 = ConvBlock(
-            in_channels, 
-            hidden_channels, 
-            kernel_size=1, 
-            stride=stride, 
-            padding=0, 
-            norm_type=norm_type, 
-            activation=activation, 
+            in_channels,
+            hidden_channels,
+            kernel_size=1,
+            stride=stride,
+            padding=0,
+            norm_type=norm_type,
+            activation=activation,
             dim=dim
         )
         self.conv2 = ConvBlock(
-            hidden_channels, 
-            hidden_channels, 
-            kernel_size=3, 
-            stride=1, 
-            padding=1, 
-            norm_type=norm_type, 
-            activation=activation, 
+            hidden_channels,
+            hidden_channels,
+            kernel_size=3,
+            stride=1,
+            padding=1,
+            norm_type=norm_type,
+            activation=activation,
             dim=dim
             )
         self.conv3 = ConvBlock(
-            hidden_channels, 
-            out_channels, 
-            kernel_size=1, 
-            stride=1, 
-            padding=0, 
-            norm_type=norm_type, 
-            activation=None, 
+            hidden_channels,
+            out_channels,
+            kernel_size=1,
+            stride=1,
+            padding=0,
+            norm_type=norm_type,
+            activation=None,
             dim=dim
         )
-        
+
         # Shortcut
         self.shortcut = None
 
@@ -124,41 +124,41 @@ class ResidualBlock(nn.Module):
                 kernel_size=1,
                 stride=stride,
                 norm_type=norm_type,
-                activation=None,  
+                activation=None,
                 dim=dim
             )
-        
+
         if activation == 'relu':
             self.relu = nn.ReLU(inplace=True)
         else:
             self.relu = nn.LeakyReLU(inplace=True)
-    
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         identity = x
-        
+
         out = self.conv1(x)
         out = self.conv2(out)
         out = self.conv3(out)
-        
+
         if self.shortcut is not None:
             identity = self.shortcut(x)
-        
+
         out += identity
         out = self.relu(out)
-        
+
         return out
 
 
 class FPN(nn.Module):
     """Feature Pyramid Network backbone for multi-scale feature extraction."""
-    
+
     def __init__(
         self,
         in_channels: int = 1,
         base_channels: int = 48,
         out_channels: int = 192,
-        num_blocks: List[int] = None,
-        norm_type: str = None,
+        num_blocks: Optional[List[int]] = None,
+        norm_type: Optional[str] = None,
         activation: str = 'relu',
         dim: int = 2,
     ):
@@ -172,72 +172,72 @@ class FPN(nn.Module):
             num_blocks = [3, 4, 6, 3]  # ResNet50-like
 
         stride = 2 if dim == 2 else (2, 2, 1) # For 3D, preserve depth resolution
-        
+
         # Initial convolution
         self.c0 = nn.Sequential(
             ConvBlock(
-                in_channels, 
-                base_channels, 
-                kernel_size=3, 
-                stride=1, 
-                padding=1, 
-                norm_type=norm_type, 
-                activation=activation, 
+                in_channels,
+                base_channels,
+                kernel_size=3,
+                stride=1,
+                padding=1,
+                norm_type=norm_type,
+                activation=activation,
                 dim=dim
             ),
             ConvBlock(
-                base_channels, 
-                base_channels, 
-                kernel_size=3, 
-                stride=1, 
-                padding=1, 
-                norm_type=norm_type, 
-                activation=activation, 
+                base_channels,
+                base_channels,
+                kernel_size=3,
+                stride=1,
+                padding=1,
+                norm_type=norm_type,
+                activation=activation,
                 dim=dim
             )
         )
 
         self.c1 = ConvBlock(
-            base_channels, 
-            base_channels, 
-            kernel_size=7, 
-            stride=stride, 
-            padding=3, 
-            norm_type=norm_type, 
-            activation=activation, 
+            base_channels,
+            base_channels,
+            kernel_size=7,
+            stride=stride,
+            padding=3,
+            norm_type=norm_type,
+            activation=activation,
             dim=dim
         )
-        
+
         # Residual blocks
         c2_out_channels = base_channels * self.block_expansion
         self.c2 = self._make_layer(
-            base_channels, 
-            c2_out_channels, 
-            num_blocks[0], 
-            stride=1, 
+            base_channels,
+            c2_out_channels,
+            num_blocks[0],
+            stride=1,
             pool=True
         )
 
         c3_out_channels = c2_out_channels * 2
         self.c3 = self._make_layer(
-            c2_out_channels, 
-            c3_out_channels, 
-            num_blocks[1], 
+            c2_out_channels,
+            c3_out_channels,
+            num_blocks[1],
             stride=2
         )
         c4_out_channels = c3_out_channels * 2
         self.c4 = self._make_layer(
-            c3_out_channels, 
+            c3_out_channels,
             c4_out_channels,
-            num_blocks[2], 
+            num_blocks[2],
             stride=2
         )
-        
+
         c5_out_channels = c4_out_channels * 2
         self.c5 = self._make_layer(
-            c4_out_channels, 
-            c5_out_channels, 
-            num_blocks[3], 
+            c4_out_channels,
+            c5_out_channels,
+            num_blocks[3],
             stride=2
         )
 
@@ -256,103 +256,103 @@ class FPN(nn.Module):
                 scale_factor=stride, mode="trilinear", align_corners=False
             )
 
-        
+
         # FPN lateral connections and smoothing
         self.p5 = ConvBlock(
-            base_channels * 32, 
-            out_channels, 
-            kernel_size=1, 
-            activation=None, 
+            base_channels * 32,
+            out_channels,
+            kernel_size=1,
+            activation=None,
             dim=dim
         )
         self.p4 = ConvBlock(
-            base_channels * 16, 
-            out_channels, 
-            kernel_size=1, 
+            base_channels * 16,
+            out_channels,
+            kernel_size=1,
             activation=None,
             dim=dim
         )
         self.p3 = ConvBlock(
-            base_channels * 8, 
-            out_channels, 
-            kernel_size=1, 
+            base_channels * 8,
+            out_channels,
+            kernel_size=1,
             activation=None,
             dim=dim
         )
         self.p2 = ConvBlock(
-            base_channels * 4, 
-            out_channels, 
-            kernel_size=1, 
+            base_channels * 4,
+            out_channels,
+            kernel_size=1,
             activation=None,
             dim=dim
         )
         self.p1 = ConvBlock(
-            base_channels, 
-            out_channels, 
-            kernel_size=1, 
+            base_channels,
+            out_channels,
+            kernel_size=1,
             activation=None,
             dim=dim
         )
         self.p0 = ConvBlock(
-            base_channels, 
-            out_channels, 
-            kernel_size=1, 
+            base_channels,
+            out_channels,
+            kernel_size=1,
             activation=None,
             dim=dim
         )
-        
+
         self.smooth_p5 = ConvBlock(
-            out_channels, 
-            out_channels, 
-            kernel_size=3, 
-            stride=1, 
-            padding=1, 
-            activation=None, 
+            out_channels,
+            out_channels,
+            kernel_size=3,
+            stride=1,
+            padding=1,
+            activation=None,
             dim=dim
         )
         self.smooth_p4 = ConvBlock(
-            out_channels, 
-            out_channels, 
-            kernel_size=3, 
-            stride=1, 
-            padding=1, 
-            activation=None, 
+            out_channels,
+            out_channels,
+            kernel_size=3,
+            stride=1,
+            padding=1,
+            activation=None,
             dim=dim
         )
         self.smooth_p3 = ConvBlock(
-            out_channels, 
-            out_channels, 
-            kernel_size=3, 
-            stride=1, 
-            padding=1, 
-            activation=None, 
+            out_channels,
+            out_channels,
+            kernel_size=3,
+            stride=1,
+            padding=1,
+            activation=None,
             dim=dim
         )
         self.smooth_p2 = ConvBlock(
-            out_channels, 
-            out_channels, 
-            kernel_size=3, 
-            stride=1, 
-            padding=1, 
-            activation=None, 
+            out_channels,
+            out_channels,
+            kernel_size=3,
+            stride=1,
+            padding=1,
+            activation=None,
             dim=dim
         )
         self.smooth_p1 = ConvBlock(
-            out_channels, 
-            out_channels, 
-            kernel_size=3, 
-            stride=1, 
-            padding=1, 
-            activation=None, 
+            out_channels,
+            out_channels,
+            kernel_size=3,
+            stride=1,
+            padding=1,
+            activation=None,
             dim=dim
         )
         self.smooth_p0 = ConvBlock(
-            out_channels, 
-            out_channels, 
-            kernel_size=3, 
-            stride=1, 
-            padding=1, 
-            activation=None, 
+            out_channels,
+            out_channels,
+            kernel_size=3,
+            stride=1,
+            padding=1,
+            activation=None,
             dim=dim
         )
 
@@ -364,34 +364,34 @@ class FPN(nn.Module):
         if pool:
             MaxPool = nn.MaxPool2d if self.dim == 2 else nn.MaxPool3d
             stride_pool = 2 if self.dim == 2 else (2, 2, 1)
-            
+
             layers.append(MaxPool(kernel_size=3, stride=stride_pool, padding=1))
-   
+
         layers.append(
             ResidualBlock(
-                in_channels, 
-                out_channels, 
-                stride=stride, 
+                in_channels,
+                out_channels,
+                stride=stride,
                 expansion=self.block_expansion,
-                norm_type=self.norm_type, 
-                activation=self.activation, 
+                norm_type=self.norm_type,
+                activation=self.activation,
                 dim=self.dim
             )
         )
         for _ in range(1, blocks):
             layers.append(
                 ResidualBlock(
-                    out_channels, 
-                    out_channels, 
+                    out_channels,
+                    out_channels,
                     stride=1,
                     expansion=self.block_expansion,
-                    norm_type=self.norm_type, 
-                    activation=self.activation, 
+                    norm_type=self.norm_type,
+                    activation=self.activation,
                     dim=self.dim
                 )
             )
         return nn.Sequential(*layers)
-    
+
     def forward(self, x: torch.Tensor) -> List[torch.Tensor]:
         """
         Forward pass returning multi-scale feature maps.
@@ -400,13 +400,13 @@ class FPN(nn.Module):
         # Stem
         c0_out = self.c0(x)
         c1_out = self.c1(c0_out)
-        
+
         # Backbone
         c2_out = self.c2(c1_out)
         c3_out = self.c3(c2_out)
         c4_out = self.c4(c3_out)
         c5_out = self.c5(c4_out)
-        
+
         # FPN top-down path
         p5_pre_out = self.p5(c5_out)
         p4_pre_out = self.p4(c4_out) + F.interpolate(p5_pre_out, scale_factor=2)
@@ -414,7 +414,7 @@ class FPN(nn.Module):
         p2_pre_out = self.p2(c2_out) + F.interpolate(p3_pre_out, scale_factor=2)
         p1_pre_out = self.p1(c1_out) + self.p2_upsample(p2_pre_out)
         p0_pre_out = self.p0(c0_out) + self.p1_upsample(p1_pre_out)
-        
+
         # Smooth
         p5 = self.smooth_p5(p5_pre_out)
         p4 = self.smooth_p4(p4_pre_out)
@@ -422,13 +422,13 @@ class FPN(nn.Module):
         p2 = self.smooth_p2(p2_pre_out)
         p1 = self.smooth_p1(p1_pre_out)
         p0 = self.smooth_p0(p0_pre_out)
-        
+
         return [p0, p1, p2, p3, p4, p5]
 
 
 class AnchorGenerator(nn.Module):
     """Generates anchor boxes for object detection using vectorized operations."""
-    
+
     def __init__(
         self,
         rpn_anchor_scales: Dict[str, Dict[str, List[float]]] = None,
@@ -460,15 +460,15 @@ class AnchorGenerator(nn.Module):
 
         self.rpn_anchor_scales = rpn_anchor_scales
 
-        # Anchor Sub-scaling: 
-        # For each base scale, to create a dense scaling, 
+        # Anchor Sub-scaling:
+        # For each base scale, to create a dense scaling,
         # add two additional sub scales by multiplying with 2^(1/3) and 2^(2/3)
         self.rpn_anchor_scales['xy'] = {
-            key: [value, value * (2 ** (1 / 3)), value * (2 ** (2 / 3))] 
+            key: [value, value * (2 ** (1 / 3)), value * (2 ** (2 / 3))]
             for key, value in rpn_anchor_scales['xy'].items()
         }
         self.rpn_anchor_scales['z'] = {
-            key: [value, value * (2 ** (1 / 3)), value * (2 ** (2 / 3))] 
+            key: [value, value * (2 ** (1 / 3)), value * (2 ** (2 / 3))]
             for key, value in rpn_anchor_scales['z'].items()
         }
 
@@ -499,8 +499,8 @@ class AnchorGenerator(nn.Module):
         """Vectorized 2D anchor generation, matching original generate_anchors."""
         # Get feature stride and anchor scales for the current level
         scales_xy = torch.tensor(
-            self.rpn_anchor_scales['xy'][f'P{level}'], 
-            dtype=torch.float32, 
+            self.rpn_anchor_scales['xy'][f'P{level}'],
+            dtype=torch.float32,
             device=device
         )
         ratios = self.rpn_anchor_ratios.to(device)
@@ -535,25 +535,25 @@ class AnchorGenerator(nn.Module):
         boxes = torch.stack([y1, x1, y2, x2], dim=-1).reshape(-1, 4)
 
         return boxes
-    
+
     def generate_anchors_3d(
-            self, 
+            self,
             level: int,
-            h: int, 
-            w: int, 
-            d: int, 
+            h: int,
+            w: int,
+            d: int,
             device: torch.device = torch.device('cpu')
         ) -> torch.Tensor:
         """Vectorized 3D anchor generation, matching original generate_anchors_3D."""
         # Get feature stride and anchor scales for the current level
         scales_xy = torch.tensor(
-            self.rpn_anchor_scales['xy'][f'P{level}'], 
-            dtype=torch.float32, 
+            self.rpn_anchor_scales['xy'][f'P{level}'],
+            dtype=torch.float32,
             device=device
         )
         scales_z = torch.tensor(
-            self.rpn_anchor_scales['z'][f'P{level}'], 
-            dtype=torch.float32, 
+            self.rpn_anchor_scales['z'][f'P{level}'],
+            dtype=torch.float32,
             device=device
         )
         ratios = self.rpn_anchor_ratios.to(device)
@@ -590,9 +590,9 @@ class AnchorGenerator(nn.Module):
 
         # Reshape to final list of boxes
         boxes = torch.stack([y1, x1, y2, x2, z1, z2], dim=-1).reshape(-1, 6)
-        
+
         return boxes
-    
+
     def forward(self, feature_maps: List[torch.Tensor]) -> torch.Tensor:
         """Generate all anchors from feature maps."""
         all_anchors = []
@@ -617,7 +617,7 @@ class AnchorGenerator(nn.Module):
                 )
 
             all_anchors.append(anchors)
-        
+
         return torch.cat(all_anchors, dim=0)
 
 
@@ -690,7 +690,7 @@ def _apply_box_deltas_3d(boxes: torch.Tensor, deltas: torch.Tensor) -> torch.Ten
 
 
 def _clip_boxes_2d(
-        boxes: torch.Tensor, 
+        boxes: torch.Tensor,
         window: Tuple[float, float]
     ) -> torch.Tensor:
     y1 = boxes[:, 0].clamp(min=0, max=window[0])
@@ -702,7 +702,7 @@ def _clip_boxes_2d(
 
 
 def _clip_boxes_3d(
-        boxes: torch.Tensor, 
+        boxes: torch.Tensor,
         window: Tuple[float, float, float]
     ) -> torch.Tensor:
     y1 = boxes[:, 0].clamp(min=0, max=window[0])
@@ -716,8 +716,8 @@ def _clip_boxes_3d(
 
 
 def _nms_2d(
-        boxes: torch.Tensor, 
-        scores: torch.Tensor, 
+        boxes: torch.Tensor,
+        scores: torch.Tensor,
         iou_threshold: float
     ) -> torch.Tensor:
     """Pure torch NMS for 2D boxes."""
@@ -752,8 +752,8 @@ def _nms_2d(
     return torch.as_tensor(keep, dtype=torch.long, device=boxes.device)
 
 def _nms_3d(
-        boxes: torch.Tensor, 
-        scores: torch.Tensor, 
+        boxes: torch.Tensor,
+        scores: torch.Tensor,
         iou_threshold: float
     ) -> torch.Tensor:
     """Pure torch NMS for 3D boxes."""
@@ -794,10 +794,9 @@ def _nms_3d(
     return torch.as_tensor(keep, dtype=torch.long, device=boxes.device)
 
 
-
 class ClassificationHead(nn.Module):
     """Classification head for detecting object presence."""
-    
+
     def __init__(
         self,
         in_channels: int,
@@ -811,49 +810,49 @@ class ClassificationHead(nn.Module):
         self.num_classes = num_classes
         self.num_anchors = num_anchors
         self.dim = dim
-        
+
         self.conv1 = ConvBlock(
-            in_channels, 
-            hidden_channels, 
-            kernel_size=3, 
+            in_channels,
+            hidden_channels,
+            kernel_size=3,
             padding=1,
-            activation=activation, 
+            activation=activation,
             dim=dim
         )
         self.conv2 = ConvBlock(
-            hidden_channels, 
-            hidden_channels, 
-            kernel_size=3, 
+            hidden_channels,
+            hidden_channels,
+            kernel_size=3,
             padding=1,
-            activation=activation, 
+            activation=activation,
             dim=dim
         )
         self.conv3 = ConvBlock(
             hidden_channels,
-            hidden_channels, 
+            hidden_channels,
             kernel_size=3,
             padding=1,
-            activation=activation, 
+            activation=activation,
             dim=dim
         )
         self.conv4 = ConvBlock(
-            hidden_channels, 
-            hidden_channels, 
+            hidden_channels,
+            hidden_channels,
             kernel_size=3,
             padding=1,
-            activation=activation, 
+            activation=activation,
             dim=dim
         )
         self.conv_final = ConvBlock(
-            hidden_channels, 
-            num_anchors * num_classes, 
-            kernel_size=3, 
-            stride=1, 
+            hidden_channels,
+            num_anchors * num_classes,
+            kernel_size=3,
+            stride=1,
             padding=1,
-            activation=None, 
+            activation=None,
             dim=dim
         )
-    
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass returning class predictions."""
         x = self.conv1(x)
@@ -861,14 +860,14 @@ class ClassificationHead(nn.Module):
         x = self.conv3(x)
         x = self.conv4(x)
         class_out = self.conv_final(x)
-        
+
         # Reshape to (B, -1, num_classes)
         batch_size = x.size(0)
         if self.dim == 2:
             class_out = class_out.permute(0, 2, 3, 1).contiguous()
         else:
             class_out = class_out.permute(0, 2, 3, 4, 1).contiguous()
-        
+
         class_out = class_out.view(batch_size, -1, self.num_classes)
 
         return class_out
@@ -876,7 +875,7 @@ class ClassificationHead(nn.Module):
 
 class BBoxHead(nn.Module):
     """Bounding box regression head."""
-    
+
     def __init__(
         self,
         in_channels: int,
@@ -889,48 +888,48 @@ class BBoxHead(nn.Module):
         self.num_anchors = num_anchors
         self.dim = dim
         output_channels = num_anchors * (dim * 2)
-        
+
         self.conv1 = ConvBlock(
-            in_channels, 
-            hidden_channels, 
-            kernel_size=3, 
-            padding=1, 
-            activation=activation, 
+            in_channels,
+            hidden_channels,
+            kernel_size=3,
+            padding=1,
+            activation=activation,
             dim=dim
         )
         self.conv2 = ConvBlock(
-            hidden_channels, 
-            hidden_channels, 
+            hidden_channels,
+            hidden_channels,
             kernel_size=3,
-            padding=1, 
-            activation=activation, 
+            padding=1,
+            activation=activation,
             dim=dim
         )
         self.conv3 = ConvBlock(
-            hidden_channels, 
-            hidden_channels, 
-            kernel_size=3, 
-            padding=1, 
-            activation=activation, 
+            hidden_channels,
+            hidden_channels,
+            kernel_size=3,
+            padding=1,
+            activation=activation,
             dim=dim
         )
         self.conv4 = ConvBlock(
-            hidden_channels, 
-            hidden_channels, 
-            kernel_size=3, 
-            padding=1, 
-            activation=activation, 
+            hidden_channels,
+            hidden_channels,
+            kernel_size=3,
+            padding=1,
+            activation=activation,
             dim=dim
         )
         self.conv_final = ConvBlock(
-            hidden_channels, 
-            output_channels, 
+            hidden_channels,
+            output_channels,
             kernel_size=3,
-            padding=1, 
-            activation=None, 
+            padding=1,
+            activation=None,
             dim=dim
         )
-    
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass returning bbox deltas."""
         x = self.conv1(x)
@@ -938,14 +937,14 @@ class BBoxHead(nn.Module):
         x = self.conv3(x)
         x = self.conv4(x)
         bb_out = self.conv_final(x)
-        
+
         # Reshape to (B, -1, dim*2)
         batch_size = x.size(0)
         if self.dim == 2:
             bb_out = bb_out.permute(0, 2, 3, 1).contiguous()
         else:
             bb_out = bb_out.permute(0, 2, 3, 4, 1).contiguous()
-        
+
         bb_out = bb_out.view(batch_size, -1, self.dim * 2)
 
         return bb_out
@@ -953,7 +952,7 @@ class BBoxHead(nn.Module):
 
 class SegmentationHead(nn.Module):
     """U-Net style decoder for segmentation."""
-    
+
     def __init__(
         self,
         in_channels: int,
@@ -962,18 +961,18 @@ class SegmentationHead(nn.Module):
     ):
         super().__init__()
         self.dim = dim
-        
+
         # Simple 1x1 convolution to produce segmentation mask
         self.conv_seg = ConvBlock(
-            in_channels, 
-            num_classes, 
+            in_channels,
+            num_classes,
             kernel_size=1,
-            padding=0, 
+            padding=0,
             norm_type=None,
-            activation=None, 
+            activation=None,
             dim=dim
         )
-    
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass returning segmentation mask."""
         seg_out = self.conv_seg(x)
@@ -984,13 +983,13 @@ class SegmentationHead(nn.Module):
 class RetinaUNetCore(nn.Module):
     """
     Retina U-Net: Multi-task detection and segmentation model for medical images.
-    
+
     Combines:
     - Retina Net architecture for object detection (classification + bbox regression)
     - U-Net style segmentation decoder
     - FPN backbone for multi-scale features
     """
-    
+
     def __init__(
         self,
         in_channels: int = 1,
@@ -998,9 +997,9 @@ class RetinaUNetCore(nn.Module):
         dim: int = 2,
         fpn_base_channels: int = 48,
         fpn_out_channels: int = 192,
-        fpn_num_blocks: List[int] = None,
+        fpn_num_blocks: Optional[List[int]] = None,
         rpn_hidden_channels: int = 256,
-        norm_type: str = None,
+        norm_type: Optional[str] = None,
         activation: str = 'relu',
         rpn_anchor_ratios: List[float] = [0.5, 1.0, 2.0],
         rpn_anchor_scales: Dict[str, Dict[str, List[float]]] = None,
@@ -1025,7 +1024,7 @@ class RetinaUNetCore(nn.Module):
         self.pre_nms_limit = 3000
         self.nms_threshold = 1e-5
         self.max_instances_per_batch_element = 10
-        
+
         # Backbone
         self.fpn = FPN(
             in_channels = in_channels,
@@ -1039,24 +1038,24 @@ class RetinaUNetCore(nn.Module):
 
         # Heads
         self.classification_head = ClassificationHead(
-            fpn_out_channels, 
-            num_classes, 
-            self.num_anchors, 
-            rpn_hidden_channels, 
-            activation, 
+            fpn_out_channels,
+            num_classes,
+            self.num_anchors,
+            rpn_hidden_channels,
+            activation,
             dim
         )
         self.bbox_head = BBoxHead(
-            fpn_out_channels, 
+            fpn_out_channels,
             self.num_anchors,
-            rpn_hidden_channels, 
-            activation, 
+            rpn_hidden_channels,
+            activation,
             dim
         )
         self.segmentation_head = SegmentationHead(
             fpn_out_channels, self.num_classes_seg, dim
         )
-        
+
         # Anchor generator
         self.anchor_generator = AnchorGenerator(
             rpn_anchor_scales = rpn_anchor_scales,
@@ -1070,7 +1069,7 @@ class RetinaUNetCore(nn.Module):
         # OrderedDict maintains insertion order; max 3 cached anchor sets before LRU eviction
         self.anchor_cache = OrderedDict()
         self.max_anchor_cache_size = 3
-    
+
     def _clear_anchor_cache(self):
         """Clear anchor cache and explicitly free GPU memory."""
         for key in list(self.anchor_cache.keys()):
@@ -1082,20 +1081,20 @@ class RetinaUNetCore(nn.Module):
         self.anchor_cache.clear()
         # Force garbage collection
         torch.cuda.empty_cache() if torch.cuda.is_available() else None
-    
+
     def _apply(self, fn):
         """Override to clear anchor cache when model moves to a different device."""
         super()._apply(fn)
         self._clear_anchor_cache()
         return self
-    
+
     def forward(self, x: torch.Tensor) -> Dict[str, torch.Tensor]:
         """
         Forward pass.
-        
+
         Args:
             x: Input tensor (B, C, H, W) for 2D or (B, C, H, W, D) for 3D
-        
+
         Returns:
             Dictionary with:
                 - 'class_logits': (B, num_anchors, num_classes)
@@ -1106,7 +1105,7 @@ class RetinaUNetCore(nn.Module):
 
         # Backbone
         features = self.fpn(x)  # List of multi-scale features
-        
+
         # Heads on lowest resolution (highest semantic)
         class_outputs = []
         bbox_outputs = []
@@ -1115,7 +1114,7 @@ class RetinaUNetCore(nn.Module):
             bbox_out = self.bbox_head(features[level])
             class_outputs.append(class_out)
             bbox_outputs.append(bbox_out)
-        
+
         # Segmentation on higher resolution features
         seg_features = features[0]  # Highest resolution P0
         segmentation = self.segmentation_head(seg_features)
@@ -1124,7 +1123,7 @@ class RetinaUNetCore(nn.Module):
         feature_shapes = tuple(f.shape[2:] for f in features)
         device = features[0].device
         cache_key = (feature_shapes, str(device))
-        
+
         if cache_key not in self.anchor_cache:
             # Generate new anchors
             self.anchor_cache[cache_key] = self.anchor_generator(features)
@@ -1139,7 +1138,7 @@ class RetinaUNetCore(nn.Module):
         else:
             # Move accessed key to end to mark as recently used
             self.anchor_cache.move_to_end(cache_key)
-        
+
         anchors = self.anchor_cache[cache_key]
         class_logits = torch.cat(class_outputs, dim=1)
         bbox_deltas = torch.cat(bbox_outputs, dim=1)
@@ -1228,11 +1227,11 @@ class RetinaUNetCore(nn.Module):
                 keep.append(
                     torch.stack(
                         [
-                            torch.where(cls_mask)[0][keep_idx], 
+                            torch.where(cls_mask)[0][keep_idx],
                             torch.full(
                                 (keep_idx.numel(),), cls, device=cls_scores.device
                             )
-                        ], 
+                        ],
                         dim=1)
                 )
             if keep:
@@ -1241,9 +1240,9 @@ class RetinaUNetCore(nn.Module):
                 kept_scores = batch_scores[batch_keep[:, 0].long()]
                 kept_classes = batch_keep[:, 1].long()
                 batch_ids = torch.full(
-                    (kept_boxes.shape[0], 1), 
-                    b, 
-                    device=kept_boxes.device, 
+                    (kept_boxes.shape[0], 1),
+                    b,
+                    device=kept_boxes.device,
                     dtype=torch.long
                 )
                 if kept_boxes.shape[0] > self.max_instances_per_batch_element:
@@ -1257,22 +1256,22 @@ class RetinaUNetCore(nn.Module):
                 detections.append(
                     torch.cat(
                         [
-                            kept_boxes, 
-                            batch_ids.float(), 
-                            kept_classes.float().unsqueeze(1), 
+                            kept_boxes,
+                            batch_ids.float(),
+                            kept_classes.float().unsqueeze(1),
                             kept_scores.unsqueeze(1)
-                        ], 
+                        ],
                         dim=1
                     )
                 )
-        
+
         # detections for 2D [y1, x1, y2, x2, batch_id, class_id, score]
         # detections for 3D [y1, x1, y2, x2, z1, z2, batch_id, class_id, score]
         if detections:
             detections = torch.cat(detections, dim=0)
         else:
             detections = torch.empty((0, anchors.shape[1] + 3), device=anchors.device)
-        
+
         return detections
 
 
@@ -1325,11 +1324,11 @@ class RetinaUNet(BaseModel):
 
 
     def forward(
-            self, 
-            images, 
-            gt_seg_masks=None, 
-            gt_boxes_list=None, 
-            gt_classes_list=None, 
+            self,
+            images,
+            gt_seg_masks=None,
+            gt_boxes_list=None,
+            gt_classes_list=None,
             **kwargs
         ) -> dict[str, torch.Tensor]:
         """Forward pass through the model."""
@@ -1350,7 +1349,7 @@ class RetinaUNet(BaseModel):
         else:
             batch_class_loss = 0.0
             batch_bbox_loss = 0.0
-            
+
             # Per-image Matching and Loss
             batch_size = images.shape[0]
             for b in range(batch_size):
@@ -1362,28 +1361,28 @@ class RetinaUNet(BaseModel):
                     # Create empty tensors with correct shapes and dtypes
                     gt_boxes = torch.zeros((0, 4), device=self.device)
                     gt_class_ids = torch.tensor([], dtype=torch.int64, device=self.device)
-                
+
                 anchor_class_match, anchor_target_deltas = self._compute_anchor_matches(
                     anchors, gt_boxes, gt_class_ids
                 )
-                
+
                 batch_class_loss += self._compute_class_loss(
-                    class_logits[b], 
+                    class_logits[b],
                     anchor_class_match
                     )
                 batch_bbox_loss += self._compute_bbox_loss(
                     bbox_deltas[b], anchor_target_deltas, anchor_class_match
                 )
-            
+
             # Average batch detection losses
             batch_class_loss /= batch_size
             batch_bbox_loss /= batch_size
-            
+
             # Segmentation Loss (Foreground-only Dice + CE)
             seg_loss = self._compute_segmentation_loss(
                 seg_logits, gt_seg_masks.to(self.device)
             )
-        
+
         # Standard weights: Class=1.0, Bbox=1.0, Seg=0.5
         total_loss = batch_class_loss + batch_bbox_loss + (0.5 * seg_loss)
 
@@ -1402,7 +1401,7 @@ class RetinaUNet(BaseModel):
         return results
 
     @staticmethod
-    def _compute_iou_matrix_2d(anchors, gt_boxes):
+    def _compute_iou_matrix_2d(anchors: torch.Tensor, gt_boxes: torch.Tensor) -> torch.Tensor:
         """
         Corrected Vectorized IoU in PyTorch.
         anchors: (N, 4) tensor [y1, x1, y2, x2]
@@ -1413,20 +1412,20 @@ class RetinaUNet(BaseModel):
         g_area = (gt_boxes[:, 2] - gt_boxes[:, 0]) * (gt_boxes[:, 3] - gt_boxes[:, 1])
 
         # 2. Intersections
-        lt = torch.max(anchors[:, None, :2], gt_boxes[None, :, :2]) 
-        rb = torch.min(anchors[:, None, 2:], gt_boxes[None, :, 2:]) 
-        
+        lt = torch.max(anchors[:, None, :2], gt_boxes[None, :, :2])
+        rb = torch.min(anchors[:, None, 2:], gt_boxes[None, :, 2:])
+
         wh = (rb - lt).clamp(min=0)  # [h, w]
         inter_area = wh[:, :, 0] * wh[:, :, 1] # (N, M)
 
         # 3. Union
         union_area = a_area[:, None] + g_area[None, :] - inter_area
-        
+
         # Return (M, N) matrix to keep GTs as rows and Anchors as columns
         return (inter_area / union_area.clamp(min=1e-6)).T
 
     @staticmethod
-    def _compute_iou_matrix_3d(anchors, gt_boxes):
+    def _compute_iou_matrix_3d(anchors: torch.Tensor, gt_boxes: torch.Tensor) -> torch.Tensor:
         """
         Optimized Vectorized 3D IoU.
         Order: [y1, x1, y2, x2, z1, z2]
@@ -1447,25 +1446,25 @@ class RetinaUNet(BaseModel):
 
         # 3. Intersections (The Vectorized Step)
         # Resulting 'lt' and 'rb' are (N, M, 3)
-        lt = torch.max(anchors[:, None, mins], gt_boxes[None, :, mins]) 
-        rb = torch.min(anchors[:, None, maxs], gt_boxes[None, :, maxs]) 
-        
+        lt = torch.max(anchors[:, None, mins], gt_boxes[None, :, mins])
+        rb = torch.min(anchors[:, None, maxs], gt_boxes[None, :, maxs])
+
         # Compute width, height, and depth at once
         inter_vol = (rb - lt).clamp(min=0).prod(dim=2) # (N, M)
 
         # 4. Union and Final IoU
         union_vol = a_vol[:, None] + g_vol[None, :] - inter_vol
-        
+
         # Return (M, N) to match your original implementation's shape
         return (inter_vol / union_vol.clamp(min=1e-6)).T
 
     def _compute_anchor_matches(
-            self, 
-            anchors, 
-            gt_boxes, 
-            gt_class_ids, 
-            pos_thresh=0.5, 
-            neg_thresh=0.4, 
+            self,
+            anchors: torch.Tensor,
+            gt_boxes: torch.Tensor,
+            gt_class_ids: torch.Tensor,
+            pos_thresh=0.5,
+            neg_thresh=0.4,
             dim=2
         ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
@@ -1475,7 +1474,7 @@ class RetinaUNet(BaseModel):
         """
         device = anchors.device
         num_anchors = anchors.shape[0]
-        
+
         if gt_boxes.shape[0] == 0:
             # Returns (num_anchors,) for matches and (num_anchors, 4 or 6) for deltas
             return torch.full((num_anchors,), -1, device=device), torch.zeros_like(anchors)
@@ -1494,13 +1493,15 @@ class RetinaUNet(BaseModel):
 
         # 3. Assign Background (0) and Positives (class_id)
         anchor_class_match[max_iou_per_anchor < neg_thresh] = 0
-        
+
         pos_mask = max_iou_per_anchor >= pos_thresh
-        anchor_class_match[pos_mask] = gt_class_ids[best_gt_idx_per_anchor[pos_mask]].to(torch.int32)
+        anchor_class_match[pos_mask] = (
+            gt_class_ids[best_gt_idx_per_anchor[pos_mask]].to(torch.int32)
+        )
 
         # 4. SAFETY NET: Force best anchor for every GT
         _, best_anchor_idx_per_gt = torch.max(iou_matrix, dim=1)
-        
+
         # Force these to be positive and update the index tracker for deltas
         anchor_class_match[best_anchor_idx_per_gt] = gt_class_ids.to(torch.int32)
         best_gt_idx_per_anchor[best_anchor_idx_per_gt] = torch.arange(len(gt_boxes), device=device)
@@ -1512,7 +1513,12 @@ class RetinaUNet(BaseModel):
         return anchor_class_match, anchor_target_deltas
 
     @staticmethod
-    def _compute_class_loss(class_pred_logits, anchor_matches, alpha=0.25, gamma=2.0):
+    def _compute_class_loss(
+            class_pred_logits: torch.Tensor,
+            anchor_matches: torch.Tensor,
+            alpha: float = 0.25,
+            gamma: float = 2.0
+    ) -> torch.Tensor:
         """
         Handles [-1=ignore, 0=background, 1+=class_id]
         """
@@ -1535,31 +1541,31 @@ class RetinaUNet(BaseModel):
 
     @staticmethod
     def _compute_bbox_loss(
-        bbox_deltas, 
-        anchor_target_deltas, 
-        anchor_class_match, 
+        bbox_deltas: torch.Tensor,
+        anchor_target_deltas: torch.Tensor,
+        anchor_class_match: torch.Tensor,
         beta=0.11 # beta ~1/9 is standard for many Retina implementations
-    ):
+    ) -> torch.Tensor:
         """
         Improved Bbox loss aligned with RetinaNet normalization.
         """
         # 1. Mask for positive anchors only
         pos_mask = anchor_class_match > 0
         num_pos = pos_mask.sum().float()
-        
+
         if num_pos == 0:
             return torch.tensor(0.0, device=bbox_deltas.device, requires_grad=True)
-        
+
         # 2. Extract positive predictions and targets
         pos_deltas = bbox_deltas[pos_mask]
         pos_targets = anchor_target_deltas[pos_mask]
-        
-        # 3. Smooth L1 Loss 
+
+        # 3. Smooth L1 Loss
         # Use reduction='sum' so we can normalize manually
         bbox_loss = F.smooth_l1_loss(
             pos_deltas, pos_targets, beta=beta, reduction='sum'
         )
-        
+
         # 4. Normalize by the SAME num_pos used in Class Loss
         # This keeps the 'weight' of classification and regression balanced.
         return bbox_loss / torch.clamp(num_pos, min=1.0)
@@ -1568,7 +1574,7 @@ class RetinaUNet(BaseModel):
     def _compute_segmentation_loss(
         seg_logits: torch.Tensor,
         seg_masks: torch.Tensor,
-        n_classes=2
+        n_classes: int = 2
     ) -> torch.Tensor:
         # 1. Cross-Entropy: Use weights if possible, but keep reduction='mean'
         target_masks = seg_masks.squeeze(1).long()
@@ -1576,23 +1582,23 @@ class RetinaUNet(BaseModel):
 
         # 2. Dice Loss: Focus on Foreground
         probs = F.softmax(seg_logits, dim=1)
-        
+
         # One-hot encoding
         target_ohe = F.one_hot(target_masks, num_classes=n_classes)
         target_ohe = target_ohe.permute(0, 3, 1, 2).float() # [B, C, H, W]
 
         # Compute intersection and cardinality per class
         # Sum over spatial dimensions only (H, W)
-        dims = (2, 3) 
+        dims = (2, 3)
         intersection = torch.sum(probs * target_ohe, dim=dims)
         cardinality = torch.sum(probs + target_ohe, dim=dims)
-        
+
         dice_score = (2. * intersection + 1e-5) / (cardinality + 1e-5)
-        
+
         # IMPORTANT: Exclude background (index 0) from the Dice Loss
         # Only average Dice for classes 1, 2, ...
-        foreground_dice_loss = 1 - dice_score[:, 1:].mean() 
-        
+        foreground_dice_loss = 1 - dice_score[:, 1:].mean()
+
         return 0.5 * ce_loss + 0.5 * foreground_dice_loss
 
 if __name__ == '__main__':
@@ -1605,7 +1611,7 @@ if __name__ == '__main__':
     print(f"  bbox_deltas: {output_2d['bbox_deltas'].shape}")
     print(f"  segmentation: {output_2d['segmentation'].shape}")
     print(f"  detections: {output_2d['detections'].shape}")
-    
+
     # Test 3D
     model_3d = RetinaUNetCore(in_channels=1, num_classes=2, dim=3)
     x_3d = torch.randn(2, 1, 64, 64, 32)
@@ -1615,6 +1621,4 @@ if __name__ == '__main__':
     print(f"  bbox_deltas: {output_3d['bbox_deltas'].shape}")
     print(f"  segmentation: {output_3d['segmentation'].shape}")
     print(f"  detections: {output_3d['detections'].shape}")
-
-
-
+    
