@@ -226,7 +226,7 @@ if __name__ == "__main__":
         val_loader = get_dataloader(val_ds, batch_size=32, shuffle=False)
         
         if args.model == "dinov2": model = DINOv2(dataset=task_dataset, feature_keys=["image"], label_key="melanoma", mode="binary")
-        else: model = TorchvisionModel(dataset=task_dataset, feature_keys=["image"], label_key="melanoma", mode="binary", arch=args.model)
+        else: model = TorchvisionModel(dataset=task_dataset, model_name=args.model, model_config={"weights": "DEFAULT"})
 
         weight_path = os.path.join(base_out_dir, "master", "best.ckpt")
 
@@ -274,7 +274,7 @@ if __name__ == "__main__":
             val_loader = get_dataloader(val_ds, batch_size=32, shuffle=False)
 
             if args.model == "dinov2": model = DINOv2(dataset=task_dataset, feature_keys=["image"], label_key="melanoma", mode="binary")
-            else: model = TorchvisionModel(dataset=task_dataset, feature_keys=["image"], label_key="melanoma", mode="binary", arch=args.model)
+            else:  model = TorchvisionModel(dataset=task_dataset, model_name=args.model, model_config={"weights": "DEFAULT"})
 
             weight_path = os.path.join(base_out_dir, f"fold_{fold}", "best.ckpt")
             

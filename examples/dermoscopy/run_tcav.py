@@ -120,7 +120,7 @@ def main():
         base_model = DINOv2(dataset=dataset, feature_keys=["image"], label_key="melanoma", mode="binary")
         target_layer = base_model.fc
     else:
-        base_model = TorchvisionModel(dataset=dataset, feature_keys=["image"], label_key="melanoma", mode="binary", arch=args.model)
+        base_model =  model = TorchvisionModel(dataset=dataset, model_name=args.model, model_config={"weights": "DEFAULT"})
         target_layer = base_model.model.fc if hasattr(base_model, 'model') else base_model.classifier
 
     weight_path = os.path.join(args.exp_dir, "fold_0", "best.ckpt")

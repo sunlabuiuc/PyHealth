@@ -68,7 +68,7 @@ def main():
     if args.model == "dinov2":
         base_model = DINOv2(dataset=task_dataset, feature_keys=["image"], label_key="melanoma", mode="binary")
     else:
-        base_model = TorchvisionModel(dataset=task_dataset, feature_keys=["image"], label_key="melanoma", mode="binary", arch=args.model)
+        base_model =  TorchvisionModel(dataset=task_dataset, model_name=args.model, model_config={"weights": "DEFAULT"})
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     

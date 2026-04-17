@@ -75,7 +75,7 @@ def main():
     trap_loader = get_dataloader(trap_task_dataset, batch_size=32, shuffle=False)
 
     if args.model == "dinov2": model = DINOv2(dataset=dataset, feature_keys=["image"], label_key="melanoma", mode="binary")
-    else: model = TorchvisionModel(dataset=dataset, feature_keys=["image"], label_key="melanoma", mode="binary", arch=args.model)
+    else:  model = TorchvisionModel(dataset=dataset, model_name=args.model, model_config={"weights": "DEFAULT"})
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
