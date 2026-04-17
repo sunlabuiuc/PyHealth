@@ -48,7 +48,6 @@ class TestHallucinationDetectionTask(unittest.TestCase):
         Checks for correct sample count, label accuracy for both faithful and
         hallucinated summaries, and proper feature extraction of note text.
         """
-        """Verifies samples are extracted and labels match the source."""
         samples = self.task(self.patient)
         self.assertEqual(len(samples), 2)
         
@@ -81,6 +80,37 @@ class TestHallucinationDetectionTask(unittest.TestCase):
         
         samples = self.task(empty_patient)
         # Should return 0 samples because there's no source text to ground it
+        self.assertEqual(len(samples), 0)
+    
+    def test_feature_types(self) -> None:
+        """Verifies that extracted features are of the correct data type.
+        
+        Ensures that the source_text and summary_text are lists, so that 
+        they can be processed as proper sequences.
+        """
+        samples = self.task(self.patient)
+        s = samples[0]
+        # Verify the Transformer will get lists, not strings
+        self.assertIsInstance(s["source_text"], list)
+        self.assertIsInstance(s["summary_text"], list)
+    
+    def test_edge_case_missing_summary(self) -> None:
+        """Tests that visits missing an AI summary are correctly ignored.
+        
+        If the AI summary is missing, we should not create a sample. This 
+        ensures that the sample is not made if the AI summary is missing.
+        """
+        bad_data = pl.DataFrame({
+            "timestamp": [datetime(2026, 4, 1), datetime(2026, 4, 2)],
+            "event_type": ["noteevents", "visits"],
+            "noteevents/text": [["test"], None],
+            "noteevents/visit_id": ["V4", None],
+            "visits/visit_id": [None, "V4"],
+            "visits/ai_summary": [None, None], # MISSING SUMMARY
+            "visits/hallucination_label": [None, 1]
+        })
+        p = Patient(patient_id="P3", data_source=bad_data)
+        samples = self.task(p)
         self.assertEqual(len(samples), 0)
 
 if __name__ == "__main__":
