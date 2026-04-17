@@ -290,7 +290,13 @@ class EHRMamba(BaseModel):
 
         patient_emb = torch.cat(patient_emb, dim=1)
         logits = self.fc(self.dropout(patient_emb))
-        y_true = kwargs[self.label_key].to(self.device)
+        y_true = kwargs[self.label_key].to(self.device).float()
+        # PROJECT ADDITION (not in PyHealth's ehrmamba.py): normalizes y_true
+        # shape to match logits before computing loss.  BCEWithLogitsLoss requires
+        # both tensors to have the same number of dimensions; callers may supply
+        # labels as (B,) or (B, 1) depending on the collate function used.
+        if y_true.dim() != logits.dim():
+            y_true = y_true.unsqueeze(-1)
         loss = self.get_loss_function()(logits, y_true)
         y_prob = self.prepare_y_prob(logits)
         results = {"loss": loss, "y_prob": y_prob, "y_true": y_true, "logit": logits}
