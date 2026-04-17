@@ -42,6 +42,7 @@ from pyhealth.datasets import MedLingoDataset
 from pyhealth.datasets.utils import collate_fn_dict_with_padding
 from pyhealth.models import TransformersModel
 from pyhealth.tasks.base_task import BaseTask
+from pyhealth.tasks.medlingo_task import AbbreviationExpansionMedLingo
 from pyhealth.trainer import Trainer
 
 
@@ -61,91 +62,61 @@ BATCH_SIZE = 8
 EPOCHS = 3
 LR = 2e-5
 
-
 class QuestionOnlyMedLingoClassification(BaseTask):
     """
-    Baseline MedLingo classification task.
+    Baseline classification wrapper around the contributed MedLingo task.
 
-    Input:
-        - original MedLingo question text only
-    Output:
-        - correct abbreviation expansion as a multiclass label
+    Reuses AbbreviationExpansionMedLingo to generate the base samples, then
+    remaps:
+      - question -> text
+      - answer   -> label
+
+    This keeps the underlying MedLingo extraction logic identical to the
+    contributed task and only changes the output format so an existing
+    PyHealth model can be used.
     """
 
     task_name: str = "medlingo_question_only_classification"
     input_schema: Dict[str, str] = {"text": "text"}
     output_schema: Dict[str, str] = {"label": "multiclass"}
 
+    def __init__(self):
+        self.base_task = AbbreviationExpansionMedLingo()
+
     def __call__(self, patient) -> List[Dict]:
-        samples: List[Dict] = []
+        base_samples = self.base_task(patient)
 
-        events = patient.get_events("questions")
-        if not events:
-            return samples
-
-        for event in events:
-            question = str(getattr(event, "question", "") or "").strip()
-            answer = str(getattr(event, "answer", "") or "").strip()
-
-            if not question or not answer:
-                continue
-
-            samples.append(
-                {
-                    "patient_id": patient.patient_id,
-                    "visit_id": patient.patient_id,
-                    "text": question,
-                    "label": answer,
-                }
-            )
-
-        return samples
+        return [
+            {
+                "patient_id": s["patient_id"],
+                "visit_id": s["visit_id"],
+                "text": s["question"],
+                "label": s["answer"],
+            }
+            for s in base_samples
+            if s.get("question") and s.get("answer")
+        ]
 
 
-class ExplicitAbbreviationMedLingoClassification(BaseTask):
+class ExplicitAbbreviationMedLingoClassification(QuestionOnlyMedLingoClassification):
     """
-    Ablated MedLingo classification task.
+    Ablated classification task that reuses the baseline wrapper and only
+    changes the text formatting.
 
-    Input:
-        - explicit abbreviation
-        - original MedLingo question
-        - explicit instruction to give the full expansion
-
-    Output:
-        - correct abbreviation expansion as a multiclass label
+    Compared with the baseline, this version explicitly prepends the
+    abbreviation and adds an instruction.
     """
 
     task_name: str = "medlingo_explicit_abbreviation_classification"
-    input_schema: Dict[str, str] = {"text": "text"}
-    output_schema: Dict[str, str] = {"label": "multiclass"}
 
     def __call__(self, patient) -> List[Dict]:
-        samples: List[Dict] = []
+        samples = super().__call__(patient)
 
-        events = patient.get_events("questions")
-        if not events:
-            return samples
-
-        for event in events:
-            question = str(getattr(event, "question", "") or "").strip()
-            answer = str(getattr(event, "answer", "") or "").strip()
-
-            if not question or not answer:
-                continue
-
-            text = (
-                f"Abbreviation: {patient.patient_id}\n"
-                f"Question: {question}\n"
+        for s in samples:
+            s["text"] = (
+                f"Abbreviation: {s['patient_id']}\n"
+                f"Question: {s['text']}\n"
                 f"Answer with the full expansion of the abbreviation."
-            )
-
-            samples.append(
-                {
-                    "patient_id": patient.patient_id,
-                    "visit_id": patient.patient_id,
-                    "text": text,
-                    "label": answer,
-                }
             )
 
         return samples
