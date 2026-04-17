@@ -26,6 +26,7 @@ SUPPORTED_MODELS = [
     "swin_t",
     "swin_s",
     "swin_b",
+    "convnext_tiny",
 ]
 
 SUPPORTED_MODELS_FINAL_LAYER = {}
@@ -38,6 +39,9 @@ for model in SUPPORTED_MODELS:
         SUPPORTED_MODELS_FINAL_LAYER[model] = "heads.head"
     elif "swin" in model:
         SUPPORTED_MODELS_FINAL_LAYER[model] = "head"
+    elif "convnext" in model:
+        # ConvNeXT's classifier is a Sequential block; the Linear layer is at index 2
+        SUPPORTED_MODELS_FINAL_LAYER[model] = "classifier.2"
     else:
         raise NotImplementedError
 
@@ -79,6 +83,11 @@ class TorchvisionModel(BaseModel):
 
         Paper: Ze Liu, Han Hu, Yutong Lin, et al.
         "Swin Transformer V2: Scaling Up Capacity and Resolution."
+        IEEE Conference on Computer Vision and Pattern Recognition (CVPR), 2022.
+    
+    ConvNeXT (convnext_tiny):
+        Paper: Zhuang Liu, Hanzi Mao, Chao-Yuan Wu, Christoph Feichtenhofer, Trevor Darrell, Saining Xie.
+        "A ConvNet for the 2020s."
         IEEE Conference on Computer Vision and Pattern Recognition (CVPR), 2022.
 
     Args:
@@ -263,6 +272,12 @@ class TorchvisionModel(BaseModel):
             x = self.model.permute(x)
             embeddings = self.model.avgpool(x)
             embeddings = torch.flatten(embeddings, 1)
+
+        elif "convnext" in self.model_name:
+            # For ConvNeXt: forward through features, then avgpool
+            x = self.model.features(x)
+            x = self.model.avgpool(x)
+            embeddings = torch.flatten(x, 1)
 
         else:
             raise NotImplementedError(

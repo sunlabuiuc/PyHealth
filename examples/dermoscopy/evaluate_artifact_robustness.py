@@ -33,7 +33,7 @@ def load_weights(model, weights_path, device):
 
 def main():
     parser = argparse.ArgumentParser(description="Smart Artifact Evaluation")
-    parser.add_argument('--model', type=str, choices=['resnet50', 'swin', 'dinov2'], default='resnet50')
+    parser.add_argument('--model', type=str, choices=['resnet50', 'swin_t', 'dinov2', 'convnext_tiny'], required=True)
     parser.add_argument('--mode', type=str, default='whole')
     parser.add_argument('--exp_dir', type=str, required=True, help="Path to the parent experiment directory")
     parser.add_argument('--log_dir', type=str, default=None, help="Parent log directory to save session output logs (defaults to dermoscopy_logs in home directory)")

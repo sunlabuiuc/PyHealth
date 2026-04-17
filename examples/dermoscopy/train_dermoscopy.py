@@ -172,7 +172,7 @@ if __name__ == "__main__":
     parser.add_argument('--log_dir', type=str, default=None, help="Parent log directory to save session output logs (defaults to dermoscopy_logs in home directory)")
     parser.add_argument('--train_datasets', nargs='+', default=["isic2018"])
     parser.add_argument('--test_datasets', nargs='*', default=[])
-    parser.add_argument('--model', type=str, default="resnet50")
+    parser.add_argument('--model', type=str, choices=['resnet50', 'swin_t', 'dinov2', 'convnext_tiny'], required=True)
     parser.add_argument('--mode', type=str, default="whole")
     parser.add_argument('--epochs', type=int, default=10)
     parser.add_argument('--cv_folds', type=int, default=5)

@@ -28,7 +28,7 @@ from train_dermoscopy import setup_dynamic_logging
 
 def main():
     parser = argparse.ArgumentParser(description="Epoch Ablation")
-    parser.add_argument('--model', type=str, choices=['resnet50', 'swin', 'dinov2'], required=True)
+    parser.add_argument('--model', type=str, choices=['resnet50', 'swin_t', 'dinov2', 'convnext_tiny'], required=True)
     parser.add_argument('--mode', type=str, choices=['whole', 'high_whole', 'low_whole'], required=True)
     parser.add_argument('--data_dir', type=str, required=True)
     parser.add_argument('--log_dir', type=str, default=None, help="Parent log directory to save session output logs (defaults to dermoscopy_logs in home directory)")

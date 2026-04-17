@@ -33,7 +33,7 @@ python generate_artifact_data.py \
 *Supported artifacts: `ruler`, `ink`, `dark-corner`, `gel-bubble`, `patches`.*
 
 ### Phase 1: Model Training & Baselines
-Train models across multiple architectures (ResNet50, Swin, DINOv2) and ablation modes. To ensure a fair comparison of architectural robustness, all models were fine-tuned using a standardized learning rate of 1e-4.
+Train models across multiple architectures (ResNet50, Swin (tiny), DINOv2, ConvNeXT (tiny)) and ablation modes. To ensure a fair comparison of architectural robustness, all models were fine-tuned using a standardized learning rate of 1e-4. Possible arguments for --model: resnet50, swin_t, dinov2, convnext_tiny
 ```bash
 python train_dermoscopy.py \
     --data_dir /path/to/data \

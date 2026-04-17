@@ -65,7 +65,7 @@ def extract_activations(model, target_layer, dataloader, device):
 
 def main():
     parser = argparse.ArgumentParser(description="TCAV")
-    parser.add_argument('--model', type=str, choices=['resnet50', 'swin', 'dinov2'], required=True)
+    parser.add_argument('--model', type=str, choices=['resnet50', 'swin_t', 'dinov2', 'convnext_tiny'], required=True)
     parser.add_argument('--exp_dir', type=str, required=True)
     parser.add_argument('--data_dir', type=str, required=True)
     parser.add_argument('--log_dir', type=str, default=None, help="Parent log directory to save session output logs (defaults to dermoscopy_logs in home directory)")
