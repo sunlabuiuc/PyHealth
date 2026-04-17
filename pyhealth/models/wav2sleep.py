@@ -2,7 +2,7 @@
 # Description: Wav2Sleep multimodal sleep stage classification model for PyHealth
 #
 # Paper-faithful implementation of:
-#   - CLS-token Transformer fusion for multimodal aggregation
+#   - Transformer-based fusion for multimodal aggregation
 #   - Dilated CNN sequence mixer for temporal modeling
 #
 # ╔═══════════════════════════════════════════════════════════════════════════╗
@@ -22,6 +22,7 @@ from torch import Tensor
 from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
 from pyhealth.models.embedding import EmbeddingModel
+from pyhealth.models.fusion import TransformerFusion
 
 # =============================================================================
 # Modality Encoders
@@ -437,153 +438,12 @@ def get_norm(name: str | None = 'batch', causal: bool = False, *args, **kwargs) 
         raise ValueError(f'Normalisation with {name=} and {causal=} unknown.')
 
 # =============================================================================
-# CLS-Token Transformer Fusion Module (Paper-Faithful)
+# Transformer Fusion Module
 # =============================================================================
-
-class CLSTokenTransformerFusion(nn.Module):
-    """CLS-token Transformer fusion module for multimodal aggregation.
-    
-    This module implements the paper-faithful fusion strategy from wav2sleep:
-    - Takes modality embeddings of shape [B, T, D] from available modalities
-    - For each epoch, stacks available modality embeddings
-    - Prepends a learnable CLS token
-    - Applies a Transformer encoder
-    - Returns the CLS output as the fused epoch representation
-    
-    Why CLS-token fusion instead of mean pooling or concatenation?
-    1. **Learnable aggregation**: CLS token learns an optimal weighting of modalities
-    2. **Missing modality robustness**: CLS can attend to available modalities only,
-       naturally handling variable numbers of inputs
-    3. **Fixed output dimension**: Output is always [B, T, D] regardless of how many
-       modalities are present
-    4. **Cross-modal attention**: Transformer allows modalities to attend to each other,
-       capturing inter-modal relationships
-    
-    Args:
-        embed_dim: Embedding dimension (D)
-        num_heads: Number of attention heads
-        num_layers: Number of transformer encoder layers
-        dropout: Dropout rate
-        max_modalities: Maximum number of modalities (default: 3 for ECG, PPG, Resp)
-    """
-    
-    def __init__(
-        self,
-        embed_dim: int = 128,
-        num_heads: int = 4,
-        num_layers: int = 2,
-        dropout: float = 0.1,
-        max_modalities: int = 3,
-    ):
-        super(CLSTokenTransformerFusion, self).__init__()
-        
-        self.embed_dim = embed_dim
-        self.num_heads = num_heads
-        self.max_modalities = max_modalities
-        
-        # Learnable CLS token: [1, 1, D]
-        self.cls_token = nn.Parameter(torch.randn(1, 1, embed_dim))
-        
-        # Modality-type embeddings to distinguish different modalities
-        # +1 for CLS token position
-        self.modality_embeddings = nn.Embedding(max_modalities + 1, embed_dim)
-        
-        # Transformer encoder
-        encoder_layer = nn.TransformerEncoderLayer(
-            d_model=embed_dim,
-            nhead=num_heads,
-            dim_feedforward=embed_dim * 4,
-            dropout=dropout,
-            activation='gelu',
-            batch_first=True,  # Input shape: [B, seq_len, D]
-        )
-        self.transformer_encoder = nn.TransformerEncoder(
-            encoder_layer,
-            num_layers=num_layers,
-        )
-        
-        # Layer normalization for output
-        self.layer_norm = nn.LayerNorm(embed_dim)
-        
-        # Initialize weights
-        self._init_weights()
-    
-    def _init_weights(self):
-        """Initialize CLS token and embeddings."""
-        nn.init.trunc_normal_(self.cls_token, std=0.02)
-        nn.init.normal_(self.modality_embeddings.weight, std=0.02)
-    
-    def forward(
-        self,
-        modality_embeddings: Dict[str, torch.Tensor],
-        modality_order: List[str] = ['ecg', 'ppg', 'resp'],
-    ) -> torch.Tensor:
-        """Forward pass for CLS-token transformer fusion.
-        
-        Args:
-            modality_embeddings: Dict mapping modality names to tensors of shape [B, T, D]
-            modality_order: List defining the order/index of modalities for embeddings
-            
-        Returns:
-            Fused representation of shape [B, T, D]
-        """
-        if not modality_embeddings:
-            raise ValueError("At least one modality must be provided for fusion")
-        
-        # Get batch size and sequence length from first available modality
-        first_modality = next(iter(modality_embeddings.values()))
-        batch_size, seq_len, embed_dim = first_modality.shape
-        device = first_modality.device
-        
-        # Process each epoch independently
-        # Reshape to process all epochs as a batch: [B*T, num_modalities, D]
-        fused_epochs = []
-        
-        for t in range(seq_len):
-            # Collect available modality features for this epoch: [B, num_avail, D]
-            epoch_features = []
-            modality_indices = []
-            
-            for mod_name, mod_tensor in modality_embeddings.items():
-                # Get epoch t features: [B, D]
-                epoch_feat = mod_tensor[:, t, :]  
-                epoch_features.append(epoch_feat.unsqueeze(1))  # [B, 1, D]
-                
-                # Get modality index (1-indexed, 0 is CLS)
-                mod_idx = modality_order.index(mod_name) + 1 if mod_name in modality_order else 1
-                modality_indices.append(mod_idx)
-            
-            # Stack modality features: [B, num_avail_modalities, D]
-            stacked_features = torch.cat(epoch_features, dim=1)
-            num_modalities = stacked_features.shape[1]
-            
-            # Expand CLS token for batch: [B, 1, D]
-            cls_tokens = self.cls_token.expand(batch_size, -1, -1)
-            
-            # Prepend CLS token: [B, 1 + num_modalities, D]
-            sequence = torch.cat([cls_tokens, stacked_features], dim=1)
-            
-            # Add modality-type embeddings
-            # CLS gets index 0, modalities get their respective indices
-            modality_ids = torch.tensor([0] + modality_indices, device=device)
-            modality_ids = modality_ids.unsqueeze(0).expand(batch_size, -1)  # [B, 1+num_mod]
-            modality_emb = self.modality_embeddings(modality_ids)  # [B, 1+num_mod, D]
-            
-            sequence = sequence + modality_emb
-            
-            # Apply transformer encoder: [B, 1 + num_modalities, D]
-            encoded = self.transformer_encoder(sequence)
-            
-            # Extract CLS token output as fused representation: [B, D]
-            cls_output = encoded[:, 0, :]
-            cls_output = self.layer_norm(cls_output)
-            
-            fused_epochs.append(cls_output.unsqueeze(1))  # [B, 1, D]
-        
-        # Stack all epochs: [B, T, D]
-        fused_output = torch.cat(fused_epochs, dim=1)
-        
-        return fused_output
+# This file uses the reusable TransformerFusion fusion layer from
+# pyhealth.models.fusion to aggregate modality embeddings.
+# The transformer fusion module accepts a dict of temporally aligned
+# modality tensors of shape [B, T, D] and returns a fused tensor of shape [B, T, D].
 
 
 # =============================================================================
@@ -838,12 +698,12 @@ class Wav2Sleep(BaseModel):
     """Wav2Sleep multimodal sleep stage classification model.
     
     This is a PAPER-FAITHFUL implementation that includes:
-    - CLS-token Transformer fusion for multimodal aggregation
+    - Transformer-based fusion for multimodal aggregation
     - Dilated CNN sequence mixer for temporal modeling
     
     Architecture:
     1. Modality-specific encoders (ECG, PPG, Respiratory) -> [B, T, D] each
-    2. CLS-token Transformer fusion -> [B, T, D]
+    2. Transformer-based fusion -> [B, T, D]
     3. Dilated CNN sequence mixer -> [B, T, D]
     4. Classification head -> [B, T, 5] (Wake, N1, N2, N3, REM)
     
@@ -962,8 +822,8 @@ class Wav2Sleep(BaseModel):
         # ║                                                                 ║
         # ║  INTEGRATION HOOK: Multimodal Fusion Module                     ║
         # ║                                                                 ║
-        # ║  Option A: Use existing CLSTokenTransformerFusion (default)     ║
-        # ║  Option B: Replace with your custom fusion module               ║
+        # ║  Option A: Use existing TransformerFusion (default)          ║
+        # ║  Option B: Replace with your custom fusion module             ║
         # ║                                                                 ║
         # ║  Expected interface:                                            ║
         # ║    Input:  Dict[str, Tensor[B, T, D]] - modality embeddings     ║
@@ -976,19 +836,19 @@ class Wav2Sleep(BaseModel):
             # ┌─────────────────────────────────────────────────────────────┐
             # │ TODO [NAFIS]: Keep this OR replace with custom fusion       │
             # │                                                             │
-            # │ Current: Paper-faithful CLS-token Transformer fusion        │
+            # │ Current: Paper-faithful TransformerFusion-based fusion      │
             # │ To replace:                                                 │
             # │   self.fusion_module = YourFusionModule(                    │
-            # │       embed_dim=embedding_dim,                              │
+            # │       hidden_dim=embedding_dim,                             │
             # │       ...                                                   │
             # │   )                                                         │
             # └─────────────────────────────────────────────────────────────┘
-            self.fusion_module = CLSTokenTransformerFusion(
-                embed_dim=embedding_dim,
+            self.fusion_module = TransformerFusion(
+                hidden_dim=embedding_dim,
                 num_heads=num_fusion_heads,
                 num_layers=num_fusion_layers,
                 dropout=dropout,
-                max_modalities=len(self.modality_keys),
+                use_modality_token=False,
             )
         else:
             # Simplified: Identity (will use first modality or simple aggregation)
@@ -1110,10 +970,7 @@ class Wav2Sleep(BaseModel):
             # ═══════════════════════════════════════════════════════════════
             # NAFIS'S FUSION CALLED HERE: self.fusion_module(...)
             # ═══════════════════════════════════════════════════════════════
-            fused_features = self.fusion_module(
-                modality_embeddings, 
-                modality_order=self.modality_keys
-            )
+            fused_features = self.fusion_module(modality_embeddings)
         else:
             # SIMPLIFIED: Use first available modality or mean
             if len(modality_embeddings) == 1:
@@ -1167,7 +1024,7 @@ class Wav2Sleep(BaseModel):
         report = {
             "overall": "paper_faithful" if self.use_paper_faithful else "simplified",
             "fusion_module": (
-                "CLS-token Transformer (paper-faithful)" 
+                "TransformerFusion (paper-faithful)" 
                 if self.use_paper_faithful 
                 else "Mean pooling (simplified)"
             ),
@@ -1190,7 +1047,7 @@ if __name__ == "__main__":
     # This section can be used for basic testing
     print("Wav2Sleep model loaded successfully!")
     print("\nPaper-faithful components:")
-    print("  - CLSTokenTransformerFusion: CLS-token based multimodal aggregation")
+    print("  - TransformerFusion: Transformer-based multimodal aggregation")
     print("  - DilatedCNNSequenceMixer: Dilated temporal convolutions")
     print("\nSimplified components (for comparison):")
     print("  - TemporalConvBlock: Standard temporal CNN")
