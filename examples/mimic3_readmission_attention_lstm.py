@@ -19,8 +19,8 @@ from pyhealth.models import AttentionLSTM
 from pathlib import Path
 
 
-# run multiple seeds (run 50 times)
-SEEDS = list(range(1, 51))  
+# run multiple seeds (run 100 times)
+SEEDS = list(range(1, 101))  
 BATCH_SIZE = 32
 EPOCHS = 50
 LR = 1e-3
