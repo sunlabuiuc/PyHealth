@@ -12,6 +12,8 @@ Findings:
 - Anchor strategy significantly impacts performance
 - Larger windows provide more context
 - Prediction horizon affects difficulty
+
+Results are printed to show how task configurations affect model performance.
 """
 
 import torch
@@ -249,6 +251,7 @@ def run_experiment(dataset, horizon, window, anchor):
 
     return bce.item(), mse.item()
 
+
 # ======================
 # 1. Anchor Ablation
 # ======================
@@ -294,101 +297,3 @@ for h in [5, 10, 20]:
     bce, mse = result
 
     print(f"horizon={h} → BCE={bce:.4f} | MSE={mse:.4f}")
-
-# ======================
-# 4. Prior Ablation
-# ======================
-def data_prior(samples):
-    """
-    Estimate event probability using MLE (no prior).
-    """
-    total = 0
-    events = 0
-
-    for s in samples:
-        y = s["y"]
-        mask = s["mask"]
-
-        valid = mask > 0
-        events += y[valid].sum()
-        total += valid.sum()
-
-    return events / total
-
-
-def gaussian_sample_prior(mean=0.0, std=1.0):
-    """
-    Sample a prior probability from a Gaussian via sigmoid transform.
-
-    Args:
-        mean: mean of Gaussian (logit space)
-        std: standard deviation
-
-    Returns:
-        p in (0,1)
-    """
-    z = np.random.normal(mean, std)
-    p = 1 / (1 + np.exp(-z))  # sigmoid
-
-    return float(p)
-
-def bayesian_posterior_prior(samples):
-    """
-    Compute posterior mean using Beta(1,1) prior.
-    """
-    total = 0
-    events = 0
-
-    for s in samples:
-        y = s["y"]
-        mask = s["mask"]
-
-        valid = mask > 0
-        events += y[valid].sum()
-        total += valid.sum()
-
-    alpha = events + 1.0
-    beta = (total - events) + 1.0
-
-    return alpha / (alpha + beta)
-
-
-
-
-print("\n=== Prior Ablation ===")
-
-task = DynamicSurvivalTask(
-    dataset,
-    horizon=10,
-    observation_window=12,
-    anchor_strategy="fixed",
-)
-
-samples = dataset.set_task(task)
-
-p_data = data_prior(samples)
-p_bayes = bayesian_posterior_prior(samples)
-p_gauss = gaussian_sample_prior(mean=-2.0, std=0.5)
-
-configs = {
-    "baseline": None,
-    "gaussian_init": p_gauss,
-    "data_init": p_data,
-    "bayesian_init": p_bayes,
-}
-
-for name, p in configs.items():
-    model = train_model(samples, horizon=10, prior=p)
-
-    X, Y, M = prepare_batch(samples)
-
-    with torch.no_grad():
-        pred = model(X)
-
-        bce = -(Y * torch.log(pred + 1e-8) +
-                (1 - Y) * torch.log(1 - pred + 1e-8))
-        bce = (bce * M).sum() / M.sum()
-
-        mse = ((pred - Y) ** 2 * M).sum() / M.sum()
-
-    print(f"{name:<15} → BCE={bce.item():.4f} | MSE={mse.item():.4f}")
