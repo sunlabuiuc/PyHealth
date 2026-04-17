@@ -25,10 +25,12 @@ import pickle
 import os
 import litdata
 
-from pyhealth.datasets import SampleDataset
+import random
+
+from pyhealth.datasets import SampleDataset, create_sample_dataset
 from pyhealth.datasets.sample_dataset import SampleBuilder
 from pyhealth.interpret.methods import LayerwiseRelevancePropagation
-from pyhealth.models import MLP
+from pyhealth.models import MLP, StageNet
 
 
 # @pytest.fixture - Disabled for unittest compatibility
@@ -1155,6 +1157,180 @@ class TestEndToEndIntegration(unittest.TestCase):
         
         # Cleanup
         shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+class TestStageNetLRP(unittest.TestCase):
+    """End-to-end LRP tests using StageNet on synthetic temporal EHR data.
+
+    StageNet implements Interpretable and returns a 'logit' key, so
+    conservation is tested with a tighter tolerance than branching MLP.
+    """
+
+    @classmethod
+    def _make_dataset(cls, num_samples: int = 40, seed: int = 7) -> "SampleDataset":
+        random.seed(seed)
+        np.random.seed(seed)
+        samples = []
+        for i in range(num_samples):
+            num_visits = random.randint(3, 8)
+            codes = [
+                [f"D{j}" for j in random.choices(range(30), k=random.randint(2, 5))]
+                for _ in range(num_visits)
+            ]
+            times = [v * 24.0 for v in range(num_visits)]
+            labs = [
+                [round(random.gauss(5.0, 1.0), 2) for _ in range(5)]
+                for _ in range(num_visits)
+            ]
+            samples.append({
+                "patient_id": f"P{i}",
+                "visit_id": f"V{i}",
+                "diagnoses": (times, codes),
+                "labs": (times, labs),
+                "label": i % 2,
+            })
+        return create_sample_dataset(
+            samples=samples,
+            input_schema={"diagnoses": "stagenet", "labs": "stagenet_tensor"},
+            output_schema={"label": "binary"},
+            in_memory=True,
+        )
+
+    def setUp(self):
+        self.dataset = self._make_dataset()
+        self.model = StageNet(
+            dataset=self.dataset,
+            embedding_dim=32,
+            chunk_size=32,
+            levels=2,
+        )
+        self.model.eval()
+
+    def _make_batch(self, idx: int = 0):
+        sample = self.dataset[idx]
+        return {
+            k: v.unsqueeze(0) if isinstance(v, torch.Tensor)
+            else tuple(t.unsqueeze(0) if isinstance(t, torch.Tensor) else t for t in v)
+            if isinstance(v, tuple) else v
+            for k, v in sample.items()
+        }
+
+    def test_epsilon_attribution_shapes(self):
+        """Attributions have the same batch dimension as the input."""
+        batch = self._make_batch()
+        lrp = LayerwiseRelevancePropagation(
+            self.model, rule="epsilon", epsilon=0.01, use_embeddings=True
+        )
+        attrs = lrp.attribute(**batch)
+        self.assertIn("diagnoses", attrs)
+        self.assertIn("labs", attrs)
+        for key in ["diagnoses", "labs"]:
+            self.assertEqual(attrs[key].shape[0], 1)
+
+    def test_alphabeta_attribution_shapes(self):
+        """AlphaBeta rule also produces correct batch dimension."""
+        batch = self._make_batch()
+        lrp = LayerwiseRelevancePropagation(
+            self.model, rule="alphabeta", alpha=1.0, beta=0.0, use_embeddings=True
+        )
+        attrs = lrp.attribute(**batch)
+        for key in attrs:
+            self.assertEqual(attrs[key].shape[0], 1)
+
+    def test_no_nan_or_inf(self):
+        """Neither epsilon nor alphabeta attributions contain NaN/Inf."""
+        batch = self._make_batch()
+        for rule, kwargs in [
+            ("epsilon", {"epsilon": 0.01}),
+            ("alphabeta", {"alpha": 1.0, "beta": 0.0}),
+        ]:
+            lrp = LayerwiseRelevancePropagation(
+                self.model, rule=rule, use_embeddings=True, **kwargs
+            )
+            attrs = lrp.attribute(**batch)
+            for key, attr in attrs.items():
+                self.assertFalse(torch.isnan(attr).any(),
+                                 f"{rule}: NaN in {key}")
+                self.assertFalse(torch.isinf(attr).any(),
+                                 f"{rule}: Inf in {key}")
+
+    def test_conservation_epsilon(self):
+        """Epsilon-rule relevances sum close to the model logit (StageNet returns logit)."""
+        batch = self._make_batch()
+        lrp = LayerwiseRelevancePropagation(
+            self.model, rule="epsilon", epsilon=0.01, use_embeddings=True
+        )
+        with torch.no_grad():
+            out = self.model(**batch)
+        logit = out["logit"][0, 0].item()
+
+        attrs = lrp.attribute(**batch, target_class_idx=0)
+        total = sum(a.sum().item() for a in attrs.values())
+
+        rel = abs(total - logit) / max(abs(logit), 1e-6)
+        self.assertLess(rel, 3.0,
+            f"Conservation violated: logit={logit:.4f}, sum={total:.4f}, rel={rel:.2%}")
+
+    def test_epsilon_vs_alphabeta_differ(self):
+        """Epsilon and alphabeta rules produce different attributions."""
+        batch = self._make_batch()
+        lrp_eps = LayerwiseRelevancePropagation(
+            self.model, rule="epsilon", epsilon=0.01, use_embeddings=True
+        )
+        lrp_ab = LayerwiseRelevancePropagation(
+            self.model, rule="alphabeta", alpha=2.0, beta=1.0, use_embeddings=True
+        )
+        attrs_eps = lrp_eps.attribute(**batch)
+        attrs_ab = lrp_ab.attribute(**batch)
+
+        different = any(
+            not torch.allclose(attrs_eps[k], attrs_ab[k], rtol=0.1, atol=0.1)
+            for k in attrs_eps
+        )
+        self.assertTrue(different,
+            "Epsilon and alphabeta rules should produce different attributions")
+
+    def test_batch_size_invariance(self):
+        """Attributions work for batch_size > 1 and first sample matches single-sample result."""
+        # Single sample
+        batch1 = self._make_batch(0)
+        lrp = LayerwiseRelevancePropagation(
+            self.model, rule="epsilon", epsilon=0.01, use_embeddings=True
+        )
+        attrs1 = lrp.attribute(**batch1, target_class_idx=0)
+
+        # Batch of 3 (same sample repeated)
+        batch3 = {}
+        for k, v in batch1.items():
+            if isinstance(v, torch.Tensor):
+                batch3[k] = v.repeat(3, *([1] * (v.dim() - 1)))
+            elif isinstance(v, tuple):
+                batch3[k] = tuple(
+                    t.repeat(3, *([1] * (t.dim() - 1))) if isinstance(t, torch.Tensor) else t
+                    for t in v
+                )
+            else:
+                batch3[k] = v
+        attrs3 = lrp.attribute(**batch3, target_class_idx=0)
+
+        for key in attrs1:
+            self.assertEqual(attrs3[key].shape[0], 3)
+            # First sample in batched result should match single result
+            self.assertTrue(
+                torch.allclose(attrs1[key][0], attrs3[key][0], atol=1e-5),
+                f"Batch[0] != single for feature '{key}'"
+            )
+
+    def test_attributions_nonzero(self):
+        """Attributions contain non-trivially-zero values."""
+        batch = self._make_batch()
+        lrp = LayerwiseRelevancePropagation(
+            self.model, rule="epsilon", epsilon=0.01, use_embeddings=True
+        )
+        attrs = lrp.attribute(**batch)
+        for key, attr in attrs.items():
+            self.assertGreater(attr.abs().sum().item(), 1e-8,
+                               f"All-zero attributions for '{key}'")
 
 
 if __name__ == "__main__":

@@ -59,6 +59,68 @@ def check_tensor_validity(tensor: torch.Tensor, name: str = "tensor") -> bool:
     return True
 
 
+def pad_to_match(
+    x: torch.Tensor, expected_size: int
+) -> Tuple[torch.Tensor, int]:
+    """Pad or truncate *x* along dim=1 to *expected_size*.
+
+    Returns:
+        Tuple of (adjusted_x, original_size).
+    """
+    orig = x.size(1)
+    if orig == expected_size:
+        return x, orig
+    if orig < expected_size:
+        pad = torch.zeros(
+            x.size(0), expected_size - orig, device=x.device, dtype=x.dtype
+        )
+        return torch.cat([x, pad], dim=1), orig
+    return x[:, :expected_size], orig
+
+
+def match_relevance_dim(
+    relevance: torch.Tensor, target_size: int
+) -> torch.Tensor:
+    """Pad or truncate *relevance* along dim=1 to *target_size*."""
+    current = relevance.size(1)
+    if current == target_size:
+        return relevance
+    if current < target_size:
+        pad = torch.zeros(
+            relevance.size(0),
+            target_size - current,
+            device=relevance.device,
+            dtype=relevance.dtype,
+        )
+        return torch.cat([relevance, pad], dim=1)
+    return relevance[:, :target_size]
+
+
+def conv_output_padding(
+    layer: nn.Module, z_shape: Tuple, x_shape: Tuple
+) -> Tuple:
+    """Compute output_padding for conv_transpose2d to recover input spatial size."""
+    pads = []
+    for i in range(2):
+        s = layer.stride[i] if isinstance(layer.stride, tuple) else layer.stride
+        p = layer.padding[i] if isinstance(layer.padding, tuple) else layer.padding
+        k = layer.weight.shape[2 + i]
+        expected = (z_shape[2 + i] - 1) * s - 2 * p + k
+        pads.append(max(0, x_shape[2 + i] - expected))
+    return tuple(pads)
+
+
+def crop_spatial(tensor: torch.Tensor, target_shape: Tuple) -> torch.Tensor:
+    """Crop or zero-pad a 4-D tensor to match *target_shape* in the spatial dims."""
+    if tensor.shape[2:] == target_shape[2:]:
+        return tensor
+    if tensor.shape[2] > target_shape[2] or tensor.shape[3] > target_shape[3]:
+        return tensor[:, :, : target_shape[2], : target_shape[3]]
+    pad_h = target_shape[2] - tensor.shape[2]
+    pad_w = target_shape[3] - tensor.shape[3]
+    return F.pad(tensor, (0, pad_w, 0, pad_h))
+
+
 # ============================================================================
 # Abstract base class and registry
 # ============================================================================
@@ -160,6 +222,9 @@ class LinearLRPHandler(LRPLayerHandler):
 
     Epsilon rule: R_i = sum_j (z_ij / (z_j + eps*sign(z_j))) * R_j
     AlphaBeta rule: R_i = sum_j [alpha*z_ij+ / z_j+ - beta*z_ij- / z_j-] * R_j
+
+    Handles higher-dimensional inputs by flattening to 2-D and pads/truncates
+    when the input width does not perfectly match the weight matrix width.
     """
 
     def __init__(self):
@@ -174,37 +239,46 @@ class LinearLRPHandler(LRPLayerHandler):
         relevance_output: torch.Tensor,
         rule: str = "epsilon",
         epsilon: float = 1e-2,
-        alpha: float = 2.0,
-        beta: float = 1.0,
+        alpha: float = 1.0,
+        beta: float = 0.0,
         **kwargs,
     ) -> torch.Tensor:
         cache = self._get_cached(layer)
         x = cache["input"]
+        if x.dim() > 2:
+            x = x.view(x.size(0), -1)
         if rule == "epsilon":
             return self._epsilon_rule(layer, x, relevance_output, epsilon)
         elif rule == "alphabeta":
-            return self._alphabeta_rule(
-                layer, x, relevance_output, alpha, beta, epsilon
-            )
+            return self._alphabeta_rule(layer, x, relevance_output, alpha, beta)
         raise ValueError(f"Unsupported rule: {rule}")
 
     def _epsilon_rule(self, layer, x, relevance_output, epsilon):
-        w, b = layer.weight, layer.bias if layer.bias is not None else 0.0
-        z = F.linear(x, w, b)
+        x_p, orig = pad_to_match(x, layer.weight.size(1))
+        z = F.linear(x_p, layer.weight, layer.bias)
+        relevance_output = match_relevance_dim(relevance_output, z.size(1))
         z = stabilize_denominator(z, epsilon, rule="epsilon")
-        return x * torch.mm(relevance_output / z, w)
+        c = torch.einsum("bo,oi->bi", relevance_output / z, layer.weight)
+        result = x_p * c
+        if result.size(1) != orig:
+            result = result[:, :orig]
+        return result
 
-    def _alphabeta_rule(self, layer, x, relevance_output, alpha, beta, epsilon):
-        w = layer.weight
-        b = layer.bias if layer.bias is not None else 0.0
-        w_pos, w_neg = torch.clamp(w, min=0), torch.clamp(w, max=0)
-
-        z_pos = F.linear(x, w_pos, torch.clamp(b, min=0)) + epsilon
-        z_neg = F.linear(x, w_neg, torch.clamp(b, max=0)) - epsilon
-
-        r_pos = alpha * x * torch.mm(relevance_output / z_pos, w_pos)
-        r_neg = beta * x * torch.mm(relevance_output / z_neg, w_neg)
-        return r_pos + r_neg
+    def _alphabeta_rule(self, layer, x, relevance_output, alpha, beta):
+        x_p, orig = pad_to_match(x, layer.weight.size(1))
+        W_pos = torch.clamp(layer.weight, min=0)
+        W_neg = torch.clamp(layer.weight, max=0)
+        b_pos = torch.clamp(layer.bias, min=0) if layer.bias is not None else None
+        b_neg = torch.clamp(layer.bias, max=0) if layer.bias is not None else None
+        z_pos = F.linear(x_p, W_pos, b_pos) + 1e-9
+        z_neg = F.linear(x_p, W_neg, b_neg) - 1e-9
+        relevance_output = match_relevance_dim(relevance_output, z_pos.size(1))
+        c_pos = torch.einsum("bo,oi->bi", relevance_output / z_pos, W_pos)
+        c_neg = torch.einsum("bo,oi->bi", relevance_output / z_neg, W_neg)
+        result = x_p * (alpha * c_pos - beta * c_neg)
+        if result.size(1) != orig:
+            result = result[:, :orig]
+        return result
 
 
 class ReLULRPHandler(LRPLayerHandler):
@@ -262,8 +336,8 @@ class Conv2dLRPHandler(LRPLayerHandler):
         relevance_output: torch.Tensor,
         rule: str = "epsilon",
         epsilon: float = 1e-2,
-        alpha: float = 2.0,
-        beta: float = 1.0,
+        alpha: float = 1.0,
+        beta: float = 0.0,
         **kwargs,
     ) -> torch.Tensor:
         cache = self._get_cached(layer)
@@ -271,23 +345,8 @@ class Conv2dLRPHandler(LRPLayerHandler):
         if rule == "epsilon":
             return self._epsilon_rule(layer, x, relevance_output, epsilon)
         elif rule == "alphabeta":
-            return self._alphabeta_rule(
-                layer, x, relevance_output, alpha, beta, epsilon
-            )
+            return self._alphabeta_rule(layer, x, relevance_output, alpha, beta, epsilon)
         raise ValueError(f"Unsupported rule: {rule}")
-
-    @staticmethod
-    def _output_padding(layer, z_shape, x_shape):
-        """Compute output_padding for conv_transpose2d to match input size."""
-        pads = []
-        for i in range(2):
-            expected = (
-                (z_shape[2 + i] - 1) * layer.stride[i]
-                - 2 * layer.padding[i]
-                + layer.kernel_size[i]
-            )
-            pads.append(max(0, x_shape[2 + i] - expected))
-        return tuple(pads)
 
     def _epsilon_rule(self, layer, x, relevance_output, epsilon):
         conv_kw = dict(
@@ -299,12 +358,13 @@ class Conv2dLRPHandler(LRPLayerHandler):
         z = F.conv2d(x, layer.weight, layer.bias, **conv_kw)
         z = stabilize_denominator(z, epsilon, rule="epsilon")
         s = relevance_output / z
-
-        out_pad = self._output_padding(layer, z.shape, x.shape)
+        out_pad = conv_output_padding(layer, z.shape, x.shape)
         c = F.conv_transpose2d(
-            s, layer.weight, None, output_padding=out_pad, **conv_kw
+            s, layer.weight, None,
+            stride=layer.stride, padding=layer.padding,
+            output_padding=out_pad, dilation=layer.dilation, groups=layer.groups,
         )
-        return x * c
+        return x * crop_spatial(c, x.shape)
 
     def _alphabeta_rule(self, layer, x, relevance_output, alpha, beta, epsilon):
         conv_kw = dict(
@@ -313,24 +373,27 @@ class Conv2dLRPHandler(LRPLayerHandler):
             dilation=layer.dilation,
             groups=layer.groups,
         )
-        w_pos = torch.clamp(layer.weight, min=0)
-        w_neg = torch.clamp(layer.weight, max=0)
+        W_pos = torch.clamp(layer.weight, min=0)
+        W_neg = torch.clamp(layer.weight, max=0)
         b_pos = torch.clamp(layer.bias, min=0) if layer.bias is not None else None
         b_neg = torch.clamp(layer.bias, max=0) if layer.bias is not None else None
 
-        z_pos = F.conv2d(x, w_pos, b_pos, **conv_kw) + epsilon
-        z_neg = F.conv2d(x, w_neg, b_neg, **conv_kw) - epsilon
+        z_pos = F.conv2d(x, W_pos, b_pos, **conv_kw)
+        z_neg = F.conv2d(x, W_neg, b_neg, **conv_kw)
+        z_sum = z_pos + z_neg
+        sign = z_sum.sign()
+        sign = torch.where(sign == 0, torch.ones_like(sign), sign)
+        z_total = z_sum + epsilon * sign
 
-        out_pad = self._output_padding(layer, z_pos.shape, x.shape)
-        trans_kw = dict(output_padding=out_pad, **conv_kw)
-
-        r_pos = alpha * F.conv_transpose2d(
-            relevance_output / z_pos * z_pos, w_pos, None, **trans_kw
-        ) * x / (x + epsilon)
-        r_neg = beta * F.conv_transpose2d(
-            relevance_output / z_neg * z_neg, w_neg, None, **trans_kw
-        ) * x / (x - epsilon)
-        return r_pos + r_neg
+        s = relevance_output / z_total
+        out_pad = conv_output_padding(layer, z_pos.shape, x.shape)
+        trans_kw = dict(
+            stride=layer.stride, padding=layer.padding,
+            output_padding=out_pad, dilation=layer.dilation, groups=layer.groups,
+        )
+        c_pos = crop_spatial(F.conv_transpose2d(s, W_pos, None, **trans_kw), x.shape)
+        c_neg = crop_spatial(F.conv_transpose2d(s, W_neg, None, **trans_kw), x.shape)
+        return x * (alpha * c_pos + beta * c_neg)
 
 
 class MaxPool2dLRPHandler(LRPLayerHandler):
@@ -377,7 +440,7 @@ class MaxPool2dLRPHandler(LRPLayerHandler):
 
 
 class AvgPool2dLRPHandler(LRPLayerHandler):
-    """LRP handler for nn.AvgPool2d — uniform relevance distribution."""
+    """LRP handler for nn.AvgPool2d — uniform relevance distribution via transposed conv."""
 
     def __init__(self):
         super().__init__(name="AvgPool2dHandler")
@@ -386,10 +449,15 @@ class AvgPool2dLRPHandler(LRPLayerHandler):
         return isinstance(layer, nn.AvgPool2d)
 
     def backward_relevance(self, layer, relevance_output, **kwargs):
-        input_shape = self._get_cached(layer)["input"].shape
-        return F.interpolate(
-            relevance_output, size=input_shape[2:], mode="nearest"
-        )
+        cache = self._get_cached(layer)
+        x = cache["input"]
+        channels = relevance_output.size(1)
+        ks = layer.kernel_size if isinstance(layer.kernel_size, tuple) else (layer.kernel_size, layer.kernel_size)
+        st = layer.stride if isinstance(layer.stride, tuple) else (layer.stride, layer.stride)
+        pd = layer.padding if isinstance(layer.padding, tuple) else (layer.padding, layer.padding)
+        weight = torch.ones(channels, 1, *ks, device=x.device, dtype=x.dtype) / (ks[0] * ks[1])
+        result = F.conv_transpose2d(relevance_output, weight, stride=st, padding=pd, groups=channels)
+        return crop_spatial(result, x.shape)
 
 
 class AdaptiveAvgPool2dLRPHandler(LRPLayerHandler):
@@ -475,34 +543,28 @@ class DropoutLRPHandler(LRPLayerHandler):
         return relevance_output
 
 
-class AdditionLRPHandler(LRPLayerHandler):
-    """LRP handler for skip connections: splits relevance proportionally."""
+class RNNLRPHandler(LRPLayerHandler):
+    """LRP handler for nn.LSTM and nn.GRU.
+
+    LRP for recurrent layers is an active research area; this implementation
+    uses the simple heuristic of distributing the hidden-state relevance
+    uniformly across all input time-steps, which is consistent with the
+    epsilon-rule interpretation of the recurrent read-out.
+    """
 
     def __init__(self):
-        super().__init__(name="AdditionHandler")
-        self.branch_cache = {}
+        super().__init__(name="RNNHandler")
 
     def supports(self, layer: nn.Module) -> bool:
-        return False  # Manually invoked
+        return isinstance(layer, (nn.LSTM, nn.GRU))
 
     def backward_relevance(self, layer, relevance_output, **kwargs):
+        cache = self._get_cached(layer)
+        x = cache["input"]
+        if x.dim() == 3:
+            # relevance_output: [B, H] → expand to [B, T, H]
+            return relevance_output.unsqueeze(1).expand(x.shape[0], x.shape[1], -1)
         return relevance_output
-
-    def cache_branches(self, op_id: int, branch_a: torch.Tensor, branch_b: torch.Tensor):
-        self.branch_cache[op_id] = {
-            "branch_a": branch_a.detach(),
-            "branch_b": branch_b.detach(),
-        }
-
-    def backward_relevance_split(
-        self, op_id: int, relevance_output: torch.Tensor, epsilon: float = 1e-9
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        if op_id not in self.branch_cache:
-            raise RuntimeError(f"No cached branches for operation {op_id}")
-        a = self.branch_cache[op_id]["branch_a"]
-        b = self.branch_cache[op_id]["branch_b"]
-        z = stabilize_denominator(a + b, epsilon, rule="epsilon")
-        return (a / z) * relevance_output, (b / z) * relevance_output
 
 
 # ============================================================================
@@ -523,4 +585,5 @@ def create_default_registry() -> LRPHandlerRegistry:
     registry.register(FlattenLRPHandler())
     registry.register(BatchNorm2dLRPHandler())
     registry.register(DropoutLRPHandler())
+    registry.register(RNNLRPHandler())
     return registry

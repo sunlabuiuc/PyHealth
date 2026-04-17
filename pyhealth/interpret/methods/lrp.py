@@ -9,14 +9,111 @@ References:
     with Local Renormalization Layers", arXiv:1604.00825, 2016.
 """
 
+import contextlib
+import logging
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from typing import Dict, Optional, Literal
 
 from pyhealth.models import BaseModel
+from pyhealth.interpret.api import Interpretable
 from pyhealth.interpret.methods.base_interpreter import BaseInterpreter
-from pyhealth.interpret.methods.lrp_base import stabilize_denominator
+from pyhealth.interpret.methods.lrp_base import (
+    stabilize_denominator,
+    LRPHandlerRegistry,
+    LinearLRPHandler,
+    ReLULRPHandler,
+    Conv2dLRPHandler,
+    MaxPool2dLRPHandler,
+    AvgPool2dLRPHandler,
+    AdaptiveAvgPool2dLRPHandler,
+    BatchNorm2dLRPHandler,
+    FlattenLRPHandler,
+    DropoutLRPHandler,
+    RNNLRPHandler,
+)
+
+logger = logging.getLogger(__name__)
+
+
+class _LRPHookContext(contextlib.AbstractContextManager):
+    """Owns all mutable hook state for one LRP forward+backward pass.
+
+    Creating a fresh context per :meth:`LayerwiseRelevancePropagation.attribute`
+    call eliminates the concurrency / re-entrancy hazard that arises when hook
+    state is stored as instance attributes on the interpreter.
+    """
+
+    def __init__(self, model: nn.Module) -> None:
+        self.model = model
+        self.activations: Dict[str, dict] = {}
+        self.hooks: list = []
+        self.residual_blocks: Dict[str, dict] = {}
+
+    def __enter__(self) -> "_LRPHookContext":
+        self._register_hooks()
+        return self
+
+    def __exit__(self, exc_type, exc, exc_tb) -> bool:
+        for hook in self.hooks:
+            hook.remove()
+        self.hooks.clear()
+        self.activations.clear()
+        self.residual_blocks.clear()
+        return False
+
+    def _register_hooks(self) -> None:  # noqa: C901
+        def save_activation(name: str):
+            def hook(module, input, output):
+                in_t = input[0] if isinstance(input, tuple) else input
+                out_t = output[0] if isinstance(output, tuple) else output
+                entry: dict = {"input": in_t, "output": out_t, "module": module}
+                # Pre-compute pool indices so MaxPool2dLRPHandler can unpool
+                if isinstance(module, nn.MaxPool2d):
+                    _, indices = F.max_pool2d(
+                        in_t,
+                        kernel_size=module.kernel_size,
+                        stride=module.stride,
+                        padding=module.padding,
+                        dilation=module.dilation,
+                        return_indices=True,
+                    )
+                    entry["indices"] = indices
+                self.activations[name] = entry
+            return hook
+
+        for name, module in self.model.named_modules():
+            if isinstance(
+                module,
+                (
+                    nn.Linear, nn.ReLU, nn.LSTM, nn.GRU,
+                    nn.Conv2d, nn.MaxPool2d, nn.AvgPool2d,
+                    nn.AdaptiveAvgPool2d, nn.BatchNorm2d,
+                    nn.Flatten, nn.Dropout,
+                ),
+            ):
+                handle = module.register_forward_hook(save_activation(name))
+                self.hooks.append(handle)
+
+        try:
+            from torchvision.models.resnet import BasicBlock, Bottleneck
+
+            def save_residual_block(block_name: str):
+                def hook(module, input, output):
+                    x = input[0] if isinstance(input, tuple) else input
+                    self.residual_blocks[block_name] = {
+                        "input": x,
+                        "has_downsample": module.downsample is not None,
+                    }
+                return hook
+
+            for name, module in self.model.named_modules():
+                if isinstance(module, (BasicBlock, Bottleneck)):
+                    handle = module.register_forward_hook(save_residual_block(name))
+                    self.hooks.append(handle)
+        except (ImportError, AttributeError):
+            pass
 
 
 class LayerwiseRelevancePropagation(BaseInterpreter):
@@ -51,15 +148,31 @@ class LayerwiseRelevancePropagation(BaseInterpreter):
         use_embeddings: bool = True,
     ):
         super().__init__(model)
+        if use_embeddings and not isinstance(model, Interpretable):
+            raise ValueError(
+                "Model must implement Interpretable interface when "
+                "use_embeddings=True"
+            )
         self.rule = rule
         self.epsilon = epsilon
         self.alpha = alpha
         self.beta = beta
         self.use_embeddings = use_embeddings
 
-        self.hooks = []
-        self.activations = {}
-        self._residual_blocks = {}  # block_name -> {input, has_downsample}
+        self._registry = LRPHandlerRegistry()
+        for handler in [
+            LinearLRPHandler(),
+            ReLULRPHandler(),
+            Conv2dLRPHandler(),
+            MaxPool2dLRPHandler(),
+            AvgPool2dLRPHandler(),
+            AdaptiveAvgPool2dLRPHandler(),
+            BatchNorm2dLRPHandler(),
+            FlattenLRPHandler(),
+            DropoutLRPHandler(),
+            RNNLRPHandler(),
+        ]:
+            self._registry.register(handler)
 
         if use_embeddings:
             assert hasattr(model, "forward_from_embedding"), (
@@ -106,6 +219,36 @@ class LayerwiseRelevancePropagation(BaseInterpreter):
                 # Fallback for models without processor schema
                 values[key] = inputs[key][0]
 
+        # Build and re-append padding masks so sequence models receive them (Issue 3)
+        if has_processors:
+            masks: Dict[str, torch.Tensor] = {}
+            for k in list(inputs.keys()):
+                if k not in self.model.dataset.input_processors:
+                    continue
+                schema = self.model.dataset.input_processors[k].schema()
+                if "mask" in schema:
+                    masks[k] = inputs[k][schema.index("mask")]
+                else:
+                    processor = self.model.dataset.input_processors[k]
+                    val = values[k]
+                    if processor.is_token():
+                        # For nested tokens (val is 3D [B, seq, inner]), produce a
+                        # visit-level mask [B, seq] so temporal models receive 2D masks
+                        raw = (val != 0)
+                        if raw.dim() == 3:
+                            masks[k] = raw.any(dim=-1).int()
+                        else:
+                            masks[k] = raw.int()
+                    elif val.dim() >= 3:
+                        masks[k] = (val.abs().sum(dim=-1) != 0).int()
+                    else:
+                        masks[k] = (val != 0).int()
+            for k in list(inputs.keys()):
+                if k in masks and k in self.model.dataset.input_processors:
+                    schema = self.model.dataset.input_processors[k].schema()
+                    if "mask" not in schema:
+                        inputs[k] = (*inputs[k], masks[k])
+
         for key in getattr(self.model, "label_keys", []):
             if key in data:
                 val = data[key]
@@ -133,11 +276,16 @@ class LayerwiseRelevancePropagation(BaseInterpreter):
 
     def _compute_from_embeddings(self, inputs, values, target_class_idx, label_data):
         """LRP starting from embedding layer (for discrete inputs)."""
+        embedding_model = self.model.get_embedding_model()
+        assert embedding_model is not None, (
+            "Model must have an embedding model for embedding-based LRP. "
+            "Set use_embeddings=False for continuous features only."
+        )
         input_embeddings, input_shapes = {}, {}
 
         for key in values:
             input_shapes[key] = values[key].shape
-            embedded = self.model.embedding_model({key: values[key]})
+            embedded = embedding_model({key: values[key]})
             x = embedded[key]
             if x.dim() == 4:
                 x = x.sum(dim=2)
@@ -164,135 +312,136 @@ class LayerwiseRelevancePropagation(BaseInterpreter):
         if label_data:
             forward_kwargs.update(label_data)
 
-        self._register_hooks()
-        try:
+        with _LRPHookContext(self.model) as ctx:
             with torch.no_grad():
-                output = self.model.forward_from_embedding(
-                    **forward_kwargs,
-                )
+                output = self.model.forward_from_embedding(**forward_kwargs)
             logits = output["logit"]
             output_relevance = self._init_output_relevance(logits, target_class_idx)
-
             relevance_at_emb = self._propagate_relevance_backward(
-                output_relevance, input_embeddings
+                output_relevance, input_embeddings, ctx
             )
 
-            result = {}
-            for key in input_embeddings:
-                rel = relevance_at_emb.get(key)
-                if rel is None:
-                    continue
-                # Sum over embedding dim to get per-token relevance
-                if rel.dim() >= 2:
-                    result[key] = rel.sum(dim=-1)
-                else:
-                    result[key] = rel
-                # Expand to match original input shape if needed
-                orig = input_shapes[key]
-                if result[key].shape != orig and len(orig) == 3 and result[key].dim() == 2:
-                    result[key] = result[key].unsqueeze(-1).expand(orig)
-        finally:
-            self._remove_hooks()
+        result = {}
+        for key in input_embeddings:
+            rel = relevance_at_emb.get(key)
+            if rel is None:
+                continue
+            # Sum over embedding dim to get per-token relevance
+            if rel.dim() >= 2:
+                result[key] = rel.sum(dim=-1)
+            else:
+                result[key] = rel
+            # Expand to match original input shape if needed
+            orig = input_shapes[key]
+            if result[key].shape != orig and len(orig) == 3 and result[key].dim() == 2:
+                result[key] = result[key].unsqueeze(-1).expand(orig)
         return result
 
     def _compute_from_inputs(self, inputs, values, target_class_idx, label_data):
         """LRP starting from continuous inputs (e.g., images)."""
         self.model.eval()
-        self._register_hooks()
-        try:
-            forward_kwargs = {**values}
-            if label_data:
-                forward_kwargs.update(label_data)
+        forward_kwargs = {**values}
+        if label_data:
+            forward_kwargs.update(label_data)
+        with _LRPHookContext(self.model) as ctx:
             with torch.no_grad():
                 output = self.model(**forward_kwargs)
-
-            logits = output.get("logit", output.get("y_prob", output.get("y_pred")))
+            logits = self._extract_logits(output, ctx)
             output_relevance = self._init_output_relevance(logits, target_class_idx)
-
-            result = self._propagate_relevance_backward(output_relevance, values)
-            if not isinstance(result, dict):
-                result = {list(values.keys())[0]: result}
-        finally:
-            self._remove_hooks()
+            result = self._propagate_relevance_backward(output_relevance, values, ctx)
+        if not isinstance(result, dict):
+            result = {list(values.keys())[0]: result}
         return result
 
-    def _init_output_relevance(self, logits, target_class_idx):
-        """Initialize relevance at the output layer."""
-        if target_class_idx is None:
-            target_class_idx = torch.argmax(logits, dim=-1)
-        elif not isinstance(target_class_idx, torch.Tensor):
-            target_class_idx = torch.tensor(target_class_idx, device=logits.device)
+    def _extract_logits(
+        self, output: dict, ctx: "_LRPHookContext"
+    ) -> torch.Tensor:
+        """Return raw pre-softmax logits for LRP initialisation.
 
-        if logits.dim() == 2 and logits.size(-1) > 1:
+        Priority:
+        1. ``output["logit"]`` — model explicitly exposes raw logits.
+        2. Last ``nn.Linear`` hook in *ctx* — the final classification head
+           fires its hook *before* ``prepare_y_prob`` applies softmax, so
+           its cached output is the true pre-softmax logit even for models
+           like ``TorchvisionModel`` that do not return a "logit" key.
+        3. ``output["y_prob"]`` — last-resort fallback; conservation will
+           not hold because softmax collapses the logit scale.
+        """
+        if "logit" in output:
+            return output["logit"]
+
+        # Walk the activations dict (insertion = forward-execution order).
+        # Keeping the last Linear hit gives the final classification head.
+        last_linear_output: Optional[torch.Tensor] = None
+        for info in ctx.activations.values():
+            if isinstance(info["module"], nn.Linear):
+                last_linear_output = info["output"]
+
+        if last_linear_output is not None:
+            logger.debug(
+                "Extracted raw logits from the final Linear layer hook "
+                "(model does not return a 'logit' key)."
+            )
+            return last_linear_output
+
+        if "y_prob" in output:
+            logger.debug(
+                "Model forward() did not return a 'logit' key; falling back "
+                "to 'y_prob'. LRP conservation property may not hold."
+            )
+            return output["y_prob"]
+
+        raise KeyError(
+            "Model forward() must return a 'logit' key for LRP. "
+            f"Got keys: {list(output.keys())}"
+        )
+
+    def _init_output_relevance(self, logits, target_class_idx):
+        """Initialize relevance at the output layer using prediction-mode dispatch."""
+        try:
+            mode = self._prediction_mode()
+        except Exception:
+            # Fall back to shape-based heuristic for models that don't expose
+            # output schema (e.g. TorchvisionModel with use_embeddings=False).
+            mode = "multiclass" if logits.dim() == 2 and logits.size(-1) > 1 else "binary"
+
+        if mode == "binary":
+            # Binary logits have shape [B] or [B, 1].
+            # target_class_idx=1 (positive) → use logit as-is.
+            # target_class_idx=0 (negative) → negate so LRP attributes for the
+            # "not-positive" direction (relevance conservation still holds for -logit).
+            if target_class_idx is not None:
+                idx = (
+                    target_class_idx
+                    if isinstance(target_class_idx, int)
+                    else int(target_class_idx.item())
+                )
+                if idx == 0:
+                    return -logits
+            return logits
+        if mode in ("multiclass", "multilabel"):
+            if target_class_idx is None:
+                target_class_idx = torch.argmax(logits, dim=-1)
+            elif not isinstance(target_class_idx, torch.Tensor):
+                target_class_idx = torch.tensor(
+                    target_class_idx, device=logits.device
+                )
             batch_size = logits.size(0)
             output_relevance = torch.zeros_like(logits)
             output_relevance[range(batch_size), target_class_idx] = logits[
                 range(batch_size), target_class_idx
             ]
             return output_relevance
+        # Regression or unknown mode: return logits unchanged.
         return logits
-
-    # ------------------------------------------------------------------
-    # Hook management
-    # ------------------------------------------------------------------
-
-    def _register_hooks(self):
-        """Register forward hooks to capture activations."""
-        self._residual_blocks = {}
-
-        def save_activation(name):
-            def hook(module, input, output):
-                in_t = input[0] if isinstance(input, tuple) else input
-                out_t = output[0] if isinstance(output, tuple) else output
-                self.activations[name] = {
-                    "input": in_t,
-                    "output": out_t,
-                    "module": module,
-                }
-            return hook
-
-        for name, module in self.model.named_modules():
-            if isinstance(module, (nn.Linear, nn.ReLU, nn.LSTM, nn.GRU,
-                                   nn.Conv2d, nn.MaxPool2d, nn.AvgPool2d,
-                                   nn.AdaptiveAvgPool2d, nn.BatchNorm2d)):
-                handle = module.register_forward_hook(save_activation(name))
-                self.hooks.append(handle)
-
-        # Hook residual blocks (torchvision ResNet BasicBlock / Bottleneck) so we can
-        # correctly split relevance at the skip-connection addition during backward pass.
-        try:
-            from torchvision.models.resnet import BasicBlock, Bottleneck
-
-            def save_residual_block(block_name):
-                def hook(module, input, output):
-                    x = input[0] if isinstance(input, tuple) else input
-                    self._residual_blocks[block_name] = {
-                        "input": x,
-                        "has_downsample": module.downsample is not None,
-                    }
-                return hook
-
-            for name, module in self.model.named_modules():
-                if isinstance(module, (BasicBlock, Bottleneck)):
-                    handle = module.register_forward_hook(save_residual_block(name))
-                    self.hooks.append(handle)
-        except (ImportError, AttributeError):
-            pass
-
-    def _remove_hooks(self):
-        for hook in self.hooks:
-            hook.remove()
-        self.hooks = []
-        self.activations = {}
-        self._residual_blocks = {}
 
     # ------------------------------------------------------------------
     # Backward propagation
     # ------------------------------------------------------------------
 
-    def _get_block_for_layer(self, layer_name: str) -> Optional[str]:
+    def _get_block_for_layer(self, layer_name: str, ctx: _LRPHookContext) -> Optional[str]:
         """Return the residual block prefix if this layer belongs to a tracked block."""
-        for bname in self._residual_blocks:
+        for bname in ctx.residual_blocks:
             if layer_name.startswith(bname + "."):
                 return bname
         return None
@@ -302,6 +451,7 @@ class LayerwiseRelevancePropagation(BaseInterpreter):
         block_name: str,
         block_layer_names_rev: list,
         r_in: torch.Tensor,
+        ctx: _LRPHookContext,
     ) -> torch.Tensor:
         """Propagate relevance through a residual block with correct LRP skip-connection split.
 
@@ -314,8 +464,8 @@ class LayerwiseRelevancePropagation(BaseInterpreter):
         R_identity bypasses them (or is propagated through the downsample layers when
         the block includes a projection shortcut).
         """
-        has_downsample = self._residual_blocks[block_name]["has_downsample"]
-        block_input = self._residual_blocks[block_name]["input"]
+        has_downsample = ctx.residual_blocks[block_name]["has_downsample"]
+        block_input = ctx.residual_blocks[block_name]["input"]
 
         # Partition layers into main path vs. downsample path
         main_layers = [l for l in block_layer_names_rev if ".downsample." not in l]
@@ -323,11 +473,11 @@ class LayerwiseRelevancePropagation(BaseInterpreter):
 
         # main_out = output of the last main-path BN (first encountered in reversed order,
         # e.g. bn2 for BasicBlock, bn3 for Bottleneck)
-        main_out = self.activations[main_layers[0]]["output"] if main_layers else None
+        main_out = ctx.activations[main_layers[0]]["output"] if main_layers else None
 
         # identity = output of the final downsample BN (projection shortcut) OR raw input
         if has_downsample and ds_layers:
-            identity = self.activations[ds_layers[0]]["output"]
+            identity = ctx.activations[ds_layers[0]]["output"]
         else:
             identity = block_input
 
@@ -349,7 +499,7 @@ class LayerwiseRelevancePropagation(BaseInterpreter):
         # Propagate r_for_main backward through the main-path layers
         r_at_input = r_for_main
         for ln in main_layers:
-            ai = self.activations[ln]
+            ai = ctx.activations[ln]
             if r_at_input.shape != ai["output"].shape:
                 r_at_input = self._match_shapes(r_at_input, ai["output"].shape)
             r_at_input = self._propagate_through_layer(ai["module"], ai, r_at_input)
@@ -358,7 +508,7 @@ class LayerwiseRelevancePropagation(BaseInterpreter):
         if has_downsample and ds_layers and r_for_identity is not None:
             r_ds = r_for_identity
             for ln in ds_layers:
-                ai = self.activations[ln]
+                ai = ctx.activations[ln]
                 if r_ds.shape != ai["output"].shape:
                     r_ds = self._match_shapes(r_ds, ai["output"].shape)
                 r_ds = self._propagate_through_layer(ai["module"], ai, r_ds)
@@ -371,7 +521,7 @@ class LayerwiseRelevancePropagation(BaseInterpreter):
 
         return r_at_input
 
-    def _propagate_relevance_backward(self, output_relevance, input_embeddings):
+    def _propagate_relevance_backward(self, output_relevance, input_embeddings, ctx: _LRPHookContext):
         """Propagate relevance from output back to input embeddings.
 
         Iterates layers in reverse-forward order.  When a layer belongs to a
@@ -380,48 +530,79 @@ class LayerwiseRelevancePropagation(BaseInterpreter):
         a proper LRP-epsilon split at the skip-connection addition.
         """
         current_relevance = output_relevance
-        layer_names = list(reversed(list(self.activations.keys())))
+        layer_names = list(reversed(list(ctx.activations.keys())))
 
         feature_relevances = {}
         concat_detected = False
         blocks_handled: set = set()
+
+        # Pre-compute expected combined embedding size for shape-based concat detection
+        # (Issue 8). This is reliable when all features have consistent embedding dims.
+        expected_concat_size: Optional[int] = None
+        n_features = 0
+        if isinstance(input_embeddings, dict) and hasattr(self.model, "feature_keys"):
+            n_features = len(
+                [k for k in self.model.feature_keys if k in input_embeddings]
+            )
+            if n_features > 1:
+                try:
+                    expected_concat_size = sum(
+                        emb.size(-1) for emb in input_embeddings.values()
+                    )
+                except Exception:
+                    expected_concat_size = None
 
         idx = 0
         while idx < len(layer_names):
             layer_name = layer_names[idx]
 
             # ---- Residual block handling ----
-            block_name = self._get_block_for_layer(layer_name)
+            block_name = self._get_block_for_layer(layer_name, ctx)
             if block_name is not None and block_name not in blocks_handled:
                 # Collect all consecutive layers that belong to this block
                 block_layers = []
                 j = idx
-                while j < len(layer_names) and self._get_block_for_layer(layer_names[j]) == block_name:
+                while j < len(layer_names) and self._get_block_for_layer(layer_names[j], ctx) == block_name:
                     block_layers.append(layer_names[j])
                     j += 1
 
                 current_relevance = self._propagate_through_residual_block(
-                    block_name, block_layers, current_relevance
+                    block_name, block_layers, current_relevance, ctx
                 )
                 blocks_handled.add(block_name)
                 idx = j
                 continue
 
             # ---- Regular layer handling ----
-            activation_info = self.activations[layer_name]
+            activation_info = ctx.activations[layer_name]
             module = activation_info["module"]
             output_tensor = activation_info["output"]
 
-            # Detect concatenation point (PyHealth MLP multi-feature pattern)
-            if (not concat_detected and isinstance(module, nn.Linear)
-                    and hasattr(self.model, "feature_keys")
-                    and len(self.model.feature_keys) > 1
-                    and idx + 1 < len(layer_names)):
-                next_name = layer_names[idx + 1]
-                if "mlp." in next_name and any(
-                    f in next_name for f in self.model.feature_keys
+            # Detect concatenation point (multi-feature MLP pattern)
+            if not concat_detected and isinstance(module, nn.Linear) and n_features > 1:
+                # Primary signal: shape matches the sum of all embedding dims
+                if (
+                    expected_concat_size is not None
+                    and current_relevance.dim() == 2
+                    and current_relevance.size(1) == expected_concat_size
                 ):
                     concat_detected = True
+                # Fallback: string heuristic (warns to aid debugging)
+                elif (
+                    idx + 1 < len(layer_names)
+                    and hasattr(self.model, "feature_keys")
+                ):
+                    next_name = layer_names[idx + 1]
+                    if "mlp." in next_name and any(
+                        f in next_name for f in self.model.feature_keys
+                    ):
+                        logger.warning(
+                            "LRP concat detection fell back to string heuristic for "
+                            "layer '%s'; consider ensuring all embedding dims are "
+                            "consistent so shape-based detection triggers instead.",
+                            layer_name,
+                        )
+                        concat_detected = True
 
             if current_relevance.shape != output_tensor.shape:
                 current_relevance = self._match_shapes(
@@ -433,8 +614,8 @@ class LayerwiseRelevancePropagation(BaseInterpreter):
             )
 
             if concat_detected and current_relevance.dim() == 2:
-                n_features = len(self.model.feature_keys)
-                dim = current_relevance.size(1) // n_features
+                n_feat = len(self.model.feature_keys)
+                dim = current_relevance.size(1) // n_feat
                 for i, fk in enumerate(self.model.feature_keys):
                     feature_relevances[fk] = current_relevance[
                         :, i * dim : (i + 1) * dim
@@ -445,7 +626,7 @@ class LayerwiseRelevancePropagation(BaseInterpreter):
                     for ln in layer_names[idx + 1:]:
                         if fk not in ln:
                             continue
-                        ai = self.activations[ln]
+                        ai = ctx.activations[ln]
                         m = ai["module"]
                         if cur.shape != ai["output"].shape:
                             cur = self._match_shapes(cur, ai["output"].shape)
@@ -461,208 +642,45 @@ class LayerwiseRelevancePropagation(BaseInterpreter):
             current_relevance, input_embeddings
         )
 
+    def _invoke_handler(
+        self,
+        handler,
+        module: nn.Module,
+        activation_info: dict,
+        relevance: torch.Tensor,
+    ) -> torch.Tensor:
+        """Populate *handler*'s activation cache from *activation_info* and call it.
+
+        The handlers in ``lrp_base`` use ``self._get_cached(layer)`` internally.
+        We bridge that by pre-populating the cache entry before the call and
+        removing it immediately after, so the handler never observes stale data.
+        """
+        if isinstance(module, nn.Flatten):
+            cache_entry = {
+                "input_shape": activation_info["input"].shape,
+                "output": activation_info["output"],
+            }
+        else:
+            cache_entry = {k: v for k, v in activation_info.items() if k != "module"}
+        handler.activations_cache[id(module)] = cache_entry
+        try:
+            return handler.backward_relevance(
+                module,
+                relevance,
+                rule=self.rule,
+                epsilon=self.epsilon,
+                alpha=self.alpha,
+                beta=self.beta,
+            )
+        finally:
+            handler.activations_cache.pop(id(module), None)
+
     def _propagate_through_layer(self, module, activation_info, relevance):
-        """Route relevance propagation to the correct layer handler."""
-        if isinstance(module, nn.Linear):
-            return self._lrp_linear(module, activation_info, relevance)
-        elif isinstance(module, nn.Conv2d):
-            return self._lrp_conv2d(module, activation_info, relevance)
-        elif isinstance(module, nn.ReLU):
+        """Route relevance propagation to the correct handler via the registry."""
+        handler = self._registry.get_handler(module)
+        if handler is None:
             return relevance
-        elif isinstance(module, nn.MaxPool2d):
-            return self._lrp_maxpool2d(module, activation_info, relevance)
-        elif isinstance(module, (nn.AvgPool2d, nn.AdaptiveAvgPool2d)):
-            return self._lrp_avgpool2d(module, activation_info, relevance)
-        elif isinstance(module, nn.BatchNorm2d):
-            gamma = module.weight.view(1, -1, 1, 1) if module.weight is not None else 1.0
-            return relevance * gamma
-        elif isinstance(module, (nn.LSTM, nn.GRU)):
-            return self._lrp_rnn(module, activation_info, relevance)
-        return relevance
-
-    # ------------------------------------------------------------------
-    # Layer-specific LRP rules
-    # ------------------------------------------------------------------
-
-    def _get_input(self, activation_info):
-        x = activation_info["input"]
-        if isinstance(x, tuple):
-            x = x[0]
-        return x
-
-    def _lrp_linear(self, module, activation_info, relevance_output):
-        if self.rule == "epsilon":
-            return self._lrp_linear_epsilon(module, activation_info, relevance_output)
-        return self._lrp_linear_alphabeta(module, activation_info, relevance_output)
-
-    def _pad_to_match(self, x, expected_size):
-        """Pad or truncate x along dim=1 to match expected_size."""
-        if x.size(1) == expected_size:
-            return x, x.size(1)
-        orig = x.size(1)
-        if x.size(1) < expected_size:
-            pad = torch.zeros(
-                x.size(0), expected_size - x.size(1),
-                device=x.device, dtype=x.dtype,
-            )
-            return torch.cat([x, pad], dim=1), orig
-        return x[:, :expected_size], orig
-
-    def _match_relevance_dim(self, relevance, target_size):
-        """Pad or truncate relevance along dim=1."""
-        if relevance.size(1) == target_size:
-            return relevance
-        if relevance.size(1) < target_size:
-            pad = torch.zeros(
-                relevance.size(0), target_size - relevance.size(1),
-                device=relevance.device, dtype=relevance.dtype,
-            )
-            return torch.cat([relevance, pad], dim=1)
-        return relevance[:, :target_size]
-
-    def _lrp_linear_epsilon(self, module, activation_info, relevance_output):
-        x = self._get_input(activation_info)
-        if x.dim() > 2:
-            x = x.view(x.size(0), -1)
-
-        x_padded, orig_size = self._pad_to_match(x, module.weight.size(1))
-        z = F.linear(x_padded, module.weight, module.bias)
-        relevance_output = self._match_relevance_dim(relevance_output, z.size(1))
-
-        z = stabilize_denominator(z, self.epsilon, rule="epsilon")
-        c = torch.einsum("bo,oi->bi", relevance_output / z, module.weight)
-        result = x_padded * c
-
-        if result.size(1) != orig_size:
-            result = result[:, :orig_size]
-        return result
-
-    def _lrp_linear_alphabeta(self, module, activation_info, relevance_output):
-        x = self._get_input(activation_info)
-        if x.dim() > 2:
-            x = x.view(x.size(0), -1)
-
-        x_padded, orig_size = self._pad_to_match(x, module.weight.size(1))
-        W_pos, W_neg = torch.clamp(module.weight, min=0), torch.clamp(module.weight, max=0)
-        b_pos = torch.clamp(module.bias, min=0) if module.bias is not None else None
-        b_neg = torch.clamp(module.bias, max=0) if module.bias is not None else None
-
-        z_pos = F.linear(x_padded, W_pos, b_pos) + 1e-9
-        z_neg = F.linear(x_padded, W_neg, b_neg) - 1e-9
-        relevance_output = self._match_relevance_dim(relevance_output, z_pos.size(1))
-
-        c_pos = torch.einsum("bo,oi->bi", relevance_output / z_pos, W_pos)
-        c_neg = torch.einsum("bo,oi->bi", relevance_output / z_neg, W_neg)
-        result = x_padded * (self.alpha * c_pos - self.beta * c_neg)
-
-        if result.size(1) != orig_size:
-            result = result[:, :orig_size]
-        return result
-
-    def _lrp_conv2d(self, module, activation_info, relevance_output):
-        if self.rule == "epsilon":
-            return self._lrp_conv2d_epsilon(module, activation_info, relevance_output)
-        return self._lrp_conv2d_alphabeta(module, activation_info, relevance_output)
-
-    @staticmethod
-    def _conv_output_padding(module, z_shape, x_shape):
-        pads = []
-        for i in range(2):
-            s = module.stride[i] if isinstance(module.stride, tuple) else module.stride
-            p = module.padding[i] if isinstance(module.padding, tuple) else module.padding
-            k = module.weight.shape[2 + i]
-            expected = (z_shape[2 + i] - 1) * s - 2 * p + k
-            pads.append(max(0, x_shape[2 + i] - expected))
-        return tuple(pads)
-
-    @staticmethod
-    def _crop_spatial(tensor, target_shape):
-        if tensor.shape[2:] == target_shape[2:]:
-            return tensor
-        if tensor.shape[2] > target_shape[2] or tensor.shape[3] > target_shape[3]:
-            return tensor[:, :, : target_shape[2], : target_shape[3]]
-        pad_h = target_shape[2] - tensor.shape[2]
-        pad_w = target_shape[3] - tensor.shape[3]
-        return F.pad(tensor, (0, pad_w, 0, pad_h))
-
-    def _lrp_conv2d_epsilon(self, module, activation_info, relevance_output):
-        x = self._get_input(activation_info)
-        conv_kw = dict(
-            stride=module.stride, padding=module.padding,
-            dilation=module.dilation, groups=module.groups,
-        )
-        z = F.conv2d(x, module.weight, module.bias, **conv_kw)
-        z = stabilize_denominator(z, self.epsilon, rule="epsilon")
-        s = relevance_output / z
-
-        out_pad = self._conv_output_padding(module, z.shape, x.shape)
-        c = F.conv_transpose2d(s, module.weight, stride=module.stride,
-                               padding=module.padding, output_padding=out_pad,
-                               dilation=module.dilation, groups=module.groups)
-        return x * self._crop_spatial(c, x.shape)
-
-    def _lrp_conv2d_alphabeta(self, module, activation_info, relevance_output):
-        x = self._get_input(activation_info)
-        conv_kw = dict(
-            stride=module.stride, padding=module.padding,
-            dilation=module.dilation, groups=module.groups,
-        )
-        W_pos, W_neg = torch.clamp(module.weight, min=0), torch.clamp(module.weight, max=0)
-        b_pos = torch.clamp(module.bias, min=0) if module.bias is not None else None
-        b_neg = torch.clamp(module.bias, max=0) if module.bias is not None else None
-
-        z_pos = F.conv2d(x, W_pos, b_pos, **conv_kw)
-        z_neg = F.conv2d(x, W_neg, b_neg, **conv_kw)
-        z_sum = z_pos + z_neg
-        sign = z_sum.sign()
-        sign = torch.where(sign == 0, torch.ones_like(sign), sign)
-        z_total = z_sum + self.epsilon * sign
-
-        s = relevance_output / z_total
-        out_pad = self._conv_output_padding(module, z_pos.shape, x.shape)
-        trans_kw = dict(stride=module.stride, padding=module.padding,
-                        output_padding=out_pad, dilation=module.dilation,
-                        groups=module.groups)
-
-        c_pos = F.conv_transpose2d(s, W_pos, **trans_kw)
-        c_neg = F.conv_transpose2d(s, W_neg, **trans_kw)
-        c_pos = self._crop_spatial(c_pos, x.shape)
-        c_neg = self._crop_spatial(c_neg, x.shape)
-        return x * (self.alpha * c_pos + self.beta * c_neg)
-
-    def _lrp_maxpool2d(self, module, activation_info, relevance_output):
-        x = self._get_input(activation_info)
-        _, indices = F.max_pool2d(
-            x, kernel_size=module.kernel_size, stride=module.stride,
-            padding=module.padding, dilation=module.dilation,
-            return_indices=True,
-        )
-        return F.max_unpool2d(
-            relevance_output, indices, kernel_size=module.kernel_size,
-            stride=module.stride, padding=module.padding, output_size=x.size(),
-        )
-
-    def _lrp_avgpool2d(self, module, activation_info, relevance_output):
-        x = self._get_input(activation_info)
-        if isinstance(module, nn.AdaptiveAvgPool2d):
-            return F.interpolate(
-                relevance_output, size=x.shape[2:], mode="bilinear",
-                align_corners=False,
-            )
-        channels = relevance_output.size(1)
-        kernel_size = module.kernel_size if isinstance(module.kernel_size, tuple) else (module.kernel_size, module.kernel_size)
-        stride = module.stride if isinstance(module.stride, tuple) else (module.stride, module.stride)
-        padding = module.padding if isinstance(module.padding, tuple) else (module.padding, module.padding)
-        weight = torch.ones(channels, 1, *kernel_size, device=x.device) / (kernel_size[0] * kernel_size[1])
-        result = F.conv_transpose2d(relevance_output, weight, stride=stride,
-                                     padding=padding, groups=channels)
-        return self._crop_spatial(result, x.shape)
-
-    def _lrp_rnn(self, module, activation_info, relevance_output):
-        x = self._get_input(activation_info)
-        if x.dim() == 3:
-            return relevance_output.unsqueeze(1).expand(x.shape[0], x.shape[1], -1)
-        return relevance_output
+        return self._invoke_handler(handler, module, activation_info, relevance)
 
     # ------------------------------------------------------------------
     # Shape utilities
@@ -720,6 +738,13 @@ class LayerwiseRelevancePropagation(BaseInterpreter):
                     continue
                 emb = input_embeddings[key]
                 if emb.dim() == 3 and rel.dim() == 2:
+                    feat_dim = emb.size(-1)
+                    if rel.size(1) > feat_dim:
+                        # Strip appended dimensions (e.g. StageNet concatenates
+                        # a 1-D time interval to the embedding before its
+                        # kernel Linear; LRP returns relevance for the full
+                        # concatenated input, so discard the time columns).
+                        rel = rel[:, :feat_dim]
                     rel = rel.unsqueeze(1).expand_as(emb)
                 result[key] = rel
             return result
