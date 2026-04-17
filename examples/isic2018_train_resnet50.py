@@ -29,13 +29,13 @@ Pass ``--download`` to fetch automatically.
 Usage
 -----
     # Whole-image mode (default)
-    python isic2018_artifacts_classification_resnet50.py --root /path/to/data
+    python isic2018_train_resnet50.py --root /path/to/data
 
     # Specific mode
-    python isic2018_artifacts_classification_resnet50.py --root /path/to/data --mode lesion
+    python isic2018_train_resnet50.py --root /path/to/data --mode lesion
 
     # Sigma ablation
-    python isic2018_artifacts_classification_resnet50.py --root /path/to/data --mode low_whole --sigma 2.0
+    python isic2018_train_resnet50.py --root /path/to/data --mode low_whole --sigma 2.0
 
 Experimental Setup
 ------------------
@@ -175,6 +175,56 @@ Key observations:
 - All other artifacts show negligible and non-significant effects (|diff| <= 0.026,
   p >= 0.295), indicating the model is not strongly biased by common dermoscopic
   artifacts such as hair, ruler marks, or gel borders.
+
+PH2 Classifier Training (whole mode, val_strategy=none)
+-------------------------------------------------------
+Script: examples/ph2_train_resnet50.py
+Same KFold(n_splits=5, shuffle=True, random_state=42) as paper.
+Binary: melanoma=1, common_nevus/atypical_nevus=0. 200 images.
+Paper (Jin CHIL 2025) reports whole=0.975 ±0.012.
+
+  Mode       F1     F2     F3     F4     F5    Mean   +-Std
+  ----------------------------------------------------------
+  whole    0.926  0.939  0.961  0.996  0.980  0.961  0.029
+
+Slight gap vs paper (0.961 vs 0.975) likely due to flat JPEG input
+vs paper's original BMP format; fold assignments match (same KFold seed).
+
+Diffusion-Augmented Evaluation — Partial Table 4 Replication
+-------------------------------------------------------------
+Script: examples/ph2_artifacts_test_resnet50.py
+Classifier sources: ISIC whole_sigma1.0_none and PH2 whole (above).
+Augmented PH2 images: ~/ph2_augmented/{clean,dark_corner,ruler}/
+  dark_corner — programmatic vignette (deterministic)
+  ruler       — SD-inpainted ruler marks (base runwayml/stable-diffusion-inpainting)
+Note: paper uses DreamBooth+LoRA fine-tuned models per artifact type; our
+augmentation is a simplified approximation. Mode: whole only (no PH2 masks).
+
+ISIC classifiers → PH2:
+
+  Condition      F1     F2     F3     F4     F5    Mean   +-Std
+  --------------------------------------------------------------
+  clean        0.878  0.941  0.917  0.898  0.868  0.900  0.029
+  dark_corner  0.702  0.920  0.583  0.643  0.561  0.682  0.144  t=-3.885 p=0.018 (*)
+  ruler        0.847  0.953  0.929  0.906  0.902  0.907  0.039  t=+0.664 p=0.543 (n.s.)
+
+PH2 classifiers → PH2:
+
+  Condition      F1     F2     F3     F4     F5    Mean   +-Std
+  --------------------------------------------------------------
+  clean        0.999  0.997  0.996  1.000  0.999  0.998  0.002
+  dark_corner  0.994  0.990  0.990  0.994  0.998  0.993  0.004  t=-4.767 p=0.009 (**)
+  ruler        0.978  0.994  0.995  0.992  0.999  0.992  0.008  t=-1.712 p=0.162 (n.s.)
+
+Key observations (cf. paper Table 4, whole mode):
+- PH2-trained classifiers are highly robust to both artifacts (0.998→0.993/0.992),
+  matching the paper's finding (0.975→0.978/0.966).
+- ISIC dark_corner causes a large drop (0.900→0.682, p=0.018). Paper shows a
+  smaller drop (0.858→0.816) because their DreamBooth-generated dark corners are
+  more subtle than our programmatic vignette.
+- ISIC ruler is unaffected (0.907, p=0.543), consistent with paper results.
+- ISIC classifiers are more vulnerable to artifact perturbation than PH2-trained
+  classifiers, replicating the paper's core finding.
 
 """
 
