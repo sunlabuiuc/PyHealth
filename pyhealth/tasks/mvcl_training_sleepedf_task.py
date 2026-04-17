@@ -96,7 +96,7 @@ class MVCLTrainingSleepEEG(BaseTask):
                 event.signal_file,
                 stim_channel="Event marker",
                 infer_types=True,
-                preload=True,
+                preload=False,
                 verbose="error",
             )
             ann = mne.read_annotations(event.label_file)
@@ -107,6 +107,10 @@ class MVCLTrainingSleepEEG(BaseTask):
             )
             if ann_events.size == 0:
                 continue
+
+            # Pick only the required EEG channel to save memory (7x reduction)
+            ch_i = self._pick_eeg_index(list(data.ch_names))
+            data.pick([data.ch_names[ch_i]])
 
             epochs_train = mne.Epochs(
                 data,
@@ -120,8 +124,8 @@ class MVCLTrainingSleepEEG(BaseTask):
                 verbose="error",
             )
 
-            ch_i = self._pick_eeg_index(list(epochs_train.ch_names))
-            signals = epochs_train.get_data()[:, ch_i, :]
+            # Since we picked exactly 1 channel, it is now at index 0
+            signals = epochs_train.get_data()[:, 0, :]
             labels = epochs_train.events[:, 2]
 
             n_epochs, n_times = signals.shape
@@ -130,22 +134,23 @@ class MVCLTrainingSleepEEG(BaseTask):
             event_buffers: List[Dict[str, Any]] = []
             for epi in range(n_epochs):
                 lab = _map_to_MVCL_five_class(int(labels[epi]))
-                row = signals[epi, :n_full]
-                for w in range(n_full // win):
-                    seg = row[w * win : (w + 1) * win].astype(np.float32, copy=False)
-                    if crop is not None:
-                        seg = seg[:crop]
-                    event_buffers.append(
-                        {
-                            "seg_1d": seg.copy(),
-                            "label": lab,
-                            "night": event.night,
-                            "patient_age": event.age,
-                            "patient_sex": event.sex,
-                            "epoch_index": global_epoch,
-                            "window_in_epoch": w,
-                        }
-                    )
+                
+                # Take only the first window of the epoch to match TFC-pretraining's sample count
+                seg = signals[epi, :win].astype(np.float32, copy=False)
+                if crop is not None:
+                    seg = seg[:crop]
+                    
+                event_buffers.append(
+                    {
+                        "seg_1d": seg.copy(),
+                        "label": lab,
+                        "night": event.night,
+                        "patient_age": event.age,
+                        "patient_sex": event.sex,
+                        "epoch_index": global_epoch,
+                        "window_in_epoch": 0,
+                    }
+                )
                 global_epoch += 1
 
             if not event_buffers:
@@ -208,11 +213,43 @@ def add_time_feature(X: torch.Tensor) -> torch.Tensor:
 def get_dx_gradient(X: torch.Tensor) -> torch.Tensor:
     """Time derivative via ``torch.gradient`` along **dim=1** for **X [N, L, D]**.
 
-    This is **not** equivalent to :func:`get_dx` (torchcde spline); see module docstring.
+    This is **not** equivalent to :func:`get_dx` (torchcde spline);.
     """
     if X.ndim != 3:
         raise ValueError(f"Expected [N, L, D], got {tuple(X.shape)}")
     return torch.gradient(X, dim=1)[0]
+
+
+def get_dx_torchcde_equivalent(X: torch.Tensor) -> torch.Tensor:
+    """
+    Pure PyTorch equivalent of torchcde Hermite cubic spline derivative 
+    evaluated at the knot points with backward differences.
+    """
+    N, L, D = X.shape
+    dx = torch.zeros_like(X)
+    
+    if L < 2:
+        return dx
+        
+    dt = 1.0 / (L - 1)
+    
+    # derivs[i] = X[i+1] - X[i]
+    derivs = X[:, 1:, :] - X[:, :-1, :]
+    
+    # derivs_prev[i] = derivs[i-1] for i > 0, and derivs[0] for i = 0
+    derivs_prev = torch.cat([derivs[:, :1, :], derivs[:, :-1, :]], dim=1)
+    
+    # For i = 0
+    dx[:, 0, :] = derivs[:, 0, :]
+    
+    # For i > 0
+    factor = (4 - 3 * dt) * dt
+    b = derivs_prev
+    D = derivs - b
+    
+    dx[:, 1:, :] = b + D * factor
+    
+    return dx
 
 
 
@@ -240,7 +277,8 @@ def preprocess_mvcl_views(
     xt = xt_tr
 
 
-    dx_raw = get_dx_gradient(xt)
+    # dx_raw = get_dx_gradient(xt) # this is approxi to paper's torchcde spline
+    dx_raw = get_dx_torchcde_equivalent(xt)
 
     dx_tr, dx_te, _, _ = normalize_mvcl(dx_raw, dx_raw)
     dx = dx_tr
