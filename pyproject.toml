@@ -33,6 +33,7 @@ dependencies = [
   "networkx",
   "mne~=1.10.0",
   "urllib3~=2.5.0",
+  "scipy~=1.17.1",
   "numpy~=2.2.0",
   "tqdm",
   "polars~=1.35.2",
@@ -45,6 +46,7 @@ dependencies = [
   "more-itertools~=10.8.0",
   "einops>=0.8.0",
   "linear-attention-transformer>=0.19.1",
+  "pyedflib~=0.1.42",
 ]
 license = "BSD-3-Clause"
 license-files = ["LICENSE.md"]

@@ -1,0 +1,27 @@
+# Author: 
+#     Fernando Kenji Sakabe (fks@illinois.edu), 
+#     Jesica Hirsch (jesicah2@illinois.edu), 
+#     Jung-Jung Hsieh (jhsieh8@illinois.edu)
+version: "2.0.1"
+tables:
+  train:
+    file_path: "tusz-train-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+    - "record_id"
+    - "signal_file"
+  eval:
+    file_path: "tusz-eval-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+    - "record_id"
+    - "signal_file"
+  dev:
+    file_path: "tusz-dev-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+    - "record_id"
+    - "signal_file"

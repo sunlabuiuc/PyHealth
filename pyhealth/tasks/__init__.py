@@ -61,6 +61,7 @@ from .temple_university_EEG_tasks import (
     EEGEventsTUEV,
     EEGAbnormalTUAB
 )
+from .tusz_task import TUSZTask
 from .variant_classification import (
     MutationPathogenicityPrediction,
     VariantClassificationClinVar,
