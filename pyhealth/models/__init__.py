@@ -44,4 +44,4 @@ from .text_embedding import TextEmbedding
 from .sdoh import SdohClassifier
 from .medlink import MedLink
 from .unified_embedding import UnifiedMultimodalEmbeddingModel, SinusoidalTimeEmbedding
-from pyhealth.models.labrador import LabradorModel, LabradorEmbedding,LabradorValueEmbedding,LabradorMLMHead
+from pyhealth.models.labrador import LabradorModel, LabradorEmbedding, LabradorValueEmbedding, LabradorMLMHead
