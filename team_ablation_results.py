@@ -73,14 +73,18 @@ def prepare_batch(samples):
     )
 
 
-def train_model(samples, horizon, prior=None):
+def train_model(samples, horizon, compute_prior=True):
     X, Y, M = prepare_batch(samples)
     model = GRUModel(X.shape[-1], horizon)
 
-    if prior is not None:
-        bias = torch.log(torch.tensor(prior / (1 - prior)))
+    if compute_prior:
+        # Per-horizon bias initialization (paper Section 3.2).
+        # Initializes each output logit so sigmoid(b_k) is average hazard at horizon k,
+        # counteracting the severe class imbalance that grows with sequence length.
+        y_mean = (Y * M).sum(dim=0) / M.sum(dim=0)
+        bias = torch.log(y_mean / (1 - y_mean))
         with torch.no_grad():
-            model.fc.bias.fill_(bias)
+            model.fc.bias.copy_(bias)
 
     opt = torch.optim.Adam(model.parameters(), lr=0.01)
 
