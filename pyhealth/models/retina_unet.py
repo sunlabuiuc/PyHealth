@@ -545,7 +545,9 @@ class AnchorGenerator(nn.Module):
         """
         super().__init__()
         self.dim = dim
-        self.pyramid_levels = pyramid_levels if pyramid_levels is not None else [2, 3, 4, 5]
+        self.pyramid_levels = (
+            pyramid_levels if pyramid_levels is not None else [2, 3, 4, 5]
+        )
 
         # Default scales but need to adjust based on expected objects size to detect
         if rpn_anchor_scales is None:
@@ -578,7 +580,11 @@ class AnchorGenerator(nn.Module):
             for key, value in rpn_anchor_scales['z'].items()
         }
 
-        self.rpn_anchor_ratios = torch.tensor(rpn_anchor_ratios if rpn_anchor_ratios is not None else [0.5, 1.0, 2.0], dtype=torch.float32)
+        _ratios = (
+            rpn_anchor_ratios if rpn_anchor_ratios is not None
+            else [0.5, 1.0, 2.0]
+        )
+        self.rpn_anchor_ratios = torch.tensor(_ratios, dtype=torch.float32)
         self.rpn_anchor_stride = rpn_anchor_stride
         # mapping from pyramid level to orignal image, based on architercture design
         self.feature_strides = {
@@ -631,8 +637,12 @@ class AnchorGenerator(nn.Module):
         widths = (scales_mesh * torch.sqrt(ratios_mesh)).flatten()
 
         # Generate Grid Shifts
-        shifts_y = torch.arange(0, h, stride, dtype=torch.float32, device=device) * fs_xy
-        shifts_x = torch.arange(0, w, stride, dtype=torch.float32, device=device) * fs_xy
+        shifts_y = (
+            torch.arange(0, h, stride, dtype=torch.float32, device=device) * fs_xy
+        )
+        shifts_x = (
+            torch.arange(0, w, stride, dtype=torch.float32, device=device) * fs_xy
+        )
 
         # Match NumPy np.meshgrid(x, y) output shape (len(y), len(x))
         sy, sx = torch.meshgrid(shifts_y, shifts_x, indexing='ij')
@@ -699,9 +709,15 @@ class AnchorGenerator(nn.Module):
         depths = scales_z.repeat(len(heights) // len(scales_z))
 
         # Generate Grid Shifts
-        shifts_y = torch.arange(0, h, stride, dtype=torch.float32, device=device) * fs_xy
-        shifts_x = torch.arange(0, w, stride, dtype=torch.float32, device=device) * fs_xy
-        shifts_z = torch.arange(0, d, stride, dtype=torch.float32, device=device) * fs_z
+        shifts_y = (
+            torch.arange(0, h, stride, dtype=torch.float32, device=device) * fs_xy
+        )
+        shifts_x = (
+            torch.arange(0, w, stride, dtype=torch.float32, device=device) * fs_xy
+        )
+        shifts_z = (
+            torch.arange(0, d, stride, dtype=torch.float32, device=device) * fs_z
+        )
 
         # Match NumPy np.meshgrid(x, y, z) output shape (len(y), len(x), len(z))
         sy, sx, sz = torch.meshgrid(shifts_y, shifts_x, shifts_z, indexing='ij')
@@ -1298,7 +1314,7 @@ class RetinaUNetCore(nn.Module):
         super().__init__()
         self.in_channels = in_channels
         self.num_classes_head = num_classes
-        self.num_classes_seg = 2 # Binary segmentation (foreground vs background)
+        self.num_classes_seg = 2  # Binary segmentation (foreground vs background)
         self.pyramid_levels = pyramid_levels
         self.num_anchors = len(rpn_anchor_ratios) * 3  # Anchor Sub-scaling
         self.dim = dim
@@ -1354,8 +1370,9 @@ class RetinaUNetCore(nn.Module):
             dim = dim
         )
 
-        # LRU cache anchors by (feature_shapes, device) to avoid regenerating on every forward pass
-        # OrderedDict maintains insertion order; max 3 cached anchor sets before LRU eviction
+        # LRU cache anchors by (feature_shapes, device) to avoid
+        # regenerating on every forward pass. OrderedDict maintains
+        # insertion order; max 3 cached anchor sets before LRU eviction.
         self.anchor_cache = OrderedDict()
         self.max_anchor_cache_size = 3
 
@@ -1715,13 +1732,19 @@ class RetinaUNet(BaseModel):
             batch_size = images.shape[0]
             for b in range(batch_size):
                 if len(gt_boxes_list[b]) > 0:
-                    gt_boxes = torch.stack(gt_boxes_list[b]).to(self.device).contiguous()
+                    gt_boxes = (
+                        torch.stack(gt_boxes_list[b]).to(self.device).contiguous()
+                    )
                     # 0 index is for PyHealth dataset schema compatibility
-                    gt_class_ids = gt_classes_list[b][0].to(self.device).contiguous()
+                    gt_class_ids = (
+                        gt_classes_list[b][0].to(self.device).contiguous()
+                    )
                 else:
                     # Create empty tensors with correct shapes and dtypes
                     gt_boxes = torch.zeros((0, 4), device=self.device)
-                    gt_class_ids = torch.tensor([], dtype=torch.int64, device=self.device)
+                    gt_class_ids = torch.tensor(
+                        [], dtype=torch.int64, device=self.device
+                    )
 
                 anchor_class_match, anchor_target_deltas = self._compute_anchor_matches(
                     anchors, gt_boxes, gt_class_ids

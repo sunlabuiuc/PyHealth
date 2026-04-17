@@ -89,13 +89,12 @@ class TestRetinaUNet(unittest.TestCase):
 
         with torch.no_grad():
             ret = self.model(**data_batch)
-            core_ret = self.model.core(data_batch["images"].to(self.model.device))
 
         self.assertIn("loss", ret)
         self.assertIn("class_loss", ret)
         self.assertIn("bbox_loss", ret)
         self.assertIn("seg_loss", ret)
-        self.assertIn("detections", core_ret)
+        self.assertIn("det_bboxes", ret)
         self.assertIn("anchors", ret)
 
         self.assertEqual(ret["loss"].dim(), 0)
@@ -109,13 +108,12 @@ class TestRetinaUNet(unittest.TestCase):
 
         with torch.no_grad():
             ret = self.model(**inference_batch)
-            core_ret = self.model.core(inference_batch["images"].to(self.model.device))
 
         self.assertIn("loss", ret)
         self.assertIn("class_loss", ret)
         self.assertIn("bbox_loss", ret)
         self.assertIn("seg_loss", ret)
-        self.assertIn("detections", core_ret)
+        self.assertIn("det_bboxes", ret)
         self.assertIn("class_logits", ret)
         self.assertIn("bbox_deltas", ret)
         self.assertIn("seg_logits", ret)

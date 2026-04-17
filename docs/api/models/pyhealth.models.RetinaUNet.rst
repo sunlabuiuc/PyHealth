@@ -30,20 +30,58 @@ Usage Example
 .. code-block:: python
 
     import torch
-    from pyhealth.models.retina_unet import RetinaUNetCore
+    from pyhealth.datasets import create_sample_dataset, get_dataloader
+    from pyhealth.models import RetinaUNet
 
-    # 2D core model for direct tensor-based experimentation
-    model = RetinaUNetCore(in_channels=1, num_classes=2, dim=2)
+    # Build a minimal sample dataset
+    images = torch.randn(2, 1, 128, 128)
+    masks = torch.zeros(2, 1, 128, 128)
+    masks[0, 0, 20:40, 20:40] = 1
 
-    # Input: (batch, channels, height, width)
-    x = torch.randn(2, 1, 128, 128)
-    outputs = model(x)
+    samples = [
+        {
+            "patient_id": f"p_{i}",
+            "visit_id": f"v_{i}",
+            "images": images[i],
+            "gt_seg_masks": masks[i],
+            "gt_boxes_list": [torch.tensor([20, 20, 40, 40])],
+            "gt_classes_list": [torch.tensor([1])],
+        }
+        for i in range(2)
+    ]
 
-    detections = outputs["detections"]
-    class_logits = outputs["class_logits"]
-    bbox_deltas = outputs["bbox_deltas"]
-    seg_logits = outputs["segmentation"]
-    anchors = outputs["anchors"]
+    dataset = create_sample_dataset(
+        samples=samples,
+        input_schema={"images": "tensor"},
+        output_schema={
+            "gt_seg_masks": "tensor",
+            "gt_boxes_list": "raw",
+            "gt_classes_list": "raw",
+        },
+        dataset_name="Demo",
+        task_name="ObjectDetection",
+    )
+
+    model = RetinaUNet(dataset=dataset, num_classes=2, dim=2)
+    loader = get_dataloader(dataset, batch_size=2, shuffle=False)
+    batch = next(iter(loader))
+
+    # Training: returns all losses and raw predictions
+    outputs = model(**batch)
+    loss = outputs["loss"]            # scalar combined loss
+    class_loss = outputs["class_loss"]
+    bbox_loss = outputs["bbox_loss"]
+    seg_loss = outputs["seg_loss"]
+
+    # Inference: pass only images — labels are optional
+    with torch.no_grad():
+        outputs = model(images=batch["images"])
+
+    det_bboxes = outputs["det_bboxes"]       # post-NMS boxes per image
+    class_logits = outputs["class_logits"]   # (B, N_anchors, num_classes)
+    bbox_deltas = outputs["bbox_deltas"]     # (B, N_anchors, 4)
+    seg_logits = outputs["seg_logits"]       # (B, 2, H, W)
+    anchors = outputs["anchors"]             # (N_anchors, 4)
 
 Reference
 ^^^^^^^^^
