@@ -1,23 +1,23 @@
 """
-tests/pytest_ehrmamba.py
+tests/core/test_ehrmamba_embeddings.py
 ========================
-Pytest test suite for the EHR Mamba V3 implementation.
+Pytest test suite for the EHR Mamba embedding implementation.
 
 Modules under test
 ------------------
-mimic4_ehr_mamba_task.py  (V3: task separated from embedding module)
+mortality_prediction_ehrmamba_mimic4.py (task testing)
     - LabQuantizer              : 5-bin quantile tokenizer for lab results (paper Appx. B)
     - MIMIC4EHRMambaTask        : base PyHealth task — builds the V2 paper-conformant sequence
     - MIMIC4EHRMambaMortalityTask : subclass — adds in-hospital mortality label + age filter
     - collate_ehr_mamba_batch   : custom DataLoader collate_fn for variable-length EHR seqs
 
-ehr_mamba_embeddings_paper_w_bins_v3.py  (V3: task removed; embedding-only module)
+ehrmamba_embedding.py  (embedding-only module)
     - TimeEmbeddingLayer    : learnable sinusoidal time / age embedding (paper §2.2)
     - EHRMambaEmbedding     : full 7-component fusion embedding (paper §2.2 / Appx. C.2)
     - EHRMambaEmbeddingAdapter : dict-interface shim that bridges EHRMambaEmbedding
                                  into pyhealth's EmbeddingModel API
 
-ehrmamba.py
+ehrmamba_v2.py (embedding + core model testing)
     - RMSNorm    : root mean square layer normalization used inside each Mamba block
     - MambaBlock : single Mamba (SSM) block — the core sequence-mixing unit
     - EHRMamba   : full pyhealth BaseModel wrapping embedding + N Mamba blocks + FC head
@@ -33,10 +33,10 @@ Design principles
 Running
 -------
 to run regular pytest checks:
-    pytest tests/pytest_ehrmamba.py -v
+    pytest PyHealth/tests/core/test_ehrmamba_embeddings.py -v
 
 to run with timing information for all tests:
-    pytest tests/pytest_ehrmamba.py -vv --durations=0
+    pytest PyHealth/tests/core/test_ehrmamba_embeddings.py -vv --durations=0
 """
 
 from __future__ import annotations
@@ -97,11 +97,11 @@ from datetime import datetime, timedelta
 from typing import Dict
 
 # ---------------------------------------------------------------------------
-# V3 import layout:
+#  import layout:
 #   - Task-side concerns (LabQuantizer, collate, task classes, token constants)
 #     come from mimic4_ehr_mamba_task.
 #   - Embedding-side concerns (TimeEmbeddingLayer, EHRMambaEmbedding, adapter,
-#     embedding constants) come from ehr_mamba_embeddings_paper_w_bins_v3.
+#     embedding constants) come from ehrmamba_embedding.py.
 # ---------------------------------------------------------------------------
 # from mimic4_ehr_mamba_task import (
 #     LabQuantizer,
@@ -341,7 +341,7 @@ def ehr_batch(sample_ds):
 class TestMIMIC4EHRMambaTask:
     """MIMIC4EHRMambaTask — base PyHealth task that builds the V2 paper-conformant sequence.
 
-    V3 architecture: the task file has no dependency on the embedding file.
+    architecture: the task file has no dependency on the embedding file.
     It defines the sequence structure (§2.1), produces auxiliary metadata tensors,
     and delegates label assignment to subclasses via _passes_patient_filter /
     _make_label hooks.
@@ -560,7 +560,7 @@ class TestTimeIntervalToken:
 class TestLabQuantizer:
     """LabQuantizer — 5-bin quantile tokenizer for MIMIC-IV lab results (Appx. B).
 
-    V3: imported from mimic4_ehr_mamba_task (task-side preprocessing).
+    : imported from mimic4_ehr_mamba_task (task-side preprocessing).
     """
 
     def test_fit_from_records_boundaries(self):
@@ -766,7 +766,7 @@ class TestEHRMambaEmbedding:
 # ===========================================================================
 
 class TestEHRMambaEmbeddingAdapter:
-    """EHRMambaEmbeddingAdapter — the dict-interface shim (V3: in embedding module)."""
+    """EHRMambaEmbeddingAdapter — the dict-interface shim (: in embedding module)."""
 
     @pytest.fixture
     def adapter_pair(self):
@@ -833,7 +833,7 @@ class TestEHRMambaEmbeddingAdapter:
 # ===========================================================================
 
 class TestCollateBatch:
-    """collate_ehr_mamba_batch — batch assembly and right-padding (V3: in task file)."""
+    """collate_ehr_mamba_batch — batch assembly and right-padding (: in task file)."""
 
     @pytest.fixture(scope="class")
     def batch_3(self):
@@ -952,7 +952,7 @@ class TestEHRMamba:
 
     Pipeline: DataLoader (collate_ehr_mamba_batch from task)
               -> EHRMamba.forward(**batch)
-              -> set_aux_inputs (our V3 adapter pattern)
+              -> set_aux_inputs (our  adapter pattern)
               -> EHRMambaEmbedding (§2.2 fusion)
               -> MambaBlock × num_layers
               -> get_last_visit -> Dropout -> Linear -> loss/y_prob
