@@ -10,7 +10,7 @@ This implementation uses only standard PyTorch without custom CUDA operations.
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Any, Dict, List, Tuple, Optional
+from typing import Any, Callable, Dict, List, Tuple, Optional
 from collections import OrderedDict
 
 from pyhealth.datasets import SampleDataset
@@ -31,6 +31,20 @@ class ConvBlock(nn.Module):
         activation: str = 'relu',
         dim: int = 2
     ):
+        """Initialise ConvBlock.
+
+        Args:
+            in_channels: Number of input channels.
+            out_channels: Number of output channels.
+            kernel_size: Convolution kernel size.
+            stride: Convolution stride. Defaults to 1.
+            padding: Zero-padding added to both sides. Defaults to 0.
+            norm_type: Normalisation type; ``'batch'``, ``'instance'``,
+                or ``None`` for no normalisation. Defaults to ``None``.
+            activation: Activation function; ``'relu'``,
+                ``'leaky_relu'``, or ``None``. Defaults to ``'relu'``.
+            dim: Spatial dimensionality (2 or 3). Defaults to 2.
+        """
         super().__init__()
         self.dim = dim
 
@@ -62,11 +76,23 @@ class ConvBlock(nn.Module):
         self.conv = nn.Sequential(*layers)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Apply the convolution block to the input tensor.
+
+        Args:
+            x: Input feature map of shape (H, W) for 2D or
+                (H, W, D) for 3D.
+
+        Returns:
+            torch.Tensor: Output feature map with ``out_channels`` channels,
+                same spatial shape (modulated by stride/padding).
+        """
         return self.conv(x)
 
 
 class ResidualBlock(nn.Module):
-    """Residual block for feature learning."""
+    """Residual block for feature learning.
+       Supports 2D and 3D convolutions.
+    """
 
     def __init__(
         self,
@@ -78,6 +104,19 @@ class ResidualBlock(nn.Module):
         activation: str = 'relu',
         dim: int = 2
     ):
+        """Initialise ResidualBlock.
+
+        Args:
+            in_channels: Number of input channels.
+            out_channels: Number of output channels.
+            stride: Stride for the first 1x1 conv. Defaults to 1.
+            expansion: Bottleneck expansion divisor. Defaults to 4.
+            norm_type: Normalisation type (``'batch'``, ``'instance'``,
+                or ``None``). Defaults to ``None``.
+            activation: Activation type (``'relu'`` or
+                ``'leaky_relu'``). Defaults to ``'relu'``.
+            dim: Spatial dimensionality (2 or 3). Defaults to 2.
+        """
         super(ResidualBlock, self).__init__()
 
         self.dim = dim
@@ -134,6 +173,16 @@ class ResidualBlock(nn.Module):
             self.relu = nn.LeakyReLU(inplace=True)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Apply the residual block to the input tensor.
+
+        Args:
+            x: Input feature map of shape (H, W) for 2D or
+                (H, W, D) for 3D.
+
+        Returns:
+            torch.Tensor: Output feature map of shape (H', W')
+                where H', W' depend on stride.
+        """
         identity = x
 
         out = self.conv1(x)
@@ -150,7 +199,13 @@ class ResidualBlock(nn.Module):
 
 
 class FPN(nn.Module):
-    """Feature Pyramid Network backbone for multi-scale feature extraction."""
+    """Feature Pyramid Network (FPN) backbone for multi-scale feature extraction.
+
+    Implements a ResNet-style encoder with a top-down FPN decoder.  Produces
+    six pyramid levels [P0 … P5] where P0 is at the original input resolution
+    and P5 is the most semantically rich, lowest-resolution level.  Both 2D
+    and 3D inputs are supported via the ``dim`` parameter.
+    """
 
     def __init__(
         self,
@@ -162,6 +217,18 @@ class FPN(nn.Module):
         activation: str = 'relu',
         dim: int = 2,
     ):
+        """Initialise FPN backbone.
+
+        Args:
+            in_channels: Number of input image channels. Defaults to 1.
+            base_channels: Base channel width for the stem. Defaults to 48.
+            out_channels: Output channels for all FPN levels. Defaults to 192.
+            num_blocks: Number of residual blocks per stage
+                ``[C2, C3, C4, C5]``. Defaults to ``[3, 4, 6, 3]``.
+            norm_type: Normalisation type or ``None``. Defaults to ``None``.
+            activation: Activation type. Defaults to ``'relu'``.
+            dim: Spatial dimensionality (2 or 3). Defaults to 2.
+        """
         super().__init__()
         self.activation = activation
         self.norm_type = norm_type
@@ -356,8 +423,26 @@ class FPN(nn.Module):
             dim=dim
         )
 
-    def _make_layer(self, in_channels, out_channels, blocks, stride=1, pool=False):
-        """Build residual layer."""
+    def _make_layer(
+        self,
+        in_channels: int,
+        out_channels: int,
+        blocks: int,
+        stride: int = 1,
+        pool: bool = False
+    ) -> nn.Sequential:
+        """Build a sequential residual layer with optional max-pooling.
+
+        Args:
+            in_channels: Number of input channels for the first block.
+            out_channels: Number of output channels for all blocks.
+            blocks: Total number of residual blocks in the layer.
+            stride: Stride applied to the first residual block.
+            pool: If True, prepend a max-pool layer before the first block.
+
+        Returns:
+            nn.Sequential: The assembled residual layer.
+        """
         layers = []
 
         # For the first block
@@ -393,9 +478,16 @@ class FPN(nn.Module):
         return nn.Sequential(*layers)
 
     def forward(self, x: torch.Tensor) -> List[torch.Tensor]:
-        """
-        Forward pass returning multi-scale feature maps.
-        Returns: [p0, p1, p2, p3, p4, p5] from highest to lowest resolution
+        """Compute multi-scale FPN feature maps from a single input tensor.
+
+        Args:
+            x: Input tensor of shape (H, W) for 2D or
+                (H, W, D) for 3D.
+
+        Returns:
+            List[torch.Tensor]: Six feature maps ``[P0, P1, P2, P3, P4, P5]``
+                ordered from highest spatial resolution (P0) to lowest (P5).
+                Each map has ``out_channels`` channels.
         """
         # Stem
         c0_out = self.c0(x)
@@ -431,15 +523,29 @@ class AnchorGenerator(nn.Module):
 
     def __init__(
         self,
-        rpn_anchor_scales: Dict[str, Dict[str, List[float]]] = None,
-        rpn_anchor_ratios: List[float] = [0.5, 1.0, 2.0],
+        rpn_anchor_scales: Optional[Dict[str, Dict[str, List[float]]]] = None,
+        rpn_anchor_ratios: Optional[List[float]] = None,
         rpn_anchor_stride: int = 1,
-        pyramid_levels: List[int] = [2, 3, 4, 5], # Corresponding to P2, P3, P4, P5
+        pyramid_levels: Optional[List[int]] = None, # Corresponding to P2, P3, P4, P5
         dim: int = 2
     ):
+        """Initialise AnchorGenerator.
+
+        Args:
+            rpn_anchor_scales: Dict with keys ``'xy'`` and ``'z'``
+                mapping pyramid level strings to base scales. If ``None``,
+                default scales are used.
+            rpn_anchor_ratios: Aspect ratios for anchor generation.
+                Defaults to ``[0.5, 1.0, 2.0]``.
+            rpn_anchor_stride: Grid stride for anchor centres.
+                Defaults to 1.
+            pyramid_levels: FPN levels to generate anchors for.
+                Defaults to ``[2, 3, 4, 5]``.
+            dim: Spatial dimensionality (2 or 3). Defaults to 2.
+        """
         super().__init__()
         self.dim = dim
-        self.pyramid_levels = pyramid_levels
+        self.pyramid_levels = pyramid_levels if pyramid_levels is not None else [2, 3, 4, 5]
 
         # Default scales but need to adjust based on expected objects size to detect
         if rpn_anchor_scales is None:
@@ -472,7 +578,7 @@ class AnchorGenerator(nn.Module):
             for key, value in rpn_anchor_scales['z'].items()
         }
 
-        self.rpn_anchor_ratios = torch.tensor(rpn_anchor_ratios, dtype=torch.float32)
+        self.rpn_anchor_ratios = torch.tensor(rpn_anchor_ratios if rpn_anchor_ratios is not None else [0.5, 1.0, 2.0], dtype=torch.float32)
         self.rpn_anchor_stride = rpn_anchor_stride
         # mapping from pyramid level to orignal image, based on architercture design
         self.feature_strides = {
@@ -496,7 +602,18 @@ class AnchorGenerator(nn.Module):
             w: int,
             device: torch.device = torch.device('cpu')
         ) -> torch.Tensor:
-        """Vectorized 2D anchor generation, matching original generate_anchors."""
+        """Vectorized 2D anchor generation, matching original generate_anchors.
+
+        Args:
+            level: FPN pyramid level index (e.g. 2 for P2).
+            h: Height of the feature map at this level (in grid cells).
+            w: Width of the feature map at this level (in grid cells).
+            device: Target device for the output tensor.
+
+        Returns:
+            torch.Tensor: Anchor boxes of shape (N, 4) in ``[y1, x1, y2, x2]``
+                format, where N = h × w × num_anchors_per_cell.
+        """
         # Get feature stride and anchor scales for the current level
         scales_xy = torch.tensor(
             self.rpn_anchor_scales['xy'][f'P{level}'],
@@ -544,7 +661,20 @@ class AnchorGenerator(nn.Module):
             d: int,
             device: torch.device = torch.device('cpu')
         ) -> torch.Tensor:
-        """Vectorized 3D anchor generation, matching original generate_anchors_3D."""
+        """Vectorized 3D anchor generation, matching original generate_anchors_3D.
+
+        Args:
+            level: FPN pyramid level index (e.g. 2 for P2).
+            h: Height of the feature map at this level (in grid cells).
+            w: Width of the feature map at this level (in grid cells).
+            d: Depth of the feature map at this level (in grid cells).
+            device: Target device for the output tensor.
+
+        Returns:
+            torch.Tensor: Anchor boxes of shape (N, 6) in
+                ``[y1, x1, y2, x2, z1, z2]`` format, where
+                N = h x w x d x num_anchors_per_cell.
+        """
         # Get feature stride and anchor scales for the current level
         scales_xy = torch.tensor(
             self.rpn_anchor_scales['xy'][f'P{level}'],
@@ -594,7 +724,17 @@ class AnchorGenerator(nn.Module):
         return boxes
 
     def forward(self, feature_maps: List[torch.Tensor]) -> torch.Tensor:
-        """Generate all anchors from feature maps."""
+        """Generate all anchors from feature maps.
+
+        Args:
+            feature_maps: List of FPN feature tensors indexed by pyramid level.
+                Each tensor has shape (H, W) for 2D or (H, W, D)
+                for 3D.
+
+        Returns:
+            torch.Tensor: All anchors concatenated across pyramid levels.
+                Shape (total_anchors, 4) for 2D or (total_anchors, 6) for 3D.
+        """
         all_anchors = []
 
         for level in self.pyramid_levels:
@@ -622,7 +762,17 @@ class AnchorGenerator(nn.Module):
 
 
 def _apply_box_deltas_2d(boxes: torch.Tensor, deltas: torch.Tensor) -> torch.Tensor:
-    """Apply predicted deltas to 2D anchor boxes."""
+    """Apply predicted deltas to 2D anchor boxes.
+
+    Args:
+        boxes: Anchor boxes of shape (N, 4) in ``[y1, x1, y2, x2]`` format.
+        deltas: Predicted deltas of shape (N, 4) in ``[dy, dx, dh, dw]``
+            format, already scaled by ``rpn_bbox_std_dev``.
+
+    Returns:
+        torch.Tensor: Decoded boxes of shape (N, 4) in
+            ``[y1, x1, y2, x2]`` format.
+    """
     y1 = boxes[:, 0]
     x1 = boxes[:, 1]
     y2 = boxes[:, 2]
@@ -651,7 +801,19 @@ def _apply_box_deltas_2d(boxes: torch.Tensor, deltas: torch.Tensor) -> torch.Ten
 
 
 def _apply_box_deltas_3d(boxes: torch.Tensor, deltas: torch.Tensor) -> torch.Tensor:
-    """Apply predicted deltas to 3D anchor boxes."""
+    """Apply predicted deltas to 3D anchor boxes.
+
+    Args:
+        boxes: Anchor boxes of shape (N, 6) in
+            ``[y1, x1, y2, x2, z1, z2]`` format.
+        deltas: Predicted deltas of shape (N, 6) in
+            ``[dy, dx, dz, dh, dw, dd]`` format, already scaled by
+            ``rpn_bbox_std_dev``.
+
+    Returns:
+        torch.Tensor: Decoded boxes of shape (N, 6) in
+            ``[y1, x1, y2, x2, z1, z2]`` format.
+    """
     y1 = boxes[:, 0]
     x1 = boxes[:, 1]
     y2 = boxes[:, 2]
@@ -693,6 +855,15 @@ def _clip_boxes_2d(
         boxes: torch.Tensor,
         window: Tuple[float, float]
     ) -> torch.Tensor:
+    """Clip 2D bounding boxes to lie within the image boundary.
+
+    Args:
+        boxes: Boxes of shape (N, 4) in ``[y1, x1, y2, x2]`` format.
+        window: Image boundary as ``(height, width)``.
+
+    Returns:
+        torch.Tensor: Clipped boxes of shape (N, 4).
+    """
     y1 = boxes[:, 0].clamp(min=0, max=window[0])
     x1 = boxes[:, 1].clamp(min=0, max=window[1])
     y2 = boxes[:, 2].clamp(min=0, max=window[0])
@@ -705,6 +876,15 @@ def _clip_boxes_3d(
         boxes: torch.Tensor,
         window: Tuple[float, float, float]
     ) -> torch.Tensor:
+    """Clip 3D bounding boxes to lie within the volume boundary.
+
+    Args:
+        boxes: Boxes of shape (N, 6) in ``[y1, x1, y2, x2, z1, z2]`` format.
+        window: Volume boundary as ``(height, width, depth)``.
+
+    Returns:
+        torch.Tensor: Clipped boxes of shape (N, 6).
+    """
     y1 = boxes[:, 0].clamp(min=0, max=window[0])
     x1 = boxes[:, 1].clamp(min=0, max=window[1])
     y2 = boxes[:, 2].clamp(min=0, max=window[0])
@@ -720,7 +900,17 @@ def _nms_2d(
         scores: torch.Tensor,
         iou_threshold: float
     ) -> torch.Tensor:
-    """Pure torch NMS for 2D boxes."""
+    """Pure torch NMS for 2D boxes.
+
+    Args:
+        boxes: Candidate boxes of shape (N, 4) in ``[y1, x1, y2, x2]`` format.
+        scores: Confidence scores of shape (N,).
+        iou_threshold: IoU overlap threshold above which a box is suppressed.
+
+    Returns:
+        torch.Tensor: 1-D long tensor of kept box indices sorted by
+            descending score.
+    """
     if boxes.numel() == 0:
         return torch.empty((0,), dtype=torch.long, device=boxes.device)
     y1 = boxes[:, 0]
@@ -756,7 +946,19 @@ def _nms_3d(
         scores: torch.Tensor,
         iou_threshold: float
     ) -> torch.Tensor:
-    """Pure torch NMS for 3D boxes."""
+    """Pure torch NMS for 3D boxes.
+
+    Args:
+        boxes: Candidate boxes of shape (N, 6) in
+            ``[y1, x1, y2, x2, z1, z2]`` format.
+        scores: Confidence scores of shape (N,.).
+        iou_threshold: Volumetric IoU overlap threshold above which a box
+            is suppressed.
+
+    Returns:
+        torch.Tensor: 1-D long tensor of kept box indices sorted by
+            descending score.
+    """
     if boxes.numel() == 0:
         return torch.empty((0,), dtype=torch.long, device=boxes.device)
     y1 = boxes[:, 0]
@@ -795,7 +997,13 @@ def _nms_3d(
 
 
 class ClassificationHead(nn.Module):
-    """Classification head for detecting object presence."""
+    """Classification head for detecting object presence.
+
+    Applies four shared 3×3 convolutional layers followed by a final
+    projection to ``num_anchors × num_classes`` channels.  The output is
+    reshaped to ``(B, total_anchors, num_classes)`` for loss computation.
+    Supports 2D and 3D feature maps.
+    """
 
     def __init__(
         self,
@@ -806,6 +1014,16 @@ class ClassificationHead(nn.Module):
         activation: str = 'relu',
         dim: int = 2
     ):
+        """Initialise ClassificationHead.
+
+        Args:
+            in_channels: Number of FPN feature channels.
+            num_classes: Number of foreground object classes.
+            num_anchors: Anchors per spatial location. Defaults to 9.
+            hidden_channels: Intermediate channel width. Defaults to 256.
+            activation: Activation type. Defaults to ``'relu'``.
+            dim: Spatial dimensionality (2 or 3). Defaults to 2.
+        """
         super().__init__()
         self.num_classes = num_classes
         self.num_anchors = num_anchors
@@ -854,7 +1072,17 @@ class ClassificationHead(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Forward pass returning class predictions."""
+        """Forward pass returning class predictions.
+
+        Args:
+            x: Feature map of shape (B, in_channels, H, W) for 2D or
+                (B, in_channels, H, W, D) for 3D.
+
+        Returns:
+            torch.Tensor: Class logits of shape
+                (B, H × W × num_anchors, num_classes) for 2D, or
+                (B, H × W × D × num_anchors, num_classes) for 3D.
+        """
         x = self.conv1(x)
         x = self.conv2(x)
         x = self.conv3(x)
@@ -884,6 +1112,15 @@ class BBoxHead(nn.Module):
         activation: str = 'relu',
         dim: int = 2
     ):
+        """Initialise BBoxHead.
+
+        Args:
+            in_channels: Number of FPN feature channels.
+            num_anchors: Anchors per spatial location. Defaults to 9.
+            hidden_channels: Intermediate channel width. Defaults to 256.
+            activation: Activation type. Defaults to ``'relu'``.
+            dim: Spatial dimensionality (2 or 3). Defaults to 2.
+        """
         super().__init__()
         self.num_anchors = num_anchors
         self.dim = dim
@@ -931,7 +1168,17 @@ class BBoxHead(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Forward pass returning bbox deltas."""
+        """Forward pass returning bbox deltas.
+
+        Args:
+            x: Feature map of shape (H, W) for 2D or
+                (H, W, D) for 3D.
+
+        Returns:
+            torch.Tensor: Box deltas of shape
+                (B, H × W × num_anchors, 4) for 2D, or
+                (B, H × W × D × num_anchors, 6) for 3D.
+        """
         x = self.conv1(x)
         x = self.conv2(x)
         x = self.conv3(x)
@@ -951,7 +1198,11 @@ class BBoxHead(nn.Module):
 
 
 class SegmentationHead(nn.Module):
-    """U-Net style decoder for segmentation."""
+    """U-Net style decoder for segmentation.
+
+    Applies a single 1×1 convolution to the highest-resolution FPN feature
+    map (P0) to produce a per-pixel segmentation logit map.
+    """
 
     def __init__(
         self,
@@ -959,6 +1210,13 @@ class SegmentationHead(nn.Module):
         num_classes: int = 2,
         dim: int = 2
     ):
+        """Initialise SegmentationHead.
+
+        Args:
+            in_channels: Number of input feature channels.
+            num_classes: Number of segmentation classes. Defaults to 2.
+            dim: Spatial dimensionality (2 or 3). Defaults to 2.
+        """
         super().__init__()
         self.dim = dim
 
@@ -974,7 +1232,17 @@ class SegmentationHead(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Forward pass returning segmentation mask."""
+        """Forward pass returning segmentation mask.
+
+        Args:
+            x: High-resolution feature map of shape (H, W)
+                for 2D or (H, W, D) for 3D.
+
+        Returns:
+            torch.Tensor: Segmentation logits of shape
+                (H, W) for 2D or
+                (H, W, D) for 3D.
+        """
         seg_out = self.conv_seg(x)
 
         return seg_out
@@ -1002,10 +1270,31 @@ class RetinaUNetCore(nn.Module):
         norm_type: Optional[str] = None,
         activation: str = 'relu',
         rpn_anchor_ratios: List[float] = [0.5, 1.0, 2.0],
-        rpn_anchor_scales: Dict[str, Dict[str, List[float]]] = None,
+        rpn_anchor_scales: Optional[Dict[str, Dict[str, List[float]]]] = None,
         rpn_anchor_stride: int = 1,
         pyramid_levels: List[int] = [2, 3, 4, 5], # Corresponding to P2, P3, P4, P5
     ):
+        """Initialise RetinaUNetCore.
+
+        Args:
+            in_channels: Number of input image channels. Defaults to 1.
+            num_classes: Number of foreground object classes. Defaults to 2.
+            dim: Spatial dimensionality (2 or 3). Defaults to 2.
+            fpn_base_channels: FPN stem channel width. Defaults to 48.
+            fpn_out_channels: FPN output channel width. Defaults to 192.
+            fpn_num_blocks: Residual blocks per FPN stage. Defaults to
+                ``None`` (uses ``[3, 4, 6, 3]``).
+            rpn_hidden_channels: Hidden channels in detection heads.
+                Defaults to 256.
+            norm_type: Normalisation type or ``None``. Defaults to ``None``.
+            activation: Activation type. Defaults to ``'relu'``.
+            rpn_anchor_ratios: Anchor aspect ratios.
+                Defaults to ``[0.5, 1.0, 2.0]``.
+            rpn_anchor_scales: Custom anchor scales dict or ``None``.
+            rpn_anchor_stride: Anchor grid stride. Defaults to 1.
+            pyramid_levels: FPN levels used for detection.
+                Defaults to ``[2, 3, 4, 5]``.
+        """
         super().__init__()
         self.in_channels = in_channels
         self.num_classes_head = num_classes
@@ -1070,7 +1359,7 @@ class RetinaUNetCore(nn.Module):
         self.anchor_cache = OrderedDict()
         self.max_anchor_cache_size = 3
 
-    def _clear_anchor_cache(self):
+    def _clear_anchor_cache(self) -> None:
         """Clear anchor cache and explicitly free GPU memory."""
         for key in list(self.anchor_cache.keys()):
             anchors = self.anchor_cache[key]
@@ -1083,7 +1372,14 @@ class RetinaUNetCore(nn.Module):
         torch.cuda.empty_cache() if torch.cuda.is_available() else None
 
     def _apply(self, fn):
-        """Override to clear anchor cache when model moves to a different device."""
+        """Override to clear anchor cache when model moves to a different device.
+
+        Args:
+            fn: Device-transfer function passed by ``nn.Module``.
+
+        Returns:
+            RetinaUNetCore: ``self`` after applying ``fn`` to all parameters.
+        """
         super()._apply(fn)
         self._clear_anchor_cache()
         return self
@@ -1170,6 +1466,24 @@ class RetinaUNetCore(nn.Module):
         """Refine raw network outputs into final detections.
 
         Uses top-k score filtering, delta decoding, clipping, and NMS.
+
+        Args:
+            anchors: All anchors of shape (total_anchors, 4) for 2D or
+                (total_anchors, 6) for 3D.
+            class_logits: Raw classification logits of shape
+                (total_anchors, num_classes).
+            bbox_deltas: Predicted box deltas of shape
+                (total_anchors, dim*2).
+            batch_size: Number of images in the batch.
+            image_size: Spatial dimensions of the input image used to clip
+                decoded boxes; ``(H, W)`` for 2D or ``(H, W, D)`` for 3D.
+
+        Returns:
+            torch.Tensor: Detection tensor of shape (K, 7) for 2D or (K, 9)
+                for 3D, where each row is
+                ``[y1, x1, y2, x2, batch_id, class_id, score]`` (2D) or
+                ``[y1, x1, y2, x2, z1, z2, batch_id, class_id, score]`` (3D).
+                Returns an empty tensor when no detections survive NMS.
         """
 
         # Raw foreground probabilities after background channel
@@ -1304,6 +1618,27 @@ class RetinaUNet(BaseModel):
         rpn_anchor_stride: int = 1,
         pyramid_levels: Optional[List[int]] = [2, 3, 4, 5],
     ):
+        """Initialise RetinaUNet (PyHealth wrapper).
+
+        Args:
+            dataset: PyHealth SampleDataset instance.
+            in_channels: Number of input image channels. Defaults to 1.
+            num_classes: Number of foreground classes. Defaults to 2.
+            dim: Spatial dimensionality (2 or 3). Defaults to 2.
+            fpn_base_channels: FPN stem width. Defaults to 48.
+            fpn_out_channels: FPN output width. Defaults to 192.
+            fpn_num_blocks: Number of residual blocks per FPN stage.
+                Defaults to ``None`` (uses ``[3, 4, 6, 3]``).
+            rpn_hidden_channels: Detection head width. Defaults to 256.
+            norm_type: Normalisation type or ``None``. Defaults to ``None``.
+            activation: Activation type. Defaults to ``'relu'``.
+            rpn_anchor_ratios: Anchor aspect ratios. Defaults to ``None``
+                (uses ``[0.5, 1.0, 2.0]``).
+            rpn_anchor_scales: Custom anchor scales dict or ``None``.
+            rpn_anchor_stride: Anchor grid stride. Defaults to 1.
+            pyramid_levels: FPN levels used for detection. Defaults to ``None``
+                (uses ``[2, 3, 4, 5]``).
+        """
         super().__init__(dataset=dataset)
 
         self.core = RetinaUNetCore(
@@ -1325,13 +1660,39 @@ class RetinaUNet(BaseModel):
 
     def forward(
             self,
-            images,
-            gt_seg_masks=None,
-            gt_boxes_list=None,
-            gt_classes_list=None,
+            images: torch.Tensor,
+            gt_seg_masks: Optional[torch.Tensor] = None,
+            gt_boxes_list: Optional[List[List[torch.Tensor]]] = None,
+            gt_classes_list: Optional[List[List[torch.Tensor]]] = None,
             **kwargs
-        ) -> dict[str, torch.Tensor]:
-        """Forward pass through the model."""
+        ) -> Dict[str, torch.Tensor]:
+        """Forward pass through the model.
+
+        Args:
+            images: Batch of input images of shape (B, C, H, W) for 2D or
+                (B, C, H, W, D) for 3D.
+            gt_seg_masks: Ground-truth segmentation masks of shape
+                (B, 1, H, W) for 2D or (B, 1, H, W, D) for 3D, or ``None``
+                for inference.
+            gt_boxes_list: List of length B, each element being a list of
+                ground-truth box tensors for that image, or ``None``.
+            gt_classes_list: List of length B, each element containing a
+                class-id tensor for that image, or ``None``.
+            **kwargs: Additional keyword arguments (unused; kept for
+                BaseModel compatibility).
+
+        Returns:
+            Dict[str, torch.Tensor]: Dictionary with keys:
+                - ``"loss"``: Scalar total loss (class + bbox + 0.5 × seg).
+                - ``"class_loss"``: Focal classification loss scalar.
+                - ``"bbox_loss"``: Smooth-L1 bounding box loss scalar.
+                - ``"seg_loss"``: Dice + CE segmentation loss scalar.
+                - ``"det_bboxes"``: Post-NMS detections tensor.
+                - ``"class_logits"``: Raw classification logits.
+                - ``"bbox_deltas"``: Raw regression deltas.
+                - ``"seg_logits"``: Raw segmentation logits.
+                - ``"anchors"``: All generated anchors.
+        """
 
         # Retina U-Net forward pass
         outputs = self.core(images.to(self.device))
@@ -1401,11 +1762,23 @@ class RetinaUNet(BaseModel):
         return results
 
     @staticmethod
-    def _compute_iou_matrix_2d(anchors: torch.Tensor, gt_boxes: torch.Tensor) -> torch.Tensor:
-        """
-        Corrected Vectorized IoU in PyTorch.
+    def _compute_iou_matrix_2d(
+        anchors: torch.Tensor,
+        gt_boxes: torch.Tensor
+    ) -> torch.Tensor:
+        """Corrected Vectorized IoU in PyTorch.
         anchors: (N, 4) tensor [y1, x1, y2, x2]
         gt_boxes: (M, 4) tensor [y1, x1, y2, x2]
+
+        Args:
+            anchors: Anchor boxes of shape (N, 4) in ``[y1, x1, y2, x2]``
+                format.
+            gt_boxes: Ground-truth boxes of shape (M, 4) in
+                ``[y1, x1, y2, x2]`` format.
+
+        Returns:
+            torch.Tensor: IoU matrix of shape (M, N) where entry (i, j) is
+                the IoU between GT box i and anchor j.
         """
         # 1. Areas
         a_area = (anchors[:, 2] - anchors[:, 0]) * (anchors[:, 3] - anchors[:, 1])
@@ -1425,10 +1798,21 @@ class RetinaUNet(BaseModel):
         return (inter_area / union_area.clamp(min=1e-6)).T
 
     @staticmethod
-    def _compute_iou_matrix_3d(anchors: torch.Tensor, gt_boxes: torch.Tensor) -> torch.Tensor:
-        """
-        Optimized Vectorized 3D IoU.
-        Order: [y1, x1, y2, x2, z1, z2]
+    def _compute_iou_matrix_3d(
+        anchors: torch.Tensor,
+        gt_boxes: torch.Tensor
+    ) -> torch.Tensor:
+        """Compute the pairwise 3D volumetric IoU matrix.
+
+        Args:
+            anchors: Anchor boxes of shape (N, 6) in
+                ``[y1, x1, y2, x2, z1, z2]`` format.
+            gt_boxes: Ground-truth boxes of shape (M, 6) in
+                ``[y1, x1, y2, x2, z1, z2]`` format.
+
+        Returns:
+            torch.Tensor: Volumetric IoU matrix of shape (M, N).
+                Returns a zero matrix if either input is empty.
         """
         if anchors.numel() == 0 or gt_boxes.numel() == 0:
             return torch.zeros(
@@ -1463,21 +1847,40 @@ class RetinaUNet(BaseModel):
             anchors: torch.Tensor,
             gt_boxes: torch.Tensor,
             gt_class_ids: torch.Tensor,
-            pos_thresh=0.5,
-            neg_thresh=0.4,
-            dim=2
+            pos_thresh: float = 0.5,
+            neg_thresh: float = 0.4,
+            dim: int = 2
         ) -> Tuple[torch.Tensor, torch.Tensor]:
-        """
-        Adaptive Anchor Matching for 2D or 3D.
+        """Adaptive Anchor Matching for 2D or 3D.
         dim=2: [y1, x1, y2, x2]
         dim=3: [y1, x1, y2, x2, z1, z2]
+
+        Args:
+            anchors: All anchors of shape (N, 4) for 2D or (N, 6) for 3D.
+            gt_boxes: Ground-truth boxes of shape (M, 4) or (M, 6).
+            gt_class_ids: Integer class labels of shape (M,).
+            pos_thresh: IoU threshold above which an anchor is positive.
+                Defaults to 0.5.
+            neg_thresh: IoU threshold below which an anchor is background.
+                Anchors between thresholds are ignored (label -1).
+                Defaults to 0.4.
+            dim: Spatial dimensionality (2 or 3). Defaults to 2.
+
+        Returns:
+            Tuple[torch.Tensor, torch.Tensor]:
+                - ``anchor_class_match`` of shape (N,) with values
+                  ``-1`` (ignore), ``0`` (background), or ``class_id``.
+                - ``anchor_target_deltas`` of shape (N, 4) or (N, 6)
+                  containing regression targets for every anchor.
         """
         device = anchors.device
         num_anchors = anchors.shape[0]
 
         if gt_boxes.shape[0] == 0:
-            # Returns (num_anchors,) for matches and (num_anchors, 4 or 6) for deltas
-            return torch.full((num_anchors,), -1, device=device), torch.zeros_like(anchors)
+            return (
+                torch.full((num_anchors,), -1, device=device),
+                torch.zeros_like(anchors)
+            )
 
         # 1. Select the correct IoU function based on dimension
         if dim == 2:
@@ -1489,7 +1892,9 @@ class RetinaUNet(BaseModel):
         max_iou_per_anchor, best_gt_idx_per_anchor = torch.max(iou_matrix, dim=0)
 
         # Initialize as Neutral/Ignore (-1)
-        anchor_class_match = torch.full((num_anchors,), -1, dtype=torch.int32, device=device)
+        anchor_class_match = torch.full(
+            (num_anchors,), -1, dtype=torch.int32, device=device
+        )
 
         # 3. Assign Background (0) and Positives (class_id)
         anchor_class_match[max_iou_per_anchor < neg_thresh] = 0
@@ -1504,7 +1909,9 @@ class RetinaUNet(BaseModel):
 
         # Force these to be positive and update the index tracker for deltas
         anchor_class_match[best_anchor_idx_per_gt] = gt_class_ids.to(torch.int32)
-        best_gt_idx_per_anchor[best_anchor_idx_per_gt] = torch.arange(len(gt_boxes), device=device)
+        best_gt_idx_per_anchor[best_anchor_idx_per_gt] = torch.arange(
+            len(gt_boxes), device=device
+        )
 
         # 5. Regression Targets (Deltas)
         matched_gt_boxes = gt_boxes[best_gt_idx_per_anchor]
@@ -1519,13 +1926,30 @@ class RetinaUNet(BaseModel):
             alpha: float = 0.25,
             gamma: float = 2.0
     ) -> torch.Tensor:
-        """
-        Handles [-1=ignore, 0=background, 1+=class_id]
+        """Compute focal classification loss over valid (non-ignored) anchors.
+
+        Ignores anchors labelled ``-1``, applies focal weighting to reduce
+        the contribution of easy negatives, and normalises by the number of
+        positive anchors.
+
+        Args:
+            class_pred_logits: Raw logits of shape (N, num_classes).
+            anchor_matches: Anchor labels of shape (N,) with values
+                ``-1`` (ignore), ``0`` (background), or a positive integer
+                class id.
+            alpha: Focal loss balancing factor. Defaults to 0.25.
+            gamma: Focal loss focusing exponent. Defaults to 2.0.
+
+        Returns:
+            torch.Tensor: Scalar focal loss, normalised by the number of
+                positive anchors (minimum 1).
         """
         # 1. Mask out anchors labeled as -1 (ignore/neutral)
         valid_indices = torch.nonzero(anchor_matches != -1).reshape(-1)
         if valid_indices.numel() == 0:
-            return torch.tensor(0.0, device=class_pred_logits.device, requires_grad=True)
+            return torch.tensor(
+                0.0, device=class_pred_logits.device, requires_grad=True
+            )
 
         logits = class_pred_logits[valid_indices]
         targets = anchor_matches[valid_indices].long()
@@ -1533,7 +1957,7 @@ class RetinaUNet(BaseModel):
         # 2. Focal Loss Math
         ce_loss = F.cross_entropy(logits, targets, reduction='none')
         pt = torch.exp(-ce_loss)
-        f_loss = alpha * (1 - pt)**gamma * ce_loss
+        f_loss = alpha * (1 - pt) ** gamma * ce_loss
 
         # 3. Normalize by POSITIVE anchors only
         num_pos = torch.clamp(torch.sum(anchor_matches > 0).float(), min=1.0)
@@ -1544,17 +1968,28 @@ class RetinaUNet(BaseModel):
         bbox_deltas: torch.Tensor,
         anchor_target_deltas: torch.Tensor,
         anchor_class_match: torch.Tensor,
-        beta=0.11 # beta ~1/9 is standard for many Retina implementations
+        beta: float = 0.11  # beta ~1/9 is standard for many Retina implementations
     ) -> torch.Tensor:
-        """
-        Improved Bbox loss aligned with RetinaNet normalization.
+        """Improved Bbox loss aligned with RetinaNet normalization.
+        Args:
+            bbox_deltas: Predicted deltas of shape (N, dim*2).
+            anchor_target_deltas: Target deltas of shape (N, dim*2).
+            anchor_class_match: Anchor labels of shape (N,); positives > 0.
+            beta: Smooth-L1 transition point (~1/9 follows RetinaNet).
+                Defaults to 0.11.
+
+        Returns:
+            torch.Tensor: Scalar smooth-L1 regression loss. Returns 0.0
+                when no positive anchors are present.
         """
         # 1. Mask for positive anchors only
         pos_mask = anchor_class_match > 0
         num_pos = pos_mask.sum().float()
 
         if num_pos == 0:
-            return torch.tensor(0.0, device=bbox_deltas.device, requires_grad=True)
+            return torch.tensor(
+                0.0, device=bbox_deltas.device, requires_grad=True
+            )
 
         # 2. Extract positive predictions and targets
         pos_deltas = bbox_deltas[pos_mask]
@@ -1576,7 +2011,22 @@ class RetinaUNet(BaseModel):
         seg_masks: torch.Tensor,
         n_classes: int = 2
     ) -> torch.Tensor:
-        # 1. Cross-Entropy: Use weights if possible, but keep reduction='mean'
+        """# 1. Cross-Entropy: Use weights if possible, but keep reduction='mean'
+
+        Args:
+            seg_logits: Raw segmentation logits of shape
+                (B, n_classes, H, W) for 2D or
+                (B, n_classes, H, W, D) for 3D.
+            seg_masks: Ground-truth integer mask of shape (B, 1, H, W) or
+                (B, 1, H, W, D).
+            n_classes: Total number of segmentation classes including
+                background. Defaults to 2.
+
+        Returns:
+            torch.Tensor: Scalar loss computed as
+                ``0.5 x CE + 0.5 x foreground_dice_loss``.
+        """
+        # 1. Cross-Entropy
         target_masks = seg_masks.squeeze(1).long()
         ce_loss = F.cross_entropy(seg_logits, target_masks)
 
@@ -1584,8 +2034,12 @@ class RetinaUNet(BaseModel):
         probs = F.softmax(seg_logits, dim=1)
 
         # One-hot encoding
-        target_ohe = F.one_hot(target_masks, num_classes=n_classes)
-        target_ohe = target_ohe.permute(0, 3, 1, 2).float() # [B, C, H, W]
+        target_masks_squeezed = target_masks.squeeze(1)
+        target_ohe = F.one_hot(target_masks_squeezed, num_classes=n_classes)
+        if seg_logits.dim() == 4:  # 2D: (B, C, H, W)
+            target_ohe = target_ohe.permute(0, 3, 1, 2).float()
+        else:  # 3D: (B, C, H, W, D)
+            target_ohe = target_ohe.permute(0, 4, 1, 2, 3).float()
 
         # Compute intersection and cardinality per class
         # Sum over spatial dimensions only (H, W)
@@ -1593,7 +2047,7 @@ class RetinaUNet(BaseModel):
         intersection = torch.sum(probs * target_ohe, dim=dims)
         cardinality = torch.sum(probs + target_ohe, dim=dims)
 
-        dice_score = (2. * intersection + 1e-5) / (cardinality + 1e-5)
+        dice_score = (2.0 * intersection + 1e-5) / (cardinality + 1e-5)
 
         # IMPORTANT: Exclude background (index 0) from the Dice Loss
         # Only average Dice for classes 1, 2, ...
@@ -1621,4 +2075,3 @@ if __name__ == '__main__':
     print(f"  bbox_deltas: {output_3d['bbox_deltas'].shape}")
     print(f"  segmentation: {output_3d['segmentation'].shape}")
     print(f"  detections: {output_3d['detections'].shape}")
-    
