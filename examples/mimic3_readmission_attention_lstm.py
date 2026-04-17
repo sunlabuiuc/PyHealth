@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 from sklearn.metrics import roc_auc_score, average_precision_score
 from tqdm import tqdm
 
-from pyhealth.datasets import MIMIC3Dataset, split_by_patient, get_dataloader
+from pyhealth.datasets import MIMIC3Dataset, split_by_sample, get_dataloader
 from pyhealth.tasks import ReadmissionPredictionMIMIC3
 from pyhealth.models import RNN
 
@@ -19,21 +19,21 @@ from pyhealth.models import AttentionLSTM
 from pathlib import Path
 
 
-# run multiple seeds (run 5 times)
-SEEDS = [1, 2, 3, 4, 5]
+# run multiple seeds (run 50 times)
+SEEDS = list(range(1, 51))  
 BATCH_SIZE = 32
-EPOCHS = 5
+EPOCHS = 50
 LR = 1e-3
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 OUTPUT_DIR = Path("results/mimic3_attention")
 TOPK = 10
 
 
-# synthetic MIMIC-III path 
+# synthetic MIMIC-III path
 DATA_ROOT = str(
-    Path(__file__).resolve().parent.parent / "test-resources/core/mimic3demo"
+    Path(__file__).resolve().parent.parent /
+    "examples/MIMICIII_Clinical_Database_Demo"
 )
-
 
 def set_seed(seed: int) -> None:
     random.seed(seed)
@@ -127,6 +127,33 @@ def save_json(obj: Dict[str, Any], path: Path) -> None:
 
 
 # load data
+def get_label_from_sample(sample):
+    if "readmission" in sample:
+        y = sample["readmission"]
+    elif "label" in sample:
+        y = sample["label"]
+    elif "y_true" in sample:
+        y = sample["y_true"]
+    else:
+        raise KeyError(
+            f"Could not find label key in sample keys: {list(sample.keys())}")
+
+    y = np.asarray(y)
+    return int(np.ravel(y)[0])
+
+
+def label_counts(ds):
+    ys = [get_label_from_sample(ds[i]) for i in range(len(ds))]
+    ys = np.asarray(ys, dtype=int)
+    unique, counts = np.unique(ys, return_counts=True)
+    return dict(zip(unique.tolist(), counts.tolist()))
+
+
+def has_both_classes(ds):
+    counts = label_counts(ds)
+    return 0 in counts and 1 in counts
+
+
 def build_data():
     base_dataset = MIMIC3Dataset(
         root=DATA_ROOT,
@@ -136,8 +163,24 @@ def build_data():
 
     sample_dataset = base_dataset.set_task(ReadmissionPredictionMIMIC3())
 
-    train_ds, val_ds, test_ds = split_by_patient(
-        sample_dataset, [0.8, 0.1, 0.1])
+    chosen_seed = None
+    for split_seed in range(1, 1001):
+        train_ds, val_ds, test_ds = split_by_sample(
+            sample_dataset, ratios=[0.6, 0.2, 0.2], seed=split_seed
+        )
+
+        if has_both_classes(val_ds) and has_both_classes(test_ds):
+            chosen_seed = split_seed
+            break
+
+    if chosen_seed is None:
+        raise ValueError(
+            "Could not find a split seed where both val and test contain both classes.")
+
+    print(f"Using split seed: {chosen_seed}")
+    print("train label distribution:", label_counts(train_ds))
+    print("val label distribution:", label_counts(val_ds))
+    print("test label distribution:", label_counts(test_ds))
 
     train_loader = get_dataloader(
         train_ds, batch_size=BATCH_SIZE, shuffle=True)
@@ -307,17 +350,18 @@ def run_single_seed(model_name, dataset, train_loader, val_loader, test_loader, 
     return test_result
 
 
-# Compute mean/std across seeds
+# compute mean/std across seeds
 def summarize_runs(runs):
-    roc_aucs = [r["roc_auc"] for r in runs]
-    pr_aucs = [r["pr_auc"] for r in runs]
+    roc_aucs = [r["roc_auc"] for r in runs if not np.isnan(r["roc_auc"])]
+    pr_aucs = [r["pr_auc"] for r in runs if not np.isnan(r["pr_auc"])]
 
     return {
-        "roc_auc_mean": float(np.nanmean(roc_aucs)),
-        "roc_auc_std": float(np.nanstd(roc_aucs)),
-        "pr_auc_mean": float(np.nanmean(pr_aucs)),
-        "pr_auc_std": float(np.nanstd(pr_aucs)),
+        "roc_auc_mean": float(np.mean(roc_aucs)) if roc_aucs else float("nan"),
+        "roc_auc_std": float(np.std(roc_aucs)) if roc_aucs else float("nan"),
+        "pr_auc_mean": float(np.mean(pr_aucs)) if pr_aucs else float("nan"),
+        "pr_auc_std": float(np.std(pr_aucs)) if pr_aucs else float("nan"),
     }
+
 
 # multi-seed experiment
 def run_attention_experiment(dataset, train_loader, val_loader, test_loader):
@@ -375,32 +419,61 @@ def run_rnn_ablation(dataset, train_loader, val_loader, test_loader):
 
 # plot performance across seeds
 def plot_metrics(attention_result, baseline_result, out_dir: Path):
-    roc_attn = [r["roc_auc"] for r in attention_result["runs"] if not np.isnan(r["roc_auc"])]
-    seeds_attn = [r["seed"] for r in attention_result["runs"] if not np.isnan(r["roc_auc"])]
-    pr_attn = [r["pr_auc"] for r in attention_result["runs"]]
+    # Filter separately for ROC and PR so x and y always match
+    attn_valid_roc = [
+        r for r in attention_result["runs"]
+        if not np.isnan(r["roc_auc"])
+    ]
+    attn_valid_pr = [
+        r for r in attention_result["runs"]
+        if not np.isnan(r["pr_auc"])
+    ]
 
-    seeds_rnn = [r["seed"] for r in baseline_result["runs"]]
-    roc_rnn = [r["roc_auc"] for r in baseline_result["runs"]]
-    pr_rnn = [r["pr_auc"] for r in baseline_result["runs"]]
+    rnn_valid_roc = [
+        r for r in baseline_result["runs"]
+        if not np.isnan(r["roc_auc"])
+    ]
+    rnn_valid_pr = [
+        r for r in baseline_result["runs"]
+        if not np.isnan(r["pr_auc"])
+    ]
+
+    seeds_attn_roc = [r["seed"] for r in attn_valid_roc]
+    roc_attn = [r["roc_auc"] for r in attn_valid_roc]
+
+    seeds_attn_pr = [r["seed"] for r in attn_valid_pr]
+    pr_attn = [r["pr_auc"] for r in attn_valid_pr]
+
+    seeds_rnn_roc = [r["seed"] for r in rnn_valid_roc]
+    roc_rnn = [r["roc_auc"] for r in rnn_valid_roc]
+
+    seeds_rnn_pr = [r["seed"] for r in rnn_valid_pr]
+    pr_rnn = [r["pr_auc"] for r in rnn_valid_pr]
 
     plt.figure(figsize=(8, 5))
-    plt.plot(seeds_attn, roc_attn, marker="o", label="AttentionLSTM")
-    plt.plot(seeds_rnn, roc_rnn, marker="o", label="RNN baseline")
+    if len(seeds_attn_roc) > 0:
+        plt.plot(seeds_attn_roc, roc_attn, marker="o", label="AttentionLSTM")
+    if len(seeds_rnn_roc) > 0:
+        plt.plot(seeds_rnn_roc, roc_rnn, marker="o", label="RNN baseline")
     plt.xlabel("Seed")
     plt.ylabel("ROC-AUC")
     plt.title("ROC-AUC Across Seeds")
-    plt.legend()
+    if len(seeds_attn_roc) > 0 or len(seeds_rnn_roc) > 0:
+        plt.legend()
     plt.tight_layout()
     plt.savefig(out_dir / "roc_auc_across_seeds.png", dpi=200)
     plt.close()
 
     plt.figure(figsize=(8, 5))
-    plt.plot(seeds_attn, pr_attn, marker="o", label="AttentionLSTM")
-    plt.plot(seeds_rnn, pr_rnn, marker="o", label="RNN baseline")
+    if len(seeds_attn_pr) > 0:
+        plt.plot(seeds_attn_pr, pr_attn, marker="o", label="AttentionLSTM")
+    if len(seeds_rnn_pr) > 0:
+        plt.plot(seeds_rnn_pr, pr_rnn, marker="o", label="RNN baseline")
     plt.xlabel("Seed")
     plt.ylabel("PR-AUC")
     plt.title("PR-AUC Across Seeds")
-    plt.legend()
+    if len(seeds_attn_pr) > 0 or len(seeds_rnn_pr) > 0:
+        plt.legend()
     plt.tight_layout()
     plt.savefig(out_dir / "pr_auc_across_seeds.png", dpi=200)
     plt.close()
@@ -469,4 +542,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    
