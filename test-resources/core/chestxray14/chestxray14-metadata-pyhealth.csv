@@ -1,0 +1,11 @@
+path,visit_id,patient_id,patient_age,patient_sex,view_position,original_image_width,original_image_height,original_image_pixel_spacing_x,original_image_pixel_spacing_y,Unnamed: 11,atelectasis,cardiomegaly,consolidation,edema,effusion,emphysema,fibrosis,hernia,infiltration,mass,nodule,pleural_thickening,pneumonia,pneumothorax
+C:\Users\Joseph\Desktop\PyHealth\test-resources\core\chestxray14\images\00000001_000.png,0,1,57,M,PA,2682,2749,0.143,0.143,,0,1,0,0,0,0,0,0,0,0,0,0,0,0
+C:\Users\Joseph\Desktop\PyHealth\test-resources\core\chestxray14\images\00000001_001.png,1,1,58,M,PA,2894,2729,0.143,0.143,,0,1,0,0,0,1,0,0,0,0,0,0,0,0
+C:\Users\Joseph\Desktop\PyHealth\test-resources\core\chestxray14\images\00000001_002.png,2,1,58,M,PA,2500,2048,0.168,0.168,,0,1,0,0,1,0,0,0,0,0,0,0,0,0
+C:\Users\Joseph\Desktop\PyHealth\test-resources\core\chestxray14\images\00000002_000.png,0,2,80,M,PA,2500,2048,0.171,0.171,,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+C:\Users\Joseph\Desktop\PyHealth\test-resources\core\chestxray14\images\00000003_001.png,0,3,74,F,PA,2500,2048,0.168,0.168,,0,0,0,0,0,0,0,1,0,0,0,0,0,0
+C:\Users\Joseph\Desktop\PyHealth\test-resources\core\chestxray14\images\00000003_002.png,1,3,75,F,PA,2048,2500,0.168,0.168,,0,0,0,0,0,0,0,1,0,0,0,0,0,0
+C:\Users\Joseph\Desktop\PyHealth\test-resources\core\chestxray14\images\00000003_003.png,2,3,76,F,PA,2698,2991,0.143,0.143,,0,0,0,0,0,0,0,1,1,0,0,0,0,0
+C:\Users\Joseph\Desktop\PyHealth\test-resources\core\chestxray14\images\00000003_004.png,3,3,77,F,PA,2500,2048,0.168,0.168,,0,0,0,0,0,0,0,1,0,0,0,0,0,0
+C:\Users\Joseph\Desktop\PyHealth\test-resources\core\chestxray14\images\00000003_005.png,4,3,78,F,PA,2686,2991,0.143,0.143,,0,0,0,0,0,0,0,1,0,0,0,0,0,0
+C:\Users\Joseph\Desktop\PyHealth\test-resources\core\chestxray14\images\00000003_006.png,5,3,79,F,PA,2992,2991,0.143,0.143,,0,0,0,0,0,0,0,1,0,0,0,0,0,0
