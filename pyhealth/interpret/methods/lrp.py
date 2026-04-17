@@ -148,11 +148,15 @@ class LayerwiseRelevancePropagation(BaseInterpreter):
         use_embeddings: bool = True,
     ):
         super().__init__(model)
-        if use_embeddings and not isinstance(model, Interpretable):
-            raise ValueError(
-                "Model must implement Interpretable interface when "
-                "use_embeddings=True"
-            )
+        if use_embeddings:
+            has_forward_from_embedding = hasattr(model, "forward_from_embedding")
+            has_get_embedding_model = hasattr(model, "get_embedding_model")
+            if not (isinstance(model, Interpretable) or (has_forward_from_embedding and has_get_embedding_model)):
+                raise ValueError(
+                    "Model must implement Interpretable interface (or provide both "
+                    "forward_from_embedding and get_embedding_model methods) when "
+                    "use_embeddings=True"
+                )
         self.rule = rule
         self.epsilon = epsilon
         self.alpha = alpha
@@ -173,13 +177,6 @@ class LayerwiseRelevancePropagation(BaseInterpreter):
             RNNLRPHandler(),
         ]:
             self._registry.register(handler)
-
-        if use_embeddings:
-            assert hasattr(model, "forward_from_embedding"), (
-                f"Model {type(model).__name__} must implement "
-                "forward_from_embedding() for embedding-level LRP. "
-                "Set use_embeddings=False for continuous features only."
-            )
 
     def attribute(
         self,

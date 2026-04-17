@@ -634,6 +634,9 @@ class TestEmbeddingModels(unittest.TestCase):
                 x = self.relu(x)
                 x = self.fc2(x)
                 return {"logit": x, "y_prob": torch.softmax(x, dim=-1)}
+            
+            def get_embedding_model(self):
+                return self.embedding_model
         
         # Create model
         model = EmbeddingModel()
@@ -703,6 +706,9 @@ class TestEmbeddingModels(unittest.TestCase):
                 x = self.relu(x)
                 x = self.fc2(x)
                 return {"logit": x, "y_prob": torch.softmax(x, dim=-1)}
+            
+            def get_embedding_model(self):
+                return self.embedding_model
         
         model = SimpleEmbeddingModel()
         model.eval()
@@ -750,6 +756,9 @@ class TestEmbeddingModels(unittest.TestCase):
                     x = x[0]
                 x = x.mean(dim=1) if x.dim() == 3 else x
                 return {"logit": self.fc(x)}
+            
+            def get_embedding_model(self):
+                return self.embedding_model
         
         model = SimpleEmbeddingModel()
         model.eval()
