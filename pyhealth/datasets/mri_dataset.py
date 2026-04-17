@@ -102,8 +102,8 @@ class MRIDataset(BaseDataset):
         if input_processors is None:
             input_processors = {}
 
-        if "mri" not in input_processors:
-            input_processors["mri"] = NiftiImageProcessor()
+        if "image" not in input_processors:
+            input_processors["image"] = NiftiImageProcessor()
 
         kwargs["input_processors"] = input_processors
 
@@ -112,7 +112,7 @@ class MRIDataset(BaseDataset):
     set_task.__doc__ = (
         f"{set_task.__doc__}\n"
         "        Note:\n"
-        "            If no mri processor is provided, a default `NiftiImageProcessor` is injected. "
+        "            If no image processor is provided, a default `NiftiImageProcessor` is injected. "
         "This is needed because MRI samples are NIfTI volumes and require dedicated loading."
     )
 
@@ -205,7 +205,31 @@ class MRIDataset(BaseDataset):
             ValueError: If no matching image files are found in the CSV.
         """
         df = pd.read_csv(self._label_path)
-        df['path'] = self._image_path + '/' + df['ID'] + '_mpr_n3_anon_sbj_111_normalised.nii'
+
+        # Build a robust ID -> file path map from available NIfTI volumes.
+        # File suffixes vary across records (e.g., mpr_n3/mpr_n4 and MR1/MR2),
+        # so avoid hard-coding a single filename pattern.
+        nii_paths = sorted(Path(self._image_path).glob("*.nii"))
+        id_to_path = {}
+        for nii_path in nii_paths:
+            stem = nii_path.stem
+            if "_mpr_" in stem:
+                sample_id = stem.split("_mpr_", 1)[0]
+            else:
+                sample_id = stem
+            if sample_id not in id_to_path:
+                id_to_path[sample_id] = str(nii_path)
+
+        df["path"] = df["ID"].map(id_to_path)
+        missing_mask = df["path"].isna()
+        if missing_mask.any():
+            missing_count = int(missing_mask.sum())
+            logger.warning(
+                "Skipping %d MRI records with no matching .nii file in %s",
+                missing_count,
+                self._image_path,
+            )
+            df = df.loc[~missing_mask].copy()
         df.rename(columns={
             "ID": "id",
             "M/F": "gender",
