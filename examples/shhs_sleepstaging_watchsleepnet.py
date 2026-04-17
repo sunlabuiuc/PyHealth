@@ -353,16 +353,3 @@ if __name__ == "__main__":
     # main(lstm_hidden_size=64)
     # main(lstm_hidden_size=128)  # original WatchSleepNet configuration
     # main(lstm_hidden_size=256)
-
-    """
-    Pipeline Ablation: Sequence Length + LSTM Hidden Size
-
-    The original WatchSleepNet paper used an LSTM hidden size
-    of 128 and sequence length of 20.
-
-    Testing best-performing sequence length and hidden size combinations from
-    the above ablations to see if there is an interaction effect between these
-    two hyperparameters in comparison to the original WatchSleepNet configuration.
-    """
-    # main(seq_len=20, lstm_hidden_size=128) # original WatchSleepNet configuration
-    # main(seq_len=10, lstm_hidden_size=64)
