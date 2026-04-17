@@ -1,7 +1,7 @@
 version: "5.0"
 tables:
   pmlb_meta_analysis:
-    file_path: null
+    file_path: "pmlb_meta_analysis_noisy-metadata-pyhealth.csv"
     patient_id: "patient_id"
     timestamp: null
     attributes:
