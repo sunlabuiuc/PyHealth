@@ -20,12 +20,12 @@ from pathlib import Path
 
 
 # run multiple seeds (run 100 times)
-SEEDS = list(range(1, 101))  
+SEEDS = list(range(1, 11))  
 BATCH_SIZE = 32
 EPOCHS = 50
 LR = 1e-3
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-OUTPUT_DIR = Path("results/mimic3_attention")
+OUTPUT_DIR = Path("results/mimic3_attention_10")
 TOPK = 10
 
 
