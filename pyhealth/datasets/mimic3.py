@@ -2,6 +2,7 @@ import logging
 import warnings
 from pathlib import Path
 from typing import List, Optional
+import os
 
 import narwhals as pl
 
@@ -94,3 +95,28 @@ class MIMIC3Dataset(BaseDataset):
             .alias("charttime")
         )
         return df
+    
+# if __name__ == 'main':
+#     # Get the directory of the current script
+#     current_dir = os.path.dirname(os.path.abspath(__file__))
+
+#     # Specify the folder name
+#     folder_name = "mimic3"
+
+#     # Construct the full path to the folder
+#     folder_path = os.path.join(current_dir, folder_name)
+#     root='https://storage.googleapis.com/pyhealth/Synthetic_MIMIC-III'
+#     dataset=MIMIC3Dataset(root=root,tables=[])
+#     # print(dataset)
+#     from pyhealth.tasks import MIMIC3ICD9Coding
+
+#     mimic3_coding = MIMIC3ICD9Coding()
+#     samples = dataset.set_task(mimic3_coding)
+#     # Print sample information
+#     print(f"Total samples generated: {len(samples)}")
+#     if len(samples) > 0:
+#         print("First sample:")
+#         print(f"  - Text length: {len(samples[0]['text'])} characters")
+#         print(f"  - Number of ICD codes: {len(samples[0]['icd_codes'])}")
+#         if len(samples[0]['icd_codes']) > 0:
+#             print(f"  - Sample ICD codes: {samples[0]['icd_codes'][:5] if len(samples[0]['icd_codes']) > 5 else samples[0]['icd_codes']}")
