@@ -70,18 +70,24 @@ class TestEBCL(unittest.TestCase):
 
     def test_model_initialization(self):
         model = EBCL(dataset=self.paired_dataset)
+
         self.assertIsInstance(model, EBCL)
-        self.assertEqual(model.embedding_dim, 128)
-        self.assertEqual(model.hidden_dim, 128)
-        self.assertEqual(model.projection_dim, 128)
+        self.assertEqual(model.embedding_dim, 32)
+        self.assertEqual(model.hidden_dim, 32)
+        self.assertEqual(model.projection_dim, 32)
+        self.assertEqual(model.feedforward_dim, 128)
         self.assertEqual(model.label_key, "label")
         self.assertEqual(model.feature_keys, ["conditions", "labs"])
         self.assertEqual(model.post_feature_keys["conditions"], "post_conditions")
         self.assertEqual(model.post_feature_keys["labs"], "post_labs")
+        self.assertFalse(model.supervised_uses_post)
+        self.assertFalse(model.return_attention_weights)
 
     def test_supervised_forward(self):
         model = EBCL(dataset=self.supervised_dataset)
-        batch = next(iter(get_dataloader(self.supervised_dataset, batch_size=2, shuffle=False)))
+        batch = next(
+            iter(get_dataloader(self.supervised_dataset, batch_size=2, shuffle=False))
+        )
 
         with torch.no_grad():
             ret = model(**batch)
@@ -91,14 +97,24 @@ class TestEBCL(unittest.TestCase):
         self.assertIn("y_prob", ret)
         self.assertIn("y_true", ret)
         self.assertIn("logit", ret)
+        self.assertIn("pre_projection", ret)
+
         self.assertNotIn("contrastive_loss", ret)
+        self.assertNotIn("contrastive_logits", ret)
+        self.assertNotIn("post_embed", ret)
+        self.assertNotIn("post_projection", ret)
+        self.assertNotIn("embed", ret)
+
         self.assertEqual(ret["y_prob"].shape, (2, 1))
         self.assertEqual(ret["logit"].shape, (2, 1))
+        self.assertEqual(ret["pre_projection"].shape, (2, model.projection_dim))
         self.assertEqual(ret["loss"].dim(), 0)
 
     def test_contrastive_forward(self):
         model = EBCL(dataset=self.paired_dataset)
-        batch = next(iter(get_dataloader(self.paired_dataset, batch_size=2, shuffle=False)))
+        batch = next(
+            iter(get_dataloader(self.paired_dataset, batch_size=2, shuffle=False))
+        )
 
         with torch.no_grad():
             ret = model(**batch)
@@ -107,13 +123,22 @@ class TestEBCL(unittest.TestCase):
         self.assertIn("supervised_loss", ret)
         self.assertIn("contrastive_loss", ret)
         self.assertIn("contrastive_logits", ret)
+        self.assertIn("pre_projection", ret)
         self.assertIn("post_embed", ret)
+        self.assertIn("post_projection", ret)
+
         self.assertEqual(ret["contrastive_logits"].shape, (2, 2))
         self.assertEqual(ret["post_embed"].shape, (2, model.hidden_dim))
+        self.assertEqual(ret["pre_projection"].shape, (2, model.projection_dim))
+        self.assertEqual(ret["post_projection"].shape, (2, model.projection_dim))
+        self.assertEqual(ret["loss"].dim(), 0)
 
     def test_model_backward(self):
         model = EBCL(dataset=self.paired_dataset)
-        batch = next(iter(get_dataloader(self.paired_dataset, batch_size=2, shuffle=False)))
+        batch = next(
+            iter(get_dataloader(self.paired_dataset, batch_size=2, shuffle=False))
+        )
+
         ret = model(**batch)
         ret["loss"].backward()
 
@@ -121,11 +146,13 @@ class TestEBCL(unittest.TestCase):
             parameter.requires_grad and parameter.grad is not None
             for parameter in model.parameters()
         )
-        self.assertTrue(has_gradient, "No parameters have gradients after backward pass")
+        self.assertTrue(has_gradient, "No parameters have gradients after backward")
 
     def test_model_with_embedding(self):
         model = EBCL(dataset=self.paired_dataset)
-        batch = next(iter(get_dataloader(self.paired_dataset, batch_size=2, shuffle=False)))
+        batch = next(
+            iter(get_dataloader(self.paired_dataset, batch_size=2, shuffle=False))
+        )
         batch["embed"] = True
 
         with torch.no_grad():
@@ -133,6 +160,39 @@ class TestEBCL(unittest.TestCase):
 
         self.assertIn("embed", ret)
         self.assertEqual(ret["embed"].shape, (2, model.hidden_dim))
+
+    def test_supervised_uses_post(self):
+        model = EBCL(dataset=self.paired_dataset, supervised_uses_post=True)
+        batch = next(
+            iter(get_dataloader(self.paired_dataset, batch_size=2, shuffle=False))
+        )
+
+        with torch.no_grad():
+            ret = model(**batch)
+
+        self.assertIn("logit", ret)
+        self.assertIn("post_embed", ret)
+        self.assertEqual(ret["logit"].shape, (2, 1))
+        self.assertEqual(model.fc.in_features, model.hidden_dim * 2)
+
+    def test_return_attention_weights(self):
+        model = EBCL(dataset=self.paired_dataset, return_attention_weights=True)
+        batch = next(
+            iter(get_dataloader(self.paired_dataset, batch_size=2, shuffle=False))
+        )
+
+        with torch.no_grad():
+            ret = model(**batch)
+
+        self.assertIn("pre_attention_conditions", ret)
+        self.assertIn("pre_attention_labs", ret)
+        self.assertIn("post_attention_post_conditions", ret)
+        self.assertIn("post_attention_post_labs", ret)
+
+        self.assertEqual(ret["pre_attention_conditions"].shape[0], 2)
+        self.assertEqual(ret["pre_attention_labs"].shape[0], 2)
+        self.assertEqual(ret["post_attention_post_conditions"].shape[0], 2)
+        self.assertEqual(ret["post_attention_post_labs"].shape[0], 2)
 
 
 if __name__ == "__main__":
