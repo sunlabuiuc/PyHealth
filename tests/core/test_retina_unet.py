@@ -1,6 +1,5 @@
 import unittest
 
-import numpy as np
 import torch
 
 from pyhealth.datasets import create_sample_dataset, get_dataloader
@@ -11,12 +10,13 @@ class TestRetinaUNet(unittest.TestCase):
     """Basic tests for the RetinaUNet model on pseudo data."""
 
     def setUp(self):
+        """Build a minimal dataset and model for RetinaUNet tests."""
         images = torch.randn((2, 1, 64, 64))
 
         dummy_masks = torch.zeros((2, 1, 64, 64))
-        dummy_masks[0, 0, 10:20, 10:20] = 1 # Object 1
-        dummy_masks[1, 0, 10:15, 10:15] = 1 # Object 2
-        dummy_masks[1, 0, 30:40, 30:40] = 1 # Object 3
+        dummy_masks[0, 0, 10:20, 10:20] = 1  # Object 1
+        dummy_masks[1, 0, 10:15, 10:15] = 1  # Object 2
+        dummy_masks[1, 0, 30:40, 30:40] = 1  # Object 3
 
         boxes = [
             [
@@ -26,7 +26,7 @@ class TestRetinaUNet(unittest.TestCase):
                 torch.tensor([10, 10, 15, 15]),
                 torch.tensor([30, 30, 40, 40])
             ],
-            
+
         ]
 
         classes = [
@@ -44,7 +44,7 @@ class TestRetinaUNet(unittest.TestCase):
                 "gt_seg_masks": dummy_masks[i],
                 "gt_boxes_list": boxes[i],
                 "gt_classes_list": classes[i]
-                
+
             }
 
             self.samples.append(sample)
@@ -54,8 +54,8 @@ class TestRetinaUNet(unittest.TestCase):
         }
 
         self.output_schema = {
-            "gt_seg_masks": "tensor", # Model needs this for Seg loss
-            "gt_boxes_list": "raw",   # Model needs this for Detection loss
+            "gt_seg_masks": "tensor",  # Model needs this for Seg loss
+            "gt_boxes_list": "raw",  # Model needs this for Detection loss
             "gt_classes_list": "raw"  # Model needs this for Classification loss
         }
 
@@ -80,8 +80,7 @@ class TestRetinaUNet(unittest.TestCase):
         self.assertIsNotNone(self.model.core.fpn)
         self.assertIsNotNone(self.model.core.classification_head)
         self.assertIsNotNone(self.model.core.bbox_head)
-        self.assertEqual(self.model.dim, 2)
-
+        self.assertEqual(self.model.core.dim, 2)
 
     def test_model_forward(self):
         """Test forward pass returns standard model keys."""
@@ -90,14 +89,14 @@ class TestRetinaUNet(unittest.TestCase):
 
         with torch.no_grad():
             ret = self.model(**data_batch)
+            core_ret = self.model.core(data_batch["images"].to(self.model.device))
 
         self.assertIn("loss", ret)
         self.assertIn("class_loss", ret)
         self.assertIn("bbox_loss", ret)
         self.assertIn("seg_loss", ret)
-        self.assertIn("det_bboxes", ret)
+        self.assertIn("detections", core_ret)
         self.assertIn("anchors", ret)
-
 
         self.assertEqual(ret["loss"].dim(), 0)
 
@@ -110,13 +109,21 @@ class TestRetinaUNet(unittest.TestCase):
 
         with torch.no_grad():
             ret = self.model(**inference_batch)
+            core_ret = self.model.core(inference_batch["images"].to(self.model.device))
 
-        self.assertIn("logit", ret)
-        self.assertIn("y_prob", ret)
-        self.assertNotIn("loss", ret)
-        self.assertNotIn("y_true", ret)
-        self.assertEqual(ret["logit"].shape[0], 2)
-        self.assertEqual(ret["y_prob"].shape[0], 2)
+        self.assertIn("loss", ret)
+        self.assertIn("class_loss", ret)
+        self.assertIn("bbox_loss", ret)
+        self.assertIn("seg_loss", ret)
+        self.assertIn("detections", core_ret)
+        self.assertIn("class_logits", ret)
+        self.assertIn("bbox_deltas", ret)
+        self.assertIn("seg_logits", ret)
+        self.assertIn("anchors", ret)
+
+        self.assertEqual(ret["class_logits"].shape[0], 2)
+        self.assertEqual(ret["bbox_deltas"].shape[0], 2)
+        self.assertEqual(ret["seg_logits"].shape[0], 2)
 
     def test_model_backward(self):
         """Test backward pass computes gradients."""
