@@ -19,6 +19,7 @@ def get_processor(name: str):
 
 # Import all processors so they register themselves
 from .image_processor import ImageProcessor
+from .nifti_image_processor import NiftiImageProcessor
 from .label_processor import (
     BinaryLabelProcessor,
     MultiClassLabelProcessor,
@@ -62,6 +63,7 @@ __all__ = [
     "ModalityType",
     "TemporalFeatureProcessor",
     "ImageProcessor",
+    "NiftiImageProcessor",
     "LabelProcessor",
     "MultiHotProcessor",
     "NestedFloatsProcessor",

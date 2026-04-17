@@ -24,8 +24,8 @@ import urllib.request
 import pandas as pd
 
 from pyhealth.datasets import BaseDataset
-from pyhealth.processors import ImageProcessor
-# from pyhealth.tasks import AlzheimerDiseaseClassification
+from pyhealth.processors import NiftiImageProcessor
+from pyhealth.tasks import MRIBinaryClassification
 
 logger = logging.getLogger(__name__)
 
@@ -38,11 +38,11 @@ class MRIDataset(BaseDataset):
         config_path (str): Path to the configuration file.
         classes (List[str]): List of classes that appear in the dataset.
     """
-    classes: List[str] = ["mild_demented", "very_mild_demented", "mild_demented", "non_demented"]
+    classes: List[str] = ["alzheimer"]
 
     def __init__(self,
                  root: str = ".",
-                 config_path: Optional[str] = str(Path(__file__).parent / "configs" / "mri_dataset.yaml"),
+                 config_path: Optional[str] = str(Path(__file__).parent / "configs" / "mri.yaml"),
                  download: bool = False,
                  partial: bool = False,
                  **kwargs) -> None:
@@ -76,26 +76,24 @@ class MRIDataset(BaseDataset):
 
         super().__init__(
             root=root,
-            tables=["mri_dataset"],
+            tables=["mri"],
             dataset_name="MRI Dataset",
             config_path=config_path,
             **kwargs
         )
 
-    ''' add these tests later when we have the AlzheimerDiseaseClassification task  
     @property
-    def default_task(self) -> AlzheimerDiseaseClassification:
+    def default_task(self) -> MRIBinaryClassification:
         """Returns the default task for this dataset.
 
         Returns:
-            AlzheimerDiseaseClassification: The default classification task.
+            MRIBinaryClassification: The default classification task.
 
         Example::
             >>> dataset = MRIDataset()
             >>> task = dataset.default_task
         """
-        return AlzheimerDiseaseClassification()
-    '''
+        return MRIBinaryClassification(disease="alzheimer")
 
     @wraps(BaseDataset.set_task)
     def set_task(self, *args, **kwargs):
@@ -105,7 +103,7 @@ class MRIDataset(BaseDataset):
             input_processors = {}
 
         if "mri" not in input_processors:
-            input_processors["mri"] = MRIImageProcessor(mode='L')
+            input_processors["mri"] = NiftiImageProcessor()
 
         kwargs["input_processors"] = input_processors
 
@@ -114,9 +112,8 @@ class MRIDataset(BaseDataset):
     set_task.__doc__ = (
         f"{set_task.__doc__}\n"
         "        Note:\n"
-        "            If no mri processor is provided, a default `MRIImageProcessor` is injected. "
-        "This is needed because the MRI dataset mris do not all have the same number of channels, "
-        "causing the default PyHealth mri processor to fail."
+        "            If no mri processor is provided, a default `NiftiImageProcessor` is injected. "
+        "This is needed because MRI samples are NIfTI volumes and require dedicated loading."
     )
 
     def _download(self, root: str, partial: bool) -> None:
@@ -208,24 +205,28 @@ class MRIDataset(BaseDataset):
             ValueError: If no matching image files are found in the CSV.
         """
         df = pd.read_csv(self._label_path)
-        # image_names = [f.name[0:f.name.find("_mpr")] for f in Path(self._image_path).iterdir() if f.is_file()]
-        df['img_path'] = df['ID'] + '_mpr_n3_anon_sbj_111_normalised.nii'
-        ''' don't think we need this piece 
-        for _class in self.classes:
-            df[_class] = df['Finding Labels'].str.contains(_class, case=False).astype(int)
-        df.drop(columns=["Finding Labels"], inplace=True)
-        df.rename(columns={'Image Index': 'path',
-                            'Follow-up #': 'visit_id',
-                            'Patient ID': 'patient_id',
-                            'Patient Age': 'patient_age',
-                            'Patient Sex': 'patient_sex',
-                            'View Position': 'view_position',
-                            'OriginalImage[Width': 'original_image_width',
-                            'Height]': 'original_image_height',
-                            'OriginalImagePixelSpacing[x': 'original_image_pixel_spacing_x',
-                            'y]': 'original_image_pixel_spacing_y'}, inplace=True)
-        df['path'] = df['path'].apply(lambda p: os.path.join(self._image_path, p))
-        '''
+        df['path'] = self._image_path + '/' + df['ID'] + '_mpr_n3_anon_sbj_111_normalised.nii'
+        df.rename(columns={
+            "ID": "id",
+            "M/F": "gender",
+            "Hand": "dominant_hand",
+            "Age": "age",
+            "Educ": "education_level",
+            "SES": "social_economic_status",
+            "MMSE": "mini_mental_state_examination",
+            "CDR": "clinical_dementia_rating",
+            "eTIV": "estimated_total_intracranial_volume",
+            "nWBV": "normalized_whole_brain_volume",
+            "ASF": "average_symmetric_fissure_thickness",
+            "Delay": "delay_of_cognitive_assessment",
+        }, inplace=True)
+        # Treat any non-zero clinical dementia rating as positive Alzheimer label.
+        df["alzheimer"] = (
+            pd.to_numeric(df["clinical_dementia_rating"], errors="coerce")
+            .fillna(0.0)
+            .gt(0.0)
+            .astype(int)
+        )
         df.to_csv(os.path.join(root, "mri-metadata-pyhealth.csv"), index=False)
 
         return df

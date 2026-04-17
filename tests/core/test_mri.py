@@ -43,38 +43,37 @@ class TestMRIDataset(unittest.TestCase):
         self.dataset.stats()
 
     def test_num_patients(self):
-        self.assertEqual(len(self.dataset.unique_patient_ids), 3)
+        self.assertEqual(len(self.dataset.unique_patient_ids), 436)
 
     def test_get_patient_1(self):
-        events = self.dataset.get_patient('1').get_events()
-
-        self.assertEqual(len(events), 3)
-
-        self.assertEqual(events[0]['visit_id'], '0')
-        self.assertEqual(events[0]['patient_age'], '57')
-        self.assertEqual(events[0]['mild_demented'], '1')
-        self.assertEqual(events[0]['effusion'], '0')
-        self.assertEqual(events[0]['very_mild_demented'], '0')
-        self.assertEqual(events[0]['non_demented'], '0')
-
-    def test_get_patient_2(self):
-        events = self.dataset.get_patient('2').get_events()
+        events = self.dataset.get_patient("OAS1_0001_MR1").get_events()
 
         self.assertEqual(len(events), 1)
-        self.assertEqual(events[0]['visit_id'], '0')
-        self.assertEqual(events[0]['patient_age'], '80')
-        self.assertEqual(events[0]['mild_demented'], '0')
-        self.assertEqual(events[0]['very_mild_demented'], '0')
-        self.assertEqual(events[0]['non_demented'], '1')
+
+        self.assertEqual(events[0]["gender"], "F")
+        self.assertEqual(events[0]["dominant_hand"], "R")
+        self.assertEqual(events[0]["age"], "74")
+        self.assertEqual(events[0]["clinical_dementia_rating"], "0.0")
+        self.assertEqual(events[0]["alzheimer"], "0")
+
+    def test_get_patient_2(self):
+        events = self.dataset.get_patient("OAS1_0002_MR1").get_events()
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["gender"], "F")
+        self.assertEqual(events[0]["age"], "55")
+        self.assertEqual(events[0]["clinical_dementia_rating"], "0.0")
+        self.assertEqual(events[0]["alzheimer"], "0")
 
     def test_get_patient_3(self):
-        events = self.dataset.get_patient('3').get_events()
+        events = self.dataset.get_patient("OAS1_0003_MR1").get_events()
 
-        self.assertEqual(len(events), 6)
+        self.assertEqual(len(events), 1)
 
-        self.assertEqual(events[0]['mild_demented'], '0')
-        self.assertEqual(events[0]['very_mild_demented'], '0')
-        self.assertEqual(events[0]['non_demented'], '1')
+        self.assertEqual(events[0]["gender"], "F")
+        self.assertEqual(events[0]["age"], "73")
+        self.assertEqual(events[0]["clinical_dementia_rating"], "0.5")
+        self.assertEqual(events[0]["alzheimer"], "1")
 
     def test_default_task(self):
         self.assertIsInstance(self.dataset.default_task, MRIBinaryClassification)
@@ -82,10 +81,6 @@ class TestMRIDataset(unittest.TestCase):
     def test_task_given_invalid_disease(self):
         with self.assertRaises(ValueError):
             _ = MRIBinaryClassification(disease="arthritis")
-
-    def test_task_classify_cardiomegaly(self):
-        self.assertEqual(len(self.samples_alzheimer), 10)
-        self.assertEqual(sum(sample["mild_demented"] for sample in self.samples_alzheimer), 3)
 
 
 if __name__ == "__main__":
