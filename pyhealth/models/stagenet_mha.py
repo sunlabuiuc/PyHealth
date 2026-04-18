@@ -212,7 +212,7 @@ class StageNetAttentionLayer(nn.Module):
         device = x.device
         if time == None:
             time = torch.ones(batch_size, time_step, device=device)
-        time = time.reshape(batch_size, time_step)
+        time = time.to(device=device).reshape(batch_size, time_step)
         c_out = torch.zeros(batch_size, self.hidden_dim, device=device)
         h_out = torch.zeros(batch_size, self.hidden_dim, device=device)
 
