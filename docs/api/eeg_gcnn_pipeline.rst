@@ -387,7 +387,7 @@ GCN and GAT, evaluated on the full FigShare dataset (477 test patients,
 
 .. list-table::
    :header-rows: 1
-   :widths: 28 8 10 12 10 10
+   :widths: 25 8 9 11 9 9 9
 
    * - Config
      - Alpha
@@ -395,36 +395,41 @@ GCN and GAT, evaluated on the full FigShare dataset (477 test patients,
      - Youden's J
      - Bal. Acc
      - Recall
+     - F1
    * - Functional only
      - 0.0
      - 0.900
      - 0.645
      - 0.823
      - 0.879
+     - 0.493
    * - Combined (paper)
      - 0.5
      - 0.902
      - 0.655
      - 0.828
      - 0.879
+     - 0.503
    * - **Spatial-heavy**
      - **0.75**
      - **0.903**
      - **0.660**
      - **0.830**
      - **0.879**
+     - **0.508**
    * - Spatial only
      - 1.0
      - 0.898
      - 0.623
      - 0.812
      - 0.862
+     - 0.481
 
 **GAT**:
 
 .. list-table::
    :header-rows: 1
-   :widths: 28 8 10 12 10 10
+   :widths: 25 8 9 11 9 9 9
 
    * - Config
      - Alpha
@@ -432,30 +437,35 @@ GCN and GAT, evaluated on the full FigShare dataset (477 test patients,
      - Youden's J
      - Bal. Acc
      - Recall
+     - F1
    * - Functional only
      - 0.0
      - 0.844
      - 0.599
      - 0.799
      - 0.759
+     - 0.521
    * - Combined (paper)
      - 0.5
      - 0.842
      - 0.588
      - 0.794
      - 0.793
+     - 0.484
    * - Spatial-heavy
      - 0.75
      - 0.841
      - 0.548
      - 0.774
      - 0.741
+     - 0.473
    * - Spatial only
      - 1.0
      - 0.849
      - 0.588
      - 0.794
      - 0.810
+     - 0.475
 
 **Comparison to paper (Table 2, combined adjacency, 10-fold CV)**:
 
