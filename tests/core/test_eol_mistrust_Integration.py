@@ -58,14 +58,18 @@ def _load_example_module():
 
 @contextmanager
 def _workspace_tempdir():
-    base = Path(__file__).resolve().parents[2] / ".tmp-test-integration"
-    base.mkdir(parents=True, exist_ok=True)
-    path = base / f"tmp_{uuid.uuid4().hex}"
-    path.mkdir()
-    try:
-        yield str(path)
-    finally:
-        shutil.rmtree(path, ignore_errors=True)
+    """Yield a system temporary directory path that is cleaned up on exit.
+
+    Uses :class:`tempfile.TemporaryDirectory` so no persistent scratch folder
+    is left behind inside the repository tree.
+    """
+    import tempfile
+
+    with tempfile.TemporaryDirectory(
+        prefix="pyhealth_eol_integration_",
+        ignore_cleanup_errors=True,
+    ) as path:
+        yield path
 
 
 class _FakeProbEstimator:

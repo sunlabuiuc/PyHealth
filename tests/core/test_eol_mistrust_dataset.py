@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pandas as pd
+import pytest
 from pyhealth.datasets.base_dataset import BaseDataset
 
 def _load_model_build_mistrust_score_table():
@@ -59,14 +60,18 @@ def _load_eol_mistrust_dataset_class_module():
 
 @contextmanager
 def _workspace_tempdir():
-    base = Path(__file__).resolve().parents[2] / ".tmp-test-dataset"
-    base.mkdir(parents=True, exist_ok=True)
-    path = base / f"tmp_{uuid.uuid4().hex}"
-    path.mkdir()
-    try:
-        yield str(path)
-    finally:
-        shutil.rmtree(path, ignore_errors=True)
+    """Yield a system temporary directory path that is cleaned up on exit.
+
+    Uses :class:`tempfile.TemporaryDirectory` so no persistent scratch folder
+    is left behind inside the repository tree.
+    """
+    import tempfile
+
+    with tempfile.TemporaryDirectory(
+        prefix="pyhealth_eol_dataset_",
+        ignore_cleanup_errors=True,
+    ) as path:
+        yield path
 
 
 class _FakeProbEstimator:
@@ -3830,6 +3835,7 @@ class TestEOLMistrustDatasetClass(unittest.TestCase):
             self.assertIn("icustays", dataset.tables)
             self.assertIn("noteevents", dataset.tables)
 
+    @pytest.mark.slow
     def test_dataset_class_can_set_eol_task_on_minimal_synthetic_tables(self):
         dataset_cls = self.dataset_class_module.EOLMistrustDataset
         task = self.task_module.EOLMistrustMortalityPredictionMIMIC3(include_notes=True)

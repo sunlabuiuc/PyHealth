@@ -54,7 +54,34 @@ class EOLMistrustDataset(BaseDataset):
         dataset_name: Optional dataset name override.
         config_path: Optional YAML config path. Defaults to the bundled
             ``eol_mistrust.yaml`` config.
+        dataset_prepare_mode: Either ``"default"`` (corrected replication
+            pipeline) or ``"paper_like"`` (notebook-faithful reproduction of
+            Boag et al. 2018). Controls code-status and autopsy label logic.
         **kwargs: Additional :class:`BaseDataset` keyword arguments.
+
+    Attributes:
+        CORE_TABLES: Tables always loaded (``patients``, ``admissions``,
+            ``icustays``).
+        DEFAULT_OPTIONAL_TABLES: Tables auto-discovered from the root when
+            ``tables`` is not explicitly provided.
+        dataset_prepare_mode: Normalized mode string, one of ``"default"`` or
+            ``"paper_like"``.
+        paper_like_dataset_prepare: ``True`` when running the notebook-faithful
+            variant.
+        code_status_mode: Label extraction strategy for code-status tasks.
+        autopsy_label_mode: Label extraction strategy for the autopsy proxy.
+
+    Raises:
+        ValueError: If ``dataset_prepare_mode`` is not ``"default"`` or
+            ``"paper_like"``.
+
+    Example:
+        >>> from pyhealth.datasets import EOLMistrustDataset
+        >>> dataset = EOLMistrustDataset(
+        ...     root="/data/eol_mistrust",
+        ...     dataset_prepare_mode="default",
+        ... )
+        >>> dataset.stats()
     """
 
     CORE_TABLES = ["patients", "admissions", "icustays"]
@@ -128,6 +155,24 @@ class EOLMistrustDataset(BaseDataset):
         dataset_prepare_mode: str = DATASET_PREPARE_MODE_DEFAULT,
         **kwargs,
     ) -> None:
+        """Initialize the EOL mistrust dataset.
+
+        Args:
+            root: Root directory containing the combined EOL mistrust export.
+            tables: Optional list of extra table names to load on top of the
+                core tables. When ``None``, optional tables are auto-discovered
+                from the root directory.
+            dataset_name: Optional dataset name override (defaults to
+                ``"eol_mistrust"``).
+            config_path: Optional path to a YAML config file. Falls back to
+                the bundled ``eol_mistrust.yaml``.
+            dataset_prepare_mode: ``"default"`` or ``"paper_like"``.
+            **kwargs: Additional :class:`BaseDataset` keyword arguments
+                (``cache_dir``, ``dev``, ``num_workers``, ...).
+
+        Raises:
+            ValueError: If ``dataset_prepare_mode`` is not a supported value.
+        """
         if config_path is None:
             logger.info("No config path provided, using default EOL mistrust config")
             config_path = str(

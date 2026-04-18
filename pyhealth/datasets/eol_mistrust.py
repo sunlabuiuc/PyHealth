@@ -234,9 +234,10 @@ _AUTOPSY_CORRECTED_CONSENT_PHRASES = (
     "permission obtained for autopsy",
 )
 _AUTOPSY_SEGMENT_SPLIT_PATTERN = re.compile(r"[\n.;]+")
+_DECLINE_VERBS = r"declin\w*|refus\w*|deni\w*|not\s+consent(?:ed)?"
 _AUTOPSY_CORRECTED_DECLINE_PATTERN = re.compile(
-    r"(?:\b(?:declin\w*|refus\w*|deni\w*|not\s+consent(?:ed)?)\b(?:\W+\w+){0,5}\W+\bautopsy\b)"
-    r"|(?:\bautopsy\b(?:\W+\w+){0,5}\W+\b(?:declin\w*|refus\w*|deni\w*|not\s+consent(?:ed)?)\b)",
+    rf"(?:\b(?:{_DECLINE_VERBS})\b(?:\W+\w+){{0,5}}\W+\bautopsy\b)"
+    rf"|(?:\bautopsy\b(?:\W+\w+){{0,5}}\W+\b(?:{_DECLINE_VERBS})\b)",
     re.IGNORECASE,
 )
 _AUTOPSY_STUB_SEGMENT_PATTERN = re.compile(r"^(?:an?\s+)?autopsy\b", re.IGNORECASE)
@@ -940,7 +941,8 @@ def _validate_text_access(noteevents: pd.DataFrame, chartevents: pd.DataFrame) -
         raise ValueError("noteevents.text must be accessible for NLP steps.")
     if chartevents["value"].isna().all():
         raise ValueError(
-            "chartevents.value must be accessible for string matching and feature extraction."
+            "chartevents.value must be accessible for string matching and "
+            "feature extraction."
         )
 
 
@@ -2285,7 +2287,7 @@ def _assemble_final_model_table(
     return final.reset_index(drop=True)
 
 
-def build_final_model_table(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+def build_final_model_table(
     demographics: pd.DataFrame,
     all_cohort: pd.DataFrame,
     admissions: pd.DataFrame,
@@ -2295,6 +2297,7 @@ def build_final_model_table(  # pylint: disable=too-many-arguments,too-many-posi
     include_race: bool = True,
     include_mistrust: bool = True,
 ) -> pd.DataFrame:
+    # pylint: disable=too-many-arguments,too-many-positional-arguments
     """Assemble the final model table from raw chartevents.
 
     ``d_items`` is retained for API compatibility; the normal path uses the
@@ -2320,7 +2323,7 @@ def build_final_model_table(  # pylint: disable=too-many-arguments,too-many-posi
     )
 
 
-def build_final_model_table_from_code_status_targets(  # pylint: disable=too-many-arguments
+def build_final_model_table_from_code_status_targets(
     demographics: pd.DataFrame,
     all_cohort: pd.DataFrame,
     admissions: pd.DataFrame,
@@ -2329,6 +2332,7 @@ def build_final_model_table_from_code_status_targets(  # pylint: disable=too-man
     include_race: bool = True,
     include_mistrust: bool = True,
 ) -> pd.DataFrame:
+    # pylint: disable=too-many-arguments
     """Assemble the final model table using precomputed code-status targets."""
 
     return _assemble_final_model_table(
