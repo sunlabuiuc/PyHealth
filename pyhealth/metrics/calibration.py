@@ -119,7 +119,7 @@ def ece_confidence_multiclass(prob:np.ndarray, label:np.ndarray, bins=20, adapti
     Explanation of the example: The bins are [0, 0.5] and (0.5, 1].
     In the first bin, we have one sample with top-class prediction of 0.49, and its
     accuracy is 0. In the second bin, we have average confidence of 0.7 and average
-    accuracy of 1. Thus, the ECE is :math:`\\frac{1}{3} \cdot 0.49 + \\frac{2}{3}\cdot 0.3=0.3633`.
+    accuracy of 1. Thus, the ECE is :math:`\\frac{1}{3} \\cdot 0.49 + \\frac{2}{3} \\cdot 0.3=0.3633`.
 
     Args:
         prob (np.ndarray): (N, C)
