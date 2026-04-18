@@ -59,8 +59,14 @@ class TestSparseAutoencoder:
         sae = self._make_sae()
         x = torch.randn(BATCH, INPUT_DIM)
         f, x_hat, losses = sae(x)
-        assert f.shape == (BATCH, DICT_SIZE), f"Expected ({BATCH}, {DICT_SIZE}), got {f.shape}"
-        assert x_hat.shape == (BATCH, INPUT_DIM), f"Expected ({BATCH}, {INPUT_DIM}), got {x_hat.shape}"
+        assert f.shape == (
+            BATCH,
+            DICT_SIZE,
+        ), f"Expected ({BATCH}, {DICT_SIZE}), got {f.shape}"
+        assert x_hat.shape == (
+            BATCH,
+            INPUT_DIM,
+        ), f"Expected ({BATCH}, {INPUT_DIM}), got {x_hat.shape}"
 
     def test_loss_keys(self):
         """Returned dict must contain exactly loss_saenc, loss_recon, loss_l1."""
@@ -92,9 +98,9 @@ class TestSparseAutoencoder:
 
         f, _, _ = sae(x)
         fraction_active = (f > 0).float().mean().item()
-        assert fraction_active < 0.9, (
-            f"Expected sparse activations, but {fraction_active:.2%} of features are active"
-        )
+        assert (
+            fraction_active < 0.9
+        ), f"Expected sparse activations, but {fraction_active:.2%} of features are active"
 
     def test_loss_is_scalar_and_differentiable(self):
         """loss_saenc must be a scalar tensor with a gradient function."""
@@ -113,9 +119,9 @@ class TestSparseAutoencoder:
             sae.decoder.weight.data *= 5.0
         sae.normalize_decoder()
         col_norms = sae.decoder.weight.norm(dim=0)
-        assert torch.allclose(col_norms, torch.ones_like(col_norms), atol=1e-5), (
-            "Decoder column norms are not ~1 after normalize_decoder()"
-        )
+        assert torch.allclose(
+            col_norms, torch.ones_like(col_norms), atol=1e-5
+        ), "Decoder column norms are not ~1 after normalize_decoder()"
 
 
 # ===========================================================================
@@ -136,9 +142,10 @@ class TestDictionaryLabelAttention:
         _, attn = self._make_modules()
         x = torch.randn(BATCH, SEQ_LEN, INPUT_DIM)
         logits, aux_losses = attn(x)
-        assert logits.shape == (BATCH, NUM_LABELS), (
-            f"Expected ({BATCH}, {NUM_LABELS}), got {logits.shape}"
-        )
+        assert logits.shape == (
+            BATCH,
+            NUM_LABELS,
+        ), f"Expected ({BATCH}, {NUM_LABELS}), got {logits.shape}"
         assert "loss_saenc" in aux_losses
 
     def test_attention_sums_to_one_over_seq_len(self):
@@ -148,21 +155,21 @@ class TestDictionaryLabelAttention:
         x_flat = x.reshape(BATCH * SEQ_LEN, INPUT_DIM)
         f_flat = sae.encode(x_flat)
         f_note = f_flat.view(BATCH, SEQ_LEN, DICT_SIZE)
-        attn_logits = f_note @ attn.icd_projection.t()    # (B, S, C)
-        a_laat = F.softmax(attn_logits, dim=1)             # softmax over S
-        col_sums = a_laat.sum(dim=1)                       # (B, C)
-        assert torch.allclose(col_sums, torch.ones_like(col_sums), atol=1e-5), (
-            "Attention weights do not sum to 1 over seq_len"
-        )
+        attn_logits = f_note @ attn.icd_projection.t()  # (B, S, C)
+        a_laat = F.softmax(attn_logits, dim=1)  # softmax over S
+        col_sums = a_laat.sum(dim=1)  # (B, C)
+        assert torch.allclose(
+            col_sums, torch.ones_like(col_sums), atol=1e-5
+        ), "Attention weights do not sum to 1 over seq_len"
 
     def test_initialize_from_icd_descriptions(self):
         """initialize_from_icd_descriptions must copy values into icd_projection."""
         _, attn = self._make_modules()
         init_matrix = torch.rand(NUM_LABELS, DICT_SIZE)
         attn.initialize_from_icd_descriptions(init_matrix)
-        assert torch.allclose(attn.icd_projection.data, init_matrix), (
-            "icd_projection was not updated by initialize_from_icd_descriptions()"
-        )
+        assert torch.allclose(
+            attn.icd_projection.data, init_matrix
+        ), "icd_projection was not updated by initialize_from_icd_descriptions()"
 
     def test_initialize_wrong_shape_raises(self):
         """initialize_from_icd_descriptions should raise on shape mismatch."""
@@ -186,7 +193,9 @@ class TestDictionaryLabelAttention:
 # ===========================================================================
 
 
-def _build_mock_dataset(embedding_dim=INPUT_DIM, seq_len=SEQ_LEN, n_labels=NUM_LABELS, n_samples=6):
+def _build_mock_dataset(
+    embedding_dim=INPUT_DIM, seq_len=SEQ_LEN, n_labels=NUM_LABELS, n_samples=6
+):
     """Return a minimal in-memory SampleDataset with tensor embeddings and multilabel targets."""
     # Import here to avoid hard dependency at module level during SAE-only tests
     from pyhealth.datasets import create_sample_dataset
@@ -267,9 +276,9 @@ class TestDILAIntegration:
         x = torch.randn(BATCH, SEQ_LEN, INPUT_DIM)
         out = model(embeddings=x)
         y_prob = out["y_prob"]
-        assert (y_prob >= 0).all() and (y_prob <= 1).all(), (
-            f"y_prob out of [0, 1]: min={y_prob.min():.4f}, max={y_prob.max():.4f}"
-        )
+        assert (y_prob >= 0).all() and (
+            y_prob <= 1
+        ).all(), f"y_prob out of [0, 1]: min={y_prob.min():.4f}, max={y_prob.max():.4f}"
 
     def test_loss_is_scalar_and_differentiable(self):
         """loss must be a scalar tensor that supports backpropagation."""
@@ -354,9 +363,9 @@ class TestTwoStageTraining:
             _, _, losses_after = sae(embeddings)
         loss_after = losses_after["loss_saenc"].item()
 
-        assert loss_after < loss_before, (
-            f"SAE loss did not decrease: before={loss_before:.4f}, after={loss_after:.4f}"
-        )
+        assert (
+            loss_after < loss_before
+        ), f"SAE loss did not decrease: before={loss_before:.4f}, after={loss_after:.4f}"
 
     def test_save_and_load_pretrained_weights(self):
         """Pretrained SAE weights should be loadable into a DILA model."""
@@ -408,9 +417,9 @@ class TestTwoStageTraining:
         for (name, param), (_, loaded_param) in zip(
             sae.named_parameters(), model.autoencoder.named_parameters()
         ):
-            assert torch.allclose(param, loaded_param), (
-                f"Parameter '{name}' mismatch after loading pretrained weights"
-            )
+            assert torch.allclose(
+                param, loaded_param
+            ), f"Parameter '{name}' mismatch after loading pretrained weights"
 
         # Verify forward pass still works
         x = torch.randn(BATCH, SEQ_LEN, INPUT_DIM)
