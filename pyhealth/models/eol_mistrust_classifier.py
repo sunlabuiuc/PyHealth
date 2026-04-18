@@ -1,4 +1,13 @@
-"""Native BaseModel entrypoint for EOL mistrust downstream tasks."""
+"""Native BaseModel entrypoint for EOL mistrust downstream tasks.
+
+Provides the :class:`EOLMistrustClassifier`, a lightweight multimodal
+classifier for the three downstream prediction targets defined by
+Boag et al. 2018, *"Racial Disparities and Mistrust in End-of-Life Care"*
+(https://proceedings.mlr.press/v85/boag18a.html). The model consumes
+coded EHR sequences, scalar numeric features, and free-text or
+categorical fields, and produces binary predictions for Left-AMA,
+code-status change (DNR/DNI/CMO), or in-hospital mortality.
+"""
 
 from __future__ import annotations
 
@@ -140,6 +149,7 @@ class EOLMistrustClassifier(BaseModel):
         self.output_layer = nn.Linear(self.hidden_dim, self.get_output_size())
 
     def _infer_tensor_input_size(self, feature_key: str) -> int:
+        """Infer the input dimension of a tensor feature by inspecting the dataset."""
         for index in range(len(self.dataset)):
             if feature_key not in self.dataset[index]:
                 continue
@@ -154,6 +164,7 @@ class EOLMistrustClassifier(BaseModel):
     def _mean_pool_sequence(
         self, values: torch.Tensor, feature_key: str
     ) -> torch.Tensor:
+        """Embed coded sequences and return their masked mean-pooled vector."""
         if values.dim() == 1:
             values = values.unsqueeze(0)
         values = values.long().to(self.device)
@@ -163,6 +174,7 @@ class EOLMistrustClassifier(BaseModel):
         return (embeddings * mask).sum(dim=1) / denom
 
     def _project_tensor(self, values: torch.Tensor, feature_key: str) -> torch.Tensor:
+        """Project scalar / numeric tensor features to the embedding space."""
         values = values.to(self.device).float()
         if values.dim() == 0:
             values = values.view(1, 1)
@@ -173,6 +185,7 @@ class EOLMistrustClassifier(BaseModel):
     def _embed_text_field(
         self, values: Sequence[str], feature_key: str
     ) -> torch.Tensor:
+        """Hash-embed text tokens and return their mean-pooled representation."""
         token_lists = []
         max_len = 1
         for raw_value in values:

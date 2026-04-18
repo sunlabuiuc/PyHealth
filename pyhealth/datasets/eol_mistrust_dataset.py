@@ -1,4 +1,13 @@
-"""Native BaseDataset entrypoint for the EOL mistrust cohort tables."""
+"""Native BaseDataset entrypoint for the EOL mistrust cohort tables.
+
+Implements the dataset component for replicating Boag et al. 2018,
+*"Racial Disparities and Mistrust in End-of-Life Care"*
+(https://proceedings.mlr.press/v85/boag18a.html). Wraps the combined
+MIMIC-III CSV export tree (clinical, notes, and derived tables) as a
+proper :class:`~pyhealth.datasets.BaseDataset` with support for both a
+corrected ``"default"`` pipeline and a notebook-faithful ``"paper_like"``
+reproduction mode.
+"""
 
 from __future__ import annotations
 
@@ -111,6 +120,7 @@ class EOLMistrustDataset(BaseDataset):
 
     @staticmethod
     def _path_variants(root: str, relative_path: str) -> list[Path]:
+        """Return candidate file paths, toggling ``.gz`` compression suffix."""
         csv_path = Path(root) / relative_path
         if csv_path.suffix == ".gz":
             return [csv_path, csv_path.with_suffix("")]
@@ -118,6 +128,7 @@ class EOLMistrustDataset(BaseDataset):
 
     @classmethod
     def _table_assets_exist(cls, root: str, config, table_name: str) -> bool:
+        """Return ``True`` when all required CSV files for *table_name* exist."""
         if table_name not in config.tables:
             return False
 
@@ -139,6 +150,7 @@ class EOLMistrustDataset(BaseDataset):
         root: str,
         config_path: str,
     ) -> list[str]:
+        """Auto-discover which optional MIMIC-III tables are present on disk."""
         config = load_yaml_config(config_path)
         available_tables: list[str] = []
         for table_name in cls.DEFAULT_OPTIONAL_TABLES:

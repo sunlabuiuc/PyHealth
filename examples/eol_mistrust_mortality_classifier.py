@@ -1,5 +1,9 @@
 r"""Run the EOL mistrust workflow.
 
+Reproduces the full analysis pipeline from Boag et al. 2018,
+*"Racial Disparities and Mistrust in End-of-Life Care"*
+(https://proceedings.mlr.press/v85/boag18a.html).
+
 Expected data root::
 
     EOL_Workspace/eol_mistrust_required_combined/

@@ -1,6 +1,11 @@
 version: "1.0"
+# MIMIC-III table configuration for the EOL Mistrust pipeline.
+# Reproduces the data schema from Boag et al. 2018,
+# "Racial Disparities and Mistrust in End-of-Life Care."
 
 tables:
+  # --- Core clinical tables ---
+
   patients:
     file_path: "mimiciii_clinical/patients.csv"
     patient_id: "subject_id"
@@ -47,6 +52,8 @@ tables:
       - "last_careunit"
       - "outtime"
       - "los"
+
+  # --- Coded event tables (joined to admissions for timestamps) ---
 
   diagnoses_icd:
     file_path: "mimiciii_clinical/diagnoses_icd.csv"
@@ -105,6 +112,8 @@ tables:
       - "icd9_code"
       - "seq_num"
 
+  # --- Free-text clinical notes ---
+
   noteevents:
     file_path: "mimiciii_notes/noteevents.csv"
     patient_id: "subject_id"
@@ -118,6 +127,8 @@ tables:
       - "description"
       - "storetime"
       - "iserror"
+
+  # --- Chart event reference and time-series data ---
 
   d_items:
     file_path: "mimiciii_clinical/d_items.csv"
@@ -162,6 +173,8 @@ tables:
       - "label"
       - "dbsource"
       - "category"
+
+  # --- Derived severity scores and treatment duration tables ---
 
   ventdurations:
     file_path: "mimiciii_derived/ventdurations.csv"
