@@ -81,7 +81,7 @@ DATA_ROOT = os.path.join(
 ALPHA           = 0.5     # must match training_pipeline_shallow_gcnn.py
 EXCLUDED_BANDS  = []      # [] = all bands active; e.g. ["delta"] for LOO
 EXPERIMENT_NAME = f"psd_gnn_shallow_ph_alpha{ALPHA:.2f}"
-NUM_FOLDS       = 10
+NUM_FOLDS       = 10    # minimum 2 (one train/val split); 10 for full 10-fold CV
 BATCH_SIZE      = 512
 NUM_WORKERS     = 0
 SEED            = 42

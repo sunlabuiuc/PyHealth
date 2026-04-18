@@ -37,7 +37,9 @@ Additionally, for detailed tutorials on accessing PhysioNet and MIMIC datasets, 
 
 `Pipeline 4: Mortality Prediction <https://colab.research.google.com/drive/1b9xRbxUz-HLzxsrvxdsdJ868ajGQCY6U?usp=sharing>`_ 
 
-`Pipeline 5: Readmission Prediction <https://colab.research.google.com/drive/1h0pAymUlPQfkLFryI9QI37-HAW1tRxGZ?usp=sharing>`_ 
+`Pipeline 5: Readmission Prediction <https://colab.research.google.com/drive/1h0pAymUlPQfkLFryI9QI37-HAW1tRxGZ?usp=sharing>`_
+
+:doc:`Pipeline 6: EEG Neurological Disease Classification (GCN & GAT) <api/eeg_gcnn_pipeline>`
 
 .. `Pipeline 5: Phenotype Prediction <https://colab.research.google.com/drive/10CSb4F4llYJvv42yTUiRmvSZdoEsbmFF>`_ 
 Multimodal & Smart Processors
