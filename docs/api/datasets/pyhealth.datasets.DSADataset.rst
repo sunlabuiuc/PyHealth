@@ -1,11 +1,11 @@
-pyhealth.tasks.DSAActivityClassification
+pyhealth.datasets.DSADataset
 ===================================
 
-Multi-class activity-recognition task for the Daily and Sports Activities (DSA) dataset.
+The Daily and Sports Activities (DSA) dataset.
 
 Each of the 19 activities is performed by eight subjects (4 female, 4 male, between the ages 20 and 30) for 5 minutes.
 
-.. autoclass:: pyhealth.tasks.DSAActivityClassification
+.. autoclass:: pyhealth.datasets.DSADataset
     :members:
     :undoc-members:
     :show-inheritance:

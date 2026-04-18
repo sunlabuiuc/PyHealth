@@ -7,7 +7,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from pyhealth.datasets import SampleDataset
-from pyhealth.models import BaseModel
+from pyhealth.models.base_model import BaseModel
 
 DistanceFn = Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
 

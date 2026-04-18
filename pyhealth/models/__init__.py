@@ -1,4 +1,5 @@
 from .adacare import AdaCare, AdaCareLayer, MultimodalAdaCare
+from .adaptive_transfer import AdaptiveTransferModel
 from .agent import Agent, AgentLayer
 from .base_model import BaseModel
 from .biot import BIOT
