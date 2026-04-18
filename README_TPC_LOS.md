@@ -67,7 +67,7 @@ _examples/eicu_hourly_los_tpc.py_ : This provides an end-to-end script for repro
 _examples/mimic4_hourly_los_tpc.py_ : This provides an end-to-end script for reproducing and evaluating pipeline on MIMIC-IV dataset.
 _examples/run_dual_dataset_tpc.py_ : This utility scripts runs the pipeline on both datasets and produces a combined report.
 
-**4) Test Cases e**
+**4) Test Cases**
 
 We implemented fast performing test cases for our Model and Task contribution using Sythentic Data.
 
