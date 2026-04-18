@@ -33,11 +33,21 @@ Usage Example
 
     from pyhealth.tasks.dynamic_survival import DynamicSurvivalTask
 
+    # Minimal dataset wrapper (MockDataset or a real PyHealth dataset)
+    class MockDataset:
+        def __init__(self):
+            self.patients = {}
+
+    dataset = MockDataset()
+
     task = DynamicSurvivalTask(
+        dataset=dataset,
         observation_window=24,
         horizon=24,
+        anchor_strategy="fixed",
     )
 
+    # Apply to a patient object
     samples = task(patient)
 
 Example Output
