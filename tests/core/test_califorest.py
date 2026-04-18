@@ -54,6 +54,8 @@ class TestCaliForest(unittest.TestCase):
             random_state=42,
         )
 
+        self.loader = get_dataloader(self.dataset, batch_size=4, shuffle=False)
+
     def test_model_initialization(self):
         """Test that the model initializes correctly."""
         self.assertIsInstance(self.model, CaliForest)
@@ -64,8 +66,8 @@ class TestCaliForest(unittest.TestCase):
 
     def test_model_forward(self):
         """Test that forward pass works and returns expected keys."""
-        loader = get_dataloader(self.dataset, batch_size=4, shuffle=False)
-        batch = next(iter(loader))
+        batch = next(iter(self.loader))
+        self.model.fit(self.loader)
 
         with torch.no_grad():
             ret = self.model(**batch)
@@ -82,8 +84,8 @@ class TestCaliForest(unittest.TestCase):
 
     def test_probability_range(self):
         """Test that predicted probabilities are in [0, 1]."""
-        loader = get_dataloader(self.dataset, batch_size=4, shuffle=False)
-        batch = next(iter(loader))
+        batch = next(iter(self.loader))
+        self.model.fit(self.loader)
 
         with torch.no_grad():
             ret = self.model(**batch)
@@ -92,24 +94,12 @@ class TestCaliForest(unittest.TestCase):
         self.assertTrue(torch.all(y_prob >= 0.0).item())
         self.assertTrue(torch.all(y_prob <= 1.0).item())
 
-    def test_model_backward(self):
-        """Test that backward pass works."""
-        loader = get_dataloader(self.dataset, batch_size=4, shuffle=False)
-        batch = next(iter(loader))
+    def test_forward_before_fit_raises(self):
+        """Test that calling forward before fit raises a clear error."""
+        batch = next(iter(self.loader))
 
-        ret = self.model(**batch)
-        ret["loss"].backward()
-
-        has_gradient = False
-        for param in self.model.parameters():
-            if param.requires_grad and param.grad is not None:
-                has_gradient = True
-                break
-
-        self.assertTrue(
-            has_gradient,
-            "No parameters have gradients after backward pass.",
-        )
+        with self.assertRaises(RuntimeError):
+            self.model(**batch)
 
     def test_logistic_calibration(self):
         """Test the logistic calibration option."""
@@ -120,14 +110,40 @@ class TestCaliForest(unittest.TestCase):
             random_state=42,
         )
 
-        loader = get_dataloader(self.dataset, batch_size=4, shuffle=False)
-        batch = next(iter(loader))
+        batch = next(iter(self.loader))
+        model.fit(self.loader)
 
         with torch.no_grad():
             ret = model(**batch)
 
         self.assertIn("y_prob", ret)
         self.assertEqual(ret["y_prob"].shape, (4, 1))
+
+    def test_isotonic_and_logistic_differ(self):
+        """Test that isotonic and logistic calibration produce different outputs."""
+        iso_model = CaliForest(
+            dataset=self.dataset,
+            n_estimators=10,
+            calibration="isotonic",
+            random_state=42,
+        )
+        log_model = CaliForest(
+            dataset=self.dataset,
+            n_estimators=10,
+            calibration="logistic",
+            random_state=42,
+        )
+
+        iso_model.fit(self.loader)
+        log_model.fit(self.loader)
+
+        batch = next(iter(self.loader))
+
+        with torch.no_grad():
+            iso_probs = iso_model(**batch)["y_prob"]
+            log_probs = log_model(**batch)["y_prob"]
+
+        self.assertFalse(torch.allclose(iso_probs, log_probs))
 
 
 if __name__ == "__main__":

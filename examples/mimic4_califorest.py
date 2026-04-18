@@ -81,7 +81,6 @@ def run_califorest(
         test_dataset, batch_size=len(test_dataset), shuffle=False
     )
 
-    train_batch = next(iter(train_loader))
     test_batch = next(iter(test_loader))
 
     model = CaliForest(
@@ -90,8 +89,7 @@ def run_califorest(
         calibration=calibration,
         random_state=42,
     )
-
-    _ = model(**train_batch)
+    model.fit(train_loader)
 
     with torch.no_grad():
         ret = model(**test_batch)

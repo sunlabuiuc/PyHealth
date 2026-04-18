@@ -33,6 +33,11 @@ class CaliForest(BaseModel):
     calibration step using out-of-bag (OOB) predictions and prediction
     variance to improve probability estimates.
 
+    Important:
+        CaliForest is fit once on the full training set using fit(train_loader).
+        After fitting, forward() should be used only for inference/evaluation.
+        This implementation currently supports binary classification only.
+
     The overall procedure is:
         1. train a random forest classifier,
         2. compute OOB probabilities for each training sample,
@@ -50,6 +55,7 @@ class CaliForest(BaseModel):
 
     Example:
         model = CaliForest(dataset=dataset, n_estimators=10)
+        model.fit(train_loader)
         ret = model(**batch)
         print(ret["y_prob"].shape)
     """
@@ -117,12 +123,37 @@ class CaliForest(BaseModel):
         else:
             y = np.asarray(y)
         return y.reshape(-1)
+    
+    def fit(self, train_loader):
+        """Fit CaliForest on the full training dataloader"""
+        X_list = []
+        y_list = []
 
+        for batch in train_loader:
+            X_list.append(self._build_feature_matrix(**batch))
+            y_list.append(self._build_labels(**batch))
+
+        X = np.concatenate(X_list, axis=0)
+        y = np.concatenate(y_list, axis=0)
+
+        self.fit_model(features=X, labels=y)
+        return self
+    
     def fit_model(self, **kwargs) -> None:
         """Fit RF + calibration model."""
-        X = self._build_feature_matrix(**kwargs)
-        y = self._build_labels(**kwargs)
+        if "features" in kwargs and "labels" in kwargs:
+            X = kwargs["features"]
+            y = kwargs["labels"]
+        else:
+            X = self._build_feature_matrix(**kwargs)
+            y = self._build_labels(**kwargs)
 
+        unique_labels = np.unique(y)
+        if set(unique_labels.tolist()) != {0, 1}:
+            raise ValueError(
+                "CaliForest currently supports binary classification only. "
+                f"Got labels: {unique_labels.tolist()}"
+            )
         self.rf.fit(X, y)
 
         if not hasattr(self.rf, "oob_decision_function_"):
@@ -135,6 +166,9 @@ class CaliForest(BaseModel):
             axis=0,
         )
         variances = np.var(tree_probs, axis=0)
+
+        # CaliForest uses inverse tree-level variance so more stable
+        # predictions have greater influence during calibrator fitting.
         weights = 1.0 / (variances + 1e-6)
 
         if self.calibration == "isotonic":
@@ -172,7 +206,10 @@ class CaliForest(BaseModel):
     def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
         """PyHealth forward pass."""
         if not self.is_fitted:
-            self.fit_model(**kwargs)
+            raise RuntimeError(
+                "CaliForest must be fitted before inference. "
+                "Call model.fit(train_loader) first."
+            )
 
         y_prob_np = self.predict_proba_numpy(**kwargs)
 
