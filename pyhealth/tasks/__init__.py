@@ -66,4 +66,8 @@ from .variant_classification import (
     VariantClassificationClinVar,
 )
 from .patient_linkage_mimic3 import PatientLinkageMIMIC3Task
-from .mvcl_training_sleepedf_task import MVCLTrainingSleepEEG
+from .mvcl_training_sleepedf_task import (
+    MVCLTrainingSleepEEG,
+    pt_dict_to_pyhealth_samples,
+    pt_file_to_sample_dataset,
+)
