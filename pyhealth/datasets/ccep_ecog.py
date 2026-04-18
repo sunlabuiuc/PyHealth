@@ -10,10 +10,11 @@ import os
 from pathlib import Path
 from typing import Optional
 
-import pandas as pd
 import mne_bids
+import pandas as pd
 
 from pyhealth.datasets import BaseDataset
+from pyhealth.tasks.localize_soz import LocalizeSOZ
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +47,7 @@ class CCEPECoGDataset(BaseDataset):
 
         Raises:
             FileNotFoundError: If the dataset path does not exist.
-            ValueError: If the dataset does not adhere to the expected BIDS structure   .
+            ValueError: If the dataset does not adhere to the expected BIDS structure.
 
         Example::
             >>> dataset = CCEPECoGDataset(root="./data/ds004080")
@@ -195,3 +196,8 @@ class CCEPECoGDataset(BaseDataset):
         logger.info(f"Wrote metadata to {output_path}")
 
         return df
+
+    @property
+    def default_task(self) -> LocalizeSOZ:
+        """Returns the default task for this dataset."""
+        return LocalizeSOZ()

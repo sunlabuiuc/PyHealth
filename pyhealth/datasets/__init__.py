@@ -48,11 +48,11 @@ class SampleSignalDataset:
 
 from .base_dataset import BaseDataset
 from .cardiology import CardiologyDataset
+from .ccep_ecog import CCEPECoGDataset
 from .chestxray14 import ChestXray14Dataset
 from .clinvar import ClinVarDataset
 from .cosmic import COSMICDataset
 from .covid19_cxr import COVID19CXRDataset
-from .ccep_ecog import CCEPECoGDataset
 from .dreamt import DREAMTDataset
 from .ehrshot import EHRShotDataset
 from .eicu import eICUDataset

@@ -1,9 +1,7 @@
 pyhealth.datasets.CCEPECoGDataset
 =================================
 
-The CCEP ECoG dataset is a dataset of electrocorticography (ECoG) recordings from patients undergoing epilepsy surgery.
-
-The original dataset is available at `OpenNeuro <https://openneuro.org/datasets/ds004080>`_.
+The open CCEP ECoG dataset of electrocorticography (ECoG) recordings from patients undergoing epilepsy surgery, refer to `OpenNeuro <https://openneuro.org/datasets/ds004080>`_ for more information.
 
 .. autoclass:: pyhealth.datasets.CCEPECoGDataset
     :members:
