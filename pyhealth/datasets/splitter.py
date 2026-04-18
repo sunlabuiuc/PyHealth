@@ -125,7 +125,8 @@ def split_by_visit(
             `val_dataset.dataset`, and `test_dataset.dataset`.
     """
     rng = np.random.default_rng(seed)
-    assert sum(ratios) == 1.0, "ratios must sum to 1.0"
+    if sum(ratios) != 1.0:
+        raise ValueError(f"ratios must sum to 1.0, got {sum(ratios)!r}")
     index = np.arange(len(dataset))
     rng.shuffle(index)
     train_index = index[: int(len(dataset) * ratios[0])]
@@ -160,7 +161,8 @@ def split_by_patient(
             `val_dataset.dataset`, and `test_dataset.dataset`.
     """
     rng = np.random.default_rng(seed)
-    assert sum(ratios) == 1.0, "ratios must sum to 1.0"
+    if sum(ratios) != 1.0:
+        raise ValueError(f"ratios must sum to 1.0, got {sum(ratios)!r}")
     patient_indx = list(dataset.patient_to_index.keys())
     num_patients = len(patient_indx)
     rng.shuffle(patient_indx)
@@ -202,7 +204,8 @@ def split_by_sample(
             `val_dataset.dataset`, and `test_dataset.dataset`.
     """
     rng = np.random.default_rng(seed)
-    assert sum(ratios) == 1.0, "ratios must sum to 1.0"
+    if sum(ratios) != 1.0:
+        raise ValueError(f"ratios must sum to 1.0, got {sum(ratios)!r}")
     index = np.arange(len(dataset))
     rng.shuffle(index)
     train_index = index[: int(len(dataset) * ratios[0])]
@@ -246,8 +249,10 @@ def split_by_visit_conformal(
             `test_dataset.dataset`.
     """
     rng = np.random.default_rng(seed)
-    assert len(ratios) == 4, "ratios must have 4 elements for train/val/cal/test"
-    assert sum(ratios) == 1.0, "ratios must sum to 1.0"
+    if len(ratios) != 4:
+        raise ValueError(f"ratios must have 4 elements for train/val/cal/test, got {len(ratios)}")
+    if sum(ratios) != 1.0:
+        raise ValueError(f"ratios must sum to 1.0, got {sum(ratios)!r}")
 
     index = np.arange(len(dataset))
     rng.shuffle(index)
@@ -292,8 +297,10 @@ def split_by_patient_conformal(
             `test_dataset.dataset`.
     """
     rng = np.random.default_rng(seed)
-    assert len(ratios) == 4, "ratios must have 4 elements for train/val/cal/test"
-    assert sum(ratios) == 1.0, "ratios must sum to 1.0"
+    if len(ratios) != 4:
+        raise ValueError(f"ratios must have 4 elements for train/val/cal/test, got {len(ratios)}")
+    if sum(ratios) != 1.0:
+        raise ValueError(f"ratios must sum to 1.0, got {sum(ratios)!r}")
 
     patient_indx = list(dataset.patient_to_index.keys())
     num_patients = len(patient_indx)
@@ -359,11 +366,13 @@ def split_by_patient_conformal_tuh(
     Returns:
         ``(train_dataset, val_dataset, cal_dataset, test_dataset)``
     """
-    assert len(ratios) == 3, (
-        "ratios must have exactly 3 elements (train/val/cal). "
-        "The test set is determined by the TUH eval partition."
-    )
-    assert abs(sum(ratios) - 1.0) < 1e-6, "ratios must sum to 1.0"
+    if len(ratios) != 3:
+        raise ValueError(
+            f"ratios must have exactly 3 elements (train/val/cal). "
+            f"The test set is determined by the TUH eval partition. Got {len(ratios)} elements."
+        )
+    if abs(sum(ratios) - 1.0) >= 1e-6:
+        raise ValueError(f"ratios must sum to 1.0, got {sum(ratios)!r}")
 
     # Bucket patients by partition using dataset.patient_to_index (fast path).
     # TUH guarantees each patient is in exactly one partition, so inspecting the
@@ -373,10 +382,11 @@ def split_by_patient_conformal_tuh(
 
     for pid, indices in dataset.patient_to_index.items():
         first_sample = dataset[indices[0]]
-        assert "split" in first_sample, (
-            f"Patient {pid}: sample missing 'split' field. "
-            "Use EEGEventsTUEV or EEGAbnormalTUAB to build the dataset."
-        )
+        if "split" not in first_sample:
+            raise ValueError(
+                f"Patient {pid}: sample missing 'split' field. "
+                "Use EEGEventsTUEV or EEGAbnormalTUAB to build the dataset."
+            )
         if first_sample["split"] == "train":
             train_patient_to_indices[pid] = list(indices)
         else:
@@ -434,18 +444,21 @@ def split_by_sample_conformal_tuh(
     Returns:
         train_dataset, val_dataset, cal_dataset, test_dataset
     """
-    assert len(ratios) == 3, (
-        "ratios must have exactly 3 elements (train/val/cal). "
-        "The test set is determined by the dataset's own eval partition."
-    )
-    assert abs(sum(ratios) - 1.0) < 1e-6, "ratios must sum to 1.0"
+    if len(ratios) != 3:
+        raise ValueError(
+            f"ratios must have exactly 3 elements (train/val/cal). "
+            f"The test set is determined by the dataset's own eval partition. Got {len(ratios)} elements."
+        )
+    if abs(sum(ratios) - 1.0) >= 1e-6:
+        raise ValueError(f"ratios must sum to 1.0, got {sum(ratios)!r}")
 
     # verify every sample has the required "split" field
     for i in range(len(dataset)):
-        assert "split" in dataset[i], (
-            f"Sample {i} is missing the 'split' field. "
-            "Make sure you used EEGEventsTUEV or EEGAbnormalTUAB to build the dataset."
-        )
+        if "split" not in dataset[i]:
+            raise ValueError(
+                f"Sample {i} is missing the 'split' field. "
+                "Make sure you used EEGEventsTUEV or EEGAbnormalTUAB to build the dataset."
+            )
 
     train_pool: List[int] = []
     test_list: List[int] = []
@@ -516,21 +529,24 @@ def split_by_patient_tuh(
     Returns:
         ``(train_dataset, val_dataset, test_dataset)``
     """
-    assert len(ratios) == 2, (
-        "ratios must have exactly 2 elements (train/val). "
-        "The test set is determined by the TUH eval partition."
-    )
-    assert abs(sum(ratios) - 1.0) < 1e-6, "ratios must sum to 1.0"
+    if len(ratios) != 2:
+        raise ValueError(
+            f"ratios must have exactly 2 elements (train/val). "
+            f"The test set is determined by the TUH eval partition. Got {len(ratios)} elements."
+        )
+    if abs(sum(ratios) - 1.0) >= 1e-6:
+        raise ValueError(f"ratios must sum to 1.0, got {sum(ratios)!r}")
 
     train_patient_to_indices: dict = {}
     test_list: List[int] = []
 
     for pid, indices in dataset.patient_to_index.items():
         first_sample = dataset[indices[0]]
-        assert "split" in first_sample, (
-            f"Patient {pid}: sample missing 'split' field. "
-            "Use EEGEventsTUEV or EEGAbnormalTUAB to build the dataset."
-        )
+        if "split" not in first_sample:
+            raise ValueError(
+                f"Patient {pid}: sample missing 'split' field. "
+                "Use EEGEventsTUEV or EEGAbnormalTUAB to build the dataset."
+            )
         if first_sample["split"] == "train":
             train_patient_to_indices[pid] = list(indices)
         else:
@@ -592,17 +608,20 @@ def split_by_sample_tuh(
     Returns:
         train_dataset, val_dataset, test_dataset
     """
-    assert len(ratios) == 2, (
-        "ratios must have exactly 2 elements (train/val). "
-        "The test set is determined by the dataset's own eval partition."
-    )
-    assert abs(sum(ratios) - 1.0) < 1e-6, "ratios must sum to 1.0"
+    if len(ratios) != 2:
+        raise ValueError(
+            f"ratios must have exactly 2 elements (train/val). "
+            f"The test set is determined by the dataset's own eval partition. Got {len(ratios)} elements."
+        )
+    if abs(sum(ratios) - 1.0) >= 1e-6:
+        raise ValueError(f"ratios must sum to 1.0, got {sum(ratios)!r}")
 
     for i in range(len(dataset)):
-        assert "split" in dataset[i], (
-            f"Sample {i} is missing the 'split' field. "
-            "Use EEGEventsTUEV or EEGAbnormalTUAB to build the dataset."
-        )
+        if "split" not in dataset[i]:
+            raise ValueError(
+                f"Sample {i} is missing the 'split' field. "
+                "Make sure you used EEGEventsTUEV or EEGAbnormalTUAB to build the dataset."
+            )
 
     train_pool: List[int] = []
     test_list: List[int] = []
@@ -662,8 +681,10 @@ def split_by_sample_conformal(
             `test_dataset.dataset`.
     """
     rng = np.random.default_rng(seed)
-    assert len(ratios) == 4, "ratios must have 4 elements for train/val/cal/test"
-    assert sum(ratios) == 1.0, "ratios must sum to 1.0"
+    if len(ratios) != 4:
+        raise ValueError(f"ratios must have 4 elements for train/val/cal/test, got {len(ratios)}")
+    if sum(ratios) != 1.0:
+        raise ValueError(f"ratios must sum to 1.0, got {sum(ratios)!r}")
 
     index = np.arange(len(dataset))
     rng.shuffle(index)
