@@ -119,12 +119,12 @@ LOCAL_MIMIC_ROOTS = {
     "mimic3": "data/mimic3",
     "mimic4": "data/mimic4",
 }
-DEV_MODE = False                      # True = subset + tiny pipeline, False = full run (real experiment)
+DEV_MODE = True                      # True = subset + tiny pipeline, False = full run (real experiment)
 # ──────────────────────────────────────────────────────────
 
 # Paper-faithful vs G2Lab code-faithful variants.
 # Both are valid KEEP; we don't know which produced the published Table 4
-# numbers. See docs/plans/keep/keep-implementation-comparison.md.
+# numbers.
 KEEP_VARIANTS = {
     "paper": {
         "reg_distance": "l2",
