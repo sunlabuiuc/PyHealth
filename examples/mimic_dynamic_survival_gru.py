@@ -19,10 +19,16 @@ Results are printed to show how task configurations affect model performance.
 import torch
 import torch.nn as nn
 import numpy as np
+import pandas as pd
 import random
 from datetime import datetime, timedelta
 
+from sklearn.metrics import average_precision_score
+from sksurv.metrics import concordance_index_censored
 from pyhealth.tasks.dynamic_survival import DynamicSurvivalTask
+from pyhealth.datasets import MIMIC3Dataset
+
+from examples.synthetic_dataset import generate_synthetic_dataset
 
 # ===== Seed (reproducibility) =====
 np.random.seed(42)
@@ -166,7 +172,7 @@ def train_model(samples, horizon, prior=None):
 
     model = GRUModel(input_dim=X.shape[-1], horizon=horizon)
 
-    # 🔥 Bayesian initialization
+    # Bayesian initialization
     if prior is not None:
         p = prior
         bias_init = torch.log(torch.tensor(p / (1 - p)))
@@ -209,13 +215,65 @@ def evaluate(model, samples):
 
     print(f"\nFinal Performance → BCE={bce.item():.4f} | MSE={mse.item():.4f}")
 
+def evaluate_3metrics(model, samples):
+    X, Y, M = prepare_batch(samples)
 
-# ======================
-# DATASET 
-# ======================
+    with torch.no_grad():
+        pred = model(X)
 
-patients = generate_synthetic_patients(20)
-dataset = MockDataset(patients)
+        # BCE
+        loss = -(Y * torch.log(pred + 1e-8) +
+                 (1 - Y) * torch.log(1 - pred + 1e-8))
+        bce = (loss * M).sum() / M.sum()
+
+        # AuPRC
+        y_true = Y[M > 0].cpu().numpy().flatten()
+        y_pred = pred[M > 0].cpu().numpy().flatten()
+        auprc = None if y_true.sum() == 0 else average_precision_score(y_true, y_pred)
+
+        # C-index
+        times, risks, events = [], [], []
+
+        for i in range(len(Y)):
+            y_i = Y[i].cpu().numpy()
+            pred_i = pred[i].cpu().numpy()
+            m_i = M[i].cpu().numpy()
+
+            event_idx = np.where(y_i > 0)[0]
+            valid_idx = np.where(m_i > 0)[0]
+            if len(valid_idx) == 0:
+                # Skip samples with no usable data (fully zeroed mask).
+                continue
+
+            if len(event_idx) > 0:
+                # y is one-hot by construction (generate_survival_label sets exactly one
+                # index), so event_idx always has one element and [0] is the event time.
+                event_time = event_idx[0]
+                observed = True
+            else:
+                # No event within horizon, use last unmasked step as the censoring time
+                # (i.e., last time we know the patient was event-free).
+                event_time = valid_idx[-1]
+                observed = False
+
+            cumulative_risk = pred_i[:event_time + 1].sum()
+            times.append(event_time)
+            risks.append(cumulative_risk)
+            events.append(observed)
+
+        if len(times) < 2 or len(set(times)) < 2:
+            cindex = None
+        else:
+            result = concordance_index_censored(
+                np.array(events, dtype=bool),
+                np.array(times),
+                np.array(risks)
+            )
+
+            # Handle both API versions
+            cindex = result[0] if isinstance(result, tuple) else result.concordance
+
+    return bce.item(), auprc, cindex
 
 
 # ======================
@@ -252,48 +310,100 @@ def run_experiment(dataset, horizon, window, anchor):
     return bce.item(), mse.item()
 
 
-# ======================
-# 1. Anchor Ablation
-# ======================
-print("\n=== Anchor Ablation ===")
+def main():
+    # Use synthetic patients so this script runs without a local MIMIC download.
+    # To run on real MIMIC-III, replace with:
+    #   dataset = MIMIC3Dataset(root="<your_path>", tables=[...], dev=True)
+    patients = generate_synthetic_patients(20)
+    dataset = MockDataset(patients)
 
-for anchor in ["fixed", "single"]:
-    result = run_experiment(dataset, horizon=10, window=12, anchor=anchor)
+    # =========================
+    # 1. Anchor Ablation
+    # =========================
+    print("\n=== Anchor Ablation ===")
+    anchors = ["fixed", "single"]
+    bce_list, auprc_list, cindex_list = [], [], []
 
-    if result is None:
-        continue
+    for anchor in anchors:
+        task = DynamicSurvivalTask(
+            dataset, horizon=10, observation_window=12, anchor_strategy=anchor
+        )
+        samples = dataset.set_task(task)
+        if not samples:
+            print(f"{anchor} → no samples generated, skipping")
+            continue
+        model = train_model(samples, 10)
+        bce, auprc, cidx = evaluate_3metrics(model, samples)
+        print(f"{anchor} → BCE={bce:.4f} | AuPRC={auprc} | C-index={cidx}")
+        bce_list.append(bce)
+        auprc_list.append(auprc)
+        cindex_list.append(cidx)
 
-    bce, mse = result
+    df_anchor = pd.DataFrame({
+        "Anchor": anchors, "BCE": bce_list,
+        "AuPRC": auprc_list, "C-index": cindex_list
+    })
+    print("\n=== Anchor Results ===")
+    print(df_anchor.round(4))
 
-    print(f"{anchor} → BCE={bce:.4f} | MSE={mse:.4f}")
+    # =========================
+    # 2. Window Ablation
+    # =========================
+    print("\n=== Window Ablation ===")
+    windows = [6, 12, 24]
+    bce_list, auprc_list, cindex_list = [], [], []
+
+    for w in windows:
+        task = DynamicSurvivalTask(
+            dataset, horizon=10, observation_window=w, anchor_strategy="fixed"
+        )
+        samples = dataset.set_task(task)
+        if not samples:
+            print(f"window={w} → no samples, skipping")
+            continue
+        model = train_model(samples, 10)
+        bce, auprc, cidx = evaluate_3metrics(model, samples)
+        print(f"window={w} → BCE={bce:.4f} | AuPRC={auprc} | C-index={cidx}")
+        bce_list.append(bce)
+        auprc_list.append(auprc)
+        cindex_list.append(cidx)
+
+    df_window = pd.DataFrame({
+        "Window": windows, "BCE": bce_list,
+        "AuPRC": auprc_list, "C-index": cindex_list
+    })
+    print("\n=== Window Results ===")
+    print(df_window.round(4))
+
+    # =========================
+    # 3. Horizon Ablation
+    # =========================
+    print("\n=== Horizon Ablation ===")
+    horizons = [5, 10, 20]
+    bce_list, auprc_list, cindex_list = [], [], []
+
+    for h in horizons:
+        task = DynamicSurvivalTask(
+            dataset, horizon=h, observation_window=12, anchor_strategy="fixed"
+        )
+        samples = dataset.set_task(task)
+        if not samples:
+            print(f"horizon={h} → no samples, skipping")
+            continue
+        model = train_model(samples, h)
+        bce, auprc, cidx = evaluate_3metrics(model, samples)
+        print(f"horizon={h} → BCE={bce:.4f} | AuPRC={auprc} | C-index={cidx}")
+        bce_list.append(bce)
+        auprc_list.append(auprc)
+        cindex_list.append(cidx)
+
+    df_horizon = pd.DataFrame({
+        "Horizon": horizons, "BCE": bce_list,
+        "AuPRC": auprc_list, "C-index": cindex_list
+    })
+    print("\n=== Horizon Results ===")
+    print(df_horizon.round(4))
 
 
-# ======================
-# 2. Window Ablation
-# ======================
-print("\n=== Window Ablation ===")
-
-for w in [6, 12, 24]:
-    result = run_experiment(dataset, horizon=10, window=w, anchor="fixed")
-
-    if result is None:
-        continue
-
-    bce, mse = result
-
-    print(f"window={w} → BCE={bce:.4f} | MSE={mse:.4f}")
-
-# ======================
-# 3. Horizon Ablation
-# ======================
-print("\n=== Horizon Ablation ===")
-
-for h in [5, 10, 20]:
-    result = run_experiment(dataset, horizon=h, window=12, anchor="fixed")
-
-    if result is None:
-        continue
-
-    bce, mse = result
-
-    print(f"horizon={h} → BCE={bce:.4f} | MSE={mse:.4f}")
+if __name__ == "__main__":
+    main()
