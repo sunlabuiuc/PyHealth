@@ -1,24 +1,48 @@
-from typing import Any, Dict, Optional, Tuple, Type, Union
-import sys, types
+"""EHR Mamba V2: Mamba SSM-based clinical prediction model for EHR data.
 
-# ── rdkit stub ────────────────────────────────────────────────────────────────
-# TODO: remove once rdkit is whitelisted on this machine.
-# pyhealth.models.__init__ imports MoleRec and SafeDrug which pull in rdkit.
-# rdkit's DLL is blocked by Application Control policy so the real import
-# fails.  Stubbing these out lets BaseModel load; EHRMamba never uses rdkit.
-# for _mod_name in [
-#     "rdkit",
-#     "rdkit.Chem",
-#     "rdkit.Chem.rdchem",
-#     "rdkit.Chem.BRICS",
-#     "rdkit.Geometry",
-#     "rdkit.Geometry.rdGeometry",
-# ]:
-#     if _mod_name not in sys.modules:
-#         _stub = types.ModuleType(_mod_name)
-#         _stub.__path__ = []   # marks it as a package so sub-imports don't error
-#         sys.modules[_mod_name] = _stub
-# ── end rdkit stub ────────────────────────────────────────────────────────────
+Implements the EHRMamba model from arXiv 2405.14567, using State Space Models
+(Mamba) for linear-complexity sequence processing over EHR visit histories.
+
+Key classes:
+
+- :class:`RMSNorm`    — Root mean square layer normalization (paper ref 62).
+- :class:`MambaBlock` — Single Mamba SSM block with causal convolution.
+- :class:`EHRMamba`   — Full model integrating paper-conformant embeddings.
+
+Two embedding strategies are supported via ``use_ehr_mamba_embedding``:
+
+1. **EHR Mamba paper §2.2** (default, ``True``): Full 7-component embedding
+   (Eq. 1) fusing code, time-delta, age, token-type, visit-order, and
+   visit-segment embeddings.  Requires auxiliary tensors produced by
+   :class:`~pyhealth.tasks.MIMIC4EHRMambaMortalityTask`.
+2. **PyHealth EmbeddingModel** (``False``): Simpler standard embedding when
+   auxiliary tensors are not available.
+
+Example::
+
+    from pyhealth.datasets import create_sample_dataset, get_dataloader
+
+    samples = [
+        {"patient_id": "p0", "visit_id": "v0",
+         "diagnoses": ["A", "B"], "label": 1},
+        {"patient_id": "p1", "visit_id": "v0",
+         "diagnoses": ["C"], "label": 0},
+    ]
+    dataset = create_sample_dataset(
+        samples=samples,
+        input_schema={"diagnoses": "sequence"},
+        output_schema={"label": "binary"},
+    )
+    model = EHRMamba(dataset=dataset, embedding_dim=64, num_layers=2)
+    loader = get_dataloader(dataset, batch_size=2, shuffle=False)
+    batch = next(iter(loader))
+    out = model(**batch)
+    print(sorted(out.keys()))  # ['logit', 'loss', 'y_prob', 'y_true']
+"""
+
+from typing import Any, Dict, Optional, Tuple, Type, Union
+
+
 
 import torch
 from torch import nn
@@ -50,12 +74,26 @@ from pyhealth.processors.base_processor import FeatureProcessor
 class RMSNorm(nn.Module):
     """Root mean square layer normalization (paper ref 62)."""
 
-    def __init__(self, dim: int, eps: float = 1e-6):
+    def __init__(self, dim: int, eps: float = 1e-6) -> None:
+        """Initialize RMSNorm with a learnable scale parameter.
+
+        Args:
+            dim: Feature dimension to normalize over.
+            eps: Numerical stability constant. Defaults to 1e-6.
+        """
         super().__init__()
         self.eps = eps
         self.weight = nn.Parameter(torch.ones(dim))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Apply RMS normalization to the input tensor.
+
+        Args:
+            x: Input tensor of shape ``(B, L, dim)``.
+
+        Returns:
+            Normalized tensor of the same shape as ``x``.
+        """
         rms = (x.pow(2).mean(-1, keepdim=True) + self.eps).rsqrt()
         return x * rms * self.weight
 
@@ -72,7 +110,15 @@ class MambaBlock(nn.Module):
         state_size: int = 16,
         conv_kernel: int = 4,
         d_inner: Optional[int] = None,
-    ):
+    ) -> None:
+        """Initialize MambaBlock layers and learnable SSM parameters.
+
+        Args:
+            d_model: Input and output feature dimension.
+            state_size: SSM state size per channel. Defaults to 16.
+            conv_kernel: Causal convolution kernel size. Defaults to 4.
+            d_inner: Inner dimension. Defaults to ``2 * d_model``.
+        """
         super().__init__()
         self.d_model = d_model
         self.state_size = state_size
@@ -91,7 +137,14 @@ class MambaBlock(nn.Module):
         self.C_param = nn.Parameter(torch.randn(self.d_inner, state_size) * 0.1)
 
     def _ssm_step(self, x: torch.Tensor) -> torch.Tensor:
-        """Compute SSM output via causal convolution with learned kernel (parallel scan)."""
+        """Compute SSM output via causal convolution with learned kernel (parallel scan).
+
+        Args:
+            x: Input tensor of shape ``(B, L, d_inner)``.
+
+        Returns:
+            SSM output tensor of shape ``(B, L, d_inner)``.
+        """
         B, L, D = x.shape
         N = self.state_size
         device = x.device
@@ -116,6 +169,14 @@ class MambaBlock(nn.Module):
         return out
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Apply the Mamba block to the input sequence.
+
+        Args:
+            x: Input tensor of shape ``(B, L, d_model)``.
+
+        Returns:
+            Output tensor of shape ``(B, L, d_model)``.
+        """
         B, L, _ = x.shape
         residual = x
         x = self.norm(x)
@@ -160,7 +221,19 @@ class EHRMamba(BaseModel):
         # PROJECT ADDITION (not in PyHealth's ehrmamba.py): selects between our
         # EHR Mamba paper §2.2 embedding (True) and PyHealth's EmbeddingModel (False).
         use_ehr_mamba_embedding: bool = True,
-    ):
+    ) -> None:
+        """Initialize EHRMamba with embedding layer, Mamba blocks, and classifier.
+
+        Args:
+            dataset: SampleDataset used for token/embedding setup.
+            embedding_dim: Embedding and hidden dimension. Defaults to 128.
+            num_layers: Number of stacked Mamba blocks. Defaults to 2.
+            state_size: SSM state size per channel. Defaults to 16.
+            conv_kernel: Causal convolution kernel size. Defaults to 4.
+            dropout: Dropout probability before classifier. Defaults to 0.1.
+            use_ehr_mamba_embedding: If ``True``, use EHR Mamba §2.2
+                embedding. Defaults to ``True``.
+        """
         super().__init__(dataset=dataset)
         self.embedding_dim = embedding_dim
         self.num_layers = num_layers
@@ -204,11 +277,31 @@ class EHRMamba(BaseModel):
 
     @staticmethod
     def _split_temporal(feature: Any) -> Tuple[Optional[torch.Tensor], Any]:
+        """Split a feature into ``(time_delta, value)`` if it is a 2-tuple.
+
+        Args:
+            feature: Either a ``(time_delta, value)`` 2-tuple or a plain value.
+
+        Returns:
+            A ``(time_delta, value)`` pair.  If the input is not a 2-tuple,
+            ``time_delta`` is ``None`` and ``value`` is the original input.
+        """
         if isinstance(feature, tuple) and len(feature) == 2:
             return feature
         return None, feature
 
     def _ensure_tensor(self, feature_key: str, value: Any) -> torch.Tensor:
+        """Convert a feature value to a tensor with the processor-appropriate dtype.
+
+        Args:
+            feature_key: Key identifying which feature processor to consult.
+            value: Feature value; either already a ``torch.Tensor`` or raw data.
+
+        Returns:
+            A ``torch.Tensor`` with ``dtype=torch.long`` for
+            :class:`SequenceProcessor` / :class:`StageNetProcessor` features
+            and ``dtype=torch.float`` for all others.
+        """
         if isinstance(value, torch.Tensor):
             return value
         processor = self.feature_processors[feature_key]
@@ -217,6 +310,20 @@ class EHRMamba(BaseModel):
         return torch.tensor(value, dtype=torch.float)
 
     def _create_mask(self, feature_key: str, value: torch.Tensor) -> torch.Tensor:
+        """Create a boolean padding mask for the given feature tensor.
+
+        Returns a ``(B, L)`` bool mask with ``True`` at non-padding positions.
+        At least one position per sample is always unmasked to prevent NaN
+        in :func:`~pyhealth.models.utils.get_last_visit`.
+
+        Args:
+            feature_key: Key identifying which feature processor to consult.
+            value: Feature tensor of shape ``(B, L)`` or ``(B, L, D)``.
+
+        Returns:
+            Boolean tensor of shape ``(B, L)`` or ``(B, 1)`` (for flat
+            processors) with ``True`` at valid (non-padding) positions.
+        """
         processor = self.feature_processors[feature_key]
         if isinstance(processor, SequenceProcessor):
             mask = value != 0
@@ -244,13 +351,54 @@ class EHRMamba(BaseModel):
 
     @staticmethod
     def _pool_embedding(x: torch.Tensor) -> torch.Tensor:
+        """Collapse a 4-D embedding tensor to 3-D and ensure at least 3 dims.
+
+        Args:
+            x: Embedding tensor of shape ``(B, L, K, D)`` (4-D),
+               ``(B, D)`` (2-D), or ``(B, L, D)`` (3-D, returned as-is).
+
+        Returns:
+            Embedding tensor of shape ``(B, L, D)``.
+        """
         if x.dim() == 4:
             x = x.sum(dim=2)
         if x.dim() == 2:
             x = x.unsqueeze(1)
         return x
 
-    def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
+    def forward(self, **kwargs: Any) -> Dict[str, torch.Tensor]:
+        """Run the forward pass, compute predictions, and return loss.
+
+        Embeds each feature, passes it through its Mamba block stack, pools
+        the last valid hidden state, concatenates across features, and applies
+        the classification head.
+
+        When ``token_type_ids`` is present in ``kwargs``, auxiliary clinical
+        tensors are forwarded to :class:`EHRMambaEmbeddingAdapter` so the full
+        paper §2.2 / Eq. 1 embedding is applied.  This guard is a no-op when
+        PyHealth's standard EmbeddingModel is active.
+
+        Args:
+            **kwargs: Batch dict from the DataLoader.  Expected keys:
+
+                - One key per ``feature_key`` (input sequences / tensors).
+                - ``token_type_ids``, ``time_stamps``, ``ages``,
+                  ``visit_orders``, ``visit_segments``: optional auxiliary
+                  tensors for the paper §2.2 embedding.
+                - The label key (e.g. ``"label"``).
+                - ``embed`` (bool, optional): include pooled patient embedding
+                  in the output when ``True``.
+
+        Returns:
+            Dict containing:
+
+            - ``"loss"``   : scalar loss tensor.
+            - ``"y_prob"`` : ``(B, num_classes)`` predicted probabilities.
+            - ``"y_true"`` : ``(B, 1)`` ground-truth labels.
+            - ``"logit"``  : ``(B, num_classes)`` raw logits.
+            - ``"embed"``  : ``(B, embedding_dim)`` patient embedding
+              (only present when ``embed=True`` is passed).
+        """
         patient_emb = []
         embedding_inputs: Dict[str, torch.Tensor] = {}
         masks: Dict[str, torch.Tensor] = {}

@@ -167,7 +167,13 @@ class TimeEmbeddingLayer(nn.Module):
 
 
 class VisitEmbedding(nn.Module):
-    """Learned embedding for visit segment type (inpatient / outpatient / …)."""
+    """Learned embedding for visit segment type (inpatient / outpatient / …).
+
+    Args:
+        num_segments: Total number of segment categories (e.g. 3 for
+            0=PAD/special, 1=segment_1, 2=segment_2).
+        embedding_size: Output embedding dimensionality.
+    """
 
     def __init__(self, num_segments: int, embedding_size: int) -> None:
         super().__init__()
@@ -279,8 +285,9 @@ class EHRMambaEmbedding(BaseModel):
         self._visit_segments: Optional[torch.Tensor] = None
 
     # ── Cached-input API (for mamba_ssm MixerModel compatibility) ────────────
-    # This is not used in pyhealth directly; it's for compatibility with the mamba_ssm backbone and other downstream tasks outside of
-    # pyhealth, it is also used for testing the embedding module in isolation.
+    # Not used in pyhealth directly; provided for compatibility with the
+    # mamba_ssm backbone and other downstream tasks outside of pyhealth.
+    # Also used for testing the embedding module in isolation.
     def set_aux_inputs(
         self,
         token_type_ids: torch.Tensor,
@@ -409,6 +416,12 @@ class EHRMambaEmbeddingAdapter(nn.Module):
     """
 
     def __init__(self, embedding: EHRMambaEmbedding) -> None:
+        """Wrap an EHRMambaEmbedding to expose the EmbeddingModel interface.
+
+        Args:
+            embedding: Configured :class:`EHRMambaEmbedding` instance that
+                performs the full §2.2 / Eq. 1 token embedding.
+        """
         super().__init__()
         self.embedding = embedding
         self._aux: Dict[str, torch.Tensor] = {}

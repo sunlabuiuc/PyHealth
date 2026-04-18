@@ -615,11 +615,40 @@ class MIMIC4EHRMambaMortalityTask(MIMIC4EHRMambaTask):
         self.min_age = min_age
 
     def _passes_patient_filter(self, demographics: Any) -> bool:
+        """Return True if the patient meets the minimum age requirement.
+
+        Args:
+            demographics: First row of the ``patients`` event table for
+                this patient, expected to have an ``anchor_age`` attribute.
+
+        Returns:
+            ``True`` when ``anchor_age`` is at least :attr:`min_age`.
+        """
         return int(getattr(demographics, "anchor_age", 0)) >= self.min_age
 
     def _make_label(
         self, patient: Any, admissions: List[Any]
     ) -> Optional[Dict[str, Any]]:
+        """Return ``{"label": 0_or_1}`` from the patient's last admission.
+
+        Uses ``hospital_expire_flag`` from the last recorded admission as a
+        proxy for in-hospital mortality.
+
+        Args:
+            patient: PyHealth Patient object (unused; kept for interface parity).
+            admissions: Chronologically sorted list of admission Event objects.
+
+        Returns:
+            ``{"label": 1}`` if the patient died during the last admission,
+            ``{"label": 0}`` otherwise.  Never returns ``None``.
+
+        Note:
+            The paper (Appx. B.2) defines mortality as death within 32 days
+            of the final recorded event, computed from event and death
+            timestamps.  We use hospital_expire_flag instead — a MIMIC-IV
+            field indicating in-hospital death — which is a simpler proxy
+            available directly on the admissions row.
+        """
         # Note: the paper (Appx. B.2) defines mortality as death within 32 days
         # of the final recorded event, computed by comparing event and death
         # timestamps.  We use hospital_expire_flag instead — a MIMIC-IV field
