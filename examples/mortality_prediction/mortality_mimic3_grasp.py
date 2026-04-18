@@ -14,12 +14,11 @@ if __name__ == "__main__":
         cache_dir=tempfile.TemporaryDirectory().name,
         dev=True,
     )
-    base_dataset.stat()
+    base_dataset.stats()
 
     # STEP 2: set task
     task = MortalityPredictionMIMIC3()
-    sample_dataset = base_dataset.set_task(task)
-    sample_dataset.stat()
+    sample_dataset = base_dataset.set_task(task)    
 
     train_dataset, val_dataset, test_dataset = split_by_patient(
         sample_dataset, [0.8, 0.1, 0.1]
