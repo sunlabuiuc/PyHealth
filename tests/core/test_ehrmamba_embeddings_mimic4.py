@@ -26,7 +26,7 @@ Modules under test
     - :class:`EHRMambaEmbeddingAdapter`    — dict-interface shim bridging
       :class:`EHRMambaEmbedding` into PyHealth's EmbeddingModel API.
 
-``ehrmamba_v2.py`` (model-side):
+``ehrmamba_vi.py`` (model-side):
     - :class:`RMSNorm`    — root mean square layer normalization.
     - :class:`MambaBlock` — single Mamba SSM block.
     - :class:`EHRMamba`   — full PyHealth BaseModel with N Mamba blocks and
@@ -74,7 +74,7 @@ from pyhealth.models.ehrmamba_embedding import (
     SPECIAL_TYPE_MAX,
     TimeEmbeddingLayer,
 )
-from pyhealth.models.ehrmamba_v2 import EHRMamba, MambaBlock, RMSNorm
+from pyhealth.models.ehrmamba_vi import EHRMamba, MambaBlock, RMSNorm
 from pyhealth.tasks.mortality_prediction_ehrmamba_mimic4 import (
     MAX_NUM_VISITS,
     MIMIC4_TOKEN_TYPES,
