@@ -13,7 +13,7 @@ import numpy as np
 import pytest
 import torch
 
-from pyhealth.tasks.eeg_gcnn_nd_detection import (
+from pyhealth.tasks.eeg_gcnn_disease_detection import (
     BIPOLAR_CHANNELS,
     DEFAULT_BANDS,
     NUM_CHANNELS,

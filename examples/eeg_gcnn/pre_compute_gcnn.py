@@ -47,7 +47,7 @@ import numpy as np
 import torch
 
 from pyhealth.datasets.eeg_gcnn_raw import EEGGCNNRawDataset
-from pyhealth.tasks.eeg_gcnn_nd_detection import EEGGCNNDiseaseDetection
+from pyhealth.tasks.eeg_gcnn_disease_detection import EEGGCNNDiseaseDetection
 from pyhealth.models.eeg_gcnn import EEGGraphConvNet
 from pyhealth.datasets.sample_dataset import InMemorySampleDataset
 

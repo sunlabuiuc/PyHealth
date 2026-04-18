@@ -13,10 +13,10 @@ Three ablation experiments are included:
     3. Connectivity measure: coherence vs WPLI
 
 Usage (with real data):
-    python examples/eeg_gcnn_nd_detection_gcn.py --root /path/to/data
+    python examples/eeg_gcnn_disease_detection_gcn.py --root /path/to/data
 
 Usage (demo mode — synthetic data, no downloads needed):
-    python examples/eeg_gcnn_nd_detection_gcn.py --demo
+    python examples/eeg_gcnn_disease_detection_gcn.py --demo
 """
 
 import argparse
@@ -39,7 +39,7 @@ from pyhealth.datasets import (
 )
 from pyhealth.models.gnn import GCN
 from pyhealth.tasks import EEGGCNNDiseaseDetection
-from pyhealth.tasks.eeg_gcnn_nd_detection import (
+from pyhealth.tasks.eeg_gcnn_disease_detection import (
     DEFAULT_BANDS,
     NUM_CHANNELS,
 )
