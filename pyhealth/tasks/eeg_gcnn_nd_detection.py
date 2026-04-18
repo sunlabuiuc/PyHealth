@@ -122,7 +122,7 @@ class EEGGCNNDiseaseDetection(BaseTask):
         >>> print(sample["adj_matrix"].shape)     # (8, 8)
     """
 
-    task_name: str = "eeg_gcnn_nd_detection"
+    task_name: str = "EEGGCNNDiseaseDetection"
     input_schema: Dict[str, str] = {
         "node_features": "tensor",
         "adj_matrix": "tensor",
