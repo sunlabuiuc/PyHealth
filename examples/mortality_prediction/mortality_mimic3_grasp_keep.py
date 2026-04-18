@@ -21,9 +21,17 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from pyhealth.datasets import MIMIC3Dataset, split_by_patient, get_dataloader
+from pyhealth.datasets import (
+    MIMIC3Dataset,
+    MIMIC4EHRDataset,
+    split_by_patient,
+    get_dataloader,
+)
 from pyhealth.models import GRASP
-from pyhealth.tasks import MortalityPredictionMIMIC3
+from pyhealth.tasks import (
+    MortalityPredictionMIMIC3,
+    MortalityPredictionMIMIC4,
+)
 from pyhealth.trainer import Trainer
 
 # ── Compute Tracking (optional) ───────────────────────────
@@ -104,10 +112,14 @@ RUN_INTRINSIC_EVAL = True        # compute Resnik/co-occ correlations after pipe
 USE_KEEP_CACHE = False                # True = reuse keep_emb_output_<variant>/keep_snomed.txt; False = always rebuild
 KEEP_CACHE_ROOT = "keep_emb_output"   # resolves to "{root}_{variant}/keep_snomed.txt"
 
-# Data source toggle: local real MIMIC-III vs GCS synthetic
-USE_LOCAL_MIMIC = True           # True = real MIMIC-III at LOCAL_MIMIC_ROOT, False = GCS synthetic
-LOCAL_MIMIC_ROOT = "data/mimic3"
-DEV_MODE = False                 # True = subset + tiny pipeline, False = full run (real experiment)
+# Data source toggle: local real MIMIC vs GCS synthetic
+MIMIC_VERSION = "mimic4"              # "mimic3" (ICD-9 only) or "mimic4" (mixed ICD-9/ICD-10)
+USE_LOCAL_MIMIC = True                # True = real data at LOCAL_MIMIC_ROOT, False = GCS synthetic
+LOCAL_MIMIC_ROOTS = {
+    "mimic3": "data/mimic3",
+    "mimic4": "data/mimic4",
+}
+DEV_MODE = False                      # True = subset + tiny pipeline, False = full run (real experiment)
 # ──────────────────────────────────────────────────────────
 
 # Paper-faithful vs G2Lab code-faithful variants.
@@ -132,18 +144,37 @@ if __name__ == "__main__":
     print_hardware_info()
 
     # STEP 1: load data
-    mimic_root = (
-        LOCAL_MIMIC_ROOT
-        if USE_LOCAL_MIMIC
-        else "https://storage.googleapis.com/pyhealth/Synthetic_MIMIC-III"
-    )
-    print(f"MIMIC-III root: {mimic_root} (dev={DEV_MODE})")
-    base_dataset = MIMIC3Dataset(
-        root=mimic_root,
-        tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
-        cache_dir=tempfile.TemporaryDirectory().name,
-        dev=DEV_MODE,
-    )
+    if MIMIC_VERSION == "mimic3":
+        mimic_root = (
+            LOCAL_MIMIC_ROOTS["mimic3"]
+            if USE_LOCAL_MIMIC
+            else "https://storage.googleapis.com/pyhealth/Synthetic_MIMIC-III"
+        )
+        print(f"MIMIC-III root: {mimic_root} (dev={DEV_MODE})")
+        base_dataset = MIMIC3Dataset(
+            root=mimic_root,
+            tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
+            cache_dir=tempfile.TemporaryDirectory().name,
+            dev=DEV_MODE,
+        )
+    elif MIMIC_VERSION == "mimic4":
+        if not USE_LOCAL_MIMIC:
+            raise ValueError(
+                "MIMIC-IV has no public synthetic fallback. "
+                "Set USE_LOCAL_MIMIC=True and provide local data."
+            )
+        mimic_root = LOCAL_MIMIC_ROOTS["mimic4"]
+        print(f"MIMIC-IV root: {mimic_root} (dev={DEV_MODE})")
+        base_dataset = MIMIC4EHRDataset(
+            root=mimic_root,
+            tables=["diagnoses_icd", "procedures_icd", "prescriptions"],
+            cache_dir=tempfile.TemporaryDirectory().name,
+            dev=DEV_MODE,
+        )
+    else:
+        raise ValueError(
+            f"MIMIC_VERSION must be 'mimic3' or 'mimic4', got {MIMIC_VERSION!r}"
+        )
     base_dataset.stats()
 
     # STEP 2: build KEEP embeddings (skip if USE_KEEP=False)
@@ -270,8 +301,12 @@ if __name__ == "__main__":
         print("USE_KEEP=False, using random embeddings.")
 
     # STEP 3: set task
+    task_cls = (
+        MortalityPredictionMIMIC3 if MIMIC_VERSION == "mimic3"
+        else MortalityPredictionMIMIC4
+    )
     if keep_emb_path is not None:
-        task = MortalityPredictionMIMIC3(
+        task = task_cls(
             code_mapping={
                 "conditions": ("ICD9CM", "SNOMED"),
                 "procedures": ("ICD9PROC", "CCSPROC"),
@@ -279,7 +314,7 @@ if __name__ == "__main__":
             }
         )
     else:
-        task = MortalityPredictionMIMIC3()
+        task = task_cls()
 
     sample_dataset = base_dataset.set_task(task)
 

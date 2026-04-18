@@ -37,11 +37,106 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import numpy as np
 
 logger = logging.getLogger(__name__)
+
+
+def detect_mimic_schema(available_columns: List[str]) -> str:
+    """Detect MIMIC schema from available dataframe columns.
+
+    Returns "mimic4" if the column list contains ``diagnoses_icd/icd_version``
+    (MIMIC-IV's mixed ICD-9/ICD-10 schema), otherwise "mimic3"
+    (ICD-9-only schema).
+
+    Args:
+        available_columns: List of column names from
+            ``dataset.global_event_df.collect().columns`` after filtering to
+            diagnoses rows.
+
+    Returns:
+        "mimic4" or "mimic3".
+
+    Examples:
+        >>> detect_mimic_schema([
+        ...     "patient_id",
+        ...     "diagnoses_icd/icd_code",
+        ...     "diagnoses_icd/icd_version",
+        ... ])
+        'mimic4'
+        >>> detect_mimic_schema(["patient_id", "diagnoses_icd/icd9_code"])
+        'mimic3'
+    """
+    if "diagnoses_icd/icd_version" in available_columns:
+        return "mimic4"
+    return "mimic3"
+
+
+def extract_diagnoses_for_schema(
+    diag_df,
+    icd9_map: Dict[str, List[int]],
+    icd10_map: Optional[Dict[str, List[int]]] = None,
+    min_occurrences: int = 2,
+) -> Dict[str, Set[int]]:
+    """Extract per-patient SNOMED code sets from a diagnosis dataframe.
+
+    Dispatches to the correct ICD mapping path based on the dataframe's
+    column names. Used by ``run_keep_pipeline`` but exposed as a standalone
+    function so callers with custom dataset loaders can use the same
+    auto-detection logic.
+
+    Args:
+        diag_df: Polars DataFrame with patient_id + diagnosis code columns.
+            Must have either:
+              - ``patient_id`` + ``diagnoses_icd/icd9_code`` (MIMIC-III), or
+              - ``patient_id`` + ``diagnoses_icd/icd_code`` +
+                ``diagnoses_icd/icd_version`` (MIMIC-IV).
+        icd9_map: ICD-9 → SNOMED concept ID mapping.
+        icd10_map: ICD-10 → SNOMED mapping. Required for MIMIC-IV.
+        min_occurrences: Minimum times a SNOMED code must appear per patient.
+
+    Returns:
+        Dict mapping patient_id to set of SNOMED IDs meeting the
+        min_occurrences threshold.
+
+    Raises:
+        ValueError: If MIMIC-IV schema is detected but ``icd10_map`` is None.
+        KeyError: If required columns are missing.
+    """
+    from pyhealth.medcode.codes.icd9cm import ICD9CM
+    from pyhealth.medcode.codes.icd10cm import ICD10CM
+    from .build_cooccurrence import extract_patient_codes_from_df
+
+    schema = detect_mimic_schema(diag_df.columns)
+
+    if schema == "mimic4":
+        if icd10_map is None:
+            raise ValueError(
+                "MIMIC-IV schema detected (diagnoses_icd/icd_version column "
+                "present) but icd10_map is None. Pass both icd9_map and "
+                "icd10_map for MIMIC-IV datasets."
+            )
+        return extract_patient_codes_from_df(
+            patient_id_col=diag_df["patient_id"].to_list(),
+            code_col=diag_df["diagnoses_icd/icd_code"].to_list(),
+            version_col=diag_df["diagnoses_icd/icd_version"].to_list(),
+            icd_to_snomed=icd9_map,
+            icd10_to_snomed=icd10_map,
+            standardize_icd9=ICD9CM.standardize,
+            standardize_icd10=ICD10CM.standardize,
+            min_occurrences=min_occurrences,
+        )
+
+    # MIMIC-III path
+    return extract_patient_codes_from_df(
+        patient_id_col=diag_df["patient_id"].to_list(),
+        code_col=diag_df["diagnoses_icd/icd9_code"].to_list(),
+        icd_to_snomed=icd9_map,
+        standardize_icd9=ICD9CM.standardize,
+        min_occurrences=min_occurrences,
+    )
 
 
 def run_keep_pipeline(
@@ -120,14 +215,12 @@ def run_keep_pipeline(
     from .generate_medcode_files import generate_all_medcode_files
     from .train_node2vec import train_node2vec
     from .build_cooccurrence import (
-        extract_patient_codes_from_df,
         rollup_codes,
         build_cooccurrence_matrix,
         apply_count_filter,
     )
     from .train_glove import train_keep
     from .export_embeddings import export_snomed
-    from pyhealth.medcode.codes.icd9cm import ICD9CM
 
     athena_dir = Path(athena_dir)
     output_dir = Path(output_dir)
@@ -187,19 +280,22 @@ def run_keep_pipeline(
 
     generate_all_medcode_files(graph, icd9_map, icd10_map)
 
-    # Step 3: Extract patient codes from dataset
+    # Step 3: Extract patient codes from dataset.
+    # Auto-detect MIMIC-III (icd9_code column) vs MIMIC-IV (icd_code + icd_version).
     print("KEEP [3/7] Extracting patient codes...")
     diag_df = (
         dataset.global_event_df
         .filter(pl.col("event_type") == "diagnoses_icd")
-        .select(["patient_id", "diagnoses_icd/icd9_code"])
         .collect()
     )
-    patient_codes = extract_patient_codes_from_df(
-        patient_id_col=diag_df["patient_id"].to_list(),
-        code_col=diag_df["diagnoses_icd/icd9_code"].to_list(),
-        icd_to_snomed=icd9_map,
-        standardize_icd9=ICD9CM.standardize,
+    schema = detect_mimic_schema(diag_df.columns)
+    print(
+        f"  Detected {'MIMIC-IV schema (mixed ICD-9/ICD-10)' if schema == 'mimic4' else 'MIMIC-III schema (ICD-9 only)'}"
+    )
+    patient_codes = extract_diagnoses_for_schema(
+        diag_df,
+        icd9_map=icd9_map,
+        icd10_map=icd10_map,
         min_occurrences=min_occurrences,
     )
     print(f"  Patients with qualifying codes: {len(patient_codes)}")
