@@ -236,79 +236,140 @@ class DynamicSurvivalEngine:
         outcome_time: Optional[int],
         censor_time: Optional[int] = None,
     ) -> List[int]:
-        """Generate anchor points."""
+        """Generate anchor time points for survival sample generation.
+    
+        Anchors define the time points from which prediction windows are
+        constructed. Under the 'fixed' strategy, anchors are placed at
+        regular intervals between the first observable time and the event
+        or censor time. Under the 'single' strategy, only one anchor is
+        placed at the event or censor time.
+    
+        Args:
+            event_times: Sorted list of visit timestamps in days relative
+                to the patient's first recorded event.
+            outcome_time: Day of the observed event, or None if censored.
+            censor_time: Day of censoring, or None if event was observed.
+    
+        Returns:
+            List of integer anchor times at which samples are generated.
+            Returns an empty list if no valid anchors can be constructed
+            (e.g. observation window exceeds available history).
+        """
         if not event_times:
             return []
-
+    
         max_time = (
             outcome_time
             if outcome_time is not None
             else (censor_time if censor_time is not None else max(event_times))
         )
-
+    
         start_time = min(event_times) + self.observation_window
-
+    
         if start_time >= max_time:
             return [max_time] if self.anchor_strategy == "single" else []
-
+    
         if self.anchor_strategy == "fixed":
             anchors = list(
                 range(int(start_time), int(max_time), self.anchor_interval)
             )
             return anchors if anchors else [max_time]
-
+    
         return [max_time]
-
+    
+    
     def generate_survival_label(
         self,
         anchor_time: int,
         event_time: Optional[int],
         censor_time: Optional[int] = None,
     ) -> Tuple[np.ndarray, np.ndarray]:
-        """Generate survival label and mask."""
+        """Generate a discrete-time survival label vector and risk mask.
+    
+        For each horizon step k, y[k] indicates whether the event occurs
+        exactly k steps after the anchor. The mask encodes which steps
+        contribute to the survival likelihood: steps after the event or
+        after censoring are excluded.
+    
+        Convention: censor_time is treated as the last observed event-free
+        step, so mask[delta] = 1 and mask[delta+1:] = 0, mirroring the
+        event case where the event step itself is included.
+    
+        Args:
+            anchor_time: The anchor time point in days.
+            event_time: Observed event time in days, or None if censored.
+            censor_time: Censoring time in days, or None if event observed.
+    
+        Returns:
+            Tuple of (y, mask), each a float32 array of shape (horizon,).
+            y[k] = 1.0 if the event occurs at step k, else 0.0.
+            mask[k] = 1.0 if step k is in the risk set, else 0.0.
+        """
         y = np.zeros(self.horizon, dtype=float)
         mask = np.ones(self.horizon, dtype=float)
-
+    
         if event_time is not None:
             delta = int(event_time - anchor_time)
-
+    
             if delta < 0:
                 mask[:] = 0
             elif delta < self.horizon:
                 y[delta] = 1
-                mask[delta + 1 :] = 0
-
+                mask[delta + 1:] = 0
+    
         elif censor_time is not None:
             delta = int(censor_time - anchor_time)
             if delta < self.horizon:
-                # Mask everything after delta
-                mask[max(0, delta + 1) :] = 0
-
+                mask[max(0, delta + 1):] = 0
+    
         return y, mask
-
+    
+    
     def process_patient(
         self, patient: Dict[str, Any]
     ) -> List[Dict[str, Any]]:
-        """Convert a patient into survival samples."""
+        """Convert a single patient dictionary into survival samples.
+    
+        For each anchor time generated from the patient's visit history,
+        extracts the observation window, encodes features, and generates
+        the corresponding survival label and mask.
+    
+        Args:
+            patient: Dictionary with keys:
+                - patient_id (str): unique patient identifier.
+                - visits (List[Dict]): list of visit dicts, each with
+                  'time' (int) and 'feature' (np.ndarray) keys.
+                - outcome_time (Optional[int]): event time in days.
+                - censor_time (Optional[int]): censor time in days.
+    
+        Returns:
+            List of sample dictionaries, each containing:
+                - patient_id (str): patient identifier.
+                - visit_id (str): unique anchor-based sample identifier.
+                - x (np.ndarray): feature matrix of shape (T, d).
+                - y (np.ndarray): hazard label vector of shape (horizon,).
+                - mask (np.ndarray): risk set mask of shape (horizon,).
+            Returns an empty list if no valid anchors or sequences exist.
+        """
         samples = []
-
+    
         pid = patient.get("patient_id", "unknown")
         visits = patient.get("visits", [])
         event_time = patient.get("outcome_time")
         censor_time = patient.get("censor_time")
-
+    
         event_times = [v["time"] for v in visits if "time" in v]
         anchors = self.generate_anchors(event_times, event_time, censor_time)
-
+    
         for anchor in anchors:
             obs_start = anchor - self.observation_window
             seq = []
-
+    
             for visit in visits:
                 if obs_start <= visit["time"] < anchor:
                     if "feature" not in visit:
                         continue
-
+    
                     feat = np.concatenate(
                         [
                             [
@@ -319,15 +380,15 @@ class DynamicSurvivalEngine:
                         ]
                     )
                     seq.append(feat)
-
+    
             if not seq:
                 continue
-
+    
             x = np.array(seq, dtype=float)
             y, mask = self.generate_survival_label(
                 anchor, event_time, censor_time
             )
-
+    
             samples.append(
                 {
                     "patient_id": pid,
@@ -337,11 +398,8 @@ class DynamicSurvivalEngine:
                     "mask": mask.astype(np.float32),
                 }
             )
-
+    
         return samples
-
-    def __call__(self, patient):
-        return self.process_patient(patient)
 
 
 # ======================
@@ -393,32 +451,40 @@ class DynamicSurvivalTask(BaseTask):
             self.build_vocab(dataset)
         )
 
-    def build_vocab(self, dataset):
-        """
-        Build vocabularies from a dataset.
-
-        This function supports both PyHealth datasets (which provide
-        iter_patients()) and mock datasets (which provide patients dict).
-
+    def build_vocab(self, dataset) -> Tuple[Dict, Dict, Dict]:
+        """Build code vocabularies from a dataset for feature encoding.
+    
+        Iterates over patients in the dataset to collect all unique
+        diagnosis, procedure, and drug codes, then constructs index
+        mappings used by encode_multi_hot().
+    
+        Note: To keep initialization fast during development, vocabulary
+        construction is capped at the first 6 patients. For production
+        use with a full dataset, remove the cap or pass dev=True on the
+        dataset to limit patient count upstream.
+    
         Args:
-            dataset (Any): Dataset object containing patient data.
-
+            dataset: Dataset object supporting either iter_patients()
+                (PyHealth datasets) or a patients dict attribute
+                (MockDataset).
+    
         Returns:
-            None
+            Tuple of (diag_vocab, proc_vocab, drug_vocab), each a dict
+            mapping code strings to integer indices.
         """
         diag_set, proc_set, drug_set = set(), set(), set()
-
+    
         if hasattr(dataset, "iter_patients"):
             patient_iter = dataset.iter_patients()
         else:
             patient_iter = dataset.patients.values()
-
+    
         for i, patient in enumerate(patient_iter):
             if i > 5:
                 break
-
+    
             visits = build_daily_time_series(patient)
-
+    
             for visit in visits:
                 if self.use_diag:
                     diag_set.update(visit["diagnosis"])
@@ -426,11 +492,11 @@ class DynamicSurvivalTask(BaseTask):
                     proc_set.update(visit["procedure"])
                 if self.use_drug:
                     drug_set.update(visit["drug"])
-
+    
         self.diag_vocab = {c: i for i, c in enumerate(diag_set)}
         self.proc_vocab = {c: i for i, c in enumerate(proc_set)}
         self.drug_vocab = {c: i for i, c in enumerate(drug_set)}
-
+    
         return self.diag_vocab, self.proc_vocab, self.drug_vocab
 
     def encode_multi_hot(self, codes, vocab):
