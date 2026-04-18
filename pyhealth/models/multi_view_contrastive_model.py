@@ -14,7 +14,7 @@ class MultiViewContrastiveModel(BaseModel):
         self.hidden_dim = 128
         seq_length = 256
         self.training_stage = training_stage
-        self.lambda_cl = 0.1
+        self.lambda_cl = 0.001
         self.tau = 0.07
         self.num_classes = num_classes
 
@@ -56,10 +56,26 @@ class MultiViewContrastiveModel(BaseModel):
             nn.Linear(512, self.num_classes)
         )
 
-    def augment(self, x):
+    def augment(self, x, std=0.1):
         # Placeholder for time-series augmentation (e.g., adding Gaussian noise)
-        noise = torch.randn_like(x) * 0.01
+        noise = torch.randn_like(x) * std
         return x + noise
+        
+    def data_transform_fd(self, sample: torch.Tensor, pertub_ratio: float = 0.05) -> torch.Tensor:
+        aug_1 = self.remove_frequency(sample, pertub_ratio)
+        aug_2 = self.add_frequency(sample, pertub_ratio)
+        return aug_1 + aug_2
+
+    def remove_frequency(self, x: torch.Tensor, pertub_ratio: float = 0.0) -> torch.Tensor:
+        mask = torch.rand(x.shape, device=x.device) > pertub_ratio
+        return x * mask
+
+    def add_frequency(self, x: torch.Tensor, pertub_ratio: float = 0.0) -> torch.Tensor:
+        mask = torch.rand(x.shape, device=x.device) > (1 - pertub_ratio)
+        max_amplitude = x.max()
+        random_am = torch.rand(mask.shape, device=x.device) * (max_amplitude * 0.1)
+        pertub_matrix = mask * random_am
+        return x + pertub_matrix
         
     def info_nce_loss(self, z_i, z_j, tau, symmetric=True):
         # Compute cosine similarity
@@ -111,6 +127,10 @@ class MultiViewContrastiveModel(BaseModel):
             x_t_aug = self.augment(temporal_tensor)
             x_d_aug = self.augment(derivative_tensor)
             x_f_aug = self.augment(frequency_tensor)
+
+            # x_f_aug = self.data_transform_fd(frequency_tensor, 0.05)
+
+
             z_t, z_d, z_f = self._forward_features(temporal_tensor, derivative_tensor, frequency_tensor)
             z_t_aug, z_d_aug, z_f_aug = self._forward_features(x_t_aug, x_d_aug, x_f_aug)
             loss = self.info_nce_loss(z_t, z_t_aug, self.tau) + \
@@ -141,6 +161,9 @@ class MultiViewContrastiveModel(BaseModel):
             x_t_aug = self.augment(temporal_tensor)
             x_d_aug = self.augment(derivative_tensor)
             x_f_aug = self.augment(frequency_tensor)
+
+            # x_f_aug = self.data_transform_fd(frequency_tensor, 0.05)
+
             z_t_aug, z_d_aug, z_f_aug = self._forward_features(x_t_aug, x_d_aug, x_f_aug)
             loss_cl = self.info_nce_loss(z_t, z_t_aug, self.tau) + \
                       self.info_nce_loss(z_d, z_d_aug, self.tau) + \
