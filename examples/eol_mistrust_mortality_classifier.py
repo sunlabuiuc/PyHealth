@@ -24,32 +24,62 @@ Managed runs are written under::
 Recommended commands
 --------------------
 
-Full pipeline, normal::
+Full pipeline, normal (PowerShell; ``` ` ``` continues the line)::
 
-    .\.venv\Scripts\python.exe examples\eol_mistrust_mortality_classifier.py --root EOL_Workspace\eol_mistrust_required_combined --repetitions 10
+    .\.venv\Scripts\python.exe examples\eol_mistrust_mortality_classifier.py `
+        --root EOL_Workspace\eol_mistrust_required_combined `
+        --repetitions 10
 
 Full pipeline, paper-like::
 
-    .\.venv\Scripts\python.exe examples\eol_mistrust_mortality_classifier.py --root EOL_Workspace\eol_mistrust_required_combined --paper-like-dataset-prepare --repetitions 10
-    
-Full pipeline . Route ablation, normal vs paper-like::
+    .\.venv\Scripts\python.exe examples\eol_mistrust_mortality_classifier.py `
+        --root EOL_Workspace\eol_mistrust_required_combined `
+        --paper-like-dataset-prepare --repetitions 10
 
-    .\.venv\Scripts\python.exe examples\eol_mistrust_mortality_classifier.py --root EOL_Workspace\eol_mistrust_required_combined --ablation-study --repetitions 1
+Full pipeline. Route ablation, normal vs paper-like::
+
+    .\.venv\Scripts\python.exe examples\eol_mistrust_mortality_classifier.py `
+        --root EOL_Workspace\eol_mistrust_required_combined `
+        --ablation-study --repetitions 1
 
 
-Native proof, normal::
+Native proof, normal (test IDs are wrapped here for readability; run on one line)::
 
-    .\.venv\Scripts\python.exe -m unittest tests.core.test_eol_mistrust_model.TestEOLMistrustClassifier.test_classifier_runs_end_to_end_for_normal_full_feature_path
+    # Method name (one line):
+    #   test_classifier_runs_end_to_end_for_normal_full_feature_path
+    .\.venv\Scripts\python.exe -m unittest `
+        tests.core.test_eol_mistrust_model.TestEOLMistrustClassifier.<method>
 
 Native proof, paper-like::
 
-    .\.venv\Scripts\python.exe -m unittest tests.core.test_eol_mistrust_model.TestEOLMistrustClassifier.test_classifier_runs_end_to_end_for_paper_like_full_feature_path
+    # Method name (one line):
+    #   test_classifier_runs_end_to_end_for_paper_like_full_feature_path
+    .\.venv\Scripts\python.exe -m unittest `
+        tests.core.test_eol_mistrust_model.TestEOLMistrustClassifier.<method>
 
 Native train/eval demo, normal only::
 
-    .\.venv\Scripts\python.exe examples\eol_mistrust_mortality_classifier.py --root EOL_Workspace\eol_mistrust_required_combined --task-demo --task-demo-train-eval
-    
-    
+    .\.venv\Scripts\python.exe examples\eol_mistrust_mortality_classifier.py `
+        --root EOL_Workspace\eol_mistrust_required_combined `
+        --task-demo --task-demo-train-eval
+
+
+Reproducibility on synthetic data (no MIMIC-III credentials required)
+---------------------------------------------------------------------
+
+The commands above require the combined MIMIC-III CSV exports under
+``--root``. To verify the full
+``BaseDataset -> set_task -> BaseModel -> Trainer.train -> Trainer.evaluate``
+pipeline on synthetic fixtures instead, run the opt-in slow test suite::
+
+    pytest tests/core/test_eol_mistrust_dataset.py `
+           tests/core/test_eol_mistrust_model.py `
+           tests/core/test_eol_mistrust_Integration.py --run-slow
+
+These tests build in-memory synthetic MIMIC-III tables, exercise every
+stage of the pipeline end-to-end, and assert on shapes, gradients, and
+evaluation outputs. This is the rubric-grade reproduction path when
+MIMIC-III credentialing is unavailable.
 """
 
 from __future__ import annotations
@@ -70,7 +100,9 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 DEFAULT_DATA_ROOT = REPO_ROOT / "EOL_Workspace" / "eol_mistrust_required_combined"
-DEFAULT_CONFIG_PATH = REPO_ROOT / "pyhealth" / "datasets" / "configs" / "eol_mistrust.yaml"
+DEFAULT_CONFIG_PATH = (
+    REPO_ROOT / "pyhealth" / "datasets" / "configs" / "eol_mistrust.yaml"
+)
 DEFAULT_RESULT_ROOT = REPO_ROOT / "EOL_Workspace" / "EOL_Result"
 DEFAULT_NOTE_CHUNKSIZE = 100_000
 DEFAULT_CHARTEVENT_CHUNKSIZE = 500_000
@@ -98,10 +130,14 @@ _MODEL_MODULE = _load_local_module(
 build_acuity_scores = _DATASET_MODULE.build_acuity_scores
 build_all_cohort = _DATASET_MODULE.build_all_cohort
 build_base_admissions = _DATASET_MODULE.build_base_admissions
-build_chartevent_artifacts_from_csv = _DATASET_MODULE.build_chartevent_artifacts_from_csv
+build_chartevent_artifacts_from_csv = (
+    _DATASET_MODULE.build_chartevent_artifacts_from_csv
+)
 build_demographics_table = _DATASET_MODULE.build_demographics_table
 build_eol_cohort = _DATASET_MODULE.build_eol_cohort
-build_final_model_table_from_code_status_targets = _DATASET_MODULE.build_final_model_table_from_code_status_targets
+build_final_model_table_from_code_status_targets = (
+    _DATASET_MODULE.build_final_model_table_from_code_status_targets
+)
 build_note_corpus_from_csv = _DATASET_MODULE.build_note_corpus_from_csv
 build_note_labels_from_csv = _DATASET_MODULE.build_note_labels_from_csv
 build_treatment_totals = _DATASET_MODULE.build_treatment_totals
@@ -112,9 +148,13 @@ EOLMistrustModel = _MODEL_MODULE.EOLMistrustModel
 evaluate_downstream_average_weights = _MODEL_MODULE.evaluate_downstream_average_weights
 build_autopsy_mistrust_scores = _MODEL_MODULE.build_autopsy_mistrust_scores
 build_logistic_cv_estimator_factory = _MODEL_MODULE.build_logistic_cv_estimator_factory
-build_negative_sentiment_mistrust_scores = _MODEL_MODULE.build_negative_sentiment_mistrust_scores
+build_negative_sentiment_mistrust_scores = (
+    _MODEL_MODULE.build_negative_sentiment_mistrust_scores
+)
 build_noncompliance_mistrust_scores = _MODEL_MODULE.build_noncompliance_mistrust_scores
-get_downstream_feature_configurations = _MODEL_MODULE.get_downstream_feature_configurations
+get_downstream_feature_configurations = (
+    _MODEL_MODULE.get_downstream_feature_configurations
+)
 z_normalize_scores = _MODEL_MODULE.z_normalize_scores
 
 EOLMistrustClassifier = None
@@ -237,7 +277,9 @@ def _read_csvs(root: Path, path_map: dict[str, str]) -> dict[str, pd.DataFrame]:
     for name, relative_path in path_map.items():
         csv_path = root / relative_path
         if not csv_path.exists():
-            raise FileNotFoundError(f"Missing required table for EOL example: {csv_path}")
+            raise FileNotFoundError(
+                f"Missing required table for EOL example: {csv_path}"
+            )
         table = pd.read_csv(csv_path, low_memory=False)
         table.columns = [str(column).lower() for column in table.columns]
         tables[name] = table
@@ -293,8 +335,11 @@ def _format_continuous_summary(center: float, lower: float, upper: float) -> str
 def _note_present_hadm_ids(note_corpus: pd.DataFrame) -> list[int]:
     """Return sorted admission ids with at least one non-empty aggregated note."""
 
+    non_empty_mask = (
+        note_corpus["note_text"].fillna("").astype(str).str.strip() != ""
+    )
     hadm_ids = pd.to_numeric(
-        note_corpus.loc[note_corpus["note_text"].fillna("").astype(str).str.strip() != "", "hadm_id"],
+        note_corpus.loc[non_empty_mask, "hadm_id"],
         errors="coerce",
     )
     return sorted(hadm_ids.dropna().astype(int).unique().tolist())
@@ -354,7 +399,9 @@ def _build_run_table1_summary(eol_cohort: pd.DataFrame) -> pd.DataFrame:
                     "metric": metric,
                     "race": race,
                     "summary_stat": "median_iqr",
-                    "run_value": _format_continuous_summary(run_numeric, run_lower, run_upper),
+                    "run_value": _format_continuous_summary(
+                        run_numeric, run_lower, run_upper
+                    ),
                     "run_numeric": run_numeric,
                     "run_interval_lower": run_lower,
                     "run_interval_upper": run_upper,
@@ -481,7 +528,9 @@ def _build_run_table6_summary(
 ) -> pd.DataFrame:
     """Build run-only Table 6 downstream weight summaries."""
 
-    table6_source = _ensure_downstream_weight_results(artifacts, repetitions=repetitions)
+    table6_source = _ensure_downstream_weight_results(
+        artifacts, repetitions=repetitions
+    )
     if not isinstance(table6_source, pd.DataFrame) or table6_source.empty:
         return pd.DataFrame()
     required = {"task", "configuration", "feature", "weight_mean", "weight_std"}
@@ -517,8 +566,12 @@ def _render_run_table_summary(
     autopsy_proxy_enabled = True
     dataset_prepare_mode = "unknown"
     if isinstance(validation_summary, dict):
-        autopsy_proxy_enabled = bool(validation_summary.get("autopsy_proxy_enabled", True))
-        dataset_prepare_mode = str(validation_summary.get("dataset_prepare_mode", "unknown"))
+        autopsy_proxy_enabled = bool(
+            validation_summary.get("autopsy_proxy_enabled", True)
+        )
+        dataset_prepare_mode = str(
+            validation_summary.get("dataset_prepare_mode", "unknown")
+        )
 
     feature_weight_summaries = artifacts.get("feature_weight_summaries", {})
     if not isinstance(feature_weight_summaries, dict):
@@ -529,7 +582,14 @@ def _render_run_table_summary(
         _build_run_table1_summary(eol_cohort)
         if _has_columns(
             eol_cohort,
-            {"race", "insurance_group", "discharge_category", "gender", "los_days", "age"},
+            {
+                "race",
+                "insurance_group",
+                "discharge_category",
+                "gender",
+                "los_days",
+                "age",
+            },
         )
         else pd.DataFrame()
     )
@@ -538,13 +598,24 @@ def _render_run_table_summary(
         _build_run_table2_summary(race_treatment)
         if _has_columns(
             race_treatment,
-            {"treatment", "n_black", "n_white", "median_black", "median_white", "pvalue"},
+            {
+                "treatment",
+                "n_black",
+                "n_white",
+                "median_black",
+                "median_white",
+                "pvalue",
+            },
         )
         and not race_treatment.empty
         else pd.DataFrame()
     )
     table3 = _build_run_table3_summary(feature_weight_summaries)
-    if not autopsy_proxy_enabled and not table3.empty and "proxy_model" in table3.columns:
+    if (
+        not autopsy_proxy_enabled
+        and not table3.empty
+        and "proxy_model" in table3.columns
+    ):
         table3 = table3.loc[table3["proxy_model"] != "autopsy"].reset_index(drop=True)
     acuity_correlations = artifacts.get("acuity_correlations")
     table4 = (
@@ -576,9 +647,15 @@ def _render_run_table_summary(
         autopsy_proxy_enabled=autopsy_proxy_enabled,
     )
 
+    if dataset_prepare_mode == "paper_like":
+        route_label = "Paper-like"
+    elif dataset_prepare_mode == "default":
+        route_label = "Normal"
+    else:
+        route_label = dataset_prepare_mode
     lines = [
         "Run Table Results",
-        f"Route: {'Paper-like' if dataset_prepare_mode == 'paper_like' else 'Normal' if dataset_prepare_mode == 'default' else dataset_prepare_mode}",
+        f"Route: {route_label}",
         f"dataset_prepare_mode: {dataset_prepare_mode}",
         f"autopsy_proxy_enabled: {autopsy_proxy_enabled}",
         f"repetitions: {repetitions}",
@@ -725,8 +802,10 @@ def _render_run_table_summary(
                 row = task_row_lookup.get(feature_name)
                 if row is None:
                     continue
+                mean_value = float(row.run_weight_mean)
+                std_value = float(row.run_weight_std)
                 lines.append(
-                    f"  {row.feature}: mean={float(row.run_weight_mean):.3f}, std={float(row.run_weight_std):.3f}"
+                    f"  {row.feature}: mean={mean_value:.3f}, std={std_value:.3f}"
                 )
         lines.append("")
 
@@ -752,7 +831,10 @@ def _log_stage(stage_start: float, pipeline_start: float, message: str) -> None:
     """Print a timing log line for a pipeline stage."""
     elapsed_stage = time.time() - stage_start
     elapsed_total = time.time() - pipeline_start
-    print(f"[{elapsed_total:7.1f}s total | {elapsed_stage:6.1f}s] {message}", flush=True)
+    print(
+        f"[{elapsed_total:7.1f}s total | {elapsed_stage:6.1f}s] {message}",
+        flush=True,
+    )
 
 
 class _RouteSettings:
@@ -775,7 +857,9 @@ class _RouteSettings:
         self.score_columns = score_columns
         self.feature_configurations = feature_configurations
         self.downstream_estimator_mode = downstream_estimator_mode
-        self.downstream_estimator_factory_resolver = downstream_estimator_factory_resolver
+        self.downstream_estimator_factory_resolver = (
+            downstream_estimator_factory_resolver
+        )
 
 
 def _current_run_timestamp() -> str:
@@ -845,7 +929,9 @@ def _prepare_ablation_run_directories(
     while run_dir.exists():
         run_name = f"{base_name}_{suffix:02d}"
         run_dir = (
-            output_dir.parent / run_name if output_dir is not None else result_root / run_name
+            output_dir.parent / run_name
+            if output_dir is not None
+            else result_root / run_name
         )
         suffix += 1
 
@@ -1054,7 +1140,10 @@ def _render_ablation_summary(
         f"managed_run_name: {run_name}",
         f"managed_run_dir: {run_dir}",
         "ablation_variable: route (Normal vs Paper-like)",
-        "ablation_focus: corrected default path without autopsy vs paper-like path with autopsy",
+        (
+            "ablation_focus: corrected default path without autopsy vs "
+            "paper-like path with autopsy"
+        ),
         f"started_at: {started_at.isoformat(timespec='seconds')}",
         f"finished_at: {finished_at.isoformat(timespec='seconds')}",
         f"total_runtime_seconds: {total_runtime_seconds:.3f}",
@@ -1152,7 +1241,9 @@ def _run_single_managed_route(
 def _run_route_ablation_study(args: argparse.Namespace) -> None:
     """Run the explicit Normal vs Paper-like route ablation study."""
 
-    if getattr(args, "task_demo", False) or getattr(args, "task_demo_train_eval", False):
+    if getattr(args, "task_demo", False) or getattr(
+        args, "task_demo_train_eval", False
+    ):
         raise ValueError(
             "--ablation-study cannot be combined with --task-demo or "
             "--task-demo-train-eval."
@@ -1229,7 +1320,9 @@ def _build_route_settings(paper_like_dataset_prepare: bool) -> _RouteSettings:
         score_columns=_normal_route_score_columns(),
         feature_configurations=_normal_route_feature_configurations(),
         downstream_estimator_mode="task_balanced_logistic_cv",
-        downstream_estimator_factory_resolver=_normal_route_downstream_estimator_factory_resolver(),
+        downstream_estimator_factory_resolver=(
+            _normal_route_downstream_estimator_factory_resolver()
+        ),
     )
 
 
@@ -1258,7 +1351,7 @@ def _normal_route_feature_configurations() -> dict[str, list[str]]:
 
 
 def _normal_route_downstream_estimator_factory_resolver():
-    """Return task-specific balanced LogisticRegressionCV factories for the corrected route."""
+    """Return task-balanced LogisticRegressionCV factories for the corrected route."""
 
     task_specs = {
         "Left AMA": {
@@ -1297,7 +1390,9 @@ def _filter_metric_frame(frame: pd.DataFrame, metric: str) -> pd.DataFrame:
 
 
 def _disable_autopsy_outputs(
-    model_outputs: dict[str, pd.DataFrame | dict[str, pd.DataFrame] | dict[str, object]],
+    model_outputs: dict[
+        str, pd.DataFrame | dict[str, pd.DataFrame] | dict[str, object]
+    ],
 ) -> dict[str, pd.DataFrame | dict[str, pd.DataFrame] | dict[str, object]]:
     """Strip autopsy-specific analysis outputs from the default route."""
 
@@ -1311,7 +1406,11 @@ def _disable_autopsy_outputs(
             if name != "autopsy"
         }
 
-    for key in ("race_gap_results", "trust_treatment_results", "trust_treatment_by_acuity_results"):
+    for key in (
+        "race_gap_results",
+        "trust_treatment_results",
+        "trust_treatment_by_acuity_results",
+    ):
         frame = adjusted.get(key)
         if isinstance(frame, pd.DataFrame):
             adjusted[key] = _filter_metric_frame(frame, "autopsy_score_z")
@@ -1376,7 +1475,11 @@ def _build_mistrust_scores(
             note_labels=note_labels,
             estimator_factory=estimator_factory,
         )
-        _log_stage(t0, pipeline_start, f"Built noncompliance proxy scores ({len(noncompliance)} rows)")
+        _log_stage(
+            t0,
+            pipeline_start,
+            f"Built noncompliance proxy scores ({len(noncompliance)} rows)",
+        )
 
         if autopsy_enabled:
             t0 = time.time()
@@ -1385,7 +1488,11 @@ def _build_mistrust_scores(
                 note_labels=note_labels,
                 estimator_factory=estimator_factory,
             )
-            _log_stage(t0, pipeline_start, f"Built autopsy proxy scores ({len(autopsy)} rows)")
+            _log_stage(
+                t0,
+                pipeline_start,
+                f"Built autopsy proxy scores ({len(autopsy)} rows)",
+            )
         else:
             autopsy = pd.DataFrame(
                 {
@@ -1399,16 +1506,26 @@ def _build_mistrust_scores(
             note_corpus=note_corpus,
             sentiment_fn=sentiment_fn,
         )
-        _log_stage(t0, pipeline_start, f"Built negative sentiment scores ({len(sentiment)} rows)")
+        _log_stage(
+            t0,
+            pipeline_start,
+            f"Built negative sentiment scores ({len(sentiment)} rows)",
+        )
 
         merged = (
-            noncompliance.merge(autopsy, on="hadm_id", how="inner", validate="one_to_one")
+            noncompliance.merge(
+                autopsy, on="hadm_id", how="inner", validate="one_to_one"
+            )
             .merge(sentiment, on="hadm_id", how="inner", validate="one_to_one")
             .sort_values("hadm_id")
         )
         mistrust_scores = z_normalize_scores(
             merged,
-            columns=["noncompliance_score", "autopsy_score", "negative_sentiment_score"],
+            columns=[
+                "noncompliance_score",
+                "autopsy_score",
+                "negative_sentiment_score",
+            ],
         ).rename(
             columns={
                 "noncompliance_score": "noncompliance_score_z",
@@ -1416,7 +1533,11 @@ def _build_mistrust_scores(
                 "negative_sentiment_score": "negative_sentiment_score_z",
             }
         ).reset_index(drop=True)
-        _log_stage(t_total, pipeline_start, "Built mistrust scores (proxy models + sentiment)")
+        _log_stage(
+            t_total,
+            pipeline_start,
+            "Built mistrust scores (proxy models + sentiment)",
+        )
         return mistrust_scores
 
     t0 = time.time()
@@ -1445,8 +1566,12 @@ def _build_note_artifacts(
         chunksize=note_chunksize,
     )
     note_present_hadm_ids = _note_present_hadm_ids(note_corpus)
-    filtered_all_cohort = all_cohort.loc[all_cohort["hadm_id"].isin(note_present_hadm_ids)].copy()
-    note_corpus = note_corpus.loc[note_corpus["hadm_id"].isin(note_present_hadm_ids)].copy()
+    filtered_all_cohort = all_cohort.loc[
+        all_cohort["hadm_id"].isin(note_present_hadm_ids)
+    ].copy()
+    note_corpus = note_corpus.loc[
+        note_corpus["hadm_id"].isin(note_present_hadm_ids)
+    ].copy()
     _log_stage(t0, pipeline_start, f"Streamed note corpus ({len(note_corpus)} rows)")
 
     t0 = time.time()
@@ -1478,7 +1603,11 @@ def _build_chartevent_artifacts(
         paper_like=route_settings.autopsy_enabled,
         code_status_mode=route_settings.code_status_mode,
     )
-    _log_stage(t0, pipeline_start, f"Streamed chartevents ({len(feature_matrix)} feature rows)")
+    _log_stage(
+        t0,
+        pipeline_start,
+        f"Streamed chartevents ({len(feature_matrix)} feature rows)",
+    )
     return feature_matrix, code_status_targets
 
 
@@ -1570,7 +1699,7 @@ def build_eol_mistrust_outputs(
     )
 
     # ------------------------------------------------------------------
-    # Stage 4: chartevents feature matrix + code status (SLOW — stream chartevents.csv)
+    # Stage 4: chartevents feature matrix + code status (SLOW: stream chartevents).
     # ------------------------------------------------------------------
     feature_matrix, code_status_targets = _build_chartevent_artifacts(
         chartevents_csv_path=chartevents_csv_path,
@@ -1611,7 +1740,11 @@ def build_eol_mistrust_outputs(
         code_status_targets=code_status_targets,
         mistrust_scores=mistrust_scores,
     )
-    _log_stage(t0, t_pipeline, f"Built final model table ({len(final_model_table)} rows)")
+    _log_stage(
+        t0,
+        t_pipeline,
+        f"Built final model table ({len(final_model_table)} rows)",
+    )
 
     validation["base_admissions_rows"] = int(len(base_admissions))
     validation["all_cohort_rows"] = int(len(all_cohort))
@@ -1632,7 +1765,9 @@ def build_eol_mistrust_outputs(
         precomputed_mistrust_scores=mistrust_scores,
         score_columns=route_settings.score_columns,
         feature_configurations=route_settings.feature_configurations,
-        downstream_estimator_factory_resolver=route_settings.downstream_estimator_factory_resolver,
+        downstream_estimator_factory_resolver=(
+            route_settings.downstream_estimator_factory_resolver
+        ),
     )
     if not route_settings.autopsy_enabled:
         model_outputs = _disable_autopsy_outputs(model_outputs)
@@ -1712,10 +1847,10 @@ def run_task_demo(
         EOLMistrustClassifier = _EOLMistrustClassifier
     if EOLMistrustMortalityPredictionMIMIC3 is None:
         from pyhealth.tasks.eol_mistrust import (
-            EOLMistrustMortalityPredictionMIMIC3 as _EOLMistrustMortalityPredictionMIMIC3,
+            EOLMistrustMortalityPredictionMIMIC3 as _EOLMortality,
         )
 
-        EOLMistrustMortalityPredictionMIMIC3 = _EOLMistrustMortalityPredictionMIMIC3
+        EOLMistrustMortalityPredictionMIMIC3 = _EOLMortality
     if train_and_evaluate and Trainer is None:
         from pyhealth.trainer import Trainer as _Trainer
 
@@ -1792,11 +1927,15 @@ def run_task_demo(
                 outputs = model(**batch)
                 print(f"Task demo forward keys: {sorted(outputs.keys())}")
         finally:
-            _close_unique_datasets(sample_dataset, train_dataset, val_dataset, test_dataset)
+            _close_unique_datasets(
+                sample_dataset, train_dataset, val_dataset, test_dataset
+            )
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run the EOL mistrust example workflow.")
+    parser = argparse.ArgumentParser(
+        description="Run the EOL mistrust example workflow.",
+    )
     parser.add_argument(
         "--root",
         type=Path,

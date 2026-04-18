@@ -36,6 +36,34 @@ class EOLMistrustClassifier(BaseModel):
         hidden_dim: Hidden layer width before the output head.
         dropout: Dropout applied to the pooled patient representation.
         text_hash_buckets: Number of buckets for hashed text embeddings.
+
+    Attributes:
+        label_key: The single label field name consumed from the task schema.
+        embedding_dim: Dimension of every per-modality pooled representation.
+        hidden_dim: Width of the hidden layer before the classification head.
+        text_hash_buckets: Vocabulary size (excluding pad) for text embeddings.
+        sequence_embeddings: ``nn.ModuleDict`` of learned sequence embeddings.
+        tensor_projections: ``nn.ModuleDict`` of linear tensor projections.
+        text_embeddings: ``nn.ModuleDict`` of hashed-token text embeddings.
+        hidden_layer: Linear layer that mixes concatenated modality features.
+        output_layer: Final linear head producing task logits.
+
+    Raises:
+        ValueError: If the task has anything other than exactly one label key.
+        TypeError: If the task schema contains a processor type this model does
+            not support (only sequence, tensor, and text are handled).
+
+    Example:
+        >>> from pyhealth.datasets import EOLMistrustDataset
+        >>> from pyhealth.tasks import EOLMistrustMortalityPredictionMIMIC3
+        >>> from pyhealth.models import EOLMistrustClassifier
+        >>> dataset = EOLMistrustDataset(root="/data/eol_mistrust")
+        >>> samples = dataset.set_task(EOLMistrustMortalityPredictionMIMIC3())
+        >>> model = EOLMistrustClassifier(
+        ...     dataset=samples,
+        ...     embedding_dim=32,
+        ...     hidden_dim=64,
+        ... )
     """
 
     def __init__(
@@ -46,6 +74,22 @@ class EOLMistrustClassifier(BaseModel):
         dropout: float = 0.1,
         text_hash_buckets: int = 2048,
     ) -> None:
+        """Build the multimodal classification head over the task schema.
+
+        Args:
+            dataset: Fitted :class:`~pyhealth.datasets.SampleDataset`.
+            embedding_dim: Shared per-modality embedding dimension.
+            hidden_dim: Width of the hidden layer before the output head.
+            dropout: Dropout probability applied to the patient representation.
+            text_hash_buckets: Number of hashed text token buckets (the
+                embedding table has ``text_hash_buckets + 1`` rows, with row 0
+                reserved for padding).
+
+        Raises:
+            ValueError: If the task does not have exactly one label key.
+            TypeError: If a processor in the schema is not a sequence, tensor,
+                or text processor.
+        """
         super().__init__(dataset)
 
         if len(self.label_keys) != 1:
@@ -155,6 +199,26 @@ class EOLMistrustClassifier(BaseModel):
         return (embeddings * mask).sum(dim=1) / denom
 
     def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
+        """Run a forward pass over one batch of task samples.
+
+        Each feature in ``self.feature_keys`` is routed to the appropriate
+        per-modality handler (sequence mean pool, tensor projection, or hashed
+        text embedding), the results are concatenated, and a two-layer MLP
+        produces logits for the single task label.
+
+        Args:
+            **kwargs: Batch dictionary with one entry per task feature key and
+                one entry for the task label key. Values may be tensors
+                (sequence / tensor features) or strings / sequences of strings
+                (text features).
+
+        Returns:
+            Dict with keys ``loss``, ``y_prob``, ``y_true``, and ``logit``, as
+            expected by :class:`~pyhealth.trainer.Trainer`.
+
+        Raises:
+            KeyError: If an unexpected feature key is encountered at runtime.
+        """
         pooled_features = []
 
         for feature_key in self.feature_keys:

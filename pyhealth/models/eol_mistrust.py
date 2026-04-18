@@ -37,10 +37,11 @@ except ModuleNotFoundError:  # pragma: no cover
     pearsonr = None
 
 try:
-    from sklearn.linear_model import LogisticRegression, LogisticRegressionCV  # pylint: disable=import-error
-    from sklearn.metrics import roc_auc_score  # pylint: disable=import-error
-    from sklearn.model_selection import GroupShuffleSplit, train_test_split  # pylint: disable=import-error
-    from sklearn.preprocessing import StandardScaler  # pylint: disable=import-error
+    # pylint: disable=import-error
+    from sklearn.linear_model import LogisticRegression, LogisticRegressionCV
+    from sklearn.metrics import roc_auc_score
+    from sklearn.model_selection import GroupShuffleSplit, train_test_split
+    from sklearn.preprocessing import StandardScaler
 except ModuleNotFoundError:  # pragma: no cover
     class LogisticRegression:  # type: ignore[no-redef]
         """Fallback estimator preserving the sklearn constructor surface."""
@@ -131,7 +132,10 @@ DOWNSTREAM_FEATURE_CONFIGS = OrderedDict(
     [
         ("Baseline", list(BASELINE_FEATURE_COLUMNS)),
         ("Baseline + Race", list(BASELINE_FEATURE_COLUMNS + RACE_FEATURE_COLUMNS)),
-        ("Baseline + Noncompliant", list(BASELINE_FEATURE_COLUMNS + ["noncompliance_score_z"])),
+        (
+            "Baseline + Noncompliant",
+            list(BASELINE_FEATURE_COLUMNS + ["noncompliance_score_z"]),
+        ),
         ("Baseline + Autopsy", list(BASELINE_FEATURE_COLUMNS + ["autopsy_score_z"])),
         (
             "Baseline + Neg-Sentiment",
@@ -139,7 +143,11 @@ DOWNSTREAM_FEATURE_CONFIGS = OrderedDict(
         ),
         (
             "Baseline + ALL",
-            list(BASELINE_FEATURE_COLUMNS + RACE_FEATURE_COLUMNS + MISTRUST_SCORE_COLUMNS),
+            list(
+                BASELINE_FEATURE_COLUMNS
+                + RACE_FEATURE_COLUMNS
+                + MISTRUST_SCORE_COLUMNS
+            ),
         ),
     ]
 )
@@ -147,10 +155,14 @@ DOWNSTREAM_FEATURE_CONFIGS = OrderedDict(
 
 DEFAULT_TRANSFORMERS_SENTIMENT_BATCH_SIZE = 64
 
-_SENTIMENT_BATCH_BACKEND: Callable[[Sequence[str]], list[tuple[float, float]]] | None = None
+_SENTIMENT_BATCH_BACKEND: (
+    Callable[[Sequence[str]], list[tuple[float, float]]] | None
+) = None
 
 
-def _parse_transformers_sentiment_output(result: Mapping[str, object]) -> tuple[float, float]:
+def _parse_transformers_sentiment_output(
+    result: Mapping[str, object],
+) -> tuple[float, float]:
     """Convert a transformers pipeline output row into the repo sentiment tuple."""
 
     label = str(result.get("label", "")).upper()
@@ -173,7 +185,9 @@ def _load_transformers_sentiment_batch(
 
     pipeline_factory = getattr(transformers_module, "pipeline", None)
     if not callable(pipeline_factory):
-        raise ModuleNotFoundError("transformers.pipeline is unavailable in the current environment.")
+        raise ModuleNotFoundError(
+            "transformers.pipeline is unavailable in the current environment."
+        )
 
     try:  # pragma: no cover - logging surface depends on transformers version
         transformers_logging = importlib.import_module("transformers.utils.logging")
@@ -183,7 +197,9 @@ def _load_transformers_sentiment_batch(
     except Exception:
         pass
 
-    use_cuda = bool(getattr(torch_module, "cuda", None) and torch_module.cuda.is_available())
+    use_cuda = bool(
+        getattr(torch_module, "cuda", None) and torch_module.cuda.is_available()
+    )
     device = 0 if use_cuda else -1
     classifier = pipeline_factory(
         "sentiment-analysis",
@@ -191,7 +207,9 @@ def _load_transformers_sentiment_batch(
         device=device,
     )
 
-    def _transformers_sentiment_batch(texts: Sequence[str]) -> list[tuple[float, float]]:
+    def _transformers_sentiment_batch(
+        texts: Sequence[str],
+    ) -> list[tuple[float, float]]:
         cleaned_texts = [_prepare_note_text_for_sentiment(text) for text in texts]
         outputs = [(0.0, 0.0) for _ in cleaned_texts]
 
@@ -401,7 +419,9 @@ def _resolve_downstream_estimator_factory(
         resolved = downstream_estimator_factory_resolver(task_name, config_name)
         if resolved is not None:
             return resolved
-    return _default_estimator_factory if estimator_factory is None else estimator_factory
+    return (
+        _default_estimator_factory if estimator_factory is None else estimator_factory
+    )
 
 
 def _extract_positive_class_probabilities(probabilities) -> np.ndarray:
@@ -410,7 +430,8 @@ def _extract_positive_class_probabilities(probabilities) -> np.ndarray:
     probability_array = np.asarray(probabilities, dtype=float)
     if probability_array.ndim != 2 or probability_array.shape[1] < 2:
         raise IndexError(
-            "Estimator `predict_proba` output must have shape (n_samples, n_classes>=2)."
+            "Estimator `predict_proba` output must have shape "
+            "(n_samples, n_classes>=2)."
         )
     return probability_array[:, 1]
 
@@ -422,7 +443,7 @@ def _score_column_name(label_column: str) -> str:
 
 
 class _ConstantProbabilityEstimator:
-    """Degenerate proxy estimator that predicts a constant positive-class probability."""
+    """Proxy estimator that predicts a constant positive-class probability."""
 
     def __init__(self, positive_probability: float):
         self.positive_probability = float(positive_probability)
@@ -439,7 +460,10 @@ class _ConstantProbabilityEstimator:
         self.coef_ = np.zeros((1, n_features), dtype=float)
         probability = self.positive_probability
         if 0.0 < probability < 1.0:
-            self.intercept_ = np.array([float(np.log(probability / (1.0 - probability)))], dtype=float)
+            self.intercept_ = np.array(
+                [float(np.log(probability / (1.0 - probability)))],
+                dtype=float,
+            )
         return self
 
     def predict_proba(self, X):
@@ -500,7 +524,8 @@ def _iter_downstream_jobs(
             if n_pos < 10:
                 warnings.warn(
                     f"Downstream task '{task_name}' / config '{config_name}' has only "
-                    f"{n_pos} positive examples in the cohort (minimum 10 recommended). "
+                    f"{n_pos} positive examples in the cohort "
+                    "(minimum 10 recommended). "
                     "AUC results for this combination will be NaN.",
                     UserWarning,
                     stacklevel=2,
@@ -514,15 +539,18 @@ def _iter_downstream_jobs_with_estimators(
     feature_configurations: Mapping[str, Sequence[str]] | None = None,
     task_map: Mapping[str, str] | None = None,
     estimator_factory: Callable[[], object] | None = None,
-    downstream_estimator_factory_resolver: DownstreamEstimatorFactoryResolver | None = None,
+    downstream_estimator_factory_resolver: (
+        DownstreamEstimatorFactoryResolver | None
+    ) = None,
 ):
     """Yield downstream jobs together with the resolved estimator factory."""
 
-    for task_name, target_column, config_name, feature_columns, usable, X, y in _iter_downstream_jobs(
+    jobs = _iter_downstream_jobs(
         final_model_table,
         feature_configurations=feature_configurations,
         task_map=task_map,
-    ):
+    )
+    for task_name, target_column, config_name, feature_columns, usable, X, y in jobs:
         yield (
             task_name,
             target_column,
@@ -535,7 +563,9 @@ def _iter_downstream_jobs_with_estimators(
                 task_name=task_name,
                 config_name=config_name,
                 estimator_factory=estimator_factory,
-                downstream_estimator_factory_resolver=downstream_estimator_factory_resolver,
+                downstream_estimator_factory_resolver=(
+                    downstream_estimator_factory_resolver
+                ),
             ),
         )
 
@@ -564,7 +594,9 @@ def _downstream_split_with_optional_grouping(
 
     groups = pd.to_numeric(usable["subject_id"], errors="coerce")
     if groups.isna().any():
-        raise ValueError("Downstream final_model_table contains null subject_id values.")
+        raise ValueError(
+            "Downstream final_model_table contains null subject_id values."
+        )
     splitter = GroupShuffleSplit(
         n_splits=1,
         test_size=test_size,
@@ -644,7 +676,9 @@ def _prepare_proxy_training_frame(
     _require_columns(feature_matrix, ["hadm_id"], "feature_matrix")
     _require_columns(note_labels, ["hadm_id", label_column], "note_labels")
 
-    feature_columns = [column for column in feature_matrix.columns if column != "hadm_id"]
+    feature_columns = [
+        column for column in feature_matrix.columns if column != "hadm_id"
+    ]
     merged = feature_matrix.merge(
         note_labels[["hadm_id", label_column]],
         on="hadm_id",
@@ -661,7 +695,14 @@ def _make_metric_result(
     left = pd.to_numeric(left, errors="coerce").dropna().astype(float)
     right = pd.to_numeric(right, errors="coerce").dropna().astype(float)
     if left.empty or right.empty:
-        return float("nan"), float("nan"), float("nan"), float("nan"), len(left), len(right)
+        return (
+            float("nan"),
+            float("nan"),
+            float("nan"),
+            float("nan"),
+            len(left),
+            len(right),
+        )
 
     left_median = float(left.median())
     right_median = float(right.median())
@@ -720,7 +761,9 @@ def _assign_severity_bins(
 def build_empirical_cdf_curve(values: Iterable[float]) -> pd.DataFrame:
     """Build a plot-ready empirical CDF curve from numeric values."""
 
-    series = pd.to_numeric(pd.Series(list(values)), errors="coerce").dropna().astype(float)
+    series = (
+        pd.to_numeric(pd.Series(list(values)), errors="coerce").dropna().astype(float)
+    )
     series = series.sort_values().reset_index(drop=True)
     if series.empty:
         return pd.DataFrame(columns=["x", "cdf"])
@@ -731,7 +774,9 @@ def build_empirical_cdf_curve(values: Iterable[float]) -> pd.DataFrame:
 def get_downstream_feature_configurations() -> OrderedDict[str, list[str]]:
     """Return the six required downstream feature configurations."""
 
-    return OrderedDict((name, list(columns)) for name, columns in DOWNSTREAM_FEATURE_CONFIGS.items())
+    return OrderedDict(
+        (name, list(columns)) for name, columns in DOWNSTREAM_FEATURE_CONFIGS.items()
+    )
 
 
 def get_downstream_task_map() -> OrderedDict[str, str]:
@@ -751,7 +796,9 @@ def fit_proxy_mistrust_model(
     Rows where ``label_column`` is NaN are excluded from training.
     """
 
-    merged, feature_columns = _prepare_proxy_training_frame(feature_matrix, note_labels, label_column)
+    merged, feature_columns = _prepare_proxy_training_frame(
+        feature_matrix, note_labels, label_column
+    )
     labeled_mask = merged[label_column].notna()
     train = merged.loc[labeled_mask].copy()
     train_labels = train[label_column].astype(int)
@@ -760,9 +807,14 @@ def fit_proxy_mistrust_model(
     if train.empty or len(observed_classes) < 2:
         _warn_degenerate_proxy_training(label_column, observed_classes, len(train))
         probability = float(observed_classes[0]) if observed_classes else 0.0
-        return _ConstantProbabilityEstimator(probability).fit(train[feature_columns], train_labels)
+        return _ConstantProbabilityEstimator(probability).fit(
+            train[feature_columns], train_labels
+        )
 
-    estimator = _default_estimator_factory() if estimator_factory is None else estimator_factory()
+    estimator = (
+        _default_estimator_factory() if estimator_factory is None
+        else estimator_factory()
+    )
     estimator.fit(train[feature_columns], train_labels)
     return estimator
 
@@ -782,7 +834,9 @@ def build_proxy_probability_scores(
     are produced for all patients.
     """
 
-    merged, feature_columns = _prepare_proxy_training_frame(feature_matrix, note_labels, label_column)
+    merged, feature_columns = _prepare_proxy_training_frame(
+        feature_matrix, note_labels, label_column
+    )
     score_column = _score_column_name(label_column)
 
     labeled_mask = merged[label_column].notna()
@@ -795,7 +849,10 @@ def build_proxy_probability_scores(
         default_prob = float(observed_classes[0]) if observed_classes else 0.0
         positive_class = np.full(len(merged), default_prob, dtype=float)
     else:
-        estimator = _default_estimator_factory() if estimator_factory is None else estimator_factory()
+        estimator = (
+        _default_estimator_factory() if estimator_factory is None
+        else estimator_factory()
+    )
         estimator.fit(train[feature_columns], train_labels)
         positive_class = _extract_positive_class_probabilities(
             estimator.predict_proba(merged[feature_columns])
@@ -807,7 +864,11 @@ def build_proxy_probability_scores(
             score_column: positive_class.astype(float),
         }
     )
-    return scores.sort_values("hadm_id").drop_duplicates("hadm_id").reset_index(drop=True)
+    return (
+        scores.sort_values("hadm_id")
+        .drop_duplicates("hadm_id")
+        .reset_index(drop=True)
+    )
 
 
 def build_noncompliance_mistrust_scores(
@@ -852,18 +913,26 @@ def build_negative_sentiment_mistrust_scores(
     cleaned = note_corpus.copy()
     cleaned["note_text"] = cleaned["note_text"].map(_prepare_note_text_for_sentiment)
     if sentiment_fn is None:
-        sentiment_scores = _default_sentiment_batch_backend(cleaned["note_text"].tolist())
+        sentiment_scores = _default_sentiment_batch_backend(
+            cleaned["note_text"].tolist()
+        )
     else:
         empty_mask = cleaned["note_text"] == ""
         sentiment_scores = [(0.0, 0.0)] * len(cleaned)
-        non_empty_indices = [index for index, is_empty in enumerate(empty_mask) if not is_empty]
+        non_empty_indices = [
+            index for index, is_empty in enumerate(empty_mask) if not is_empty
+        ]
         for index in non_empty_indices:
             sentiment_scores[index] = sentiment_fn(cleaned["note_text"].iloc[index])
 
     cleaned["negative_sentiment_score"] = [
         float(-1.0 * score[0]) for score in sentiment_scores
     ]
-    return cleaned[["hadm_id", "negative_sentiment_score"]].sort_values("hadm_id").reset_index(drop=True)
+    return (
+        cleaned[["hadm_id", "negative_sentiment_score"]]
+        .sort_values("hadm_id")
+        .reset_index(drop=True)
+    )
 
 
 def z_normalize_scores(
@@ -878,7 +947,8 @@ def z_normalize_scores(
         score_columns = [
             column
             for column in normalized.columns
-            if column != "hadm_id" and (column.endswith("_score") or column.endswith("_score_z"))
+            if column != "hadm_id"
+            and (column.endswith("_score") or column.endswith("_score_z"))
         ]
     else:
         score_columns = list(columns)
@@ -904,7 +974,9 @@ def build_mistrust_score_table(
 ) -> pd.DataFrame:
     """Build the three normalized mistrust metrics."""
 
-    _require_columns(note_labels, ["hadm_id", *PROXY_LABEL_COLUMNS.values()], "note_labels")
+    _require_columns(
+        note_labels, ["hadm_id", *PROXY_LABEL_COLUMNS.values()], "note_labels"
+    )
     _require_columns(note_corpus, ["hadm_id", "note_text"], "note_corpus")
 
     proxy_scores: OrderedDict[str, pd.DataFrame] = OrderedDict()
@@ -925,11 +997,16 @@ def build_mistrust_score_table(
         if merged is None:
             merged = score_table
             continue
-        merged = merged.merge(score_table, on="hadm_id", how="inner", validate="one_to_one")
+        merged = merged.merge(
+            score_table, on="hadm_id", how="inner", validate="one_to_one"
+        )
     assert merged is not None
     merged = merged.sort_values("hadm_id")
 
-    raw_score_columns = [_score_column_name(label_column) for label_column in PROXY_LABEL_COLUMNS.values()]
+    raw_score_columns = [
+        _score_column_name(label_column)
+        for label_column in PROXY_LABEL_COLUMNS.values()
+    ]
     rename_map = {
         _score_column_name(label_column): f"{proxy_name}_score_z"
         for proxy_name, label_column in PROXY_LABEL_COLUMNS.items()
@@ -961,10 +1038,18 @@ def summarize_feature_weights(
     if len(weights) != len(feature_columns):
         raise ValueError("Feature columns must align with estimator coefficients.")
 
-    summary = pd.DataFrame({"feature": list(feature_columns), "weight": weights.astype(float)})
-    summary = summary.sort_values(["weight", "feature"], ascending=[False, True]).reset_index(drop=True)
+    summary = pd.DataFrame(
+        {"feature": list(feature_columns), "weight": weights.astype(float)}
+    )
+    summary = summary.sort_values(
+        ["weight", "feature"], ascending=[False, True]
+    ).reset_index(drop=True)
     positive = summary.head(top_n).reset_index(drop=True)
-    negative = summary.sort_values(["weight", "feature"], ascending=[True, True]).head(top_n).reset_index(drop=True)
+    negative = (
+        summary.sort_values(["weight", "feature"], ascending=[True, True])
+        .head(top_n)
+        .reset_index(drop=True)
+    )
     return {"all": summary, "positive": positive, "negative": negative}
 
 
@@ -977,7 +1062,9 @@ def build_proxy_feature_weight_summary(
 ) -> dict[str, pd.DataFrame]:
     """Fit a proxy model and summarize the learned coefficient weights."""
 
-    _, feature_columns = _prepare_proxy_training_frame(feature_matrix, note_labels, label_column)
+    _, feature_columns = _prepare_proxy_training_frame(
+        feature_matrix, note_labels, label_column
+    )
     estimator = fit_proxy_mistrust_model(
         feature_matrix=feature_matrix,
         note_labels=note_labels,
@@ -1043,7 +1130,14 @@ def run_race_gap_analysis(
     for column in columns:
         black = merged.loc[merged[race_column] == RACE_BLACK, column]
         white = merged.loc[merged[race_column] == RACE_WHITE, column]
-        statistic, pvalue, median_black, median_white, n_black, n_white = _make_metric_result(
+        (
+            statistic,
+            pvalue,
+            median_black,
+            median_white,
+            n_black,
+            n_white,
+        ) = _make_metric_result(
             black, white
         )
         rows.append(
@@ -1076,9 +1170,13 @@ def run_race_based_treatment_analysis(
     """Compare Black and White treatment durations within the EOL cohort."""
 
     _require_columns(eol_cohort, ["hadm_id", race_column], "eol_cohort")
-    _require_columns(treatment_totals, ["hadm_id", *treatment_columns], "treatment_totals")
+    _require_columns(
+        treatment_totals, ["hadm_id", *treatment_columns], "treatment_totals"
+    )
 
-    merged = eol_cohort.merge(treatment_totals, on="hadm_id", how="left", validate="one_to_one")
+    merged = eol_cohort.merge(
+        treatment_totals, on="hadm_id", how="left", validate="one_to_one"
+    )
     merged = merged.loc[merged[race_column].isin({RACE_WHITE, RACE_BLACK})].copy()
 
     rows: list[dict[str, float | int | str]] = []
@@ -1086,7 +1184,14 @@ def run_race_based_treatment_analysis(
         usable = merged.loc[merged[column].notna()].copy()
         black = usable.loc[usable[race_column] == RACE_BLACK, column]
         white = usable.loc[usable[race_column] == RACE_WHITE, column]
-        statistic, pvalue, median_black, median_white, n_black, n_white = _make_metric_result(
+        (
+            statistic,
+            pvalue,
+            median_black,
+            median_white,
+            n_black,
+            n_white,
+        ) = _make_metric_result(
             black, white
         )
         rows.append(
@@ -1117,12 +1222,21 @@ def run_race_based_treatment_analysis_by_acuity(
     """Compare Black and White treatment duration within OASIS severity terciles."""
 
     _require_columns(eol_cohort, ["hadm_id", race_column], "eol_cohort")
-    _require_columns(treatment_totals, ["hadm_id", *treatment_columns], "treatment_totals")
+    _require_columns(
+        treatment_totals, ["hadm_id", *treatment_columns], "treatment_totals"
+    )
     _require_columns(acuity_scores, ["hadm_id", acuity_column], "acuity_scores")
 
     merged = (
-        eol_cohort.merge(treatment_totals, on="hadm_id", how="left", validate="one_to_one")
-        .merge(acuity_scores[["hadm_id", acuity_column]], on="hadm_id", how="inner", validate="one_to_one")
+        eol_cohort.merge(
+            treatment_totals, on="hadm_id", how="left", validate="one_to_one"
+        )
+        .merge(
+            acuity_scores[["hadm_id", acuity_column]],
+            on="hadm_id",
+            how="inner",
+            validate="one_to_one",
+        )
     )
     merged = merged.loc[merged[race_column].isin({RACE_WHITE, RACE_BLACK})].copy()
     merged = _assign_severity_bins(merged, acuity_column=acuity_column)
@@ -1135,7 +1249,14 @@ def run_race_based_treatment_analysis_by_acuity(
             ].copy()
             black = usable.loc[usable[race_column] == RACE_BLACK, treatment]
             white = usable.loc[usable[race_column] == RACE_WHITE, treatment]
-            statistic, pvalue, median_black, median_white, n_black, n_white = _make_metric_result(
+            (
+            statistic,
+            pvalue,
+            median_black,
+            median_white,
+            n_black,
+            n_white,
+        ) = _make_metric_result(
                 black,
                 white,
             )
@@ -1163,12 +1284,16 @@ def build_race_based_treatment_cdf_plot_data(
     race_column: str = "race",
     treatment_columns: Sequence[str] = ("total_vent_min", "total_vaso_min"),
 ) -> dict[str, pd.DataFrame]:
-    """Build plot-ready CDF curves and median markers for race-based treatment analysis."""
+    """Build plot-ready CDF curves and medians for race-based treatment analysis."""
 
     _require_columns(eol_cohort, ["hadm_id", race_column], "eol_cohort")
-    _require_columns(treatment_totals, ["hadm_id", *treatment_columns], "treatment_totals")
+    _require_columns(
+        treatment_totals, ["hadm_id", *treatment_columns], "treatment_totals"
+    )
 
-    merged = eol_cohort.merge(treatment_totals, on="hadm_id", how="left", validate="one_to_one")
+    merged = eol_cohort.merge(
+        treatment_totals, on="hadm_id", how="left", validate="one_to_one"
+    )
     merged = merged.loc[merged[race_column].isin({RACE_WHITE, RACE_BLACK})].copy()
 
     curves: list[dict[str, float | str]] = []
@@ -1187,7 +1312,9 @@ def build_race_based_treatment_cdf_plot_data(
                         "cdf": float(row.cdf),
                     }
                 )
-            median = pd.to_numeric(values, errors="coerce").dropna().astype(float).median()
+            median = (
+                pd.to_numeric(values, errors="coerce").dropna().astype(float).median()
+            )
             medians.append(
                 {
                     "treatment": treatment,
@@ -1212,14 +1339,23 @@ def run_trust_based_treatment_analysis(
 
     _require_columns(eol_cohort, ["hadm_id"], "eol_cohort")
     _require_columns(mistrust_scores, ["hadm_id"], "mistrust_scores")
-    _require_columns(treatment_totals, ["hadm_id", *treatment_columns], "treatment_totals")
+    _require_columns(
+        treatment_totals, ["hadm_id", *treatment_columns], "treatment_totals"
+    )
 
     columns = list(MISTRUST_SCORE_COLUMNS if score_columns is None else score_columns)
     _require_columns(mistrust_scores, columns, "mistrust_scores")
 
     merged = (
-        eol_cohort.merge(treatment_totals, on="hadm_id", how="left", validate="one_to_one")
-        .merge(mistrust_scores[["hadm_id", *columns]], on="hadm_id", how="inner", validate="one_to_one")
+        eol_cohort.merge(
+            treatment_totals, on="hadm_id", how="left", validate="one_to_one"
+        )
+        .merge(
+            mistrust_scores[["hadm_id", *columns]],
+            on="hadm_id",
+            how="inner",
+            validate="one_to_one",
+        )
     )
     groups = dict(group_sizes or {})
 
@@ -1236,8 +1372,12 @@ def run_trust_based_treatment_analysis(
     rows: list[dict[str, float | int | str]] = []
     for treatment in treatment_columns:
         for metric in columns:
-            usable = merged.loc[merged[treatment].notna() & merged[metric].notna()].copy()
-            usable = usable.sort_values([metric, "hadm_id"], ascending=[False, True]).reset_index(drop=True)
+            usable = merged.loc[
+                merged[treatment].notna() & merged[metric].notna()
+            ].copy()
+            usable = usable.sort_values(
+                [metric, "hadm_id"], ascending=[False, True]
+            ).reset_index(drop=True)
             group_size = int(groups.get(treatment, 0))
 
             if group_size <= 0 or group_size >= len(usable):
@@ -1259,7 +1399,14 @@ def run_trust_based_treatment_analysis(
 
             high = usable.iloc[:group_size][treatment]
             low = usable.iloc[group_size:][treatment]
-            statistic, pvalue, median_high, median_low, n_high, n_low = _make_metric_result(
+            (
+                statistic,
+                pvalue,
+                median_high,
+                median_low,
+                n_high,
+                n_low,
+            ) = _make_metric_result(
                 high, low
             )
             rows.append(
@@ -1296,21 +1443,30 @@ def run_trust_based_treatment_analysis_by_acuity(
 
     _require_columns(eol_cohort, ["hadm_id"], "eol_cohort")
     _require_columns(mistrust_scores, ["hadm_id"], "mistrust_scores")
-    _require_columns(treatment_totals, ["hadm_id", *treatment_columns], "treatment_totals")
+    _require_columns(
+        treatment_totals, ["hadm_id", *treatment_columns], "treatment_totals"
+    )
     _require_columns(acuity_scores, ["hadm_id", acuity_column], "acuity_scores")
 
     columns = list(MISTRUST_SCORE_COLUMNS if score_columns is None else score_columns)
     _require_columns(mistrust_scores, columns, "mistrust_scores")
 
     merged = (
-        eol_cohort.merge(treatment_totals, on="hadm_id", how="left", validate="one_to_one")
+        eol_cohort.merge(
+            treatment_totals, on="hadm_id", how="left", validate="one_to_one"
+        )
         .merge(
             mistrust_scores[["hadm_id", *columns]],
             on="hadm_id",
             how="inner",
             validate="one_to_one",
         )
-        .merge(acuity_scores[["hadm_id", acuity_column]], on="hadm_id", how="inner", validate="one_to_one")
+        .merge(
+            acuity_scores[["hadm_id", acuity_column]],
+            on="hadm_id",
+            how="inner",
+            validate="one_to_one",
+        )
     )
     merged = _assign_severity_bins(merged, acuity_column=acuity_column)
     explicit_groups = dict(group_sizes or {})
@@ -1326,7 +1482,9 @@ def run_trust_based_treatment_analysis_by_acuity(
             acuity_column=acuity_column,
         )
         for row in race_based.itertuples(index=False):
-            derived_groups[(str(row.severity_bin), str(row.treatment))] = int(row.n_black)
+            derived_groups[(str(row.severity_bin), str(row.treatment))] = int(
+                row.n_black
+            )
 
     rows: list[dict[str, float | int | str]] = []
     for metric in columns:
@@ -1337,9 +1495,9 @@ def run_trust_based_treatment_analysis_by_acuity(
                     & merged[treatment].notna()
                     & merged[metric].notna()
                 ].copy()
-                usable = usable.sort_values([metric, "hadm_id"], ascending=[False, True]).reset_index(
-                    drop=True
-                )
+                usable = usable.sort_values(
+                    [metric, "hadm_id"], ascending=[False, True]
+                ).reset_index(drop=True)
                 group_size = int(
                     explicit_groups.get(
                         treatment,
@@ -1367,7 +1525,14 @@ def run_trust_based_treatment_analysis_by_acuity(
 
                 high = usable.iloc[:group_size][treatment]
                 low = usable.iloc[group_size:][treatment]
-                statistic, pvalue, median_high, median_low, n_high, n_low = _make_metric_result(
+                (
+                statistic,
+                pvalue,
+                median_high,
+                median_low,
+                n_high,
+                n_low,
+            ) = _make_metric_result(
                     high,
                     low,
                 )
@@ -1400,17 +1565,21 @@ def build_trust_based_treatment_cdf_plot_data(
     group_sizes: Mapping[str, int] | None = None,
     race_column: str = "race",
 ) -> dict[str, pd.DataFrame]:
-    """Build plot-ready CDF curves and median markers for trust-based treatment analysis."""
+    """Build plot-ready CDF curves and medians for trust-based treatment analysis."""
 
     _require_columns(eol_cohort, ["hadm_id"], "eol_cohort")
     _require_columns(mistrust_scores, ["hadm_id"], "mistrust_scores")
-    _require_columns(treatment_totals, ["hadm_id", *treatment_columns], "treatment_totals")
+    _require_columns(
+        treatment_totals, ["hadm_id", *treatment_columns], "treatment_totals"
+    )
 
     columns = list(MISTRUST_SCORE_COLUMNS if score_columns is None else score_columns)
     _require_columns(mistrust_scores, columns, "mistrust_scores")
 
     merged = (
-        eol_cohort.merge(treatment_totals, on="hadm_id", how="left", validate="one_to_one")
+        eol_cohort.merge(
+            treatment_totals, on="hadm_id", how="left", validate="one_to_one"
+        )
         .merge(
             mistrust_scores[["hadm_id", *columns]],
             on="hadm_id",
@@ -1433,8 +1602,12 @@ def build_trust_based_treatment_cdf_plot_data(
     medians: list[dict[str, float | str]] = []
     for treatment in treatment_columns:
         for metric in columns:
-            usable = merged.loc[merged[treatment].notna() & merged[metric].notna()].copy()
-            usable = usable.sort_values([metric, "hadm_id"], ascending=[False, True]).reset_index(drop=True)
+            usable = merged.loc[
+                merged[treatment].notna() & merged[metric].notna()
+            ].copy()
+            usable = usable.sort_values(
+                [metric, "hadm_id"], ascending=[False, True]
+            ).reset_index(drop=True)
             group_size = int(groups.get(treatment, 0))
             if group_size <= 0 or group_size >= len(usable):
                 continue
@@ -1455,13 +1628,17 @@ def build_trust_based_treatment_cdf_plot_data(
                             "cdf": float(row.cdf),
                         }
                     )
-                median = pd.to_numeric(values, errors="coerce").dropna().astype(float).median()
+                median = (
+                pd.to_numeric(values, errors="coerce").dropna().astype(float).median()
+            )
                 medians.append(
                     {
                         "metric": metric,
                         "treatment": treatment,
                         "group": label,
-                        "median": float(median) if not pd.isna(median) else float("nan"),
+                        "median": (
+                            float(median) if not pd.isna(median) else float("nan")
+                        ),
                         "line_style": "dotted",
                     }
                 )
@@ -1510,7 +1687,9 @@ def evaluate_downstream_average_weights(
     feature_configurations: Mapping[str, Sequence[str]] | None = None,
     task_map: Mapping[str, str] | None = None,
     estimator_factory: Callable[[], object] | None = None,
-    downstream_estimator_factory_resolver: DownstreamEstimatorFactoryResolver | None = None,
+    downstream_estimator_factory_resolver: (
+        DownstreamEstimatorFactoryResolver | None
+    ) = None,
     split_fn: Callable[..., tuple] | None = None,
     repetitions: int = 100,
     test_size: float = 0.4,
@@ -1563,11 +1742,15 @@ def evaluate_downstream_average_weights(
             coefficients = np.asarray(getattr(estimator, "coef_", None), dtype=float)
             if coefficients.ndim != 2 or coefficients.shape[0] == 0:
                 raise ValueError(
-                    "Downstream estimator must expose `coef_` with shape (n_classes, n_features)."
+                    "Downstream estimator must expose `coef_` with shape "
+                    "(n_classes, n_features)."
                 )
             weights = coefficients[0]
             if len(weights) != len(feature_columns):
-                raise ValueError("Downstream feature columns must align with estimator coefficients.")
+                raise ValueError(
+                    "Downstream feature columns must align with estimator "
+                    "coefficients."
+                )
             collected_weights.append(weights.astype(float))
 
         if collected_weights:
@@ -1589,8 +1772,16 @@ def evaluate_downstream_average_weights(
                     "feature": feature,
                     "n_repeats": int(repetitions),
                     "n_valid_weights": int(n_valid),
-                    "weight_mean": float(weight_mean[index]) if not np.isnan(weight_mean[index]) else float("nan"),
-                    "weight_std": float(weight_std[index]) if not np.isnan(weight_std[index]) else float("nan"),
+                    "weight_mean": (
+                        float(weight_mean[index])
+                        if not np.isnan(weight_mean[index])
+                        else float("nan")
+                    ),
+                    "weight_std": (
+                        float(weight_std[index])
+                        if not np.isnan(weight_std[index])
+                        else float("nan")
+                    ),
                 }
             )
 
@@ -1602,7 +1793,9 @@ def evaluate_downstream_predictions(
     feature_configurations: Mapping[str, Sequence[str]] | None = None,
     task_map: Mapping[str, str] | None = None,
     estimator_factory: Callable[[], object] | None = None,
-    downstream_estimator_factory_resolver: DownstreamEstimatorFactoryResolver | None = None,
+    downstream_estimator_factory_resolver: (
+        DownstreamEstimatorFactoryResolver | None
+    ) = None,
     split_fn: Callable[..., tuple] | None = None,
     auc_fn: Callable[[Iterable[int], Iterable[float]], float] | None = None,
     repetitions: int = 100,
@@ -1666,8 +1859,16 @@ def evaluate_downstream_predictions(
                 "n_features": int(len(feature_columns)),
                 "n_repeats": int(repetitions),
                 "n_valid_auc": int(auc_series.notna().sum()),
-                "auc_mean": float(auc_series.mean()) if auc_series.notna().any() else float("nan"),
-                "auc_std": float(auc_series.std(ddof=0)) if auc_series.notna().any() else float("nan"),
+                "auc_mean": (
+                    float(auc_series.mean())
+                    if auc_series.notna().any()
+                    else float("nan")
+                ),
+                "auc_std": (
+                    float(auc_series.std(ddof=0))
+                    if auc_series.notna().any()
+                    else float("nan")
+                ),
             }
         )
     return pd.DataFrame(rows)
@@ -1691,14 +1892,18 @@ def plot_grouped_treatment_cdf(
     try:
         import matplotlib.pyplot as plt  # type: ignore
     except ModuleNotFoundError as exc:  # pragma: no cover
-        raise ModuleNotFoundError("matplotlib is required for EOL mistrust CDF plotting.") from exc
+        raise ModuleNotFoundError(
+            "matplotlib is required for EOL mistrust CDF plotting."
+        ) from exc
 
     if ax is None:
         _, ax = plt.subplots()
 
     ordered_curves = curves.copy()
     if not ordered_curves.empty:
-        ordered_curves = ordered_curves.sort_values([group_column, x_column]).reset_index(drop=True)
+        ordered_curves = ordered_curves.sort_values(
+            [group_column, x_column]
+        ).reset_index(drop=True)
     for group_value, group_df in ordered_curves.groupby(group_column, sort=False):
         ax.plot(group_df[x_column], group_df[y_column], label=str(group_value))
 
@@ -1743,7 +1948,9 @@ def run_full_eol_mistrust_modeling(
     acuity_scores: pd.DataFrame | None = None,
     final_model_table: pd.DataFrame | None = None,
     estimator_factory: Callable[[], object] | None = None,
-    downstream_estimator_factory_resolver: DownstreamEstimatorFactoryResolver | None = None,
+    downstream_estimator_factory_resolver: (
+        DownstreamEstimatorFactoryResolver | None
+    ) = None,
     sentiment_fn: Callable[[str], tuple[float, float]] | None = None,
     split_fn: Callable[..., tuple] | None = None,
     auc_fn: Callable[[Iterable[int], Iterable[float]], float] | None = None,
@@ -1778,7 +1985,9 @@ def run_full_eol_mistrust_modeling(
         "mistrust_scores": mistrust_scores,
         "feature_weight_summaries": feature_weight_summaries,
     }
-    selected_score_columns = list(MISTRUST_SCORE_COLUMNS if score_columns is None else score_columns)
+    selected_score_columns = list(
+        MISTRUST_SCORE_COLUMNS if score_columns is None else score_columns
+    )
 
     if demographics is not None:
         outputs["race_gap_results"] = run_race_gap_analysis(
@@ -1799,28 +2008,36 @@ def run_full_eol_mistrust_modeling(
             score_columns=selected_score_columns,
         )
         if acuity_scores is not None:
-            outputs["race_treatment_by_acuity_results"] = run_race_based_treatment_analysis_by_acuity(
-                eol_cohort=eol_cohort,
-                treatment_totals=treatment_totals,
-                acuity_scores=acuity_scores,
+            outputs["race_treatment_by_acuity_results"] = (
+                run_race_based_treatment_analysis_by_acuity(
+                    eol_cohort=eol_cohort,
+                    treatment_totals=treatment_totals,
+                    acuity_scores=acuity_scores,
+                )
             )
-            outputs["trust_treatment_by_acuity_results"] = run_trust_based_treatment_analysis_by_acuity(
-                eol_cohort=eol_cohort,
-                mistrust_scores=mistrust_scores,
-                treatment_totals=treatment_totals,
-                acuity_scores=acuity_scores,
-                score_columns=selected_score_columns,
+            outputs["trust_treatment_by_acuity_results"] = (
+                run_trust_based_treatment_analysis_by_acuity(
+                    eol_cohort=eol_cohort,
+                    mistrust_scores=mistrust_scores,
+                    treatment_totals=treatment_totals,
+                    acuity_scores=acuity_scores,
+                    score_columns=selected_score_columns,
+                )
             )
         if include_cdf_plot_data:
-            outputs["race_treatment_cdf_plot_data"] = build_race_based_treatment_cdf_plot_data(
-                eol_cohort=eol_cohort,
-                treatment_totals=treatment_totals,
+            outputs["race_treatment_cdf_plot_data"] = (
+                build_race_based_treatment_cdf_plot_data(
+                    eol_cohort=eol_cohort,
+                    treatment_totals=treatment_totals,
+                )
             )
-            outputs["trust_treatment_cdf_plot_data"] = build_trust_based_treatment_cdf_plot_data(
-                eol_cohort=eol_cohort,
-                mistrust_scores=mistrust_scores,
-                treatment_totals=treatment_totals,
-                score_columns=selected_score_columns,
+            outputs["trust_treatment_cdf_plot_data"] = (
+                build_trust_based_treatment_cdf_plot_data(
+                    eol_cohort=eol_cohort,
+                    mistrust_scores=mistrust_scores,
+                    treatment_totals=treatment_totals,
+                    score_columns=selected_score_columns,
+                )
             )
 
     if acuity_scores is not None:
@@ -1848,7 +2065,9 @@ def run_full_eol_mistrust_modeling(
                 final_model_table=downstream,
                 feature_configurations=feature_configurations,
                 estimator_factory=estimator_factory,
-                downstream_estimator_factory_resolver=downstream_estimator_factory_resolver,
+                downstream_estimator_factory_resolver=(
+                    downstream_estimator_factory_resolver
+                ),
                 split_fn=split_fn,
                 repetitions=repetitions,
             )
@@ -1890,7 +2109,9 @@ class EOLMistrustModel:
     def evaluate_downstream(
         self,
         final_model_table: pd.DataFrame,
-        downstream_estimator_factory_resolver: DownstreamEstimatorFactoryResolver | None = None,
+        downstream_estimator_factory_resolver: (
+        DownstreamEstimatorFactoryResolver | None
+    ) = None,
     ) -> pd.DataFrame:
         return evaluate_downstream_predictions(
             final_model_table=final_model_table,
@@ -1916,7 +2137,9 @@ class EOLMistrustModel:
         precomputed_mistrust_scores: pd.DataFrame | None = None,
         score_columns: Sequence[str] | None = None,
         feature_configurations: Mapping[str, Sequence[str]] | None = None,
-        downstream_estimator_factory_resolver: DownstreamEstimatorFactoryResolver | None = None,
+        downstream_estimator_factory_resolver: (
+        DownstreamEstimatorFactoryResolver | None
+    ) = None,
     ) -> EOLMistrustModelOutputs:
         """Return model-stage outputs only.
 
@@ -1949,12 +2172,21 @@ class EOLMistrustModel:
 
 
 def _default_eol_mistrust_data_root() -> Path:
-    return Path(__file__).resolve().parents[2] / "EOL_Workspace" / "eol_mistrust_required_combined"
+    return (
+        Path(__file__).resolve().parents[2]
+        / "EOL_Workspace"
+        / "eol_mistrust_required_combined"
+    )
 
 
 def _default_eol_mistrust_slice_output_dir() -> Path:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return Path(__file__).resolve().parents[2] / "EOL_Workspace" / "eol_mistrust_runs" / f"e2e_1pct_gpu_{timestamp}"
+    return (
+        Path(__file__).resolve().parents[2]
+        / "EOL_Workspace"
+        / "eol_mistrust_runs"
+        / f"e2e_1pct_gpu_{timestamp}"
+    )
 
 
 def _log_eol_mistrust_runner(start_time: float, message: str) -> None:
@@ -1988,7 +2220,11 @@ def run_eol_mistrust_gpu_slice(
         os.environ["TRANSFORMERS_OFFLINE"] = "1"
     os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
 
-    output_path = _default_eol_mistrust_slice_output_dir() if output_dir is None else Path(output_dir)
+    output_path = (
+        _default_eol_mistrust_slice_output_dir()
+        if output_dir is None
+        else Path(output_dir)
+    )
     output_path.mkdir(parents=True, exist_ok=True)
 
     cuda_available = False
@@ -1997,7 +2233,10 @@ def run_eol_mistrust_gpu_slice(
 
     try:
         torch_module = importlib.import_module("torch")
-        cuda_available = bool(getattr(torch_module, "cuda", None) and torch_module.cuda.is_available())
+        cuda_available = bool(
+            getattr(torch_module, "cuda", None)
+            and torch_module.cuda.is_available()
+        )
         gpu_name = torch_module.cuda.get_device_name(0) if cuda_available else None
         if cuda_available:
             torch_module.cuda.empty_cache()
@@ -2010,7 +2249,11 @@ def run_eol_mistrust_gpu_slice(
     _ = warmup_sentiment("patient is calm and cooperative.")
     warmup_seconds = round(time.time() - warmup_started, 2)
 
-    if cuda_available and torch_module is not None and hasattr(torch_module.cuda, "reset_peak_memory_stats"):
+    if (
+        cuda_available
+        and torch_module is not None
+        and hasattr(torch_module.cuda, "reset_peak_memory_stats")
+    ):
         torch_module.cuda.reset_peak_memory_stats()
 
     example_module = importlib.import_module("examples.eol_mistrust")
@@ -2047,17 +2290,28 @@ def run_eol_mistrust_gpu_slice(
         .reset_index(drop=True)
     )
     sampled_hadm_ids = set(
-        pd.to_numeric(sampled_hadm["hadm_id"], errors="coerce").dropna().astype(int).tolist()
+        pd.to_numeric(sampled_hadm["hadm_id"], errors="coerce")
+        .dropna()
+        .astype(int)
+        .tolist()
     )
 
-    admissions_slice = admissions.loc[admissions["hadm_id"].isin(sampled_hadm_ids)].copy()
+    admissions_slice = admissions.loc[
+        admissions["hadm_id"].isin(sampled_hadm_ids)
+    ].copy()
     subject_ids = set(
-        pd.to_numeric(admissions_slice["subject_id"], errors="coerce").dropna().astype(int).tolist()
+        pd.to_numeric(admissions_slice["subject_id"], errors="coerce")
+        .dropna()
+        .astype(int)
+        .tolist()
     )
     patients_slice = patients.loc[patients["subject_id"].isin(subject_ids)].copy()
     icustays_slice = icustays.loc[icustays["hadm_id"].isin(sampled_hadm_ids)].copy()
     icustay_ids = set(
-        pd.to_numeric(icustays_slice["icustay_id"], errors="coerce").dropna().astype(int).tolist()
+        pd.to_numeric(icustays_slice["icustay_id"], errors="coerce")
+        .dropna()
+        .astype(int)
+        .tolist()
     )
 
     ventdurations_slice = materialized_views["ventdurations"].loc[
@@ -2077,7 +2331,9 @@ def run_eol_mistrust_gpu_slice(
         start_time,
         (
             "Prepared slice with "
-            f"{len(sampled_hadm_ids)} admissions, {len(subject_ids)} patients, {len(icustay_ids)} ICU stays"
+            f"{len(sampled_hadm_ids)} admissions, "
+            f"{len(subject_ids)} patients, "
+            f"{len(icustay_ids)} ICU stays"
         ),
     )
 
@@ -2096,7 +2352,10 @@ def run_eol_mistrust_gpu_slice(
     chartevents_csv_path = resolved_root / "mimiciii_clinical" / "chartevents.csv"
 
     notes_started = time.time()
-    _log_eol_mistrust_runner(start_time, "Streaming notes to build sentiment corpus and note-derived labels")
+    _log_eol_mistrust_runner(
+        start_time,
+        "Streaming notes to build sentiment corpus and note-derived labels",
+    )
     note_corpus, note_labels = build_note_artifacts_from_csv(
         noteevents_csv_path=noteevents_csv_path,
         all_hadm_ids=all_cohort["hadm_id"],
@@ -2105,17 +2364,27 @@ def run_eol_mistrust_gpu_slice(
         chunksize=note_chunksize,
     )
     note_present_hadm_ids = _note_present_hadm_ids(note_corpus)
-    all_cohort = all_cohort.loc[all_cohort["hadm_id"].isin(note_present_hadm_ids)].copy()
-    note_corpus = note_corpus.loc[note_corpus["hadm_id"].isin(note_present_hadm_ids)].copy()
-    note_labels = note_labels.loc[note_labels["hadm_id"].isin(note_present_hadm_ids)].copy()
+    all_cohort = all_cohort.loc[
+        all_cohort["hadm_id"].isin(note_present_hadm_ids)
+    ].copy()
+    note_corpus = note_corpus.loc[
+        note_corpus["hadm_id"].isin(note_present_hadm_ids)
+    ].copy()
+    note_labels = note_labels.loc[
+        note_labels["hadm_id"].isin(note_present_hadm_ids)
+    ].copy()
     _log_eol_mistrust_runner(
         start_time,
-        f"Retained {len(note_present_hadm_ids)} ALL-cohort admissions with at least one non-error note",
+        f"Retained {len(note_present_hadm_ids)} ALL-cohort admissions "
+        "with at least one non-error note",
     )
     note_stage_seconds = round(time.time() - notes_started, 2)
 
     chartevents_started = time.time()
-    _log_eol_mistrust_runner(start_time, "Streaming chartevents to build feature matrix and code-status targets")
+    _log_eol_mistrust_runner(
+        start_time,
+        "Streaming chartevents to build feature matrix and code-status targets",
+    )
     feature_matrix, code_status_targets = build_chartevent_artifacts_from_csv(
         chartevents_csv_path=chartevents_csv_path,
         d_items=d_items,
@@ -2203,10 +2472,14 @@ def run_eol_mistrust_gpu_slice(
                 continue
             for table_name, table in tables.items():
                 if isinstance(table, pd.DataFrame):
-                    table.to_csv(summary_dir / f"{model_name}_{table_name}.csv", index=False)
+                    table.to_csv(
+                        summary_dir / f"{model_name}_{table_name}.csv", index=False
+                    )
 
     if cuda_available and torch_module is not None:
-        cuda_peak_mb = round(torch_module.cuda.max_memory_allocated() / (1024 * 1024), 2)
+        cuda_peak_mb = round(
+            torch_module.cuda.max_memory_allocated() / (1024 * 1024), 2
+        )
 
     downstream_results = artifacts["downstream_auc_results"]
     if not isinstance(downstream_results, pd.DataFrame):
@@ -2214,7 +2487,10 @@ def run_eol_mistrust_gpu_slice(
 
     target_positives = {
         "left_ama_positive": int(
-            pd.to_numeric(final_model_table["left_ama"], errors="coerce").fillna(0).astype(int).sum()
+            pd.to_numeric(final_model_table["left_ama"], errors="coerce")
+            .fillna(0)
+            .astype(int)
+            .sum()
         ),
         "code_status_positive": int(
             pd.to_numeric(final_model_table["code_status_dnr_dni_cmo"], errors="coerce")
@@ -2255,12 +2531,17 @@ def run_eol_mistrust_gpu_slice(
                 .sum()
             ),
             "autopsy_label": int(
-                pd.to_numeric(note_labels["autopsy_label"], errors="coerce").fillna(0).astype(int).sum()
+                pd.to_numeric(note_labels["autopsy_label"], errors="coerce")
+                .fillna(0)
+                .astype(int)
+                .sum()
             ),
         },
         "target_positives": target_positives,
         "artifact_shapes": {
-            key: list(value.shape) for key, value in artifacts.items() if isinstance(value, pd.DataFrame)
+            key: list(value.shape)
+            for key, value in artifacts.items()
+            if isinstance(value, pd.DataFrame)
         },
         "stage_seconds": {
             "sentiment_warmup": warmup_seconds,
@@ -2273,14 +2554,20 @@ def run_eol_mistrust_gpu_slice(
     }
 
     (output_path / "run_summary.json").write_text(json.dumps(summary, indent=2))
-    _log_eol_mistrust_runner(start_time, f"Run complete; artifacts written to {output_path.resolve()}")
+    _log_eol_mistrust_runner(
+        start_time,
+        f"Run complete; artifacts written to {output_path.resolve()}",
+    )
     print(json.dumps(summary, indent=2), flush=True)
     return summary
 
 
 def _parse_eol_mistrust_cli_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Run the EOL mistrust pipeline on a deterministic GPU-backed cohort slice."
+        description=(
+            "Run the EOL mistrust pipeline on a deterministic "
+            "GPU-backed cohort slice."
+        )
     )
     parser.add_argument(
         "--root",
@@ -2322,12 +2609,18 @@ def _parse_eol_mistrust_cli_args() -> argparse.Namespace:
         "--output-dir",
         type=Path,
         default=None,
-        help="Optional output directory. Defaults to EOL_Workspace/eol_mistrust_runs/<timestamp>.",
+        help=(
+            "Optional output directory. "
+            "Defaults to EOL_Workspace/eol_mistrust_runs/<timestamp>."
+        ),
     )
     parser.add_argument(
         "--allow-online-hf",
         action="store_true",
-        help="Allow Hugging Face network access instead of forcing offline cached model loading.",
+        help=(
+            "Allow Hugging Face network access instead of forcing "
+            "offline cached model loading."
+        ),
     )
     return parser.parse_args()
 

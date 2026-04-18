@@ -331,7 +331,48 @@ def get_eol_mistrust_task_map() -> OrderedDict[str, str]:
 
 
 class EOLMistrustDownstreamMIMIC3(BaseTask):
-    """Admission-level downstream prediction task for the EOL mistrust study."""
+    """Admission-level downstream prediction task for the EOL mistrust study.
+
+    Replicates the admission-level prediction targets from Boag et al. 2018,
+    *"Racial Disparities and Mistrust in End-of-Life Care."* Three concrete
+    subclasses bind ``target`` to each of the paper's downstream outcomes:
+    :class:`EOLMistrustLeftAMAPredictionMIMIC3`,
+    :class:`EOLMistrustCodeStatusPredictionMIMIC3`, and
+    :class:`EOLMistrustMortalityPredictionMIMIC3`.
+
+    The task iterates admissions for each patient, builds a structured
+    feature set (coded EHR history, demographics, length of stay, age, and
+    optionally clinical notes), and emits one sample per eligible admission
+    with a single binary label.
+
+    Args:
+        target: One of the supported downstream target names returned by
+            :func:`get_eol_mistrust_task_map`.
+        include_notes: When ``True``, concatenated clinical notes are added
+            to the input schema as a text feature.
+        dataset_prepare_mode: ``"default"`` (corrected) or ``"paper_like"``
+            (notebook-faithful) label-extraction strategy.
+
+    Attributes:
+        task_name: Task identifier used by PyHealth's sample cache.
+        target: Active downstream target name.
+        include_notes: Whether ``clinical_notes`` is present in the schema.
+        dataset_prepare_mode: Normalized preparation mode string.
+        input_schema: Mapping of feature names to PyHealth processor keys
+            (``sequence`` / ``tensor`` / ``text``).
+        output_schema: Mapping of the single label field to ``"binary"``.
+
+    Raises:
+        ValueError: If ``target`` is not one of the supported task names, or
+            if ``dataset_prepare_mode`` is not recognized.
+
+    Example:
+        >>> from pyhealth.datasets import EOLMistrustDataset
+        >>> from pyhealth.tasks import EOLMistrustDownstreamMIMIC3
+        >>> dataset = EOLMistrustDataset(root="/data/eol_mistrust")
+        >>> task = EOLMistrustDownstreamMIMIC3(target="in_hospital_mortality")
+        >>> samples = dataset.set_task(task)
+    """
 
     task_name = "EOLMistrustDownstreamMIMIC3"
 
@@ -499,7 +540,20 @@ class EOLMistrustDownstreamMIMIC3(BaseTask):
 
 
 class EOLMistrustLeftAMAPredictionMIMIC3(EOLMistrustDownstreamMIMIC3):
-    """Task wrapper for the Left AMA downstream target."""
+    """Left-Against-Medical-Advice (Left-AMA) downstream target.
+
+    Predicts whether an admission ends with the patient leaving against
+    medical advice. Label is derived from the admissions table's
+    ``discharge_location`` field.
+
+    Args:
+        include_notes: When ``True``, clinical notes are added to the schema.
+        dataset_prepare_mode: ``"default"`` or ``"paper_like"``.
+
+    Example:
+        >>> from pyhealth.tasks import EOLMistrustLeftAMAPredictionMIMIC3
+        >>> task = EOLMistrustLeftAMAPredictionMIMIC3(include_notes=True)
+    """
 
     task_name = "EOLMistrustLeftAMAPredictionMIMIC3"
 
@@ -516,7 +570,21 @@ class EOLMistrustLeftAMAPredictionMIMIC3(EOLMistrustDownstreamMIMIC3):
 
 
 class EOLMistrustCodeStatusPredictionMIMIC3(EOLMistrustDownstreamMIMIC3):
-    """Task wrapper for the code-status downstream target."""
+    """Code-status change (DNR / DNI / CMO) downstream target.
+
+    Predicts whether any chart event on the admission records a DNR, DNI, or
+    CMO code-status value on the itemids tracked by the study.
+
+    Args:
+        include_notes: When ``True``, clinical notes are added to the schema.
+        dataset_prepare_mode: ``"default"`` or ``"paper_like"``. The
+            paper-like mode reproduces the notebook's stateful overwrite
+            behavior for mixed code-status events.
+
+    Example:
+        >>> from pyhealth.tasks import EOLMistrustCodeStatusPredictionMIMIC3
+        >>> task = EOLMistrustCodeStatusPredictionMIMIC3()
+    """
 
     task_name = "EOLMistrustCodeStatusPredictionMIMIC3"
 
@@ -533,7 +601,19 @@ class EOLMistrustCodeStatusPredictionMIMIC3(EOLMistrustDownstreamMIMIC3):
 
 
 class EOLMistrustMortalityPredictionMIMIC3(EOLMistrustDownstreamMIMIC3):
-    """Task wrapper for the in-hospital mortality downstream target."""
+    """In-hospital mortality downstream target.
+
+    Predicts whether the admission ends in in-hospital death, using the
+    admissions table's death indicator.
+
+    Args:
+        include_notes: When ``True``, clinical notes are added to the schema.
+        dataset_prepare_mode: ``"default"`` or ``"paper_like"``.
+
+    Example:
+        >>> from pyhealth.tasks import EOLMistrustMortalityPredictionMIMIC3
+        >>> task = EOLMistrustMortalityPredictionMIMIC3()
+    """
 
     task_name = "EOLMistrustMortalityPredictionMIMIC3"
 

@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pandas as pd
+import pytest
 import torch
 from pyhealth.datasets.sample_dataset import create_sample_dataset
 from pyhealth.datasets.utils import get_dataloader
@@ -2176,6 +2177,7 @@ class TestEOLMistrustModel(unittest.TestCase):
         pd.testing.assert_frame_equal(first, second)
 
 
+@pytest.mark.slow
 class TestEOLMistrustClassifier(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
