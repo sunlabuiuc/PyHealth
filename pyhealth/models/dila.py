@@ -255,4 +255,3 @@ def pretrain_sparse_autoencoder(
         logger.info("Autoencoder weights saved to %s", save_path)
 
     return autoencoder
-    

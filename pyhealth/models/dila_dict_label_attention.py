@@ -66,9 +66,7 @@ class DictionaryLabelAttention(nn.Module):
         nn.init.normal_(self.icd_projection, mean=0.0, std=0.03)
         nn.init.normal_(self.output_head.weight, mean=0.0, std=0.03)
 
-    def forward(
-        self, x: torch.Tensor
-    ) -> tuple[torch.Tensor, dict]:
+    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, dict]:
         """Compute label attention and produce per-label logits.
 
         Args:
@@ -103,9 +101,7 @@ class DictionaryLabelAttention(nn.Module):
         # output_head.weight is (num_labels, input_dim); x_att is (B, num_labels, input_dim)
         # Element-wise multiply then sum over input_dim → (B, num_labels)
         logits = (
-            self.output_head.weight.mul(x_att)
-            .sum(dim=2)
-            .add(self.output_head.bias)
+            self.output_head.weight.mul(x_att).sum(dim=2).add(self.output_head.bias)
         )
 
         return logits, {"loss_saenc": loss_dict["loss_saenc"]}

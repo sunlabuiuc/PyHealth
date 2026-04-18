@@ -425,4 +425,3 @@ class TestTwoStageTraining:
         out = model(embeddings=x)
         assert "logit" in out
         assert out["y_prob"].shape == (BATCH, NUM_LABELS)
-        

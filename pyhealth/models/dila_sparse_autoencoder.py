@@ -30,9 +30,15 @@ class SparseAutoencoder(nn.Module):
             dict_size: The number of features in the sparse dictionary.
             lambda_l1: L1 sparsity penalty coefficient. Default: 1e-4.
             lambda_l2: L2 weight-decay coefficient. Default: 1e-5.
-        """
+    """
 
-    def __init__(self, input_dim: int, dict_size: int, lambda_l1: float = 1e-4, lambda_l2: float = 1e-5):
+    def __init__(
+        self,
+        input_dim: int,
+        dict_size: int,
+        lambda_l1: float = 1e-4,
+        lambda_l2: float = 1e-5,
+    ):
         """Initializes the SparseAutoencoder module.
 
         Args:
@@ -62,20 +68,20 @@ class SparseAutoencoder(nn.Module):
         # f = ReLU(W_e * x + b_e)
         features = F.relu(self.encoder(x))
         reconstructed = self.decoder(features)
-        
+
         # Add the loss math here
         loss_recon = F.mse_loss(reconstructed, x)
         loss_l1 = features.abs().mean()
-        loss_l2 = (features ** 2).mean()
+        loss_l2 = (features**2).mean()
         loss_saenc = loss_recon + self.lambda_l1 * loss_l1 + self.lambda_l2 * loss_l2
-        
+
         loss_dict = {
             "loss_saenc": loss_saenc,
             "loss_recon": loss_recon,
             "loss_l1": loss_l1,
         }
         return features, reconstructed, loss_dict
-    
+
     def encode(self, x: torch.Tensor) -> torch.Tensor:
         """Encodes input embeddings directly into sparse features without reconstructing.
 
@@ -91,7 +97,7 @@ class SparseAutoencoder(nn.Module):
     def normalize_decoder(self) -> None:
         """Normalizes the decoder weights to have unit column norms.
 
-        This prevents the autoencoder from cheating the sparsity penalty by 
+        This prevents the autoencoder from cheating the sparsity penalty by
         scaling down feature activations and scaling up decoder weights.
         """
         norms = torch.norm(self.decoder.weight, dim=0, keepdim=True)
