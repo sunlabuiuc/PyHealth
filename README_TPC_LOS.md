@@ -1,8 +1,11 @@
-# TPC Hourly Length-of-Stay Replication
+# CS598 Deep Learning for Healthcare projet
 
-CS598 Deep Learning for Healthcare project contribution for reproducing:
+This PR reproduces and contributes an implementation of:
 
-**Temporal Pointwise Convolutional Networks for Length of Stay Prediction in the Intensive Care Unit**
+**Temporal Pointwise Convolutional Networks for Length of Stay Prediction in the Intensive Care Unit
+Rocheteau et al., ACM CHIL 2021**
+Paper: https://arxiv.org/abs/2007.09483
+
 
 ## Contributors
 
@@ -10,17 +13,88 @@ CS598 Deep Learning for Healthcare project contribution for reproducing:
 * Keon Young Lee (`kylee7@illinois.edu`)
 * Tanmay Thareja (`tanmayt3@illinois.edu`)
 
-## Project Overview
+# PR Overview
 
-This contribution adds a PyHealth implementation of the **Temporal Pointwise Convolution (TPC)** model and an **hourly ICU remaining length-of-stay task** for eICU and MIMIC-IV style data.
+## Contribution Types
 
-The repository additions include:
+This PR includes:
 
-* a new TPC model implementation,
-* a custom hourly LoS task,
-* dataset configuration files for eICU and MIMIC-IV,
-* synthetic-data tests,
-* runnable example scripts for eICU, MIMIC-IV, and a combined dual-dataset run.
+- Model contribution
+- Standalone Task contribution
+- Synthetic data tests
+- End to End Pipeline (Model + Task + Dataset configs) example scripts + combined dual dataset run
+
+## Problem Overview
+
+Efficient ICU bed management depends critically on estimating how long a patient will remain in the ICU. 
+This is formulated as:
+
+	•	Input: Patient data up to hour _t_
+	•	Output: Remaining ICU length of stay _(LoS)_ at time _t_
+
+We follow the formulation in the original paper, predicting remaining LoS at each hour of the ICU stay.
+
+## Implementation Details
+
+**1) Model Contribution**
+
+_pyhealth.models.tpc_
+
+We implement the Temporal Pointwise Convolution (TPC) model as a PyHealth-compatible model by extending BaseModel and follows the original paper’s architecture with adaptations for PyHealth’s input/output interfaces. Index files were updated to include the new modules accordingly.
+
+**2) Task Contribution**
+
+We implement a custom PyHealth task: Hourly Remaining Length of Stay. Index files were updated to include the new modules accordingly.
+
+_pyhealth.tasks.hourly_los_
+
+Task Definition
+
+	•	Predict remaining LoS at every hour
+	•	Predictions start after first 5 hours
+	•	Continuous regression task
+
+Motivation
+
+	•	Mimics real-world ICU monitoring
+	•	Enables dynamic prediction updates
+
+**3) Ablation Study/ Example Usage**
+
+We implemented scripts for runnning the pipeline end to end with support for different experiemental setups or ablations.
+
+_examples/eicu_hourly_los_tpc.py_ : This provides an end-to-end script for reproducing and evaluating pipeline on EICU dataset.
+_examples/mimic4_hourly_los_tpc.py_ : This provides an end-to-end script for reproducing and evaluating pipeline on MIMIC-IV dataset.
+_examples/run_dual_dataset_tpc.py_ : This utility scripts runs the pipeline on both datasets and produces a combined report.
+
+
+
+## Experimental Setup and Findings
+
+1) Ablations to include/exclude domain specific engineering (skip connections, decay indicators, etc)
+
+<img width="306" height="140" alt="image" src="https://github.com/user-attachments/assets/e607fc67-7d56-4ce7-ae19-eaa29dc02a1f" />
+
+
+2) Comparison across using combined temporal and pointwise convolutions vs using either architecture alone.
+ 
+<img width="293" height="140" alt="image" src="https://github.com/user-attachments/assets/67d2c90b-d2d9-449f-add5-7413ec0db0db" />
+
+3) Feature independant (no weight-sharing) vs weight-shared temporal convolutions.
+
+<img width="306" height="140" alt="image" src="https://github.com/user-attachments/assets/5c6ca146-56b6-4257-94a7-09c20c7c7533" />
+
+
+4) Evaluating MSLE loss  vs MSE loss for skewed LoS target regression.
+
+<img width="306" height="108" alt="image" src="https://github.com/user-attachments/assets/454f834a-b496-4a84-843e-84f4fe767031" />
+
+## Testing model with varying hyperparameters.
+
+We varied key optimization and architectural hyperparameters (e.g. learning rate, dropout rate, etc) while keeping preprocessing and data splits fixed.
+
+<img width="431" height="278" alt="image" src="https://github.com/user-attachments/assets/17dcb797-b762-47dc-b43d-475dbfd89ce9" />
+
 
 ## File Structure
 
@@ -35,7 +109,9 @@ The repository additions include:
 ├── examples/run_dual_dataset_tpc.py
 ├── tests/models/test_tpc.py
 ├── tests/tasks/test_hourly_los.py
+├── docs/api/models.rst
 ├── docs/api/models/pyhealth.models.tpc.rst
+├── docs/api/tasks.rst
 ├── docs/api/tasks/pyhealth.tasks.hourly_los.rst
 └── README_TPC_LOS.md
 ```
