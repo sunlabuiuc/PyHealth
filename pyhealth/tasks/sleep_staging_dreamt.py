@@ -19,6 +19,7 @@ Signal-specific preprocessing:
 """
 
 import logging
+from collections import Counter
 from typing import Any, Dict, List, Optional
 
 import numpy as np
@@ -73,6 +74,41 @@ ALL_SIGNAL_COLUMNS: List[str] = [
 
 # Excluded sleep stages
 EXCLUDED_STAGES = {"P", "Missing"}
+
+
+def _warn_sampling_rate_mismatch(
+    df: pd.DataFrame,
+    col_map: Dict[str, str],
+    pid: str,
+    fs: int,
+) -> None:
+    """Log a warning if TIMESTAMP-derived rate disagrees with ``fs``."""
+    ts_col = None
+    for key in ("timestamp", "time"):
+        if key in col_map:
+            ts_col = col_map[key]
+            break
+    if ts_col is None:
+        return
+    try:
+        ts = pd.to_numeric(df[ts_col], errors="coerce")
+        if ts.isna().all() or len(ts) < 2:
+            return
+        duration = float(ts.iloc[-1] - ts.iloc[0])
+        if duration <= 0:
+            return
+        implied_fs = (len(ts) - 1) / duration
+        if abs(implied_fs - fs) / max(fs, 1) > 0.05:
+            logger.warning(
+                "Patient %s: time column %r implies ~%.2f Hz, but "
+                "sampling_rate=%d; bandpass filters use the configured rate.",
+                pid,
+                ts_col,
+                implied_fs,
+                fs,
+            )
+    except (TypeError, ValueError):
+        return
 
 
 def _apply_butterworth_bandpass(
@@ -184,7 +220,12 @@ class SleepStagingDREAMT(BaseTask):
     - **BVP**: Chebyshev Type II bandpass, 0.5-20 Hz
     - **TEMP**: Winsorized to [31, 40] C
 
-    Epochs labeled ``"P"`` or ``"Missing"`` are excluded.
+    Rows are segmented into contiguous, non-overlapping 30-second windows
+    in **original row order** (fixed ``epoch_len`` samples per window). A
+    window is **skipped entirely** if any row in that window is labeled
+    ``"P"`` or ``"Missing"``, so artifact rows are never removed in a way
+    that splices unrelated signal into one epoch. The label for a kept window
+    is the plurality sleep-stage string among its rows (typically uniform).
 
     Attributes:
         task_name: ``"SleepStagingDREAMT"``
@@ -255,6 +296,7 @@ class SleepStagingDREAMT(BaseTask):
         self.apply_filters = apply_filters
         self.epoch_len = int(epoch_seconds * sampling_rate)
         self.label_map = LABEL_MAPS[n_classes]
+        # BaseTask does not define __init__; object.__init__ ignores extra state.
         super().__init__()
 
     def __call__(
@@ -278,10 +320,10 @@ class SleepStagingDREAMT(BaseTask):
         """
         pid: str = patient.patient_id
 
-        try:
-            events = patient.get_events(event_type="dreamt_sleep")
-        except (TypeError, KeyError):
-            events = patient.get_events()
+        # DREAMTDataset registers wearable sleep rows as event_type="dreamt_sleep"
+        # (see pyhealth.datasets.configs.dreamt.yaml). Tests may pass a stub with
+        # get_events() that ignores event_type.
+        events = patient.get_events(event_type="dreamt_sleep")
 
         if not events:
             return []
@@ -321,14 +363,13 @@ class SleepStagingDREAMT(BaseTask):
             col_map[c.lower()] for c in self.signal_columns
         ]
 
-        # Drop excluded stages
-        mask = ~df[stage_col].isin(EXCLUDED_STAGES)
-        df = df.loc[mask].reset_index(drop=True)
+        _warn_sampling_rate_mismatch(df, col_map, pid, self.sampling_rate)
 
-        if len(df) < self.epoch_len:
+        n_rows = len(df)
+        if n_rows < self.epoch_len:
             return []
 
-        n_epochs = len(df) // self.epoch_len
+        n_epochs = n_rows // self.epoch_len
         samples: List[Dict[str, Any]] = []
         epoch_counter = 0
 
@@ -337,14 +378,17 @@ class SleepStagingDREAMT(BaseTask):
             end = start + self.epoch_len
             epoch_df = df.iloc[start:end]
 
-            # Label from the middle of the epoch
-            mid = start + self.epoch_len // 2
-            stage = str(df[stage_col].iloc[mid]).strip()
-
-            if stage not in self.label_map:
+            stages_in_win = (
+                epoch_df[stage_col].astype(str).str.strip()
+            )
+            if stages_in_win.isin(EXCLUDED_STAGES).any():
                 continue
 
-            label = self.label_map[stage]
+            plurality = Counter(stages_in_win.tolist()).most_common(1)[0][0]
+            if plurality not in self.label_map:
+                continue
+
+            label = self.label_map[plurality]
 
             # Extract signal channels as (n_channels, epoch_len)
             signal = np.stack(

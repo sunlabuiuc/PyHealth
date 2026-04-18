@@ -4,6 +4,7 @@ All tests use in-memory fake patients with small temporary CSV files.
 No real DREAMT data is required. Tests complete in milliseconds.
 """
 
+import logging
 import os
 import tempfile
 import shutil
@@ -66,11 +67,14 @@ def _make_patient(
 ) -> SimpleNamespace:
     """Build a mock Patient mimicking DREAMTDataset."""
     event = SimpleNamespace(file_64hz=file_path)
-    patient = SimpleNamespace(
+
+    def get_events(event_type=None, **kwargs):
+        return [event]
+
+    return SimpleNamespace(
         patient_id=patient_id,
-        get_events=lambda event_type=None: [event],
+        get_events=get_events,
     )
-    return patient
 
 
 class TestInit(unittest.TestCase):
@@ -229,24 +233,52 @@ class TestStageExclusion(unittest.TestCase):
         shutil.rmtree(self.tmp_path)
 
     def test_p_stage_excluded(self):
-        """Epochs with P stage are dropped."""
+        """Epochs that are entirely P are skipped; W and N1 epochs kept."""
         stages = ["P", "P", "W", "N1"]
         csv = _make_csv(4, stages, self.tmp_path)
         patient = _make_patient(csv)
         task = SleepStagingDREAMT(apply_filters=False)
         samples = task(patient)
-        labels = [s["label"] for s in samples]
-        self.assertTrue(all(lbl in {0, 1, 2, 3, 4} for lbl in labels))
+        self.assertEqual(len(samples), 2)
+        self.assertEqual([s["label"] for s in samples], [0, 1])
+
+    def test_artifact_inside_epoch_skips_whole_window(self):
+        """Any P/Missing row inside a 30 s window drops that epoch (no splicing)."""
+        rng = np.random.RandomState(0)
+        rows = 2 * EPOCH_LEN
+        data = {
+            "TIMESTAMP": np.arange(rows) / 64.0,
+            "BVP": rng.randn(rows) * 50,
+            "IBI": np.clip(rng.rand(rows) * 0.2 + 0.7, 0, 2),
+            "EDA": rng.rand(rows) * 5 + 0.1,
+            "TEMP": rng.rand(rows) * 15 + 28,
+            "ACC_X": rng.randn(rows) * 10,
+            "ACC_Y": rng.randn(rows) * 10,
+            "ACC_Z": rng.randn(rows) * 10,
+            "HR": rng.rand(rows) * 30 + 60,
+        }
+        ss = []
+        for i in range(2):
+            st = ["W", "P"][i]
+            ss.extend([st] * EPOCH_LEN)
+        data["Sleep_Stage"] = ss
+        path = os.path.join(self.tmp_path, "straddle.csv")
+        pd.DataFrame(data).to_csv(path, index=False)
+        patient = _make_patient(path, patient_id="S_STR")
+        task = SleepStagingDREAMT(n_classes=2, apply_filters=False)
+        samples = task(patient)
+        self.assertEqual(len(samples), 1)
+        self.assertEqual(samples[0]["label"], 0)
 
     def test_missing_stage_excluded(self):
-        """Epochs with Missing stage are dropped."""
+        """The epoch that is entirely Missing is skipped; others kept."""
         stages = ["W", "Missing", "N2"]
         csv = _make_csv(3, stages, self.tmp_path)
         patient = _make_patient(csv)
         task = SleepStagingDREAMT(apply_filters=False)
         samples = task(patient)
-        for s in samples:
-            self.assertIn(s["label"], {0, 1, 2, 3, 4})
+        self.assertEqual(len(samples), 2)
+        self.assertEqual([s["label"] for s in samples], [0, 2])
 
     def test_all_p_returns_empty(self):
         """Patient with only P stages returns empty list."""
@@ -265,6 +297,46 @@ class TestStageExclusion(unittest.TestCase):
         task = SleepStagingDREAMT(apply_filters=False)
         samples = task(patient)
         self.assertEqual(samples, [])
+
+
+class TestTimestampSanity(unittest.TestCase):
+    """TIMESTAMP vs nominal sampling rate."""
+
+    def setUp(self):
+        self.tmp_path = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp_path)
+
+    def test_warns_when_timestamp_implies_wrong_rate(self):
+        """Log a warning if TIMESTAMP span is inconsistent with 64 Hz row count."""
+        rng = np.random.RandomState(1)
+        rows = EPOCH_LEN
+        # Same row count as nominal 30 s @ 64 Hz, but time spans 60 s -> ~32 Hz implied
+        data = {
+            "TIMESTAMP": np.linspace(0.0, 60.0, rows),
+            "BVP": rng.randn(rows) * 50,
+            "IBI": np.clip(rng.rand(rows) * 0.2 + 0.7, 0, 2),
+            "EDA": rng.rand(rows) * 5 + 0.1,
+            "TEMP": rng.rand(rows) * 15 + 28,
+            "ACC_X": rng.randn(rows) * 10,
+            "ACC_Y": rng.randn(rows) * 10,
+            "ACC_Z": rng.randn(rows) * 10,
+            "HR": rng.rand(rows) * 30 + 60,
+            "Sleep_Stage": ["W"] * rows,
+        }
+        path = os.path.join(self.tmp_path, "bad_ts.csv")
+        pd.DataFrame(data).to_csv(path, index=False)
+        patient = _make_patient(path, patient_id="S_TS")
+        task = SleepStagingDREAMT(apply_filters=False)
+        with self.assertLogs(
+            "pyhealth.tasks.sleep_staging_dreamt", level=logging.WARNING
+        ) as captured:
+            task(patient)
+        self.assertTrue(
+            any("implies" in m for m in captured.output),
+            captured.output,
+        )
 
 
 class TestSignalSubset(unittest.TestCase):
