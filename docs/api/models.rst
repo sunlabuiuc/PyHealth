@@ -187,6 +187,9 @@ API Reference
     models/pyhealth.models.EHRMamba
     models/pyhealth.models.JambaEHR
     models/pyhealth.models.ContraWR
+    models/pyhealth.models.LambdaResNet18ECG
+    models/pyhealth.models.ResNet18ECG
+    models/pyhealth.models.SEResNet50ECG
     models/pyhealth.models.SparcNet
     models/pyhealth.models.StageNet
     models/pyhealth.models.StageAttentionNet
