@@ -334,11 +334,16 @@ def test_censoring_mask():
     y, mask = task.engine.generate_survival_label(
         anchor_time=10,
         event_time=None,
-        censor_time=12,
+        censor_time=12,  # delta = 2
     )
 
-    assert np.all(mask[:2] == 1)
-    assert np.all(mask[2:] == 0)
+    # Convention: censor_time is the last observed event-free step.
+    # Steps 0..delta are included in the risk set (mask=1).
+    # Steps delta+1.. are excluded (mask=0).
+    # This mirrors the event case where mask[delta+1:] = 0.
+    assert np.all(mask[:3] == 1)   # steps 0,1,2 included
+    assert np.all(mask[3:] == 0)   # steps 3,4 excluded
+    assert np.sum(y) == 0          # no event recorded for censored patient
 
 
 def test_single_anchor_strategy():
