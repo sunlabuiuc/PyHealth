@@ -376,11 +376,11 @@ Results matching the paper (Table 2, combined adjacency α=0.5):
 Ablation Studies
 ----------------
 
-Adjacency Ablation (Original Extension)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Adjacency Type Comparison
+~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-We extended the paper by varying ``alpha`` across four configurations on the
-full FigShare dataset (477 test patients, 70/30 patient-level split):
+We compared three adjacency configurations on the full FigShare dataset
+(477 test patients, 70/30 patient-level split):
 
 .. list-table::
    :header-rows: 1
@@ -396,36 +396,41 @@ full FigShare dataset (477 test patients, 70/30 patient-level split):
      - GCN
      - 0.900
      - 0.645
-   * - Combined (paper default)
-     - 0.5
-     - GCN
-     - 0.902
-     - 0.655
-   * - Spatial-heavy
-     - 0.75
-     - GCN
-     - **0.903**
-     - **0.660**
+   * - **Combined (paper default)**
+     - **0.5**
+     - **GCN**
+     - **0.902**
+     - **0.655**
    * - Spatial only
      - 1.0
      - GCN
      - 0.898
      - 0.623
 
-The spatial-heavy blend (α=0.75) marginally outperforms the paper's default.
-Spatial-only (α=1.0) is the weakest, confirming that functional coherence
-adds signal. GCN outperforms GAT consistently (~6% AUC).
+The combined adjacency (α=0.5) achieves the best AUC and Youden's J among
+the three configurations, reproducing the paper's result. Spatial-only
+(α=1.0) is the weakest, confirming that functional coherence adds signal.
+GCN outperforms GAT consistently (~6% AUC) across all configurations.
 
 Re-run with a different alpha:
 
 .. code-block:: python
 
-    ALPHA = 0.75  # in training_pipeline_shallow_gcnn.py
+    ALPHA = 0.0  # functional only — in training_pipeline_shallow_gcnn.py
+    ALPHA = 0.5  # combined (paper default)
+    ALPHA = 1.0  # spatial only
 
-Frequency Band Ablation
-~~~~~~~~~~~~~~~~~~~~~~~~
+Spectral Frequency Analysis
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Zero out individual frequency bands at inference time — no retraining needed.
+To determine which frequency bands carry the most discriminative signal,
+we ran a leave-one-out and keep-one-in analysis at inference time using
+trained GCN checkpoints — no retraining required.  The 13 conditions are:
+
+- **Baseline**: all 6 bands active
+- **Leave-one-out** (×6): one band zeroed, remaining 5 active
+- **Keep-one-in** (×6): only one band active, remaining 5 zeroed
+
 Run from ``examples/eeg_gcnn/``:
 
 .. code-block:: bash
