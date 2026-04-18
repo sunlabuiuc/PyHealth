@@ -235,19 +235,8 @@ class MIMIC3CirculatoryFailureDataset(BaseDataset):
             first_failure_time = failure_row.iloc[0]["first_failure_time"]
 
         # 3) load MAP time series for this ICU stay
-        chartevents = pd.read_csv(
-            root / "CHARTEVENTS.csv.gz",
-            usecols=["ICUSTAY_ID", "ITEMID", "CHARTTIME", "VALUENUM"],
-        )
-
-        ts = chartevents[chartevents["ITEMID"] == 220052].copy()
-        ts["CHARTTIME"] = pd.to_datetime(
-            ts["CHARTTIME"],
-            format="%Y-%m-%d %H:%M:%S",
-            errors="coerce",
-        )
-        ts = ts[ts["ICUSTAY_ID"] == icustay_id].copy()
-
+        map_df = self.load_map_cache()
+        ts = map_df[map_df["ICUSTAY_ID"] == icustay_id].copy()  
         ts = ts[
             (ts["CHARTTIME"] >= row["intime"]) &
             (ts["CHARTTIME"] <= row["outtime"])
@@ -277,3 +266,47 @@ class MIMIC3CirculatoryFailureDataset(BaseDataset):
         }
 
         return patient
+
+    def load_map_cache(self):
+        """Load MAP (mean arterial pressure) data once and cache it."""
+
+        import pandas as pd
+        from pathlib import Path
+
+        if hasattr(self, "_map_cache"):
+            return self._map_cache
+
+        root = Path(self.root)
+
+        print("Loading MAP cache (this will take a bit, only once)...")
+
+        chunks = pd.read_csv(
+            root / "CHARTEVENTS.csv.gz",
+            usecols=["ICUSTAY_ID", "ITEMID", "CHARTTIME", "VALUENUM"],
+            chunksize=100000,
+        )
+
+        parts = []
+
+        for chunk in chunks:
+            chunk = chunk[chunk["ITEMID"] == 220052].copy()
+            if chunk.empty:
+                continue
+
+            chunk["CHARTTIME"] = pd.to_datetime(
+                chunk["CHARTTIME"],
+                format="%Y-%m-%d %H:%M:%S",
+                errors="coerce",
+            )
+
+            parts.append(chunk)
+
+        if parts:
+            df = pd.concat(parts, ignore_index=True)
+        else:
+            df = pd.DataFrame(columns=["ICUSTAY_ID", "CHARTTIME", "VALUENUM"])
+
+        self._map_cache = df
+        print("MAP cache loaded:", len(df))
+
+        return df
