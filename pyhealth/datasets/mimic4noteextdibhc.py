@@ -426,7 +426,7 @@ class MIMIC4NoteExtDIBHCDataset(BaseDataset):
     ):
         if config_path is None:
             config_path = os.path.join(
-                os.path.dirname(__file__), "configs", "mimic4_note.yaml"
+                os.path.dirname(__file__), "configs", "mimic4_noteextdibhc.yaml"
             )
             logger.info(f"Using default note config: {config_path}")
 
