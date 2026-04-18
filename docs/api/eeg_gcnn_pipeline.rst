@@ -1,80 +1,137 @@
 EEG-GCNN Neurological Disease Classification Pipeline
 ======================================================
 
-This page describes the end-to-end pipeline for EEG-based neurological
-disease classification using the EEG-GCNN architecture introduced in:
+End-to-end pipeline for EEG-based neurological disease detection, based on:
 
     Wagh, N., & Varatharajah, Y. (2020). EEG-GCNN: Augmenting
     Electroencephalogram-based Neurological Disease Diagnosis using a
     Domain-guided Graph Convolutional Neural Network.
     *Machine Learning for Health (ML4H) workshop, NeurIPS 2020*.
-    https://arxiv.org/abs/2011.10432
+    https://proceedings.mlr.press/v136/wagh20a.html
 
-Two model variants are provided:
+**Contributors:** Jimmy Burhan (jburhan2) — Dataset & Task |
+Robert Coffey (racoffey2) — Models & Training
 
-- :class:`~pyhealth.models.EEGGraphConvNet` — Graph Convolutional Network (GCN)
-- :class:`~pyhealth.models.EEGGATConvNet` — Graph Attention Network (GAT)
+Overview
+--------
 
-Example scripts are located in ``examples/eeg_gcnn/`` and
-``examples/eeg_gatcnn/``.
+Each EEG recording is converted into a graph: nodes are bipolar electrode
+pairs, edges encode brain connectivity. A GCN or GAT model classifies each
+window as diseased (TUAB) or healthy (LEMON), then patient-level predictions
+are aggregated for final evaluation.
 
-Datasets and Signal Processing
--------------------------------
+The pipeline has five stages:
 
-Two data paths are supported. Both produce the same output schema
-(``node_features``, ``adj_matrix``, ``label``) that feeds directly into
-:class:`~pyhealth.models.EEGGraphConvNet` and
-:class:`~pyhealth.models.EEGGATConvNet`.
+.. code-block:: text
+
+    Raw EEG / FigShare arrays
+          ↓
+    Dataset  (EEGGCNNRawDataset  or  EEGGCNNDataset)
+          ↓
+    Task     (EEGGCNNDiseaseDetection  or  EEGGCNNClassification)
+          ↓  node_features (8,6)  +  adj_matrix (8,8)  +  label
+    Model    (EEGGraphConvNet  or  EEGGATConvNet)
+          ↓
+    Evaluation  (patient-level AUC, Youden's J)
+
+Two data paths are supported — both produce identical output tensors:
 
 .. list-table::
    :header-rows: 1
-   :widths: 20 25 25 30
+   :widths: 15 30 30 25
 
    * - Path
-     - Dataset class
-     - Task class
+     - Dataset
+     - Task
      - Input
    * - **Raw EEG**
      - :class:`~pyhealth.datasets.EEGGCNNRawDataset`
      - :class:`~pyhealth.tasks.EEGGCNNDiseaseDetection`
-     - Raw EDF (TUAB) / BrainVision (LEMON) files
+     - EDF (TUAB) + BrainVision (LEMON) files
    * - **Pre-computed**
      - :class:`~pyhealth.datasets.EEGGCNNDataset`
      - :class:`~pyhealth.tasks.EEGGCNNClassification`
-     - FigShare joblib/npy arrays (1,593 subjects)
+     - FigShare arrays (1,593 subjects, 225,334 windows)
+
+Environment Setup
+-----------------
+
+.. code-block:: bash
+
+    conda create -n pyhealth python=3.12 -y
+    conda activate pyhealth
+
+    # PyHealth (from source)
+    git clone https://github.com/sunlabuiuc/PyHealth.git
+    cd PyHealth
+    pip install -e .
+
+    # PyTorch (CPU build — swap for CUDA if needed)
+    pip install torch
+
+    # PyTorch Geometric
+    pip install torch-geometric
+    pip install torch-scatter torch-sparse \
+        -f https://data.pyg.org/whl/torch-$(python -c "import torch; print(torch.__version__)").html
+
+    # EEG dependencies
+    pip install scikit-learn joblib tqdm pandas mne mne-connectivity
+
+.. note::
+
+   See `PyTorch Geometric installation <https://pytorch-geometric.readthedocs.io/en/latest/install/installation.html>`_
+   for the correct wheel URL for your CUDA version.
 
 Data Sources
-~~~~~~~~~~~~
+------------
 
-**TUAB — Temple University EEG Abnormal Corpus (patient class, label 0)**
-    Recordings from patients whose EEGs appear clinically normal despite an
-    underlying neurological condition. Only the ``normal`` split is used.
-    Files follow the EDF format with ``EEG X-REF`` channel naming.
+**TUAB — Temple University EEG Abnormal Corpus (label 0, patient class)**
+    EEG recordings from patients whose EEGs appear clinically *normal* but
+    who have an underlying neurological condition. Only the ``normal`` split
+    is used. Files are EDF format with ``EEG X-REF`` channel naming.
 
-    Expected directory layout::
+    Directory layout::
 
         <root>/train/normal/01_tcp_ar/<subject_dirs>/*.edf
         <root>/eval/normal/01_tcp_ar/<subject_dirs>/*.edf
 
-**LEMON — MPI Leipzig Mind-Body-Emotion (healthy class, label 1)**
-    Recordings from fully healthy volunteers with no neurological history.
-    Files are in BrainVision format (``*.eeg``, ``*.vhdr``, ``*.vmrk``).
+**LEMON — MPI Leipzig Mind-Body-Emotion Interactions (label 1, healthy class)**
+    EEG recordings from fully healthy volunteers with no neurological history.
+    BrainVision format (``*.eeg`` + ``*.vhdr`` + ``*.vmrk``).
 
-    Expected directory layout::
+    Directory layout::
 
         <root>/lemon/sub-<id>/sub-<id>.vhdr
 
-Signal Processing Steps (EEGGCNNDiseaseDetection)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+**FigShare pre-computed arrays (large-scale training)**
+    Pre-processed features for 1,593 subjects (225,334 windows), downloaded
+    from `FigShare <https://figshare.com/articles/dataset/EEG-GCNN_Augmenting_Electroencephalogram-based_Neurological_Disease_Diagnosis_using_a_Domain-guided_Graph_Convolutional_Neural_Network/13251509>`_:
 
-The :class:`~pyhealth.tasks.EEGGCNNDiseaseDetection` task applies the
-following preprocessing to each raw recording:
+    .. list-table::
+       :header-rows: 1
+       :widths: 35 65
 
-1. **Resampling** — all recordings are resampled to 250 Hz.
-2. **Filtering** — a 1 Hz high-pass filter removes slow drift; a 50 Hz notch
-   filter removes power-line interference.
-3. **Bipolar montage** — 8 bipolar channels are derived from the standard
-   10-20 layout:
+       * - File
+         - Description
+       * - ``psd_features_data_X``
+         - joblib array, shape ``(N, 48)`` — PSD band-power features
+       * - ``labels_y``
+         - joblib array, shape ``(N,)`` — class labels
+       * - ``master_metadata_index.csv``
+         - CSV with ``patient_ID`` column
+       * - ``spec_coh_values.npy``
+         - numpy array, shape ``(N, 64)`` — spectral coherence values
+       * - ``standard_1010.tsv.txt``
+         - TSV with electrode 3-D coordinates (``label``, ``x``, ``y``, ``z``)
+
+Signal Processing (EEGGCNNDiseaseDetection)
+-------------------------------------------
+
+Applied to each raw recording in order:
+
+1. **Resample** to 250 Hz.
+2. **Filter** — 1 Hz high-pass (remove DC drift) + 50 Hz notch (power-line).
+3. **Bipolar montage** — derive 8 bipolar channels from the 10-20 layout:
 
    .. code-block:: text
 
@@ -83,18 +140,17 @@ following preprocessing to each raw recording:
        P7-P3  |  P8-P4
        O1-P3  |  O2-P4
 
-   LEMON uses bare channel names (``F7``, ``T7`` …); TUAB uses
-   ``EEG X-REF`` naming. The task resolves both via a built-in alias map.
+   TUAB uses ``EEG X-REF`` naming; LEMON uses bare names (``F7``, ``T7``, …).
+   A built-in alias map resolves both automatically.
 
-4. **Windowing** — each recording is segmented into non-overlapping 10-second
-   windows. Incomplete trailing windows are discarded.
+4. **Windowing** — non-overlapping 10-second windows (incomplete trailing
+   window discarded).
 
-5. **PSD feature extraction** — for each window, Welch's method computes
-   band-power in six frequency bands per bipolar channel:
+5. **PSD feature extraction** — Welch's method per window, 6 bands per channel:
 
    .. list-table::
       :header-rows: 1
-      :widths: 25 20
+      :widths: 30 20
 
       * - Band
         - Range (Hz)
@@ -111,76 +167,82 @@ following preprocessing to each raw recording:
       * - gamma
         - 30.0 – 50.0
 
-   This yields a ``(8, 6)`` node-feature matrix per window (8 channels ×
-   6 bands), log-transformed and normalised.
+   Result: ``(8, 6)`` node-feature matrix per window, log-transformed and
+   L2-normalised.
 
-6. **Graph adjacency construction** — an ``(8, 8)`` adjacency matrix is
-   built by blending two connectivity measures:
+6. **Graph adjacency** — ``(8, 8)`` matrix blending spatial and functional
+   connectivity:
 
    .. code-block:: python
 
        edge_weight = alpha * geodesic_distance + (1 - alpha) * spectral_coherence
 
-   - **Geodesic distance** (``alpha = 1.0``): arc length between electrode
-     positions on a unit sphere — a proxy for *spatial* proximity.
-   - **Spectral coherence** (``alpha = 0.0``): average cross-spectral
-     coherence — a proxy for *functional* connectivity.
-   - **Combined** (``alpha = 0.5``, paper default): equal blend.
+   - ``alpha = 1.0`` — spatial only (geodesic arc length on unit sphere)
+   - ``alpha = 0.0`` — functional only (spectral coherence)
+   - ``alpha = 0.5`` — combined (paper default)
 
-   Self-connections (diagonal) are set to 1.0. All values are normalised
-   to ``[0, 1]``.
+   Self-connections (diagonal) = 1.0. All values normalised to ``[0, 1]``.
 
 Output Schema
-~~~~~~~~~~~~~
+-------------
 
-After calling ``dataset.set_task(EEGGCNNDiseaseDetection())``, each sample
-in the resulting :class:`~pyhealth.datasets.SampleDataset` contains:
+Both tasks produce the same sample dict consumed directly by both models:
 
 .. list-table::
    :header-rows: 1
-   :widths: 20 20 60
+   :widths: 20 22 58
 
    * - Key
      - Shape / Type
      - Description
    * - ``node_features``
-     - ``torch.Tensor (8, 6)``
-     - Log PSD band-power per bipolar channel, normalised
+     - ``Tensor (8, 6)``
+     - Log PSD band-power, L2-normalised
    * - ``adj_matrix``
-     - ``torch.Tensor (8, 8)``
-     - Edge weights in ``[0, 1]``, self-connections = 1.0
+     - ``Tensor (8, 8)``
+     - Edge weights in ``[0, 1]``; diagonal = 1.0
    * - ``label``
      - ``int`` — 0 or 1
-     - 0 = TUAB (patient/diseased), 1 = LEMON (healthy)
+     - 0 = TUAB (patient), 1 = LEMON (healthy)
    * - ``patient_id``
      - ``str``
-     - Unique patient identifier (e.g. ``tuab_aaaaaaav``)
+     - e.g. ``tuab_aaaaaaav`` or ``lemon_sub-010002``
 
-These tensors are the direct inputs to both
-:class:`~pyhealth.models.EEGGraphConvNet` and
-:class:`~pyhealth.models.EEGGATConvNet`.
+Models
+------
 
-Quick Start — Raw EEG Pipeline
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Both models take ``node_features (B, 8, 6)`` and ``adj_matrix (B, 8, 8)``
+and return a dict with keys ``loss``, ``y_prob``, ``y_true``, ``logit``.
 
-Run against the sample data shipped in ``pyhealth/eeg-gcnn-data/``:
+**EEGGraphConvNet** (:class:`~pyhealth.models.EEGGraphConvNet`)
+    Two-layer Graph Convolutional Network (Kipf & Welling, 2017).
+    Node features are aggregated via normalised adjacency message-passing,
+    followed by global mean pooling and a binary classification head.
+    Uses ``float32``.
+
+**EEGGATConvNet** (:class:`~pyhealth.models.EEGGATConvNet`)
+    Two-layer Graph Attention Network (Veličković et al., 2018).
+    Attention coefficients are computed per edge, allowing the model to
+    weight neighbours differently. Uses ``float64`` on CPU.
+
+Quick Start — Raw EEG
+---------------------
+
+Run against the sample data shipped in ``pyhealth/eeg-gcnn-data/``
+(3 TUAB + 3 LEMON subjects, 689 windows total):
 
 .. code-block:: bash
 
-    # GCN
+    # GCN — dataset → task → model forward pass
     python examples/eeg_gcnn/pre_compute_gcnn.py
 
-    # GAT
+    # GAT — dataset → task → model forward pass
     python examples/eeg_gatcnn/pre_compute_gatcnn.py
 
-Or point to your own data root:
-
-.. code-block:: bash
-
+    # Point to your own data
     python examples/eeg_gcnn/pre_compute_gcnn.py --root /path/to/eeg-gcnn-data
 
-The script prints the tensor shapes at each stage and performs a single
-forward pass to confirm end-to-end compatibility::
+Expected output::
 
     Stage 1 — Dataset: EEGGCNNRawDataset
       6 patients, 689 windows
@@ -188,7 +250,7 @@ forward pass to confirm end-to-end compatibility::
     Stage 2 — Task: EEGGCNNDiseaseDetection
       node_features : torch.Size([8, 6])
       adj_matrix    : torch.Size([8, 8])
-      label         : 0 or 1
+      label         : 0 (TUAB) or 1 (LEMON)
 
     Stage 3 — Model: EEGGraphConvNet
       y_prob shape  : torch.Size([32, 1])
@@ -203,137 +265,52 @@ Programmatic Usage
     from pyhealth.tasks import EEGGCNNDiseaseDetection
     from pyhealth.models import EEGGraphConvNet
 
-    # 1. Load raw TUAB + LEMON data
+    # 1. Load raw TUAB + LEMON
     dataset = EEGGCNNRawDataset(root="/path/to/eeg-gcnn-data")
 
-    # 2. Apply task: segment windows, extract PSD + adjacency
-    task = EEGGCNNDiseaseDetection(adjacency_type="combined")
-    sample_dataset = dataset.set_task(task)
+    # 2. Segment windows, extract PSD features + adjacency matrix
+    sample_dataset = dataset.set_task(EEGGCNNDiseaseDetection())
 
-    # 3. Inspect outputs
-    sample = sample_dataset[0]
-    print(sample["node_features"].shape)  # torch.Size([8, 6])
-    print(sample["adj_matrix"].shape)     # torch.Size([8, 8])
-    print(sample["label"])                # 0 (TUAB) or 1 (LEMON)
+    # 3. Inspect a sample
+    s = sample_dataset[0]
+    print(s["node_features"].shape)   # torch.Size([8, 6])
+    print(s["adj_matrix"].shape)      # torch.Size([8, 8])
+    print(s["label"])                 # 0 or 1
 
-    # 4. Feed directly into GCN or GAT model
+    # 4. Forward pass through GCN
     model = EEGGraphConvNet(dataset=sample_dataset, num_node_features=6)
     out = model(
-        node_features=sample["node_features"].unsqueeze(0),
-        adj_matrix=sample["adj_matrix"].unsqueeze(0),
-        label=sample["label"],
+        node_features=s["node_features"].unsqueeze(0),
+        adj_matrix=s["adj_matrix"].unsqueeze(0),
+        label=s["label"],
     )
-    print(out["y_prob"])  # predicted probability of healthy class
-
-Environment Setup
------------------
-
-A dedicated conda environment is recommended to avoid dependency conflicts,
-particularly with PyTorch Geometric. The usage commands in this page assume
-an environment named ``pyhealth`` is active — replace this with your own
-environment name if different.
-
-.. code-block:: bash
-
-    conda create -n pyhealth python=3.12 -y
-    conda activate pyhealth
-
-Then install PyHealth and the EEG-specific dependencies:
-
-.. code-block:: bash
-
-    # PyHealth (from source for development)
-    git clone https://github.com/sunlabuiuc/PyHealth.git
-    cd PyHealth
-    pip install -e .
-
-    # PyTorch (CPU — replace with a CUDA build if using a GPU)
-    pip install torch
-
-    # PyTorch Geometric and its dependencies
-    pip install torch-geometric
-    pip install torch-scatter torch-sparse -f https://data.pyg.org/whl/torch-$(python -c "import torch; print(torch.__version__)").html
-
-    # Additional pipeline dependencies
-    pip install scikit-learn joblib tqdm pandas
-
-.. note::
-
-   PyTorch Geometric wheel URLs depend on your PyTorch and CUDA versions.
-   See `<https://pytorch-geometric.readthedocs.io/en/latest/install/installation.html>`_
-   for the correct installation command for your system.
-
-For general PyHealth installation options see :doc:`../install`.
-
-Overview
---------
-
-Each EEG recording is segmented into fixed-length windows. Every window is
-represented as a fully-connected graph over 8 bipolar EEG electrode pairs:
-
-- **Node features** (shape ``(8, 6)``): six PSD band-power values per
-  electrode (delta, theta, alpha, beta, low-gamma, high-gamma),
-  L2-normalised across the full 48-dimensional feature vector.
-- **Edge weights** (shape ``(8, 8)``): a weighted average of geodesic
-  electrode distance and spectral coherence, controlled by ``alpha``.
-
-The pipeline has four stages:
-
-1. **Dataset** — :class:`~pyhealth.datasets.EEGGCNNDataset` loads the
-   pre-computed feature arrays and builds per-window ``.npy`` caches.
-2. **Task** — :class:`~pyhealth.tasks.EEGGCNNClassification` converts
-   patient records into binary classification samples.
-3. **Training** — 10-fold cross-validation with subject-level 70/30
-   train+val / heldout-test split.
-4. **Evaluation** — heldout test evaluation with patient-level aggregation
-   and Youden's J threshold selection.
-
-Required Data Files
--------------------
-
-Place the following pre-computed files in a single directory (``DATA_ROOT``):
-
-.. list-table::
-   :header-rows: 1
-   :widths: 35 65
-
-   * - File
-     - Description
-   * - ``psd_features_data_X``
-     - joblib array, shape ``(N, 48)`` — PSD band-power features
-   * - ``labels_y``
-     - joblib array, shape ``(N,)`` — class labels
-   * - ``master_metadata_index.csv``
-     - CSV with a ``patient_ID`` column
-   * - ``spec_coh_values.npy``
-     - numpy array, shape ``(N, 64)`` — spectral coherence values
-   * - ``standard_1010.tsv.txt``
-     - TSV with columns ``label``, ``x``, ``y``, ``z`` for electrode positions
-
-These files are available from the Figshare repository:
-`EEG-GCNN pre-computed features <https://figshare.com/articles/dataset/EEG-GCNN_Augmenting_Electroencephalogram-based_Neurological_Disease_Diagnosis_using_a_Domain-guided_Graph_Convolutional_Neural_Network/13251509>`_
+    print(out["y_prob"])              # predicted probability
 
 Training (GCN)
 --------------
 
-Run from the ``examples/eeg_gcnn/`` directory:
+Uses the FigShare pre-computed dataset for full-scale training (1,593 subjects).
+Run from ``examples/eeg_gcnn/``:
 
 .. code-block:: bash
 
     conda activate pyhealth
     python training_pipeline_shallow_gcnn.py
 
-Key configuration options in the script:
+Key options:
 
 .. code-block:: python
 
-    ALPHA           = 0.5    # edge weight mix: 1.0=geodesic, 0.0=coherence
-    NUM_FOLDS       = 10     # set to 2 for a quick smoke-test
-    NUM_EPOCHS      = 100
-    LEARNING_RATE   = 0.01
-    MAX_PATIENTS    = None   # set to e.g. 20 for a fast dev run
+    ALPHA         = 0.5    # adjacency mix: 1.0=spatial, 0.0=functional
+    NUM_FOLDS     = 10     # cross-validation folds (set to 2 for a quick test)
+    NUM_EPOCHS    = 100
+    LEARNING_RATE = 0.01
+    MAX_PATIENTS  = None   # set e.g. 20 for a fast dev run
 
-Checkpoints are saved to ``output_data/`` as:
+Class imbalance (~7:1 TUAB:LEMON) is handled with
+``WeightedRandomSampler`` during training.
+
+Checkpoints saved to ``output_data/``:
 
 .. code-block:: text
 
@@ -344,100 +321,145 @@ Checkpoints are saved to ``output_data/`` as:
 Training (GAT)
 --------------
 
-Run from the ``examples/eeg_gatcnn/`` directory:
+Run from ``examples/eeg_gatcnn/``:
 
 .. code-block:: bash
 
     conda activate pyhealth
     python training_pipeline_shallow_gatcnn.py
 
-Key configuration options in the script:
+Key options:
 
 .. code-block:: python
 
-    DROPOUT_VALUES      = [0.2]      # classifier dropout ablation
-    ATTN_DROPOUT_VALUES = [0.0]      # GAT attention dropout ablation
+    DROPOUT_VALUES      = [0.2]   # classifier dropout
+    ATTN_DROPOUT_VALUES = [0.0]   # GAT attention dropout
     NUM_FOLDS           = 10
     NUM_EPOCHS          = 100
-    MAX_PATIENTS        = None
 
-Checkpoints are saved to ``output_data/`` as:
+Checkpoints saved to ``output_data/``:
 
 .. code-block:: text
 
     psd_gat_shallow_ph_drop2_attn0_fold_0.ckpt
-    psd_gat_shallow_ph_drop2_attn0_fold_1.ckpt
     ...
 
-Heldout Test Evaluation
------------------------
+Heldout Evaluation
+------------------
 
-After training, evaluate on the held-out 30% test subjects:
+Evaluate on the held-out 30% test subjects after training:
 
 .. code-block:: bash
 
-    # GCN
-    python heldout_test_run_gcnn.py
+    python heldout_test_run_gcnn.py    # GCN
+    python heldout_test_run_gatcnn.py  # GAT
 
-    # GAT
-    python heldout_test_run_gatcnn.py
+Both scripts:
 
-Both scripts load each fold checkpoint, run inference on the held-out
-patients, aggregate window-level predictions to patient level by averaging
-probabilities, select the optimal decision threshold via Youden's J
-statistic, and report mean ± std across folds:
+1. Load each fold checkpoint.
+2. Run inference on held-out patients.
+3. Aggregate window-level probabilities to patient level (mean).
+4. Select optimal threshold via **Youden's J statistic** (J = sensitivity +
+   specificity − 1) on the ROC curve.
+5. Report mean ± std across folds.
+
+Results matching the paper (Table 2, combined adjacency α=0.5):
 
 .. code-block:: text
 
-    auroc_window  : 0.8342 ± 0.0079
     auroc_patient : 0.8970 ± 0.0110
     precision     : 0.9866 ± 0.0060
     recall        : 0.7198 ± 0.0320
     f1            : 0.8318 ± 0.0200
     bal_acc       : 0.8237 ± 0.0050
 
-Frequency Band Ablation (GCN)
-------------------------------
+Ablation Studies
+----------------
 
-Run 13 ablation conditions (baseline + 6 leave-one-out + 6 keep-one-in)
-without retraining, using the existing alpha=0.5 checkpoints:
+Adjacency Ablation (Original Extension)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+We extended the paper by varying ``alpha`` across four configurations on the
+full FigShare dataset (477 test patients, 70/30 patient-level split):
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 10 12 14 14
+
+   * - Config
+     - alpha
+     - Model
+     - AUC
+     - Youden's J
+   * - Functional only
+     - 0.0
+     - GCN
+     - 0.900
+     - 0.645
+   * - Combined (paper default)
+     - 0.5
+     - GCN
+     - 0.902
+     - 0.655
+   * - Spatial-heavy
+     - 0.75
+     - GCN
+     - **0.903**
+     - **0.660**
+   * - Spatial only
+     - 1.0
+     - GCN
+     - 0.898
+     - 0.623
+
+The spatial-heavy blend (α=0.75) marginally outperforms the paper's default.
+Spatial-only (α=1.0) is the weakest, confirming that functional coherence
+adds signal. GCN outperforms GAT consistently (~6% AUC).
+
+Re-run with a different alpha:
+
+.. code-block:: python
+
+    ALPHA = 0.75  # in training_pipeline_shallow_gcnn.py
+
+Frequency Band Ablation
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+Zero out individual frequency bands at inference time — no retraining needed.
+Run from ``examples/eeg_gcnn/``:
 
 .. code-block:: bash
 
     python run_band_ablation.py
 
-The ``excluded_bands`` parameter of
-:class:`~pyhealth.tasks.EEGGCNNClassification` zeros out the specified
-frequency band columns in the node-feature matrix at inference time:
+Uses the ``excluded_bands`` parameter of
+:class:`~pyhealth.tasks.EEGGCNNClassification`:
 
 .. code-block:: python
 
-    # Leave-one-out: exclude delta
+    from pyhealth.tasks.eeg_gcnn_classification import EEGGCNNClassification, BAND_NAMES
+
+    # Leave-one-out: remove delta
     samples = dataset.set_task(EEGGCNNClassification(excluded_bands=["delta"]))
 
     # Keep-one-in: only delta active
     others = [b for b in BAND_NAMES if b != "delta"]
     samples = dataset.set_task(EEGGCNNClassification(excluded_bands=others))
 
-Edge Weight Ablation
---------------------
-
-Re-run training with a different ``ALPHA`` value to ablate the contribution
-of geodesic distance vs. spectral coherence:
-
-.. code-block:: python
-
-    ALPHA = 1.0   # geodesic distance only
-    ALPHA = 0.0   # spectral coherence only
-    ALPHA = 0.5   # equal mix (default)
-
-The heldout evaluation script accepts the same ``ALPHA`` setting to load
-the corresponding checkpoints.
-
 API Reference
 -------------
 
-- :doc:`datasets/pyhealth.datasets.EEGGCNNDataset`
-- :doc:`tasks/pyhealth.tasks.EEGGCNNClassification`
-- :doc:`models/pyhealth.models.EEGGraphConvNet`
-- :doc:`models/pyhealth.models.EEGGATConvNet`
+Datasets:
+
+- :doc:`datasets/pyhealth.datasets.EEGGCNNRawDataset` — raw EEG (TUAB + LEMON)
+- :doc:`datasets/pyhealth.datasets.EEGGCNNDataset` — FigShare pre-computed
+
+Tasks:
+
+- :doc:`tasks/pyhealth.tasks.eeg_gcnn_disease_detection` — raw EEG task
+- :doc:`tasks/pyhealth.tasks.EEGGCNNClassification` — FigShare task
+
+Models:
+
+- :doc:`models/pyhealth.models.EEGGraphConvNet` — GCN
+- :doc:`models/pyhealth.models.EEGGATConvNet` — GAT
