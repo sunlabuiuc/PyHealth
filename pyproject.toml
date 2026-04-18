@@ -22,8 +22,8 @@ description = "A Python library for healthcare AI"
 readme = "README.rst"
 requires-python = ">=3.12,<3.14"
 dependencies = [
-  "torch>=2.2.0",
-  "torchvision>=0.17.0",
+  "torch~=2.7.1",
+  "torchvision",
   "transformers~=4.53.2",
   "peft",
   "accelerate",
