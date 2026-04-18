@@ -281,7 +281,8 @@ class DynamicSurvivalEngine:
         elif censor_time is not None:
             delta = int(censor_time - anchor_time)
             if delta < self.horizon:
-                mask[max(0, delta) :] = 0
+                # Mask everything after delta
+                mask[max(0, delta + 1) :] = 0
 
         return y, mask
 
