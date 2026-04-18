@@ -1,19 +1,20 @@
 """PyHealth 2.0 training pipeline for shallow EEG-GAT.
 
 10-fold cross-validation using PyHealth 2.0 Trainer, EEGGCNNDataset, and
-the shallow EEGGATConvNet (2 GAT layers).  Dropout ablation is supported via
-DROPOUT_VALUES — one full 10-fold CV run is executed per dropout value.
+the shallow EEGGATConvNet (2 GAT layers).  Dropout and attention dropout
+ablations are supported via DROPOUT_VALUES and ATTN_DROPOUT_VALUES — one
+full 10-fold CV run is executed per (dropout, attn_dropout) combination.
 
 Dataset loading:
   EEGGCNNDataset.set_task() is called once to build and cache a SampleDataset
   on disk.  Subject-level 70/30 and fold splits are then made by indexing into
   SampleDataset.patient_to_index — no data is re-loaded between folds.
 
-Checkpoints are saved as pure state-dicts: 
-    {EXPERIMENT_NAME}_drop{dropout*10}_fold_{fold_idx}.ckpt
+Checkpoints are saved as pure state-dicts:
+    {EXPERIMENT_NAME}_drop{dropout*10}_attn{attn_dropout*10}_fold_{fold_idx}.ckpt
 
 Load with:
-    model.load_state_dict(torch.load("psd_gat_shallow_ph_drop3_fold_0.ckpt"))
+    model.load_state_dict(torch.load("psd_gat_shallow_ph_drop2_attn0_fold_0.ckpt"))
 
 Usage (from the examples/eeg_gatcnn directory):
     conda activate pyhealth (assuming PyHealth is installed in this conda env)
@@ -54,13 +55,14 @@ DATA_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "precompute
 EXPERIMENT_NAME = "psd_gat_shallow_ph"
 BATCH_SIZE      = 512
 NUM_EPOCHS      = 100
-NUM_FOLDS       = 10
+NUM_FOLDS       = 10 # set to 2 for a minimum train/val split; set to 10 for 10-fold CV
 NUM_WORKERS     = 0       # macOS multiprocessing workaround; set >0 on Linux
 SEED            = 42
 LEARNING_RATE   = 0.01
 WEIGHT_DECAY    = 0.0
 TEST_RATIO      = 0.30
-DROPOUT_VALUES  = [0.3]
+DROPOUT_VALUES       = [0.2]
+ATTN_DROPOUT_VALUES  = [0.0]        # GAT attention dropout; e.g. [0.0, 0.3, 0.6]
 MAX_PATIENTS: Optional[int] = None  # None uses the full dataset.
                                     # Set to an int (e.g. 20) to cap patients
                                     # for faster runs.
@@ -380,96 +382,114 @@ if __name__ == "__main__":
 
     kfold = KFold(n_splits=NUM_FOLDS, shuffle=True, random_state=SEED)
 
-    # dropout -> list of per-fold val score dicts
-    ablation_results: Dict[float, List[dict]] = {d: [] for d in DROPOUT_VALUES}
+    # (dropout, attn_dropout) -> list of per-fold val score dicts
+    ablation_results: Dict[tuple, List[dict]] = {
+        (d, a): [] for d in DROPOUT_VALUES for a in ATTN_DROPOUT_VALUES
+    }
 
     for dropout in DROPOUT_VALUES:
-        print(f"\n[MAIN] ========== Dropout {dropout} ==========")
-
-        for fold_idx, (train_idx, val_idx) in enumerate(
-            kfold.split(train_val_patients)
-        ):
-            print(f"\n[MAIN]   ===== Fold {fold_idx + 1}/{NUM_FOLDS} =====")
-
-            train_patients = train_val_patients[train_idx]
-            val_patients = train_val_patients[val_idx]
-
-            train_samples = patient_subset_samples(
-                all_samples, train_patients, patient_to_index
-            )
-            val_samples = patient_subset_samples(
-                all_samples, val_patients, patient_to_index
-            )
-
+        for attn_dropout in ATTN_DROPOUT_VALUES:
             print(
-                f"[MAIN]   Train windows: {len(train_samples)} | "
-                f"Val windows: {len(val_samples)}"
+                f"\n[MAIN] ========== Dropout {dropout} | "
+                f"Attn Dropout {attn_dropout} =========="
             )
 
-            train_ds = _MapStyleDataset(train_samples)
-            val_ds = _MapStyleDataset(val_samples)
+            for fold_idx, (train_idx, val_idx) in enumerate(
+                kfold.split(train_val_patients)
+            ):
+                print(f"\n[MAIN]   ===== Fold {fold_idx + 1}/{NUM_FOLDS} =====")
 
-            # Class-balanced training loader; sequential validation loader.
-            train_loader = DataLoader(
-                train_ds,
-                batch_size=BATCH_SIZE,
-                sampler=make_weighted_sampler(train_samples),
-                num_workers=NUM_WORKERS,
-                pin_memory=False,
-                collate_fn=collate_temporal,
-            )
-            val_loader = DataLoader(
-                val_ds,
-                batch_size=BATCH_SIZE,
-                shuffle=False,
-                num_workers=NUM_WORKERS,
-                pin_memory=False,
-                collate_fn=collate_temporal,
-            )
+                train_patients = train_val_patients[train_idx]
+                val_patients = train_val_patients[val_idx]
 
-            exp_name = f"{EXPERIMENT_NAME}_drop{int(dropout * 10)}_fold_{fold_idx}"
+                train_samples = patient_subset_samples(
+                    all_samples, train_patients, patient_to_index
+                )
+                val_samples = patient_subset_samples(
+                    all_samples, val_patients, patient_to_index
+                )
 
-            # Fresh model for each fold, initialised from the full sample_ds schema.
-            model = EEGGATConvNet(dataset=sample_ds, dropout=dropout)
+                print(
+                    f"[MAIN]   Train windows: {len(train_samples)} | "
+                    f"Val windows: {len(val_samples)}"
+                )
 
-            trainer = ScheduledTrainer(
-                model=model,
-                metrics=METRICS,
-                device=None,          # auto: GPU if available, else CPU
-                enable_logging=True,
-                output_path=output_dir,
-                exp_name=exp_name,
-            )
+                train_ds = _MapStyleDataset(train_samples)
+                val_ds = _MapStyleDataset(val_samples)
 
-            trainer.train(
-                train_dataloader=train_loader,
-                val_dataloader=val_loader,
-                epochs=NUM_EPOCHS,
-                optimizer_class=torch.optim.SGD,
-                optimizer_params={"lr": LEARNING_RATE},
-                scheduler_milestones=[i * 10 for i in range(1, 26)],
-                scheduler_gamma=0.5,
-                weight_decay=WEIGHT_DECAY,
-                max_grad_norm=None,
-                monitor="roc_auc",
-                monitor_criterion="max",
-                load_best_model_at_last=True,
-            )
+                # Class-balanced training loader; sequential validation loader.
+                train_loader = DataLoader(
+                    train_ds,
+                    batch_size=BATCH_SIZE,
+                    sampler=make_weighted_sampler(train_samples),
+                    num_workers=NUM_WORKERS,
+                    pin_memory=False,
+                    collate_fn=collate_temporal,
+                )
+                val_loader = DataLoader(
+                    val_ds,
+                    batch_size=BATCH_SIZE,
+                    shuffle=False,
+                    num_workers=NUM_WORKERS,
+                    pin_memory=False,
+                    collate_fn=collate_temporal,
+                )
 
-            val_scores = trainer.evaluate(val_loader)
-            print(f"[MAIN] Fold {fold_idx} dropout={dropout} val scores: {val_scores}")
-            ablation_results[dropout].append(val_scores)
+                exp_name = (
+                    f"{EXPERIMENT_NAME}"
+                    f"_drop{int(dropout * 10)}"
+                    f"_attn{int(attn_dropout * 10)}"
+                    f"_fold_{fold_idx}"
+                )
 
-            ckpt_path = os.path.join(output_dir, f"{exp_name}.ckpt")
-            trainer.save_ckpt(ckpt_path)
-            print(f"[MAIN] Checkpoint saved: {ckpt_path}")
+                # Fresh model for each fold, initialised from the full sample_ds schema.
+                model = EEGGATConvNet(
+                    dataset=sample_ds,
+                    dropout=dropout,
+                    attn_dropout=attn_dropout,
+                )
+
+                trainer = ScheduledTrainer(
+                    model=model,
+                    metrics=METRICS,
+                    device=None,          # auto: GPU if available, else CPU
+                    enable_logging=True,
+                    output_path=output_dir,
+                    exp_name=exp_name,
+                )
+
+                trainer.train(
+                    train_dataloader=train_loader,
+                    val_dataloader=val_loader,
+                    epochs=NUM_EPOCHS,
+                    optimizer_class=torch.optim.SGD,
+                    optimizer_params={"lr": LEARNING_RATE},
+                    scheduler_milestones=[i * 10 for i in range(1, 26)],
+                    scheduler_gamma=0.5,
+                    weight_decay=WEIGHT_DECAY,
+                    max_grad_norm=None,
+                    monitor="roc_auc",
+                    monitor_criterion="max",
+                    load_best_model_at_last=True,
+                )
+
+                val_scores = trainer.evaluate(val_loader)
+                print(
+                    f"[MAIN] Fold {fold_idx} dropout={dropout} "
+                    f"attn_dropout={attn_dropout} val scores: {val_scores}"
+                )
+                ablation_results[(dropout, attn_dropout)].append(val_scores)
+
+                ckpt_path = os.path.join(output_dir, f"{exp_name}.ckpt")
+                trainer.save_ckpt(ckpt_path)
+                print(f"[MAIN] Checkpoint saved: {ckpt_path}")
 
     # ------------------------------------------------------------------
     # Ablation summary
     # ------------------------------------------------------------------
     print(f"\n[MAIN] ========== Dropout Ablation Summary ==========")
-    for dropout, fold_results in ablation_results.items():
-        print(f"\n  Dropout={dropout}")
+    for (dropout, attn_dropout), fold_results in ablation_results.items():
+        print(f"\n  Dropout={dropout} | Attn Dropout={attn_dropout}")
         for metric in fold_results[0].keys():
             vals = [r[metric] for r in fold_results if metric in r]
             print(f"    {metric:20s}: {np.mean(vals):.4f} ± {np.std(vals):.4f}")

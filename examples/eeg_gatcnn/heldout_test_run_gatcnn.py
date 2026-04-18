@@ -13,7 +13,7 @@ Patient-level aggregation:
 
 Checkpoint format:
     Pure state-dicts saved by trainer.save_ckpt() under output_data/:
-        {EXPERIMENT_NAME}_drop{dropout*10}_fold_{fold_idx}.ckpt
+        {EXPERIMENT_NAME}_drop{dropout*10}_attn{attn_dropout*10}_fold_{fold_idx}.ckpt
 
 Usage (from the examples/eeg_gatcnn directory):
     conda activate pyhealth (assuming PyHealth is installed in this conda env)
@@ -55,13 +55,14 @@ from pyhealth.models import EEGGATConvNet
 DATA_ROOT = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "precomputed_data"
 )
-EXPERIMENT_NAME = "psd_gat_shallow_ph"
-NUM_FOLDS       = 10
-BATCH_SIZE      = 512
-NUM_WORKERS     = 0
-SEED            = 42
-TEST_RATIO      = 0.30
-DROPOUT_VALUES  = [0.3]
+EXPERIMENT_NAME      = "psd_gat_shallow_ph"
+NUM_FOLDS            = 10
+BATCH_SIZE           = 512
+NUM_WORKERS          = 0
+SEED                 = 42
+TEST_RATIO           = 0.30
+DROPOUT_VALUES       = [0.2]
+ATTN_DROPOUT_VALUES  = [0.0]   # must match training pipeline
 MAX_PATIENTS: Optional[int] = None  # must match training pipeline
 
 
@@ -286,53 +287,66 @@ if __name__ == "__main__":
         os.path.dirname(os.path.abspath(__file__)), "output_data"
     )
 
-    # dropout -> list of per-fold metric dicts
-    ablation_metrics: Dict[float, List[Dict[str, float]]] = {
-        d: [] for d in DROPOUT_VALUES
+    # (dropout, attn_dropout) -> list of per-fold metric dicts
+    ablation_metrics: Dict[tuple, List[Dict[str, float]]] = {
+        (d, a): [] for d in DROPOUT_VALUES for a in ATTN_DROPOUT_VALUES
     }
 
     for dropout in DROPOUT_VALUES:
-        print(f"\n[MAIN] ========== Dropout {dropout} ==========")
-
-        for fold_idx in range(NUM_FOLDS):
-            print(f"\n[MAIN]   ===== Fold {fold_idx + 1}/{NUM_FOLDS} =====")
-
-            exp_name = f"{EXPERIMENT_NAME}_drop{int(dropout * 10)}_fold_{fold_idx}"
-            ckpt_path = os.path.join(output_dir, f"{exp_name}.ckpt")
-
-            if not os.path.exists(ckpt_path):
-                print(f"[MAIN] Checkpoint not found: {ckpt_path} — skipping.")
-                continue
-
-            model = EEGGATConvNet(dataset=sample_ds, dropout=dropout)
-            model.load_state_dict(
-                torch.load(ckpt_path, map_location=device, weights_only=True)
+        for attn_dropout in ATTN_DROPOUT_VALUES:
+            print(
+                f"\n[MAIN] ========== Dropout {dropout} | "
+                f"Attn Dropout {attn_dropout} =========="
             )
-            model.to(device)
-            model.eval()
 
-            all_patient_ids: List[str] = []
-            all_y_prob: List[float] = []
-            all_y_true: List[float] = []
+            for fold_idx in range(NUM_FOLDS):
+                print(f"\n[MAIN]   ===== Fold {fold_idx + 1}/{NUM_FOLDS} =====")
 
-            with torch.no_grad():
-                for batch in test_loader:
-                    output = model(**batch)
+                exp_name = (
+                    f"{EXPERIMENT_NAME}"
+                    f"_drop{int(dropout * 10)}"
+                    f"_attn{int(attn_dropout * 10)}"
+                    f"_fold_{fold_idx}"
+                )
+                ckpt_path = os.path.join(output_dir, f"{exp_name}.ckpt")
 
-                    y_prob = output["y_prob"].cpu().numpy().squeeze(-1)  # (B,)
-                    y_true = output["y_true"].cpu().numpy().squeeze(-1)  # (B,)
+                if not os.path.exists(ckpt_path):
+                    print(f"[MAIN] Checkpoint not found: {ckpt_path} — skipping.")
+                    continue
 
-                    all_patient_ids.extend(batch["patient_id"])
-                    all_y_prob.extend(y_prob.tolist())
-                    all_y_true.extend(y_true.tolist())
+                model = EEGGATConvNet(
+                    dataset=sample_ds,
+                    dropout=dropout,
+                    attn_dropout=attn_dropout,
+                )
+                model.load_state_dict(
+                    torch.load(ckpt_path, map_location=device, weights_only=True)
+                )
+                model.to(device)
+                model.eval()
 
-            metrics = compute_metrics(
-                np.array(all_y_prob),
-                np.array(all_y_true, dtype=int),
-                all_patient_ids,
-                fold_idx,
-            )
-            ablation_metrics[dropout].append(metrics)
+                all_patient_ids: List[str] = []
+                all_y_prob: List[float] = []
+                all_y_true: List[float] = []
+
+                with torch.no_grad():
+                    for batch in test_loader:
+                        output = model(**batch)
+
+                        y_prob = output["y_prob"].cpu().numpy().squeeze(-1)  # (B,)
+                        y_true = output["y_true"].cpu().numpy().squeeze(-1)  # (B,)
+
+                        all_patient_ids.extend(batch["patient_id"])
+                        all_y_prob.extend(y_prob.tolist())
+                        all_y_true.extend(y_true.tolist())
+
+                metrics = compute_metrics(
+                    np.array(all_y_prob),
+                    np.array(all_y_true, dtype=int),
+                    all_patient_ids,
+                    fold_idx,
+                )
+                ablation_metrics[(dropout, attn_dropout)].append(metrics)
 
     # ------------------------------------------------------------------
     # Ablation summary
@@ -352,10 +366,10 @@ if __name__ == "__main__":
         std = stats.stdev(vals) if len(vals) > 1 else 0.0
         print(f"    {key:20s}: {stats.mean(vals):.4f} ± {std:.4f}")
 
-    for dropout, fold_metrics in ablation_metrics.items():
+    for (dropout, attn_dropout), fold_metrics in ablation_metrics.items():
         if not fold_metrics:
             continue
-        print(f"\n  Dropout={dropout}")
+        print(f"\n  Dropout={dropout} | Attn Dropout={attn_dropout}")
         for key in fold_metrics[0].keys():
             _summary(fold_metrics, key)
 

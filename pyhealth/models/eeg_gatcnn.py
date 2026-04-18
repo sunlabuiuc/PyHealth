@@ -1,6 +1,6 @@
 """Shallow EEG-GAT model wrapped for PyHealth 2.0.
 
-Two GATConv layers followed by a two-layer classification head. 
+Two GATConv layers followed by a two-layer classification head.
 
 Expects a SampleDataset built with:
     input_schema  = {"node_features": "tensor", "adj_matrix": "tensor"}
@@ -31,15 +31,17 @@ class EEGGATConvNet(BaseModel):
 
     Two GATConv layers use multi-head attention over the electrode graph to
     aggregate node features, with adjacency-matrix edge weights biasing the
-    attention scores.  Global pooling and a two-layer classifier follow.
+    attention scores. Global pooling and a two-layer classifier follow.
 
     Architecture (input → output features per node):
         conv1: GATConv(6  → 16, heads=4, concat=True)  →  64
-        conv2: GATConv(64 → 20, heads=1, concat=False) + BatchNorm  →  20
+        conv2: GATConv(64 → 20, heads=4, concat=False) + BatchNorm  →  20
         global_add_pool → dropout → fc1(20→10) → fc2(10→1)
 
     Attributes:
         dropout: Dropout probability applied before the classifier.
+        attn_dropout: Dropout probability applied to attention coefficients
+            inside each GATConv layer during training.
         conv1: First graph attention layer.
         conv2: Second graph attention layer.
         conv2_bn: Batch normalisation applied after conv2.
@@ -51,6 +53,8 @@ class EEGGATConvNet(BaseModel):
         num_node_features: Number of PSD bands per node. Defaults to 6.
         dropout: Dropout probability applied before the classifier.
             Defaults to 0.2.
+        attn_dropout: Dropout probability applied to GAT attention
+            coefficients during training. Defaults to 0.0.
         **kwargs: Additional keyword arguments forwarded to BaseModel.
     """
 
@@ -59,22 +63,24 @@ class EEGGATConvNet(BaseModel):
         dataset,
         num_node_features: int = 6,
         dropout: float = 0.2,
+        attn_dropout: float = 0.0,
         **kwargs,
     ) -> None:
         super().__init__(dataset=dataset, **kwargs)
         self.dropout = dropout
+        self.attn_dropout = attn_dropout
 
         output_size = self.get_output_size()  # 1 for binary
 
         self.conv1 = GATConv(
             num_node_features, 16,
             heads=4, concat=True, negative_slope=0.2,
-            dropout=0.0, add_self_loops=False, bias=True, edge_dim=1,
+            dropout=attn_dropout, add_self_loops=True, bias=True, edge_dim=1,
         )
         self.conv2 = GATConv(
             64, 20,
-            heads=1, concat=False, negative_slope=0.2,
-            dropout=0.0, add_self_loops=False, bias=True, edge_dim=1,
+            heads=4, concat=False, negative_slope=0.2,
+            dropout=attn_dropout, add_self_loops=True, bias=True, edge_dim=1,
         )
         self.conv2_bn = BatchNorm(
             20, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True

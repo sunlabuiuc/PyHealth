@@ -73,7 +73,7 @@ ALPHA           = 0.5     # edge weight mix: 1.0=geodesic only, 0.0=coherence on
 EXPERIMENT_NAME = f"psd_gnn_shallow_ph_alpha{ALPHA:.2f}"
 BATCH_SIZE      = 512
 NUM_EPOCHS      = 100
-NUM_FOLDS       = 10
+NUM_FOLDS       = 10   # minimum 2 (one train/val split); 10 for full 10-fold CV
 NUM_WORKERS     = 0       # macOS multiprocessing workaround; set >0 on Linux
 SEED            = 42
 LEARNING_RATE   = 0.01
@@ -410,6 +410,9 @@ if __name__ == "__main__":
     # 10-fold cross-validation over train+val patients
     # ------------------------------------------------------------------
     output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output_data")
+
+    if NUM_FOLDS < 2:
+        raise ValueError(f"NUM_FOLDS must be at least 2, got {NUM_FOLDS}.")
 
     kfold = KFold(n_splits=NUM_FOLDS, shuffle=True, random_state=SEED)
     fold_results: List[Dict] = []
