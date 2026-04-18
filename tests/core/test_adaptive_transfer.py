@@ -211,3 +211,16 @@ def test_adaptive_transfer_get_adaptive_lr():
 
     assert model_weighted.get_adaptive_lr(base_lr, similarity) == base_lr * similarity
     assert model_unweighted.get_adaptive_lr(base_lr, similarity) == base_lr
+
+
+def test_adaptive_transfer_mlp_backbone_forward():
+    dataset = _DummyDataset(num_classes=3, input_dim=4)
+    model = AdaptiveTransferModel(
+        dataset=dataset,
+        feature_key="signal",
+        backbone="mlp",
+        hidden_dim=32,
+    )
+    batch = _make_batch(batch_size=3, seq_len=8, input_dim=4, num_classes=3)
+    out = model(**batch)
+    assert out["logit"].shape == (3, 3)

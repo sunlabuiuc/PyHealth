@@ -38,13 +38,16 @@ class AdaptiveTransferModel(BaseModel):
         backbone_output_dim: Output dimension of a custom backbone. Required
             when it cannot be inferred from the module itself.
         distance_fn: Distance function for IPD-style similarity. One of
-            {"euclidean", "manhattan", "cosine"} or a callable.
+            {"euclidean", "manhattan", "cosine"} or a callable. Euclidean and
+            Manhattan use ``torch.nn.functional.pairwise_distance``; cosine
+            uses ``1 - cosine_similarity``.
         use_similarity_weighting: Whether to scale learning rates by similarity.
         use_kde_smoothing: Whether to smooth pairwise distances before
             averaging.
         smoothing_std: Standard deviation of Gaussian smoothing noise.
         eps: Small constant for numerical stability.
-
+        input_dim: Optional per-time-step input width; inferred from the
+            dataset when omitted.
     Raises:
         ValueError: If the dataset does not expose exactly one label key.
 
@@ -69,6 +72,7 @@ class AdaptiveTransferModel(BaseModel):
         use_kde_smoothing: bool = True,
         smoothing_std: float = 0.01,
         eps: float = 1e-8,
+        input_dim: Optional[int] = None,
     ) -> None:
         """Initialize the adaptive transfer model.
 
@@ -91,6 +95,10 @@ class AdaptiveTransferModel(BaseModel):
                 distances before averaging.
             smoothing_std: Standard deviation of the Gaussian smoothing noise.
             eps: Small constant for numerical stability.
+            input_dim: If set, per-time-step input size for built-in backbones
+                (e.g. number of DSA channels). When ``None``, the model infers
+                from ``dataset.input_info`` when present, otherwise from the
+                first training sample.
 
         Raises:
             ValueError: If the dataset exposes more than one label key.
@@ -110,9 +118,13 @@ class AdaptiveTransferModel(BaseModel):
         self.smoothing_std = smoothing_std
         self.eps = eps
 
-        input_dim = self._infer_input_dim(self.feature_key)
+        encoder_input_dim = (
+            max(1, int(input_dim))
+            if input_dim is not None
+            else self._infer_input_dim(self.feature_key)
+        )
         self.encoder, encoder_output_dim = self._build_encoder(
-            input_dim=input_dim,
+            input_dim=encoder_input_dim,
             hidden_dim=hidden_dim,
             num_layers=num_layers,
             dropout=dropout,
@@ -212,9 +224,9 @@ class AdaptiveTransferModel(BaseModel):
 
         name = distance_fn.lower()
         if name == "euclidean":
-            return lambda x, y: torch.norm(x - y, p=2, dim=1)
+            return lambda x, y: F.pairwise_distance(x, y, p=2)
         if name == "manhattan":
-            return lambda x, y: torch.norm(x - y, p=1, dim=1)
+            return lambda x, y: F.pairwise_distance(x, y, p=1)
         if name == "cosine":
             return lambda x, y: 1.0 - F.cosine_similarity(x, y, dim=1)
 
@@ -224,7 +236,7 @@ class AdaptiveTransferModel(BaseModel):
         )
 
     def _infer_input_dim(self, feature_key: str) -> int:
-        """Infer dense feature dimensionality from dataset metadata."""
+        """Infer per-time-step width from ``input_info`` or the first sample."""
         if self.dataset is None:
             return 1
 
@@ -235,6 +247,26 @@ class AdaptiveTransferModel(BaseModel):
             if "dim" in stats and isinstance(stats["dim"], int):
                 return max(1, int(stats["dim"]))
         except (KeyError, TypeError, AttributeError):
+            pass
+
+        try:
+            n = len(self.dataset)
+            if n == 0 or feature_key not in self.dataset[0]:
+                return 1
+            feature = self.dataset[0][feature_key]
+            if isinstance(feature, torch.Tensor):
+                value = feature
+            else:
+                proc = self.dataset.input_processors[feature_key]
+                schema = proc.schema()
+                if "value" not in schema:
+                    return 1
+                value = feature[schema.index("value")]
+            if value.dim() == 1:
+                return 1
+            if value.dim() >= 2:
+                return max(1, int(value.shape[-1]))
+        except Exception:
             pass
 
         return 1
