@@ -2,8 +2,8 @@
 MIMIC-IV PyHealth tasks for EHR Mamba (V3).
 
 Provides:
-    MIMIC4EHRMambaTask          — base class: builds the V2 paper-conformant
-                                   token sequence for a patient; no label.
+    MIMIC4EHRMambaTask          — base class: builds the token sequence for a patient; 
+                                   no label.
     MIMIC4EHRMambaMortalityTask — subclass: adds in-hospital mortality label
                                    and minimum-age filter.
 
@@ -18,9 +18,8 @@ Sequence layout (paper §2.1 / Appx.E):
     [M1]
     [VS] … [VE] [REG]
 
-The embedding model (ehr_mamba_embeddings_paper_w_bins_v3.py) is responsible
-for transforming the integer token indices and metadata produced here into
-dense vector representations.  This file has no dependency on that module.
+The embedding model (ehrmamba_embedding.py) is responsible for transforming the integer 
+token indices and metadata produced here into dense vector representations.  
 """
 
 from __future__ import annotations
@@ -255,7 +254,7 @@ def _time_interval_token(weeks_gap: float) -> str:
 # ── Base task ─────────────────────────────────────────────────────────────────
 
 class MIMIC4EHRMambaTask(BaseTask):
-    """Base PyHealth task — builds the V2 paper-conformant EHR Mamba sequence.
+    """Base PyHealth task — builds the EHR Mamba sequence.
 
     Produces ONE sample per patient containing their complete admission history
     as a flat token sequence.  Does NOT assign a prediction label; subclasses

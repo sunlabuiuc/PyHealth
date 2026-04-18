@@ -74,9 +74,6 @@ from ..processors import (
 from .base_model import BaseModel
 
 # ── MIMIC-IV token type IDs (paper §2.1 + §2.2 + Appx.B + Appx.E) ──────────
-# V2 extends the vocabulary with structural special tokens from §2.1:
-#   [VS]/[VE] visit delimiters, [REG] register token, and [TIME_INTERVAL]
-#   covering [W0]–[W3], [M1]–[M12], and [LT] inter-visit time tokens.
 # Clinical types start at index 6; special tokens occupy indices 0–5.
 MIMIC4_TOKEN_TYPES: Dict[str, int] = {
     "PAD":           0,   # padding

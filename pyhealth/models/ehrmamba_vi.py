@@ -1,4 +1,4 @@
-"""EHR Mamba V2: Mamba SSM-based clinical prediction model for EHR data.
+"""EHR Mamba-Vector Institute: Mamba SSM-based clinical prediction model for EHR data.
 
 Implements the EHRMamba model from arXiv 2405.14567, using State Space Models
 (Mamba) for linear-complexity sequence processing over EHR visit histories.
@@ -7,7 +7,7 @@ Key classes:
 
 - :class:`RMSNorm`    — Root mean square layer normalization (paper ref 62).
 - :class:`MambaBlock` — Single Mamba SSM block with causal convolution.
-- :class:`EHRMamba`   — Full model integrating paper-conformant embeddings.
+- :class:`EHRMamba`   — Full model integrating embeddings.
 
 Two embedding strategies are supported via ``use_ehr_mamba_embedding``:
 
@@ -18,7 +18,7 @@ Two embedding strategies are supported via ``use_ehr_mamba_embedding``:
 2. **PyHealth EmbeddingModel** (``False``): Simpler standard embedding when
    auxiliary tensors are not available.
 
-Example::
+Example:
 
     from pyhealth.datasets import create_sample_dataset, get_dataloader
 
@@ -49,14 +49,13 @@ from torch import nn
 
 from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
-from pyhealth.models.embedding import EmbeddingModel          # original PyHealth embedding
+from pyhealth.models.embedding import EmbeddingModel    # original PyHealth embedding
 from pyhealth.models.utils import get_last_visit
 
 # PROJECT ADDITION (not in PyHealth's ehrmamba.py): EHR Mamba paper §2.2 embedding.
 # EHRMambaEmbeddingAdapter wraps EHRMambaEmbedding (full 7-component Eq. 1 with
 # time/age/type/segment/visit-order embeddings) to match EmbeddingModel's
 # Dict[str, Tensor] interface.  Select via use_ehr_mamba_embedding in __init__.
-# from ehr_mamba_embeddings_paper_w_bins_v3 import EHRMambaEmbedding, EHRMambaEmbeddingAdapter  # (alternate)
 from pyhealth.models.ehrmamba_embedding import EHRMambaEmbedding, EHRMambaEmbeddingAdapter
 
 

@@ -11,7 +11,7 @@ Modules under test
 ``mortality_prediction_ehrmamba_mimic4.py`` (task-side):
     - :class:`LabQuantizer`                — 5-bin quantile lab tokenizer
       (paper Appx. B).
-    - :class:`MIMIC4EHRMambaTask`          — base task; builds V2
+    - :class:`MIMIC4EHRMambaTask`          — base task
       paper-conformant token sequence.
     - :class:`MIMIC4EHRMambaMortalityTask` — adds in-hospital mortality label
       and minimum-age filter.
@@ -325,10 +325,6 @@ def _make_synthetic_sample_dataset(n_samples: int = 4):
 
         [CLS]  [VS]  PR:9904  RX:Aspirin  LB:51006_bin2  [VE]  [REG]
 
-    Uses ``input_schema = {"input_ids": "sequence"}`` — a single feature key,
-    matching the V3 architecture where auxiliary fields pass through
-    ``**kwargs`` rather than through ``input_schema``.
-
     Args:
         n_samples: Number of identical synthetic samples to generate.
             Defaults to 4.
@@ -442,18 +438,14 @@ def _raw_collate_sample(
 
 # ===========================================================================
 # Section 0: MIMIC4EHRMambaTask and MIMIC4EHRMambaMortalityTask
-# V3: task classes live in mortality_prediction_ehrmamba_mimic4.py,
-# separated from the embedding module (no circular dependency).
 # ===========================================================================
 
 
 class TestMIMIC4EHRMambaTask(TimedTestCase):
     """Tests for :class:`MIMIC4EHRMambaTask`.
 
-    Verifies the base task correctly builds the V2 paper-conformant token
-    sequence (§2.1) from a synthetic patient, including all structural special
-    tokens and auxiliary metadata tensors.  The task file has no dependency on
-    the embedding file.
+    Verifies the base task correctly builds the token sequence (§2.1) from a synthetic 
+    patient, including all structural special tokens and auxiliary metadata tensors.  
     """
 
     def test_base_task_returns_no_label(self) -> None:
@@ -508,7 +500,6 @@ class TestMIMIC4EHRMambaTask(TimedTestCase):
         """input_ids must contain [VS] and [VE] tokens (paper §2.1).
 
         Each visit is bracketed by [VS] (visit start) and [VE] (visit end).
-        Their presence confirms the task correctly builds the V2 sequence layout.
         """
         task = MIMIC4EHRMambaTask()
         patient = _make_synthetic_patient(n_visits=2)
