@@ -67,28 +67,32 @@ _examples/eicu_hourly_los_tpc.py_ : This provides an end-to-end script for repro
 _examples/mimic4_hourly_los_tpc.py_ : This provides an end-to-end script for reproducing and evaluating pipeline on MIMIC-IV dataset.
 _examples/run_dual_dataset_tpc.py_ : This utility scripts runs the pipeline on both datasets and produces a combined report.
 
+**4) Test Cases e**
+
+We implemented fast performing test cases for our Model and Task contribution using Sythentic Data.
+
+_tests/models/test_tpc.py_
+_tests/tasks/test_hourly_los.py_
 
 
 ## Experimental Setup and Findings
 
 1) Ablations to include/exclude domain specific engineering (skip connections, decay indicators, etc)
-
+<br>
 <img width="306" height="140" alt="image" src="https://github.com/user-attachments/assets/e607fc67-7d56-4ce7-ae19-eaa29dc02a1f" />
-
-
+<br>
 2) Comparison across using combined temporal and pointwise convolutions vs using either architecture alone.
- 
+<br>
 <img width="293" height="140" alt="image" src="https://github.com/user-attachments/assets/67d2c90b-d2d9-449f-add5-7413ec0db0db" />
-
+<br>
 3) Feature independant (no weight-sharing) vs weight-shared temporal convolutions.
-
+<br>
 <img width="306" height="140" alt="image" src="https://github.com/user-attachments/assets/5c6ca146-56b6-4257-94a7-09c20c7c7533" />
-
-
+<br>
 4) Evaluating MSLE loss  vs MSE loss for skewed LoS target regression.
-
+<br>
 <img width="306" height="108" alt="image" src="https://github.com/user-attachments/assets/454f834a-b496-4a84-843e-84f4fe767031" />
-
+<br>
 ## Testing model with varying hyperparameters.
 
 We varied key optimization and architectural hyperparameters (e.g. learning rate, dropout rate, etc) while keeping preprocessing and data splits fixed.
