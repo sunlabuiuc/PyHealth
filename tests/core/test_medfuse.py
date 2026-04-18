@@ -153,11 +153,10 @@ class TestMedFuse(unittest.TestCase):
         loss.backward()
 
         for name, parameter in model.named_parameters():
+            # _dummy_param is a 0-element BaseModel helper, skip grad check
             if name == "_dummy_param":
                 continue
             if parameter.requires_grad:
-                if parameter.grad is None:
-                    print(f"Gradient missing for: {name}")
                 self.assertIsNotNone(parameter.grad)
 
     def test_missing_modality_robustness(self):

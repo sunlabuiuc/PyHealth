@@ -354,9 +354,13 @@ def run_ablation_study(args: argparse.Namespace) -> None:
         "\nNote: These results are on small synthetic data with minimal training "
         "(default 32 train samples, 1 epoch). They validate that the model is "
         "sensitive to hyperparameter choices but should not be interpreted as "
-        "representative of real-world performance. On clinical data (e.g., "
-        "MIMIC-IV), the paper reports that multi-modal EHR+CXR fusion improves "
-        "over unimodal baselines."
+        "representative of real-world performance. For reference, Hayat et al. "
+        "(2022) report the following for in-hospital mortality on MIMIC-IV + "
+        "MIMIC-CXR:\n"
+        "  - Table 2 (paired EHR+CXR test set): MedFuse (OPTIMAL) 0.865 AUROC "
+        "/ 0.594 AUPRC, vs. Unified (Hayat et al., 2021a) 0.835 / 0.495.\n"
+        "  - Table 3 (partial test set): MedFuse (OPTIMAL) 0.874 AUROC / 0.567 "
+        "AUPRC."
     )
 
 

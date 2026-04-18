@@ -1,4 +1,4 @@
-# Author: Sean Nian
+# Authors: Sean Nian, Tony Hong, Yaqi Qiao
 # Description: MedFuse model implementation for PyHealth.
 
 from __future__ import annotations
@@ -18,6 +18,9 @@ class MedFuseLayer(nn.Module):
 
     Fuses EHR time-series and chest X-ray (CXR) representations using an
     LSTM-based sequential fusion strategy that supports missing CXR modality.
+    Follows Paper §3.2, Eq. 4: the fusion LSTM consumes the token sequence
+    ``v_fusion = [v_ehr, v*_cxr]`` (length 1 when CXR is missing). The EHR
+    representation is the first input token, not an initial hidden state.
 
     Paper:
         Hayat, N., Geras, K. J., & Shamout, F. E. (2022).
@@ -244,7 +247,10 @@ class MedFuse(BaseModel):
         ehr_feature_key: Input key for EHR tensor. Default is ``"ehr"``.
         cxr_feature_key: Input key for CXR tensor. Default is ``"cxr"``.
         cxr_mask_key: Optional input key for per-sample CXR availability mask.
-            Default is ``"cxr_mask"``.
+            Default is ``"cxr_mask"``. To surface the mask through the
+            standard dataloader, include ``"cxr_mask": "tensor"`` in your
+            dataset's ``input_schema`` with per-sample availability values
+            (1 = CXR present, 0 = missing).
         ehr_hidden_dim: Hidden dimension for EHR encoder.
         ehr_num_layers: Number of EHR LSTM layers.
         cxr_backbone: CXR ResNet backbone. Default is ``"resnet34"``.
