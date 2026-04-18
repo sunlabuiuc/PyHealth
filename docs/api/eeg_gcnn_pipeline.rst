@@ -379,46 +379,111 @@ Ablation Studies
 Adjacency Type Comparison
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-We compared three adjacency configurations on the full FigShare dataset
-(477 test patients, 70/30 patient-level split):
+We extended the paper by comparing four adjacency configurations on both
+GCN and GAT, evaluated on the full FigShare dataset (477 test patients,
+70/30 patient-level split).
+
+**GCN** (our best model — matches paper's Shallow EEG-GCNN):
 
 .. list-table::
    :header-rows: 1
-   :widths: 30 10 12 14 14
+   :widths: 28 8 10 12 10 10
 
    * - Config
-     - alpha
-     - Model
+     - Alpha
      - AUC
      - Youden's J
+     - Bal. Acc
+     - Recall
    * - Functional only
      - 0.0
-     - GCN
      - 0.900
      - 0.645
-   * - **Combined (paper default)**
-     - **0.5**
-     - **GCN**
-     - **0.902**
-     - **0.655**
+     - 0.823
+     - 0.879
+   * - Combined (paper)
+     - 0.5
+     - 0.902
+     - 0.655
+     - 0.828
+     - 0.879
+   * - **Spatial-heavy**
+     - **0.75**
+     - **0.903**
+     - **0.660**
+     - **0.830**
+     - **0.879**
    * - Spatial only
      - 1.0
-     - GCN
      - 0.898
      - 0.623
+     - 0.812
+     - 0.862
 
-The combined adjacency (α=0.5) achieves the best AUC and Youden's J among
-the three configurations, reproducing the paper's result. Spatial-only
-(α=1.0) is the weakest, confirming that functional coherence adds signal.
-GCN outperforms GAT consistently (~6% AUC) across all configurations.
+**GAT**:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 28 8 10 12 10 10
+
+   * - Config
+     - Alpha
+     - AUC
+     - Youden's J
+     - Bal. Acc
+     - Recall
+   * - Functional only
+     - 0.0
+     - 0.844
+     - 0.599
+     - 0.799
+     - 0.759
+   * - Combined (paper)
+     - 0.5
+     - 0.842
+     - 0.588
+     - 0.794
+     - 0.793
+   * - Spatial-heavy
+     - 0.75
+     - 0.841
+     - 0.548
+     - 0.774
+     - 0.741
+   * - Spatial only
+     - 1.0
+     - 0.849
+     - 0.588
+     - 0.794
+     - 0.810
+
+**Comparison to paper (Table 2, combined adjacency, 10-fold CV)**:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 40 30 30
+
+   * - Model
+     - AUC
+     - Bal. Acc
+   * - Shallow EEG-GCNN (paper)
+     - 0.90 ± 0.02
+     - 0.83 ± 0.02
+
+GCN with α=0.75 achieves the highest AUC (0.903) and Youden's J (0.660),
+marginally outperforming the paper's combined default (α=0.5). Spatial-only
+(α=1.0) is the weakest GCN configuration, confirming that functional
+coherence adds discriminative signal. GCN consistently outperforms GAT by
+approximately 6% AUC across all configurations.
 
 Re-run with a different alpha:
 
 .. code-block:: python
 
-    ALPHA = 0.0  # functional only — in training_pipeline_shallow_gcnn.py
-    ALPHA = 0.5  # combined (paper default)
-    ALPHA = 1.0  # spatial only
+    ALPHA = 0.0   # functional only — in training_pipeline_shallow_gcnn.py
+    ALPHA = 0.5   # combined (paper default)
+    ALPHA = 0.75  # spatial-heavy
+    ALPHA = 1.0   # spatial only
 
 Spectral Frequency Analysis
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
