@@ -512,8 +512,8 @@ Results (mean ± std across 10 folds, patient-level):
      - **0.828 ± 0.012**
      - **0.840 ± 0.028**
    * - LOO delta
-     - 0.772 ± 0.055
-     - 0.728 ± 0.042
+     - 0.802 ± 0.059
+     - 0.746 ± 0.043
      - 0.772 ± 0.055
    * - LOO theta
      - 0.800 ± 0.062
@@ -532,29 +532,29 @@ Results (mean ± std across 10 folds, patient-level):
      - **0.589 ± 0.144**
      - **0.793 ± 0.286**
    * - LOO high gamma
+     - 0.785 ± 0.066
+     - 0.737 ± 0.042
+     - 0.800 ± 0.070
+   * - KOI delta
      - 0.623 ± 0.207
      - 0.605 ± 0.241
      - 0.644 ± 0.214
-   * - KOI delta
+   * - KOI theta
      - 0.575 ± 0.232
      - 0.569 ± 0.194
      - 0.675 ± 0.358
-   * - KOI theta
+   * - KOI alpha
      - 0.661 ± 0.258
      - 0.639 ± 0.218
      - 0.856 ± 0.116
-   * - KOI alpha
-     - 0.579 ± 0.106
-     - 0.565 ± 0.083
-     - 0.915 ± 0.048
    * - KOI beta
      - 0.579 ± 0.106
-     - 0.565 ± 0.083
-     - 0.915 ± 0.048
+     - 0.565 ± 0.138
+     - 0.856 ± 0.116
    * - **KOI low gamma**
-     - **0.656 ± 0.240**
-     - **0.633 ± 0.200**
-     - **0.840 ± 0.158**
+     - **0.723 ± 0.245**
+     - **0.682 ± 0.202**
+     - **0.781 ± 0.153**
    * - KOI high gamma
      - 0.656 ± 0.240
      - 0.633 ± 0.200
@@ -562,7 +562,7 @@ Results (mean ± std across 10 folds, patient-level):
 
 **Key finding**: removing low gamma causes the largest AUC drop (0.898 →
 0.594), and low gamma alone (KOI) achieves the highest single-band AUC
-(0.656). This confirms that the low gamma band (30–50 Hz) carries the most
+(0.723). This confirms that the low gamma band (30–50 Hz) carries the most
 discriminative signal for neurological disease detection.
 
 Run from ``examples/eeg_gcnn/``:
