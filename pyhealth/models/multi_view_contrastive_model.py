@@ -4,7 +4,7 @@ import torch.nn.functional as F
 import numpy as np
 
 from pyhealth.models import BaseModel
-from typing import cast
+from typing import Tuple, cast
 
 class MultiViewContrastiveModel(BaseModel):
     """A simple multi-view contrastive model for demonstration purposes."""
@@ -22,32 +22,32 @@ class MultiViewContrastiveModel(BaseModel):
         self.proj_d = nn.Linear(1, self.hidden_dim)
         self.proj_f = nn.Linear(1, self.hidden_dim)
 
-        def make_encoder():
+        def make_encoder() -> nn.TransformerEncoder:
             encoder_layer = nn.TransformerEncoderLayer(
                 d_model=self.hidden_dim, nhead=4, batch_first=True, dropout=0.2
             )
             return nn.TransformerEncoder(encoder_layer, num_layers=3)
-        self.encoder_t = make_encoder()
-        self.encoder_d = make_encoder()
-        self.encoder_f = make_encoder()
+        self.encoder_t: nn.TransformerEncoder = make_encoder()
+        self.encoder_d: nn.TransformerEncoder = make_encoder()
+        self.encoder_f: nn.TransformerEncoder = make_encoder()
 
         # Now we need MHA
-        self.fusion_mha = nn.MultiheadAttention(embed_dim=self.hidden_dim, num_heads=4, batch_first=True)
-        self.fusion_layer_norm = nn.LayerNorm(self.hidden_dim)
+        self.fusion_mha: nn.MultiheadAttention = nn.MultiheadAttention(embed_dim=self.hidden_dim, num_heads=4, batch_first=True)
+        self.fusion_layer_norm: nn.LayerNorm = nn.LayerNorm(self.hidden_dim)
 
         # Feature-specific projectors
-        def projector():
+        def projector() -> nn.Sequential:
             return nn.Sequential(
                 nn.Linear(self.hidden_dim, self.hidden_dim),
                 nn.ReLU(),
                 nn.Linear(self.hidden_dim, self.hidden_dim),
             )
-        self.F_t = projector()
-        self.F_d = projector()
-        self.F_f = projector()
+        self.F_t: nn.Sequential = projector()
+        self.F_d: nn.Sequential = projector()
+        self.F_f: nn.Sequential = projector()
 
         # self.classifier = nn.Linear(self.hidden_dim, num_classes)
-        self.classifier = nn.Sequential(
+        self.classifier: nn.Sequential = nn.Sequential(
             nn.Linear(self.hidden_dim * 3 , 1024),
             nn.ReLU(),
             nn.Linear(1024 , 512),
@@ -77,7 +77,7 @@ class MultiViewContrastiveModel(BaseModel):
         pertub_matrix = mask * random_am
         return x + pertub_matrix
         
-    def info_nce_loss(self, z_i, z_j, tau, symmetric=True):
+    def info_nce_loss(self, z_i: torch.Tensor, z_j: torch.Tensor, tau: float, symmetric: bool = True) -> torch.Tensor:
         # Compute cosine similarity
         z_i = F.normalize(z_i, dim=1)
         z_j = F.normalize(z_j, dim=1)
@@ -94,7 +94,7 @@ class MultiViewContrastiveModel(BaseModel):
             
         return loss_ij
     
-    def _forward_features(self, x_t, x_d, x_f):
+    def _forward_features(self, x_t: torch.Tensor, x_d: torch.Tensor, x_f: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         x_t = self.proj_t(x_t)
         x_d = self.proj_d(x_d)
         x_f = self.proj_f(x_f)
@@ -138,7 +138,7 @@ class MultiViewContrastiveModel(BaseModel):
                    self.info_nce_loss(z_f, z_f_aug, self.tau)
             # print (f"Pretrain Loss: {loss.item():.4f}")
             return {"loss": loss, 
-                    "zs":[z_t, z_d, z_f]
+                    "z_t": z_t, "z_d": z_d, "z_f": z_f
                     } # Return the embeddings for each view
             
         elif self.training_stage == "finetune":
@@ -180,7 +180,7 @@ class MultiViewContrastiveModel(BaseModel):
             }
         return {}
         
-    def _prepare_tensor(self, x):
+    def _prepare_tensor(self, x) -> torch.Tensor:
         """Converts lists to batched tensors, enforces float32, and moves to device."""
         if isinstance(x, list):
             if isinstance(x[0], torch.Tensor):
