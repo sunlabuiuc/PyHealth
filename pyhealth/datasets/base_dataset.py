@@ -961,9 +961,10 @@ class BaseDataset(ABC):
             f"Setting task {task.task_name} for {self.dataset_name} base dataset..."
         )
 
+        task_init_args = vars(task)
         task_params = json.dumps(
             {
-                **vars(task),
+                **task_init_args,
                 "input_schema": task.input_schema,
                 "output_schema": task.output_schema,
             },
@@ -971,11 +972,13 @@ class BaseDataset(ABC):
             default=str,
         )
 
-        cache_dir = (
-            self.cache_dir
-            / "tasks"
-            / f"{task.task_name}_{uuid.uuid5(uuid.NAMESPACE_DNS, task_params)}"
+        task_hash = str(uuid.uuid5(uuid.NAMESPACE_DNS, task_params))
+        logger.info(
+            f"Task cache hash ({task_hash}) computed from init args: "
+            f"{task_init_args}"
         )
+
+        cache_dir = self.cache_dir / "tasks" / f"{task.task_name}_{task_hash}"
         cache_dir.mkdir(parents=True, exist_ok=True)
 
         proc_params = json.dumps(
