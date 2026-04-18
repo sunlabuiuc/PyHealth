@@ -12,6 +12,10 @@ It shows:
 
 This is useful for a project demo/video because it shows the exact base
 dataset + task functionality before any task-variation ablations.
+
+This script demonstrates the base MedLingo dataset and task functionality only.
+Quantitative model comparison is provided separately in 
+medlingo_task_variation_ablation.py.
 """
 
 import os
