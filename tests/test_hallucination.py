@@ -93,6 +93,7 @@ class TestHallucinationDetectionTask(unittest.TestCase):
         # Verify the Transformer will get lists, not strings
         self.assertIsInstance(s["source_text"], list)
         self.assertIsInstance(s["summary_text"], list)
+        self.assertIsInstance(s["label"], int)
     
     def test_edge_case_missing_summary(self) -> None:
         """Tests that visits missing an AI summary are correctly ignored.
