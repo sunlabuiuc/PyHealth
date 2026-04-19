@@ -408,7 +408,40 @@ class DynamicSurvivalEngine:
 
 
 class DynamicSurvivalTask(BaseTask):
-    """PyHealth-compatible dynamic survival task."""
+    """PyHealth-compatible dynamic survival task for early event prediction.
+
+    Implements the anchor-based discrete-time survival formulation from:
+    Yèche et al. (2024), *Dynamic Survival Analysis for Early Event Prediction*.
+    arXiv:2403.12818.
+
+    Each patient is converted into one or more survival samples, one per
+    anchor time point. At each anchor, the model predicts a discrete-time
+    hazard sequence over a fixed prediction horizon.
+
+    Attributes:
+        task_name (str): Identifier for this task, used by PyHealth internals.
+        input_schema (Dict[str, str]): Maps 'x' to 'tensor' processor.
+        output_schema (Dict[str, str]): Maps 'y' and 'mask' to 'tensor' processors.
+        use_diag (bool): Whether to include diagnosis codes in features.
+        use_proc (bool): Whether to include procedure codes in features.
+        use_drug (bool): Whether to include drug codes in features.
+        engine (DynamicSurvivalEngine): Core engine handling anchor generation,
+            label construction, and sample assembly.
+        diag_vocab (Dict[str, int]): Diagnosis code to index mapping.
+        proc_vocab (Dict[str, int]): Procedure code to index mapping.
+        drug_vocab (Dict[str, int]): Drug code to index mapping.
+
+    Example:
+        >>> from pyhealth.tasks.dynamic_survival import DynamicSurvivalTask
+        >>> dataset = MockDataset()
+        >>> task = DynamicSurvivalTask(
+        ...     dataset=dataset,
+        ...     horizon=24,
+        ...     observation_window=24,
+        ...     anchor_strategy="fixed",
+        ... )
+        >>> samples = task(patient)
+    """
 
     task_name: str = "dynamic_survival"
 
@@ -498,14 +531,24 @@ class DynamicSurvivalTask(BaseTask):
         self.drug_vocab = {c: i for i, c in enumerate(drug_set)}
     
         return self.diag_vocab, self.proc_vocab, self.drug_vocab
-
-    def encode_multi_hot(self, codes, vocab):
-        """Convert codes into multi-hot vector."""
-        vec = np.zeros(len(vocab))
-        for code in codes:
-            if code in vocab:
-                vec[vocab[code]] = 1
-        return vec
+    
+    def encode_multi_hot(self, codes: List[str], vocab: Dict[str, int]) -> np.ndarray:
+            """Encode a list of codes as a multi-hot vector using a vocabulary.
+    
+            Args:
+                codes: List of code strings to encode (e.g. ICD codes, NDC codes).
+                vocab: Dictionary mapping code strings to integer indices.
+    
+            Returns:
+                Binary np.ndarray of shape (len(vocab),) where index i is 1.0
+                if the corresponding code is present in codes, else 0.0.
+                Returns a zero vector if vocab is empty or no codes match.
+            """
+            vec = np.zeros(len(vocab))
+            for code in codes:
+                if code in vocab:
+                    vec[vocab[code]] = 1
+            return vec
 
     def __call__(self, patient) -> List[Dict[str, Any]]:
         """
