@@ -191,6 +191,7 @@ API Reference
     models/pyhealth.models.ResNet18ECG
     models/pyhealth.models.SEResNet50ECG
     models/pyhealth.models.SparcNet
+    models/pyhealth.models.BiLSTMECG
     models/pyhealth.models.StageNet
     models/pyhealth.models.StageAttentionNet
     models/pyhealth.models.AdaCare
