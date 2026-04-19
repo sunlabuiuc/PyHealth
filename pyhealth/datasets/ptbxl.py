@@ -195,9 +195,9 @@ class PTBXLDataset(BaseDataset):
 
 			# Train / test / validation splits using the strat_fold column in ptbxl_database.csv
             strat_fold = db.loc[int(hea_file.stem.replace("HR","")), "strat_fold"]
-            if fold <= 8:
+            if strat_fold <= 8:
                 split = "train"
-            elif fold == 9:
+            elif strat_fold == 9:
                 split = "val"
             else:
                 split = "test"
