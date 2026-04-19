@@ -1,13 +1,14 @@
 """Temporal Pointwise Convolution model for PyHealth.
 
-Author: Codex
-Paper title: Temporal Pointwise Convolutional Networks for Length of Stay
-    Prediction in the Intensive Care Unit
-Paper link: https://github.com/EmmaRocheteau/TPC-LoS-prediction
+Contributor: Hasham Ul Haq (huhaq2)
+Paper: Temporal Pointwise Convolutional Networks for Length of Stay Prediction
+    in the Intensive Care Unit
+Paper link: https://arxiv.org/abs/2007.09483
 Description: PyHealth-adapted Temporal Pointwise Convolution (TPC) model for
-    sequential EHR prediction tasks. The implementation follows the PyHealth
-    ``BaseModel`` interface and supports standard sequence processors together
-    with StageNet-style temporal inputs.
+    sequential EHR prediction tasks. The implementation follows the
+    ``BaseModel`` interface, supports standard sequence processors together
+    with StageNet-style temporal inputs, and is intended for reproducible
+    length-of-stay experiments on existing PyHealth MIMIC-IV pipelines.
 """
 
 from __future__ import annotations

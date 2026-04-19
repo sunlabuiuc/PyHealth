@@ -1,3 +1,13 @@
+"""Synthetic tests for the PyHealth TPC model contribution.
+
+Contributor: Hasham Ul Haq (huhaq2)
+Paper: Temporal Pointwise Convolutional Networks for Length of Stay Prediction
+    in the Intensive Care Unit
+Paper link: https://arxiv.org/abs/2007.09483
+Description: Fast unit tests for the TPC model using only synthetic PyHealth
+    sample datasets and tiny tensors.
+"""
+
 import unittest
 
 import torch

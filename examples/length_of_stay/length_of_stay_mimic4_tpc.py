@@ -1,5 +1,12 @@
 """TPC on MIMIC-IV length-of-stay prediction with simple ablations.
 
+Contributor: Hasham Ul Haq (huhaq2)
+Paper: Temporal Pointwise Convolutional Networks for Length of Stay Prediction
+    in the Intensive Care Unit
+Paper link: https://arxiv.org/abs/2007.09483
+Description: Example script for evaluating the PyHealth-adapted TPC model on
+    the existing MIMIC-IV temporal length-of-stay task with small ablations.
+
 This example is designed for reproducible course-project style experiments:
 it runs on the bundled MIMIC-IV demo by default and can be pointed at full
 MIMIC-IV via ``EHR_ROOT``.
@@ -14,6 +21,21 @@ Ablations included:
     - number of TPC layers
     - hidden dimension
     - dropout
+
+Expected MIMIC-IV files for the temporal LOS task:
+    - hosp/patients.csv.gz
+    - hosp/admissions.csv.gz
+    - hosp/diagnoses_icd.csv.gz
+    - hosp/procedures_icd.csv.gz
+    - hosp/labevents.csv.gz
+    - hosp/d_labitems.csv.gz
+    - icu/icustays.csv.gz
+
+Note:
+    ``MIMIC4EHRDataset`` automatically includes core EHR tables such as
+    patients, admissions, and ICU stays. Keep those files in the EHR root even
+    though the example only passes diagnoses, procedures, and labevents in
+    ``ehr_tables``.
 """
 
 from __future__ import annotations
