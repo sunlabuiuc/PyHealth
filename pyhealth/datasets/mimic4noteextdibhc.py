@@ -180,7 +180,16 @@ SIMPLE_DEIDENTIFICATION_PATTERNS = [
 ]
 
 
-def _create_heading_rs(heading):
+def _create_heading_rs(heading: str) -> list[str]:
+    """Create regex patterns for matching section headings.
+
+    Args:
+        heading: The section heading text (e.g., 'follow(-| ||)(?:up)? instructions').
+
+    Returns:
+        A list of two regex patterns for matching the heading with or without
+        a preceding line break.
+    """
     return [heading + r':', r'(?:^|\n)' + heading + '\n']
 
 
@@ -432,8 +441,8 @@ class MIMIC4NoteExtDIBHCDataset(BaseDataset):
         # The DIBHC dataset is always built from the discharge table.
         tables = ["discharge"]
         warnings.warn(
-            "Events from the discharge table only have date timestamps (no specific time). "
-            "This may affect temporal ordering of events.",
+            "Events from the discharge table only have date timestamps "
+            "(no specific time). This may affect temporal ordering of events.",
             UserWarning,
         )
 
@@ -459,15 +468,27 @@ class MIMIC4NoteExtDIBHCDataset(BaseDataset):
     # ------------------------------------------------------------------
 
     def preprocess(self, df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Apply the full 7-step DIBHC preprocessing pipeline to *df*.
+        """Apply the full 7-step DIBHC preprocessing pipeline.
+
+        Executes all preprocessing steps in sequence: special character
+        replacement, discharge instructions split, hospital course extraction,
+        prefix/suffix removal, boilerplate pattern removal, quality filtering,
+        and hospital course validation. Each step progressively refines the
+        data and reduces the row count based on quality criteria.
+
+        Example:
+            >>> dataset = MIMIC4NoteExtDIBHCDataset(root="/path/to/mimic-iv")
+            >>> df_raw = dataset.load_raw_data()
+            >>> df_processed = dataset.preprocess(df_raw)
+            >>> print(df_processed[['summary', 'brief_hospital_course']].head())
 
         Args:
-            df: Raw discharge-notes DataFrame with at least a ``text`` column.
+            df: Raw discharge-notes DataFrame with at least a 'text' column.
 
         Returns:
-            Filtered DataFrame with additional columns ``summary``,
-            ``hospital_course``, and ``brief_hospital_course``.
+            Filtered DataFrame with additional columns 'summary',
+            'hospital_course', and 'brief_hospital_course'. Total row count
+            is reduced based on applied filters.
         """
         df = df.copy()
         df = self._step0_special_chars(df)
@@ -486,14 +507,39 @@ class MIMIC4NoteExtDIBHCDataset(BaseDataset):
 
     @staticmethod
     def _step0_special_chars(df: pd.DataFrame) -> pd.DataFrame:
-        """Step 0: Replace special characters with ASCII equivalents."""
+        """Replace special Unicode characters with ASCII equivalents.
+
+        Strips leading/trailing whitespace and replaces non-ASCII characters
+        (e.g., curly quotes, dashes) with standard ASCII versions using the
+        module-level SPECIAL_CHARS_MAPPING_TO_ASCII dictionary.
+
+        Args:
+            df: DataFrame with a 'text' column containing raw note text.
+
+        Returns:
+            DataFrame with cleaned 'text' column.
+        """
         logger.info("Step 0: Replace special characters with ASCII equivalents.")
         df['text'] = df['text'].str.strip()
         df['text'] = df['text'].replace(SPECIAL_CHARS_MAPPING_TO_ASCII, regex=True)
         return df
 
-    def _step1_split_on_discharge_instructions(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Step 1: Split on 'Discharge Instructions:' and drop notes that lack it."""
+    def _step1_split_on_discharge_instructions(
+        self, df: pd.DataFrame
+    ) -> pd.DataFrame:
+        """Split notes on 'Discharge Instructions:' and filter.
+
+        Locates the "Discharge Instructions:" marker and splits each note into
+        two parts: hospital_course (before the marker) and summary (after).
+        Removes notes lacking this marker. Logs statistics at INFO level.
+
+        Args:
+            df: DataFrame with a 'text' column containing note text.
+
+        Returns:
+            DataFrame with 'hospital_course' and 'summary' columns added.
+            Rows without the marker are removed.
+        """
         logger.info("Step 1: Split on 'Discharge Instructions:' and filter.")
         old_len = len(df)
         df = df[df['text'].str.contains(_re_ds, regex=True)].copy()
@@ -501,13 +547,27 @@ class MIMIC4NoteExtDIBHCDataset(BaseDataset):
         df['hospital_course'] = split_df[0].str.strip()
         df['summary'] = split_df[1].str.strip()
         logger.info(
-            f"Removed {old_len - len(df)} / {old_len} notes without 'Discharge Instructions:'"
+            f"Removed {old_len - len(df)} / {old_len} notes without "
+            f"'Discharge Instructions:'"
         )
         return df
 
     @staticmethod
     def _step2_encode_and_extract_hc(df: pd.DataFrame) -> pd.DataFrame:
-        """Step 2: Encode special strings and extract brief hospital course."""
+        """Encode special strings and extract Brief Hospital Course section.
+
+        Temporarily encodes abbreviations like 'Dr.' to prevent sentence
+        tokenization errors. Extracts the Brief Hospital Course section using
+        the _extract_hc helper. Filters out rows with empty or very short
+        summaries.
+
+        Args:
+            df: DataFrame with 'summary' and 'hospital_course' columns.
+
+        Returns:
+            DataFrame with 'brief_hospital_course' column added. Rows with
+            insufficient summary length are removed.
+        """
         logger.info("Step 2: Encode special strings and extract brief hospital course.")
         for k, v in ENCODE_STRINGS_DURING_PREPROCESSING.items():
             df['summary'] = df['summary'].str.replace(k, v, regex=False)
@@ -518,7 +578,20 @@ class MIMIC4NoteExtDIBHCDataset(BaseDataset):
         return df
 
     def _step3_truncate_prefixes(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Step 3: Truncate unnecessary prefixes of summaries."""
+        """Remove unnecessary prefixes (headers, salutations, etc.) from summaries.
+
+        Applies a series of regex-based filters to remove common boilerplate
+        patterns such as template separators, discharge headings, and
+        salutations. Normalizes whitespace and punctuation. Logs changes at
+        DEBUG level.
+
+        Args:
+            df: DataFrame with a 'summary' column.
+
+        Returns:
+            DataFrame with cleaned 'summary' column. Rows with insufficient
+            content are removed.
+        """
         logger.info("Step 3: Truncate unnecessary prefixes of summaries.")
         df['summary'] = df['summary'].apply(
             lambda s: _re_multiple_whitespace.sub(' ', s)
@@ -528,13 +601,31 @@ class MIMIC4NoteExtDIBHCDataset(BaseDataset):
         )
         postprocess = lambda s: _re_ds_punctuation_wo_underscore.sub('', s.strip())
         df['summary'] = df['summary'].apply(postprocess)
-        df = self._remove_regex_dict(df, UNNECESSARY_SUMMARY_PREFIXES, keep=1, postprocess=postprocess)
+        df = self._remove_regex_dict(
+            df,
+            UNNECESSARY_SUMMARY_PREFIXES,
+            keep=1,
+            postprocess=postprocess,
+        )
         df = self._remove_empty_and_short_summaries(df)
         return df
 
     @staticmethod
     def _step4_remove_static_patterns(df: pd.DataFrame) -> pd.DataFrame:
-        """Step 4: Remove static boilerplate patterns and apply light de-identification."""
+        """Remove boilerplate patterns and apply light de-identification.
+
+        Strips lines, removes punctuation-only lines, collapses whitespace,
+        converts structured lists to prose, removes internal newlines from
+        continuous text, and applies pattern-based de-identification to
+        replace placeholders (___) with contextual pronouns.
+
+        Args:
+            df: DataFrame with a 'summary' column.
+
+        Returns:
+            DataFrame with cleaned and de-identified 'summary' column. Rows
+            with insufficient content are removed.
+        """
         logger.info("Step 4: Remove static patterns from summaries.")
 
         # Strip each line
@@ -542,10 +633,16 @@ class MIMIC4NoteExtDIBHCDataset(BaseDataset):
             lambda s: '\n'.join(x.strip() for x in s.split('\n'))
         )
         # Remove lines consisting solely of punctuation
-        df['summary'] = df['summary'].apply(lambda s: _re_line_punctuation_wo_fs.sub('', s))
-        df['summary'] = df['summary'].apply(lambda s: _re_fullstop.sub('', s))
+        df['summary'] = df['summary'].apply(
+            lambda s: _re_line_punctuation_wo_fs.sub('', s)
+        )
+        df['summary'] = df['summary'].apply(
+            lambda s: _re_fullstop.sub('', s)
+        )
         # Collapse multiple spaces
-        df['summary'] = df['summary'].apply(lambda s: _re_multiple_whitespace.sub(' ', s))
+        df['summary'] = df['summary'].apply(
+            lambda s: _re_multiple_whitespace.sub(' ', s)
+        )
 
         # Convert "Why admitted / What was done / What next" list blocks to prose
         df['summary'] = MIMIC4NoteExtDIBHCDataset._change_why_what_next_pattern_to_text(
@@ -556,8 +653,12 @@ class MIMIC4NoteExtDIBHCDataset(BaseDataset):
         )
 
         # Remove newlines within continuous prose
-        df['summary'] = df['summary'].apply(lambda s: _re_newline_in_text.sub(' ', s))
-        df['summary'] = df['summary'].apply(lambda s: _re_multiple_whitespace.sub(' ', s))
+        df['summary'] = df['summary'].apply(
+            lambda s: _re_newline_in_text.sub(' ', s)
+        )
+        df['summary'] = df['summary'].apply(
+            lambda s: _re_multiple_whitespace.sub(' ', s)
+        )
 
         # Light de-identification: replace ___ with contextual pronouns where safe
         for replacement, regex in SIMPLE_DEIDENTIFICATION_PATTERNS:
@@ -567,7 +668,20 @@ class MIMIC4NoteExtDIBHCDataset(BaseDataset):
         return df
 
     def _step5_truncate_suffixes(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Step 5: Truncate unnecessary suffixes of summaries."""
+        """Remove unnecessary suffixes (follow-ups, meds lists, etc.) from summaries.
+
+        Uses RE_SUFFIXES_DICT regex patterns to match and remove common trailing
+        content such as follow-up instructions, medication lists, appointment
+        details, and warning sign sections. Drops trailing incomplete sentences
+        and removes lines with only symbols. Logs changes at DEBUG level.
+
+        Args:
+            df: DataFrame with a 'summary' column.
+
+        Returns:
+            DataFrame with cleaned 'summary' column. Rows with insufficient
+            content are removed.
+        """
         logger.info("Step 5: Truncate unnecessary suffixes of summaries.")
         postprocess = lambda s: _re_multiple_whitespace.sub(' ', s.strip())
         df['summary'] = df['summary'].apply(postprocess)
@@ -578,32 +692,52 @@ class MIMIC4NoteExtDIBHCDataset(BaseDataset):
         )
         # Remove lines with no text and leading itemise symbols
         df['summary'] = df['summary'].apply(lambda s: _re_no_text.sub('', s))
-        df['summary'] = df['summary'].apply(lambda s: _re_item_element_line_start.sub('', s))
+        df['summary'] = df['summary'].apply(
+            lambda s: _re_item_element_line_start.sub('', s)
+        )
         df = self._remove_empty_and_short_summaries(df)
         return df
 
     def _step6_quality_filter(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Step 6: Keep summaries that satisfy minimum quality requirements."""
+        """Apply minimum quality thresholds to filter low-quality summaries.
+
+        Enforces multiple quality criteria: minimum character count, minimum
+        number of sentences, maximum density of double-newlines, and maximum
+        density of de-identification placeholders (___). Logs filter outcomes
+        at INFO and DEBUG levels. Uses NLTK for sentence tokenization.
+
+        Args:
+            df: DataFrame with a 'summary' column.
+
+        Returns:
+            DataFrame with only high-quality summaries. Encoded special strings
+            (e.g., @D@ for 'Dr.') are decoded back to original form.
+        """
         logger.info("Step 6: Apply quality filters.")
         nltk.download('punkt_tab', quiet=True)
 
         old_len = len(df)
         df = df[df['summary'].map(len) >= self.min_chars]
         logger.info(
-            f"  Removed {old_len - len(df)} summaries with < {self.min_chars} characters."
+            f"  Removed {old_len - len(df)} summaries with "
+            f"< {self.min_chars} characters."
         )
 
         old_len = len(df)
         df['sentences'] = df['summary'].apply(lambda s: list(nltk.sent_tokenize(s)))
         df = df[df['sentences'].map(len) >= self.min_sentences]
         logger.info(
-            f"  Removed {old_len - len(df)} summaries with < {self.min_sentences} sentences."
+            f"  Removed {old_len - len(df)} summaries with "
+            f"< {self.min_sentences} sentences."
         )
 
         old_len = len(df)
-        df = df[df['summary'].map(lambda s: s.count('\n\n')) <= self.max_double_newlines]
+        df = df[
+            df['summary'].map(lambda s: s.count('\n\n')) <= self.max_double_newlines
+        ]
         logger.info(
-            f"  Removed {old_len - len(df)} summaries with > {self.max_double_newlines} double newlines."
+            f"  Removed {old_len - len(df)} summaries with "
+            f"> {self.max_double_newlines} double newlines."
         )
 
         # Flatten sentences back to whitespace-separated text
@@ -621,7 +755,9 @@ class MIMIC4NoteExtDIBHCDataset(BaseDataset):
         old_len = len(df)
         df = df[
             df['num_deidentified']
-            <= df['summary'].map(lambda s: len(s.split(' ')) / self.num_words_per_deidentified)
+            <= df['summary'].map(
+                lambda s: len(s.split(' ')) / self.num_words_per_deidentified
+            )
         ]
         logger.info(
             f"  Removed {old_len - len(df)} summaries with > 1 '___' per "
@@ -632,19 +768,34 @@ class MIMIC4NoteExtDIBHCDataset(BaseDataset):
         return df
 
     def _step7_filter_hospital_course(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Step 7: Remove records with missing or too-short brief hospital courses."""
+        """Remove records with missing or insufficient hospital course sections.
+
+        Filters out rows where either 'hospital_course' or
+        'brief_hospital_course' are null or too short. Normalizes excessive
+        blank lines (3+ consecutive newlines to 2). Logs filter outcomes at
+        INFO level.
+
+        Args:
+            df: DataFrame with 'hospital_course' and 'brief_hospital_course'
+                columns.
+
+        Returns:
+            DataFrame with only valid records meeting minimum length thresholds.
+        """
         logger.info("Step 7: Filter insufficient hospital courses.")
 
         old_len = len(df)
         df = df[df['hospital_course'].notnull()]
         logger.info(
-            f"  Removed {old_len - len(df)} / {old_len} records with no hospital course."
+            f"  Removed {old_len - len(df)} / {old_len} records with "
+            f"no hospital course."
         )
 
         old_len = len(df)
         df = df[df['brief_hospital_course'].notnull()]
         logger.info(
-            f"  Removed {old_len - len(df)} / {old_len} records with no brief hospital course."
+            f"  Removed {old_len - len(df)} / {old_len} records with "
+            f"no brief hospital course."
         )
 
         # Normalise excessive blank lines
@@ -670,7 +821,20 @@ class MIMIC4NoteExtDIBHCDataset(BaseDataset):
 
     @staticmethod
     def _extract_hc(txt: str) -> Optional[str]:
-        """Extract the Brief Hospital Course section from a discharge note."""
+        """Extract the Brief Hospital Course section from a discharge note.
+
+        Locates the "Brief Hospital Course:" marker and extracts text until
+        one of several known end markers. Returns None if the marker is absent
+        or if the full note is too short (<30 words).
+
+        Args:
+            txt: The raw discharge note text.
+
+        Returns:
+            The extracted Brief Hospital Course text, normalized to single-line
+            format and stripped of leading/trailing whitespace. Returns None if
+            extraction fails (missing marker, text too short, or invalid bounds).
+        """
         start = txt.find("Brief Hospital Course:")
         if start < 0:
             return None
@@ -692,7 +856,19 @@ class MIMIC4NoteExtDIBHCDataset(BaseDataset):
         df: pd.DataFrame,
         min_length_summary: int = 350,
     ) -> pd.DataFrame:
-        """Drop empty summaries and summaries shorter than *min_length_summary*."""
+        """Remove empty and short summaries from the DataFrame.
+
+        Filters out summaries with zero length or shorter than the specified
+        minimum. Logs the number of rows removed at DEBUG level.
+
+        Args:
+            df: DataFrame with a 'summary' column (string type).
+            min_length_summary: Minimum required character count for a valid
+                summary. Defaults to 350.
+
+        Returns:
+            A copy of the input DataFrame with short/empty rows removed.
+        """
         old_len = len(df)
         df = df[df['summary'].str.len() > 0].copy()
         empty_removed = old_len - len(df)
@@ -711,7 +887,25 @@ class MIMIC4NoteExtDIBHCDataset(BaseDataset):
         postprocess,
         keep: int = 0,
     ) -> pd.DataFrame:
-        """Split each summary on the first match of each regex and keep one side."""
+        """Remove regex-matched suffixes or prefixes from summaries.
+
+        For each regex pattern, splits the summary at the first match and keeps
+        either the left side (keep=0) or the right side (keep=1). Applies a
+        postprocessing function to each modified summary. Logs statistics for
+        each pattern at DEBUG level.
+
+        Args:
+            df: DataFrame with a 'summary' column (string type).
+            regexes: Dictionary mapping delimiter names to compiled regex
+                patterns to match against summaries.
+            postprocess: A callable that takes a string and returns a processed
+                string, applied after each split.
+            keep: Which side of the split to keep (0=left/prefix, 1=right/suffix).
+                Defaults to 0.
+
+        Returns:
+            The input DataFrame with modified 'summary' column (modified in-place).
+        """
         total_changed = 0
         for delimiter_name, regex in regexes.items():
             matches = df['summary'].apply(lambda s: regex.search(s) is not None)
@@ -725,8 +919,22 @@ class MIMIC4NoteExtDIBHCDataset(BaseDataset):
         return df
 
     @staticmethod
-    def _change_why_what_next_pattern_to_text(summaries: pd.Series) -> pd.Series:
-        """Convert 'Why admitted / What was done / What next' list blocks to prose."""
+    def _change_why_what_next_pattern_to_text(
+        summaries: pd.Series,
+    ) -> pd.Series:
+        """Convert 'Why / What / Next' dashed lists to paragraph text.
+
+        Transforms structured list blocks matching the 'Why admitted', 'What
+        was done', and 'What next' patterns into flowing prose by replacing
+        dashes and line breaks with periods and spaces.
+
+        Args:
+            summaries: Series of summary strings with potential 'Why/What/Next'
+                list blocks using dashes or other list markers.
+
+        Returns:
+            Series of modified summaries with list blocks converted to prose.
+        """
         random_string = (
             ''.join(random.choices(string.ascii_uppercase + string.digits, k=20))
             + '\n- '
@@ -737,6 +945,14 @@ class MIMIC4NoteExtDIBHCDataset(BaseDataset):
         dash_regex = re.compile(r'(?:\.)?\n-\s{0,4}', re.MULTILINE | re.IGNORECASE)
 
         def _remove_dashes(s: str) -> str:
+            """Replace dashes in list items with periods for prose conversion.
+
+            Args:
+                s: Summary text containing random separator markers.
+
+            Returns:
+                Text with dashes converted to periods and formatting normalized.
+            """
             paragraphs = s.split(random_string)
             res = [paragraphs[0]]
             for p in paragraphs[1:]:
