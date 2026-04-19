@@ -26,7 +26,7 @@ Sequence structure is built by MIMIC4EHRMambaTask:
   - Each visit is bracketed by [VS] (visit start) and [VE] (visit end) tokens.
   - [REG] register token inserted after each [VE] (§2.1, used as prediction anchor).
   - Inter-visit discrete time-interval tokens between [REG] and [VS]:
-      [W0]–[W3] for gaps < 4 weeks, [M1]–[M12] for 1–12 months, [LT] for > 1 year.
+      [W0]-[W3] for gaps < 4 weeks, [M1]-[M12] for 1-12 months, [LT] for > 1 year.
   Token type vocabulary extended to 10 types to cover all structural tokens.
 
 As per section §2.2 in the EHRMamba paper, the following subset of special tokens
