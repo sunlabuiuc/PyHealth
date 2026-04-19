@@ -32,6 +32,29 @@ def write_database_csv(path, records):
         "strat_fold": [r[4] for r in records],
     }).to_csv(path, index=False)
 
+@dataclass
+class _DummyEvent:
+    """Event stub for task unit tests"""
+    signal_file: str
+    label: str
+
+    # Override __getattr__ with the dummy data
+    def __getattr__(self, name):
+        if name == "ptbxl/mat":
+            return self.mat
+        if name == "ptbxl/dx_codes":
+            return self.dx_codes
+        raise AttributeError(name)
+
+class _DummyPatient:
+    """Patient stub for task unit tests"""
+    def __init__(self, patient_id: str, events: List[_DummyEvent]):
+        self.patient_id = patient_id
+        self._events = events
+
+    def get_events(self, event_type=None) -> List[_DummyEvent]:
+        return self._events
+
 class TestPTBXLDataset(unittest.TestCase):
     """Test PTBXLDataset with synthetic test data"""
 
@@ -65,7 +88,7 @@ class TestPTBXLDataset(unittest.TestCase):
     def tearDown(cls):
         shutil.rmtree(cls.test_dir)
 
-    def test_instantiation(self):
+    def test_dataset_instantiation(self):
         """Test 1 - Dataset can be instantiated"""
         self.assertIsNotNone(self.dataset)
 
@@ -79,8 +102,13 @@ class TestPTBXLDataset(unittest.TestCase):
         self.assertEqual(dataset.dataset_name, "my_ptbxl")
 
     def test_default_task_returns_task_instance(self):
-        """Test 4 - default_task() returns a PTBXLMultilabelClassification instance"""
-        self.assertIsInstance(self.dataset.default_task, PTBXLMultilabelClassification)
+        """Test 4 - default_task() returns a PTBXLMultilabelClassification instance and has correct schema"""
+        task = self.dataset.default_task
+        self.assertIsInstance(task, PTBXLMultilabelClassification)
+        self.assertEqual(task.input_schema, {"signal": "tensor"})
+        self.assertEqual(task.output_schema, {"labels": "multilabel"})        
+        self.assertEqual(task.sampling_rate, 100)
+        self.assertEqual(task.label_type, "superdiagnostic")
 
     def test_classes_attribute(self):
         """Test 5 - The list of strings CLASSES exists and is not empty"""
@@ -202,6 +230,63 @@ class TestPTBXLDataset(unittest.TestCase):
                 dataset.load_data().compute()
         finally:
             shutil.rmtree(no_csv_dir)
+
+class TestPTBXLMultilabelClassification(unittest.TestCase):
+    """Test task PTBXLMultilabelClassification with synthetic test data"""
+
+    def test_label_type_diagnostic(self):    
+        """Test 22 - Test creating a new task with label_type of diagnostic"""
+        task = PTBXLMultilabelClassification(label_type="diagnostic", sampling_rate=500)
+        self.assertIn("diagnostic", task.task_name.lower())
+        self.assertEqual(task.sampling_rate, 500)
+        self.assertEqual(task.label_type, "diagnostic")        
+
+    def test_invalid_sampling_rate_raises_error(self):
+        """Test 23 - Test that a unhandled sampling_rate raises a ValueError"""      
+        with self.assertRaises(ValueError):
+            PTBXLMultilabelClassification(sampling_rate=99)          
+
+    def test_invalid_sampling_rate_raises_error(self):
+        """Test 24 - Test that a unhandled label_type raises a ValueError"""      
+        with self.assertRaises(ValueError):
+            PTBXLMultilabelClassification(label_type="diag")      
+
+    def test_superdiagnostic_abbreviations_mapped_correctly(self):
+        """Test 25 - Test that a valid superdiagnostic abbreviation returns a valid sample""" 
+        task = PTBXLMultilabelClassification(label_type="superdiagnostic", sampling_rate=500)   
+        patient = _DummyPatient("HR00001", [_DummyEvent("test.mat", "164890007")])
+        with patch("scipy.io.loadmat", return_value={"val": self.SIGNAL}):
+            samples = task(patient)
+        self.assertEqual(len(samples), 1)
+        self.assertIn("signal", samples[0])
+        self.assertIn("labels", samples[0])
+        self.assertEqual(samples[0]["signal"].shape, (12, 5000))
+        self.assertIn("CD", samples[0]["labels"])
+
+    def test_signal_decimation(self):
+        """Test 26 - Test that a sampling rate of 100Hz shrinks the signal shape""" 
+        task = PTBXLMultilabelClassification(sampling_rate=100)
+        patient = _DummyPatient("HR00001", [_DummyEvent("test.mat", "164890007")])
+        with patch("scipy.io.loadmat", return_value={"val": self.SIGNAL}):
+            samples = task(patient)
+        self.assertEqual(samples[0]["signal"].shape, (12, 1000))       
+
+    def test_unknown_code_produces_no_samples(self):
+        """Test 28 - Test records with no mappable SNOMED codes produce no samples"""
+        task = PTBXLMultilabelClassification()
+        patient = _DummyPatient("HR00001", [_DummyEvent("test.mat", "999999999")])
+        with patch("scipy.io.loadmat", return_value={"val": self.SIGNAL}):
+            samples = task(patient)
+        self.assertEqual(len(samples), 0)
+
+    def test_diagnostic_returns_snomed_codes(self):
+        """Test 29 - Test diagnostic label_type returns SNOMED codes not superclass names"""
+        task = PTBXLMultilabelClassification(label_type="diagnostic", sampling_rate=500)
+        patient = _DummyPatient("HR00001", [_DummyEvent("test.mat", "270492004")])
+        with patch("scipy.io.loadmat", return_value={"val": self.SIGNAL}):
+            samples = task(patient)
+        self.assertEqual(len(samples), 1)
+        self.assertIn("270492004", samples[0]["labels"])
 
 if __name__ == "__main__":
     unittest.main()
