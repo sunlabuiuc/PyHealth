@@ -145,7 +145,7 @@ class PTBXLDataset(BaseDataset):
         super().__init__(
             root=root,
             tables=["ptbxl"],
-            dataset_name="ptbxl",
+            dataset_name=dataset_name or "ptbxl",
             config_path=None,
             **kwargs,
         ) 
