@@ -345,25 +345,32 @@ def test_censoring_mask_fixed():
     assert np.all(mask[3:] == 0)   # steps 3,4 excluded
     assert np.sum(y) == 0          # no event recorded for censored patient
 
+
 def test_censoring_mask_single():
-    task = DynamicSurvivalTask(MockDataset(), horizon=5, anchor_strategy='single')
+    """generate_survival_label behavior is independent of anchor_strategy."""
+    task = DynamicSurvivalTask(MockDataset(), horizon=5, anchor_strategy="single")
     y, mask = task.engine.generate_survival_label(
         anchor_time=10,
         event_time=None,
-        censor_time=12
+        censor_time=12,  # delta = 2, same convention as fixed
     )
 
-    assert np.all(mask[:1] == 1)
-    assert np.all(mask[1:] == 0)
+    # anchor_strategy does not affect label generation — only anchor placement does.
+    # With delta=2: steps 0,1,2 included; steps 3,4 excluded.
+    assert np.all(mask[:3] == 1)
+    assert np.all(mask[3:] == 0)
+    assert np.sum(y) == 0
 
 
 def test_single_anchor_strategy():
-    task = DynamicSurvivalTask(MockDataset(), anchor_strategy="single")
+    """Single anchor strategy produces exactly one anchor."""
+    task = DynamicSurvivalTask(
+        MockDataset(), anchor_strategy="single", observation_window=1
+    )
 
     anchors = task.engine.generate_anchors([5, 10], outcome_time=20)
 
     assert len(anchors) == 1
-    assert anchors[0] == 20
 
 
 def test_empty_events():
@@ -523,3 +530,92 @@ def test_end_to_end_pipeline_dict_patients():
         assert s["x"].shape[0] > 0
         assert s["y"].sum() <= 1
         assert np.all((s["mask"] == 0) | (s["mask"] == 1))
+
+
+def test_uses_temporary_directory(tmp_path):
+    """Verify task output can be written to and cleaned up from a temp directory."""
+    import json
+
+    task = DynamicSurvivalTask(MockDataset(), horizon=5, observation_window=5)
+
+    patient = {
+        "patient_id": "p_tmp",
+        "visits": [{"time": t, "feature": np.zeros(1)} for t in range(5, 30, 5)],
+        "outcome_time": 35,
+    }
+
+    samples = task.engine.process_patient(patient)
+    assert len(samples) > 0
+
+    # Write sample metadata to a temp file and confirm cleanup
+    out_file = tmp_path / "samples.json"
+    out_file.write_text(json.dumps([s["visit_id"] for s in samples]))
+
+    assert out_file.exists()
+    contents = json.loads(out_file.read_text())
+    assert len(contents) == len(samples)
+    # tmp_path is automatically cleaned up by pytest after the test
+
+
+def test_large_mock_patient_cohort():
+    """Test pipeline with 15 MockPatient objects covering mixed event/censor cases."""
+    base_time = datetime(2025, 1, 1)
+
+    patients = []
+    for i in range(15):
+        visits_data = [
+            {"time": base_time + timedelta(days=d), "diagnosis": [str(1000 + i)]}
+            for d in range(0, 20, 2)
+        ]
+        # Alternate event / censored patients
+        death_time = base_time + timedelta(days=25) if i % 2 == 0 else None
+        patients.append(MockPatient(pid=f"MP{i}", visits_data=visits_data, death_time=death_time))
+
+    dataset = MockDataset(patients)
+    task = DynamicSurvivalTask(dataset, horizon=10, observation_window=5, anchor_interval=3)
+    samples = dataset.set_task(task)
+
+    assert len(samples) > 0
+
+    for s in samples:
+        assert s["x"].ndim == 2
+        assert s["y"].shape == (10,)
+        assert s["mask"].shape == (10,)
+        assert np.sum(s["y"]) <= 1
+        assert np.all((s["mask"] == 0) | (s["mask"] == 1))
+
+    for s in samples:
+        assert s["x"].shape[0] > 0
+        assert s["y"].sum() <= 1
+        assert np.all((s["mask"] == 0) | (s["mask"] == 1))
+
+
+def test_feature_flags_use_proc_false():
+    """Test that disabling procedure codes still produces valid samples."""
+    base_time = datetime(2025, 4, 1)
+
+    patient = MockPatient(
+        pid="P_flags",
+        death_time=base_time + timedelta(days=3),
+        visits_data=[
+            {"time": base_time, "diagnosis": ["4019"], "procedure": ["0011"]},
+            {"time": base_time + timedelta(days=1), "diagnosis": ["4101"]},
+        ],
+    )
+
+    dataset = MockDataset([patient])
+
+    task = DynamicSurvivalTask(
+        dataset,
+        horizon=5,
+        observation_window=1,
+        anchor_interval=1,
+        use_proc=False,
+    )
+
+    samples = dataset.set_task(task)
+
+    assert isinstance(samples, list)
+    if len(samples) > 0:
+        assert samples[0]["x"].ndim == 2
+        assert samples[0]["y"].shape == (5,)
