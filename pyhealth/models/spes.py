@@ -507,7 +507,8 @@ class SPESResNet(BaseModel):
             valid_rows = torch.where(distance != 0)[0]
             if len(valid_rows) == 0:
                 raise ValueError("SPES input contains a sample with no valid channels.")
-            # Sample with replacement when fewer valid channels exist than requested
+            # Sample with replacement when fewer valid channels exist than requested;
+            # preferable to discarding patients with low channel counts entirely.
             replacement = len(valid_rows) < self.input_channels
             p = torch.ones(len(valid_rows), device=x.device) / len(valid_rows)
             idx = p.multinomial(

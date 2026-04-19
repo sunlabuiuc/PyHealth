@@ -198,10 +198,10 @@ def get_spes_dataloader(dataset, batch_size, shuffle=False, norm_stats=None):
     compute_norm_stats) and passed to all splits so that val and test are
     normalized using training-set statistics, preventing data leakage.
     """
-    dataset.set_shuffle(shuffle)
     return DataLoader(
         dataset,
         batch_size=batch_size,
+        shuffle=shuffle,
         collate_fn=partial(collate_spes_batch, norm_stats=norm_stats),
     )
 

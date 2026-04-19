@@ -7,6 +7,8 @@ Dataset link:
 
 import logging
 import os
+import shutil
+import tempfile
 from pathlib import Path
 from typing import Optional
 
@@ -53,15 +55,20 @@ class CCEPECoGDataset(BaseDataset):
             >>> dataset = CCEPECoGDataset(root="./data/ds004080")
         """
         self._verify_data(root)
-        self._index_data(root)
+        self._tmp_dir = tempfile.mkdtemp(prefix="pyhealth_ccep_ecog_")
+        self._index_data(root, self._tmp_dir)
 
         super().__init__(
-            root=root,
+            root=self._tmp_dir,
             tables=["ecog"],
             dataset_name="ccep_ecog",
             config_path=config_path,
             **kwargs,
         )
+
+    def __del__(self) -> None:
+        if hasattr(self, "_tmp_dir"):
+            shutil.rmtree(self._tmp_dir, ignore_errors=True)
 
     def _verify_data(self, root: str) -> None:
         """Verifies the presence and structure of the dataset directory.
@@ -112,11 +119,12 @@ class CCEPECoGDataset(BaseDataset):
             logger.error(msg)
             raise ValueError(msg)
 
-    def _index_data(self, root: str) -> pd.DataFrame:
+    def _index_data(self, root: str, output_dir: str) -> pd.DataFrame:
         """Parses and indexes metadata for all available patients in the dataset.
 
         Args:
             root (str): Root directory of the raw data.
+            output_dir (str): Directory where the metadata CSV will be written.
 
         Returns:
             pd.DataFrame: Table of patient ECoG signal metadata.
@@ -191,7 +199,7 @@ class CCEPECoGDataset(BaseDataset):
             df.sort_values(["patient_id"], inplace=True)
             df.reset_index(drop=True, inplace=True)
 
-        output_path = os.path.join(root, "ccep_ecog-metadata-pyhealth.csv")
+        output_path = os.path.join(output_dir, "ccep_ecog-metadata-pyhealth.csv")
         df.to_csv(output_path, index=False)
         logger.info(f"Wrote metadata to {output_path}")
 

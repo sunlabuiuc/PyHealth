@@ -1,11 +1,12 @@
+import logging
 import mne
 import numpy as np
 import pandas as pd
-import pyreadr
-from pathlib import Path
 from typing import Any, Dict, List
 
 from pyhealth.tasks import BaseTask
+
+logger = logging.getLogger(__name__)
 
 
 def _with_distance_first(df):
@@ -79,7 +80,32 @@ def combine_stats(group):
 
 regions = ["Frontal", "Insula", "Limbic", "Occipital", "Parietal", "Temporal", "Unknown"]
 region_to_index = {region: index for index, region in enumerate(regions)}
-_destrieux_df = None
+
+# Destrieux atlas label-to-lobe mapping (labels 1–148, indexed by label-1).
+# Left hemisphere (labels 1–74) followed by right hemisphere (labels 75–148).
+# Source: https://github.com/norrisjamie23/Localising_SOZ_from_SPES/destrieux.rda (MIT licence)
+_DESTRIEUX_LOBES = (
+    "Limbic",    "Limbic",    "Limbic",    "Frontal",   "Occipital", "Parietal",  "Parietal",  "Frontal",
+    "Limbic",    "Limbic",    "Occipital", "Frontal",   "Frontal",   "Frontal",   "Frontal",   "Frontal",
+    "Insula",    "Insula",    "Occipital", "Occipital", "Occipital", "Occipital", "Temporal",  "Frontal",
+    "Parietal",  "Parietal",  "Parietal",  "Parietal",  "Frontal",   "Parietal",  "Frontal",   "Limbic",
+    "Temporal",  "Temporal",  "Temporal",  "Temporal",  "Temporal",  "Temporal",  "Frontal",   "Frontal",
+    "Insula",    "Occipital", "Temporal",  "Occipital", "Frontal",   "Limbic",    "Insula",    "Insula",
+    "Insula",    "Temporal",  "Occipital", "Frontal",   "Frontal",   "Frontal",   "Parietal",  "Parietal",
+    "Occipital", "Occipital", "Occipital", "Occipital", "Occipital", "Frontal",   "Frontal",   "Frontal",
+    "Parietal",  "Limbic",    "Parietal",  "Frontal",   "Frontal",   "Frontal",   "Parietal",  "Temporal",
+    "Temporal",  "Temporal",
+    "Limbic",    "Limbic",    "Limbic",    "Frontal",   "Occipital", "Parietal",  "Parietal",  "Frontal",
+    "Limbic",    "Limbic",    "Occipital", "Frontal",   "Frontal",   "Frontal",   "Frontal",   "Frontal",
+    "Insula",    "Insula",    "Occipital", "Occipital", "Occipital", "Occipital", "Temporal",  "Frontal",
+    "Parietal",  "Parietal",  "Parietal",  "Parietal",  "Frontal",   "Parietal",  "Frontal",   "Limbic",
+    "Temporal",  "Temporal",  "Temporal",  "Temporal",  "Temporal",  "Temporal",  "Frontal",   "Frontal",
+    "Insula",    "Occipital", "Temporal",  "Occipital", "Frontal",   "Limbic",    "Insula",    "Insula",
+    "Insula",    "Temporal",  "Occipital", "Frontal",   "Frontal",   "Frontal",   "Parietal",  "Parietal",
+    "Occipital", "Occipital", "Occipital", "Occipital", "Occipital", "Frontal",   "Frontal",   "Frontal",
+    "Parietal",  "Limbic",    "Parietal",  "Frontal",   "Frontal",   "Frontal",   "Parietal",  "Temporal",
+    "Temporal",  "Temporal",
+)
 
 
 def get_destrieux_lobe(label):
@@ -92,17 +118,9 @@ def get_destrieux_lobe(label):
     if is_missing or label == 0:
         return "Unknown"
 
-    global _destrieux_df
-    if _destrieux_df is None:
-        try:
-            rda_path = Path(__file__).resolve().parent.parent / "destrieux.rda"
-            _destrieux_df = pyreadr.read_r(str(rda_path))["destrieux"]
-        except Exception:
-            return "Unknown"
-
     try:
-        return _destrieux_df[_destrieux_df.index == int(label) - 1].lobe.values[0]
-    except Exception:
+        return _DESTRIEUX_LOBES[int(label) - 1]
+    except IndexError:
         return "Unknown"
 
 
@@ -157,7 +175,7 @@ class StimulationDataProcessor:
         after = stim_events.shape[0]
 
         if before != after:
-            print(subject, before, after)
+            logger.warning("Subject %s: dropped %d out-of-bounds stim events (%d -> %d)", subject, before - after, before, after)
 
         # Filter for artifact events
         artifacts = events_df[np.logical_and(events_df.trial_type == "artifact", 
@@ -240,8 +258,8 @@ class StimulationDataProcessor:
         try:
             response_dfs = pd.concat(response_dfs)
         except ValueError:
-            print(f"No stimulation events found for subject {subject}")
-            return None        
+            logger.warning("No stimulation events found for subject %s", subject)
+            return None
 
         return response_dfs
 
@@ -375,7 +393,7 @@ class DatasetCreator:
             channel for channel in mean_channels if channel in std_channel_to_index
         ]
         if len(common_channels) == 0:
-            print(f"No paired mean/std stimulation events found for subject {subject}")
+            logger.warning("No paired mean/std stimulation events found for subject %s", subject)
             return None
 
         X_stim = []
@@ -462,8 +480,9 @@ class DatasetCreator:
             # Sort by distances - used for CNN method
             response_df = response_df.sort_values(by='distances', ascending=True)
 
-        except:
-            print("Error with subject", subject)
+        except Exception as e:
+            logger.warning("Error processing subject %s: %s", subject, e)
+            return None
 
         # Get channels used for both stimulation and recording
         recording_stim_channels = sorted(
@@ -478,7 +497,7 @@ class DatasetCreator:
             channel_soz = []
 
         if len(recording_stim_channels) == 0:
-            print(f"No stimulation events found for subject {subject}")
+            logger.warning("No stimulation events found for subject %s", subject)
             return None
         
         electrode_coords = []
@@ -526,13 +545,6 @@ class DatasetCreator:
             y = np.array(channel_soz, dtype=np.int32)
             if y.sum() == 0:
                 return None
-            #np.save(f'../data/main/lobes_{subject}.npy', np.array(electrode_lobes))
-            #np.save(f'../data/main/y_{subject}.npy', y)
-            #np.save(f'../data/main/coords_{subject}.npy', np.array(electrode_coords))
-
-        # Save as np arrays
-        #np.save(f'../data/{metric}/X_stim_{subject}.npy', X_stim)
-        #np.save(f'../data/{metric}/X_recording_{subject}.npy', X_recording)
 
         return recording_stim_channels, electrode_lobes, y, electrode_coords, X_stim, X_recording
 
@@ -601,7 +613,7 @@ class LocalizeSOZ(BaseTask):
     def __call__(self, patient) -> List[Dict[str, Any]]:
         samples: List[Dict[str, Any]] = []
 
-        for split in ("ecog", "train", "eval"):
+        for split in ("ecog",):
             try:
                 events = patient.get_events(split)
             except (AttributeError, KeyError):
