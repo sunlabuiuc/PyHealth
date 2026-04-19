@@ -1,3 +1,11 @@
+"""
+Unit tests for the PTBXLDataset and PTBXLMultilabelClassification classes.
+
+Authors:
+    Anurag Dixit - anuragd2@illinois.edu
+    Kent Spillner - kspillne@illinois.edu
+    John Wells - jtwells2@illinois.edu
+"""
 import tempfile
 import shutil
 import unittest
