@@ -592,7 +592,7 @@ def run_single_train(
         _ensure_binary_label_coverage(ds)
         task = MPFClinicalPredictionTask(max_len=max_len, use_mpf=use_mpf)
     sample_ds = ds.set_task(task, num_workers=1)
-    vocab_size = ds.vocab.vocab_size
+    vocab_size = task.vocab.vocab_size
     sample_ds, train_l, val_l, test_l, vocab_size = _build_loaders_from_sample_dataset(
         sample_ds, vocab_size
     )
@@ -741,7 +741,7 @@ def _main_train(args: argparse.Namespace) -> None:
                 "wall_s=",
                 round(time.perf_counter() - t_task0, 2),
             )
-            vocab = ds.vocab
+            vocab = task.vocab
         except Exception:
             print(
                 f"quick-test: leaving NDJSON/Parquet scratch at {quick_test_tmp}",
@@ -808,7 +808,7 @@ def _main_train(args: argparse.Namespace) -> None:
             "wall_s=",
             round(time.perf_counter() - t_task0, 2),
         )
-        vocab = ds.vocab
+        vocab = mpf_task.vocab
         print("fhir_root:", fhir_root)
 
     try:
