@@ -26,6 +26,7 @@ from .sparcnet import DenseBlock, DenseLayer, SparcNet, TransitionLayer
 from .stagenet import StageNet, StageNetLayer
 from .stagenet_mha import StageAttentionNet, StageNetAttentionLayer
 from .tcn import TCN, TCNLayer
+from .tpc import TPC, TPCBlock, TPCLayer
 from .tfm_tokenizer import (
     TFMTokenizer,
     TFM_VQVAE2_deep,
