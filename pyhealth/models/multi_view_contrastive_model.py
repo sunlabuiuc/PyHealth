@@ -2,9 +2,28 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
+import math
 
 from pyhealth.models import BaseModel
 from typing import Tuple, cast
+
+class PositionalEncoding(nn.Module):
+    def __init__(self, hidden_dim, dropout=0.1, max_len=1024):
+        super(PositionalEncoding, self).__init__()
+        self.dropout = nn.Dropout(p=dropout)
+        
+        pe = torch.zeros(max_len, hidden_dim)
+        position = torch.arange(0, max_len).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, hidden_dim, 2) * 
+                             (-math.log(10000.0) / hidden_dim))
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        pe = pe.unsqueeze(0)  # Shape: [1, max_len, hidden_dim]
+        self.register_buffer('pe', pe)
+        
+    def forward(self, x):
+        x = x + self.pe[:, :x.size(1)]
+        return self.dropout(x)
 
 class MultiViewContrastiveModel(BaseModel):
     """A multi-view contrastive model aligned with Oh and Bui (2025) and TFC."""
@@ -22,6 +41,8 @@ class MultiViewContrastiveModel(BaseModel):
         self.proj_d = nn.Linear(1, self.hidden_dim)
         self.proj_f = nn.Linear(1, self.hidden_dim)
 
+        self.pos_encoder = PositionalEncoding(self.hidden_dim, dropout=0.1)
+
         def make_encoder() -> nn.TransformerEncoder:
             encoder_layer = nn.TransformerEncoderLayer(
                 d_model=self.hidden_dim, nhead=4, batch_first=True, dropout=0.2
@@ -36,12 +57,13 @@ class MultiViewContrastiveModel(BaseModel):
         self.fusion_mha: nn.MultiheadAttention = nn.MultiheadAttention(embed_dim=self.hidden_dim, num_heads=4, batch_first=True)
         self.fusion_layer_norm: nn.LayerNorm = nn.LayerNorm(self.hidden_dim)
 
-        # Feature-specific projectors (with BatchNorm1d aligned to TFC)
+        # Feature-specific projectors
         def projector() -> nn.Sequential:
             return nn.Sequential(
-                nn.Linear(self.hidden_dim, self.hidden_dim),
-                nn.BatchNorm1d(self.hidden_dim),
+                nn.Linear(self.hidden_dim * 2, self.hidden_dim),
+                nn.LayerNorm(self.hidden_dim),
                 nn.ReLU(),
+                nn.Dropout(0.2),
                 nn.Linear(self.hidden_dim, self.hidden_dim),
             )
             
@@ -49,14 +71,8 @@ class MultiViewContrastiveModel(BaseModel):
         self.F_d: nn.Sequential = projector()
         self.F_f: nn.Sequential = projector()
 
-        self.classifier: nn.Sequential = nn.Sequential(
-            nn.Linear(self.hidden_dim * 3 , 1024),
-            nn.ReLU(),
-            nn.Linear(1024 , 512),
-            nn.ReLU(),
-            nn.Dropout(0.5),
-            nn.Linear(512, self.num_classes)
-        )
+        self.classifier_mha = nn.MultiheadAttention(embed_dim=self.hidden_dim, num_heads=1, batch_first=True)
+        self.classifier = nn.Linear(self.hidden_dim * 3, self.num_classes)
 
     def augment_time(self, x: torch.Tensor, std: float = 0.1) -> torch.Tensor:
         """Time-domain jitter augmentation"""
@@ -122,24 +138,28 @@ class MultiViewContrastiveModel(BaseModel):
         x_d = self.proj_d(x_d)
         x_f = self.proj_f(x_f)
 
+        x_t = self.pos_encoder(x_t)
+        x_d = self.pos_encoder(x_d)
+        x_f = self.pos_encoder(x_f)
+
         h_t = self.encoder_t(x_t)
         h_d = self.encoder_d(x_d)
         h_f = self.encoder_f(x_f)
 
         batch_size, seq_length, _ = h_t.shape
         H = torch.stack([h_t, h_d, h_f], dim=2)
-        H_flat = H.view(-1, 3, self.hidden_dim)
+        H_flat = H.permute(0, 2, 1, 3).contiguous().view(batch_size * 3, seq_length, self.hidden_dim)
 
         MHA_out, _ = self.fusion_mha(H_flat, H_flat, H_flat)
         H_out = self.fusion_layer_norm(MHA_out + H_flat)
 
-        H_out = H_out.view(batch_size, seq_length, 3, self.hidden_dim)
+        H_out = H_out.view(batch_size, 3, seq_length, self.hidden_dim).permute(0, 2, 1, 3)
         h_t_star, h_d_star, h_f_star = H_out[:, :, 0, :], H_out[:, :, 1, :], H_out[:, :, 2, :]
         
-        # Pool across sequence length FIRST so BatchNorm1d receives 2D inputs [N, C]
-        h_t_pool = h_t_star.mean(dim=1)
-        h_d_pool = h_d_star.mean(dim=1)
-        h_f_pool = h_f_star.mean(dim=1)
+        # Pool across sequence length and concatenate with pre-interaction features
+        h_t_pool = torch.cat([h_t.mean(dim=1), h_t_star.mean(dim=1)], dim=-1)
+        h_d_pool = torch.cat([h_d.mean(dim=1), h_d_star.mean(dim=1)], dim=-1)
+        h_f_pool = torch.cat([h_f.mean(dim=1), h_f_star.mean(dim=1)], dim=-1)
         
         z_t = self.F_t(h_t_pool)
         z_d = self.F_d(h_d_pool)
@@ -178,7 +198,13 @@ class MultiViewContrastiveModel(BaseModel):
             
         elif self.training_stage == "finetune":
             z_t, z_d, z_f = self._forward_features(temporal_tensor, derivative_tensor, frequency_tensor)
-            z_combined = torch.cat([z_t, z_d, z_f], dim=1)
+            
+            # Cross-view attention for classification
+            stacked_emb = torch.stack([z_t, z_d, z_f], dim=1) # [batch_size, 3, hidden_dim]
+            attn_out, _ = self.classifier_mha(stacked_emb, stacked_emb, stacked_emb)
+            emb = attn_out + stacked_emb # Residual connection
+            
+            z_combined = emb.reshape(emb.size(0), -1) # Flatten to [batch_size, 3 * hidden_dim]
             logits = self.classifier(z_combined)
             
             # Use PyHealth's automatic label parsing
