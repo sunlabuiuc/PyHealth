@@ -4,25 +4,108 @@
 Ablation Study: Effect of Observation Window Length
 
 We vary observation window sizes (12, 24, 48 hours) and
-measure performance using masked MSE.
+measure performance using masked BCE and MSE.
 
-Expected Behavior:
-- Larger observation windows should improve performance
-  due to more historical context.
-- Results may vary due to randomness in synthetic data.
-
-This experiment demonstrates how task design (NOT model complexity)
+This demonstrates how task configuration (NOT model complexity)
 impacts predictive performance.
 """
+
+import sys
+import os
+from datetime import datetime, timedelta
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import numpy as np
 import torch
 import torch.nn as nn
+
 from pyhealth.tasks.dynamic_survival import DynamicSurvivalTask
-from synthetic_dataset import generate_synthetic_dataset
+from examples.synthetic_dataset import generate_synthetic_dataset
 
 
-# Simple lightweight model
+# ======================
+# Mock EHR Classes (REQUIRED)
+# ======================
+
+class MockEvent:
+    def __init__(self, code, timestamp, vocabulary):
+        self.code = code
+        self.timestamp = timestamp
+        self.vocabulary = vocabulary
+
+
+class MockVisit:
+    def __init__(self, time, diagnosis=None):
+        self.encounter_time = time
+        self.event_list_dict = {
+            "DIAGNOSES_ICD": [
+                MockEvent(c, time, "ICD9CM") for c in (diagnosis or [])
+            ],
+            "PROCEDURES_ICD": [],
+            "PRESCRIPTIONS": [],
+        }
+
+
+class MockPatient:
+    def __init__(self, pid, visits_data, death_time=None):
+        self.patient_id = pid
+        self.visits = {
+            f"v{i}": MockVisit(**v) for i, v in enumerate(visits_data)
+        }
+        self.death_datetime = death_time
+
+
+class MockDataset:
+    def __init__(self, patients):
+        self.patients = {p.patient_id: p for p in patients}
+
+    def set_task(self, task):
+        samples = []
+        for p in self.patients.values():
+            out = task(p)
+            if out:
+                samples.extend(out)
+        return samples
+
+
+# ======================
+# Convert synthetic dict → MockPatient
+# ======================
+
+def convert_to_mock_patients(patients_dict):
+    base_time = datetime(2025, 1, 1)
+
+    mock_patients = []
+
+    for p in patients_dict:
+        visits_data = []
+
+        for v in p["visits"]:
+            visits_data.append({
+                "time": base_time + timedelta(days=v["time"]),
+                "diagnosis": ["0000"],  # dummy code for vocab
+            })
+
+        death_time = None
+        if p.get("outcome_time") is not None:
+            death_time = base_time + timedelta(days=p["outcome_time"])
+
+        mock_patients.append(
+            MockPatient(
+                pid=p["patient_id"],
+                visits_data=visits_data,
+                death_time=death_time,
+            )
+        )
+
+    return mock_patients
+
+
+# ======================
+# Model
+# ======================
+
 class SimpleModel(nn.Module):
     def __init__(self, input_dim=2, hidden_dim=8, horizon=24):
         super().__init__()
@@ -31,9 +114,12 @@ class SimpleModel(nn.Module):
 
     def forward(self, x):
         _, h = self.rnn(x)
-        out = self.fc(h.squeeze(0))
-        return torch.sigmoid(out)
+        return torch.sigmoid(self.fc(h.squeeze(0)))
 
+
+# ======================
+# Utils
+# ======================
 
 def prepare_batch(samples):
     X, Y, M = [], [], []
@@ -54,9 +140,9 @@ def prepare_batch(samples):
         X_pad.append(np.vstack([x, pad]))
 
     return (
-        torch.tensor(X_pad, dtype=torch.float32),
-        torch.tensor(Y, dtype=torch.float32),
-        torch.tensor(M, dtype=torch.float32),
+        torch.tensor(np.array(X_pad), dtype=torch.float32),
+        torch.tensor(np.array(Y), dtype=torch.float32),
+        torch.tensor(np.array(M), dtype=torch.float32),
     )
 
 
@@ -66,10 +152,12 @@ def train_and_eval(samples):
 
     X, Y, M = prepare_batch(samples)
 
-    for _ in range(5):  # VERY small training
+    for _ in range(5):
         pred = model(X)
-        loss = -(Y * torch.log(pred + 1e-8) + (1 - Y) * torch.log(1 - pred + 1e-8))
+        loss = -(Y * torch.log(pred + 1e-8) +
+                 (1 - Y) * torch.log(1 - pred + 1e-8))
         loss = (loss * M).sum() / M.sum()
+
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
@@ -77,32 +165,42 @@ def train_and_eval(samples):
     with torch.no_grad():
         pred = model(X)
 
-        bce = -(Y * torch.log(pred + 1e-8) + (1 - Y) * torch.log(1 - pred + 1e-8))
+        bce = -(Y * torch.log(pred + 1e-8) +
+                (1 - Y) * torch.log(1 - pred + 1e-8))
         bce = (bce * M).sum() / M.sum()
 
         mse = ((pred - Y) ** 2 * M).sum() / M.sum()
 
-    return {
-        "bce": bce.item(),
-        "mse": mse.item(),
-    }
+    return {"bce": bce.item(), "mse": mse.item()}
 
 
-patients = generate_synthetic_dataset(50)
+# ======================
+# Main Experiment
+# ======================
+
+patients_raw = generate_synthetic_dataset(50)
+patients = convert_to_mock_patients(patients_raw)
+dataset = MockDataset(patients)
 
 windows = [12, 24, 48]
 results = {}
 
-for w in windows:
-    task = DynamicSurvivalTask(observation_window=w, horizon=24)
+print("\n=== Ablation Results ===")
 
-    samples = []
-    for p in patients:
-        samples.extend(task(p))
+for w in windows:
+    task = DynamicSurvivalTask(
+        dataset=dataset,
+        observation_window=w,
+        horizon=24,
+    )
+
+    samples = dataset.set_task(task)
+
+    if len(samples) == 0:
+        print(f"Skipping window={w}, no samples")
+        continue
 
     score = train_and_eval(samples)
     results[w] = score
 
-print("\n=== Ablation Results ===")
-for w, score in results.items():
     print(f"Window={w} | BCE={score['bce']:.4f} | MSE={score['mse']:.4f}")
