@@ -533,22 +533,22 @@ class DynamicSurvivalTask(BaseTask):
         return self.diag_vocab, self.proc_vocab, self.drug_vocab
     
     def encode_multi_hot(self, codes: List[str], vocab: Dict[str, int]) -> np.ndarray:
-            """Encode a list of codes as a multi-hot vector using a vocabulary.
-    
-            Args:
-                codes: List of code strings to encode (e.g. ICD codes, NDC codes).
-                vocab: Dictionary mapping code strings to integer indices.
-    
-            Returns:
-                Binary np.ndarray of shape (len(vocab),) where index i is 1.0
-                if the corresponding code is present in codes, else 0.0.
-                Returns a zero vector if vocab is empty or no codes match.
-            """
-            vec = np.zeros(len(vocab))
-            for code in codes:
-                if code in vocab:
-                    vec[vocab[code]] = 1
-            return vec
+        """Encode a list of codes as a multi-hot vector using a vocabulary.
+
+        Args:
+            codes: List of code strings to encode (e.g. ICD codes, NDC codes).
+            vocab: Dictionary mapping code strings to integer indices.
+
+        Returns:
+            Binary np.ndarray of shape (len(vocab),) where index i is 1.0
+            if the corresponding code is present in codes, else 0.0.
+            Returns a zero vector if vocab is empty or no codes match.
+        """
+        vec = np.zeros(len(vocab))
+        for code in codes:
+            if code in vocab:
+                vec[vocab[code]] = 1
+        return vec
 
     def __call__(self, patient) -> List[Dict[str, Any]]:
         """
