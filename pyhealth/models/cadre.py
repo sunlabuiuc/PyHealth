@@ -63,15 +63,17 @@ class ExpEncoder(nn.Module):
         dropout_rate: float = 0.6,
         use_attention: bool = True,
         use_cntx_attn: bool = True,
+        freeze_gene_emb: bool = True,
     ) -> None:
         super().__init__()
 
         self.use_attention = use_attention
         self.use_cntx_attn = use_cntx_attn
 
-        # Pretrained gene embeddings, frozen; row 0 = padding zeros
+        # Pretrained gene embeddings; frozen by default.
+        # Set freeze_gene_emb=False to fine-tune them (CADRE∆pretrain variant).
         self.layer_emb = nn.Embedding.from_pretrained(
-            torch.FloatTensor(gene_embeddings), freeze=True, padding_idx=0
+            torch.FloatTensor(gene_embeddings), freeze=freeze_gene_emb, padding_idx=0
         )
         self.layer_dropout = nn.Dropout(p=dropout_rate)
 
@@ -208,6 +210,7 @@ class CADRE(nn.Module):
         dropout_rate: float = 0.6,
         use_attention: bool = True,
         use_cntx_attn: bool = True,
+        freeze_gene_emb: bool = True,
     ) -> None:
         super().__init__()
 
@@ -226,6 +229,7 @@ class CADRE(nn.Module):
             dropout_rate=dropout_rate,
             use_attention=use_attention,
             use_cntx_attn=use_cntx_attn,
+            freeze_gene_emb=freeze_gene_emb,
         )
         self.decoder = DrugDecoder(num_drugs=num_drugs, embedding_dim=embedding_dim)
         self.loss_fn = nn.BCEWithLogitsLoss(reduction="none")

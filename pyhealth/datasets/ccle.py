@@ -103,10 +103,26 @@ class CCLEDataset:
                 "exp_emb_ccle.csv exist."
             ) from exc
 
-        # Restrict to cell lines present in both expression and sensitivity data
-        self.common_samples = sorted(set(self.exp.index) & set(self.tgt.index))
+        # Find common cell lines using case/punctuation-insensitive matching to
+        # handle CCLE naming inconsistencies between tables (e.g. "22Rv1" vs
+        # "22RV1", "42-MG-BA" vs "42MGBA").
+        def _norm(s):
+            return str(s).upper().replace("-", "").replace(" ", "").replace(".", "")
+
+        exp_norm = {_norm(i): i for i in self.exp.index}
+        tgt_norm = {_norm(i): i for i in self.tgt.index}
+        common_norm = sorted(set(exp_norm) & set(tgt_norm))
+        # Use the expression-side label as the canonical cell-line ID.
+        self.common_samples = [exp_norm[k] for k in common_norm]
         self.exp = self.exp.loc[self.common_samples]
-        self.tgt = self.tgt.loc[self.common_samples]
+        self.tgt = self.tgt.loc[[tgt_norm[k] for k in common_norm]]
+        self.tgt.index = self.common_samples
+
+        # Preprocessed CCLE labels are inverted (~75% "1") relative to the
+        # paper's 24.8% sensitive prior and GDSC's "1 = sensitive" convention.
+        # Flip so "1 = sensitive" is consistent across both datasets.
+        observed = self.tgt.notnull()
+        self.tgt = self.tgt.where(~observed, 1 - self.tgt)
 
         # Gene and drug IDs
         self.gene_names: List[str] = list(self.exp.columns)
