@@ -297,7 +297,7 @@ class PTBXLMultilabelClassification(BaseTask):
         Args:
             patient: A :class:`~pyhealth.data.Patient` object whose events
                 have ``event_type="ptbxl"`` and carry attributes
-                ``signal_file``, ``scp_codes``, ``age``, and ``sex``.
+                ``mat_file``, ``scp_codes``, ``age``, and ``sex``.
 
         Returns:
             A list with at most one sample dict
@@ -312,24 +312,24 @@ class PTBXLMultilabelClassification(BaseTask):
 
         for event in events:
             # ---- 1. Load the .mat signal --------------------------------
-            signal_file = getattr(event, "signal_file", None)
-            if not signal_file:
-                logger.debug("Skip %s: no signal_file attribute.", event)
+            mat_file = getattr(event, "ptbxl/mat", None)
+            if not mat_file:
+                logger.debug("Skip %s: no *.mat file", event)
                 continue
 
             try:
                 from scipy.io import loadmat as _loadmat
-                mat = _loadmat(signal_file)
+                mat = _loadmat(mat_file)
                 signal = mat["val"].astype(np.float32)  # (12, 5000) @ 500 Hz
             except Exception as exc:
-                logger.warning("Cannot load signal from %s: %s", signal_file, exc)
+                logger.warning("Cannot load signal from %s: %s", mat_file, exc)
                 continue
 
             if signal.ndim != 2 or signal.shape[0] != 12:
                 logger.warning(
                     "Unexpected signal shape %s in %s; skipping.",
                     signal.shape,
-                    signal_file,
+                    mat_file,
                 )
                 continue
 
@@ -340,8 +340,8 @@ class PTBXLMultilabelClassification(BaseTask):
                 signal = signal[:, ::5]  # shape (12, 1000)
 
             # ---- 3. Parse SNOMED-CT codes --------------------------------
-            raw_codes: str = str(getattr(event, "scp_codes", "") or "")
-            codes = [c.strip() for c in raw_codes.split(",") if c.strip()]
+            dx_codes: str = str(getattr(event, "ptbxl/dx_codes", "") or "")
+            codes = [c.strip() for c in dx_codes.split(",") if c.strip()]
 
             # ---- 4. Map to chosen label space ---------------------------
             if self.label_type == "superdiagnostic":
