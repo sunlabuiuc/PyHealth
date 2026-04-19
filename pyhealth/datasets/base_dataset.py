@@ -39,7 +39,7 @@ import numpy as np
 import more_itertools
 
 from ..data import Patient
-from ..tasks.base_task import BaseTask
+from ..tasks import BaseTask
 from ..processors.base_processor import FeatureProcessor
 from .configs import load_yaml_config
 from .sample_dataset import SampleDataset, SampleBuilder
