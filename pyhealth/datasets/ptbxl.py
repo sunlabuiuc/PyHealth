@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Optional
 
 from .base_dataset import BaseDataset
+from pyhealth.tasks import PTBXLMultilabelClassification
 
 logger = logging.getLogger(__name__)
 
