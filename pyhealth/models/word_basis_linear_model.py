@@ -5,6 +5,8 @@ from typing import List, Optional, Sequence, Tuple
 import torch
 import torch.nn as nn
 
+from typing import Any
+from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
 
 
@@ -25,11 +27,40 @@ class WordBasisLinearModel(BaseModel):
             exactly one input feature in the dataset schema and uses it.
         ridge_lambda: Default ridge penalty used when solving for word-basis
             coefficients.
+
+        Example:
+        >>> from pyhealth.datasets import create_sample_dataset
+        >>> from pyhealth.models import WordBasisLinearModel
+        >>> samples = [
+        ...     {
+        ...         "patient_id": "p0",
+        ...         "visit_id": "v0",
+        ...         "embedding": [0.1] * 8,
+        ...         "label": 1,
+        ...     },
+        ...     {
+        ...         "patient_id": "p1",
+        ...         "visit_id": "v1",
+        ...         "embedding": [0.0] * 8,
+        ...         "label": 0,
+        ...     },
+        ... ]
+        >>> dataset = create_sample_dataset(
+        ...     samples=samples,
+        ...     input_schema={"embedding": "tensor"},
+        ...     output_schema={"label": "binary"},
+        ...     dataset_name="word_basis_linear_model_example",
+        ... )
+        >>> model = WordBasisLinearModel(
+        ...     dataset=dataset,
+        ...     input_dim=8,
+        ...     feature_key="embedding",
+        ... )
     """
 
     def __init__(
         self,
-        dataset,
+        dataset: SampleDataset,
         input_dim: int,
         feature_key: Optional[str] = None,
         ridge_lambda: float = 0.0,
@@ -67,7 +98,7 @@ class WordBasisLinearModel(BaseModel):
         self.ridge_lambda = ridge_lambda
         self.classifier = nn.Linear(input_dim, 1, bias=False)
 
-    def _get_input_tensor(self, feature) -> torch.Tensor:
+    def _get_input_tensor(self, feature: Any) -> torch.Tensor:
         """Extracts the dense tensor from a PyHealth feature payload."""
         if isinstance(feature, torch.Tensor):
             x = feature
