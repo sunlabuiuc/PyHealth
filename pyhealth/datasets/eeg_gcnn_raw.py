@@ -274,23 +274,26 @@ class EEGGCNNRawDataset(BaseDataset):
 
         root = Path(self.root)
 
-        # --- collect TUAB recordings ---
+        # --- collect TUAB normal recordings only ---
+        # Per the original EEG-GCNN paper, only TUAB *normal* EEGs are used.
+        # These are hospital patients whose EEGs appear normal but who may have
+        # underlying neurological conditions — they form the "diseased" class.
+        # TUAB abnormal recordings are excluded from the binary task.
         tuab_base = root / "tuab" if (root / "tuab").is_dir() else root
         for split in ("train", "eval"):
-            for dir_label, py_label in (("normal", "healthy"), ("abnormal", "diseased")):
-                edf_dir = tuab_base / split / dir_label / "01_tcp_ar"
-                if not edf_dir.is_dir():
-                    continue
-                for edf_path in sorted(edf_dir.glob("*.edf")):
-                    patient_id = edf_path.stem.split("_")[0]
-                    n_before = len(all_X)
-                    self._process_recording(
-                        edf_path, patient_id, py_label, "tuab",
-                        sfreq, window_samples,
-                        all_patient_ids, all_X, all_coh, all_labels,
-                    )
-                    logger.info("[TUAB] %s → %d windows (%s).",
-                                edf_path.name, len(all_X) - n_before, py_label)
+            edf_dir = tuab_base / split / "normal" / "01_tcp_ar"
+            if not edf_dir.is_dir():
+                continue
+            for edf_path in sorted(edf_dir.glob("*.edf")):
+                patient_id = edf_path.stem.split("_")[0]
+                n_before = len(all_X)
+                self._process_recording(
+                    edf_path, patient_id, "diseased", "tuab",
+                    sfreq, window_samples,
+                    all_patient_ids, all_X, all_coh, all_labels,
+                )
+                logger.info("[TUAB] %s → %d windows (diseased).",
+                            edf_path.name, len(all_X) - n_before)
 
         # --- collect LEMON recordings ---
         lemon_dir = root / "lemon"
