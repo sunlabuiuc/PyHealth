@@ -4,6 +4,15 @@ import torch.nn.functional as F
 from pyhealth.models import BaseModel
 
 class MedFuse(BaseModel):
+    """MedFuse model for multimodal healthcare prediction.
+
+    This model implements the fusion logic from the MedMod paper,
+    combining EHR and CXR data.
+
+    Args:
+        dataset (SampleDataset): PyHealth dataset object.
+        hidden_dim (int): The dimension of the hidden layers. Defaults to 128.
+    """
     def __init__(self, dataset, hidden_dim=128):
         super(MedFuse, self).__init__(dataset)
         
