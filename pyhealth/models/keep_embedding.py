@@ -21,30 +21,19 @@ class N2V():
     def __init__(
         self, 
         path:str, 
-        domain_type:str, 
-        # depth_limit:int, 
+        domain_type:list[str], 
         embedding_dim:int,
         walk_length:int,
         num_walks:int
     ):
         self.path = path
         self.domain_type = domain_type
-        # self.depth_limit = depth_limit
         self.embedding_dim = embedding_dim
         self.walk_length = walk_length
         self.num_walks = num_walks
-        # Map domain_type to OMOP domain names
-        self.domain_map = {
-            "condition": ["Condition"],
-            "drug": ["Drug"],
-            "procedure": ["Procedure"],
-            "all": ["Condition", "Drug", "Procedure"],
-        }
-        # If all then no filtering needed 
     
-        # Create graph from concept and their relationships data
-    
-    def create_graph(self) -> nx.DiGraph:
+    # Create graph from concept and their relationships data
+    def _create_graph(self) -> nx.DiGraph:
         """
         Create a directed graph from OMOP concept relationships.
         
@@ -60,70 +49,93 @@ class N2V():
             ValueError: If no concepts found for specified domains.
         """
         # Load concept table
-        concept_path = os.path.join(self.path, "2b_concept.csv")
-        
-        # Load concept relationships table
-        concept_relationship_path = os.path.join(self.path, "2b_concept_relationship.csv")
-
-        # if not os.path.exists(concept_path):
-        #     raise FileNotFoundError(f"2b_concept.csv not found at {concept_path}")
-        # if not os.path.exists(concept_relationship_path):
-        #     raise FileNotFoundError(f"2b_concept_relationship.csv not found at {concept_relationship_path}")
-        
-        # Read CSV files
+        concept_path = os.path.join(self.path, "2b_concept.csv")  
         print(f"Loading concepts from {concept_path}")
         concept_df = pd.read_csv(concept_path, dtype=str)
-        
+ 
+        # Load concept relationships table
+        concept_relationship_path = os.path.join(self.path, "2b_concept_relationship.csv")
         print(f"Loading concept relationships from {concept_relationship_path}")
         concept_rel_df = pd.read_csv(concept_relationship_path, dtype=str)
         
-        target_domains = self.domain_map[self.domain_type]
+        print(f"Loaded {len(concept_df)} concepts and {len(concept_rel_df)} relationships")
 
-        # Filter concepts by target domains
-        # concept_df = concept_df[concept_df["domain_id"].isin(target_domains)].copy()
+        if self.domain_type != ["all"]:
+            # Filter concepts by target domain
+            concept_df = concept_df[concept_df["domain_id"].isin(self.domain_type)].copy()
         
-        # if len(concept_df) == 0:
-        #     raise ValueError(f"No concepts found for domains: {target_domains}")
+            print(f"Filtered to {len(concept_df)} concepts in domains: {self.domain_type}")
         
-        # print(f"Filtered to {len(concept_df)} concepts in domains: {target_domains}")
-        
-        # # Create set of filtered concept IDs for quick lookup
+        # Create set of filtered concept IDs for quick lookup
         filtered_concept_ids = set(concept_df["concept_id"].values)
+        print(f"Created set of {len(filtered_concept_ids)} concept IDs")
         
-        # # Filter to relationships where both concepts are in our domain set
+        # Filter to relationships where both concepts are in our domain set
         concept_rel_df = concept_rel_df[
             (concept_rel_df["concept_id_1"].isin(filtered_concept_ids)) &
             (concept_rel_df["concept_id_2"].isin(filtered_concept_ids))
         ].copy()
         
-        print(f"Found {len(concept_rel_df)} relationships between filtered concepts")
+        print(f"Found {len(concept_rel_df)} relationships between concepts")
         
         # Create directed graph
         graph = nx.DiGraph()
         
         # Add all filtered concepts as nodes
-        for concept_id, row in concept_df.iterrows():
+        for _, row in concept_df.iterrows():
             graph.add_node(
                 row["concept_id"],
                 name=row["concept_name"],
                 domain=row["domain_id"]
             )
         
-        print(f"Added {len(graph.nodes())} nodes to graph")
-        
         # Add edges from concept relationships
-        # Typically "maps_to" relationship indicates concept_id_1 maps to concept_id_2
         for _, row in concept_rel_df.iterrows():
             concept_1 = row["concept_id_1"]
             concept_2 = row["concept_id_2"]
-            rel_type = row.get("relationship_id", "maps_to")
+            rel_type = row.get("relationship_id")
             
             # Add directed edge from concept_1 to concept_2
-            graph.add_edge(concept_1, concept_2, relationship=rel_type)
-        
-        print(f"Added {len(graph.edges())} edges to graph")
+            if graph.has_edge(concept_1, concept_2):
+                # Append to existing relationships list
+                graph[concept_1][concept_2]["relationships"].append(rel_type)
+            else:
+                # Create new edge with relationships list
+                graph.add_edge(concept_1, concept_2, relationships=[rel_type])
         
         return graph
+
+    def _build_index_mapping(self, node_embeddings):
+        """
+        Build a dictionary to map concept code to the index in node_embeddings.
+        
+        Args:
+            node_embeddings: Gensim Word2Vec model word vectors
+            
+        Returns:
+            dict: Mapping from concept_id (int) to index in embeddings
+        """
+        return {int(key): i for i, key in enumerate(node_embeddings.index_to_key)}
+
+    def _get_vector_iso(self, code, node_embeddings, index_mapping, mean_vector):
+        """
+        Return concept embedding for the given code or mean vector if not found.
+        
+        Args:
+            code: Concept ID
+            node_embeddings: Gensim Word2Vec model word vectors
+            index_mapping: Dictionary mapping concept_id to index
+            mean_vector: Mean vector to use as fallback
+            
+        Returns:
+            np.ndarray: Embedding vector for the concept
+        """
+        index = index_mapping.get(int(code))
+        if index is not None:
+            return node_embeddings.get_vector(index)
+        else:
+            print(f"Code {code} not found, returning mean vector.")
+            return mean_vector
 
     def generate_embeddings(self):
         """
@@ -136,50 +148,49 @@ class N2V():
             gensim.models.Word2Vec: Trained Node2Vec model for concept embeddings.
         """
         # Create graph from concepts and relationships
-        logger.info("Creating concept graph")
-        graph = self.create_graph()
+        print("Creating OMOP knowledge graph")
+        graph = self._create_graph()
         
-        logger.info(f"Graph created with {len(graph.nodes())} nodes and {len(graph.edges())} edges")
+        print(f"Graph created with {len(graph.nodes())} nodes and {len(graph.edges())} edges")
         
         if len(graph.nodes()) == 0:
             raise ValueError("Graph is empty, cannot generate embeddings")
         
         # Initialize and fit Node2Vec
-        logger.info(
-            f"Initializing Node2Vec with embedding_dim={self.embedding_dim}, "
-            f"walk_length={self.walk_length}, num_walks={self.num_walks}"
-        )
+        print(f"Initializing Node2Vec with embedding_dim={self.embedding_dim} walk_length={self.walk_length}, num_walks={self.num_walks}")
+
         node2vec = Node2Vec(
             graph,
             dimensions=self.embedding_dim,
             walk_length=self.walk_length,
             num_walks=self.num_walks,
-            workers=4
+            p=1, q=1, workers=4
         )
         
         # Train the model
-        logger.info("Training Node2Vec model")
         self.model = node2vec.fit(window=10, min_count=1, epochs=1)
         
-        logger.info("Node2Vec training completed")
-        logger.info(f"Model vocabulary size: {len(self.model.wv)}")
+        # Extract embeddings from trained model
+        keys = list(graph.nodes())
+        node_embeddings = self.model.wv
         
-        return self.model
-
-
-
-class KeepEmbedding(BaseModel):
-    """Knowledge-Enhanced Patient Embedding model using OMOP data and node2vec."""
-    
-    def __init__(self, dataset: SampleDataset):
-        """
-        Initialize KeepEmbedding model.
+        # Build index mapping for efficient lookup
+        index_mapping = self._build_index_mapping(node_embeddings)
+        mean_vector = np.mean(node_embeddings.vectors, axis=0)
         
-        Args:
-            dataset: An OMOPDataset instance containing patient clinical data.
-        """
-        super().__init__(dataset=dataset)
-    
+        # Create embedding vectors for all concepts
+        print(f"Creating embedding vectors for {len(keys)} concepts...")
+        vectors = [self._get_vector_iso(key, node_embeddings, index_mapping, mean_vector) for key in keys]
+        
+        # Stack into matrix
+        embedding_matrix = np.vstack(vectors)
+        print(f"Embedding matrix shape: {embedding_matrix.shape}")
+        
+        return embedding_matrix
+
+class GloVe():
+    def __init__(self):
+        pass
     # def build_cooccurrence_matrix(
     #     self,
     #     graph: nx.DiGraph,
@@ -351,3 +362,27 @@ class KeepEmbedding(BaseModel):
     #     )
         
     #     return X, concept_ids
+
+class KeepEmbedding(BaseModel):
+    def __init__(self, 
+            dataset: SampleDataset,
+            path:str, 
+            domain_type:list[str], 
+            embedding_dim:int,
+            walk_length:int,
+            num_walks:int
+        ):
+        """
+        """
+        super().__init__(dataset=dataset)
+        self.n2v = N2V(
+            path=path,
+            domain_type=domain_type,
+            embedding_dim=embedding_dim,
+            walk_length=walk_length,
+            num_walks=num_walks
+        )
+    
+    def test(self):
+        embedding_matrix = self.n2v.generate_embeddings()
+        print(f"Created embedding matrix with shape: {embedding_matrix.shape}")
