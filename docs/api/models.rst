@@ -48,6 +48,9 @@ routes each feature type automatically.
    * - :doc:`models/pyhealth.models.GraphCare`
      - You want to augment EHR codes with a medical knowledge graph
      - Combines code sequences with a :class:`~pyhealth.graph.KnowledgeGraph`
+   * - :doc:`models/pyhealth.models.MedFuse`
+     - You want to fuse longitudinal EHR data with medical images (like Chest X-rays)
+     - Implements LSTM-based fusion for paired multimodal medical data.
 
 How BaseModel Works
 --------------------
@@ -182,6 +185,9 @@ API Reference
     models/pyhealth.models.GraphCare
     models/pyhealth.models.MICRON
     models/pyhealth.models.SafeDrug
+    models/pyhealth.models.MedLink
+    models/pyhealth.models.medfuse
+    models/pyhealth.models.MLP
     models/pyhealth.models.MoleRec
     models/pyhealth.models.Deepr
     models/pyhealth.models.EHRMamba
