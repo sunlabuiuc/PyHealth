@@ -8,8 +8,8 @@ Paper: Raphael Poulain, Mehak Gupta, and Rahmatollah Beheshti.
     https://proceedings.mlr.press/v182/poulain22a.html
 
 Description: Runs an ablation study over feature sets and prediction windows
-    for the Synthea mortality prediction task.  Reports cohort size, positive
-    rate, and feature counts for every configuration combination.
+    for the Synthea mortality prediction task.  For each configuration, trains
+    an RNN model and reports cohort size, positive rate, AUROC, and F1 score.
 
     Feature sets:
         - conditions_only: only diagnosis codes
@@ -32,8 +32,15 @@ import os
 import tempfile
 from pathlib import Path
 
+import numpy as np
+import torch
+
 from pyhealth.datasets import SyntheaDataset
+from pyhealth.datasets.splitter import split_by_patient
+from pyhealth.datasets.utils import get_dataloader
+from pyhealth.models import RNN
 from pyhealth.tasks import MortalityPredictionSynthea
+from pyhealth.trainer import Trainer
 
 
 # ======================================================================
@@ -365,6 +372,10 @@ PREDICTION_WINDOWS = [180, 365, 730]
 # ======================================================================
 
 def main():
+    # Set random seeds for reproducibility
+    torch.manual_seed(42)
+    np.random.seed(42)
+
     parser = argparse.ArgumentParser(
         description="Ablation study for Synthea mortality prediction"
     )
@@ -418,19 +429,86 @@ def main():
 
             pos_rate = n_pos / n_samples * 100 if n_samples > 0 else 0.0
 
+            print(
+                f"  window={window:>4}d | "
+                f"samples={n_samples:>4} | "
+                f"positive={n_pos:>3} ({pos_rate:5.1f}%)"
+            )
+
+            # ----------------------------------------------------------
+            # Model training and evaluation
+            # ----------------------------------------------------------
+            auroc_str = "N/A"
+            f1_str = "N/A"
+            try:
+                if n_samples < 3:
+                    raise ValueError(
+                        f"Too few samples ({n_samples}) to split into "
+                        "train/val/test sets"
+                    )
+
+                # Reproducible splits
+                train_ds, val_ds, test_ds = split_by_patient(
+                    sample_dataset, [0.8, 0.1, 0.1], seed=42
+                )
+
+                # Require at least 1 sample in each split
+                if len(train_ds) == 0 or len(val_ds) == 0 or len(test_ds) == 0:
+                    raise ValueError(
+                        f"Empty split: train={len(train_ds)}, "
+                        f"val={len(val_ds)}, test={len(test_ds)}"
+                    )
+
+                train_dl = get_dataloader(train_ds, batch_size=32, shuffle=True)
+                val_dl = get_dataloader(val_ds, batch_size=32, shuffle=False)
+                test_dl = get_dataloader(test_ds, batch_size=32, shuffle=False)
+
+                # Build model
+                model = RNN(
+                    dataset=sample_dataset,
+                    embedding_dim=32,
+                    hidden_dim=32,
+                    num_layers=1,
+                    dropout=0.0,
+                )
+
+                trainer = Trainer(
+                    model=model,
+                    metrics=["roc_auc", "f1"],
+                    enable_logging=False,
+                )
+                trainer.train(
+                    train_dataloader=train_dl,
+                    val_dataloader=val_dl,
+                    epochs=5,
+                    optimizer_params={"lr": 1e-3},
+                    monitor="roc_auc",
+                    monitor_criterion="max",
+                    load_best_model_at_last=False,
+                )
+
+                scores = trainer.evaluate(test_dl)
+                auroc_val = scores.get("roc_auc", float("nan"))
+                f1_val = scores.get("f1", float("nan"))
+                if not (np.isnan(auroc_val)):
+                    auroc_str = f"{auroc_val:.3f}"
+                if not (np.isnan(f1_val)):
+                    f1_str = f"{f1_val:.3f}"
+                print(f"    -> AUROC={auroc_str}  F1={f1_str}")
+
+            except Exception as exc:
+                print(f"    -> Training failed: {exc}")
+
             result = {
                 "features": feat_name,
                 "window": window,
                 "n_samples": n_samples,
                 "n_positive": n_pos,
                 "pos_rate": pos_rate,
+                "auroc": auroc_str,
+                "f1": f1_str,
             }
             results.append(result)
-            print(
-                f"  window={window:>4}d | "
-                f"samples={n_samples:>4} | "
-                f"positive={n_pos:>3} ({pos_rate:5.1f}%)"
-            )
 
     # ------------------------------------------------------------------
     # Summary table
@@ -439,42 +517,27 @@ def main():
     print("=" * 72)
     print("ABLATION SUMMARY")
     print("=" * 72)
-    header = f"{'Feature Set':<28} {'Window':>6} {'Samples':>8} {'Pos':>5} {'Rate':>7}"
+    header = (
+        f"{'Feature Set':<28} {'Window':>6} {'Samples':>8} "
+        f"{'Pos':>5} {'Rate':>7} {'AUROC':>7} {'F1':>7}"
+    )
     print(header)
-    print("-" * 72)
+    print("-" * 80)
     for r in results:
         print(
             f"{r['features']:<28} {r['window']:>5}d {r['n_samples']:>8} "
-            f"{r['n_positive']:>5} {r['pos_rate']:>6.1f}%"
+            f"{r['n_positive']:>5} {r['pos_rate']:>6.1f}% "
+            f"{r['auroc']:>7} {r['f1']:>7}"
         )
-    print("-" * 72)
+    print("-" * 80)
 
     # ------------------------------------------------------------------
-    # Training note
+    # Note on demo data
     # ------------------------------------------------------------------
     print(
-        "\n"
-        "NOTE: To train an RNN model on the full feature set, use:\n"
-        "\n"
-        "    from pyhealth.datasets import SyntheaDataset, split_by_patient, get_dataloader\n"
-        "    from pyhealth.tasks import MortalityPredictionSynthea\n"
-        "    from pyhealth.models import RNN\n"
-        "    from pyhealth.trainer import Trainer\n"
-        "\n"
-        "    dataset = SyntheaDataset(\n"
-        '        root="/path/to/synthea/csv",\n'
-        '        tables=["conditions", "medications", "procedures"],\n'
-        "    )\n"
-        "    task = MortalityPredictionSynthea(prediction_window_days=365)\n"
-        "    samples = dataset.set_task(task)\n"
-        "    train_ds, val_ds, test_ds = split_by_patient(samples, [0.8, 0.1, 0.1])\n"
-        "    train_dl = get_dataloader(train_ds, batch_size=32, shuffle=True)\n"
-        "    val_dl = get_dataloader(val_ds, batch_size=32, shuffle=False)\n"
-        "    test_dl = get_dataloader(test_ds, batch_size=32, shuffle=False)\n"
-        "    model = RNN(dataset=samples)\n"
-        "    trainer = Trainer(model=model)\n"
-        '    trainer.train(train_dl, val_dl, epochs=50, monitor="roc_auc")\n'
-        "    print(trainer.evaluate(test_dl))\n"
+        "\nNOTE: With demo data (20 patients), train/val/test splits are very\n"
+        "small and metrics may be unreliable or N/A.  Use a full Synthea\n"
+        "dataset (--root) for meaningful performance comparisons.\n"
     )
 
 

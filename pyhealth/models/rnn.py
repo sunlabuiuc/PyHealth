@@ -283,6 +283,17 @@ class RNN(BaseModel):
             x = embedded[feature_key]
 
             x_dim_orig = x.dim()
+
+            # Handle empty sequences (e.g., no procedures for any patient
+            # in the batch).  Return a zero vector of the expected size so
+            # downstream concatenation still works.
+            if x.numel() == 0:
+                batch_size = x.size(0) if x.dim() >= 1 else 1
+                patient_emb.append(
+                    torch.zeros(batch_size, self.hidden_dim, device=x.device)
+                )
+                continue
+
             if x_dim_orig == 4:
                 # nested_sequence: (B, num_visits, num_codes, D)
                 # @TODO: sum-pooling across codes is a simple baseline. May need to investigate better embeddings for nested codes.
@@ -519,6 +530,14 @@ class MultimodalRNN(BaseModel):
         for feature_key in self.sequential_features:
             x = embedded[feature_key]
             m = mask[feature_key]
+
+            # Handle empty sequences (zero-length second dimension)
+            if x.numel() == 0:
+                batch_size = x.size(0) if x.dim() >= 1 else 1
+                patient_emb.append(
+                    torch.zeros(batch_size, self.hidden_dim, device=x.device)
+                )
+                continue
 
             x_dim_orig = x.dim()
             if x_dim_orig == 4:
