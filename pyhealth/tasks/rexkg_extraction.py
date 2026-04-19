@@ -74,10 +74,10 @@ class RadiologyKGExtractionTask(BaseTask):
     """
 
     task_name: str = "RadiologyKGExtraction"
-    input_schema: Dict[str, str] = {"text": "str"}
+    input_schema: Dict[str, str] = {"text": "raw"}
     output_schema: Dict[str, str] = {
-        "entities": "sequence",
-        "relations": "sequence",
+        "entities": "raw",
+        "relations": "raw",
     }
 
     def __init__(
@@ -126,8 +126,8 @@ class RadiologyKGExtractionTask(BaseTask):
 
         samples = []
         for event in events:
-            findings = event.get("chexpert_plus/section_findings") or ""
-            impression = event.get("chexpert_plus/section_impression") or ""
+            findings = (event["section_findings"] if "section_findings" in event else None) or ""
+            impression = (event["section_impression"] if "section_impression" in event else None) or ""
 
             if self.findings_only:
                 text = findings.strip()
