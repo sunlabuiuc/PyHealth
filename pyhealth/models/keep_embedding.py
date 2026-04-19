@@ -186,15 +186,6 @@ class N2V():
         
         return embedding_matrix
 
-class GloVe():
-    def __init__(self,
-        dataset: SampleDataset,
-    ):
-        self.dataset = dataset
-    
-    def build_cooccurrence_matrix(self):
-        pass
-
 class KeepEmbedding(BaseModel):
     """KEEP Embedding: Fine-tune Node2Vec embeddings using GloVe while penalizing 
     deviation from original embeddings.
