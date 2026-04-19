@@ -24,10 +24,7 @@ Key components:
     - SHyLayer: Standalone layer combining all components.
     - SHy: Full PyHealth model inheriting from BaseModel.
 
-TODO: Review and polish all docstrings below to ensure they follow
-Google style consistently. Add Examples sections to inner classes
-where missing. Verify all Args and Returns are documented.
-See rubric Section 1 "Documentation" (5 pts).
+
 """
 
 from typing import Dict, List, Optional, Tuple
@@ -117,7 +114,7 @@ class UniGINConv(nn.Module):
             edges: Hyperedge indices of incident pairs.
 
         Returns:
-            Updated node features, shape (num_nodes, heads * out_channels).
+            torch.Tensor: Updated node features, shape (num_nodes, heads * out_channels).
         """
         N = X.shape[0]
         Xve = X[vertex]
@@ -152,6 +149,16 @@ class UniGATConv(nn.Module):
     def forward(
         self, X: torch.Tensor, vertex: torch.Tensor, edges: torch.Tensor
     ) -> torch.Tensor:
+        """Forward pass with attention-based aggregation.
+
+        Args:
+            X: Node features, shape (num_nodes, in_channels).
+            vertex: Vertex indices of incident pairs.
+            edges: Hyperedge indices of incident pairs.
+
+        Returns:
+            torch.Tensor: Updated node features, shape (num_nodes, heads * out_channels).
+        """
         H, C, N = self.heads, self.out_channels, X.shape[0]
         X0 = self.W(X)
         X_view = X0.view(N, H, C)
@@ -216,6 +223,16 @@ class HGNN(nn.Module):
     def forward(
         self, X: torch.Tensor, V: torch.Tensor, E: torch.Tensor
     ) -> torch.Tensor:
+        """Forward pass through stacked hypergraph layers.
+
+        Args:
+            X: Node features, shape (num_nodes, nfeat).
+            V: Vertex indices of incident pairs.
+            E: Hyperedge indices of incident pairs.
+
+        Returns:
+            torch.Tensor: Output node features, shape (num_nodes, nclass).
+        """
         if self.nlayer > 0:
             for conv in self.convs:
                 X = self.dropout(self.act(conv(X, V, E)))
@@ -242,6 +259,16 @@ class HSLPart1(nn.Module):
     def forward(
         self, X: torch.Tensor, V: torch.Tensor, E: torch.Tensor
     ) -> torch.Tensor:
+        """Compute incident mask probabilities.
+
+        Args:
+            X: Node embeddings after HGNN, shape (num_nodes, emb_dim).
+            V: Vertex indices of incident pairs.
+            E: Hyperedge indices of incident pairs.
+
+        Returns:
+            torch.Tensor: Probability matrix, shape (num_nodes, num_hyperedges).
+        """
         eX = scatter(X[V], E, dim=0, reduce="mean")
         combined = torch.cat(
             [
@@ -285,6 +312,18 @@ class HSLPart2(nn.Module):
         E: torch.Tensor,
         incident_mask_prob: torch.Tensor,
     ) -> torch.Tensor:
+        """Augment hypergraph with false negatives and sample nodes.
+
+        Args:
+            X: Node embeddings, shape (num_nodes, emb_dim).
+            H: Incidence matrix, shape (num_nodes, num_hyperedges).
+            V: Vertex indices of incident pairs.
+            E: Hyperedge indices of incident pairs.
+            incident_mask_prob: Probabilities from HSLPart1, shape (num_nodes, num_hyperedges).
+
+        Returns:
+            torch.Tensor: Enriched incidence matrix, shape (num_nodes, num_hyperedges).
+        """
         # False-negative augmentation via cosine similarity
         eX = scatter(X[V], E, dim=0, reduce="mean")
         node_fc = F.normalize(
@@ -341,6 +380,15 @@ class HypergraphEmbeddingAggregator(nn.Module):
         self.softmax = nn.Softmax(dim=0)
 
     def forward(self, X: torch.Tensor, H: torch.Tensor) -> torch.Tensor:
+        """Aggregate node embeddings into hypergraph embedding.
+
+        Args:
+            X: Node embeddings, shape (num_nodes, in_channel).
+            H: Incidence matrix, shape (num_nodes, num_visits).
+
+        Returns:
+            torch.Tensor: Hypergraph embedding, shape (hid_channel,).
+        """
         visit_emb = torch.matmul(H.T.float(), X)
         hidden_states, _ = self.gru(visit_emb)
         alpha = self.softmax(self.attention(hidden_states).squeeze(-1))
@@ -420,6 +468,19 @@ class HSLEncoder(nn.Module):
     def forward(
         self, X: torch.Tensor, H: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Extract temporal phenotypes from hypergraph.
+
+        Args:
+            X: Hierarchical disease embeddings, shape (num_codes, total_emb_dim).
+            H: Patient incidence matrix, shape (num_codes, num_visits).
+
+        Returns:
+            Tuple[torch.Tensor, torch.Tensor]: 
+                - tps: Temporal phenotype sub-hypergraphs, shape (num_tp, num_codes, num_visits) 
+                  or (num_codes, num_visits) if num_tp=1.
+                - latent_tps: Phenotype embeddings, shape (num_tp, hid_state_dim) 
+                  or (hid_state_dim,) if num_tp=1.
+        """
         V = torch.nonzero(H)[:, 0]
         E = torch.nonzero(H)[:, 1]
 
@@ -469,6 +530,18 @@ class DecoderRNN(nn.Module):
         hidden: torch.Tensor,
         X: torch.Tensor,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """GRU decoder step.
+
+        Args:
+            input: Input tensor, shape (output_size,).
+            hidden: Hidden state, shape (1, hidden_size).
+            X: Node embeddings, shape (num_codes, emb_dim).
+
+        Returns:
+            Tuple[torch.Tensor, torch.Tensor]: 
+                - output: Reconstructed visit, shape (output_size,).
+                - hidden: Updated hidden state, shape (1, hidden_size).
+        """
         output = F.relu(torch.matmul(input, X).view(1, -1))
         output, hidden = self.gru(output, hidden)
         output = self.sigmoid(self.out(output[0]))
@@ -501,6 +574,17 @@ class HSLDecoder(nn.Module):
         H: torch.Tensor,
         X: torch.Tensor,
     ) -> torch.Tensor:
+        """Reconstruct hypergraph from phenotype embeddings.
+
+        Args:
+            latent_tp: Phenotype embeddings, shape (num_tp, latent_tp_dim) or (latent_tp_dim,).
+            visit_len: Number of visits to reconstruct.
+            H: Original incidence matrix, shape (code_num, visit_len).
+            X: Node embeddings, shape (code_num, emb_dim).
+
+        Returns:
+            torch.Tensor: Reconstructed incidence matrix, shape (code_num, visit_len).
+        """
         decoder_hidden = self.to_context(
             torch.reshape(latent_tp, (-1,))
         ).view(1, -1)
@@ -554,6 +638,17 @@ class FinalClassifier(nn.Module):
     def forward(
         self, latent_tp: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Combine per-phenotype predictions.
+
+        Args:
+            latent_tp: Phenotype embeddings, shape (batch, num_tp, in_channel) 
+                or (batch, in_channel) if num_tp=1.
+
+        Returns:
+            Tuple[torch.Tensor, torch.Tensor]:
+                - final_pred: Weighted prediction probabilities, shape (batch, code_num).
+                - alpha: Phenotype importance weights, shape (batch, num_tp) or (batch, 1).
+        """
         if self.num_tp > 1:
             keys = self.w_key(latent_tp)
             querys = self.w_query(latent_tp)
@@ -939,6 +1034,10 @@ class SHy(BaseModel):
         num_codes: int,
     ) -> Tuple[List[torch.Tensor], List[int]]:
         """Convert batched condition sequences into per-patient hypergraphs.
+
+        Each patient's visit history is converted into an incidence matrix
+        H of shape (num_codes, num_visits) where H[i, j] = 1 means
+        disease i was present in visit j.
 
         Each patient's visit history is converted into an incidence matrix
         H of shape (num_codes, num_visits) where H[i, j] = 1 means
