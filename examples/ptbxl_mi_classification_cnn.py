@@ -5,6 +5,32 @@ import argparse
 
 
 def run_once(root: str, normalize: bool):
+    metadata_file = os.path.join(root, "ptbxl_database.csv")
+
+    if not os.path.exists(metadata_file):
+        print("=" * 60)
+        print("PTB-XL dataset not found. Running synthetic demo mode.")
+        print(f"Expected file: {metadata_file}")
+
+        import torch
+        from torch.utils.data import DataLoader, TensorDataset
+
+        X = torch.randn(10, 12, 1000)
+        y = torch.randint(0, 2, (10,)).float()
+
+        demo_dataset = TensorDataset(X, y)
+        demo_loader = DataLoader(demo_dataset, batch_size=2, shuffle=False)
+
+        first_batch = next(iter(demo_loader))
+        demo_signal, demo_label = first_batch
+
+        print(f"normalize={normalize}")
+        print(f"demo batch signal shape: {demo_signal.shape}")
+        print(f"demo batch labels: {demo_label}")
+        print(f"demo signal mean/std: {demo_signal.mean():.4f} / {demo_signal.std():.4f}")
+        print(f"Number of demo samples: {len(demo_dataset)}")
+        return
+
     dataset = PTBXLDataset(
         root=root,
         dev=True,
@@ -22,7 +48,6 @@ def run_once(root: str, normalize: bool):
     sample = task_dataset[0]
     signal = sample["signal"]
 
-    # Convert signal to numbers for printing mean/std
     try:
         signal_np = signal.detach().cpu().numpy()
     except Exception:
@@ -44,13 +69,17 @@ def main():
         type=str,
         default=os.getenv(
             "PTBXL_ROOT",
-            os.path.expanduser("~/Downloads/ptb-xl-a-large-publicly-available-electrocardiography-dataset-1.0.1"),
+            os.path.expanduser(
+                "~/Downloads/ptb-xl-a-large-publicly-available-electrocardiography-dataset-1.0.3"
+            ),
         ),
-        help="Path to PTB-XL root folder (contains ptbxl_database.csv, scp_statements.csv, records100/records500/). "
-             "You can also set PTBXL_ROOT environment variable instead of passing --root.",
+        help=(
+            "Path to PTB-XL root folder (contains ptbxl_database.csv, "
+            "scp_statements.csv, records100/records500/). "
+            "You can also set PTBXL_ROOT environment variable instead of passing --root."
+        ),
     )
 
-    # Ablation flags
     parser.add_argument(
         "--normalize",
         dest="normalize",
@@ -67,7 +96,7 @@ def main():
     parser.add_argument(
         "--ablation-normalize",
         action="store_true",
-        help="Running a tiny ablation: compare normalize=True vs normalize=False.",
+        help="Run a tiny ablation: compare normalize=True vs normalize=False.",
     )
 
     args = parser.parse_args()
