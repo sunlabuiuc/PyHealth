@@ -3,6 +3,7 @@ from .agent import Agent, AgentLayer
 from .base_model import BaseModel
 from .biot import BIOT
 from .cnn import CNN, CNNLayer
+from .cnn_lstm import CNNLSTMPredictor
 from .concare import ConCare, ConCareLayer
 from .contrawr import ContraWR, ResBlock2D
 from .deepr import Deepr, DeeprLayer
