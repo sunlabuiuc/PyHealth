@@ -20,11 +20,11 @@ Expected raw data layout::
 Usage (from the examples/eeg_gcnn directory)::
 
     conda activate pyhealth
-    python pre_compute_gcnn.py
+    python pre_compute.py
 
 Or supply a different data root::
 
-    python pre_compute_gcnn.py --root /path/to/raw_data
+    python pre_compute.py --root /path/to/raw_data
 
 After this script completes, run the training pipeline::
 
