@@ -1706,9 +1706,20 @@ class TemporalConvBlock(nn.Module):
 
 
 class BaseFusionModule(nn.Module, ABC):
-    """Abstract base class for multimodal fusion modules."""
+    """Abstract base class for multimodal fusion modules.
 
-    def __init__(self, embed_dim: int, num_modalities: int, **kwargs):
+    This class provides a common interface for different fusion strategies
+    that combine features from multiple modalities.
+    """
+
+    def __init__(self, embed_dim: int, num_modalities: int, **kwargs: Any) -> None:
+        """Initialize the base fusion module.
+
+        Args:
+            embed_dim: Dimension of the embedding space.
+            num_modalities: Number of input modalities.
+            **kwargs: Additional configuration parameters.
+        """
         super().__init__()
         self.embed_dim = embed_dim
         self.num_modalities = num_modalities
@@ -1716,7 +1727,11 @@ class BaseFusionModule(nn.Module, ABC):
 
     @property
     def config(self) -> Dict[str, Any]:
-        """Get configuration parameters."""
+        """Get configuration parameters.
+
+        Returns:
+            Dictionary containing configuration parameters.
+        """
         return self._config
 
     @abstractmethod
@@ -1728,21 +1743,39 @@ class BaseFusionModule(nn.Module, ABC):
         """Fuse multimodal features.
 
         Args:
-            modality_features: List of tensors or None for missing modalities
-            modality_mask: Optional mask indicating present modalities
+            modality_features: List of tensors or None for missing modalities.
+                Each tensor has shape [batch_size, seq_len, embed_dim].
+            modality_mask: Optional mask indicating present modalities.
+                Shape: [batch_size, num_modalities].
 
         Returns:
-            fused_features: [batch_size, seq_len, embed_dim]
+            Fused features tensor of shape [batch_size, seq_len, embed_dim].
         """
         pass
 
-    def get_modality_mask(self, modality_features: Union[List[Optional[Tensor]], Dict[str, Optional[Tensor]]]) -> Tensor:
-        """Generate modality mask from a feature list or dict."""
+    def get_modality_mask(
+        self,
+        modality_features: Union[List[Optional[Tensor]], Dict[str, Optional[Tensor]]]
+    ) -> Tensor:
+        """Generate modality mask from feature list or dict.
+
+        Args:
+            modality_features: List or dict of modality features.
+
+        Returns:
+            Modality mask tensor of shape [batch_size, num_modalities].
+        """
         if isinstance(modality_features, dict):
             modality_features = list(modality_features.values())
 
-        device = next((f.device for f in modality_features if f is not None and hasattr(f, 'device')), None)
-        batch_size = next((f.size(0) for f in modality_features if f is not None and hasattr(f, 'size')), 1)
+        device = next(
+            (f.device for f in modality_features if f is not None and hasattr(f, 'device')),
+            None
+        )
+        batch_size = next(
+            (f.size(0) for f in modality_features if f is not None and hasattr(f, 'size')),
+            1
+        )
         modality_mask = torch.tensor(
             [feat is not None and hasattr(feat, 'device') for feat in modality_features],
             device=device
