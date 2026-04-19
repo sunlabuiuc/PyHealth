@@ -2,7 +2,7 @@ version: "2.0"
 tables:
   patients:
     file_path: "patients.csv"
-    patient_id: "Id"
+    patient_id: "id"
     timestamp: null
     attributes:
       - "BIRTHDATE"
@@ -13,8 +13,8 @@ tables:
 
   encounters:
     file_path: "encounters.csv"
-    patient_id: "PATIENT"
-    timestamp: "START"
+    patient_id: "patient"
+    timestamp: "start"
     timestamp_format: "%Y-%m-%dT%H:%M:%SZ"
     attributes:
       - "Id"
@@ -27,8 +27,8 @@ tables:
 
   conditions:
     file_path: "conditions.csv"
-    patient_id: "PATIENT"
-    timestamp: "START"
+    patient_id: "patient"
+    timestamp: "start"
     timestamp_format: "%Y-%m-%dT%H:%M:%SZ"
     attributes:
       - "ENCOUNTER"
@@ -37,8 +37,8 @@ tables:
 
   medications:
     file_path: "medications.csv"
-    patient_id: "PATIENT"
-    timestamp: "START"
+    patient_id: "patient"
+    timestamp: "start"
     timestamp_format: "%Y-%m-%dT%H:%M:%SZ"
     attributes:
       - "ENCOUNTER"
@@ -48,8 +48,8 @@ tables:
 
   procedures:
     file_path: "procedures.csv"
-    patient_id: "PATIENT"
-    timestamp: "START"
+    patient_id: "patient"
+    timestamp: "start"
     timestamp_format: "%Y-%m-%dT%H:%M:%SZ"
     attributes:
       - "ENCOUNTER"
