@@ -19,7 +19,6 @@ import nltk
 import pandas as pd
 
 from .base_dataset import BaseDataset
-from .creating_datasets import MIMIC4NoteDataset  # sibling module
 
 logger = logging.getLogger(__name__)
 

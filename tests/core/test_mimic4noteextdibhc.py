@@ -15,7 +15,8 @@ from pyhealth.datasets import MIMIC4NoteExtDIBHCDataset
 def _make_minimal_note(
     hospital_course: str = (
         "Brief Hospital Course: Patient was admitted for chest pain. "
-        "Workup showed no acute MI. Patient was monitored and stabilized.\n"
+        "Workup showed no acute MI. Patient was monitored and stabilized. "
+        "Cardiology was consulted and agreed with management plan.\n"
         "Medications on Admission: aspirin 81mg"
     ),
     discharge_section: str = (
@@ -46,7 +47,8 @@ def _make_note_df(n: int = 5) -> pd.DataFrame:
                 hospital_course=(
                     f"Brief Hospital Course: Patient {i} was admitted for evaluation. "
                     f"They were treated appropriately and discharged in stable condition. "
-                    f"All relevant workup was completed during the hospital stay.\n"
+                    f"All relevant workup was completed during the hospital stay. "
+                    f"The team reviewed results daily and adjusted therapy as needed.\n"
                     f"Medications on Admission: lisinopril 10mg"
                 ),
                 discharge_section=(
@@ -83,11 +85,19 @@ class TestMIMIC4NoteExtDIBHCDatasetStaticHelpers(unittest.TestCase):
     def test_extract_hc_returns_text_between_markers(self):
         """_extract_hc should extract text between 'Brief Hospital Course:' and the next known marker."""
         print("\nTEST: test_extract_hc_returns_text_between_markers")
+        # Note: _extract_hc checks len(txt.split(' ')) >= 30, so the full note
+        # text (not just the BHC section) must be at least 30 words.
         txt = (
-            "Some preamble.\n"
+            "Admission Date: ___ Discharge Date: ___\n"
+            "Service: MEDICINE\n"
             "Brief Hospital Course: Patient was admitted and treated successfully "
-            "with IV antibiotics over a five-day course.\n"
+            "with IV antibiotics over a five-day course. Cultures returned negative "
+            "and the patient improved clinically throughout the admission.\n"
             "Medications on Admission: lisinopril 10mg\n"
+        )
+        self.assertGreaterEqual(
+            len(txt.split(" ")), 30,
+            msg="Synthetic note must have >= 30 words to pass _extract_hc's length guard"
         )
         result = MIMIC4NoteExtDIBHCDataset._extract_hc(txt)
         self.assertIsNotNone(result)
@@ -104,9 +114,10 @@ class TestMIMIC4NoteExtDIBHCDatasetStaticHelpers(unittest.TestCase):
         print("  ✓ returned None as expected")
 
     def test_extract_hc_returns_none_for_very_short_text(self):
-        """_extract_hc should return None when the surrounding text is very short."""
+        """_extract_hc should return None when the surrounding text has fewer than 30 words."""
         print("\nTEST: test_extract_hc_returns_none_for_very_short_text")
         txt = "Brief Hospital Course: Short.\nMedications on Admission: x"
+        self.assertLess(len(txt.split(" ")), 30)
         result = MIMIC4NoteExtDIBHCDataset._extract_hc(txt)
         self.assertIsNone(result)
         print("  ✓ returned None for very short note")
@@ -171,8 +182,6 @@ class TestMIMIC4NoteExtDIBHCDatasetPipelineSteps(unittest.TestCase):
         print(f"\n{'='*60}")
         print("TEST CLASS: TestMIMIC4NoteExtDIBHCDatasetPipelineSteps")
         print(f"{'='*60}")
-        # Instantiate with a dummy root — we will call pipeline steps directly
-        # and never trigger actual file I/O.
         self.pipeline = _DummyDataset()
 
     # ------------------------------------------------------------------
@@ -237,12 +246,8 @@ class TestMIMIC4NoteExtDIBHCDatasetPipelineSteps(unittest.TestCase):
         print("\nTEST: test_step2_encodes_dr_abbreviation")
         df = _make_note_df(3)
         df = self.pipeline._step1_split_on_discharge_instructions(df)
-        # Inject 'Dr.' into a summary
         df.at[df.index[0], "summary"] = "Dr. Smith reviewed your case. " + "x" * 350
         result = MIMIC4NoteExtDIBHCDataset._step2_encode_and_extract_hc(df)
-        # Encoded summaries should have replaced 'Dr.' with the token
-        encoded_summary = result.loc[result.index[0], "summary"] if len(result) > 0 else ""
-        # Either encoded (if row survived quality filter) or row was dropped is fine
         print(f"  Rows after step 2: {len(result)}")
         print("  ✓ passed")
 
@@ -446,8 +451,10 @@ class TestMIMIC4NoteExtDIBHCDatasetEndToEnd(unittest.TestCase):
 
 class _DummyDataset:
     """
-    Exposes pipeline step methods without requiring the full BaseDataset
-    initialisation or any filesystem access.
+    Exposes the full pipeline without requiring BaseDataset initialisation
+    or filesystem access. All instance methods are delegated to the real
+    class using unbound-method calls, so self.* threshold attributes are
+    honoured correctly.
     """
 
     def __init__(
@@ -464,8 +471,8 @@ class _DummyDataset:
         self.num_words_per_deidentified = num_words_per_deidentified
         self.min_chars_bhc = min_chars_bhc
 
-    # Delegate all pipeline steps to the real class (which only uses self.*
-    # thresholds, not any file-IO state).
+    # --- delegate every instance method to the real class ----------------
+
     def _step1_split_on_discharge_instructions(self, df):
         return MIMIC4NoteExtDIBHCDataset._step1_split_on_discharge_instructions(self, df)
 
@@ -480,6 +487,19 @@ class _DummyDataset:
 
     def _step7_filter_hospital_course(self, df):
         return MIMIC4NoteExtDIBHCDataset._step7_filter_hospital_course(self, df)
+
+    # --- two helpers called by the delegated instance methods above ------
+
+    @staticmethod
+    def _remove_empty_and_short_summaries(df, min_length_summary=350):
+        return MIMIC4NoteExtDIBHCDataset._remove_empty_and_short_summaries(
+            df, min_length_summary=min_length_summary
+        )
+
+    def _remove_regex_dict(self, df, regexes, postprocess, keep=0):
+        return MIMIC4NoteExtDIBHCDataset._remove_regex_dict(df, regexes, postprocess, keep=keep)
+
+    # --- full pipeline ---------------------------------------------------
 
     def preprocess(self, df: pd.DataFrame) -> pd.DataFrame:
         df = df.copy()
