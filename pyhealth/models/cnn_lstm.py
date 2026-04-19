@@ -9,11 +9,12 @@ This module implements the CNN-LSTM architecture from:
     Temporal Difference Learning" (Frost et al.)
     https://github.com/tdgfrost/td-icu-mortality
 
-The model processes each input feature through an embedding layer,
-a CNN encoder (Conv1d -> BatchNorm -> ReLU -> MaxPool), and an LSTM
-encoder for sequential dependency modeling. Feature representations
-are concatenated and passed through a dense decoder with batch
-normalization to produce the final prediction.
+The model processes each input feature through three stages: an embedding
+layer for mapping discrete medical codes to dense vectors, a CNN encoder
+(Conv1d -> BatchNorm -> ReLU -> MaxPool) for capturing local patterns,
+and an LSTM encoder for sequential dependency modeling. Per-feature LSTM
+outputs are concatenated and passed through a dense decoder with batch
+normalization and dropout to produce the final prediction.
 """
 
 from typing import Dict, List
