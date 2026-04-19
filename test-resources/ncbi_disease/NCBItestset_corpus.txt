@@ -1,0 +1,5 @@
+
+3001|t|Cancer
+3001|a|Rheumatoid arthritis causes pain.
+3001	0	6	Cancer	DiseaseClass	D009369
+3001	7	27	Rheumatoid arthritis	SpecificDisease	D001172
