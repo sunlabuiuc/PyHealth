@@ -20,38 +20,49 @@ pairs, edges encode brain connectivity. A GCN or GAT model classifies each
 window as diseased (TUAB) or healthy (LEMON), then patient-level predictions
 are aggregated for final evaluation.
 
-The pipeline has five stages:
+There are two independent data paths into the model. Both feed
+``EEGGCNNDataset`` + ``EEGGCNNClassification`` and produce identical output
+tensors — the difference is whether the five required arrays come from raw
+EEG files (preprocessed locally) or from FigShare (downloaded directly).
 
 .. code-block:: text
 
-    Raw EEG / FigShare arrays
-          ↓
-    Dataset  (EEGGCNNRawDataset  or  EEGGCNNDataset)
-          ↓
-    Task     (EEGGCNNDiseaseDetection  or  EEGGCNNClassification)
-          ↓  node_features (8,6)  +  adj_matrix (8,8)  +  label
-    Model    (EEGGraphConvNet  or  EEGGATConvNet)
-          ↓
-    Evaluation  (patient-level AUC, Youden's J)
+    Path A — Raw EEG (run preprocessing locally)
+    ────────────────────────────────────────────
+    Raw TUAB EDF + LEMON BrainVision files
+          ↓  EEGGCNNRawDataset.precompute_features()
+    5 arrays (psd_features_data_X, labels_y, …)
+          ↓  EEGGCNNDataset
+          ↓  EEGGCNNClassification
+    node_features (8,6) + adj_matrix (8,8) + label
+          ↓  EEGGraphConvNet  or  EEGGATConvNet
+    Patient-level AUC, Youden's J
 
-Two data paths are supported — both produce identical output tensors:
+    Path B — FigShare pre-computed arrays
+    ─────────────────────────────────────
+    Download 5 arrays from FigShare (1,593 subjects)
+          ↓  EEGGCNNDataset
+          ↓  EEGGCNNClassification
+    node_features (8,6) + adj_matrix (8,8) + label
+          ↓  EEGGraphConvNet  or  EEGGATConvNet
+    Patient-level AUC, Youden's J
 
 .. list-table::
    :header-rows: 1
-   :widths: 15 30 30 25
+   :widths: 18 28 28 26
 
    * - Path
-     - Dataset
-     - Task
      - Input
-   * - **Raw EEG**
-     - :class:`~pyhealth.datasets.EEGGCNNRawDataset`
-     - :class:`~pyhealth.tasks.EEGGCNNDiseaseDetection`
-     - EDF (TUAB) + BrainVision (LEMON) files
-   * - **Pre-computed**
-     - :class:`~pyhealth.datasets.EEGGCNNDataset`
-     - :class:`~pyhealth.tasks.EEGGCNNClassification`
-     - FigShare arrays (1,593 subjects, 225,334 windows)
+     - Preprocessing
+     - Output (consumed by EEGGCNNDataset)
+   * - **A. Raw EEG**
+     - EDF (TUAB) + BrainVision (LEMON)
+     - :class:`~pyhealth.datasets.EEGGCNNRawDataset` runs the full pipeline
+     - 5 arrays written to ``precomputed_data/``
+   * - **B. FigShare**
+     - Pre-computed download (1,593 subjects, 225,334 windows)
+     - None — already done by the paper authors
+     - Same 5 arrays
 
 Environment Setup
 -----------------
@@ -85,7 +96,13 @@ Environment Setup
 Data Sources
 ------------
 
-**TUAB — Temple University EEG Abnormal Corpus (label 0, patient class)**
+There are two raw sources (TUAB + LEMON) used by **Path A**, and one
+pre-computed source (FigShare) used by **Path B**.
+
+Path A — Raw inputs
+~~~~~~~~~~~~~~~~~~~~
+
+**TUAB — Temple University EEG Abnormal Corpus (raw, label 0 = patient class)**
     EEG recordings from patients whose EEGs appear clinically *normal* but
     who have an underlying neurological condition. Only the ``normal`` split
     is used. Files are EDF format with ``EEG X-REF`` channel naming.
@@ -95,7 +112,7 @@ Data Sources
         <root>/tuab/train/normal/01_tcp_ar/*.edf
         <root>/tuab/eval/normal/01_tcp_ar/*.edf
 
-**LEMON — MPI Leipzig Mind-Body-Emotion Interactions (label 1, healthy class)**
+**LEMON — MPI Leipzig Mind-Body-Emotion Interactions (raw, label 1 = healthy class)**
     EEG recordings from fully healthy volunteers with no neurological history.
     BrainVision format (``*.eeg`` + ``*.vhdr`` + ``*.vmrk``).
 
@@ -103,7 +120,10 @@ Data Sources
 
         <root>/lemon/sub-<id>/sub-<id>.vhdr
 
-**FigShare pre-computed arrays (large-scale training)**
+Path B — Pre-computed input
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+**FigShare pre-computed arrays (precomputed, large-scale training)**
     Pre-processed features for 1,593 subjects (225,334 windows), downloaded
     from `FigShare <https://figshare.com/articles/dataset/EEG-GCNN_Augmenting_Electroencephalogram-based_Neurological_Disease_Diagnosis_using_a_Domain-guided_Graph_Convolutional_Neural_Network/13251509>`_:
 
@@ -285,7 +305,10 @@ Programmatic Usage
 Training (GCN)
 --------------
 
-Uses the FigShare pre-computed dataset for full-scale training (1,593 subjects).
+Trains on whatever 5-array dataset sits in ``DATA_ROOT`` — either the
+locally pre-computed output of ``pre_compute.py`` (Path A) or the FigShare
+download (Path B, 1,593 subjects). The script does not care which one it
+is, since both produce the same five files.
 Run from ``examples/eeg_gcnn/``:
 
 .. code-block:: bash
@@ -366,15 +389,8 @@ Both scripts:
    specificity − 1) on the ROC curve.
 5. Report mean ± std across folds.
 
-Results matching the paper (Table 2, combined adjacency α=0.5):
-
-.. code-block:: text
-
-    auroc_patient : 0.8970 ± 0.0110
-    precision     : 0.9866 ± 0.0060
-    recall        : 0.7198 ± 0.0320
-    f1            : 0.8318 ± 0.0200
-    bal_acc       : 0.8237 ± 0.0050
+Reported metrics: ``auroc_patient``, ``precision``, ``recall``, ``f1``,
+``bal_acc``. See the project slides for the numerical results.
 
 Ablation Studies
 ----------------
@@ -382,118 +398,26 @@ Ablation Studies
 Adjacency Type Comparison
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-We extended the paper by comparing four adjacency configurations on both
-GCN and GAT, evaluated on the full FigShare dataset (477 test patients,
-70/30 patient-level split).
+We extended the paper by varying the adjacency mix coefficient ``alpha``
+across five configurations and evaluating both models on the full FigShare
+dataset (477 test patients, 70/30 patient-level split):
 
-**GCN** (our best model — matches paper's Shallow EEG-GCNN):
+- α = 0.0  — functional only (spectral coherence)
+- α = 0.25 — coherence-heavy
+- α = 0.5  — combined (paper default)
+- α = 0.75 — spatial-heavy
+- α = 1.0  — spatial only (geodesic distance)
 
-.. list-table::
-   :header-rows: 1
-   :widths: 25 8 9 11 9 9 9
-
-   * - Config
-     - Alpha
-     - AUC
-     - Youden's J
-     - Bal. Acc
-     - Recall
-     - F1
-   * - Functional only
-     - 0.0
-     - 0.900
-     - 0.645
-     - 0.823
-     - 0.879
-     - 0.493
-   * - Combined (paper)
-     - 0.5
-     - 0.902
-     - 0.655
-     - 0.828
-     - 0.879
-     - 0.503
-   * - **Spatial-heavy**
-     - **0.75**
-     - **0.903**
-     - **0.660**
-     - **0.830**
-     - **0.879**
-     - **0.508**
-   * - Spatial only
-     - 1.0
-     - 0.898
-     - 0.623
-     - 0.812
-     - 0.862
-     - 0.481
-
-**GAT**:
-
-.. list-table::
-   :header-rows: 1
-   :widths: 25 8 9 11 9 9 9
-
-   * - Config
-     - Alpha
-     - AUC
-     - Youden's J
-     - Bal. Acc
-     - Recall
-     - F1
-   * - Functional only
-     - 0.0
-     - 0.844
-     - 0.599
-     - 0.799
-     - 0.759
-     - 0.521
-   * - Combined (paper)
-     - 0.5
-     - 0.842
-     - 0.588
-     - 0.794
-     - 0.793
-     - 0.484
-   * - Spatial-heavy
-     - 0.75
-     - 0.841
-     - 0.548
-     - 0.774
-     - 0.741
-     - 0.473
-   * - Spatial only
-     - 1.0
-     - 0.849
-     - 0.588
-     - 0.794
-     - 0.810
-     - 0.475
-
-**Comparison to paper (Table 2, combined adjacency, 10-fold CV)**:
-
-.. list-table::
-   :header-rows: 1
-   :widths: 40 30 30
-
-   * - Model
-     - AUC
-     - Bal. Acc
-   * - Shallow EEG-GCNN (paper)
-     - 0.90 ± 0.02
-     - 0.83 ± 0.02
-
-GCN with α=0.75 achieves the highest AUC (0.903) and Youden's J (0.660),
-marginally outperforming the paper's combined default (α=0.5). Spatial-only
-(α=1.0) is the weakest GCN configuration, confirming that functional
-coherence adds discriminative signal. GCN consistently outperforms GAT by
-approximately 6% AUC across all configurations.
+For each α we trained both ``EEGGraphConvNet`` and ``EEGGATConvNet`` and
+reported AUC, Youden's J, balanced accuracy, recall, and F1. Numerical
+results are in the project slides.
 
 Re-run with a different alpha:
 
 .. code-block:: python
 
     ALPHA = 0.0   # functional only — in training_pipeline_shallow_gcnn.py
+    ALPHA = 0.25  # coherence-heavy
     ALPHA = 0.5   # combined (paper default)
     ALPHA = 0.75  # spatial-heavy
     ALPHA = 1.0   # spatial only
@@ -503,80 +427,15 @@ Spectral Frequency Analysis
 
 To determine which frequency bands carry the most discriminative signal,
 we ran a leave-one-out (LOO) and keep-one-in (KOI) analysis at inference
-time using trained GCN checkpoints — no retraining required.  The 13
+time using trained GCN checkpoints — no retraining required. The 13
 conditions are:
 
 - **Baseline**: all 6 bands active
 - **Leave-one-out** (×6): one band zeroed, remaining 5 active
 - **Keep-one-in** (×6): only one band active, remaining 5 zeroed
 
-Results (mean ± std across 10 folds, patient-level):
-
-.. list-table::
-   :header-rows: 1
-   :widths: 30 24 24 22
-
-   * - Condition
-     - AUC
-     - Bal. Acc
-     - F1
-   * - **Baseline**
-     - **0.898 ± 0.010**
-     - **0.828 ± 0.012**
-     - **0.840 ± 0.028**
-   * - LOO delta
-     - 0.802 ± 0.059
-     - 0.746 ± 0.043
-     - 0.772 ± 0.055
-   * - LOO theta
-     - 0.800 ± 0.062
-     - 0.752 ± 0.050
-     - 0.785 ± 0.078
-   * - LOO alpha
-     - 0.807 ± 0.070
-     - 0.751 ± 0.061
-     - 0.786 ± 0.069
-   * - LOO beta
-     - 0.807 ± 0.070
-     - 0.751 ± 0.061
-     - 0.786 ± 0.069
-   * - **LOO low gamma**
-     - **0.594 ± 0.153**
-     - **0.589 ± 0.144**
-     - **0.793 ± 0.286**
-   * - LOO high gamma
-     - 0.785 ± 0.066
-     - 0.737 ± 0.042
-     - 0.800 ± 0.070
-   * - KOI delta
-     - 0.623 ± 0.207
-     - 0.605 ± 0.241
-     - 0.644 ± 0.214
-   * - KOI theta
-     - 0.575 ± 0.232
-     - 0.569 ± 0.194
-     - 0.675 ± 0.358
-   * - KOI alpha
-     - 0.661 ± 0.258
-     - 0.639 ± 0.218
-     - 0.856 ± 0.116
-   * - KOI beta
-     - 0.579 ± 0.106
-     - 0.565 ± 0.138
-     - 0.856 ± 0.116
-   * - **KOI low gamma**
-     - **0.723 ± 0.245**
-     - **0.682 ± 0.202**
-     - **0.781 ± 0.153**
-   * - KOI high gamma
-     - 0.656 ± 0.240
-     - 0.633 ± 0.200
-     - 0.840 ± 0.158
-
-**Key finding**: removing low gamma causes the largest AUC drop (0.898 →
-0.594), and low gamma alone (KOI) achieves the highest single-band AUC
-(0.723). This confirms that the low gamma band (30–50 Hz) carries the most
-discriminative signal for neurological disease detection.
+Numerical results (AUC, balanced accuracy, F1 — mean ± std across 10
+folds) are in the project slides.
 
 Run from ``examples/eeg_gcnn/``:
 
