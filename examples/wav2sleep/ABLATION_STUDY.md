@@ -158,7 +158,7 @@ jupyter notebook
 You can run specific ablation studies by modifying the script:
 
 ```python
-# In sleep_multiclass_wav2sleep_corrected.py, comment out unwanted studies:
+# In sleep_multiclass_wav2sleep_comprehensive.py, comment out unwanted studies:
 
 # Run only model capacity
 all_results["model_capacity"] = run_model_capacity_ablation(base_samples)
