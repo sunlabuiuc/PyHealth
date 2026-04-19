@@ -368,7 +368,7 @@ class TestGRUD(unittest.TestCase):
         torch.save(self.model.state_dict(), save_path)
         self.assertTrue(os.path.exists(save_path))
 
-        model2 = make_model(make_synthetic_dataset(), hidden_size=8)
+        model2 = make_model(self.dataset, hidden_size=8)
         model2.load_state_dict(
             torch.load(save_path, weights_only=True)
         )

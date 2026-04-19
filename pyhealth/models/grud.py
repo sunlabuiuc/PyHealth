@@ -76,9 +76,7 @@ class FilterLinear(nn.Module):
         self.in_features = in_features
         self.out_features = out_features
 
-        self.filter_square_matrix = nn.Parameter(
-            filter_square_matrix, requires_grad=False
-        )
+        self.register_buffer("filter_square_matrix", filter_square_matrix)
         self.weight = Parameter(torch.empty(out_features, in_features))
         if bias:
             self.bias = Parameter(torch.empty(out_features))
@@ -147,6 +145,14 @@ class GRUDLayer(nn.Module):
     where :math:`m_t` is the observed mask, :math:`x_{t-1}^{\\prime}`
     is the forward-filled last observation, and :math:`\\bar{x}` is the
     global training mean.
+
+    **Input convention:** Both ``x`` and ``x_last_obsv`` are expected to
+    contain forward-filled values — i.e. simple imputation has already been
+    applied upstream by the processing pipeline. The ``mask`` tensor
+    distinguishes positions where a value was directly observed (``mask=1``)
+    from positions where the value was imputed by forward-filling
+    (``mask=0``). This matches the interleaved format produced by
+    :meth:`GRUD.prepare_input` and consumed by :meth:`GRUD.forward`.
 
     Args:
         input_size: Number of input features (clinical variables) per
@@ -238,12 +244,17 @@ class GRUDLayer(nn.Module):
             4. Run standard GRU gates with mask concatenated as input.
 
         Args:
-            x: Raw measurements at the current timestep, shape
-                ``(batch_size, input_size)``. Contains NaN where missing.
-            x_last_obsv: Forward-filled measurements, shape
-                ``(batch_size, input_size)``.
+            x: Forward-filled measurement values at the current timestep,
+                shape ``(batch_size, input_size)``. Observed positions
+                contain the true measurement; imputed positions contain
+                the forward-filled value from the last observation.
+            x_last_obsv: Forward-filled measurements, same shape and
+                semantics as ``x``. Both ``x`` and ``x_last_obsv`` carry
+                forward-filled values; ``mask`` distinguishes which
+                positions were directly observed versus imputed.
             mask: Binary observation mask at current timestep, shape
-                ``(batch_size, input_size)``. 1 = observed, 0 = missing.
+                ``(batch_size, input_size)``. 1 = directly observed,
+                0 = imputed by forward-fill upstream.
             delta: Hours since last observation per feature, shape
                 ``(batch_size, input_size)``.
             h: Previous hidden state, shape
@@ -356,6 +367,18 @@ class GRUD(BaseModel):
             ``output_schema`` maps the label key to the task type
             (e.g. ``"binary"``). Each input tensor must have shape
             ``(seq_len, n_vars * 3)`` with interleaved channels.
+
+            .. warning::
+
+                If ``x_mean`` is not supplied, it is computed from
+                ``dataset`` automatically. To avoid data leakage, always
+                pass a dataset that contains **only training samples** —
+                i.e. call ``GRUD(dataset=train_dataset)`` rather than
+                ``GRUD(dataset=full_dataset)``. Computing ``x_mean`` over
+                validation or test data leaks target-distribution
+                information into the imputation fallback used at every
+                timestep.
+
         hidden_size: Dimensionality of the GRU-D hidden state.
             Default is ``64``.
         dropout: Dropout probability applied to the concatenated hidden
@@ -366,6 +389,20 @@ class GRUD(BaseModel):
         use_hidden_decay: If ``True`` (default), applies the learned
             hidden state decay mechanism (gamma_h). Set to ``False`` to
             ablate hidden decay.
+        x_mean: Optional pre-computed global mean tensor of shape
+            ``(1, seq_len, n_vars)``. When provided, this value is used
+            directly as the imputation fallback in the input decay
+            mechanism and ``_compute_x_mean`` is not called. Use this
+            to supply a mean computed from a training-only split when
+            ``dataset`` contains the full dataset, or to share the same
+            mean across multiple folds in cross-validation:
+
+            .. code-block:: python
+
+                train_mean = GRUD._compute_x_mean_from(train_dataset, "time_series")
+                model = GRUD(dataset=full_dataset, x_mean=train_mean)
+
+            Default is ``None`` (computed from ``dataset``).
 
     Attributes:
         hidden_size: Dimensionality of the GRU-D hidden state.
@@ -407,7 +444,7 @@ class GRUD(BaseModel):
         >>> batch = next(iter(loader))
         >>> output = model(**batch)
         >>> print(list(output.keys()))
-        ['loss', 'y_prob', 'y_true']
+        ['loss', 'y_prob', 'y_true', 'logit']
 
     References:
         Che, Z., Purushotham, S., Cho, K., Sontag, D., & Liu, Y. (2018).
@@ -429,6 +466,7 @@ class GRUD(BaseModel):
         dropout: float = 0.5,
         use_input_decay: bool = True,
         use_hidden_decay: bool = True,
+        x_mean: torch.Tensor = None,
     ) -> None:
         super().__init__(dataset=dataset)
         self.hidden_size      = hidden_size
@@ -456,10 +494,12 @@ class GRUD(BaseModel):
             )
         self.input_size = total_channels // 3
 
-        # Compute global mean from training data — used as the long-term
-        # imputation target in GRU-D's input decay mechanism.
-        # Must be fit on training data only to prevent data leakage.
-        x_mean = self._compute_x_mean(dataset, first_key)
+        # Use caller-supplied x_mean if provided, otherwise compute from
+        # dataset. The caller is responsible for ensuring x_mean is derived
+        # from training data only to avoid leaking val/test statistics into
+        # the imputation fallback used at every timestep.
+        if x_mean is None:
+            x_mean = self._compute_x_mean(dataset, first_key)
 
         # One GRUDLayer per feature key, sharing the same hyperparameters
         self.grud_layers = nn.ModuleDict(
@@ -548,6 +588,67 @@ class GRUD(BaseModel):
         delta = x[:, :, 2::3]
         return mask, mean, delta
 
+    @staticmethod
+    def prepare_input(
+        values: torch.Tensor,
+        mask: torch.Tensor,
+        delta: torch.Tensor,
+    ) -> torch.Tensor:
+        """Converts separate channel tensors into GRU-D interleaved format.
+
+        PyHealth time-series data is typically stored as separate tensors
+        for values, missingness mask, and time since last observation.
+        This helper interleaves them into the format expected by GRU-D:
+        ``[mask_0, mean_0, time_since_0, mask_1, mean_1, time_since_1, ...]``
+
+        This is the exact inverse of :meth:`_split_channels` — the two
+        methods form a round-trip:
+
+        .. code-block:: python
+
+            x = GRUD.prepare_input(values, mask, delta)
+            mask2, values2, delta2 = GRUD._split_channels(x)
+            assert torch.equal(mask2,   mask)
+            assert torch.equal(values2, values)
+            assert torch.equal(delta2,  delta)
+
+        Args:
+            values: Forward-filled measurement values, shape
+                ``(batch_size, seq_len, n_vars)`` or
+                ``(seq_len, n_vars)`` for a single sample.
+            mask: Binary observation indicator (1 = observed, 0 = missing),
+                same shape as ``values``.
+            delta: Hours since last observation per feature,
+                same shape as ``values``.
+
+        Returns:
+            Interleaved tensor of shape ``(..., seq_len, n_vars * 3)``
+            suitable for passing directly to :meth:`forward`.
+
+        Example:
+            >>> import torch
+            >>> values = torch.randn(4, 24, 10)   # (batch, seq, vars)
+            >>> mask   = torch.randint(0, 2, (4, 24, 10)).float()
+            >>> delta  = torch.rand(4, 24, 10) * 5
+            >>> x = GRUD.prepare_input(values, mask, delta)
+            >>> x.shape
+            torch.Size([4, 24, 30])
+            >>> # Verify channel order: mask=0, mean=1, delta=2
+            >>> assert torch.equal(x[..., 0::3], mask)
+            >>> assert torch.equal(x[..., 1::3], values)
+            >>> assert torch.equal(x[..., 2::3], delta)
+        """
+        n_vars = values.shape[-1]
+        out    = torch.zeros(
+            values.shape[:-1] + (n_vars * 3,),
+            dtype=values.dtype,
+            device=values.device,
+        )
+        out[..., 0::3] = mask
+        out[..., 1::3] = values
+        out[..., 2::3] = delta
+        return out
+
     def forward(self, **kwargs: torch.Tensor) -> Dict[str, torch.Tensor]:
         """Runs the GRU-D forward pass and computes loss and predictions.
 
@@ -605,4 +706,4 @@ class GRUD(BaseModel):
         loss      = self.get_loss_function()(logits, y_true)
         y_prob    = self.prepare_y_prob(logits)
 
-        return {"loss": loss, "y_prob": y_prob, "y_true": y_true}
+        return {"loss": loss, "y_prob": y_prob, "y_true": y_true, "logit": logits}
