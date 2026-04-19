@@ -167,6 +167,8 @@ all_results["model_capacity"] = run_model_capacity_ablation(base_samples)
 # all_results["regularization"] = run_regularization_ablation(base_samples)
 # all_results["missing_modality"] = run_missing_modality_ablation(base_samples)
 # all_results["attention"] = run_attention_visualization_extension(base_samples)
+
+#  CommandLine command for abaltion : cd PyHealth && source .venv313/bin/activate && python examples/wav2sleep/sleep_multiclass_wav2sleep_comprehensive.py 2>&1
 ```
 
 ---
@@ -224,6 +226,14 @@ wav2sleep_experiment_results/
 **Interpretation**: Model is robust to missing PPG; acceptable for single-sensor deployment.
 
 ---
+
+## Visualization Analysis
+
+The attention visualization shows:
+
+1. **ECG dominance** in Wake and REM stages (expected due to HRV patterns)
+2. **PPG dominance** in N2 and N3 stages (expected due to stable perfusion)
+3. **Consistent attention patterns** across different model configurations
 
 ## Clinical Interpretation
 
