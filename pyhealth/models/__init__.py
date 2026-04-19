@@ -46,3 +46,4 @@ from .fusion import TransformerFusion
 from .sdoh import SdohClassifier
 from .medlink import MedLink
 from .unified_embedding import UnifiedMultimodalEmbeddingModel, SinusoidalTimeEmbedding
+from .wav2sleep import Wav2Sleep
