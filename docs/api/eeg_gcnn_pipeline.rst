@@ -92,8 +92,8 @@ Data Sources
 
     Directory layout::
 
-        <root>/train/normal/01_tcp_ar/<subject_dirs>/*.edf
-        <root>/eval/normal/01_tcp_ar/<subject_dirs>/*.edf
+        <root>/tuab/train/normal/01_tcp_ar/*.edf
+        <root>/tuab/eval/normal/01_tcp_ar/*.edf
 
 **LEMON — MPI Leipzig Mind-Body-Emotion Interactions (label 1, healthy class)**
     EEG recordings from fully healthy volunteers with no neurological history.
@@ -130,7 +130,8 @@ Signal Processing (EEGGCNNDiseaseDetection)
 Applied to each raw recording in order:
 
 1. **Resample** to 250 Hz.
-2. **Filter** — 1 Hz high-pass (remove DC drift) + 50 Hz notch (power-line).
+2. **Filter** — 1 Hz high-pass (remove DC drift) + 60 Hz notch for TUAB
+   (US power-line), 50 Hz notch for LEMON (EU power-line).
 3. **Bipolar montage** — derive 8 bipolar channels from the 10-20 layout:
 
    .. code-block:: text
@@ -206,7 +207,7 @@ Both tasks produce the same sample dict consumed directly by both models:
      - 0 = TUAB (patient), 1 = LEMON (healthy)
    * - ``patient_id``
      - ``str``
-     - e.g. ``tuab_aaaaaaav`` or ``lemon_sub-010002``
+     - e.g. ``tuab_aaaaaaav`` or ``lemon_sub-032301``
 
 Models
 ------
@@ -228,33 +229,31 @@ and return a dict with keys ``loss``, ``y_prob``, ``y_true``, ``logit``.
 Quick Start — Raw EEG
 ---------------------
 
-Run against the sample data shipped in ``pyhealth/eeg-gcnn-data/``
-(3 TUAB + 3 LEMON subjects, 689 windows total):
+Preprocess raw TUAB and LEMON recordings into the five files required by
+``EEGGCNNDataset``, then run training:
 
 .. code-block:: bash
 
-    # GCN — dataset → task → model forward pass
-    python examples/eeg_gcnn/pre_compute_gcnn.py
+    cd examples/eeg_gcnn
 
-    # GAT — dataset → task → model forward pass
-    python examples/eeg_gatcnn/pre_compute_gatcnn.py
+    # (Optional) download LEMON subjects from the INDI S3 bucket
+    python download_lemon.py --n 10   # first 10 subjects for a quick test
 
-    # Point to your own data
-    python examples/eeg_gcnn/pre_compute_gcnn.py --root /path/to/eeg-gcnn-data
+    # Precompute features from raw TUAB + LEMON
+    python pre_compute_gcnn.py --root raw_data --output precomputed_data
 
-Expected output::
+    # Train the GCN on the precomputed features
+    python training_pipeline_shallow_gcnn.py
 
-    Stage 1 — Dataset: EEGGCNNRawDataset
-      6 patients, 689 windows
+Expected output from ``pre_compute_gcnn.py``::
 
-    Stage 2 — Task: EEGGCNNDiseaseDetection
-      node_features : torch.Size([8, 6])
-      adj_matrix    : torch.Size([8, 8])
-      label         : 0 (TUAB) or 1 (LEMON)
+    EEG-GCNN Feature Precomputation
+      raw data  : .../examples/eeg_gcnn/raw_data
+      output    : .../examples/eeg_gcnn/precomputed_data
+      subset    : both
 
-    Stage 3 — Model: EEGGraphConvNet
-      y_prob shape  : torch.Size([32, 1])
-      ✓ GCN forward pass successful
+    Done. Five pre-computed files written to: .../precomputed_data
+    Next step: python training_pipeline_shallow_gcnn.py
 
 Programmatic Usage
 ~~~~~~~~~~~~~~~~~~
@@ -262,29 +261,16 @@ Programmatic Usage
 .. code-block:: python
 
     from pyhealth.datasets import EEGGCNNRawDataset
-    from pyhealth.tasks import EEGGCNNDiseaseDetection
-    from pyhealth.models import EEGGraphConvNet
 
-    # 1. Load raw TUAB + LEMON
-    dataset = EEGGCNNRawDataset(root="/path/to/eeg-gcnn-data")
+    # 1. Point at the directory containing raw_data/tuab/ and raw_data/lemon/
+    dataset = EEGGCNNRawDataset(root="/path/to/raw_data")
 
-    # 2. Segment windows, extract PSD features + adjacency matrix
-    sample_dataset = dataset.set_task(EEGGCNNDiseaseDetection())
+    # 2. Run the full preprocessing pipeline and write the 5 output files
+    dataset.precompute_features(output_dir="/path/to/precomputed_data")
 
-    # 3. Inspect a sample
-    s = sample_dataset[0]
-    print(s["node_features"].shape)   # torch.Size([8, 6])
-    print(s["adj_matrix"].shape)      # torch.Size([8, 8])
-    print(s["label"])                 # 0 or 1
-
-    # 4. Forward pass through GCN
-    model = EEGGraphConvNet(dataset=sample_dataset, num_node_features=6)
-    out = model(
-        node_features=s["node_features"].unsqueeze(0),
-        adj_matrix=s["adj_matrix"].unsqueeze(0),
-        label=s["label"],
-    )
-    print(out["y_prob"])              # predicted probability
+    # 3. Load the pre-computed features with EEGGCNNDataset for training
+    from pyhealth.datasets import EEGGCNNDataset
+    train_ds = EEGGCNNDataset(root="/path/to/precomputed_data")
 
 Training (GCN)
 --------------
