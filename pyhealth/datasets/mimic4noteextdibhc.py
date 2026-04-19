@@ -4,6 +4,8 @@ MIMIC-IV Extracted Discharge Instructions and Brief Hospital Course (DIBHC) data
 Builds on MIMIC4NoteDataset by loading the discharge table and applying a 7-step
 preprocessing pipeline to produce clean `summary`, `hospital_course`, and
 `brief_hospital_course` columns.
+
+Some code taken from the research paper for preprocessing the dataset: https://arxiv.org/pdf/2402.15422.
 """
 
 import itertools
