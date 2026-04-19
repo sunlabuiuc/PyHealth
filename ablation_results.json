@@ -1,0 +1,58 @@
+{
+  "main_reproduction": {
+    "accuracy": 0.866,
+    "f1_macro": 0.8639754100024769,
+    "auroc": 0.982928,
+    "finetune_time_s": 6.996656656265259,
+    "n_params": 468546,
+    "pretrain_time_s": 322.52860403060913
+  },
+  "encoder_transformer": {
+    "accuracy": 0.866,
+    "f1_macro": 0.8639754100024769,
+    "auroc": 0.982928,
+    "finetune_time_s": 6.996656656265259,
+    "n_params": 468546,
+    "pretrain_time_s": 322.52860403060913
+  },
+  "fusion_attention": {
+    "accuracy": 0.866,
+    "f1_macro": 0.8639754100024769,
+    "auroc": 0.982928,
+    "finetune_time_s": 6.996656656265259,
+    "n_params": 468546,
+    "pretrain_time_s": 322.52860403060913
+  },
+  "encoder_cnn": {
+    "accuracy": 0.93,
+    "f1_macro": 0.9299974799092767,
+    "auroc": 0.9823999999999999,
+    "finetune_time_s": 3.1719000339508057,
+    "n_params": 392130,
+    "pretrain_time_s": 165.83377861976624
+  },
+  "encoder_gru": {
+    "accuracy": 0.866,
+    "f1_macro": 0.8639754100024769,
+    "auroc": 0.97616,
+    "finetune_time_s": 2.7881221771240234,
+    "n_params": 355266,
+    "pretrain_time_s": 130.3127884864807
+  },
+  "fusion_concat": {
+    "accuracy": 0.898,
+    "f1_macro": 0.8972399869434337,
+    "auroc": 0.9804320000000001,
+    "finetune_time_s": 6.692275762557983,
+    "n_params": 419010,
+    "pretrain_time_s": 322.52860403060913
+  },
+  "fusion_mean": {
+    "accuracy": 0.938,
+    "f1_macro": 0.9379977679196452,
+    "auroc": 0.9807840000000001,
+    "finetune_time_s": 6.884799480438232,
+    "n_params": 418498,
+    "pretrain_time_s": 322.52860403060913
+  }
+}
