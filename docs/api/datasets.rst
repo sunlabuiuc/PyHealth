@@ -236,6 +236,7 @@ Available Datasets
     datasets/pyhealth.datasets.EHRShotDataset
     datasets/pyhealth.datasets.Support2Dataset
     datasets/pyhealth.datasets.BMDHSDataset
+    datasets/pyhealth.datasets.CaReSoundDataset
     datasets/pyhealth.datasets.COVID19CXRDataset
     datasets/pyhealth.datasets.ChestXray14Dataset
     datasets/pyhealth.datasets.TUABDataset
@@ -243,6 +244,5 @@ Available Datasets
     datasets/pyhealth.datasets.ClinVarDataset
     datasets/pyhealth.datasets.COSMICDataset
     datasets/pyhealth.datasets.TCGAPRADDataset
-    datasets/pyhealth.datasets.CaReSoundDataset
     datasets/pyhealth.datasets.splitter
     datasets/pyhealth.datasets.utils
