@@ -329,7 +329,7 @@ def test_multiple_patients_processing():
     assert len(all_samples) > 0
 
 
-def test_censoring_mask():
+def test_censoring_mask_fixed():
     task = DynamicSurvivalTask(MockDataset(), horizon=5)
     y, mask = task.engine.generate_survival_label(
         anchor_time=10,
@@ -344,6 +344,17 @@ def test_censoring_mask():
     assert np.all(mask[:3] == 1)   # steps 0,1,2 included
     assert np.all(mask[3:] == 0)   # steps 3,4 excluded
     assert np.sum(y) == 0          # no event recorded for censored patient
+
+def test_censoring_mask_single():
+    task = DynamicSurvivalTask(MockDataset(), horizon=5, anchor_strategy='single')
+    y, mask = task.engine.generate_survival_label(
+        anchor_time=10,
+        event_time=None,
+        censor_time=12
+    )
+
+    assert np.all(mask[:1] == 1)
+    assert np.all(mask[1:] == 0)
 
 
 def test_single_anchor_strategy():
