@@ -66,3 +66,6 @@ from .variant_classification import (
     VariantClassificationClinVar,
 )
 from .patient_linkage_mimic3 import PatientLinkageMIMIC3Task
+
+from .drug_sensitivity_gdsc import DrugSensitivityPredictionGDSC
+from .drug_sensitivity_ccle import DrugSensitivityPredictionCCLE
