@@ -58,10 +58,19 @@ NUM_EPOCHS      = 100
 NUM_FOLDS       = 10 # set to 2 for a minimum train/val split; set to 10 for 10-fold CV
 NUM_WORKERS     = 0       # macOS multiprocessing workaround; set >0 on Linux
 SEED            = 42
-LEARNING_RATE   = 0.01
+LEARNING_RATE   = 1e-3   # used for both SGD and Adam
 WEIGHT_DECAY    = 0.0
+
+# Optimizer and LR scheduler selection.
+# OPTIMIZER:    "adam" (recommended for GAT) or "sgd"
+# LR_SCHEDULER: "plateau" — ReduceLROnPlateau, steps on val roc_auc (recommended)
+#               "multistep" — MultiStepLR, decays at fixed epoch milestones
+OPTIMIZER        = "adam"
+LR_SCHEDULER     = "plateau"
+PLATEAU_PATIENCE = 5     # epochs without improvement before LR is reduced
+PLATEAU_FACTOR   = 0.5   # multiplicative LR reduction factor
 TEST_RATIO      = 0.30
-DROPOUT_VALUES       = [0.2]
+DROPOUT_VALUES       = [0.2]        # GAT dropout; e.g. [0.0, 0.2, 0.5]
 ATTN_DROPOUT_VALUES  = [0.0]        # GAT attention dropout; e.g. [0.0, 0.3, 0.6]
 MAX_PATIENTS: Optional[int] = None  # None uses the full dataset.
                                     # Set to an int (e.g. 20) to cap patients
@@ -157,11 +166,7 @@ def make_weighted_sampler(samples: List[dict]) -> WeightedRandomSampler:
 # ---------------------------------------------------------------------------
 
 class ScheduledTrainer(Trainer):
-    """Trainer subclass that adds MultiStepLR scheduler support.
-
-    Identical to the base Trainer but calls scheduler.step() after each
-    epoch when scheduler_milestones is provided.
-    """
+    """Trainer subclass that adds MultiStepLR and ReduceLROnPlateau support."""
 
     def train(
         self,
@@ -172,7 +177,10 @@ class ScheduledTrainer(Trainer):
         optimizer_class=torch.optim.Adam,
         optimizer_params: Optional[Dict] = None,
         scheduler_milestones: Optional[List[int]] = None,
-        scheduler_gamma: float = 0.1,
+        scheduler_gamma: float = 0.5,
+        plateau_patience: int = 5,
+        plateau_factor: float = 0.5,
+        use_plateau_scheduler: bool = False,
         steps_per_epoch: Optional[int] = None,
         weight_decay: float = 0.0,
         max_grad_norm: Optional[float] = None,
@@ -181,37 +189,31 @@ class ScheduledTrainer(Trainer):
         load_best_model_at_last: bool = True,
         patience: Optional[int] = None,
     ) -> None:
-        """Run the training loop with an optional MultiStepLR scheduler.
+        """Run the training loop with an optional LR scheduler.
 
         Args:
             train_dataloader: DataLoader for the training split.
-            val_dataloader: DataLoader for the validation split. If provided,
-                validation scores are logged after each epoch.
-            test_dataloader: DataLoader for the test split. If provided,
-                scores are reported at the end of training.
+            val_dataloader: DataLoader for the validation split.
+            test_dataloader: DataLoader for the test split.
             epochs: Number of training epochs. Defaults to 5.
-            optimizer_class: Optimizer class to instantiate. Defaults to
-                ``torch.optim.Adam``.
-            optimizer_params: Keyword arguments forwarded to the optimizer
-                (e.g. ``{"lr": 0.01}``). Defaults to ``{"lr": 1e-3}``.
-            scheduler_milestones: Epoch indices at which to decay the LR.
-                If None, no scheduler is used.
-            scheduler_gamma: Multiplicative LR decay factor applied at each
-                milestone. Defaults to 0.1.
-            steps_per_epoch: Number of optimisation steps per epoch. Defaults
-                to ``len(train_dataloader)``.
-            weight_decay: L2 regularisation coefficient. Defaults to 0.0.
-            max_grad_norm: Maximum gradient norm for clipping. If None,
-                no clipping is applied.
-            monitor: Metric name to track for best-model checkpointing and
-                early stopping (e.g. ``"roc_auc"``).
-            monitor_criterion: ``"max"`` or ``"min"`` depending on whether
-                higher or lower values of ``monitor`` are better.
-                Defaults to ``"max"``.
-            load_best_model_at_last: If True, reload the best checkpoint
-                after training completes. Defaults to True.
-            patience: Number of epochs without improvement before early
-                stopping. If None, no early stopping is applied.
+            optimizer_class: Optimizer class to instantiate.
+            optimizer_params: Keyword arguments forwarded to the optimizer.
+            scheduler_milestones: Epoch indices for MultiStepLR decay.
+                Ignored when ``use_plateau_scheduler=True``.
+            scheduler_gamma: LR decay factor for MultiStepLR.
+            plateau_patience: Epochs without improvement before
+                ReduceLROnPlateau reduces the LR.
+            plateau_factor: Multiplicative LR reduction for
+                ReduceLROnPlateau.
+            use_plateau_scheduler: If True, use ReduceLROnPlateau (steps on
+                the monitored validation metric) instead of MultiStepLR.
+            steps_per_epoch: Optimisation steps per epoch.
+            weight_decay: L2 regularisation coefficient.
+            max_grad_norm: Gradient clipping threshold.
+            monitor: Metric name for best-model checkpointing / early stopping.
+            monitor_criterion: ``"max"`` or ``"min"``.
+            load_best_model_at_last: Reload best checkpoint after training.
+            patience: Early-stopping patience in epochs.
         """
         if optimizer_params is None:
             optimizer_params = {"lr": 1e-3}
@@ -220,32 +222,38 @@ class ScheduledTrainer(Trainer):
         no_decay = ["bias", "LayerNorm.bias", "LayerNorm.weight"]
         optimizer_grouped_parameters = [
             {
-                "params": [
-                    p for n, p in param
-                    if not any(nd in n for nd in no_decay)
-                ],
+                "params": [p for n, p in param if not any(nd in n for nd in no_decay)],
                 "weight_decay": weight_decay,
             },
             {
-                "params": [
-                    p for n, p in param
-                    if any(nd in n for nd in no_decay)
-                ],
+                "params": [p for n, p in param if any(nd in n for nd in no_decay)],
                 "weight_decay": 0.0,
             },
         ]
         optimizer = optimizer_class(optimizer_grouped_parameters, **optimizer_params)
 
         scheduler = None
-        if scheduler_milestones is not None:
+        if use_plateau_scheduler:
+            plateau_mode = "max" if monitor_criterion == "max" else "min"
+            scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+                optimizer,
+                mode=plateau_mode,
+                patience=plateau_patience,
+                factor=plateau_factor,
+            )
+            print(
+                f"[Trainer] ReduceLROnPlateau: mode={plateau_mode}, "
+                f"patience={plateau_patience}, factor={plateau_factor}"
+            )
+        elif scheduler_milestones is not None:
             scheduler = torch.optim.lr_scheduler.MultiStepLR(
                 optimizer,
                 milestones=scheduler_milestones,
                 gamma=scheduler_gamma,
             )
             print(
-                f"[Trainer] MultiStepLR scheduler: "
-                f"milestones={scheduler_milestones}, gamma={scheduler_gamma}"
+                f"[Trainer] MultiStepLR: milestones={scheduler_milestones}, "
+                f"gamma={scheduler_gamma}"
             )
 
         data_iterator = iter(train_dataloader)
@@ -281,34 +289,37 @@ class ScheduledTrainer(Trainer):
                 optimizer.zero_grad()
                 training_loss.append(loss.item())
 
-            if scheduler is not None:
-                scheduler.step()
-                current_lr = scheduler.get_last_lr()[0]
-                print(f"[Trainer] Epoch {epoch}: LR={current_lr:.6f}")
-
             if self.exp_path is not None:
                 self.save_ckpt(os.path.join(self.exp_path, "last.ckpt"))
 
             avg_loss = sum(training_loss) / len(training_loss)
-            print(f"[Trainer] Epoch {epoch} loss={avg_loss:.4f}")
+            current_lr = optimizer.param_groups[0]["lr"]
+            print(f"[Trainer] Epoch {epoch} loss={avg_loss:.4f}  lr={current_lr:.2e}")
 
+            val_score = None
             if val_dataloader is not None:
                 scores = self.evaluate(val_dataloader)
                 print(f"[Trainer] Epoch {epoch} val scores: {scores}")
                 if monitor is not None:
-                    score = scores[monitor]
-                    if is_best(best_score, score, monitor_criterion):
-                        best_score = score
+                    val_score = scores[monitor]
+                    if is_best(best_score, val_score, monitor_criterion):
+                        best_score = val_score
                         patience_counter = 0
                         if self.exp_path is not None:
-                            self.save_ckpt(
-                                os.path.join(self.exp_path, "best.ckpt")
-                            )
+                            self.save_ckpt(os.path.join(self.exp_path, "best.ckpt"))
                     else:
                         patience_counter += 1
                         if patience is not None and patience_counter >= patience:
                             print(f"[Trainer] Early stopping at epoch {epoch}")
                             break
+
+            # Step scheduler after validation so plateau has the new score.
+            if scheduler is not None:
+                if isinstance(scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+                    if val_score is not None:
+                        scheduler.step(val_score)
+                else:
+                    scheduler.step()
 
         if load_best_model_at_last and self.exp_path is not None and os.path.isfile(
             os.path.join(self.exp_path, "best.ckpt")
@@ -458,12 +469,18 @@ if __name__ == "__main__":
                     exp_name=exp_name,
                 )
 
+                optimizer_class = (
+                    torch.optim.Adam if OPTIMIZER == "adam" else torch.optim.SGD
+                )
                 trainer.train(
                     train_dataloader=train_loader,
                     val_dataloader=val_loader,
                     epochs=NUM_EPOCHS,
-                    optimizer_class=torch.optim.SGD,
+                    optimizer_class=optimizer_class,
                     optimizer_params={"lr": LEARNING_RATE},
+                    use_plateau_scheduler=(LR_SCHEDULER == "plateau"),
+                    plateau_patience=PLATEAU_PATIENCE,
+                    plateau_factor=PLATEAU_FACTOR,
                     scheduler_milestones=[i * 10 for i in range(1, 26)],
                     scheduler_gamma=0.5,
                     weight_decay=WEIGHT_DECAY,
