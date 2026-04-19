@@ -5,6 +5,9 @@ Dockerfile.local
 *output*
 resource*
 
+cfs
+EXTRAS
+
 debug_entry*
 playground.ipynb
 

@@ -9,6 +9,14 @@ from .interpretability import (
 )
 from .multiclass import multiclass_metrics_fn
 from .multilabel import multilabel_metrics_fn
+from .wav2sleep import (
+    cohens_kappa,
+    compute_confusion_matrix,
+    confusion_accuracy,
+    evaluate_model,
+    format_evaluation_report,
+    per_class_metrics,
+)
 
 # from .fairness import fairness_metrics_fn
 from .ranking import ranking_metrics_fn
@@ -26,4 +34,10 @@ __all__ = [
     "multilabel_metrics_fn",
     "ranking_metrics_fn",
     "regression_metrics_fn",
+    "cohens_kappa",
+    "compute_confusion_matrix",
+    "confusion_accuracy",
+    "evaluate_model",
+    "format_evaluation_report",
+    "per_class_metrics",
 ]

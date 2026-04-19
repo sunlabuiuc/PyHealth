@@ -2,6 +2,80 @@
 #         from Physiological Signals
 # Paper Link: https://arxiv.org/abs/2411.04644
 # Description: wav2sleep implementation for PyHealth
+#
+# This module implements the wav2sleep model for multimodal sleep stage classification
+# from physiological signals. The model is designed to handle variable numbers of input
+# signal modalities (EEG, ECG, PPG, respiratory signals, etc.) and gracefully degrades
+# when signals are missing at inference time.
+#
+# Architecture Overview:
+# =====================
+# The model consists of three main components:
+#
+# 1. Signal Encoders (CNN-based)
+#    - One ResidualBlock1D-based SignalEncoder per modality
+#    - Compresses raw signal into fixed-size feature vectors
+#    - Automatically scales depth based on signal length
+#
+# 2. Epoch Mixer (Transformer-based)
+#    - Multi-head self-attention mechanism to fuse modalities
+#    - Learnable CLS token aggregates information across modalities
+#    - Pre-norm architecture for training stability
+#
+# 3. Classification Head
+#    - Linear layer mapping CLS embedding to class logits
+#    - Supports variable number of sleep stage classes
+#
+# Key Features:
+# =============
+# - Multi-modal fusion: Can work with any subset of available signals
+# - Graceful degradation: Model works with missing modalities at test time
+# - Flexible: Supports variable numbers of channels per signal
+# - Dataset support: Includes helpers for SHHS and CFS datasets
+# - Standards-compliant: Follows PyHealth BaseModel interface
+#
+# Usage Examples:
+# ===============
+# Basic usage with custom data:
+#     >>> from pyhealth.datasets import create_sample_dataset
+#     >>> from pyhealth.models import Wav2Sleep
+#     >>> samples = [...]  # Your samples with signal modalities
+#     >>> dataset = create_sample_dataset(
+#     ...     samples=samples,
+#     ...     input_schema={"ecg": "tensor", "ppg": "tensor"},
+#     ...     output_schema={"label": "multiclass"},
+#     ... )
+#     >>> model = Wav2Sleep(dataset=dataset)
+#
+# With SHHS dataset:
+#     >>> from pyhealth.models.wav2sleep import load_shhs_samples
+#     >>> samples = load_shhs_samples("/path/to/shhs")
+#     >>> dataset = create_sample_dataset(
+#     ...     samples=samples,
+#     ...     input_schema={"ecg": "tensor", "abd": "tensor", "thx": "tensor"},
+#     ...     output_schema={"label": "multiclass"},
+#     ... )
+#     >>> model = Wav2Sleep(dataset=dataset)
+#
+# With CFS dataset:
+#     >>> from pyhealth.datasets import CFSDataset
+#     >>> from pyhealth.tasks import SleepStagingCFS
+#     >>> from pyhealth.models.wav2sleep import load_cfs_samples
+#     >>> cfs_dataset = CFSDataset(root="/path/to/cfs")
+#     >>> cfs_dataset.set_task(SleepStagingCFS())
+#     >>> samples = load_cfs_samples(cfs_dataset)
+#     >>> dataset = create_sample_dataset(
+#     ...     samples=samples,
+#     ...     input_schema={"eeg": "tensor", "ecg": "tensor"},
+#     ...     output_schema={"label": "multiclass"},
+#     ... )
+#     >>> model = Wav2Sleep(dataset=dataset)
+#
+# References:
+# ===========
+# [1] Carter, J.F., & Tarassenko, L. (2024). "wav2sleep: A Unified Multi-Modal
+#     Approach to Sleep Stage Classification from Physiological Signals."
+#     arXiv:2411.04644
 
 import os
 import xml.etree.ElementTree as ET
@@ -416,6 +490,192 @@ class Wav2Sleep(BaseModel):
             results["embed"] = emb
         return results
 
+    # ------------------------------------------------------------------
+    # Evaluation Methods
+    # ------------------------------------------------------------------
+
+    def evaluate(
+        self,
+        dataloader,
+        class_names: Optional[List[str]] = None,
+    ) -> Dict[str, any]:
+        """Evaluate the model on a dataloader using wav2sleep metrics.
+
+        Computes confusion matrix, accuracy, Cohen's Kappa, and per-class
+        metrics on the provided dataset.
+
+        Args:
+            dataloader: PyHealth DataLoader with batches of samples.
+                Each batch should contain modality tensors and labels.
+            class_names: Optional list of class names for the report.
+                Default: ["Wake", "N1", "N2", "N3", "REM", ...] up to num_classes.
+
+        Returns:
+            Dictionary with evaluation metrics:
+            - "confusion_matrix": Confusion matrix
+            - "accuracy": Overall accuracy [0, 1]
+            - "kappa": Cohen's Kappa [0, 1]
+            - "precision": Per-class precision
+            - "recall": Per-class recall
+            - "f1": Per-class F1-score
+            - "macro_precision", "macro_recall", "macro_f1": Macro-averaged metrics
+            - "weighted_f1": Weighted F1-score
+            - "class_names": List of class names
+            - "class_support": Sample count per class
+
+        Example:
+            >>> model = Wav2Sleep(dataset=dataset)
+            >>> val_loader = get_dataloader(dataset, batch_size=32)
+            >>> results = model.evaluate(val_loader)
+            >>> print(f"Accuracy: {results['accuracy']:.2%}")
+            >>> print(f"Cohen's Kappa: {results['kappa']:.3f}")
+        """
+        from pyhealth.metrics import evaluate_model as evaluate_model_fn
+
+        self.eval()
+        all_predictions = []
+        all_labels = []
+
+        with torch.no_grad():
+            for batch in dataloader:
+                output = self(**batch)
+                preds = output["y_prob"].argmax(dim=-1)
+                labels = output["y_true"]
+
+                all_predictions.append(preds.cpu().numpy())
+                all_labels.append(labels.cpu().numpy())
+
+        predictions = np.concatenate(all_predictions)
+        labels = np.concatenate(all_labels)
+        num_classes = self.get_output_size()
+
+        if class_names is None:
+            default_names = ["Wake", "N1", "N2", "N3", "REM"]
+            class_names = default_names[:num_classes] + [
+                f"Class {i}" for i in range(len(default_names), num_classes)
+            ]
+
+        return evaluate_model_fn(
+            predictions=predictions,
+            labels=labels,
+            num_classes=num_classes,
+            class_names=class_names,
+        )
+
+    def evaluate_modalities(
+        self,
+        dataloader,
+        modality_subsets: Optional[Dict[str, List[str]]] = None,
+        class_names: Optional[List[str]] = None,
+    ) -> Dict[str, Dict[str, any]]:
+        """Evaluate model on different signal modality subsets.
+
+        Demonstrates the key wav2sleep feature: the same trained model works
+        with any available subset of modalities without retraining.
+
+        Args:
+            dataloader: PyHealth DataLoader with batches of samples.
+            modality_subsets: Dictionary mapping subset names to lists of
+                modality keys to use. Default subsets based on available modalities:
+                - "All": all modalities
+                - "Single modalities": one at a time
+                - "Common combinations": practical subsets
+            class_names: Optional list of class names.
+
+        Returns:
+            Dictionary mapping subset name to evaluation results dict.
+
+        Example:
+            >>> results_by_subset = model.evaluate_modalities(val_loader)
+            >>> for subset_name, metrics in results_by_subset.items():
+            ...     print(f"{subset_name}: Kappa={metrics['kappa']:.3f}")
+        """
+        if modality_subsets is None:
+            # Auto-generate default subsets
+            modality_subsets = {}
+            modality_subsets["All"] = self.feature_keys
+
+            # Single modalities
+            for key in self.feature_keys:
+                modality_subsets[f"Single: {key}"] = [key]
+
+        results = {}
+
+        for subset_name, subset_keys in modality_subsets.items():
+            # Filter batch to only include requested modalities
+            subset_results = self._evaluate_subset(
+                dataloader, subset_keys, class_names
+            )
+            results[subset_name] = subset_results
+
+        return results
+
+    def _evaluate_subset(
+        self,
+        dataloader,
+        modality_keys: List[str],
+        class_names: Optional[List[str]] = None,
+    ) -> Dict[str, any]:
+        """Helper: evaluate on a subset of modalities."""
+        from pyhealth.metrics import evaluate_model as evaluate_model_fn
+
+        self.eval()
+        all_predictions = []
+        all_labels = []
+
+        with torch.no_grad():
+            for batch in dataloader:
+                # Filter batch to only available modalities
+                filtered_batch = {
+                    k: v for k, v in batch.items()
+                    if k in modality_keys or k == self.label_key
+                }
+
+                # Skip if none of the requested modalities are in this batch
+                if not any(k in filtered_batch for k in modality_keys):
+                    continue
+
+                output = self(**filtered_batch)
+                preds = output["y_prob"].argmax(dim=-1)
+                labels = output["y_true"]
+
+                all_predictions.append(preds.cpu().numpy())
+                all_labels.append(labels.cpu().numpy())
+
+        if not all_predictions:
+            # No valid samples for this subset
+            return {
+                "confusion_matrix": np.zeros((self.get_output_size(),) * 2),
+                "accuracy": 0.0,
+                "kappa": 0.0,
+                "precision": np.zeros(self.get_output_size()),
+                "recall": np.zeros(self.get_output_size()),
+                "f1": np.zeros(self.get_output_size()),
+                "macro_precision": 0.0,
+                "macro_recall": 0.0,
+                "macro_f1": 0.0,
+                "weighted_f1": 0.0,
+                "class_names": class_names or [f"Class {i}" for i in range(self.get_output_size())],
+                "class_support": np.zeros(self.get_output_size()),
+            }
+
+        predictions = np.concatenate(all_predictions)
+        labels = np.concatenate(all_labels)
+        num_classes = self.get_output_size()
+
+        if class_names is None:
+            default_names = ["Wake", "N1", "N2", "N3", "REM"]
+            class_names = default_names[:num_classes] + [
+                f"Class {i}" for i in range(len(default_names), num_classes)
+            ]
+
+        return evaluate_model_fn(
+            predictions=predictions,
+            labels=labels,
+            num_classes=num_classes,
+            class_names=class_names,
+        )
+
 
 # ---------------------------------------------------------------------------
 # SHHS preprocessing helper
@@ -626,5 +886,125 @@ def load_shhs_samples(
                 "thx": thx_e[np.newaxis, :],
                 "label": label_map[stages[i]],
             })
+
+    return samples
+
+
+# ---------------------------------------------------------------------------
+# CFS preprocessing helper
+# ---------------------------------------------------------------------------
+
+def load_cfs_samples(
+    cfs_dataset,
+    channel_mapping: Optional[Dict[str, int]] = None,
+    max_recordings: Optional[int] = None,
+) -> List[Dict]:
+    """Convert CFS dataset samples to Wav2Sleep format with separate signal modalities.
+
+    This helper converts CFS sleep staging task output (which provides multi-channel
+    signals in a single tensor) into the format expected by Wav2Sleep, which requires
+    separate feature keys for each signal modality (e.g., "eeg", "eog", "ecg").
+
+    The CFS dataset task returns samples with a "signal" key containing a (n_channels, n_samples)
+    tensor where channels are typically: EEG, EOG-L, EOG-R, EMG-Chin, ECG.
+
+    Args:
+        cfs_dataset: A PyHealth dataset with CFS sleep staging samples.
+            Expected to have samples with "signal" tensor and "label" keys.
+        channel_mapping: Dictionary mapping modality names to channel indices in the signal tensor.
+            Default assumes the standard CFS channel order:
+            ``{"eeg": 0, "eog_left": 1, "eog_right": 2, "emg": 3, "ecg": 4}``
+            You can override to use a subset, e.g., ``{"eeg": 0, "ecg": 4}``.
+        max_recordings: Process at most this many samples. Default is None (process all).
+
+    Returns:
+        List of sample dicts, each containing:
+
+        - ``patient_id`` (str): Patient ID from the CFS dataset.
+        - ``visit_id`` (str): Unique sample identifier.
+        - ``<modality>`` (np.ndarray): Signal modality tensor of shape ``(1, length)``,
+          e.g., ``eeg``, ``eog_left``, ``ecg``, etc., depending on ``channel_mapping``.
+        - ``label`` (int): Sleep stage label (0=Wake, 1=N1, 2=N2, 3=N3, 4=REM).
+
+    Examples:
+        >>> from pyhealth.datasets import CFSDataset
+        >>> from pyhealth.tasks import SleepStagingCFS
+        >>> from pyhealth.models.wav2sleep import load_cfs_samples
+        >>> from pyhealth.datasets import create_sample_dataset
+        >>>
+        >>> # Load CFS dataset with sleep staging task
+        >>> cfs_dataset = CFSDataset(root="/path/to/cfs")
+        >>> task = SleepStagingCFS()
+        >>> cfs_dataset.set_task(task)
+        >>>
+        >>> # Convert to Wav2Sleep format
+        >>> samples = load_cfs_samples(
+        ...     cfs_dataset,
+        ...     channel_mapping={"eeg": 0, "ecg": 4},
+        ...     max_recordings=100,
+        ... )
+        >>>
+        >>> # Create PyHealth dataset
+        >>> dataset = create_sample_dataset(
+        ...     samples=samples,
+        ...     input_schema={"eeg": "tensor", "ecg": "tensor"},
+        ...     output_schema={"label": "multiclass"},
+        ...     dataset_name="cfs_wav2sleep",
+        ... )
+        >>>
+        >>> # Train Wav2Sleep model
+        >>> model = Wav2Sleep(dataset=dataset)
+    """
+    if channel_mapping is None:
+        channel_mapping = {
+            "eeg": 0,           # EEG channel
+            "eog_left": 1,      # Left EOG channel
+            "eog_right": 2,     # Right EOG channel
+            "emg": 3,           # Chin EMG channel
+            "ecg": 4,           # ECG channel
+        }
+
+    samples: List[Dict] = []
+    count = 0
+
+    for cfs_sample in cfs_dataset:
+        if max_recordings is not None and count >= max_recordings:
+            break
+
+        try:
+            # Extract signal and label
+            if "signal" not in cfs_sample or "label" not in cfs_sample:
+                continue
+
+            full_signal = cfs_sample["signal"]  # Shape: (n_channels, n_samples)
+            label = int(cfs_sample["label"])
+
+            # Get patient information
+            patient_id = cfs_sample.get("patient_id", f"cfs_{count}")
+            study_id = cfs_sample.get("study_id", f"{patient_id}_0")
+
+            # Extract individual modalities based on channel mapping
+            modalities = {}
+            for modality_name, channel_idx in channel_mapping.items():
+                if channel_idx < full_signal.shape[0]:
+                    # Extract single channel and add channel dimension: (length,) -> (1, length)
+                    channel_data = full_signal[channel_idx, :].astype(np.float32)
+                    modalities[modality_name] = channel_data[np.newaxis, :]  # (1, length)
+
+            if not modalities:
+                continue
+
+            # Create sample with separated modalities
+            sample = {
+                "patient_id": str(patient_id),
+                "visit_id": str(study_id),
+                "label": label,
+                **modalities,
+            }
+            samples.append(sample)
+            count += 1
+
+        except Exception:
+            continue
 
     return samples
