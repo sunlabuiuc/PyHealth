@@ -9,3 +9,4 @@ tables:
       - "question"
       - "answer"
       - "hf_split"
+      - "audio_path"

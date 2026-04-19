@@ -68,22 +68,20 @@ class CaReSoundDataset(BaseDataset):
         test_csv = os.path.join(root, "CaReSoundQA_test.csv")
         full_csv = os.path.join(root, "CaReSoundQA.csv")
         
+        df_master = None
+        
         # Scenario A: User manually downloaded both Train and Test CSVs
         if os.path.exists(train_csv) and os.path.exists(test_csv):
             logger.info("Found local train/test CSVs. Merging...")
             df_train, df_test = pd.read_csv(train_csv), pd.read_csv(test_csv)
             df_train['hf_split'], df_test['hf_split'] = 'train', 'test'
             df_master = pd.concat([df_train, df_test], ignore_index=True)
-            df_master.to_csv(output_path, index=False)
-            return
 
         # Scenario B: User manually downloaded ONLY Train CSV
         elif os.path.exists(train_csv):
             logger.warning("Found local train CSV, but test is missing. Using train only.")
             df_master = pd.read_csv(train_csv)
             df_master['hf_split'] = 'train'
-            df_master.to_csv(output_path, index=False)
-            return
 
         # Scenario C: User manually downloaded the Master CSV
         elif os.path.exists(full_csv):
@@ -91,35 +89,54 @@ class CaReSoundDataset(BaseDataset):
             df_master = pd.read_csv(full_csv)
             if 'hf_split' not in df_master.columns:
                 df_master['hf_split'] = 'unknown'
-            df_master.to_csv(output_path, index=False)
-            return
 
         # Scenario D: Fallback to Hugging Face API
-        try:
-            from datasets import load_dataset
-            logger.info("Local metadata not found. Fetching from tsnngw/CaReSound...")
-            dataset = load_dataset("tsnngw/CaReSound")
-            
-            df_train = dataset['train'].to_pandas()
-            df_train['hf_split'] = 'train'
-            
-            # Catch in case the dataset structure changes on HF
-            if 'test' in dataset:
-                df_test = dataset['test'].to_pandas()
-                df_test['hf_split'] = 'test'
-                df_master = pd.concat([df_train, df_test], ignore_index=True)
-            else:
-                df_master = df_train
+        else:
+            try:
+                from datasets import load_dataset
+                logger.info("Local metadata not found. Fetching from tsnngw/CaReSound...")
+                dataset = load_dataset("tsnngw/CaReSound")
+                
+                df_train = dataset['train'].to_pandas()
+                df_train['hf_split'] = 'train'
+                
+                # Catch in case the dataset structure changes on HF
+                if 'test' in dataset:
+                    df_test = dataset['test'].to_pandas()
+                    df_test['hf_split'] = 'test'
+                    df_master = pd.concat([df_train, df_test], ignore_index=True)
+                else:
+                    df_master = df_train
+                
+            except ImportError:
+                logger.error("The 'datasets' library is required. Run: pip install datasets")
+                raise
+            except Exception as e:
+                logger.error(f"Failed to fetch metadata: {e}")
+                raise
 
-            df_master.to_csv(output_path, index=False)
-            logger.info(f"Saved {len(df_master)} QA pairs via API to {output_path}")
+        # ---> MINIMAL FIX: Inject audio paths right before saving <---
+        audio_map = {}
+        for path in Path(root).rglob("*.wav"):
+            stem, path_str = path.stem, str(path).lower()
+            source = "Unknown"
+            if "icbhi" in path_str: source = "ICBHI"
+            elif "circor" in path_str: source = "CirCor"
+            elif "kauh" in path_str: source = "KAUH"
+            elif "spr" in path_str: source = "SPRSound"
+            elif "zch" in path_str: source = "ZCHSound"
             
-        except ImportError:
-            logger.error("The 'datasets' library is required. Run: pip install datasets")
-            raise
-        except Exception as e:
-            logger.error(f"Failed to fetch metadata: {e}")
-            raise
+            audio_map[(source, stem)] = str(path.absolute())
+            audio_map[(source, stem.split('_')[0])] = str(path.absolute())
+
+        df_master['audio_path'] = df_master.apply(
+            lambda r: audio_map.get((str(r.get('dataset', 'Unknown')), str(r.get('patient_id', ''))), ""), 
+            axis=1
+        )
+
+        # Save the final CSV for the new PyHealth Engine to pick up automatically
+        df_master.to_csv(output_path, index=False)
+        logger.info(f"Saved {len(df_master)} QA pairs with mapped audio to {output_path}")
 
     def _resolve_audio_paths(self, root: str) -> Dict[tuple, str]:
         """Maps .wav files using robust stem and prefix mapping."""
