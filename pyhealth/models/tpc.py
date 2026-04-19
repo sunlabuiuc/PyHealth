@@ -1,74 +1,64 @@
 """
-Temporal Pointwise Convolution (TPC) model implementation for hourly ICU
-length-of-stay (LoS) prediction.
+Temporal Pointwise Convolution (TPC) model for hourly ICU remaining
+length-of-stay (LoS) regression in PyHealth.
 
-This module provides a PyTorch implementation of the Temporal Pointwise
-Convolution (TPC) architecture described in:
+This module provides a dataset-backed PyHealth ``BaseModel`` implementation
+of the Temporal Pointwise Convolution (TPC) architecture described in:
 
 Rocheteau, E., Liò, P., and Hyland, S. (2021).
 "Temporal Pointwise Convolutional Networks for Length of Stay Prediction
 in the Intensive Care Unit."
 
 Overview:
-    The TPC model is designed for multivariate, irregularly sampled EHR
-    time-series. It combines two complementary operations at each layer:
+    TPC is designed for multivariate, irregularly sampled EHR time series.
+    It combines two complementary operations at each layer:
 
-    1. Temporal Convolution (TC):
-        Feature-wise or shared causal convolutions over time, enabling
-        each clinical variable to learn independent temporal dynamics.
+    1. Temporal convolution:
+       Feature-wise or shared causal convolutions over time, allowing
+       each clinical variable to learn temporal dynamics.
 
-    2. Pointwise Convolution (PC):
-        Per-time-step feature mixing (1×1 convolution equivalent) to
-        capture cross-feature interactions without temporal leakage.
+    2. Pointwise convolution:
+       Per-time-step feature mixing to capture cross-feature interactions
+       without temporal leakage.
 
-    These components are combined with optional skip connections and
-    domain-specific inputs such as decay indicators and static features.
+    In this PyHealth implementation, the task supplies:
+        - ``time_series``: per-sample hourly history encoded as [T, 3F]
+          in [value, mask, decay] order for each feature
+        - ``static``: optional static feature vector
+        - ``target_los_hours``: scalar regression target
+
+    The model consumes task-processed batch fields via ``forward(**kwargs)``
+    and returns the standard PyHealth output dictionary:
+        - ``loss``
+        - ``y_prob``
+        - ``y_true``
+        - ``logit``
 
 Key Components:
-    - TemporalConvBlock: Feature-wise or shared causal temporal convolution
-    - PointwiseConvBlock: Per-time-step feature interaction layer
-    - TPCLayer: Combined temporal + pointwise layer with skip connections
-    - TPC: Full stacked model for LoS regression
-
-Inputs:
-    x_values: Tensor of shape [B, T, F]
-        Hourly time-series feature values.
-
-    x_decay: Tensor of shape [B, T, F]
-        Decay indicators representing time since last observation.
-
-    static: Optional Tensor of shape [B, S]
-        Static patient-level features.
-
-Outputs:
-    - Sequence mode: [B, T] predictions (default)
-    - Final-step mode: [B] prediction
+    - ``TemporalConvBlock``: causal temporal convolution per feature
+    - ``PointwiseConvBlock``: per-time-step feature interaction layer
+    - ``TPCLayer``: combined temporal + pointwise block
+    - ``TPC``: full stacked regression model
 
 Implementation Notes:
-    - Initial feature channels are constructed as [value, decay].
-    - Causal padding ensures no future information leakage.
-    - Supports ablations:
-        * shared vs feature-wise temporal convolutions
-        * temporal-only / pointwise-only configurations
-        * skip connections on/off
-        * decay inclusion in pointwise branch
-    - Positive outputs can be enforced via Softplus.
-
-Example:
-    >>> model = TPC(input_dim=F, static_dim=S)
-    >>> y_pred = model(x_values, x_decay, static)
-
-This implementation is intended for integration with PyHealth task pipelines
-for hourly ICU length-of-stay prediction and supports reproducible ablation
-studies using synthetic or real EHR datasets.
+    - The public model contract is now fully dataset-backed through
+      ``BaseModel``.
+    - The model predicts one scalar remaining LoS value per sample.
+    - Nonlinearities use ``nn.Module`` variants to remain compatible with
+      PyHealth interpretability expectations.
+    - The input ``time_series`` field is internally split into value, mask,
+      and decay channels from a [T, 3F] representation.
 """
+
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Optional, Sequence, Tuple
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+from pyhealth.models import BaseModel
 
 
 class TemporalConvBlock(nn.Module):
@@ -90,12 +80,6 @@ class TemporalConvBlock(nn.Module):
 
     Output:
         y: Tensor of shape ``[B, T, F, C_out]``
-
-    Notes:
-        - Left padding preserves temporal causality.
-        - Output length matches input sequence length.
-        - Each feature is processed independently in time even when
-          weights are shared.
     """
 
     def __init__(
@@ -117,8 +101,8 @@ class TemporalConvBlock(nn.Module):
             kernel_size: Temporal convolution kernel size.
             dilation: Temporal dilation factor.
             dropout: Dropout probability applied after convolution.
-            shared_temporal: Whether to share one temporal convolution
-                across all features.
+            shared_temporal: Whether to share one temporal convolution across
+                all features.
 
         Raises:
             ValueError: If any required dimensional argument is invalid.
@@ -203,9 +187,9 @@ class TemporalConvBlock(nn.Module):
             feat_x = F.pad(feat_x, (left_pad, 0))
 
             if self.shared_temporal:
-                feat_y = self.shared_conv(feat_x)  # [B, C_out, T]
+                feat_y = self.shared_conv(feat_x)
             else:
-                feat_y = self.feature_convs[feat_idx](feat_x)  # [B, C_out, T]
+                feat_y = self.feature_convs[feat_idx](feat_x)
 
             feat_y = feat_y.transpose(1, 2)  # [B, T, C_out]
             outputs.append(feat_y.unsqueeze(2))  # [B, T, 1, C_out]
@@ -219,8 +203,8 @@ class PointwiseConvBlock(nn.Module):
     """Pointwise transformation applied independently at each time step.
 
     This block is implemented as a linear layer operating on the flattened
-    per-time-step representation. It is equivalent in spirit to a 1x1
-    convolution across the feature/channel dimension at each hour.
+    per-time-step representation. It is equivalent in spirit to a per-time-step
+    1x1 convolution across the feature/channel dimension.
 
     Input:
         x: Tensor of shape ``[B, T, D_in]``
@@ -279,10 +263,9 @@ class TPCLayer(nn.Module):
     """One Temporal Pointwise Convolution layer.
 
     This layer combines:
-
-    - optional temporal convolution branch
-    - optional pointwise branch
-    - optional concatenative skip connections
+        - optional temporal convolution branch
+        - optional pointwise branch
+        - optional concatenative skip connections
 
     Input:
         x: Tensor of shape ``[B, T, F, C_in]``
@@ -291,13 +274,6 @@ class TPCLayer(nn.Module):
 
     Output:
         fused: Tensor of shape ``[B, T, F, C_out]``
-
-    Notes:
-        - The temporal branch performs feature-wise or shared causal
-          temporal convolution.
-        - The pointwise branch performs per-time-step feature mixing.
-        - Skip connections are implemented as concatenation of the input
-          representation with new branch outputs.
     """
 
     def __init__(
@@ -329,14 +305,16 @@ class TPCLayer(nn.Module):
             dropout: Dropout probability.
             use_decay_in_pointwise: Whether decay indicators are concatenated
                 into the pointwise branch input.
-            shared_temporal: Whether temporal filters are shared across features.
+            shared_temporal: Whether temporal filters are shared across
+                features.
             use_temporal: Whether to enable the temporal branch.
             use_pointwise: Whether to enable the pointwise branch.
             use_skip_connections: Whether to concatenate the prior input
                 representation into the layer output.
 
         Raises:
-            ValueError: If layer dimensions are invalid or both branches are off.
+            ValueError: If layer dimensions are invalid or both branches
+                are disabled.
         """
         super().__init__()
         if num_features <= 0:
@@ -362,7 +340,9 @@ class TPCLayer(nn.Module):
         self.use_skip_connections = use_skip_connections
 
         if not self.use_temporal and not self.use_pointwise:
-            raise ValueError("At least one of use_temporal or use_pointwise must be True")
+            raise ValueError(
+                "At least one of use_temporal or use_pointwise must be True"
+            )
 
         self.output_channels = 0
         if self.use_skip_connections:
@@ -461,7 +441,7 @@ class TPCLayer(nn.Module):
             parts_to_concat.append(x)
 
         if self.use_temporal:
-            temp_out = self.temporal(x)  # [B, T, F, temporal_channels]
+            temp_out = self.temporal(x)
             parts_to_concat.append(temp_out)
 
         if self.use_pointwise:
@@ -479,8 +459,8 @@ class TPCLayer(nn.Module):
                     )
                 point_parts.append(decay)
 
-            point_in = torch.cat(point_parts, dim=-1)  # [B, T, D_in]
-            point_out = self.pointwise(point_in)  # [B, T, pointwise_channels]
+            point_in = torch.cat(point_parts, dim=-1)
+            point_out = self.pointwise(point_in)
             point_broadcast = point_out.unsqueeze(2).expand(
                 -1, -1, num_features, -1
             )
@@ -491,34 +471,52 @@ class TPCLayer(nn.Module):
         return fused
 
 
-class TPC(nn.Module):
-    """Temporal Pointwise Convolution model for hourly LoS regression.
+class TPC(BaseModel):
+    """Temporal Pointwise Convolution model for scalar LoS regression.
 
-    This implementation expects three logical inputs:
+    This is a true dataset-backed PyHealth ``BaseModel`` implementation.
 
-    - ``x_values``: hourly time-series values
-    - ``x_decay``: hourly decay indicators
-    - ``static``: optional static features
+    Expected task contract:
+        - input field ``time_series`` containing per-sample history encoded as
+          ``[T, 3F]`` with interleaved [value, mask, decay] channels
+        - input field ``static`` containing optional static features
+        - output field ``target_los_hours`` declared as ``"regression"``
 
-    Inputs:
-        x_values: Tensor of shape ``[B, T, F]``
-        x_decay: Tensor of shape ``[B, T, F]``
-        static: Tensor of shape ``[B, S]`` or ``None``
+    The model predicts one scalar remaining length-of-stay value for each
+    sample using the full observed history in that sample.
 
-    Outputs:
-        - If ``return_sequence=True``: tensor of shape ``[B, T]``
-        - Else: tensor of shape ``[B]``
+    Args:
+        dataset: PyHealth ``SampleDataset`` produced by ``dataset.set_task()``.
+        input_dim: Number of base time-series features ``F`` before expansion
+            into [value, mask, decay].
+        static_dim: Static feature dimension.
+        temporal_channels: Temporal branch output channels per layer.
+        pointwise_channels: Pointwise branch output channels per layer.
+        num_layers: Number of stacked TPC layers.
+        kernel_size: Temporal convolution kernel size.
+        fc_dim: Hidden dimension in the final regression head.
+        dropout: Dropout probability.
+        loss_name: Loss function name. Use ``"msle"`` for mean squared
+            logarithmic error or ``"mse"`` for mean squared error.
+        use_decay_in_pointwise: Whether to inject decay channels into the
+            pointwise branch.
+        positive_output: Whether to enforce non-negative predictions with
+            ``Softplus``.
+        shared_temporal: Whether temporal filters are shared across features.
+        use_temporal: Whether to enable the temporal branch.
+        use_pointwise: Whether to enable the pointwise branch.
+        use_skip_connections: Whether to use concatenative skip connections.
 
     Notes:
-        - Initial per-feature channels are stacked as ``[value, decay]``.
-        - Each TPC layer can enable or disable temporal and pointwise branches
-          for architecture ablations.
-        - The default output mode is sequence prediction because the task is
-          hourly remaining length-of-stay regression.
+        - This model follows the standard PyHealth ``forward(**kwargs)``
+          contract.
+        - The output head size is derived from
+          ``BaseModel.get_output_size()``.
     """
 
     def __init__(
         self,
+        dataset,
         input_dim: int,
         static_dim: int = 0,
         temporal_channels: int = 8,
@@ -527,7 +525,7 @@ class TPC(nn.Module):
         kernel_size: int = 3,
         fc_dim: int = 32,
         dropout: float = 0.1,
-        return_sequence: bool = True,
+        loss_name: str = "msle",
         use_decay_in_pointwise: bool = True,
         positive_output: bool = True,
         shared_temporal: bool = False,
@@ -535,30 +533,9 @@ class TPC(nn.Module):
         use_pointwise: bool = True,
         use_skip_connections: bool = True,
     ) -> None:
-        """Initialize the TPC model.
+        """Initialize the TPC model."""
+        super().__init__(dataset=dataset)
 
-        Args:
-            input_dim: Number of time-series features.
-            static_dim: Static feature dimension.
-            temporal_channels: Temporal branch output channels per layer.
-            pointwise_channels: Pointwise branch output channels per layer.
-            num_layers: Number of stacked TPC layers.
-            kernel_size: Temporal kernel size.
-            fc_dim: Hidden dimension in the final prediction head.
-            dropout: Dropout probability.
-            return_sequence: Whether to predict at every hour or only the last.
-            use_decay_in_pointwise: Whether to inject decay into the pointwise
-                branch.
-            positive_output: Whether to enforce positive outputs using Softplus.
-            shared_temporal: Whether temporal weights are shared across features.
-            use_temporal: Whether to enable the temporal branch.
-            use_pointwise: Whether to enable the pointwise branch.
-            use_skip_connections: Whether to use concatenative skip connections.
-
-        Raises:
-            ValueError: If any dimensional argument is invalid.
-        """
-        super().__init__()
         if input_dim <= 0:
             raise ValueError("input_dim must be positive")
         if static_dim < 0:
@@ -573,6 +550,18 @@ class TPC(nn.Module):
             raise ValueError("kernel_size must be positive")
         if fc_dim <= 0:
             raise ValueError("fc_dim must be positive")
+        if loss_name not in {"msle", "mse"}:
+            raise ValueError("loss_name must be one of {'msle', 'mse'}")
+
+        self.label_key = self.label_keys[0]
+
+        required_feature_keys = {"time_series", "static"}
+        missing = required_feature_keys.difference(set(self.feature_keys))
+        if missing:
+            raise ValueError(
+                "TPC requires task input_schema to contain the feature keys "
+                f"{sorted(required_feature_keys)}; missing {sorted(missing)}"
+            )
 
         self.input_dim = input_dim
         self.static_dim = static_dim
@@ -582,7 +571,7 @@ class TPC(nn.Module):
         self.kernel_size = kernel_size
         self.fc_dim = fc_dim
         self.dropout = dropout
-        self.return_sequence = return_sequence
+        self.loss_name = loss_name
         self.use_decay_in_pointwise = use_decay_in_pointwise
         self.positive_output = positive_output
         self.shared_temporal = shared_temporal
@@ -591,9 +580,9 @@ class TPC(nn.Module):
         self.use_skip_connections = use_skip_connections
 
         layers = []
-        in_channels = 2  # value + decay channels at input
+        in_channels = 2  # value + decay
 
-        for i in range(num_layers):
+        for layer_idx in range(num_layers):
             layer = TPCLayer(
                 num_features=input_dim,
                 in_channels=in_channels,
@@ -601,7 +590,7 @@ class TPC(nn.Module):
                 pointwise_channels=pointwise_channels,
                 static_dim=static_dim,
                 kernel_size=kernel_size,
-                dilation=i + 1,
+                dilation=layer_idx + 1,
                 dropout=dropout,
                 use_decay_in_pointwise=use_decay_in_pointwise,
                 shared_temporal=shared_temporal,
@@ -616,101 +605,206 @@ class TPC(nn.Module):
 
         final_input_dim = (input_dim * in_channels) + static_dim
         self.final_fc1 = nn.Linear(final_input_dim, fc_dim)
-        self.final_fc2 = nn.Linear(fc_dim, 1)
+        self.final_fc2 = nn.Linear(fc_dim, self.get_output_size())
 
         self.relu = nn.ReLU()
         self.softplus = nn.Softplus()
 
-    def forward(
-        self,
-        x_values: torch.Tensor,
-        x_decay: torch.Tensor,
-        static: Optional[torch.Tensor] = None,
-    ) -> torch.Tensor:
-        """Run the TPC model forward.
+    def _unpack_feature_value(self, key: str, feature: Any) -> torch.Tensor:
+        """Extract the processor 'value' tensor for a feature key.
+
+        PyHealth passes either:
+            - a raw tensor, or
+            - a tuple aligned with the processor schema
 
         Args:
-            x_values: Tensor of shape ``[B, T, F]`` containing feature values.
-            x_decay: Tensor of shape ``[B, T, F]`` containing decay indicators.
-            static: Optional tensor of shape ``[B, S]``.
+            key: Feature key in the task schema.
+            feature: Batch feature value from ``kwargs``.
 
         Returns:
-            A tensor of shape ``[B, T]`` if ``return_sequence=True`` or
-            ``[B]`` otherwise.
+            The tensor corresponding to the processor's ``value`` field.
 
         Raises:
-            ValueError: If input tensor shapes are invalid.
+            ValueError: If the processor schema does not contain ``value``.
         """
-        if x_values.ndim != 3:
+        if isinstance(feature, torch.Tensor):
+            return feature
+
+        if not isinstance(feature, (tuple, list)):
             raise ValueError(
-                "Expected x_values to have shape [B, T, F], got "
-                f"{tuple(x_values.shape)}"
-            )
-        if x_decay.ndim != 3:
-            raise ValueError(
-                "Expected x_decay to have shape [B, T, F], got "
-                f"{tuple(x_decay.shape)}"
-            )
-        if x_values.shape != x_decay.shape:
-            raise ValueError(
-                "x_values and x_decay must have the same shape, got "
-                f"{tuple(x_values.shape)} and {tuple(x_decay.shape)}"
+                f"Expected feature '{key}' to be a Tensor or tuple/list, "
+                f"got {type(feature).__name__}"
             )
 
-        bsz, seq_len, num_features = x_values.shape
-        if num_features != self.input_dim:
+        schema = self.dataset.input_processors[key].schema()
+        if "value" not in schema:
             raise ValueError(
-                f"Expected input_dim={self.input_dim}, got {num_features}"
+                f"Processor schema for feature '{key}' does not contain 'value': "
+                f"{schema}"
+            )
+        return feature[schema.index("value")]
+
+    def _split_value_mask_decay(
+        self,
+        time_series: torch.Tensor,
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Split a batch time series tensor into values, masks, and decay.
+
+        Supported input layouts:
+            - ``[B, T, 3F]`` with interleaved [value, mask, decay]
+            - ``[B, T, F, 3]`` with final channel order [value, mask, decay]
+
+        Args:
+            time_series: Batch time series tensor.
+
+        Returns:
+            Tuple ``(values, masks, decay)`` each with shape ``[B, T, F]``.
+
+        Raises:
+            ValueError: If the tensor shape is incompatible.
+        """
+        if time_series.ndim == 3:
+            batch_size, seq_len, feat_dim = time_series.shape
+            if feat_dim % 3 != 0:
+                raise ValueError(
+                    "Expected time_series last dimension divisible by 3 for "
+                    f"[value, mask, decay], got {feat_dim}"
+                )
+            num_features = feat_dim // 3
+            if num_features != self.input_dim:
+                raise ValueError(
+                    f"Expected input_dim={self.input_dim}, got {num_features}"
+                )
+
+            values = []
+            masks = []
+            decay = []
+            for feature_idx in range(num_features):
+                base = feature_idx * 3
+                values.append(time_series[:, :, base].unsqueeze(-1))
+                masks.append(time_series[:, :, base + 1].unsqueeze(-1))
+                decay.append(time_series[:, :, base + 2].unsqueeze(-1))
+
+            return (
+                torch.cat(values, dim=-1),
+                torch.cat(masks, dim=-1),
+                torch.cat(decay, dim=-1),
             )
 
-        if static is not None:
-            if static.ndim != 2:
+        if time_series.ndim == 4:
+            batch_size, seq_len, num_features, channels = time_series.shape
+            if channels != 3:
                 raise ValueError(
-                    f"Expected static to have shape [B, S], got {tuple(static.shape)}"
+                    "Expected time_series channel dimension size 3 for "
+                    f"[value, mask, decay], got {channels}"
                 )
-            if static.shape[0] != bsz:
+            if num_features != self.input_dim:
                 raise ValueError(
-                    f"Expected static batch size {bsz}, got {static.shape[0]}"
+                    f"Expected input_dim={self.input_dim}, got {num_features}"
                 )
-            if static.shape[1] != self.static_dim:
-                raise ValueError(
-                    f"Expected static_dim={self.static_dim}, got {static.shape[1]}"
-                )
-        elif self.static_dim != 0:
+            values = time_series[:, :, :, 0]
+            masks = time_series[:, :, :, 1]
+            decay = time_series[:, :, :, 2]
+            return values, masks, decay
+
+        raise ValueError(
+            "Expected time_series to have shape [B, T, 3F] or [B, T, F, 3], "
+            f"got {tuple(time_series.shape)}"
+        )
+
+    def forward(self, **kwargs) -> dict[str, torch.Tensor]:
+        """Run the TPC model forward under the PyHealth BaseModel contract.
+
+        Expected kwargs:
+            - ``time_series``: tensor or processor tuple containing the
+              [value, mask, decay] history representation
+            - ``static``: static feature tensor or processor tuple
+            - ``target_los_hours``: regression targets
+
+        Returns:
+            Dictionary containing:
+                - ``loss``: scalar regression loss
+                - ``y_prob``: prepared output probabilities/identity values
+                - ``y_true``: ground-truth labels
+                - ``logit``: raw model outputs
+
+        Raises:
+            ValueError: If required inputs are missing or malformed.
+        """
+        if "time_series" not in kwargs:
+            raise ValueError("Missing required batch field 'time_series'")
+        if "static" not in kwargs:
+            raise ValueError("Missing required batch field 'static'")
+        if self.label_key not in kwargs:
             raise ValueError(
-                f"Model was initialized with static_dim={self.static_dim}, "
-                "but static=None was provided"
+                f"Missing required label field '{self.label_key}' in batch"
             )
+
+        time_series = self._unpack_feature_value("time_series", kwargs["time_series"])
+        static = self._unpack_feature_value("static", kwargs["static"])
+
+        if not isinstance(time_series, torch.Tensor):
+            raise ValueError("'time_series' value must be a Tensor after unpacking")
+        if not isinstance(static, torch.Tensor):
+            raise ValueError("'static' value must be a Tensor after unpacking")
+
+        time_series = time_series.float().to(self.device)
+        static = static.float().to(self.device)
+
+        if time_series.ndim not in {3, 4}:
+            raise ValueError(
+                "Expected time_series batch tensor to have 3 or 4 dimensions, "
+                f"got {tuple(time_series.shape)}"
+            )
+
+        if static.ndim != 2:
+            raise ValueError(
+                f"Expected static to have shape [B, S], got {tuple(static.shape)}"
+            )
+        if static.shape[1] != self.static_dim:
+            raise ValueError(
+                f"Expected static_dim={self.static_dim}, got {static.shape[1]}"
+            )
+
+        x_values, _, x_decay = self._split_value_mask_decay(time_series)
 
         x = torch.stack([x_values, x_decay], dim=-1)  # [B, T, F, 2]
 
         for layer in self.layers:
             x = layer(x, decay=x_decay, static=static)
 
-        if self.return_sequence:
-            all_x = x.reshape(bsz, seq_len, -1)
-
-            if static is not None:
-                static_rep = static.unsqueeze(1).expand(-1, seq_len, -1)
-                all_x = torch.cat([all_x, static_rep], dim=-1)
-
-            h = self.relu(self.final_fc1(all_x))
-            y = self.final_fc2(h).squeeze(-1)  # [B, T]
-
-            if self.positive_output:
-                y = self.softplus(y)
-
-            return y
-
-        last_x = x[:, -1, :, :].reshape(bsz, -1)  # [B, F*C]
+        batch_size, seq_len, _, _ = x.shape
+        last_x = x[:, -1, :, :].reshape(batch_size, -1)
 
         if static is not None:
             last_x = torch.cat([last_x, static], dim=-1)
 
-        h = self.relu(self.final_fc1(last_x))
-        y = self.final_fc2(h).squeeze(-1)  # [B]
+        hidden = self.relu(self.final_fc1(last_x))
+        logits = self.final_fc2(hidden)
 
         if self.positive_output:
-            y = self.softplus(y)
+            logits = self.softplus(logits)
 
-        return y
+        y_true = kwargs[self.label_key].float().to(self.device)
+        if y_true.ndim == 1:
+            y_true = y_true.unsqueeze(-1)
+        elif y_true.ndim > 2:
+            raise ValueError(
+                f"Expected y_true to have shape [B] or [B, 1], got {tuple(y_true.shape)}"
+            )
+
+        if self.loss_name == "msle":
+            loss = F.mse_loss(torch.log1p(logits), torch.log1p(y_true))
+        elif self.loss_name == "mse":
+            loss = F.mse_loss(logits, y_true)
+        else:
+            raise ValueError(
+                f"Unsupported loss_name '{self.loss_name}'. Expected 'msle' or 'mse'."
+            )
+
+        return {
+            "loss": loss,
+            "y_prob": self.prepare_y_prob(logits),
+            "y_true": y_true,
+            "logit": logits,
+        }

@@ -26,7 +26,9 @@ This PR includes:
 
 ## Problem Overview
 
+
 Efficient ICU bed management depends critically on estimating how long a patient will remain in the ICU. 
+
 This is formulated as:
 
 	•	Input: Patient data up to hour _t_

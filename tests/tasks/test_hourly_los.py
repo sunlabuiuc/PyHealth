@@ -2,61 +2,41 @@
 Unit tests for the Hourly ICU length-of-stay (LoS) task.
 
 This module contains synthetic unit tests for validating the behavior of the
-HourlyLOSEICU task implementation. The tests verify correct construction of
-hourly time-series features, target generation, and dataset-specific handling
-for both eICU and MIMIC-IV style inputs.
+``HourlyLOSEICU`` task implementation. The tests verify correct construction
+of hourly time-series features, target generation, and dataset-specific
+handling for both eICU- and MIMIC-IV-style inputs.
 
 Overview:
     The test suite checks:
 
-    1. Hourly time-series construction:
+    1. Formal task schema:
+        - ``time_series`` is declared as a timeseries input
+        - ``static`` is declared as a tensor input
+        - ``target_los_hours`` is declared as a regression output
+
+    2. Hourly time-series construction:
         - Latest observation within each hour is retained
         - Forward-filling of missing values
-        - Correct decay feature computation (0.75^j)
+        - Correct decay feature computation (0.75 ** j)
 
-    2. Pre-ICU handling:
+    3. Pre-ICU handling:
         - Inclusion of pre-ICU observations during processing
         - Proper cropping of pre-ICU rows after feature construction
 
-    3. Sample generation:
+    4. Sample generation:
         - eICU-style patient processing (offset-based timestamps)
         - MIMIC-IV-style patient processing (datetime-based timestamps)
         - Presence and correctness of expected output fields
-
-    4. Output structure:
-        - time_series tensor-like structure
-        - static feature encoding
-        - target_los_hours and target_los_sequence
-
-Key Components:
-    - DummyEvent: Minimal event object for simulating dataset records
-    - DummyPatient: Minimal patient object with table-based event access
-    - Synthetic observations for controlled validation of task logic
-
-Inputs:
-    Synthetic patient and event objects constructed in-memory.
-
-Outputs:
-    - PyTest assertions validating correctness of:
-        * time-series construction
-        * decay behavior
-        * cropping logic
-        * sample generation and structure
 
 Implementation Notes:
     - Tests use lightweight synthetic data for speed and reproducibility.
     - No dependency on real eICU or MIMIC-IV datasets.
     - Designed to validate core preprocessing logic independent of model code.
-
-Example:
-    >>> python -m pytest tests/tasks/test_hourly_los.py -q
-
-This test module validates the task implementation in
-``pyhealth.tasks.hourly_los.HourlyLOSEICU``.
 """
-from datetime import datetime, timedelta
 
-import torch
+from __future__ import annotations
+
+from datetime import datetime, timedelta
 
 from pyhealth.tasks.hourly_los import HourlyLOSEICU
 
@@ -100,6 +80,22 @@ class DummyPatient:
         return self.tables.get(table, [])
 
 
+def test_hourly_los_declares_expected_schema() -> None:
+    """Test that the task declares the expected BaseModel-facing schema."""
+    task = HourlyLOSEICU(
+        time_series_tables=["lab"],
+        time_series_features={"lab": ["creatinine"]},
+    )
+
+    assert task.input_schema == {
+        "time_series": "tensor",
+        "static": "tensor",
+    }
+    assert task.output_schema == {
+        "target_los_hours": "regression",
+    }
+
+
 def test_make_hourly_tensor_keeps_latest_and_forward_fills() -> None:
     """Test that the latest within-hour measurement is kept and gaps are filled."""
     task = HourlyLOSEICU(
@@ -115,14 +111,18 @@ def test_make_hourly_tensor_keeps_latest_and_forward_fills() -> None:
         (2, 0, 3.0, 2.2),
     ]
 
-    ts = task._make_hourly_tensor(observations, usable_hours=4, num_features=1)
+    time_series = task._make_hourly_tensor(
+        observations=observations,
+        usable_hours=4,
+        num_features=1,
+    )
 
-    assert ts[0][0] == 2.0
-    assert ts[0][1] == 1.0
-    assert ts[1][0] == 2.0
-    assert ts[1][1] == 0.0
-    assert ts[2][0] == 3.0
-    assert ts[2][1] == 1.0
+    assert time_series[0][0] == 2.0
+    assert time_series[0][1] == 1.0
+    assert time_series[1][0] == 2.0
+    assert time_series[1][1] == 0.0
+    assert time_series[2][0] == 3.0
+    assert time_series[2][1] == 1.0
 
 
 def test_make_hourly_tensor_decay_behavior() -> None:
@@ -138,12 +138,16 @@ def test_make_hourly_tensor_decay_behavior() -> None:
         (0, 0, 5.0, 0.2),
     ]
 
-    ts = task._make_hourly_tensor(observations, usable_hours=4, num_features=1)
+    time_series = task._make_hourly_tensor(
+        observations=observations,
+        usable_hours=4,
+        num_features=1,
+    )
 
-    assert ts[0][2] == 1.0
-    assert abs(ts[1][2] - 0.75) < 1e-6
-    assert abs(ts[2][2] - (0.75 ** 2)) < 1e-6
-    assert abs(ts[3][2] - (0.75 ** 3)) < 1e-6
+    assert time_series[0][2] == 1.0
+    assert abs(time_series[1][2] - 0.75) < 1e-6
+    assert abs(time_series[2][2] - (0.75 ** 2)) < 1e-6
+    assert abs(time_series[3][2] - (0.75 ** 3)) < 1e-6
 
 
 def test_cropped_hourly_tensor_removes_pre_icu_rows() -> None:
@@ -162,14 +166,14 @@ def test_cropped_hourly_tensor_removes_pre_icu_rows() -> None:
         (2, 0, 12.0, 0.0),
     ]
 
-    ts = task._make_cropped_hourly_tensor(
+    time_series = task._make_cropped_hourly_tensor(
         observations=observations,
         total_hours=3.0,
         num_features=1,
     )
 
-    assert len(ts) == 3
-    assert ts[0][0] == 12.0
+    assert len(time_series) == 3
+    assert time_series[0][0] == 12.0
 
 
 def test_eicu_patient_generates_samples() -> None:
@@ -222,15 +226,20 @@ def test_eicu_patient_generates_samples() -> None:
 
     assert len(samples) > 0
     sample = samples[0]
+
     assert "time_series" in sample
     assert "static" in sample
     assert "target_los_hours" in sample
     assert "target_los_sequence" in sample
-    assert isinstance(sample["target_los_sequence"], torch.Tensor)
+    assert isinstance(sample["time_series"], list)
+    assert isinstance(sample["static"], list)
+    assert isinstance(sample["target_los_hours"], float)
+    assert isinstance(sample["target_los_sequence"], list)
+    assert len(sample["target_los_sequence"]) == sample["history_hours"]
 
 
 def test_mimic_patient_generates_samples() -> None:
-    """Test MIMIC-style patient sample generation."""
+    """Test MIMIC-IV-style patient sample generation."""
     task = HourlyLOSEICU(
         time_series_tables=["labevents"],
         time_series_features={"labevents": ["creatinine"]},
@@ -275,4 +284,6 @@ def test_mimic_patient_generates_samples() -> None:
     assert len(samples) > 0
     sample = samples[0]
     assert "time_series" in sample
+    assert "static" in sample
     assert "target_los_hours" in sample
+    assert isinstance(sample["target_los_hours"], float)
