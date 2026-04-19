@@ -48,6 +48,7 @@ class SampleSignalDataset:
 
 from .base_dataset import BaseDataset
 from .cardiology import CardiologyDataset
+from .cardiology2 import Cardiology2Dataset
 from .chestxray14 import ChestXray14Dataset
 from .clinvar import ClinVarDataset
 from .cosmic import COSMICDataset
