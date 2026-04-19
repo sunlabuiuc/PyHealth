@@ -258,22 +258,28 @@ def evaluate_3metrics(model, samples):
                 event_time = valid_idx[-1]
                 observed = False
 
-            cumulative_risk = pred_i[:event_time + 1].sum()
+            cumulative_risk = float(1.0 - np.prod(1.0 - pred_i))
             times.append(event_time)
             risks.append(cumulative_risk)
             events.append(observed)
 
-        if len(times) < 2 or len(set(times)) < 2:
+        events_arr = np.array(events, dtype=bool)
+        times_arr = np.array(times)
+        risks_arr = np.array(risks)
+
+        if len(times_arr) < 2 or not events_arr.any():
             cindex = None
         else:
-            result = concordance_index_censored(
-                np.array(events, dtype=bool),
-                np.array(times),
-                np.array(risks)
-            )
-
-            # Handle both API versions
-            cindex = result[0] if isinstance(result, tuple) else result.concordance
+            # Require at least one event time strictly less than the max time
+            # to ensure a valid comparable pair exists for censored c-index.
+            event_times = times_arr[events_arr]
+            other_times = times_arr[~events_arr] if (~events_arr).any() else times_arr[events_arr]
+            if not (event_times.min() < other_times.max()):
+                cindex = None
+            else:
+                result = concordance_index_censored(events_arr, times_arr, risks_arr)
+                # Handle both API versions
+                cindex = result[0] if isinstance(result, tuple) else result.concordance
 
     return bce.item(), auprc, cindex
 
