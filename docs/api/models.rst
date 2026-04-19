@@ -184,6 +184,8 @@ API Reference
     models/pyhealth.models.SafeDrug
     models/pyhealth.models.MoleRec
     models/pyhealth.models.Deepr
+    models/pyhealth.models.EHRMamba_embedding
+    models/pyhealth.models.EHRMamba_vi
     models/pyhealth.models.EHRMamba
     models/pyhealth.models.JambaEHR
     models/pyhealth.models.ContraWR
