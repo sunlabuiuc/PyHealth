@@ -178,7 +178,14 @@ class _PairwiseRelationHead(nn.Module):
         results = []
         for i, spans in enumerate(entity_spans):
             if len(spans) < 2:
-                results.append(torch.zeros(0, self.classifier[-1].out_features))
+                results.append(
+                    torch.zeros(
+                        0,
+                        self.classifier[-1].out_features,
+                        device=sequence_output.device,
+                        dtype=sequence_output.dtype,
+                    )
+                )
                 continue
 
             # Average pool tokens for each entity span
@@ -263,13 +270,11 @@ class ReXKGModel(BaseModel):
         width_embedding_dim: int = 150,
         ner_dropout: float = 0.1,
         rel_dropout: float = 0.1,
-        context_window: int = 100,
     ) -> None:
         super().__init__(dataset)
 
         self.bert_model_name = bert_model_name
         self.max_span_length = max_span_length
-        self.context_window = context_window
 
         # BERT encoder
         self.encoder = AutoModel.from_pretrained(bert_model_name)
@@ -433,10 +438,12 @@ class ReXKGModel(BaseModel):
 
                 span_tensor = torch.tensor(
                     raw_spans, dtype=torch.long, device=device
-                ).unsqueeze(0)  # (1, S, 3)
+                ).unsqueeze(0)  # (1, S, 3), token indices exclude CLS/SEP
+                ner_span_tensor = span_tensor.clone()
+                ner_span_tensor[..., 0:2] += 1  # shift start/end to align with CLS-inclusive sequence_output
 
                 ner_logits = self.ner_head(
-                    sequence_output[i].unsqueeze(0), span_tensor
+                    sequence_output[i].unsqueeze(0), ner_span_tensor
                 )  # (1, S, num_labels)
                 pred_ids = ner_logits.squeeze(0).argmax(dim=-1)  # (S,)
 
@@ -582,6 +589,11 @@ class ReXKGModel(BaseModel):
         """
         if patient_ids is None:
             patient_ids = [str(i) for i in range(len(reports))]
+        elif len(patient_ids) != len(reports):
+            raise ValueError(
+                "patient_ids and reports must have the same length; "
+                f"got {len(patient_ids)} patient_ids and {len(reports)} reports."
+            )
 
         entity_lists = self.predict_entities(reports, batch_size=batch_size)
         relation_lists = self.predict_relations(

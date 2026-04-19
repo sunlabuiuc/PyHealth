@@ -154,11 +154,30 @@ def test_build_kg_node_deduplication(model):
         "Cardiomegaly is noted bilaterally.",
     ]
     kg = model.build_kg(reports, patient_ids=["a", "b"])
-    # All node ids should be unique
-    node_ids = [n["id"] for n in kg["nodes"]]
-    assert len(node_ids) == len(set(node_ids))
 
+    matching_nodes = [
+        n
+        for n in kg["nodes"]
+        if str(
+            n.get("text")
+            or n.get("label")
+            or n.get("name")
+            or n.get("entity")
+            or ""
+        ).lower()
+        == "cardiomegaly"
+    ]
+    assert len(matching_nodes) == 1
 
+    shared_node_id = matching_nodes[0]["id"]
+    for patient_id in ["a", "b"]:
+        subgraph = kg["subgraphs"][patient_id]
+        if isinstance(subgraph, dict) and "nodes" in subgraph:
+            subgraph_node_ids = [
+                node["id"] if isinstance(node, dict) else node
+                for node in subgraph["nodes"]
+            ]
+            assert shared_node_id in subgraph_node_ids
 def test_save_kg(model, tmp_path):
     """save_kg should write a valid JSON file."""
     import json
