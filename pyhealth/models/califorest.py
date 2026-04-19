@@ -93,7 +93,6 @@ class CaliForest(BaseModel):
         self.calibrator = None
         self.is_fitted = False
 
-        self.logit_scale = nn.Parameter(torch.tensor(1.0))
 
     def _build_feature_matrix(self, **kwargs) -> np.ndarray:
         """Convert PyHealth batch into NumPy feature matrix."""
@@ -222,8 +221,6 @@ class CaliForest(BaseModel):
             torch.clamp(y_prob, eps, 1 - eps) /
             torch.clamp(1 - y_prob, eps, 1 - eps)
         )
-
-        logits = logits * self.logit_scale
 
         y_true = kwargs[self.label_key].to(self.device)
         loss = self.get_loss_function()(logits, y_true)
