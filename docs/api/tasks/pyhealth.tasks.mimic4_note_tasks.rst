@@ -1,7 +1,0 @@
-pyhealth.tasks.mimic4_note_tasks
-===================================
- 
-.. automodule:: pyhealth.tasks.mimic4_note_tasks
-   :members:
-   :undoc-members:
-   :show-inheritance:

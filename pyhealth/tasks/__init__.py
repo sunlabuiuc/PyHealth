@@ -41,6 +41,10 @@ from .mortality_prediction import (
     MultimodalMortalityPredictionMIMIC4,
 )
 from .survival_preprocess_support2 import SurvivalPreprocessSupport2
+from .mimic4_note_ext_dibhc_tasks import (
+    BHCSummarizationTask,
+    HallucinationDetectionTask,
+)
 from .mortality_prediction_stagenet_mimic4 import (
     MortalityPredictionStageNetMIMIC4,
 )
