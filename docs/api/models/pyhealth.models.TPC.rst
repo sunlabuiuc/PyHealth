@@ -15,6 +15,21 @@ standard ``BaseModel`` interface, supports PyHealth sequence and StageNet-style
 temporal processors, and is intended to be evaluated on existing PyHealth LOS
 tasks such as the MIMIC-IV temporal length-of-stay pipeline.
 
+Task Modes
+----------
+
+TPC uses the task ``output_schema`` from the provided ``SampleDataset`` to
+select the output size, loss function, and prediction format through
+``BaseModel``. This means the same model implementation can be used with
+PyHealth binary, multiclass, multilabel, and regression tasks.
+
+The included MIMIC-IV length-of-stay example uses the existing
+``LengthOfStayStageNetMIMIC4`` task, which defines LOS as a 10-class
+classification problem. This follows the current PyHealth LOS task interface.
+The original TPC paper reports LOS mainly with regression and ordinal metrics;
+a regression LOS task can use the same TPC model by defining an output schema
+such as ``{"remaining_los": "regression"}``.
+
 Required Data
 -------------
 

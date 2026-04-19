@@ -205,6 +205,11 @@ class TPC(BaseModel):
     enriched with temporal information when available, encoded by a dedicated
     :class:`TPCLayer`, and finally concatenated for prediction.
 
+    TPC uses PyHealth's task output schema to select the prediction head size,
+    loss function, and prediction format. It therefore supports binary,
+    multiclass, multilabel, and regression tasks when paired with the
+    corresponding PyHealth output processor.
+
     Supported input processor families include:
     - ``SequenceProcessor``
     - ``StageNetProcessor``

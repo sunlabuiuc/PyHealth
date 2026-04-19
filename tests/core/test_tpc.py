@@ -80,6 +80,31 @@ def _make_multiclass_dataset():
     )
 
 
+def _make_regression_dataset():
+    samples = [
+        {
+            "patient_id": "patient-0",
+            "visit_id": "visit-0",
+            "icd_codes": ([0.0, 24.0], [["A", "B"], ["C"]]),
+            "labs": ([0.0, 12.0], [[1.0, 2.0], [2.0, 3.0]]),
+            "remaining_los": 2.5,
+        },
+        {
+            "patient_id": "patient-1",
+            "visit_id": "visit-0",
+            "icd_codes": ([0.0, 12.0], [["D"], ["E"]]),
+            "labs": ([0.0, 6.0], [[3.0, 4.0], [5.0, 6.0]]),
+            "remaining_los": 5.0,
+        },
+    ]
+    return create_sample_dataset(
+        samples=samples,
+        input_schema={"icd_codes": "stagenet", "labs": "stagenet_tensor"},
+        output_schema={"remaining_los": "regression"},
+        dataset_name="test_tpc_regression",
+    )
+
+
 class TestTPCLayer(unittest.TestCase):
     """Unit tests for the standalone TPC encoder layer."""
 
@@ -112,6 +137,7 @@ class TestTPC(unittest.TestCase):
     def setUpClass(cls):
         cls.binary_dataset = _make_binary_dataset()
         cls.multiclass_dataset = _make_multiclass_dataset()
+        cls.regression_dataset = _make_regression_dataset()
 
     def test_model_initialization(self):
         model = TPC(
@@ -160,6 +186,20 @@ class TestTPC(unittest.TestCase):
         self.assertEqual(ret["y_prob"].shape, (3, 3))
         self.assertEqual(ret["logit"].shape, (3, 3))
         self.assertEqual(ret["y_true"].shape[0], 3)
+
+    def test_regression_forward(self):
+        model = TPC(dataset=self.regression_dataset, embedding_dim=24, hidden_dim=48)
+        batch = next(
+            iter(get_dataloader(self.regression_dataset, batch_size=2, shuffle=False))
+        )
+
+        with torch.no_grad():
+            ret = model(**batch)
+
+        self.assertEqual(ret["y_prob"].shape, (2, 1))
+        self.assertEqual(ret["logit"].shape, (2, 1))
+        self.assertEqual(ret["y_true"].shape, (2, 1))
+        self.assertEqual(ret["loss"].dim(), 0)
 
     def test_backward(self):
         model = TPC(dataset=self.binary_dataset, embedding_dim=16, hidden_dim=32)
