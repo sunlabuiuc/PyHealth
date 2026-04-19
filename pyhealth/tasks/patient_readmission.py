@@ -2,7 +2,7 @@ from typing import Dict, List
 from pyhealth.data import Event, Patient
 from pyhealth.tasks import BaseTask
 
-class ReadmissionPredictionEICU(BaseTask):
+class PatientReadmissionPredictionEICU(BaseTask):
     """
     Readmission prediction on the eICU dataset.
 
