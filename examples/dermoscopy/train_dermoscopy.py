@@ -82,10 +82,7 @@ def setup_dynamic_logging(arg_log_dir, folder_name, run_name):
     logging.basicConfig(
         level=logging.INFO,
         format="%(message)s",
-        handlers=[
-            logging.FileHandler(log_filepath, encoding="utf-8"),
-            logging.StreamHandler(sys.stdout)
-        ],
+        handlers=[logging.StreamHandler(sys.stdout)], # DualLogger handles the file writing automatically
         force=True # This forces PyHealth to abandon its default loggers and use ours
     )
 

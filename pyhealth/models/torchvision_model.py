@@ -165,8 +165,19 @@ class TorchvisionModel(BaseModel):
         hidden_dim = final_layer.in_features
         self.hidden_dim = hidden_dim  # Store for embedding extraction
         output_size = self.get_output_size()
-        layer_name = final_layer_name.split(".")[0]
-        setattr(self.model, layer_name, nn.Linear(hidden_dim, output_size))
+        
+        # Layer replacement for nested architectures (e.g., ConvNeXt).
+        # Traversing the dot notation to replace only the specific target node
+        # preserves necessary pre-processing layers like Flatten() or LayerNorm2d
+        # that are otherwise lost if the entire parent block is replaced.
+        if "." in final_layer_name:
+            parent_path, child_name = final_layer_name.rsplit(".", 1)
+            parent_module = self.model
+            for name in parent_path.split("."):
+                parent_module = getattr(parent_module, name)
+            setattr(parent_module, child_name, nn.Linear(hidden_dim, output_size))
+        else:
+            setattr(self.model, final_layer_name, nn.Linear(hidden_dim, output_size))
         
         # Initialize attention hooks storage for ViT interpretability
         self._attention_maps: List[torch.Tensor] = []
@@ -312,8 +323,14 @@ class TorchvisionModel(BaseModel):
         
         # Get the final classification layer
         final_layer_name = SUPPORTED_MODELS_FINAL_LAYER[self.model_name]
-        layer_name = final_layer_name.split(".")[0]
-        fc_layer = getattr(self.model, layer_name)
+
+        # Safe layer traversal for interpretability vectors (TCAV).
+        # Iterating through the dot notation routes the 2D concept vector directly 
+        # into the final linear layer. This avoids dimension mismatch errors with 
+        # spatial layers (like LayerNorm2d) located within the parent block.
+        fc_layer = self.model
+        for part in final_layer_name.split("."):
+            fc_layer = getattr(fc_layer, part)
         
         # Apply classification head
         logits = fc_layer(embeddings)
