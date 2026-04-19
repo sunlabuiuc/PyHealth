@@ -1,14 +1,7 @@
 """
-EHR Mamba Section 2.2 + §2.1 Embeddings for MIMIC-IV (PyHealth integration).
-V3 — task separated: MIMIC4EHRMambaTask and MIMIC4EHRMambaMortalityTask now
-     live in mimic4_ehr_mamba_task.py.
+EHRMamba Section 2.2 + §2.1 Embeddings for MIMIC-IV.
 
-Changes vs V2:
-  - Removed MIMIC4EHRMambaTask (moved to mimic4_ehr_mamba_task.py).
-  - Removed _patient_age_at helper (moved to mimic4_ehr_mamba_task.py).
-  - Removed _HAS_PYHEALTH import guard (no pyhealth dependency in this module).
-
-This module contains only the embedding-side components:
+This module contains only the embedding-side components of EHRMamba:
   - Token type constants and special token strings (shared with the task file
     via import).
   - LabQuantizer     — 5-bin lab tokenization (paper Appx. B).
@@ -16,14 +9,6 @@ This module contains only the embedding-side components:
   - VisitEmbedding      — learned visit-segment embedding.
   - EHRMambaEmbedding   — full §2.2 / Eq. 1 embedding module.
   - EHRMambaEmbeddingAdapter — drop-in EmbeddingModel adapter for EHRMamba.
-
-V2 paper-conformant sequence structure (built by MIMIC4EHRMambaTask):
-  - One global [CLS] at the start of the FULL patient sequence (not per-visit).
-  - Each visit is bracketed by [VS] (visit start) and [VE] (visit end) tokens.
-  - [REG] register token inserted after each [VE] (§2.1, used as prediction anchor).
-  - Inter-visit discrete time-interval tokens between [REG] and [VS]:
-      [W0]–[W3] for gaps < 4 weeks, [M1]–[M12] for 1–12 months, [LT] for > 1 year.
-  Token type vocabulary extended to 10 types to cover all structural tokens.
 
 Implements the full 7-component token embedding scheme from the EHR Mamba paper (§2.2,
 Equation 1) and Appendix C.2:
@@ -36,9 +21,17 @@ In practice (per Appx. C.2) concept, time, and age are first fused via concat+pr
     e_token   = e_fused + e_type + e_visit_order + e_visit_segment + e_position
     output    = LayerNorm(Dropout(e_token))
 
-Special tokens ([CLS], [VS], [VE], [REG], time-interval tokens) receive zero vectors
-for time, age, visit_order, and visit_segment embeddings (paper §2.2: "for other
-embeddings, a zero vector is used").
+Sequence structure is built by MIMIC4EHRMambaTask:
+  - One global [CLS] at the start of the FULL patient sequence.
+  - Each visit is bracketed by [VS] (visit start) and [VE] (visit end) tokens.
+  - [REG] register token inserted after each [VE] (§2.1, used as prediction anchor).
+  - Inter-visit discrete time-interval tokens between [REG] and [VS]:
+      [W0]–[W3] for gaps < 4 weeks, [M1]–[M12] for 1–12 months, [LT] for > 1 year.
+  Token type vocabulary extended to 10 types to cover all structural tokens.
+
+As per section §2.2 in the EHRMamba paper, the following subset of special tokens
+receive zero-vectors for time, age, visit_order, and visit_segment embeddings:
+  - [CLS], [VS], [VE], [REG], and time-interval tokens
 
 Integration with pyhealth.models.ehrmamba.EHRMamba:
     Replace `self.embedding_model = EmbeddingModel(dataset, embedding_dim)` with
@@ -215,6 +208,7 @@ class EHRMambaEmbedding(BaseModel):
     Args:
         vocab_size:           Number of entries in the code vocabulary.
         hidden_size:          Output (and hidden) embedding dimension.
+        dataset:              Dataset object passed to BaseModel (default None)
         padding_idx:          Vocabulary index reserved for padding (default 0).
         type_vocab_size:      Number of token type categories (default 10).
         max_num_visits:       Size of visit-order embedding table (default 512).

@@ -1,5 +1,5 @@
 """
-MIMIC-IV PyHealth tasks for EHR Mamba (V3).
+MIMIC-IV PyHealth tasks for EHRMamba.
 
 Provides:
     MIMIC4EHRMambaTask          — base class: builds the token sequence for a patient; 

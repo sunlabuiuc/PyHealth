@@ -1,4 +1,4 @@
-"""EHR Mamba-Vector Institute: Mamba SSM-based clinical prediction model for EHR data.
+"""EHR Mamba - Vector Institute: Mamba SSM-based clinical prediction model for EHR data.
 
 Implements the EHRMamba model from arXiv 2405.14567, using State Space Models
 (Mamba) for linear-complexity sequence processing over EHR visit histories.
