@@ -7,9 +7,9 @@ This script demonstrates the CNNLSTMPredictor model from:
 
 Ablation Study
 --------------
-The original paper uses fixed hyperparameters (learning rate = 1/n_params,
-hidden dimension = 128, dropout = 0.3, batch_size = 64). This ablation
-investigates whether varying these hyperparameters improves model
+The original paper uses fixed hyperparameters (e.g. learning rate =
+1/n_params). This ablation investigates whether varying these
+hyperparameters improves model
 performance on 28-day ICU mortality prediction.
 
 Hyperparameters varied:
@@ -88,12 +88,11 @@ import pickle
 import random
 import tempfile
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any, Dict, List
 
 import numpy as np
 import torch
-import torch.nn as nn
 
 from pyhealth.datasets import (
     MIMIC4EHRDataset,

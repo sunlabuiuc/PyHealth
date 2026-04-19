@@ -159,7 +159,7 @@ class TestCNNLSTMPredictor(unittest.TestCase):
         self.assertTrue(has_grad, "No gradients computed")
 
     def test_hyperparameter_configs(self):
-        """Test various hyperparameter combinations including batch size"""
+        """Test various hyperparameter combinations"""
         from pyhealth.datasets import get_dataloader
 
         configs = [
