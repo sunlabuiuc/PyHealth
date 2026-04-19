@@ -1,0 +1,13 @@
+version: "1.0"
+tables:
+  documents:
+    file_path: "ncbi_disease_pyhealth.csv"
+    patient_id: "record_id"
+    timestamp: null
+    attributes:
+    - "doc_id"
+    - "split"
+    - "title"
+    - "abstract"
+    - "text"
+    - "mentions_json"
