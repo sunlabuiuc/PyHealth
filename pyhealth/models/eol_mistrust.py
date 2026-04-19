@@ -876,6 +876,11 @@ def build_noncompliance_mistrust_scores(
     note_labels: pd.DataFrame,
     estimator_factory: Callable[[], object] | None = None,
 ) -> pd.DataFrame:
+    """Compute the noncompliance proxy mistrust score per admission.
+
+    Convenience wrapper around :func:`build_proxy_probability_scores` bound to
+    the noncompliance label column.
+    """
     return build_proxy_probability_scores(
         feature_matrix=feature_matrix,
         note_labels=note_labels,
@@ -889,6 +894,11 @@ def build_autopsy_mistrust_scores(
     note_labels: pd.DataFrame,
     estimator_factory: Callable[[], object] | None = None,
 ) -> pd.DataFrame:
+    """Compute the autopsy proxy mistrust score per admission.
+
+    Convenience wrapper around :func:`build_proxy_probability_scores` bound to
+    the autopsy label column.
+    """
     return build_proxy_probability_scores(
         feature_matrix=feature_matrix,
         note_labels=note_labels,
@@ -1080,6 +1090,11 @@ def build_noncompliance_feature_weight_summary(
     estimator_factory: Callable[[], object] | None = None,
     top_n: int = 10,
 ) -> dict[str, pd.DataFrame]:
+    """Return top positive/negative feature weights for the noncompliance proxy.
+
+    Convenience wrapper around :func:`build_proxy_feature_weight_summary` bound
+    to the noncompliance label column.
+    """
     return build_proxy_feature_weight_summary(
         feature_matrix=feature_matrix,
         note_labels=note_labels,
@@ -1095,6 +1110,11 @@ def build_autopsy_feature_weight_summary(
     estimator_factory: Callable[[], object] | None = None,
     top_n: int = 10,
 ) -> dict[str, pd.DataFrame]:
+    """Return top positive/negative feature weights for the autopsy proxy.
+
+    Convenience wrapper around :func:`build_proxy_feature_weight_summary` bound
+    to the autopsy label column.
+    """
     return build_proxy_feature_weight_summary(
         feature_matrix=feature_matrix,
         note_labels=note_labels,

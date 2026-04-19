@@ -1,13 +1,23 @@
 """Task definitions and target helpers for the EOL mistrust workflow.
 
+Implements the three downstream binary prediction tasks from
+Boag et al. 2018, *"Racial Disparities and Mistrust in End-of-Life Care"*
+(https://proceedings.mlr.press/v85/boag18a.html):
+
+- **Left AMA** — whether the patient left against medical advice.
+- **Code Status** — whether a DNR / DNI / CMO order was recorded.
+- **In-hospital Mortality** — whether the patient died during the stay.
+
 Structure
 ---------
-This module now keeps two logic families explicit:
+This module keeps two label-extraction logic families explicit:
 
-1. Normal Path
-   The corrected, cleaned task helpers used by the default research flow.
-2. Paper-like Path
-   The notebook-faithful special logic that only exists for paper compatibility.
+1. **Normal (corrected) path** — the cleaned task helpers used by the
+   default research flow, with corrected code-status resolution and
+   proper length-of-stay calculation.
+2. **Paper-like path** — the notebook-faithful special logic that
+   reproduces the original paper's stateful overwrite behavior for
+   code-status labels.
 """
 
 from __future__ import annotations
@@ -59,16 +69,19 @@ _DATASET_PREPARE_ROUTE_SETTINGS = {
 
 
 def _require_columns(df: pd.DataFrame, required: Sequence[str], df_name: str) -> None:
+    """Raise ``ValueError`` if any *required* columns are missing from *df*."""
     missing = [column for column in required if column not in df.columns]
     if missing:
         raise ValueError(f"{df_name} is missing required columns: {', '.join(missing)}")
 
 
 def _coerce_timestamp(value) -> pd.Timestamp:
+    """Convert *value* to a :class:`pandas.Timestamp`, returning ``NaT`` on failure."""
     return pd.to_datetime(value, errors="coerce")
 
 
 def _normalize_token(value) -> str:
+    """Lowercase and collapse non-alphanumeric characters into underscores."""
     if value is None or (isinstance(value, float) and pd.isna(value)):
         return ""
     normalized = re.sub(r"[^a-z0-9]+", "_", str(value).strip().lower())
@@ -77,6 +90,7 @@ def _normalize_token(value) -> str:
 
 
 def _normalize_code_status_mode(mode: str | None) -> str:
+    """Validate and normalise the *code_status_mode* parameter."""
     normalized = (
         CODE_STATUS_MODE_CORRECTED if mode is None else str(mode).strip().lower()
     )
@@ -89,6 +103,7 @@ def _normalize_code_status_mode(mode: str | None) -> str:
 
 
 def _normalize_dataset_prepare_mode(mode: str | None) -> str:
+    """Validate and normalise the *dataset_prepare_mode* parameter."""
     normalized = (
         DATASET_PREPARE_MODE_DEFAULT if mode is None else str(mode).strip().lower()
     )
@@ -102,6 +117,7 @@ def _normalize_dataset_prepare_mode(mode: str | None) -> str:
 
 
 def _calculate_age_years(admittime, dob) -> float:
+    """Return age in years at admission, capped at 90 (MIMIC-III convention)."""
     admit_time = _coerce_timestamp(admittime)
     birth_time = _coerce_timestamp(dob)
     if pd.isna(admit_time) or pd.isna(birth_time):
@@ -115,6 +131,7 @@ def _calculate_age_years(admittime, dob) -> float:
 
 
 def _calculate_los_days(admittime, dischtime) -> float:
+    """Return length of stay in fractional days (corrected path)."""
     admit_time = _coerce_timestamp(admittime)
     discharge_time = _coerce_timestamp(dischtime)
     if pd.isna(admit_time) or pd.isna(discharge_time):
@@ -123,6 +140,7 @@ def _calculate_los_days(admittime, dischtime) -> float:
 
 
 def _calculate_paper_like_los_days(admittime, dischtime) -> float:
+    """Return length of stay in hours, reproducing the paper's calculation."""
     admit_time = _coerce_timestamp(admittime)
     discharge_time = _coerce_timestamp(dischtime)
     if pd.isna(admit_time) or pd.isna(discharge_time):
@@ -221,6 +239,7 @@ def is_positive_code_status_value(value) -> bool:
 
 
 def _build_code_status_target_normal(codes: pd.DataFrame) -> pd.DataFrame:
+    """Build code-status labels using the corrected (latest-value) logic."""
     labeled = codes.copy()
     labeled["code_status_dnr_dni_cmo"] = labeled["value"].map(
         lambda value: int(is_positive_code_status_value(value))
@@ -272,6 +291,7 @@ def _advance_paper_like_code_status_label(
 
 
 def _build_code_status_target_paper_like(codes: pd.DataFrame) -> pd.DataFrame:
+    """Build code-status labels using the paper's stateful overwrite logic."""
     current_label: int | None = None
     notebook_targets: dict[int, int] = {}
 
