@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-from typing import List, Optional, Sequence, Tuple
+from typing import Any, List, Optional, Sequence, Tuple
 
 import torch
 import torch.nn as nn
 
-from typing import Any
 from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
 
@@ -28,34 +27,34 @@ class WordBasisLinearModel(BaseModel):
         ridge_lambda: Default ridge penalty used when solving for word-basis
             coefficients.
 
-        Example:
-        >>> from pyhealth.datasets import create_sample_dataset
-        >>> from pyhealth.models import WordBasisLinearModel
-        >>> samples = [
-        ...     {
-        ...         "patient_id": "p0",
-        ...         "visit_id": "v0",
-        ...         "embedding": [0.1] * 8,
-        ...         "label": 1,
-        ...     },
-        ...     {
-        ...         "patient_id": "p1",
-        ...         "visit_id": "v1",
-        ...         "embedding": [0.0] * 8,
-        ...         "label": 0,
-        ...     },
-        ... ]
-        >>> dataset = create_sample_dataset(
-        ...     samples=samples,
-        ...     input_schema={"embedding": "tensor"},
-        ...     output_schema={"label": "binary"},
-        ...     dataset_name="word_basis_linear_model_example",
-        ... )
-        >>> model = WordBasisLinearModel(
-        ...     dataset=dataset,
-        ...     input_dim=8,
-        ...     feature_key="embedding",
-        ... )
+    Example:
+    >>> from pyhealth.datasets import create_sample_dataset
+    >>> from pyhealth.models import WordBasisLinearModel
+    >>> samples = [
+    ...     {
+    ...         "patient_id": "p0",
+    ...         "visit_id": "v0",
+    ...         "embedding": [0.1] * 8,
+    ...         "label": 1,
+    ...     },
+    ...     {
+    ...         "patient_id": "p1",
+    ...         "visit_id": "v1",
+    ...         "embedding": [0.0] * 8,
+    ...         "label": 0,
+    ...     },
+    ... ]
+    >>> dataset = create_sample_dataset(
+    ...     samples=samples,
+    ...     input_schema={"embedding": "tensor"},
+    ...     output_schema={"label": "binary"},
+    ...     dataset_name="word_basis_linear_model_example",
+    ... )
+    >>> model = WordBasisLinearModel(
+    ...     dataset=dataset,
+    ...     input_dim=8,
+    ...     feature_key="embedding",
+    ... )
     """
 
     def __init__(
