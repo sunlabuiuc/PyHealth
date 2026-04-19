@@ -220,6 +220,7 @@ Available Tasks
     Readmission Prediction <tasks/pyhealth.tasks.readmission_prediction>
     Sleep Staging <tasks/pyhealth.tasks.sleep_staging>
     Sleep Staging (SleepEDF) <tasks/pyhealth.tasks.SleepStagingSleepEDF>
+    DREAMT Sleep Classification <tasks/pyhealth.tasks.DREAMTSleepClassification>
     Temple University EEG Tasks <tasks/pyhealth.tasks.temple_university_EEG_tasks>
     Sleep Staging v2 <tasks/pyhealth.tasks.sleep_staging_v2>
     Benchmark EHRShot <tasks/pyhealth.tasks.benchmark_ehrshot>
