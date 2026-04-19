@@ -122,6 +122,8 @@ def apply_mode(image: np.ndarray, mask: np.ndarray, mode: str) -> np.ndarray:
         base_image = np.stack((high_freq,)*3, axis=-1)
     elif mode.startswith("low_"):
         base_image = scipy.ndimage.gaussian_filter(base_image, sigma=(1, 1, 0))
+    else:
+        raise ValueError(f"Unknown mode '{mode}'. Must be one of {VALID_MODES}")
 
     return base_image
 
