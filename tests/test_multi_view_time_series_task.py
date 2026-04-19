@@ -76,9 +76,9 @@ class TestMultiViewTimeSeriesTaskInit(unittest.TestCase):
         task = MultiViewTimeSeriesTask()
         self.assertEqual(task.task_name, "MultiViewTimeSeries")
 
-def test_input_schema(self):
-    task = MultiViewTimeSeriesTask()
-    self.assertIn("epoch_path", task.input_schema)
+    def test_input_schema(self):
+        task = MultiViewTimeSeriesTask()
+        self.assertIn("epoch_path", task.input_schema)
 
     def test_output_schema(self):
         task = MultiViewTimeSeriesTask()
