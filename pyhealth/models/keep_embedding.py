@@ -1,19 +1,17 @@
 import os
-import sys
-import logging
-from typing import List, Tuple, Dict, Set
 from collections import defaultdict, Counter
 
 import networkx as nx
 from node2vec import Node2Vec
 import numpy as np
 import pandas as pd
+import torch
+import torch.nn.functional as F
 # from scipy import sparse
+from torch import nn
 
 from pyhealth.datasets import SampleDataset
 from .base_model import BaseModel
-
-logger = logging.getLogger(__name__)
 
 class N2V():
     """
@@ -189,192 +187,61 @@ class N2V():
         return embedding_matrix
 
 class GloVe():
-    def __init__(self):
+    def __init__(self,
+        dataset: SampleDataset,
+    ):
+        self.dataset = dataset
+    
+    def build_cooccurrence_matrix(self):
         pass
-    # def build_cooccurrence_matrix(
-    #     self,
-    #     graph: nx.DiGraph,
-    #     domain_type: str = "condition",
-    #     min_occurrences: int = 2,
-    # ) -> Tuple[sparse.csr_matrix, List[str]]:
-    #     """
-    #     Build co-occurrence matrix from patient histories using dense roll-up.
-        
-    #     Iterates through all patients in the dataset, collects concept codes from
-    #     their complete medical history, applies dense roll-up to ancestor concepts,
-    #     and builds a sparse co-occurrence matrix.
-        
-    #     Args:
-    #         graph (nx.DiGraph): NetworkX graph from Node2Vec.create_graph()
-    #         domain_type (str): Concept domain to include:
-    #             - "condition": condition_occurrence events
-    #             - "drug": drug_exposure events
-    #             - "procedure": procedure_occurrence events
-    #             - "all": All three event types. Default is "condition".
-    #         min_occurrences (int): Minimum number of times a concept must appear
-    #             in a patient's history to be retained (per paper requirement).
-    #             Default is 2.
-        
-    #     Returns:
-    #         Tuple[sparse.csr_matrix, List[str]]:
-    #             - X: Sparse CSR matrix where X[i,j] = co-occurrence frequency
-    #                  between concept_i and concept_j across all patients
-    #             - concept_ids: List of concept IDs corresponding to matrix rows/columns
-        
-    #     Raises:
-    #         ValueError: If domain_type is invalid or dataset is empty.
-    #     """
-    #     logger.info(f"Building co-occurrence matrix for domain_type={domain_type}")
-        
-    #     # Map domain_type to event types and fields
-    #     domain_map = {
-    #         "condition": [("condition_occurrence", "condition_concept_id")],
-    #         "drug": [("drug_exposure", "drug_concept_id")],
-    #         "procedure": [("procedure_occurrence", "procedure_concept_id")],
-    #         "all": [
-    #             ("condition_occurrence", "condition_concept_id"),
-    #             ("drug_exposure", "drug_concept_id"),
-    #             ("procedure_occurrence", "procedure_concept_id"),
-    #         ],
-    #     }
-        
-    #     if domain_type not in domain_map:
-    #         raise ValueError(
-    #             f"domain_type must be one of {list(domain_map.keys())}, got {domain_type}"
-    #         )
-        
-    #     event_types = domain_map[domain_type]
-        
-    #     # Extract concept IDs from graph nodes
-    #     concept_ids = sorted(list(graph.nodes()))
-    #     concept_id_to_idx = {cid: idx for idx, cid in enumerate(concept_ids)}
-        
-    #     logger.info(f"Graph has {len(concept_ids)} concepts")
-        
-    #     if len(concept_ids) == 0:
-    #         raise ValueError("Graph is empty, cannot build co-occurrence matrix")
-        
-    #     if self.dataset is None or len(self.dataset.unique_patient_ids) == 0:
-    #         raise ValueError("Dataset is empty, cannot build co-occurrence matrix")
-        
-    #     # Initialize co-occurrence counter
-    #     cooc_counts = defaultdict(int)
-        
-    #     # Iterate through all patients
-    #     patient_ids = self.dataset.unique_patient_ids
-    #     logger.info(f"Processing {len(patient_ids)} patients")
-        
-    #     for patient_id in patient_ids:
-    #         try:
-    #             patient = self.dataset.get_patient(patient_id)
-    #         except Exception as e:
-    #             logger.warning(f"Failed to load patient {patient_id}: {e}")
-    #             continue
-            
-    #         # Collect all codes from patient's complete history
-    #         all_codes = []
-    #         for event_type, field in event_types:
-    #             try:
-    #                 events = patient.get_events(event_type=event_type)
-    #                 codes = []
-    #                 for event in events:
-    #                     code = str(getattr(event, field, ""))
-    #                     if code and code != "nan":
-    #                         codes.append(code)
-    #                 all_codes.extend(codes)
-    #             except Exception as e:
-    #                 logger.debug(f"Could not get {event_type} for patient {patient_id}: {e}")
-    #                 continue
-            
-    #         if len(all_codes) == 0:
-    #             continue
-            
-    #         # Count occurrences of each code
-    #         code_counts = Counter(all_codes)
-            
-    #         # Filter codes with min_occurrences
-    #         retained_codes = [
-    #             code for code, count in code_counts.items()
-    #             if count >= min_occurrences
-    #         ]
-            
-    #         if len(retained_codes) == 0:
-    #             continue
-            
-    #         # Apply dense roll-up: map each code to ALL ancestors in graph
-    #         rolled_codes = set()
-    #         for code in retained_codes:
-    #             rolled_codes.add(code)  # Include self
-    #             if code in graph.nodes():
-    #                 # Find all ancestors
-    #                 try:
-    #                     ancestors = nx.ancestors(graph, code)
-    #                     rolled_codes.update(ancestors)
-    #                 except Exception as e:
-    #                     logger.debug(f"Could not find ancestors for {code}: {e}")
-            
-    #         # Build co-occurrence pairs (only for codes in graph)
-    #         rolled_codes_in_graph = [c for c in rolled_codes if c in graph.nodes()]
-            
-    #         if len(rolled_codes_in_graph) > 1:
-    #             # Create all pairs
-    #             for i, code_i in enumerate(rolled_codes_in_graph):
-    #                 for code_j in rolled_codes_in_graph[i + 1 :]:
-    #                     idx_i = concept_id_to_idx[code_i]
-    #                     idx_j = concept_id_to_idx[code_j]
-                        
-    #                     # Store symmetric pairs
-    #                     if idx_i <= idx_j:
-    #                         cooc_counts[(idx_i, idx_j)] += 1
-    #                     else:
-    #                         cooc_counts[(idx_j, idx_i)] += 1
-        
-    #     logger.info(f"Generated {len(cooc_counts)} unique co-occurrence pairs")
-        
-    #     # Build sparse matrix
-    #     if len(cooc_counts) == 0:
-    #         logger.warning("No co-occurrences found, returning empty sparse matrix")
-    #         X = sparse.csr_matrix((len(concept_ids), len(concept_ids)), dtype=np.float32)
-    #         return X, concept_ids
-        
-    #     # Extract rows, columns, and data
-    #     rows, cols, data = [], [], []
-    #     for (i, j), count in cooc_counts.items():
-    #         rows.append(i)
-    #         cols.append(j)
-    #         data.append(count)
-    #         # Add symmetric entry
-    #         rows.append(j)
-    #         cols.append(i)
-    #         data.append(count)
-        
-    #     # Create COO matrix and convert to CSR
-    #     X = sparse.coo_matrix(
-    #         (data, (rows, cols)),
-    #         shape=(len(concept_ids), len(concept_ids)),
-    #         dtype=np.float32,
-    #     )
-    #     X = X.tocsr()
-        
-    #     logger.info(
-    #         f"Built sparse co-occurrence matrix: shape={X.shape}, nnz={X.nnz}, "
-    #         f"sparsity={1 - X.nnz / (X.shape[0] * X.shape[1]):.4f}"
-    #     )
-        
-    #     return X, concept_ids
 
 class KeepEmbedding(BaseModel):
+    """KEEP Embedding: Fine-tune Node2Vec embeddings using GloVe while penalizing 
+    deviation from original embeddings.
+    
+    Balances:
+        - Co-occurrence structure (GloVe objective)
+        - Graph structure prior (Node2Vec via regularization)
+    
+    Args:
+        dataset (SampleDataset): The dataset to train the model.
+        path (str): Path to OMOP data files for graph construction.
+        domain_type (list[str]): Domain types to include in graph.
+        embedding_dim (int): Dimension of embeddings.
+        walk_length (int): Length of random walks for Node2Vec.
+        num_walks (int): Number of random walks per node for Node2Vec.
+        lambda_reg (float): Regularization strength for Node2Vec prior. Default: 1.0.
+        reg_norm (str or float): Norm type for regularization ('cosine' or numeric p-norm). 
+            Default: None (cosine similarity).
+        log_scale (bool): Whether to apply log scaling to regularization distance. 
+            Default: False.
+        device (str): Device to use ('cuda' or 'cpu'). Default: 'cpu'.
+    """
+    
     def __init__(self, 
             dataset: SampleDataset,
-            path:str, 
-            domain_type:list[str], 
-            embedding_dim:int,
-            walk_length:int,
-            num_walks:int
+            path: str, 
+            domain_type: list[str], 
+            embedding_dim: int,
+            walk_length: int,
+            num_walks: int,
+            lambda_reg: float = 1.0,
+            reg_norm: str | float = None,
+            log_scale: bool = False,
+            device: str = "cpu"
         ):
-        """
-        """
+        """Initialize KEEP Embedding model."""
         super().__init__(dataset=dataset)
+        
+        self.embedding_dim = embedding_dim
+        self.lambda_reg = lambda_reg
+        self.reg_norm = reg_norm
+        self.log_scale = log_scale
+        self.device = device
+        self.mode = "regression"  # Set mode for compatibility with BaseModel
+        
+        # Generate Node2Vec embeddings
+        print(f"Initializing Node2Vec with embedding_dim={embedding_dim}...")
         self.n2v = N2V(
             path=path,
             domain_type=domain_type,
@@ -382,7 +249,140 @@ class KeepEmbedding(BaseModel):
             walk_length=walk_length,
             num_walks=num_walks
         )
-    
-    def test(self):
+        
         embedding_matrix = self.n2v.generate_embeddings()
         print(f"Created embedding matrix with shape: {embedding_matrix.shape}")
+        
+        num_words = embedding_matrix.shape[0]
+        
+        # Create learnable embedding and bias parameters
+        self.embeddings_v = nn.Embedding(num_words, embedding_dim)
+        self.embeddings_u = nn.Embedding(num_words, embedding_dim)
+        self.biases_v = nn.Embedding(num_words, 1)
+        self.biases_u = nn.Embedding(num_words, 1)
+        
+        # Initialize with Node2Vec embeddings
+        embedding_tensor = torch.from_numpy(embedding_matrix).float()
+        self.embeddings_v.weight.data.copy_(embedding_tensor)
+        self.embeddings_u.weight.data.copy_(embedding_tensor)
+        
+        # Store initial embeddings for regularization
+        self.register_buffer(
+            "initial_embeddings",
+            embedding_tensor.clone().to(device)
+        )
+        
+        # Initialize biases to zero
+        self.biases_v.weight.data.fill_(0)
+        self.biases_u.weight.data.fill_(0)
+        
+        print(f"Initialized KEEP Embedding with {num_words} tokens")
+        print(f"Embedding dimension: {embedding_dim}")
+        print(f"Regularization lambda: {lambda_reg}")
+        print(f"Regularization norm: {reg_norm}")
+        print(f"Log scaling: {log_scale}")
+    
+    def forward(self, 
+                i_indices: torch.Tensor = None,
+                j_indices: torch.Tensor = None,
+                counts: torch.Tensor = None,
+                weights: torch.Tensor = None,
+                **kwargs) -> dict[str, torch.Tensor]:
+        """Forward pass for KEEP Embedding.
+        
+        Computes GloVe loss with optional Node2Vec regularization. For compatibility
+        with BaseModel.forward(), returns a dictionary with keys: loss, y_prob, 
+        y_true, logit.
+        
+        For training GloVe objective, pass:
+            - i_indices: Token indices (batch_size,)
+            - j_indices: Context token indices (batch_size,)
+            - counts: Co-occurrence counts (batch_size,)
+            - weights: Weights for each co-occurrence pair (batch_size,)
+        
+        Args:
+            i_indices (torch.Tensor, optional): Token indices.
+            j_indices (torch.Tensor, optional): Context token indices.
+            counts (torch.Tensor, optional): Co-occurrence counts.
+            weights (torch.Tensor, optional): Weights for loss terms.
+            **kwargs: Additional arguments for compatibility.
+        
+        Returns:
+            dict: Dictionary with keys:
+                - loss: Total loss (GloVe + regularization if applicable)
+                - logit: Placeholder tensor (for BaseModel compatibility)
+                - y_prob: Placeholder tensor (for BaseModel compatibility)
+                - y_true: Placeholder tensor (for BaseModel compatibility)
+                - reg_loss: Regularization loss component (if applicable)
+        """
+        
+        # If no GloVe inputs provided, return dummy output
+        if i_indices is None or j_indices is None:
+            dummy_loss = torch.tensor(0.0, device=self.device, requires_grad=True)
+            return {
+                "loss": dummy_loss,
+                "logit": dummy_loss,
+                "y_prob": dummy_loss,
+                "y_true": dummy_loss,
+            }
+        
+        # Move inputs to correct device
+        i_indices = i_indices.to(self.device)
+        j_indices = j_indices.to(self.device)
+        counts = counts.to(self.device)
+        weights = weights.to(self.device)
+        
+        # Get embeddings and biases
+        embedding_i = self.embeddings_v(i_indices)  # (batch_size, embedding_dim)
+        embedding_j = self.embeddings_u(j_indices)  # (batch_size, embedding_dim)
+        bias_i = self.biases_v(i_indices).squeeze(-1)  # (batch_size,)
+        bias_j = self.biases_u(j_indices).squeeze(-1)  # (batch_size,)
+        
+        # Compute GloVe loss: weighted squared difference
+        # GloVe objective: w(i,j) * (u_i · v_j + b_i + b_j - log(X_ij))^2
+        dot_product = torch.sum(embedding_i * embedding_j, dim=1)  # (batch_size,)
+        glove_target = torch.log(counts + 1e-8)  # Avoid log(0)
+        
+        squared_diff = (dot_product + bias_i + bias_j - glove_target) ** 2
+        glove_loss = torch.sum(weights * squared_diff)
+        
+        total_loss = glove_loss
+        reg_loss = torch.tensor(0.0, device=self.device)
+        
+        # Add Node2Vec regularization if lambda > 0
+        if self.lambda_reg > 0:
+            # Average embeddings: (u_i + v_i) / 2 and (u_j + v_j) / 2
+            u_plus_v_i = (embedding_i + self.embeddings_u(i_indices)) / 2
+            u_plus_v_j = (embedding_j + self.embeddings_v(j_indices)) / 2
+            
+            # Get initial embeddings
+            initial_i = self.initial_embeddings[i_indices]
+            initial_j = self.initial_embeddings[j_indices]
+            
+            # Compute regularization distance based on norm type
+            if self.reg_norm is None or self.reg_norm == "cosine":
+                # Cosine distance: 1 - cosine_similarity
+                reg_dist_i = 1 - F.cosine_similarity(u_plus_v_i, initial_i, dim=1)
+                reg_dist_j = 1 - F.cosine_similarity(u_plus_v_j, initial_j, dim=1)
+            else:
+                # Lp norm distance
+                p_norm = float(self.reg_norm)
+                reg_dist_i = torch.norm(u_plus_v_i - initial_i, p=p_norm, dim=1)
+                reg_dist_j = torch.norm(u_plus_v_j - initial_j, p=p_norm, dim=1)
+            
+            # Apply log scaling if enabled
+            if self.log_scale:
+                reg_dist_i = torch.log(reg_dist_i + 1e-8)
+                reg_dist_j = torch.log(reg_dist_j + 1e-8)
+            
+            # Compute regularization loss
+            reg_loss = self.lambda_reg * (torch.sum(reg_dist_i) + torch.sum(reg_dist_j))
+            total_loss = glove_loss + reg_loss
+        
+        return {
+            "loss": total_loss,
+            "logit": glove_loss.detach(),  # Return GloVe component as logit for reference
+            "y_prob": torch.zeros(i_indices.shape[0], device=self.device),  # Placeholder
+            "y_true": torch.zeros(i_indices.shape[0], device=self.device),  # Placeholder
+            "reg_loss": reg_loss.detach(),  # Return regularization loss for monitoring
+        }

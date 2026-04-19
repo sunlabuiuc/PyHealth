@@ -44,4 +44,4 @@ from .text_embedding import TextEmbedding
 from .sdoh import SdohClassifier
 from .medlink import MedLink
 from .unified_embedding import UnifiedMultimodalEmbeddingModel, SinusoidalTimeEmbedding
-from .keep_embedding import KeepEmbedding, N2V
+from .keep_embedding import KeepEmbedding
