@@ -1,47 +1,63 @@
+"""T5 encoder backbone with a linear head for PyHealth classification tasks."""
+
 import torch
 import torch.nn as nn
-from transformers import T5EncoderModel, AutoTokenizer
+from transformers import AutoTokenizer, T5EncoderModel
+
 from pyhealth.models import BaseModel
 
 
 class T5Classifier(BaseModel):
+    """Encoder-only T5 (Hugging Face) with pooling and a linear classification head.
+
+    Text inputs are built by concatenating string values for each ``feature_key``
+    in the batch (see :class:`~pyhealth.models.BaseModel`). This fits
+    single-field text tasks (e.g. sentence classification) and simple multi-field
+    concatenation. Uses :class:`transformers.T5EncoderModel` only (not full
+    sequence-to-sequence T5).
+
+    Args:
+        dataset: A :class:`~pyhealth.datasets.SampleDataset` (output of
+            ``dataset.set_task(...)``) providing ``input_schema`` / ``output_schema``.
+        pretrained_model_name: Hugging Face model id (e.g. ``"t5-small"``,
+            ``"google/flan-t5-base"``).
+        max_length: Maximum tokenizer sequence length.
+        dropout: Dropout before the linear head.
+        pooling: ``"mean"`` (masked mean over tokens) or ``"first"`` (first token).
+    """
+
     def __init__(
         self,
         dataset,
         pretrained_model_name="t5-base",
         max_length=256,
         dropout=0.1,
-        pooling="mean",   # "mean" or "first"
+        pooling="mean",
     ):
         super().__init__(dataset=dataset)
 
-        # label setup from BaseModel
         self.label_key = self.label_keys[0]
 
-        # hyperparameters
         self.max_length = max_length
         self.pooling = pooling
 
-        # backbone
         self.tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name)
         self.encoder = T5EncoderModel.from_pretrained(pretrained_model_name)
 
-        # head
         hidden_size = self.encoder.config.d_model
         self.dropout = nn.Dropout(dropout)
         self.classifier = nn.Linear(hidden_size, self.get_output_size())
 
     def forward(self, **samples):
-        """
-        samples = batch from PyHealth (MIMIC-style)
+        """Encode batched text features and return logits (and loss if labels present).
 
-        Example:
-        {
-            "conditions": [...],
-            "procedures": [...],
-            "note": [...],
-            "label": tensor([...])
-        }
+        Args:
+            **samples: Batch dict from the PyHealth collate function. Must include
+                keys in ``feature_keys``; optionally includes ``label_key`` for training.
+
+        Returns:
+            dict: At minimum ``logit`` and ``y_prob``; with labels, also ``loss`` and
+            ``y_true``.
         """
 
         # -----------------------------
@@ -100,7 +116,8 @@ class T5Classifier(BaseModel):
         if self.pooling == "first":
             pooled = hidden[:, 0, :]
         else:
-            pooled = hidden.mean(dim=1)
+            mask = attention_mask.to(hidden.dtype).unsqueeze(-1)
+            pooled = (hidden * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1e-6)
 
         # -----------------------------
         # 5. Head
