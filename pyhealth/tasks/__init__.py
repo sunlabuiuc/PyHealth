@@ -45,6 +45,7 @@ from .mortality_prediction_stagenet_mimic4 import (
     MortalityPredictionStageNetMIMIC4,
 )
 from .patient_linkage import patient_linkage_mimic3_fn
+from .ptbxl_multilabel_classification import PTBXLMultilabelClassification
 from .readmission_prediction import (
     ReadmissionPredictionEICU,
     ReadmissionPredictionMIMIC3,
