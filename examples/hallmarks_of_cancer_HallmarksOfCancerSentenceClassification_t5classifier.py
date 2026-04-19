@@ -10,7 +10,7 @@ This script supports:
 
 **Ablation (course requirement):** compares pooling strategies and learning rates under a
 fixed ``t5-small`` backbone on the same train/validation splits. Metrics are reported on
-the validation split (``f1_macro``, ``hamming_loss``).
+the validation split (``f1_macro``, ``hamming_loss``, plus ``loss`` from the trainer).
 
 First Hugging Face download of ``t5-small`` requires network access once (cached afterward).
 
@@ -124,7 +124,8 @@ def main() -> None:
         {"pooling": "first", "lr": 1e-4, "name": "first_lr1e-4"},
     ]
 
-    metrics = ["f1_macro", "hamming_loss", "loss"]
+    # multilabel_metrics_fn accepts sklearn metric names only; "loss" is added by Trainer.evaluate().
+    metrics = ["f1_macro", "hamming_loss"]
 
     print("=== Hallmarks of Cancer — T5Classifier ablation ===")
     print(f"data_root={data_root}, device={device}, pretrained={args.pretrained}")
