@@ -74,6 +74,10 @@ from pyhealth.models.ehrmamba_embedding import (
     SPECIAL_TYPE_MAX,
     TimeEmbeddingLayer,
 )
+
+# for testing EHRMMamba properly selects correct embeddings
+from pyhealth.models.embedding import EmbeddingModel
+
 from pyhealth.models.ehrmamba_vi import EHRMamba, MambaBlock, RMSNorm
 from pyhealth.tasks.mortality_prediction_ehrmamba_mimic4 import (
     MAX_NUM_VISITS,
@@ -592,7 +596,7 @@ class TestMIMIC4EHRMambaTask(TimedTestCase):
     def test_inter_visit_time_interval_token_present(self) -> None:
         """Multi-visit patient must have a time-interval token between visits.
 
-        Paper §2.1: [W0]–[W3], [M1]–[M12], or [LT] appears between the [REG]
+        Paper §2.1: [W0]-[W3], [M1]-[M12], or [LT] appears between the [REG]
         of one visit and the [VS] of the next.
         """
         task = MIMIC4EHRMambaTask()
@@ -685,7 +689,7 @@ class TestTimeIntervalToken(TimedTestCase):
         self.assertEqual(_time_interval_token(3.0), "[W3]")
 
     def test_monthly_tokens(self) -> None:
-        """Gaps within 1–12 months must map to [M1]–[M12]."""
+        """Gaps within 1-12 months must map to [M1]-[M12]."""
         self.assertEqual(_time_interval_token(5.0), "[M1]")
         self.assertEqual(_time_interval_token(9.0), "[M2]")
         self.assertEqual(_time_interval_token(52.0), "[M12]")
@@ -1199,12 +1203,16 @@ class TestEHRMamba(TimedTestCase):
         → EHRMamba.forward(**batch)
         → set_aux_inputs  (EHRMambaEmbeddingAdapter pattern)
         → EHRMambaEmbedding (§2.2 fusion)
-        → MambaBlock × num_layers
+        → MambaBlock x num_layers
         → get_last_visit → Dropout → Linear → loss / y_prob
 
     A shared model (``cls.ehr_model``), dataset (``cls.sample_ds``), and batch
     (``cls.ehr_batch``) are constructed once in ``setUpClass``.  Tests that
     require a fresh model (backward pass, gradient checks) create their own.
+
+    The shared model is always constructed with ``use_ehr_mamba_embedding=True``
+    so that every forward-pass test exercises the full §2.2 / Eq. 1 embedding
+    path rather than the PyHealth EmbeddingModel fallback.
     """
 
     @classmethod
@@ -1216,6 +1224,7 @@ class TestEHRMamba(TimedTestCase):
             embedding_dim=32,
             num_layers=1,
             dropout=0.1,
+            use_ehr_mamba_embedding=True,
         )
         loader = DataLoader(
             cls.sample_ds,
@@ -1225,6 +1234,56 @@ class TestEHRMamba(TimedTestCase):
         batch = next(iter(loader))
         batch["label"] = batch["label"].float().unsqueeze(-1)
         cls.ehr_batch = batch
+
+    # ── Assertion 2: EHRMambaEmbeddingAdapter is the active embedding ─────────
+
+    def test_embedding_adapter_type(self) -> None:
+        """use_ehr_mamba_embedding=True must install EHRMambaEmbeddingAdapter.
+
+        If EHRMamba silently falls back to the standard EmbeddingModel (e.g.
+        because the default changes), this catches it immediately rather than
+        letting forward-pass tests pass on the wrong code path.
+        """
+        self.assertIsInstance(self.ehr_model.embedding_model, EHRMambaEmbeddingAdapter)
+        self.assertIsInstance(
+            self.ehr_model.embedding_model.embedding, EHRMambaEmbedding
+        )
+
+    # ── Assertion 3: batch contains all auxiliary keys ────────────────────────
+
+    def test_batch_has_auxiliary_keys(self) -> None:
+        """collate_ehr_mamba_batch must include all §2.2 auxiliary tensor keys.
+
+        EHRMamba.forward() gates the set_aux_inputs() call on
+        ``"token_type_ids" in kwargs`` (ehrmamba_vi.py).  If any of these keys
+        are absent the model silently uses bare word+position embeddings instead
+        of the full §2.2 fusion — a silent correctness regression.
+        """
+        required = {"token_type_ids", "time_stamps", "ages", "visit_orders", "visit_segments"}
+        for key in required:
+            self.assertIn(
+                key, self.ehr_batch,
+                msg=f"Auxiliary key '{key}' missing from collated batch.",
+            )
+
+    # ── Assertion 4: use_ehr_mamba_embedding=False uses EmbeddingModel ────────
+
+    def test_false_embedding_flag_uses_pyhealth_embedding_model(self) -> None:
+        """use_ehr_mamba_embedding=False must install PyHealth's EmbeddingModel.
+
+        This is the contrast to test_embedding_adapter_type: it confirms the
+        flag actually switches between the two paths, so a no-op implementation
+        of the flag would be caught.
+        """
+
+        model_std = EHRMamba(
+            dataset=self.sample_ds,
+            embedding_dim=32,
+            num_layers=1,
+            use_ehr_mamba_embedding=False,
+        )
+        self.assertIsInstance(model_std.embedding_model, EmbeddingModel)
+        self.assertNotIsInstance(model_std.embedding_model, EHRMambaEmbeddingAdapter)
 
     def test_instantiation_attributes(self) -> None:
         """Model must store the correct hyperparameters after construction."""
@@ -1284,7 +1343,8 @@ class TestEHRMamba(TimedTestCase):
         import torch.optim as optim
 
         model = EHRMamba(
-            dataset=self.sample_ds, embedding_dim=32, num_layers=1, dropout=0.1
+            dataset=self.sample_ds, embedding_dim=32, num_layers=1, dropout=0.1,
+            use_ehr_mamba_embedding=True,
         )
         model.train()
         optimizer = optim.AdamW(model.parameters(), lr=1e-3)
@@ -1304,7 +1364,8 @@ class TestEHRMamba(TimedTestCase):
         embedding weights receive no gradient and the model cannot be trained.
         """
         model = EHRMamba(
-            dataset=self.sample_ds, embedding_dim=32, num_layers=1, dropout=0.1
+            dataset=self.sample_ds, embedding_dim=32, num_layers=1, dropout=0.1,
+            use_ehr_mamba_embedding=True,
         )
         model.train()
         model(**self.ehr_batch)["loss"].backward()
@@ -1314,7 +1375,8 @@ class TestEHRMamba(TimedTestCase):
     def test_embed_flag(self) -> None:
         """embed=True must add pooled patient-level embeddings to the output dict."""
         model = EHRMamba(
-            dataset=self.sample_ds, embedding_dim=32, num_layers=1, dropout=0.1
+            dataset=self.sample_ds, embedding_dim=32, num_layers=1, dropout=0.1,
+            use_ehr_mamba_embedding=True,
         )
         model.eval()
         with torch.no_grad():
@@ -1330,7 +1392,8 @@ class TestEHRMamba(TimedTestCase):
         loader = DataLoader(ds, batch_size=1, collate_fn=collate_ehr_mamba_batch)
         batch = next(iter(loader))
         batch["label"] = batch["label"].float().unsqueeze(-1)
-        model = EHRMamba(dataset=ds, embedding_dim=16, num_layers=1)
+        model = EHRMamba(dataset=ds, embedding_dim=16, num_layers=1,
+                         use_ehr_mamba_embedding=True)
         model.eval()
         with torch.no_grad():
             out = model(**batch)
@@ -1374,7 +1437,8 @@ class TestEHRMamba(TimedTestCase):
         tmpdir = tempfile.mkdtemp(prefix="ehr_mamba_test_")
         try:
             model = EHRMamba(
-                dataset=self.sample_ds, embedding_dim=32, num_layers=1
+                dataset=self.sample_ds, embedding_dim=32, num_layers=1,
+                use_ehr_mamba_embedding=True,
             )
             path = os.path.join(tmpdir, "model.pt")
             torch.save(model.state_dict(), path)
