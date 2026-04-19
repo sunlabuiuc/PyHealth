@@ -128,7 +128,7 @@ if __name__ == "__main__":
     # Compute attribution for each class in the prediction set
     overlays = []
     for class_idx in predset_class_indices:
-        attr_map = chefer.attribute(class_index=class_idx, **batch)["image"]
+        attr_map = chefer.attribute(target_class_idx=class_idx, **batch)["image"]
         _, _, overlay = visualize_image_attr(
             image=batch["image"][0],
             attribution=attr_map[0, 0],
