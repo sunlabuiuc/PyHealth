@@ -23,6 +23,7 @@ from .drug_recommendation import (
     drug_recommendation_omop_fn,
 )
 from .in_hospital_mortality_mimic4 import InHospitalMortalityMIMIC4
+from .in_hospital_mortality_temporal_mimic4 import InHospitalMortalityTemporalMIMIC4
 from .length_of_stay_prediction import (
     LengthOfStayPredictioneICU,
     LengthOfStayPredictionMIMIC3,
