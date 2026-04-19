@@ -58,7 +58,7 @@ def recommend_ablation_script(deps):
     if deps['torch'] and deps['numpy'] and deps['sklearn']:
         if deps['pyhealth'] and deps['wav2sleep']:
             return {
-                'script': 'sleep_multiclass_wav2sleep_corrected.py',
+                'script': 'sleep_multiclass_wav2sleep_compprehensive.py',
                 'type': 'Full PyHealth Integration',
                 'runtime': '5-10 minutes',
                 'description': 'Complete ablation with PyHealth Trainer and datasets'
@@ -75,7 +75,7 @@ def recommend_ablation_script(deps):
             'script': None,
             'type': 'Missing Dependencies',
             'runtime': 'N/A',
-            'description': 'Install PyTorch, NumPy, and scikit-learn first'
+            'description': 'Install PyTorch, NumPy, Pandas, and scikit-learn first'
         }
 
 

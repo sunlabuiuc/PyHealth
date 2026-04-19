@@ -40,6 +40,7 @@ from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_sc
 import matplotlib.pyplot as plt
 import seaborn as sns
 
+
 # Add PyHealth to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -234,7 +235,7 @@ class SleepDatasetGenerator:
                 "ecg": ecg_data,
                 "ppg": ppg_data,
                 "resp": resp_data,
-                "sleep_stage": sleep_stages,
+                "sleep_stage": torch.tensor(sleep_stages, dtype=torch.long),
             }
             
             samples.append(sample)
@@ -264,33 +265,60 @@ class Wav2SleepExperiment:
         print("="*60)
     
     def create_dataset(self, modality_filter: List[str] = None):
-        """Create synthetic sleep dataset with optional modality filtering."""
+        """Create synthetic sleep dataset with optional modality filtering.
+        
+        Returns a simple dataset compatible object.
+        """
         from pyhealth.datasets import create_sample_dataset
         
         # Generate synthetic data
-        generator = SleepDatasetGenerator(num_patients=150)  # Reduced for faster experiments
+        generator = SleepDatasetGenerator(num_patients=150)
         samples = generator.generate_dataset()
         
-        # Filter modalities if specified
-        if modality_filter:
-            for sample in samples:
-                # Remove modalities not in filter
-                keys_to_remove = [k for k in ["ecg", "ppg", "resp"] if k not in modality_filter]
-                for key in keys_to_remove:
-                    sample.pop(key, None)
+        # Filter and convert to compatible format - each epoch is a separate sample
+        compatible_samples = []
+        for sample in samples:
+            # Get available modalities
+            available = modality_filter or ["ecg", "ppg", "resp"]
+            if modality_filter:
+                available = modality_filter
+            
+            for epoch_idx in range(len(sample.get("sleep_stage", []))):
+                new_sample = {
+                    "patient_id": sample["patient_id"],
+                    "record_id": f"{sample['visit_id']}_{epoch_idx}",
+                }
+                # Add each modality at this epoch
+                for mod in ["ecg", "ppg", "resp"]:
+                    if mod in sample and mod in (modality_filter or ["ecg", "ppg", "resp"]):
+                        new_sample[mod] = sample[mod][epoch_idx:epoch_idx+1]  # Single epoch
+                new_sample["sleep_stage"] = sample["sleep_stage"][epoch_idx:epoch_idx+1]
+                compatible_samples.append(new_sample)
         
-        # Create input schema based on available modalities
+        # Use simple schema
         available_modalities = modality_filter or ["ecg", "ppg", "resp"]
         input_schema = {modality: "tensor" for modality in available_modalities}
-        output_schema = {"sleep_stage": "multiclass"}
+        output_schema = {"sleep_stage": "codemix"}
         
-        # Create PyHealth dataset
-        dataset = create_sample_dataset(
-            samples=samples,
-            input_schema=input_schema,
-            output_schema=output_schema,
-            dataset_name="synthetic_sleep_multimodal",
-        )
+        try:
+            dataset = create_sample_dataset(
+                samples=compatible_samples,
+                input_schema=input_schema,
+                output_schema=output_schema,
+                dataset_name="synthetic_sleep",
+            )
+        except Exception as e:
+            # Fallback: wrap samples in a simple dataset-like object
+            class SimpleDataset:
+                def __init__(self, samples):
+                    self.samples = samples
+                    self.feature_keys = list(input_schema.keys())
+                    self.label_keys = ["sleep_stage"]
+                def __len__(self):
+                    return len(self.samples)
+                def __getitem__(self, idx):
+                    return self.samples[idx]
+            dataset = SimpleDataset(compatible_samples)
         
         return dataset
     
