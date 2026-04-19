@@ -2,6 +2,9 @@ import tempfile
 import shutil
 import unittest
 from pathlib import Path
+from typing import List
+from dataclasses import dataclass
+from unittest.mock import patch
 
 import dask.dataframe as dd
 import numpy as np
@@ -35,8 +38,8 @@ def write_database_csv(path, records):
 @dataclass
 class _DummyEvent:
     """Event stub for task unit tests"""
-    signal_file: str
-    label: str
+    mat: str
+    dx_codes: str
 
     # Override __getattr__ with the dummy data
     def __getattr__(self, name):
@@ -58,7 +61,7 @@ class _DummyPatient:
 class TestPTBXLDataset(unittest.TestCase):
     """Test PTBXLDataset with synthetic test data"""
 
-    # Create records with (record_id, age, sex, dx_codes, strat_fold); at minimum need 1 and 8 for 
+    # Create records with (record_id, age, sex, dx_codes, strat_fold); at minimum need 1, 8, 9, 10 
     RECORDS = [
         ("HR00001", 56, "Female", "251146004,426783006", 1),  # train
         ("HR00002", 37, "Female", "426783006",           8),  # train
@@ -67,7 +70,7 @@ class TestPTBXLDataset(unittest.TestCase):
     ]
 
     @classmethod
-    def setUp(cls):
+    def setUpClass(cls):
         """Create a temporary directory with 4 synthetic .hea/.mat pairs and a matching ptbxl_database.csv"""
         cls.test_dir = tempfile.mkdtemp()
         for record_id, age, sex, dx, _ in cls.RECORDS:
@@ -85,7 +88,7 @@ class TestPTBXLDataset(unittest.TestCase):
         cls.df = cls.dataset.load_data().compute().set_index("patient_id")
 
     @classmethod
-    def tearDown(cls):
+    def tearDownClass(cls):
         shutil.rmtree(cls.test_dir)
 
     def test_dataset_instantiation(self):
@@ -234,6 +237,8 @@ class TestPTBXLDataset(unittest.TestCase):
 class TestPTBXLMultilabelClassification(unittest.TestCase):
     """Test task PTBXLMultilabelClassification with synthetic test data"""
 
+    SIGNAL = np.random.randn(12, 5000).astype(np.float32)
+
     def test_label_type_diagnostic(self):    
         """Test 22 - Test creating a new task with label_type of diagnostic"""
         task = PTBXLMultilabelClassification(label_type="diagnostic", sampling_rate=500)
@@ -246,7 +251,7 @@ class TestPTBXLMultilabelClassification(unittest.TestCase):
         with self.assertRaises(ValueError):
             PTBXLMultilabelClassification(sampling_rate=99)          
 
-    def test_invalid_sampling_rate_raises_error(self):
+    def test_invalid_label_type_raises_error(self):
         """Test 24 - Test that a unhandled label_type raises a ValueError"""      
         with self.assertRaises(ValueError):
             PTBXLMultilabelClassification(label_type="diag")      
@@ -255,7 +260,7 @@ class TestPTBXLMultilabelClassification(unittest.TestCase):
         """Test 25 - Test that a valid superdiagnostic abbreviation returns a valid sample""" 
         task = PTBXLMultilabelClassification(label_type="superdiagnostic", sampling_rate=500)   
         patient = _DummyPatient("HR00001", [_DummyEvent("test.mat", "164890007")])
-        with patch("scipy.io.loadmat", return_value={"val": self.SIGNAL}):
+        with patch("yhealth.tasks.ptbxl_multilabel_classification._loadmat", return_value={"val": self.SIGNAL}):
             samples = task(patient)
         self.assertEqual(len(samples), 1)
         self.assertIn("signal", samples[0])
@@ -267,23 +272,23 @@ class TestPTBXLMultilabelClassification(unittest.TestCase):
         """Test 26 - Test that a sampling rate of 100Hz shrinks the signal shape""" 
         task = PTBXLMultilabelClassification(sampling_rate=100)
         patient = _DummyPatient("HR00001", [_DummyEvent("test.mat", "164890007")])
-        with patch("scipy.io.loadmat", return_value={"val": self.SIGNAL}):
+        with patch("pyhealth.tasks.ptbxl_multilabel_classification._loadmat", return_value={"val": self.SIGNAL}):
             samples = task(patient)
         self.assertEqual(samples[0]["signal"].shape, (12, 1000))       
 
     def test_unknown_code_produces_no_samples(self):
-        """Test 28 - Test records with no mappable SNOMED codes produce no samples"""
+        """Test 27 - Test records with no mappable SNOMED codes produce no samples"""
         task = PTBXLMultilabelClassification()
         patient = _DummyPatient("HR00001", [_DummyEvent("test.mat", "999999999")])
-        with patch("scipy.io.loadmat", return_value={"val": self.SIGNAL}):
+        with patch("pyhealth.tasks.ptbxl_multilabel_classification._loadmat", return_value={"val": self.SIGNAL}):
             samples = task(patient)
         self.assertEqual(len(samples), 0)
 
     def test_diagnostic_returns_snomed_codes(self):
-        """Test 29 - Test diagnostic label_type returns SNOMED codes not superclass names"""
+        """Test 28 - Test diagnostic label_type returns SNOMED codes not superclass names"""
         task = PTBXLMultilabelClassification(label_type="diagnostic", sampling_rate=500)
         patient = _DummyPatient("HR00001", [_DummyEvent("test.mat", "270492004")])
-        with patch("scipy.io.loadmat", return_value={"val": self.SIGNAL}):
+        with patch("pyhealth.tasks.ptbxl_multilabel_classification._loadmat", return_value={"val": self.SIGNAL}):
             samples = task(patient)
         self.assertEqual(len(samples), 1)
         self.assertIn("270492004", samples[0]["labels"])
