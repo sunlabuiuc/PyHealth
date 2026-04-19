@@ -26,7 +26,9 @@ from datetime import datetime, timedelta
 from sklearn.metrics import average_precision_score
 from sksurv.metrics import concordance_index_censored
 from pyhealth.tasks.dynamic_survival import DynamicSurvivalTask
-from pyhealth.datasets import MIMIC3Dataset
+
+# use import if running on real MIMIC
+# from pyhealth.datasets import MIMIC3Dataset
 
 from examples.synthetic_dataset import generate_synthetic_dataset
 
