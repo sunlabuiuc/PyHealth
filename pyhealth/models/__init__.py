@@ -2,6 +2,7 @@ from .adacare import AdaCare, AdaCareLayer, MultimodalAdaCare
 from .agent import Agent, AgentLayer
 from .base_model import BaseModel
 from .biot import BIOT
+from .bilstm_ecg import BiLSTMECG
 from .cnn import CNN, CNNLayer
 from .concare import ConCare, ConCareLayer
 from .contrawr import ContraWR, ResBlock2D
