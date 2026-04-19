@@ -69,7 +69,7 @@ FINETUNE_BATCH = 16
 PRETRAIN_LR = 3e-4
 FINETUNE_LR = 1e-3
 WEIGHT_DECAY = 1e-5
-TEMPERATURE = 0.5
+TEMPERATURE = 0.07
 SEED = 42
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "datasets")
@@ -141,11 +141,11 @@ def load_tensors(ds_dir: str, split: str = "train"):
 # =====================================================================
 
 
-def nt_xent_loss(z_list, temperature=0.5):
+def nt_xent_loss(z_list, temperature=0.07):
     """NT-Xent contrastive loss across all view pairs.
 
-    Uses L2-normalized embeddings and a safe temperature to prevent
-    numerical overflow in the softmax/cross-entropy computation.
+    Uses L2-normalized embeddings. Temperature 0.07 matches the original
+    paper's setting (sharper similarity distribution for harder negatives).
     """
     loss = 0.0
     n_pairs = 0
@@ -154,8 +154,6 @@ def nt_xent_loss(z_list, temperature=0.5):
             zi = F.normalize(z_list[i], dim=1)
             zj = F.normalize(z_list[j], dim=1)
             B = zi.size(0)
-            # With L2-normalized vectors, sim values are in [-1, 1].
-            # Dividing by temperature=0.5 gives range [-2, 2], safe for exp().
             sim = torch.mm(zi, zj.t()) / temperature
             labels = torch.arange(B, device=sim.device)
             loss += (
@@ -265,46 +263,16 @@ def finetune_and_eval(model, tgt_train_X, tgt_train_y, tgt_test_X, tgt_test_y,
         shuffle=False,
     )
 
+    feat_key = model.feature_keys[0]
+    label_key = model.label_keys[0]
+
     with torch.no_grad():
         for x_batch, y_batch in test_loader:
-            x_batch = x_batch.to(DEVICE)
-            # Direct forward without PyHealth dataset wrapper
-            x_in = torch.nan_to_num(x_batch.float())
-            if x_in.dim() == 2:
-                x_in = x_in.unsqueeze(1)
-
-            xt, dx, xf = MultiViewContrastive.compute_views(x_in)
-            hiddens = model._encode_all_views(xt, dx, xf)
-
-            if model.interaction_layer is not None and len(model._active_views) == 3:
-                ht_i, hd_i, hf_i = model.interaction_layer(
-                    hiddens["t"], hiddens["d"], hiddens["f"]
-                )
-                interaction = {"t": ht_i, "d": hd_i, "f": hf_i}
-            else:
-                interaction = None
-
-            embeddings = []
-            for v in model._active_views:
-                h_mean = hiddens[v].mean(dim=1)
-                if interaction is not None:
-                    h_i_mean = interaction[v].mean(dim=1)
-                    proj_input = torch.cat([h_mean, h_i_mean], dim=-1)
-                else:
-                    proj_input = h_mean
-                z = model.output_projs[v](proj_input)
-                embeddings.append(z)
-
-            if model.fusion_type == "attention":
-                stacked = torch.stack(embeddings, dim=1)
-                attn_out, _ = model.self_attention(stacked)
-                fused = (attn_out + stacked).reshape(stacked.shape[0], -1)
-            elif model.fusion_type == "concat":
-                fused = torch.cat(embeddings, dim=-1)
-            else:
-                fused = torch.stack(embeddings, dim=0).mean(dim=0)
-
-            logits = model.fc(fused)
+            # Use the same forward path as fine-tuning to guarantee
+            # identical preprocessing, view construction, and fusion.
+            batch = {feat_key: x_batch, label_key: y_batch}
+            ret = model(**batch)
+            logits = ret["logit"]
             probs = F.softmax(logits, dim=-1)
 
             all_preds.append(logits.argmax(dim=-1).cpu())
