@@ -1,0 +1,20 @@
+version: "1.0.0"
+
+tables:
+    qtdb:
+        file_path: "qtdb-pyhealth.csv"
+        patient_id: "patient_id"
+        timestamp: null
+        attributes:
+            - "visit_id"
+            - "record_id"
+            - "signal_file"
+            - "lead_0"
+            - "lead_1"
+            - "ann_atr"
+            - "ann_man"
+            - "ann_qt1"
+            - "ann_q1c"
+            - "ann_pu"
+            - "ann_pu0"
+            - "ann_pu1"
