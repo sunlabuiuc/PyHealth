@@ -240,6 +240,8 @@ class EEGGCNNRawDataset(BaseDataset):
         sfreq: float = 250.0,
         window_seconds: float = 10.0,
         standard_1010_src: Optional[str] = None,
+        max_tuab: Optional[int] = None,
+        max_lemon: Optional[int] = None,
     ) -> None:
         """Preprocess all raw recordings and save features to *output_dir*.
 
@@ -262,6 +264,10 @@ class EEGGCNNRawDataset(BaseDataset):
             standard_1010_src: Optional path to a full
                 ``standard_1010.tsv.txt``.  When omitted an 8-row subset is
                 written automatically.
+            max_tuab: Maximum number of TUAB subjects to process. ``None``
+                means process all available subjects.
+            max_lemon: Maximum number of LEMON subjects to process. ``None``
+                means process all available subjects.
         """
         out = Path(output_dir)
         out.mkdir(parents=True, exist_ok=True)
@@ -280,11 +286,16 @@ class EEGGCNNRawDataset(BaseDataset):
         # underlying neurological conditions — they form the "diseased" class.
         # TUAB abnormal recordings are excluded from the binary task.
         tuab_base = root / "tuab" if (root / "tuab").is_dir() else root
+        tuab_count = 0
         for split in ("train", "eval"):
+            if max_tuab is not None and tuab_count >= max_tuab:
+                break
             edf_dir = tuab_base / split / "normal" / "01_tcp_ar"
             if not edf_dir.is_dir():
                 continue
             for edf_path in sorted(edf_dir.glob("*.edf")):
+                if max_tuab is not None and tuab_count >= max_tuab:
+                    break
                 patient_id = edf_path.stem.split("_")[0]
                 n_before = len(all_X)
                 self._process_recording(
@@ -294,11 +305,15 @@ class EEGGCNNRawDataset(BaseDataset):
                 )
                 logger.info("[TUAB] %s → %d windows (diseased).",
                             edf_path.name, len(all_X) - n_before)
+                tuab_count += 1
 
         # --- collect LEMON recordings ---
         lemon_dir = root / "lemon"
+        lemon_count = 0
         if lemon_dir.is_dir():
             for sub_dir in sorted(lemon_dir.iterdir()):
+                if max_lemon is not None and lemon_count >= max_lemon:
+                    break
                 if not sub_dir.is_dir():
                     continue
                 vhdr_path = sub_dir / f"{sub_dir.name}.vhdr"
@@ -312,6 +327,7 @@ class EEGGCNNRawDataset(BaseDataset):
                 )
                 logger.info("[LEMON] %s → %d windows (healthy).",
                             vhdr_path.name, len(all_X) - n_before)
+                lemon_count += 1
 
         if not all_X:
             raise RuntimeError(

@@ -64,6 +64,20 @@ def parse_args() -> argparse.Namespace:
         default="both",
         help="Which data source(s) to process (default: both).",
     )
+    p.add_argument(
+        "--max-tuab",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Limit to the first N TUAB subjects (default: all).",
+    )
+    p.add_argument(
+        "--max-lemon",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Limit to the first N LEMON subjects (default: all).",
+    )
     return p.parse_args()
 
 
@@ -80,13 +94,22 @@ def main() -> None:
         print("Set --root to a directory containing tuab/ and/or lemon/ subdirectories.")
         sys.exit(1)
 
+    max_tuab  = args.max_tuab
+    max_lemon = args.max_lemon
+
     print(f"\nEEG-GCNN Feature Precomputation")
     print(f"  raw data  : {args.root}")
     print(f"  output    : {args.output}")
-    print(f"  subset    : {args.subset}\n")
+    print(f"  subset    : {args.subset}")
+    print(f"  max TUAB  : {max_tuab  if max_tuab  is not None else 'all'}")
+    print(f"  max LEMON : {max_lemon if max_lemon is not None else 'all'}\n")
 
     dataset = EEGGCNNRawDataset(root=args.root, subset=args.subset)
-    dataset.precompute_features(output_dir=args.output)
+    dataset.precompute_features(
+        output_dir=args.output,
+        max_tuab=max_tuab,
+        max_lemon=max_lemon,
+    )
 
     print(f"\nDone. Five pre-computed files written to: {args.output}")
     print("Next step: python training_pipeline_shallow_gcnn.py")

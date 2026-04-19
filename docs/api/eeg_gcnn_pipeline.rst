@@ -242,6 +242,9 @@ Preprocess raw TUAB and LEMON recordings into the five files required by
     # Precompute features from raw TUAB + LEMON
     python pre_compute_gcnn.py --root raw_data --output precomputed_data
 
+    # Limit subjects for a fast validation run
+    python pre_compute_gcnn.py --max-tuab 10 --max-lemon 10
+
     # Train the GCN on the precomputed features
     python training_pipeline_shallow_gcnn.py
 
@@ -268,6 +271,13 @@ Programmatic Usage
     # 2. Run the full preprocessing pipeline and write the 5 output files
     dataset.precompute_features(output_dir="/path/to/precomputed_data")
 
+    # Optional: limit subjects for a faster dev run
+    dataset.precompute_features(
+        output_dir="/path/to/precomputed_data",
+        max_tuab=10,
+        max_lemon=10,
+    )
+
     # 3. Load the pre-computed features with EEGGCNNDataset for training
     from pyhealth.datasets import EEGGCNNDataset
     train_ds = EEGGCNNDataset(root="/path/to/precomputed_data")
@@ -292,6 +302,13 @@ Key options:
     NUM_EPOCHS    = 100
     LEARNING_RATE = 0.01
     MAX_PATIENTS  = None   # set e.g. 20 for a fast dev run
+
+.. note::
+
+   To limit how many subjects are included at the *precompute* stage (before
+   training), use the ``--max-tuab`` / ``--max-lemon`` flags of
+   ``pre_compute_gcnn.py`` or the ``max_tuab`` / ``max_lemon`` arguments of
+   :meth:`~pyhealth.datasets.EEGGCNNRawDataset.precompute_features`.
 
 Class imbalance (~7:1 TUAB:LEMON) is handled with
 ``WeightedRandomSampler`` during training.
