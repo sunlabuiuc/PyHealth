@@ -392,11 +392,32 @@ class EEGGCNNRawDataset(BaseDataset):
             label_list.append(label)
 
     @staticmethod
+    def _fix_vhdr_references(vhdr_path: Path) -> None:
+        """Patch DataFile/MarkerFile lines to match actual files on disk.
+
+        LEMON archives ship with the new sub-032XXX filename scheme but the
+        .vhdr header still contains the old sub-010XXX internal references.
+        MNE fails if the referenced files are not found by their exact names.
+        """
+        import re
+        text = vhdr_path.read_text(encoding="utf-8", errors="replace")
+        directory = vhdr_path.parent
+        eeg_files  = sorted(directory.glob("*.eeg"))
+        vmrk_files = sorted(directory.glob("*.vmrk"))
+        if not eeg_files or not vmrk_files:
+            return
+        patched = re.sub(r"(?m)^DataFile=.*$",   f"DataFile={eeg_files[0].name}",   text)
+        patched = re.sub(r"(?m)^MarkerFile=.*$", f"MarkerFile={vmrk_files[0].name}", patched)
+        if patched != text:
+            vhdr_path.write_text(patched, encoding="utf-8")
+
+    @staticmethod
     def _load_raw(path: Path, source: str, sfreq: float) -> mne.io.BaseRaw:
         if source == "tuab":
             raw = mne.io.read_raw_edf(str(path), verbose=False, preload=True)
             line_freq = 60.0
         else:
+            EEGGCNNRawDataset._fix_vhdr_references(path)
             raw = mne.io.read_raw_brainvision(str(path), verbose=False, preload=True)
             line_freq = 50.0
 
