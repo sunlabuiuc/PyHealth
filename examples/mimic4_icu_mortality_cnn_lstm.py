@@ -7,10 +7,10 @@ This script demonstrates the CNNLSTMPredictor model from:
 
 Ablation Study
 --------------
-The original paper uses fixed hyperparameters (e.g. learning rate =
-1/n_params). This ablation investigates whether varying these
-hyperparameters improves model
-performance on 28-day ICU mortality prediction.
+The original paper uses fixed hyperparameters for learning rate, hidden
+dimension, dropout, and batch size (e.g. learning rate = 1/n_params).
+This ablation investigates whether varying these hyperparameters improves
+model performance on 28-day ICU mortality prediction.
 
 Hyperparameters varied:
     1. Learning rate: [0.0001, 0.0005, 0.001, 0.005, 0.01]
