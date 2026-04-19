@@ -1,0 +1,11 @@
+version: "1.0"
+tables:
+  metadata:
+    file_path: "caresound_metadata.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+      - "dataset"
+      - "question"
+      - "answer"
+      - "hf_split"
