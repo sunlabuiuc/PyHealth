@@ -140,6 +140,7 @@ class PTBXLDataset(BaseDataset):
     def __init__(
         self,
         root: str,
+        dataset_name: Optional[str] = None,
         **kwargs,
     ) -> None:
         super().__init__(
