@@ -21,7 +21,7 @@ import torch
 import torch.nn as nn
 
 from pyhealth.tasks.dynamic_survival import DynamicSurvivalTask
-from examples.synthetic_dataset import generate_synthetic_dataset
+from synthetic_dataset import generate_synthetic_dataset
 
 
 # ======================
