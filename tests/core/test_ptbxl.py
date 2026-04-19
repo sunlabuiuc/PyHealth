@@ -24,7 +24,7 @@ def write_hea_file(path, record_id, age, sex, dx):
         f.write("#Sx: Unknown\n")
 
 def write_mat_file(path):
-    scipy.io.savemat(str(path), {"val": np.random.randn(12, 5000)})
+    scipy.io.savemat(str(path), {"val": np.random.randn(12, 1)})
 
 def write_database_csv(path, records):
     pd.DataFrame({
