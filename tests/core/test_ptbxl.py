@@ -43,32 +43,35 @@ class TestPTBXLDataset(unittest.TestCase):
         ("HR00004", 45, "Female", "164889003",           10), # test
     ]
 
-    def setUp(self):
+    @classmethod
+    def setUp(cls):
         """Create a temporary directory with 4 synthetic .hea/.mat pairs and a matching ptbxl_database.csv"""
-        self.test_dir = tempfile.mkdtemp()
-        for record_id, age, sex, dx, _ in self.RECORDS:
+        cls.test_dir = tempfile.mkdtemp()
+        for record_id, age, sex, dx, _ in cls.RECORDS:
             write_hea_file(
-                Path(self.test_dir) / f"{record_id}.hea",
+                Path(cls.test_dir) / f"{record_id}.hea",
                 record_id, age, sex, dx
             )
-            write_mat_file(Path(self.test_dir) / f"{record_id}.mat")
+            write_mat_file(Path(cls.test_dir) / f"{record_id}.mat")
         write_database_csv(
-            Path(self.test_dir) / "ptbxl_database.csv",
-            self.RECORDS
+            Path(cls.test_dir) / "ptbxl_database.csv",
+            cls.RECORDS
         )
+        
+        cls.dataset = PTBXLDataset(root=cls.test_dir)
+        cls.df = cls.dataset.load_data().compute().set_index("patient_id")
 
-    def tearDown(self):
-        shutil.rmtree(self.test_dir)
+    @classmethod
+    def tearDown(cls):
+        shutil.rmtree(cls.test_dir)
 
     def test_instantiation(self):
         """Test 1 - Dataset can be instantiated"""
-        dataset = PTBXLDataset(root=self.test_dir)
-        self.assertIsNotNone(dataset)
+        self.assertIsNotNone(self.dataset)
 
     def test_dataset_name_default(self):
         """Test 2 - Default dataset name is ptbxl"""
-        dataset = PTBXLDataset(root=self.test_dir)
-        self.assertEqual(dataset.dataset_name, "ptbxl")
+        self.assertEqual(self.dataset.dataset_name, "ptbxl")
 
     def test_dataset_name_custom(self):
         """Test 3 - Can set a custom dataset name"""
@@ -77,9 +80,7 @@ class TestPTBXLDataset(unittest.TestCase):
 
     def test_default_task_returns_task_instance(self):
         """Test 4 - default_task() returns a PTBXLMultilabelClassification instance"""
-        ds = PTBXLDataset.__new__(PTBXLDataset)
-        task = ds.default_task
-        self.assertIsInstance(task, PTBXLMultilabelClassification)
+        self.assertIsInstance(self.dataset.default_task, PTBXLMultilabelClassification)
 
     def test_classes_attribute(self):
         """Test 5 - The list of strings CLASSES exists and is not empty"""
@@ -89,79 +90,61 @@ class TestPTBXLDataset(unittest.TestCase):
 
     def test_load_data_returns_dask_dataframe(self):
         """Test 6 - load_data() returns a Dask DataFrame"""
-        dataset = PTBXLDataset(root=self.test_dir)
-        self.assertIsInstance(dataset.load_data(), dd.DataFrame)
+        self.assertIsInstance(self.dataset.load_data(), dd.DataFrame)
 
     def test_load_data_row_count(self):
         """Test 7 - load_data() returns one row per .hea file"""
-        df = PTBXLDataset(root=self.test_dir).load_data().compute()
-        self.assertEqual(len(df), len(self.RECORDS))
+        self.assertEqual(len(self.df), len(self.RECORDS))
 
     def test_load_data_required_columns(self):
         """Test 8 - load_data() output contains all required BaseDataset columns"""
-        df = PTBXLDataset(root=self.test_dir).load_data().compute()
         for col in ["patient_id", "event_type", "timestamp"]:
-            self.assertIn(col, df.columns, f"Missing required column: {col}")
+            self.assertIn(col, self.df.reset_index().columns, f"Missing required column: {col}")
 
     def test_load_data_attribute_columns(self):
         """Test 9 - load_data() output contains all ptbxl/ attribute columns"""
-        df = PTBXLDataset(root=self.test_dir).load_data().compute()
         for col in ["ptbxl/mat", "ptbxl/age", "ptbxl/sex",
                     "ptbxl/dx_codes", "ptbxl/dx_abbreviations", "ptbxl/split"]:
-            self.assertIn(col, df.columns, f"Missing attribute column: {col}")
+            self.assertIn(col, self.df.columns, f"Missing attribute column: {col}")
 
     def test_load_data_event_type(self):
         """Test 10 - All rows have event_type == ptbxl"""
-        df = PTBXLDataset(root=self.test_dir).load_data().compute()
-        self.assertTrue((df["event_type"] == "ptbxl").all())
+        self.assertTrue((self.df["event_type"] == "ptbxl").all())
 
     def test_age_parsed_correctly(self):
         """Test 11 - Ages are parsed correctly from .hea files"""
-        df = PTBXLDataset(root=self.test_dir).load_data().compute()
-        df = df.set_index("patient_id")
-        self.assertEqual(df.loc["HR00001", "ptbxl/age"], 56)
+        self.assertEqual(self.df.loc["HR00001", "ptbxl/age"], 56)
 
     def test_sex_parsed_correctly(self):
         """Test 12 - Sex is parsed correctly from .hea files"""
-        df = PTBXLDataset(root=self.test_dir).load_data().compute()
-        df = df.set_index("patient_id")
-        self.assertEqual(df.loc["HR00001", "ptbxl/sex"], "Female")
-        self.assertEqual(df.loc["HR00003", "ptbxl/sex"], "Male")
+        self.assertEqual(self.df.loc["HR00001", "ptbxl/sex"], "Female")
+        self.assertEqual(self.df.loc["HR00003", "ptbxl/sex"], "Male")
 
     def test_dx_codes_parsed_correctly(self):
         """Test 13 - SNOMED CT codes are parsed correctly from .hea files."""
-        df = PTBXLDataset(root=self.test_dir).load_data().compute()
-        df = df.set_index("patient_id")
-        self.assertEqual(df.loc["HR00001", "ptbxl/dx_codes"], "251146004,426783006")
-        self.assertEqual(df.loc["HR00003", "ptbxl/dx_codes"], "426783006")
+        self.assertEqual(self.df.loc["HR00001", "ptbxl/dx_codes"], "251146004,426783006")
+        self.assertEqual(self.df.loc["HR00003", "ptbxl/dx_codes"], "426783006")
 
     def test_dx_abbreviations_mapped_correctly(self):
         """Test 14 - SNOMED CT codes are mapped to correct abbreviations"""
-        df = PTBXLDataset(root=self.test_dir).load_data().compute()
-        df = df.set_index("patient_id")
-        self.assertIn("NSR",   df.loc["HR00001", "ptbxl/dx_abbreviations"])
-        self.assertIn("AF",    df.loc["HR00004", "ptbxl/dx_abbreviations"])
+        self.assertIn("NSR",   self.df.loc["HR00001", "ptbxl/dx_abbreviations"])
+        self.assertIn("AF",    self.df.loc["HR00004", "ptbxl/dx_abbreviations"])
 
     def test_mat_file_path_correct(self):
         """Test 15 - .mat file paths point to the correct location"""
-        df = PTBXLDataset(root=self.test_dir).load_data().compute()
-        df = df.set_index("patient_id")
         expected = str(Path(self.test_dir) / "HR00001.mat")
-        self.assertEqual(df.loc["HR00001", "ptbxl/mat"], expected)
+        self.assertEqual(self.df.loc["HR00001", "ptbxl/mat"], expected)
 
     def test_split_values(self):
         """Test 16 - Split column only contains train, val, or test"""
-        df = PTBXLDataset(root=self.test_dir).load_data().compute()
-        self.assertTrue(df["ptbxl/split"].isin(["train", "val", "test"]).all())
+        self.assertTrue(self.df["ptbxl/split"].isin(["train", "val", "test"]).all())
 
     def test_split_from_strat_fold(self):
         """Test 17 - Splits are correctly assigned from strat_fold values"""
-        df = PTBXLDataset(root=self.test_dir).load_data().compute()
-        df = df.set_index("patient_id")
-        self.assertEqual(df.loc["HR00001", "ptbxl/split"], "train")  # fold 1
-        self.assertEqual(df.loc["HR00002", "ptbxl/split"], "train")  # fold 8
-        self.assertEqual(df.loc["HR00003", "ptbxl/split"], "val")    # fold 9
-        self.assertEqual(df.loc["HR00004", "ptbxl/split"], "test")   # fold 10
+        self.assertEqual(self.df.loc["HR00001", "ptbxl/split"], "train")  # fold 1
+        self.assertEqual(self.df.loc["HR00002", "ptbxl/split"], "train")  # fold 8
+        self.assertEqual(self.df.loc["HR00003", "ptbxl/split"], "val")    # fold 9
+        self.assertEqual(self.df.loc["HR00004", "ptbxl/split"], "test")   # fold 10
 
     def test_unknown_snomed_code_skipped(self):
         """Test 18 - SNOMED codes not in mapping are skipped without error"""
