@@ -153,7 +153,7 @@ def run_keep_pipeline(
     reg_reduction: str = "mean",
     optimizer: str = "adamw",
     min_occurrences: int = 2,
-    device: str = "cpu",
+    device: str = "cuda",
     seed: int = 42,
     dev: bool = False,
 ) -> str:
