@@ -5,8 +5,9 @@ This script supports:
 
 1. **Synthetic demo data** (``--demo``): writes a small ``hallmarks_of_cancer.csv`` under a
    temporary directory so you can run without downloading anything.
-2. **Real data**: set ``--data_root`` to a folder containing ``hallmarks_of_cancer.csv``
-   (see ``examples/data_prep/export_hallmarks_of_cancer_bigbio.py``).
+2. **Real data**: set ``--data_root`` to an **existing** folder on your machine that
+   contains ``hallmarks_of_cancer.csv`` (not a placeholder like ``/path/to/...``).
+   See ``examples/data_prep/export_hallmarks_of_cancer_bigbio.py`` to build the CSV.
 
 **Ablation (course requirement):** compares pooling strategies and learning rates under a
 fixed ``t5-small`` backbone on the same train/validation splits. Metrics are reported on
@@ -110,8 +111,22 @@ def main() -> None:
     else:
         if not args.data_root:
             raise SystemExit("Provide --data_root or use --demo.")
-        data_root = args.data_root
-        cache_parent = Path(data_root).parent / "hoc_example_cache"
+        root_path = Path(args.data_root).expanduser().resolve()
+        if not root_path.is_dir():
+            raise SystemExit(
+                f"--data_root must be an existing directory. Not found: {root_path}\n"
+                "Use a real path (e.g. ~/data/hoc) containing hallmarks_of_cancer.csv, "
+                "not a documentation placeholder like /path/to/folder_with_csv."
+            )
+        csv_path = root_path / "hallmarks_of_cancer.csv"
+        if not csv_path.is_file():
+            raise SystemExit(
+                f"Expected CSV at {csv_path}. Export it with "
+                "examples/data_prep/export_hallmarks_of_cancer_bigbio.py or copy the file there."
+            )
+        data_root = str(root_path)
+        # Keep caches inside the data folder so we never try to mkdir under bogus paths like /path/.
+        cache_parent = root_path / ".hoc_pyhealth_cache"
         cache_parent.mkdir(parents=True, exist_ok=True)
 
     train_ds, val_ds, train_loader, val_loader = _build_dataloaders(
