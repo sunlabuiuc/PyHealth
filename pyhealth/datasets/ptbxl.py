@@ -1,3 +1,24 @@
+"""
+PyHealth dataset for the PTBXL dataset.
+
+Data links:
+    .hea / .mat files: https://www.kaggle.com/datasets/physionet/ptbxl-electrocardiography-database
+    .csv: https://physionet.org/content/ptb-xl/1.0.1/ptbxl_database.csv
+    Note that to run this properly the .csv needs to be in the same folder as the dataset
+
+Dataset paper:
+    Wagner, P., Strodthoff, N., Bousseljot, R., Samek, W., and Schaeffter, T. (2020) 
+    'PTB-XL, a large publicly available electrocardiography dataset' (version 1.0.1), PhysioNet. 
+    RRID:SCR_007345. Available at: https://doi.org/10.13026/x4td-x982
+    
+Dataset paper link:
+    https://physionet.org/content/ptb-xl/1.0.1/
+
+Authors:
+    Anurag Dixit - anuragd2@illinois.edu
+    Kent Spillner - kspillne@illinois.edu
+    John Wells - jtwells2@illinois.edu
+"""
 import logging
 import pandas as pd
 import dask.dataframe as dd
@@ -10,7 +31,6 @@ from pyhealth.tasks import PTBXLMultilabelClassification
 logger = logging.getLogger(__name__)
 
 """Full list of possible diagnoses for the PTB-XL dataset provided here: https://github.com/physionetchallenges/physionetchallenges.github.io/blob/master/2020/Dx_map.csv
-
 Not all codes are present in the data but they are included for completeness, as referenced in the Data Description section here: https://physionet.org/content/challenge-2020/1.0.2/
 """
 SNOMED_CT_ABBREVIATION = {
@@ -133,6 +153,25 @@ class PTBXLDataset(BaseDataset):
     PTB-XL is a publically available electrocardiography dataset. Contains 21837 samples from 18885 patients, all approximately 10 seconds in duration.
 
     Dataset is available here: https://www.kaggle.com/datasets/physionet/ptbxl-electrocardiography-database
+    File with train / test splits available here: https://physionet.org/content/ptb-xl/1.0.1/ptbxl_database.csv
+
+    Files in the dataset are in the format HR00001.mat / HR00001.hea. The .hea files contain patient data including age, sex, and diagnosis codes.
+    The .mat files contain the ECG signal data of shape (12, 5000), mapping to 10 seconds of data sampled at 500Hz for the 12 ECG leads. 
+    The associated .csv file must be in the same directory as the .hea / .mat files. 
+
+    Args:
+        root (str): Root directory of the raw data (.mat files, .hea files, .csv file).
+        dataset_name (str): Name of the dataset, PTBXL by default.
+
+    Attributes:
+        root (str): Root directory of the raw data (.mat files, .hea files, .csv file).
+        dataset_name (str): Name of the dataset, PTBXL by default.
+        tables (List[str]): Name of the data table(s), PTBXL by default. 
+        CLASSES (List[str]): Constant list of available diagnoses in the dataset as SNOMED CT abbreviations. 
+        default_task (PTBXLMultilabelClassification): Default task for this dataset.
+
+    Examples:
+        >>> dataset = PTBXLDataset(root="./data")
     """
 	
     CLASSES = list(SNOMED_CT_ABBREVIATION.values())
@@ -153,9 +192,23 @@ class PTBXLDataset(BaseDataset):
 
     def load_data(self) -> dd.DataFrame:
         """Returns a dataframe with each individual row corresponding to each .hea/.mat file combination in the PTB-XL dataset.
+        Uses the stratified fold assignments from ptbxl_database.csv - 1 through 8 for train, 9 for validation, 10 for test.
 
         Returns:
-          dd.DataFrame: Dataframe with one row per record
+            dd.DataFrame: Dataframe with one row per record with the following columns:
+                patient_id (str):               .hea file identifier starting with HR
+                event_type (str):               "ptbxl" (only one event type in the dataset)
+                timestamp (NaT):                pd.NaT (no timestamps available in the dataset)
+                ptbxl/mat (str):                Path to the associated .mat file
+                ptbxl/age (str):                Patient age
+                ptbxl/sex (str):                Patient sex
+                ptbxl/dx_codes (str):           Patient SNOMED CT diagnosis codes
+                ptbxl/dx_abbreviations (str):   Patient SNOMED CT diagnosis abbreviations
+				ptbxl/split":                   Stratified fold assignment "train" / "test" / "val"        
+
+        Raises:
+            FileNotFoundError: If no .hea files are found in root.
+            FileNotFoundError: If ptbxl_database.csv is not found in root
         """
         root_path = Path(self.root)
         files = sorted(root_path.glob("*.hea")) 
