@@ -204,6 +204,12 @@ def parse_args():
     default=1,
     help="Number of CPU workers for task transformations"
 )
+    parser.add_argument(
+    "--cache_dir",
+    type=str,
+    default=None,
+    help="Path to the PyHealth cache directory.",
+)
     return parser.parse_args()
 
 
@@ -247,6 +253,7 @@ def main():
             "pyhealth/datasets/configs/mimic4_ehr_tpc.yaml",
         ),
         dev=args.dev,
+        cache_dir=args.cache_dir, # Added proper cache directory support
     )
 
     task_dataset = base_dataset.set_task(
@@ -376,8 +383,6 @@ def main():
     print(f"model input_dim: {input_dim}")
     print(f"model static_dim: {static_dim}")
 
-    # Use patient-level split when possible. For very small synthetic datasets,
-    # reuse one non-empty split for validation so Trainer can run.
     num_samples = len(task_dataset)
 
     if num_samples < 20:
@@ -395,23 +400,23 @@ def main():
     print(f"val samples: {len(val_ds)}")
     print(f"test samples: {len(test_ds)}")
 
+
     train_loader = get_dataloader(
         train_ds,
         batch_size=args.batch_size,
         shuffle=True,
-        #num_workers=args.num_workers,
+        #num_workers=dl_workers,
     )
     val_loader = get_dataloader(val_ds,
         batch_size=args.batch_size,
         shuffle=False,
-        #num_workers=args.num_workers,
+        #num_workers=dl_workers,
     )
     test_loader = get_dataloader(test_ds,
         batch_size=args.batch_size,
         shuffle=False,
-        #num_workers=args.num_workers,
+        #num_workers=dl_workers,
     )
-
 
     model = TPC(
         dataset=task_dataset,
@@ -426,9 +431,10 @@ def main():
         loss_name=args.loss,
     )
 
+    
     trainer = Trainer(
         model=model,
-        device="cpu",
+        device="cuda" if torch.cuda.is_available() else "cpu",
         enable_logging=False,
     )
 

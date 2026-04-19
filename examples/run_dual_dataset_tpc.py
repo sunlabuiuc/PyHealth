@@ -195,10 +195,17 @@ def build_eicu_command(args) -> List[str]:
         str(args.eicu_max_samples),
         "--loss",
         str(args.eicu_loss),
+        # Pass the parallel worker count to leverage the i9
+        "--num_workers",
+        str(args.num_workers),
     ]
 
     if args.eicu_root:
         cmd.extend(["--root", args.eicu_root])
+
+    # Pass the external cache directory to avoid re-processing
+    if hasattr(args, 'eicu_cache_dir') and args.eicu_cache_dir:
+        cmd.extend(["--cache_dir", args.eicu_cache_dir])
 
     if args.dev:
         cmd.append("--dev")
@@ -220,18 +227,19 @@ def build_mimic_command(args) -> List[str]:
     cmd = [
         sys.executable,
         "examples/mimic4_hourly_los_tpc.py",
-        "--epochs",
-        str(args.mimic_epochs),
-        "--batch_size",
-        str(args.batch_size),
-        "--max_samples",
-        str(args.mimic_max_samples),
-        "--loss",
-        str(args.mimic_loss),
+        "--epochs", str(args.mimic_epochs),
+        "--batch_size", str(args.batch_size),
+        "--max_samples", str(args.mimic_max_samples),
+        "--loss", str(args.mimic_loss),
+        "--num_workers", str(args.num_workers),
     ]
 
     if args.mimic_root:
         cmd.extend(["--root", args.mimic_root])
+
+    # Pass the MIMIC-IV cache directory
+    if hasattr(args, 'mimic_cache_dir') and args.mimic_cache_dir:
+        cmd.extend(["--cache_dir", args.mimic_cache_dir])
 
     if args.dev:
         cmd.append("--dev")
@@ -287,6 +295,9 @@ def parse_args():
     )
     parser.add_argument("--skip_eicu", action="store_true", help="Skip the eICU run")
     parser.add_argument("--skip_mimic", action="store_true", help="Skip the MIMIC-IV run")
+    parser.add_argument("--num_workers", type=int, default=1, help="Parallel workers for both datasets.")
+    parser.add_argument("--eicu_cache_dir", type=str, default=None, help="Cache path for eICU.")
+    parser.add_argument("--mimic_cache_dir", type=str, default=None, help="Cache path for MIMIC-IV.")
     return parser.parse_args()
 
 
