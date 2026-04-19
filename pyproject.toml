@@ -98,7 +98,8 @@ preview = ["pixi-build"]
 
 # virtual environments (each under '.pixi/envs') for specific tasks
 [tool.pixi.environments]
-default = { features = ["pyverbase"], solve-group = "default" }
+# Include `base` so `pixi run python` sees editable `pyhealth` (not only `pixi run -e base`).
+default = { features = ["pyverbase", "base"], solve-group = "default" }
 test = { features = ["pyverbase", "test"] }
 base = { features = ["pyverbase", "base"] }
 nlp = { features = ["pyverbase", "nlp"] }
