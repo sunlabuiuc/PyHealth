@@ -134,36 +134,43 @@ We varied key optimization and architectural hyperparameters (e.g. learning rate
 ### eICU example
 
 ```bash
-EICU_ROOT=/path/to/synthetic/eicu \
+EICU_ROOT=/path/to/synthetic/eicu/data \
 PYTHONPATH=. python3 examples/eicu_hourly_los_tpc.py \
   --epochs 1 \
   --batch_size 2 \
   --max_samples 8 \
-  --channel_mode full
+  --model_variant full \
+  --loss msle \
+  --num_workers 1
 ```
 
 ### MIMIC-IV example
 
 ```bash
-MIMIC4_ROOT=/path/to/synthetic/mimic4 \
+MIMIC4_ROOT=/path/to/synthetic/mimic4/data \
 PYTHONPATH=. python3 examples/mimic4_hourly_los_tpc.py \
   --epochs 1 \
   --batch_size 2 \
   --max_samples 8 \
-  --channel_mode full
+  --loss msle \
+  --num_workers 1
 ```
 
 ### Combined dual-dataset run
 
 ```bash
-EICU_ROOT=/path/to/synthetic/eicu \
-MIMIC4_ROOT=/path/to/synthetic/mimic4 \
+EICU_ROOT=/path/to/synthetic/eicu/data \
+MIMIC4_ROOT=/path/to/synthetic/mimic4/data \
 PYTHONPATH=. python3 examples/run_dual_dataset_tpc.py \
+  --eicu_cache_dir /path/to/eicu/cache/location
+  --mimic_cache_dir /path/to/mimic/cache/location
   --eicu_max_samples 8 \
   --mimic_max_samples 8 \
   --eicu_epochs 1 \
   --mimic_epochs 1 \
-  --channel_mode full
+  --model_variant full \
+  --loss msle \
+  --num_workers 1
 ```
 
 ## Notes on Real Data
