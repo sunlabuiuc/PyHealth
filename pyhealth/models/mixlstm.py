@@ -358,13 +358,15 @@ def lstm_ortho_initializer(shape, scale=1.0):
     t[:, size_h*3:] = orthogonal([size_x, size_h])*scale
     return t
 
-class mixLSTM(BaseModel):
+class MixLSTM(BaseModel):
 
     def __init__(self, dataset: SampleDataset, num_experts=2, hidden_size=100):
-        super(mixLSTM, self).__init__(dataset)
+        super(MixLSTM, self).__init__(dataset)
 
         #Process dataset to get input dimension and time steps
         input_keys = list(dataset.input_processors.keys())
+        # remember the primary input key so Trainer can call model(**batch)
+        self.input_key = input_keys[0]
         sample = dataset[0]
         val = sample[input_keys[0]]
         if isinstance(val, (list, tuple)):
@@ -394,7 +396,10 @@ class mixLSTM(BaseModel):
         self.hidden_size = hidden_size
         self.model.setKT(num_experts, self.time_steps)
         
-    def forward(self, x):
+    def forward(self, **kwargs):
+        # Extract input tensor when called as `model(**batch)` by Trainer.
+        x = kwargs.get(self.input_key)
+
         # change x from (bs, seq_len, d) => (seq_len, bs, d)
         x = x.permute(1, 0, 2)
         batch_size = x.size(1)
@@ -407,8 +412,27 @@ class mixLSTM(BaseModel):
         
         states = (h, c)
         outputs, states = self.model(x, states)
-        
-        return outputs.permute(1, 0, 2)
+
+        # outputs: (seq_len, batch, num_classes) -> (batch, seq_len, num_classes)
+        logits_seq = outputs.permute(1, 0, 2)
+
+        # For sequence models used for classification tasks, provide a
+        # per-sample logit by selecting the last timestep.
+        logits = logits_seq[:, -1, :]
+
+        results = {}
+        results["logit"] = logits
+        results["y_prob"] = self.prepare_y_prob(logits)
+
+        # If labels were provided in kwargs (Trainer passes them), compute loss
+        if hasattr(self, "label_keys") and len(self.label_keys) > 0 and self.label_keys[0] in kwargs:
+            y_true = kwargs[self.label_keys[0]].to(self.device)
+            loss_fn = self.get_loss_function()
+            loss = loss_fn(logits, y_true)
+            results["loss"] = loss
+            results["y_true"] = y_true
+
+        return results
 
     def after_backward(self):
         return 
