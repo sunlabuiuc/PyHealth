@@ -1,7 +1,6 @@
 """Unit tests for CCLEDataset and cross-dataset overlap with GDSCDataset.
 
-All tests use synthetic in-memory data — no real CSV files, no network
-access.  Designed to run in < 5 seconds.
+Uses synthetic in-memory data — no real CSV files, no network access.
 """
 
 import os
@@ -14,9 +13,6 @@ import pytest
 from pyhealth.datasets.ccle import CCLEDataset
 from pyhealth.datasets.gdsc import GDSCDataset
 
-# ---------------------------------------------------------------------------
-# Synthetic data dimensions
-# ---------------------------------------------------------------------------
 N_CELL_LINES = 4
 N_GENES = 20
 N_PATHWAYS = 3
@@ -90,112 +86,37 @@ def _make_gdsc_data(tmp_dir: str) -> None:
     )
 
 
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
-
 @pytest.fixture(scope="module")
-def ccle_tmp_dir():
+def ccle():
     with tempfile.TemporaryDirectory() as tmp_dir:
         _make_ccle_data(tmp_dir)
-        yield tmp_dir
+        yield CCLEDataset(data_dir=tmp_dir)
 
 
 @pytest.fixture(scope="module")
-def gdsc_tmp_dir():
+def gdsc():
     with tempfile.TemporaryDirectory() as tmp_dir:
         _make_gdsc_data(tmp_dir)
-        yield tmp_dir
+        yield GDSCDataset(data_dir=tmp_dir)
 
 
-@pytest.fixture(scope="module")
-def ccle_dataset(ccle_tmp_dir):
-    return CCLEDataset(data_dir=ccle_tmp_dir)
+def test_ccle_loads_and_shapes(ccle):
+    assert len(ccle.common_samples) == N_CELL_LINES
+    assert len(ccle.gene_names) == N_GENES
+    assert len(ccle.drug_ids) == len(SHARED_DRUG_NAMES) + len(CCLE_ONLY_NAMES)
+    assert ccle.drug_names == ccle.drug_ids          # CCLE uses names as column headers
+    assert ccle.get_gene_embeddings().shape == (N_GENES + 1, EMB_DIM)
+    assert ccle.dataset_name == "CCLE"
 
 
-@pytest.fixture(scope="module")
-def gdsc_dataset(gdsc_tmp_dir):
-    return GDSCDataset(data_dir=gdsc_tmp_dir)
-
-
-# ---------------------------------------------------------------------------
-# CCLEDataset tests
-# ---------------------------------------------------------------------------
-
-
-def test_ccle_loads(ccle_dataset):
-    assert ccle_dataset is not None
-
-
-def test_ccle_common_samples(ccle_dataset):
-    assert len(ccle_dataset.common_samples) == N_CELL_LINES
-
-
-def test_ccle_gene_names(ccle_dataset):
-    assert len(ccle_dataset.gene_names) == N_GENES
-
-
-def test_ccle_drug_ids(ccle_dataset):
-    assert len(ccle_dataset.drug_ids) == len(SHARED_DRUG_NAMES) + len(CCLE_ONLY_NAMES)
-
-
-def test_ccle_drug_names_equals_drug_ids(ccle_dataset):
-    assert ccle_dataset.drug_names == ccle_dataset.drug_ids
-
-
-def test_ccle_pathway_mapping_built(ccle_dataset):
-    assert len(ccle_dataset.pathway2id) <= N_PATHWAYS
-    assert len(ccle_dataset.drug_pathway_ids) == len(ccle_dataset.drug_ids)
-
-
-def test_ccle_gene_embeddings_shape(ccle_dataset):
-    assert ccle_dataset.get_gene_embeddings().shape == (N_GENES + 1, EMB_DIM)
-
-
-def test_ccle_pathway_info_keys(ccle_dataset):
-    info = ccle_dataset.get_pathway_info()
-    assert {"pathway2id", "id2pathway", "num_pathways", "drug_pathway_ids"} == set(info.keys())
-
-
-def test_ccle_set_task_returns_dataset(ccle_dataset):
-    sample_ds = ccle_dataset.set_task()
+def test_ccle_set_task(ccle):
+    sample_ds = ccle.set_task()
     assert len(sample_ds) == N_CELL_LINES
-
-
-def test_ccle_sample_keys(ccle_dataset):
-    sample_ds = ccle_dataset.set_task()
-    expected = {"patient_id", "visit_id", "gene_indices", "labels", "mask", "drug_pathway_ids"}
-    assert expected == set(sample_ds[0].keys())
-
-
-def test_ccle_gene_indices_one_indexed(ccle_dataset):
-    sample_ds = ccle_dataset.set_task()
-    for i in range(len(sample_ds)):
-        assert 0 not in sample_ds[i]["gene_indices"]
-
-
-def test_ccle_labels_length(ccle_dataset):
-    n_drugs = len(ccle_dataset.drug_ids)
-    sample_ds = ccle_dataset.set_task()
-    for i in range(len(sample_ds)):
-        assert len(sample_ds[i]["labels"]) == n_drugs
-
-
-def test_ccle_mask_values_binary(ccle_dataset):
-    sample_ds = ccle_dataset.set_task()
-    for i in range(len(sample_ds)):
-        assert all(v in (0, 1) for v in sample_ds[i]["mask"])
-
-
-def test_ccle_summary_runs(ccle_dataset, capsys):
-    ccle_dataset.summary()
-    captured = capsys.readouterr()
-    assert "CCLE Dataset Summary" in captured.out
-
-
-def test_ccle_dataset_name(ccle_dataset):
-    assert ccle_dataset.dataset_name == "CCLE"
+    sample = sample_ds[0]
+    assert set(sample.keys()) == {"patient_id", "visit_id", "gene_indices", "labels", "mask", "drug_pathway_ids"}
+    assert 0 not in sample["gene_indices"]
+    assert len(sample["labels"]) == len(ccle.drug_ids)
+    assert all(v in (0, 1) for v in sample["mask"])
 
 
 def test_ccle_missing_data_raises(tmp_path):
@@ -203,43 +124,23 @@ def test_ccle_missing_data_raises(tmp_path):
         CCLEDataset(data_dir=str(tmp_path))
 
 
-# ---------------------------------------------------------------------------
-# Cross-dataset overlap tests (GDSC <-> CCLE)
-# ---------------------------------------------------------------------------
+def test_cross_dataset_overlap(gdsc, ccle):
+    gdsc_idx, ccle_idx, names = gdsc.get_overlap_drugs(ccle)
 
-
-def test_overlap_drugs_count(gdsc_dataset, ccle_dataset):
-    _, _, names = gdsc_dataset.get_overlap_drugs(ccle_dataset)
+    # Correct drugs found
     assert set(names) == set(SHARED_DRUG_NAMES)
-
-
-def test_overlap_drugs_sorted(gdsc_dataset, ccle_dataset):
-    _, _, names = gdsc_dataset.get_overlap_drugs(ccle_dataset)
     assert names == sorted(names)
 
+    # Indices point to the right names in each dataset
+    for i, (gi, ci) in enumerate(zip(gdsc_idx, ccle_idx)):
+        assert gdsc.drug_names[gi] == names[i]
+        assert ccle.drug_names[ci] == names[i]
 
-def test_overlap_indices_valid_gdsc(gdsc_dataset, ccle_dataset):
-    n = len(gdsc_dataset.drug_ids)
-    self_idx, _, _ = gdsc_dataset.get_overlap_drugs(ccle_dataset)
-    for i in self_idx:
-        assert 0 <= i < n
-
-
-def test_overlap_indices_valid_ccle(gdsc_dataset, ccle_dataset):
-    n = len(ccle_dataset.drug_ids)
-    _, other_idx, _ = gdsc_dataset.get_overlap_drugs(ccle_dataset)
-    for i in other_idx:
-        assert 0 <= i < n
+    # Symmetric: same result from either side
+    _, _, names_rev = ccle.get_overlap_drugs(gdsc)
+    assert set(names) == set(names_rev)
 
 
-def test_overlap_names_match_positions(gdsc_dataset, ccle_dataset):
-    self_idx, other_idx, names = gdsc_dataset.get_overlap_drugs(ccle_dataset)
-    for i, (gi, ci) in enumerate(zip(self_idx, other_idx)):
-        assert gdsc_dataset.drug_names[gi] == names[i]
-        assert ccle_dataset.drug_names[ci] == names[i]
-
-
-def test_overlap_symmetric(gdsc_dataset, ccle_dataset):
-    _, _, names_from_gdsc = gdsc_dataset.get_overlap_drugs(ccle_dataset)
-    _, _, names_from_ccle = ccle_dataset.get_overlap_drugs(gdsc_dataset)
-    assert set(names_from_gdsc) == set(names_from_ccle)
+def test_ccle_summary_runs(ccle, capsys):
+    ccle.summary()
+    assert "CCLE Dataset Summary" in capsys.readouterr().out

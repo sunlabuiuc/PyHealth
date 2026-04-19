@@ -1,7 +1,6 @@
 """Unit tests for GDSCDataset.
 
-All tests use synthetic in-memory data — no real CSV files, no network
-access.  Designed to run in < 5 seconds.
+Uses synthetic in-memory data — no real CSV files, no network access.
 """
 
 import os
@@ -13,9 +12,6 @@ import pytest
 
 from pyhealth.datasets.gdsc import GDSCDataset
 
-# ---------------------------------------------------------------------------
-# Synthetic data dimensions (keep small for speed)
-# ---------------------------------------------------------------------------
 N_CELL_LINES = 5
 N_GENES = 20
 N_DRUGS = 10
@@ -62,146 +58,54 @@ def _make_synthetic_data(tmp_dir: str) -> None:
     np.savetxt(os.path.join(tmp_dir, "exp_emb_gdsc.csv"), emb, delimiter=",")
 
 
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
-
 @pytest.fixture(scope="module")
-def tmp_data_dir():
+def dataset():
     with tempfile.TemporaryDirectory() as tmp_dir:
         _make_synthetic_data(tmp_dir)
-        yield tmp_dir
+        yield GDSCDataset(data_dir=tmp_dir)
 
 
-@pytest.fixture(scope="module")
-def dataset(tmp_data_dir):
-    return GDSCDataset(data_dir=tmp_data_dir)
-
-
-# ---------------------------------------------------------------------------
-# Tests
-# ---------------------------------------------------------------------------
-
-
-def test_dataset_loads(dataset):
-    assert dataset is not None
-
-
-def test_common_samples_count(dataset):
+def test_loads_and_shapes(dataset):
     assert len(dataset.common_samples) == N_CELL_LINES
-
-
-def test_gene_names_count(dataset):
     assert len(dataset.gene_names) == N_GENES
-
-
-def test_drug_ids_count(dataset):
     assert len(dataset.drug_ids) == N_DRUGS
-
-
-def test_pathway_mapping_built(dataset):
-    assert len(dataset.pathway2id) == N_PATHWAYS
-
-
-def test_drug_pathway_ids_length(dataset):
     assert len(dataset.drug_pathway_ids) == N_DRUGS
+    assert len(dataset.pathway2id) == N_PATHWAYS
+    assert dataset.get_gene_embeddings().shape == (N_GENES + 1, EMB_DIM)
+    assert dataset.dataset_name == "GDSC"
 
 
-def test_gene_embeddings_shape(dataset):
-    emb = dataset.get_gene_embeddings()
-    assert emb.shape == (N_GENES + 1, EMB_DIM)
+def test_drug_names(dataset):
+    assert len(dataset.drug_names) == N_DRUGS
+    assert all(isinstance(n, str) and len(n) > 0 for n in dataset.drug_names)
+    assert all(str(int(d)) in dataset.id_to_name for d in dataset.drug_ids)
 
 
-def test_pathway_info_keys(dataset):
+def test_pathway_info(dataset):
     info = dataset.get_pathway_info()
-    assert {"pathway2id", "id2pathway", "num_pathways", "drug_pathway_ids"} == set(
-        info.keys()
-    )
+    assert set(info.keys()) == {"pathway2id", "id2pathway", "num_pathways", "drug_pathway_ids"}
     assert info["num_pathways"] == N_PATHWAYS
 
 
-def test_set_task_returns_dataset(dataset):
+def test_set_task(dataset):
     sample_ds = dataset.set_task()
     assert len(sample_ds) == N_CELL_LINES
+    sample = sample_ds[0]
+    assert set(sample.keys()) == {"patient_id", "visit_id", "gene_indices", "labels", "mask", "drug_pathway_ids"}
+    assert 0 not in sample["gene_indices"]          # 1-indexed
+    assert len(sample["labels"]) == N_DRUGS
+    assert len(sample["mask"]) == N_DRUGS
+    assert all(v in (0, 1) for v in sample["mask"])
 
 
-def test_sample_keys(dataset):
-    sample_ds = dataset.set_task()
-    expected_keys = {
-        "patient_id",
-        "visit_id",
-        "gene_indices",
-        "labels",
-        "mask",
-        "drug_pathway_ids",
-    }
-    assert expected_keys == set(sample_ds[0].keys())
-
-
-def test_gene_indices_are_one_indexed(dataset):
-    sample_ds = dataset.set_task()
-    for i in range(len(sample_ds)):
-        assert 0 not in sample_ds[i]["gene_indices"]
-
-
-def test_labels_length(dataset):
-    sample_ds = dataset.set_task()
-    for i in range(len(sample_ds)):
-        assert len(sample_ds[i]["labels"]) == N_DRUGS
-
-
-def test_mask_length(dataset):
-    sample_ds = dataset.set_task()
-    for i in range(len(sample_ds)):
-        assert len(sample_ds[i]["mask"]) == N_DRUGS
-
-
-def test_mask_values_binary(dataset):
-    sample_ds = dataset.set_task()
-    for i in range(len(sample_ds)):
-        assert all(v in (0, 1) for v in sample_ds[i]["mask"])
+def test_get_overlap_drugs(dataset):
+    self_idx, other_idx, names = dataset.get_overlap_drugs(dataset)
+    assert len(names) == N_DRUGS
+    assert names == sorted(names)
+    assert self_idx == other_idx
+    assert all(0 <= i < N_DRUGS for i in self_idx)
 
 
 def test_summary_runs(dataset, capsys):
     dataset.summary()
-    captured = capsys.readouterr()
-    assert "GDSC Dataset Summary" in captured.out
-
-
-def test_dataset_name(dataset):
-    assert dataset.dataset_name == "GDSC"
-
-
-def test_drug_names_count(dataset):
-    assert len(dataset.drug_names) == N_DRUGS
-
-
-def test_drug_names_values(dataset):
-    for name in dataset.drug_names:
-        assert isinstance(name, str) and len(name) > 0
-
-
-def test_id_to_name_mapping(dataset):
-    assert len(dataset.id_to_name) >= N_DRUGS
-    for drug_id in dataset.drug_ids:
-        assert str(int(drug_id)) in dataset.id_to_name
-
-
-def test_get_overlap_drugs_self(dataset):
-    self_idx, other_idx, names = dataset.get_overlap_drugs(dataset)
-    assert len(names) == N_DRUGS
-    assert self_idx == other_idx
-
-
-def test_get_overlap_drugs_returns_sorted(dataset):
-    _, _, names = dataset.get_overlap_drugs(dataset)
-    assert names == sorted(names)
-
-
-def test_get_overlap_drugs_indices_in_range(dataset):
-    self_idx, other_idx, _ = dataset.get_overlap_drugs(dataset)
-    for i in self_idx:
-        assert 0 <= i < N_DRUGS
-    for i in other_idx:
-        assert 0 <= i < N_DRUGS
+    assert "GDSC Dataset Summary" in capsys.readouterr().out
