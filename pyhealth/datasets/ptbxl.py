@@ -164,9 +164,9 @@ class PTBXLDataset(BaseDataset):
         logger.info(f"Found {len(files)} .hea files")
 
 		# Check existence of required .csv file (for the train/test/val splits)
-		if not (root_path / "ptbxl_database.csv").exists():
-			raise FileNotFoundError(f"No ptbxl_database.csv file found in {self.root}. Does it exist in this directory?")
-		db = pd.read_csv(root_path / "ptbxl_database.csv", index_col="ecg_id")
+        if not (root_path / "ptbxl_database.csv").exists():
+            raise FileNotFoundError(f"No ptbxl_database.csv file found in {self.root}. Does it exist in this directory?")
+        db = pd.read_csv(root_path / "ptbxl_database.csv", index_col="ecg_id")
 		
         rows = []
         for hea_file in files:
@@ -193,13 +193,13 @@ class PTBXLDataset(BaseDataset):
             dx_abbreviations = [SNOMED_CT_ABBREVIATION[x] for x in dx if x in SNOMED_CT_ABBREVIATION]
 
 			# Train / test / validation splits using the strat_fold column in ptbxl_database.csv
-			strat_fold = db.loc[int(hea_file.stem.replace("HR","")), "strat_fold"]
-			if fold <= 8:
-				split = "train"
-			elif fold == 9:
-				split = "val"
-			else:
-				split = "test"
+            strat_fold = db.loc[int(hea_file.stem.replace("HR","")), "strat_fold"]
+            if fold <= 8:
+                split = "train"
+            elif fold == 9:
+                split = "val"
+            else:
+                split = "test"
 			
             # Append required data to the list                 
             rows.append({
@@ -219,11 +219,11 @@ class PTBXLDataset(BaseDataset):
         logger.info(f"Parsed {len(df)} records.")
         return dd.from_pandas(df, npartitions=1)
 
-	@property
+    @property
     def default_task(self) -> PTBXLMultilabelClassification:
-		"""Returns the default task for the PTBXL dataset: PTBXLMultilabelClassification.
+        """Returns the default task for the PTBXL dataset: PTBXLMultilabelClassification.
         
         Returns:
             PTBXLMultilabelClassification: The default task instance created with the default label type and sampling rate.
         """
-		return PTBXLMultilabelClassification()
+        return PTBXLMultilabelClassification()
