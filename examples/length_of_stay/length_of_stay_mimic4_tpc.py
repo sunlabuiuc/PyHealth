@@ -14,7 +14,8 @@ MIMIC-IV via ``EHR_ROOT``.
 Suggested usage:
     python examples/length_of_stay/length_of_stay_mimic4_tpc.py
     python examples/length_of_stay/length_of_stay_mimic4_tpc.py --quick-test
-    EHR_ROOT=/path/to/mimiciv/2.2 python examples/length_of_stay/length_of_stay_mimic4_tpc.py
+    EHR_ROOT=/path/to/mimiciv/2.2 \
+        python examples/length_of_stay/length_of_stay_mimic4_tpc.py
 
 Ablations included:
     - kernel size
@@ -180,9 +181,21 @@ def run_ablation(
             ratios=[0.7, 0.1, 0.2],
         )
 
-    train_loader = get_dataloader(train_dataset, batch_size=config["batch_size"], shuffle=True)
-    val_loader = get_dataloader(val_dataset, batch_size=config["batch_size"], shuffle=False)
-    test_loader = get_dataloader(test_dataset, batch_size=config["batch_size"], shuffle=False)
+    train_loader = get_dataloader(
+        train_dataset,
+        batch_size=config["batch_size"],
+        shuffle=True,
+    )
+    val_loader = get_dataloader(
+        val_dataset,
+        batch_size=config["batch_size"],
+        shuffle=False,
+    )
+    test_loader = get_dataloader(
+        test_dataset,
+        batch_size=config["batch_size"],
+        shuffle=False,
+    )
 
     model = TPC(
         dataset=sample_dataset,

@@ -6,7 +6,8 @@ Overview
 
 Contributor: Hasham Ul Haq (huhaq2)
 
-Paper: `Temporal Pointwise Convolutional Networks for Length of Stay Prediction in the Intensive Care Unit <https://arxiv.org/abs/2007.09483>`_
+Paper: `Temporal Pointwise Convolutional Networks for Length of Stay
+Prediction in the Intensive Care Unit <https://arxiv.org/abs/2007.09483>`_
 
 This contribution adds a PyHealth-adapted implementation of Temporal
 Pointwise Convolution (TPC) for sequential EHR modeling. The model follows the

@@ -85,7 +85,11 @@ class TPCBlock(nn.Module):
         )
         self.dropout = nn.Dropout(dropout)
 
-    def forward(self, x: torch.Tensor, mask: Optional[torch.Tensor] = None) -> torch.Tensor:
+    def forward(
+        self,
+        x: torch.Tensor,
+        mask: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
         """Run the residual TPC block.
 
         Args:
@@ -286,7 +290,10 @@ class TPC(BaseModel):
             self.time_projections[feature_key] = nn.Linear(1, embedding_dim)
 
         self.dropout = nn.Dropout(dropout)
-        self.fc = nn.Linear(len(self.feature_keys) * embedding_dim, self.get_output_size())
+        self.fc = nn.Linear(
+            len(self.feature_keys) * embedding_dim,
+            self.get_output_size(),
+        )
 
     @staticmethod
     def _split_temporal(feature: Any) -> Tuple[Optional[torch.Tensor], Any]:

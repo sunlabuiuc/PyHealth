@@ -100,7 +100,9 @@ class TestTPCLayer(unittest.TestCase):
         outputs, pooled = layer(x, mask)
         self.assertEqual(outputs.shape, (3, 5, 16))
         self.assertEqual(pooled.shape, (3, 16))
-        self.assertTrue(torch.allclose(outputs[0, 3:], torch.zeros_like(outputs[0, 3:])))
+        self.assertTrue(
+            torch.allclose(outputs[0, 3:], torch.zeros_like(outputs[0, 3:]))
+        )
 
 
 class TestTPC(unittest.TestCase):
@@ -130,7 +132,9 @@ class TestTPC(unittest.TestCase):
 
     def test_binary_forward(self):
         model = TPC(dataset=self.binary_dataset, embedding_dim=32, hidden_dim=64)
-        batch = next(iter(get_dataloader(self.binary_dataset, batch_size=2, shuffle=False)))
+        batch = next(
+            iter(get_dataloader(self.binary_dataset, batch_size=2, shuffle=False))
+        )
 
         with torch.no_grad():
             ret = model(**batch)
@@ -159,7 +163,9 @@ class TestTPC(unittest.TestCase):
 
     def test_backward(self):
         model = TPC(dataset=self.binary_dataset, embedding_dim=16, hidden_dim=32)
-        batch = next(iter(get_dataloader(self.binary_dataset, batch_size=2, shuffle=False)))
+        batch = next(
+            iter(get_dataloader(self.binary_dataset, batch_size=2, shuffle=False))
+        )
 
         ret = model(**batch)
         ret["loss"].backward()
@@ -168,11 +174,16 @@ class TestTPC(unittest.TestCase):
             param.requires_grad and param.grad is not None
             for param in model.parameters()
         )
-        self.assertTrue(has_gradient, "No parameters have gradients after backward pass")
+        self.assertTrue(
+            has_gradient,
+            "No parameters have gradients after backward pass",
+        )
 
     def test_embed_output(self):
         model = TPC(dataset=self.binary_dataset, embedding_dim=20, hidden_dim=40)
-        batch = next(iter(get_dataloader(self.binary_dataset, batch_size=2, shuffle=False)))
+        batch = next(
+            iter(get_dataloader(self.binary_dataset, batch_size=2, shuffle=False))
+        )
         batch["embed"] = True
 
         with torch.no_grad():
