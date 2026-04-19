@@ -265,17 +265,20 @@ class DynamicSurvivalEngine:
         )
     
         start_time = min(event_times) + self.observation_window
-    
+
+        # single: one anchor per patient at the earliest valid prediction point,
+        # giving the maximum delta. Ablates anchor density vs. fixed while
+        # testing the hardest (most distant) prediction scenario.
+        if self.anchor_strategy == "single":
+            if start_time < max_time:
+                return [int(start_time)]
+            return []
+
+        # fixed (default): evenly spaced anchors across the valid range
         if start_time >= max_time:
-            return [max_time] if self.anchor_strategy == "single" else []
-    
-        if self.anchor_strategy == "fixed":
-            anchors = list(
-                range(int(start_time), int(max_time), self.anchor_interval)
-            )
-            return anchors if anchors else [max_time]
-    
-        return [max_time]
+            return []
+        anchors = list(range(int(start_time), int(max_time), self.anchor_interval))
+        return anchors if anchors else []
     
     
     def generate_survival_label(

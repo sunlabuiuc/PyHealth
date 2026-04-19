@@ -334,13 +334,13 @@ def main():
 
     for anchor in anchors:
         task = DynamicSurvivalTask(
-            dataset, horizon=10, observation_window=12, anchor_strategy=anchor
+            dataset, horizon=30, observation_window=12, anchor_strategy=anchor
         )
         samples = dataset.set_task(task)
         if not samples:
             print(f"{anchor} → no samples generated, skipping")
             continue
-        model = train_model(samples, 10)
+        model = train_model(samples, 30)
         bce, auprc, cidx = evaluate_3metrics(model, samples)
         print(f"{anchor} → BCE={bce:.4f} | AuPRC={auprc} | C-index={cidx}")
         bce_list.append(bce)
