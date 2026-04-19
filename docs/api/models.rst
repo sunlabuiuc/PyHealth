@@ -176,6 +176,7 @@ API Reference
     models/pyhealth.models.RNN
     models/pyhealth.models.GNN
     models/pyhealth.models.Transformer
+    models/pyhealth.models.BottleneckTransformer
     models/pyhealth.models.TransformersModel
     models/pyhealth.models.RETAIN
     models/pyhealth.models.GAMENet
