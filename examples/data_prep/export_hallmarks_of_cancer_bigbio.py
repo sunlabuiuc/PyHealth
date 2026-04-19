@@ -8,9 +8,12 @@ Requires::
 
     pip install datasets pandas
 
+This script loads the **sentence-level** subset (``hallmarks_of_cancer_bigbio_text``)
+from the Hub **Parquet** snapshots (``refs/convert/parquet``), so it works with
+**datasets ≥ 3** where the old Python dataset script cannot run.
+
 Data source (GPL-3.0): https://huggingface.co/datasets/bigbio/hallmarks_of_cancer
-Use config ``hallmarks_of_cancer_bigbio_text`` for sentence-level ``text`` and
-``labels`` fields.
+(columns: ``id``, ``document_id``, ``text``, ``labels``).
 
 Example::
 
@@ -37,9 +40,19 @@ def main() -> None:
 
     from datasets import load_dataset  # noqa: WPS433 (runtime optional dep)
 
+    # Load Parquet shards directly. The Hub parquet revision only exposes BuilderConfig
+    # ``default`` (not ``hallmarks_of_cancer_bigbio_text``), so loading by config name fails.
+    _base = (
+        "https://huggingface.co/datasets/bigbio/hallmarks_of_cancer/"
+        "resolve/refs%2Fconvert%2Fparquet/hallmarks_of_cancer_bigbio_text"
+    )
     ds = load_dataset(
-        "bigbio/hallmarks_of_cancer",
-        "hallmarks_of_cancer_bigbio_text",
+        "parquet",
+        data_files={
+            "train": f"{_base}/train/0000.parquet",
+            "validation": f"{_base}/validation/0000.parquet",
+            "test": f"{_base}/test/0000.parquet",
+        },
     )
     split_map = {
         "train": "train",
