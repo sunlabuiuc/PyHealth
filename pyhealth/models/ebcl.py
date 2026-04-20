@@ -124,7 +124,7 @@ class EBCL(BaseModel):
 
     def _encode_sequence(self, x: torch.Tensor, mask: Optional[torch.Tensor] = None,) -> torch.Tensor:
         """Encode a sequence into a single normalized embedding."""
-        self._check_input("x", x)
+        self._check_input(x)
         mask = self._normalize_mask(mask, x)
 
         if x.size(1) > self.max_seq_len:
@@ -194,8 +194,8 @@ class EBCL(BaseModel):
 
     def forward(self, left_x: torch.Tensor, right_x: torch.Tensor, left_mask: Optional[torch.Tensor] = None, right_mask: Optional[torch.Tensor] = None, y: Optional[torch.Tensor] = None, supervised_weight: float = 1.0, ) -> dict[str, torch.Tensor]:
         """Runs EBCL on left/right windows and returns loss + embeddings."""
-        self._check_input("left_x", left_x)
-        self._check_input("right_x", right_x)
+        self._check_input(left_x)
+        self._check_input(right_x)
 
         left_emb = self._encode_sequence(left_x, left_mask)
         right_emb = self._encode_sequence(right_x, right_mask)
