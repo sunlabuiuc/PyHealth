@@ -133,26 +133,28 @@ class MVCLTrainingSleepEEG(BaseTask):
 
             event_buffers: List[Dict[str, Any]] = []
             for epi in range(n_epochs):
-                lab = _map_to_MVCL_five_class(int(labels[epi]))
-                
-                # Take only the first window of the epoch to match TFC-pretraining's sample count
-                seg = signals[epi, :win].astype(np.float32, copy=False)
-                if crop is not None:
-                    seg = seg[:crop]
-                    
-                event_buffers.append(
-                    {
-                        "seg_1d": seg.copy(),
-                        "label": lab,
-                        "night": event.night,
-                        "patient_age": event.age,
-                        "patient_sex": event.sex,
-                        "epoch_index": global_epoch,
-                        "window_in_epoch": 0,
-                    }
-                )
-                global_epoch += 1
+              lab = _map_to_MVCL_five_class(int(labels[epi]))
+              row = signals[epi, :n_full] # Get the full 3000 points
 
+              # Extract all 15 non-overlapping windows per epoch
+              for w in range(n_full // win):
+                  seg = row[w * win : (w + 1) * win].astype(np.float32, copy=False)
+                  if crop is not None:
+                      seg = seg[:crop]
+
+                  event_buffers.append(
+                      {
+                          "seg_1d": seg.copy(),
+                          "label": lab,
+                          "night": event.night,
+                          "patient_age": event.age,
+                          "patient_sex": event.sex,
+                          "epoch_index": global_epoch,
+                          "window_in_epoch": w, # properly track the window
+                      }
+                  )
+              global_epoch += 1
+              
             if not event_buffers:
                 continue
 
