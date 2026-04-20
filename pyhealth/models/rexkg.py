@@ -384,9 +384,11 @@ class ReXKGModel(BaseModel):
             ner_labels = kwargs["ner_labels"]
             loss_fct = nn.CrossEntropyLoss(ignore_index=-1)
             B, S, C = ner_logits.size()
-            out["ner_loss"] = loss_fct(
+            ner_loss = loss_fct(
                 ner_logits.view(B * S, C), ner_labels.view(B * S)
             )
+            out["ner_loss"] = ner_loss
+            out["loss"] = ner_loss  # pyhealth.Trainer expects "loss"
 
         return out
 
