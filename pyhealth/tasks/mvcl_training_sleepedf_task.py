@@ -34,7 +34,7 @@ class MVCLTrainingSleepEEG(BaseTask):
 
     Applies MV preprocessing per event file (one PSG/Hypnogram pair at a time),
     then appends samples immediately, so each returned sample includes ``xt``,
-    ``dx``, and ``xf`` without a patient-level global buffer.
+    ``xd``, and ``xf`` without a patient-level global buffer.
 
     Tensors are stored as ``numpy.float32`` arrays with shape ``(L, C_view)`` where
     ``C_view`` is 1 by default; with ``time_as_feature=True``, a leading time channel
@@ -42,7 +42,7 @@ class MVCLTrainingSleepEEG(BaseTask):
     """
 
     task_name: str = "MVCLTrainingSleepEEG"
-    input_schema = {"signal": "tensor"}
+    input_schema = {"xt": "tensor", "xd": "tensor", "xf": "tensor"}
     output_schema = {"label": "multiclass"}
 
     def __init__(
@@ -176,9 +176,9 @@ class MVCLTrainingSleepEEG(BaseTask):
                         "epoch_index": b["epoch_index"],
                         "window_in_epoch": b["window_in_epoch"],
                         "signal": vec,
-                        "xt": xt[i].detach().cpu().numpy().astype(np.float32),
-                        "xd": dx[i].detach().cpu().numpy().astype(np.float32),
-                        "xf": xf[i].detach().cpu().numpy().astype(np.float32),
+                        "xt": xt[i],
+                        "xd": dx[i],
+                        "xf": xf[i],
                         "label": b["label"],
                     }
                 )
@@ -376,9 +376,9 @@ def pt_dict_to_pyhealth_samples(
                 "patient_id": f"{patient_id_prefix}_{i}",
                 "record_id": f"{record_id_prefix}_{i}",
                 "signal": signal_array[i][np.newaxis, :],
-                "xt": xt[i].detach().cpu().numpy().astype(np.float32),
-                "xd": dx[i].detach().cpu().numpy().astype(np.float32),
-                "xf": xf[i].detach().cpu().numpy().astype(np.float32),
+                "xt": xt[i],
+                "xd": dx[i],
+                "xf": xf[i],
                 "label": int(label_array[i]),
             }
         )
@@ -415,7 +415,6 @@ def pt_file_to_sample_dataset(
     return create_sample_dataset(
         samples=samples,
         input_schema={
-            "signal": "tensor",
             "xt": "tensor",
             "xd": "tensor",
             "xf": "tensor",
