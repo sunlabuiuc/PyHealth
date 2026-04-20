@@ -181,29 +181,34 @@ def train_and_eval(samples):
 # Main Experiment
 # ======================
 
-patients_raw = generate_synthetic_dataset(50)
-patients = convert_to_mock_patients(patients_raw)
-dataset = MockDataset(patients)
+def main():
+    patients_raw = generate_synthetic_dataset(50)
+    patients = convert_to_mock_patients(patients_raw)
+    dataset = MockDataset(patients)
 
-windows = [12, 24, 48]
-results = {}
+    windows = [12, 24, 48]
+    results = {}
 
-print("\n=== Ablation Results ===")
+    print("\n=== Ablation Results ===")
 
-for w in windows:
-    task = DynamicSurvivalTask(
-        dataset=dataset,
-        observation_window=w,
-        horizon=24,
-    )
+    for w in windows:
+        task = DynamicSurvivalTask(
+            dataset=dataset,
+            observation_window=w,
+            horizon=24,
+        )
 
-    samples = dataset.set_task(task)
+        samples = dataset.set_task(task)
 
-    if len(samples) == 0:
-        print(f"Skipping window={w}, no samples")
-        continue
+        if len(samples) == 0:
+            print(f"Skipping window={w}, no samples")
+            continue
 
-    score = train_and_eval(samples)
-    results[w] = score
+        score = train_and_eval(samples)
+        results[w] = score
 
-    print(f"Window={w} | BCE={score['bce']:.4f} | MSE={score['mse']:.4f}")
+        print(f"Window={w} | BCE={score['bce']:.4f} | MSE={score['mse']:.4f}")
+
+
+if __name__ == "__main__":
+    main()
