@@ -319,7 +319,7 @@ def _run(args: argparse.Namespace) -> None:
     print("STEP 1: Load TUEV + build task dataset")
     print("=" * 80)
     dataset = TUEVDataset(root=str(root), subset=args.subset, dev=args.quick_test)
-    sample_dataset = dataset.set_task(EEGEventsTUEV())
+    sample_dataset = dataset.set_task(EEGEventsTUEV(normalization="95th_percentile"), num_workers=16)
     if args.quick_test and len(sample_dataset) > quick_test_max_samples:
         sample_dataset = sample_dataset.subset(range(quick_test_max_samples))
         print(f"Capped to {quick_test_max_samples} samples for quick-test.")
@@ -409,7 +409,10 @@ def _run(args: argparse.Namespace) -> None:
         set_sizes  = np.array([m["avg_set_size"] for m in mlist])
 
         if not use_multi_seed:
-            print(f"\nNCP Results (alpha={alpha}):")
+            print("\n" + "=" * 80)
+            print(f"Summary — alpha={alpha} (single run, fixed test set)")
+            print("  Method: NeighborhoodLabel")
+            print("=" * 80)
             print(f"  Accuracy:              {accs[0]:.4f}")
             print(f"  F1 (weighted):         {f1s[0]:.4f}")
             print(f"  Empirical coverage:    {coverages[0]:.4f}")
@@ -419,7 +422,7 @@ def _run(args: argparse.Namespace) -> None:
             print(f"  k_neighbors: {args.k_neighbors}, lambda_L: {args.lambda_L}")
         else:
             print("\n" + "=" * 80)
-            print(f"Per-run NCP results — alpha={alpha} (target coverage={1-alpha:.0%})")
+            print(f"Per-run results — alpha={alpha} (NeighborhoodLabel, fixed test set = TUH eval partition)")
             print("=" * 80)
             print(f"  {'Run':<4} {'Seed':<6} {'Accuracy':<10} {'F1-Wt':<10} "
                   f"{'Coverage':<10} {'Miscoverage':<12} {'Avg set size':<12}")
@@ -429,13 +432,14 @@ def _run(args: argparse.Namespace) -> None:
                       f"{coverages[i]:<10.4f} {miscovs[i]:<12.4f} {set_sizes[i]:<12.2f}")
 
             print("\n" + "=" * 80)
-            print(f"NCP summary — alpha={alpha} (mean ± std over {n_runs} runs, fixed test set)")
+            print(f"Summary — alpha={alpha} (mean \u00b1 std over {n_runs} runs, fixed test set)")
+            print("  Method: NeighborhoodLabel")
             print("=" * 80)
-            print(f"  Accuracy:              {accs.mean():.4f} ± {accs.std():.4f}")
-            print(f"  F1 (weighted):         {f1s.mean():.4f} ± {f1s.std():.4f}")
-            print(f"  Empirical coverage:    {coverages.mean():.4f} ± {coverages.std():.4f}")
-            print(f"  Empirical miscoverage: {miscovs.mean():.4f} ± {miscovs.std():.4f}")
-            print(f"  Average set size:      {set_sizes.mean():.2f} ± {set_sizes.std():.2f}")
+            print(f"  Accuracy:              {accs.mean():.4f} \u00b1 {accs.std():.4f}")
+            print(f"  F1 (weighted):         {f1s.mean():.4f} \u00b1 {f1s.std():.4f}")
+            print(f"  Empirical coverage:    {coverages.mean():.4f} \u00b1 {coverages.std():.4f}")
+            print(f"  Empirical miscoverage: {miscovs.mean():.4f} \u00b1 {miscovs.std():.4f}")
+            print(f"  Average set size:      {set_sizes.mean():.2f} \u00b1 {set_sizes.std():.2f}")
             print(f"  Target coverage:       {1 - alpha:.0%} (alpha={alpha})")
             print(f"  k_neighbors: {args.k_neighbors}, lambda_L: {args.lambda_L}")
             print(f"  Test set size:         {n_test} (fixed across runs)")
