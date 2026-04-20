@@ -36,6 +36,30 @@ Example:
     # full ablation on real data, writes ablations.json next to the script
     python examples/medical_transcriptions_classification_sentence_kd_transformer.py \
         --data_root /path/to/mtsamples --epochs 3
+
+Note on the teacher step
+------------------------
+Kim et al. use ChatGPT as a cloud-based teacher to generate ternary sentence
+labels (``normal``/``abnormal``/``uncertain``) for MIMIC-CXR reports, and the
+student BERT is distilled against those pseudo-labels. This example does *not*
+replicate that step for three reasons:
+
+1. The ``mtsamples`` corpus ships with ground-truth medical-specialty labels,
+   so no LLM teacher is needed to train the student on this task — the
+   distillation-from-noisy-teacher framing from the paper is orthogonal here.
+2. A credentialed LLM teacher step would require an OpenAI API key with paid
+   budget, which adds reviewer friction and blocks "Run All" reproducibility
+   for PyHealth users without the credentials.
+3. For the paper's real deployment setting (credentialed MIMIC-CXR text),
+   institutional DUAs generally prohibit sending report text to third-party
+   cloud APIs without a BAA. A credential-free default is the safer choice
+   for a general-purpose PyHealth example.
+
+``SentenceKDTransformer`` itself is teacher-agnostic: any label source (human
+annotation, a rule-based labeler, or a locally-hosted LLM such as
+``Llama-3-8B``) slots in unchanged. The ablations below exercise the loss
+function and the backbone choice, which are the parts of the paper this
+contribution faithfully reproduces.
 """
 from __future__ import annotations
 
