@@ -3,7 +3,8 @@
 Combines dermoscopy datasets — ISIC 2018, HAM10000, and PH2 (and synthetic subsets) — into
 a single unified dataset for binary melanoma classification. Each dataset
 provides dermoscopic images with segmentation masks, enabling mode-based
-processing (whole image, lesion only, or background only).
+processing (whole image, lesion only, background only, or whole/lesion/background with spatial or frequency ablations).
+See ../processors/dermoscopy_image_processor.py for more details regarding modes.
 
 Data Sources:
     ISIC 2018:
@@ -122,7 +123,7 @@ class DermoscopyDataset(BaseDataset):
         num_workers: int = 4,
         dev: bool = False,
     ) -> None:
-        # PATCH 1: Keeps default logic, but removes the strict ValueError 
+        # Keeps default logic, but removes the strict ValueError 
         # that prevents loading synthetic Trap Sets like 'ph2_with_ruler'.
         if datasets is None:
             self.available_datasets = list(self.SUPPORTED_DATASETS)
@@ -158,7 +159,7 @@ class DermoscopyDataset(BaseDataset):
         """
         all_frames = []
 
-        # PATCH 2: Loop through dynamic datasets instead of hardcoding 3 IF statements.
+        # Loop through dynamic datasets instead of hardcoding 3 IF statements.
         for ds in self.available_datasets:
             if ds in ["isic2018", "ham10000"]:
                 df = self._prepare_isic_ham(root, ds)
@@ -191,9 +192,9 @@ class DermoscopyDataset(BaseDataset):
             f"Saved combined metadata ({len(combined)} samples) to {output_path}"
         )
 
-    # =========================================================================
-    # PATCH 3: Add one new helper function for the Stable Diffusion data
-    # =========================================================================
+    # ==============================================================================
+    # Helper function for the Stable Diffusion data (images modified with artifacts)
+    # ==============================================================================
     def _prepare_trap_set(self, root: str, dataset: str) -> Optional[pd.DataFrame]:
         """Prepare metadata for synthetically generated Trap Sets."""
         csv_path = os.path.join(root, dataset, "images", "metadata.csv")
@@ -205,7 +206,20 @@ class DermoscopyDataset(BaseDataset):
         
         df['image_path'] = df[id_col].apply(lambda x: os.path.join(img_dir, f"{x}.jpg"))
         df['label'] = df['diagnosis_1'].apply(lambda x: 1 if str(x).strip().lower() == 'malignant' else 0)
-        df['mask_path'] = "" 
+        
+        # Dynamically link the original masks based on the source dataset!
+        base_dataset = dataset.split('_with_')[0]
+        
+        if base_dataset == "ph2":
+            ph2_data_dir = os.path.join(root, "ph2", "PH2 Dataset images")
+            df['mask_path'] = df[id_col].apply(lambda x: os.path.join(ph2_data_dir, str(x), f"{x}_lesion", f"{x}_lesion.bmp"))
+        elif base_dataset in ["isic2018", "ham10000"]:
+            base_mask_dir = os.path.join(root, base_dataset, "masks")
+            df['mask_path'] = df[id_col].apply(lambda x: os.path.join(base_mask_dir, f"{x}_segmentation.png"))
+        else:
+            # Fallback if an unknown base dataset name is used
+            df['mask_path'] = "" 
+            
         df['source_dataset'] = dataset
         return df
 
