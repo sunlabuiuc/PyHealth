@@ -11,6 +11,7 @@ from pyhealth.interpret.methods.lime import LimeExplainer
 from pyhealth.interpret.methods.ensemble_crh import CrhEnsemble
 from pyhealth.interpret.methods.ensemble_avg import AvgEnsemble
 from pyhealth.interpret.methods.ensemble_var import VarEnsemble
+from pyhealth.interpret.methods.gradcam import GradCAM
 
 __all__ = [
     "BaseInterpreter",
@@ -25,5 +26,6 @@ __all__ = [
     "LimeExplainer",
     "CrhEnsemble",
     "AvgEnsemble",
-    "VarEnsemble"
+    "VarEnsemble",
+    "GradCAM",
 ]

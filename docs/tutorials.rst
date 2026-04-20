@@ -208,6 +208,8 @@ These examples are located in ``examples/cxr/``.
      - Conformal prediction for COVID-19 CXR classification
    * - ``cxr/cnn_cxr.ipynb``
      - CNN for chest X-ray classification (notebook)
+   * - ``cxr/gradcam_cxr_tutorial.py``
+     - Grad-CAM for CNN-based chest X-ray classification
    * - ``cxr/chestxray14_binary_classification.ipynb``
      - Binary classification on ChestX-ray14 dataset (notebook)
    * - ``cxr/chestxray14_multilabel_classification.ipynb``

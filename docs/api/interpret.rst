@@ -67,6 +67,15 @@ New to interpretability in PyHealth? Check out these complete examples:
   - Test various distance kernels (cosine vs euclidean) and sample sizes
   - Decode attributions to human-readable medical codes and lab measurements
 
+**Grad-CAM Example:**
+
+- ``examples/cxr/gradcam_cxr_tutorial.py`` - Demonstrates Grad-CAM for CNN-based medical image classification. Shows how to:
+
+  - Choose a target convolutional layer from a PyHealth image model
+  - Generate class-conditional heatmaps for chest X-ray images
+  - Overlay the Grad-CAM heatmap on the original image for interpretation
+  - Run the example from a dataset path without editing the source file
+
 These examples provide end-to-end workflows from loading data to interpreting and evaluating attributions.
 
 Attribution Methods
@@ -82,6 +91,7 @@ Attribution Methods
     interpret/pyhealth.interpret.methods.integrated_gradients
     interpret/pyhealth.interpret.methods.shap
     interpret/pyhealth.interpret.methods.lime
+    interpret/pyhealth.interpret.methods.gradcam
 
 Visualization Utilities
 -----------------------
