@@ -17,7 +17,6 @@ import logging
 from sklearn.metrics import roc_auc_score, accuracy_score, precision_score, recall_score, average_precision_score, f1_score
 
 from pyhealth.datasets import get_dataloader
-
 from pyhealth.datasets import DermoscopyDataset
 from pyhealth.tasks import DermoscopyMelanomaClassification
 from pyhealth.processors import DermoscopyImageProcessor
@@ -50,29 +49,33 @@ def main():
     logging.getLogger("pyhealth").handlers.clear()
     setup_dynamic_logging(args.log_dir, "eval_artifacts", run_details)
 
-    dataset_target = f"{args.eval_dataset}_with_{args.artifact}"
-    print(f"[*] Loading Dataset from {args.data_dir}...")
+    # 1. Map "clean" to the original dataset for baseline Table 4 AUROC calculations
+    if args.artifact.lower() in ["none", "clean", "baseline"]:
+        dataset_target = args.eval_dataset
+    else:
+        dataset_target = f"{args.eval_dataset}_with_{args.artifact}"
 
-    # 1. Load Dataset and apply Processor
-    dataset = DermoscopyDataset(root=args.data_dir, dataset_name=[dataset_target], cache_dir=os.path.join(args.data_dir, ".cache"))
+    print(f"[*] Loading Dataset Target: {dataset_target} from {args.data_dir}...")
 
+    # Load Dataset and apply Processor (Fixed 'dataset_name' to 'datasets')
+    dataset = DermoscopyDataset(root=args.data_dir, datasets=[dataset_target], cache_dir=os.path.join(args.data_dir, ".cache"))
     processor = DermoscopyImageProcessor(mode=args.mode)
     
-    # 2. Filter for the specific Trap Set
+    # Filter for the specific Trap Set
     task = DermoscopyMelanomaClassification(source_datasets=[dataset_target])
     task_dataset = dataset.set_task(task=task, input_processors={"image": processor})
     test_loader = get_dataloader(task_dataset, batch_size=32, shuffle=False)
 
-    # 3. Architecture Initialization
+    # Architecture Initialization
     print(f"[*] Initializing Base Architecture: {args.model.upper()}...")
     if args.model == "dinov2":
         base_model = DINOv2(dataset=task_dataset, feature_keys=["image"], label_key="melanoma", mode="binary")
     else:
-        base_model =  TorchvisionModel(dataset=task_dataset, model_name=args.model, model_config={"weights": "DEFAULT"})
+        base_model = TorchvisionModel(dataset=task_dataset, model_name=args.model, model_config={"weights": "DEFAULT"})
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
-    # 4. Resolve Target Weights based on Strategy
+    # 5. Resolve Target Weights based on Strategy
     weight_paths = []
     if args.strategy == "master":
         weight_paths.append(os.path.join(args.exp_dir, "master", "best.ckpt"))
@@ -86,7 +89,7 @@ def main():
     y_prob_ensemble = None
     fold_aucs, fold_accs, fold_precs, fold_recs, fold_pr_aucs, fold_f1s = [], [], [], [], [], []
 
-    # 5. Core Evaluation Loop
+    # Core Evaluation Loop
     for i, w_path in enumerate(weight_paths):
         if not os.path.exists(w_path):
             print(f"[!] Warning: Could not find weights at {w_path}. Skipping...")
@@ -134,15 +137,29 @@ def main():
         print("[!] No successful evaluations completed. Check weight paths.")
         return
 
-    # 6. Final Metric Aggregation
+    # Final Metric Aggregation (Preserves Regex format for build_table4.py + Extended Metrics)
+    print("\n" + "="*60)
+    print(" RESULTS ")
+    print("="*60)
+
     if args.strategy == "fold_average":
-        print(f"\n[!] FINAL PAPER METRIC ({args.artifact}):")
-        print(f"    ROC-AUC:   {np.mean(fold_aucs):.4f} ± {np.std(fold_aucs):.4f}")
-        print(f"    PR-AUC:    {np.mean(fold_pr_aucs):.4f} ± {np.std(fold_pr_aucs):.4f}")
-        print(f"    F1-Score:  {np.mean(fold_f1s):.4f} ± {np.std(fold_f1s):.4f}")
-        print(f"    Accuracy:  {np.mean(fold_accs):.4f} ± {np.std(fold_accs):.4f}")
-        print(f"    Precision: {np.mean(fold_precs):.4f} ± {np.std(fold_precs):.4f}")
-        print(f"    Recall:    {np.mean(fold_recs):.4f} ± {np.std(fold_recs):.4f}")
+        mean_auc = np.mean(fold_aucs)
+        std_auc = np.std(fold_aucs)
+        
+        # Required format for build_table4.py regex parser
+        print(f"Artifact:\t{args.artifact}")
+        print(f"Model:\t\t{args.model}")
+        print(f"Mode:\t\t{args.mode}")
+        print(f"AUROC:\t\t{mean_auc:.4f}")
+        
+        # Extended Clinical Metrics
+        print(f"\n[!] EXTENDED CLINICAL METRICS:")
+        print(f"    ROC-AUC (Std): {mean_auc:.4f} ± {std_auc:.4f}")
+        print(f"    PR-AUC:        {np.mean(fold_pr_aucs):.4f} ± {np.std(fold_pr_aucs):.4f}")
+        print(f"    F1-Score:      {np.mean(fold_f1s):.4f} ± {np.std(fold_f1s):.4f}")
+        print(f"    Accuracy:      {np.mean(fold_accs):.4f} ± {np.std(fold_accs):.4f}")
+        print(f"    Precision:     {np.mean(fold_precs):.4f} ± {np.std(fold_precs):.4f}")
+        print(f"    Recall:        {np.mean(fold_recs):.4f} ± {np.std(fold_recs):.4f}")
         
     elif args.strategy in ["ensemble", "master"]:
         num_models = len([w for w in weight_paths if os.path.exists(w)])
@@ -160,13 +177,22 @@ def main():
         final_rec = recall_score(y_true_all, y_pred_final)
         final_f1 = f1_score(y_true_all, y_pred_final)
         
-        print(f"\n[!] FINAL {args.strategy.upper()} METRICS ({args.artifact}):")
-        print(f"    ROC-AUC:   {final_auc:.4f}")
-        print(f"    PR-AUC:    {final_pr_auc:.4f}")
-        print(f"    F1-Score:  {final_f1:.4f}")
-        print(f"    Accuracy:  {final_acc:.4f}")
-        print(f"    Precision: {final_prec:.4f}")
-        print(f"    Recall:    {final_rec:.4f}")
+        # Required format for build_table4.py regex parser
+        print(f"Artifact:\t{args.artifact}")
+        print(f"Model:\t\t{args.model}")
+        print(f"Mode:\t\t{args.mode}")
+        print(f"Strategy:\t{args.strategy}")
+        print(f"AUROC:\t\t{final_auc:.4f}")
+        
+        # Extended Clinical Metrics
+        print(f"\n[!] EXTENDED {args.strategy.upper()} METRICS:")
+        print(f"    PR-AUC:        {final_pr_auc:.4f}")
+        print(f"    F1-Score:      {final_f1:.4f}")
+        print(f"    Accuracy:      {final_acc:.4f}")
+        print(f"    Precision:     {final_prec:.4f}")
+        print(f"    Recall:        {final_rec:.4f}")
+
+    print("="*60 + "\n")
 
 if __name__ == "__main__":
     main()
