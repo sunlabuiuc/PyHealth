@@ -79,9 +79,10 @@ class _SpanNERHead(nn.Module):
         width_embedding_dim: int = 150,
         max_span_length: int = 8,
         span_hidden_dim: int = 150,
-        dropout: float = 0.1,
+        dropout: float = 0.2,
     ) -> None:
         super().__init__()
+        self.hidden_dropout = nn.Dropout(dropout)
         self.width_embedding = nn.Embedding(
             max_span_length + 1, width_embedding_dim
         )
@@ -120,11 +121,12 @@ class _SpanNERHead(nn.Module):
         width = spans[:, :, 2]      # (B, S)
 
         batch_size, seq_len, hidden = sequence_output.size()
-        # Gather start / end representations
-        start_rep = sequence_output[
+        # Apply hidden dropout before span construction (matches original PURE)
+        seq = self.hidden_dropout(sequence_output)
+        start_rep = seq[
             torch.arange(batch_size).unsqueeze(1), start_idx
         ]  # (B, S, H)
-        end_rep = sequence_output[
+        end_rep = seq[
             torch.arange(batch_size).unsqueeze(1), end_idx
         ]  # (B, S, H)
 
@@ -139,8 +141,10 @@ class _PairwiseRelationHead(nn.Module):
     For each ordered entity pair ``(subject, object)`` this head predicts
     a distribution over :data:`RELATION_TYPES` + the ``"none"`` class.
 
-    The pair representation is the concatenation of both entity span vectors,
-    each produced by averaging the BERT token states within the span.
+    The pair representation is the concatenation of the **start-token**
+    representations of the subject and object spans, matching the original
+    PURE ``BertForRelation`` architecture (``sub_idx`` / ``obj_idx`` are
+    single token positions, not average pools).
 
     Args:
         hidden_size (int): BERT hidden dimension.
@@ -155,12 +159,9 @@ class _PairwiseRelationHead(nn.Module):
         dropout: float = 0.1,
     ) -> None:
         super().__init__()
-        self.classifier = nn.Sequential(
-            nn.Linear(hidden_size * 2, hidden_size),
-            nn.ReLU(),
-            nn.Dropout(dropout),
-            nn.Linear(hidden_size, num_rel_labels),
-        )
+        self.layer_norm = nn.LayerNorm(hidden_size * 2)
+        self.dropout = nn.Dropout(dropout)
+        self.classifier = nn.Linear(hidden_size * 2, num_rel_labels)
 
     def forward(
         self,
@@ -187,35 +188,32 @@ class _PairwiseRelationHead(nn.Module):
                 results.append(
                     torch.zeros(
                         0,
-                        self.classifier[-1].out_features,
+                        self.classifier.out_features,
                         device=sequence_output.device,
                         dtype=sequence_output.dtype,
                     )
                 )
                 continue
 
-            # Average pool tokens for each entity span
-            span_reps = []
-            for start, end in spans:
-                rep = sequence_output[i, start : end + 1].mean(dim=0)
-                span_reps.append(rep)
-            span_reps_t = torch.stack(span_reps)  # (E, H)
+            # Use the start token of each entity span (matches original PURE sub_idx/obj_idx)
+            span_reps = torch.stack(
+                [sequence_output[i, start] for start, _end in spans]
+            )  # (E, H)
 
             # All ordered pairs (subject, object)
-            n = len(span_reps)
-            sub_idx = [s for s in range(n) for _ in range(n) if s != _]
-            obj_idx = [o for s in range(n) for o in range(n) if s != o]
             sub_idx = []
             obj_idx = []
-            for s in range(n):
-                for o in range(n):
+            for s in range(len(spans)):
+                for o in range(len(spans)):
                     if s != o:
                         sub_idx.append(s)
                         obj_idx.append(o)
 
             pairs = torch.cat(
-                [span_reps_t[sub_idx], span_reps_t[obj_idx]], dim=-1
+                [span_reps[sub_idx], span_reps[obj_idx]], dim=-1
             )  # (P, 2H)
+            pairs = self.layer_norm(pairs)
+            pairs = self.dropout(pairs)
             results.append(self.classifier(pairs))
         return results
 
@@ -363,6 +361,9 @@ class ReXKGModel(BaseModel):
           ``[start, end, width]`` (pre-computed by the collate function).
         * ``ner_labels`` (torch.Tensor, optional): ``(B, num_spans)`` NER
           label indices.  When provided the NER loss is included.
+        * ``spans_mask`` (torch.Tensor, optional): ``(B, num_spans)`` binary
+          mask; 1 for real spans, 0 for padding.  Used for loss masking.
+          Defaults to all-ones when absent.
         * ``entity_spans`` (List[List[Tuple[int,int]]], optional): Gold entity
           span ``(start, end)`` pairs per sentence (1-indexed, CLS-inclusive).
           Required for RE training.
@@ -391,11 +392,17 @@ class ReXKGModel(BaseModel):
 
         if "ner_labels" in kwargs:
             ner_labels = kwargs["ner_labels"]
-            loss_fct = nn.CrossEntropyLoss(ignore_index=-1)
-            B, S, C = ner_logits.size()
-            ner_loss = loss_fct(
-                ner_logits.view(B * S, C), ner_labels.view(B * S)
+            spans_mask = kwargs.get(
+                "spans_mask",
+                torch.ones(ner_labels.shape, dtype=torch.long, device=ner_labels.device),
             )
+            # Match original: CrossEntropyLoss(reduction='sum') with active-span masking
+            loss_fct = nn.CrossEntropyLoss(reduction="sum")
+            B, S, C = ner_logits.size()
+            active = spans_mask.view(-1) == 1
+            active_logits = ner_logits.view(B * S, C)[active]
+            active_labels = ner_labels.view(B * S)[active]
+            ner_loss = loss_fct(active_logits, active_labels)
             out["ner_loss"] = ner_loss
             total_loss = ner_loss
 
