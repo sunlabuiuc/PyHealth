@@ -70,6 +70,15 @@ class RankedSentence:
         sentence (str): The extracted candidate sentence.
         score (float): Cosine similarity to the risk-factor sentence.
         rank (int): 1-indexed rank within the note for this condition.
+
+    Example:
+        >>> ranked = RankedSentence(
+        ...     note_id="n0002",
+        ...     condition="intracranial hemorrhage",
+        ...     sentence="CT head shows intraparenchymal hemorrhage.",
+        ...     score=0.71,
+        ...     rank=1,
+        ... )
     """
 
     note_id: str
@@ -88,13 +97,22 @@ class HashingEncoder:
     unit tests can run without downloading any weights. Swap in a real
     sentence encoder in production via the ``encoder`` argument to
     :class:`CBERTLiteRetriever`.
+
+    Attributes:
+        dim (int): Output embedding dimension.
+
+    Example:
+        >>> encoder = HashingEncoder(dim=256)
+        >>> embeddings = encoder(["acute intracranial hemorrhage"])
+        >>> len(embeddings[0])
+        256
     """
 
     def __init__(self, dim: int = 2048) -> None:
         """Initialize the encoder.
 
         Args:
-            dim (int): Output embedding dimension. Defaults to 2048.
+            dim (int): Output embedding dimension. Defaults to ``2048``.
 
         Raises:
             ValueError: If ``dim`` is not a positive integer.

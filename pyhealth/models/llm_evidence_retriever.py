@@ -46,6 +46,18 @@ class EvidenceSnippet:
             confidence in ``[0, 1]`` when the backend exposes it.
         is_generated (bool): ``True`` when ``explanation`` was generated
             by the LLM rather than extracted verbatim.
+
+    Example:
+        >>> snippet = EvidenceSnippet(
+        ...     note_id="n0001",
+        ...     condition="intracranial hemorrhage",
+        ...     decision="yes",
+        ...     role="risk",
+        ...     explanation="patient on warfarin post craniotomy",
+        ...     source_sentence="Patient on warfarin following craniotomy.",
+        ...     confidence=0.88,
+        ...     is_generated=True,
+        ... )
     """
 
     note_id: str
@@ -61,6 +73,14 @@ class EvidenceSnippet:
 @dataclass
 class LLMRetrieverConfig:
     """Runtime configuration for the LLM evidence retriever.
+
+    Example:
+        >>> config = LLMRetrieverConfig(
+        ...     model_name="my-clinical-llm",
+        ...     prompt_style="sequential",
+        ...     max_note_chars=2000,
+        ...     cache_size=256,
+        ... )
 
     Attributes:
         model_name (str): Free-form backend identifier. Not validated
@@ -97,6 +117,19 @@ class StubLLMBackend:
     object that mimics the contract expected from a hosted API. It
     never performs any network I/O, which keeps the PyHealth test
     suite fast and reproducible.
+
+    Attributes:
+        keyword_map (Dict[str, List[str]]): Per-condition keyword list
+            that drives the yes/no decision. Any keyword match in the
+            note portion of the prompt triggers a ``"yes"`` response.
+
+    Example:
+        >>> backend = StubLLMBackend({"stroke": ["mca infarct"]})
+        >>> response = backend(
+        ...     "Note:\\nRight MCA infarct on MRI.\\n\\nCondition: stroke\\n"
+        ... )
+        >>> '"decision": "yes"' in response
+        True
     """
 
     def __init__(self, keyword_map: Optional[Dict[str, List[str]]] = None) -> None:
