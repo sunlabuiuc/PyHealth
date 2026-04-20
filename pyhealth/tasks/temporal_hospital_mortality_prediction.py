@@ -14,6 +14,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 from pyhealth.tasks.base_task import BaseTask
+from pyhealth.datasets.mimic3_temporal import MIMIC3TemporalDataset
 
 
 class TemporalHospitalMortalityPredictionMIMIC3(BaseTask):
@@ -48,12 +49,6 @@ class TemporalHospitalMortalityPredictionMIMIC3(BaseTask):
         self.max_year = max_year
         self.require_all_modalities = require_all_modalities
 
-    def _normalize_year(self, year: int) -> float:
-        """Normalizes a year into [0, 1]."""
-        if self.max_year <= self.min_year:
-            raise ValueError("max_year must be greater than min_year.")
-        year = min(max(year, self.min_year), self.max_year)
-        return (year - self.min_year) / float(self.max_year - self.min_year)
 
     def _clean_sequence(self, sequence: Optional[List[Any]]) -> List[str]:
         """Converts a feature list to a clean string sequence."""
@@ -87,7 +82,11 @@ class TemporalHospitalMortalityPredictionMIMIC3(BaseTask):
                 continue
 
             admission_year_raw = int(timestamp.year)
-            admission_year = self._normalize_year(admission_year_raw)
+            admission_year = MIMIC3TemporalDataset.normalize_year(
+                admission_year_raw,
+                min_year=self.min_year,
+                max_year=self.max_year,
+            )
 
             diagnoses = patient.get_events(
                 event_type="diagnoses_icd",

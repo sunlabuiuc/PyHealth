@@ -5,10 +5,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 import torch
-try:
-    import litdata
-except Exception:
-    litdata = None
+import litdata
 from dateutil.parser import parse as dateutil_parse
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader
