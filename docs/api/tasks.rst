@@ -230,3 +230,5 @@ Available Tasks
     Mutation Pathogenicity (COSMIC) <tasks/pyhealth.tasks.MutationPathogenicityPrediction>
     Cancer Survival Prediction (TCGA) <tasks/pyhealth.tasks.CancerSurvivalPrediction>
     Cancer Mutation Burden (TCGA) <tasks/pyhealth.tasks.CancerMutationBurden>
+    Clinical Abbreviation Expansion <tasks/pyhealth.tasks.clinical_abbreviation>
+    MedLingo Task <tasks/pyhealth.tasks.medlingo_task>

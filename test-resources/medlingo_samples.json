@@ -1,0 +1,92 @@
+[
+  {
+    "abbr": "SOB",
+    "context": "SOB, worsening abd distension and discomfort",
+    "label": "shortness of breath",
+    "source": "mimic_iv_discharge"
+  },
+  {
+    "abbr": "COPD",
+    "context": "persistent cough with mucus.",
+    "label": "chronic obstructive pulmonary disease",
+    "source": "mimic_iv_discharge"
+  },
+  {
+    "abbr": "Hx",
+    "context": "Hx of cocaine and heroin abuse",
+    "label": "history",
+    "source": "mimic_iv_discharge"
+  },
+  {
+    "abbr": "COPD",
+    "context": "hepatic encephalopathy",
+    "label": "chronic obstructive pulmonary disease",
+    "source": "mimic_iv_discharge"
+  },
+  {
+    "abbr": "CHF",
+    "context": "known CHF with fluid overload",
+    "label": "congestive heart failure",
+    "source": "mimic_iv_discharge"
+  },
+  {
+    "abbr": "COPD",
+    "context": "wheezing on admission",
+    "label": "chronic obstructive pulmonary disease",
+    "source": "mimic_iv_discharge"
+  },
+  {
+    "abbr": "CP",
+    "context": "chest tightness persistent",
+    "label": "chest pain",
+    "source": "mimic_iv_discharge"
+  },
+  {
+    "abbr": "CHF",
+    "context": "chronic decompensated heart failure",
+    "label": "congestive heart failure",
+    "source": "mimic_iv_discharge"
+  },
+  {
+    "abbr": "Hx",
+    "context": "Hx of sigmoid diverticulitis",
+    "label": "history",
+    "source": "mimic_iv_discharge"
+  },
+  {
+    "abbr": "Hx",
+    "context": "Hx of bladder cancer",
+    "label": "history",
+    "source": "mimic_iv_discharge"
+  },
+  {
+    "abbr": "Hx",
+    "context": "Hx of cervical CA",
+    "label": "history",
+    "source": "mimic_iv_discharge"
+  },
+  {
+    "abbr": "Dx",
+    "context": "Dx: lung cancer 2",
+    "label": "diagnosis",
+    "source": "mimic_iv_discharge"
+  },
+  {
+    "abbr": "Dx",
+    "context": "Dx: depression",
+    "label": "diagnosis",
+    "source": "mimic_iv_discharge"
+  },
+  {
+    "abbr": "Dx",
+    "context": "Dx: Seizure Disorder",
+    "label": "diagnosis",
+    "source": "mimic_iv_discharge"
+  },
+  {
+    "abbr": "Dx",
+    "context": "Dx: Meningioma",
+    "label": "diagnosis",
+    "source": "mimic_iv_discharge"
+  }
+]
