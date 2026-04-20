@@ -145,26 +145,26 @@ class TestDynamicSurvivalTask(unittest.TestCase):
 
         samples = dataset.set_task(task)
 
-        assert len(samples) > 0
+        self.assertGreater(len(samples), 0)
 
         s = samples[0]
 
-        assert s["x"].ndim == 2
-        assert s["y"].shape == (5,)
-        assert s["mask"].shape == (5,)
+        self.assertEqual(s["x"].ndim, 2)
+        self.assertEqual(s["y"].shape, (5,))
+        self.assertEqual(s["mask"].shape, (5,))
 
-        assert s["x"].dtype == np.float32
-        assert s["y"].dtype == np.float32
-        assert s["mask"].dtype == np.float32
+        self.assertEqual(s["x"].dtype, np.float32)
+        self.assertEqual(s["y"].dtype, np.float32)
+        self.assertEqual(s["mask"].dtype, np.float32)
 
         # Event at delta=1
-        assert s["y"][1] == 1.0
-        assert s["mask"][2] == 0.0
+        self.assertEqual(s["y"][1], 1.0)
+        self.assertEqual(s["mask"][2], 0.0)
 
         # At most one event (DSA constraint)
-        assert np.sum(s["y"]) <= 1
+        self.assertLessEqual(float(np.sum(s["y"])), 1)
         # Mask must be binary
-        assert np.all((s["mask"] == 0) | (s["mask"] == 1))
+        self.assertTrue(np.all((s["mask"] == 0) | (s["mask"] == 1)))
 
     def test_dynamic_survival_censor(self):
         """Test behavior for censored patient."""
@@ -191,7 +191,7 @@ class TestDynamicSurvivalTask(unittest.TestCase):
 
         samples = dataset.set_task(task)
 
-        assert isinstance(samples, list)
+        self.assertIsInstance(samples, list)
 
         # Censor case may produce zero samples (valid)
         if len(samples) == 0:
@@ -200,7 +200,7 @@ class TestDynamicSurvivalTask(unittest.TestCase):
         s = samples[0]
 
         # Mask should contain zeros due to censoring
-        assert np.any(s["mask"] == 0)
+        self.assertTrue(np.any(s["mask"] == 0))
 
     def test_empty_patient(self):
         """Test patient with no visits."""
@@ -221,7 +221,7 @@ class TestDynamicSurvivalTask(unittest.TestCase):
 
         samples = dataset.set_task(task)
 
-        assert len(samples) == 0
+        self.assertEqual(len(samples), 0)
 
     def test_generate_survival_label_basic(self):
         """Test correctness of survival label generation."""
@@ -232,8 +232,8 @@ class TestDynamicSurvivalTask(unittest.TestCase):
             event_time=12,
         )
 
-        assert y[2] == 1
-        assert mask[3] == 0
+        self.assertEqual(y[2], 1)
+        self.assertEqual(mask[3], 0)
 
     def test_generate_anchors_basic(self):
         """Test anchor generation logic."""
@@ -244,7 +244,7 @@ class TestDynamicSurvivalTask(unittest.TestCase):
             outcome_time=3,
         )
 
-        assert len(anchors) > 0
+        self.assertGreater(len(anchors), 0)
 
     def test_end_to_end_pipeline_object_patients(self):
         """Test full pipeline with multiple PyHealth-style patients."""
@@ -282,14 +282,14 @@ class TestDynamicSurvivalTask(unittest.TestCase):
 
         samples = dataset.set_task(task)
 
-        assert len(samples) > 0
+        self.assertGreater(len(samples), 0)
 
         for s in samples:
-            assert s["x"].ndim == 2
-            assert s["y"].shape[0] == 5
-            assert s["mask"].shape[0] == 5
-            assert np.sum(s["y"]) <= 1
-            assert np.all((s["mask"] == 0) | (s["mask"] == 1))
+            self.assertEqual(s["x"].ndim, 2)
+            self.assertEqual(s["y"].shape[0], 5)
+            self.assertEqual(s["mask"].shape[0], 5)
+            self.assertLessEqual(float(np.sum(s["y"])), 1)
+            self.assertTrue(np.all((s["mask"] == 0) | (s["mask"] == 1)))
 
     def test_multiple_patients_processing(self):
         """Test engine processes a batch of dict-based patients without errors."""
@@ -300,10 +300,10 @@ class TestDynamicSurvivalTask(unittest.TestCase):
         for p in patients:
             all_samples.extend(task.engine.process_patient(p))
 
-        assert len(all_samples) > 0
+        self.assertGreater(len(all_samples), 0)
 
     def test_censoring_mask_fixed(self):
-        """Test censoring mask is correctly truncated after the censor step (fixed strategy)."""
+        """Test censoring mask is correctly truncated after censor step (fixed strategy)."""
         task = DynamicSurvivalTask(MockDataset(), horizon=5)
         y, mask = task.engine.generate_survival_label(
             anchor_time=10,
@@ -315,9 +315,9 @@ class TestDynamicSurvivalTask(unittest.TestCase):
         # Steps 0..delta are included in the risk set (mask=1).
         # Steps delta+1.. are excluded (mask=0).
         # This mirrors the event case where mask[delta+1:] = 0.
-        assert np.all(mask[:3] == 1)   # steps 0,1,2 included
-        assert np.all(mask[3:] == 0)   # steps 3,4 excluded
-        assert np.sum(y) == 0          # no event recorded for censored patient
+        self.assertTrue(np.all(mask[:3] == 1))   # steps 0,1,2 included
+        self.assertTrue(np.all(mask[3:] == 0))   # steps 3,4 excluded
+        self.assertEqual(float(np.sum(y)), 0)    # no event recorded for censored patient
 
     def test_censoring_mask_single(self):
         """generate_survival_label behavior is independent of anchor_strategy."""
@@ -330,9 +330,9 @@ class TestDynamicSurvivalTask(unittest.TestCase):
 
         # anchor_strategy does not affect label generation — only anchor placement does.
         # With delta=2: steps 0,1,2 included; steps 3,4 excluded.
-        assert np.all(mask[:3] == 1)
-        assert np.all(mask[3:] == 0)
-        assert np.sum(y) == 0
+        self.assertTrue(np.all(mask[:3] == 1))
+        self.assertTrue(np.all(mask[3:] == 0))
+        self.assertEqual(float(np.sum(y)), 0)
 
     def test_single_anchor_strategy(self):
         """Single anchor strategy produces exactly one anchor."""
@@ -342,7 +342,7 @@ class TestDynamicSurvivalTask(unittest.TestCase):
 
         anchors = task.engine.generate_anchors([5, 10], outcome_time=20)
 
-        assert len(anchors) == 1
+        self.assertEqual(len(anchors), 1)
 
     def test_empty_events(self):
         """Test that a patient with no visits produces no samples."""
@@ -354,7 +354,7 @@ class TestDynamicSurvivalTask(unittest.TestCase):
 
         samples = task.engine.process_patient(patient)
 
-        assert samples == []
+        self.assertEqual(samples, [])
 
     def test_output_format(self):
         """Test that output samples contain x, y, and mask as numpy arrays."""
@@ -368,12 +368,14 @@ class TestDynamicSurvivalTask(unittest.TestCase):
 
         samples = task.engine.process_patient(patient)
 
-        assert len(samples) > 0, "No samples were generated for the patient"
+        self.assertGreater(len(samples), 0, "No samples were generated for the patient")
         s = samples[0]
-        assert "x" in s and "y" in s and "mask" in s
-        assert isinstance(s["x"], np.ndarray)
-        assert isinstance(s["y"], np.ndarray)
-        assert isinstance(s["mask"], np.ndarray)
+        self.assertIn("x", s)
+        self.assertIn("y", s)
+        self.assertIn("mask", s)
+        self.assertIsInstance(s["x"], np.ndarray)
+        self.assertIsInstance(s["y"], np.ndarray)
+        self.assertIsInstance(s["mask"], np.ndarray)
 
     def test_event_before_anchor(self):
         """Test that an event occurring before the anchor zeroes the entire mask."""
@@ -384,7 +386,7 @@ class TestDynamicSurvivalTask(unittest.TestCase):
             event_time=8,
         )
 
-        assert np.all(mask == 0)
+        self.assertTrue(np.all(mask == 0))
 
     def test_event_within_horizon(self):
         """Test label and mask values when the event falls inside the horizon."""
@@ -396,10 +398,10 @@ class TestDynamicSurvivalTask(unittest.TestCase):
         )
 
         # delta = 2
-        assert y[2] == 1
-        assert np.sum(y) == 1
-        assert np.all(mask[:3] == 1)
-        assert np.all(mask[3:] == 0)
+        self.assertEqual(y[2], 1)
+        self.assertEqual(float(np.sum(y)), 1)
+        self.assertTrue(np.all(mask[:3] == 1))
+        self.assertTrue(np.all(mask[3:] == 0))
 
     def test_event_outside_horizon(self):
         """Test that an event beyond the horizon produces all-zero y and all-one mask."""
@@ -410,8 +412,8 @@ class TestDynamicSurvivalTask(unittest.TestCase):
             event_time=20,
         )
 
-        assert np.sum(y) == 0
-        assert np.all(mask == 1)
+        self.assertEqual(float(np.sum(y)), 0)
+        self.assertTrue(np.all(mask == 1))
 
     def test_no_valid_anchors(self):
         """Test that an observation window larger than patient history yields no samples."""
@@ -419,13 +421,16 @@ class TestDynamicSurvivalTask(unittest.TestCase):
 
         patient = {
             "patient_id": "p1",
-            "visits": [{"time": 1, "feature": np.zeros(1)}, {"time": 2, "feature": np.zeros(1)}],
+            "visits": [
+                {"time": 1, "feature": np.zeros(1)},
+                {"time": 2, "feature": np.zeros(1)},
+            ],
             "outcome_time": 3,
         }
 
         samples = task.engine.process_patient(patient)
 
-        assert samples == []
+        self.assertEqual(samples, [])
 
     def test_label_shape_consistency(self):
         """Test that y and mask shapes match the configured horizon."""
@@ -436,8 +441,8 @@ class TestDynamicSurvivalTask(unittest.TestCase):
             event_time=15,
         )
 
-        assert y.shape == (7,)
-        assert mask.shape == (7,)
+        self.assertEqual(y.shape, (7,))
+        self.assertEqual(mask.shape, (7,))
 
     def test_full_pipeline_shapes(self):
         """Test output array shapes across all samples from a multi-visit patient."""
@@ -452,9 +457,9 @@ class TestDynamicSurvivalTask(unittest.TestCase):
         samples = task.engine.process_patient(patient)
 
         for s in samples:
-            assert s["y"].shape[0] == 6
-            assert s["mask"].shape[0] == 6
-            assert s["x"].ndim == 2
+            self.assertEqual(s["y"].shape[0], 6)
+            self.assertEqual(s["mask"].shape[0], 6)
+            self.assertEqual(s["x"].ndim, 2)
 
     def test_anchor_with_no_observation_window(self):
         """Test that a patient with visits only before the window still returns a list."""
@@ -468,7 +473,7 @@ class TestDynamicSurvivalTask(unittest.TestCase):
 
         samples = task.engine.process_patient(patient)
 
-        assert isinstance(samples, list)
+        self.assertIsInstance(samples, list)
 
     def test_anchor_respects_censor_time(self):
         """Test that no anchor is placed at or after the censor time."""
@@ -480,10 +485,10 @@ class TestDynamicSurvivalTask(unittest.TestCase):
             censor_time=20,
         )
 
-        assert all(a < 20 for a in anchors)
+        self.assertTrue(all(a < 20 for a in anchors))
 
     def test_end_to_end_pipeline_dict_patients(self):
-        """Test full pipeline with synthetic dict-based patients, validating output constraints."""
+        """Test full pipeline with synthetic dict-based patients."""
         task = DynamicSurvivalTask(MockDataset())
 
         patients = create_patients(5)
@@ -492,12 +497,12 @@ class TestDynamicSurvivalTask(unittest.TestCase):
         for p in patients:
             samples.extend(task.engine.process_patient(p))
 
-        assert len(samples) > 0
+        self.assertGreater(len(samples), 0)
 
         for s in samples:
-            assert s["x"].shape[0] > 0
-            assert s["y"].sum() <= 1
-            assert np.all((s["mask"] == 0) | (s["mask"] == 1))
+            self.assertGreater(s["x"].shape[0], 0)
+            self.assertLessEqual(float(s["y"].sum()), 1)
+            self.assertTrue(np.all((s["mask"] == 0) | (s["mask"] == 1)))
 
     def test_uses_temporary_directory(self):
         """Verify task output can be written to and cleaned up from a temp directory."""
@@ -510,7 +515,7 @@ class TestDynamicSurvivalTask(unittest.TestCase):
         }
 
         samples = task.engine.process_patient(patient)
-        assert len(samples) > 0
+        self.assertGreater(len(samples), 0)
 
         tmp_dir = tempfile.mkdtemp()
         try:
@@ -521,7 +526,7 @@ class TestDynamicSurvivalTask(unittest.TestCase):
             with open(out_path) as f:
                 contents = json.load(f)
 
-            assert len(contents) == len(samples)
+            self.assertEqual(len(contents), len(samples))
         finally:
             shutil.rmtree(tmp_dir)
 
@@ -537,25 +542,29 @@ class TestDynamicSurvivalTask(unittest.TestCase):
             ]
             # Alternate event / censored patients
             death_time = base_time + timedelta(days=25) if i % 2 == 0 else None
-            patients.append(MockPatient(pid=f"MP{i}", visits_data=visits_data, death_time=death_time))
+            patients.append(
+                MockPatient(pid=f"MP{i}", visits_data=visits_data, death_time=death_time)
+            )
 
         dataset = MockDataset(patients)
-        task = DynamicSurvivalTask(dataset, horizon=10, observation_window=5, anchor_interval=3)
+        task = DynamicSurvivalTask(
+            dataset, horizon=10, observation_window=5, anchor_interval=3
+        )
         samples = dataset.set_task(task)
 
-        assert len(samples) > 0
+        self.assertGreater(len(samples), 0)
 
         for s in samples:
-            assert s["x"].ndim == 2
-            assert s["y"].shape == (10,)
-            assert s["mask"].shape == (10,)
-            assert np.sum(s["y"]) <= 1
-            assert np.all((s["mask"] == 0) | (s["mask"] == 1))
+            self.assertEqual(s["x"].ndim, 2)
+            self.assertEqual(s["y"].shape, (10,))
+            self.assertEqual(s["mask"].shape, (10,))
+            self.assertLessEqual(float(np.sum(s["y"])), 1)
+            self.assertTrue(np.all((s["mask"] == 0) | (s["mask"] == 1)))
 
         for s in samples:
-            assert s["x"].shape[0] > 0
-            assert s["y"].sum() <= 1
-            assert np.all((s["mask"] == 0) | (s["mask"] == 1))
+            self.assertGreater(s["x"].shape[0], 0)
+            self.assertLessEqual(float(s["y"].sum()), 1)
+            self.assertTrue(np.all((s["mask"] == 0) | (s["mask"] == 1)))
 
     def test_feature_flags_use_proc_false(self):
         """Test that disabling procedure codes still produces valid samples."""
@@ -582,10 +591,10 @@ class TestDynamicSurvivalTask(unittest.TestCase):
 
         samples = dataset.set_task(task)
 
-        assert isinstance(samples, list)
+        self.assertIsInstance(samples, list)
         if len(samples) > 0:
-            assert samples[0]["x"].ndim == 2
-            assert samples[0]["y"].shape == (5,)
+            self.assertEqual(samples[0]["x"].ndim, 2)
+            self.assertEqual(samples[0]["y"].shape, (5,))
 
 
 if __name__ == "__main__":
