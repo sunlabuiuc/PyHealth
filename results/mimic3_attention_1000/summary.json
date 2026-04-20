@@ -1,0 +1,18 @@
+{
+  "attention_lstm_summary": {
+    "roc_auc_mean": 0.71725,
+    "roc_auc_std": 0.19386512708581707,
+    "pr_auc_mean": 0.8824999999999998,
+    "pr_auc_std": 0.09148068253887144
+  },
+  "attention_stability": {
+    "pairwise_topk_overlap_mean": 0.6648263930597262,
+    "pairwise_topk_overlap_std": 0.04101657829352676
+  },
+  "rnn_baseline_summary": {
+    "roc_auc_mean": 0.81725,
+    "roc_auc_std": 0.21587597712575618,
+    "pr_auc_mean": 0.9198541666666665,
+    "pr_auc_std": 0.10255315144610515
+  }
+}

@@ -19,13 +19,13 @@ from pyhealth.models import AttentionLSTM
 from pathlib import Path
 
 
-# run multiple seeds (run 300 times)
-SEEDS = list(range(1, 301))  
+# run multiple seeds (run 1000 times)
+SEEDS = list(range(1, 1001))  
 BATCH_SIZE = 32
 EPOCHS = 5
 LR = 1e-3
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-OUTPUT_DIR = Path("results/mimic3_attention_300")
+OUTPUT_DIR = Path("results/mimic3_attention_1000")
 TOPK = 10
 
 
