@@ -237,6 +237,7 @@ Available Datasets
     datasets/pyhealth.datasets.Support2Dataset
     datasets/pyhealth.datasets.BMDHSDataset
     datasets/pyhealth.datasets.COVID19CXRDataset
+    datasets/pyhealth.datasets.CXRSegmentationDataset
     datasets/pyhealth.datasets.ChestXray14Dataset
     datasets/pyhealth.datasets.PhysioNetDeIDDataset
     datasets/pyhealth.datasets.TUABDataset
