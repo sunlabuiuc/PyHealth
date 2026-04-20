@@ -328,20 +328,12 @@ class TestICBHIDatasetValidation(unittest.TestCase):
         with self.assertRaises(ValueError):
             ICBHIDataset(root="/does/not/exist", subset="bogus")
 
-    def test_backward_compat_alias_is_class(self):
-        from pyhealth.tasks import (
-            ICBHIRespiratoryTask,
-            RespiratoryAbnormalityPredictionICBHI,
-        )
-
-        self.assertIs(ICBHIRespiratoryTask, RespiratoryAbnormalityPredictionICBHI)
-
 
 # ---------------------------------------------------------------------------
-# Module constants — retained for reference / backward compatibility.
+# Module constants — 4-class (crackle, wheeze) reference mapping.
 # ---------------------------------------------------------------------------
 
-class TestICBHIRespiratoryTaskLabelMap(unittest.TestCase):
+class TestICBHILabelMap(unittest.TestCase):
     def test_label_map_values(self):
         from pyhealth.tasks.icbhi_respiratory_classification import _LABEL_MAP
 
@@ -360,7 +352,7 @@ class TestICBHIRespiratoryTaskLabelMap(unittest.TestCase):
 # Signal helpers — pure numpy, fast.
 # ---------------------------------------------------------------------------
 
-class TestICBHIRespiratoryTaskSignalProcessing(unittest.TestCase):
+class TestICBHISignalProcessing(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         from pyhealth.tasks import RespiratoryAbnormalityPredictionICBHI

@@ -291,11 +291,3 @@ class RespiratoryAbnormalityPredictionICBHI(BaseTask):
                 samples.append(sample)
 
         return samples
-
-
-# Backward-compatible alias. The previous name is still used throughout the
-# repo (dataset.default_task, example script, docs, existing tests). The
-# refactored task is now binary abnormality prediction with configurable
-# label_mode; callers that instantiated with no arguments get the
-# ``any_abnormal`` mode by default.
-ICBHIRespiratoryTask = RespiratoryAbnormalityPredictionICBHI
