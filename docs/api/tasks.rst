@@ -212,9 +212,6 @@ Available Tasks
     COVID-19 CXR Classification <tasks/pyhealth.tasks.COVID19CXRClassification>
     DKA Prediction (MIMIC-IV) <tasks/pyhealth.tasks.dka>
     Drug Recommendation <tasks/pyhealth.tasks.drug_recommendation>
-    EEG Abnormal <tasks/pyhealth.tasks.EEG_abnormal>
-    EEG Events <tasks/pyhealth.tasks.EEG_events>
-    Localize Siezure Onset Zone (SOZ) <tasks/pyhealth.tasks.LocalizeSOZ>
     Length of Stay Prediction <tasks/pyhealth.tasks.length_of_stay_prediction>
     Localize Seizure Onset Zone (SOZ) <tasks/pyhealth.tasks.LocalizeSOZ>
     Medical Transcriptions Classification <tasks/pyhealth.tasks.MedicalTranscriptionsClassification>
