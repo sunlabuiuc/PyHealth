@@ -108,9 +108,18 @@ ATHENA_DIR = "data/athena"       # path to Athena OMOP vocabulary download
 KEEP_VARIANT = "paper"           # "paper" (L2+1e-3+AdamW+mean) or "code" (cosine+1e-5+Adagrad+sum)
 RUN_INTRINSIC_EVAL = True        # compute Resnik/co-occ correlations after pipeline
 
-# KEEP embedding caching: reuse previously-trained embeddings if they exist
-USE_KEEP_CACHE = False                # True = reuse keep_emb_output_<variant>/keep_snomed.txt; False = always rebuild
-KEEP_CACHE_ROOT = "keep_emb_output"   # resolves to "{root}_{variant}/keep_snomed.txt"
+# KEEP embedding caching: reuse previously-trained embeddings if they exist.
+# Cache layout matches train_keep.py — flat + Trainer-style timestamps:
+#   {KEEP_CACHE_ROOT}/{timestamp}/keep_snomed.txt
+#   {KEEP_CACHE_ROOT}/{timestamp}/manifest.json  ← config lives here, not in the path
+#
+# Cache lookup reads each run's manifest.json and picks one matching the CURRENT
+# config (KEEP_VARIANT + MIMIC_VERSION + MIN_OCCURRENCES):
+#   - KEEP_CACHE_RUN_ID = None    → newest matching run
+#   - KEEP_CACHE_RUN_ID = "<ts>"  → that specific timestamp folder (no manifest check)
+USE_KEEP_CACHE = False                # True = reuse cached embeddings; False = always rebuild
+KEEP_CACHE_ROOT = "output/keep_emb_output"
+KEEP_CACHE_RUN_ID = None              # None = newest matching; or e.g. "20260420-143042"
 
 # Data source toggle: local real MIMIC vs GCS synthetic
 MIMIC_VERSION = "mimic4"              # "mimic3" (ICD-9 only) or "mimic4" (mixed ICD-9/ICD-10)
@@ -119,7 +128,17 @@ LOCAL_MIMIC_ROOTS = {
     "mimic3": "data/mimic3",
     "mimic4": "data/mimic4",
 }
-DEV_MODE = True                      # True = subset + tiny pipeline, False = full run (real experiment)
+DEV_MODE = False                     # True = subset + tiny pipeline, False = full run (real experiment)
+
+# Device for KEEP GloVe training (Node2Vec stage is always CPU — gensim limitation).
+# "auto" picks cuda > mps > cpu automatically based on what's available.
+# Only used when rebuilding embeddings (USE_KEEP_CACHE=False or no cache exists).
+# GRASP training device is picked independently by the PyHealth Trainer.
+DEVICE = "auto"                      # "auto" | "cuda" | "mps" | "cpu"
+
+# Filter knob — must match the cached run's min_occurrences for cache lookup.
+# Paper default is 2; MIMIC-IV may benefit from 1 (see keep-learning-journal-filter-investigation.md)
+MIN_OCCURRENCES = 2
 # ──────────────────────────────────────────────────────────
 
 # Paper-faithful vs G2Lab code-faithful variants.
@@ -128,17 +147,17 @@ DEV_MODE = True                      # True = subset + tiny pipeline, False = fu
 KEEP_VARIANTS = {
     "paper": {
         "reg_distance": "l2",
-        "reg_reduction": "sum",
         "optimizer": "adamw",
         "lambd": 1e-3,
     },
     "code": {
         "reg_distance": "cosine",
-        "reg_reduction": "sum",
         "optimizer": "adagrad",
         "lambd": 1e-5,
     },
 }
+# Note: reg reduction is always `sum` per paper Eq 4. It's not a variant
+# knob because it's mathematically coupled to `lambd`.
 
 if __name__ == "__main__":
     print_hardware_info()
@@ -183,27 +202,110 @@ if __name__ == "__main__":
     intrinsic_results = None
 
     if USE_KEEP:
+        import json as _json
+        from datetime import datetime as _dt
         from pyhealth.medcode.pretrained_embeddings.keep_emb.run_pipeline import (
             run_keep_pipeline,
         )
         variant_params = KEEP_VARIANTS[KEEP_VARIANT]
         print(f"KEEP variant: {KEEP_VARIANT} ({variant_params})")
 
-        # Variant-specific cache directory: keep_output_<variant>/keep_snomed.txt
-        variant_output_dir = Path(f"{KEEP_CACHE_ROOT}_{KEEP_VARIANT}")
-        cached_emb = variant_output_dir / "keep_snomed.txt"
-        if USE_KEEP_CACHE and cached_emb.exists():
-            print(f"Using cached KEEP embeddings: {cached_emb}")
-            print(f"  (set USE_KEEP_CACHE=False to force a rebuild)")
-            keep_emb_path = str(cached_emb)
-        else:
+        # Cache layout (shared with train_keep.py, flat):
+        #   {KEEP_CACHE_ROOT}/{timestamp}/keep_snomed.txt
+        # Config lives in each run's manifest.json — we read manifests to
+        # find cache runs matching the CURRENT config (variant + mimic + minocc).
+        cache_root = Path(KEEP_CACHE_ROOT)
+
+        def _resolve_cached_run():
+            """Find a cached run matching current config via manifest lookup."""
+            if not cache_root.exists():
+                return None
+            # List timestamp subfolders, newest first (lexicographic sort works
+            # because timestamps are YYYYMMDD-HHMMSS)
+            all_runs = sorted(
+                [p for p in cache_root.iterdir() if p.is_dir()],
+                reverse=True,
+            )
+            if not all_runs:
+                return None
+
+            # If user pinned a specific timestamp, use it directly
+            if KEEP_CACHE_RUN_ID is not None:
+                match = next(
+                    (p for p in all_runs if p.name == KEEP_CACHE_RUN_ID),
+                    None,
+                )
+                if match is None:
+                    print(
+                        f"  WARN: KEEP_CACHE_RUN_ID='{KEEP_CACHE_RUN_ID}' not "
+                        f"found under {cache_root}. Available: "
+                        f"{[p.name for p in all_runs]}"
+                    )
+                return match
+
+            # Otherwise, read config.json (or legacy manifest.json) in each
+            # run and match on config. Supports both the new split-file layout
+            # and legacy manifest.json from earlier runs.
+            for run_dir in all_runs:
+                config_path = run_dir / "config.json"
+                legacy_manifest = run_dir / "manifest.json"
+                source = None
+                if config_path.exists():
+                    source = config_path
+                elif legacy_manifest.exists():
+                    source = legacy_manifest  # backward-compat
+                if source is None:
+                    continue
+                try:
+                    with open(source) as f:
+                        m = _json.load(f)
+                except (OSError, _json.JSONDecodeError):
+                    continue
+                if (
+                    m.get("keep_variant") == KEEP_VARIANT
+                    and m.get("mimic_version") == MIMIC_VERSION
+                    and m.get("min_occurrences") == MIN_OCCURRENCES
+                ):
+                    return run_dir
+            return None
+
+        cached_run_dir = _resolve_cached_run() if USE_KEEP_CACHE else None
+        if cached_run_dir is not None:
+            cached_emb = cached_run_dir / "keep_snomed.txt"
             if cached_emb.exists():
-                print(f"USE_KEEP_CACHE=False; rebuilding and overwriting {cached_emb}")
+                print(f"Using cached KEEP embeddings: {cached_emb}")
+                print(f"  (cache selected: {cached_run_dir.name}; set "
+                      f"USE_KEEP_CACHE=False to rebuild)")
+                keep_emb_path = str(cached_emb)
+                variant_output_dir = cached_run_dir  # used downstream for cooc
+            else:
+                print(f"  WARN: Found run dir {cached_run_dir} but no "
+                      f"keep_snomed.txt. Rebuilding.")
+                cached_run_dir = None
+
+        if cached_run_dir is None:
+            # No cache (or USE_KEEP_CACHE=False) — rebuild into a fresh
+            # timestamped folder matching train_keep.py's flat layout.
+            from pyhealth.medcode.pretrained_embeddings.keep_emb.run_pipeline import (
+                resolve_device,
+            )
+            resolved_device = resolve_device(DEVICE)
+            if DEVICE == "auto":
+                print(f"  KEEP GloVe device: auto → {resolved_device}")
+            else:
+                print(f"  KEEP GloVe device: {resolved_device}")
+
+            timestamp = _dt.now().strftime("%Y%m%d-%H%M%S")
+            variant_output_dir = cache_root / timestamp
+            variant_output_dir.mkdir(parents=True, exist_ok=True)
+            print(f"Rebuilding KEEP embeddings → {variant_output_dir}")
             keep_emb_path = run_keep_pipeline(
                 athena_dir=ATHENA_DIR,
                 dataset=base_dataset,
                 output_dir=str(variant_output_dir),
-                dev=DEV_MODE,  # False runs full Node2Vec (walks=750) + GloVe (epochs=300)
+                dev=DEV_MODE,
+                min_occurrences=MIN_OCCURRENCES,
+                device=resolved_device,
                 **variant_params,
             )
 
@@ -398,35 +500,50 @@ if __name__ == "__main__":
     run_dir = Path(trainer.exp_path) if trainer.exp_path else Path(f"output/{datetime.now():%Y%m%d-%H%M%S}")
     run_dir.mkdir(parents=True, exist_ok=True)
 
-    # Save config
+    # Save config (inputs — deterministic given the script's config block)
     config = {
         "run_name": run_name,
+        # Data source
+        "mimic_version": MIMIC_VERSION,
+        "mimic_root": LOCAL_MIMIC_ROOTS[MIMIC_VERSION],
+        "dev_mode": DEV_MODE,
+        # Embedding source
         "embedding": "KEEP" if keep_emb_path else "random",
         "keep_variant": KEEP_VARIANT if keep_emb_path else None,
         "keep_variant_params": (
             KEEP_VARIANTS[KEEP_VARIANT] if keep_emb_path else None
         ),
+        "min_occurrences": MIN_OCCURRENCES if keep_emb_path else None,
+        "use_keep_cache": USE_KEEP_CACHE,
+        "keep_cache_run_id": KEEP_CACHE_RUN_ID,
+        "device_config": DEVICE,
+        "pretrained_emb_path": keep_emb_path,
+        # GRASP model
         "embedding_dim": 100,
         "hidden_dim": 32,
         "cluster_num": 8,
         "block": "GRU",
+        # Training
         "lr": 1e-3,
         "weight_decay": 1e-4,
         "batch_size": 256,
         "epochs": 50,
         "monitor": "pr_auc",
-        "pretrained_emb_path": keep_emb_path,
     }
     with open(run_dir / "config.json", "w") as f:
         json.dump(config, f, indent=2)
 
-    # Save results
+    # Save results (outputs — non-deterministic across reruns)
     run_results = {
         "metrics": {k: float(v) for k, v in results.items()},
         "wall_time_s": wall_time,
         "wall_time_min": wall_time / 60,
         "parameters": sum(p.numel() for p in model.parameters()),
     }
+    if keep_emb_path:
+        # Record which embeddings file actually got loaded (may differ from
+        # the config's pretrained_emb_path if cache lookup resolved a newer run)
+        run_results["keep_embeddings_used"] = keep_emb_path
     if emissions_data:
         run_results["energy_kwh"] = emissions_data.energy_consumed
         run_results["co2_kg"] = emissions_data.emissions

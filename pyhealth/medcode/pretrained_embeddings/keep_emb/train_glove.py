@@ -114,10 +114,15 @@ class KeepGloVe(nn.Module):
         Parameter        Paper text        Reference code
         ================ ================= ================
         reg_distance     "l2"              "cosine"
-        reg_reduction    "mean"            "sum"
         optimizer        "adamw"           "adagrad"
         lambd            1e-3              1e-5
         ================ ================= ================
+
+        Note: the regularization reduction is always ``sum`` per paper Eq 4
+        (``Σᵢ₌₁^V``). It is not exposed as a parameter because it is
+        mathematically coupled to ``lambd`` — scaling by ``1/V`` via mean
+        would be equivalent to a 1/V-smaller ``lambd``, making the two
+        hyperparameters ambiguous. We hardcode the paper-faithful choice.
 
         To run paper-faithful (default):
             KeepGloVe(vocab_size, init_embeddings=n2v)
@@ -125,7 +130,6 @@ class KeepGloVe(nn.Module):
         To run code-faithful (G2Lab reference):
             KeepGloVe(vocab_size, init_embeddings=n2v,
                       reg_distance="cosine",
-                      reg_reduction="sum",
                       lambd=1e-5)
             # Also pass optimizer="adagrad" to train_keep()
 
@@ -139,9 +143,6 @@ class KeepGloVe(nn.Module):
             Default: 1e-3 (paper Table 6). Use 1e-5 for code-faithful.
         reg_distance: Distance metric for regularization.
             "l2" (paper) or "cosine" (reference code). Default: "l2".
-        reg_reduction: Batch reduction for reg loss.
-            "mean" (paper per-element normalization) or "sum" (reference
-            code sum-over-batch). Default: "mean".
 
     Example:
         >>> # Paper-faithful (default)
@@ -151,7 +152,6 @@ class KeepGloVe(nn.Module):
         >>> # Code-faithful
         >>> model = KeepGloVe(5000, 100, init_embeddings=n2v_embs,
         ...                    reg_distance="cosine",
-        ...                    reg_reduction="sum",
         ...                    lambd=1e-5)
     """
 
@@ -162,7 +162,6 @@ class KeepGloVe(nn.Module):
         init_embeddings: Optional[np.ndarray] = None,
         lambd: float = 1e-3,
         reg_distance: str = "l2",
-        reg_reduction: str = "mean",
     ):
         super().__init__()
         self.embedding_dim = embedding_dim
@@ -171,12 +170,7 @@ class KeepGloVe(nn.Module):
             raise ValueError(
                 f"reg_distance must be 'l2' or 'cosine', got {reg_distance!r}"
             )
-        if reg_reduction not in ("mean", "sum"):
-            raise ValueError(
-                f"reg_reduction must be 'mean' or 'sum', got {reg_reduction!r}"
-            )
         self.reg_distance = reg_distance
-        self.reg_reduction = reg_reduction
 
         # Two embedding matrices (GloVe uses separate context/target)
         self.emb_u = nn.Embedding(vocab_size, embedding_dim)
@@ -249,8 +243,10 @@ class KeepGloVe(nn.Module):
 
         # Regularization loss — applied to BOTH row and col tokens.
         # Distance and reduction are configurable:
-        #   reg_distance="l2"    (paper) or "cosine" (reference code)
-        #   reg_reduction="mean" (paper) or "sum"    (reference code)
+        #   reg_distance="l2"  (paper) or "cosine" (reference code)
+        # Reduction is always `sum` — see class docstring: mean would be
+        # mathematically equivalent to scaling lambd by 1/V, making the two
+        # hyperparameters ambiguous. Paper Eq 4 explicitly writes Σᵢ₌₁^V.
         reg_loss = torch.tensor(0.0, device=glove_loss.device)
         if self.init_emb is not None and self.lambd > 0:
             # Average of U and V for row tokens (i indices)
@@ -274,13 +270,8 @@ class KeepGloVe(nn.Module):
                 reg_dist_i = (avg_i - init_i).pow(2).sum(dim=1)
                 reg_dist_j = (avg_j - init_j).pow(2).sum(dim=1)
 
-            # Combine per-token distances via mean or sum reduction.
-            # - "mean" matches paper's per-element normalization (lambd=1e-3)
-            # - "sum"  matches reference code (lambd=1e-5, sum-over-batch)
-            if self.reg_reduction == "mean":
-                reg_loss = self.lambd * (reg_dist_i.mean() + reg_dist_j.mean()) / 2.0
-            else:  # "sum"
-                reg_loss = self.lambd * (reg_dist_i.sum() + reg_dist_j.sum())
+            # Sum reduction per paper Eq 4 (Σᵢ₌₁^V).
+            reg_loss = self.lambd * (reg_dist_i.sum() + reg_dist_j.sum())
 
         return glove_loss, reg_loss
 
@@ -310,7 +301,6 @@ def train_keep(
     alpha: float = 0.75,
     lambd: float = 1e-3,
     reg_distance: str = "l2",
-    reg_reduction: str = "mean",
     optimizer: str = "adamw",
     device: str = "cpu",
     seed: int = 42,
@@ -329,7 +319,6 @@ def train_keep(
         train_keep(
             cooc_matrix, init_embeddings=n2v_embs,
             reg_distance="cosine",
-            reg_reduction="sum",
             lambd=1e-5,
             optimizer="adagrad",
         )
@@ -354,9 +343,6 @@ def train_keep(
         reg_distance: Distance metric for regularization penalty.
             "l2" (paper Equation 4) or "cosine" (reference code).
             Default: "l2".
-        reg_reduction: How to combine per-token reg distances into a batch loss.
-            "mean" (paper per-element normalization) or "sum" (reference
-            code sum-over-batch). Default: "mean".
         optimizer: Optimizer for GloVe training.
             "adamw" (paper Algorithm 1) or "adagrad" (reference code,
             traditional GloVe choice). Default: "adamw".
@@ -377,7 +363,6 @@ def train_keep(
         >>> embeddings = train_keep(
         ...     cooc_matrix, init_embeddings=n2v_embeddings,
         ...     reg_distance="cosine",
-        ...     reg_reduction="sum",
         ...     lambd=1e-5,
         ...     optimizer="adagrad",
         ... )
@@ -399,7 +384,7 @@ def train_keep(
     logger.info(
         "Training KEEP GloVe: vocab=%d, dim=%d, epochs=%d, lr=%.4f, "
         "lambda=%.1e, x_max=%.1f, alpha=%.2f, "
-        "reg_distance=%s, reg_reduction=%s, optimizer=%s",
+        "reg_distance=%s, optimizer=%s",
         vocab_size,
         embedding_dim,
         epochs,
@@ -408,7 +393,6 @@ def train_keep(
         x_max,
         alpha,
         reg_distance,
-        reg_reduction,
         optimizer,
     )
 
@@ -428,7 +412,6 @@ def train_keep(
         init_embeddings=init_embeddings,
         lambd=lambd,
         reg_distance=reg_distance,
-        reg_reduction=reg_reduction,
     ).to(device)
 
     # Optimizer: configurable (paper says AdamW, reference code uses Adagrad)

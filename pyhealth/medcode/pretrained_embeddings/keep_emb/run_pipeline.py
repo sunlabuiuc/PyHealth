@@ -44,6 +44,42 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 
+def resolve_device(device: str) -> str:
+    """Resolve 'auto' to the best available PyTorch device.
+
+    Resolution order: cuda > mps > cpu. Explicit values ("cuda", "mps",
+    "cpu") pass through unchanged.
+
+    Args:
+        device: One of "auto", "cuda", "mps", "cpu".
+
+    Returns:
+        Concrete device string ("cuda", "mps", or "cpu") that can be
+        passed to ``torch.Tensor.to()``.
+
+    Examples:
+        >>> resolve_device("auto")      # on H200
+        'cuda'
+        >>> resolve_device("auto")      # on M4 Mac
+        'mps'
+        >>> resolve_device("auto")      # on CPU-only box
+        'cpu'
+        >>> resolve_device("cpu")       # explicit override
+        'cpu'
+    """
+    if device != "auto":
+        return device
+    import torch
+    if torch.cuda.is_available():
+        return "cuda"
+    if (
+        getattr(torch.backends, "mps", None) is not None
+        and torch.backends.mps.is_available()
+    ):
+        return "mps"
+    return "cpu"
+
+
 def detect_mimic_schema(available_columns: List[str]) -> str:
     """Detect MIMIC schema from available dataframe columns.
 
@@ -150,10 +186,9 @@ def run_keep_pipeline(
     glove_epochs: int = 300,
     lambd: float = 1e-3,
     reg_distance: str = "l2",
-    reg_reduction: str = "mean",
     optimizer: str = "adamw",
     min_occurrences: int = 2,
-    device: str = "cuda",
+    device: str = "auto",
     seed: int = 42,
     dev: bool = False,
 ) -> str:
@@ -190,8 +225,13 @@ def run_keep_pipeline(
             Default: 1e-3 (KEEP paper Table 6).
         min_occurrences: Minimum times a code must appear per patient.
             Default: 2 (KEEP paper Appendix A.4).
-        device: Device for GloVe training ("cpu" or "cuda").
-            Default: "cpu".
+        device: Device for GloVe training. One of:
+            - "auto" (default): picks cuda > mps > cpu based on availability
+            - "cuda": NVIDIA GPU (H200, A100, 4090, etc.)
+            - "mps": Apple Silicon GPU (M1/M2/M3/M4)
+            - "cpu": CPU only (slow but always works)
+            Note: Node2Vec stage always runs on CPU (gensim limitation);
+            this only controls the GloVe stage.
         seed: Random seed for reproducibility. Default: 42.
         dev: If True, use reduced params for fast testing
             (num_walks=10, glove_epochs=10). Default: False.
@@ -254,6 +294,10 @@ def run_keep_pipeline(
             "For paper-faithful reproduction, include CONCEPT_ANCESTOR.csv "
             "in the Athena download."
         )
+
+    # Resolve "auto" device → concrete cuda/mps/cpu based on availability
+    device = resolve_device(device)
+    logger.info(f"GloVe training device: {device}")
 
     # Override params for dev/testing speed
     if dev:
@@ -345,7 +389,6 @@ def run_keep_pipeline(
         epochs=glove_epochs,
         lambd=lambd,
         reg_distance=reg_distance,
-        reg_reduction=reg_reduction,
         optimizer=optimizer,
         device=device,
         seed=seed,

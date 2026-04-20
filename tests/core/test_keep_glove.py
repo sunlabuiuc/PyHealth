@@ -108,7 +108,6 @@ class TestKeepGloVe:
 
         model = KeepGloVe(vocab_size=5, embedding_dim=4)
         assert model.reg_distance == "l2"
-        assert model.reg_reduction == "mean"
         assert model.lambd == 1e-3
 
     def test_code_variant_configurable(self):
@@ -120,11 +119,9 @@ class TestKeepGloVe:
         model = KeepGloVe(
             vocab_size=5, embedding_dim=4,
             reg_distance="cosine",
-            reg_reduction="sum",
             lambd=1e-5,
         )
         assert model.reg_distance == "cosine"
-        assert model.reg_reduction == "sum"
         assert model.lambd == 1e-5
 
     def test_invalid_reg_distance_raises(self):
@@ -134,14 +131,6 @@ class TestKeepGloVe:
 
         with pytest.raises(ValueError, match="reg_distance"):
             KeepGloVe(vocab_size=5, embedding_dim=4, reg_distance="invalid")
-
-    def test_invalid_reg_reduction_raises(self):
-        from pyhealth.medcode.pretrained_embeddings.keep_emb.train_glove import (
-            KeepGloVe,
-        )
-
-        with pytest.raises(ValueError, match="reg_reduction"):
-            KeepGloVe(vocab_size=5, embedding_dim=4, reg_reduction="invalid")
 
     def test_l2_and_cosine_produce_different_reg_loss(self):
         """L2 and cosine distance give different reg values for same embeddings."""
@@ -154,11 +143,11 @@ class TestKeepGloVe:
 
         model_l2 = KeepGloVe(
             5, 4, init_embeddings=init, lambd=1.0,
-            reg_distance="l2", reg_reduction="sum",
+            reg_distance="l2",
         )
         model_cos = KeepGloVe(
             5, 4, init_embeddings=init, lambd=1.0,
-            reg_distance="cosine", reg_reduction="sum",
+            reg_distance="cosine",
         )
 
         # Perturb weights so reg is non-zero
@@ -354,7 +343,6 @@ class TestTrainKeep:
             seed=42,
             # Code-faithful overrides:
             reg_distance="cosine",
-            reg_reduction="sum",
             lambd=1e-5,
             optimizer="adagrad",
         )
