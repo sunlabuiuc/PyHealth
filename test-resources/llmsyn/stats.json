@@ -1,0 +1,851 @@
+{
+  "mortality_rate": 0.09926071622354857,
+  "top_diseases": [
+    {
+      "icd9_code": "4019",
+      "admission_count": 20696,
+      "deaths": 2023,
+      "mortality_rate": 0.09774835717046772,
+      "desc": "Unspecified essential hypertension"
+    },
+    {
+      "icd9_code": "4280",
+      "admission_count": 13111,
+      "deaths": 1884,
+      "mortality_rate": 0.14369613301807643,
+      "desc": "Congestive heart failure, unspecified"
+    },
+    {
+      "icd9_code": "42731",
+      "admission_count": 12886,
+      "deaths": 1930,
+      "mortality_rate": 0.14977494955765946,
+      "desc": "Atrial fibrillation"
+    },
+    {
+      "icd9_code": "41401",
+      "admission_count": 12428,
+      "deaths": 891,
+      "mortality_rate": 0.07169295140006438,
+      "desc": "Coronary atherosclerosis of native coronary artery"
+    },
+    {
+      "icd9_code": "5849",
+      "admission_count": 9118,
+      "deaths": 1819,
+      "mortality_rate": 0.19949550339986838,
+      "desc": "Acute kidney failure, unspecified"
+    },
+    {
+      "icd9_code": "25000",
+      "admission_count": 9057,
+      "deaths": 1083,
+      "mortality_rate": 0.11957601854918848,
+      "desc": "Diabetes mellitus without mention of complication, type II or unspecified type, not stated as uncontrolled"
+    },
+    {
+      "icd9_code": "2724",
+      "admission_count": 8689,
+      "deaths": 650,
+      "mortality_rate": 0.07480722752905973,
+      "desc": "Other and unspecified hyperlipidemia"
+    },
+    {
+      "icd9_code": "51881",
+      "admission_count": 7497,
+      "deaths": 2282,
+      "mortality_rate": 0.30438842203548083,
+      "desc": "Acute respiratory failure"
+    },
+    {
+      "icd9_code": "5990",
+      "admission_count": 6555,
+      "deaths": 811,
+      "mortality_rate": 0.12372234935163998,
+      "desc": "Urinary tract infection, site not specified"
+    },
+    {
+      "icd9_code": "53081",
+      "admission_count": 6324,
+      "deaths": 481,
+      "mortality_rate": 0.07605945604048071,
+      "desc": "Esophageal reflux"
+    },
+    {
+      "icd9_code": "2720",
+      "admission_count": 5930,
+      "deaths": 427,
+      "mortality_rate": 0.07200674536256324,
+      "desc": "Pure hypercholesterolemia"
+    },
+    {
+      "icd9_code": "V053",
+      "admission_count": 5779,
+      "deaths": 1,
+      "mortality_rate": 0.00017304031839418584,
+      "desc": "Need for prophylactic vaccination and inoculation against viral hepatitis"
+    },
+    {
+      "icd9_code": "V290",
+      "admission_count": 5519,
+      "deaths": 24,
+      "mortality_rate": 0.004348613879325965,
+      "desc": "Observation for suspected infectious condition"
+    },
+    {
+      "icd9_code": "2859",
+      "admission_count": 5405,
+      "deaths": 494,
+      "mortality_rate": 0.0913968547641073,
+      "desc": "Anemia, unspecified"
+    },
+    {
+      "icd9_code": "2449",
+      "admission_count": 4914,
+      "deaths": 573,
+      "mortality_rate": 0.11660561660561661,
+      "desc": "Unspecified acquired hypothyroidism"
+    },
+    {
+      "icd9_code": "486",
+      "admission_count": 4838,
+      "deaths": 983,
+      "mortality_rate": 0.2031831335262505,
+      "desc": "Pneumonia, organism unspecified"
+    },
+    {
+      "icd9_code": "2851",
+      "admission_count": 4552,
+      "deaths": 410,
+      "mortality_rate": 0.09007029876977153,
+      "desc": "Acute posthemorrhagic anemia"
+    },
+    {
+      "icd9_code": "2762",
+      "admission_count": 4528,
+      "deaths": 1167,
+      "mortality_rate": 0.2577296819787986,
+      "desc": "Acidosis"
+    },
+    {
+      "icd9_code": "496",
+      "admission_count": 4431,
+      "deaths": 629,
+      "mortality_rate": 0.14195441209659218,
+      "desc": "Chronic airway obstruction, not elsewhere classified"
+    },
+    {
+      "icd9_code": "99592",
+      "admission_count": 3912,
+      "deaths": 1423,
+      "mortality_rate": 0.3637525562372188,
+      "desc": "Severe sepsis"
+    },
+    {
+      "icd9_code": "V5861",
+      "admission_count": 3805,
+      "deaths": 417,
+      "mortality_rate": 0.10959264126149802,
+      "desc": "Long-term (current) use of anticoagulants"
+    },
+    {
+      "icd9_code": "0389",
+      "admission_count": 3725,
+      "deaths": 1330,
+      "mortality_rate": 0.35704697986577183,
+      "desc": "Unspecified septicemia"
+    },
+    {
+      "icd9_code": "5070",
+      "admission_count": 3680,
+      "deaths": 809,
+      "mortality_rate": 0.21983695652173912,
+      "desc": "Pneumonitis due to inhalation of food or vomitus"
+    },
+    {
+      "icd9_code": "V3000",
+      "admission_count": 3566,
+      "deaths": 11,
+      "mortality_rate": 0.0030846887268648347,
+      "desc": "Single liveborn, born in hospital, delivered without mention of cesarean section"
+    },
+    {
+      "icd9_code": "5859",
+      "admission_count": 3435,
+      "deaths": 471,
+      "mortality_rate": 0.137117903930131,
+      "desc": "Chronic kidney disease, unspecified"
+    },
+    {
+      "icd9_code": "311",
+      "admission_count": 3431,
+      "deaths": 255,
+      "mortality_rate": 0.0743223549985427,
+      "desc": "Depressive disorder, not elsewhere classified"
+    },
+    {
+      "icd9_code": "40390",
+      "admission_count": 3421,
+      "deaths": 448,
+      "mortality_rate": 0.13095586085939784,
+      "desc": "Hypertensive chronic kidney disease, unspecified, with chronic kidney disease stage I through stage IV, or unspecified"
+    },
+    {
+      "icd9_code": "3051",
+      "admission_count": 3358,
+      "deaths": 227,
+      "mortality_rate": 0.06759976176295414,
+      "desc": "Tobacco use disorder"
+    },
+    {
+      "icd9_code": "412",
+      "admission_count": 3278,
+      "deaths": 305,
+      "mortality_rate": 0.09304453935326419,
+      "desc": "Old myocardial infarction"
+    },
+    {
+      "icd9_code": "2875",
+      "admission_count": 3065,
+      "deaths": 549,
+      "mortality_rate": 0.17911908646003263,
+      "desc": "Thrombocytopenia, unspecified"
+    },
+    {
+      "icd9_code": "V4581",
+      "admission_count": 3056,
+      "deaths": 423,
+      "mortality_rate": 0.13841623036649214,
+      "desc": "Aortocoronary bypass status"
+    },
+    {
+      "icd9_code": "41071",
+      "admission_count": 3055,
+      "deaths": 422,
+      "mortality_rate": 0.1381342062193126,
+      "desc": "Subendocardial infarction, initial episode of care"
+    },
+    {
+      "icd9_code": "2761",
+      "admission_count": 3039,
+      "deaths": 490,
+      "mortality_rate": 0.16123724909509707,
+      "desc": "Hyposmolality and/or hyponatremia"
+    },
+    {
+      "icd9_code": "4240",
+      "admission_count": 2924,
+      "deaths": 243,
+      "mortality_rate": 0.08310533515731874,
+      "desc": "Mitral valve disorders"
+    },
+    {
+      "icd9_code": "V1582",
+      "admission_count": 2811,
+      "deaths": 259,
+      "mortality_rate": 0.09213802917111348,
+      "desc": "Personal history of tobacco use"
+    },
+    {
+      "icd9_code": "V3001",
+      "admission_count": 2758,
+      "deaths": 22,
+      "mortality_rate": 0.007976794778825236,
+      "desc": "Single liveborn, born in hospital, delivered by cesarean section"
+    },
+    {
+      "icd9_code": "5119",
+      "admission_count": 2734,
+      "deaths": 410,
+      "mortality_rate": 0.14996342355523043,
+      "desc": "Unspecified pleural effusion"
+    },
+    {
+      "icd9_code": "V4582",
+      "admission_count": 2725,
+      "deaths": 235,
+      "mortality_rate": 0.08623853211009175,
+      "desc": "Percutaneous transluminal coronary angioplasty status"
+    },
+    {
+      "icd9_code": "40391",
+      "admission_count": 2630,
+      "deaths": 407,
+      "mortality_rate": 0.15475285171102662,
+      "desc": "Hypertensive chronic kidney disease, unspecified, with chronic kidney disease stage V or end stage renal disease"
+    },
+    {
+      "icd9_code": "78552",
+      "admission_count": 2586,
+      "deaths": 964,
+      "mortality_rate": 0.3727764887857695,
+      "desc": "Septic shock"
+    },
+    {
+      "icd9_code": "4241",
+      "admission_count": 2550,
+      "deaths": 211,
+      "mortality_rate": 0.08274509803921569,
+      "desc": "Aortic valve disorders"
+    },
+    {
+      "icd9_code": "V5867",
+      "admission_count": 2538,
+      "deaths": 221,
+      "mortality_rate": 0.08707643814026793,
+      "desc": "Long-term (current) use of insulin"
+    },
+    {
+      "icd9_code": "42789",
+      "admission_count": 2453,
+      "deaths": 230,
+      "mortality_rate": 0.09376273950264982,
+      "desc": "Other specified cardiac dysrhythmias"
+    },
+    {
+      "icd9_code": "32723",
+      "admission_count": 2380,
+      "deaths": 144,
+      "mortality_rate": 0.06050420168067227,
+      "desc": "Obstructive sleep apnea (adult)(pediatric)"
+    },
+    {
+      "icd9_code": "9971",
+      "admission_count": 2343,
+      "deaths": 188,
+      "mortality_rate": 0.08023900981647461,
+      "desc": "Cardiac complications, not elsewhere classified"
+    },
+    {
+      "icd9_code": "5845",
+      "admission_count": 2287,
+      "deaths": 715,
+      "mortality_rate": 0.31263664188893747,
+      "desc": "Acute kidney failure with lesion of tubular necrosis"
+    },
+    {
+      "icd9_code": "2760",
+      "admission_count": 2272,
+      "deaths": 473,
+      "mortality_rate": 0.20818661971830985,
+      "desc": "Hyperosmolality and/or hypernatremia"
+    },
+    {
+      "icd9_code": "7742",
+      "admission_count": 2264,
+      "deaths": 23,
+      "mortality_rate": 0.010159010600706713,
+      "desc": "Neonatal jaundice associated with preterm delivery"
+    },
+    {
+      "icd9_code": "49390",
+      "admission_count": 2195,
+      "deaths": 122,
+      "mortality_rate": 0.05558086560364465,
+      "desc": "Asthma, unspecified type, unspecified"
+    },
+    {
+      "icd9_code": "2767",
+      "admission_count": 2167,
+      "deaths": 447,
+      "mortality_rate": 0.2062759575449931,
+      "desc": "Hyperpotassemia"
+    },
+    {
+      "icd9_code": "5180",
+      "admission_count": 2165,
+      "deaths": 220,
+      "mortality_rate": 0.10161662817551963,
+      "desc": "Pulmonary collapse"
+    },
+    {
+      "icd9_code": "4168",
+      "admission_count": 2148,
+      "deaths": 259,
+      "mortality_rate": 0.12057728119180633,
+      "desc": "Other chronic pulmonary heart diseases"
+    },
+    {
+      "icd9_code": "45829",
+      "admission_count": 2121,
+      "deaths": 117,
+      "mortality_rate": 0.055162659123055166,
+      "desc": "Other iatrogenic hypotension"
+    },
+    {
+      "icd9_code": "2749",
+      "admission_count": 2082,
+      "deaths": 231,
+      "mortality_rate": 0.11095100864553314,
+      "desc": "Gout, unspecified"
+    },
+    {
+      "icd9_code": "4589",
+      "admission_count": 2051,
+      "deaths": 303,
+      "mortality_rate": 0.1477328132618235,
+      "desc": "Hypotension, unspecified"
+    },
+    {
+      "icd9_code": "V502",
+      "admission_count": 2016,
+      "deaths": 0,
+      "mortality_rate": 0.0,
+      "desc": "Routine or ritual circumcision"
+    },
+    {
+      "icd9_code": "73300",
+      "admission_count": 1946,
+      "deaths": 206,
+      "mortality_rate": 0.10585817060637205,
+      "desc": "Osteoporosis, unspecified"
+    },
+    {
+      "icd9_code": "78039",
+      "admission_count": 1934,
+      "deaths": 245,
+      "mortality_rate": 0.1266804550155119,
+      "desc": "Other convulsions"
+    },
+    {
+      "icd9_code": "5856",
+      "admission_count": 1926,
+      "deaths": 272,
+      "mortality_rate": 0.14122533748701974,
+      "desc": "End stage renal disease"
+    },
+    {
+      "icd9_code": "4271",
+      "admission_count": 1811,
+      "deaths": 336,
+      "mortality_rate": 0.18553285477636663,
+      "desc": "Paroxysmal ventricular tachycardia"
+    },
+    {
+      "icd9_code": "5185",
+      "admission_count": 1807,
+      "deaths": 380,
+      "mortality_rate": 0.21029330381848368,
+      "desc": ""
+    },
+    {
+      "icd9_code": "4254",
+      "admission_count": 1709,
+      "deaths": 173,
+      "mortality_rate": 0.10122878876535986,
+      "desc": "Other primary cardiomyopathies"
+    },
+    {
+      "icd9_code": "4111",
+      "admission_count": 1663,
+      "deaths": 30,
+      "mortality_rate": 0.01803968731208659,
+      "desc": "Intermediate coronary syndrome"
+    },
+    {
+      "icd9_code": "V1251",
+      "admission_count": 1611,
+      "deaths": 175,
+      "mortality_rate": 0.10862818125387957,
+      "desc": "Personal history of venous thrombosis and embolism"
+    },
+    {
+      "icd9_code": "3572",
+      "admission_count": 1584,
+      "deaths": 118,
+      "mortality_rate": 0.07449494949494949,
+      "desc": "Polyneuropathy in diabetes"
+    },
+    {
+      "icd9_code": "30000",
+      "admission_count": 1580,
+      "deaths": 114,
+      "mortality_rate": 0.07215189873417721,
+      "desc": "Anxiety state, unspecified"
+    },
+    {
+      "icd9_code": "99811",
+      "admission_count": 1535,
+      "deaths": 170,
+      "mortality_rate": 0.11074918566775244,
+      "desc": "Hemorrhage complicating a procedure"
+    },
+    {
+      "icd9_code": "27800",
+      "admission_count": 1511,
+      "deaths": 87,
+      "mortality_rate": 0.05757776307081403,
+      "desc": "Obesity, unspecified"
+    },
+    {
+      "icd9_code": "E8798",
+      "admission_count": 1502,
+      "deaths": 200,
+      "mortality_rate": 0.13315579227696406,
+      "desc": "Other specified procedures as the cause of abnormal reaction of patient, or of later complication, without mention of misadventure at time of procedure"
+    },
+    {
+      "icd9_code": "41400",
+      "admission_count": 1494,
+      "deaths": 215,
+      "mortality_rate": 0.14390896921017404,
+      "desc": "Coronary atherosclerosis of unspecified type of vessel, native or graft"
+    },
+    {
+      "icd9_code": "60000",
+      "admission_count": 1490,
+      "deaths": 155,
+      "mortality_rate": 0.1040268456375839,
+      "desc": "Hypertrophy (benign) of prostate without urinary obstruction and other lower urinary tract symptom (LUTS)"
+    },
+    {
+      "icd9_code": "7907",
+      "admission_count": 1478,
+      "deaths": 148,
+      "mortality_rate": 0.10013531799729364,
+      "desc": "Bacteremia"
+    },
+    {
+      "icd9_code": "2930",
+      "admission_count": 1445,
+      "deaths": 136,
+      "mortality_rate": 0.09411764705882353,
+      "desc": "Delirium due to conditions classified elsewhere"
+    },
+    {
+      "icd9_code": "00845",
+      "admission_count": 1444,
+      "deaths": 272,
+      "mortality_rate": 0.1883656509695291,
+      "desc": "Intestinal infection due to Clostridium difficile"
+    },
+    {
+      "icd9_code": "2768",
+      "admission_count": 1425,
+      "deaths": 150,
+      "mortality_rate": 0.10526315789473684,
+      "desc": "Hypopotassemia"
+    },
+    {
+      "icd9_code": "4439",
+      "admission_count": 1401,
+      "deaths": 173,
+      "mortality_rate": 0.12348322626695217,
+      "desc": "Peripheral vascular disease, unspecified"
+    },
+    {
+      "icd9_code": "5789",
+      "admission_count": 1397,
+      "deaths": 276,
+      "mortality_rate": 0.19756621331424482,
+      "desc": "Hemorrhage of gastrointestinal tract, unspecified"
+    },
+    {
+      "icd9_code": "V4501",
+      "admission_count": 1390,
+      "deaths": 213,
+      "mortality_rate": 0.15323741007194244,
+      "desc": "Cardiac pacemaker in situ"
+    },
+    {
+      "icd9_code": "27651",
+      "admission_count": 1384,
+      "deaths": 160,
+      "mortality_rate": 0.11560693641618497,
+      "desc": "Dehydration"
+    },
+    {
+      "icd9_code": "28521",
+      "admission_count": 1383,
+      "deaths": 118,
+      "mortality_rate": 0.08532176428054954,
+      "desc": "Anemia in chronic kidney disease"
+    },
+    {
+      "icd9_code": "27652",
+      "admission_count": 1374,
+      "deaths": 175,
+      "mortality_rate": 0.12736535662299855,
+      "desc": "Hypovolemia"
+    },
+    {
+      "icd9_code": "431",
+      "admission_count": 1367,
+      "deaths": 431,
+      "mortality_rate": 0.3152889539136796,
+      "desc": "Intracerebral hemorrhage"
+    },
+    {
+      "icd9_code": "4275",
+      "admission_count": 1361,
+      "deaths": 737,
+      "mortality_rate": 0.5415135929463629,
+      "desc": "Cardiac arrest"
+    },
+    {
+      "icd9_code": "E8788",
+      "admission_count": 1350,
+      "deaths": 102,
+      "mortality_rate": 0.07555555555555556,
+      "desc": "Other specified surgical operations and procedures causing abnormal patient reaction, or later complication, without mention of misadventure at time of operation"
+    },
+    {
+      "icd9_code": "2765",
+      "admission_count": 1348,
+      "deaths": 207,
+      "mortality_rate": 0.15356083086053413,
+      "desc": ""
+    },
+    {
+      "icd9_code": "V4986",
+      "admission_count": 1327,
+      "deaths": 560,
+      "mortality_rate": 0.42200452147701584,
+      "desc": "Do not resuscitate status"
+    },
+    {
+      "icd9_code": "769",
+      "admission_count": 1314,
+      "deaths": 39,
+      "mortality_rate": 0.02968036529680365,
+      "desc": "Respiratory distress syndrome in newborn"
+    },
+    {
+      "icd9_code": "79902",
+      "admission_count": 1298,
+      "deaths": 181,
+      "mortality_rate": 0.13944530046224962,
+      "desc": "Hypoxemia"
+    },
+    {
+      "icd9_code": "70703",
+      "admission_count": 1289,
+      "deaths": 233,
+      "mortality_rate": 0.18076027928626842,
+      "desc": "Pressure ulcer, lower back"
+    },
+    {
+      "icd9_code": "5715",
+      "admission_count": 1287,
+      "deaths": 262,
+      "mortality_rate": 0.20357420357420358,
+      "desc": "Cirrhosis of liver without mention of alcohol"
+    },
+    {
+      "icd9_code": "V103",
+      "admission_count": 1277,
+      "deaths": 181,
+      "mortality_rate": 0.1417384494909945,
+      "desc": "Personal history of malignant neoplasm of breast"
+    },
+    {
+      "icd9_code": "99591",
+      "admission_count": 1271,
+      "deaths": 172,
+      "mortality_rate": 0.13532651455546812,
+      "desc": "Sepsis"
+    },
+    {
+      "icd9_code": "2639",
+      "admission_count": 1259,
+      "deaths": 213,
+      "mortality_rate": 0.1691818903891978,
+      "desc": "Unspecified protein-calorie malnutrition"
+    },
+    {
+      "icd9_code": "42832",
+      "admission_count": 1240,
+      "deaths": 115,
+      "mortality_rate": 0.09274193548387097,
+      "desc": "Chronic diastolic heart failure"
+    },
+    {
+      "icd9_code": "99812",
+      "admission_count": 1224,
+      "deaths": 100,
+      "mortality_rate": 0.08169934640522876,
+      "desc": "Hematoma complicating a procedure"
+    },
+    {
+      "icd9_code": "42833",
+      "admission_count": 1220,
+      "deaths": 121,
+      "mortality_rate": 0.09918032786885246,
+      "desc": "Acute on chronic diastolic heart failure"
+    },
+    {
+      "icd9_code": "07054",
+      "admission_count": 1218,
+      "deaths": 129,
+      "mortality_rate": 0.10591133004926108,
+      "desc": "Chronic hepatitis C without mention of hepatic coma"
+    },
+    {
+      "icd9_code": "42732",
+      "admission_count": 1217,
+      "deaths": 124,
+      "mortality_rate": 0.1018898931799507,
+      "desc": "Atrial flutter"
+    },
+    {
+      "icd9_code": "E8782",
+      "admission_count": 1211,
+      "deaths": 72,
+      "mortality_rate": 0.05945499587118084,
+      "desc": "Surgical operation with anastomosis, bypass, or graft, with natural or artificial tissues used as implant causing abnormal patient reaction, or later complication, without mention of misadventure at time of operation"
+    },
+    {
+      "icd9_code": "V1046",
+      "admission_count": 1207,
+      "deaths": 130,
+      "mortality_rate": 0.10770505385252693,
+      "desc": "Personal history of malignant neoplasm of prostate"
+    }
+  ],
+  "demographics": {
+    "ethnicity": {
+      "WHITE": 0.6951,
+      "BLACK/AFRICAN AMERICAN": 0.0922,
+      "UNKNOWN/NOT SPECIFIED": 0.0767,
+      "HISPANIC OR LATINO": 0.0288,
+      "OTHER": 0.0256,
+      "ASIAN": 0.0256,
+      "UNABLE TO OBTAIN": 0.0138,
+      "PATIENT DECLINED TO ANSWER": 0.0095,
+      "ASIAN - CHINESE": 0.0047,
+      "HISPANIC/LATINO - PUERTO RICAN": 0.0039,
+      "BLACK/CAPE VERDEAN": 0.0034,
+      "WHITE - RUSSIAN": 0.0028,
+      "MULTI RACE ETHNICITY": 0.0022,
+      "BLACK/HAITIAN": 0.0017,
+      "ASIAN - ASIAN INDIAN": 0.0014,
+      "WHITE - OTHER EUROPEAN": 0.0014,
+      "HISPANIC/LATINO - DOMINICAN": 0.0013,
+      "PORTUGUESE": 0.001,
+      "WHITE - BRAZILIAN": 0.001,
+      "ASIAN - VIETNAMESE": 0.0009,
+      "AMERICAN INDIAN/ALASKA NATIVE": 0.0009,
+      "BLACK/AFRICAN": 0.0007,
+      "MIDDLE EASTERN": 0.0007,
+      "HISPANIC/LATINO - GUATEMALAN": 0.0007,
+      "WHITE - EASTERN EUROPEAN": 0.0004,
+      "ASIAN - FILIPINO": 0.0004,
+      "HISPANIC/LATINO - CUBAN": 0.0004,
+      "HISPANIC/LATINO - SALVADORAN": 0.0003,
+      "NATIVE HAWAIIAN OR OTHER PACIFIC ISLANDER": 0.0003,
+      "ASIAN - CAMBODIAN": 0.0003,
+      "ASIAN - OTHER": 0.0003,
+      "HISPANIC/LATINO - CENTRAL AMERICAN (OTHER)": 0.0002,
+      "ASIAN - KOREAN": 0.0002,
+      "HISPANIC/LATINO - MEXICAN": 0.0002,
+      "CARIBBEAN ISLAND": 0.0002,
+      "HISPANIC/LATINO - COLOMBIAN": 0.0002,
+      "SOUTH AMERICAN": 0.0001,
+      "ASIAN - JAPANESE": 0.0001,
+      "ASIAN - THAI": 0.0001,
+      "HISPANIC/LATINO - HONDURAN": 0.0001,
+      "AMERICAN INDIAN/ALASKA NATIVE FEDERALLY RECOGNIZED TRIBE": 0.0001
+    },
+    "insurance": {
+      "Medicare": 0.4784,
+      "Private": 0.3829,
+      "Medicaid": 0.0981,
+      "Government": 0.0302,
+      "Self Pay": 0.0104
+    },
+    "marital_status": {
+      "MARRIED": 0.411,
+      "SINGLE": 0.2247,
+      "UNKNOWN": 0.1717,
+      "WIDOWED": 0.1223,
+      "DIVORCED": 0.0545,
+      "SEPARATED": 0.0097,
+      "UNKNOWN (DEFAULT)": 0.0058,
+      "LIFE PARTNER": 0.0003
+    },
+    "language": {
+      "ENGL": 0.4932,
+      "UNKNOWN": 0.4295,
+      "SPAN": 0.0184,
+      "RUSS": 0.0134,
+      "PTUN": 0.0106,
+      "CANT": 0.007,
+      "PORT": 0.0058,
+      "CAPE": 0.0043,
+      "MAND": 0.0026,
+      "HAIT": 0.0025,
+      "ITAL": 0.0021,
+      "VIET": 0.0016,
+      "GREE": 0.0013,
+      "ARAB": 0.0008,
+      "PERS": 0.0007,
+      "CAMB": 0.0006,
+      "POLI": 0.0006,
+      "AMER": 0.0005,
+      "HIND": 0.0004,
+      "KORE": 0.0004,
+      "ALBA": 0.0003,
+      "FREN": 0.0003,
+      "SOMA": 0.0002,
+      "THAI": 0.0002,
+      "ETHI": 0.0002,
+      "*ARM": 0.0002,
+      "*CHI": 0.0001,
+      "LAOT": 0.0001,
+      "*BEN": 0.0001,
+      "*HUN": 0.0001,
+      "*GUJ": 0.0001,
+      "*YID": 0.0001,
+      "URDU": 0.0001,
+      "*BUL": 0.0001,
+      "*URD": 0.0001,
+      "*BUR": 0.0001,
+      "*IBO": 0.0001,
+      "*CDI": 0.0001,
+      "*MAN": 0.0001,
+      "JAPA": 0.0001,
+      "*TEL": 0.0001,
+      "**TO": 0.0001,
+      "TAGA": 0.0001,
+      "*TOY": 0.0,
+      "*LEB": 0.0,
+      "*FUL": 0.0,
+      "* BE": 0.0,
+      "*CAN": 0.0,
+      "TURK": 0.0,
+      "*TOI": 0.0,
+      "BENG": 0.0,
+      "*AMH": 0.0,
+      "*MOR": 0.0,
+      "*DUT": 0.0,
+      "*KHM": 0.0,
+      "**SH": 0.0,
+      "*DEA": 0.0,
+      "*PUN": 0.0,
+      "*PHI": 0.0,
+      "*SPA": 0.0,
+      "*RUS": 0.0,
+      "GERM": 0.0,
+      "*BOS": 0.0,
+      "*ROM": 0.0,
+      "* FU": 0.0,
+      "*ARA": 0.0,
+      "*YOR": 0.0,
+      "*FAR": 0.0,
+      "SERB": 0.0,
+      "** T": 0.0,
+      "*NEP": 0.0,
+      "*CRE": 0.0,
+      "*FIL": 0.0,
+      "*LIT": 0.0,
+      "*PER": 0.0,
+      "*TAM": 0.0
+    },
+    "gender": {
+      "M": 0.5615,
+      "F": 0.4385
+    },
+    "age_mean": 55.0,
+    "age_std": 27.2
+  }
+}
