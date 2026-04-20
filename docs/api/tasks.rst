@@ -225,6 +225,7 @@ Available Tasks
     Benchmark EHRShot <tasks/pyhealth.tasks.benchmark_ehrshot>
     ChestX-ray14 Binary Classification <tasks/pyhealth.tasks.ChestXray14BinaryClassification>
     De-Identification NER <tasks/pyhealth.tasks.DeIDNERTask>
+    ICBHI Respiratory Classification <tasks/pyhealth.tasks.ICBHIRespiratoryTask>
     ChestX-ray14 Multilabel Classification <tasks/pyhealth.tasks.ChestXray14MultilabelClassification>
     Variant Classification (ClinVar) <tasks/pyhealth.tasks.VariantClassificationClinVar>
     Mutation Pathogenicity (COSMIC) <tasks/pyhealth.tasks.MutationPathogenicityPrediction>
