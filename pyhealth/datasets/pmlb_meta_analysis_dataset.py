@@ -243,54 +243,62 @@ class PMLBMetaAnalysisDataset(BaseDataset):
 
     @staticmethod
     def _add_synthetic_noise(
-            df: pd.DataFrame,
-            prior_error: float,
-            effect_noise: float,
-            seed: int = 0,
-            kernel_bandwidth: float = 3.0,
-            n_held_out: int = 100,
+        df: pd.DataFrame,
+        prior_error: float,
+        effect_noise: float,
+        seed: int = 0,
+        gamma: float = 0.2,
+        kernel_type: str = "gaussian",
+        num_prior: int = 1000,
     ) -> pd.DataFrame:
         """Generate synthetic meta-analysis noise following Appendix B.6.
 
-        Given a regression dataset with features X and true effects U,
-        this method simulates the observables of a meta-analysis:
+        This reproduces the ``generate_problem`` routine from the
+        authors' reference implementation at
+        https://github.com/shivak/conformal-meta. Given a regression
+        dataset with features X and true effects U, it simulates the
+        observables of a meta-analysis:
 
-            - ``prior_mean`` (M): an imperfect predictor of U, built by
-              mixing U with a random RKHS function F_tilde according to
-              ``p = sqrt(prior_error * Var(U) / MSE(U, F_tilde))``.
-              Higher ``prior_error`` pulls M further from U.
+            - ``prior_mean`` (M): an imperfect predictor of U, built as
+              a convex combination of U and a random RKHS function
+              ``prior_noise = K[:, prior_indices] @ prior_weights``,
+              where ``K`` is the kernel matrix over all rows of the
+              dataset. The mixing fraction is calibrated so that
+              ``MSE(M, U) = prior_error * Var(U)``.
             - ``variance`` (V): within-trial variance drawn as
-              ``V ~ Exp(1) * sqrt(effect_noise) * E|U|``. Scales with
-              ``effect_noise`` and is floored at 1e-6.
+              ``V ~ Exp(1) * sqrt(effect_noise * E|U|)``. Scales with
+              ``effect_noise`` and is floored at 1e-6 for numerical
+              stability.
             - ``observed_effect`` (Y): noisy observation
               ``Y ~ N(U, V)`` of the true effect.
 
-        The random RKHS function F_tilde is constructed as
-        ``sum_j g_j * rbf_kernel(x, x_tilde_j)`` for ``n_held_out``
-        random anchors ``x_tilde_j`` with i.i.d. N(0, 1) weights ``g_j``.
-        Features are z-score normalized before the kernel is applied so
-        that ``kernel_bandwidth`` is on a consistent scale across
-        datasets.
+        The kernel matrix is built from features standardized with
+        zero mean and unit variance, using the same ``gamma = 0.2``
+        and mean-normalized-distance convention as the reference.
 
         Args:
-            df: Input DataFrame containing at least ``true_effect`` and
-                the feature columns. Must also contain ``patient_id``
-                and ``visit_id`` columns (these are excluded from the
-                feature matrix used for the kernel).
+            df: Input DataFrame containing at least ``true_effect``
+                and feature columns. Must also contain ``patient_id``
+                and ``visit_id`` (excluded from the feature matrix).
             prior_error: Non-negative parameter controlling the gap
-                between the synthetic prior mean M and the true effect
-                U. 0 means M = U (perfect prior); larger values make M
-                progressively noisier.
+                between the synthetic prior mean M and the true
+                effect U. 0 means M = U (perfect prior); 1 means
+                ``Var(M - U) = Var(U)`` (useless prior).
             effect_noise: Non-negative parameter scaling the within-
-                trial variance V. 0 yields near-zero variances (V is
-                floored at 1e-6); larger values yield noisier Y.
-            seed: Random seed used for F_tilde anchor selection, RKHS
-                weights, V sampling, and Y sampling.
-            kernel_bandwidth: Bandwidth sigma of the Gaussian (RBF)
-                kernel used to build F_tilde.
-            n_held_out: Number of random anchor points used for
-                F_tilde. Capped at ``len(df)`` when the dataset is
-                smaller than this value.
+                trial variance V. 0 yields near-zero variances; larger
+                values yield noisier Y.
+            seed: Random seed controlling prior-index selection, RKHS
+                weights, variance sampling, and label noise.
+            gamma: Kernel bandwidth parameter. 0.2 matches the
+                reference implementation. Only used when
+                ``kernel_type='gaussian'`` or ``'laplace'``.
+            kernel_type: Either ``'gaussian'`` (default) or
+                ``'laplace'``. Matches the reference's per-dataset
+                kernel choice for PMLB (``1196_BNG_pharynx`` is
+                gaussian in the reference).
+            num_prior: Number of rows used as prior anchors. Capped
+                at ``len(df) // 2`` so at least half the rows remain
+                for the train/test split.
 
         Returns:
             A copy of ``df`` with three new columns appended:
@@ -301,45 +309,55 @@ class PMLBMetaAnalysisDataset(BaseDataset):
         U = df["true_effect"].to_numpy(dtype=np.float64)
         n = len(U)
 
-        # Feature matrix for kernel computation
-        feature_cols = [c for c in df.columns
-                        if c not in ("patient_id", "visit_id", "true_effect")]
+        # Feature matrix and standardization (reference cell 7:
+        # StandardScaler().fit_transform(X))
+        feature_cols = [
+            c for c in df.columns
+            if c not in ("patient_id", "visit_id", "true_effect")
+        ]
         X = df[feature_cols].to_numpy(dtype=np.float64)
-        # Normalize features for stable kernel
         X = (X - X.mean(axis=0)) / (X.std(axis=0) + 1e-9)
 
-        # --- Build F_tilde: random RKHS function from held-out data ---
-        # Sample random held-out anchors x_tilde_i and weights g_i ~ N(0, 1)
-        idx_held_out = rng.choice(n, size=min(n_held_out, n), replace=False)
-        X_tilde = X[idx_held_out]
-        g = rng.randn(len(X_tilde))
-
-        # Gaussian kernel: kappa(x, x') = exp(-||x - x'||^2 / (2 * sigma^2))
-        def rbf_kernel_matrix(A, B, sigma):
-            # pairwise squared distances
-            sq = (np.sum(A ** 2, axis=1, keepdims=True)
-                  + np.sum(B ** 2, axis=1)[None, :]
-                  - 2 * A @ B.T)
-            return np.exp(-sq / (2 * sigma ** 2))
-
-        K_X_tilde = rbf_kernel_matrix(X, X_tilde, kernel_bandwidth)
-        F_tilde = K_X_tilde @ g  # F_tilde_i = sum_j g_j * kappa(x_i, x_tilde_j)
-
-        # --- Compute p from the paper's formula ---
-        var_U = np.var(U)
-        mse_U_F = np.mean((U - F_tilde) ** 2)
-        if mse_U_F < 1e-12:
-            p = 0.0
+        # --- Kernel matrix over all rows (reference cell 7) ---
+        # dist_matrix = mean over features of pairwise distance
+        if kernel_type == "gaussian":
+            diff = X[:, None, :] - X[None, :, :]
+            dist_matrix = np.mean(diff ** 2, axis=-1)
+        elif kernel_type == "laplace":
+            diff = X[:, None, :] - X[None, :, :]
+            dist_matrix = np.mean(np.abs(diff), axis=-1)
         else:
-            p = np.sqrt(prior_error * var_U / mse_U_F)
-        p = min(p, 1.0)  # cap at 1
+            raise ValueError(
+                f"kernel_type must be 'gaussian' or 'laplace', "
+                f"got '{kernel_type}'"
+            )
+        K = np.exp(-dist_matrix * gamma)
 
-        # Compose M
-        M = p * F_tilde + (1 - p) * U
+        # --- Prior M via RKHS mixing (reference cell 11) ---
+        # prior_noise = K[:, prior_indices] @ random_weights; M mixes
+        # this with U so that MSE(M, U) = prior_error * Var(U).
+        num_prior_eff = min(num_prior, n // 2)
+        shuffled = rng.permutation(n)
+        prior_indices = shuffled[:num_prior_eff]
+        K_prior = K[:, prior_indices]
+        prior_weights = rng.randn(num_prior_eff)
+        prior_noise = K_prior @ prior_weights
 
-        # --- Variance per paper: V_i ~ Exp(1) * sqrt(effect_noise) * E|U| ---
+        U_var = float(np.var(U))
+        mse = float(np.mean((prior_noise - U) ** 2))
+        if mse < 1e-12 or prior_error == 0.0:
+            mixing_frac = 0.0
+        else:
+            mixing_frac = np.sqrt(prior_error * U_var / mse)
+        M = mixing_frac * prior_noise + (1.0 - mixing_frac) * U
+
+        # --- Variance V ~ Exp(1) * sqrt(effect_noise * E|U|) ---
+        # (reference cell 11, exact formula)
         mean_abs_U = float(np.mean(np.abs(U)))
-        V = rng.exponential(scale=1.0, size=n) * np.sqrt(effect_noise) * mean_abs_U
+        V = (
+            rng.exponential(scale=1.0, size=n)
+            * np.sqrt(effect_noise * mean_abs_U)
+        )
         V = np.maximum(V, 1e-6)
 
         # --- Observed Y ~ N(U, V) ---
