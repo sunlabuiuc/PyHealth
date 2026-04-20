@@ -110,8 +110,8 @@ class WESADDataset(BaseDataset):
         self.label_map = label_map or {1: 0, 2: 1}  # binary: baseline vs stress
         self.subjects = subjects or WESAD_SUBJECTS
 
-        self._verify_data(root)
-        self.samples = self._load_and_window(root)
+        if config_path is None:
+            config_path = str(Path(__file__).parent / "configs" / "wesad.yaml")
 
         super().__init__(
             root=root,
@@ -120,6 +120,9 @@ class WESADDataset(BaseDataset):
             config_path=config_path,
             **kwargs,
         )
+
+        self._verify_data(root)
+        self.samples = self._load_and_window(root)
 
     def _verify_data(self, root: str) -> None:
         """Verifies the dataset directory structure.
@@ -138,7 +141,10 @@ class WESADDataset(BaseDataset):
 
         pkl_files = list(Path(root).rglob("*.pkl"))
         if not pkl_files:
-            msg = f"No .pkl files found under {root}. Ensure WESAD is downloaded and extracted."
+            msg = (
+                f"No .pkl files found under {root}. "
+                "Ensure WESAD is downloaded and extracted."
+            )
             logger.error(msg)
             raise FileNotFoundError(msg)
 
@@ -228,6 +234,28 @@ class WESADDataset(BaseDataset):
 
         logger.info(f"Total windows: {len(samples)}")
         return samples
+
+    def set_task(self, task_fn=None, **kwargs):
+        """Wraps BaseDataset.set_task(); see BaseDataset for full signature.
+
+        WESAD samples are pre-windowed in ``__init__`` and stored in
+        ``self.samples``. The standard patient/visit/event pipeline from
+        BaseDataset does not apply. Use ``StressDetectionDataset`` directly::
+
+            from pyhealth.tasks.stress_detection import StressDetectionDataset
+            task = StressDetectionDataset(dataset.samples)
+
+        Args:
+            task_fn: Task function applied per sample. If provided, delegates
+                to BaseDataset.set_task for compatibility.
+            **kwargs: Additional arguments forwarded to BaseDataset.set_task.
+
+        Returns:
+            Result of BaseDataset.set_task if task_fn is provided, else self.
+        """
+        if task_fn is None:
+            return self
+        return super().set_task(task_fn, **kwargs)
 
     def __len__(self) -> int:
         return len(self.samples)

@@ -12,14 +12,18 @@ This script demonstrates:
     3. Fine-tuning for binary stress detection
     4. Ablation: full vs. generic-only vs. EDA-specific augmentations
 
-Usage:
+Usage (real data):
     python examples/wesad_stress_detection_contrastive_eda.py \
         --data_root /path/to/WESAD \
-        --output_dir ./outputs \
         --augmentation_group full \
         --pretrain_epochs 50 \
-        --finetune_epochs 20 \
-        --label_fraction 0.01
+        --finetune_epochs 20
+
+Usage (synthetic demo, no download required):
+    python examples/wesad_stress_detection_contrastive_eda.py \
+        --synthetic \
+        --pretrain_epochs 2 \
+        --finetune_epochs 2
 
 Authors:
     Megan Saunders, Jennifer Miranda, Jesus Torres
@@ -29,6 +33,8 @@ Authors:
 import argparse
 import logging
 import os
+import pickle
+import tempfile
 from typing import Dict, List
 
 import numpy as np
@@ -43,6 +49,36 @@ from pyhealth.tasks.stress_detection import StressDetectionDataset
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
+
+# EDA sample rate of the Empatica E4 wrist device (Hz)
+_EDA_SAMPLE_RATE = 4
+
+
+def _make_synthetic_wesad(root: str, subjects: List[str], n_seconds: int = 120) -> None:
+    """Creates a minimal synthetic WESAD directory for demo purposes.
+
+    Generates one pickle file per subject containing random EDA and label
+    arrays that match the real WESAD file format, allowing the full pipeline
+    to run without downloading the actual dataset.
+
+    Args:
+        root: Directory in which to create per-subject subdirectories.
+        subjects: Subject IDs to generate (e.g. ['S2', 'S3']).
+        n_seconds: Duration of synthetic recording per subject in seconds.
+    """
+    n_eda = n_seconds * _EDA_SAMPLE_RATE
+    n_chest = n_eda * 175  # ~700 Hz chest device rate
+    for sid in subjects:
+        eda = np.random.rand(n_eda, 1).astype(np.float32)
+        labels = np.ones(n_chest, dtype=int)
+        labels[n_chest // 3: 2 * n_chest // 3] = 2  # stress segment
+        data = {"signal": {"wrist": {"EDA": eda}}, "label": labels}
+        subject_dir = os.path.join(root, sid)
+        os.makedirs(subject_dir, exist_ok=True)
+        with open(os.path.join(subject_dir, f"{sid}.pkl"), "wb") as f:
+            pickle.dump(data, f)
+    logger.info(f"Synthetic WESAD data written to {root} for subjects {subjects}")
+
 
 # LNSO folds matching the authors' dataset_splits/WESAD/ files
 LNSO_FOLDS = [
@@ -155,7 +191,7 @@ def finetune_and_evaluate(
     with torch.no_grad():
         for x, y in test_loader:
             x = x.to(device)
-            logits = model(x)
+            logits = model(x)["logit"]
             preds = logits.argmax(dim=1).cpu().numpy()
             all_preds.extend(preds)
             all_labels.extend(y.numpy())
@@ -210,7 +246,9 @@ def run_fold(
 
     # Save encoder checkpoint
     os.makedirs(output_dir, exist_ok=True)
-    ckpt_path = os.path.join(output_dir, f"encoder_fold{fold_idx}_{augmentation_group}.pt")
+    ckpt_path = os.path.join(
+        output_dir, f"encoder_fold{fold_idx}_{augmentation_group}.pt"
+    )
     model.save_encoder(ckpt_path)
 
     # Finetune and evaluate
@@ -293,8 +331,12 @@ def main():
         description="Contrastive EDA pre-training and stress detection on WESAD"
     )
     parser.add_argument(
-        "--data_root", type=str, required=True,
-        help="Path to WESAD dataset root directory"
+        "--data_root", type=str, default=None,
+        help="Path to WESAD dataset root directory. Omit when using --synthetic."
+    )
+    parser.add_argument(
+        "--synthetic", action="store_true",
+        help="Generate synthetic WESAD data and run a short demo (no download needed)."
     )
     parser.add_argument(
         "--output_dir", type=str, default="./outputs",
@@ -327,6 +369,9 @@ def main():
     )
     args = parser.parse_args()
 
+    if not args.synthetic and args.data_root is None:
+        parser.error("Provide --data_root <path> or pass --synthetic for a demo run.")
+
     # Reproducibility
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
@@ -334,10 +379,21 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info(f"Using device: {device}")
 
+    # Optionally generate synthetic data for a quick demo run
+    _tmp_dir = None
+    if args.synthetic:
+        _tmp_dir = tempfile.mkdtemp()
+        demo_subjects = ["S2", "S3", "S4", "S5"]
+        _make_synthetic_wesad(_tmp_dir, demo_subjects, n_seconds=120)
+        data_root = _tmp_dir
+        logger.info("Running in synthetic demo mode.")
+    else:
+        data_root = args.data_root
+
     # Load dataset
-    logger.info(f"Loading WESAD from {args.data_root}")
+    logger.info(f"Loading WESAD from {data_root}")
     dataset = WESADDataset(
-        root=args.data_root,
+        root=data_root,
         window_size=args.window_size,
         step_size=10,
         label_map={1: 0, 2: 1},

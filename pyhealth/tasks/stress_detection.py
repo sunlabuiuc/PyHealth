@@ -10,16 +10,17 @@ Authors:
 """
 
 import logging
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import torch
-from torch.utils.data import Dataset
+
+from pyhealth.tasks.base_task import BaseTask
 
 logger = logging.getLogger(__name__)
 
 
-class StressDetectionDataset(Dataset):
+class StressDetectionDataset(BaseTask):
     """PyTorch Dataset wrapping WESAD windows for stress detection.
 
     Takes the list of sample dicts produced by WESADDataset and returns
@@ -38,6 +39,24 @@ class StressDetectionDataset(Dataset):
         >>> x, y = task[0]
         >>> print(x.shape, y)
     """
+
+    task_name: str = "StressDetection"
+    input_schema: Dict[str, str] = {"eda": "signal"}
+    output_schema: Dict[str, str] = {"label": "multiclass"}
+
+    def __call__(self, patient) -> List[Dict]:
+        """Not used in the WESAD pipeline.
+
+        WESAD samples are pre-windowed by WESADDataset rather than derived
+        from the standard PyHealth patient model.
+
+        Args:
+            patient: Unused PyHealth Patient object.
+
+        Returns:
+            Empty list; windowing is handled by WESADDataset.
+        """
+        return []
 
     def __init__(self, samples: List[Dict],
                  subject_filter: Optional[List[str]] = None) -> None:
@@ -68,7 +87,7 @@ class StressDetectionDataset(Dataset):
     def __len__(self) -> int:
         return len(self.samples)
 
-    def __getitem__(self, idx: int):
+    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
         """Returns a single EDA window and its label as tensors.
 
         Args:
@@ -84,7 +103,9 @@ class StressDetectionDataset(Dataset):
         label = torch.tensor(sample["label"], dtype=torch.long)
         return eda, label
 
-    def get_subject_splits(self, test_subjects: List[str]):
+    def get_subject_splits(
+        self, test_subjects: List[str]
+    ) -> Tuple["StressDetectionDataset", "StressDetectionDataset"]:
         """Returns train and test subsets by subject for LNSO cross-validation.
 
         Args:

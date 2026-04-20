@@ -13,14 +13,16 @@ Authors:
 
 import copy
 import logging
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import scipy.signal
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from scipy.interpolate import CubicSpline
+
+from pyhealth.datasets import SampleDataset
+from pyhealth.models.base_model import BaseModel
 
 logger = logging.getLogger(__name__)
 
@@ -171,6 +173,11 @@ class NCELoss(nn.Module):
 
     Args:
         temperature: Softmax temperature. Lower = sharper distribution.
+
+    Example::
+        >>> loss_fn = NCELoss(temperature=0.1)
+        >>> z1, z2 = torch.randn(8, 64), torch.randn(8, 64)
+        >>> loss = loss_fn(z1, z2)
     """
 
     def __init__(self, temperature: float = 0.1):
@@ -229,6 +236,12 @@ class EDAEncoder(nn.Module):
         window_size: Length of the input EDA window in samples.
         embed_dim: Dimension of the output embedding.
         proj_dim: Dimension of the contrastive projection head output.
+
+    Example::
+        >>> encoder = EDAEncoder(window_size=60)
+        >>> x = torch.randn(8, 60)
+        >>> z = encoder(x)          # projected, shape (8, proj_dim)
+        >>> h = encoder.encode(x)   # raw embedding, shape (8, embed_dim)
     """
 
     def __init__(
@@ -300,7 +313,7 @@ class EDAEncoder(nn.Module):
 # Full ContrastiveEDAModel
 # ---------------------------------------------------------------------------
 
-class ContrastiveEDAModel(nn.Module):
+class ContrastiveEDAModel(BaseModel):
     """Contrastive EDA encoder model for PyHealth.
 
     Supports two modes:
@@ -335,6 +348,7 @@ class ContrastiveEDAModel(nn.Module):
 
     def __init__(
         self,
+        dataset: Optional[SampleDataset] = None,
         window_size: int = 60,
         embed_dim: int = 128,
         proj_dim: int = 64,
@@ -342,8 +356,41 @@ class ContrastiveEDAModel(nn.Module):
         augmentation_group: str = "full",
         temperature: float = 0.1,
         freeze_encoder: bool = False,
-    ):
-        super().__init__()
+    ) -> None:
+        """Initializes ContrastiveEDAModel.
+
+        ``dataset`` is optional because this model supports a two-stage
+        pretrain/finetune workflow that does not require a SampleDataset at
+        construction time. Pass ``None`` (default) when instantiating for
+        contrastive pre-training; provide a dataset only when integrating with
+        the standard PyHealth SampleDataset pipeline.
+
+        Args:
+            dataset (Optional[SampleDataset]): PyHealth SampleDataset. May be
+                None when using the standalone pretrain/finetune API.
+            window_size (int): EDA window length in samples. Defaults to 60.
+            embed_dim (int): Encoder output embedding dimension. Defaults to
+                128.
+            proj_dim (int): Contrastive projection head output dimension.
+                Defaults to 64.
+            num_classes (int): Number of output classes for finetune mode.
+                Defaults to 2.
+            augmentation_group (str): Augmentation preset — one of 'full',
+                'generic_only', 'eda_specific_only' — or a list of
+                augmentation names. Defaults to 'full'.
+            temperature (float): NT-Xent loss temperature. Defaults to 0.1.
+            freeze_encoder (bool): If True in finetune mode, freezes encoder
+                weights. Defaults to False.
+
+        Raises:
+            ValueError: If augmentation_group is not a known preset and not
+                a list.
+
+        Example::
+            >>> model = ContrastiveEDAModel(window_size=60, num_classes=2)
+            >>> loss = model.pretrain_step(torch.randn(8, 60))
+        """
+        super().__init__(dataset=dataset)
         self.window_size = window_size
         self.num_classes = num_classes
         self.freeze_encoder = freeze_encoder
@@ -403,27 +450,44 @@ class ContrastiveEDAModel(nn.Module):
     # Forward
     # ------------------------------------------------------------------
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        x: torch.Tensor,
+        y: Optional[torch.Tensor] = None,
+    ) -> Union[torch.Tensor, Dict[str, torch.Tensor]]:
         """Forward pass.
 
         In pretrain mode: returns projected embeddings of shape (N, proj_dim).
-        In finetune mode: returns class logits of shape (N, num_classes).
+        In finetune mode: returns a dict with keys ``logit``, ``y_prob``, and
+        optionally ``loss`` and ``y_true`` when ``y`` is provided.
 
         Args:
             x: EDA windows of shape (N, window_size).
+            y: Integer class labels of shape (N,). Required for ``loss`` and
+                ``y_true`` to appear in the finetune-mode output dict.
 
         Returns:
-            Projected embeddings or logits depending on current mode.
+            Pretrain mode — projected embeddings of shape (N, proj_dim).
+            Finetune mode — dict with ``logit`` (N, num_classes), ``y_prob``
+            (N, num_classes), and when y is provided, ``loss`` (scalar) and
+            ``y_true`` (N,).
         """
         if self._mode == "pretrain":
             return self.encoder(x)
-        else:
-            if self.classifier is None:
-                raise RuntimeError(
-                    "Call set_finetune_mode() before running in finetune mode."
-                )
-            h = self.encoder.encode(x)
-            return self.classifier(h)
+
+        if self.classifier is None:
+            raise RuntimeError(
+                "Call set_finetune_mode() before running in finetune mode."
+            )
+        logits = self.classifier(self.encoder.encode(x))
+        result: Dict[str, torch.Tensor] = {
+            "logit": logits,
+            "y_prob": F.softmax(logits, dim=-1),
+        }
+        if y is not None:
+            result["loss"] = F.cross_entropy(logits, y)
+            result["y_true"] = y
+        return result
 
     # ------------------------------------------------------------------
     # Training steps
@@ -474,9 +538,8 @@ class ContrastiveEDAModel(nn.Module):
         Returns:
             Tuple of (loss scalar, logits of shape (N, num_classes)).
         """
-        logits = self.forward(x)
-        loss = F.cross_entropy(logits, y)
-        return loss, logits
+        result = self.forward(x, y=y)
+        return result["loss"], result["logit"]
 
     # ------------------------------------------------------------------
     # Checkpoint helpers

@@ -3,7 +3,7 @@
 version: "1.0"
 tables:
   wesad:
-    file_path: null
+    file_path: ""
     patient_id: "subject_id"
     timestamp: null
     attributes:
