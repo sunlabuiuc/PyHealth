@@ -39,11 +39,7 @@ from pyhealth.models.event_contrastive import EBCLModel
 # ---------------------------------------------------------------------
 
 MIMIC4_PATH = os.environ.get("MIMIC4_PATH")
-if not MIMIC4_PATH:
-    raise EnvironmentError(
-        "MIMIC4_PATH is not set. Please export MIMIC4_PATH to your local "
-        "MIMIC-IV root directory before running this script."
-    )
+USE_SYNTHETIC_DATA = False
 
 MAX_LEN = 64
 MIN_LEN = 8
@@ -94,6 +90,340 @@ def validate_required_files(mimic4_path: str) -> None:
 # ---------------------------------------------------------------------
 # Data loading
 # ---------------------------------------------------------------------
+
+def load_synthetic_tables() -> Dict[str, pd.DataFrame]:
+    """Builds tiny synthetic MIMIC-like tables for local debugging.
+
+    The synthetic data is intentionally small and simple. It is only meant to
+    verify that the preprocessing, training, and ablation pipeline can run
+    end-to-end without requiring access to real MIMIC-IV files.
+
+    Returns:
+        Dictionary mapping table names to pandas DataFrames.
+    """
+    admissions = pd.DataFrame(
+        [
+            {
+                "subject_id": 1,
+                "hadm_id": 101,
+                "admittime": "2020-01-01 00:00:00",
+                "dischtime": "2020-01-06 00:00:00",
+                "hospital_expire_flag": 1,
+            },
+            {
+                "subject_id": 2,
+                "hadm_id": 102,
+                "admittime": "2020-01-02 00:00:00",
+                "dischtime": "2020-01-04 00:00:00",
+                "hospital_expire_flag": 0,
+            },
+            {
+                "subject_id": 3,
+                "hadm_id": 103,
+                "admittime": "2020-01-03 00:00:00",
+                "dischtime": "2020-01-08 00:00:00",
+                "hospital_expire_flag": 1,
+            },
+            {
+                "subject_id": 4,
+                "hadm_id": 104,
+                "admittime": "2020-01-04 00:00:00",
+                "dischtime": "2020-01-05 12:00:00",
+                "hospital_expire_flag": 0,
+            },
+        ]
+    )
+
+    icustays = pd.DataFrame(
+        [
+            {
+                "subject_id": 1,
+                "hadm_id": 101,
+                "stay_id": 1001,
+                "intime": "2020-01-01 01:00:00",
+                "outtime": "2020-01-05 01:00:00",
+            },
+            {
+                "subject_id": 2,
+                "hadm_id": 102,
+                "stay_id": 1002,
+                "intime": "2020-01-02 01:00:00",
+                "outtime": "2020-01-03 12:00:00",
+            },
+            {
+                "subject_id": 3,
+                "hadm_id": 103,
+                "stay_id": 1003,
+                "intime": "2020-01-03 01:00:00",
+                "outtime": "2020-01-07 01:00:00",
+            },
+            {
+                "subject_id": 4,
+                "hadm_id": 104,
+                "stay_id": 1004,
+                "intime": "2020-01-04 01:00:00",
+                "outtime": "2020-01-04 20:00:00",
+            },
+        ]
+    )
+
+    d_items = pd.DataFrame(
+        [
+            {"itemid": 220181, "label": "Non Invasive Blood Pressure mean"},
+            {"itemid": 225792, "label": "Mechanical Ventilation"},
+            {"itemid": 225794, "label": "Ventilator"},
+        ]
+    )
+
+    chartevents = pd.DataFrame(
+        [
+            # stay 1001 -> hypotension event
+            {
+                "subject_id": 1, 
+                "hadm_id": 101, 
+                "stay_id": 1001,
+                "itemid": 220181, 
+                "charttime": "2020-01-01 01:30:00",
+                "valuenum": 74.0
+            },
+            {
+                "subject_id": 1, 
+                "hadm_id": 101, 
+                "stay_id": 1001,
+                "itemid": 220181,
+                "charttime": "2020-01-01 02:00:00",
+                "valuenum": 72.0
+            },
+            {
+                "subject_id": 1, 
+                "hadm_id": 101, 
+                "stay_id": 1001,
+                "itemid": 220181, 
+                "charttime": "2020-01-01 03:00:00",
+                "valuenum": 55.0
+            },  # hypotension index
+            {
+                "subject_id": 1,
+                "hadm_id": 101,
+                "stay_id": 1001,
+                "itemid": 220181, 
+                "charttime": "2020-01-01 04:00:00",
+                "valuenum": 58.0
+            },
+            {
+                "subject_id": 1, 
+                "hadm_id": 101, 
+                "stay_id": 1001,
+                "itemid": 220181,
+                "charttime": "2020-01-01 05:00:00",
+                "valuenum": 62.0
+            },
+            # stay 1002 -> hypotension event
+            {
+                "subject_id": 2,
+                "hadm_id": 102,
+                "stay_id": 1002,
+                "itemid": 220181,
+                "charttime": "2020-01-02 02:00:00",
+                "valuenum": 75.0,
+            },
+            {
+                "subject_id": 2,
+                "hadm_id": 102,
+                "stay_id": 1002,
+                "itemid": 220181,
+                "charttime": "2020-01-02 03:00:00",
+                "valuenum": 50.0,
+            },
+            {
+                "subject_id": 2,
+                "hadm_id": 102,
+                "stay_id": 1002,
+                "itemid": 220181,
+                "charttime": "2020-01-02 04:00:00",
+                "valuenum": 57.0,
+            },
+            {
+                "subject_id": 2,
+                "hadm_id": 102,
+                "stay_id": 1002,
+                "itemid": 220181,
+                "charttime": "2020-01-02 05:00:00",
+                "valuenum": 61.0,
+            },
+            # stay 1003 -> hypotension event
+            {
+                "subject_id": 3,
+                "hadm_id": 103,
+                "stay_id": 1003,
+                "itemid": 220181,
+                "charttime": "2020-01-03 02:00:00",
+                "valuenum": 78.0,
+            },
+            {
+                "subject_id": 3,
+                "hadm_id": 103,
+                "stay_id": 1003,
+                "itemid": 220181,
+                "charttime": "2020-01-03 03:00:00",
+                "valuenum": 54.0,
+            },
+            {
+                "subject_id": 3,
+                "hadm_id": 103,
+                "stay_id": 1003,
+                "itemid": 220181,
+                "charttime": "2020-01-03 04:00:00",
+                "valuenum": 56.0,
+            },
+            {
+                "subject_id": 3,
+                "hadm_id": 103,
+                "stay_id": 1003,
+                "itemid": 220181,
+                "charttime": "2020-01-03 05:00:00",
+                "valuenum": 60.0,
+            },
+            # stay 1004 -> hypotension event
+            {
+                "subject_id": 4,
+                "hadm_id": 104,
+                "stay_id": 1004,
+                "itemid": 220181,
+                "charttime": "2020-01-04 02:00:00",
+                "valuenum": 73.0,
+            },
+            {
+                "subject_id": 4,
+                "hadm_id": 104,
+                "stay_id": 1004,
+                "itemid": 220181,
+                "charttime": "2020-01-04 03:00:00",
+                "valuenum": 52.0,
+            },
+            {
+                "subject_id": 4,
+                "hadm_id": 104,
+                "stay_id": 1004,
+                "itemid": 220181,
+                "charttime": "2020-01-04 04:00:00",
+                "valuenum": 58.0,
+            },
+            {
+                "subject_id": 4,
+                "hadm_id": 104,
+                "stay_id": 1004,
+                "itemid": 220181,
+                "charttime": "2020-01-04 05:00:00",
+                "valuenum": 63.0,
+            },
+        ]
+    )
+
+    procedureevents = pd.DataFrame(
+        [
+            {
+                "subject_id": 1,
+                "hadm_id": 101,
+                "stay_id": 1001,
+                "itemid": 225792,
+                "starttime": "2020-01-01 03:30:00",
+            },
+            {
+                "subject_id": 2,
+                "hadm_id": 102,
+                "stay_id": 1002,
+                "itemid": 225794,
+                "starttime": "2020-01-02 03:30:00",
+            },
+            {
+                "subject_id": 3,
+                "hadm_id": 103,
+                "stay_id": 1003,
+                "itemid": 225792,
+                "starttime": "2020-01-03 03:30:00",
+            },
+            {
+                "subject_id": 4,
+                "hadm_id": 104,
+                "stay_id": 1004,
+                "itemid": 225794,
+                "starttime": "2020-01-04 03:30:00",
+            },
+        ]
+    )
+
+    prescriptions = pd.DataFrame(
+        [
+            {
+                "subject_id": 1,
+                "hadm_id": 101,
+                "starttime": "2020-01-01 02:30:00",
+                "drug": "norepinephrine",
+            },
+            {
+                "subject_id": 1,
+                "hadm_id": 101,
+                "starttime": "2020-01-01 04:30:00",
+                "drug": "vasopressin",
+            },
+            {
+                "subject_id": 2,
+                "hadm_id": 102,
+                "starttime": "2020-01-02 02:30:00",
+                "drug": "dopamine",
+            },
+            {
+                "subject_id": 2,
+                "hadm_id": 102,
+                "starttime": "2020-01-02 04:30:00",
+                "drug": "midazolam",
+            },
+            {
+                "subject_id": 3,
+                "hadm_id": 103,
+                "starttime": "2020-01-03 02:30:00",
+                "drug": "epinephrine",
+            },
+            {
+                "subject_id": 3,
+                "hadm_id": 103,
+                "starttime": "2020-01-03 04:30:00",
+                "drug": "propofol",
+            },
+            {
+                "subject_id": 4,
+                "hadm_id": 104,
+                "starttime": "2020-01-04 02:30:00",
+                "drug": "phenylephrine",
+            },
+            {
+                "subject_id": 4,
+                "hadm_id": 104,
+                "starttime": "2020-01-04 04:30:00",
+                "drug": "fentanyl",
+            },
+        ]
+    )
+
+    admissions["admittime"] = pd.to_datetime(admissions["admittime"])
+    admissions["dischtime"] = pd.to_datetime(admissions["dischtime"])
+
+    icustays["intime"] = pd.to_datetime(icustays["intime"])
+    icustays["outtime"] = pd.to_datetime(icustays["outtime"])
+
+    chartevents["charttime"] = pd.to_datetime(chartevents["charttime"])
+    procedureevents["starttime"] = pd.to_datetime(procedureevents["starttime"])
+    prescriptions["starttime"] = pd.to_datetime(prescriptions["starttime"])
+
+    return {
+        "admissions": admissions,
+        "icustays": icustays,
+        "d_items": d_items,
+        "chartevents": chartevents,
+        "procedureevents": procedureevents,
+        "prescriptions": prescriptions,
+    }
 
 def load_required_tables(mimic4_path: str) -> Dict[str, pd.DataFrame]:
     """Loads the raw MIMIC-IV tables needed for event-centered EBCL.
@@ -189,6 +519,26 @@ def load_required_tables(mimic4_path: str) -> Dict[str, pd.DataFrame]:
         "prescriptions": prescriptions,
     }
 
+def load_tables_with_fallback() -> Tuple[Dict[str, pd.DataFrame], bool]:
+    """Loads real MIMIC-IV tables when available, otherwise synthetic tables.
+
+    Returns:
+        A tuple containing:
+            1. Dictionary of loaded tables
+            2. Boolean flag indicating whether synthetic data was used
+    """
+    if MIMIC4_PATH:
+        try:
+            validate_required_files(MIMIC4_PATH)
+            print(f"Loading real MIMIC-IV tables from: {MIMIC4_PATH}")
+            return load_required_tables(MIMIC4_PATH), False
+        except FileNotFoundError as exc:
+            print("Real MIMIC-IV files not available.")
+            print(exc)
+            print("Falling back to synthetic data.")
+
+    print("MIMIC4_PATH is not available. Falling back to synthetic data.")
+    return load_synthetic_tables(), True
 
 # ---------------------------------------------------------------------
 # Event detection and label construction
@@ -587,6 +937,9 @@ def stratified_split_samples(
     train_samples = train_zero + train_one
     val_samples = val_zero + val_one
     test_samples = test_zero + test_one
+
+    if len(test_samples) == 0:
+        test_samples = list(val_samples)
 
     train_perm = torch.randperm(len(train_samples), generator=generator).tolist()
     val_perm = torch.randperm(len(val_samples), generator=generator).tolist()
@@ -1446,10 +1799,18 @@ ABLATION_CONFIGS = [
 def main() -> None:
     """Runs the main experiments and hyperparameter ablation study."""
     set_seed(DEFAULT_SEED)
-    validate_required_files(MIMIC4_PATH)
 
     print(f"Using device: {DEVICE}")
-    tables = load_required_tables(MIMIC4_PATH)
+    tables, used_synthetic_data = load_tables_with_fallback()
+
+    if used_synthetic_data:
+        print("Running in synthetic fallback mode.")
+        run_max_len = 8
+        run_min_len = 2
+    else:
+        print("Running with real MIMIC-IV tables.")
+        run_max_len = MAX_LEN
+        run_min_len = MIN_LEN
 
     admissions = tables["admissions"]
     icustays = tables["icustays"]
@@ -1480,8 +1841,8 @@ def main() -> None:
             procedureevents=procedureevents,
             prescriptions=prescriptions,
             d_items=d_items,
-            max_len=MAX_LEN,
-            min_len=MIN_LEN,
+            max_len=run_max_len,
+            min_len=run_min_len,
             batch_size=BATCH_SIZE,
             device=DEVICE,
             pretrain_epochs=5,
@@ -1519,8 +1880,8 @@ def main() -> None:
                 procedureevents=procedureevents,
                 prescriptions=prescriptions,
                 d_items=d_items,
-                max_len=MAX_LEN,
-                min_len=MIN_LEN,
+                max_len=run_max_len,
+                min_len=run_min_len,
                 device=DEVICE,
             )
             ablation_results.append(result)
