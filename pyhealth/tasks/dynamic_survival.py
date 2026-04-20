@@ -26,14 +26,9 @@ from pyhealth.medcode import CrossMap
 from pyhealth.tasks.base_task import BaseTask
 
 
-# Global Code Mappers
-
-GLOBAL_DIAG_MAPPER = CrossMap("ICD9CM", "CCSCM")
-GLOBAL_PROC_MAPPER = CrossMap("ICD9PROC", "CCSPROC")
-GLOBAL_DRUG_MAPPER = CrossMap("NDC", "ATC")
-
-
-# Utility Functions
+DIAG_MAPPER = CrossMap("ICD9CM", "CCSCM")
+PROC_MAPPER = CrossMap("ICD9PROC", "CCSPROC")
+DRUG_MAPPER = CrossMap("NDC", "ATC")
 
 
 def build_daily_time_series_from_df(patient) -> List[Dict[str, Any]]:
@@ -218,9 +213,6 @@ def build_daily_time_series(patient) -> List[Dict[str, Any]]:
         )
 
     return visits
-
-
-# Engine
 
 
 class DynamicSurvivalEngine:
@@ -422,9 +414,6 @@ class DynamicSurvivalEngine:
         return samples
 
 
-# Task
-
-
 class DynamicSurvivalTask(BaseTask):
     """PyHealth-compatible dynamic survival task for early event prediction.
 
@@ -506,9 +495,9 @@ class DynamicSurvivalTask(BaseTask):
             horizon, observation_window, anchor_interval, anchor_strategy
         )
 
-        self.diag_mapper = GLOBAL_DIAG_MAPPER
-        self.proc_mapper = GLOBAL_PROC_MAPPER
-        self.drug_mapper = GLOBAL_DRUG_MAPPER
+        self.diag_mapper = DIAG_MAPPER
+        self.proc_mapper = PROC_MAPPER
+        self.drug_mapper = DRUG_MAPPER
 
         self.diag_vocab, self.proc_vocab, self.drug_vocab = (
             self.build_vocab(dataset)
@@ -604,7 +593,6 @@ class DynamicSurvivalTask(BaseTask):
             List[Dict[str, Any]]: Survival samples.
         """
 
-        # Mock patient (visits dict)
         if hasattr(patient, "visits") and isinstance(patient.visits, dict):
             visits_list = list(patient.visits.values())
 
