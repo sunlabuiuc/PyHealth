@@ -310,3 +310,25 @@ class MIMIC3CirculatoryFailureDataset(BaseDataset):
         print("MAP cache loaded:", len(df))
 
         return df
+
+    def set_task(self, task, max_patients: int | None = None):
+        """Apply a task function to the cohort and return task samples."""
+
+        samples = []
+        cohort = self.load_cohort()
+
+        if max_patients is not None:
+            cohort = cohort[:max_patients]
+
+        for row in cohort:
+            icustay_id = row["icustay_id"]
+            patient = self.get_patient_by_icustay_id(icustay_id)
+
+            if patient is None:
+                continue
+
+            task_samples = task(patient)
+            if task_samples:
+                samples.extend(task_samples)
+
+        return samples

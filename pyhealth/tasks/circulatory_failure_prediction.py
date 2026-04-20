@@ -1,62 +1,57 @@
-from datetime import timedelta
-from typing import Dict, List, Optional
+from pyhealth.tasks.base_task import BaseTask
+from typing import List, Dict
 
 
-class CirculatoryFailurePredictionTask:
-    """Early-warning task for circulatory failure prediction."""
+class CirculatoryFailurePredictionTask(BaseTask):
 
-    def __init__(
-        self,
-        prediction_window_hours: int = 12,
-    ) -> None:
+    task_name = "circulatory_failure_prediction"
+
+    input_schema = {
+        "map": float,
+        "timestamp": "datetime",
+        "gender": str,
+    }
+
+    output_schema = {
+        "label": int,
+    }
+
+    def __init__(self, prediction_window_hours: int = 12):
+        super().__init__()
         self.prediction_window_hours = prediction_window_hours
 
-    def _to_timestamp(self, value):
-        """Converts a value to pandas.Timestamp lazily."""
+    def __call__(self, patient) -> List[Dict]:
+        if not patient["time_series"]:
+            return []
+
         import pandas as pd
+        from datetime import timedelta
 
-        if value is None:
-            return None
-        if pd.isna(value):
-            return None
-        return pd.to_datetime(value)
+        first_failure_time = patient["first_failure_time"]
+        if first_failure_time is None:
+            return []
 
-    def __call__(self, patient: Dict) -> Optional[List[Dict]]:
-        """Converts one patient record into training samples."""
-        time_series = patient.get("time_series", None)
-        if not time_series:
-            return None
+        first_failure_time = pd.to_datetime(first_failure_time)
 
-        first_failure_time = self._to_timestamp(
-            patient.get("first_failure_time", None)
-        )
         prediction_window = timedelta(hours=self.prediction_window_hours)
 
         samples = []
 
-        for point in time_series:
-            charttime = self._to_timestamp(point["charttime"])
-            map_value = point.get("map", None)
+        for row in patient["time_series"]:
+            t = pd.to_datetime(row["charttime"])
+            map_value = row["map"]
 
-            if charttime is None or map_value is None:
-                continue
+            label = int(t < first_failure_time <= t + prediction_window)
 
-            label = 0
-            if first_failure_time is not None:
-                label = int(
-                    charttime < first_failure_time <= charttime + prediction_window
-                )
+            samples.append(
+                {
+                    "patient_id": patient["patient_id"],
+                    "icustay_id": patient["icustay_id"],
+                    "gender": patient["gender"],
+                    "timestamp": t,
+                    "features": {"map": map_value},
+                    "label": label,
+                }
+            )
 
-            sample = {
-                "patient_id": patient.get("patient_id"),
-                "icustay_id": patient.get("icustay_id"),
-                "gender": patient.get("gender"),
-                "timestamp": charttime,
-                "features": {
-                    "map": float(map_value),
-                },
-                "label": label,
-            }
-            samples.append(sample)
-
-        return samples if samples else None
+        return samples
