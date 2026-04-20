@@ -11,6 +11,7 @@ evaluating single master models, averaging across CV folds, or creating an ensem
 
 import argparse
 import os
+import shutil
 import torch
 import numpy as np
 import logging
@@ -39,8 +40,12 @@ def main():
     parser.add_argument('--strategy', type=str, choices=['master', 'ensemble', 'fold_average'], default='fold_average')
     parser.add_argument('--data_dir', type=str, required=True, help="Path to the dataset root folder")
     parser.add_argument('--eval_dataset', type=str, default='ph2', help="The base dataset")
-    parser.add_argument('--artifact', type=str, required=True, help="The artifact to evaluate (e.g., ruler, ink)")
+    parser.add_argument('--artifact', type=str, default=None, help="The artifact to evaluate (e.g., 'ruler', 'ink'). Defaults to clean images if omitted (or use 'clean' or 'none').")
     args = parser.parse_args()
+
+    # Normalize "None"/"none" to "clean" so the log outputs and filenames remain consistent
+    if args.artifact is None or args.artifact.lower() in ["none", "clean"]:
+        args.artifact = "clean"
 
     run_details = f"{args.eval_dataset}_{args.artifact}_{args.model}_{args.mode}"
 
@@ -49,19 +54,27 @@ def main():
     logging.getLogger("pyhealth").handlers.clear()
     setup_dynamic_logging(args.log_dir, "eval_artifacts", run_details)
 
-    # 1. Map "clean" to the original dataset for baseline Table 4 AUROC calculations
-    if args.artifact.lower() in ["none", "clean", "baseline"]:
+    # Map "clean" to the original dataset for baseline AUROC calculations
+    if args.artifact == "clean":
         dataset_target = args.eval_dataset
     else:
         dataset_target = f"{args.eval_dataset}_with_{args.artifact}"
 
+        # Dynamically copy masks from base dataset to trap set if missing
+        clean_masks_path = os.path.join(args.data_dir, args.eval_dataset, "masks")
+        target_masks_path = os.path.join(args.data_dir, dataset_target, "masks")
+        
+        if os.path.exists(clean_masks_path) and not os.path.exists(target_masks_path):
+            print(f"[*] Dynamically copying masks from {args.eval_dataset} to {dataset_target}...")
+            shutil.copytree(clean_masks_path, target_masks_path)
+
     print(f"[*] Loading Dataset Target: {dataset_target} from {args.data_dir}...")
 
-    # Load Dataset and apply Processor (Fixed 'dataset_name' to 'datasets')
+    # Load Dataset and apply Processor
     dataset = DermoscopyDataset(root=args.data_dir, datasets=[dataset_target], cache_dir=os.path.join(args.data_dir, ".cache"))
     processor = DermoscopyImageProcessor(mode=args.mode)
-    
-    # Filter for the specific Trap Set
+
+    # 3. Filter for the specific Trap Set
     task = DermoscopyMelanomaClassification(source_datasets=[dataset_target])
     task_dataset = dataset.set_task(task=task, input_processors={"image": processor})
     test_loader = get_dataloader(task_dataset, batch_size=32, shuffle=False)
@@ -74,8 +87,8 @@ def main():
         base_model = TorchvisionModel(dataset=task_dataset, model_name=args.model, model_config={"weights": "DEFAULT"})
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    
-    # 5. Resolve Target Weights based on Strategy
+
+    # Resolve Target Weights based on Strategy
     weight_paths = []
     if args.strategy == "master":
         weight_paths.append(os.path.join(args.exp_dir, "master", "best.ckpt"))
@@ -94,23 +107,23 @@ def main():
         if not os.path.exists(w_path):
             print(f"[!] Warning: Could not find weights at {w_path}. Skipping...")
             continue
-            
+
         model = load_weights(base_model, w_path, device)
         y_prob_current_model = []
         current_y_true = []
-        
+
         with torch.no_grad():
             for batch in test_loader:
                 batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
                 res = model(**batch)
                 y_prob_current_model.extend(res['y_prob'].cpu().numpy())
-                
+
                 if i == 0: y_true_all.extend(res['y_true'].cpu().numpy())
                 current_y_true.extend(res['y_true'].cpu().numpy())
-        
+
         # Calculate full suite of metrics for the current fold
         y_pred_binary = (np.array(y_prob_current_model) >= 0.5).astype(int)
-        
+
         if args.strategy == "fold_average":
             fold_auc = roc_auc_score(current_y_true, y_prob_current_model)
             fold_pr_auc = average_precision_score(current_y_true, y_prob_current_model)
@@ -118,16 +131,16 @@ def main():
             fold_prec = precision_score(current_y_true, y_pred_binary, zero_division=0)
             fold_rec = recall_score(current_y_true, y_pred_binary)
             fold_f1 = f1_score(current_y_true, y_pred_binary)
-            
+
             fold_aucs.append(fold_auc)
             fold_pr_aucs.append(fold_pr_auc)
             fold_accs.append(fold_acc)
             fold_precs.append(fold_prec)
             fold_recs.append(fold_rec)
             fold_f1s.append(fold_f1)
-            
+
             print(f"  -> Fold {i} | AUC: {fold_auc:.4f} | PR-AUC: {fold_pr_auc:.4f} | F1: {fold_f1:.4f} | ACC: {fold_acc:.4f}")
-            
+
         if y_prob_ensemble is None:
             y_prob_ensemble = np.array(y_prob_current_model)
         else:
@@ -137,21 +150,21 @@ def main():
         print("[!] No successful evaluations completed. Check weight paths.")
         return
 
-    # Final Metric Aggregation (Preserves Regex format for build_table4.py + Extended Metrics)
+    # Final Metric Aggregation
     print("\n" + "="*60)
-    print(" RESULTS ")
+    print(" TABLE 4 REPRODUCTION RESULTS ")
     print("="*60)
 
     if args.strategy == "fold_average":
         mean_auc = np.mean(fold_aucs)
         std_auc = np.std(fold_aucs)
-        
+
         # Required format for build_table4.py regex parser
         print(f"Artifact:\t{args.artifact}")
         print(f"Model:\t\t{args.model}")
         print(f"Mode:\t\t{args.mode}")
         print(f"AUROC:\t\t{mean_auc:.4f}")
-        
+
         # Extended Clinical Metrics
         print(f"\n[!] EXTENDED CLINICAL METRICS:")
         print(f"    ROC-AUC (Std): {mean_auc:.4f} ± {std_auc:.4f}")
@@ -160,24 +173,23 @@ def main():
         print(f"    Accuracy:      {np.mean(fold_accs):.4f} ± {np.std(fold_accs):.4f}")
         print(f"    Precision:     {np.mean(fold_precs):.4f} ± {np.std(fold_precs):.4f}")
         print(f"    Recall:        {np.mean(fold_recs):.4f} ± {np.std(fold_recs):.4f}")
-        
+
     elif args.strategy in ["ensemble", "master"]:
         num_models = len([w for w in weight_paths if os.path.exists(w)])
         if args.strategy == "ensemble":
             y_prob_final = y_prob_ensemble / num_models
         else:
             y_prob_final = y_prob_ensemble
-            
+
         y_pred_final = (y_prob_final >= 0.5).astype(int)
-        
+
         final_auc = roc_auc_score(y_true_all, y_prob_final)
         final_pr_auc = average_precision_score(y_true_all, y_prob_final)
         final_acc = accuracy_score(y_true_all, y_pred_final)
         final_prec = precision_score(y_true_all, y_pred_final, zero_division=0)
         final_rec = recall_score(y_true_all, y_pred_final)
         final_f1 = f1_score(y_true_all, y_pred_final)
-        
-        # Required format for build_table4.py regex parser
+
         print(f"Artifact:\t{args.artifact}")
         print(f"Model:\t\t{args.model}")
         print(f"Mode:\t\t{args.mode}")
