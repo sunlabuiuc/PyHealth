@@ -1,0 +1,218 @@
+import json
+
+notebook = {
+    "cells": [
+        {
+            "cell_type": "markdown",
+            "metadata": {},
+            "source": [
+                "# TPC Ablation Study - Google Colab\n",
+                "\n",
+                "**Steps:**\n",
+                "1. Enable GPU: Runtime → Change runtime type → T4 GPU\n",
+                "2. Run cells 1-4 to setup\n",
+                "3. **IMPORTANT:** Run cell 5 to find your data location\n",
+                "4. Update MIMIC_ROOT in cell 6 if data is elsewhere\n",
+                "5. Run cell 7 to verify data files\n",
+                "6. Run cell 8 to start training (2-4 hours)"
+            ]
+        },
+        {
+            "cell_type": "code",
+            "execution_count": None,
+            "metadata": {},
+            "outputs": [],
+            "source": [
+                "# Clone repository\n",
+                "!git clone https://github.com/tarakjc2c/PyHealth.git\n",
+                "%cd PyHealth\n",
+                "!git checkout pr-1028"
+            ]
+        },
+        {
+            "cell_type": "code",
+            "execution_count": None,
+            "metadata": {},
+            "outputs": [],
+            "source": [
+                "# Install dependencies\n",
+                "!pip install -e . -q\n",
+                "!pip install litdata polars pandas dask mne rdkit peft transformers ogb -q"
+            ]
+        },
+        {
+            "cell_type": "code",
+            "execution_count": None,
+            "metadata": {},
+            "outputs": [],
+            "source": [
+                "# Mount Google Drive\n",
+                "from google.colab import drive\n",
+                "drive.mount('/content/drive')"
+            ]
+        },
+        {
+            "cell_type": "code",
+            "execution_count": None,
+            "metadata": {},
+            "outputs": [],
+            "source": [
+                "# FIND YOUR MIMIC-IV DATA LOCATION\n",
+                "import os\n",
+                "from pathlib import Path\n",
+                "\n",
+                "print('Searching for MIMIC-IV data in Google Drive...')\n",
+                "print('This may take a minute.\\n')\n",
+                "\n",
+                "# Search common locations\n",
+                "base_path = Path('/content/drive/MyDrive')\n",
+                "possible_locations = [\n",
+                "    base_path / 'mimic-iv',\n",
+                "    base_path / 'MIMIC-IV',\n",
+                "    base_path / 'mimic_iv',\n",
+                "    base_path / 'data' / 'mimic-iv',\n",
+                "    base_path / 'datasets' / 'mimic-iv',\n",
+                "]\n",
+                "\n",
+                "found_path = None\n",
+                "for path in possible_locations:\n",
+                "    if path.exists() and (path / 'hosp').exists() and (path / 'icu').exists():\n",
+                "        found_path = str(path)\n",
+                "        print(f'✓ FOUND: {found_path}')\n",
+                "        hosp_files = len(list((path / 'hosp').glob('*.csv.gz')))\n",
+                "        icu_files = len(list((path / 'icu').glob('*.csv.gz')))\n",
+                "        print(f'  hosp/: {hosp_files} files')\n",
+                "        print(f'  icu/: {icu_files} files')\n",
+                "        break\n",
+                "\n",
+                "if found_path:\n",
+                "    print(f'\\n✓ Use this path in the next cell:')\n",
+                "    print(f'MIMIC_ROOT = \"{found_path}\"')\n",
+                "else:\n",
+                "    print('✗ MIMIC-IV data not found in common locations')\n",
+                "    print('\\nPlease manually search your Drive:')\n",
+                "    print('!find /content/drive/MyDrive -name \"chartevents.csv.gz\" 2>/dev/null | head -5')\n",
+                "    print('\\nOr browse your Drive to find where you uploaded the mimic-iv folder')"
+            ]
+        },
+        {
+            "cell_type": "code",
+            "execution_count": None,
+            "metadata": {},
+            "outputs": [],
+            "source": [
+                "# UPDATE THIS PATH based on cell above!\n",
+                "MIMIC_ROOT = '/content/drive/MyDrive/mimic-iv'  # <-- CHANGE IF NEEDED\n",
+                "\n",
+                "# Fix paths for Colab\n",
+                "script = 'examples/length_of_stay/length_of_stay_mimic4_tpc.py'\n",
+                "\n",
+                "with open(script, 'r') as f:\n",
+                "    lines = f.readlines()\n",
+                "\n",
+                "# Replace path definitions\n",
+                "new_lines = []\n",
+                "for line in lines:\n",
+                "    if 'MIMIC_ROOT = r\"C:' in line:\n",
+                "        new_lines.append(f'MIMIC_ROOT = \"{MIMIC_ROOT}\"\\n')\n",
+                "    elif 'CACHE_PATH = r\"C:' in line:\n",
+                "        new_lines.append('CACHE_PATH = \"/content/tpc_cache\"\\n')\n",
+                "    elif 'OUTPUT_DIR = \"tpc_ablation_results\"' in line:\n",
+                "        new_lines.append('OUTPUT_DIR = \"/content/drive/MyDrive/tpc_ablation_results\"\\n')\n",
+                "    else:\n",
+                "        new_lines.append(line)\n",
+                "\n",
+                "with open(script, 'w') as f:\n",
+                "    f.writelines(new_lines)\n",
+                "\n",
+                "print(f'✓ Script configured with MIMIC_ROOT = {MIMIC_ROOT}')"
+            ]
+        },
+        {
+            "cell_type": "code",
+            "execution_count": None,
+            "metadata": {},
+            "outputs": [],
+            "source": [
+                "# Verify data exists\n",
+                "import os\n",
+                "\n",
+                "critical_files = [\n",
+                "    'hosp/diagnoses_icd.csv.gz',\n",
+                "    'icu/chartevents.csv.gz',\n",
+                "    'icu/icustays.csv.gz'\n",
+                "]\n",
+                "\n",
+                "all_found = True\n",
+                "for f in critical_files:\n",
+                "    path = os.path.join(MIMIC_ROOT, f)\n",
+                "    if os.path.exists(path):\n",
+                "        print(f'✓ {f}')\n",
+                "    else:\n",
+                "        print(f'✗ MISSING: {f}')\n",
+                "        all_found = False\n",
+                "\n",
+                "if all_found:\n",
+                "    print('\\n✓ All critical files found! Ready to run.')\n",
+                "else:\n",
+                "    print('\\n✗ Some files missing. Check MIMIC_ROOT path above.')"
+            ]
+        },
+        {
+            "cell_type": "code",
+            "execution_count": None,
+            "metadata": {},
+            "outputs": [],
+            "source": [
+                "# Run ablation study (2-4 hours)\n",
+                "!python examples/length_of_stay/length_of_stay_mimic4_tpc.py"
+            ]
+        },
+        {
+            "cell_type": "markdown",
+            "metadata": {},
+            "source": [
+                "## Download Results\n",
+                "\n",
+                "Results are in MyDrive/tpc_ablation_results/\n",
+                "Download them with the cell below:"
+            ]
+        },
+        {
+            "cell_type": "code",
+            "execution_count": None,
+            "metadata": {},
+            "outputs": [],
+            "source": [
+                "from google.colab import files\n",
+                "import os\n",
+                "\n",
+                "result_dir = '/content/drive/MyDrive/tpc_ablation_results'\n",
+                "for filename in ['ablation_results.json', 'mc_dropout_results.json']:\n",
+                "    filepath = os.path.join(result_dir, filename)\n",
+                "    if os.path.exists(filepath):\n",
+                "        print(f'Downloading: {filename}')\n",
+                "        files.download(filepath)"
+            ]
+        }
+    ],
+    "metadata": {
+        "kernelspec": {
+            "display_name": "Python 3",
+            "language": "python",
+            "name": "python3"
+        },
+        "language_info": {
+            "name": "python",
+            "version": "3.10.0"
+        },
+        "accelerator": "GPU"
+    },
+    "nbformat": 4,
+    "nbformat_minor": 0
+}
+
+with open('examples/length_of_stay/tpc_mimic4_colab.ipynb', 'w') as f:
+    json.dump(notebook, f, indent=2)
+
+print("✓ Created valid Jupyter notebook")
