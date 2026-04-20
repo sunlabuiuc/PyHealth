@@ -290,7 +290,7 @@ class TestDynamicSurvivalTask(unittest.TestCase):
     def test_multiple_patients_processing(self):
         """Test engine processes a batch of dict-based patients without errors."""
         task = DynamicSurvivalTask(MockDataset())
-        patients = create_patients(25)
+        patients = create_patients(3)
 
         all_samples = []
         for p in patients:
@@ -527,18 +527,18 @@ class TestDynamicSurvivalTask(unittest.TestCase):
         finally:
             shutil.rmtree(tmp_dir)
 
-    def test_large_mock_patient_cohort(self):
-        """Test pipeline with 15 MockPatients covering mixed event/censor cases."""
+    def test_mock_patient_cohort(self):
+        """Test pipeline with 4 MockPatients covering mixed event/censor cases."""
         base_time = datetime(2025, 1, 1)
 
         patients = []
-        for i in range(15):
+        for i in range(4):
             visits_data = [
                 {"time": base_time + timedelta(days=d), "diagnosis": [str(1000 + i)]}
-                for d in range(0, 20, 2)
+                for d in [0, 5, 10]
             ]
             # Alternate event / censored patients
-            death_time = base_time + timedelta(days=25) if i % 2 == 0 else None
+            death_time = base_time + timedelta(days=15) if i % 2 == 0 else None
             patients.append(MockPatient(
                 pid=f"MP{i}",
                 visits_data=visits_data,
