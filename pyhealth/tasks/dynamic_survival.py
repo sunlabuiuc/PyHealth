@@ -384,11 +384,11 @@ class DynamicSurvivalEngine:
     
                     feat = np.concatenate(
                         [
-                            [
-                                (visit["time"] - obs_start)
-                                / self.observation_window
-                            ],
-                            visit["feature"],
+                            np.array(
+                                [(visit["time"] - obs_start) / self.observation_window],
+                                dtype=np.float32,
+                            ),
+                            np.array(visit["feature"], dtype=np.float32),
                         ]
                     )
                     seq.append(feat)
@@ -396,7 +396,7 @@ class DynamicSurvivalEngine:
             if not seq:
                 continue
     
-            x = np.array(seq, dtype=float)
+            x = np.array(seq, dtype=np.float32)
             y, mask = self.generate_survival_label(
                 anchor, event_time, censor_time
             )
@@ -405,7 +405,7 @@ class DynamicSurvivalEngine:
                 {
                     "patient_id": pid,
                     "visit_id": f"{pid}_{anchor}",
-                    "x": x.astype(np.float32),
+                    "x": x,
                     "y": y.astype(np.float32),
                     "mask": mask.astype(np.float32),
                 }

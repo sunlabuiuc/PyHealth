@@ -11,4 +11,3 @@ polars==1.39.3
 mne
 scikit-learn
 matplotlib
-pytest==9.0.3

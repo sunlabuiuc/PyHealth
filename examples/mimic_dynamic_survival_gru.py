@@ -16,22 +16,33 @@ We evaluate:
 We use a GRU model on synthetic patients.
 
 Findings:
-- Anchor strategy significantly impacts performance
-- Larger windows provide more context
-- Prediction horizon affects difficulty
+- Anchor strategy affects performance (fixed generally outperforms single).
+- Observation window size shows no consistent monotonic trend.
+- Prediction horizon changes task difficulty and performance.
 
 Results are printed to show how task configurations affect model performance.
+
+NOTE:
+- Evaluation includes BCE, AuPRC, and C-index.
+- C-index is computed if scikit-survival is available (optional dependency).
 """
 
-import torch
-import torch.nn as nn
-import numpy as np
-import pandas as pd
 import random
 from datetime import datetime, timedelta
 
+import numpy as np
+import pandas as pd
+import torch
+import torch.nn as nn
+
 from sklearn.metrics import average_precision_score
-from sksurv.metrics import concordance_index_censored
+
+try:
+    from sksurv.metrics import concordance_index_censored
+    HAS_SKSURV = True
+except ImportError:
+    HAS_SKSURV = False
+
 from pyhealth.tasks.dynamic_survival import DynamicSurvivalTask
 
 # use import if running on real MIMIC
@@ -39,6 +50,7 @@ from pyhealth.tasks.dynamic_survival import DynamicSurvivalTask
 
 from examples.synthetic_dataset import generate_synthetic_dataset
 from examples.mock_ehr import MockEvent, MockVisit, MockPatient, MockDataset
+
 
 np.random.seed(42)
 torch.manual_seed(42)
@@ -112,9 +124,13 @@ def prepare_batch(samples):
     X, Y, M = [], [], []
 
     for s in samples:
-        X.append(s["x"])
-        Y.append(s["y"])
-        M.append(s["mask"])
+        x = np.array(s["x"], dtype=np.float32)
+        y = np.array(s["y"], dtype=np.float32)
+        m = np.array(s["mask"], dtype=np.float32)
+
+        X.append(x)
+        Y.append(y)
+        M.append(m)
 
     max_len = max(len(x) for x in X)
 
@@ -128,6 +144,83 @@ def prepare_batch(samples):
         torch.tensor(np.array(Y), dtype=torch.float32),
         torch.tensor(np.array(M), dtype=torch.float32),
     )
+
+
+# Prior Estimation Utilities for Bias Initialization(DSA Extension)
+
+def data_prior(samples):
+    """
+    Estimate event probability using Maximum Likelihood Estimation (MLE).
+
+    This computes the empirical event rate over all valid timesteps
+    (i.e., where mask > 0).
+
+    Args:
+        samples (list): List of sample dictionaries containing "y" and "mask".
+
+    Returns:
+        float: Estimated probability of event occurrence.
+    """
+    total = 0
+    events = 0
+
+    for s in samples:
+        y = np.array(s["y"], dtype=np.float32)
+        m = np.array(s["mask"], dtype=np.float32)
+
+        valid = m > 0
+        events += y[valid].sum()
+        total += valid.sum()
+
+    return events / total if total > 0 else 0.0
+
+
+def gaussian_sample_prior(mean=-2.0, std=0.5):
+    """
+    Sample a prior probability from a Gaussian distribution in logit space.
+
+    The sampled value is transformed via the sigmoid function to obtain
+    a valid probability in (0, 1).
+
+    Args:
+        mean (float): Mean of the Gaussian (in logit space).
+        std (float): Standard deviation.
+
+    Returns:
+        float: Sampled probability.
+    """
+    z = np.random.normal(mean, std)
+    p = 1 / (1 + np.exp(-z))  # sigmoid transform
+    return float(p)
+
+
+def bayesian_posterior_prior(samples):
+    """
+    Estimate event probability using a Bayesian posterior with Beta(1,1) prior.
+
+    This corresponds to a Laplace-smoothed estimate of the event rate.
+
+    Args:
+        samples (list): List of sample dictionaries containing "y" and "mask".
+
+    Returns:
+        float: Posterior mean probability.
+    """
+    total = 0
+    events = 0
+
+    for s in samples:
+        y = np.array(s["y"], dtype=np.float32)
+        m = np.array(s["mask"], dtype=np.float32)
+
+        valid = m > 0
+        events += y[valid].sum()
+        total += valid.sum()
+
+    alpha = events + 1.0
+    beta = (total - events) + 1.0
+
+    return alpha / (alpha + beta)
 
 
 # Training Loop
@@ -255,21 +348,26 @@ def evaluate_3metrics(model, samples):
 
         if len(times_arr) < 2 or not events_arr.any():
             cindex = None
-        else:
-            # Require at least one event time strictly less than the max time
-            # to ensure a valid comparable pair exists for censored c-index.
-            event_times = times_arr[events_arr]
-            if (~events_arr).any():
-                other_times = times_arr[~events_arr]
-            else:
-                other_times = times_arr[events_arr]
-            if not (event_times.min() < other_times.max()):
-                cindex = None
-            else:
-                result = concordance_index_censored(events_arr, times_arr, risks_arr)
-                # Handle both API versions
-                cindex = result[0] if isinstance(result, tuple) else result.concordance
+        try:
+                from sksurv.metrics import concordance_index_censored
 
+                event_times = times_arr[events_arr]
+
+                if (~events_arr).any():
+                    other_times = times_arr[~events_arr]
+                else:
+                    other_times = times_arr[events_arr]
+
+                if not (event_times.min() < other_times.max()):
+                    cindex = None
+                else:
+                    result = concordance_index_censored(events_arr, times_arr, risks_arr)
+                    cindex = result[0] if isinstance(result, tuple) else result.concordance
+
+        except ImportError:
+            cindex = None
+        except Exception:
+            cindex = None
     return bce.item(), auprc, cindex
 
 
@@ -323,7 +421,6 @@ def main():
     dataset = MockDataset(patients)
 
     # 1. Anchor Ablation
-    print("\n=== Anchor Ablation ===")
     anchors = ["fixed", "single"]
     bce_list, auprc_list, cindex_list = [], [], []
 
@@ -336,8 +433,7 @@ def main():
             print(f"{anchor} → no samples generated, skipping")
             continue
         model = train_model(samples, 30)
-        bce, auprc, cidx = evaluate_3metrics(model, samples)
-        print(f"{anchor} → BCE={bce:.4f} | AuPRC={auprc} | C-index={cidx}")
+        bce, auprc, cidx = evaluate_3metrics(model, samples)    
         bce_list.append(bce)
         auprc_list.append(auprc)
         cindex_list.append(cidx)
@@ -346,11 +442,12 @@ def main():
         "Anchor": anchors, "BCE": bce_list,
         "AuPRC": auprc_list, "C-index": cindex_list
     })
-    print("\n=== Anchor Results ===")
+    print("\n=== Results ===")
+    print("(C-index shown only if scikit-survival is installed)\n")
+    print("\n=== Anchor Ablation Results ===")
     print(df_anchor.round(4))
 
     # 2. Window Ablation
-    print("\n=== Window Ablation ===")
     windows = [6, 12, 24]
     bce_list, auprc_list, cindex_list = [], [], []
 
@@ -363,8 +460,7 @@ def main():
             print(f"window={w} → no samples, skipping")
             continue
         model = train_model(samples, 10)
-        bce, auprc, cidx = evaluate_3metrics(model, samples)
-        print(f"window={w} → BCE={bce:.4f} | AuPRC={auprc} | C-index={cidx}")
+        bce, auprc, cidx = evaluate_3metrics(model, samples)        
         bce_list.append(bce)
         auprc_list.append(auprc)
         cindex_list.append(cidx)
@@ -373,11 +469,10 @@ def main():
         "Window": windows, "BCE": bce_list,
         "AuPRC": auprc_list, "C-index": cindex_list
     })
-    print("\n=== Window Results ===")
+    print("\n=== Window Ablation Results ===")
     print(df_window.round(4))
 
-    # 3. Horizon Ablation
-    print("\n=== Horizon Ablation ===")
+    # 3. Horizon Ablation    
     horizons = [5, 10, 20]
     bce_list, auprc_list, cindex_list = [], [], []
 
@@ -390,8 +485,7 @@ def main():
             print(f"horizon={h} → no samples, skipping")
             continue
         model = train_model(samples, h)
-        bce, auprc, cidx = evaluate_3metrics(model, samples)
-        print(f"horizon={h} → BCE={bce:.4f} | AuPRC={auprc} | C-index={cidx}")
+        bce, auprc, cidx = evaluate_3metrics(model, samples)        
         bce_list.append(bce)
         auprc_list.append(auprc)
         cindex_list.append(cidx)
@@ -400,8 +494,31 @@ def main():
         "Horizon": horizons, "BCE": bce_list,
         "AuPRC": auprc_list, "C-index": cindex_list
     })
-    print("\n=== Horizon Results ===")
+    print("\n=== Horizon Ablation Results ===")
     print(df_horizon.round(4))
+
+    # 4. Prior Ablation
+    task = DynamicSurvivalTask(
+        dataset, horizon=10, observation_window=12, anchor_strategy="fixed",
+    )
+    samples = dataset.set_task(task)
+    priors = {
+        "No Prior(MLE)": None,
+        "Data": data_prior(samples),
+        "Bayesian": bayesian_posterior_prior(samples),
+    }
+
+    results = []
+
+    for name, prior in priors.items():
+        model = train_model(samples, horizon=10, prior=prior)
+        bce, auprc, cidx = evaluate_3metrics(model, samples)
+        results.append((name, bce, auprc, cidx))
+
+    df_prior = pd.DataFrame(results, columns=["Prior", "BCE", "AuPRC", "C-index"])
+
+    print("\n=== Prior Ablation Results (Extension)===")
+    print(df_prior.round(4))
 
 
 if __name__ == "__main__":
