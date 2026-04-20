@@ -46,7 +46,32 @@ def _make_dataset(
     return IBISleepDataset(root=tmp_dir, source=source, **kwargs)
 
 
+def _read_meta(directory: str) -> pd.DataFrame:
+    return pd.read_csv(os.path.join(directory, "ibi_sleep-metadata.csv"))
+
+
 class TestIBISleepDataset(unittest.TestCase):
+    """Tests for IBISleepDataset.
+
+    Tests that need BaseDataset's lazy patient-loading (unique_patient_ids,
+    get_patient) share a single dataset instance via setUpClass so the ~2s
+    load cost is paid once. Tests that only verify metadata CSV output call
+    prepare_metadata() indirectly through the constructor and read the CSV
+    directly, avoiding the patient-load entirely.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls._cls_tmpdir = tempfile.TemporaryDirectory()
+        cls._cls_path = cls._cls_tmpdir.name
+        for i in range(3):
+            _write_npz(cls._cls_path, f"S{i:03d}")
+        cls._ds = IBISleepDataset(root=cls._cls_path, source="dreamt")
+        cls._pids = list(cls._ds.unique_patient_ids)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._cls_tmpdir.cleanup()
 
     def setUp(self):
         self._tmpdir = tempfile.TemporaryDirectory()
@@ -56,34 +81,32 @@ class TestIBISleepDataset(unittest.TestCase):
         self._tmpdir.cleanup()
 
     def test_load_dreamt_source(self):
-        ds = _make_dataset(str(self.tmp_path), n=3, source="dreamt")
-        self.assertEqual(ds.source, "dreamt")
-        meta = self.tmp_path / "ibi_sleep-metadata.csv"
-        self.assertTrue(meta.exists())
+        self.assertEqual(self._ds.source, "dreamt")
+        self.assertTrue((Path(self._cls_path) / "ibi_sleep-metadata.csv").exists())
 
     def test_load_shhs_source(self):
         _write_npz(str(self.tmp_path), "shhs1-200001")
         _write_npz(str(self.tmp_path), "shhs2-300001")
         ds = IBISleepDataset(root=str(self.tmp_path), source="shhs")
-        self.assertEqual(len(ds.unique_patient_ids), 2)
+        self.assertEqual(ds.source, "shhs")
+        self.assertEqual(len(_read_meta(str(self.tmp_path))), 2)
 
     def test_load_mesa_source(self):
         for i in range(4):
             _write_npz(str(self.tmp_path), f"mesa-sleep-{i:05d}")
         ds = IBISleepDataset(root=str(self.tmp_path), source="mesa")
-        self.assertEqual(len(ds.unique_patient_ids), 4)
+        self.assertEqual(ds.source, "mesa")
+        self.assertEqual(len(_read_meta(str(self.tmp_path))), 4)
 
     def test_patient_ids(self):
         names = ["Alpha", "Beta", "Gamma"]
         for name in names:
             _write_npz(str(self.tmp_path), name)
-        ds = IBISleepDataset(root=str(self.tmp_path), source="dreamt")
-        self.assertEqual(set(ds.unique_patient_ids), set(names))
+        IBISleepDataset(root=str(self.tmp_path), source="dreamt")
+        self.assertEqual(set(_read_meta(str(self.tmp_path))["patient_id"]), set(names))
 
     def test_getitem_keys(self):
-        ds = _make_dataset(str(self.tmp_path), n=2)
-        pid = list(ds.unique_patient_ids)[0]
-        patient = ds.get_patient(pid)
+        patient = self._ds.get_patient(self._pids[0])
         events = patient.get_events()
         self.assertGreaterEqual(len(events), 1)
         event = events[0]
@@ -93,8 +116,7 @@ class TestIBISleepDataset(unittest.TestCase):
     def test_ahi_nan_passes_through(self):
         _write_npz(str(self.tmp_path), "nan_subject", ahi=float("nan"))
         IBISleepDataset(root=str(self.tmp_path), source="dreamt")
-        meta_path = os.path.join(str(self.tmp_path), "ibi_sleep-metadata.csv")
-        df = pd.read_csv(meta_path)
+        df = _read_meta(str(self.tmp_path))
         self.assertTrue(df.loc[df["patient_id"] == "nan_subject", "ahi"].isna().all())
 
     def test_dev_mode(self):
@@ -111,23 +133,22 @@ class TestIBISleepDataset(unittest.TestCase):
 
     def test_corrupt_npz_skipped(self):
         _write_npz(str(self.tmp_path), "good_subject")
-        corrupt_path = os.path.join(str(self.tmp_path), "corrupt_subject.npz")
-        Path(corrupt_path).write_bytes(b"not a valid npz file")
-        ds = IBISleepDataset(root=str(self.tmp_path), source="dreamt")
-        self.assertEqual(len(ds.unique_patient_ids), 1)
-        self.assertIn("good_subject", ds.unique_patient_ids)
+        Path(os.path.join(str(self.tmp_path), "corrupt_subject.npz")).write_bytes(
+            b"not a valid npz file"
+        )
+        IBISleepDataset(root=str(self.tmp_path), source="dreamt")
+        df = _read_meta(str(self.tmp_path))
+        self.assertEqual(len(df), 1)
+        self.assertIn("good_subject", df["patient_id"].values)
 
     def test_missing_ahi_key_stores_nan(self):
         _write_npz(str(self.tmp_path), "no_ahi", include_ahi_key=False)
         IBISleepDataset(root=str(self.tmp_path), source="dreamt")
-        meta_path = os.path.join(str(self.tmp_path), "ibi_sleep-metadata.csv")
-        df = pd.read_csv(meta_path)
+        df = _read_meta(str(self.tmp_path))
         self.assertTrue(df.loc[df["patient_id"] == "no_ahi", "ahi"].isna().all())
 
     def test_default_task(self):
-        ds = _make_dataset(str(self.tmp_path))
-        task = ds.default_task
-        self.assertIsInstance(task, SleepStagingIBI)
+        self.assertIsInstance(self._ds.default_task, SleepStagingIBI)
 
 
 class TestIBISleepDatasetSetTask(unittest.TestCase):
