@@ -10,7 +10,7 @@ End-to-end pipeline for EEG-based neurological disease detection, based on:
     https://proceedings.mlr.press/v136/wagh20a.html
 
 **Contributors:** Jimmy Burhan (jburhan2) — Dataset & Task |
-Robert Coffey (racoffey2) — Models & Training
+Robert Coffey (rc37) — Models & Training
 
 Overview
 --------
@@ -144,10 +144,15 @@ Path B — Pre-computed input
        * - ``standard_1010.tsv.txt``
          - TSV with electrode 3-D coordinates (``label``, ``x``, ``y``, ``z``)
 
-Signal Processing (EEGGCNNDiseaseDetection)
--------------------------------------------
+Signal Processing
+-----------------
 
-Applied to each raw recording in order:
+The pipeline below is applied to each raw recording. It is implemented in
+both ``EEGGCNNRawDataset.precompute_features()`` (batch, runs once and saves
+the five output files) and ``EEGGCNNDiseaseDetection.__call__()`` (streaming,
+processes one patient at a time during training without saving).
+
+Steps applied in order:
 
 1. **Resample** to 250 Hz.
 2. **Filter** — 1 Hz high-pass (remove DC drift) + 60 Hz notch for TUAB
@@ -167,7 +172,9 @@ Applied to each raw recording in order:
 4. **Windowing** — non-overlapping 10-second windows (incomplete trailing
    window discarded).
 
-5. **PSD feature extraction** — Welch's method per window, 6 bands per channel:
+5. **PSD feature extraction** — Welch's method per window, 6 bands per channel.
+   Band names and ranges match the FigShare arrays and ``EEGGCNNClassification``
+   (used for the spectral ablation study):
 
    .. list-table::
       :header-rows: 1
@@ -176,29 +183,29 @@ Applied to each raw recording in order:
       * - Band
         - Range (Hz)
       * - delta
-        - 0.5 – 4.0
+        - 0 – 4.0
       * - theta
-        - 4.0 – 8.0
+        - 4.0 – 7.5
       * - alpha
-        - 8.0 – 12.0
-      * - lower_beta
-        - 12.0 – 20.0
-      * - higher_beta
-        - 20.0 – 30.0
-      * - gamma
-        - 30.0 – 50.0
+        - 7.5 – 13.0
+      * - beta
+        - 13.0 – 30.0
+      * - low_gamma
+        - 30.0 – 40.0
+      * - high_gamma
+        - 40.0 – 50.0
 
-   Result: ``(8, 6)`` node-feature matrix per window, log-transformed and
-   L2-normalised.
+   Result: ``(8, 6)`` node-feature matrix per window (48 values total),
+   log-transformed and L2-normalised.
 
 6. **Graph adjacency** — ``(8, 8)`` matrix blending spatial and functional
-   connectivity:
+   connectivity, computed in ``EEGGCNNDataset``:
 
    .. code-block:: python
 
        edge_weight = alpha * geodesic_distance + (1 - alpha) * spectral_coherence
 
-   - ``alpha = 1.0`` — spatial only (geodesic arc length on unit sphere)
+   - ``alpha = 1.0`` — spatial only (geodesic distance between electrodes)
    - ``alpha = 0.0`` — functional only (spectral coherence)
    - ``alpha = 0.5`` — combined (paper default)
 
@@ -255,9 +262,6 @@ Preprocess raw TUAB and LEMON recordings into the five files required by
 .. code-block:: bash
 
     cd examples/eeg_gcnn
-
-    # (Optional) download LEMON subjects from the INDI S3 bucket
-    python download_lemon.py --n 10   # first 10 subjects for a quick test
 
     # Precompute features from raw TUAB + LEMON
     python pre_compute.py --root raw_data --output precomputed_data
