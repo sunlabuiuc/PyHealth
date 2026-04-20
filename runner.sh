@@ -1,6 +1,6 @@
 #!/bin/bash
 
-DELETE_ENV=true
+DELETE_ENV=false
 DELETE_LOGS=false
 
 {
@@ -15,7 +15,7 @@ DELETE_LOGS=false
   rm -rf ~/.cache/pyhealth/
   rm -rf ~/Library/Caches/pyhealth/
   rm -rf output/
-} > install.log 2>&1
+} > .install.log 2>&1
 
 {
   pytest tests/core/test_physionet2012.py \
