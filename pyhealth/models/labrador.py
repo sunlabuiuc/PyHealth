@@ -22,7 +22,6 @@ from typing import Dict, Optional
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 from pyhealth.models import BaseModel
 
@@ -113,7 +112,27 @@ class LabradorEmbedding(nn.Module):
         )
         self.output_projection = nn.Linear(hidden_dim, hidden_dim)
 
-    def forward(
+    def forward(self, lab_codes: torch.Tensor, lab_values: torch.Tensor) -> torch.Tensor:
+        """Returns joint embeddings with shape ``(B, L, H)``."""
+        code_emb = self.code_embedding(lab_codes)
+        x = self.value_embedding(lab_values=lab_values, code_emb=code_emb)
+        return self.output_projection(x)
+
+
+class LabradorMLMHead(nn.Module):
+    """Two-head masked-language-modeling module.
+
+    Output heads:
+      1) categorical logits/probabilities over lab code vocabulary
+      2) continuous value regression for masked lab values
+
+    Args:
+        hidden_dim: Hidden size from the transformer encoder.
+        vocab_size: Number of categorical lab codes.
+        continuous_head_activation: ``"sigmoid"`` or ``"linear"``.
+    """
+
+    def __init__(
         self,
         lab_codes: torch.Tensor,
         lab_values: torch.Tensor,
@@ -123,6 +142,9 @@ class LabradorEmbedding(nn.Module):
         x = self.value_embedding(lab_values=lab_values, code_emb=code_emb)
         return self.output_projection(x)
 
+        self.continuous_dense = nn.Linear(hidden_dim + vocab_size, hidden_dim + vocab_size)
+        self.continuous_activation = nn.ReLU()
+        self.continuous_head = nn.Linear(hidden_dim + vocab_size, 1)
 
 class LabradorMLMHead(nn.Module):
     """Two-head masked-language-modeling module.
@@ -234,7 +256,7 @@ class LabradorModel(BaseModel):
     def __init__(
         self,
         dataset,
-        vocab_size: int = 532,
+        vocab_size: int,
         hidden_dim: int = 128,
         num_heads: int = 4,
         num_layers: int = 2,
