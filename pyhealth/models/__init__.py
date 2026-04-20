@@ -3,6 +3,7 @@ from .eeg_gcnn import EEGGraphConvNet
 from .eeg_gatcnn import EEGGATConvNet
 from .agent import Agent, AgentLayer
 from .base_model import BaseModel
+from .transformer_deid import TransformerDeID
 from .biot import BIOT
 from .cnn import CNN, CNNLayer
 from .concare import ConCare, ConCareLayer
@@ -46,3 +47,4 @@ from .text_embedding import TextEmbedding
 from .sdoh import SdohClassifier
 from .medlink import MedLink
 from .unified_embedding import UnifiedMultimodalEmbeddingModel, SinusoidalTimeEmbedding
+from .califorest import CaliForest

@@ -136,13 +136,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--weights-dir",
         type=str,
-        default="weightfiles/TFM_Tokenizer_multiple_finetuned_on_TUAB",
-        help="Root folder of fine-tuned TFM classifier checkpoints (only with --model tfm).",
+        default="/shared/eng/conformal_eeg",
+        help="Root folder of TFM classifier checkpoints (only with --model tfm). "
+             "If the directory contains tfm_encoder_best_model_tuab.pth directly, "
+             "that single checkpoint is used for all seeds (PI TUAB setup). "
+             "Otherwise expects per-seed subdirs {base}_1..N/best_model.pth.",
     )
     parser.add_argument(
         "--tokenizer-weights",
         type=str,
-        default="weightfiles/tfm_tokenizer_last.pth",
+        default="/shared/eng/conformal_eeg/tfm_tokenizer_tuab.pth",
         help="Path to the pre-trained TFM tokenizer weights (only with --model tfm).",
     )
     parser.add_argument(
@@ -165,9 +168,19 @@ def _do_split(dataset, ratios, seed, split_type):
 
 
 def _load_tfm_weights(model, args, run_idx: int) -> None:
-    """Load pre-trained tokenizer + fine-tuned classifier for run_idx (0-based)."""
-    base = os.path.basename(args.weights_dir)
-    classifier_path = os.path.join(args.weights_dir, f"{base}_{run_idx + 1}", "best_model.pth")
+    """Load pre-trained tokenizer + fine-tuned classifier for run_idx (0-based).
+
+    Supports two layouts:
+      - Single classifier (PI TUAB setup): weights_dir/tfm_encoder_best_model_tuab.pth
+        Used for all seeds — only the data split varies across runs.
+      - Per-seed subdirs: weights_dir/{base}_{run_idx+1}/best_model.pth
+    """
+    single = os.path.join(args.weights_dir, "tfm_encoder_best_model_tuab.pth")
+    if os.path.isfile(single):
+        classifier_path = single
+    else:
+        base = os.path.basename(args.weights_dir)
+        classifier_path = os.path.join(args.weights_dir, f"{base}_{run_idx + 1}", "best_model.pth")
     print(f"  Loading TFM weights (run {run_idx + 1}): {classifier_path}")
     model.load_pretrained_weights(
         tokenizer_checkpoint_path=args.tokenizer_weights,
@@ -319,7 +332,7 @@ def _run(args: argparse.Namespace) -> None:
     print("STEP 1: Load TUAB + build task dataset")
     print("=" * 80)
     dataset = TUABDataset(root=str(root), subset=args.subset, dev=args.quick_test)
-    sample_dataset = dataset.set_task(EEGAbnormalTUAB())
+    sample_dataset = dataset.set_task(EEGAbnormalTUAB(normalization="95th_percentile"), num_workers=16)
     if args.quick_test and len(sample_dataset) > quick_test_max_samples:
         sample_dataset = sample_dataset.subset(range(quick_test_max_samples))
         print(f"Capped to {quick_test_max_samples} samples for quick-test.")
@@ -410,7 +423,10 @@ def _run(args: argparse.Namespace) -> None:
         set_sizes  = np.array([m["avg_set_size"]          for m in mlist])
 
         if not use_multi_seed:
-            print(f"\nNCP Results (alpha={alpha}):")
+            print("\n" + "=" * 80)
+            print(f"Summary — alpha={alpha} (single run, fixed test set)")
+            print("  Method: NeighborhoodLabel")
+            print("=" * 80)
             print(f"  Accuracy:              {accs[0]:.4f}")
             print(f"  ROC-AUC:               {roc_aucs[0]:.4f}")
             print(f"  F1:                    {f1s[0]:.4f}")
@@ -421,7 +437,7 @@ def _run(args: argparse.Namespace) -> None:
             print(f"  k_neighbors: {args.k_neighbors}, lambda_L: {args.lambda_L}")
         else:
             print("\n" + "=" * 80)
-            print(f"Per-run NCP results — alpha={alpha} (target coverage={1-alpha:.0%})")
+            print(f"Per-run results — alpha={alpha} (NeighborhoodLabel, fixed test set = TUH eval partition)")
             print("=" * 80)
             print(f"  {'Run':<4} {'Seed':<6} {'Accuracy':<10} {'ROC-AUC':<10} {'F1':<8} "
                   f"{'Coverage':<10} {'Miscoverage':<12} {'Avg set size':<12}")
@@ -431,14 +447,15 @@ def _run(args: argparse.Namespace) -> None:
                       f"{f1s[i]:<8.4f} {coverages[i]:<10.4f} {miscovs[i]:<12.4f} {set_sizes[i]:<12.2f}")
 
             print("\n" + "=" * 80)
-            print(f"NCP summary — alpha={alpha} (mean ± std over {n_runs} runs, fixed test set)")
+            print(f"Summary — alpha={alpha} (mean \u00b1 std over {n_runs} runs, fixed test set)")
+            print("  Method: NeighborhoodLabel")
             print("=" * 80)
-            print(f"  Accuracy:              {accs.mean():.4f} ± {accs.std():.4f}")
-            print(f"  ROC-AUC:               {roc_aucs.mean():.4f} ± {roc_aucs.std():.4f}")
-            print(f"  F1:                    {f1s.mean():.4f} ± {f1s.std():.4f}")
-            print(f"  Empirical coverage:    {coverages.mean():.4f} ± {coverages.std():.4f}")
-            print(f"  Empirical miscoverage: {miscovs.mean():.4f} ± {miscovs.std():.4f}")
-            print(f"  Average set size:      {set_sizes.mean():.2f} ± {set_sizes.std():.2f}")
+            print(f"  Accuracy:              {accs.mean():.4f} \u00b1 {accs.std():.4f}")
+            print(f"  ROC-AUC:               {roc_aucs.mean():.4f} \u00b1 {roc_aucs.std():.4f}")
+            print(f"  F1:                    {f1s.mean():.4f} \u00b1 {f1s.std():.4f}")
+            print(f"  Empirical coverage:    {coverages.mean():.4f} \u00b1 {coverages.std():.4f}")
+            print(f"  Empirical miscoverage: {miscovs.mean():.4f} \u00b1 {miscovs.std():.4f}")
+            print(f"  Average set size:      {set_sizes.mean():.2f} \u00b1 {set_sizes.std():.2f}")
             print(f"  Target coverage:       {1 - alpha:.0%} (alpha={alpha})")
             print(f"  k_neighbors: {args.k_neighbors}, lambda_L: {args.lambda_L}")
             print(f"  Test set size:         {n_test} (fixed across runs)")
