@@ -201,25 +201,46 @@ class DermoscopyDataset(BaseDataset):
         if not os.path.exists(csv_path): return None
         
         df = pd.read_csv(csv_path)
-        id_col = 'isic_id' if 'isic_id' in df.columns else 'image_id'
         img_dir = os.path.join(root, dataset, "images")
-        
-        df['image_path'] = df[id_col].apply(lambda x: os.path.join(img_dir, f"{x}.jpg"))
-        df['label'] = df['diagnosis_1'].apply(lambda x: 1 if str(x).strip().lower() == 'malignant' else 0)
-        
-        # Dynamically link the original masks based on the source dataset!
         base_dataset = dataset.split('_with_')[0]
+
+        # Normalize required PyHealth columns
+        if 'label' not in df.columns and 'diagnosis_1' in df.columns:
+            df['label'] = df['diagnosis_1'].apply(lambda x: 1 if str(x).strip().lower() == 'malignant' else 0)
         
-        if base_dataset == "ph2":
-            ph2_data_dir = os.path.join(root, "ph2", "PH2 Dataset images")
-            df['mask_path'] = df[id_col].apply(lambda x: os.path.join(ph2_data_dir, str(x), f"{x}_lesion", f"{x}_lesion.bmp"))
-        elif base_dataset in ["isic2018", "ham10000"]:
-            base_mask_dir = os.path.join(root, base_dataset, "masks")
-            df['mask_path'] = df[id_col].apply(lambda x: os.path.join(base_mask_dir, f"{x}_segmentation.png"))
-        else:
-            # Fallback if an unknown base dataset name is used
-            df['mask_path'] = "" 
+        id_col = 'patient_id' if 'patient_id' in df.columns else ('isic_id' if 'isic_id' in df.columns else 'image_id')
+        if 'patient_id' not in df.columns:
+            df['patient_id'] = df[id_col]
+
+        def get_clean_basename(pid_str):
+            """Strips pyhealth prefixes and file extensions to get the pure ID (e.g. IMD002)"""
+            b = pid_str.replace(f"{base_dataset}_", "").replace("isic_", "").replace("ph2_", "")
+            return os.path.splitext(b)[0]
+
+        # Dynamically find the Stable Diffusion image (Checks for .png, .jpg, etc)
+        def resolve_image_path(row):
+            basename = get_clean_basename(str(row[id_col]))
+            for ext in ['.png', '.jpg', '.bmp', '.jpeg', '.PNG', '.JPG']:
+                candidate = os.path.join(img_dir, basename + ext)
+                if os.path.exists(candidate):
+                    return candidate
+            return os.path.join(img_dir, basename + ".jpg") # Fallback
+
+        # Dynamically link the original masks based on the source dataset
+        def resolve_mask_path(row):
+            # If a valid mask_path is already in the CSV, just use it
+            if 'mask_path' in row and pd.notnull(row['mask_path']) and os.path.exists(str(row['mask_path'])):
+                return row['mask_path']
             
+            basename = get_clean_basename(str(row[id_col]))
+            if base_dataset == "ph2":
+                return os.path.join(root, "ph2", "PH2 Dataset images", basename, f"{basename}_lesion", f"{basename}_lesion.bmp")
+            elif base_dataset in ["isic2018", "ham10000"]:
+                return os.path.join(root, base_dataset, "masks", f"{basename}_segmentation.png")
+            return ""
+
+        df['image_path'] = df.apply(resolve_image_path, axis=1)
+        df['mask_path'] = df.apply(resolve_mask_path, axis=1)
         df['source_dataset'] = dataset
         return df
 
