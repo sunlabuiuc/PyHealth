@@ -1,3 +1,35 @@
+"""
+Temporal Pointwise Convolution (TPC) Model for ICU Length-of-Stay Prediction
+
+Contributors:
+    - [TODO: Add your name(s)]
+    - [TODO: Add your NetID(s)]
+
+Paper:
+    Title: Temporal Pointwise Convolutional Networks for Length of Stay 
+           Prediction in the Intensive Care Unit
+    Authors: Emma Rocheteau, Pietro Liò, Stephanie Hyland
+    Conference: CHIL 2021 (Conference on Health, Inference, and Learning)
+    Link: https://arxiv.org/abs/2007.09483
+    
+Description:
+    Implementation of the TPC model which combines grouped temporal convolutions
+    with pointwise (1x1) convolutions for irregularly sampled multivariate time
+    series in ICU settings. The model predicts remaining length of stay at hourly
+    intervals throughout ICU admission.
+    
+    Novel Extension: Monte Carlo Dropout uncertainty estimation for predictive
+    confidence intervals (not in original paper).
+
+Usage:
+    >>> from pyhealth.models import TPC
+    >>> from pyhealth.datasets import MIMIC4EHRDataset
+    >>> from pyhealth.tasks import RemainingLOSMIMIC4
+    >>> 
+    >>> dataset = mimic4.set_task(RemainingLOSMIMIC4())
+    >>> model = TPC(dataset=dataset, n_layers=3, use_msle=True)
+"""
+
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Sequence
@@ -484,7 +516,7 @@ class TPC(BaseModel):
 
         diag_enc = self.relu(
             self.main_dropout(
-                self.bn_diagnosis_encoder(self.diagnosis_encoder(multi_hot > 0).float())
+                self.bn_diagnosis_encoder(self.diagnosis_encoder((multi_hot > 0).float()))
             )
         )
         return diag_enc

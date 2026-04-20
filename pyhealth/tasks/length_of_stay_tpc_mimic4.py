@@ -1,3 +1,40 @@
+"""
+Remaining ICU Length-of-Stay Prediction Task for MIMIC-IV (TPC Format)
+
+Contributors:
+    - [TODO: Add your name(s)]
+    - [TODO: Add your NetID(s)]
+
+Paper:
+    Title: Temporal Pointwise Convolutional Networks for Length of Stay 
+           Prediction in the Intensive Care Unit
+    Authors: Emma Rocheteau, Pietro Liò, Stephanie Hyland
+    Conference: CHIL 2021 (Conference on Health, Inference, and Learning)
+    Link: https://arxiv.org/abs/2007.09483
+
+Description:
+    Task definition for remaining ICU length-of-stay prediction compatible with
+    the TPC model architecture. Unlike traditional LoS tasks that predict total
+    stay duration at admission, this task generates hourly predictions of remaining
+    time throughout the ICU stay.
+    
+    Features:
+    - Hourly timeseries from chartevents (17 vitals) and labevents (17 labs)
+    - Forward-filled values with decay indicators (time since last measurement)
+    - Static patient demographics (age, sex)
+    - ICD diagnosis codes
+    
+    Output: Remaining hours in ICU at each timestep
+    
+Usage:
+    >>> from pyhealth.datasets import MIMIC4EHRDataset
+    >>> from pyhealth.tasks import RemainingLOSMIMIC4
+    >>> 
+    >>> mimic4 = MIMIC4EHRDataset(root="path/to/mimic-iv",
+    ...                           tables=["chartevents", "labevents", "diagnoses_icd"])
+    >>> dataset = mimic4.set_task(RemainingLOSMIMIC4())
+"""
+
 from __future__ import annotations
 
 from pyhealth.tasks import BaseTask
