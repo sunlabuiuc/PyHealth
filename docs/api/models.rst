@@ -174,6 +174,7 @@ API Reference
     models/pyhealth.models.MLP
     models/pyhealth.models.CNN
     models/pyhealth.models.RNN
+    models/pyhealth.models.mixlst
     models/pyhealth.models.GNN
     models/pyhealth.models.Transformer
     models/pyhealth.models.TransformersModel
