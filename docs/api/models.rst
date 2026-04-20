@@ -30,9 +30,6 @@ routes each feature type automatically.
    * - :doc:`models/pyhealth.models.RNN`
      - Your features are sequences of medical codes (diagnoses, procedures, drugs) across visits
      - One RNN per feature, hidden states concatenated; ``rnn_type`` can be ``"GRU"`` (default) or ``"LSTM"``
-   * - :doc:`models/pyhealth.models.ShiftLSTM`
-     - Your time-series task may exhibit phase-specific or time-varying relationships
-     - Uses segment-specific LSTM parameters; ``num_segments=1`` acts as the shared-parameter baseline
    * - :doc:`models/pyhealth.models.Transformer`
      - You have longer code histories and want attention to capture long-range dependencies
      - Self-attention across the sequence; tends to work well when visit order matters
@@ -177,7 +174,6 @@ API Reference
     models/pyhealth.models.MLP
     models/pyhealth.models.CNN
     models/pyhealth.models.RNN
-    models/pyhealth.models.ShiftLSTM
     models/pyhealth.models.GNN
     models/pyhealth.models.Transformer
     models/pyhealth.models.TransformersModel
