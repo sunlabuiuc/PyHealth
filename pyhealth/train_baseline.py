@@ -1,30 +1,9 @@
 from pyhealth.datasets import MIMIC3CirculatoryFailureDataset
 from pyhealth.tasks import CirculatoryFailurePredictionTask
-
 import pandas as pd
 from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score, accuracy_score
-
-
-def build_dataset(dataset, task, max_icu=50):
-    """Build samples from multiple ICU stays"""
-    cohort = dataset.load_cohort()[:max_icu]
-
-    all_samples = []
-
-    for row in cohort:
-        icustay_id = row["icustay_id"]
-        patient = dataset.get_patient_by_icustay_id(icustay_id)
-
-        if patient is None:
-            continue
-
-        samples = task(patient)
-        if samples:
-            all_samples.extend(samples)
-
-    return all_samples
 
 
 def samples_to_df(samples):
@@ -74,7 +53,7 @@ def main():
     task = CirculatoryFailurePredictionTask()
 
     print("Building dataset...")
-    samples = build_dataset(dataset, task, max_icu=20)
+    samples = dataset.set_task(task, max_patients=20)
 
     print(f"Total samples: {len(samples)}")
 
