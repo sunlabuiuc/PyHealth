@@ -1,13 +1,21 @@
 """PyHealth adaptation of Labrador for laboratory data.
 
+Performs joint modeling of categorical lab codes and continuous lab values
+with optional masked language modeling (MLM) and optional downstream
+classification.
+
 Paper: Bellamy et al., "Labrador: Exploring the Limits of Masked Language
 Modeling for Laboratory Data", ML4H 2024.
-https://arxiv.org/abs/2312.11502
+Paper link: https://arxiv.org/abs/2312.11502
 
-This implementation supports:
-- joint modeling of categorical lab codes and continuous lab values
-- optional dual-head masked language modeling (MLM)
-- optional downstream classifier head for supervised tasks
+Model structure:
+- ``LabradorEmbedding`` fuses code and value signals
+- Transformer encoder contextualizes sequence-level lab events
+- Optional ``LabradorMLMHead`` predicts masked categorical/continuous targets
+- Optional linear classifier predicts task labels
+
+Authors:
+- PyHealth-for-Labrador project contributors
 """
 
 from typing import Dict, Optional
