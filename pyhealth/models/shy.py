@@ -182,7 +182,8 @@ class HGNN(nn.Module):
     """Stacked hypergraph neural network.
 
     Applies multiple layers of hypergraph convolutions (UniGIN or UniGAT)
-    with LeakyReLU activations and dropout.
+    with LeakyReLU activations and dropout. Optionally adds learnable
+    positional embeddings to encode visit order.
 
     Args:
         nfeat: Input feature dimension.
@@ -192,6 +193,8 @@ class HGNN(nn.Module):
         nhead: Number of attention heads per layer.
         dropout_p: Dropout probability.
         conv_type: Type of convolution ("UniGINConv" or "UniGATConv").
+        use_positional: Whether to use learnable positional embeddings.
+        max_visits: Maximum number of visits (for positional embeddings).
     """
 
     def __init__(
@@ -203,9 +206,12 @@ class HGNN(nn.Module):
         nhead: int,
         dropout_p: float,
         conv_type: str = "UniGINConv",
+        use_positional: bool = False,
+        max_visits: int = 100,
     ):
         super().__init__()
         self.nlayer = nlayer
+        self.use_positional = use_positional
         conv_cls = UniGINConv if conv_type == "UniGINConv" else UniGATConv
 
         self.convs = nn.ModuleList(
@@ -219,9 +225,14 @@ class HGNN(nn.Module):
         self.conv_out = conv_cls(in_dim, nclass, heads=1)
         self.act = nn.LeakyReLU()
         self.dropout = nn.Dropout(dropout_p)
+        
+        # Learnable positional embeddings
+        if use_positional:
+            self.position_embeddings = nn.Embedding(max_visits, nfeat)
+            nn.init.normal_(self.position_embeddings.weight, std=0.02)
 
     def forward(
-        self, X: torch.Tensor, V: torch.Tensor, E: torch.Tensor
+        self, X: torch.Tensor, V: torch.Tensor, E: torch.Tensor, num_visits: Optional[int] = None
     ) -> torch.Tensor:
         """Forward pass through stacked hypergraph layers.
 
@@ -229,10 +240,30 @@ class HGNN(nn.Module):
             X: Node features, shape (num_nodes, nfeat).
             V: Vertex indices of incident pairs.
             E: Hyperedge indices of incident pairs.
+            num_visits: Number of visits in the hypergraph (required if use_positional=True).
 
         Returns:
             torch.Tensor: Output node features, shape (num_nodes, nclass).
         """
+        # Add positional embeddings if enabled
+        if self.use_positional:
+            if num_visits is None:
+                raise ValueError("num_visits must be provided when use_positional=True")
+            
+            # Create position IDs for each visit
+            position_ids = torch.arange(num_visits, dtype=torch.long, device=X.device)
+            visit_pos_embeds = self.position_embeddings(position_ids)
+            
+            # Add position embeddings to nodes based on their visits
+            X_pos = X.clone()
+            for visit_idx in range(num_visits):
+                visit_mask = (E == visit_idx)
+                nodes_in_visit = V[visit_mask]
+                # Add the same positional embedding to all nodes in this visit
+                X_pos[nodes_in_visit] = X_pos[nodes_in_visit] + visit_pos_embeds[visit_idx]
+            X = X_pos
+        
+        # Standard message passing
         if self.nlayer > 0:
             for conv in self.convs:
                 X = self.dropout(self.act(conv(X, V, E)))
@@ -418,6 +449,8 @@ class HSLEncoder(nn.Module):
         hid_state_dim: GRU hidden state dimension for aggregation.
         dropout: Dropout probability.
         conv_type: HGNN convolution type.
+        use_positional: Whether to use learnable positional embeddings.
+        max_visits: Maximum number of visits for positional embeddings.
     """
 
     def __init__(
@@ -434,6 +467,8 @@ class HSLEncoder(nn.Module):
         hid_state_dim: int,
         dropout: float,
         conv_type: str = "UniGINConv",
+        use_positional: bool = False,
+        max_visits: int = 100,
     ):
         super().__init__()
         self.hgnn_layer_num = hgnn_layer_num
@@ -448,6 +483,8 @@ class HSLEncoder(nn.Module):
                 nhead,
                 dropout,
                 conv_type,
+                use_positional=use_positional,
+                max_visits=max_visits,
             )
         else:
             self.linear_fallback = nn.Linear(total_emb_dim, after_hgnn_dim)
@@ -483,9 +520,10 @@ class HSLEncoder(nn.Module):
         """
         V = torch.nonzero(H)[:, 0]
         E = torch.nonzero(H)[:, 1]
+        num_visits = H.shape[1]  # Number of columns = number of visits
 
         if self.hgnn_layer_num >= 0:
-            X_1 = self.hgnn(X, V, E)
+            X_1 = self.hgnn(X, V, E, num_visits)
         else:
             X_1 = F.leaky_relu(self.linear_fallback(X))
 
@@ -691,6 +729,8 @@ class SHyLayer(nn.Module):
         key_dim: Self-attention key dimension.
         sa_head: Number of self-attention heads.
         conv_type: HGNN convolution type.
+        use_positional: Whether to use learnable positional embeddings.
+        max_visits: Maximum number of visits for positional embeddings.
 
     Examples:
         >>> import numpy as np
@@ -701,6 +741,7 @@ class SHyLayer(nn.Module):
         ...     nhead=2, num_tp=3, temperatures=[0.5, 0.5, 0.5],
         ...     add_ratios=[0.1, 0.1, 0.1], n_c=5, hid_state_dim=64,
         ...     dropout=0.1, key_dim=64, sa_head=2, conv_type="UniGINConv",
+        ...     use_positional=False,
         ... )
     """
 
@@ -722,6 +763,8 @@ class SHyLayer(nn.Module):
         sa_head: int = 8,
         conv_type: str = "UniGINConv",
         output_size: Optional[int] = None,
+        use_positional: bool = False,
+        max_visits: int = 100,
     ):
         super().__init__()
 
@@ -755,6 +798,8 @@ class SHyLayer(nn.Module):
             hid_state_dim,
             dropout,
             conv_type,
+            use_positional=use_positional,
+            max_visits=max_visits,
         )
         self.decoder = HSLDecoder(
             hid_state_dim, num_tp, total_emb_dim, num_codes
@@ -919,6 +964,10 @@ class SHy(BaseModel):
             Default "UniGINConv".
         loss_weights: Weights for [pred, fidelity, distinct, alpha] losses.
             Default [1.0, 0.1, 0.01, 0.01].
+        use_positional: Whether to use learnable positional embeddings to
+            encode visit order in the hypergraph. Default False.
+        max_visits: Maximum number of visits for positional embeddings.
+            Default 100.
 
     Examples:
         >>> from pyhealth.datasets import create_sample_dataset
@@ -973,6 +1022,8 @@ class SHy(BaseModel):
         sa_head: int = 8,
         conv_type: str = "UniGINConv",
         loss_weights: Optional[List[float]] = None,
+        use_positional: bool = False,
+        max_visits: int = 100,
     ):
         super(SHy, self).__init__(dataset=dataset)
 
@@ -1026,6 +1077,8 @@ class SHy(BaseModel):
             sa_head=sa_head,
             conv_type=conv_type,
             output_size=self._output_size,
+            use_positional=use_positional,
+            max_visits=max_visits,
         )
 
     def _build_hypergraphs(

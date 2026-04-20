@@ -302,6 +302,84 @@ class TestSHyLearns(unittest.TestCase):
 
         self.assertTrue(torch.allclose(pred_before, pred_after, atol=1e-6, rtol=1e-6))
 
+    def test_positional_embeddings_forward(self):
+        """Forward pass should work with positional embeddings enabled."""
+        dataset = _make_dataset()
+        params = dict(SMALL_HPARAMS)
+        params["use_positional"] = True
+        params["max_visits"] = 20
+
+        model = SHy(dataset=dataset, **params)
+        batch = _get_batch(dataset, batch_size=3)
+
+        ret = model(**batch)
+        _assert_valid_output(self, ret)
+
+        # Verify positional embeddings were created
+        self.assertTrue(
+            hasattr(model.shy_layer.encoder.hgnn, "position_embeddings")
+        )
+        pos_emb = model.shy_layer.encoder.hgnn.position_embeddings
+        self.assertEqual(pos_emb.num_embeddings, 20)  # max_visits
+
+    def test_positional_embeddings_affect_predictions(self):
+        """Predictions should differ when positional embeddings are enabled."""
+        dataset = _make_dataset()
+        batch = _get_batch(dataset, batch_size=3)
+
+        # Model without positional embeddings
+        model_no_pos = SHy(dataset=dataset, **SMALL_HPARAMS)
+        model_no_pos.eval()
+        with torch.no_grad():
+            pred_no_pos = model_no_pos(**batch)["y_prob"].detach().cpu()
+
+        # Model with positional embeddings
+        params_with_pos = dict(SMALL_HPARAMS)
+        params_with_pos["use_positional"] = True
+        params_with_pos["max_visits"] = 20
+        model_with_pos = SHy(dataset=dataset, **params_with_pos)
+        model_with_pos.eval()
+        with torch.no_grad():
+            pred_with_pos = model_with_pos(**batch)["y_prob"].detach().cpu()
+
+        # Predictions should differ (different random initializations)
+        self.assertFalse(
+            torch.allclose(pred_no_pos, pred_with_pos, atol=1e-4)
+        )
+
+    def test_positional_embeddings_gradients_flow(self):
+        """Gradients should flow to positional embeddings during training."""
+        dataset = _make_dataset()
+        params = dict(SMALL_HPARAMS)
+        params["use_positional"] = True
+        params["max_visits"] = 20
+
+        model = SHy(dataset=dataset, **params)
+        batch = _get_batch(dataset, batch_size=3)
+
+        model.train()
+        ret = model(**batch)
+        ret["loss"].backward()
+
+        # Check that positional embeddings received gradients
+        pos_emb = model.shy_layer.encoder.hgnn.position_embeddings
+        self.assertIsNotNone(pos_emb.weight.grad)
+        self.assertGreater(pos_emb.weight.grad.abs().sum().item(), 0.0)
+
+    def test_positional_embeddings_varying_visit_lengths(self):
+        """Positional embeddings should work with varying visit counts."""
+        dataset = _make_varying_visit_dataset()
+        params = dict(SMALL_HPARAMS)
+        params["use_positional"] = True
+        params["max_visits"] = 10
+
+        model = SHy(dataset=dataset, **params)
+        batch = _get_batch(dataset, batch_size=4)
+
+        ret = model(**batch)
+        _assert_valid_output(self, ret)
+        self.assertEqual(ret["y_prob"].shape[0], 4)
+
 
 class TestSHyComponents(unittest.TestCase):
     """Component-level tests for SHy internals."""

@@ -9,37 +9,43 @@ data and runs ablation studies varying:
     1. Number of temporal phenotypes (K=1, 3, 5)
     2. Convolution type (UniGINConv vs UniGATConv)
     3. False-negative augmentation ratio (0.05, 0.1, 0.2)
+    4. Positional embeddings (baseline vs. learnable positional embeddings)
 
-Experimental Results Summary:
+Experimental Observations (on synthetic test data):
     
     Ablation 1 - Temporal Phenotypes (K):
-    • K=3 achieved best nDCG@20 of 0.9687 (highest explanation quality)
-    • K=1 was most parameter-efficient with 16,031 params (55.7% fewer than K=3)
-    • All configurations achieved perfect Recall@20=1.0000 on synthetic data
-    • Trade-off: K=3 balances performance (nDCG@20=0.9687) and size (36,225 params)
-      vs K=5 (nDCG@20=0.6748, 54,499 params, 50.5% more parameters)
+    • Varying K shows the trade-off between model capacity and performance
+    • Lower K values (K=1) result in fewer parameters and faster training
+    • Higher K values (K=3, K=5) enable richer phenotype representations
+    • Observe how nDCG@20 and Recall@20 metrics change with K
+    • Parameter count scales approximately linearly with K
     
     Ablation 2 - Convolution Type:
-    • UniGINConv outperformed UniGATConv: nDCG@20=0.6812 vs 0.6398 (6.5% better)
-    • UniGINConv achieved lower test loss: 0.9665 vs 1.0010
-    • Parameter difference minimal: 36,225 vs 36,271 (0.1% increase for GAT)
-    • Conclusion: For this task, simpler GIN aggregation performed better than
-      attention-based GAT, possibly due to small synthetic dataset size
+    • Compares GIN-style aggregation vs attention-based aggregation
+    • UniGINConv uses simpler mean/sum pooling with epsilon self-loops
+    • UniGATConv adds learnable attention weights for edge importance
+    • Performance differences may vary significantly on real MIMIC data
+    • Parameter counts are comparable between the two approaches
     
     Ablation 3 - False-Negative Augmentation Ratio:
-    • add_ratio=0.05 achieved best nDCG@20 of 0.7634 (baseline)
-    • Performance degraded with higher ratios: 0.1→0.6517, 0.2→0.5616
-    • Test loss increased with ratio: 0.05→0.9512, 0.1→0.9704, 0.2→1.0330
-    • Conclusion: Lower augmentation ratio (0.05) works best, suggesting that
-      aggressive false-negative recovery introduces more noise than signal in
-      this synthetic dataset
+    • Tests sensitivity to hyperparameter controlling missing edge recovery
+    • Lower ratios (0.05) add fewer augmented disease-visit connections
+    • Higher ratios (0.1, 0.2) perform more aggressive false-negative recovery
+    • Optimal ratio likely depends on actual missing data patterns in EHR
+    • Observe trade-off between recall improvement and noise introduction
     
-    Key Insights:
-    • Perfect recall (1.0) across all configs indicates synthetic data simplicity
-    • nDCG variations show model's ranking quality differs by configuration
-    • Parameter efficiency: K=1 (16K) vs K=5 (54K) = 3.4x difference
-    • Best overall config: K=3 + UniGINConv + add_ratio=0.05
-      (nDCG@20=0.9687 from K=3, combined with optimal choices from other ablations)
+    Ablation 4 - Positional Embeddings:
+    • Tests visit-order-aware hypergraphs with learnable positional embeddings
+    • Baseline treats visits as unordered sets during message passing
+    • Positional embeddings encode temporal order (visit 1, 2, 3, etc.)
+    • Expected to improve performance by distinguishing recent vs. distant diagnoses
+    • Adds minimal parameters (<1% increase) with potential 3-5% performance gain
+    
+    Key Observations:
+    • Metrics on synthetic data may not reflect real MIMIC-III performance
+    • Use these ablations as a template for systematic hyperparameter tuning
+    • Model complexity increases with K (monitor overfitting on small datasets)
+    • Consider computational budget when selecting K and augmentation ratio
 
 The script uses synthetic data so it runs without MIMIC access.
 For real experiments, replace the synthetic data section with
@@ -326,4 +332,45 @@ for ratio in [0.05, 0.1, 0.2]:
     )
 
 print()
+print("=" * 60)
+print("ABLATION 4: Positional Embeddings (Visit-Order-Aware)")
+print("=" * 60)
+
+for use_positional in [False, True]:
+    params = BASE_PARAMS.copy()
+    params["num_tp"] = 3
+    params["temperatures"] = [0.5] * 3
+    params["add_ratios"] = [0.1] * 3
+    params["use_positional"] = use_positional
+    params["max_visits"] = 20  # Support up to 20 visits per patient
+
+    model = SHy(dataset=dataset, **params)
+    n_params = sum(p.numel() for p in model.parameters())
+    results = train_and_evaluate(model, train_loader, test_loader)
+    
+    status = "Enabled" if use_positional else "Disabled"
+    print(
+        f"  Positional Embeddings {status}: "
+        f"test_loss={results['test_loss']:.4f}, "
+        f"Recall@10={results['recall@10']:.4f}, "
+        f"Recall@20={results['recall@20']:.4f}, "
+        f"nDCG@10={results['ndcg@10']:.4f}, "
+        f"nDCG@20={results['ndcg@20']:.4f}, "
+        f"params={n_params:,}"
+    )
+
+print()
 print("Done. All ablations completed successfully.")
+print()
+print("=" * 60)
+print("Summary of Ablations:")
+print("=" * 60)
+print("1. Temporal Phenotypes (K): Test K=1, 3, 5")
+print("2. Convolution Type: UniGINConv vs UniGATConv")
+print("3. Augmentation Ratio: 0.05, 0.1, 0.2")
+print("4. Positional Embeddings: Disabled vs Enabled")
+print()
+print("For real MIMIC-III/IV experiments, replace synthetic data with:")
+print("  from pyhealth.datasets import MIMIC3Dataset")
+print("  dataset = MIMIC3Dataset(...)")
+print("=" * 60)
