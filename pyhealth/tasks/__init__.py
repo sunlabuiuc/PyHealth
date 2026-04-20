@@ -58,7 +58,10 @@ from .sleep_staging import (
     sleep_staging_sleepedf_fn,
 )
 from .sleep_staging_v2 import SleepStagingSleepEDF
-from .icbhi_respiratory_classification import ICBHIRespiratoryTask
+from .icbhi_respiratory_classification import (
+    ICBHIRespiratoryTask,
+    RespiratoryAbnormalityPredictionICBHI,
+)
 from .temple_university_EEG_tasks import (
     EEGEventsTUEV,
     EEGAbnormalTUAB
