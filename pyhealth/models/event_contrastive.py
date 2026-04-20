@@ -11,28 +11,81 @@ from pyhealth.models.base_model import BaseModel
 class EBCLModel(BaseModel):
     """Event-Based Contrastive Learning model.
 
-    This model supports two stages:
+    This model implements an event-centered representation learning approach
+    with two stages:
 
     1. Pretraining:
-       Learns event-centered representations by contrasting paired pre-event
-       and post-event windows.
+       Learns aligned representations of paired pre-event and post-event
+       windows using a symmetric contrastive loss.
 
     2. Finetuning:
        Uses the pre-event representation for downstream binary prediction,
        such as mortality or 3-day length of stay.
 
-    Input format:
-        Each token in a sequence is a triplet:
-            [time_value, feature_id, measurement_value]
+    Each token in the input sequence is represented as a triplet:
+        [time_value, feature_id, measurement_value]
 
-        Therefore, the expected input tensor shape is:
-            (batch_size, sequence_length, 3)
+    Therefore, the expected input tensor shape is:
+        (batch_size, sequence_length, 3)
+
+    Args:
+        dataset: Optional PyHealth dataset object used to initialize the model.
+        num_features: Number of unique feature ids in the token vocabulary.
+            Default is 1000.
+        d_model: Token embedding dimension. Default is 32.
+        n_heads: Number of attention heads in the transformer encoder.
+            Default is 4.
+        n_layers: Number of transformer encoder layers. Default is 2.
+        ff_hidden_dim: Hidden size of the feed-forward block inside each
+            transformer layer. Default is 128.
+        dropout: Dropout rate used in the transformer and classifier head.
+            Default is 0.1.
+        projection_dim: Output dimension of the pretraining projection heads.
+            Default is 32.
+        stage: Training stage, either "pretrain" or "finetune".
+            Default is "pretrain".
+        task: Prediction mode used for PyHealth compatibility. Only "binary"
+            is currently supported. Default is "binary".
+        logit_scale_init: Initial value of the learnable logit scale used in
+            contrastive training. Default is log(1 / 0.07).
 
     Notes:
-        - `stage` controls whether the model is in "pretrain" or "finetune"
-          mode.
+        - `stage` controls whether the model runs in pretraining or
+          finetuning mode.
         - `mode` is reserved for PyHealth task compatibility and is set to
           "binary".
+
+    Examples:
+        >>> from pyhealth.datasets import create_sample_dataset
+        >>> from pyhealth.models.event_contrastive import EBCLModel
+        >>> samples = [
+        ...     {
+        ...         "patient_id": "p1",
+        ...         "visit_id": "v1",
+        ...         "pre": [[0.1, 1.0, 0.5], [0.0, 0.0, 0.0]],
+        ...         "post": [[0.2, 2.0, 1.0], [0.0, 0.0, 0.0]],
+        ...         "pre_mask": [1, 0],
+        ...         "post_mask": [1, 0],
+        ...         "label": 1,
+        ...     }
+        ... ]
+        >>> dataset = create_sample_dataset(
+        ...     samples=samples,
+        ...     input_schema={
+        ...         "pre": "tensor",
+        ...         "post": "tensor",
+        ...         "pre_mask": "tensor",
+        ...         "post_mask": "tensor",
+        ...     },
+        ...     output_schema={"label": "binary"},
+        ...     dataset_name="ebcl_demo",
+        ... )
+        >>> model = EBCLModel(
+        ...     dataset=dataset,
+        ...     num_features=16,
+        ...     stage="finetune",
+        ...     task="binary",
+        ... )
     """
 
     def __init__(
