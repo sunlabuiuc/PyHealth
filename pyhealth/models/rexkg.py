@@ -362,14 +362,22 @@ class ReXKGModel(BaseModel):
         * ``spans`` (torch.Tensor): ``(B, num_spans, 3)`` — each row is
           ``[start, end, width]`` (pre-computed by the collate function).
         * ``ner_labels`` (torch.Tensor, optional): ``(B, num_spans)`` NER
-          label indices.  When provided the NER loss is included in the
-          returned dict.
+          label indices.  When provided the NER loss is included.
+        * ``entity_spans`` (List[List[Tuple[int,int]]], optional): Gold entity
+          span ``(start, end)`` pairs per sentence (1-indexed, CLS-inclusive).
+          Required for RE training.
+        * ``rel_labels`` (List[torch.Tensor], optional): For each sentence,
+          a 1-D tensor of relation-type label ids for every ordered
+          ``(subject, object)`` pair over ``entity_spans``.  Label ``0``
+          means ``"none"``.  Required for RE training.
 
         Returns:
             Dict[str, torch.Tensor]: A dict with keys:
 
             * ``"ner_logits"`` — shape ``(B, num_spans, num_ner_labels)``
             * ``"ner_loss"`` — scalar, present only when ``ner_labels`` given
+            * ``"rel_loss"`` — scalar, present only when ``rel_labels`` given
+            * ``"loss"``     — sum of ner_loss + rel_loss (for Trainer)
         """
         input_ids = kwargs["input_ids"]
         attention_mask = kwargs["attention_mask"]
@@ -379,6 +387,7 @@ class ReXKGModel(BaseModel):
         ner_logits = self.ner_head(sequence_output, spans)
 
         out: Dict[str, torch.Tensor] = {"ner_logits": ner_logits}
+        total_loss = None
 
         if "ner_labels" in kwargs:
             ner_labels = kwargs["ner_labels"]
@@ -388,7 +397,24 @@ class ReXKGModel(BaseModel):
                 ner_logits.view(B * S, C), ner_labels.view(B * S)
             )
             out["ner_loss"] = ner_loss
-            out["loss"] = ner_loss  # pyhealth.Trainer expects "loss"
+            total_loss = ner_loss
+
+        if "entity_spans" in kwargs and "rel_labels" in kwargs:
+            entity_spans = kwargs["entity_spans"]   # List[List[(start,end)]]
+            rel_labels_list = kwargs["rel_labels"]  # List[Tensor]
+            rel_logits_list = self.rel_head(sequence_output, entity_spans)
+            rel_loss_fct = nn.CrossEntropyLoss()
+            rel_losses = []
+            for logits, labels in zip(rel_logits_list, rel_labels_list):
+                if logits.numel() > 0 and labels.numel() > 0:
+                    rel_losses.append(rel_loss_fct(logits, labels.to(logits.device)))
+            if rel_losses:
+                rel_loss = torch.stack(rel_losses).mean()
+                out["rel_loss"] = rel_loss
+                total_loss = rel_loss if total_loss is None else total_loss + rel_loss
+
+        if total_loss is not None:
+            out["loss"] = total_loss  # pyhealth.Trainer expects "loss"
 
         return out
 
