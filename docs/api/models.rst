@@ -178,6 +178,7 @@ API Reference
     models/pyhealth.models.Transformer
     models/pyhealth.models.TransformersModel
     models/pyhealth.models.TransformerDeID
+    models/pyhealth.models.UNet
     models/pyhealth.models.RETAIN
     models/pyhealth.models.GAMENet
     models/pyhealth.models.GraphCare

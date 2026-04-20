@@ -15,6 +15,7 @@ tasks, such as drug drug interaction (DDI) rate.
     metrics/pyhealth.metrics.multiclass
     metrics/pyhealth.metrics.multilabel
     metrics/pyhealth.metrics.binary
+    metrics/pyhealth.metrics.segmentation
     metrics/pyhealth.metrics.calibration
     metrics/pyhealth.metrics.prediction_set
     metrics/pyhealth.metrics.fairness
