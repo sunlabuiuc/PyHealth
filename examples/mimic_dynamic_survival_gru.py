@@ -38,52 +38,11 @@ from pyhealth.tasks.dynamic_survival import DynamicSurvivalTask
 # from pyhealth.datasets import MIMIC3Dataset
 
 from examples.synthetic_dataset import generate_synthetic_dataset
+from examples.mock_ehr import MockEvent, MockVisit, MockPatient, MockDataset
 
 np.random.seed(42)
 torch.manual_seed(42)
 random.seed(42)
-
-# Mock MIMIC-style Dataset
-
-class MockEvent:
-    def __init__(self, code, timestamp, vocabulary):
-        self.code = code
-        self.timestamp = timestamp
-        self.vocabulary = vocabulary
-
-
-class MockVisit:
-    def __init__(self, time, diagnosis=None):
-        self.encounter_time = time
-        self.event_list_dict = {
-            "DIAGNOSES_ICD": [
-                MockEvent(c, time, "ICD9CM") for c in (diagnosis or [])
-            ],
-            "PROCEDURES_ICD": [],
-            "PRESCRIPTIONS": [],
-        }
-
-
-class MockPatient:
-    def __init__(self, pid, visits_data, death_time=None):
-        self.patient_id = pid
-        self.visits = {
-            f"v{i}": MockVisit(**v) for i, v in enumerate(visits_data)
-        }
-        self.death_datetime = death_time
-
-
-class MockDataset:
-    def __init__(self, patients):
-        self.patients = {p.patient_id: p for p in patients}
-
-    def set_task(self, task):
-        samples = []
-        for p in self.patients.values():
-            out = task(p)
-            if out:
-                samples.extend(out)
-        return samples
 
 
 # Synthetic Patient Generator
