@@ -1,287 +1,209 @@
-"""CaliForest: Calibrated Random Forest using OOB-based Calibration.
+"""CaliForest: Calibrated Random Forest for Clinical Prediction.
 
-This module implements CaliForest, a model that addresses poor calibration
-in Random Forests by using Out-of-Bag (OOB) predictions as an internal
-calibration set. This avoids the need for a separate holdout set.
-
-Note on PyHealth Architecture: Since CaliForest is a traditional machine
-learning ensemble based on Scikit-Learn (not a PyTorch neural network), it
-inherits from `BaseEstimator` and `ClassifierMixin` rather than PyHealth's
-PyTorch `BaseModel`. It implements `fit` and `predict_proba` instead of a
-tensor `forward` pass.
+This module implements CaliForest, which uses Out-of-Bag (OOB) predictions
+for probability calibration without sacrificing training data.
 """
 
-from typing import Literal, Optional, Tuple, Union
+import warnings
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
-from sklearn.base import BaseEstimator, ClassifierMixin
+import torch
+import torch.nn as nn
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.isotonic import IsotonicRegression
 from sklearn.linear_model import LogisticRegression
-from sklearn.utils.validation import check_is_fitted
+
+from pyhealth.models import BaseModel
 
 
-class CaliForest(BaseEstimator, ClassifierMixin):
+class CaliForest(BaseModel):
     """Calibrated Random Forest using OOB-based calibration.
 
     CaliForest trains a Random Forest with OOB scoring enabled, then uses
     the OOB predictions to train a calibration model (Isotonic Regression
     or Platt Scaling) without requiring a separate data split.
 
-    Attributes:
-        rf_ (RandomForestClassifier): Fitted Random Forest estimator.
-        calibrator_ (Union[IsotonicRegression, LogisticRegression]): Fitted
-            calibration model.
-        classes_ (np.ndarray): Class labels.
-        oob_tree_counts_ (np.ndarray): Number of OOB trees per training sample.
-
-    Example:
-        >>> import numpy as np
-        >>> from pyhealth.models import CaliForest
-        >>> X = np.random.randn(100, 10)
-        >>> y = np.random.randint(0, 2, 100)
-        >>> model = CaliForest(n_estimators=50)
-        >>> model.fit(X, y)
-        >>> probas = model.predict_proba(X[:5])
+    Args:
+        dataset: PyHealth SampleDataset object.
+        feature_keys: List of keys to extract features from batches.
+        label_key: Key for the target label in batches.
+        mode: Task mode. Must be "binary" for CaliForest.
+        n_estimators: Number of trees in the forest.
+        max_depth: Maximum tree depth.
+        calibration_method: "isotonic" or "platt".
+        min_oob_trees: Minimum OOB trees required for reliable samples.
+        random_state: Control reproducibility.
     """
 
     def __init__(
         self,
+        dataset: Any,
+        feature_keys: List[str],
+        label_key: str,
+        mode: str = "binary",
         n_estimators: int = 100,
         max_depth: Optional[int] = None,
-        min_samples_split: int = 2,
-        min_samples_leaf: int = 1,
-        max_features: Union[str, int, float] = "sqrt",
-        random_state: Optional[int] = None,
-        n_jobs: Optional[int] = None,
-        calibration_method: Literal["isotonic", "platt"] = "isotonic",
+        calibration_method: str = "isotonic",
         min_oob_trees: int = 1,
-        use_sample_weights: bool = False,
-    ) -> None:
-        """Initializes the CaliForest model.
+        random_state: Optional[int] = None,
+        **kwargs,
+    ):
+        if mode != "binary":
+            raise ValueError(f"CaliForest strictly requires mode='binary', got '{mode}'")
 
-        Args:
-            n_estimators: Number of trees in the forest.
-            max_depth: Maximum depth of trees. None means unlimited.
-            min_samples_split: Minimum samples required to split an internal node.
-            min_samples_leaf: Minimum samples required at a leaf node.
-            max_features: Number of features to consider for best split.
-            random_state: Random seed for reproducibility.
-            n_jobs: Number of parallel jobs. -1 means use all processors.
-            calibration_method: "isotonic" (Isotonic Regression) or "platt"
-                (Logistic Regression).
-            min_oob_trees: Minimum number of OOB trees required for a sample
-                to be included in the reliable calibration training set.
-            use_sample_weights: If True, weights calibration samples by their
-                OOB tree count reliability (forces Platt scaling).
-        """
+        # Handle PyHealth's varying BaseModel __init__ signatures safely
+        try:
+            super().__init__(
+                dataset=dataset,
+                feature_keys=feature_keys,
+                label_key=label_key,
+                mode=mode,
+                **kwargs
+            )
+        except TypeError:
+            super().__init__(dataset=dataset, **kwargs)
+            self.feature_keys = feature_keys
+            self.label_key = label_key
+            self.mode = mode
+
         self.n_estimators = n_estimators
         self.max_depth = max_depth
-        self.min_samples_split = min_samples_split
-        self.min_samples_leaf = min_samples_leaf
-        self.max_features = max_features
-        self.random_state = random_state
-        self.n_jobs = n_jobs
         self.calibration_method = calibration_method
         self.min_oob_trees = min_oob_trees
-        self.use_sample_weights = use_sample_weights
+        self.random_state = random_state
 
-    def _compute_oob_predictions(
-        self, X: np.ndarray, y: np.ndarray
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Computes average OOB predictions for each training sample.
+        self.rf_: Optional[RandomForestClassifier] = None
+        self.calibrator_: Optional[Any] = None
+        self.is_fitted_: bool = False
+        self.oob_tree_counts_: Optional[np.ndarray] = None
 
-        Args:
-            X: Training features of shape (n_samples, n_features).
-            y: Training labels.
+        # Required by PyHealth Trainer (Optimizer expects >0 parameters)
+        self._dummy_param = nn.Parameter(torch.empty(0))
 
-        Returns:
-            Tuple containing:
-                - np.ndarray: OOB probability predictions (n_samples,).
-                - np.ndarray: Number of OOB trees per sample (n_samples,).
-                - np.ndarray: Boolean mask for valid samples with enough trees.
-        """
-        n_samples = X.shape[0]
-        n_classes = len(self.classes_)
+    def _extract_x_y(self, kwargs: Dict[str, torch.Tensor]) -> Tuple[np.ndarray, np.ndarray]:
+        """Extracts and formats X and y from the PyTorch batch dict."""
+        X_list = []
+        for key in self.feature_keys:
+            val = kwargs[key].cpu().numpy()
+            if val.ndim == 1:
+                val = val.reshape(-1, 1)
+            X_list.append(val)
 
-        oob_decision = np.zeros((n_samples, n_classes))
-        oob_tree_counts = np.zeros(n_samples, dtype=np.int32)
-
-        for tree, sample_indices in zip(
-            self.rf_.estimators_, self.rf_.estimators_samples_
-        ):
-            oob_mask = np.ones(n_samples, dtype=bool)
-            oob_mask[list(sample_indices)] = False
-
-            if oob_mask.sum() == 0:
-                continue
-
-            oob_samples = X[oob_mask]
-
-            try:
-                tree_pred = tree.predict_proba(oob_samples)
-            except Exception:
-                continue
-
-            if tree_pred.shape[1] != n_classes:
-                full_pred = np.zeros((oob_samples.shape[0], n_classes))
-                for j, cls in enumerate(tree.classes_):
-                    cls_idx = np.where(self.classes_ == cls)[0]
-                    if len(cls_idx) > 0:
-                        full_pred[:, cls_idx[0]] = tree_pred[:, j]
-                tree_pred = full_pred
-
-            oob_decision[oob_mask] += tree_pred
-            oob_tree_counts[oob_mask] += 1
-
-        valid_mask = oob_tree_counts >= self.min_oob_trees
-        oob_predictions = np.zeros(n_samples)
-
-        if valid_mask.sum() > 0:
-            pos_idx = 1 if n_classes > 1 else 0
-            with np.errstate(divide="ignore", invalid="ignore"):
-                oob_predictions[valid_mask] = (
-                    oob_decision[valid_mask, pos_idx] / oob_tree_counts[valid_mask]
-                )
-
-        return oob_predictions, oob_tree_counts, valid_mask
-
-    def _compute_sample_weights(self, oob_tree_counts: np.ndarray) -> np.ndarray:
-        """Computes confidence weights based on OOB tree counts.
-
-        Args:
-            oob_tree_counts: Array of OOB tree counts per sample.
-
-        Returns:
-            np.ndarray: Normalized sample weights.
-        """
-        max_count = oob_tree_counts.max()
-        if max_count == 0:
-            return np.ones_like(oob_tree_counts, dtype=float)
-        return oob_tree_counts.astype(float) / max_count
+        X = np.concatenate(X_list, axis=1)
+        y = kwargs[self.label_key].cpu().numpy()
+        return X, y
 
     def fit(self, X: np.ndarray, y: np.ndarray) -> "CaliForest":
-        """Fits the CaliForest model and internal calibrator.
-
-        Args:
-            X: Training features of shape (n_samples, n_features).
-            y: Training labels of shape (n_samples,).
-
-        Returns:
-            CaliForest: The fitted model instance.
-
-        Raises:
-            ValueError: If an unsupported calibration method is provided.
-            ValueError: If no valid OOB samples meet min_oob_trees criteria.
-        """
-        X = np.asarray(X)
-        y = np.asarray(y)
-
-        if self.calibration_method not in ["isotonic", "platt"]:
-            raise ValueError(f"Unsupported calibration: {self.calibration_method}")
+        """Fits the underlying random forest and the OOB calibration model."""
+        if len(np.unique(y)) != 2:
+            raise ValueError("CaliForest fit requires exactly binary targets.")
 
         self.rf_ = RandomForestClassifier(
             n_estimators=self.n_estimators,
             max_depth=self.max_depth,
-            min_samples_split=self.min_samples_split,
-            min_samples_leaf=self.min_samples_leaf,
-            max_features=self.max_features,
-            random_state=self.random_state,
-            n_jobs=self.n_jobs,
             oob_score=True,
-            bootstrap=True,
+            random_state=self.random_state,
         )
         self.rf_.fit(X, y)
-        self.classes_ = self.rf_.classes_
 
-        oob_predictions, self.oob_tree_counts_, valid_mask = (
-            self._compute_oob_predictions(X, y)
-        )
+        n_samples = X.shape[0]
+        oob_sum = np.zeros(n_samples)
+        oob_count = np.zeros(n_samples)
 
-        if valid_mask.sum() == 0:
-            raise ValueError(
-                f"No samples have >= {self.min_oob_trees} OOB trees. "
-                "Decrease min_oob_trees or increase n_estimators."
-            )
+        for i, (tree, samples_mask) in enumerate(
+            zip(self.rf_.estimators_, self.rf_.estimators_samples_)
+        ):
+            oob_mask = ~samples_mask
+            if not np.any(oob_mask):
+                continue
 
-        oob_preds_valid = oob_predictions[valid_mask]
+            try:
+                probs = tree.predict_proba(X[oob_mask])
+                if probs.shape[1] == 1:
+                    pos_prob = np.ones(len(probs)) if tree.classes_[0] == 1 else np.zeros(len(probs))
+                else:
+                    pos_idx = np.where(tree.classes_ == 1)[0][0]
+                    pos_prob = probs[:, pos_idx]
+
+                oob_sum[oob_mask] += pos_prob
+                oob_count[oob_mask] += 1
+            except (IndexError, ValueError) as e:
+                warnings.warn(f"Failed to extract OOB probability for tree {i}: {e}")
+                continue
+
+        self.oob_tree_counts_ = oob_count
+        valid_mask = oob_count >= self.min_oob_trees
+        if np.sum(valid_mask) < 2:
+            raise ValueError(f"Insufficient samples >= min_oob_trees={self.min_oob_trees}.")
+
+        oob_probas = oob_sum[valid_mask] / oob_count[valid_mask]
         y_valid = y[valid_mask]
 
-        if self.use_sample_weights:
-            weights = self._compute_sample_weights(self.oob_tree_counts_[valid_mask])
-            self.calibrator_ = LogisticRegression(solver="lbfgs", max_iter=1000)
-            self.calibrator_.fit(
-                oob_preds_valid.reshape(-1, 1), y_valid, sample_weight=weights
-            )
-            self._calibration_type = "platt"
-        elif self.calibration_method == "isotonic":
-            self.calibrator_ = IsotonicRegression(
-                y_min=0.0, y_max=1.0, out_of_bounds="clip"
-            )
-            self.calibrator_.fit(oob_preds_valid, y_valid)
-            self._calibration_type = "isotonic"
+        if self.calibration_method == "isotonic":
+            self.calibrator_ = IsotonicRegression(y_min=0.0, y_max=1.0, out_of_bounds="clip")
+            self.calibrator_.fit(oob_probas, y_valid)
+        elif self.calibration_method == "platt":
+            self.calibrator_ = LogisticRegression()
+            self.calibrator_.fit(oob_probas.reshape(-1, 1), y_valid)
         else:
-            self.calibrator_ = LogisticRegression(solver="lbfgs", max_iter=1000)
-            self.calibrator_.fit(oob_preds_valid.reshape(-1, 1), y_valid)
-            self._calibration_type = "platt"
+            raise ValueError(f"Unsupported calibration method: {self.calibration_method}")
 
+        self.is_fitted_ = True
         return self
 
     def predict_proba(self, X: np.ndarray) -> np.ndarray:
-        """Predicts calibrated class probabilities.
+        """Predicts calibrated class probabilities."""
+        if not self.is_fitted_:
+            raise ValueError("Model must be fitted before predict_proba.")
 
-        Args:
-            X: Features of shape (n_samples, n_features).
+        raw_probs = self.rf_.predict_proba(X)
+        pos_idx = np.where(self.rf_.classes_ == 1)[0][0]
+        raw_pos = raw_probs[:, pos_idx]
 
-        Returns:
-            np.ndarray: Calibrated probabilities of shape (n_samples, n_classes).
-        """
-        check_is_fitted(self, ["rf_", "calibrator_", "classes_"])
-
-        X = np.asarray(X)
-        raw_proba = self.rf_.predict_proba(X)[:, 1]
-
-        if self._calibration_type == "isotonic":
-            calibrated_proba = self.calibrator_.predict(raw_proba)
+        if self.calibration_method == "isotonic":
+            calibrated_pos = self.calibrator_.predict(raw_pos)
+            # Removed redundant clip; IsotonicRegression handles out_of_bounds
         else:
-            calibrated_proba = self.calibrator_.predict_proba(
-                raw_proba.reshape(-1, 1)
-            )[:, 1]
+            calibrated_pos = self.calibrator_.predict_proba(raw_pos.reshape(-1, 1))[:, 1]
 
-        calibrated_proba = np.clip(calibrated_proba, 0.0, 1.0)
-        return np.column_stack([1 - calibrated_proba, calibrated_proba])
+        return np.column_stack([1.0 - calibrated_pos, calibrated_pos])
 
-    def predict(self, X: np.ndarray) -> np.ndarray:
-        """Predicts class labels.
+    def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
+        """PyHealth Trainer target API passing logic."""
+        X, y = self._extract_x_y(kwargs)
 
-        Args:
-            X: Features of shape (n_samples, n_features).
+        if self.training and not self.is_fitted_:
+            self.fit(X, y)
 
-        Returns:
-            np.ndarray: Predicted class labels of shape (n_samples,).
-        """
-        probas = self.predict_proba(X)
-        return self.classes_[np.argmax(probas, axis=1)]
+        if not self.is_fitted_:
+            y_prob_np = np.full((len(y),), 0.5)
+        else:
+            y_prob_np = self.predict_proba(X)[:, 1]
 
-    def forward(self, X: np.ndarray) -> np.ndarray:
-        """Alias for predict_proba to align loosely with PyHealth conventions.
+        device = kwargs[self.label_key].device
+        y_prob = torch.tensor(y_prob_np, dtype=torch.float32, device=device)
+        y_true = kwargs[self.label_key].float()
 
-        Args:
-            X: Features of shape (n_samples, n_features).
-            
-        Returns:
-            np.ndarray: Calibrated probabilities of shape (n_samples, n_classes).
-        """
-        return self.predict_proba(X)
+        y_prob_clamped = torch.clamp(y_prob, 1e-7, 1 - 1e-7)
+        loss = nn.BCELoss()(y_prob_clamped, y_true)
+        
+        # Attach the dummy parameter to the computation graph so PyHealth's 
+        # optimizer.backward() doesn't crash with "tensor does not require grad".
+        loss = loss + 0.0 * self._dummy_param.sum()
+        
+        logit = torch.log(y_prob_clamped / (1 - y_prob_clamped))
+
+        return {
+            "loss": loss,
+            "y_prob": y_prob,
+            "y_true": y_true,
+            "logit": logit,
+        }
 
     def get_oob_calibration_data(self) -> Tuple[np.ndarray, float]:
-        """Retrieves OOB prediction metadata.
-
-        Returns:
-            Tuple containing:
-                - np.ndarray: Array of OOB tree counts.
-                - float: Ratio of samples that met the minimum OOB tree threshold.
-        """
-        check_is_fitted(self, ["oob_tree_counts_"])
-        valid_ratio = (self.oob_tree_counts_ >= self.min_oob_trees).mean()
-        return self.oob_tree_counts_, float(valid_ratio)
+        """Returns the OOB tree counts distribution."""
+        if not self.is_fitted_:
+            raise ValueError("Model not fitted.")
+        valid_ratio = np.sum(self.oob_tree_counts_ >= self.min_oob_trees) / len(self.oob_tree_counts_)
+        return self.oob_tree_counts_, valid_ratio
