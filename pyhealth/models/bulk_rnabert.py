@@ -198,11 +198,11 @@ class BulkRNABert(BaseModel):
             ``256``.
         num_genes: Number of genes in the input expression vector.  Used
             only by the scratch encoder to size ``input_proj``.  Defaults
-            to ``19042`` (the TCGA/GTEx common gene set from the paper).
+            to ``19062`` (the TCGA/GTEx common gene set from the paper).
 
     Examples:
         >>> model = BulkRNABert(num_classes=33, task="classification")
-        >>> x = torch.randn(4, 19042)
+        >>> x = torch.randn(4, 19062)
         >>> out = model(x)
         >>> out["logits"].shape
         torch.Size([4, 33])
@@ -223,7 +223,7 @@ class BulkRNABert(BaseModel):
         freeze_encoder: bool = False,
         dropout: float = 0.1,
         embedding_dim: int = 256,
-        num_genes: int = 19042,
+        num_genes: int = 19062,
     ) -> None:
         super().__init__(dataset=dataset)
 
@@ -494,7 +494,7 @@ class BulkRNABert(BaseModel):
 
         Examples:
             >>> model = BulkRNABert(num_classes=33, task="classification")
-            >>> x = torch.randn(4, 19042)
+            >>> x = torch.randn(4, 19062)
             >>> out = model(x)
             >>> out["logits"].shape
             torch.Size([4, 33])
