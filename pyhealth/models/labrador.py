@@ -1,13 +1,21 @@
 """PyHealth adaptation of Labrador for laboratory data.
 
+Performs joint modeling of categorical lab codes and continuous lab values
+with optional masked language modeling (MLM) and optional downstream
+classification.
+
 Paper: Bellamy et al., "Labrador: Exploring the Limits of Masked Language
 Modeling for Laboratory Data", ML4H 2024.
-https://arxiv.org/abs/2312.11502
+Paper link: https://arxiv.org/abs/2312.11502
 
-This implementation preserves key Labrador design ideas:
-- joint modeling of lab codes and continuous values
-- optional dual-head MLM prediction module
-- optional classifier head for downstream PyHealth tasks
+Model structure:
+- ``LabradorEmbedding`` fuses code and value signals
+- Transformer encoder contextualizes sequence-level lab events
+- Optional ``LabradorMLMHead`` predicts masked categorical/continuous targets
+- Optional linear classifier predicts task labels
+
+Authors:
+- PyHealth-for-Labrador project contributors
 """
 
 from typing import Dict, Optional
@@ -19,7 +27,16 @@ from pyhealth.models import BaseModel
 
 
 class LabradorValueEmbedding(nn.Module):
-    """Embeds lab values and fuses them with code embeddings."""
+    """Embeds lab values and fuses them with code embeddings.
+
+    The module projects each scalar value to ``hidden_dim`` and replaces
+    designated special tokens (mask/null) with learned embeddings.
+
+    Args:
+        hidden_dim: Embedding size.
+        mask_value_token: Sentinel float used for masked values.
+        null_value_token: Sentinel float used for null values.
+    """
 
     def __init__(
         self,
@@ -38,6 +55,7 @@ class LabradorValueEmbedding(nn.Module):
         self.layer_norm = nn.LayerNorm(hidden_dim)
 
     def forward(self, lab_values: torch.Tensor, code_emb: torch.Tensor) -> torch.Tensor:
+        """Returns fused value-code embeddings with shape ``(B, L, H)``."""
         value_emb = self.value_projection(lab_values.unsqueeze(-1).float())
 
         mask_positions = lab_values.eq(self.mask_value_token)
@@ -56,7 +74,17 @@ class LabradorValueEmbedding(nn.Module):
 
 
 class LabradorEmbedding(nn.Module):
-    """Joint embedding of lab code and lab value."""
+    """Joint embedding of lab code and lab value.
+
+    Args:
+        vocab_size: Number of lab codes (excluding 2 extra special IDs).
+        hidden_dim: Embedding size.
+        mask_code_token: ID used to represent masked code tokens.
+        pad_code_token: ID used for padding.
+        padding_idx: ``nn.Embedding`` padding index.
+        mask_value_token: Sentinel float used for masked values.
+        null_value_token: Sentinel float used for null values.
+    """
 
     def __init__(
         self,
@@ -85,13 +113,24 @@ class LabradorEmbedding(nn.Module):
         self.output_projection = nn.Linear(hidden_dim, hidden_dim)
 
     def forward(self, lab_codes: torch.Tensor, lab_values: torch.Tensor) -> torch.Tensor:
+        """Returns joint embeddings with shape ``(B, L, H)``."""
         code_emb = self.code_embedding(lab_codes)
         x = self.value_embedding(lab_values=lab_values, code_emb=code_emb)
         return self.output_projection(x)
 
 
 class LabradorMLMHead(nn.Module):
-    """Two-head MLM prediction module."""
+    """Two-head masked-language-modeling module.
+
+    Output heads:
+      1) categorical logits/probabilities over lab code vocabulary
+      2) continuous value regression for masked lab values
+
+    Args:
+        hidden_dim: Hidden size from the transformer encoder.
+        vocab_size: Number of categorical lab codes.
+        continuous_head_activation: ``"sigmoid"`` or ``"linear"``.
+    """
 
     def __init__(
         self,
@@ -119,6 +158,7 @@ class LabradorMLMHead(nn.Module):
             )
 
     def forward(self, x: torch.Tensor) -> Dict[str, torch.Tensor]:
+        """Returns MLM predictions for each token position."""
         cat_hidden = self.categorical_activation(self.categorical_dense(x))
         categorical_logits = self.categorical_head(cat_hidden)
         categorical_output = torch.softmax(categorical_logits, dim=-1)
@@ -131,14 +171,49 @@ class LabradorMLMHead(nn.Module):
             "categorical_logits": categorical_logits,
             "categorical_output": categorical_output,
             "continuous_output": continuous_output,
-            # backward-compatible aliases used by existing tests/code
+            # Backward-compatible aliases.
             "mlm_code_logit": categorical_logits,
             "mlm_value_pred": continuous_output.squeeze(-1),
         }
 
 
 class LabradorModel(BaseModel):
-    """Labrador model with optional classifier and MLM heads."""
+    """Labrador model with optional classifier and MLM heads.
+
+    Args:
+        dataset: ``SampleDataset`` from ``dataset.set_task(...)``.
+        vocab_size: Number of lab codes.
+        hidden_dim: Transformer hidden size.
+        num_heads: Number of attention heads.
+        num_layers: Number of transformer encoder layers.
+        feedforward_dim: Feed-forward layer size in encoder blocks.
+        dropout: Dropout probability.
+        padding_idx: Padding index for code embedding.
+        mask_code_token: Special ID for masked code.
+        pad_code_token: Special ID for padded code.
+        mask_value_token: Special float token for masked value.
+        null_value_token: Special float token for null value.
+        include_mlm_head: Whether to enable MLM outputs/losses.
+        include_classifier_head: Whether to enable supervised classifier output.
+        continuous_head_activation: Activation for continuous MLM head.
+        mlm_ignore_index: Ignore value for masked targets not used in loss.
+
+    Examples:
+        >>> from pyhealth.datasets import create_sample_dataset
+        >>> from pyhealth.models import LabradorModel
+        >>> samples = [{
+        ...     "patient_id": "p0", "visit_id": "v0",
+        ...     "lab_codes": [1, 2, 3], "lab_values": [0.2, 0.7, 0.4],
+        ...     "label": 1,
+        ... }]
+        >>> dataset = create_sample_dataset(
+        ...     samples=samples,
+        ...     input_schema={"lab_codes": "sequence", "lab_values": "sequence"},
+        ...     output_schema={"label": "binary"},
+        ...     dataset_name="demo",
+        ... )
+        >>> model = LabradorModel(dataset=dataset, vocab_size=32)
+    """
 
     def __init__(
         self,
@@ -213,6 +288,7 @@ class LabradorModel(BaseModel):
         masked_lab_codes: torch.Tensor,
         mlm_mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
+        """Cross-entropy over valid categorical masked positions."""
         if mlm_mask is not None:
             masked_lab_codes = torch.where(
                 mlm_mask,
@@ -231,6 +307,7 @@ class LabradorModel(BaseModel):
         masked_lab_values: torch.Tensor,
         mlm_mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
+        """MSE over valid continuous masked positions."""
         if mlm_mask is not None:
             masked_lab_values = torch.where(
                 mlm_mask,
@@ -247,35 +324,6 @@ class LabradorModel(BaseModel):
             reduction="mean",
         )
 
-        if self.include_classifier_head:
-            output_size = self.get_output_size()
-            self.classifier = nn.Linear(hidden_dim, output_size)
-
-        if self.include_mlm_head:
-            self.mlm_head = LabradorMLMHead(hidden_dim=hidden_dim, vocab_size=vocab_size)
-
-    def categorical_mlm_loss(
-        self,
-        logits: torch.Tensor,
-        target_codes: torch.Tensor,
-        mlm_mask: torch.Tensor,
-    ) -> torch.Tensor:
-        """Cross-entropy on masked code positions only."""
-        if mlm_mask.sum() == 0:
-            return logits.new_zeros(())
-        return F.cross_entropy(logits[mlm_mask], target_codes[mlm_mask])
-
-    def continuous_mlm_loss(
-        self,
-        pred_values: torch.Tensor,
-        target_values: torch.Tensor,
-        mlm_mask: torch.Tensor,
-    ) -> torch.Tensor:
-        """MSE on masked value positions only."""
-        if mlm_mask.sum() == 0:
-            return pred_values.new_zeros(())
-        return F.mse_loss(pred_values[mlm_mask], target_values[mlm_mask])
-
     def forward(
         self,
         lab_codes: torch.Tensor,
@@ -289,6 +337,7 @@ class LabradorModel(BaseModel):
         mlm_target_values: Optional[torch.Tensor] = None,
         **kwargs,
     ) -> Dict[str, torch.Tensor]:
+        """Computes forward outputs for classifier and/or MLM heads."""
         if padding_mask is None:
             padding_mask = lab_codes.eq(self.pad_code_token)
 
@@ -320,17 +369,17 @@ class LabradorModel(BaseModel):
             masked_codes = masked_lab_codes if masked_lab_codes is not None else mlm_target_codes
             masked_values = masked_lab_values if masked_lab_values is not None else mlm_target_values
             if mlm_mask is not None and masked_codes is not None:
-                tmp = masked_codes.clone()
-                tmp = torch.where(mlm_mask, tmp, torch.full_like(tmp, self.mlm_ignore_index))
-                masked_codes = tmp
-            if mlm_mask is not None and masked_values is not None:
-                tmpv = masked_values.clone().float()
-                tmpv = torch.where(
+                masked_codes = torch.where(
                     mlm_mask,
-                    tmpv,
-                    torch.full_like(tmpv, float(self.mlm_ignore_index)),
+                    masked_codes,
+                    torch.full_like(masked_codes, self.mlm_ignore_index),
                 )
-                masked_values = tmpv
+            if mlm_mask is not None and masked_values is not None:
+                masked_values = torch.where(
+                    mlm_mask,
+                    masked_values.float(),
+                    torch.full_like(masked_values.float(), float(self.mlm_ignore_index)),
+                )
 
             if masked_codes is not None:
                 output["categorical_mlm_loss"] = self.categorical_mlm_loss(
