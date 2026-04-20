@@ -39,14 +39,12 @@ from pyhealth.tasks.dynamic_survival import DynamicSurvivalTask
 
 from examples.synthetic_dataset import generate_synthetic_dataset
 
-# ===== Seed (reproducibility) =====
+# Seed (reproducibility)
 np.random.seed(42)
 torch.manual_seed(42)
 random.seed(42)
 
-# ======================
 # Mock MIMIC-style Dataset
-# ======================
 
 class MockEvent:
     def __init__(self, code, timestamp, vocabulary):
@@ -89,9 +87,7 @@ class MockDataset:
         return samples
 
 
-# ======================
 # Synthetic Patient Generator
-# ======================
 
 def generate_synthetic_patients(n=20, seed=42):
     """Generate synthetic MockPatient objects for experiments.
@@ -139,9 +135,7 @@ def generate_synthetic_patients(n=20, seed=42):
     return patients
 
 
-# ======================
 # Model
-# ======================
 
 class GRUModel(nn.Module):
     def __init__(self, input_dim, hidden_dim=32, horizon=24):
@@ -154,9 +148,7 @@ class GRUModel(nn.Module):
         return torch.sigmoid(self.fc(h.squeeze(0)))
 
 
-# ======================
 # Batch Function
-# ======================
 
 def prepare_batch(samples):
     X, Y, M = [], [], []
@@ -180,9 +172,7 @@ def prepare_batch(samples):
     )
 
 
-# ======================
 # Training Loop
-# ======================
 
 def train_model(samples, horizon, prior=None):
     """Train a GRU model on survival samples using masked BCE loss.
@@ -223,9 +213,7 @@ def train_model(samples, horizon, prior=None):
     return model
 
 
-# ======================
 # Evaluation
-# ======================
 
 def evaluate(model, samples):
     """Print masked BCE and MSE for a trained model on the given samples.
@@ -327,9 +315,7 @@ def evaluate_3metrics(model, samples):
     return bce.item(), auprc, cindex
 
 
-# ======================
 # RUN EXPERIMENT FUNCTION
-# ======================
 
 def run_experiment(dataset, horizon, window, anchor):
     """Run one training/evaluation trial for a given task configuration.
@@ -378,9 +364,7 @@ def main():
     patients = generate_synthetic_patients(20)
     dataset = MockDataset(patients)
 
-    # =========================
     # 1. Anchor Ablation
-    # =========================
     print("\n=== Anchor Ablation ===")
     anchors = ["fixed", "single"]
     bce_list, auprc_list, cindex_list = [], [], []
@@ -407,9 +391,7 @@ def main():
     print("\n=== Anchor Results ===")
     print(df_anchor.round(4))
 
-    # =========================
     # 2. Window Ablation
-    # =========================
     print("\n=== Window Ablation ===")
     windows = [6, 12, 24]
     bce_list, auprc_list, cindex_list = [], [], []
@@ -436,9 +418,7 @@ def main():
     print("\n=== Window Results ===")
     print(df_window.round(4))
 
-    # =========================
     # 3. Horizon Ablation
-    # =========================
     print("\n=== Horizon Ablation ===")
     horizons = [5, 10, 20]
     bce_list, auprc_list, cindex_list = [], [], []

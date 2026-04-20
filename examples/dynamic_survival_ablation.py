@@ -29,9 +29,7 @@ from pyhealth.tasks.dynamic_survival import DynamicSurvivalTask
 from synthetic_dataset import generate_synthetic_dataset
 
 
-# ======================
 # Mock EHR Classes (REQUIRED)
-# ======================
 
 class MockEvent:
     def __init__(self, code, timestamp, vocabulary):
@@ -74,9 +72,7 @@ class MockDataset:
         return samples
 
 
-# ======================
 # Convert synthetic dict → MockPatient
-# ======================
 
 def convert_to_mock_patients(patients_dict):
     base_time = datetime(2025, 1, 1)
@@ -107,9 +103,7 @@ def convert_to_mock_patients(patients_dict):
     return mock_patients
 
 
-# ======================
 # Model
-# ======================
 
 class SimpleModel(nn.Module):
     def __init__(self, input_dim=2, hidden_dim=8, horizon=24):
@@ -122,9 +116,7 @@ class SimpleModel(nn.Module):
         return torch.sigmoid(self.fc(h.squeeze(0)))
 
 
-# ======================
 # Utils
-# ======================
 
 def prepare_batch(samples):
     X, Y, M = [], [], []
@@ -179,9 +171,7 @@ def train_and_eval(samples):
     return {"bce": bce.item(), "mse": mse.item()}
 
 
-# ======================
 # Main Experiment
-# ======================
 
 def main():
     patients_raw = generate_synthetic_dataset(50)

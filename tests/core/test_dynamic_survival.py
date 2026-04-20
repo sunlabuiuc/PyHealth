@@ -29,9 +29,7 @@ import numpy as np
 from pyhealth.tasks.dynamic_survival import DynamicSurvivalTask
 
 
-# ----------------------
 # Mock Classes
-# ----------------------
 
 class MockEvent:
     """Simple mock event object."""
@@ -88,9 +86,7 @@ class MockDataset:
         return samples
 
 
-# ----------------------
 # Helper
-# ----------------------
 
 def create_patients(n=10):
     """
@@ -116,9 +112,7 @@ def create_patients(n=10):
     return patients
 
 
-# ----------------------
 # Test Suite
-# ----------------------
 
 class TestDynamicSurvivalTask(unittest.TestCase):
 
