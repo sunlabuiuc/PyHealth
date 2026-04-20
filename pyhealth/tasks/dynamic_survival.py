@@ -230,6 +230,15 @@ class DynamicSurvivalEngine:
         anchor_interval: int = 12,
         anchor_strategy: str = "fixed",
     ):
+        """Initialize the engine with survival prediction parameters.
+
+        Args:
+            horizon: Number of discrete time steps in the prediction window.
+            observation_window: Look-back window width in days.
+            anchor_interval: Spacing between anchors under the fixed strategy.
+            anchor_strategy: "fixed" for evenly spaced anchors or "single" for
+                one anchor at the earliest valid prediction point.
+        """
         self.horizon = horizon
         self.observation_window = observation_window
         self.anchor_interval = anchor_interval
@@ -474,6 +483,18 @@ class DynamicSurvivalTask(BaseTask):
         use_proc: bool = True,
         use_drug: bool = True,
     ):
+        """Initialize the task and build code vocabularies from the dataset.
+
+        Args:
+            dataset: PyHealth dataset or MockDataset used to build vocabularies.
+            horizon: Prediction horizon in discrete time steps.
+            observation_window: Look-back window width in days.
+            anchor_interval: Anchor spacing in days (fixed strategy only).
+            anchor_strategy: "fixed" or "single" anchor placement strategy.
+            use_diag: Include diagnosis codes in features.
+            use_proc: Include procedure codes in features.
+            use_drug: Include drug codes in features.
+        """
         super().__init__()
 
         self.use_diag = use_diag

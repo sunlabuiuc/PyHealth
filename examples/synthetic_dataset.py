@@ -26,6 +26,10 @@ def generate_synthetic_dataset(num_patients=50, seed=None):
     Args:
         num_patients (int): number of patients
         seed (int, optional): random seed for reproducibility
+
+    Returns:
+        List of patient dicts, each with "patient_id", "visits",
+        "outcome_time", and "censor_time" keys.
     """
     if seed is not None:
         random.seed(seed)

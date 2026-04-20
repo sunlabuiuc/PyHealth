@@ -92,6 +92,15 @@ class MockDataset:
 # ======================
 
 def generate_synthetic_patients(n=20, seed=42):
+    """Generate synthetic MockPatient objects for experiments.
+
+    Args:
+        n: Number of patients to generate.
+        seed: Random seed for reproducibility.
+
+    Returns:
+        List of MockPatient objects with randomized visits and death times.
+    """
     random.seed(seed)
     base_time = datetime(2025, 4, 1)
 
@@ -174,7 +183,16 @@ def prepare_batch(samples):
 # ======================
 
 def train_model(samples, horizon, prior=None):
+    """Train a GRU model on survival samples using masked BCE loss.
 
+    Args:
+        samples: List of sample dicts with keys "x", "y", "mask".
+        horizon: Prediction horizon (sets the output dimension).
+        prior: Optional event rate prior for Bayesian bias initialization.
+
+    Returns:
+        Trained GRUModel instance.
+    """
     X, Y, M = prepare_batch(samples)
 
     model = GRUModel(input_dim=X.shape[-1], horizon=horizon)
@@ -208,7 +226,12 @@ def train_model(samples, horizon, prior=None):
 # ======================
 
 def evaluate(model, samples):
+    """Print masked BCE and MSE for a trained model on the given samples.
 
+    Args:
+        model: Trained GRUModel.
+        samples: List of sample dicts with keys "x", "y", "mask".
+    """
     X, Y, M = prepare_batch(samples)
 
     with torch.no_grad():
@@ -223,6 +246,16 @@ def evaluate(model, samples):
     print(f"\nFinal Performance → BCE={bce.item():.4f} | MSE={mse.item():.4f}")
 
 def evaluate_3metrics(model, samples):
+    """Compute BCE, AuPRC, and C-index for a trained model.
+
+    Args:
+        model: Trained GRUModel.
+        samples: List of sample dicts with keys "x", "y", "mask".
+
+    Returns:
+        Tuple of (bce, auprc, cindex). auprc and cindex are None if
+        insufficient events exist to compute them.
+    """
     X, Y, M = prepare_batch(samples)
 
     with torch.no_grad():
@@ -294,7 +327,17 @@ def evaluate_3metrics(model, samples):
 # ======================
 
 def run_experiment(dataset, horizon, window, anchor):
+    """Run one training/evaluation trial for a given task configuration.
 
+    Args:
+        dataset: MockDataset instance.
+        horizon: Prediction horizon in time steps.
+        window: Observation window size in days.
+        anchor: Anchor strategy ("fixed" or "single").
+
+    Returns:
+        Tuple of (bce, mse), or None if no samples were generated.
+    """
     task = DynamicSurvivalTask(
         dataset,
         horizon=horizon,
