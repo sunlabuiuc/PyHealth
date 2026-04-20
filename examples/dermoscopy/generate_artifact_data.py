@@ -78,13 +78,22 @@ def main():
     token = ARTIFACT_MAP[args.artifact_type]
     strength = STRENGTH_MAP[args.artifact_type]
     
-    # Initialize PyHealth Dataset (Handles caching and metadata aggregation automatically)
-    print(f"[*] Initializing PyHealth Dataset to load {args.source_dataset} metadata...")
-    dataset = DermoscopyDataset(root=args.data_dir, datasets=[args.source_dataset])
-
-    task = DermoscopyMelanomaClassification()
-    task_dataset = dataset.set_task(task)
+    # Read the unified CSV directly with Pandas
+    # We DO NOT initialize the PyHealth dataset here to prevent it from overwriting the master CSV.
+    # To build dataset first, can run train_dermoscopy.py or run this command (with data directory absolute path):
+    # python -c "import os; from pyhealth.datasets import DermoscopyDataset; DermoscopyDataset(root='path/to/data', cache_dir=os.path.join('path/to/data', '.cache'))"
+    csv_path = os.path.join(args.data_dir, "dermoscopy-metadata-pyhealth.csv")
+    if not os.path.exists(csv_path):
+        raise FileNotFoundError(f"Master metadata CSV not found at {csv_path}. Please initialize the dataset once to build it.")
+        
+    df_meta = pd.read_csv(csv_path)
     
+    # Filter only the rows for the dataset we are currently injecting (e.g., ph2)
+    target_df = df_meta[df_meta["source_dataset"] == args.source_dataset]
+
+    if len(target_df) == 0:
+        raise ValueError(f"No records found for dataset '{args.source_dataset}' in the master CSV.")
+
     # Setup the output directory structure specifically for dermoscopy.py's `_prepare_trap_set`
     trap_set_name = f"{args.source_dataset}_with_{args.artifact_type}"
     output_img_dir = os.path.join(args.data_dir, trap_set_name, "images")
@@ -100,17 +109,17 @@ def main():
     
     pipeline.load_lora_weights(lora_path)
 
-    print(f"[*] Generating Trap Set '{trap_set_name}' ({len(task_dataset.samples)} images) at Strength {strength}...")
+    print(f"[*] Generating Trap Set '{trap_set_name}' ({len(target_df)} images) at Strength {strength}...")
 
     # Data tracking to build the PyHealth-compatible metadata.csv
     generated_metadata = []
 
-    # Generate the Trap Set by iterating through the dermoscopy dataset samples
-    for sample in task_dataset.samples:
-        patient_id = sample["patient_id"]
-        img_path = sample["image_path"]
-        mask_path = sample["mask_path"]
-        label = sample["label"] # 0 for benign, 1 for malignant
+    # 4. Generate the Trap Set by iterating through the filtered DataFrame
+    for _, row in target_df.iterrows():
+        patient_id = row["patient_id"]
+        img_path = row["image_path"]
+        mask_path = row["mask_path"]
+        label = row["label"] # 0 for benign, 1 for malignant
         
         diagnosis = "malignant" if label == 1 else "benign"
         
