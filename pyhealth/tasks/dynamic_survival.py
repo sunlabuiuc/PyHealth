@@ -525,11 +525,6 @@ class DynamicSurvivalTask(BaseTask):
         constructed, so vocabularies are ready before any patient is
         processed.
 
-        Note: To keep initialization fast during development, vocabulary
-        construction is capped at the first 6 patients. For production
-        use with a full dataset, remove the cap or pass dev=True on the
-        dataset to limit patient count upstream.
-
         Args:
             dataset: Dataset object supporting either iter_patients()
                 (PyHealth datasets) or a patients dict attribute
@@ -540,16 +535,13 @@ class DynamicSurvivalTask(BaseTask):
             mapping code strings to integer indices.
         """
         diag_set, proc_set, drug_set = set(), set(), set()
-    
+
         if hasattr(dataset, "iter_patients"):
             patient_iter = dataset.iter_patients()
         else:
             patient_iter = dataset.patients.values()
-    
-        for i, patient in enumerate(patient_iter):
-            if i > 5:
-                break
-    
+
+        for patient in patient_iter:
             visits = build_daily_time_series(patient)
     
             for visit in visits:
