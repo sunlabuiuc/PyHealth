@@ -655,3 +655,69 @@ class ReXKGModel(BaseModel):
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(kg, f, indent=2, ensure_ascii=False)
         logger.info("KG saved to %s", output_path)
+
+    def evaluate(
+        self,
+        texts: List[str],
+        gold_entities: List[List[Dict]],
+        gold_relations: Optional[List[List[Dict]]] = None,
+        batch_size: int = 32,
+    ) -> Dict[str, Dict[str, float]]:
+        """Evaluate entity and relation extraction against gold annotations.
+
+        Computes span-level micro-averaged precision, recall, and F1 for both
+        NER and (optionally) RE.  A predicted entity is correct only when its
+        span *and* type exactly match the gold annotation.  A predicted
+        relation is correct when subject span, object span, *and* relation
+        type all match exactly.
+
+        Args:
+            texts (List[str]): Raw report strings in the same order as the
+                gold annotation lists.
+            gold_entities (List[List[Dict]]): Gold entity annotations; one
+                list per document.  Each entity dict must contain:
+
+                * ``"start"`` (int): Token start index.
+                * ``"end"`` (int): Token end index.
+                * ``"type"`` (str): Entity type string.
+
+            gold_relations (List[List[Dict]], optional): Gold relation
+                annotations; one list per document.  Each relation dict must
+                contain:
+
+                * ``"subject"`` (Dict): Dict with ``"start"`` and ``"end"``.
+                * ``"object"`` (Dict): Dict with ``"start"`` and ``"end"``.
+                * ``"relation"`` (str): Relation type string.
+
+                When *None*, relation F1 is computed against empty gold sets
+                (all predicted relations will count as false positives).
+            batch_size (int): Batch size passed to :meth:`predict_entities`
+                and :meth:`predict_relations`.
+
+        Returns:
+            Dict with two keys:
+
+            * ``"entity"`` — dict with ``precision``, ``recall``, ``f1``,
+              ``tp``, ``fp``, ``fn``.
+            * ``"relation"`` — same structure (zero if *gold_relations* is
+              ``None``).
+
+        Example::
+
+            >>> metrics = model.evaluate(texts, gold_entities, gold_relations)
+            >>> print(f"Entity F1: {metrics['entity']['f1']:.3f}")
+            >>> print(f"Relation F1: {metrics['relation']['f1']:.3f}")
+        """
+        from pyhealth.metrics.rexkg import rexkg_metrics
+
+        pred_entities = self.predict_entities(texts, batch_size=batch_size)
+        pred_relations = self.predict_relations(
+            texts, pred_entities, batch_size=batch_size
+        )
+
+        if gold_relations is None:
+            gold_relations = [[] for _ in texts]
+
+        return rexkg_metrics(
+            pred_entities, gold_entities, pred_relations, gold_relations
+        )
