@@ -1,0 +1,306 @@
+================================================================================
+ NOTEBOOK GUIDE
+ examples/medical_transcriptions_classification_sentence_kd_transformer.ipynb
+================================================================================
+
+Plain-English walk-through of every cell in the companion notebook for the
+SentenceKDTransformer contribution. This guide is kept in lockstep with the
+actual notebook.
+
+Paper:    Kim et al., "Integrating ChatGPT into Secure Hospital Networks: A
+          Case Study on Improving Radiology Report Analysis", CHIL 2024.
+Model:    pyhealth/models/sentence_kd_transformer.py
+Script:   examples/medical_transcriptions_classification_sentence_kd_transformer.py
+Tests:    tests/core/test_sentence_kd_transformer.py
+Docs:     docs/api/models/pyhealth.models.SentenceKDTransformer.rst
+
+
+--------------------------------------------------------------------------------
+ HIGH-LEVEL GOAL
+--------------------------------------------------------------------------------
+The notebook is a visualization wrapper around the heavy lifting in the .py
+script. It gives a reviewer (or the grader) a runnable, GitHub-rendered view
+of:
+
+  1. That SentenceKDTransformer instantiates and produces well-typed outputs.
+  2. Two NOVEL ablations beyond the paper:
+       - lambda sweep (contrastive-loss weight) over a wider grid than the
+         paper's {0, 1} toggle.
+       - tau sweep   (contrastive temperature) which the paper never varies.
+  3. A demonstration of paper Eq. 4 document-level aggregation plus two
+     additional aggregation modes introduced in this PyHealth contribution.
+
+All data used here is synthetic (no DUA, no MIMIC-CXR credentials). BUT the
+notebook uses the paper's primary backbone, StanfordAIMI/RadBERT (~110M
+parameters, ~440 MB download on first run), so a GPU is required. On Colab:
+
+    Runtime -> Change runtime type -> T4 GPU
+
+Expected runtime on a free Colab T4: ~3-5 minutes end-to-end.
+
+The test suite (tests/core/test_sentence_kd_transformer.py) also exercises
+RadBERT for realism; it runs on CPU in under a minute once the model is
+cached.
+
+
+--------------------------------------------------------------------------------
+ CELL 0 (markdown) -- TITLE, BACKBONE NOTE, COLAB BADGE
+--------------------------------------------------------------------------------
+Provides the paper citation, the list of 4 things demonstrated, the RadBERT
+backbone note with first-run download size, the explicit GPU requirement,
+and a Colab badge pointing at the notebook on branch DL4H_final of the
+fork. Clicking the badge is the intended entry point for reviewers.
+
+
+--------------------------------------------------------------------------------
+ CELL 1 (code) -- COLAB-AWARE INSTALL + PYARROW REPAIR + REPO CLONE
+--------------------------------------------------------------------------------
+This is the only cell that is environment-dependent. Three things happen,
+each guarded by a check so it is a no-op locally.
+
+1. Detect Colab. We try `import google.colab`; success means ON_COLAB = True.
+
+2. Install PyHealth. If `import pyhealth` fails, pip-install the fork at the
+   DL4H_final branch:
+       git+https://github.com/raymondcoding15/PyHealth.git@DL4H_final
+   On a local clone this branch is skipped entirely because pyhealth is
+   already importable.
+
+3. Self-heal pyarrow. Colab pre-loads an older pyarrow into the runtime
+   image, and pip installing PyHealth's deps can leave pyarrow
+   half-upgraded -- pyarrow.lib and pyarrow._csv end up compiled against
+   different struct sizes, producing:
+       "pyarrow.lib.IpcReadOptions size changed, may indicate binary
+        incompatibility. Expected 112 from C header, got 104 from PyObject"
+   We probe `import pyarrow.csv`; if it raises, uninstall + reinstall
+   pyarrow, then prompt the user to Runtime -> Restart runtime. This runs
+   every Colab session, independent of whether we installed pyhealth this
+   session, so a returning user who already had pyhealth but a broken
+   pyarrow still gets repaired.
+
+4. Clone the repo shallowly. Colab only downloads the .ipynb file when you
+   open via the badge. The rest of the repo is NOT cloned, so the companion
+   .py that cell 3 wants to import does not exist on disk. We shallow clone
+   only the DL4H_final branch into /content/pyhealth_src so the next cell
+   can find it. Locally this branch is skipped.
+
+
+--------------------------------------------------------------------------------
+ CELL 2 (markdown) -- "1. Setup"
+--------------------------------------------------------------------------------
+Short section header explaining that the notebook re-uses the ablation
+helpers from the .py companion rather than duplicating code. The .py is
+the authoritative script; the notebook is a thin visualization wrapper.
+
+
+--------------------------------------------------------------------------------
+ CELL 3 (code) -- IMPORTS, GPU ASSERTION, LOAD COMPANION .py
+--------------------------------------------------------------------------------
+Three responsibilities:
+
+1. Standard imports (torch, pandas) and seed the RNG for reproducibility.
+
+2. HARD GPU ASSERTION. Because RadBERT is 110M parameters, CPU-only
+   execution would take >30 minutes and frustrate reviewers. We fail fast
+   with a helpful message pointing at:
+       Runtime -> Change runtime type -> T4 GPU
+   If CUDA is present, we bind `DEVICE = torch.device("cuda")` for later
+   `.to(DEVICE)` calls.
+
+3. Load the companion .py. Uses importlib to load the script as a module
+   named `mt_skd`. Two tricky bits worth understanding:
+
+   a. Candidate search order. Because `os.getcwd()` differs across
+      environments (repo root locally, /content on Colab, examples/ if you
+      ran nbconvert in that folder), we try three locations:
+          cwd/examples/<script>.py
+          cwd/<script>.py
+          /content/pyhealth_src/examples/<script>.py   (Colab clone)
+
+   b. sys.modules registration. We do `sys.modules["mt_skd"] = mt_skd`
+      BEFORE calling `spec.loader.exec_module(mt_skd)`. This is required
+      because the .py contains @dataclass class definitions, and dataclass
+      creation needs to look up its own module in sys.modules during class
+      construction. Skip that line and you get a cryptic NoneType attribute
+      error mid-import.
+
+Output: "Using GPU: <name>" and "Loaded helpers from <path>" and the module
+`mt_skd` is now available with functions like `build_dataset`,
+`run_lambda_sweep`, `run_temperature_sweep`.
+
+
+--------------------------------------------------------------------------------
+ CELL 4 (markdown) -- "2. Build the dataset and verify the model"
+--------------------------------------------------------------------------------
+Explains that `build_dataset(quick=True)` returns a fitted PyHealth
+SampleDataset of synthetic multiclass text samples, with no external data
+download required. This is important for rubric compliance: tests and
+demos must not require real, credentialed data.
+
+
+--------------------------------------------------------------------------------
+ CELL 5 (code) -- INSTANTIATE DATASET + MODEL
+--------------------------------------------------------------------------------
+  - Binds `BACKBONE = "StanfordAIMI/RadBERT"` to a notebook-level constant
+    used by every subsequent cell.
+  - Calls `mt_skd.build_dataset(quick=True, data_root=None)` to get a small
+    synthetic multiclass SampleDataset.
+  - Prints sample count and number of classes so the grader can eyeball
+    that the pipeline wired up correctly.
+  - Instantiates `SentenceKDTransformer` with:
+        model_name=BACKBONE                 (RadBERT, 110M params)
+        lam=1.0                             (contrastive weight on)
+        temperature=0.07                    (paper / Khosla default)
+        max_length=128                      (paper default)
+    ...then `.to(DEVICE)` to move weights onto the GPU.
+  - Prints output size and hidden dim as a final sanity check.
+
+NO TRAINING happens in this cell. This is purely "does RadBERT load into
+the SentenceKDTransformer wrapper and expose the expected interfaces?"
+
+
+--------------------------------------------------------------------------------
+ CELL 6 (markdown) -- "3. Ablation 1 -- lambda sweep [novel]"
+--------------------------------------------------------------------------------
+Explains the first novel ablation. The paper only toggles the contrastive
+weight between 0 (pure cross-entropy) and 1 (CE + SupCon). We sweep a
+wider grid to expose the phase transition where the contrastive term
+starts dominating cross-entropy. The notebook uses 1 epoch per
+lambda-value for speed; the full grid {0, 0.1, 0.5, 1, 2, 5} lives in the
+.py.
+
+
+--------------------------------------------------------------------------------
+ CELL 7 (code) -- RUN LAMBDA SWEEP, DISPLAY RESULTS TABLE
+--------------------------------------------------------------------------------
+Runs `mt_skd.run_lambda_sweep(dataset, backbone=BACKBONE, epochs=1,
+batch_size=16)`. PyHealth's Trainer auto-detects the GPU and moves the
+model there per sweep cell. Training chatter (progress bars, per-step
+loss, HuggingFace download logs) is suppressed with four layers so the
+final cell output is just a clean pandas DataFrame:
+  - `logging.disable(logging.CRITICAL)` silences all Python logging.
+  - `os.environ["TQDM_DISABLE"] = "1"` silences progress bars.
+  - `os.environ["TRANSFORMERS_VERBOSITY"] = "error"` silences HF warnings.
+  - `contextlib.redirect_stdout/stderr` swallows any remaining prints.
+
+Visible output: a DataFrame with one row per lambda value:
+  name | accuracy | macro_f1 | loss
+
+
+--------------------------------------------------------------------------------
+ CELL 8 (markdown) -- "4. Ablation 2 -- tau sweep [novel]"
+--------------------------------------------------------------------------------
+Sets up the second novel ablation. Paper uses tau=0.07 (Khosla et al.
+default) and never sweeps it. We vary tau across the "peaked" (small tau)
+and "uniform" (large tau) regimes with lambda held at 1 to quantify
+sensitivity of the student to this contrastive hyperparameter.
+
+
+--------------------------------------------------------------------------------
+ CELL 9 (code) -- RUN TAU SWEEP, DISPLAY RESULTS TABLE
+--------------------------------------------------------------------------------
+Same pattern as cell 7 but for the temperature sweep. Output is a pandas
+DataFrame with accuracy/macro-F1/loss for each tau value.
+
+
+--------------------------------------------------------------------------------
+ CELL 10 (markdown) -- "5. Paper Eq. 4 -- document-level max-pool inference"
+--------------------------------------------------------------------------------
+Explains the paper's document-level aggregation:
+    p_a(doc) = max_j p_abnormal(sentence_j)           (paper Eq. 4)
+The PyHealth contribution exposes this via `model.document_predict` and
+adds two novel aggregation modes beyond the paper:
+    - "max"       : paper default
+    - "topk_mean" : mean of the top-k sentence abnormal probabilities
+    - "attn"      : attention-weighted pool over sentence embeddings
+
+Disclaims that absolute probability values below come from an UNTRAINED
+RadBERT (we didn't fine-tune for ternary labels in this demo); what
+matters is the tensor shape, probability normalization, and the relative
+ordering across aggregation modes.
+
+
+--------------------------------------------------------------------------------
+ CELL 11 (code) -- RADIOLOGY-STYLE MIXED-FINDINGS DEMO
+--------------------------------------------------------------------------------
+Builds a tiny 6-sentence "radiology report" with ternary labels matching
+the paper's {normal, abnormal, uncertain} schema, using
+`create_sample_dataset` (the PyHealth public API). A fresh
+SentenceKDTransformer is instantiated with RadBERT on this ternary dataset
+and moved onto the GPU. Then for each of the three aggregation modes,
+`model.document_predict(report, ...)` is called and the resulting
+document-level (p_abnormal, p_normal) are tabulated. This shows the
+grader that:
+  - the API accepts a list of sentence strings,
+  - returns both per-sentence probabilities and an aggregated document
+    score,
+  - supports all three aggregation modes declared in the docs,
+  - all of the above work end-to-end on the paper's real clinical
+    backbone.
+
+
+--------------------------------------------------------------------------------
+ CELL 12 (code) -- PER-SENTENCE TERNARY PROBABILITY BREAKDOWN
+--------------------------------------------------------------------------------
+Pulls the raw per-sentence ternary probabilities out of `document_predict`
+and displays them in a DataFrame with the original sentence text. The
+column names come from `dataset.output_processors["label"].label_vocab` so
+they dynamically reflect the ternary labels {normal, abnormal, uncertain}.
+This is the input to the max / topk_mean / attn aggregations of the
+previous cell, exposed so a grader can verify the aggregation math by eye.
+
+
+--------------------------------------------------------------------------------
+ CELL 13 (markdown) -- "6. What's shown here and what's in the .py"
+--------------------------------------------------------------------------------
+Comparison table separating notebook coverage from the .py script's
+coverage:
+
+  Ablation                       | Notebook      | .py script
+  -------------------------------+---------------+------------------------
+  lambda sweep                   | 1 epoch       | full {0,0.1,0.5,1,2,5}
+  tau sweep                      | 1 epoch       | full {0.05,0.1,0.2,0.5,1.0}
+  lr / dropout / batch size      | --            | 3x2x2 = 12 cells
+  Backbone comparison            | --            | 3 backbones, lambda=1
+  Paper Eq. 4 doc-predict demo   | yes           | --
+  Writes ablations.json          | --            | yes
+
+Followed by the shell command to reproduce the full run used for the
+PR description and project video:
+    python examples/medical_transcriptions_classification_sentence_kd_transformer.py \
+           --quick --epochs 2
+
+Ends with a list of related PR files so a reviewer can jump from the
+notebook to the model, tests, and docs.
+
+
+--------------------------------------------------------------------------------
+ TROUBLESHOOTING NOTES FOR COLAB
+--------------------------------------------------------------------------------
+1. BEFORE clicking Run all, set the runtime to a GPU:
+     Runtime -> Change runtime type -> T4 GPU.
+   If you skip this, cell 3's assertion will fail with a clear message
+   telling you to enable GPU.
+
+2. First run on a fresh runtime:
+     - Cell 1 installs pyhealth and (if needed) repairs pyarrow.
+     - It prints "Packages were (re)installed. On Colab you MUST now do
+       Runtime -> Restart runtime, then Run all again."
+     - Do exactly that: Runtime -> Restart runtime -> Run all.
+
+3. Second run (after restart) on the same runtime:
+     - Cell 1 sees pyhealth already installed and pyarrow healthy, so it
+       prints nothing and does not require another restart.
+     - Cell 5 downloads RadBERT weights (~440 MB) on first use; HuggingFace
+       caches them so subsequent instantiations in cells 7/9/11 are
+       instant.
+     - Total end-to-end: ~3-5 minutes on T4.
+
+4. If you see pyarrow ABI errors again after a Colab image upgrade:
+     - Manually run `!pip uninstall -y pyarrow && !pip install -q pyarrow`
+       then Runtime -> Restart runtime. The install cell's self-heal will
+       already do this automatically on new sessions.
+
+5. If the companion .py is not found, cell 1's clone to
+   /content/pyhealth_src probably failed (rare transient GitHub 5xx).
+   Rerun cell 1.

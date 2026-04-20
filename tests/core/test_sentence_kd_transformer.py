@@ -1,9 +1,16 @@
 """Unit tests for ``pyhealth.models.SentenceKDTransformer``.
 
-All tests use either small synthetic tensors or a tiny synthetic text
-dataset paired with ``prajjwal1/bert-tiny`` (17 MB). No real medical
-datasets are touched. HuggingFace caches are redirected into a
-per-class temporary directory that is cleaned up in :meth:`tearDownClass`.
+All tests use small synthetic tensors or a tiny synthetic text dataset
+paired with the paper's primary backbone ``StanfordAIMI/RadBERT``
+(~440 MB first-run download). No real medical datasets are touched.
+HuggingFace caches are redirected into a per-class temporary directory
+that is cleaned up in :meth:`tearDownClass`.
+
+Because RadBERT is a BERT-base-sized model (~110M parameters), these
+tests are noticeably slower than the tiny-backbone variants used in
+other PyHealth model tests. First run on a fresh HuggingFace cache will
+download the weights; subsequent runs reuse the on-disk cache and
+complete in under a minute on CPU.
 """
 from __future__ import annotations
 
@@ -22,7 +29,8 @@ from pyhealth.models import SentenceKDTransformer
 from pyhealth.models.sentence_kd_transformer import supervised_contrastive_loss
 
 
-_TINY_BERT = "prajjwal1/bert-tiny"
+# Paper's primary backbone. See Kim et al. 2024, Section 3.
+_BACKBONE = "StanfordAIMI/RadBERT"
 
 
 def _make_text_dataset():
@@ -115,10 +123,10 @@ class TestSentenceKDTransformer(unittest.TestCase):
         cls.dataset = _make_text_dataset()
         cls.model = SentenceKDTransformer(
             dataset=cls.dataset,
-            model_name=_TINY_BERT,
+            model_name=_BACKBONE,
             lam=1.0,
             temperature=0.07,
-            max_length=16,
+            max_length=64,
         )
 
     @classmethod
@@ -141,15 +149,15 @@ class TestSentenceKDTransformer(unittest.TestCase):
     def test_constructor_validates_inputs(self):
         with self.assertRaises(ValueError):
             SentenceKDTransformer(
-                dataset=self.dataset, model_name=_TINY_BERT, lam=-0.5
+                dataset=self.dataset, model_name=_BACKBONE, lam=-0.5
             )
         with self.assertRaises(ValueError):
             SentenceKDTransformer(
-                dataset=self.dataset, model_name=_TINY_BERT, temperature=0.0
+                dataset=self.dataset, model_name=_BACKBONE, temperature=0.0
             )
         with self.assertRaises(ValueError):
             SentenceKDTransformer(
-                dataset=self.dataset, model_name=_TINY_BERT, doc_agg="bogus"
+                dataset=self.dataset, model_name=_BACKBONE, doc_agg="bogus"
             )
 
     # ---- forward --------------------------------------------------------
@@ -191,7 +199,7 @@ class TestSentenceKDTransformer(unittest.TestCase):
 
     def test_lambda_zero_loss_matches_cross_entropy(self):
         model = SentenceKDTransformer(
-            dataset=self.dataset, model_name=_TINY_BERT, lam=0.0, max_length=16
+            dataset=self.dataset, model_name=_BACKBONE, lam=0.0, max_length=64
         )
         loader = get_dataloader(self.dataset, batch_size=6, shuffle=False)
         batch = next(iter(loader))
@@ -258,20 +266,24 @@ class TestSentenceKDTransformer(unittest.TestCase):
 
 
 class TestSentenceKDTransformerTiming(unittest.TestCase):
-    """Ensure all documented tests in this file are fast enough for CI.
+    """Sanity-check that a single forward+backward step completes in
+    reasonable wall-clock time for CI.
 
-    Slow tests are penalized by the DL4H rubric. bert-tiny on CPU forward +
-    backward for batch size 8 must stay well under 1 second.
+    RadBERT is BERT-base-sized (~110M parameters), so on CPU one step is
+    orders of magnitude slower than a tiny-backbone smoke test. The
+    threshold here is picked to catch regressions (e.g. an accidental
+    O(n^2) in the contrastive loss over a large batch) rather than to
+    enforce absolute speed.
     """
 
     @classmethod
     def setUpClass(cls) -> None:
         cls.dataset = _make_text_dataset()
         cls.model = SentenceKDTransformer(
-            dataset=cls.dataset, model_name=_TINY_BERT, lam=1.0, max_length=16
+            dataset=cls.dataset, model_name=_BACKBONE, lam=1.0, max_length=64
         )
 
-    def test_forward_backward_under_one_second(self):
+    def test_forward_backward_finishes_under_regression_threshold(self):
         loader = get_dataloader(self.dataset, batch_size=8, shuffle=False)
         batch = next(iter(loader))
         # Warm-up pass to prime tokenizer caches and layer fusion.
@@ -280,7 +292,9 @@ class TestSentenceKDTransformerTiming(unittest.TestCase):
         out = self.model(**batch)
         out["loss"].backward()
         elapsed = time.perf_counter() - start
-        self.assertLess(elapsed, 1.0, f"forward+backward took {elapsed:.3f}s")
+        # Generous threshold: RadBERT forward+backward on CPU for a batch
+        # of 8 short sentences is typically 0.5-3s on modern CI hardware.
+        self.assertLess(elapsed, 30.0, f"forward+backward took {elapsed:.3f}s")
 
 
 if __name__ == "__main__":
