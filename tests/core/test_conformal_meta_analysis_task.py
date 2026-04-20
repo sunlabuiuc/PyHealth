@@ -28,7 +28,7 @@ class TestConformalMetaAnalysisTask(unittest.TestCase):
 
     def test_basic_extraction(self):
         """Task emits features and true_effect keys."""
-        from pyhealth.tasks.conformal_meta_analysis_task import (
+        from pyhealth.tasks.conformal_meta_analysis import (
             ConformalMetaAnalysisTask,
         )
 
@@ -46,7 +46,7 @@ class TestConformalMetaAnalysisTask(unittest.TestCase):
 
     def test_split_filter_excludes_wrong_split(self):
         """split_value filter skips patients not in the requested split."""
-        from pyhealth.tasks.conformal_meta_analysis_task import (
+        from pyhealth.tasks.conformal_meta_analysis import (
             ConformalMetaAnalysisTask,
         )
 
@@ -71,7 +71,7 @@ class TestConformalMetaAnalysisTask(unittest.TestCase):
 
     def test_explicit_feature_columns(self):
         """feature_columns parameter selects only requested features."""
-        from pyhealth.tasks.conformal_meta_analysis_task import (
+        from pyhealth.tasks.conformal_meta_analysis import (
             ConformalMetaAnalysisTask,
         )
 
@@ -90,7 +90,7 @@ class TestConformalMetaAnalysisTask(unittest.TestCase):
 
     def test_optional_cma_fields_carried_through(self):
         """observed_effect/variance/prior_mean columns are emitted when set."""
-        from pyhealth.tasks.conformal_meta_analysis_task import (
+        from pyhealth.tasks.conformal_meta_analysis import (
             ConformalMetaAnalysisTask,
         )
 
@@ -114,7 +114,7 @@ class TestConformalMetaAnalysisTask(unittest.TestCase):
 
     def test_missing_target_returns_empty(self):
         """Patient with no target returns an empty list."""
-        from pyhealth.tasks.conformal_meta_analysis_task import (
+        from pyhealth.tasks.conformal_meta_analysis import (
             ConformalMetaAnalysisTask,
         )
 

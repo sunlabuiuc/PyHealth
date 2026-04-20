@@ -1,5 +1,4 @@
-
-""""Conformal Meta-Analysis Task for PyHealth.
+"""Conformal Meta-Analysis Task for PyHealth.
 
 Defines a regression task that extracts feature vectors and true
 effect values from trial records. Also carries along the extra
@@ -88,16 +87,38 @@ class ConformalMetaAnalysisTask(BaseTask):
     split_column: Optional[str] = None  # e.g., "split"
     split_value: Optional[str] = None  # e.g., "trusted"
 
-    observed_column: Optional[str] = None  # e.g., "log_relative_risk" — if None, fall back to synthesized Y
+    # Source column names in the dataset's attribute dict. Set to
+    # None to disable the corresponding sample key entirely (useful
+    # for plain regression without synthetic meta-analysis noise).
+    observed_column: Optional[str] = "observed_effect"
     variance_column: Optional[str] = "variance"
     prior_column: Optional[str] = "prior_mean"
 
+    # Populated in __post_init__ based on which source columns are
+    # configured, so the SampleDataset schema matches what __call__
+    # actually emits.
     input_schema: Dict[str, str] = field(
         default_factory=lambda: {"features": "tensor"}
     )
     output_schema: Dict[str, str] = field(
         default_factory=lambda: {"true_effect": "regression"}
     )
+
+    def __post_init__(self) -> None:
+        """Build input_schema from the configured source columns.
+
+        Ensures that ``input_schema`` contains exactly the keys that
+        ``__call__`` will emit on each sample. Without this, declaring
+        (for example) ``observed_effect`` as a required tensor input
+        while never emitting it (because the source column is missing)
+        would cause downstream ``SampleDataset`` validation to fail.
+        """
+        if self.observed_column:
+            self.input_schema["observed_effect"] = "tensor"
+        if self.variance_column:
+            self.input_schema["variance"] = "tensor"
+        if self.prior_column:
+            self.input_schema["prior_mean"] = "tensor"
 
     def __call__(self, patient) -> List[Dict]:
         """Process one trial into a sample dict.
@@ -150,7 +171,10 @@ class ConformalMetaAnalysisTask(BaseTask):
             "true_effect": true_effect,
         }
 
-        # Map configured source columns -> fixed sample keys
+        # Map configured source columns -> fixed sample keys.
+        # If a source column is configured but missing or non-numeric
+        # for this trial, fall back to 0.0 so the sample's keys match
+        # the SampleDataset input_schema built in __post_init__.
         mapping = [
             ("observed_effect", self.observed_column),
             ("variance", self.variance_column),
@@ -159,10 +183,9 @@ class ConformalMetaAnalysisTask(BaseTask):
         for sample_key, source_col in mapping:
             if source_col is None:
                 continue
-            if source_col in attr:
-                try:
-                    sample[sample_key] = float(attr[source_col])
-                except (TypeError, ValueError):
-                    pass
+            try:
+                sample[sample_key] = float(attr.get(source_col, 0.0))
+            except (TypeError, ValueError):
+                sample[sample_key] = 0.0
 
         return [sample]

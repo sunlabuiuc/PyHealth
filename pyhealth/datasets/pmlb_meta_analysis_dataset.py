@@ -7,10 +7,10 @@ PMLB is freely accessible at:
     https://github.com/EpistasisLab/pmlb
     Install: pip install pmlb
 
-The three datasets used in Kaul & Gordon (2024) are:
-    - 1196_BNG_pharynx
-    - 1201_BNG_breastTumor
-    - 1193_BNG_lowbwt
+The only one of the three datasets used in Kaul & Gordon (2024) is compatible:
+    - 1196_BNG_pharynx - compatible
+    - 1201_BNG_breastTumor - needs yaml config
+    - 1193_BNG_lowbwt - needs yaml config
 
 These regression datasets provide features X and target values Y
 (used as true effects U in the meta-analysis simulations). When
@@ -60,9 +60,7 @@ from .base_dataset import BaseDataset
 logger = logging.getLogger(__name__)
 
 SUPPORTED_PMLB_DATASETS = [
-    "1196_BNG_pharynx",
-    "1201_BNG_breastTumor",
-    "1193_BNG_lowbwt",
+    "1196_BNG_pharynx"
 ]
 
 
@@ -112,12 +110,25 @@ class PMLBMetaAnalysisDataset(BaseDataset):
             prior_error: float = 0.9,
             effect_noise: float = 0.5,
             seed: Optional[int] = None,
-            n_samples: Optional[int] = 2000,  # NEW
+            n_samples: Optional[int] = 2000,
     ) -> None:
         if pmlb_dataset_name not in SUPPORTED_PMLB_DATASETS:
             raise ValueError(
                 f"pmlb_dataset_name must be one of {SUPPORTED_PMLB_DATASETS}, "
-                f"got '{pmlb_dataset_name}'"
+                f"got '{pmlb_dataset_name}' to add update SUPPORTED_PMLB_DATASETS"
+                f" and create config YAML File and update config logic"
+            )
+        if prior_error < 0:
+            raise ValueError(
+                f"prior_error must be non-negative, got {prior_error}. "
+                f"It parameterizes the distance between the prior mean M "
+                f"and the true effect U (0 = perfect prior, larger = worse)."
+            )
+        if effect_noise < 0:
+            raise ValueError(
+                f"effect_noise must be non-negative, got {effect_noise}. "
+                f"It scales the within-trial variances V (0 = noise-free "
+                f"observations Y = U, larger = noisier observations)."
             )
 
         self.pmlb_dataset_name = pmlb_dataset_name
@@ -183,6 +194,12 @@ class PMLBMetaAnalysisDataset(BaseDataset):
             prior_error: Prior quality parameter.
             effect_noise: Noise scale parameter.
             seed: Random seed.
+            n_samples: If provided and smaller than the PMLB dataset,
+                randomly subsample this many rows. PMLB datasets can
+                have hundreds of thousands of rows; subsampling keeps
+                processing fast and fits the meta-analysis setting
+                (n <= 500 trials) studied in the paper. Defaults to
+                2000. Pass None to use all available rows.
 
         Raises:
             ImportError: If the ``pmlb`` package is not installed.
@@ -226,46 +243,107 @@ class PMLBMetaAnalysisDataset(BaseDataset):
 
     @staticmethod
     def _add_synthetic_noise(
-        df: pd.DataFrame,
-        prior_error: float,
-        effect_noise: float,
-        seed: Optional[int],
+            df: pd.DataFrame,
+            prior_error: float,
+            effect_noise: float,
+            seed: int = 0,
+            kernel_bandwidth: float = 3.0,
+            n_held_out: int = 100,
     ) -> pd.DataFrame:
-        """Add synthetic observed_effect, variance, and prior_mean cols.
+        """Generate synthetic meta-analysis noise following Appendix B.6.
 
-        Follows Appendix B.6:
-            V ~ Exp(1) * sqrt(effect_noise * E|U|)
-            Y ~ N(U, V)
-            M = p * offset + (1 - p) * U, with p chosen so that
-                MSE(M, U) = prior_error * Var(U).
+        Given a regression dataset with features X and true effects U,
+        this method simulates the observables of a meta-analysis:
+
+            - ``prior_mean`` (M): an imperfect predictor of U, built by
+              mixing U with a random RKHS function F_tilde according to
+              ``p = sqrt(prior_error * Var(U) / MSE(U, F_tilde))``.
+              Higher ``prior_error`` pulls M further from U.
+            - ``variance`` (V): within-trial variance drawn as
+              ``V ~ Exp(1) * sqrt(effect_noise) * E|U|``. Scales with
+              ``effect_noise`` and is floored at 1e-6.
+            - ``observed_effect`` (Y): noisy observation
+              ``Y ~ N(U, V)`` of the true effect.
+
+        The random RKHS function F_tilde is constructed as
+        ``sum_j g_j * rbf_kernel(x, x_tilde_j)`` for ``n_held_out``
+        random anchors ``x_tilde_j`` with i.i.d. N(0, 1) weights ``g_j``.
+        Features are z-score normalized before the kernel is applied so
+        that ``kernel_bandwidth`` is on a consistent scale across
+        datasets.
 
         Args:
-            df: DataFrame with a 'true_effect' column.
-            prior_error: Target prior error.
-            effect_noise: Target effect noise.
-            seed: Random seed.
+            df: Input DataFrame containing at least ``true_effect`` and
+                the feature columns. Must also contain ``patient_id``
+                and ``visit_id`` columns (these are excluded from the
+                feature matrix used for the kernel).
+            prior_error: Non-negative parameter controlling the gap
+                between the synthetic prior mean M and the true effect
+                U. 0 means M = U (perfect prior); larger values make M
+                progressively noisier.
+            effect_noise: Non-negative parameter scaling the within-
+                trial variance V. 0 yields near-zero variances (V is
+                floored at 1e-6); larger values yield noisier Y.
+            seed: Random seed used for F_tilde anchor selection, RKHS
+                weights, V sampling, and Y sampling.
+            kernel_bandwidth: Bandwidth sigma of the Gaussian (RBF)
+                kernel used to build F_tilde.
+            n_held_out: Number of random anchor points used for
+                F_tilde. Capped at ``len(df)`` when the dataset is
+                smaller than this value.
 
         Returns:
-            DataFrame with added columns.
+            A copy of ``df`` with three new columns appended:
+            ``observed_effect`` (Y), ``variance`` (V), and
+            ``prior_mean`` (M).
         """
         rng = np.random.RandomState(seed)
         U = df["true_effect"].to_numpy(dtype=np.float64)
         n = len(U)
 
-        mean_abs_U = float(np.mean(np.abs(U))) if n > 0 else 1.0
-        scale = np.sqrt(effect_noise * mean_abs_U)
-        V = rng.exponential(1.0, size=n) * scale
+        # Feature matrix for kernel computation
+        feature_cols = [c for c in df.columns
+                        if c not in ("patient_id", "visit_id", "true_effect")]
+        X = df[feature_cols].to_numpy(dtype=np.float64)
+        # Normalize features for stable kernel
+        X = (X - X.mean(axis=0)) / (X.std(axis=0) + 1e-9)
 
-        Y = U + rng.randn(n) * np.sqrt(np.maximum(V, 1e-12))
+        # --- Build F_tilde: random RKHS function from held-out data ---
+        # Sample random held-out anchors x_tilde_i and weights g_i ~ N(0, 1)
+        idx_held_out = rng.choice(n, size=min(n_held_out, n), replace=False)
+        X_tilde = X[idx_held_out]
+        g = rng.randn(len(X_tilde))
 
-        var_U = float(np.var(U)) if n > 1 else 1.0
-        offset = rng.randn(n) * np.sqrt(var_U + 1e-12)
-        mse_offset = float(np.mean((U - offset) ** 2))
-        if mse_offset > 0 and var_U > 0:
-            p = min(np.sqrt(prior_error * var_U / mse_offset), 1.0)
-        else:
+        # Gaussian kernel: kappa(x, x') = exp(-||x - x'||^2 / (2 * sigma^2))
+        def rbf_kernel_matrix(A, B, sigma):
+            # pairwise squared distances
+            sq = (np.sum(A ** 2, axis=1, keepdims=True)
+                  + np.sum(B ** 2, axis=1)[None, :]
+                  - 2 * A @ B.T)
+            return np.exp(-sq / (2 * sigma ** 2))
+
+        K_X_tilde = rbf_kernel_matrix(X, X_tilde, kernel_bandwidth)
+        F_tilde = K_X_tilde @ g  # F_tilde_i = sum_j g_j * kappa(x_i, x_tilde_j)
+
+        # --- Compute p from the paper's formula ---
+        var_U = np.var(U)
+        mse_U_F = np.mean((U - F_tilde) ** 2)
+        if mse_U_F < 1e-12:
             p = 0.0
-        M = p * offset + (1.0 - p) * U
+        else:
+            p = np.sqrt(prior_error * var_U / mse_U_F)
+        p = min(p, 1.0)  # cap at 1
+
+        # Compose M
+        M = p * F_tilde + (1 - p) * U
+
+        # --- Variance per paper: V_i ~ Exp(1) * sqrt(effect_noise) * E|U| ---
+        mean_abs_U = float(np.mean(np.abs(U)))
+        V = rng.exponential(scale=1.0, size=n) * np.sqrt(effect_noise) * mean_abs_U
+        V = np.maximum(V, 1e-6)
+
+        # --- Observed Y ~ N(U, V) ---
+        Y = U + rng.randn(n) * np.sqrt(V)
 
         df = df.copy()
         df["observed_effect"] = Y
@@ -274,9 +352,25 @@ class PMLBMetaAnalysisDataset(BaseDataset):
         return df
 
     @property
-    def default_task(self):
-        """Returns the default task for this dataset."""
-        from pyhealth.tasks.conformal_meta_analysis_task import (
+    def default_task(self) -> "ConformalMetaAnalysisTask":
+        """Returns the default task for this dataset.
+
+        The configuration depends on ``synthesize_noise``:
+            - ``synthesize_noise=True``: the CSV contains
+              ``observed_effect``, ``variance``, and ``prior_mean``
+              columns, so the task carries all of them through.
+            - ``synthesize_noise=False``: the CSV only has
+              ``true_effect``, so the optional source columns are
+              set to ``None`` and the task behaves as a plain
+              regression task.
+        """
+        from pyhealth.tasks.conformal_meta_analysis import (
             ConformalMetaAnalysisTask,
         )
-        return ConformalMetaAnalysisTask()
+        if self.synthesize_noise:
+            return ConformalMetaAnalysisTask()
+        return ConformalMetaAnalysisTask(
+            observed_column=None,
+            variance_column=None,
+            prior_column=None,
+        )

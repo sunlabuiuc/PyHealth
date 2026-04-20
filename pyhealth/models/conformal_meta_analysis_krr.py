@@ -39,7 +39,6 @@ from typing import Dict, Optional, Tuple
 
 import numpy as np
 import torch
-import torch.nn as nn
 
 from pyhealth.datasets.sample_dataset import SampleDataset
 from pyhealth.models.base_model import BaseModel

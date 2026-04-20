@@ -34,18 +34,12 @@ class TestPMLBMetaAnalysisDataset(unittest.TestCase):
         )
 
         synthetic = _make_synthetic_pmlb_frame()
-        with patch(
-            "pyhealth.datasets.pmlb_meta_analysis_dataset.fetch_data",
-            return_value=synthetic,
-            create=True,
-        ):
-            # Direct call to the underlying fetch path
-            with patch("pmlb.fetch_data", return_value=synthetic):
-                PMLBMetaAnalysisDataset.prepare_metadata(
-                    root=self.tmpdir,
-                    pmlb_dataset_name="1196_BNG_pharynx",
-                    synthesize_noise=False,
-                )
+        with patch("pmlb.fetch_data", return_value=synthetic):
+            PMLBMetaAnalysisDataset.prepare_metadata(
+                root=self.tmpdir,
+                pmlb_dataset_name="1196_BNG_pharynx",
+                synthesize_noise=False,
+            )
 
         expected = os.path.join(
             self.tmpdir, "pmlb_meta_analysis-metadata-pyhealth.csv"
@@ -92,6 +86,32 @@ class TestPMLBMetaAnalysisDataset(unittest.TestCase):
             PMLBMetaAnalysisDataset(
                 root=self.tmpdir,
                 pmlb_dataset_name="not_a_real_dataset",
+            )
+
+    def test_invalid_prior_error_raises(self):
+        """Negative prior_error raises ValueError."""
+        from pyhealth.datasets.pmlb_meta_analysis_dataset import (
+            PMLBMetaAnalysisDataset,
+        )
+
+        with self.assertRaises(ValueError):
+            PMLBMetaAnalysisDataset(
+                root=self.tmpdir,
+                pmlb_dataset_name="1196_BNG_pharynx",
+                prior_error=-0.5,
+            )
+
+    def test_invalid_effect_noise_raises(self):
+        """Negative effect_noise raises ValueError."""
+        from pyhealth.datasets.pmlb_meta_analysis_dataset import (
+            PMLBMetaAnalysisDataset,
+        )
+
+        with self.assertRaises(ValueError):
+            PMLBMetaAnalysisDataset(
+                root=self.tmpdir,
+                pmlb_dataset_name="1196_BNG_pharynx",
+                effect_noise=-0.1,
             )
 
     def test_noise_generation_reproducible(self):
