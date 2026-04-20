@@ -61,6 +61,7 @@ from .mimic3 import MIMIC3Dataset
 from .mimic4 import MIMIC4CXRDataset, MIMIC4Dataset, MIMIC4EHRDataset, MIMIC4NoteDataset
 from .mimicextract import MIMICExtractDataset
 from .omop import OMOPDataset
+from .physionet_deid import PhysioNetDeIDDataset
 from .sample_dataset import SampleBuilder, SampleDataset, create_sample_dataset
 from .shhs import SHHSDataset
 from .sleepedf import SleepEDFDataset
@@ -72,9 +73,11 @@ from .splitter import (
     split_by_patient,
     split_by_patient_conformal,
     split_by_patient_conformal_tuh,
+    split_by_patient_tuh,
     split_by_sample,
     split_by_sample_conformal,
     split_by_sample_conformal_tuh,
+    split_by_sample_tuh,
     split_by_visit,
     split_by_visit_conformal,
 )
