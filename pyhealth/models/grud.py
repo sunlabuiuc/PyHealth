@@ -158,9 +158,10 @@ class GRUDLayer(nn.Module):
         input_size: Number of input features (clinical variables) per
             timestep.
         hidden_size: Dimensionality of the GRU hidden state.
-        x_mean: Global mean tensor of shape ``(1, seq_len, input_size)``
-            computed from the training set. Used as the long-term
-            imputation target for input decay.
+        x_mean: Global mean tensor of shape ``(1, 1, input_size)``
+            computed from the training set by averaging over both samples
+            and timesteps. Used as the long-term imputation target for
+            input decay, matching scalar x-bar in Che et al. (2018) Eq. 3.
         use_input_decay: If ``True``, applies learned input decay.
             If ``False``, uses simple forward filling — ablation mode
             that removes the input decay contribution. Default is
@@ -185,7 +186,7 @@ class GRUDLayer(nn.Module):
         >>> layer = GRUDLayer(
         ...     input_size=10,
         ...     hidden_size=32,
-        ...     x_mean=torch.zeros(1, 24, 10),
+        ...     x_mean=torch.zeros(1, 1, 10),
         ... )
         >>> x      = torch.randn(4, 24, 10)
         >>> x_last = torch.randn(4, 24, 10)
@@ -263,7 +264,7 @@ class GRUDLayer(nn.Module):
         Returns:
             Updated hidden state of shape ``(batch_size, hidden_size)``.
         """
-        x_mean_t = self.x_mean.squeeze(0)[0]  # (input_size,)
+        x_mean_t = self.x_mean.squeeze(0).squeeze(0)  # (input_size,)
 
         # Input decay: gamma_x in (0, 1] — approaches 1 when freshly
         # observed, approaches 0 as time since last observation grows
@@ -390,7 +391,7 @@ class GRUD(BaseModel):
             hidden state decay mechanism (gamma_h). Set to ``False`` to
             ablate hidden decay.
         x_mean: Optional pre-computed global mean tensor of shape
-            ``(1, seq_len, n_vars)``. When provided, this value is used
+            ``(1, 1, n_vars)``. When provided, this value is used
             directly as the imputation fallback in the input decay
             mechanism and ``_compute_x_mean`` is not called. Use this
             to supply a mean computed from a training-only split when
@@ -399,7 +400,9 @@ class GRUD(BaseModel):
 
             .. code-block:: python
 
-                train_mean = GRUD._compute_x_mean_from(train_dataset, "time_series")
+                train_mean = GRUD(dataset=train_dataset)._compute_x_mean(
+                    train_dataset, "time_series"
+                )
                 model = GRUD(dataset=full_dataset, x_mean=train_mean)
 
             Default is ``None`` (computed from ``dataset``).
@@ -543,8 +546,11 @@ class GRUD(BaseModel):
                 each sample dictionary.
 
         Returns:
-            Mean tensor of shape ``(1, seq_len, input_size)`` suitable
-            for broadcasting over a batch in ``GRUDLayer._decay_step``.
+            Mean tensor of shape ``(1, 1, input_size)`` — a single
+            per-feature global mean averaged over both samples and
+            timesteps, matching the scalar x-bar in Che et al. (2018).
+            Shape broadcasts over ``(batch_size, seq_len, input_size)``
+            in ``GRUDLayer._decay_step``.
         """
         all_means = []
         for sample in dataset:
@@ -554,8 +560,8 @@ class GRUD(BaseModel):
             # Mean channel is at every 3rd index starting from 1
             mean_channels = feature[:, 1::3]  # (seq_len, input_size)
             all_means.append(mean_channels)
-        stacked = torch.stack(all_means, dim=0)  # (n, seq_len, input_size)
-        return stacked.mean(dim=0, keepdim=True) # (1, seq_len, input_size)
+        stacked = torch.stack(all_means, dim=0)       # (n, seq_len, input_size)
+        return stacked.mean(dim=(0, 1), keepdim=True) # (1, 1, input_size)
 
     @staticmethod
     def _split_channels(
@@ -675,6 +681,8 @@ class GRUD(BaseModel):
               probabilities from ``BaseModel.prepare_y_prob()``.
             - ``"y_true"`` (:class:`torch.Tensor`): Ground-truth labels
               passed through from the input batch.
+            - ``"logit"`` (:class:`torch.Tensor`): Raw pre-activation
+              logits from the output linear layer.
         """
         patient_emb_list: List[torch.Tensor] = []
 

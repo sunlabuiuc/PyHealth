@@ -160,9 +160,19 @@ class TestFilterLinear(unittest.TestCase):
         self.assertIsNone(FilterLinear(3, 3, torch.eye(3), bias=False).bias)
 
     def test_filter_matrix_not_learnable(self):
-        """Filter matrix has requires_grad=False."""
+        """Filter matrix is a registered buffer, not a learnable parameter.
+
+        Verifies the register_buffer() change — the matrix must not appear
+        in model.parameters() and must appear in model.named_buffers().
+        requires_grad=False alone would pass for the old nn.Parameter form.
+        """
         layer = FilterLinear(3, 3, torch.eye(3))
         self.assertFalse(layer.filter_square_matrix.requires_grad)
+        # Must be a buffer, not a parameter
+        buffer_names = dict(layer.named_buffers()).keys()
+        param_names  = dict(layer.named_parameters()).keys()
+        self.assertIn("filter_square_matrix", buffer_names)
+        self.assertNotIn("filter_square_matrix", param_names)
 
     def test_weight_gradient_flows(self):
         """Gradients reach the weight matrix via backward."""
@@ -192,7 +202,7 @@ class TestGRUDLayer(unittest.TestCase):
         self.layer = GRUDLayer(
             input_size=N_VARS,
             hidden_size=8,
-            x_mean=torch.zeros(1, SEQ_LEN, N_VARS),
+            x_mean=torch.zeros(1, 1, N_VARS),
         )
         B = 2
         self.x      = torch.randn(B, SEQ_LEN, N_VARS)
@@ -241,6 +251,83 @@ class TestGRUDLayer(unittest.TestCase):
             torch.zeros_like(self.x),
         )
         self.assertTrue(torch.isfinite(out).all())
+
+
+# ── prepare_input / _split_channels tests ────────────────────────────────────
+
+class TestPrepareInput(unittest.TestCase):
+    """Tests for GRUD.prepare_input and its inverse _split_channels.
+
+    Both methods are static utilities on GRUD that handle the interleaved
+    channel format. prepare_input converts separate tensors into interleaved
+    format; _split_channels is its exact inverse. Tests here cover both
+    methods together since they form a round-trip pair.
+    """
+
+    def setUp(self):
+        self.values = torch.randn(4, SEQ_LEN, N_VARS)
+        self.mask   = torch.randint(0, 2, (4, SEQ_LEN, N_VARS)).float()
+        self.delta  = torch.rand(4, SEQ_LEN, N_VARS) * 5
+
+    # ── _split_channels ───────────────────────────────────────────────────────
+
+    def test_split_channels_shape(self):
+        """_split_channels returns correct shapes for each channel."""
+        x = torch.randn(3, SEQ_LEN, N_VARS * 3)
+        mask, mean, delta = GRUD._split_channels(x)
+        for t in (mask, mean, delta):
+            self.assertEqual(t.shape, (3, SEQ_LEN, N_VARS))
+
+    def test_split_channels_index_correctness(self):
+        """_split_channels extracts mask=0, mean=1, delta=2 per triplet."""
+        x2 = torch.tensor([[[1., 2., 3., 4., 5., 6.]]])
+        mask2, mean2, delta2 = GRUD._split_channels(x2)
+        self.assertAlmostEqual(mask2[0, 0, 0].item(),  1., places=5)
+        self.assertAlmostEqual(mean2[0, 0, 0].item(),  2., places=5)
+        self.assertAlmostEqual(delta2[0, 0, 0].item(), 3., places=5)
+        self.assertAlmostEqual(mask2[0, 0, 1].item(),  4., places=5)
+        self.assertAlmostEqual(mean2[0, 0, 1].item(),  5., places=5)
+        self.assertAlmostEqual(delta2[0, 0, 1].item(), 6., places=5)
+
+    # ── prepare_input ─────────────────────────────────────────────────────────
+
+    def test_output_shape(self):
+        """prepare_input produces shape (..., n_vars * 3)."""
+        x = GRUD.prepare_input(self.values, self.mask, self.delta)
+        self.assertEqual(x.shape, (4, SEQ_LEN, N_VARS * 3))
+
+    def test_channel_order(self):
+        """Interleaved order is mask=0, mean=1, delta=2 per triplet."""
+        x = GRUD.prepare_input(self.values, self.mask, self.delta)
+        self.assertTrue(torch.equal(x[..., 0::3], self.mask))
+        self.assertTrue(torch.equal(x[..., 1::3], self.values))
+        self.assertTrue(torch.equal(x[..., 2::3], self.delta))
+
+    def test_round_trip_with_split_channels(self):
+        """prepare_input and _split_channels are exact inverses."""
+        x = GRUD.prepare_input(self.values, self.mask, self.delta)
+        mask2, values2, delta2 = GRUD._split_channels(x)
+        self.assertTrue(torch.equal(mask2,   self.mask))
+        self.assertTrue(torch.equal(values2, self.values))
+        self.assertTrue(torch.equal(delta2,  self.delta))
+
+    def test_single_sample_no_batch_dim(self):
+        """prepare_input works for a single sample without batch dimension."""
+        values = torch.randn(SEQ_LEN, N_VARS)
+        mask   = torch.ones(SEQ_LEN, N_VARS)
+        delta  = torch.zeros(SEQ_LEN, N_VARS)
+        x = GRUD.prepare_input(values, mask, delta)
+        self.assertEqual(x.shape, (SEQ_LEN, N_VARS * 3))
+
+    def test_device_preserved(self):
+        """Output tensor is on the same device as the inputs."""
+        x = GRUD.prepare_input(self.values, self.mask, self.delta)
+        self.assertEqual(x.device, self.values.device)
+
+    def test_dtype_preserved(self):
+        """Output tensor has the same dtype as the inputs."""
+        x = GRUD.prepare_input(self.values, self.mask, self.delta)
+        self.assertEqual(x.dtype, self.values.dtype)
 
 
 # ── GRUD model integration tests ──────────────────────────────────────────────
@@ -312,9 +399,9 @@ class TestGRUD(unittest.TestCase):
             GRUD(dataset=bad_ds)
 
     def test_x_mean_shape(self):
-        """x_mean buffer shape is (1, seq_len, input_size)."""
+        """x_mean buffer shape is (1, 1, input_size) — global mean over samples and time."""
         x_mean = self.model.grud_layers["time_series"].x_mean
-        self.assertEqual(x_mean.shape, (1, SEQ_LEN, N_VARS))
+        self.assertEqual(x_mean.shape, (1, 1, N_VARS))
 
     # ── Forward pass ──────────────────────────────────────────────────────────
 
@@ -323,17 +410,15 @@ class TestGRUD(unittest.TestCase):
         self.model.eval()
         with torch.no_grad():
             out = self.model(**self.batch)
-        # Required output keys
         self.assertIn("loss",   out)
         self.assertIn("y_prob", out)
         self.assertIn("y_true", out)
-        # Loss is a finite scalar
+        self.assertIn("logit",  out)
         self.assertEqual(out["loss"].ndim, 0)
         self.assertTrue(torch.isfinite(out["loss"]))
-        # y_prob shape is (batch, 1) for binary sigmoid
         self.assertEqual(out["y_prob"].shape, (N_PATIENTS, 1))
         self.assertEqual(out["y_true"].shape[0], N_PATIENTS)
-        # y_prob values in [0, 1]
+        self.assertEqual(out["logit"].shape, out["y_prob"].shape)
         self.assertTrue((out["y_prob"] >= 0).all())
         self.assertTrue((out["y_prob"] <= 1).all())
 
@@ -345,14 +430,12 @@ class TestGRUD(unittest.TestCase):
         before = {n: p.clone() for n, p in self.model.named_parameters()}
         self.model(**self.batch)["loss"].backward()
         opt.step()
-        # At least one parameter changed
         changed = any(
             not torch.equal(p, before[n])
             for n, p in self.model.named_parameters()
             if p.requires_grad
         )
         self.assertTrue(changed, "No parameters updated after backward pass")
-        # No NaN gradients
         for name, param in self.model.named_parameters():
             if param.grad is not None:
                 self.assertFalse(
@@ -380,25 +463,6 @@ class TestGRUD(unittest.TestCase):
         self.assertTrue(
             torch.allclose(out1["y_prob"], out2["y_prob"])
         )
-
-    # ── Channel splitting ─────────────────────────────────────────────────────
-
-    def test_split_channels(self):
-        """_split_channels returns correct shapes and channel positions."""
-        # Shape test
-        x = torch.randn(3, SEQ_LEN, N_VARS * 3)
-        mask, mean, delta = GRUD._split_channels(x)
-        for t in (mask, mean, delta):
-            self.assertEqual(t.shape, (3, SEQ_LEN, N_VARS))
-        # Index correctness test
-        x2 = torch.tensor([[[1., 2., 3., 4., 5., 6.]]])
-        mask2, mean2, delta2 = GRUD._split_channels(x2)
-        self.assertAlmostEqual(mask2[0, 0, 0].item(),  1., places=5)
-        self.assertAlmostEqual(mean2[0, 0, 0].item(),  2., places=5)
-        self.assertAlmostEqual(delta2[0, 0, 0].item(), 3., places=5)
-        self.assertAlmostEqual(mask2[0, 0, 1].item(),  4., places=5)
-        self.assertAlmostEqual(mean2[0, 0, 1].item(),  5., places=5)
-        self.assertAlmostEqual(delta2[0, 0, 1].item(), 6., places=5)
 
     # ── Multiple feature keys ─────────────────────────────────────────────────
 
@@ -448,11 +512,7 @@ class TestGRUD(unittest.TestCase):
         self._check_hidden_size(16)
 
     def _check_hidden_size(self, hidden_size: int) -> None:
-        """Helper that verifies a given hidden_size produces valid output.
-
-        Args:
-            hidden_size: GRU-D hidden state size to test.
-        """
+        """Helper that verifies a given hidden_size produces valid output."""
         ds     = make_synthetic_dataset()
         model  = make_model(ds, hidden_size=hidden_size)
         loader = get_dataloader(ds, batch_size=N_PATIENTS, shuffle=False)
