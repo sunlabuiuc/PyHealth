@@ -18,6 +18,11 @@ This script demonstrates:
   5. Ablation Study 2: Fusion strategy comparison
      (Attention vs. Concatenation vs. Mean Pooling)
 
+Metrics reported match the paper's Table 2 (Accuracy, Precision, Recall,
+F1-macro). A single run is produced by this script for reproducibility; the
+checked-in ablation_results.json reflects a 10-seed aggregation (mean +/- std)
+of the same configurations for more robust comparison.
+
 Usage:
     python sleepEEG_epilepsy_multiview_contrastive.py
 
@@ -25,9 +30,12 @@ Usage:
     Full training on Colab T4 takes ~30 min for pre-training.
     Set QUICK_MODE = True below for a fast demo (~2 min on CPU).
 
-Results (reported in paper, SleepEEG -> Epilepsy):
-    Multi-View Contrastive (ALL views, attention fusion): 93.2% accuracy
-    TFC baseline (T+F views, concat fusion):              88.7% accuracy
+Results (reported in paper Table 2, SleepEEG -> Epilepsy, Proposed method):
+    Accuracy  0.956 +/- 0.002
+    Precision 0.936 +/- 0.004
+    Recall    0.935 +/- 0.004
+    F1        0.931 +/- 0.003
+    TFC baseline (Table 2):  Acc 0.950, F1 0.915
 """
 
 import os
@@ -50,7 +58,8 @@ from torch.utils.data import DataLoader, TensorDataset
 from sklearn.metrics import (
     accuracy_score,
     f1_score,
-    roc_auc_score,
+    precision_score,
+    recall_score,
 )
 
 from pyhealth.datasets import create_sample_dataset, get_dataloader
@@ -253,7 +262,6 @@ def finetune_and_eval(model, tgt_train_X, tgt_train_y, tgt_test_X, tgt_test_y,
     # Evaluate
     model.eval()
     all_preds = []
-    all_probs = []
     all_true = []
 
     # Process test data in batches
@@ -273,27 +281,23 @@ def finetune_and_eval(model, tgt_train_X, tgt_train_y, tgt_test_X, tgt_test_y,
             batch = {feat_key: x_batch, label_key: y_batch}
             ret = model(**batch)
             logits = ret["logit"]
-            probs = F.softmax(logits, dim=-1)
-
             all_preds.append(logits.argmax(dim=-1).cpu())
-            all_probs.append(probs.cpu())
             all_true.append(y_batch)
 
     preds = torch.cat(all_preds).numpy()
-    probs = torch.cat(all_probs).numpy()
     true = torch.cat(all_true).numpy()
 
     acc = accuracy_score(true, preds)
+    prec = precision_score(true, preds, average="macro", zero_division=0)
+    rec = recall_score(true, preds, average="macro", zero_division=0)
     f1 = f1_score(true, preds, average="macro")
-    try:
-        if num_classes == 2:
-            auroc = roc_auc_score(true, probs[:, 1])
-        else:
-            auroc = roc_auc_score(true, probs, multi_class="ovr")
-    except ValueError:
-        auroc = float("nan")
 
-    return {"accuracy": acc, "f1_macro": f1, "auroc": auroc}
+    return {
+        "accuracy": acc,
+        "precision_macro": prec,
+        "recall_macro": rec,
+        "f1_macro": f1,
+    }
 
 
 # =====================================================================
@@ -362,7 +366,9 @@ def run_experiment(
     metrics["n_params"] = n_params
 
     print(f"  Results: acc={metrics['accuracy']:.4f}, "
-          f"f1={metrics['f1_macro']:.4f}, auroc={metrics['auroc']:.4f}")
+          f"prec={metrics['precision_macro']:.4f}, "
+          f"rec={metrics['recall_macro']:.4f}, "
+          f"f1={metrics['f1_macro']:.4f}")
     print(f"  Time: pretrain={pretrain_time:.1f}s, finetune={finetune_time:.1f}s")
     return metrics
 
@@ -474,12 +480,16 @@ def main():
     print("RESULTS SUMMARY")
     print("=" * 70)
 
-    print(f"\n{'Configuration':<45} {'Acc':>8} {'F1':>8} {'AUROC':>8} {'Params':>10}")
-    print("-" * 85)
+    print(
+        f"\n{'Configuration':<45} {'Acc':>8} {'Prec':>8} {'Rec':>8} "
+        f"{'F1':>8} {'Params':>10}"
+    )
+    print("-" * 93)
     for key, m in all_results.items():
         print(
-            f"{key:<45} {m['accuracy']:>8.4f} {m['f1_macro']:>8.4f} "
-            f"{m['auroc']:>8.4f} {m['n_params']:>10,}"
+            f"{key:<45} {m['accuracy']:>8.4f} "
+            f"{m['precision_macro']:>8.4f} {m['recall_macro']:>8.4f} "
+            f"{m['f1_macro']:>8.4f} {m['n_params']:>10,}"
         )
 
     # Save results
@@ -497,12 +507,16 @@ def main():
     print(f"\nResults saved to {results_path}")
 
     print("\n" + "=" * 70)
-    print("Paper reference (SleepEEG -> Epilepsy):")
-    print("  Multi-View Contrastive (reported): 93.2% accuracy")
-    print("  TFC baseline (reported):           88.7% accuracy")
+    print("Paper reference (Oh & Bui 2025, Table 2, SleepEEG -> Epilepsy):")
+    print("  Proposed:    acc 0.956  prec 0.936  rec 0.935  f1 0.931")
+    print("  TFC baseline: acc 0.950  prec 0.946  rec 0.891  f1 0.915")
     if not QUICK_MODE:
-        print(f"  Our reproduction:                  "
-              f"{main_metrics['accuracy']*100:.1f}% accuracy")
+        print(
+            f"  Our reproduction: acc {main_metrics['accuracy']:.3f}  "
+            f"prec {main_metrics['precision_macro']:.3f}  "
+            f"rec {main_metrics['recall_macro']:.3f}  "
+            f"f1 {main_metrics['f1_macro']:.3f}"
+        )
     else:
         print("  (Quick mode - not comparable to paper results)")
     print("=" * 70)
