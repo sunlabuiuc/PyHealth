@@ -78,6 +78,7 @@ class _SpanNERHead(nn.Module):
         num_ner_labels: int,
         width_embedding_dim: int = 150,
         max_span_length: int = 8,
+        span_hidden_dim: int = 150,
         dropout: float = 0.1,
     ) -> None:
         super().__init__()
@@ -85,12 +86,17 @@ class _SpanNERHead(nn.Module):
             max_span_length + 1, width_embedding_dim
         )
         span_input_dim = hidden_size * 2 + width_embedding_dim
-        self.classifier = nn.Sequential(
-            nn.Linear(span_input_dim, hidden_size),
+        # Mirror the original checkpoint's 2-part structure:
+        #   network: Linear(span_input_dim → span_hidden_dim) → ReLU → Dropout → Linear(hidden → hidden)
+        #   output:  Linear(span_hidden_dim → num_ner_labels)
+        # This allows the NER checkpoint to load with exact key matches.
+        self.network = nn.Sequential(
+            nn.Linear(span_input_dim, span_hidden_dim),
             nn.ReLU(),
             nn.Dropout(dropout),
-            nn.Linear(hidden_size, num_ner_labels),
+            nn.Linear(span_hidden_dim, span_hidden_dim),
         )
+        self.output = nn.Linear(span_hidden_dim, num_ner_labels)
 
     def forward(
         self,
@@ -124,7 +130,7 @@ class _SpanNERHead(nn.Module):
 
         width_rep = self.width_embedding(width)  # (B, S, W)
         span_rep = torch.cat([start_rep, end_rep, width_rep], dim=-1)
-        return self.classifier(span_rep)
+        return self.output(self.network(span_rep))
 
 
 class _PairwiseRelationHead(nn.Module):
@@ -268,6 +274,7 @@ class ReXKGModel(BaseModel):
         bert_model_name: str = "bert-base-uncased",
         max_span_length: int = 8,
         width_embedding_dim: int = 150,
+        span_hidden_dim: int = 150,
         ner_dropout: float = 0.1,
         rel_dropout: float = 0.1,
     ) -> None:
@@ -289,6 +296,7 @@ class ReXKGModel(BaseModel):
             num_ner_labels=num_ner_labels,
             width_embedding_dim=width_embedding_dim,
             max_span_length=max_span_length,
+            span_hidden_dim=span_hidden_dim,
             dropout=ner_dropout,
         )
         self.rel_head = _PairwiseRelationHead(
