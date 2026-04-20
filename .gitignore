@@ -140,6 +140,3 @@ data/physionet.org/
 
 # Model weight files (large binaries, distributed separately)
 weightfiles/
-
-# personal experiments
-notebooks/
