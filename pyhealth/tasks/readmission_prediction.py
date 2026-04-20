@@ -37,15 +37,19 @@ class ReadmissionPredictionMIMIC3(BaseTask):
     output_schema: Dict[str, str] = {"readmission": "binary"}
 
     def __init__(
-        self, window: timedelta = timedelta(days=15), exclude_minors: bool = True
+        self, window: timedelta = timedelta(days=15), exclude_minors: bool = True, **kwargs
     ) -> None:
-        """
-        Initializes the task object.
+        """Initializes the task object.
 
         Args:
-            window (timedelta): If two admissions are closer than this window, it is considered a readmission. Defaults to 15 days.
-            exclude_minors (bool): Whether to exclude visits where the patient was under 18 years old. Defaults to True.
+            window: If two admissions are closer than this window, it is
+                considered a readmission. Defaults to 15 days.
+            exclude_minors: Whether to exclude visits where the patient
+                was under 18 years old. Defaults to True.
+            **kwargs: Passed to :class:`~pyhealth.tasks.BaseTask`, e.g.
+                ``code_mapping``.
         """
+        super().__init__(**kwargs)
         self.window = window
         self.exclude_minors = exclude_minors
 
@@ -64,7 +68,7 @@ class ReadmissionPredictionMIMIC3(BaseTask):
                 - 'patient_id': MIMIC3 subject_id.
                 - 'conditions': MIMIC3 diagnoses_icd table ICD-9 codes.
                 - 'procedures': MIMIC3 procedures_icd table ICD-9 codes.
-                - 'drugs': MIMIC3 prescriptions table drug column entries.
+                - 'drugs': MIMIC3 prescriptions table NDC (National Drug Code) entries.
                 - 'readmission': binary label.
 
         Raises:
@@ -110,7 +114,7 @@ class ReadmissionPredictionMIMIC3(BaseTask):
             prescriptions = patient.get_events(
                 event_type="prescriptions", filters=[filter]
             )
-            prescriptions = [event.drug for event in prescriptions]
+            prescriptions = [event.ndc for event in prescriptions if event.ndc]
             if len(prescriptions) == 0:
                 continue
 
@@ -171,15 +175,19 @@ class ReadmissionPredictionMIMIC4(BaseTask):
     output_schema: Dict[str, str] = {"readmission": "binary"}
 
     def __init__(
-        self, window: timedelta = timedelta(days=15), exclude_minors: bool = True
+        self, window: timedelta = timedelta(days=15), exclude_minors: bool = True, **kwargs
     ) -> None:
-        """
-        Initializes the task object.
+        """Initializes the task object.
 
         Args:
-            window (timedelta): If two admissions are closer than this window, it is considered a readmission. Defaults to 15 days.
-            exclude_minors (bool): Whether to exclude patients whose "anchor_age" is less than 18. Defaults to True.
+            window: If two admissions are closer than this window, it is
+                considered a readmission. Defaults to 15 days.
+            exclude_minors: Whether to exclude patients whose
+                ``anchor_age`` is less than 18. Defaults to True.
+            **kwargs: Passed to :class:`~pyhealth.tasks.BaseTask`, e.g.
+                ``code_mapping``.
         """
+        super().__init__(**kwargs)
         self.window = window
         self.exclude_minors = exclude_minors
 
@@ -198,7 +206,7 @@ class ReadmissionPredictionMIMIC4(BaseTask):
                 - 'patient_id': MIMIC4 subject_id.
                 - 'conditions': MIMIC4 diagnoses_icd table ICD-9 or ICD-10 codes.
                 - 'procedures': MIMIC4 procedures_icd table ICD-9 or ICD-10 codes.
-                - 'drugs': MIMIC4 prescriptions table drug column entries.
+                - 'drugs': MIMIC4 prescriptions table NDC (National Drug Code) entries.
                 - 'readmission': binary label.
 
         Raises:
@@ -241,7 +249,7 @@ class ReadmissionPredictionMIMIC4(BaseTask):
             prescriptions = patient.get_events(
                 event_type="prescriptions", filters=[filter]
             )
-            prescriptions = [event.drug for event in prescriptions]
+            prescriptions = [event.ndc for event in prescriptions if event.ndc]
             if len(prescriptions) == 0:
                 continue
 
@@ -308,14 +316,16 @@ class ReadmissionPredictionEICU(BaseTask):
     }
     output_schema: Dict[str, str] = {"readmission": "binary"}
 
-    def __init__(self, exclude_minors: bool = True) -> None:
-        """
-        Initializes the task object.
+    def __init__(self, exclude_minors: bool = True, **kwargs) -> None:
+        """Initializes the task object.
 
         Args:
-            exclude_minors (bool): Whether to exclude patients whose age is less than 18.
-                Defaults to True.
+            exclude_minors: Whether to exclude patients whose age is
+                less than 18. Defaults to True.
+            **kwargs: Passed to :class:`~pyhealth.tasks.BaseTask`, e.g.
+                ``code_mapping``.
         """
+        super().__init__(**kwargs)
         self.exclude_minors = exclude_minors
 
     def __call__(self, patient: Patient) -> List[Dict]:
@@ -452,15 +462,19 @@ class ReadmissionPredictionOMOP(BaseTask):
     output_schema: Dict[str, str] = {"readmission": "binary"}
 
     def __init__(
-        self, window: timedelta = timedelta(days=15), exclude_minors: bool = True
+        self, window: timedelta = timedelta(days=15), exclude_minors: bool = True, **kwargs
     ) -> None:
-        """
-        Initializes the task object.
+        """Initializes the task object.
 
         Args:
-            window (timedelta): If two admissions are closer than this window, it is considered a readmission. Defaults to 15 days.
-            exclude_minors (bool): Whether to exclude visits where the patient was under 18 years old. Defaults to True.
+            window: If two admissions are closer than this window, it is
+                considered a readmission. Defaults to 15 days.
+            exclude_minors: Whether to exclude visits where the patient
+                was under 18 years old. Defaults to True.
+            **kwargs: Passed to :class:`~pyhealth.tasks.BaseTask`, e.g.
+                ``code_mapping``.
         """
+        super().__init__(**kwargs)
         self.window = window
         self.exclude_minors = exclude_minors
 

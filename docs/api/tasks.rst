@@ -212,8 +212,6 @@ Available Tasks
     COVID-19 CXR Classification <tasks/pyhealth.tasks.COVID19CXRClassification>
     DKA Prediction (MIMIC-IV) <tasks/pyhealth.tasks.dka>
     Drug Recommendation <tasks/pyhealth.tasks.drug_recommendation>
-    EEG Abnormal <tasks/pyhealth.tasks.EEG_abnormal>
-    EEG Events <tasks/pyhealth.tasks.EEG_events>
     Length of Stay Prediction <tasks/pyhealth.tasks.length_of_stay_prediction>
     Medical Transcriptions Classification <tasks/pyhealth.tasks.MedicalTranscriptionsClassification>
     Mortality Prediction (Next Visit) <tasks/pyhealth.tasks.mortality_prediction>
@@ -227,6 +225,7 @@ Available Tasks
     Benchmark EHRShot <tasks/pyhealth.tasks.benchmark_ehrshot>
     FAMEWS Fairness Audit <tasks/pyhealth.tasks.FAMEWS_fairness_audit>
     ChestX-ray14 Binary Classification <tasks/pyhealth.tasks.ChestXray14BinaryClassification>
+    De-Identification NER <tasks/pyhealth.tasks.DeIDNERTask>
     ChestX-ray14 Multilabel Classification <tasks/pyhealth.tasks.ChestXray14MultilabelClassification>
     Variant Classification (ClinVar) <tasks/pyhealth.tasks.VariantClassificationClinVar>
     Mutation Pathogenicity (COSMIC) <tasks/pyhealth.tasks.MutationPathogenicityPrediction>
