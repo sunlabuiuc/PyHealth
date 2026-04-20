@@ -1,0 +1,15 @@
+version: "1.0"
+tables:
+  events:
+    file_path: events.csv
+    patient_id: recordid
+    timestamp: time
+    timestamp_format: "%Y-%m-%d %H:%M:%S"
+    attributes:
+      - parameter
+      - value
+  outcomes:
+    file_path: outcomes.csv
+    patient_id: recordid
+    attributes:
+      - in-hospital_death

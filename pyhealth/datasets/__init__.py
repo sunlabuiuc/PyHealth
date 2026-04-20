@@ -90,3 +90,4 @@ from .utils import (
     save_processors,
 )
 from .collate import collate_temporal
+from .physionet2012 import PhysioNet2012Dataset
