@@ -100,7 +100,7 @@ def main():
     
     pipeline.load_lora_weights(lora_path)
 
-    print(f"[*] Generating Trap Set '{trap_set_name}' ({len(dataset.samples)} images) at Strength {strength}...")
+    print(f"[*] Generating Trap Set '{trap_set_name}' ({len(task_dataset.samples)} images) at Strength {strength}...")
 
     # Data tracking to build the PyHealth-compatible metadata.csv
     generated_metadata = []
