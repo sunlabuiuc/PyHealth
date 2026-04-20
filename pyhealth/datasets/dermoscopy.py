@@ -116,9 +116,6 @@ class DermoscopyDataset(BaseDataset):
         self,
         root: str,
         datasets: Optional[List[str]] = None,
-        # isic2018_metadata_path: Optional[str] = None,
-        # ham10000_metadata_path: Optional[str] = None,
-        # ph2_metadata_path: Optional[str] = None,
         dataset_name: Optional[str] = None,
         config_path: Optional[str] = None,
         cache_dir: Optional[str] = None,
@@ -131,13 +128,6 @@ class DermoscopyDataset(BaseDataset):
             self.available_datasets = list(self.SUPPORTED_DATASETS)
         else:
             self.available_datasets = datasets
-
-        # Test later today
-        # self._metadata_paths = {
-        #     "isic2018": isic2018_metadata_path,
-        #     "ham10000": ham10000_metadata_path,
-        #     "ph2": ph2_metadata_path,
-        # }
 
         if config_path is None:
             logger.info("No config path provided, using default config")

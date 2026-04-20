@@ -20,7 +20,6 @@ import numpy as np
 import torchvision.transforms as transforms
 from PIL import Image
 import scipy.ndimage
-import cv2
 
 from . import register_processor
 from .base_processor import FeatureProcessor
@@ -98,7 +97,9 @@ def apply_mode(image: np.ndarray, mask: np.ndarray, mode: str) -> np.ndarray:
             
             # Use a copy to prevent in-place modification of the original array
             bbox_image = image.copy()
-            cv2.rectangle(bbox_image, (x_min, y_min), (x_max, y_max), (0, 0, 0), thickness=-1)
+            # Add +1 to the max bounds to match OpenCV's inclusive drawing logic (like in cv2.rectangle)
+            bbox_image[y_min:y_max+1, x_min:x_max+1] = 0
+
             return bbox_image
         else:
             return image # Failsafe if mask is entirely empty
