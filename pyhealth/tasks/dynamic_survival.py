@@ -36,7 +36,7 @@ GLOBAL_DRUG_MAPPER = CrossMap("NDC", "ATC")
 # Utility Functions
 
 
-def build_daily_time_series_from_df(patient):
+def build_daily_time_series_from_df(patient) -> List[Dict[str, Any]]:
     """
     Build daily time series from a dataframe-based patient.
 
