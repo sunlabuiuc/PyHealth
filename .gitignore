@@ -76,6 +76,7 @@ instance/
 
 # Sphinx documentation
 docs/_build/
+docs/**/_autosummary/
 
 # PyBuilder
 target/
@@ -137,3 +138,6 @@ data/physionet.org/
 
 # VSCode settings
 .vscode/
+
+# Model weight files (large binaries, distributed separately)
+weightfiles/

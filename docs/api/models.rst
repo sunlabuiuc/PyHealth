@@ -48,6 +48,12 @@ routes each feature type automatically.
    * - :doc:`models/pyhealth.models.GraphCare`
      - You want to augment EHR codes with a medical knowledge graph
      - Combines code sequences with a :class:`~pyhealth.graph.KnowledgeGraph`
+   * - :doc:`models/pyhealth.models.EEGGraphConvNet`
+     - Input is an EEG electrode graph with PSD node features and geodesic/coherence edge weights
+     - Two-layer GCN; edge weights directly scale aggregated node features; use with :class:`~pyhealth.datasets.EEGGCNNDataset`
+   * - :doc:`models/pyhealth.models.EEGGATConvNet`
+     - Same EEG graph input but you want learned attention over electrode connections
+     - Two-layer GAT with multi-head attention; edge weights bias attention scores; use with :class:`~pyhealth.datasets.EEGGCNNDataset`
 
 How BaseModel Works
 --------------------
@@ -177,6 +183,7 @@ API Reference
     models/pyhealth.models.GNN
     models/pyhealth.models.Transformer
     models/pyhealth.models.TransformersModel
+    models/pyhealth.models.TransformerDeID
     models/pyhealth.models.RETAIN
     models/pyhealth.models.GAMENet
     models/pyhealth.models.GraphCare
@@ -203,4 +210,7 @@ API Reference
     models/pyhealth.models.VisionEmbeddingModel
     models/pyhealth.models.TextEmbedding
     models/pyhealth.models.BIOT
+    models/pyhealth.models.EEGGraphConvNet
+    models/pyhealth.models.EEGGATConvNet
     models/pyhealth.models.unified_multimodal_embedding_docs
+    models/pyhealth.models.califorest

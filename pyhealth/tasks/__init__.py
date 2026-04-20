@@ -12,6 +12,8 @@ from .cardiology_detect import (
 from .chestxray14_binary_classification import ChestXray14BinaryClassification
 from .chestxray14_multilabel_classification import ChestXray14MultilabelClassification
 from .covid19_cxr_classification import COVID19CXRClassification
+from .eeg_gcnn_classification import EEGGCNNClassification
+from .deid_ner import DeIDNERTask
 from .dka import DKAPredictionMIMIC4, T1DDKAPredictionMIMIC4
 from .drug_recommendation import (
     DrugRecommendationEICU,
@@ -21,9 +23,7 @@ from .drug_recommendation import (
     drug_recommendation_mimic4_fn,
     drug_recommendation_omop_fn,
 )
-from .EEG_abnormal import EEG_isAbnormal_fn
-from .EEG_events import EEG_events_fn
-from .eeg_gcnn_nd_detection import EEGGCNNDiseaseDetection
+from .eeg_gcnn_disease_detection import EEGGCNNDiseaseDetection
 from .in_hospital_mortality_mimic4 import InHospitalMortalityMIMIC4
 from .length_of_stay_prediction import (
     LengthOfStayPredictioneICU,

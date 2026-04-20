@@ -1,20 +1,11 @@
-version: "1.0.0"
+version: "1.0"
 tables:
-  tuab:
-    file_path: "eeg_gcnn-tuab-pyhealth.csv"
+  eeg_windows:
+    file_path: "eeg_gcnn_windows.csv"
     patient_id: "patient_id"
     timestamp: null
     attributes:
-    - "record_id"
-    - "signal_file"
-    - "source"
-    - "label"
-  lemon:
-    file_path: "eeg_gcnn-lemon-pyhealth.csv"
-    patient_id: "patient_id"
-    timestamp: null
-    attributes:
-    - "record_id"
-    - "signal_file"
-    - "source"
-    - "label"
+      - "window_idx"
+      - "label"
+      - "node_features_path"
+      - "adj_matrix_path"

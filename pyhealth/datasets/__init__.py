@@ -52,6 +52,7 @@ from .chestxray14 import ChestXray14Dataset
 from .clinvar import ClinVarDataset
 from .cosmic import COSMICDataset
 from .covid19_cxr import COVID19CXRDataset
+from .eeg_gcnn import EEGGCNNDataset
 from .dreamt import DREAMTDataset
 from .ehrshot import EHRShotDataset
 from .eicu import eICUDataset
@@ -61,6 +62,7 @@ from .mimic3 import MIMIC3Dataset
 from .mimic4 import MIMIC4CXRDataset, MIMIC4Dataset, MIMIC4EHRDataset, MIMIC4NoteDataset
 from .mimicextract import MIMICExtractDataset
 from .omop import OMOPDataset
+from .physionet_deid import PhysioNetDeIDDataset
 from .sample_dataset import SampleBuilder, SampleDataset, create_sample_dataset
 from .shhs import SHHSDataset
 from .sleepedf import SleepEDFDataset
@@ -71,13 +73,16 @@ from .splitter import (
     sample_balanced,
     split_by_patient,
     split_by_patient_conformal,
+    split_by_patient_conformal_tuh,
+    split_by_patient_tuh,
     split_by_sample,
     split_by_sample_conformal,
     split_by_sample_conformal_tuh,
+    split_by_sample_tuh,
     split_by_visit,
     split_by_visit_conformal,
 )
-from .eeg_gcnn import EEGGCNNDataset
+from .eeg_gcnn_raw import EEGGCNNRawDataset
 from .tuab import TUABDataset
 from .tuev import TUEVDataset
 from .utils import (

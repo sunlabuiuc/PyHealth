@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 
 # 8 bipolar channels used in the paper.
 # Each entry is (anode_ref_name, cathode_ref_name, canonical_name).
+# TUAB uses "EEG X-REF" naming; LEMON uses bare names like "F7", "T7".
 BIPOLAR_CHANNELS: List[Tuple[str, str, str]] = [
     ("EEG F7-REF", "EEG F3-REF", "F7-F3"),
     ("EEG F8-REF", "EEG F4-REF", "F8-F4"),
@@ -35,6 +36,25 @@ BIPOLAR_CHANNELS: List[Tuple[str, str, str]] = [
     ("EEG O1-REF", "EEG P3-REF", "O1-P3"),
     ("EEG O2-REF", "EEG P4-REF", "O2-P4"),
 ]
+
+# LEMON channel name mapping: TUAB-style → LEMON-style.
+# TUAB uses old 10-20 names (T3=T7, T4=T8, T5=P7, T6=P8).
+_CHANNEL_ALIASES: Dict[str, List[str]] = {
+    "EEG F7-REF": ["F7"],
+    "EEG F3-REF": ["F3"],
+    "EEG F8-REF": ["F8"],
+    "EEG F4-REF": ["F4"],
+    "EEG T3-REF": ["T7", "T3"],
+    "EEG C3-REF": ["C3"],
+    "EEG T4-REF": ["T8", "T4"],
+    "EEG C4-REF": ["C4"],
+    "EEG T5-REF": ["P7", "T5"],
+    "EEG P3-REF": ["P3"],
+    "EEG T6-REF": ["P8", "T6"],
+    "EEG P4-REF": ["P4"],
+    "EEG O1-REF": ["O1"],
+    "EEG O2-REF": ["O2"],
+}
 
 # 3D MNI coordinates for the 8 bipolar channel mid-points (approximate).
 # Used to build the spatial adjacency matrix.
@@ -98,14 +118,14 @@ class EEGGCNNDiseaseDetection(BaseTask):
         >>> task = EEGGCNNDiseaseDetection(adjacency_type="spatial")
         >>> sample_dataset = dataset.set_task(task)
         >>> sample = sample_dataset[0]
-        >>> print(sample["psd_features"].shape)  # (8, 6)
-        >>> print(sample["adjacency"].shape)     # (8, 8)
+        >>> print(sample["node_features"].shape)  # (8, 6)
+        >>> print(sample["adj_matrix"].shape)     # (8, 8)
     """
 
-    task_name: str = "eeg_gcnn_nd_detection"
+    task_name: str = "EEGGCNNDiseaseDetection"
     input_schema: Dict[str, str] = {
-        "psd_features": "tensor",
-        "adjacency": "tensor",
+        "node_features": "tensor",
+        "adj_matrix": "tensor",
     }
     output_schema: Dict[str, str] = {"label": "binary"}
 
@@ -170,8 +190,31 @@ class EEGGCNNDiseaseDetection(BaseTask):
         return raw
 
     @staticmethod
+    def _resolve_channel(name: str, ch_map: Dict[str, int]) -> int:
+        """Resolve a TUAB-style channel name to an index in ``ch_map``.
+
+        Tries the exact name first, then falls back to aliases
+        (e.g., ``"EEG F7-REF"`` → ``"F7"``).
+
+        Raises:
+            KeyError: If the channel cannot be found.
+        """
+        if name in ch_map:
+            return ch_map[name]
+        for alias in _CHANNEL_ALIASES.get(name, []):
+            if alias in ch_map:
+                return ch_map[alias]
+        raise KeyError(
+            f"Channel '{name}' not found. Available: "
+            f"{sorted(ch_map.keys())}"
+        )
+
+    @staticmethod
     def _compute_bipolar(raw: mne.io.BaseRaw) -> np.ndarray:
         """Compute the 8 bipolar channels from reference montage.
+
+        Handles both TUAB naming (``EEG F7-REF``) and LEMON naming
+        (``F7``) via alias resolution.
 
         Returns:
             np.ndarray of shape ``(8, n_samples)``.
@@ -182,7 +225,9 @@ class EEGGCNNDiseaseDetection(BaseTask):
         }
         bipolar = np.zeros((NUM_CHANNELS, data.shape[1]))
         for i, (anode, cathode, _) in enumerate(BIPOLAR_CHANNELS):
-            bipolar[i] = data[ch_map[anode]] - data[ch_map[cathode]]
+            a_idx = EEGGCNNDiseaseDetection._resolve_channel(anode, ch_map)
+            c_idx = EEGGCNNDiseaseDetection._resolve_channel(cathode, ch_map)
+            bipolar[i] = data[a_idx] - data[c_idx]
         return bipolar
 
     # ------------------------------------------------------------------
@@ -263,9 +308,10 @@ class EEGGCNNDiseaseDetection(BaseTask):
         # spectral_connectivity_epochs expects (n_epochs, n_channels, n_times)
         data_3d = window[np.newaxis, :, :]
 
+        method_map = {"coherence": "coh", "wpli": "wpli"}
         conn = spectral_connectivity_epochs(
             data_3d,
-            method=self.connectivity_measure,
+            method=method_map[self.connectivity_measure],
             sfreq=fs,
             fmin=0.5,
             fmax=50.0,
@@ -311,8 +357,8 @@ class EEGGCNNDiseaseDetection(BaseTask):
 
         Each sample contains:
             - ``patient_id``: str
-            - ``psd_features``: torch.FloatTensor of shape ``(8, n_bands)``
-            - ``adjacency``: torch.FloatTensor of shape ``(8, 8)``
+            - ``node_features``: torch.FloatTensor of shape ``(8, n_bands)``
+            - ``adj_matrix``: torch.FloatTensor of shape ``(8, 8)``
             - ``label``: int (0 = patient-normal, 1 = healthy-control)
         """
         pid = patient.patient_id
@@ -350,8 +396,8 @@ class EEGGCNNDiseaseDetection(BaseTask):
                         {
                             "patient_id": pid,
                             "signal_file": filepath,
-                            "psd_features": torch.FloatTensor(psd_feat),
-                            "adjacency": torch.FloatTensor(adj),
+                            "node_features": torch.FloatTensor(psd_feat),
+                            "adj_matrix": torch.FloatTensor(adj),
                             "label": label,
                         }
                     )
