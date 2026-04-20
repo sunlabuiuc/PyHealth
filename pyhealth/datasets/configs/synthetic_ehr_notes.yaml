@@ -1,0 +1,15 @@
+# Author: Arnab Karmakar (arnabk3@illinois.edu)
+# Paper: "Retrieving Evidence from EHRs with LLMs: Possibilities and Challenges"
+#         (Ahsan et al., PMLR 2024)
+version: "1.0"
+tables:
+  notes:
+    file_path: "synthetic_notes.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+      - "note_id"
+      - "note_type"
+      - "condition"
+      - "is_positive"
+      - "text"

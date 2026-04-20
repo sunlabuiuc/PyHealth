@@ -67,6 +67,7 @@ from .shhs import SHHSDataset
 from .sleepedf import SleepEDFDataset
 from .bmd_hs import BMDHSDataset
 from .support2 import Support2Dataset
+from .synthetic_ehr_notes import SyntheticEHRNotesDataset
 from .tcga_prad import TCGAPRADDataset
 from .splitter import (
     sample_balanced,
