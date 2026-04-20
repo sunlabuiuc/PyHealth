@@ -22,7 +22,6 @@ from typing import Dict, Optional
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 from pyhealth.models import BaseModel
 
@@ -219,7 +218,7 @@ class LabradorModel(BaseModel):
     def __init__(
         self,
         dataset,
-        vocab_size: int = 532,
+        vocab_size: int,
         hidden_dim: int = 128,
         num_heads: int = 4,
         num_layers: int = 2,
