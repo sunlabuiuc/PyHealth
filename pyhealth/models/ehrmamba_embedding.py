@@ -80,6 +80,7 @@ MIMIC4_TOKEN_TYPES: Dict[str, int] = {
     "labevents":      8,  # lab result (L) — binned lab itemid
     "other":          9,  # reserved
 }
+
 NUM_TOKEN_TYPES: int = len(MIMIC4_TOKEN_TYPES)  # 10
 
 # Threshold: type_ids <= SPECIAL_TYPE_MAX receive zero aux embeddings (§2.2)
