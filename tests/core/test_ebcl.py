@@ -156,6 +156,6 @@ def test_ebcl_encode_single_sequence():
     x = torch.randn(3, 10, 16)
     mask = torch.ones(3, 10, dtype=torch.bool)
 
-    emb = model.encode(x, mask)
+    emb = model._encode_sequence(x, mask)
     assert emb.shape == (3, 20)
     assert torch.isfinite(emb).all()

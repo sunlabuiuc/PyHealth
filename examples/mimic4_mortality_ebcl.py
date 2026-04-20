@@ -1,18 +1,4 @@
-"""Example ablation script for EBCL using an existing PyHealth dataset class.
-
-This script uses PyHealth's SampleEHRDataset with synthetic samples so that:
-1. the example remains runnable without protected clinical data,
-2. the workflow uses an existing PyHealth dataset class,
-3. the ablation compares multiple EBCL hyperparameter settings.
-
-Ablations:
-- temperature
-- projection_dim
-
-Reported result:
-- final contrastive training loss for each setting
-"""
-
+"""EBCL ablation script using synthetic EHR-like samples."""
 from __future__ import annotations
 
 import random
@@ -22,7 +8,6 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
-# Import directly from the sample dataset module so the script stays lightweight.
 from pyhealth.datasets.sample_dataset import SampleEHRDataset
 from pyhealth.models.ebcl import EBCL
 
@@ -39,23 +24,7 @@ def build_synthetic_samples(
     seq_len: int = 16,
     input_dim: int = 16,
 ) -> List[Dict]:
-    """Build synthetic pre/post-event EHR-like samples.
-
-    Each sample follows the PyHealth sample format and includes:
-    - patient_id
-    - visit_id
-    - left_x: pre-event window
-    - right_x: post-event window
-    - label: dummy binary label for compatibility/debugging
-
-    Args:
-        num_samples: Number of samples to generate.
-        seq_len: Sequence length per window.
-        input_dim: Feature dimension per timestep.
-
-    Returns:
-        List of synthetic sample dictionaries.
-    """
+    """Build synthetic pre/post-event EHR-like samples."""
     samples: List[Dict] = []
     for i in range(num_samples):
         left_x = torch.randn(seq_len, input_dim)
@@ -77,7 +46,7 @@ def build_dataset(
     seq_len: int = 16,
     input_dim: int = 16,
 ) -> SampleEHRDataset:
-    """Create an existing PyHealth dataset object from synthetic samples."""
+    """Builds a synthetic dataset for the experiment."""
     samples = build_synthetic_samples(
         num_samples=num_samples,
         seq_len=seq_len,
@@ -94,19 +63,12 @@ def build_dataset(
 def collate_fn(batch: List[Dict]) -> Dict[str, torch.Tensor]:
     """Convert SampleEHRDataset samples into tensors for EBCL."""
     left_x = torch.tensor([sample["left_x"] for sample in batch], dtype=torch.float32)
-    right_x = torch.tensor(
-        [sample["right_x"] for sample in batch],
-        dtype=torch.float32,
-    )
+    right_x = torch.tensor([sample["right_x"] for sample in batch],dtype=torch.float32,)
+    
     left_mask = torch.ones(left_x.size(0), left_x.size(1), dtype=torch.bool)
     right_mask = torch.ones(right_x.size(0), right_x.size(1), dtype=torch.bool)
 
-    return {
-        "left_x": left_x,
-        "right_x": right_x,
-        "left_mask": left_mask,
-        "right_mask": right_mask,
-    }
+    return { "left_x": left_x,"right_x": right_x,"left_mask": left_mask,"right_mask": right_mask,}
 
 
 def train_one_setting(
@@ -118,20 +80,7 @@ def train_one_setting(
     lr: float = 1e-3,
     batch_size: int = 16,
 ) -> float:
-    """Train EBCL for one ablation setting.
-
-    Args:
-        dataset: Existing PyHealth dataset object.
-        temperature: Contrastive temperature.
-        projection_dim: Projection head output dimension.
-        hidden_dim: Transformer hidden size.
-        epochs: Number of training epochs.
-        lr: Learning rate.
-        batch_size: Training batch size.
-
-    Returns:
-        Final average loss for the setting.
-    """
+    """Trains EBCL with one set of hyperparameters."""
     loader = DataLoader(
         dataset,
         batch_size=batch_size,
