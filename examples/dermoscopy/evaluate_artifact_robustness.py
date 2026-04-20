@@ -62,7 +62,7 @@ def main():
 
     # 2. Load Dataset 
     # (PyHealth automatically isolates caches by task name, so our base caches are safe!)
-    dataset = DermoscopyDataset(root=args.data_dir, datasets=[dataset_target])
+    dataset = DermoscopyDataset(root=args.data_dir, datasets=[dataset_target], cache_dir=os.path.join(args.data_dir, ".cache"))
     processor = DermoscopyImageProcessor(mode=args.mode)
     
     # 3. Filter for the specific Trap Set
