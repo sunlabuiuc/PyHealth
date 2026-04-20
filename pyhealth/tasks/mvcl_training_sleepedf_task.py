@@ -30,7 +30,14 @@ def _map_to_MVCL_five_class(pyhealth_stage: int) -> int:
 
 
 class MVCLTrainingSleepEEG(BaseTask):
-    """SleepEDF windows with Multi-View contrastive tensor views.
+    """
+    SleepEDF windows with Multi-View contrastive tensor views.
+
+    This dataset contains 153 whole-night sleep electroencephalography
+    (EEG) recordings collected from 82 healthy subjects. Each recording is sampled at 100 Hz using a 1-lead
+    EEG signal. The EEG signals are segmented into non-overlapping windows of size 200, each forming
+    one sample. Each sample is labeled with one of five sleep stages: Wake (W), Non-rapid Eye Movement
+    (N1, N2, N3), and Rapid Eye Movement (REM). This segmentation results in 371,055 samples.
 
     Applies MV preprocessing per event file (one PSG/Hypnogram pair at a time),
     then appends samples immediately, so each returned sample includes ``xt``,
@@ -39,6 +46,23 @@ class MVCLTrainingSleepEEG(BaseTask):
     Tensors are stored as ``numpy.float32`` arrays with shape ``(L, C_view)`` where
     ``C_view`` is 1 by default; with ``time_as_feature=True``, a leading time channel
     in ``[0,1]`` is concatenated so ``C_view`` is 2.
+
+    Attributes:
+        task_name (str): The name of the task.
+        input_schema (Dict[str, str]): The schema for the task input.
+        output_schema (Dict[str, str]): The schema for the task output.
+
+    Examples:
+        >>> from pyhealth.datasets import SleepEDFDataset
+        >>> from pyhealth.tasks import MVCLTrainingSleepEEG
+        >>> import os
+        >>> os.chdir("/path/to/sleep-edf")
+        >>> dataset = SleepEDFDataset(
+        ...     root="/path/to/sleep-edf",
+        ... )
+        >>> task = MVCLTrainingSleepEEG()
+        >>> samples = dataset.set_task(task)
+        >>> print(samples[0])
     """
 
     task_name: str = "MVCLTrainingSleepEEG"
@@ -54,6 +78,16 @@ class MVCLTrainingSleepEEG(BaseTask):
         time_as_feature: bool = False,
         dx_backend: str = "cde",
     ) -> None:
+        """Initializes the task object.
+
+        Args:
+            chunk_duration: How long each chunk of EEG signal is (in seconds). Defaults to 30.0.
+            window_size: Number of samples per window. Defaults to 200.
+            crop_length: Optional length to crop the windows to. Defaults to 178.
+            eeg_channel: Which EEG channel to pick. Defaults to "EEG Fpz-Cz".
+            time_as_feature: Whether to add a time feature channel. Defaults to False.
+            dx_backend: Backend to use for computing the derivative view. Defaults to "cde".
+        """
         self.chunk_duration = float(chunk_duration)
         self.window_size = int(window_size)
         self.crop_length = int(crop_length) if crop_length is not None else None
@@ -72,6 +106,26 @@ class MVCLTrainingSleepEEG(BaseTask):
         return 0
 
     def __call__(self, patient: Any) -> List[Dict[str, Any]]:
+        """
+        Generates classification data samples for a single patient.
+
+        Args:
+            patient (Any): A PyHealth patient object containing sleep events.
+
+        Returns:
+            List[Dict[str, Any]]: A list containing a dictionary for each sleep window sample with:
+                - 'patient_id': Patient identifier.
+                - 'night': The night number of the recording.
+                - 'patient_age': Age of the patient.
+                - 'patient_sex': Sex of the patient.
+                - 'epoch_index': Global index of the 30s epoch.
+                - 'window_in_epoch': Index of the window within the epoch.
+                - 'signal': Original raw signal slice.
+                - 'xt': Time-domain view tensor.
+                - 'xd': Derivative view tensor.
+                - 'xf': Frequency-domain view tensor.
+                - 'label': Mapped 5-class sleep stage label.
+        """
         pid = patient.patient_id
         events = patient.get_events()
         samples: List[Dict[str, Any]] = []
@@ -129,72 +183,62 @@ class MVCLTrainingSleepEEG(BaseTask):
             labels = epochs_train.events[:, 2]
 
             n_epochs, n_times = signals.shape
-            n_full = (n_times // win) * win
+            n_windows = n_times // win
+            n_full = n_windows * win
 
-            event_buffers: List[Dict[str, Any]] = []
-            for epi in range(n_epochs):
-              lab = _map_to_MVCL_five_class(int(labels[epi]))
-              row = signals[epi, :n_full] # Get the full 3000 points
-
-              # Extract all 15 non-overlapping windows per epoch
-              for w in range(n_full // win):
-                  seg = row[w * win : (w + 1) * win].astype(np.float32, copy=False)
-                  if crop is not None:
-                      seg = seg[:crop]
-
-                  event_buffers.append(
-                      {
-                          "seg_1d": seg.copy(),
-                          "label": lab,
-                          "night": event.night,
-                          "patient_age": event.age,
-                          "patient_sex": event.sex,
-                          "epoch_index": global_epoch,
-                          "window_in_epoch": w, # properly track the window
-                      }
-                  )
-              global_epoch += 1
-              
-            if not event_buffers:
+            if n_epochs == 0 or n_windows == 0:
                 continue
 
-            X = torch.stack(
-                [torch.from_numpy(b["seg_1d"]).float() for b in event_buffers], dim=0
-            ).unsqueeze(-1)
-            xt, dx, xf = preprocess_mvcl_views(
-                X,
+            # Vectorized window extraction
+            segs = signals[:, :n_full].reshape(n_epochs, n_windows, win)
+            if crop is not None:
+                segs = segs[:, :, :crop]
+            segs = segs.reshape(-1, segs.shape[-1]).astype(np.float32)
+
+            # Vectorized metadata mapping
+            mapping = np.array([0, 1, 2, 3, 3, 4], dtype=np.int64)
+            mapped_labels = mapping[labels.astype(np.int64)]
+            labels_rep = np.repeat(mapped_labels, n_windows)
+            epoch_indices = np.repeat(np.arange(global_epoch, global_epoch + n_epochs), n_windows)
+            window_indices = np.tile(np.arange(n_windows), n_epochs)
+
+            global_epoch += n_epochs
+
+            # Create numpy array directly
+            X_np = segs[..., np.newaxis]
+            xt_np, dx_np, xf_np = preprocess_mvcl_views_numpy(
+                X_np,
                 time_as_feature=self.time_as_feature
             )
 
-            for i, b in enumerate(event_buffers):
-                seg = b["seg_1d"]
-                vec = seg[np.newaxis, :]
+            # Construct samples in a single loop
+            for i in range(len(segs)):
                 samples.append(
                     {
                         "patient_id": pid,
-                        "night": b["night"],
-                        "patient_age": b["patient_age"],
-                        "patient_sex": b["patient_sex"],
-                        "epoch_index": b["epoch_index"],
-                        "window_in_epoch": b["window_in_epoch"],
-                        "signal": vec,
-                        "xt": xt[i],
-                        "xd": dx[i],
-                        "xf": xf[i],
-                        "label": b["label"],
+                        "night": event.night,
+                        "patient_age": event.age,
+                        "patient_sex": event.sex,
+                        "epoch_index": int(epoch_indices[i]),
+                        "window_in_epoch": int(window_indices[i]),
+                        "signal": segs[i][np.newaxis, :].copy(),
+                        "xt": torch.from_numpy(xt_np[i]),
+                        "xd": torch.from_numpy(dx_np[i]),
+                        "xf": torch.from_numpy(xf_np[i]),
+                        "label": int(labels_rep[i]),
                     }
                 )
 
         return samples
 
 
-def normalize_mvcl(
-    X_train: torch.Tensor,
-    X_test: torch.Tensor,
+def normalize_mvcl_numpy(
+    X_train: np.ndarray,
+    X_test: np.ndarray,
     epsilon: float = 1e-8,
-) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-    mean = X_train.mean(dim=(0, 1), keepdim=True)
-    std = X_train.std(dim=(0, 1), keepdim=True).clamp(min=epsilon)
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    mean = X_train.mean(axis=(0, 1), keepdims=True)
+    std = np.maximum(X_train.std(axis=(0, 1), keepdims=True), epsilon)
     return (
         (X_train - mean) / std,
         (X_test - mean) / std,
@@ -203,32 +247,24 @@ def normalize_mvcl(
     )
 
 
-def add_time_feature(X: torch.Tensor) -> torch.Tensor:
+def add_time_feature_numpy(X: np.ndarray) -> np.ndarray:
     """X: [num_samples, sequence_length, num_features] -> concat time in last dim."""
     num_samples, seq_length, _ = X.shape
-    time_index = torch.linspace(0, 1, steps=seq_length, dtype=X.dtype, device=X.device)
-    time_feature = time_index.view(1, seq_length, 1).expand(num_samples, seq_length, 1)
-    return torch.cat([time_feature, X], dim=-1)
+    time_index = np.linspace(0, 1, num=seq_length, dtype=X.dtype)
+    time_feature = np.broadcast_to(
+        time_index.reshape(1, seq_length, 1),
+        (num_samples, seq_length, 1)
+    )
+    return np.concatenate([time_feature, X], axis=-1)
 
 
-
-def get_dx_gradient(X: torch.Tensor) -> torch.Tensor:
-    """Time derivative via ``torch.gradient`` along **dim=1** for **X [N, L, D]**.
-
-    This is **not** equivalent to :func:`get_dx` (torchcde spline);.
+def get_dx_torchcde_equivalent_numpy(X: np.ndarray) -> np.ndarray:
     """
-    if X.ndim != 3:
-        raise ValueError(f"Expected [N, L, D], got {tuple(X.shape)}")
-    return torch.gradient(X, dim=1)[0]
-
-
-def get_dx_torchcde_equivalent(X: torch.Tensor) -> torch.Tensor:
-    """
-    Pure PyTorch equivalent of torchcde Hermite cubic spline derivative 
+    Pure NumPy equivalent of torchcde Hermite cubic spline derivative 
     evaluated at the knot points with backward differences.
     """
     N, L, D = X.shape
-    dx = torch.zeros_like(X)
+    dx = np.zeros_like(X)
     
     if L < 2:
         return dx
@@ -239,7 +275,7 @@ def get_dx_torchcde_equivalent(X: torch.Tensor) -> torch.Tensor:
     derivs = X[:, 1:, :] - X[:, :-1, :]
     
     # derivs_prev[i] = derivs[i-1] for i > 0, and derivs[0] for i = 0
-    derivs_prev = torch.cat([derivs[:, :1, :], derivs[:, :-1, :]], dim=1)
+    derivs_prev = np.concatenate([derivs[:, :1, :], derivs[:, :-1, :]], axis=1)
     
     # For i = 0
     dx[:, 0, :] = derivs[:, 0, :]
@@ -247,52 +283,47 @@ def get_dx_torchcde_equivalent(X: torch.Tensor) -> torch.Tensor:
     # For i > 0
     factor = (4 - 3 * dt) * dt
     b = derivs_prev
-    D = derivs - b
+    D_diff = derivs - b
     
-    dx[:, 1:, :] = b + D * factor
+    dx[:, 1:, :] = b + D_diff * factor
     
     return dx
 
 
+def get_xf_numpy(X: np.ndarray) -> np.ndarray:
+    return np.abs(np.fft.fft(X, axis=1)).astype(np.float32)
 
-def get_xf(X: torch.Tensor) -> torch.Tensor:
-    return torch.abs(fft.fft(X, dim=1))
 
-
-def preprocess_mvcl_views(
-    X: torch.Tensor,
+def preprocess_mvcl_views_numpy(
+    X: np.ndarray,
     time_as_feature: bool = False
-) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Apply the same logical pipeline as ``preprocess_data`` when train and test
     are the same tensor (per-domain batch, e.g. all windows of one patient).
 
-    X: float tensor **[N, L, D]** (e.g. ``D=1`` for single-channel EEG; **L** is time length).
-
-    dx_backend: ``"cde"`` (default, torchcde, matches MV) or ``"gradient"`` (no torchcde).
+    X: float numpy array **[N, L, D]** (e.g. ``D=1`` for single-channel EEG; **L** is time length).
 
     Returns xt, dx, xf each [N, L, D] or [N, L, D+1] if ``time_as_feature``.
     """
     if X.ndim != 3:
         raise ValueError(f"Expected X shape [N, L, D], got {tuple(X.shape)}")
-    xt_tr, xt_te, _, _ = normalize_mvcl(X, X)
+    xt_tr, xt_te, _, _ = normalize_mvcl_numpy(X, X)
     xt = xt_tr
 
+    dx_raw = get_dx_torchcde_equivalent_numpy(xt)
 
-    # dx_raw = get_dx_gradient(xt) # this is approxi to paper's torchcde spline
-    dx_raw = get_dx_torchcde_equivalent(xt)
-
-    dx_tr, dx_te, _, _ = normalize_mvcl(dx_raw, dx_raw)
+    dx_tr, dx_te, _, _ = normalize_mvcl_numpy(dx_raw, dx_raw)
     dx = dx_tr
 
-    xf_raw = get_xf(xt)
-    xf_tr, xf_te, _, _ = normalize_mvcl(xf_raw, xf_raw)
+    xf_raw = get_xf_numpy(xt)
+    xf_tr, xf_te, _, _ = normalize_mvcl_numpy(xf_raw, xf_raw)
     xf = xf_tr
 
     if time_as_feature:
-        xt = add_time_feature(xt)
-        dx = add_time_feature(dx)
-        xf = add_time_feature(xf)
+        xt = add_time_feature_numpy(xt)
+        dx = add_time_feature_numpy(dx)
+        xf = add_time_feature_numpy(xf)
 
     return xt, dx, xf
 
@@ -367,9 +398,9 @@ def pt_dict_to_pyhealth_samples(
             f"{signal_array.shape[0]} vs {label_array.shape[0]}"
         )
 
-    # preprocess_mvcl_views expects [N, L, D], use D=1 for single-channel EEG.
-    signal_tensor = torch.from_numpy(np.ascontiguousarray(signal_array)).float().unsqueeze(-1)
-    xt, dx, xf = preprocess_mvcl_views(signal_tensor, time_as_feature=time_as_feature)
+    # preprocess_mvcl_views_numpy expects [N, L, D], use D=1 for single-channel EEG.
+    signal_np = np.ascontiguousarray(signal_array)[..., np.newaxis]
+    xt_np, dx_np, xf_np = preprocess_mvcl_views_numpy(signal_np, time_as_feature=time_as_feature)
 
     samples: List[Dict[str, Any]] = []
     for i in range(signal_array.shape[0]):
@@ -377,10 +408,10 @@ def pt_dict_to_pyhealth_samples(
             {
                 "patient_id": f"{patient_id_prefix}_{i}",
                 "record_id": f"{record_id_prefix}_{i}",
-                "signal": signal_array[i][np.newaxis, :],
-                "xt": xt[i],
-                "xd": dx[i],
-                "xf": xf[i],
+                "signal": signal_array[i][np.newaxis, :].copy(),
+                "xt": torch.from_numpy(xt_np[i]),
+                "xd": torch.from_numpy(dx_np[i]),
+                "xf": torch.from_numpy(xf_np[i]),
                 "label": int(label_array[i]),
             }
         )
