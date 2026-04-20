@@ -1,3 +1,10 @@
+# Contributor: Nikhil Ajit
+# NetID/Email: najit2@illinois.edu
+# Paper Title: DILA: Dictionary Label Attention for Mechanistic Interpretability in High-dimensional Multi-label Medical Coding Prediction
+# Paper Link: https://arxiv.org/abs/2409.10504
+# Description: Implementation of the DILA model utilizing a sparse autoencoder 
+# and a globally interpretable dictionary projection matrix for medical coding.
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -27,6 +34,18 @@ class DILA(BaseModel):
         decoder_bias (nn.Parameter): Bias term for the sparse autoencoder.
         sparse_projection (nn.Parameter): Globally interpretable projection matrix.
         fc (nn.Linear): Final linear decision layer for predictions.
+        
+    Example:
+        >>> from pyhealth.models import DILA
+        >>> model = DILA(
+        ...     dataset=dataset,
+        ...     feature_keys=["conditions"],
+        ...     label_key="label",
+        ...     mode="multilabel"
+        ... )
+        >>> # kwargs must include the features and labels
+        >>> outputs = model(conditions=torch.randn(4, 128, 768), label=torch.empty(4, 50).random_(2))
+        >>> loss = outputs["loss"]
     """
 
     def __init__(

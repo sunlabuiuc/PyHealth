@@ -1,3 +1,10 @@
+# Contributor: Nikhil Ajit
+# NetID/Email: najit2@illinois.edu
+# Paper Title: DILA: Dictionary Label Attention for Mechanistic Interpretability in High-dimensional Multi-label Medical Coding Prediction
+# Paper Link: https://arxiv.org/abs/2409.10504
+# Description: Implementation of the DILA model utilizing a sparse autoencoder 
+# and a globally interpretable dictionary projection matrix for medical coding.
+
 import torch
 import torch.nn as nn
 import pytest

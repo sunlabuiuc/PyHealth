@@ -167,8 +167,11 @@ API Reference
 -------------
 
 .. toctree::
-    :maxdepth: 3
+    :maxdepth: 4
 
+    models/pyhealth.models.rnn
+    models/pyhealth.models.transformer
+    models/pyhealth.models.dila
     models/pyhealth.models.BaseModel
     models/pyhealth.models.LogisticRegression
     models/pyhealth.models.MLP
