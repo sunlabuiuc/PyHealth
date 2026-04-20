@@ -275,9 +275,6 @@ class mowLSTM(nn.Module):
             hs.append(hidden[0])
             cs.append(hidden[1])      
 
-        # todo: bidirectional stacked LSTM, see reference here
-        # https://github.com/allenai/allennlp/blob/master/allennlp/modules/stacked_bidirectional_lstm.py; it basically concat layer output
-
         h = torch.cat(hs, 0)
         c = torch.cat(cs, 0)
         o = x
@@ -360,15 +357,17 @@ def lstm_ortho_initializer(shape, scale=1.0):
 
 class MixLSTM(BaseModel):
 
-    def __init__(self, dataset: SampleDataset, num_experts=2, hidden_size=100):
+    def __init__(self, dataset: SampleDataset, num_experts=2, hidden_size=100,
+                 prev_used_timestamps=0):
         super(MixLSTM, self).__init__(dataset)
 
-        #Process dataset to get input dimension and time steps
+        # Identify primary input key and infer shape
         input_keys = list(dataset.input_processors.keys())
-        # remember the primary input key so Trainer can call model(**batch)
         self.input_key = input_keys[0]
+        self.label_key = self.label_keys[0] if self.label_keys else None
+
         sample = dataset[0]
-        val = sample[input_keys[0]]
+        val = sample[self.input_key]
         if isinstance(val, (list, tuple)):
             for item in val:
                 if torch.is_tensor(item) or isinstance(item, (list, tuple, np.ndarray)):
@@ -384,56 +383,73 @@ class MixLSTM(BaseModel):
 
         self.input_size = int(input_dim)
         self.time_steps = int(T)
-        num_classes = int(self.get_output_size())
+        self.prev_used_timestamps = prev_used_timestamps
+
+        # Detect per-timestep regression: output target is a tensor, not a
+        # standard label type.  In that case self.mode is None / unrecognised.
+        self._per_timestep = (
+            self.mode not in ("binary", "multiclass", "multilabel", "regression")
+        )
+
+        if self._per_timestep:
+            num_classes = 1  # predict one scalar per timestep
+        else:
+            num_classes = int(self.get_output_size())
 
         self.model = ExampleMowLSTM(self.input_size, hidden_size,
-                                   num_classes, num_layers=1,
-                                   num_directions=1, dropout=0,
-                                   activation=nn.LogSoftmax(dim=-1))
+                       num_classes, num_layers=1,
+                       num_directions=1, dropout=0,
+                       activation=None)
 
         self.num_layers = 1
         self.num_directions = 1
         self.hidden_size = hidden_size
         self.model.setKT(num_experts, self.time_steps)
-        
+
     def forward(self, **kwargs):
-        # Extract input tensor when called as `model(**batch)` by Trainer.
         x = kwargs.get(self.input_key)
 
-        # change x from (bs, seq_len, d) => (seq_len, bs, d)
+        # (bs, seq_len, d) => (seq_len, bs, d)
         x = x.permute(1, 0, 2)
         batch_size = x.size(1)
-        # set initial hidden and cell states on the model device
         device = self.device
         h = torch.zeros(self.num_layers * self.num_directions,
                         batch_size, self.hidden_size, device=device)
         c = torch.zeros(self.num_layers * self.num_directions,
                         batch_size, self.hidden_size, device=device)
-        
-        states = (h, c)
-        outputs, states = self.model(x, states)
 
-        # outputs: (seq_len, batch, num_classes) -> (batch, seq_len, num_classes)
+        outputs, _ = self.model(x, (h, c))
+        # (seq_len, bs, out) => (bs, seq_len, out)
         logits_seq = outputs.permute(1, 0, 2)
 
-        # For sequence models used for classification tasks, provide a
-        # per-sample logit by selecting the last timestep.
+        if self._per_timestep:
+            # --- Per-timestep regression (original MLHC2019 synthetic task) ---
+            results = {"logit": logits_seq, "y_prob": logits_seq}
+            if self.label_key and self.label_key in kwargs:
+                y_true = kwargs[self.label_key].to(device)
+                if y_true.dim() == 2:
+                    y_true = y_true.unsqueeze(-1)
+                l = self.prev_used_timestamps
+                pred = logits_seq[:, l:, :].contiguous()
+                target = y_true[:, l:, :].contiguous()
+                loss = F.mse_loss(pred.view(-1, pred.size(-1)),
+                                  target.view(-1, target.size(-1)))
+                results["loss"] = loss
+                results["y_true"] = y_true
+            return results
+
         logits = logits_seq[:, -1, :]
+        y_prob = self.prepare_y_prob(logits)
+        results = {"logit": logits, "y_prob": y_prob}
 
-        results = {}
-        results["logit"] = logits
-        results["y_prob"] = self.prepare_y_prob(logits)
-
-        # If labels were provided in kwargs (Trainer passes them), compute loss
-        if hasattr(self, "label_keys") and len(self.label_keys) > 0 and self.label_keys[0] in kwargs:
-            y_true = kwargs[self.label_keys[0]].to(self.device)
-            loss_fn = self.get_loss_function()
-            loss = loss_fn(logits, y_true)
+        if self.label_key and self.label_key in kwargs:
+            y_true = kwargs[self.label_key].to(device)
+            loss = self.get_loss_function()(logits, y_true)
             results["loss"] = loss
             results["y_true"] = y_true
 
         return results
 
     def after_backward(self):
-        return 
+        pass
  
