@@ -541,9 +541,9 @@ class DynamicSurvivalTask(BaseTask):
                 if self.use_drug:
                     drug_set.update(visit["drug"])
     
-        self.diag_vocab = {c: i for i, c in enumerate(diag_set)}
-        self.proc_vocab = {c: i for i, c in enumerate(proc_set)}
-        self.drug_vocab = {c: i for i, c in enumerate(drug_set)}
+        self.diag_vocab = {c: i for i, c in enumerate(sorted(diag_set))}
+        self.proc_vocab = {c: i for i, c in enumerate(sorted(proc_set))}
+        self.drug_vocab = {c: i for i, c in enumerate(sorted(drug_set))}
     
         return self.diag_vocab, self.proc_vocab, self.drug_vocab
     
