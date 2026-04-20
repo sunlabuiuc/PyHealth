@@ -346,20 +346,31 @@ def build_synthetic_samples(args: argparse.Namespace) -> Tuple[List[Dict], int]:
     samples = synthetic_task(synthetic_dataset)
     return samples, len(COHORTS)
 
-
 def build_real_samples(args: argparse.Namespace) -> Tuple[List[Dict], int]:
+
     data_dir = ensure_real_data_dir(args.data_dir)
-
-    # Person 1's dataset class expects the two CSVs inside a root directory.
     dataset = TCGARNASeqDataset(root=str(data_dir))
-
-    # Person 1's task is expected to return one classification sample per RNA-seq event.
     task = TCGARNASeqCancerTypeClassification()
-    samples = task(dataset)
-
-    labels = sorted({int(sample["label"]) for sample in samples})
+    sample_dataset = dataset.set_task(task)
+    samples = [sample_dataset[i] for i in range(len(sample_dataset))]
+    labels = sorted({int(s["label"]) for s in samples})
     num_classes = len(labels)
+
     return samples, num_classes
+
+# def build_real_samples(args: argparse.Namespace) -> Tuple[List[Dict], int]:
+#     data_dir = ensure_real_data_dir(args.data_dir)
+
+#     # Person 1's dataset class expects the two CSVs inside a root directory.
+#     dataset = TCGARNASeqDataset(root=str(data_dir))
+
+#     # Person 1's task is expected to return one classification sample per RNA-seq event.
+#     task = TCGARNASeqCancerTypeClassification()
+#     samples = task(dataset)
+
+#     labels = sorted({int(sample["label"]) for sample in samples})
+#     num_classes = len(labels)
+#     return samples, num_classes
 
 
 def make_loaders(
