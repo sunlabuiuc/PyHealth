@@ -1,0 +1,13 @@
+# Author: Megan Saunders, Jennifer Miranda, Jesus Torres
+# {meganas4, jm123, jesusst2}@illinois.edu
+version: "1.0"
+tables:
+  wesad:
+    file_path: ""
+    patient_id: "subject_id"
+    timestamp: null
+    attributes:
+      - "eda"
+      - "label"
+      - "window_size"
+      - "step_size"
