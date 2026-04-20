@@ -1,4 +1,6 @@
-# Authors: Skyler Lehto (lehto2@illinois.edu), Ryan Bradley (ryancb3@illinois.edu), Weonah Choi (weonahc2@illinois.edu)
+# Authors: Skyler Lehto (lehto2@illinois.edu),
+#          Ryan Bradley (ryancb3@illinois.edu),
+#          Weonah Choi (weonahc2@illinois.edu)
 # Paper: Dynamic Survival Analysis for Early Event Prediction (Yèche et al., 2024)
 # Link: https://arxiv.org/abs/2403.12818
 # Description: Unit tests for DynamicSurvivalTask using synthetic data.
@@ -303,7 +305,7 @@ class TestDynamicSurvivalTask(unittest.TestCase):
         self.assertGreater(len(all_samples), 0)
 
     def test_censoring_mask_fixed(self):
-        """Test censoring mask is correctly truncated after censor step (fixed strategy)."""
+        """Test censoring mask is correctly truncated after the censor step."""
         task = DynamicSurvivalTask(MockDataset(), horizon=5)
         y, mask = task.engine.generate_survival_label(
             anchor_time=10,
@@ -317,10 +319,10 @@ class TestDynamicSurvivalTask(unittest.TestCase):
         # This mirrors the event case where mask[delta+1:] = 0.
         self.assertTrue(np.all(mask[:3] == 1))   # steps 0,1,2 included
         self.assertTrue(np.all(mask[3:] == 0))   # steps 3,4 excluded
-        self.assertEqual(float(np.sum(y)), 0)    # no event recorded for censored patient
+        self.assertEqual(float(np.sum(y)), 0)  # no event for censored patient
 
     def test_censoring_mask_single(self):
-        """generate_survival_label behavior is independent of anchor_strategy."""
+        """Test censoring mask behavior is independent of anchor_strategy."""
         task = DynamicSurvivalTask(MockDataset(), horizon=5, anchor_strategy="single")
         y, mask = task.engine.generate_survival_label(
             anchor_time=10,
@@ -328,7 +330,8 @@ class TestDynamicSurvivalTask(unittest.TestCase):
             censor_time=12,  # delta = 2, same convention as fixed
         )
 
-        # anchor_strategy does not affect label generation — only anchor placement does.
+        # anchor_strategy does not affect label generation;
+        # only anchor placement does.
         # With delta=2: steps 0,1,2 included; steps 3,4 excluded.
         self.assertTrue(np.all(mask[:3] == 1))
         self.assertTrue(np.all(mask[3:] == 0))
@@ -404,7 +407,7 @@ class TestDynamicSurvivalTask(unittest.TestCase):
         self.assertTrue(np.all(mask[3:] == 0))
 
     def test_event_outside_horizon(self):
-        """Test that an event beyond the horizon produces all-zero y and all-one mask."""
+        """Test event beyond horizon produces all-zero y and all-one mask."""
         task = DynamicSurvivalTask(MockDataset(), horizon=5)
 
         y, mask = task.engine.generate_survival_label(
@@ -416,7 +419,7 @@ class TestDynamicSurvivalTask(unittest.TestCase):
         self.assertTrue(np.all(mask == 1))
 
     def test_no_valid_anchors(self):
-        """Test that an observation window larger than patient history yields no samples."""
+        """Test observation window larger than patient history yields no samples."""
         task = DynamicSurvivalTask(MockDataset(), observation_window=100)
 
         patient = {
@@ -462,7 +465,7 @@ class TestDynamicSurvivalTask(unittest.TestCase):
             self.assertEqual(s["x"].ndim, 2)
 
     def test_anchor_with_no_observation_window(self):
-        """Test that a patient with visits only before the window still returns a list."""
+        """Test patient with visits only before the window still returns a list."""
         task = DynamicSurvivalTask(MockDataset(), observation_window=10)
 
         patient = {
@@ -531,7 +534,7 @@ class TestDynamicSurvivalTask(unittest.TestCase):
             shutil.rmtree(tmp_dir)
 
     def test_large_mock_patient_cohort(self):
-        """Test pipeline with 15 MockPatient objects covering mixed event/censor cases."""
+        """Test pipeline with 15 MockPatients covering mixed event/censor cases."""
         base_time = datetime(2025, 1, 1)
 
         patients = []
@@ -542,9 +545,11 @@ class TestDynamicSurvivalTask(unittest.TestCase):
             ]
             # Alternate event / censored patients
             death_time = base_time + timedelta(days=25) if i % 2 == 0 else None
-            patients.append(
-                MockPatient(pid=f"MP{i}", visits_data=visits_data, death_time=death_time)
-            )
+            patients.append(MockPatient(
+                pid=f"MP{i}",
+                visits_data=visits_data,
+                death_time=death_time,
+            ))
 
         dataset = MockDataset(patients)
         task = DynamicSurvivalTask(

@@ -1,4 +1,6 @@
-# Authors: Skyler Lehto (lehto2@illinois.edu), Ryan Bradley (ryancb3@illinois.edu), Weonah Choi (weonahc2@illinois.edu)
+# Authors: Skyler Lehto (lehto2@illinois.edu),
+#          Ryan Bradley (ryancb3@illinois.edu),
+#          Weonah Choi (weonahc2@illinois.edu)
 # Paper: Dynamic Survival Analysis for Early Event Prediction (Yèche et al., 2024)
 # Link: https://arxiv.org/abs/2403.12818
 # Description: Anchor-based discrete-time survival task for longitudinal EHR data.

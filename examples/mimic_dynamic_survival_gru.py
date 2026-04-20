@@ -1,4 +1,6 @@
-# Authors: Skyler Lehto (lehto2@illinois.edu), Ryan Bradley (ryancb3@illinois.edu), Weonah Choi (weonahc2@illinois.edu)
+# Authors: Skyler Lehto (lehto2@illinois.edu),
+#          Ryan Bradley (ryancb3@illinois.edu),
+#          Weonah Choi (weonahc2@illinois.edu)
 # Paper: Dynamic Survival Analysis for Early Event Prediction (Yèche et al., 2024)
 # Link: https://arxiv.org/abs/2403.12818
 # Description: GRU-based ablation study over anchor strategy, window size, and horizon.
@@ -311,7 +313,10 @@ def evaluate_3metrics(model, samples):
             # Require at least one event time strictly less than the max time
             # to ensure a valid comparable pair exists for censored c-index.
             event_times = times_arr[events_arr]
-            other_times = times_arr[~events_arr] if (~events_arr).any() else times_arr[events_arr]
+            if (~events_arr).any():
+                other_times = times_arr[~events_arr]
+            else:
+                other_times = times_arr[events_arr]
             if not (event_times.min() < other_times.max()):
                 cindex = None
             else:
