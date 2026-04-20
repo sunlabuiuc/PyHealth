@@ -134,6 +134,33 @@ class LabradorMLMHead(nn.Module):
 
     def __init__(
         self,
+        lab_codes: torch.Tensor,
+        lab_values: torch.Tensor,
+    ) -> torch.Tensor:
+        """Returns joint embeddings with shape ``(B, L, H)``."""
+        code_emb = self.code_embedding(lab_codes)
+        x = self.value_embedding(lab_values=lab_values, code_emb=code_emb)
+        return self.output_projection(x)
+
+        self.continuous_dense = nn.Linear(hidden_dim + vocab_size, hidden_dim + vocab_size)
+        self.continuous_activation = nn.ReLU()
+        self.continuous_head = nn.Linear(hidden_dim + vocab_size, 1)
+
+class LabradorMLMHead(nn.Module):
+    """Two-head masked-language-modeling module.
+
+    Output heads:
+      1) categorical logits/probabilities over lab code vocabulary
+      2) continuous value regression for masked lab values
+
+    Args:
+        hidden_dim: Hidden size from the transformer encoder.
+        vocab_size: Number of categorical lab codes.
+        continuous_head_activation: ``"sigmoid"`` or ``"linear"``.
+    """
+
+    def __init__(
+        self,
         hidden_dim: int,
         vocab_size: int,
         continuous_head_activation: str = "sigmoid",
@@ -143,9 +170,15 @@ class LabradorMLMHead(nn.Module):
         self.categorical_activation = nn.ReLU()
         self.categorical_head = nn.Linear(hidden_dim, vocab_size)
 
-        self.continuous_dense = nn.Linear(hidden_dim + vocab_size, hidden_dim + vocab_size)
+        self.continuous_dense = nn.Linear(
+            hidden_dim + vocab_size,
+            hidden_dim + vocab_size,
+        )
         self.continuous_activation = nn.ReLU()
-        self.continuous_head = nn.Linear(hidden_dim + vocab_size, 1)
+        self.continuous_head = nn.Linear(
+            hidden_dim + vocab_size,
+            1,
+        )
 
         if continuous_head_activation == "sigmoid":
             self.continuous_output_activation = nn.Sigmoid()
@@ -153,7 +186,8 @@ class LabradorMLMHead(nn.Module):
             self.continuous_output_activation = nn.Identity()
         else:
             raise ValueError(
-                "continuous_head_activation must be 'sigmoid' or 'linear', "
+                "continuous_head_activation must be "
+                "'sigmoid' or 'linear', "
                 f"got {continuous_head_activation}"
             )
 
@@ -164,8 +198,12 @@ class LabradorMLMHead(nn.Module):
         categorical_output = torch.softmax(categorical_logits, dim=-1)
 
         continuous_input = torch.cat([x, categorical_output], dim=-1)
-        cont_hidden = self.continuous_activation(self.continuous_dense(continuous_input))
-        continuous_output = self.continuous_output_activation(self.continuous_head(cont_hidden))
+        cont_hidden = self.continuous_activation(
+            self.continuous_dense(continuous_input)
+        )
+        continuous_output = self.continuous_output_activation(
+            self.continuous_head(cont_hidden)
+        )
 
         return {
             "categorical_logits": categorical_logits,
@@ -236,7 +274,8 @@ class LabradorModel(BaseModel):
     ) -> None:
         if hidden_dim % num_heads != 0:
             raise ValueError(
-                f"hidden_dim ({hidden_dim}) must be divisible by num_heads ({num_heads})."
+                "hidden_dim "
+                f"({hidden_dim}) must be divisible by num_heads ({num_heads})."
             )
         if vocab_size <= 0:
             raise ValueError(f"vocab_size must be positive, got {vocab_size}.")
@@ -266,11 +305,16 @@ class LabradorModel(BaseModel):
             batch_first=True,
             activation="relu",
         )
-        self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+        self.transformer = nn.TransformerEncoder(
+            encoder_layer,
+            num_layers=num_layers,
+        )
         self.dropout = nn.Dropout(dropout)
 
         self.classifier = (
-            nn.Linear(hidden_dim, self.get_output_size()) if include_classifier_head else None
+            nn.Linear(hidden_dim, self.get_output_size())
+            if include_classifier_head
+            else None
         )
         self.mlm_head = (
             LabradorMLMHead(
@@ -366,8 +410,16 @@ class LabradorModel(BaseModel):
                 }
             )
 
-            masked_codes = masked_lab_codes if masked_lab_codes is not None else mlm_target_codes
-            masked_values = masked_lab_values if masked_lab_values is not None else mlm_target_values
+            masked_codes = (
+                masked_lab_codes
+                if masked_lab_codes is not None
+                else mlm_target_codes
+            )
+            masked_values = (
+                masked_lab_values
+                if masked_lab_values is not None
+                else mlm_target_values
+            )
             if mlm_mask is not None and masked_codes is not None:
                 masked_codes = torch.where(
                     mlm_mask,
@@ -378,7 +430,10 @@ class LabradorModel(BaseModel):
                 masked_values = torch.where(
                     mlm_mask,
                     masked_values.float(),
-                    torch.full_like(masked_values.float(), float(self.mlm_ignore_index)),
+                    torch.full_like(
+                        masked_values.float(),
+                        float(self.mlm_ignore_index),
+                    ),
                 )
 
             if masked_codes is not None:
@@ -390,7 +445,10 @@ class LabradorModel(BaseModel):
                     mlm_outputs["continuous_output"], masked_values
                 )
             if "categorical_mlm_loss" in output and "continuous_mlm_loss" in output:
-                output["mlm_loss"] = output["categorical_mlm_loss"] + output["continuous_mlm_loss"]
+                output["mlm_loss"] = (
+                    output["categorical_mlm_loss"]
+                    + output["continuous_mlm_loss"]
+                )
 
         if label is not None:
             if not self.include_classifier_head:

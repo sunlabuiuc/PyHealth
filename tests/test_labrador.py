@@ -26,7 +26,10 @@ def mock_dataset_binary():
 def tiny_batch():
     return {
         "lab_codes": torch.tensor([[1, 2, 0], [3, 0, 0]], dtype=torch.long),
-        "lab_values": torch.tensor([[0.1, 0.2, 0.0], [0.3, 0.0, 0.0]], dtype=torch.float32),
+        "lab_values": torch.tensor(
+            [[0.1, 0.2, 0.0], [0.3, 0.0, 0.0]],
+            dtype=torch.float32,
+        ),
         "label": torch.tensor([0, 1], dtype=torch.long),
         "padding_mask": torch.tensor([[False, False, True], [False, True, True]]),
     }
@@ -188,6 +191,10 @@ class TestLabradorForward:
         )
         assert "categorical_mlm_loss" in out
         assert "continuous_mlm_loss" in out
-        total_loss = out["loss"] + out["categorical_mlm_loss"] + out["continuous_mlm_loss"]
+        total_loss = (
+            out["loss"]
+            + out["categorical_mlm_loss"]
+            + out["continuous_mlm_loss"]
+        )
         total_loss.backward()
         assert any(param.grad is not None for param in model.parameters())
