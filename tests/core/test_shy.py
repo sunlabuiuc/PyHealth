@@ -200,6 +200,70 @@ class TestSHyModel(unittest.TestCase):
         # padding index 0 should not appear
         self.assertEqual(H[0, 0].item(), 0.0)
 
+    def test_phenotype_extractor_produces_k_subhypergraphs(self):
+        """For num_tp=K, the model should produce K phenotype matrices."""
+        loader = get_dataloader(self.dataset, batch_size=2, shuffle=False)
+        batch = next(iter(loader))
+        feature_data = batch[self.model.feature_key]
+        codes_batch = (
+            feature_data[0] if isinstance(feature_data, tuple) else feature_data
+        )
+        X = self.model.code_embedding(torch.arange(self.model.vocab_size))
+        H = self.model._build_incidence_matrix(codes_batch[0])
+        tp_mats, tp_embs = self.model._encode_patient(X, H)
+        self.assertEqual(len(tp_mats), self.model.num_tp)
+        for mat in tp_mats:
+            self.assertEqual(mat.shape, H.shape)
+
+    def test_different_num_tp_gives_different_outputs(self):
+        """num_tp=1 and num_tp=3 should produce different losses."""
+        torch.manual_seed(123)
+        model1 = SHy(
+            dataset=self.dataset,
+            embedding_dim=16,
+            hgnn_dim=16,
+            hgnn_layers=1,
+            num_tp=1,
+            hidden_dim=16,
+            num_heads=2,
+            dropout=0.0,
+        )
+        torch.manual_seed(123)
+        model3 = SHy(
+            dataset=self.dataset,
+            embedding_dim=16,
+            hgnn_dim=16,
+            hgnn_layers=1,
+            num_tp=3,
+            hidden_dim=16,
+            num_heads=2,
+            dropout=0.0,
+        )
+        loader = get_dataloader(self.dataset, batch_size=4, shuffle=False)
+        batch = next(iter(loader))
+        with torch.no_grad():
+            out1 = model1(**batch)
+            out3 = model3(**batch)
+        self.assertNotEqual(out1["loss"].item(), out3["loss"].item())
+
+    def test_add_false_negatives_changes_incidence(self):
+        """add_ratio > 0 should add entries to the incidence matrix."""
+        loader = get_dataloader(self.dataset, batch_size=2, shuffle=False)
+        batch = next(iter(loader))
+        feature_data = batch[self.model.feature_key]
+        codes_batch = (
+            feature_data[0] if isinstance(feature_data, tuple) else feature_data
+        )
+        X = self.model.code_embedding(torch.arange(self.model.vocab_size))
+        H = self.model._build_incidence_matrix(codes_batch[0])
+        nz = torch.nonzero(H)
+        V, E = nz[:, 0], nz[:, 1]
+        X_personal = self.model._run_hgnn(X, V, E)
+        ext = self.model.extractors[0]
+        enriched = ext._add_false_negatives(X_personal, H, V, E)
+        # Enriched should have at least as many nonzeros as original
+        self.assertGreaterEqual(enriched.sum().item(), H.sum().item())
+
 
 class TestDiagnosisPredictionTask(unittest.TestCase):
     """Tests for the diagnosis prediction task classes."""

@@ -42,7 +42,11 @@ def _extract_visit_diagnoses(patient, admissions, code_attr: str):
             event_type="diagnoses_icd",
             filters=[("hadm_id", "==", admission.hadm_id)],
         )
-        codes = [getattr(event, code_attr) for event in diagnoses]
+        codes = [
+            getattr(event, code_attr)
+            for event in diagnoses
+            if getattr(event, code_attr, None) is not None
+        ]
         if codes:
             visits.append((admission.hadm_id, codes))
     return visits

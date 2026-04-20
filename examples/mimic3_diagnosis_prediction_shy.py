@@ -1,5 +1,5 @@
 """
-Diagnosis Prediction with SHy on MIMIC-IV.
+Diagnosis Prediction with SHy on MIMIC-III.
 
 Ablation study with different configs:
 1. Number of temporal phenotypes (K=1, 3, 5)
@@ -11,35 +11,35 @@ Paper: Leisheng Yu, Yanxiao Cai, Minxing Zhang, and Xia Hu.
     Self-Explaining Hypergraph Neural Networks for Diagnosis Prediction.
     Proceedings of Machine Learning Research (CHIL), 2025.
 
-Results (MIMIC-IV dev=True, 1000 patients, 5 epochs, lr=1e-3):
+Results (MIMIC-III dev=True, 1000 patients, 50 epochs, lr=1e-3):
 
     config               jaccard      f1  pr_auc  roc_auc
     -------------------------------------------------------
-    K=1                   0.0083  0.0163  0.1068   0.8590
-    K=3                   0.0075  0.0149  0.1432   0.8694
-    K=5                   0.0079  0.0157  0.0989   0.8576
-    hgnn=0                0.0079  0.0156  0.1277   0.8697
-    hgnn=1                0.0079  0.0156  0.1323   0.8699
-    hgnn=2                0.0082  0.0162  0.1081   0.8558
-    no auxiliary loss     0.0081  0.0160  0.1199   0.8610
-    no fidelity           0.0077  0.0153  0.1344   0.8628
-    no distinct           0.0084  0.0166  0.1242   0.8583
-    no alpha              0.0082  0.0162  0.1402   0.8685
-    full (all loss)       0.0082  0.0162  0.1134   0.8601
-    temp=0.5              0.0080  0.0159  0.1272   0.8678
-    temp=1.0              0.0080  0.0158  0.1145   0.8592
-    temp=2.0              0.0085  0.0168  0.1450   0.8691
+    K=1                   0.0339  0.0652  0.1732   0.7240
+    K=3                   0.0401  0.0762  0.1294   0.6905
+    K=5                   0.0402  0.0766  0.1533   0.7126
+    hgnn=0                0.0436  0.0827  0.1517   0.7067
+    hgnn=1                0.0413  0.0787  0.1398   0.6997
+    hgnn=2                0.0400  0.0759  0.1352   0.7142
+    no auxiliary loss     0.0426  0.0808  0.1671   0.7134
+    no fidelity           0.0420  0.0799  0.1422   0.6990
+    no distinct           0.0390  0.0743  0.1459   0.6905
+    no alpha              0.0408  0.0776  0.1429   0.6917
+    full (all loss)       0.0347  0.0666  0.1389   0.6881
+    temp=0.5              0.0408  0.0778  0.1265   0.7095
+    temp=1.0              0.0397  0.0757  0.1354   0.6961
+    temp=2.0              0.0411  0.0780  0.1431   0.6948
 """
 
 import random
 import numpy as np
 import torch
 
-from pyhealth.datasets import MIMIC4EHRDataset
+from pyhealth.datasets import MIMIC3Dataset
 from pyhealth.datasets.splitter import split_by_patient
 from pyhealth.datasets.utils import get_dataloader
 from pyhealth.models import SHy
-from pyhealth.tasks import DiagnosisPredictionMIMIC4
+from pyhealth.tasks import DiagnosisPredictionMIMIC3
 from pyhealth.trainer import Trainer
 
 # seed
@@ -67,7 +67,7 @@ def run_one(sample_dataset, train_loader, val_loader, test_loader, name, **kw):
     trainer.train(
         train_dataloader=train_loader,
         val_dataloader=val_loader,
-        epochs=5,
+        epochs=50,
         optimizer_params={"lr": 1e-3},
         monitor="pr_auc_samples",
         monitor_criterion="max",
@@ -80,17 +80,17 @@ def run_one(sample_dataset, train_loader, val_loader, test_loader, name, **kw):
 
 if __name__ == "__main__":
 
-    # -- load mimic-iv --
+    # -- load mimic-iii --
     # adjust path to local one
-    base_dataset = MIMIC4EHRDataset(
-        root="/path/to/mimic-iv/3.1",
-        tables=["diagnoses_icd"],
+    base_dataset = MIMIC3Dataset(
+        root="/path/to/mimic-iii/1.4",
+        tables=["DIAGNOSES_ICD"],
         dev=True,
     )
     base_dataset.stats()
 
     # -- set up task + splits --
-    task = DiagnosisPredictionMIMIC4()
+    task = DiagnosisPredictionMIMIC3()
     samples = base_dataset.set_task(task)
     print(f"got {len(samples)} samples total")
 

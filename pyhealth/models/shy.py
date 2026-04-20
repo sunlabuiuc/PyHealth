@@ -63,7 +63,10 @@ class UniGINConv(nn.Module):
             V: Node indices (COO format).
             E: Hyperedge indices in COO format.
         """
-        num_nodes, num_edges = X.shape[0], E.max().item() + 1
+        num_nodes = X.shape[0]
+        if E.numel() == 0:
+            return self.W((1 + self.eps) * X)
+        num_edges = E.max().item() + 1
 
         # nodes -> hyperedges (mean)
         edge_emb = _scatter_mean(X[V], E, num_edges)
@@ -261,8 +264,11 @@ class Decoder(nn.Module):
             out, hidden = self.gru(embed_input, hidden)
             pred = torch.sigmoid(self.W_output(out.squeeze(0).squeeze(0)))
             result.append(pred)
-            # Teacher forcing
-            prev_codes = H.T[t]
+            # Teacher forcing during training; use own predictions at eval
+            if self.training:
+                prev_codes = H.T[t]
+            else:
+                prev_codes = pred.detach()
 
         return torch.stack(result, dim=1)  # (num_codes, num_visits)
 
@@ -290,12 +296,13 @@ class Classifier(nn.Module):
 
     def forward(
         self, phenotype_embs: torch.Tensor
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Args:
             phenotype_embs: (batch, num_tp, hidden_dim) or (batch, hidden_dim).
 
         Returns:
             pred: Predicted probabilities (batch, num_codes).
+            logit: Pre-sigmoid logits (batch, num_codes).
             alpha: Phenotype importance weights (batch, num_tp).
         """
         if self.num_tp > 1:
@@ -309,12 +316,14 @@ class Classifier(nn.Module):
 
             # Weighted combination of attended phenotype embeddings
             combined = (attended * alpha.unsqueeze(-1)).sum(dim=-2)  # (batch, dim)
-            pred = torch.sigmoid(self.predict(combined))
-            return pred, alpha
+            logit = self.predict(combined)
+            pred = torch.sigmoid(logit)
+            return pred, logit, alpha
         else:
-            pred = torch.sigmoid(self.predict(phenotype_embs.squeeze(1)))
+            logit = self.predict(phenotype_embs.squeeze(1))
+            pred = torch.sigmoid(logit)
             alpha = torch.ones(phenotype_embs.shape[0], 1, device=pred.device)
-            return pred, alpha
+            return pred, logit, alpha
 
 
 class SHy(BaseModel):
@@ -328,6 +337,11 @@ class SHy(BaseModel):
         4. GRU + attention put phenotype to a vector
         5. Decoder reconstructs original hypergraph
         6. Classifier predicts next-visit diagnoses
+
+    Note:
+        This implementation processes samples sequentially in forward.
+        For large batches or datasets, consider batching via
+        block-diagonal hypergraph construction.
 
     Args:
         dataset: PyHealth SampleDataset.
@@ -368,7 +382,10 @@ class SHy(BaseModel):
         >>> loader = get_dataloader(dataset, batch_size=2, shuffle=True)
         >>> batch = next(iter(loader))
         >>> out = model(**batch)
-        >>> out["loss"]
+        >>> out["loss"].shape
+        torch.Size([])
+        >>> out["y_prob"].shape[1] == model.output_size
+        True
     """
 
     def __init__(
@@ -389,12 +406,10 @@ class SHy(BaseModel):
     ):
         super(SHy, self).__init__(dataset=dataset)
 
-        assert (
-            len(self.label_keys) == 1
-        ), "SHy supports exactly one label key (multilabel)"  # ["diagnoses"]
-        assert (
-            len(self.feature_keys) == 1
-        ), "SHy expects exactly one feature key (nested_sequence)"  # ["diagnoses_hist"]
+        if len(self.label_keys) != 1:
+            raise ValueError("SHy supports exactly one label key (multilabel)")
+        if len(self.feature_keys) != 1:
+            raise ValueError("SHy expects exactly one feature key (nested_sequence)")
 
         self.label_key = self.label_keys[0]
         self.feature_key = self.feature_keys[0]
@@ -455,10 +470,12 @@ class SHy(BaseModel):
         """
         num_visits = codes.shape[0]
         H = torch.zeros(self.vocab_size, num_visits, device=codes.device)
-        for j in range(num_visits):
-            valid = codes[j][codes[j] > 0].clamp(max=self.vocab_size - 1)
-            if valid.numel() > 0:
-                H[valid.long(), j] = 1.0
+        visit_idx = torch.arange(num_visits, device=codes.device)
+        visit_idx = visit_idx.unsqueeze(1).expand_as(codes)
+        mask = codes > 0
+        rows = codes[mask].clamp(max=self.vocab_size - 1).long()
+        cols = visit_idx[mask]
+        H[rows, cols] = 1.0
         return H
 
     def _run_hgnn(
@@ -508,12 +525,21 @@ class SHy(BaseModel):
             pred.clamp(1e-9, 1 - 1e-9), y_true.float(), weight=weight
         )
 
-        # 2. Fidelity loss: reconstruction
+        # 2. Fidelity loss: reconstruction (reweighted like prediction loss)
         if recon_list:
-            fidelity = sum(
-                F.binary_cross_entropy(r.clamp(1e-9, 1 - 1e-9), h.float())
-                for r, h in zip(recon_list, H_list)
-            ) / len(recon_list)
+            fid_losses = []
+            for r, h in zip(recon_list, H_list):
+                h_f = h.float()
+                n_pos = h_f.sum().clamp(min=1.0)
+                n_neg = (h_f.numel() - n_pos).clamp(min=1.0)
+                pos_w = n_neg / n_pos
+                w = torch.where(h_f > 0.5, pos_w, torch.ones_like(h_f))
+                fid_losses.append(
+                    F.binary_cross_entropy(
+                        r.clamp(1e-9, 1 - 1e-9), h_f, weight=w
+                    )
+                )
+            fidelity = sum(fid_losses) / len(fid_losses)
             loss = loss + self.fidelity_weight * fidelity
 
         # 3. Distinctness loss
@@ -549,6 +575,7 @@ class SHy(BaseModel):
         X = self.code_embedding(torch.arange(self.vocab_size, device=self.device))
 
         tp_list, recon_list, H_list, latent_list = [], [], [], []
+        valid_mask = []
 
         for i in range(batch_size):
             H = self._build_incidence_matrix(codes_batch[i]).to(self.device)
@@ -560,6 +587,7 @@ class SHy(BaseModel):
                     else torch.zeros(self.hidden_dim, device=self.device)
                 )
                 latent_list.append(zero)
+                valid_mask.append(False)
                 continue
 
             tp_mats, tp_embs = self._encode_patient(X, H)
@@ -567,17 +595,25 @@ class SHy(BaseModel):
             latent_list.append(tp_embs)
             H_list.append(H)
             recon_list.append(self.decoder(tp_embs, H.shape[1], H, X))
+            valid_mask.append(True)
 
         # Classify: phenotype embeddings -> diagnosis prediction
         stacked = torch.stack(latent_list)  # (batch, K, hidden) / (batch, hidden)
         if self.num_tp > 1 and stacked.dim() == 2:
             stacked = stacked.unsqueeze(1)
-        pred, alphas = self.classifier(stacked)
+        pred, logit, alphas = self.classifier(stacked)
 
         # Labels
         y_true = kwargs[self.label_key].to(self.device).float()
 
-        # Multi-objective loss
-        loss = self._compute_loss(pred, y_true, tp_list, recon_list, H_list, alphas)
+        # Exclude empty-history samples from loss computation
+        valid = torch.tensor(valid_mask, device=self.device)
+        if valid.any():
+            loss = self._compute_loss(
+                pred[valid], y_true[valid],
+                tp_list, recon_list, H_list, alphas[valid],
+            )
+        else:
+            loss = torch.tensor(0.0, device=self.device, requires_grad=True)
 
-        return {"loss": loss, "y_prob": pred, "y_true": y_true, "logit": pred}
+        return {"loss": loss, "y_prob": pred, "y_true": y_true, "logit": logit}
