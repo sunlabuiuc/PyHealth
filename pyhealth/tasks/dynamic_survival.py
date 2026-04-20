@@ -45,6 +45,9 @@ def build_daily_time_series_from_df(patient):
     It extracts relevant medical events and aggregates them into
     daily time steps.
 
+    Called by :func:`build_daily_time_series` when the patient object
+    exposes a ``data_source`` attribute.
+
     Args:
         patient (Any): A PyHealth patient object with a dataframe
             stored in `patient.data_source`.
@@ -136,6 +139,10 @@ def build_daily_time_series_from_df(patient):
 def build_daily_time_series(patient) -> List[Dict[str, Any]]:
     """
     Convert patient events into a daily time series.
+
+    Called by :meth:`DynamicSurvivalTask.__call__` and
+    :meth:`DynamicSurvivalTask.build_vocab` to normalise any patient
+    format into a flat list of daily visit dicts before feature encoding.
 
     Args:
         patient: Patient object with visits and event lists.
@@ -509,21 +516,25 @@ class DynamicSurvivalTask(BaseTask):
 
     def build_vocab(self, dataset) -> Tuple[Dict, Dict, Dict]:
         """Build code vocabularies from a dataset for feature encoding.
-    
+
         Iterates over patients in the dataset to collect all unique
         diagnosis, procedure, and drug codes, then constructs index
         mappings used by encode_multi_hot().
-    
+
+        Called by :meth:`__init__` immediately after the engine is
+        constructed, so vocabularies are ready before any patient is
+        processed.
+
         Note: To keep initialization fast during development, vocabulary
         construction is capped at the first 6 patients. For production
         use with a full dataset, remove the cap or pass dev=True on the
         dataset to limit patient count upstream.
-    
+
         Args:
             dataset: Dataset object supporting either iter_patients()
                 (PyHealth datasets) or a patients dict attribute
                 (MockDataset).
-    
+
         Returns:
             Tuple of (diag_vocab, proc_vocab, drug_vocab), each a dict
             mapping code strings to integer indices.
@@ -558,6 +569,10 @@ class DynamicSurvivalTask(BaseTask):
     def encode_multi_hot(self, codes: List[str], vocab: Dict[str, int]) -> np.ndarray:
         """Encode a list of codes as a multi-hot vector using a vocabulary.
 
+        Called by :meth:`__call__` for each visit to convert diagnosis,
+        procedure, and drug code lists into fixed-length binary feature
+        vectors before concatenation into the sample's feature matrix.
+
         Args:
             codes: List of code strings to encode (e.g. ICD codes, NDC codes).
             vocab: Dictionary mapping code strings to integer indices.
@@ -576,6 +591,11 @@ class DynamicSurvivalTask(BaseTask):
     def __call__(self, patient) -> List[Dict[str, Any]]:
         """
         Convert a patient into dynamic survival samples.
+
+        This is the primary entry point called by ``dataset.set_task(task)``
+        for every patient in the dataset. It dispatches to the appropriate
+        processing path based on the patient's type, then delegates to
+        :meth:`DynamicSurvivalEngine.process_patient`.
 
         This function supports three types of patient inputs:
         1. Mock patients with visit dictionaries

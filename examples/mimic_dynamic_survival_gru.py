@@ -39,7 +39,6 @@ from pyhealth.tasks.dynamic_survival import DynamicSurvivalTask
 
 from examples.synthetic_dataset import generate_synthetic_dataset
 
-# Seed (reproducibility)
 np.random.seed(42)
 torch.manual_seed(42)
 random.seed(42)
