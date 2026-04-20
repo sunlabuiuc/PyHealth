@@ -327,8 +327,7 @@ To test additional physiological signals:
 
 ## References
 
-- Wav2Sleep Paper: [Citation]
-- PyHealth Documentation: [Link]
+- Wav2Sleep Paper: [[Citation](https://arxiv.org/abs/2411.04644)]
 - Sleep Staging Standards: AASM Guidelines
 
 ---
