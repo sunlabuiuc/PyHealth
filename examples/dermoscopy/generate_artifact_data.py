@@ -28,6 +28,7 @@ from pathlib import Path
 from diffusers import StableDiffusionInpaintPipeline
 
 from pyhealth.datasets import DermoscopyDataset
+from pyhealth.tasks import DermoscopyMelanomaClassification
 
 from train_dermoscopy import setup_dynamic_logging
 
@@ -54,7 +55,7 @@ def main():
     parser.add_argument('--source_dataset', type=str, default="ph2", help="Which base dataset to inject artifacts into (e.g., ph2)")
     parser.add_argument('--artifact_type', type=str, choices=list(ARTIFACT_MAP.keys()), required=True)
     parser.add_argument('--log_dir', type=str, default=None, help="Parent log directory to save session output logs (defaults to dermoscopy_logs in home directory)")
-    parser.add_argument('--lora_weights_dir', type=str, default=None, help="Directory of trained LoRAs")
+    parser.add_argument('--lora_weights_dir', type=str, default=None, help="Parent directory of trained LoRAs  (defaults to artifact_loras_weights in home directory)")
     args = parser.parse_args()
 
     run_details = f"{args.source_dataset}_with_{args.artifact_type}"
@@ -80,6 +81,9 @@ def main():
     # Initialize PyHealth Dataset (Handles caching and metadata aggregation automatically)
     print(f"[*] Initializing PyHealth Dataset to load {args.source_dataset} metadata...")
     dataset = DermoscopyDataset(root=args.data_dir, datasets=[args.source_dataset])
+
+    task = DermoscopyMelanomaClassification()
+    task_dataset = dataset.set_task(task)
     
     # Setup the output directory structure specifically for dermoscopy.py's `_prepare_trap_set`
     trap_set_name = f"{args.source_dataset}_with_{args.artifact_type}"
@@ -102,7 +106,7 @@ def main():
     generated_metadata = []
 
     # Generate the Trap Set by iterating through the dermoscopy dataset samples
-    for sample in dataset.samples:
+    for sample in task_dataset.samples:
         patient_id = sample["patient_id"]
         img_path = sample["image_path"]
         mask_path = sample["mask_path"]
