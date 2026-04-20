@@ -69,7 +69,6 @@ class PTBXLDataset(BaseDataset):
 		self.dev = dev
 
 		# Determine the root path, where most of the data is stored
-		self.data_path: str = os.path.join(root, "ptb_xl_processed_final.zip")
 		self.root = root
 
 		# Determine signal path, where to fetch the signal samples
@@ -113,13 +112,14 @@ class PTBXLDataset(BaseDataset):
 	"""
 	def _download(self, download) -> None:
 		if download:
+			data_path: str = os.path.join(self.root, "ptb_xl_processed_final.zip")
 			zip_id = "1btbPiHEOUBLNLfUYkLnKzs50ZTmgqdI2"
 			response = requests.get(
 				f"https://drive.google.com/uc?export=download&id={zip_id}")
-			with open(self.data_path, "wb") as file:
+			with open(data_path, "wb") as file:
 				file.write(response.content)
 
-			with zipfile.ZipFile(self.data_path, "r") as z:
+			with zipfile.ZipFile(data_path, "r") as z:
 				z.extractall(self.root)
 
 	"""
