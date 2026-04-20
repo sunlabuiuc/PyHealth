@@ -39,6 +39,7 @@ Author:
 
 import logging
 import os
+import shutil
 from functools import wraps
 from pathlib import Path
 from typing import Dict, List, Optional, Any
@@ -123,29 +124,54 @@ class DermoscopyDataset(BaseDataset):
         num_workers: int = 4,
         dev: bool = False,
     ) -> None:
-        # Keeps default logic, but removes the strict ValueError 
-        # that prevents loading synthetic Trap Sets like 'ph2_with_ruler'.
+
+        # Allows synthetic Trap Sets to pass through initialization
         if datasets is None:
             self.available_datasets = list(self.SUPPORTED_DATASETS)
         else:
+            # Strict validation check for typos or unsupported datasets
+            for ds in datasets:
+                base_ds = ds.split("_with_")[0] if "_with_" in ds else ds
+                if base_ds not in self.SUPPORTED_DATASETS:
+                    raise ValueError(
+                        f"Unsupported dataset: '{ds}'. Base dataset must be one of {self.SUPPORTED_DATASETS}. "
+                        "For trap sets, use the format '<base_dataset>_with_<artifact>' (e.g., 'ph2_with_ruler')."
+                    )
             self.available_datasets = datasets
 
         if config_path is None:
             logger.info("No config path provided, using default config")
             config_path = Path(__file__).parent / "configs" / "dermoscopy.yaml"
 
+        # Write the CSV based on the active datasets
         self.prepare_metadata(root)
 
-        default_tables = ["dermoscopy"]
+        # Initialize PyHealth
+        # By keeping dataset_name constant (or falling back to "dermoscopy"),
+        # All of the runs will hashed to a single unified UUID folder.
         super().__init__(
             root=root,
-            tables=default_tables,
+            tables=["dermoscopy"],
             dataset_name=dataset_name or "dermoscopy",
             config_path=config_path,
             cache_dir=cache_dir,
             num_workers=num_workers,
             dev=dev,
         )
+
+        # self.cache_dir is now resolved by PyHealth. 
+        # Wipe the parquet index so it re-reads the freshly written CSV,
+        # but leave the heavy `tasks/` folder untouched.
+        target_parquet = self.cache_dir / "global_event_df.parquet"
+        if target_parquet.exists():
+            try:
+                if target_parquet.is_dir():
+                    shutil.rmtree(target_parquet)
+                else:
+                    os.remove(target_parquet)
+                logger.info(f"Cleared old event cache at {target_parquet} to force CSV reload.")
+            except OSError:
+                pass
 
     def prepare_metadata(self, root: str) -> None:
         """Prepare unified metadata CSV from all enabled sub-datasets.
@@ -159,18 +185,17 @@ class DermoscopyDataset(BaseDataset):
         """
         all_frames = []
 
-        # Loop through dynamic datasets instead of hardcoding 3 IF statements.
+        # Route synthetic datasets to the trap set parser
         for ds in self.available_datasets:
             if ds in ["isic2018", "ham10000"]:
                 df = self._prepare_isic_ham(root, ds)
             elif ds == "ph2":
                 df = self._prepare_ph2(root)
-            elif ds.startswith("ph2_with_"):
-                # Route synthetic datasets to our new helper function
+            elif "_with_" in ds:
                 df = self._prepare_trap_set(root, ds) 
             else:
                 df = None
-                
+
             if df is not None:
                 all_frames.append(df)
 
