@@ -4,7 +4,7 @@ PyHealth dataset for the CheXpert Plus dataset.
 Dataset link:
     https://stanfordaimi.azurewebsites.net/datasets/5158c524-d3ab-4e02-96e9-6ee9efc110a1
 
-Dataset paper: (please cite if you use this dataset)
+Dataset paper:
     Chambon, P., et al. "CheXpert Plus: Augmenting a Large Chest X-ray Dataset with
     Text Radiology Reports, Patient Demographics and Additional Image Format."
     arXiv:2405.19111 (2024).
@@ -12,7 +12,7 @@ Dataset paper: (please cite if you use this dataset)
 Dataset paper link:
     https://arxiv.org/abs/2405.19111
 
-ReXKG paper: (please also cite if you use this module for KG extraction)
+ReXKG paper:
     Li, Z., et al. "ReXKG: A Structured Radiology Report Knowledge Graph for
     Chest X-ray Analysis." arXiv:2408.14397 (2024).
 

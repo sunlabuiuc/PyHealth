@@ -121,7 +121,6 @@ class _SpanNERHead(nn.Module):
         width = spans[:, :, 2]      # (B, S)
 
         batch_size, seq_len, hidden = sequence_output.size()
-        # Apply hidden dropout before span construction (matches original PURE)
         seq = self.hidden_dropout(sequence_output)
         start_rep = seq[
             torch.arange(batch_size).unsqueeze(1), start_idx
@@ -195,7 +194,7 @@ class _PairwiseRelationHead(nn.Module):
                 )
                 continue
 
-            # Use the start token of each entity span (matches original PURE sub_idx/obj_idx)
+            # start token of each entity span → subject/object representation
             span_reps = torch.stack(
                 [sequence_output[i, start] for start, _end in spans]
             )  # (E, H)
@@ -236,7 +235,7 @@ class ReXKGModel(BaseModel):
     * **Encoder**: pre-trained BERT (``bert-base-uncased`` by default).
     * **NER head**: span representation (start + end + width embedding) fed
       through a two-layer MLP → entity-type logits.
-    * **RE head**: average-pooled entity pair representation fed through a
+    * **RE head**: start-token entity pair representation fed through a
       two-layer MLP → relation-type logits.
     * **KG builder**: entity merging + deduplication + size-relation
       extraction → JSON-serialisable KG.
