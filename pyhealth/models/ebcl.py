@@ -78,29 +78,12 @@ class EBCL(BaseModel):
         self.pos_embedding = nn.Parameter(torch.zeros(1, max_seq_len, hidden_dim))
         self.input_dropout = nn.Dropout(dropout)
 
-        encoder_layer = nn.TransformerEncoderLayer(
-            d_model=hidden_dim,
-            nhead=num_heads,
-            dim_feedforward=ff_dim,
-            dropout=dropout,
-            activation="gelu",
-            batch_first=True,
-            norm_first=True,
-        )
-        self.encoder = nn.TransformerEncoder(
-            encoder_layer,
-            num_layers=num_layers,
-            norm=nn.LayerNorm(hidden_dim),
-        )
+        encoder_layer = nn.TransformerEncoderLayer(d_model=hidden_dim,nhead=num_heads,dim_feedforward=ff_dim,dropout=dropout,activation="gelu",batch_first=True,norm_first=True,)
+        self.encoder = nn.TransformerEncoder(encoder_layer,num_layers=num_layers,norm=nn.LayerNorm(hidden_dim),)
 
         self.pooler = AttentionPooling(hidden_dim)
 
-        self.projection_head = nn.Sequential(
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(hidden_dim, projection_dim),
-        )
+        self.projection_head = nn.Sequential(nn.Linear(hidden_dim, hidden_dim),nn.GELU(), nn.Dropout(dropout),nn.Linear(hidden_dim, projection_dim),)
 
         self.classifier: Optional[nn.Module]
         if classifier_out_dim > 0:
