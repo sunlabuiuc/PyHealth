@@ -1,10 +1,13 @@
-"""Span-level evaluation metrics for the ReXKG NER and RE tasks.
+"""Surface-level evaluation metrics for the ReXKG NER and RE tasks.
 
-Entity F1: an entity is correct if its span (start, end) AND type both match
-the gold annotation exactly.
+Entity F1: an entity is correct if its surface text AND type both match
+the gold annotation exactly (case-insensitive).
 
-Relation F1: a relation is correct if the subject span, object span, AND
-relation type all match the gold annotation exactly (relation direction matters).
+Relation F1: a relation is correct if the subject text, object text, AND
+relation type all match the gold annotation exactly (case-insensitive).
+
+This text-based matching avoids tokenisation-index mismatches when comparing
+BERT-subword model output against word-tokenised gold annotations.
 """
 
 from typing import Dict, List, Tuple
@@ -27,8 +30,8 @@ def _entity_f1(
     """
     tp = fp = fn = 0
     for pred_doc, gold_doc in zip(pred, gold):
-        pred_set = {(e["start"], e["end"], e["type"]) for e in pred_doc}
-        gold_set = {(e["start"], e["end"], e["type"]) for e in gold_doc}
+        pred_set = {(e["text"].lower(), e["type"]) for e in pred_doc}
+        gold_set = {(e["text"].lower(), e["type"]) for e in gold_doc}
         tp += len(pred_set & gold_set)
         fp += len(pred_set - gold_set)
         fn += len(gold_set - pred_set)
@@ -64,8 +67,8 @@ def _relation_f1(
     for pred_doc, gold_doc in zip(pred, gold):
         def _rel_key(r: Dict) -> Tuple:
             return (
-                r["subject"]["start"], r["subject"]["end"],
-                r["object"]["start"],  r["object"]["end"],
+                r["subject"]["text"].lower(),
+                r["object"]["text"].lower(),
                 r["relation"],
             )
 

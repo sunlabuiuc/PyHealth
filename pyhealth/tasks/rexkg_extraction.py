@@ -26,20 +26,21 @@ from pyhealth.tasks import BaseTask
 logger = logging.getLogger(__name__)
 
 # NER labels used by the ReXKG PURE-based extractor (task: mimic01).
-# These match the label set in src/ner/shared/const.py.
+# Order must match src/ner/shared/const.py task_ner_labels['mimic01']
+# so that checkpoint label IDs align correctly.
 NER_LABELS: List[str] = [
-    "Anatomy",
-    "Observation",
-    "Abnormality",
-    "Device",
-    "Descriptor",
-    "Severity",
-    "Size",
-    "Uncertainty",
+    "size",
+    "anatomy",
+    "disorder_present",
+    "disorder_notpresent",
+    "concept",
+    "procedures",
+    "devices_present",
+    "devices_notpresent",
 ]
 
-# Relation types produced by the ReXKG relation extractor.
-RELATION_TYPES: List[str] = ["located_at", "modify", "measure"]
+# Relation types (task: mimic01) — must match const.py task_rel_labels['mimic01'].
+RELATION_TYPES: List[str] = ["located_at", "suggestive_of", "modify"]
 
 
 class RadiologyKGExtractionTask(BaseTask):
