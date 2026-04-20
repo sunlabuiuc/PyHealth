@@ -19,11 +19,7 @@ def set_seed(seed: int = 42) -> None:
     torch.manual_seed(seed)
 
 
-def build_synthetic_samples(
-    num_samples: int = 128,
-    seq_len: int = 16,
-    input_dim: int = 16,
-) -> List[Dict]:
+def build_synthetic_samples(num_samples: int = 128, seq_len: int = 16, input_dim: int = 16,) -> List[Dict]:
     """Build synthetic pre/post-event EHR-like samples."""
     samples: List[Dict] = []
     for i in range(num_samples):
@@ -41,22 +37,10 @@ def build_synthetic_samples(
     return samples
 
 
-def build_dataset(
-    num_samples: int = 128,
-    seq_len: int = 16,
-    input_dim: int = 16,
-) -> SampleEHRDataset:
+def build_dataset(num_samples: int = 128,seq_len: int = 16, input_dim: int = 16,) -> SampleEHRDataset:
     """Builds a synthetic dataset for the experiment."""
-    samples = build_synthetic_samples(
-        num_samples=num_samples,
-        seq_len=seq_len,
-        input_dim=input_dim,
-    )
-    dataset = SampleEHRDataset(
-        samples=samples,
-        dataset_name="synthetic_ebcl",
-        task_name="event_contrastive_pretraining",
-    )
+    samples = build_synthetic_samples(num_samples=num_samples, seq_len=seq_len,input_dim=input_dim,)
+    dataset = SampleEHRDataset(samples=samples,dataset_name="synthetic_ebcl", task_name="event_contrastive_pretraining",)
     return dataset
 
 
@@ -78,23 +62,11 @@ def train_one_setting(
     hidden_dim: int = 32,
     epochs: int = 5,
     lr: float = 1e-3,
-    batch_size: int = 16,
-) -> float:
+    batch_size: int = 16,) -> float:
     """Trains EBCL with one set of hyperparameters."""
-    loader = DataLoader(
-        dataset,
-        batch_size=batch_size,
-        shuffle=True,
-        collate_fn=collate_fn,
-    )
+    loader = DataLoader(dataset, batch_size=batch_size,shuffle=True, collate_fn=collate_fn, )
 
-    model = EBCL(
-        dataset=dataset,
-        input_dim=16,
-        hidden_dim=hidden_dim,
-        projection_dim=projection_dim,
-        temperature=temperature,
-    )
+    model = EBCL(dataset=dataset, input_dim=16, hidden_dim=hidden_dim, projection_dim=projection_dim, temperature=temperature,)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
@@ -104,12 +76,7 @@ def train_one_setting(
         epoch_loss = 0.0
         for batch in loader:
             optimizer.zero_grad()
-            out = model(
-                left_x=batch["left_x"],
-                right_x=batch["right_x"],
-                left_mask=batch["left_mask"],
-                right_mask=batch["right_mask"],
-            )
+            out = model(left_x=batch["left_x"],right_x=batch["right_x"],left_mask=batch["left_mask"], right_mask=batch["right_mask"],)
             loss = out["loss"]
             loss.backward()
             optimizer.step()
@@ -117,10 +84,7 @@ def train_one_setting(
 
         avg_loss = epoch_loss / len(loader)
         history.append(avg_loss)
-        print(
-            f"[temp={temperature}, proj={projection_dim}] "
-            f"epoch={epoch + 1}, loss={avg_loss:.4f}"
-        )
+        print(f"[temp={temperature}, proj={projection_dim}] " f"epoch={epoch + 1}, loss={avg_loss:.4f}")
 
     return history[-1]
 
@@ -156,11 +120,7 @@ def main() -> None:
 
     print("\n=== Ablation Summary (lower is better) ===")
     for cfg, final_loss in results:
-        print(
-            f"temperature={cfg['temperature']}, "
-            f"projection_dim={cfg['projection_dim']} -> "
-            f"final_loss={final_loss:.4f}"
-        )
+        print(f"temperature={cfg['temperature']}, "f"projection_dim={cfg['projection_dim']} -> "f"final_loss={final_loss:.4f}")
 
 
 if __name__ == "__main__":
