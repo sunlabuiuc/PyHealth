@@ -46,4 +46,4 @@ from .sdoh import SdohClassifier
 from .medlink import MedLink
 from .unified_embedding import UnifiedMultimodalEmbeddingModel, SinusoidalTimeEmbedding
 from .califorest import CaliForest
-from pyhealth.models.dila import DILA
+from .dila import DILA
