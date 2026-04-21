@@ -183,9 +183,9 @@ class TUSZHelper:
         """Segments signals into feature frames.
         
         Final shapes of returning values for default parameters:
-            sliced_raws: [(19, 6000), (19, 6000)] shape=(2, 19, 6000)
-            sliced_labels: shape=(2, 1500)
-            label_names: shape=(2, 1)
+            sliced_raws: [(19, 6000), (19, 6000), ..., (19, 6000)] shape=(num_segments, 19, 6000)
+            sliced_labels: shape=(num_segments, 1500)
+            label_names: shape=(num_segments, 1)
         """
         raw_data = torch.Tensor(np.array(signals)).permute(1,0).to(torch.float16)
 

@@ -21,6 +21,41 @@ import torch
 from torch import nn
 
 class PsdFeatureExtractor(nn.Module):
+    """Frequency Bands feature extractor for EEG classification.
+
+    The Frequency Bands with STFT extracts averaged features with 7 predetermined frequency bands.
+
+    Pipeline:
+        1. Transform input with STFT.
+        2. Extract features using 7 frequency bands.
+        3. Stack the results.
+
+    Args:
+        sample_rate (int):
+            The required sample rate. Default to 200.
+
+        frame_length (int):
+            The window size for signals. Default to 16.
+
+        frame_shift (int):
+            The window shift for signals. Default to 8.
+
+        feature_extract_by (str):
+            Use 'kaldi' if the platform is linux or darwin. Default to 'kaldi'.
+
+    Examples:
+        >>> class TestModel(BaseModel):
+        ...     def __init__():
+        ...         self.feature_extractor = FEATURE_EXTRACTORS['psd']
+        ...
+        ...     def forward(self, x: torch.Tensor):
+        ...         output = self.feature_extractor(x)
+        ...         return output
+        >>>
+        >>> model = TestModel()
+        >>>
+        >>> logits, _ = model(x)
+    """
     def __init__(self,
             sample_rate: int = 200,
             frame_length: int = 16,
@@ -50,9 +85,18 @@ class PsdFeatureExtractor(nn.Module):
         )
         
     def psd(self, amp, begin, end):
+        """Returns calculation for psd."""
         return torch.mean(amp[begin*self.freq_resolution:end*self.freq_resolution], 0)
         
     def forward(self, batch):
+        """Forward propagation.
+
+        Args:
+            x: input tensor of shape [batch size, channels, sequence length].
+
+        Returns:
+            output: stacked input of shape [batch_size, channels, 7 (frequency bins), time_frames].
+        """
         psds_batch = []
 
         for signals in batch:
@@ -119,6 +163,42 @@ ORDER2D = {
 }
 
 class FeatureExtractorManager:
+    """Manager for any feature-extractor-related tasks in EEG classification.
+
+    This class manages the initializations and setups for each feature extractor.
+    It allows for easy recombination between feature extractors and different models.
+
+    Args:
+        encoder,
+        output_dim: int = 1,
+        model (str):
+            Model type is required to determine the cnn sequence for feature extractor.
+            Supported types: CNN_LSTM, RESNET_LSTM
+
+        encoder (str):
+            Encoder type is required to determine the class of feature extractor, input transformation, 
+            and the order and size of input, output, kernels, strides, and paddings in cnn.
+            Supported types: RAW, PSD
+        
+        output_dim (int):
+            The dimension of outputs for referencing in the subsequent steps.
+
+    Examples:
+        >>> self.feature_manager = FeatureExtractorManager(model=CNN_LSTM, encoder=self.encoder)
+        >>> self.feature_extractor = self.feature_manager.get_feature_extractor()
+        >>> self.feature_transformer = self.feature_manager.transform_features
+        >>> self.feature_extractor_cnn = self.feature_manager.get_feature_extractor_cnn(
+        ...     activation        = self.activation,
+        ...     dropout           = self.dropout,
+        ... )
+        >>> self.lstm = nn.LSTM(
+        ...         input_size=self.feature_manager.output_dim,
+        ...         hidden_size=self.hidden_dim,
+        ...         num_layers=self.num_layers,
+        ...         batch_first=True,
+        ...         dropout=dropout
+        ... )
+    """
     def __init__(
         self,
         model,
@@ -130,6 +210,7 @@ class FeatureExtractorManager:
         self.output_dim = output_dim
 
     def get_feature_extractor(self):
+        """Returns feature extractor class."""
         return FEATURE_EXTRACTORS[self.encoder]
 
     def get_feature_extractor_cnn(
@@ -137,6 +218,7 @@ class FeatureExtractorManager:
         activation,
         dropout,
     ):
+        """Returns layers of CNN and MaxPool according to the model and encoder types."""
         layers = []
         conv_count = 1
         conv2d_pms = CONV2D[self.encoder]
@@ -171,6 +253,7 @@ class FeatureExtractorManager:
         activation,
         dropout,
     ):
+        """Returns the combination of CNN according to the model type."""
         if self.model == CNN_LSTM:
             return nn.Sequential(
                 nn.Conv2d(in_channel, out_channel, kernel_size=kernel_size, stride=stride, padding=padding),
@@ -186,6 +269,7 @@ class FeatureExtractorManager:
             )
 
     def transform_features(self, x):
+        """Transform features according to the encoder type."""
         if self.encoder == RAW:
             return x.unsqueeze(1)
         elif self.encoder == PSD:
