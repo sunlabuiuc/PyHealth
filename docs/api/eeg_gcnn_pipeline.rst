@@ -107,6 +107,9 @@ Path A — Raw inputs
     who have an underlying neurological condition. Only the ``normal`` split
     is used. Files are EDF format with ``EEG X-REF`` channel naming.
 
+    Download: `TUH EEG Abnormal Corpus <https://www.isip.piconepress.com/projects/tuh_eeg/downloads/tuh_eeg_abnormal/>`_
+    (requires `registration <https://www.isip.piconepress.com/projects/tuh_eeg/html/request_access.php>`_).
+
     Directory layout::
 
         <root>/tuab/train/normal/01_tcp_ar/*.edf
@@ -115,6 +118,12 @@ Path A — Raw inputs
 **LEMON — MPI Leipzig Mind-Body-Emotion Interactions (raw, label 1 = healthy class)**
     EEG recordings from fully healthy volunteers with no neurological history.
     BrainVision format (``*.eeg`` + ``*.vhdr`` + ``*.vmrk``).
+
+    Download: `MPI LEMON <http://fcon_1000.projects.nitrc.org/indi/retro/MPI_LEMON.html>`_
+    (no registration needed). Alternatively use the provided download script::
+
+        python download_lemon.py          # all 213 subjects
+        python download_lemon.py --n 10   # first 10 subjects only
 
     Directory layout::
 
