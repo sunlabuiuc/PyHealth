@@ -461,18 +461,18 @@ def simulation_4(
 
 
 if __name__ == "__main__":
-    print("=" * 60)
-    print("Reproducing Kaul & Gordon (2024) Simulations 1-4 on PMLB")
-    print("=" * 60)
-
-    print("\n>>> Simulation 1 (width vs n)")
-    sim1 = simulation_1()
-
-    print("\n>>> Simulation 2 (coverage vs effect noise)")
-    sim2 = simulation_2()
-
-    print("\n>>> Simulation 3 (eta=0 vs eta>0)")
-    sim3 = simulation_3()
+    # print("=" * 60)
+    # print("Reproducing Kaul & Gordon (2024) Simulations 1-4 on PMLB")
+    # print("=" * 60)
+    #
+    # print("\n>>> Simulation 1 (width vs n)")
+    # sim1 = simulation_1()
+    #
+    # print("\n>>> Simulation 2 (coverage vs effect noise)")
+    # sim2 = simulation_2()
+    #
+    # print("\n>>> Simulation 3 (eta=0 vs eta>0)")
+    # sim3 = simulation_3()
 
     print("\n>>> Simulation 4 (width vs prior error)")
     sim4 = simulation_4()
