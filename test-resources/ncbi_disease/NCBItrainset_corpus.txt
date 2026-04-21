@@ -1,0 +1,15 @@
+
+1001|t|Asthma
+1001|a|Asthma worsens quickly.
+1001	0	6	Asthma	SpecificDisease	D001249
+1001	7	13	Asthma	SpecificDisease	D001249
+
+1002|t|Cancer trial
+1002|a|Lung cancer responds to therapy.
+1002	0	6	Cancer	DiseaseClass	D009369
+1002	13	24	Lung cancer	SpecificDisease	D002283
+
+1002|t|Cancer trial follow-up
+1002|a|Metastatic cancer relapsed.
+1002	0	6	Cancer	DiseaseClass	D009369
+1002	34	40	cancer	SpecificDisease	D009369

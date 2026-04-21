@@ -58,6 +58,7 @@ from .hallmarks_of_cancer import HallmarksOfCancerDataset
 from .eicu import eICUDataset
 from .isruc import ISRUCDataset
 from .medical_transcriptions import MedicalTranscriptionsDataset
+from .ncbi_disease import NCBIDiseaseDataset
 from .mimic3 import MIMIC3Dataset
 from .mimic4 import MIMIC4CXRDataset, MIMIC4Dataset, MIMIC4EHRDataset, MIMIC4NoteDataset
 from .mimicextract import MIMICExtractDataset
