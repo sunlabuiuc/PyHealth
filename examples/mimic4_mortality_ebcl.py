@@ -1,13 +1,17 @@
-"""EBCL ablation script using synthetic EHR-like samples."""
-from __future__ import annotations
+"""
+Runs an EBCL ablation study on synthetic EHR-like data.
 
+This script generates paired temporal sequences, trains the EBCL model with
+different hyperparameters (temperature, projection dimension), and compares
+final contrastive losses to understand model behavior.
+"""
+
+from __future__ import annotations
 import random
 from typing import Dict, List, Tuple
-
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
-
 from pyhealth.datasets.sample_dataset import SampleEHRDataset
 from pyhealth.models.ebcl import EBCL
 

@@ -1,4 +1,10 @@
-"""EBCL model for event-based contrastive learning on time-series data."""
+"""
+EBCL model for contrastive learning on paired time-series data.
+
+Encodes pre/post event sequences using a Transformer + attention pooling,
+learns embeddings via contrastive loss, and optionally supports supervised
+prediction with a classifier head.
+"""
 
 from __future__ import annotations
 

@@ -1,4 +1,9 @@
-"""Tests for EBCL model."""
+"""
+Basic unit tests for the EBCL model.
+
+Covers initialization, forward pass outputs, loss computation, masking behavior,
+classifier support, and gradient flow using small synthetic batches.
+"""
 
 import torch
 
