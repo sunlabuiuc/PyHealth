@@ -197,6 +197,10 @@ class Wav2SleepTrainer(BaseTrainer):
         best_val_loss = float("inf")
         patience_counter = 0
 
+        # Print header for per-epoch progress
+        logger.info("\nEpoch | Train Loss | Val Loss | Val Accuracy")
+        logger.info("-" * 50)
+
         for epoch in range(epochs):
             # Training phase
             self.model.train()
@@ -278,9 +282,17 @@ class Wav2SleepTrainer(BaseTrainer):
                     if patience_counter >= patience:
                         break
 
+            # Log per-epoch progress
+            train_loss_str = f"{history['train_loss'][-1]:.6f}" if history["train_loss"] else "N/A"
+            val_loss_str = f"{history['val_loss'][-1]:.6f}" if history["val_loss"] else "N/A"
+            val_acc_str = f"{history['val_accuracy'][-1]:.4f}" if history["val_accuracy"] else "N/A"
+            logger.info(f"{epoch+1:5d} | {train_loss_str:>10} | {val_loss_str:>8} | {val_acc_str:>12}")
+
             # Save checkpoint
             if self.exp_path is not None:
                 self.save_checkpoint(os.path.join(self.exp_path, "last.pt"))
+
+        logger.info("-" * 50 + "\n")
 
         # Load best model if available
         if self.exp_path is not None and os.path.isfile(

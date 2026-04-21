@@ -15,36 +15,72 @@ requirements:
 5. **Evaluation**: Cross-modal evaluation showing model robustness
 6. **Reproducibility**: Seed control, configurable subset sizes
 
-**Paper Reference:**
-Jonathan F. Carter & Lionel Tarassenko. "wav2sleep: A Unified Multi-Modal
-Approach to Sleep Stage Classification from Physiological Signals."
-arXiv:2411.04644, 2024. https://arxiv.org/abs/2411.04644
+Wav2Sleep paper link:
+    https://doi.org/10.48550/arXiv.2411.04644
 
-**CFS Dataset:**
-The Cleveland Family Study (CFS) is a longitudinal cohort study with
-polysomnography recordings. Each recording contains multiple physiological
-signals: EEG, left/right EOG, chin EMG, and ECG.
+Wav2Sleep paper citation:
+    Carter, J. F.; and Tarassenko, L. 2024. wav2sleep: A unified multi-modal approach
+    to sleep stage classification from physiological signals. arXiv preprint arXiv:2411.04644.
 
-**Requirements:**
-- CFS data: Available at `pyhealth/datasets/cfs/` or can be downloaded
-- Or: Script will use fully synthetic data for demonstration
+Authors:
+    Austin Jarrett (ajj7@illinois.edu)
+    Justin Cheok (jcheok2@illinois.edu)
+    Jimmy Scray (escray2@illinois.edu)
 
-**Usage:**
+CFS Dataset:
+    The Cleveland Family Study (CFS) is a longitudinal cohort study with
+    polysomnography recordings. Each recording contains multiple physiological
+    signals: EEG, left/right EOG, chin EMG, ECG, and optionally PPG.
+    Note: PPG (plethysmograph) is available in ~43% of CFS files.
+
+Requirements:
+    - CFS data: Set --cfs-root to use real data (must be requested from NSRR)
+    - Or: Script will use fully synthetic data for demonstration
+
+**Usage Examples:**
+
+    # Quick test with synthetic data (2 min)
+    python examples/cfs_sleep_staging_wav2sleep.py --epochs 1
+
+    # Full training with 2% of CFS data (~37 patients, ~20 min on CPU)
+    # This is a working configuration that produces proper loss curves:
     python examples/cfs_sleep_staging_wav2sleep.py \\
-        --cfs-root /path/to/cfs/data \\
-        --max-recordings 100 \\
-        --train-fraction 1.0 \\
-        --val-fraction 1.0 \\
+        --cfs-root /path/to/cfs \\
+        --subset-fraction 0.02 \\
+        --train-fraction 0.8 \\
+        --val-fraction 0.2 \\
+        --epochs 50 \\
+        --batch-size 8 \\
+        --max-lr 1e-3 \\
+        --decay-rate 0.9999 \\
+        --weight-decay 1e-2 \\
+        --patience 20 \\
+        --device cpu
+
+    # Training with PPG as additional modality (missing PPG zero-padded)
+    python examples/cfs_sleep_staging_wav2sleep.py \\
+        --cfs-root /path/to/cfs \\
+        --subset-fraction 0.02 \\
+        --include-ppg \\
+        --ppg-samples 256 \\
+        --epochs 50 \\
+        --batch-size 8 \\
+        --device cpu
+
+    # Production training with full dataset
+    python examples/cfs_sleep_staging_wav2sleep.py \\
+        --cfs-root /path/to/cfs \\
         --epochs 80 \\
         --batch-size 32 \\
-        --max-lr 1e-3 \\
-        --patience 5
+        --patient-fraction 1.0 \\
+        --device cuda
 """
 
 import argparse
 import logging
 import os
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -54,6 +90,7 @@ import torch
 from pyhealth.datasets import create_sample_dataset, get_dataloader
 from pyhealth.models import Wav2Sleep
 from pyhealth.training.wav2sleep_trainer import Wav2SleepTrainer, create_subset_loaders
+from pyhealth.metrics.wav2sleep import compute_confusion_matrix, cohens_kappa
 
 # Configure logging
 logging.basicConfig(
@@ -71,166 +108,182 @@ logger = logging.getLogger(__name__)
 SLEEP_STAGES = {0: "Wake", 1: "N1", 2: "N2", 3: "N3", 4: "REM"}
 NUM_CLASSES = len(SLEEP_STAGES)
 
-# Signal sampling parameters for CFS
-# CFS typically samples physiological signals at high frequencies (200+ Hz)
-# We downsample to reasonable lengths for computational efficiency
-EEG_SAMPLES_PER_EPOCH = 256    # ~8 Hz × 30 s (downsampled from 200 Hz)
-EOG_SAMPLES_PER_EPOCH = 256    # ~8 Hz × 30 s
-EMG_SAMPLES_PER_EPOCH = 128    # ~4 Hz × 30 s
-ECG_SAMPLES_PER_EPOCH = 256    # ~8 Hz × 30 s
-
-# CFS channel mapping (standard ordering in CFS dataset)
-CFS_CHANNEL_NAMES = ("EEG", "EOG-L", "EOG-R", "EMG-Chin", "ECG")
-CFS_CHANNEL_MAPPING = {
-    "eeg": 0,           # EEG channel
-    "eog_left": 1,      # Left EOG channel
-    "eog_right": 2,     # Right EOG channel
-    "emg": 3,           # Chin EMG channel
-    "ecg": 4,           # ECG channel
-}
+# Signal sampling parameters handled by SleepStagingCFS task:
+# - EEG: 256 samples (~8 Hz × 30 s, downsampled from 200 Hz)
+# - EOG-L/R: 256 samples (~8 Hz × 30 s)
+# - EMG: 128 samples (~4 Hz × 30 s)
+# - ECG: 256 samples (~8 Hz × 30 s)
+# These values should match the task constructor if customized.
+EEG_SAMPLES_PER_EPOCH = 256    # For reference, matches task default
+EOG_SAMPLES_PER_EPOCH = 256    # For reference, matches task default
+EMG_SAMPLES_PER_EPOCH = 128    # For reference, matches task default
+ECG_SAMPLES_PER_EPOCH = 256    # For reference, matches task default
+PPG_SAMPLES_PER_EPOCH = 256    # For reference, PPG sample count (optional)
 
 
 # =============================================================================
 # Dataset Construction
 # =============================================================================
 
-def build_synthetic_cfs_dataset(
-    n_patients: int = 10,
-    epochs_per_patient: int = 100,
-    dataset_name: str = "synthetic_cfs_wav2sleep",
-    seed: int = 42,
-) -> object:
-    """Create synthetic CFS-like dataset for testing.
-
-    This function generates a fully synthetic dataset that mirrors the CFS
-    data structure, useful for development, testing, and when real data
-    is unavailable.
-
-    Each sample corresponds to one 30-second polysomnography epoch with:
-    - EEG    : electroencephalogram signal (1 channel)
-    - EOG-L  : left electrooculogram (1 channel)
-    - EOG-R  : right electrooculogram (1 channel)
-    - EMG    : chin electromyogram (1 channel)
-    - ECG    : electrocardiogram signal (1 channel)
-    - Label  : sleep stage (0=Wake, 1=N1, 2=N2, 3=N3, 4=REM)
-
+def build_synthetic_cfs_dataset(n_samples: int = 100, include_ppg: bool = False) -> object:
+    """Create a synthetic CFS dataset for testing/demonstration.
+    
+    Generates random multi-modal polysomnography signals (EEG, EOG, EMG, ECG, optionally PPG)
+    with random sleep stage labels. Useful for testing the training pipeline
+    when real CFS data is unavailable.
+    
     Args:
-        n_patients: Number of synthetic patients.
-        epochs_per_patient: Number of 30-second epochs per patient.
-        dataset_name: Name for the created dataset.
-        seed: Random seed for reproducibility.
-
+        n_samples: Number of synthetic samples to generate. Default: 100.
+        include_ppg: Whether to include PPG modality. Default: False.
+        
     Returns:
-        PyHealth SampleDataset ready for training.
+        PyHealth SampleDataset with synthetic CFS data in wav2sleep format.
     """
-    logger.info(f"Building synthetic CFS dataset ({n_patients} patients, "
-                f"{epochs_per_patient} epochs each)")
-
-    rng = np.random.RandomState(seed)
-    samples = []
-
-    for pid in range(n_patients):
-        for epoch_idx in range(epochs_per_patient):
-            # Randomly assign sleep stage
-            label = rng.randint(0, NUM_CLASSES)
-
-            samples.append({
-                "patient_id": f"patient-{pid:03d}",
-                "visit_id": f"epoch-{epoch_idx:04d}",
-                # EEG signal: 1 channel, EEG_SAMPLES_PER_EPOCH samples
-                "eeg": rng.randn(1, EEG_SAMPLES_PER_EPOCH).astype(np.float32),
-                # Left EOG signal
-                "eog_left": rng.randn(1, EOG_SAMPLES_PER_EPOCH).astype(np.float32),
-                # Right EOG signal
-                "eog_right": rng.randn(1, EOG_SAMPLES_PER_EPOCH).astype(np.float32),
-                # Chin EMG signal
-                "emg": rng.randn(1, EMG_SAMPLES_PER_EPOCH).astype(np.float32),
-                # ECG signal
-                "ecg": rng.randn(1, ECG_SAMPLES_PER_EPOCH).astype(np.float32),
-                "label": label,
-            })
-
+    logger.info(f"Generating {n_samples} synthetic samples (include_ppg={include_ppg})...")
+    
+    synthetic_samples = []
+    for i in range(n_samples):
+        sample = {
+            "patient_id": f"synthetic_{i // 10}",  # 10 samples per synthetic patient
+            "study_id": f"synthetic_{i // 10}_study",
+            "patient_age": np.random.randint(30, 80),
+            "patient_sex": np.random.randint(0, 2),
+            "eeg": np.random.randn(EEG_SAMPLES_PER_EPOCH).astype(np.float32),
+            "eog_left": np.random.randn(EOG_SAMPLES_PER_EPOCH).astype(np.float32),
+            "eog_right": np.random.randn(EOG_SAMPLES_PER_EPOCH).astype(np.float32),
+            "emg": np.random.randn(EMG_SAMPLES_PER_EPOCH).astype(np.float32),
+            "ecg": np.random.randn(ECG_SAMPLES_PER_EPOCH).astype(np.float32),
+            "label": np.random.randint(0, 5),  # 5 sleep stages: 0-4
+        }
+        if include_ppg:
+            sample["ppg"] = np.random.randn(PPG_SAMPLES_PER_EPOCH).astype(np.float32)
+        synthetic_samples.append(sample)
+    
+    input_schema = {
+        "eeg": "tensor",
+        "eog_left": "tensor",
+        "eog_right": "tensor",
+        "emg": "tensor",
+        "ecg": "tensor",
+    }
+    if include_ppg:
+        input_schema["ppg"] = "tensor"
+    
     dataset = create_sample_dataset(
-        samples=samples,
-        input_schema={
-            "eeg": "tensor",       # Electroencephalogram
-            "eog_left": "tensor",  # Left electrooculogram
-            "eog_right": "tensor", # Right electrooculogram
-            "emg": "tensor",       # Chin electromyogram
-            "ecg": "tensor",       # Electrocardiogram
-        },
+        samples=synthetic_samples,
+        input_schema=input_schema,
         output_schema={"label": "multiclass"},
-        dataset_name=dataset_name,
+        dataset_name="synthetic_cfs_wav2sleep",
     )
-    logger.info(f"✓ Created synthetic dataset with {len(dataset)} samples")
+    
+    logger.info(f"✓ Generated {len(synthetic_samples)} synthetic samples")
     return dataset
 
 
 def load_cfs_or_synthetic(
     cfs_root: Optional[str] = None,
     max_recordings: Optional[int] = None,
+    subset_fraction: Optional[float] = None,
+    include_ppg: bool = False,
+    ppg_samples: int = 256,
 ) -> object:
     """Load CFS dataset if available, otherwise create synthetic fallback.
-
+    
+    The NSRR CFS dataset must have:
+    - polysomnography/edfs/*.edf (signal files)
+    - polysomnography/annotations-events-nsrr/*.xml (sleep stage annotations)
+    - polysomnography/annotations-events-profusion/*.xml (alternative annotations)
+    
+    This function generates polysomnography-metadata-pyhealth.csv from the NSRR
+    dataset structure and passes it to PyHealth's CFSDataset.
+    
     Args:
         cfs_root: Path to CFS dataset root directory.
             If None or invalid, synthetic data is used.
         max_recordings: Maximum number of recordings to load from CFS.
             If None, all available recordings are loaded.
-
+        subset_fraction: Fraction of dataset to load (0.0 to 1.0).
+            If specified, limits the dataset size to this fraction.
+            Applied at the dataset level before loading, more efficient than 
+            post-hoc subsampling.
+        include_ppg: Whether to include PPG modality (only in ~43% of CFS files,
+            missing values are zero-padded). Default: False.
+        ppg_samples: Target sample count for PPG after resampling. Default: 256.
     Returns:
-        PyHealth SampleDataset.
+        PyHealth SampleDataset in wav2sleep format.
     """
     if cfs_root and os.path.isdir(cfs_root):
-        logger.info(f"Loading CFS dataset from {cfs_root}")
         try:
             from pyhealth.datasets import CFSDataset
             from pyhealth.tasks import SleepStagingCFS
-            from pyhealth.models import load_cfs_samples
             
-            # Load CFS dataset
-            cfs_dataset = CFSDataset(root=cfs_root)
-            cfs_dataset.set_task(SleepStagingCFS())
+            logger.info(f"Attempting to load CFS dataset from: {cfs_root}")
             
-            # Convert to Wav2Sleep format with subset of modalities
-            # Using all modalities: EEG, EOG-L, EOG-R, EMG, ECG
-            samples = load_cfs_samples(
-                cfs_dataset=cfs_dataset,
-                channel_mapping={
-                    "eeg": 0,           # EEG
-                    "eog_left": 1,      # EOG-L
-                    "eog_right": 2,     # EOG-R
-                    "emg": 3,           # EMG-Chin
-                    "ecg": 4,           # ECG
-                },
-                max_recordings=max_recordings,
-            )
-
+            # Load CFS dataset with optional subset
+            cfs_dataset = CFSDataset(root=cfs_root, dev=False)
+            
+            # Apply subset if requested (limits patient count efficiently)
+            if subset_fraction is not None and subset_fraction < 1.0:
+                patients_to_load = cfs_dataset.unique_patient_ids
+                n_patients = max(1, int(len(patients_to_load) * subset_fraction))
+                sampled_patients = np.random.choice(
+                    patients_to_load, size=n_patients, replace=False
+                )
+                logger.info(f"Loading {n_patients} / {len(patients_to_load)} patients ({subset_fraction*100:.1f}%)")
+                
+                # Process only sampled patients
+                samples = []
+                task = SleepStagingCFS(preload=False, include_ppg=include_ppg, ppg_samples=ppg_samples)
+                for pid in sampled_patients:
+                    patient = cfs_dataset.get_patient(pid)
+                    samples.extend(task(patient))
+            else:
+                # Load all records (via task)
+                logger.info(f"Loading all available records")
+                task = SleepStagingCFS(preload=False, include_ppg=include_ppg, ppg_samples=ppg_samples)
+                samples = []
+                for pid in cfs_dataset.unique_patient_ids:
+                    patient = cfs_dataset.get_patient(pid)
+                    samples.extend(task(patient))
+                    if max_recordings and len(samples) >= max_recordings:
+                        samples = samples[:max_recordings]
+                        break
+            
             if not samples:
-                logger.warning("No samples loaded from CFS, falling back to synthetic data")
+                logger.warning(f"CFS loader returned 0 samples. Falling back to synthetic data.")
                 return build_synthetic_cfs_dataset()
-
+            
+            logger.info(f"✓ Loaded {len(samples)} CFS samples in wav2sleep format")
+            
+            # Task already outputs wav2sleep format
+            # Build input schema based on whether PPG is included
+            input_schema = {
+                "eeg": "tensor",
+                "eog_left": "tensor",
+                "eog_right": "tensor",
+                "emg": "tensor",
+                "ecg": "tensor",
+            }
+            if include_ppg:
+                input_schema["ppg"] = "tensor"
+                logger.info(f"  (PPG included in {sum(1 for s in samples if 'ppg' in s)}/{len(samples)} samples)")
+            
             dataset = create_sample_dataset(
                 samples=samples,
-                input_schema={
-                    "eeg": "tensor",
-                    "eog_left": "tensor",
-                    "eog_right": "tensor",
-                    "emg": "tensor",
-                    "ecg": "tensor",
-                },
+                input_schema=input_schema,
                 output_schema={"label": "multiclass"},
                 dataset_name="cfs_wav2sleep",
             )
-            logger.info(f"✓ Loaded {len(dataset)} samples from CFS")
             return dataset
-
-        except (ImportError, Exception) as e:
-            logger.warning(f"Failed to load CFS dataset ({type(e).__name__}), falling back to synthetic data")
+        except Exception as e:
+            logger.error(f"Error loading CFS dataset: {type(e).__name__}: {e}", exc_info=True)
+            logger.info("Falling back to synthetic data.")
             return build_synthetic_cfs_dataset()
     else:
-        logger.info("CFS_ROOT not set or invalid — using synthetic data")
-        return build_synthetic_cfs_dataset()
+        if cfs_root:
+            logger.warning(f"CFS_ROOT directory not found: {cfs_root}")
+        logger.info("Using synthetic data for training.")
+        return build_synthetic_cfs_dataset(include_ppg=include_ppg)
 
 
 # =============================================================================
@@ -239,8 +292,8 @@ def load_cfs_or_synthetic(
 
 def train_wav2sleep_model(
     dataset,
-    train_fraction: float = 1.0,
-    val_fraction: float = 1.0,
+    train_fraction: float = 0.8,
+    val_fraction: float = 0.2,
     batch_size: int = 32,
     epochs: int = 80,
     warmup_fraction: float = 0.1,
@@ -250,9 +303,8 @@ def train_wav2sleep_model(
     patience: int = 5,
     device: Optional[str] = None,
     output_dir: str = "output",
-) -> dict:
+) -> tuple:
     """Train wav2sleep model on CFS dataset with specified hyperparameters.
-
     This function implements the complete training pipeline described in the
     wav2sleep paper with:
     - AdamW optimizer (no weight decay on bias/norm parameters)
@@ -261,13 +313,12 @@ def train_wav2sleep_model(
     - Early stopping: patience=5 (as per paper) means training stops if
       validation loss doesn't improve for 5 consecutive epochs
     - Optional subset training for memory-constrained environments
-
     Args:
         dataset: PyHealth SampleDataset with CFS data.
         train_fraction: Fraction of training set to use (0.0 to 1.0).
-            Default: 1.0 (use full dataset).
+            Default: 0.8 (use 80% for training).
         val_fraction: Fraction of validation set to use (0.0 to 1.0).
-            Default: 1.0 (use full dataset).
+            Default: 0.2 (use 20% for validation).
         batch_size: Batch size for training. Default: 32.
         epochs: Maximum number of epochs. Default: 80.
         warmup_fraction: Fraction of training steps for linear warmup.
@@ -281,7 +332,6 @@ def train_wav2sleep_model(
         patience: Early stopping patience. Default: 5 (as per wav2sleep paper).
         device: Device for training ('cuda' or 'cpu'). Auto-detect if None.
         output_dir: Directory for saving checkpoints and logs. Default: 'output'.
-
     Returns:
         Tuple of (history dict, trainer, model):
         - history: Training history with 'train_loss', 'val_loss', 'val_accuracy'
@@ -290,16 +340,7 @@ def train_wav2sleep_model(
     """
     if device is None:
         device = "cuda" if torch.cuda.is_available() else "cpu"
-
-    logger.info("")
-    logger.info("=" * 70)
-    logger.info("Wav2Sleep Model Training (CFS Dataset)")
-    logger.info("=" * 70)
-
-    # -----------------------------------------------------------------------
-    # 1. Create data loaders (with subset support)
-    # -----------------------------------------------------------------------
-    logger.info("\n[1/4] Preparing data loaders...")
+    # Create data loaders
     train_loader, val_loader = create_subset_loaders(
         dataset=dataset,
         train_fraction=train_fraction,
@@ -307,13 +348,7 @@ def train_wav2sleep_model(
         batch_size=batch_size,
         seed=42,
     )
-    logger.info(f"  Train batches: {len(train_loader)}")
-    logger.info(f"  Val batches: {len(val_loader) if val_loader else 'N/A'}")
-
-    # -----------------------------------------------------------------------
-    # 2. Create model
-    # -----------------------------------------------------------------------
-    logger.info("\n[2/4] Initializing model...")
+    # Create model
     model = Wav2Sleep(
         dataset=dataset,
         feature_dim=128,
@@ -322,13 +357,7 @@ def train_wav2sleep_model(
         transformer_ff_dim=512,
         dropout=0.1,
     )
-    n_params = sum(p.numel() for p in model.parameters())
-    logger.info(f"  Model parameters: {n_params:,}")
-
-    # -----------------------------------------------------------------------
-    # 3. Create trainer and configure schedule
-    # -----------------------------------------------------------------------
-    logger.info("\n[3/4] Configuring trainer...")
+    # Create trainer
     trainer = Wav2SleepTrainer(
         model=model,
         device=device,
@@ -336,19 +365,8 @@ def train_wav2sleep_model(
         output_path=output_dir,
         exp_name="wav2sleep_cfs_training",
     )
-
-    # Log training configuration
-    logger.info(f"  Optimizer: AdamW")
-    logger.info(f"  Max learning rate: {max_lr:.2e}")
-    logger.info(f"  Warmup fraction: {warmup_fraction:.1%}")
-    logger.info(f"  Decay rate: {decay_rate:.6f}")
-    logger.info(f"  Weight decay: {weight_decay:.2e}")
-    logger.info(f"  Early stopping patience: {patience} epochs")
-
-    # -----------------------------------------------------------------------
-    # 4. Train
-    # -----------------------------------------------------------------------
-    logger.info("\n[4/4] Training model...")
+    logger.info(f"Training: {sum(p.numel() for p in model.parameters()):,} parameters, {epochs} epochs, device={device}")
+    # Train
     history = trainer.train_with_schedule(
         train_dataloader=train_loader,
         val_dataloader=val_loader,
@@ -360,7 +378,6 @@ def train_wav2sleep_model(
         max_grad_norm=1.0,
         patience=patience,
     )
-
     return history, trainer, model
 
 
@@ -375,16 +392,13 @@ def evaluate_modality_subset(
     device: str = "cuda",
 ) -> tuple:
     """Evaluate model on subset of modalities (cross-modal generalization).
-
     This demonstrates the key feature of wav2sleep: the same trained model
     can work with any subset of input modalities without retraining.
-
     Args:
         model: Trained Wav2Sleep model.
         val_loader: Validation data loader.
         subset_keys: List of modality names to keep (e.g., ['eeg']).
         device: Device for evaluation.
-
     Returns:
         Tuple of (mean_loss, accuracy).
     """
@@ -392,7 +406,6 @@ def evaluate_modality_subset(
     total_loss = 0.0
     total_correct = 0
     total_samples = 0
-
     with torch.no_grad():
         for batch in val_loader:
             # Keep only requested modalities
@@ -400,140 +413,47 @@ def evaluate_modality_subset(
                 k: v for k, v in batch.items()
                 if k in subset_keys or k == "label"
             }
-
             output = model(**filtered_batch)
             loss = output["loss"].item() * len(output["y_true"])
             total_loss += loss
-
             preds = output["y_prob"].argmax(dim=-1)
             total_correct += (preds == output["y_true"]).sum().item()
             total_samples += len(output["y_true"])
-
     mean_loss = total_loss / total_samples
     accuracy = total_correct / total_samples
-
     return mean_loss, accuracy
 
 
-def print_results_summary(history, model, val_loader, device="cuda"):
-    """Print comprehensive training results summary with wav2sleep metrics.
-    
-    This includes Cohen's Kappa (the primary metric from the wav2sleep paper),
-    accuracy, per-class metrics, and confusion matrices. Results are logged via
-    the Python logger, including overall training progress, model performance
-    on all modalities, and cross-modal evaluation showing robustness with
-    different signal subsets.
-    
-    Args:
-        history: Training history dictionary with keys:
-            - 'train_loss': List of per-epoch training losses.
-            - 'val_loss': List of per-epoch validation losses (optional).
-            - 'val_accuracy': List of per-epoch validation accuracies (optional).
-        model: Trained Wav2Sleep model instance with evaluate() and
-            evaluate_modalities() methods.
-        val_loader: PyHealth DataLoader containing validation dataset samples.
-            Each batch should include signal modalities and labels.
-        device: Device for evaluation, either 'cuda' or 'cpu'. Default: 'cuda'.
-    
-    Returns:
-        None. Results are printed via logger.info() calls.
-    """
-    from pyhealth.metrics import format_evaluation_report
-    
-    logger.info("")
-    logger.info("=" * 70)
-    logger.info("Training Results Summary")
-    logger.info("=" * 70)
-
-    # Training curves
-    logger.info("\nTraining Progress:")
-    logger.info(f"  Initial train loss: {history['train_loss'][0]:.6f}")
-    logger.info(f"  Final train loss: {history['train_loss'][-1]:.6f}")
+def print_results_summary(history, model, val_loader, device="cpu"):
+    """Print concise training results summary."""
+    logger.info("\nTraining Results:")
+    if history.get('train_loss'):
+        logger.info(f"  Initial loss: {history['train_loss'][0]:.6f}, Final loss: {history['train_loss'][-1]:.6f}")
     if history.get('val_loss'):
         logger.info(f"  Best val loss: {min(history['val_loss']):.6f}")
     if history.get('val_accuracy'):
         logger.info(f"  Best val accuracy: {max(history['val_accuracy']):.4f}")
-
-    # =========================================================================
-    # Comprehensive Evaluation Metrics (wav2sleep study)
-    # =========================================================================
+    
+    # Compute Cohen's Kappa on validation set
     if val_loader:
-        logger.info("\n" + "=" * 70)
-        logger.info("WAV2SLEEP EVALUATION METRICS (Primary: Cohen's Kappa)")
-        logger.info("=" * 70)
+        all_preds = []
+        all_labels = []
+        with torch.no_grad():
+            for batch in val_loader:
+                output = model(**batch)
+                preds = output["y_prob"].argmax(dim=-1)
+                labels = output["y_true"]
+                all_preds.extend(preds.cpu().numpy())
+                all_labels.extend(labels.cpu().numpy())
         
-        # Overall evaluation on all modalities
-        logger.info("\n[1] Overall Model Performance (All Modalities)")
-        logger.info("-" * 70)
-        eval_results = model.evaluate(
-            val_loader,
-            class_names=list(SLEEP_STAGES.values())
-        )
+        all_preds = np.array(all_preds)
+        all_labels = np.array(all_labels)
         
-        logger.info(f"  Accuracy (Correct/Total):        {eval_results['accuracy']:.4f}")
-        logger.info(f"  Cohen's Kappa (Primary Metric):  {eval_results['kappa']:.4f}")
-        logger.info(f"  Macro-averaged Precision:        {eval_results['macro_precision']:.4f}")
-        logger.info(f"  Macro-averaged Recall:           {eval_results['macro_recall']:.4f}")
-        logger.info(f"  Macro-averaged F1-score:         {eval_results['macro_f1']:.4f}")
-        logger.info(f"  Weighted F1-score:               {eval_results['weighted_f1']:.4f}")
+        # Compute confusion matrix and Cohen's Kappa
+        cmat = compute_confusion_matrix(all_preds, all_labels, num_classes=NUM_CLASSES)
+        kappa = cohens_kappa(cmat)
         
-        # Print full evaluation report with per-class metrics
-        logger.info("\n" + format_evaluation_report(eval_results))
-        
-        # =====================================================================
-        # Cross-modal evaluation: same model with different modality subsets
-        # =====================================================================
-        logger.info("\n[2] Cross-Modal Evaluation (Key wav2sleep Feature)")
-        logger.info("-" * 70)
-        logger.info("Same trained model evaluated on different modality subsets:")
-        logger.info("(demonstrates graceful degradation with missing modalities)\n")
-        
-        modality_subsets = {
-            "All (EEG + EOG + EMG + ECG)": [
-                "eeg", "eog_left", "eog_right", "emg", "ecg"
-            ],
-            "EEG only": ["eeg"],
-            "ECG only": ["ecg"],
-            "EEG + ECG": ["eeg", "ecg"],
-            "EEG + EOG + ECG": ["eeg", "eog_left", "eog_right", "ecg"],
-            "EOG + EMG": ["eog_left", "eog_right", "emg"],
-        }
-        
-        cross_modal_results = model.evaluate_modalities(
-            val_loader,
-            modality_subsets=modality_subsets,
-            class_names=list(SLEEP_STAGES.values())
-        )
-        
-        # Print results for each subset
-        results_table = []
-        for subset_name in modality_subsets.keys():
-            if subset_name in cross_modal_results:
-                metrics = cross_modal_results[subset_name]
-                results_table.append((
-                    subset_name,
-                    metrics['accuracy'],
-                    metrics['kappa'],
-                    metrics['macro_f1']
-                ))
-        
-        # Sort by Kappa (descending) to show best/worst combinations
-        results_table.sort(key=lambda x: x[2], reverse=True)
-        
-        logger.info(f"{'Modality Subset':<40} {'Accuracy':<12} {'Kappa':<12} {'Macro F1':<12}")
-        logger.info("-" * 76)
-        for subset_name, acc, kappa, f1 in results_table:
-            logger.info(f"{subset_name:<40} {acc:<12.4f} {kappa:<12.4f} {f1:<12.4f}")
-        
-        # Analysis of robustness
-        logger.info("\nKey Insights:")
-        best_subset = results_table[0]
-        worst_subset = results_table[-1]
-        logger.info(f"  Best Configuration: {best_subset[0]} (Kappa={best_subset[2]:.4f})")
-        logger.info(f"  Most Challenging: {worst_subset[0]} (Kappa={worst_subset[2]:.4f})")
-        logger.info(f"  Robustness: Model maintains {worst_subset[2]/best_subset[2]*100:.1f}% of best performance with limited modalities")
-
-    logger.info("=" * 70)
+        logger.info(f"  Cohen's Kappa: {kappa:.4f}")
 
 
 # =============================================================================
@@ -555,22 +475,21 @@ def main(args):
     logger.info("Implementation: PyHealth")
     logger.info("")
 
-    # =========================================================================
-    # 1. Load Dataset
-    # =========================================================================
-    logger.info("[Pipeline Step 1/4] Loading dataset...")
+    logger.info("=" * 70)
+    logger.info("WAV2SLEEP: Sleep Stage Classification Pipeline")
+    logger.info("=" * 70)
+    logger.info("[Step 1/4] Loading dataset...")
+
     dataset = load_cfs_or_synthetic(
         cfs_root=args.cfs_root,
         max_recordings=args.max_recordings,
+        subset_fraction=args.subset_fraction,
+        include_ppg=args.include_ppg,
+        ppg_samples=args.ppg_samples,
     )
-    logger.info(f"Dataset size: {len(dataset)} samples")
-    logger.info(f"Input modalities: {list(dataset.input_processors.keys())}")
-    logger.info(f"Sleep stages: {NUM_CLASSES} classes")
+    logger.info(f"  ✓ Loaded {len(dataset)} samples")
 
-    # =========================================================================
-    # 2. Train Model
-    # =========================================================================
-    logger.info("\n[Pipeline Step 2/4] Training model with paper-specific schedule...")
+    logger.info("\n[Step 2/4] Training model with paper-specific schedule...")
     history, trainer, model = train_wav2sleep_model(
         dataset=dataset,
         train_fraction=args.train_fraction,
@@ -586,34 +505,28 @@ def main(args):
         output_dir=args.output_dir,
     )
 
-    # =========================================================================
-    # 3. Evaluate & Analyze
-    # =========================================================================
-    logger.info("\n[Pipeline Step 3/4] Evaluating on validation set...")
-    device = args.device or ("cuda" if torch.cuda.is_available() else "cpu")
+    logger.info("\n[Step 3/4] Evaluating on validation set...")
 
     # Create validation loader for evaluation
     _, val_loader = create_subset_loaders(
         dataset=dataset,
-        train_fraction=0.8,
-        val_fraction=1.0,
+        train_fraction=args.train_fraction,
+        val_fraction=args.val_fraction,
         batch_size=args.batch_size,
     )
 
+    # Print training results summary
+    device = args.device or ("cuda" if torch.cuda.is_available() else "cpu")
     print_results_summary(history, model, val_loader, device=device)
 
-    # =========================================================================
-    # 4. Save Model & Results
-    # =========================================================================
-    logger.info("\n[Pipeline Step 4/4] Saving artifacts...")
-    output_path = Path(args.output_dir) / "wav2sleep_cfs_training"
+    logger.info("\n[Step 4/4] Saving artifacts...")
+    output_path = Path(args.output_dir) / "wav2sleep_training"
     output_path.mkdir(parents=True, exist_ok=True)
-
-    # Save final model
-    final_model_path = output_path / "final_model.pt"
+    # Save final model with timestamp to preserve multiple training runs
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    final_model_path = output_path / f"wav2sleep_model_{timestamp}.pt"
     torch.save(model.state_dict(), final_model_path)
     logger.info(f"✓ Model saved: {final_model_path}")
-
     logger.info("")
     logger.info("=" * 70)
     logger.info("Pipeline Complete!")
@@ -646,16 +559,22 @@ if __name__ == "__main__":
 
     # Subset options (for large datasets)
     parser.add_argument(
+        "--subset-fraction",
+        type=float,
+        default=None,
+        help="Fraction of CFS dataset to load (0.0 to 1.0). Applied at dataset level for efficiency.",
+    )
+    parser.add_argument(
         "--train-fraction",
         type=float,
-        default=1.0,
-        help="Fraction of training set to use (0.0 to 1.0). Useful for large datasets.",
+        default=0.8,
+        help="Fraction of loaded data to use for training (0.0 to 1.0).",
     )
     parser.add_argument(
         "--val-fraction",
         type=float,
-        default=1.0,
-        help="Fraction of validation set to use (0.0 to 1.0). Useful for large datasets.",
+        default=0.2,
+        help="Fraction of loaded data to use for validation (0.0 to 1.0).",
     )
 
     # Training hyperparameters (from wav2sleep paper)
@@ -702,6 +621,19 @@ if __name__ == "__main__":
         help="Early stopping patience (epochs with no improvement). Paper uses 5.",
     )
 
+    # PPG options (optional modality)
+    parser.add_argument(
+        "--include-ppg",
+        action="store_true",
+        help="Include PPG (plethysmograph) as additional modality. Note: PPG is available in ~43% of CFS files; missing values are zero-padded.",
+    )
+    parser.add_argument(
+        "--ppg-samples",
+        type=int,
+        default=256,
+        help="Target sample count for PPG after resampling (default: 256).",
+    )
+
     # System options
     parser.add_argument(
         "--device",
@@ -717,4 +649,8 @@ if __name__ == "__main__":
     )
 
     args = parser.parse_args()
+    
+    # Log the configuration
+    logger.info(f"Configuration: include_ppg={args.include_ppg}, ppg_samples={args.ppg_samples}")
+    
     main(args)

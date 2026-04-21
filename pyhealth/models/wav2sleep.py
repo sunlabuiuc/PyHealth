@@ -1,81 +1,86 @@
-# Paper: wav2sleep: A Unified Multi-Modal Approach to Sleep Stage Classification
-#         from Physiological Signals
-# Paper Link: https://arxiv.org/abs/2411.04644
-# Description: wav2sleep implementation for PyHealth
-#
-# This module implements the wav2sleep model for multimodal sleep stage classification
-# from physiological signals. The model is designed to handle variable numbers of input
-# signal modalities (EEG, ECG, PPG, respiratory signals, etc.) and gracefully degrades
-# when signals are missing at inference time.
-#
-# Architecture Overview:
-# =====================
-# The model consists of three main components:
-#
-# 1. Signal Encoders (CNN-based)
-#    - One ResidualBlock1D-based SignalEncoder per modality
-#    - Compresses raw signal into fixed-size feature vectors
-#    - Automatically scales depth based on signal length
-#
-# 2. Epoch Mixer (Transformer-based)
-#    - Multi-head self-attention mechanism to fuse modalities
-#    - Learnable CLS token aggregates information across modalities
-#    - Pre-norm architecture for training stability
-#
-# 3. Classification Head
-#    - Linear layer mapping CLS embedding to class logits
-#    - Supports variable number of sleep stage classes
-#
-# Key Features:
-# =============
-# - Multi-modal fusion: Can work with any subset of available signals
-# - Graceful degradation: Model works with missing modalities at test time
-# - Flexible: Supports variable numbers of channels per signal
-# - Dataset support: Includes helpers for SHHS and CFS datasets
-# - Standards-compliant: Follows PyHealth BaseModel interface
-#
-# Usage Examples:
-# ===============
-# Basic usage with custom data:
-#     >>> from pyhealth.datasets import create_sample_dataset
-#     >>> from pyhealth.models import Wav2Sleep
-#     >>> samples = [...]  # Your samples with signal modalities
-#     >>> dataset = create_sample_dataset(
-#     ...     samples=samples,
-#     ...     input_schema={"ecg": "tensor", "ppg": "tensor"},
-#     ...     output_schema={"label": "multiclass"},
-#     ... )
-#     >>> model = Wav2Sleep(dataset=dataset)
-#
-# With SHHS dataset:
-#     >>> from pyhealth.models.wav2sleep import load_shhs_samples
-#     >>> samples = load_shhs_samples("/path/to/shhs")
-#     >>> dataset = create_sample_dataset(
-#     ...     samples=samples,
-#     ...     input_schema={"ecg": "tensor", "abd": "tensor", "thx": "tensor"},
-#     ...     output_schema={"label": "multiclass"},
-#     ... )
-#     >>> model = Wav2Sleep(dataset=dataset)
-#
-# With CFS dataset:
-#     >>> from pyhealth.datasets import CFSDataset
-#     >>> from pyhealth.tasks import SleepStagingCFS
-#     >>> from pyhealth.models.wav2sleep import load_cfs_samples
-#     >>> cfs_dataset = CFSDataset(root="/path/to/cfs")
-#     >>> cfs_dataset.set_task(SleepStagingCFS())
-#     >>> samples = load_cfs_samples(cfs_dataset)
-#     >>> dataset = create_sample_dataset(
-#     ...     samples=samples,
-#     ...     input_schema={"eeg": "tensor", "ecg": "tensor"},
-#     ...     output_schema={"label": "multiclass"},
-#     ... )
-#     >>> model = Wav2Sleep(dataset=dataset)
-#
-# References:
-# ===========
-# [1] Carter, J.F., & Tarassenko, L. (2024). "wav2sleep: A Unified Multi-Modal
-#     Approach to Sleep Stage Classification from Physiological Signals."
-#     arXiv:2411.04644
+"""
+Description: wav2sleep implementation for PyHealth
+
+Wav2Sleep paper link:
+    https://doi.org/10.48550/arXiv.2411.04644
+
+Wav2Sleep paper citation:
+    Carter, J. F.; and Tarassenko, L. 2024. wav2sleep: A unified multi-modal approach
+    to sleep stage classification from physiological signals. arXiv preprint arXiv:2411.04644.
+
+Authors:
+    Austin Jarrett (ajj7@illinois.edu)
+    Justin Cheok (jcheok2@illinois.edu)
+    Jimmy Scray (escray2@illinois.edu)
+
+This module implements the wav2sleep model for multimodal sleep stage classification
+from physiological signals. The model is designed to handle variable numbers of input
+signal modalities (EEG, ECG, PPG, respiratory signals, etc.) and gracefully degrades
+when signals are missing at inference time.
+
+Architecture Overview:
+=====================
+The model consists of three main components:
+
+1. Signal Encoders (CNN-based)
+   - One ResidualBlock1D-based SignalEncoder per modality
+   - Compresses raw signal into fixed-size feature vectors
+   - Automatically scales depth based on signal length
+
+2. Epoch Mixer (Transformer-based)
+   - Multi-head self-attention mechanism to fuse modalities
+   - Learnable CLS token aggregates information across modalities
+   - Pre-norm architecture for training stability
+
+3. Classification Head
+   - Linear layer mapping CLS embedding to class logits
+   - Supports variable number of sleep stage classes
+
+Key Features:
+=============
+- Multi-modal fusion: Can work with any subset of available signals
+- Graceful degradation: Model works with missing modalities at test time
+- Flexible: Supports variable numbers of channels per signal
+- Dataset support: Includes helpers for SHHS and CFS datasets
+- Standards-compliant: Follows PyHealth BaseModel interface
+
+Usage Examples:
+===============
+Basic usage with custom data:
+    >>> from pyhealth.datasets import create_sample_dataset
+    >>> from pyhealth.models import Wav2Sleep
+    >>> samples = [...]  # Your samples with signal modalities
+    >>> dataset = create_sample_dataset(
+    ...     samples=samples,
+    ...     input_schema={"ecg": "tensor", "ppg": "tensor"},
+    ...     output_schema={"label": "multiclass"},
+    ... )
+    >>> model = Wav2Sleep(dataset=dataset)
+
+With SHHS dataset:
+    >>> from pyhealth.models.wav2sleep import load_shhs_samples
+    >>> samples = load_shhs_samples("/path/to/shhs")
+    >>> dataset = create_sample_dataset(
+    ...     samples=samples,
+    ...     input_schema={"ecg": "tensor", "abd": "tensor", "thx": "tensor"},
+    ...     output_schema={"label": "multiclass"},
+    ... )
+    >>> model = Wav2Sleep(dataset=dataset)
+
+With CFS dataset:
+    >>> from pyhealth.datasets import CFSDataset
+    >>> from pyhealth.tasks import SleepStagingCFS
+    >>> from pyhealth.models.wav2sleep import load_cfs_samples
+    >>> cfs_dataset = CFSDataset(root="/path/to/cfs")
+    >>> cfs_dataset.set_task(SleepStagingCFS())
+    >>> samples = load_cfs_samples(cfs_dataset)
+    >>> dataset = create_sample_dataset(
+    ...     samples=samples,
+    ...     input_schema={"eeg": "tensor", "ecg": "tensor"},
+    ...     output_schema={"label": "multiclass"},
+    ... )
+    >>> model = Wav2Sleep(dataset=dataset)
+"""
 
 import os
 import xml.etree.ElementTree as ET

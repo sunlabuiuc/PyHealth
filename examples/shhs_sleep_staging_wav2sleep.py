@@ -14,13 +14,20 @@ following PyHealth implementation requirements:
 5. **Evaluation**: Cross-modal evaluation and subset-based analysis
 6. **Reproducibility**: Seed control, configurable subset sizes
 
-**Paper Reference:**
-Jonathan F. Carter & Lionel Tarassenko. "wav2sleep: A Unified Multi-Modal
-Approach to Sleep Stage Classification from Physiological Signals."
-arXiv:2411.04644, 2024. https://arxiv.org/abs/2411.04644
+Wav2Sleep paper link:
+    https://doi.org/10.48550/arXiv.2411.04644
+
+Wav2Sleep paper citation:
+    Carter, J. F.; and Tarassenko, L. 2024. wav2sleep: A unified multi-modal approach
+    to sleep stage classification from physiological signals. arXiv preprint arXiv:2411.04644.
+
+Authors:
+    Justin Cheok (jcheok2@illinois.edu)
+    Austin Jarrett (ajj7@illinois.edu)
+    Jimmy Scray (escray2@illinois.edu)
 
 **Requirements:**
-- SHHS data (optional): Set SHHS_ROOT to use real data
+- SHHS data (optional): Set SHHS_ROOT to use real data (must be requested from NSRR)
 - Or: Script will use fully synthetic data for demonstration
 
 **Usage:**
