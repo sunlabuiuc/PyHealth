@@ -160,3 +160,93 @@ def test_age_mlp_layers(model):
     layer_types = [type(l) for l in model.age_fc]
     assert nn.Linear in layer_types
     assert nn.LayerNorm in layer_types
+
+# 5. Forward pass — output keys, types, and shapes
+def test_forward_returns_required_keys(forward_out):
+    assert set(forward_out.keys()) == {"loss", "y_prob", "y_true", "logit"}
+
+
+def test_forward_loss_is_scalar(forward_out):
+    assert forward_out["loss"].shape == torch.Size([])
+
+
+def test_forward_logit_shape(forward_out):
+    assert forward_out["logit"].shape == (BATCH, NUM_CLASSES)
+
+
+def test_forward_y_prob_shape(forward_out):
+    assert forward_out["y_prob"].shape == (BATCH, NUM_CLASSES)
+
+
+def test_forward_y_prob_sums_to_one(forward_out):
+    sums = forward_out["y_prob"].sum(dim=-1)
+    assert torch.allclose(sums, torch.ones(BATCH), atol=1e-5)
+
+
+def test_forward_y_true_matches_labels(model):
+    batch = _make_batch(model)
+    with torch.no_grad():
+        out = model(**batch)
+    assert torch.equal(out["y_true"], batch[model.label_key])
+
+
+# 6. Forward — input shape flexibility
+def test_forward_accepts_4d_scan(model):
+    # Scan without explicit channel dim: [B, D, H, W]
+    batch = {
+        model.scan_key: torch.randn(BATCH, SPATIAL, SPATIAL, SPATIAL),
+        model.age_key: torch.tensor([[70.0], [75.0]]),
+        model.label_key: torch.tensor([0, 1]),
+    }
+    with torch.no_grad():
+        out = model(**batch)
+    assert out["logit"].shape == (BATCH, NUM_CLASSES)
+
+
+def test_forward_accepts_1d_age(model):
+    # Age as flat [B] rather than [B, 1]
+    batch = {
+        model.scan_key: torch.randn(BATCH, 1, SPATIAL, SPATIAL, SPATIAL),
+        model.age_key: torch.tensor([70.0, 75.0]),
+        model.label_key: torch.tensor([0, 1]),
+    }
+    with torch.no_grad():
+        out = model(**batch)
+    assert out["logit"].shape == (BATCH, NUM_CLASSES)
+
+
+def test_forward_no_age_encoding(dataset):
+    m = _make_model(dataset, age_encoding_dim=0).eval()
+    batch = _make_batch(m)
+    with torch.no_grad():
+        out = m(**batch)
+    assert out["logit"].shape == (BATCH, NUM_CLASSES)
+
+# 7. Gradient computation
+def test_loss_backward_populates_classifier_gradients(dataset):
+    m = _make_model(dataset).train()
+    batch = _make_batch(m)
+    out = m(**batch)
+    out["loss"].backward()
+    assert m.classifier.weight.grad is not None
+    assert m.classifier.weight.grad.abs().sum().item() > 0
+
+
+def test_gradients_flow_through_backbone(dataset):
+    m = _make_model(dataset).train()
+    batch = _make_batch(m)
+    out = m(**batch)
+    out["loss"].backward()
+    first_conv = m.backbone[0].block[0]
+    assert first_conv.weight.grad is not None
+    assert first_conv.weight.grad.abs().sum().item() > 0
+
+
+def test_gradients_flow_through_age_fc(dataset):
+    m = _make_model(dataset).train()
+    batch = _make_batch(m)
+    out = m(**batch)
+    out["loss"].backward()
+    age_linear = m.age_fc[0]
+    assert age_linear.weight.grad is not None
+    assert age_linear.weight.grad.abs().sum().item() > 0
