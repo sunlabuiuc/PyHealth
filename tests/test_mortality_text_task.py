@@ -170,33 +170,39 @@ def make_synthetic_patient(
     Returns:
         MagicMock patient object with patient_id and data_source attributes.
     """
-    patient_rows = {
+    # Use a consistent Datetime dtype across both rows to avoid Polars
+    # SchemaError when concatenating Datetime('us') with Null columns.
+    dt_type = pl.Datetime("us")
+
+    patient_rows = pl.DataFrame({
         "patient_id": [patient_id],
         "event_type": ["patients"],
-        "timestamp": [None],
+        "timestamp": pl.Series([None], dtype=dt_type),
         "patients/gender": [gender],
-        "patients/dob": [dob],
-        "admissions/hadm_id": [None],
-        "admissions/hospital_expire_flag": [None],
-        "admissions/ethnicity": [None],
-        "admissions/insurance": [None],
-        "admissions/language": [None],
-    }
+        "patients/dob": pl.Series([dob], dtype=dt_type),
+        "admissions/hadm_id": pl.Series([None], dtype=pl.Utf8),
+        "admissions/hospital_expire_flag": pl.Series([None], dtype=pl.Int64),
+        "admissions/ethnicity": pl.Series([None], dtype=pl.Utf8),
+        "admissions/insurance": pl.Series([None], dtype=pl.Utf8),
+        "admissions/language": pl.Series([None], dtype=pl.Utf8),
+    })
 
-    admission_rows = {
+    admission_rows = pl.DataFrame({
         "patient_id": [patient_id] * n_admissions,
         "event_type": ["admissions"] * n_admissions,
-        "timestamp": [admit_time] * n_admissions,
-        "patients/gender": [None] * n_admissions,
-        "patients/dob": [None] * n_admissions,
+        "timestamp": pl.Series([admit_time] * n_admissions, dtype=dt_type),
+        "patients/gender": pl.Series([None] * n_admissions, dtype=pl.Utf8),
+        "patients/dob": pl.Series([None] * n_admissions, dtype=dt_type),
         "admissions/hadm_id": [f"10000{i}" for i in range(n_admissions)],
-        "admissions/hospital_expire_flag": [expire_flag] * n_admissions,
-        "admissions/ethnicity": [ethnicity] * n_admissions,
-        "admissions/insurance": [insurance] * n_admissions,
-        "admissions/language": [language] * n_admissions,
-    }
+        "admissions/hospital_expire_flag": pl.Series(
+            [expire_flag] * n_admissions, dtype=pl.Int64
+        ),
+        "admissions/ethnicity": pl.Series([ethnicity] * n_admissions, dtype=pl.Utf8),
+        "admissions/insurance": pl.Series([insurance] * n_admissions, dtype=pl.Utf8),
+        "admissions/language": pl.Series([language] * n_admissions, dtype=pl.Utf8),
+    })
 
-    df = pl.concat([pl.DataFrame(patient_rows), pl.DataFrame(admission_rows)])
+    df = pl.concat([patient_rows, admission_rows])
     patient = MagicMock()
     patient.patient_id = patient_id
     patient.data_source = df
@@ -391,17 +397,18 @@ class TestMortalityTextTaskEdgeCases(unittest.TestCase):
 
     def test_no_patients_row_returns_empty(self) -> None:
         """If no 'patients' event rows exist, return empty list."""
+        dt = pl.Datetime("us")
         df = pl.DataFrame({
-            "patient_id": ["p_edge"],
-            "event_type": ["admissions"],
-            "timestamp": [datetime(2020, 1, 1)],
-            "patients/gender": [None],
-            "patients/dob": [None],
-            "admissions/hadm_id": ["999"],
-            "admissions/hospital_expire_flag": [0],
-            "admissions/ethnicity": ["WHITE"],
-            "admissions/insurance": ["Medicare"],
-            "admissions/language": ["ENGL"],
+            "patient_id": pl.Series(["p_edge"], dtype=pl.Utf8),
+            "event_type": pl.Series(["admissions"], dtype=pl.Utf8),
+            "timestamp": pl.Series([datetime(2020, 1, 1)], dtype=dt),
+            "patients/gender": pl.Series([None], dtype=pl.Utf8),
+            "patients/dob": pl.Series([None], dtype=dt),
+            "admissions/hadm_id": pl.Series(["999"], dtype=pl.Utf8),
+            "admissions/hospital_expire_flag": pl.Series([0], dtype=pl.Int64),
+            "admissions/ethnicity": pl.Series(["WHITE"], dtype=pl.Utf8),
+            "admissions/insurance": pl.Series(["Medicare"], dtype=pl.Utf8),
+            "admissions/language": pl.Series(["ENGL"], dtype=pl.Utf8),
         })
         patient = MagicMock()
         patient.patient_id = "p_edge"
@@ -411,17 +418,18 @@ class TestMortalityTextTaskEdgeCases(unittest.TestCase):
 
     def test_no_admissions_row_returns_empty(self) -> None:
         """If no 'admissions' event rows exist, return empty list."""
+        dt = pl.Datetime("us")
         df = pl.DataFrame({
-            "patient_id": ["p_edge2"],
-            "event_type": ["patients"],
-            "timestamp": [None],
-            "patients/gender": ["F"],
-            "patients/dob": [datetime(1960, 1, 1)],
-            "admissions/hadm_id": [None],
-            "admissions/hospital_expire_flag": [None],
-            "admissions/ethnicity": [None],
-            "admissions/insurance": [None],
-            "admissions/language": [None],
+            "patient_id": pl.Series(["p_edge2"], dtype=pl.Utf8),
+            "event_type": pl.Series(["patients"], dtype=pl.Utf8),
+            "timestamp": pl.Series([None], dtype=dt),
+            "patients/gender": pl.Series(["F"], dtype=pl.Utf8),
+            "patients/dob": pl.Series([datetime(1960, 1, 1)], dtype=dt),
+            "admissions/hadm_id": pl.Series([None], dtype=pl.Utf8),
+            "admissions/hospital_expire_flag": pl.Series([None], dtype=pl.Int64),
+            "admissions/ethnicity": pl.Series([None], dtype=pl.Utf8),
+            "admissions/insurance": pl.Series([None], dtype=pl.Utf8),
+            "admissions/language": pl.Series([None], dtype=pl.Utf8),
         })
         patient = MagicMock()
         patient.patient_id = "p_edge2"
