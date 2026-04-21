@@ -147,10 +147,22 @@ Path B — Pre-computed input
 Signal Processing
 -----------------
 
-The pipeline below is applied to each raw recording. It is implemented in
-both ``EEGGCNNRawDataset.precompute_features()`` (batch, runs once and saves
-the five output files) and ``EEGGCNNDiseaseDetection.__call__()`` (streaming,
-processes one patient at a time during training without saving).
+The pipeline below is applied to each raw recording. There are two
+implementations depending on the use case:
+
+- **``EEGGCNNRawDataset.precompute_features()``** (batch) — runs once over
+  all raw files and saves the five output arrays to disk.  This is what
+  ``pre_compute.py`` calls, and it is the path used for all training,
+  holdout evaluation, and ablation runs described in this document.
+
+- **``EEGGCNNDiseaseDetection.__call__()``** (streaming) — processes one
+  patient at a time on-the-fly during training without saving intermediate
+  files.  Supports configurable ``adjacency_type`` (``spatial``,
+  ``functional``, ``combined``) and a custom ``bands`` dict for band-level
+  ablation.  Available as an alternative entry point but not used in the
+  training or ablation runs described here — those use ``EEGGCNNDataset``
+  with the ``alpha`` parameter and ``EEGGCNNClassification`` with
+  ``excluded_bands`` instead.
 
 Steps applied in order:
 
