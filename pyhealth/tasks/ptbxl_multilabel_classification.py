@@ -359,6 +359,6 @@ class PTBXLMultilabelClassification(BaseTask):
                 # No recognised labels → skip (consistent with other tasks).
                 continue
 
-            samples.append({"signal": signal, "labels": labels, "split": "split": event.attr_dict.get("split", "train")})
+            samples.append({"signal": signal, "labels": labels, "split": event.attr_dict.get("split", "train")})
 
         return samples
