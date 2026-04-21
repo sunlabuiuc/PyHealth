@@ -15,6 +15,12 @@ class CaReSoundAQA(BaseTask):
         task_name (str): The name of the task.
         input_schema (Dict[str, str]): Required inputs (audio_path, question).
         output_schema (Dict[str, str]): Required outputs (answer).
+
+    Example:
+        >>> from pyhealth.datasets import CaReSoundDataset
+        >>> from pyhealth.tasks import CaReSoundAQA
+        >>> example_dataset = CaReSoundDataset(root="/Users/rahuld/Downloads/CaReAQA/datasets")
+        >>> sample_dataset = example_dataset.set_task(CaReSoundAQA())
     """
 
     task_name: str = "CaReSoundAQA"

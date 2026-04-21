@@ -27,6 +27,11 @@ class CaReSoundDataset(BaseDataset):
         tables: Optional list of tables to load. Defaults to ["metadata"].
         dataset_name: Optional name of the dataset. Defaults to "caresound".
         config_path: Optional path to the configuration file.
+
+    Example:
+        >>> from pyhealth.datasets import CaReSoundDataset
+        >>> example_dataset = CaReSoundDataset(root="/Users/rahuld/Downloads/CaReAQA/datasets")
+        >>> example_dataset.stats()
     """
 
     def __init__(
