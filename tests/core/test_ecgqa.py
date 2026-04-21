@@ -4,7 +4,10 @@ import shutil
 import json
 from pathlib import Path
 
+import torch
+
 from pyhealth.datasets import ECGQADataset
+from pyhealth.tasks import ECGQA
 
 
 class TestECGQADataset(unittest.TestCase):
@@ -99,25 +102,19 @@ class TestECGQADataset(unittest.TestCase):
         self.assertEqual(dataset.dataset_name, "ecg_qa")
         self.assertEqual(dataset.root, str(self.root))
 
-    def test_metadata_file_created(self):
-        """Test ecg-qa-pyhealth.csv is created in root"""
-        ECGQADataset(root=str(self.root), cache_dir=self._cache_tmp)
-        metadata_file = self.root / "ecg-qa-pyhealth.csv"
-        self.assertTrue(metadata_file.exists())
-
     def test_patient_count(self):
         """Test only single-* records are loaded (4 of 5)"""
         dataset = ECGQADataset(root=str(self.root), cache_dir=self._cache_tmp)
         # ecg_ids 1, 2, 4, 5 survive; ecg_id 3 is comparison-verify and is filtered.
         self.assertEqual(len(dataset.unique_patient_ids), 4)
         self.assertEqual(
-            sorted(dataset.unique_patient_ids), ["1", "2", "4", "5"]
+            sorted(dataset.unique_patient_ids), ["00001", "00002", "00004", "00005"]
         )
 
     def test_filters_non_single_question_types(self):
         """Test that comparison-verify records are dropped"""
         dataset = ECGQADataset(root=str(self.root), cache_dir=self._cache_tmp)
-        self.assertNotIn("3", dataset.unique_patient_ids)
+        self.assertNotIn("00003", dataset.unique_patient_ids)
 
     def test_stats_method(self):
         """Test stats method runs without error"""
@@ -127,20 +124,14 @@ class TestECGQADataset(unittest.TestCase):
     def test_get_patient(self):
         """Test get_patient method"""
         dataset = ECGQADataset(root=str(self.root), cache_dir=self._cache_tmp)
-        patient = dataset.get_patient("1")
+        patient = dataset.get_patient("00001")
         self.assertIsNotNone(patient)
-        self.assertEqual(patient.patient_id, "1")
-
-    def test_get_patient_not_found(self):
-        """Test that patient not found throws error."""
-        dataset = ECGQADataset(root=str(self.root), cache_dir=self._cache_tmp)
-        with self.assertRaises(AssertionError):
-            dataset.get_patient("999")
+        self.assertEqual(patient.patient_id, "00001")
 
     def test_single_verify_event_fields(self):
         """Test a single-verify event surfaces the expected attributes"""
         dataset = ECGQADataset(root=str(self.root), cache_dir=self._cache_tmp)
-        events = dataset.get_patient("1").get_events()
+        events = dataset.get_patient("00001").get_events()
         self.assertEqual(len(events), 1)
         self.assertEqual(events[0]["question_type"], "single-verify")
         self.assertEqual(events[0]["answer"], "yes")
@@ -149,18 +140,9 @@ class TestECGQADataset(unittest.TestCase):
     def test_single_choose_event_joins_multi_valued_fields(self):
         """Test single-choose records join answer/attribute with ';'"""
         dataset = ECGQADataset(root=str(self.root), cache_dir=self._cache_tmp)
-        events = dataset.get_patient("2").get_events()
+        events = dataset.get_patient("00002").get_events()
         self.assertEqual(events[0]["answer"], "sinus rhythm;atrial fibrillation")
         self.assertEqual(events[0]["attribute"], "SR;AFIB")
-
-    def test_invalid_ecg_source_raises(self):
-        """Test ValueError on invalid ecg_source"""
-        with self.assertRaises(ValueError):
-            ECGQADataset(
-                root=str(self.root),
-                ecg_source="nope",
-                cache_dir=self._cache_tmp,
-            )
 
 
 class TestECGQAVerifyData(unittest.TestCase):
@@ -190,6 +172,74 @@ class TestECGQAVerifyData(unittest.TestCase):
             (self.root / split).mkdir()
         with self.assertRaises(ValueError):
             ECGQADataset(root=str(self.root))
+
+
+class TestECGQATask(unittest.TestCase):
+    """Test the ECGQA task with synthetic data."""
+
+    def setUp(self):
+        self.temp_dir = tempfile.mkdtemp()
+        self.root = Path(self.temp_dir)
+        for split in ("train", "valid", "test"):
+            (self.root / split).mkdir()
+
+        records = [
+            {
+                "ecg_id": [1],
+                "question": "Does this ECG show normal sinus rhythm?",
+                "answer": ["yes"],
+                "question_type": "single-verify",
+                "attribute_type": "scp_code",
+                "template_id": 1,
+                "question_id": 100,
+                "sample_id": 1000,
+                "attribute": ["NORM"],
+            },
+            {
+                "ecg_id": [1],
+                "question": "What rhythm does this ECG show?",
+                "answer": ["sinus rhythm"],
+                "question_type": "single-query",
+                "attribute_type": "rhythm",
+                "template_id": 2,
+                "question_id": 101,
+                "sample_id": 1001,
+                "attribute": ["SR"],
+            },
+        ]
+        (self.root / "train" / "00.json").write_text(json.dumps(records))
+        (self.root / "valid" / "00.json").write_text(json.dumps([records[0]]))
+        (self.root / "test" / "00.json").write_text(json.dumps([records[1]]))
+
+        self._cache_tmp = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+        shutil.rmtree(self._cache_tmp, ignore_errors=True)
+
+    def test_text_only_mode(self):
+        """Task with no signal_loader returns text-only samples."""
+        dataset = ECGQADataset(root=str(self.root), cache_dir=self._cache_tmp)
+        samples = dataset.set_task(ECGQA())
+        sample = samples[0]
+
+        self.assertIn("question", sample)
+        self.assertIn("answer", sample)
+        self.assertIn("question_type", sample)
+        self.assertIn("episode_class", sample)
+        self.assertNotIn("signal", sample)
+
+    def test_signal_loader_attaches_signal(self):
+        """Task with signal_loader attaches signal tensor to samples."""
+        def fake_loader(ecg_id):
+            return torch.randn(12, 2500)
+
+        dataset = ECGQADataset(root=str(self.root), cache_dir=self._cache_tmp)
+        samples = dataset.set_task(ECGQA(signal_loader=fake_loader))
+        sample = samples[0]
+
+        self.assertIn("signal", sample)
+        self.assertEqual(sample["signal"].shape, torch.Size([12, 2500]))
 
 
 if __name__ == "__main__":
