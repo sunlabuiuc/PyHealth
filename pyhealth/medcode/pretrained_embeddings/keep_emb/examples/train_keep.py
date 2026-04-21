@@ -105,36 +105,46 @@ DEVICE = "auto"                      # "auto" | "cuda" | "mps" | "cpu"
 # re-run intrinsic eval later without retraining.
 SAVE_COOC_ARTIFACTS = True
 
+# Also export Node2Vec (Stage 1) embeddings as node2vec_snomed.txt?
+# Format matches keep_snomed.txt so it can be used as a pretrained_emb_path
+# baseline for downstream ablation comparisons (KEEP vs Node2Vec-only).
+# The underlying node2vec_embeddings.npy is always saved for diagnostics
+# regardless of this flag.
+EXPORT_NODE2VEC_SNOMED_TXT = True
+
 # Data source
 MIMIC_VERSION = "mimic4"             # "mimic3" (ICD-9 only) or "mimic4" (mixed ICD-9/ICD-10)
 LOCAL_MIMIC_ROOTS = {
     "mimic3": "data/mimic3",
     "mimic4": "data/mimic4",
 }
-DEV_MODE = True                     # True = 1000-patient subset + tiny pipeline for smoke tests
+DEV_MODE = False                     # True = 1000-patient subset + tiny pipeline for smoke tests
 
 # Filter knob (the paper uses 2; MIMIC-IV likely benefits from 1 — see
 # docs/plans/keep/keep-learning-journal-filter-investigation.md)
 MIN_OCCURRENCES = 2
 
-# Output layout (flat, Trainer-style, timestamped):
+# Output layout (flat, Trainer-style, timestamped; namespaced by method):
 #   OUTPUT_ROOT/{timestamp}/
-#       keep_snomed.txt        pretrained embeddings
-#       cooc_matrix.npy        (optional) co-occurrence matrix
-#       cooc_index.json        (optional) SNOMED id → matrix row index
-#       config.json            inputs: hyperparameters, data sources, variant
-#       results.json           outputs: wall time, energy, intrinsic eval
+#       keep_snomed.txt             pretrained embeddings (text, for pretrained_emb_path)
+#       keep_embeddings.npy         final KEEP embeddings (numpy, aligned to cooc rows)
+#       node2vec_embeddings.npy     Stage 1 init (aligned) — for drift diagnostics
+#       cooc_matrix.npy             (optional) co-occurrence matrix
+#       cooc_index.json             (optional) SNOMED id → matrix row index
+#       config.json                 inputs: hyperparameters, data sources, variant
+#       results.json                outputs: wall time, energy, intrinsic eval
 #
-#   e.g. output/keep_emb_output/20260420-143042/keep_snomed.txt
-#        output/keep_emb_output/20260421-090000/keep_snomed.txt
+#   e.g. output/embeddings/keep/20260420-143042/keep_snomed.txt
+#        output/embeddings/keep/20260421-090000/keep_snomed.txt
 #
-# Config details (variant, mimic version, min_occurrences) live in each
-# run's config.json — NOT in the directory name. This matches PyHealth's
-# Trainer convention (./output/<timestamp>/) and keeps paths short.
+# The `embeddings/keep/` namespace leaves room for sibling methods used as
+# baselines for the paper (e.g. output/embeddings/node2vec/, cui2vec/,
+# medbert/). Config details (variant, mimic version, min_occurrences)
+# live in each run's config.json — NOT in the directory name.
 #
-# To identify a run, open its config.json or grep:
-#   cat output/keep_emb_output/*/config.json | jq '.run_name'
-OUTPUT_ROOT = "output/keep_emb_output"
+# To identify a run:
+#   cat output/embeddings/keep/*/config.json | jq '.run_name'
+OUTPUT_ROOT = "output/embeddings/keep"
 # ──────────────────────────────────────────────────────────
 
 # Paper-faithful vs G2Lab code-faithful hyperparameter variants.
@@ -230,6 +240,7 @@ def main():
         dev=DEV_MODE,
         min_occurrences=MIN_OCCURRENCES,
         device=resolved_device,
+        export_node2vec_text=EXPORT_NODE2VEC_SNOMED_TXT,
         **variant_params,
     )
     wall_time = time.time() - start_time
@@ -285,20 +296,21 @@ def main():
             k2 = min(150, len(eval_node_ids) - k1 - 1)
             runs = 50  # paper uses 250; 50 is enough for a smoke check
 
-            # Resnik correlation (paper Table 2 target: 0.68)
+            # ── KEEP's Resnik + cooc (paper Table 2 targets: 0.68 / 0.62) ──
             resnik_results = resnik_correlation(
                 eval_emb, eval_node_ids, eval_graph,
                 k1=k1, k2=k2, num_runs=runs, seed=42,
             )
             print(
-                f"  Resnik correlation (median): {resnik_results['median']:.4f} "
+                f"  KEEP Resnik correlation (median): {resnik_results['median']:.4f} "
                 f"(paper target: 0.68)"
             )
 
-            # Co-occurrence correlation (paper Table 2 target: 0.62)
             cooc_matrix_path = output_dir / "cooc_matrix.npy"
             cooc_index_path = output_dir / "cooc_index.json"
             cooc_results = None
+            cooc_matrix = None
+            code_to_idx_saved = None
             if cooc_matrix_path.exists() and cooc_index_path.exists():
                 cooc_matrix = np.load(cooc_matrix_path)
                 with open(cooc_index_path) as f:
@@ -311,18 +323,129 @@ def main():
                     k1=k1, k2=k2, num_runs=runs, seed=42,
                 )
                 print(
-                    f"  Co-occurrence correlation (median): "
+                    f"  KEEP Co-occurrence correlation (median): "
                     f"{cooc_results['median']:.4f} (paper target: 0.62)"
                 )
             else:
                 print(
-                    f"  Co-occurrence correlation skipped: cooc matrix not "
+                    f"  KEEP Co-occurrence correlation skipped: cooc matrix not "
                     f"found at {cooc_matrix_path}."
+                )
+
+            # ── Node2Vec-only baselines (answers Desmond's question) ──
+            # Load Node2Vec init (saved by run_pipeline.py, aligned to cooc rows)
+            n2v_baseline_resnik = None
+            n2v_baseline_cooc = None
+            stage2_effectiveness = None
+            n2v_npy_path = output_dir / "node2vec_embeddings.npy"
+            keep_npy_path = output_dir / "keep_embeddings.npy"
+            if n2v_npy_path.exists() and keep_npy_path.exists():
+                n2v_emb_full = np.load(n2v_npy_path)    # (V, 100)
+                keep_emb_full = np.load(keep_npy_path)  # (V, 100)
+
+                # Reconstruct which rows of the npy correspond to eval_node_ids
+                # (both npy files are aligned to cooc_index order)
+                if code_to_idx_saved is not None:
+                    eval_row_indices = [
+                        code_to_idx_saved[nid]
+                        for nid in eval_node_ids
+                        if nid in code_to_idx_saved
+                    ]
+                    n2v_eval_emb = n2v_emb_full[eval_row_indices]
+                    eval_node_ids_filtered = [
+                        nid for nid in eval_node_ids if nid in code_to_idx_saved
+                    ]
+
+                    # Node2Vec-only Resnik
+                    n2v_resnik = resnik_correlation(
+                        n2v_eval_emb, eval_node_ids_filtered, eval_graph,
+                        k1=k1, k2=k2, num_runs=runs, seed=42,
+                    )
+                    n2v_baseline_resnik = n2v_resnik
+                    print(
+                        f"  Node2Vec-only Resnik (median):    "
+                        f"{n2v_resnik['median']:.4f}"
+                    )
+                    print(
+                        f"  KEEP lift over Node2Vec (Resnik): "
+                        f"{resnik_results['median'] - n2v_resnik['median']:+.4f}"
+                    )
+
+                    # Node2Vec-only co-occurrence
+                    if cooc_matrix is not None:
+                        n2v_cooc = cooccurrence_correlation(
+                            n2v_eval_emb, eval_node_ids_filtered,
+                            cooc_matrix, code_to_idx_saved,
+                            k1=k1, k2=k2, num_runs=runs, seed=42,
+                        )
+                        n2v_baseline_cooc = n2v_cooc
+                        print(
+                            f"  Node2Vec-only cooc corr (median): "
+                            f"{n2v_cooc['median']:.4f}"
+                        )
+                        print(
+                            f"  KEEP lift over Node2Vec (cooc):   "
+                            f"{cooc_results['median'] - n2v_cooc['median']:+.4f}"
+                        )
+
+                # ── Embedding drift (Stage 2 effectiveness) ──
+                # Per-concept relative change from Node2Vec init to KEEP final
+                n2v_norms = np.linalg.norm(n2v_emb_full, axis=1)
+                diff_norms = np.linalg.norm(
+                    keep_emb_full - n2v_emb_full, axis=1
+                )
+                # Guard against division by zero for zero-init rows (shouldn't
+                # happen for observed concepts but be safe)
+                safe_n2v = np.where(n2v_norms > 1e-10, n2v_norms, 1.0)
+                rel_drift = diff_norms / safe_n2v
+
+                mean_drift = float(rel_drift.mean())
+                median_drift = float(np.median(rel_drift))
+                max_drift = float(rel_drift.max())
+                pct_stuck = float((rel_drift < 0.01).mean() * 100)
+
+                # Heuristic verdict based on both drift and cooc lift
+                cooc_lift = None
+                if cooc_results is not None and n2v_baseline_cooc is not None:
+                    cooc_lift = (
+                        cooc_results['median'] - n2v_baseline_cooc['median']
+                    )
+
+                if mean_drift < 0.01:
+                    verdict = "embeddings_frozen_stage2_did_nothing"
+                elif cooc_lift is not None and cooc_lift <= 0.01:
+                    verdict = "moved_but_no_empirical_signal_gained"
+                elif cooc_lift is not None and cooc_lift > 0.10:
+                    verdict = "strong_empirical_signal_captured"
+                else:
+                    verdict = "partial_empirical_signal_captured"
+
+                stage2_effectiveness = {
+                    "mean_relative_drift": mean_drift,
+                    "median_relative_drift": median_drift,
+                    "max_relative_drift": max_drift,
+                    "pct_concepts_stuck_below_1pct": pct_stuck,
+                    "cooc_lift_over_node2vec": cooc_lift,
+                    "verdict": verdict,
+                }
+                print(
+                    f"  Embedding drift (mean): {mean_drift:.4f}  "
+                    f"(stuck <1%: {pct_stuck:.1f}% of concepts)"
+                )
+                print(f"  Stage 2 verdict: {verdict}")
+            else:
+                print(
+                    f"  Skipped Node2Vec baseline + drift: "
+                    f"{n2v_npy_path} or {keep_npy_path} not found "
+                    f"(pipeline may have been run before the n2v save was added)."
                 )
 
             intrinsic_results = {
                 "resnik": resnik_results,
                 "cooccurrence": cooc_results,
+                "resnik_node2vec_baseline": n2v_baseline_resnik,
+                "cooccurrence_node2vec_baseline": n2v_baseline_cooc,
+                "stage2_effectiveness": stage2_effectiveness,
             }
         else:
             print(
@@ -389,11 +512,35 @@ def main():
         results_data["energy_kwh"] = emissions_data.energy_consumed
         results_data["co2_kg"] = emissions_data.emissions
     if intrinsic_results:
+        keep_resnik = intrinsic_results.get("resnik") or {}
+        keep_cooc = intrinsic_results.get("cooccurrence") or {}
+        n2v_resnik = intrinsic_results.get("resnik_node2vec_baseline") or {}
+        n2v_cooc = intrinsic_results.get("cooccurrence_node2vec_baseline") or {}
+        stage2 = intrinsic_results.get("stage2_effectiveness")
+
+        def _lift(keep_metric, baseline_metric, key="median"):
+            if not keep_metric or not baseline_metric:
+                return None
+            k = keep_metric.get(key)
+            b = baseline_metric.get(key)
+            if k is None or b is None:
+                return None
+            return float(k - b)
+
         results_data["intrinsic_eval"] = {
-            "resnik": intrinsic_results.get("resnik"),
-            "cooccurrence": intrinsic_results.get("cooccurrence"),
-            "paper_resnik_target": 0.68,
-            "paper_cooccurrence_target": 0.62,
+            "resnik": {
+                "keep": keep_resnik,
+                "node2vec_baseline": n2v_resnik if n2v_resnik else None,
+                "lift_over_baseline_median": _lift(keep_resnik, n2v_resnik),
+                "paper_target": 0.68,
+            },
+            "cooccurrence": {
+                "keep": keep_cooc if keep_cooc else None,
+                "node2vec_baseline": n2v_cooc if n2v_cooc else None,
+                "lift_over_baseline_median": _lift(keep_cooc, n2v_cooc),
+                "paper_target": 0.62,
+            },
+            "stage2_effectiveness": stage2,
         }
     results_path = output_dir / "results.json"
     with open(results_path, "w") as f:
@@ -403,12 +550,16 @@ def main():
     print(f"\n{'=' * 60}")
     print(f"Done. Artifacts in: {output_dir}")
     print(f"{'=' * 60}")
-    print("  keep_snomed.txt       ← pretrained embeddings (use with pretrained_emb_path)")
+    print("  keep_snomed.txt          ← KEEP (Stage 2) embeddings, text format")
+    if EXPORT_NODE2VEC_SNOMED_TXT:
+        print("  node2vec_snomed.txt      ← Node2Vec (Stage 1) embeddings, text format (baseline)")
+    print("  keep_embeddings.npy      ← KEEP embeddings, numpy (aligned to cooc rows)")
+    print("  node2vec_embeddings.npy  ← Node2Vec embeddings, numpy (aligned to cooc rows)")
     if cooc_artifacts_kept:
-        print("  cooc_matrix.npy       ← co-occurrence matrix (for re-running intrinsic eval)")
-        print("  cooc_index.json       ← SNOMED concept_id → matrix row index")
-    print("  config.json           ← inputs (hyperparameters, data sources, variant)")
-    print("  results.json          ← outputs (wall time, energy, intrinsic eval)")
+        print("  cooc_matrix.npy          ← co-occurrence matrix")
+        print("  cooc_index.json          ← SNOMED concept_id → matrix row index")
+    print("  config.json              ← inputs (hyperparameters, data sources, variant)")
+    print("  results.json             ← outputs (timing, intrinsic eval, stage2 effectiveness)")
 
 
 if __name__ == "__main__":

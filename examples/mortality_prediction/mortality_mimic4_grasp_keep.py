@@ -109,16 +109,17 @@ KEEP_VARIANT = "paper"           # "paper" (L2+1e-3+AdamW+mean) or "code" (cosin
 RUN_INTRINSIC_EVAL = True        # compute Resnik/co-occ correlations after pipeline
 
 # KEEP embedding caching: reuse previously-trained embeddings if they exist.
-# Cache layout matches train_keep.py — flat + Trainer-style timestamps:
+# Cache layout matches train_keep.py — flat + Trainer-style timestamps,
+# namespaced by method (leaves room for node2vec/, cui2vec/ etc. baselines):
 #   {KEEP_CACHE_ROOT}/{timestamp}/keep_snomed.txt
-#   {KEEP_CACHE_ROOT}/{timestamp}/manifest.json  ← config lives here, not in the path
+#   {KEEP_CACHE_ROOT}/{timestamp}/config.json   ← config lives here, not in the path
 #
-# Cache lookup reads each run's manifest.json and picks one matching the CURRENT
-# config (KEEP_VARIANT + MIMIC_VERSION + MIN_OCCURRENCES):
+# Cache lookup reads each run's config.json (or legacy manifest.json) and picks
+# one matching the CURRENT config (KEEP_VARIANT + MIMIC_VERSION + MIN_OCCURRENCES):
 #   - KEEP_CACHE_RUN_ID = None    → newest matching run
-#   - KEEP_CACHE_RUN_ID = "<ts>"  → that specific timestamp folder (no manifest check)
+#   - KEEP_CACHE_RUN_ID = "<ts>"  → that specific timestamp folder (no config check)
 USE_KEEP_CACHE = False                # True = reuse cached embeddings; False = always rebuild
-KEEP_CACHE_ROOT = "output/keep_emb_output"
+KEEP_CACHE_ROOT = "output/embeddings/keep"
 KEEP_CACHE_RUN_ID = None              # None = newest matching; or e.g. "20260420-143042"
 
 # Data source toggle: local real MIMIC vs GCS synthetic
@@ -212,8 +213,9 @@ if __name__ == "__main__":
 
         # Cache layout (shared with train_keep.py, flat):
         #   {KEEP_CACHE_ROOT}/{timestamp}/keep_snomed.txt
-        # Config lives in each run's manifest.json — we read manifests to
-        # find cache runs matching the CURRENT config (variant + mimic + minocc).
+        # Config lives in each run's config.json (or legacy manifest.json) —
+        # we read those to find cache runs matching the CURRENT config
+        # (variant + mimic + minocc).
         cache_root = Path(KEEP_CACHE_ROOT)
 
         def _resolve_cached_run():

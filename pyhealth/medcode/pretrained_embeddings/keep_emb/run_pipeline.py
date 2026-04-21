@@ -20,7 +20,7 @@ Usage::
     keep_emb_path = run_keep_pipeline(
         athena_dir="data/athena",
         dataset=base_dataset,
-        output_dir="keep_output",
+        output_dir="output/embeddings/keep/<timestamp>",
     )
 
     model = GRASP(
@@ -178,7 +178,7 @@ def extract_diagnoses_for_schema(
 def run_keep_pipeline(
     athena_dir: str | Path,
     dataset,
-    output_dir: str | Path = "keep_output",
+    output_dir: str | Path = "output/embeddings/keep/run",
     embedding_dim: int = 100,
     max_depth: int = 5,
     num_walks: int = 750,
@@ -191,6 +191,7 @@ def run_keep_pipeline(
     device: str = "auto",
     seed: int = 42,
     dev: bool = False,
+    export_node2vec_text: bool = True,
 ) -> str:
     """Run the full KEEP embedding pipeline.
 
@@ -210,7 +211,10 @@ def run_keep_pipeline(
         dataset: A PyHealth BaseDataset (e.g., MIMIC3Dataset) that has
             been loaded with ``tables=["DIAGNOSES_ICD"]``. The
             ``global_event_df`` is used to extract patient codes.
-        output_dir: Directory to write output files. Default: "keep_output".
+        output_dir: Directory to write output files. Callers should pass a
+            timestamped path like ``output/embeddings/keep/<timestamp>``
+            (see ``train_keep.py`` example). Default is a non-timestamped
+            fallback and will overwrite on rerun — don't rely on it.
         embedding_dim: Dimensionality of embeddings.
             Default: 100 (KEEP paper Table 5).
         max_depth: Maximum SNOMED hierarchy depth from root.
@@ -235,6 +239,10 @@ def run_keep_pipeline(
         seed: Random seed for reproducibility. Default: 42.
         dev: If True, use reduced params for fast testing
             (num_walks=10, glove_epochs=10). Default: False.
+        export_node2vec_text: If True, also exports Node2Vec (Stage 1)
+            embeddings as ``node2vec_snomed.txt`` in the same text format
+            as ``keep_snomed.txt``, usable as a pretrained_emb_path baseline
+            for downstream ablation comparisons. Default: True.
 
     Returns:
         str: Path to the exported ``keep_snomed.txt`` file.
@@ -245,9 +253,13 @@ def run_keep_pipeline(
     Example:
         >>> from pyhealth.datasets import MIMIC3Dataset
         >>> dataset = MIMIC3Dataset(root="...", tables=["DIAGNOSES_ICD"])
-        >>> path = run_keep_pipeline("data/athena", dataset)
+        >>> path = run_keep_pipeline(
+        ...     "data/athena",
+        ...     dataset,
+        ...     output_dir="output/embeddings/keep/20260420-020507",
+        ... )
         >>> path
-        'keep_output/keep_snomed.txt'
+        'output/embeddings/keep/20260420-020507/keep_snomed.txt'
     """
     import polars as pl
 
@@ -380,6 +392,13 @@ def run_keep_pipeline(
         if code_id in nid_to_idx:
             init_emb[i] = n2v_embeddings[nid_to_idx[code_id]]
 
+    # Save Node2Vec init (aligned to cooc matrix rows) for post-hoc diagnostics.
+    # Used to compute Stage 2 embedding drift and Node2Vec-only intrinsic
+    # evaluation baselines.
+    n2v_init_path = output_dir / "node2vec_embeddings.npy"
+    np.save(n2v_init_path, init_emb)
+    print(f"  Saved Node2Vec init: {n2v_init_path}")
+
     # Step 7: Regularized GloVe (Stage 2)
     print("KEEP [7/7] Training regularized GloVe (Stage 2)...")
     keep_embeddings = train_keep(
@@ -395,10 +414,24 @@ def run_keep_pipeline(
     )
     print(f"  KEEP embeddings: {keep_embeddings.shape}")
 
-    # Export
+    # Save final KEEP embeddings aligned to cooc matrix row order (numpy).
+    # Text export below is for downstream loaders; this .npy is for drift +
+    # Stage-2-effectiveness diagnostics (compare to node2vec_embeddings.npy).
+    keep_npy_path = output_dir / "keep_embeddings.npy"
+    np.save(keep_npy_path, keep_embeddings)
+
+    # Export text format for pretrained_emb_path loaders
     keep_emb_path = str(output_dir / "keep_snomed.txt")
     export_snomed(keep_embeddings, idx_to_code, graph, keep_emb_path)
     print(f"  Exported to: {keep_emb_path}")
+
+    # Optionally export Node2Vec (Stage 1) embeddings in the same text format
+    # so they can be used as a downstream baseline via pretrained_emb_path.
+    # Useful for paper ablation comparisons (KEEP vs Node2Vec-only).
+    if export_node2vec_text:
+        n2v_text_path = str(output_dir / "node2vec_snomed.txt")
+        export_snomed(init_emb, idx_to_code, graph, n2v_text_path)
+        print(f"  Node2Vec baseline: {n2v_text_path}")
 
     # Also save the co-occurrence matrix + index so post-hoc intrinsic
     # evaluation (co-occurrence correlation, paper Table 2) can run
