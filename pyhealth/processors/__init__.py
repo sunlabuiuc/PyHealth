@@ -50,6 +50,7 @@ from .audio_processor import AudioProcessor
 from .ignore_processor import IgnoreProcessor
 from .temporal_timeseries_processor import TemporalTimeseriesProcessor
 from .tuple_time_text_processor import TupleTimeTextProcessor
+from .dermoscopic_image_processor import DermoscopicImageProcessor
 
 # Expose public API
 from .base_processor import (
@@ -79,4 +80,5 @@ __all__ = [
     "GraphProcessor",
     "AudioProcessor",
     "TupleTimeTextProcessor",
+    "DermoscopicImageProcessor",
 ]
