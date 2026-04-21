@@ -74,7 +74,7 @@ class TestCMAPriorEncoder(unittest.TestCase):
         )
         x = torch.randn(5, 4)
         out = model(features=x)
-        self.assertEqual(out["y_pred"].shape, (5, 1))
+        self.assertEqual(out["y_prob"].shape, (5, 1))
         self.assertEqual(out["embedding"].shape, (5, 3))
 
     def test_loss_backprop(self):

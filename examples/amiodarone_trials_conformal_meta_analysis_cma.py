@@ -11,7 +11,8 @@ Pipeline:
     2. For each trial, obtain text = real abstract (if extracted)
        or generated clinical prose as a fallback.
     3. Embed text with PubMedBERT (CLS token, frozen weights).
-    4. Train a CMAPriorEncoder MLP head on the untrusted embeddings.
+    4. Train a CMAPriorEncoder MLP head on the untrusted embeddings
+       using PyHealth's Trainer.
     5. Run ConformalMetaAnalysisModel on the trusted trials with
        the learned prior.
     6. Compare against the hand-crafted feature baseline and HKSJ.
@@ -41,13 +42,13 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
 import torch
-import torch.optim as optim
 from scipy.stats import t as t_dist
+from torch.utils.data import DataLoader
 
 from pyhealth.datasets import AmiodaroneTrialDataset
 from pyhealth.datasets.amiodarone_trial_dataset import FEATURE_COLUMNS
@@ -55,9 +56,8 @@ from pyhealth.models.cma_prior_encoder import CMAPriorEncoder
 from pyhealth.models.conformal_meta_analysis_krr import (
     ConformalMetaAnalysisModel,
 )
-from pyhealth.tasks.conformal_meta_analysis import (
-    ConformalMetaAnalysisTask,
-)
+from pyhealth.tasks.conformal_meta_analysis import ConformalMetaAnalysisTask
+from pyhealth.trainer import Trainer
 
 
 # ---------------------------------------------------------------------
@@ -76,7 +76,7 @@ def generate_clinical_prose(row: pd.Series) -> str:
 
     Used when a real abstract is not available. Output mimics the
     style of a clinical trial abstract so PubMedBERT processes it
-    similarly.
+    similarly to a real abstract.
     """
     name = row.get("trial_name", "trial")
     dose = row.get("amiodarone_total_24h_mg", 0) or 0
@@ -100,12 +100,15 @@ def generate_clinical_prose(row: pd.Series) -> str:
 
     af_str = "persistent" if af_long else "recent-onset"
     outcome_str = (
-        "long-term conversion (greater than 48 hours)" if outcome_long
+        "long-term conversion (greater than 48 hours)"
+        if outcome_long
         else "short-term conversion (within 48 hours)"
     )
     blinding = (
-        "double-blinded" if (masked_pt and masked_cg)
-        else "single-blinded" if masked_pt
+        "double-blinded"
+        if (masked_pt and masked_cg)
+        else "single-blinded"
+        if masked_pt
         else "open-label"
     )
 
@@ -127,7 +130,8 @@ def generate_clinical_prose(row: pd.Series) -> str:
 
 
 def get_trial_text(
-    row: pd.Series, abstracts: Dict[str, str],
+    row: pd.Series,
+    abstracts: Dict[str, str],
 ) -> Tuple[str, str]:
     """Return ``(text, source)`` where source is 'real' or 'generated'."""
     name = row.get("trial_name", "")
@@ -150,7 +154,7 @@ def embed_with_bert(
     Deferred-imports the ``transformers`` package so the rest of the
     script works without it.
     """
-    from transformers import AutoTokenizer, AutoModel
+    from transformers import AutoModel, AutoTokenizer
 
     print(f"Loading {model_name}...")
     tokenizer = AutoTokenizer.from_pretrained(model_name)
@@ -161,8 +165,11 @@ def embed_with_bert(
     with torch.no_grad():
         for i, text in enumerate(texts):
             inputs = tokenizer(
-                text, padding=True, truncation=True,
-                max_length=512, return_tensors="pt",
+                text,
+                padding=True,
+                truncation=True,
+                max_length=512,
+                return_tensors="pt",
             ).to(device)
             out = model(**inputs)
             cls = out.last_hidden_state[:, 0, :].squeeze(0).cpu()
@@ -181,7 +188,9 @@ def embed_with_bert(
 # HKSJ baseline (Proposition 10)
 # ---------------------------------------------------------------------
 def hksj_interval(
-    Y: np.ndarray, V: np.ndarray, alpha: float = 0.1,
+    Y: np.ndarray,
+    V: np.ndarray,
+    alpha: float = 0.1,
 ) -> Tuple[float, float]:
     """Hartung-Knapp-Sidik-Jonkman prediction interval."""
     n = len(Y)
@@ -210,7 +219,7 @@ def hksj_interval(
 def collect_batch(sample_dataset) -> Dict[str, torch.Tensor]:
     """Stack all samples in a SampleDataset into a single batch dict."""
     samples = list(sample_dataset)
-    batch = {}
+    batch: Dict[str, torch.Tensor] = {}
     for key in samples[0]:
         vals = [s[key] for s in samples]
         if isinstance(vals[0], torch.Tensor):
@@ -218,52 +227,94 @@ def collect_batch(sample_dataset) -> Dict[str, torch.Tensor]:
         else:
             try:
                 batch[key] = torch.tensor(
-                    [float(v) for v in vals], dtype=torch.float32,
+                    [float(v) for v in vals],
+                    dtype=torch.float32,
                 ).unsqueeze(-1)
             except (TypeError, ValueError):
                 batch[key] = vals
     return batch
 
 
-def train_encoder(
-    encoder: CMAPriorEncoder,
-    features: torch.Tensor,
-    targets: torch.Tensor,
-    epochs: int = 500,
-    lr: float = 1e-3,
-) -> CMAPriorEncoder:
-    """Train the MLP head on a fixed batch (frozen BERT upstream)."""
-    opt = optim.Adam(encoder.parameters(), lr=lr)
-    targets = targets.view(-1, 1).float()
-    encoder.train()
-    for _ in range(epochs):
-        opt.zero_grad()
-        out = encoder(features=features, true_effect=targets)
-        out["loss"].backward()
-        opt.step()
-    encoder.eval()
-    return encoder
+class _FeatureDataset(torch.utils.data.Dataset):
+    """Minimal Dataset wrapper exposing (features, true_effect) samples.
 
-
-class _FeatureDataset:
-    """Minimal SampleDataset-like wrapper for CMAPriorEncoder init."""
+    Used both for initializing ``CMAPriorEncoder`` (to infer input_dim
+    via ``__getitem__(0)``) and as the source for a ``DataLoader``
+    consumed by PyHealth's ``Trainer``.
+    """
 
     def __init__(
-        self, features: torch.Tensor, targets: torch.Tensor,
+        self,
+        features: torch.Tensor,
+        targets: torch.Tensor,
     ) -> None:
-        self._feats = features
-        self._tgts = targets.view(-1)
+        self._feats = features.float()
+        self._tgts = targets.view(-1).float()
         self.input_schema = {"features": "tensor"}
         self.output_schema = {"true_effect": "regression"}
 
     def __len__(self) -> int:
         return len(self._feats)
 
-    def __getitem__(self, i: int) -> Dict:
+    def __getitem__(self, i: int) -> Dict[str, torch.Tensor]:
         return {
-            "features": self._feats[i].float(),
-            "true_effect": float(self._tgts[i]),
+            "features": self._feats[i],
+            "true_effect": self._tgts[i].unsqueeze(-1),
         }
+
+
+def _collate_encoder_batch(
+    items: List[Dict[str, torch.Tensor]],
+) -> Dict[str, torch.Tensor]:
+    """Collate function that stacks per-sample tensors into a batch.
+
+    PyHealth's ``Trainer`` passes the collated dict straight into
+    ``model(**batch)``, so keys must match the encoder's ``forward``
+    signature (``features``, ``true_effect``).
+    """
+    return {
+        "features": torch.stack([item["features"] for item in items]),
+        "true_effect": torch.stack([item["true_effect"] for item in items]),
+    }
+
+
+def train_encoder_with_trainer(
+    encoder: CMAPriorEncoder,
+    features: torch.Tensor,
+    targets: torch.Tensor,
+    epochs: int = 200,
+    batch_size: int = 8,
+    lr: float = 1e-3,
+) -> CMAPriorEncoder:
+    """Train the encoder via PyHealth's ``Trainer``.
+
+    ``CMAPriorEncoder.forward`` already returns the ``{y_pred, y_true,
+    loss}`` dict that ``Trainer`` expects, so no wrapper is needed.
+    """
+    dataset = _FeatureDataset(features, targets)
+    train_loader = DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        collate_fn=_collate_encoder_batch,
+    )
+
+    trainer = Trainer(
+        model=encoder,
+        metrics=["mse"],
+        enable_logging=False,
+    )
+    trainer.train(
+        train_dataloader=train_loader,
+        val_dataloader=train_loader,
+        epochs=epochs,
+        optimizer_params={"lr": lr},
+        monitor="mse",
+        monitor_criterion="min",
+        load_best_model_at_last = False
+    )
+    encoder.eval()
+    return encoder
 
 
 # ---------------------------------------------------------------------
@@ -277,34 +328,44 @@ def run_cma_with_features(
     trusted_dataset,
     label: str,
     input_desc: str,
-    hidden_dims: List[int] = [64, 32],
+    hidden_dims: Optional[List[int]] = None,
     embed_dim: int = 16,
     alpha: float = 0.1,
 ) -> Dict:
-    """Train encoder on untrusted features, run CMA on trusted,
-    return metrics.
+    """Train encoder on untrusted features, run CMA on trusted.
 
     The CMA model uses the ORIGINAL hand-crafted features for its
     KRR kernel; the learned encoder only drives the prior mean M.
-    This isolates the effect of prior quality.
+    This isolates the effect of prior quality from any change in
+    the kernel.
     """
+    if hidden_dims is None:
+        hidden_dims = [64, 32]
+
     fake_u = _FeatureDataset(u_features, u_batch["true_effect"])
 
     encoder = CMAPriorEncoder(
-        dataset=fake_u, hidden_dims=hidden_dims, embed_dim=embed_dim,
+        dataset=fake_u,
+        hidden_dims=hidden_dims,
+        embed_dim=embed_dim,
     )
-    train_encoder(
+    train_encoder_with_trainer(
         encoder,
         features=u_features.float(),
         targets=u_batch["true_effect"],
     )
 
     # Predict M for trusted trials
-    M = encoder.predict_prior_mean(t_features.float())
+    with torch.no_grad():
+        M = encoder.predict_prior_mean(t_features.float())
+
     t_with_prior = dict(t_batch)
     t_with_prior["prior_mean"] = M.unsqueeze(-1)
 
-    cma = ConformalMetaAnalysisModel(dataset=trusted_dataset, alpha=alpha)
+    cma = ConformalMetaAnalysisModel(
+        dataset=trusted_dataset,
+        alpha=alpha,
+    )
     with torch.no_grad():
         out = cma(**t_with_prior)
 
@@ -314,7 +375,9 @@ def run_cma_with_features(
 
     finite = np.isfinite(lo) & np.isfinite(hi)
     width = (
-        float(np.mean(hi[finite] - lo[finite])) if finite.any() else np.nan
+        float(np.mean(hi[finite] - lo[finite]))
+        if finite.any()
+        else np.nan
     )
     coverage = float(np.mean((u_true >= lo) & (u_true <= hi)))
     mse_prior = float(
@@ -335,7 +398,8 @@ def run_cma_with_features(
 # Main ablation
 # ---------------------------------------------------------------------
 def run_bert_ablation(
-    seed: int = 0, alpha: float = 0.1,
+    seed: int = 0,
+    alpha: float = 0.1,
 ) -> pd.DataFrame:
     """Run the full ablation and return a results DataFrame."""
     torch.manual_seed(seed)
@@ -344,6 +408,7 @@ def run_bert_ablation(
     # Detect whether transformers is installed; skip BERT rows if not.
     try:
         import transformers  # noqa: F401
+
         bert_available = True
     except ImportError:
         print(
@@ -369,7 +434,8 @@ def run_bert_ablation(
     # Load dataset and build lookup
     dataset = AmiodaroneTrialDataset(root=DATASET_ROOT)
     csv_path = os.path.join(
-        DATASET_ROOT, "amiodarone_trials-metadata-pyhealth.csv"
+        DATASET_ROOT,
+        "amiodarone_trials-metadata-pyhealth.csv",
     )
     df = pd.read_csv(csv_path)
 
@@ -418,19 +484,22 @@ def run_bert_ablation(
     trusted = dataset.set_task(task_t)
     t_batch = collect_batch(trusted)
 
-    rows = []
+    rows: List[Dict] = []
 
     # Row 1: hand-crafted 13 features (baseline)
     print("Running hand-crafted baseline...")
-    rows.append(run_cma_with_features(
-        u_features=u_batch["features"],
-        t_features=t_batch["features"],
-        u_batch=u_batch, t_batch=t_batch,
-        trusted_dataset=trusted,
-        label="MLP",
-        input_desc=f"{len(FEATURE_COLUMNS)} hand-crafted features",
-        alpha=alpha,
-    ))
+    rows.append(
+        run_cma_with_features(
+            u_features=u_batch["features"],
+            t_features=t_batch["features"],
+            u_batch=u_batch,
+            t_batch=t_batch,
+            trusted_dataset=trusted,
+            label="MLP",
+            input_desc=f"{len(FEATURE_COLUMNS)} hand-crafted features",
+            alpha=alpha,
+        )
+    )
 
     # Rows 2-4: PubMedBERT variants (only if transformers installed)
     if bert_available:
@@ -442,30 +511,40 @@ def run_bert_ablation(
         t_bert = bert_emb[trusted_idx]
 
         print("Running PubMedBERT + default MLP...")
-        rows.append(run_cma_with_features(
-            u_features=u_bert, t_features=t_bert,
-            u_batch=u_batch, t_batch=t_batch,
-            trusted_dataset=trusted,
-            label="PubMedBERT + MLP",
-            input_desc=f"{n_real} real / {n_generated} gen",
-            hidden_dims=[64, 32], embed_dim=16,
-            alpha=alpha,
-        ))
+        rows.append(
+            run_cma_with_features(
+                u_features=u_bert,
+                t_features=t_bert,
+                u_batch=u_batch,
+                t_batch=t_batch,
+                trusted_dataset=trusted,
+                label="PubMedBERT + MLP",
+                input_desc=f"{n_real} real / {n_generated} gen",
+                hidden_dims=[64, 32],
+                embed_dim=16,
+                alpha=alpha,
+            )
+        )
 
         for arch_name, hd, ed in [
             ("Shallow", [32], 8),
             ("Deep", [128, 64], 16),
         ]:
             print(f"Running PubMedBERT + {arch_name} MLP...")
-            rows.append(run_cma_with_features(
-                u_features=u_bert, t_features=t_bert,
-                u_batch=u_batch, t_batch=t_batch,
-                trusted_dataset=trusted,
-                label=f"PubMedBERT + {arch_name}",
-                input_desc=f"{n_real} real / {n_generated} gen",
-                hidden_dims=hd, embed_dim=ed,
-                alpha=alpha,
-            ))
+            rows.append(
+                run_cma_with_features(
+                    u_features=u_bert,
+                    t_features=t_bert,
+                    u_batch=u_batch,
+                    t_batch=t_batch,
+                    trusted_dataset=trusted,
+                    label=f"PubMedBERT + {arch_name}",
+                    input_desc=f"{n_real} real / {n_generated} gen",
+                    hidden_dims=hd,
+                    embed_dim=ed,
+                    alpha=alpha,
+                )
+            )
 
     # Final row: HKSJ baseline
     Y = t_batch["observed_effect"].cpu().numpy().ravel()
@@ -473,14 +552,16 @@ def run_bert_ablation(
     u_true = t_batch["true_effect"].cpu().numpy().ravel()
     hlo, hhi = hksj_interval(Y, V, alpha=alpha)
     hksj_cov = float(np.mean((u_true >= hlo) & (u_true <= hhi)))
-    rows.append({
-        "Encoder": "HKSJ (baseline)",
-        "Input": "observed Y, V only",
-        "Feature Dim": 0,
-        "Prior MSE": np.nan,
-        "CMA Width": round(hhi - hlo, 4),
-        "CMA Coverage": round(hksj_cov, 3),
-    })
+    rows.append(
+        {
+            "Encoder": "HKSJ (baseline)",
+            "Input": "observed Y, V only",
+            "Feature Dim": 0,
+            "Prior MSE": np.nan,
+            "CMA Width": round(hhi - hlo, 4),
+            "CMA Coverage": round(hksj_cov, 3),
+        }
+    )
 
     return pd.DataFrame(rows)
 

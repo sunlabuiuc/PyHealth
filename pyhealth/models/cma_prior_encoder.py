@@ -172,7 +172,7 @@ class CMAPriorEncoder(BaseModel):
 
         Returns:
             Dict with keys:
-                - ``y_pred``: predicted effect, shape (batch_size, 1)
+                - ``y_prob``: predicted effect, shape (batch_size, 1)
                 - ``embedding``: learned embedding phi(x), shape
                   (batch_size, embed_dim)
                 - ``loss``: MSE loss (only if ``true_effect`` is
@@ -186,7 +186,7 @@ class CMAPriorEncoder(BaseModel):
         prediction = self.head(embedding)
 
         out: Dict[str, torch.Tensor] = {
-            "y_pred": prediction,
+            "y_prob": prediction,
             "embedding": embedding,
         }
 
@@ -212,10 +212,10 @@ class CMAPriorEncoder(BaseModel):
             embedding: Embedding tensor, shape (batch_size, embed_dim).
 
         Returns:
-            Dict with ``y_pred`` and ``embedding``.
+            Dict with ``y_prob`` and ``embedding``.
         """
         return {
-            "y_pred": self.head(embedding),
+            "y_prob": self.head(embedding),
             "embedding": embedding,
         }
 
@@ -238,7 +238,7 @@ class CMAPriorEncoder(BaseModel):
         if features.dim() == 1:
             features = features.unsqueeze(0)
         out = self.forward(features=features)
-        return out["y_pred"].squeeze(-1)
+        return out["y_prob"].squeeze(-1)
 
     @torch.no_grad()
     def predict_kernel_matrix(
