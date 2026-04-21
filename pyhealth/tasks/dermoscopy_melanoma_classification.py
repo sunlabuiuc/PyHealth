@@ -6,12 +6,14 @@ tuple as input, enabling the DermoscopyImageProcessor to apply mode-based
 processing (whole, lesion, or background).
 
 Author:
-    Generated for PyHealth integration of dermoscopic_artifacts datasets.
+    Wang, Ziquan ziquanw2@illinois.edu
+    Mumme, Raymond Paul rmumme2@illinois.edu
 """
 
 from typing import Any, Dict, List, Optional, Union
 
 from pyhealth.tasks import BaseTask
+
 
 class DermoscopyMelanomaClassification(BaseTask):
     """Binary melanoma classification task for dermoscopic images.
@@ -23,9 +25,9 @@ class DermoscopyMelanomaClassification(BaseTask):
 
     Args:
         source_datasets: If provided, only samples whose ``source_dataset``
-            field matches one of these strings are returned. Pass a string 
-            (e.g., ``"isic2018"``) or a list of strings (e.g., 
-            ``["isic2018", "ham10000"]``) to restrict evaluation/training 
+            field matches one of these strings are returned. Pass a string
+            (e.g., ``"isic2018"``) or a list of strings (e.g.,
+            ``["isic2018", "ham10000"]``) to restrict evaluation/training
             to specific sub-datasets. Defaults to ``None`` (all sub-datasets included).
 
     Attributes:
@@ -53,10 +55,10 @@ class DermoscopyMelanomaClassification(BaseTask):
         """Initializes the classification task and sets up cache isolation.
 
         Args:
-            source_datasets (Optional[Union[str, List[str]]]): If provided, only samples 
-                whose ``source_dataset`` field matches one of these strings are returned. 
-                Pass a string (e.g., ``"isic2018"``) or a list of strings (e.g., 
-                ``["isic2018", "ham10000"]``) to restrict evaluation or training to specific 
+            source_datasets (Optional[Union[str, List[str]]]): If provided, only samples
+                whose ``source_dataset`` field matches one of these strings are returned.
+                Pass a string (e.g., ``"isic2018"``) or a list of strings (e.g.,
+                ``["isic2018", "ham10000"]``) to restrict evaluation or training to specific
                 sub-datasets. Defaults to ``None`` (all sub-datasets included).
         """
         # Normalize input: If it's a string, wrap it in a list so the rest of the code works perfectly
@@ -64,7 +66,7 @@ class DermoscopyMelanomaClassification(BaseTask):
             self.source_datasets = [source_datasets]
         else:
             self.source_datasets = source_datasets
-            
+
         # Make task instances with different filters hash to different cache keys.
         if self.source_datasets is not None:
             name_suffix = "_".join(self.source_datasets)
@@ -72,11 +74,11 @@ class DermoscopyMelanomaClassification(BaseTask):
 
     def __call__(self, patient: Any) -> List[Dict[str, Any]]:
         """Extracts melanoma classification samples from a patient record.
-        
-        Parses a PyHealth Patient object and retrieves all associated 'dermoscopy' 
-        events. Safely extracts the required file paths and labels from the event's 
+
+        Parses a PyHealth Patient object and retrieves all associated 'dermoscopy'
+        events. Safely extracts the required file paths and labels from the event's
         attr_dict (PyHealth 2.0 standard).
-        
+
         Args:
             patient: A PyHealth Patient object containing dermoscopy events.
 
@@ -86,8 +88,8 @@ class DermoscopyMelanomaClassification(BaseTask):
                 - "visit_id" (str): Unique visit identifier.
                 - "image" (tuple): A tuple of (image_path, mask_path) for the processor.
                 - "melanoma" (int): Binary label (0 for benign, 1 for melanoma).
-                
-            Note: Events whose `source_dataset` does not match the filters provided 
+
+            Note: Events whose `source_dataset` does not match the filters provided
             in `self.source_datasets` will be excluded from the returned list.
         """
         events = patient.get_events(event_type="dermoscopy")
@@ -97,7 +99,10 @@ class DermoscopyMelanomaClassification(BaseTask):
             source_ds = event.attr_dict.get("source_dataset", "")
 
             # Allow multiple datasets for Mega-ResNet (list check instead of strict string equality)
-            if self.source_datasets is not None and source_ds not in self.source_datasets:
+            if (
+                self.source_datasets is not None
+                and source_ds not in self.source_datasets
+            ):
                 continue
 
             image_path = event.attr_dict.get("image_path", "")
@@ -107,15 +112,15 @@ class DermoscopyMelanomaClassification(BaseTask):
             samples.append(
                 {
                     # Include patient_id and visit_id to prevent cross-validation data leakage
-                    # Dermoscopy datasets typically feature a 1:1 patient-to-visit ratio. 
-                    # We default visit_id to patient_id to satisfy PyHealth's strict EHR schema. 
-                    # If a user explicitly parsed a longitudinal visit_id during dataset 
+                    # Dermoscopy datasets typically feature a 1:1 patient-to-visit ratio.
+                    # We default visit_id to patient_id to satisfy PyHealth's strict EHR schema.
+                    # If a user explicitly parsed a longitudinal visit_id during dataset
                     # initialization, getattr() will safely fetch that instead.
                     "patient_id": patient.patient_id,
-                    "visit_id": getattr(patient, 'visit_id', patient.patient_id),
+                    "visit_id": getattr(patient, "visit_id", patient.patient_id),
                     "image": (image_path, mask_path),
                     # Protect against Polars string-floats (e.g., "0.0" -> 0.0 -> 0)
-                    "melanoma": int(float(label)), 
+                    "melanoma": int(float(label)),
                 }
             )
         return samples
