@@ -112,7 +112,7 @@ class TUSZDataset(BaseDataset):
         """Returns the default task for TUSZ dataset."""
         return TUSZTask()
 
-    def __set_tables(self, subset):
+    def __set_tables(self, subset: str) -> list[str]:
         """Returns tables from the subset if valid."""
         if subset in ['train', 'eval', 'dev']:
             return [ subset ]
@@ -120,9 +120,9 @@ class TUSZDataset(BaseDataset):
             return subset.split(',')
         if subset == 'all':
             return ['train', 'eval', 'dev']
-        raise ValueError("subset must be one of None, 'train', 'dev', 'eval', or 'all'")
+        raise ValueError("subset must be one of 'train', 'dev', 'eval', or 'all'")
 
-    def __use_cache(self):
+    def __use_cache(self) -> bool:
         """Returns whether or not to use cached results."""
         for table in self.final_tables:
             cache_csv = self.__get_cache_csv_name(table)
@@ -130,15 +130,15 @@ class TUSZDataset(BaseDataset):
                 return False
         return True
 
-    def __get_data_csv_name(self, data_type):
+    def __get_data_csv_name(self, data_type: str) -> Path:
         """Returns where to store current result."""
         return self.root_path / f"{self.dataset_name}-{data_type}-pyhealth.csv"
 
-    def __get_cache_csv_name(self, data_type):
+    def __get_cache_csv_name(self, data_type: str) -> Path:
         """Returns where to store cached results."""
         return self.cache_dir / f"{self.dataset_name}-{data_type}-pyhealth.csv"
 
-    def __create_csv(self, data_type):
+    def __create_csv(self, data_type: str) -> None:
         """Saves patient records into csvs."""
         shared_csv = self.__get_data_csv_name(data_type)
         cache_csv = self.__get_cache_csv_name(data_type)

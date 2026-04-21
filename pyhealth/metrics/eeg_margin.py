@@ -19,15 +19,18 @@ import logging
 import numpy as np
 from sklearn.metrics import roc_curve, roc_auc_score, average_precision_score, f1_score
 import torch
+from numpy import ndarray
 
 logger = logging.getLogger(__name__)
 
-def eeg_margin_fn(y_true_multi: np.ndarray,
-                  y_pred_multi: np.ndarray,
-                  tnr_for_margintest,
-                  probability_list,
-                  final_target_list,
-                  margin_list):
+def eeg_margin_fn(
+    y_true_multi: np.ndarray,
+    y_pred_multi: np.ndarray,
+    tnr_for_margintest: list[float],
+    probability_list: list[float],
+    final_target_list: list[int],
+    margin_list: list[int],
+) -> tuple[ndarray, float, float, float, float]:
     """Computes metrics for performance of seizure detection within an onset/offset margin.
 
     Args:
@@ -113,7 +116,11 @@ def eeg_margin_fn(y_true_multi: np.ndarray,
     )
 
 
-def binary_detector_evaluator(pred_stack, target_stack, margin):
+def binary_detector_evaluator(
+    pred_stack: torch.Tensor,
+    target_stack: torch.Tensor,
+    margin: int,
+) -> tuple[int, int, int, int]:
     """Returns the count of true and predicted values for onset and offset margins."""
     rise_true, rise_pred_correct, fall_true, fall_pred_correct = 0, 0, 0, 0
     target_rotated = torch.cat([target_stack[0].unsqueeze(0), target_stack[:-1]], dim=0)

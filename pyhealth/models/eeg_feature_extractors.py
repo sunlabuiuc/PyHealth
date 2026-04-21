@@ -57,10 +57,11 @@ class PsdFeatureExtractor(nn.Module):
         >>> logits, _ = model(x)
     """
     def __init__(self,
-            sample_rate: int = 200,
-            frame_length: int = 16,
-            frame_shift: int = 8,
-            feature_extract_by: str = 'kaldi'):
+        sample_rate: int = 200,
+        frame_length: int = 16,
+        frame_shift: int = 8,
+        feature_extract_by: str = 'kaldi',
+    ) -> None:
         super(PsdFeatureExtractor, self).__init__()
 
         self.sample_rate = sample_rate
@@ -84,11 +85,11 @@ class PsdFeatureExtractor(nn.Module):
             onesided=True
         )
         
-    def psd(self, amp, begin, end):
+    def psd(self, amp: torch.Tensor, begin: int, end: int) -> torch.Tensor:
         """Returns calculation for psd."""
         return torch.mean(amp[begin*self.freq_resolution:end*self.freq_resolution], 0)
         
-    def forward(self, batch):
+    def forward(self, batch: torch.Tensor) -> torch.Tensor:
         """Forward propagation.
 
         Args:
@@ -201,23 +202,23 @@ class FeatureExtractorManager:
     """
     def __init__(
         self,
-        model,
-        encoder,
+        model: str,
+        encoder: str,
         output_dim: int = 1,
-    ):
+    ) -> None:
         self.model      = model
         self.encoder    = encoder or RAW
         self.output_dim = output_dim
 
-    def get_feature_extractor(self):
+    def get_feature_extractor(self) -> torch.nn.Module | None:
         """Returns feature extractor class."""
         return FEATURE_EXTRACTORS[self.encoder]
 
     def get_feature_extractor_cnn(
         self,
-        activation,
-        dropout,
-    ):
+        activation: torch.nn.Module,
+        dropout: torch.nn.Module,
+    ) -> torch.nn.Sequential:
         """Returns layers of CNN and MaxPool according to the model and encoder types."""
         layers = []
         conv_count = 1
@@ -245,14 +246,14 @@ class FeatureExtractorManager:
 
     def __feature_extractor_conv2d(
         self,
-        in_channel,
-        out_channel,
-        kernel_size,
-        stride,
-        padding,
-        activation,
-        dropout,
-    ):
+        in_channel: int,
+        out_channel: int,
+        kernel_size: int | tuple[int, int],
+        stride: int | tuple[int, int],
+        padding: int | tuple[int, int],
+        activation: torch.nn.Module,
+        dropout: torch.nn.Module,
+    ) -> torch.nn.Sequential:
         """Returns the combination of CNN according to the model type."""
         if self.model == CNN_LSTM:
             return nn.Sequential(
@@ -268,7 +269,7 @@ class FeatureExtractorManager:
                 activation,
             )
 
-    def transform_features(self, x):
+    def transform_features(self, x: torch.Tensor) -> torch.Tensor:
         """Transform features according to the encoder type."""
         if self.encoder == RAW:
             return x.unsqueeze(1)

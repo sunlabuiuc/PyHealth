@@ -16,13 +16,14 @@ Author:
     Jung-Jung Hsieh (jhsieh8@illinois.edu)
 """
 import torch
-from typing import Dict
+from typing import Dict, Optional
 from torch.utils.data import IterableDataset
 from pyhealth.sampler import TUSZSampler
+from pyhealth.datasets import SampleDataset
 
 
 class TUSZSamplerDataset(IterableDataset):
-    """Sampler dataset for the TUH Seizure Corpus (TUSZ)
+    """Wrapper dataset for WeightedRandomSampler the TUH Seizure Corpus (TUSZ)
 
     Dataset is available at https://isip.piconepress.com/projects/nedc/html/tuh_eeg/index.shtml.
     
@@ -77,15 +78,15 @@ class TUSZSamplerDataset(IterableDataset):
 
     def __init__(
             self,
-            dataset,
-            is_training_set,
-            buffer_size = 1000
-    ):
+            dataset: SampleDataset,
+            is_training_set: Optional[bool] = True,
+            buffer_size: Optional[int] = 1000,
+    ) -> None:
         self.dataset = dataset
         self.is_training_set = is_training_set
         self.buffer_size = buffer_size
         
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.dataset)
     
     def __iter__(self):

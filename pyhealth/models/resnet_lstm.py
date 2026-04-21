@@ -37,7 +37,7 @@ class BasicBlock(nn.Module):
             projection. Default is 1.
     """
 
-    def __init__(self, in_planes, planes, stride=1):
+    def __init__(self, in_planes: int, planes: int, stride: int = 1):
         super().__init__()
 
         self.net = nn.Sequential(

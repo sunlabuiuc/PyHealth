@@ -68,12 +68,12 @@ class TUSZTask(BaseTask):
 
     def __init__(
         self,
-        sample_rate            = 200,
-        feature_sample_rate    = 50,
-        label_type             = 'csv',
-        eeg_type               = 'bipolar', # bipolar, uni_bipolar
-        min_binary_slicelength = 30,
-        min_binary_edge_seiz   = 3,
+        sample_rate: int            = 200,
+        feature_sample_rate: int    = 50,
+        label_type: str             = 'csv',
+        eeg_type: str               = 'bipolar', # bipolar, uni_bipolar
+        min_binary_slicelength: int = 30,
+        min_binary_edge_seiz: int   = 3,
     ) -> None:
         super().__init__()
         self.helper = TUSZHelper(

@@ -18,6 +18,7 @@ Author:
 import logging
 import torch
 import numpy as np
+from typing import Any, Dict, Optional, List
 
 logger = logging.getLogger(__name__)
 
@@ -34,10 +35,10 @@ class TUSZSampler():
         is_training_set: is dataset a training set.
     """
     def __init__(self, 
-        dataset,
-        is_training_set,
+        dataset: List[Dict[str, Any]],
+        is_training_set: Optional[bool] = True,
         **kwargs
-    ):
+    ) -> None:
         self.dataset = dataset
         self.is_training_set = is_training_set
         self.output_dim = kwargs['output_dim'] if 'output_dim' in kwargs else 8
@@ -47,7 +48,7 @@ class TUSZSampler():
         self.unique_label_indices = []      # numeric labels
 
 
-    def get_weights(self):
+    def get_weights(self) -> torch.Tensor:
         """Returns weights for each label."""
         self.__get_unique_labels()
         
@@ -70,7 +71,7 @@ class TUSZSampler():
 
         return sample_weights
     
-    def __get_unique_labels(self):
+    def __get_unique_labels(self) -> None:
         """Returns a unique set of labels."""
         patient_dev_dict = {}
         for sample in self.dataset:
@@ -89,7 +90,11 @@ class TUSZSampler():
                 self.unique_labels.append(label)
             self.unique_label_indices.append(self.unique_labels.index(label))
 
-    def __skip_process(self, label_name, patient_dev_dict, patient_id):
+    def __skip_process(self,
+        label_name: str,
+        patient_dev_dict: dict[str, list[int]],
+        patient_id: str,
+    ) -> bool:
         """Skips patients for certain conditions."""
         if label_name == "8":
             return self.output_dim == 8 or self.binary_sampler_type == TYPES_30
@@ -101,13 +106,16 @@ class TUSZSampler():
             return True
         return False
 
-    def __init_dev_patient_dict(self, patient_dev_dict, patient_id):
+    def __init_dev_patient_dict(self,
+        patient_dev_dict: dict[str, list[int]],
+        patient_id: str,
+    ) -> dict[str, list[int]]:
         """Initializes dictionary for patient labels."""
         if not self.is_training_set:
             patient_dev_dict[patient_id] = [0, 0, 0]
         return patient_dev_dict
 
-    def __extract_label(self, label_name):
+    def __extract_label(self, label_name: str) -> str:
         """Returns processed label name."""
         if self.binary_sampler_type == TYPES_6:
             return label_name
@@ -116,7 +124,11 @@ class TUSZSampler():
         else:
             raise ValueError("Invalid sampler type")
 
-    def __update_dev_patient_dict(self, patient_dev_dict, patient_id, label_name):
+    def __update_dev_patient_dict(self,
+        patient_dev_dict: dict[str, list[int]],
+        patient_id: str,
+        label_name: str,
+    ) -> dict[str, list[int]]:
         """Updates patient-label dictionary according to the label name."""
         if self.is_training_set:
             return patient_dev_dict
