@@ -1,3 +1,11 @@
+"""
+Unit tests for the DailyAndSportActivitiesDataset and
+DailyAndSportActivitiesClassification classes.
+
+Authors:
+    Niam Pattni (npattni2@illinois.edu)
+    Sezim Zamirbekova (szami2@illinois.edu)
+"""
 from pathlib import Path
 
 import numpy as np
@@ -6,11 +14,23 @@ import pytest
 
 from pyhealth.datasets.daily_sport_activities import DailyAndSportActivitiesDataset
 from pyhealth.tasks.daily_sport_activities import (
-    DailyAndSportActivitiesTask,
+    DailyAndSportActivitiesClassification,
 )
 
 
-def _write_fake_signal_file(file_path: Path, shape=(125, 45), seed: int = 0):
+def _write_fake_signal_file(
+    file_path: Path,
+    shape: tuple[int, int] = (125, 45),
+    seed: int = 0,
+):
+    """
+    Creates a random fake signal to use in test cases.
+
+    Args:
+        file_path (Path): The desination path of the file.
+        shape (tuple[int, int]): The shape of the random signal. Defaults to (125, 45).
+        seed (int): Seed to reproduce random signal. Defaults to 0.
+    """
     rng = np.random.default_rng(seed)
     data = rng.normal(size=shape).astype(np.float32)
 
@@ -42,6 +62,9 @@ def _make_fake_dataset(root: Path):
                     s01.txt
                 p8/
                     s01.txt
+
+    Args:
+        root (Path): The root directory to create the dummy folder structure.
     """
     files = [
         ("a01", "p1", "s01.txt"),
@@ -95,7 +118,9 @@ def test_invalid_shape_raises_error(tmp_path):
     bad_file = tmp_path / "daily_sport_activities" / "a01" / "p1" / "s01.txt"
     _write_fake_signal_file(bad_file, shape=(124, 45), seed=123)
 
-    dataset = DailyAndSportActivitiesDataset(root=str(tmp_path / "daily_sport_activities"))
+    dataset = DailyAndSportActivitiesDataset(
+        root=str(tmp_path / "daily_sport_activities")
+    )
 
     with pytest.raises(ValueError, match="must have shape"):
         dataset.parse_data()
@@ -163,7 +188,7 @@ def test_set_task_generates_samples(tmp_path):
     _make_fake_dataset(data_root)
 
     dataset = DailyAndSportActivitiesDataset(root=str(data_root))
-    task = DailyAndSportActivitiesTask(
+    task = DailyAndSportActivitiesClassification(
         window_size=50,
         stride=25,
         normalize=True,
@@ -188,7 +213,7 @@ def test_task_selected_features_reduces_dimension(tmp_path):
     _make_fake_dataset(data_root)
 
     dataset = DailyAndSportActivitiesDataset(root=str(data_root))
-    task = DailyAndSportActivitiesTask(
+    task = DailyAndSportActivitiesClassification(
         window_size=50,
         stride=25,
         selected_features=[0, 1, 2, 3],
@@ -204,7 +229,7 @@ def test_task_invalid_feature_index_raises(tmp_path):
     _make_fake_dataset(data_root)
 
     dataset = DailyAndSportActivitiesDataset(root=str(data_root))
-    task = DailyAndSportActivitiesTask(
+    task = DailyAndSportActivitiesClassification(
         window_size=50,
         stride=25,
         selected_features=[999],
@@ -219,7 +244,7 @@ def test_task_window_too_large_raises(tmp_path):
     _make_fake_dataset(data_root)
 
     dataset = DailyAndSportActivitiesDataset(root=str(data_root))
-    task = DailyAndSportActivitiesTask(
+    task = DailyAndSportActivitiesClassification(
         window_size=200,
         stride=25,
     )

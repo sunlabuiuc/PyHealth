@@ -1,7 +1,5 @@
-# Author: 
-
+# Author: Sezim Zamirbekova (szami2) and Niam Pattni (npattni2)
 version: "1.0"
-
 tables:
   daily_sport_activities:
     file_path: ""
