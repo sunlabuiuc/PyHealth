@@ -26,6 +26,21 @@ Fallback: if the ``transformers`` package is not installed, the script
 skips the BERT rows and runs only the hand-crafted baseline + HKSJ.
 This keeps the example runnable without a 440 MB model download.
 
+Expected findings (what the ablation is designed to reveal):
+    - If PubMedBERT embeddings encode trial-level information
+      that the 13 hand-crafted features miss, the BERT rows should
+      show lower Prior MSE than the hand-crafted baseline.
+    - Because CMA uses the prior only to set interval centers (the
+      kernel is fixed to the hand-crafted features), a better
+      prior should translate to narrower ``CMA Width`` with
+      coverage staying near ``1 - alpha``.
+    - HKSJ ignores priors entirely, so its width is the "no
+      learned prior" ceiling: CMA rows should be narrower than
+      HKSJ whenever a prior is at least weakly informative.
+    - MLP head depth ([32] vs [64, 32] vs [128, 64]) is secondary
+      to the input representation on only 11 untrusted training
+      trials; expect small differences across rows 2-4.
+
 Usage:
     python amiodarone_trials_conformal_meta_analysis_cma.py
 
@@ -50,7 +65,7 @@ import torch
 from scipy.stats import t as t_dist
 from torch.utils.data import DataLoader
 
-from pyhealth.datasets import AmiodaroneTrialDataset
+from pyhealth.datasets import AmiodaroneTrialDataset, get_dataloader
 from pyhealth.datasets.amiodarone_trial_dataset import FEATURE_COLUMNS
 from pyhealth.models.cma_prior_encoder import CMAPriorEncoder
 from pyhealth.models.conformal_meta_analysis_krr import (
@@ -216,23 +231,21 @@ def hksj_interval(
 # ---------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------
-def collect_batch(sample_dataset) -> Dict[str, torch.Tensor]:
-    """Stack all samples in a SampleDataset into a single batch dict."""
-    samples = list(sample_dataset)
-    batch: Dict[str, torch.Tensor] = {}
-    for key in samples[0]:
-        vals = [s[key] for s in samples]
-        if isinstance(vals[0], torch.Tensor):
-            batch[key] = torch.stack(vals).float()
-        else:
-            try:
-                batch[key] = torch.tensor(
-                    [float(v) for v in vals],
-                    dtype=torch.float32,
-                ).unsqueeze(-1)
-            except (TypeError, ValueError):
-                batch[key] = vals
-    return batch
+def _batch_from_samples(sample_dataset) -> Dict[str, torch.Tensor]:
+    """Stack all samples into a single batch dict via ``get_dataloader``.
+
+    Thin wrapper around PyHealth's ``get_dataloader`` that pulls
+    every sample into a single batch. Using the library's loader
+    (instead of hand-rolled stacking) keeps this example aligned
+    with PyHealth conventions and automatically inherits the
+    default collate's handling of tensor / scalar keys.
+    """
+    loader = get_dataloader(
+        sample_dataset,
+        batch_size=len(sample_dataset),
+        shuffle=False,
+    )
+    return next(iter(loader))
 
 
 class _FeatureDataset(torch.utils.data.Dataset):
@@ -311,7 +324,7 @@ def train_encoder_with_trainer(
         optimizer_params={"lr": lr},
         monitor="mse",
         monitor_criterion="min",
-        load_best_model_at_last = False
+        load_best_model_at_last=False,
     )
     encoder.eval()
     return encoder
@@ -470,7 +483,7 @@ def run_bert_ablation(
         prior_column=None,
     )
     untrusted = dataset.set_task(task_u)
-    u_batch = collect_batch(untrusted)
+    u_batch = _batch_from_samples(untrusted)
 
     task_t = ConformalMetaAnalysisTask(
         target_column="log_relative_risk",
@@ -482,7 +495,7 @@ def run_bert_ablation(
         prior_column=None,
     )
     trusted = dataset.set_task(task_t)
-    t_batch = collect_batch(trusted)
+    t_batch = _batch_from_samples(trusted)
 
     rows: List[Dict] = []
 

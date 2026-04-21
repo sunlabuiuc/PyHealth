@@ -20,6 +20,20 @@ partially-synthetic data derived from a PMLB regression dataset:
 Each simulation saves a PNG next to this script. Total runtime is a
 few minutes on a CPU; no GPU is required.
 
+Expected findings (the claims each simulation is designed to
+validate from the paper):
+    - Sim 1: CMA produces narrower intervals than HKSJ at small
+      ``n`` when the prior is good, and tracks HKSJ as ``n`` grows
+      or the prior degrades.
+    - Sim 2: CMA maintains the target coverage ``1 - alpha`` as
+      effect noise grows, while HKSJ drops below target once noise
+      exceeds the within-trial variance scale.
+    - Sim 3: Setting ``eta > 0`` (noise correction) restores
+      coverage at high noise levels, at the cost of wider intervals.
+    - Sim 4: CMA interval widths stay bounded as the prior
+      degrades, whereas the Prior-only baseline diverges and HKSJ
+      is unchanged (it ignores the prior).
+
 Usage:
     python pmlb_meta_analysis_conformal_meta_analysis_cma.py
 
@@ -102,7 +116,11 @@ def run_one(
     n_samples: int = 2000,
     n_test: int = 200,
 ) -> Dict[str, float]:
-    """Run one batch and return CMA, HKSJ, and fixed-prior results via Holdout."""
+    """Run one batch through CMA, HKSJ, and a fixed-prior baseline.
+
+    Uses a train/holdout split: ``n_train`` trials feed the
+    training context and ``n_test`` held-out trials are scored.
+    """
     dataset = PMLBMetaAnalysisDataset(
         root=f"./data/pmlb_pe{prior_error}_en{effect_noise}_s{seed}",
         pmlb_dataset_name="1196_BNG_pharynx",
@@ -129,13 +147,22 @@ def run_one(
     U_all = batch["true_effect"].cpu().numpy().astype(np.float64).ravel()
 
     # Strict Train/Test Split
-    X_train, Y_train, V_train, M_train = X_all[:n_train], Y_all[:n_train], V_all[:n_train], M_all[:n_train]
-    X_test, Y_test, V_test, M_test, U_test = X_all[n_train:], Y_all[n_train:], V_all[n_train:], M_all[n_train:], U_all[n_train:]
+    X_train = X_all[:n_train]
+    Y_train = Y_all[:n_train]
+    V_train = V_all[:n_train]
+    M_train = M_all[:n_train]
+    X_test = X_all[n_train:]
+    M_test = M_all[n_train:]
+    U_test = U_all[n_train:]
 
     lowers = np.zeros(n_test, dtype=np.float64)
     uppers = np.zeros(n_test, dtype=np.float64)
 
-    # Predict explicitly on the holdout set
+    # Predict explicitly on the holdout set. We call _predict_one
+    # directly because ConformalMetaAnalysisModel.forward() uses
+    # leave-one-out over the whole batch — for this evaluation we
+    # want a clean train/holdout split instead, so the test trials
+    # never appear in the training context.
     for i in range(n_test):
         lo, hi = model._predict_one(
             X_train=X_train,
@@ -150,7 +177,10 @@ def run_one(
 
     # Calculate metrics on test bounds against ground truth U_test
     finite = np.isfinite(lowers) & np.isfinite(uppers)
-    cma_width = float(np.mean(uppers[finite] - lowers[finite])) if finite.any() else np.nan
+    if finite.any():
+        cma_width = float(np.mean(uppers[finite] - lowers[finite]))
+    else:
+        cma_width = np.nan
     cma_cov = float(np.mean((U_test >= lowers) & (U_test <= uppers)))
 
     # HKSJ evaluation
@@ -183,7 +213,13 @@ def simulation_1(
     seeds: Iterable[int] = range(32),
     ylim: Tuple[float, float] = (0, 2500),
 ) -> Dict:
-    """Reproduce Simulation 1: width vs n for bad/okay/good priors."""
+    """Reproduce Simulation 1: width vs n for bad/okay/good priors.
+
+    Uses 32 seeds (more than sims 2-4, which use 2) because this
+    plot has the smallest effect size between methods and benefits
+    from tighter error bars. Runtime dominates the script but stays
+    under a few minutes on a CPU.
+    """
     priors = {"bad": 3.0, "okay": 0.9, "good": 0.2}
     results = {label: {n: [] for n in n_values} for label in priors}
 
@@ -233,6 +269,11 @@ def simulation_2(
     ylim: Tuple[float, float] = (0.80, 1.02),
 ) -> Dict:
     """Reproduce Simulation 2: coverage vs effect noise."""
+    # Normalize to a reusable sequence so callers can pass a
+    # generator without exhausting it across the len()/zip() calls
+    # below.
+    n_values = tuple(n_values)
+    noise_values = tuple(noise_values)
     results = {
         n: {noise: [] for noise in noise_values} for n in n_values
     }
@@ -250,11 +291,11 @@ def simulation_2(
                     f"hksj_cov={r['hksj_cov']:.3f}"
                 )
 
+    n_panels = len(n_values)
     fig, axes = plt.subplots(
-        1, len(list(n_values)), figsize=(6 * len(list(n_values)), 4),
-        sharey=True,
+        1, n_panels, figsize=(6 * n_panels, 4), sharey=True,
     )
-    if len(list(n_values)) == 1:
+    if n_panels == 1:
         axes = [axes]
     for ax, n in zip(axes, n_values):
         noise_vals = sorted(results[n].keys())
@@ -300,6 +341,9 @@ def simulation_3(
     ``eta=0`` (no noise correction) and ``eta=0.4015`` (the value
     used in the paper to target ~2*alpha confidence loss).
     """
+    # Normalize to reusable sequences; see simulation_2 rationale.
+    n_values = tuple(n_values)
+    noise_values = tuple(noise_values)
     eta_values = {"eta=0": 0.0, "eta>0": 0.4015}
 
     results = {
@@ -321,11 +365,11 @@ def simulation_3(
                         f"cov={r['cma_cov']:.3f}"
                     )
 
+    n_panels = len(n_values)
     fig, axes = plt.subplots(
-        1, len(list(n_values)), figsize=(6 * len(list(n_values)), 4),
-        sharey=True,
+        1, n_panels, figsize=(6 * n_panels, 4), sharey=True,
     )
-    if len(list(n_values)) == 1:
+    if n_panels == 1:
         axes = [axes]
     for ax, n in zip(axes, n_values):
         noise_vals = sorted(noise_values)
@@ -362,6 +406,9 @@ def simulation_4(
     ylim: Tuple[float, float] = (0, 5000),
 ) -> Dict:
     """Reproduce Simulation 4: CMA / HKSJ / Prior widths vs prior error."""
+    # Normalize to reusable sequences; see simulation_2 rationale.
+    n_values = tuple(n_values)
+    prior_values = tuple(prior_values)
     results = {n: {pe: [] for pe in prior_values} for n in n_values}
     for n in n_values:
         for pe in prior_values:
@@ -378,11 +425,11 @@ def simulation_4(
                     f"prior={r['prior_width']:.1f}"
                 )
 
+    n_panels = len(n_values)
     fig, axes = plt.subplots(
-        1, len(list(n_values)), figsize=(6 * len(list(n_values)), 4),
-        sharey=True,
+        1, n_panels, figsize=(6 * n_panels, 4), sharey=True,
     )
-    if len(list(n_values)) == 1:
+    if n_panels == 1:
         axes = [axes]
     for ax, n in zip(axes, n_values):
         pe_vals = sorted(results[n].keys())
