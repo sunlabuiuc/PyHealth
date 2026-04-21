@@ -25,7 +25,7 @@ Usage (from the examples/eeg_gcnn directory)::
     python eeg_gcnn_classification_gcn_precompute.py --root raw_data --output precomputed_data
 
     # Sample dataset (3 TUAB + 3 LEMON subjects)
-    python eeg_gcnn_classification_gcn_precompute.py --root sample_raw_data --output precomputed_data
+    python eeg_gcnn_classification_gcn_precompute.py --root sample_raw_data --output sample_precomputed_data
 
     # Limit subjects for a faster run
     python eeg_gcnn_classification_gcn_precompute.py --root raw_data --max-tuab 10 --max-lemon 10
