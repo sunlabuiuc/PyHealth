@@ -37,7 +37,7 @@ class RNNAttentionLayer(nn.Module):
         self.dropout = dropout
         self.dropout_layer = nn.Dropout(p=self.dropout)
 
-        self.gru = nn.GRU(feature_size, feature_size, batch_first=True)
+        self.gru = nn.GRU(feature_size, feature_size, num_layers = 2, batch_first=True)
         self.num_heads = h
         self.attention = self.MultiHeadAttention(feature_size, h)
 
