@@ -1,3 +1,59 @@
+"""Ablation study: CNN3DAD on synthetic ADNI-style data.
+
+This script evaluates the effect of key hyperparameters on CNN3DAD, a 3D
+convolutional neural network for Alzheimer's disease classification from
+structural MRI, based on Liu et al. (2020).
+
+Reference:
+    Liu, M., Zhang, J., Adeli, E., & Shen, D. (2020).
+    On the Design of Convolutional Neural Networks for Automatic Detection
+    of Alzheimer's Disease.
+    Machine Learning for Health (ML4H) Workshop, NeurIPS.
+    https://arxiv.org/abs/1911.03740
+
+Hypothesis: architectural choices (normalization type, channel width, age
+encoding, depth) and training choices (class weights) meaningfully affect
+classification accuracy on a 3-way CN/MCI/AD task.
+
+Synthetic data: 60 samples with spatially-localized Gaussian signal cubes
+placed at class-specific regions of a 96x96x96 volume, giving the CNN a
+learnable spatial feature without requiring real ADNI scans.
+
+Ablations:
+    1. Normalization type -- instance vs batch
+    2. Channel widening factor -- 4, 8, 16
+    3. Age encoding dim -- 0 (off), 32, 64
+    4. Number of conv blocks -- 2, 3, 4
+    5. Class weights -- uniform vs balanced
+
+Observed results (seed=42, 60 samples, 4 epochs):
+    Ablation                             acc     loss
+    ---------------------------------------------------
+    norm_type=instance                  0.XXXX  X.XXXX
+    norm_type=batch                     0.XXXX  X.XXXX
+    widening_factor=4                   0.XXXX  X.XXXX
+    widening_factor=8                   0.XXXX  X.XXXX
+    widening_factor=16                  0.XXXX  X.XXXX
+    age_encoding_dim=0                  0.XXXX  X.XXXX
+    age_encoding_dim=32                 0.XXXX  X.XXXX
+    age_encoding_dim=64                 0.XXXX  X.XXXX
+    num_blocks=2                        0.XXXX  X.XXXX
+    num_blocks=3                        0.XXXX  X.XXXX
+    num_blocks=4                        0.XXXX  X.XXXX
+    class_weights=uniform               0.XXXX  X.XXXX
+    class_weights=balanced              0.XXXX  X.XXXX
+
+Usage:
+    python examples/adni_alzheimer_cnn3dad.py
+
+Runtime: ~5 hours on CPU (96^3 volumes). Use 32^3 volumes for ~20 min.
+Note: The ADNI dataset requires institutional access approval through
+    https://adni.loni.usc.edu/ and was not available for this study.
+    All experiments use synthetic 96x96x96 volumes with class-specific
+    localized signal regions to validate the model architecture and
+    ablation methodology. Results on real ADNI data may differ.
+"""
+
 import os
 import sys
 import time
