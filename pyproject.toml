@@ -62,6 +62,7 @@ keywords = [
 [project.optional-dependencies]
 graph = [
   "torch-geometric>=2.6.0",
+  "pandarallel",
 ]
 nlp = [
   "editdistance~=0.8.1",
