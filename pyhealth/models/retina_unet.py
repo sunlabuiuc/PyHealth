@@ -1288,6 +1288,9 @@ class RetinaUNetCore(nn.Module):
         rpn_anchor_ratios: List[float] = [0.5, 1.0, 2.0],
         rpn_anchor_scales: Optional[Dict[str, Dict[str, List[float]]]] = None,
         rpn_anchor_stride: int = 1,
+        pre_nms_limit = 3000,
+        nms_threshold = 0.5,
+        max_instances_per_batch_element = 10,
         pyramid_levels: List[int] = [2, 3, 4, 5], # Corresponding to P2, P3, P4, P5
     ):
         """Initialise RetinaUNetCore.
@@ -1308,6 +1311,10 @@ class RetinaUNetCore(nn.Module):
                 Defaults to ``[0.5, 1.0, 2.0]``.
             rpn_anchor_scales: Custom anchor scales dict or ``None``.
             rpn_anchor_stride: Anchor grid stride. Defaults to 1.
+            pre_nms_limit: Max proposals before NMS. Defaults to 3000.
+            nms_threshold: IoU threshold for NMS. Defaults to 0.5.
+            max_instances_per_batch_element: Max detections per image after NMS.
+                Defaults to 10.
             pyramid_levels: FPN levels used for detection.
                 Defaults to ``[2, 3, 4, 5]``.
         """
@@ -1326,9 +1333,9 @@ class RetinaUNetCore(nn.Module):
             self.rpn_bbox_std_dev = torch.tensor(
                 [0.1, 0.1, 0.1, 0.2, 0.2, 0.2], dtype=torch.float32
             )
-        self.pre_nms_limit = 3000
-        self.nms_threshold = 1e-5
-        self.max_instances_per_batch_element = 10
+        self.pre_nms_limit = pre_nms_limit
+        self.nms_threshold = nms_threshold
+        self.max_instances_per_batch_element = max_instances_per_batch_element
 
         # Backbone
         self.fpn = FPN(
@@ -1377,7 +1384,7 @@ class RetinaUNetCore(nn.Module):
         self.max_anchor_cache_size = 3
 
     def _clear_anchor_cache(self) -> None:
-        """Clear anchor cache and explicitly free GPU memory."""
+        """Clear anchor cache and to free memory."""
         for key in list(self.anchor_cache.keys()):
             anchors = self.anchor_cache[key]
             # Explicitly move to CPU and delete to free GPU memory
@@ -1385,8 +1392,9 @@ class RetinaUNetCore(nn.Module):
                 anchors = anchors.cpu()
             del self.anchor_cache[key]
         self.anchor_cache.clear()
-        # Force garbage collection
-        torch.cuda.empty_cache() if torch.cuda.is_available() else None
+        # Notify user to clear CUDA cache if using GPU
+        if torch.cuda.is_available():
+            print("Please clean anchors from CUDA cache")
 
     def _apply(self, fn):
         """Override to clear anchor cache when model moves to a different device.
@@ -1447,7 +1455,9 @@ class RetinaUNetCore(nn.Module):
                 if old_anchors.is_cuda:
                     old_anchors = old_anchors.cpu()
                 del old_anchors
-                torch.cuda.empty_cache() if torch.cuda.is_available() else None
+                # Notify user to clear CUDA cache if using GPU
+                if torch.cuda.is_available():
+                    print("Please clean anchors from CUDA cache")
         else:
             # Move accessed key to end to mark as recently used
             self.anchor_cache.move_to_end(cache_key)
@@ -1609,13 +1619,17 @@ class RetinaUNetCore(nn.Module):
 class RetinaUNet(BaseModel):
     """Retina U-Net model wrapper for PyHealth.
 
-    Wraps RetinaUNetLayer with dataset-driven initialization and standard
+    Wraps RetinaUNetCore with dataset-driven initialization and standard
     PyHealth outputs.
 
     The dataset argument is kept because BaseModel depends on dataset
     schema metadata. Training-specific detection target preparation and
     loss computation are handled inside this class, so an external
     retina_unet_train helper is no longer required for core model logic.
+
+    Notes: 
+        Object detection is not a standard classification task, so
+        get_loss_function, prepare_y_prob, and get_outpus_size are not used here.
     """
 
     def __init__(
@@ -1633,6 +1647,9 @@ class RetinaUNet(BaseModel):
         rpn_anchor_ratios: Optional[List[float]] = [0.5, 1.0, 2.0],
         rpn_anchor_scales: Optional[Dict[str, Dict[str, List[float]]]] = None,
         rpn_anchor_stride: int = 1,
+        pre_nms_limit = 3000,
+        nms_threshold = 0.5,
+        max_instances_per_batch_element = 10,
         pyramid_levels: Optional[List[int]] = [2, 3, 4, 5],
     ):
         """Initialise RetinaUNet (PyHealth wrapper).
@@ -1653,6 +1670,10 @@ class RetinaUNet(BaseModel):
                 (uses ``[0.5, 1.0, 2.0]``).
             rpn_anchor_scales: Custom anchor scales dict or ``None``.
             rpn_anchor_stride: Anchor grid stride. Defaults to 1.
+            pre_nms_limit: Max proposals before NMS. Defaults to 3000.
+            nms_threshold: IoU threshold for NMS. Defaults to 0.5.
+            max_instances_per_batch_element: Max detections per image after NMS.
+                Defaults to 10.
             pyramid_levels: FPN levels used for detection. Defaults to ``None``
                 (uses ``[2, 3, 4, 5]``).
         """
@@ -1671,6 +1692,9 @@ class RetinaUNet(BaseModel):
             rpn_anchor_ratios=rpn_anchor_ratios,
             rpn_anchor_scales=rpn_anchor_scales,
             rpn_anchor_stride=rpn_anchor_stride,
+            pre_nms_limit = pre_nms_limit,
+            nms_threshold = nms_threshold,
+            max_instances_per_batch_element = max_instances_per_batch_element,
             pyramid_levels=pyramid_levels,
         ).to(self.device)
 
@@ -1720,7 +1744,11 @@ class RetinaUNet(BaseModel):
         seg_logits = outputs['segmentation']
         anchors = outputs['anchors']
 
-        if gt_seg_masks is None:
+        if gt_seg_masks is None and self.training:
+            raise ValueError(
+                "Ground-truth segmentation masks are required for training."
+            )
+        elif gt_seg_masks is None:
             batch_class_loss = torch.tensor(0.0, device=self.device)
             batch_bbox_loss = torch.tensor(0.0, device=self.device)
             seg_loss = torch.tensor(0.0, device=self.device)
@@ -1747,7 +1775,7 @@ class RetinaUNet(BaseModel):
                     )
 
                 anchor_class_match, anchor_target_deltas = self._compute_anchor_matches(
-                    anchors, gt_boxes, gt_class_ids
+                    anchors, gt_boxes, gt_class_ids, dim=self.core.dim
                 )
 
                 batch_class_loss += self._compute_class_loss(
@@ -2077,24 +2105,3 @@ class RetinaUNet(BaseModel):
         foreground_dice_loss = 1 - dice_score[:, 1:].mean()
 
         return 0.5 * ce_loss + 0.5 * foreground_dice_loss
-
-if __name__ == '__main__':
-    # Test 2D
-    model_2d = RetinaUNetCore(in_channels=1, num_classes=2, dim=2)
-    x_2d = torch.randn(2, 1, 64, 64)
-    output_2d = model_2d(x_2d)
-    print("2D Output shapes:")
-    print(f"  class_logits: {output_2d['class_logits'].shape}")
-    print(f"  bbox_deltas: {output_2d['bbox_deltas'].shape}")
-    print(f"  segmentation: {output_2d['segmentation'].shape}")
-    print(f"  detections: {output_2d['detections'].shape}")
-
-    # Test 3D
-    model_3d = RetinaUNetCore(in_channels=1, num_classes=2, dim=3)
-    x_3d = torch.randn(2, 1, 64, 64, 32)
-    output_3d = model_3d(x_3d)
-    print("\n3D Output shapes:")
-    print(f"  class_logits: {output_3d['class_logits'].shape}")
-    print(f"  bbox_deltas: {output_3d['bbox_deltas'].shape}")
-    print(f"  segmentation: {output_3d['segmentation'].shape}")
-    print(f"  detections: {output_3d['detections'].shape}")

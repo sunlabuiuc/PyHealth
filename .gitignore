@@ -138,12 +138,5 @@ data/physionet.org/
 # VSCode settings
 .vscode/
 
-# Generated files under examples/
-examples/dummy_data*/
-examples/checkpoints*/
-examples/logs*/
-examples/__pycache__/
-examples/**/__pycache__/
-
 # Model weight files (large binaries, distributed separately)
 weightfiles/
