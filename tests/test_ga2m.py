@@ -13,6 +13,7 @@ import torch
 import numpy as np
 import pytest
 from pyhealth.models.ga2m import GA2M, UNKNOWN_SENTINEL
+import pandas as pd
 
 # ---------------------------------------------------------------------------
 # Synthetic dataset helpers
