@@ -1,6 +1,6 @@
 """PyHealth 2.0 heldout test evaluation for shallow EEG-GCNN.
 
-Loads the fold checkpoints produced by training_pipeline_shallow_gcnn.py,
+Loads the fold checkpoints produced by eeg_gcnn_classification_gcn_training.py,
 runs inference on the 30% held-out test subjects, and reports both
 window-level and patient-level metrics.
 
@@ -17,11 +17,11 @@ Checkpoint format:
 
 Usage (from the examples/eeg_gcnn directory):
     conda activate pyhealth (assuming PyHealth is installed in this conda env)
-    python heldout_test_run_gcnn.py
+    python eeg_gcnn_classification_gcn_evaluation.py
 
 Ablations:
     Edge weight mix (ALPHA):
-        Must match the value used in training_pipeline_shallow_gcnn.py.
+        Must match the value used in eeg_gcnn_classification_gcn_training.py.
         Set ALPHA in the Configuration section to evaluate the corresponding
         checkpoints:
             ALPHA = 1.0   # geodesic only
@@ -72,13 +72,13 @@ from pyhealth.tasks.eeg_gcnn_classification import BAND_NAMES
 from pyhealth.models import EEGGraphConvNet
 
 # ---------------------------------------------------------------------------
-# Configuration  (must match training_pipeline_shallow_gcnn.py exactly)
+# Configuration  (must match eeg_gcnn_classification_gcn_training.py exactly)
 # ---------------------------------------------------------------------------
 
 DATA_ROOT = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "precomputed_data"
 )
-ALPHA           = 0.5     # must match training_pipeline_shallow_gcnn.py
+ALPHA           = 0.5     # must match eeg_gcnn_classification_gcn_training.py
 EXCLUDED_BANDS  = []      # [] = all bands active; e.g. ["delta"] for LOO
 EXPERIMENT_NAME = f"psd_gnn_shallow_ph_alpha{ALPHA:.2f}"
 NUM_FOLDS       = 10    # minimum 2 (one train/val split); 10 for full 10-fold CV

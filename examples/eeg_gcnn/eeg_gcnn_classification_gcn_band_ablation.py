@@ -11,7 +11,7 @@ EEGGCNNClassification(excluded_bands=...) call loads the correct samples.
 
 Usage (from the examples/eeg_gcnn directory):
     conda activate pyhealth (assuming PyHealth is installed in this conda env)
-    python run_band_ablation.py
+    python eeg_gcnn_classification_gcn_band_ablation.py
 
     Requires checkpoints in output_data/ produced by
     training_pipeline_shallow_gcnn.py.

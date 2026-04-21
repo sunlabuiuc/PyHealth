@@ -1,6 +1,6 @@
 """PyHealth 2.0 heldout test evaluation for shallow EEG-GAT.
 
-Loads the fold checkpoints produced by training_pipeline_shallow_gatcnn.py,
+Loads the fold checkpoints produced by eeg_gcnn_classification_gat_training.py,
 runs inference on the 30% held-out test subjects, and reports both
 window-level and patient-level metrics for each dropout value.
 
@@ -17,7 +17,7 @@ Checkpoint format:
 
 Usage (from the examples/eeg_gatcnn directory):
     conda activate pyhealth (assuming PyHealth is installed in this conda env)
-    python heldout_test_run_gatcnn.py 
+    python eeg_gcnn_classification_gat_evaluation.py 
 """
 
 import os
@@ -49,7 +49,7 @@ from pyhealth.tasks import EEGGCNNClassification
 from pyhealth.models import EEGGATConvNet
 
 # ---------------------------------------------------------------------------
-# Configuration  (must match training_pipeline_shallow_gatcnn.py exactly)
+# Configuration  (must match eeg_gcnn_classification_gat_training.py exactly)
 # ---------------------------------------------------------------------------
 
 DATA_ROOT = os.path.join(

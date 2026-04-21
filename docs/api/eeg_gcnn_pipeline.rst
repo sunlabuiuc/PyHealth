@@ -264,15 +264,15 @@ Preprocess raw TUAB and LEMON recordings into the five files required by
     cd examples/eeg_gcnn
 
     # Precompute features from raw TUAB + LEMON
-    python pre_compute.py --root raw_data --output precomputed_data
+    python eeg_gcnn_classification_gcn_precompute.py --root raw_data --output precomputed_data
 
     # Limit subjects for a fast validation run
-    python pre_compute.py --max-tuab 10 --max-lemon 10
+    python eeg_gcnn_classification_gcn_precompute.py --max-tuab 10 --max-lemon 10
 
     # Train the GCN on the precomputed features
-    python training_pipeline_shallow_gcnn.py
+    python eeg_gcnn_classification_gcn_training.py
 
-Expected output from ``pre_compute.py``::
+Expected output from ``eeg_gcnn_classification_gcn_precompute.py``::
 
     EEG-GCNN Feature Precomputation
       raw data  : .../examples/eeg_gcnn/raw_data
@@ -280,7 +280,7 @@ Expected output from ``pre_compute.py``::
       subset    : both
 
     Done. Five pre-computed files written to: .../precomputed_data
-    Next step: python training_pipeline_shallow_gcnn.py
+    Next step: python eeg_gcnn_classification_gcn_training.py
 
 Programmatic Usage
 ~~~~~~~~~~~~~~~~~~
@@ -310,7 +310,7 @@ Training (GCN)
 --------------
 
 Trains on whatever 5-array dataset sits in ``DATA_ROOT`` — either the
-locally pre-computed output of ``pre_compute.py`` (Path A) or the FigShare
+locally pre-computed output of ``eeg_gcnn_classification_gcn_precompute.py`` (Path A) or the FigShare
 download (Path B, 1,593 subjects). The script does not care which one it
 is, since both produce the same five files.
 Run from ``examples/eeg_gcnn/``:
@@ -318,7 +318,7 @@ Run from ``examples/eeg_gcnn/``:
 .. code-block:: bash
 
     conda activate pyhealth
-    python training_pipeline_shallow_gcnn.py
+    python eeg_gcnn_classification_gcn_training.py
 
 Key options:
 
@@ -334,7 +334,7 @@ Key options:
 
    To limit how many subjects are included at the *precompute* stage (before
    training), use the ``--max-tuab`` / ``--max-lemon`` flags of
-   ``pre_compute.py`` or the ``max_tuab`` / ``max_lemon`` arguments of
+   ``eeg_gcnn_classification_gcn_precompute.py`` or the ``max_tuab`` / ``max_lemon`` arguments of
    :meth:`~pyhealth.datasets.EEGGCNNRawDataset.precompute_features`.
 
 Class imbalance (~7:1 TUAB:LEMON) is handled with
@@ -356,7 +356,7 @@ Run from ``examples/eeg_gatcnn/``:
 .. code-block:: bash
 
     conda activate pyhealth
-    python training_pipeline_shallow_gatcnn.py
+    python eeg_gcnn_classification_gat_training.py
 
 Key options:
 
@@ -381,8 +381,8 @@ Evaluate on the held-out 30% test subjects after training:
 
 .. code-block:: bash
 
-    python heldout_test_run_gcnn.py    # GCN
-    python heldout_test_run_gatcnn.py  # GAT
+    python eeg_gcnn_classification_gcn_evaluation.py    # GCN
+    python eeg_gcnn_classification_gat_evaluation.py  # GAT
 
 Both scripts:
 
@@ -462,7 +462,7 @@ Re-run with a different alpha:
 
 .. code-block:: python
 
-    ALPHA = 0.0   # functional only — in training_pipeline_shallow_gcnn.py
+    ALPHA = 0.0   # functional only — in eeg_gcnn_classification_gcn_training.py
     ALPHA = 0.25  # coherence-heavy
     ALPHA = 0.5   # combined (paper default)
     ALPHA = 0.75  # spatial-heavy
@@ -487,7 +487,7 @@ Run from ``examples/eeg_gcnn/``:
 
 .. code-block:: bash
 
-    python run_band_ablation.py
+    python eeg_gcnn_classification_gcn_band_ablation.py
 
 Uses the ``excluded_bands`` parameter of
 :class:`~pyhealth.tasks.EEGGCNNClassification`:

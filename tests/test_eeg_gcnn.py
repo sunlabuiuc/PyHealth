@@ -13,7 +13,7 @@ import numpy as np
 import pytest
 import torch
 
-from pyhealth.tasks.eeg_gcnn_nd_detection import (
+from pyhealth.tasks.eeg_gcnn_disease_detection import (
     BIPOLAR_CHANNELS,
     DEFAULT_BANDS,
     NUM_CHANNELS,
@@ -113,7 +113,7 @@ class TestTaskInit:
         assert "adj_matrix" in task.input_schema
         assert "label" in task.output_schema
         assert task.output_schema["label"] == "binary"
-        assert task.task_name == "eeg_gcnn_nd_detection"
+        assert task.task_name == "EEGGCNNDiseaseDetection"
 
 
 # ---------------------------------------------------------------

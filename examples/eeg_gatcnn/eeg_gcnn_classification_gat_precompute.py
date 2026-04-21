@@ -14,25 +14,24 @@ Expected raw data layout::
 
     raw_data/
       tuab/train/normal/01_tcp_ar/*.edf
-      tuab/train/abnormal/01_tcp_ar/*.edf   (optional)
       lemon/sub-<ID>/sub-<ID>.vhdr
 
-Usage (from the examples/eeg_gcnn directory)::
+Usage (from the examples/eeg_gatcnn directory)::
 
     conda activate pyhealth
 
     # Full dataset
-    python pre_compute.py --root raw_data --output precomputed_data
+    python eeg_gcnn_classification_gat_precompute.py --root raw_data --output precomputed_data
 
-    # Sample dataset (3 TUAB + 3 LEMON subjects)
-    python pre_compute.py --root sample_raw_data --output precomputed_data
+    # Sample dataset (3 TUAB + 1 LEMON subject)
+    python eeg_gcnn_classification_gat_precompute.py --root sample_raw_data --output precomputed_data
 
     # Limit subjects for a faster run
-    python pre_compute.py --root raw_data --max-tuab 10 --max-lemon 10
+    python eeg_gcnn_classification_gat_precompute.py --root raw_data --max-tuab 10 --max-lemon 10
 
 After this script completes, run the training pipeline::
 
-    python training_pipeline_shallow_gcnn.py
+    python eeg_gcnn_classification_gat_training.py
 """
 
 import argparse
@@ -46,8 +45,8 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from pyhealth.datasets.eeg_gcnn_raw import EEGGCNNRawDataset
 
-DEFAULT_DATA_ROOT  = str(REPO_ROOT / "examples" / "eeg_gcnn" / "raw_data")
-DEFAULT_OUTPUT_DIR = str(REPO_ROOT / "examples" / "eeg_gcnn" / "precomputed_data")
+DEFAULT_DATA_ROOT  = str(REPO_ROOT / "examples" / "eeg_gatcnn" / "raw_data")
+DEFAULT_OUTPUT_DIR = str(REPO_ROOT / "examples" / "eeg_gatcnn" / "precomputed_data")
 
 
 def parse_args() -> argparse.Namespace:
@@ -101,7 +100,7 @@ def main() -> None:
     max_tuab  = args.max_tuab
     max_lemon = args.max_lemon
 
-    print(f"\nEEG-GCNN Feature Precomputation")
+    print(f"\nEEG-GCNN Feature Precomputation (GAT)")
     print(f"  raw data  : {args.root}")
     print(f"  output    : {args.output}")
     print(f"  subset    : {args.subset}")
@@ -116,7 +115,7 @@ def main() -> None:
     )
 
     print(f"\nDone. Five pre-computed files written to: {args.output}")
-    print("Next step: python training_pipeline_shallow_gcnn.py")
+    print("Next step: python eeg_gcnn_classification_gat_training.py")
 
 
 if __name__ == "__main__":

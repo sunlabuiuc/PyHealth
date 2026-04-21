@@ -18,7 +18,7 @@ Load with:
 
 Usage (from the examples/eeg_gatcnn directory):
     conda activate pyhealth (assuming PyHealth is installed in this conda env)
-    python training_pipeline_shallow_gatcnn.py
+    python eeg_gcnn_classification_gat_training.py
 
     Requires precomputed data in the folder specified by DATA_ROOT.
     Outputs (checkpoints, logs) are saved to the folder specified by output_dir.
