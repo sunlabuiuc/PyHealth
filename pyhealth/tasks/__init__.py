@@ -1,3 +1,6 @@
+from .ecg_qa import ECGQASingleChooseTask
+
+
 from .base_task import BaseTask
 from .benchmark_ehrshot import BenchmarkEHRShot
 from .cancer_survival import CancerMutationBurden, CancerSurvivalPrediction
