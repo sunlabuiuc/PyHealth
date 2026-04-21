@@ -1,18 +1,22 @@
 {
   "attention_lstm_summary": {
-    "roc_auc_mean": 0.71725,
-    "roc_auc_std": 0.19386512708581707,
-    "pr_auc_mean": 0.8824999999999998,
-    "pr_auc_std": 0.09148068253887144
+    "roc_auc_mean": 0.875,
+    "roc_auc_std": 0.21650635094610965,
+    "pr_auc_mean": 0.9427083333333333,
+    "pr_auc_std": 0.09923207751696697
   },
   "attention_stability": {
-    "pairwise_topk_overlap_mean": 0.6648263930597262,
-    "pairwise_topk_overlap_std": 0.04101657829352676
+    "pairwise_topk_overlap_mean": 0.65,
+    "pairwise_topk_overlap_std": 0.016666666666666646
   },
   "rnn_baseline_summary": {
-    "roc_auc_mean": 0.81725,
-    "roc_auc_std": 0.21587597712575618,
-    "pr_auc_mean": 0.9198541666666665,
-    "pr_auc_std": 0.10255315144610515
+    "roc_auc_mean": 1.0,
+    "roc_auc_std": 0.0,
+    "pr_auc_mean": 1.0,
+    "pr_auc_std": 0.0
+  },
+  "faithfulness_extension": {
+    "faithfulness_score_mean": 0.004178092951575916,
+    "faithfulness_score_std": 0.0023292687200989898
   }
 }

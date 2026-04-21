@@ -1,8 +1,14 @@
+import argparse
 import os
+import sys
 import json
 import random
 from pathlib import Path
 from typing import Dict, Any, List
+
+# Ensure local pyhealth package takes precedence over any installed version
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
 
 import numpy as np
 import torch
@@ -19,14 +25,16 @@ from pyhealth.models import AttentionLSTM
 from pathlib import Path
 
 
-# run multiple seeds (run 1000 times)
-SEEDS = list(range(1, 1001))  
+SEEDS = list(range(1, 1001))
 BATCH_SIZE = 32
 EPOCHS = 5
 LR = 1e-3
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 OUTPUT_DIR = Path("results/mimic3_attention_1000")
 TOPK = 10
+FAITHFULNESS_FRACS = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+FAITHFULNESS_SEEDS = 10
+FAITHFULNESS_RAND_REPEATS = 5
 
 
 # synthetic MIMIC-III path
@@ -84,7 +92,9 @@ def flatten_attention_dict(attn_dict: Dict[str, np.ndarray]) -> np.ndarray:
 
 
 # compute attention instability using top-k overlap
-def compute_attention_stability(attention_runs: List[np.ndarray], k: int = 10) -> Dict[str, float]:
+def compute_attention_stability(
+    attention_runs: List[np.ndarray], k: int = 10
+) -> Dict[str, float]:
     pair_scores = []
 
     for i in range(len(attention_runs)):
@@ -103,9 +113,285 @@ def compute_attention_stability(attention_runs: List[np.ndarray], k: int = 10) -
             pair_scores.append(np.nanmean(sample_scores))
 
     return {
-        "pairwise_topk_overlap_mean": float(np.nanmean(pair_scores)) if pair_scores else float("nan"),
-        "pairwise_topk_overlap_std": float(np.nanstd(pair_scores)) if pair_scores else float("nan"),
+        "pairwise_topk_overlap_mean": (
+            float(np.nanmean(pair_scores)) if pair_scores else float("nan")
+        ),
+        "pairwise_topk_overlap_std": (
+            float(np.nanstd(pair_scores)) if pair_scores else float("nan")
+        ),
     }
+
+
+def build_deletion_mask(
+    attn_weights: Dict[str, np.ndarray],
+    frac: float,
+) -> Dict[str, torch.Tensor]:
+    """Build a boolean deletion mask zeroing out top-attended time steps.
+
+    Args:
+        attn_weights: dict mapping feature_key -> (B, T) numpy array of
+            attention weights.
+        frac: fraction of time steps to delete per sample (0.0–1.0).
+
+    Returns:
+        dict mapping feature_key -> (B, T) bool tensor, True = delete this step.
+    """
+    masks = {}
+    for key, attn in attn_weights.items():
+        if isinstance(attn, torch.Tensor):
+            attn = attn.numpy()
+        B, T = attn.shape
+        n_del = max(1, int(frac * T)) if frac > 0 else 0
+        mask = np.zeros((B, T), dtype=bool)
+        if n_del > 0:
+            top_indices = np.argsort(attn, axis=1)[:, -n_del:]
+            for b in range(B):
+                mask[b, top_indices[b]] = True
+        masks[key] = torch.from_numpy(mask)
+    return masks
+
+
+def build_random_deletion_mask(
+    attn_weights: Dict[str, np.ndarray],
+    frac: float,
+    rng: np.random.Generator,
+) -> Dict[str, torch.Tensor]:
+    """Build a boolean deletion mask zeroing out randomly selected time steps.
+
+    Args:
+        attn_weights: dict mapping feature_key -> (B, T) numpy array.
+        frac: fraction of time steps to delete per sample.
+        rng: numpy random generator for reproducible draws.
+
+    Returns:
+        dict mapping feature_key -> (B, T) bool tensor.
+    """
+    masks = {}
+    for key, attn in attn_weights.items():
+        if isinstance(attn, torch.Tensor):
+            attn = attn.numpy()
+        B, T = attn.shape
+        n_del = max(1, int(frac * T)) if frac > 0 else 0
+        mask = np.zeros((B, T), dtype=bool)
+        if n_del > 0:
+            for b in range(B):
+                chosen = rng.choice(T, size=n_del, replace=False)
+                mask[b, chosen] = True
+        masks[key] = torch.from_numpy(mask)
+    return masks
+
+
+def _extract_scalar_probs(y_prob: np.ndarray) -> np.ndarray:
+    """Extract scalar positive-class probability from model output."""
+    if y_prob.ndim == 2 and y_prob.shape[1] == 2:
+        return y_prob[:, 1]
+    if y_prob.ndim == 2 and y_prob.shape[1] == 1:
+        return y_prob[:, 0]
+    return y_prob.ravel()
+
+
+@torch.no_grad()
+def compute_deletion_faithfulness(
+    model: "AttentionLSTM",
+    loader,
+    device: str,
+    fracs: List[float] = None,
+    n_rand_repeats: int = 5,
+) -> Dict[str, Any]:
+    """Compute attention deletion faithfulness curves.
+
+    For each deletion fraction, zeros out the top-attended (or random) time steps
+    in the embedded representation and measures how predicted probabilities change.
+    A faithful attention mechanism should cause a larger drop when high-attention
+    steps are deleted compared to random deletion.
+
+    Args:
+        model: trained AttentionLSTM with deletion_mask support in forward().
+        loader: DataLoader yielding evaluation batches.
+        device: device string, e.g. "cpu" or "cuda".
+        fracs: list of deletion fractions to evaluate (default: 0.1–0.9).
+        n_rand_repeats: number of random mask draws to average over.
+
+    Returns:
+        dict with keys:
+            - fracs: list of deletion fractions used.
+            - attn_drop_curve: mean |p_clean - p_attn_deleted| per fraction.
+            - rand_drop_curve: mean |p_clean - p_rand_deleted| per fraction.
+            - faithfulness_score: AUC(attn_drop) - AUC(rand_drop).
+              Positive = attention identifies causally important steps.
+    """
+    if fracs is None:
+        fracs = FAITHFULNESS_FRACS
+
+    model.eval()
+    rng = np.random.default_rng(seed=0)
+
+    attn_drops: Dict[float, List[float]] = {f: [] for f in fracs}
+    rand_drops: Dict[float, List[float]] = {f: [] for f in fracs}
+
+    for batch in tqdm(loader, desc="faithfulness", leave=False):
+        batch = move_to_device(batch, device)
+        clean_out = model(**batch)
+
+        p_clean = _extract_scalar_probs(
+            clean_out["y_prob"].detach().cpu().numpy()
+        )
+        raw_attn = {
+            k: (v.numpy() if isinstance(v, torch.Tensor) else np.asarray(v))
+            for k, v in clean_out["attention_weights"].items()
+        }
+
+        for frac in fracs:
+            # Attention-ordered deletion
+            attn_dmask = build_deletion_mask(raw_attn, frac)
+            attn_dmask = move_to_device(attn_dmask, device)
+            attn_out = model(deletion_mask=attn_dmask, **batch)
+            p_attn = _extract_scalar_probs(
+                attn_out["y_prob"].detach().cpu().numpy()
+            )
+            attn_drops[frac].extend(np.abs(p_clean - p_attn).tolist())
+
+            # Random deletion (average over repeats)
+            rand_p_list = []
+            for _ in range(n_rand_repeats):
+                rand_dmask = build_random_deletion_mask(raw_attn, frac, rng)
+                rand_dmask = move_to_device(rand_dmask, device)
+                rand_out = model(deletion_mask=rand_dmask, **batch)
+                rand_p_list.append(
+                    _extract_scalar_probs(
+                        rand_out["y_prob"].detach().cpu().numpy()
+                    )
+                )
+            p_rand_avg = np.mean(rand_p_list, axis=0)
+            rand_drops[frac].extend(np.abs(p_clean - p_rand_avg).tolist())
+
+    attn_curve = [float(np.mean(attn_drops[f])) for f in fracs]
+    rand_curve = [float(np.mean(rand_drops[f])) for f in fracs]
+    faithfulness_score = float(
+        np.trapz(attn_curve, fracs) - np.trapz(rand_curve, fracs)
+    )
+
+    return {
+        "fracs": fracs,
+        "attn_drop_curve": attn_curve,
+        "rand_drop_curve": rand_curve,
+        "faithfulness_score": faithfulness_score,
+    }
+
+
+def run_faithfulness_extension(
+    dataset,
+    train_loader,
+    val_loader,
+    test_loader,
+    n_seeds: int = FAITHFULNESS_SEEDS,
+) -> Dict[str, Any]:
+    """Train n_seeds AttentionLSTM models and compute deletion faithfulness for each.
+
+    Args:
+        dataset: the SampleDataset used to build models.
+        train_loader: DataLoader for training.
+        val_loader: DataLoader for validation (used to select best checkpoint).
+        test_loader: DataLoader for faithfulness evaluation.
+        n_seeds: number of seeds to train and evaluate.
+
+    Returns:
+        dict with:
+            - per_seed: list of per-seed faithfulness dicts.
+            - faithfulness_score_mean: mean faithfulness score across seeds.
+            - faithfulness_score_std: std of faithfulness score across seeds.
+    """
+    seeds_to_use = SEEDS[:n_seeds]
+    per_seed_results = []
+
+    for seed in seeds_to_use:
+        print(f"[faithfulness] training seed={seed}...")
+        set_seed(seed)
+        model = build_attention_model(dataset).to(DEVICE)
+        optimizer = torch.optim.Adam(model.parameters(), lr=LR)
+
+        best_val_pr = -np.inf
+        best_state = None
+        for epoch in range(1, EPOCHS + 1):
+            train_one_epoch(model, train_loader, optimizer, DEVICE)
+            val_result = evaluate(model, val_loader, DEVICE, expect_attention=False)
+            if val_result["pr_auc"] > best_val_pr:
+                best_val_pr = val_result["pr_auc"]
+                best_state = {
+                    k: v.detach().cpu().clone()
+                    for k, v in model.state_dict().items()
+                }
+
+        if best_state is not None:
+            model.load_state_dict(best_state)
+
+        faith = compute_deletion_faithfulness(
+            model,
+            test_loader,
+            DEVICE,
+            fracs=FAITHFULNESS_FRACS,
+            n_rand_repeats=FAITHFULNESS_RAND_REPEATS,
+        )
+        faith["seed"] = seed
+        per_seed_results.append(faith)
+
+        print(
+            f"[faithfulness] seed={seed} "
+            f"faithfulness_score={faith['faithfulness_score']:.4f}"
+        )
+
+    scores = [r["faithfulness_score"] for r in per_seed_results]
+    return {
+        "per_seed": per_seed_results,
+        "faithfulness_score_mean": float(np.mean(scores)),
+        "faithfulness_score_std": float(np.std(scores)),
+    }
+
+
+def plot_deletion_curves(faithfulness_result: Dict[str, Any], out_dir: Path) -> None:
+    """Plot attention-ordered vs. random deletion curves across seeds.
+
+    Args:
+        faithfulness_result: output of run_faithfulness_extension().
+        out_dir: directory to save the figure.
+    """
+    fracs = faithfulness_result["per_seed"][0]["fracs"]
+    attn_curves = np.array(
+        [r["attn_drop_curve"] for r in faithfulness_result["per_seed"]]
+    )
+    rand_curves = np.array(
+        [r["rand_drop_curve"] for r in faithfulness_result["per_seed"]]
+    )
+
+    attn_mean, attn_std = attn_curves.mean(0), attn_curves.std(0)
+    rand_mean, rand_std = rand_curves.mean(0), rand_curves.std(0)
+
+    plt.figure(figsize=(7, 5))
+    plt.plot(
+        fracs, attn_mean, marker="o", label="Attention-ordered deletion",
+        color="steelblue",
+    )
+    plt.fill_between(
+        fracs, attn_mean - attn_std, attn_mean + attn_std, alpha=0.2,
+        color="steelblue",
+    )
+    plt.plot(fracs, rand_mean, marker="s", label="Random deletion", color="tomato")
+    plt.fill_between(
+        fracs, rand_mean - rand_std, rand_mean + rand_std, alpha=0.2, color="tomato",
+    )
+
+    score_mean = faithfulness_result["faithfulness_score_mean"]
+    score_std = faithfulness_result["faithfulness_score_std"]
+    plt.xlabel("Fraction of Time Steps Deleted")
+    plt.ylabel("Mean |ΔProbability|")
+    plt.title(
+        f"Deletion Faithfulness (score={score_mean:.4f}±{score_std:.4f})\n"
+        f"n={len(faithfulness_result['per_seed'])} seeds"
+    )
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(out_dir / "deletion_faithfulness_curve.png", dpi=200)
+    plt.close()
 
 
 def save_json(obj: Dict[str, Any], path: Path) -> None:
@@ -498,44 +784,80 @@ def plot_mean_attention(attention_result, out_dir: Path):
 
 # full experimental pipeline
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--faithfulness-only",
+        action="store_true",
+        help=(
+            "Skip the full 1000-seed experiment and RNN ablation. "
+            "Load existing summary.json and run only the faithfulness extension."
+        ),
+    )
+    args = parser.parse_args()
+
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     print("Building dataset...")
     dataset, train_loader, val_loader, test_loader = build_data()
 
-    print("Running sanity check...")
-    sanity_model = build_attention_model(dataset).to(DEVICE)
-    first_batch = next(iter(train_loader))
-    first_batch = move_to_device(first_batch, DEVICE)
-    sanity_output = sanity_model(**first_batch)
+    if args.faithfulness_only:
+        summary_path = OUTPUT_DIR / "summary.json"
+        if not summary_path.exists():
+            raise FileNotFoundError(
+                f"{summary_path} not found. Run without --faithfulness-only first."
+            )
+        with open(summary_path) as f:
+            summary = json.load(f)
+    else:
+        print("Running sanity check...")
+        sanity_model = build_attention_model(dataset).to(DEVICE)
+        first_batch = next(iter(train_loader))
+        first_batch = move_to_device(first_batch, DEVICE)
+        sanity_output = sanity_model(**first_batch)
+        print("Sanity output keys:", sanity_output.keys())
+        if "attention_weights" not in sanity_output:
+            raise ValueError("attention_weights missing from model output")
 
-    print("Sanity output keys:", sanity_output.keys())
-    if "attention_weights" not in sanity_output:
-        raise ValueError("attention_weights missing from model output")
+        print("Running AttentionLSTM multi-seed experiment...")
+        attention_result = run_attention_experiment(
+            dataset, train_loader, val_loader, test_loader
+        )
 
-    print("Running AttentionLSTM multi-seed experiment...")
-    attention_result = run_attention_experiment(
-        dataset, train_loader, val_loader, test_loader)
+        print("Running RNN ablation...")
+        baseline_result = run_rnn_ablation(
+            dataset, train_loader, val_loader, test_loader
+        )
 
-    print("Running RNN ablation...")
-    baseline_result = run_rnn_ablation(
-        dataset, train_loader, val_loader, test_loader)
+        summary = {
+            "attention_lstm_summary": attention_result["summary"],
+            "attention_stability": attention_result["attention_stability"],
+            "rnn_baseline_summary": baseline_result["summary"],
+        }
+        save_json(attention_result, OUTPUT_DIR / "attention_result_full.json")
+        save_json(baseline_result, OUTPUT_DIR / "rnn_baseline_full.json")
 
-    summary = {
-        "attention_lstm_summary": attention_result["summary"],
-        "attention_stability": attention_result["attention_stability"],
-        "rnn_baseline_summary": baseline_result["summary"],
+    print(
+        f"Running deletion faithfulness extension ({FAITHFULNESS_SEEDS} seeds)..."
+    )
+    faithfulness_result = run_faithfulness_extension(
+        dataset, train_loader, val_loader, test_loader, n_seeds=FAITHFULNESS_SEEDS
+    )
+
+    summary["faithfulness_extension"] = {
+        "faithfulness_score_mean": faithfulness_result["faithfulness_score_mean"],
+        "faithfulness_score_std": faithfulness_result["faithfulness_score_std"],
     }
 
     print("\n===== FINAL SUMMARY =====")
     print(json.dumps(summary, indent=2))
 
     save_json(summary, OUTPUT_DIR / "summary.json")
-    save_json(attention_result, OUTPUT_DIR / "attention_result_full.json")
-    save_json(baseline_result, OUTPUT_DIR / "rnn_baseline_full.json")
+    save_json(faithfulness_result, OUTPUT_DIR / "faithfulness_result.json")
 
-    plot_metrics(attention_result, baseline_result, OUTPUT_DIR)
-    plot_mean_attention(attention_result, OUTPUT_DIR)
+    if not args.faithfulness_only:
+        plot_metrics(attention_result, baseline_result, OUTPUT_DIR)
+        plot_mean_attention(attention_result, OUTPUT_DIR)
+    plot_deletion_curves(faithfulness_result, OUTPUT_DIR)
 
     print(f"\nSaved results to: {OUTPUT_DIR.resolve()}")
 

@@ -1,3 +1,10 @@
+# Author(s): Ashrith Anumala, Edmon Guan, Tianyu Zhou
+# NetID(s): anumala3, edmong2, aliang7
+# Paper: When Attention Fails: Pitfalls of Attention-based Model Interpretability
+#        for High-dimensional Clinical Time-Series (Yadav & Subbian, CHIL 2025)
+# Paper link: https://proceedings.mlr.press/v287/yadav25a.html
+# Description: AttentionLSTM model — temporal attention-weighted LSTM for
+#              clinical time-series classification
 from typing import Dict, Optional, Tuple
 
 import torch
@@ -6,8 +13,6 @@ import torch.nn.utils.rnn as rnn_utils
 
 from pyhealth.datasets import SampleDataset
 from .base_model import BaseModel
-
-
 from .embedding import EmbeddingModel
 
 
@@ -48,7 +53,7 @@ class RNNLayer(nn.Module):
         num_layers: int = 1,
         dropout: float = 0.5,
         bidirectional: bool = False,
-    ):
+    ) -> None:
         super(RNNLayer, self).__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
@@ -124,11 +129,32 @@ class RNNLayer(nn.Module):
 
 
 class AttentionLSTM(BaseModel):
-    """Attention-based LSTM model.
+    """Attention-based LSTM model for clinical time-series classification.
 
-    This model applies a separate LSTM layer for each feature, computes
-    attention weights over the sequence outputs, and uses the attention-
-    weighted context vector for prediction.
+    Applies a separate LSTM layer for each input feature, computes temporal
+    attention weights over the LSTM hidden-state sequence, and uses the
+    attention-weighted context vector for prediction. Based on the architecture
+    studied in Yadav & Subbian (CHIL 2025), which examines the reliability of
+    attention-based interpretability in clinical settings.
+
+    Args:
+        dataset: SampleDataset used to configure input/output dimensions.
+        embedding_dim: dimension of the token embedding. Default is 128.
+        hidden_dim: LSTM hidden state dimension. Default is 128.
+        **kwargs: additional keyword arguments forwarded to RNNLayer (e.g.
+            ``num_layers``, ``dropout``, ``bidirectional``).
+
+    Attributes:
+        embedding_model: EmbeddingModel that embeds each input feature.
+        rnn: ModuleDict mapping each feature key to a per-feature RNNLayer.
+        attention: ModuleDict mapping each feature key to an attention linear.
+        fc: final linear layer mapping concatenated context vectors to logits.
+
+    Example:
+        >>> # Assumes a SampleDataset with "conditions" (sequence) input and
+        >>> # "label" (binary) output has been created.
+        >>> model = AttentionLSTM(dataset, embedding_dim=128, hidden_dim=128)
+        >>> # output = model(**batch)  # batch from get_dataloader(dataset)
     """
 
     def __init__(
@@ -136,19 +162,25 @@ class AttentionLSTM(BaseModel):
         dataset: SampleDataset,
         embedding_dim: int = 128,
         hidden_dim: int = 128,
-        **kwargs
-    ):
+        **kwargs,
+    ) -> None:
+        """Initialize AttentionLSTM.
+
+        Validates kwargs, builds per-feature LSTM and attention layers, and
+        constructs the final classification head.
+        """
         super(AttentionLSTM, self).__init__(
             dataset=dataset,
         )
         self.embedding_dim = embedding_dim
         self.hidden_dim = hidden_dim
-        # validate kwargs for RNN layer
         if "input_size" in kwargs:
             raise ValueError("input_size is determined by embedding_dim")
         if "hidden_size" in kwargs:
             raise ValueError("hidden_size is determined by hidden_dim")
-        assert len(self.label_keys) == 1, "Only one label key is supported if AttentionLSTM is initialized"
+        assert len(self.label_keys) == 1, (
+            "Only one label key is supported if AttentionLSTM is initialized"
+        )
         self.label_key = self.label_keys[0]
         self.mode = self.dataset.output_schema[self.label_key]
 
@@ -158,65 +190,80 @@ class AttentionLSTM(BaseModel):
         self.attention = nn.ModuleDict()
         for feature_key in self.dataset.input_processors.keys():
             self.rnn[feature_key] = RNNLayer(
-                input_size=embedding_dim, hidden_size=hidden_dim, rnn_type="LSTM", **kwargs
+                input_size=embedding_dim,
+                hidden_size=hidden_dim,
+                rnn_type="LSTM",
+                **kwargs,
             )
             self.attention[feature_key] = nn.Linear(hidden_dim, 1)
         output_size = self.get_output_size()
         self.fc = nn.Linear(len(self.feature_keys) * self.hidden_dim, output_size)
 
-    def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
+    def forward(
+        self,
+        deletion_mask: Optional[Dict[str, torch.Tensor]] = None,
+        **kwargs,
+    ) -> Dict[str, torch.Tensor]:
         """Forward propagation.
 
-        The label `kwargs[self.label_key]` is a list of labels for each patient.
+        The label ``kwargs[self.label_key]`` is a tensor of labels for each
+        patient in the batch.
 
         Args:
-            **kwargs: keyword arguments for the model. The keys must contain
-                all the feature keys and the label key.
+            deletion_mask: optional dict mapping feature key to a ``(B, T)``
+                boolean tensor. Where True, the corresponding embedded time
+                step is zeroed out before the RNN call (used for faithfulness
+                analysis). Default is None (no deletion).
+            **kwargs: keyword arguments for the model. Must contain all
+                feature keys and the label key.
 
         Returns:
-            Dict[str, torch.Tensor]: A dictionary with the following keys:
-                - loss: a scalar tensor representing the loss.
-                - y_prob: a tensor representing the predicted probabilities.
-                - y_true: a tensor representing the true labels.
-                - logit: a tensor representing the logits.
-                - embed (optional): a tensor representing the patient embeddings if requested.
+            Dict[str, torch.Tensor]: dictionary with keys:
+                - ``loss``: scalar loss tensor.
+                - ``y_prob``: predicted probability tensor.
+                - ``y_true``: ground-truth label tensor.
+                - ``logit``: raw logit tensor.
+                - ``attention_weights``: dict mapping feature key to a
+                  ``(B, T)`` tensor of softmax attention weights.
+                - ``embed`` (optional): ``(B, D)`` patient embedding tensor,
+                  included when ``kwargs["embed"]`` is True.
         """
         patient_emb = []
-        
-        # We need to preprocess kwargs to extract values and masks for EmbeddingModel
-        # because EmbeddingModel expects dict of tensors
         inputs = {}
         masks = {}
         attn_dict = {}
-        
+
         for feature_key in self.feature_keys:
             feature = kwargs[feature_key]
             if isinstance(feature, torch.Tensor):
                 feature = (feature,)
-            
+
             schema = self.dataset.input_processors[feature_key].schema()
             value = feature[schema.index("value")] if "value" in schema else None
             mask = feature[schema.index("mask")] if "mask" in schema else None
-            
+
             if value is None:
-                raise ValueError(f"Feature '{feature_key}' must contain 'value' in the schema.")
-            
+                raise ValueError(
+                    f"Feature '{feature_key}' must contain 'value' in the schema."
+                )
+
             inputs[feature_key] = value
             if mask is not None:
                 masks[feature_key] = mask
 
         embedded = self.embedding_model(inputs, masks=masks)
-        
+
         for feature_key in self.feature_keys:
             x = embedded[feature_key]
 
             x_dim_orig = x.dim()
             if x_dim_orig == 4:
-                # nested_sequence: (B, num_visits, num_codes, D)
-                # @TODO: sum-pooling across codes is a simple baseline. May need to investigate better embeddings for nested codes.
+                # nested_sequence: (B, num_visits, num_codes, D) — sum-pool codes
                 x = x.sum(dim=2)  # (B, num_visits, D)
                 if feature_key in masks:
-                    mask = (masks[feature_key].to(self.device).sum(dim=-1) > 0).int()  # (B, V)
+                    mask = (
+                        masks[feature_key].to(self.device).sum(dim=-1) > 0
+                    ).int()
                 else:
                     mask = (torch.abs(x).sum(dim=-1) != 0).int()
             elif x_dim_orig == 2:
@@ -230,6 +277,11 @@ class AttentionLSTM(BaseModel):
                         mask = (mask.sum(dim=-1) > 0).int()
                 else:
                     mask = (torch.abs(x).sum(dim=-1) != 0).int()
+
+            if deletion_mask is not None and feature_key in deletion_mask:
+                dm = deletion_mask[feature_key].to(self.device)  # (B, T) bool
+                if x.dim() == 3:
+                    x = x * (~dm).unsqueeze(-1).float()
 
             outputs, _ = self.rnn[feature_key](x, mask)
 
@@ -245,9 +297,7 @@ class AttentionLSTM(BaseModel):
             patient_emb.append(x)
 
         patient_emb = torch.cat(patient_emb, dim=1)
-        # (patient, label_size)
         logits = self.fc(patient_emb)
-        # obtain y_true, loss, y_prob
         y_true = kwargs[self.label_key].to(self.device)
         loss = self.get_loss_function()(logits, y_true)
         y_prob = self.prepare_y_prob(logits)
