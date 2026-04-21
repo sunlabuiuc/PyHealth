@@ -54,6 +54,9 @@ routes each feature type automatically.
    * - :doc:`models/pyhealth.models.GraphCare`
      - You want to augment EHR codes with a medical knowledge graph
      - Combines code sequences with a :class:`~pyhealth.graph.KnowledgeGraph`
+   * - :doc:`models/pyhealth.models.Wav2Sleep`
+     - You have multimodal physiological signals (ECG, PPG, respiratory) and want to classify sleep stages
+     - Processes raw waveforms through signal encoders, transformer fusion, and dilated CNNs to predict Wake, N1, N2, N3, REM;
 
 How BaseModel Works
 --------------------
