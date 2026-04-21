@@ -62,7 +62,7 @@ LEARNING_RATE   = 1e-3   # used for both SGD and Adam
 WEIGHT_DECAY    = 0.0
 
 # Optimizer and LR scheduler selection.
-# OPTIMIZER:    "adam" (recommended for GAT) or "sgd"
+# OPTIMIZER: "adam" or "sgd"
 # LR_SCHEDULER: "plateau" — ReduceLROnPlateau, steps on val roc_auc (recommended)
 #               "multistep" — MultiStepLR, decays at fixed epoch milestones
 OPTIMIZER        = "adam"

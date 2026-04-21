@@ -10,7 +10,7 @@ End-to-end pipeline for EEG-based neurological disease detection, based on:
     https://proceedings.mlr.press/v136/wagh20a.html
 
 **Contributors:** Jimmy Burhan (jburhan2) — Dataset & Task |
-Robert Coffey (racoffey2) — Models & Training
+Robert Coffey (rc37) — Models & Training
 
 Overview
 --------
@@ -390,7 +390,49 @@ Both scripts:
 5. Report mean ± std across folds.
 
 Reported metrics: ``auroc_patient``, ``precision``, ``recall``, ``f1``,
-``bal_acc``. See the project slides for the numerical results.
+``bal_acc``.
+
+Results
+-------
+
+All results use the full raw dataset (TUAB normal + MPI LEMON), 70/30
+patient-level train/test split, 10-fold cross-validation, combined
+adjacency (α = 0.5). GCN trained with SGD + MultiStepLR; GAT trained
+with Adam + ReduceLROnPlateau (lr=1e-3, patience=5, factor=0.5).
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 14 14 14 14 14
+
+   * - Model
+     - AUROC
+     - Precision
+     - Recall
+     - F1
+     - Bal. Acc
+   * - Shallow EEG-GCNN (paper, FigShare)
+     - 0.90 ± 0.02
+     - —
+     - —
+     - —
+     - 0.83 ± 0.02
+   * - **GCN** (raw data, α = 0.5)
+     - 0.914 ± 0.008
+     - 0.978 ± 0.006
+     - 0.822 ± 0.043
+     - 0.892 ± 0.023
+     - 0.849 ± 0.007
+   * - **GAT** (raw data, Adam + Plateau)
+     - **0.942 ± 0.025**
+     - **0.986 ± 0.009**
+     - **0.864 ± 0.041**
+     - **0.920 ± 0.023**
+     - **0.885 ± 0.032**
+
+Both models trained on the raw pipeline exceed the paper's FigShare
+baseline. The GAT with Adam + ReduceLROnPlateau outperforms the GCN on
+every metric, reversing the earlier result where GAT underperformed due
+to SGD being a poor fit for attention-based architectures.
 
 Ablation Studies
 ----------------

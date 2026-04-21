@@ -20,11 +20,15 @@ Expected raw data layout::
 Usage (from the examples/eeg_gcnn directory)::
 
     conda activate pyhealth
-    python pre_compute.py
 
-Or supply a different data root::
+    # Full dataset
+    python pre_compute.py --root raw_data --output precomputed_data
 
-    python pre_compute.py --root /path/to/raw_data
+    # Sample dataset (3 TUAB + 3 LEMON subjects)
+    python pre_compute.py --root sample_raw_data --output precomputed_data
+
+    # Limit subjects for a faster run
+    python pre_compute.py --root raw_data --max-tuab 10 --max-lemon 10
 
 After this script completes, run the training pipeline::
 
