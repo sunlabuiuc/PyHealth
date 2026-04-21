@@ -14,7 +14,19 @@ from pyhealth.datasets import SampleDataset
 from .base_model import BaseModel
 
 class N2V():
-    """
+    """Node2Vec embeddings for OMOP concepts.
+
+    This class builds a directed knowledge graph from OMOP concept and
+    concept relationship tables, then trains Node2Vec to generate
+    ontology-informed embeddings for medical concepts.
+
+    Attributes:
+        path: Path to the OMOP CSV files.
+        domain_type: List of OMOP domains used to filter concepts.
+        embedding_dim: Dimension of the learned embeddings.
+        walk_length: Length of each random walk.
+        num_walks: Number of walks generated per node.
+        graph: Directed graph constructed from OMOP concepts and relations.
     """
     def __init__(
         self, 
