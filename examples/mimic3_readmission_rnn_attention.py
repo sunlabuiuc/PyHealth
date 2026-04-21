@@ -29,7 +29,7 @@ from sklearn.metrics import roc_auc_score
 from torch.utils.data import DataLoader
 
 from pyhealth.datasets import create_sample_dataset, get_dataloader
-from pyhealth.models import LogisticRegression, RNN, RNN_attention
+from pyhealth.models import LogisticRegression, RNN, RNNAttention
 
 
 def evaluate(y_true: np.ndarray, y_prob: np.ndarray) -> dict[str, float]:
@@ -236,7 +236,7 @@ def run_ablation(
 
     # Initialize model
     try:
-        if model_class == RNN_attention:
+        if model_class == RNNAttention:
             model = model_class(
                 dataset=train_dataset,
                 embedding_dim=config.embedding_dim,
@@ -416,7 +416,7 @@ def main():
             config=config,
             train_dataset=train_dataset,
             test_dataset=test_dataset,
-            model_class=RNN_attention,
+            model_class=RNNAttention,
             device=device,
             args=args,
         )
