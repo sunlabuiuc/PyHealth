@@ -1,5 +1,20 @@
 """Step-wise Embedding model for heterogeneous clinical time-series.
 
+Contributors:
+    Akshad Pai (NetID: avpai2), Matthew Ruth (NetID: mrruth2)
+
+Paper:
+    On the Importance of Step-wise Embeddings for Heterogeneous Clinical
+    Time-Series (Kuznetsova et al., JMLR 2023)
+
+Paper link:
+    https://jmlr.org/papers/v24/22-0850.html
+
+Description:
+    Step-wise embedding ``BaseModel``: per-timestep feature grouping (optional
+    organ/type splits), FT-transformer/MLP/linear group encoders, aggregation,
+    and a Transformer sequence backbone for ICU time-series classification.
+
 This module implements the step-wise embedding architecture from the paper
 "On the Importance of Step-wise Embeddings for Heterogeneous Clinical
 Time-Series" (Kuznetsova et al., JMLR 2023).

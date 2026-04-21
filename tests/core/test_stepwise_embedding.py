@@ -1,5 +1,19 @@
 """Tests for the StepwiseEmbedding model.
 
+Contributors:
+    Akshad Pai (NetID: avpai2), Matthew Ruth (NetID: mrruth2)
+
+Paper:
+    On the Importance of Step-wise Embeddings for Heterogeneous Clinical
+    Time-Series (Kuznetsova et al., JMLR 2023)
+
+Paper link:
+    https://jmlr.org/papers/v24/22-0850.html
+
+Description:
+    Unit tests for StepwiseEmbedding forward/backward and grouping variants
+    using ``create_sample_dataset`` tensors only (no clinical data files).
+
 Uses synthetic data only. All tests should complete in milliseconds.
 """
 
@@ -26,13 +40,14 @@ class TestStepwiseEmbedding(unittest.TestCase):
     def setUp(self):
         """Set up synthetic dataset and data loader."""
         np.random.seed(42)
+        # Keep fixtures tiny for fast unit tests.
         self.samples = [
             {
                 "patient_id": f"p-{i}",
-                "time_series": np.random.randn(48, 42).tolist(),
+                "time_series": np.random.randn(8, 42).tolist(),
                 "ihm": i % 2,
             }
-            for i in range(4)
+            for i in range(3)
         ]
         self.dataset = create_sample_dataset(
             samples=self.samples,
@@ -41,11 +56,11 @@ class TestStepwiseEmbedding(unittest.TestCase):
             dataset_name="test",
         )
 
-    def _get_batch(self, batch_size: int = 2):
+    def _get_batch(self, batch_size: int = 1):
         loader = get_dataloader(self.dataset, batch_size=batch_size)
         return next(iter(loader))
 
-    def _check_output(self, ret, batch_size: int = 2):
+    def _check_output(self, ret, batch_size: int = 1):
         """Verify the model output dictionary structure."""
         self.assertIn("loss", ret)
         self.assertIn("y_prob", ret)
@@ -259,45 +274,45 @@ class TestHelperLayers(unittest.TestCase):
     def test_linear_embedding_shape(self):
         """LinearEmbedding should produce correct output shape."""
         layer = LinearEmbedding(input_dim=42, hidden_dim=32)
-        x = torch.randn(2, 48, 42)
+        x = torch.randn(1, 8, 42)
         out = layer(x)
-        self.assertEqual(out.shape, (2, 48, 32))
+        self.assertEqual(out.shape, (1, 8, 32))
 
     def test_mlp_embedding_shape(self):
         """MLPEmbedding should produce correct output shape."""
         layer = MLPEmbedding(
             input_dim=42, hidden_dim=32, latent_dim=16, depth=2,
         )
-        x = torch.randn(2, 48, 42)
+        x = torch.randn(1, 8, 42)
         out = layer(x)
-        self.assertEqual(out.shape, (2, 48, 32))
+        self.assertEqual(out.shape, (1, 8, 32))
 
     def test_ftt_embedding_shape(self):
         """FTTransformerEmbedding should produce correct output shape."""
         layer = FTTransformerEmbedding(
             input_dim=10, hidden_dim=32, token_dim=8, n_heads=2,
         )
-        x = torch.randn(2, 48, 10)
+        x = torch.randn(1, 8, 10)
         out = layer(x)
-        self.assertEqual(out.shape, (2, 48, 32))
+        self.assertEqual(out.shape, (1, 8, 32))
 
     def test_transformer_backbone_shape(self):
         """TransformerBackbone should produce correct output shape."""
         backbone = TransformerBackbone(
             input_dim=32, hidden_dim=64, heads=2, depth=2,
         )
-        x = torch.randn(2, 48, 32)
+        x = torch.randn(1, 8, 32)
         out = backbone(x)
-        self.assertEqual(out.shape, (2, 48, 64))
+        self.assertEqual(out.shape, (1, 8, 64))
 
     def test_stepwise_layer_no_grouping(self):
         """StepwiseEmbeddingLayer without grouping."""
         layer = StepwiseEmbeddingLayer(
             input_dim=42, hidden_dim=32, embedding_type="linear",
         )
-        x = torch.randn(2, 48, 42)
+        x = torch.randn(1, 8, 42)
         out = layer(x)
-        self.assertEqual(out.shape, (2, 48, 32))
+        self.assertEqual(out.shape, (1, 8, 32))
 
     def test_stepwise_layer_with_grouping_mean(self):
         """StepwiseEmbeddingLayer with grouping and mean aggregation."""
@@ -309,9 +324,9 @@ class TestHelperLayers(unittest.TestCase):
             embedding_type="linear",
             aggregation="mean",
         )
-        x = torch.randn(2, 48, 10)
+        x = torch.randn(1, 8, 10)
         out = layer(x)
-        self.assertEqual(out.shape, (2, 48, 16))
+        self.assertEqual(out.shape, (1, 8, 16))
 
     def test_stepwise_layer_with_grouping_concat(self):
         """StepwiseEmbeddingLayer with concat aggregation."""
@@ -323,9 +338,9 @@ class TestHelperLayers(unittest.TestCase):
             embedding_type="linear",
             aggregation="concat",
         )
-        x = torch.randn(2, 48, 10)
+        x = torch.randn(1, 8, 10)
         out = layer(x)
-        self.assertEqual(out.shape, (2, 48, 16))
+        self.assertEqual(out.shape, (1, 8, 16))
 
 
 if __name__ == "__main__":

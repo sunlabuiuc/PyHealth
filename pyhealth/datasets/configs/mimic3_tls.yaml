@@ -1,3 +1,12 @@
+# Contributors: Akshad Pai (NetID: avpai2), Matthew Ruth (NetID: mrruth2)
+#
+# Paper: On the Importance of Step-wise Embeddings for Heterogeneous Clinical
+#   Time-Series (Kuznetsova et al., JMLR 2023)
+# Paper link: https://jmlr.org/papers/v24/22-0850.html
+#
+# Description: PyHealth dataset config for TLS-exported MIMIC-III timeseries
+#   CSV (patient id, timestamp, IHM label, 42 gridded features per timestep).
+
 version: "1.0"
 tables:
   timeseries:

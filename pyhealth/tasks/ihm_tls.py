@@ -1,5 +1,20 @@
 """In-Hospital Mortality task for TLS-preprocessed MIMIC-III data.
 
+Contributors:
+    Akshad Pai (NetID: avpai2), Matthew Ruth (NetID: mrruth2)
+
+Paper:
+    On the Importance of Step-wise Embeddings for Heterogeneous Clinical
+    Time-Series (Kuznetsova et al., JMLR 2023)
+
+Paper link:
+    https://jmlr.org/papers/v24/22-0850.html
+
+Description:
+    In-hospital mortality binary prediction task over TLS gridded time-series:
+    sorts and truncates per-stay timestep events, builds dense (T, F) tensors,
+    and supports observation-window and feature-subset ablations.
+
 This module defines the IHM (In-Hospital Mortality) prediction task for
 MIMIC-III data preprocessed by the TLS pipeline. The task constructs
 dense time-series samples from the preprocessed gridded data.

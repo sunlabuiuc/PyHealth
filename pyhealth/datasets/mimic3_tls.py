@@ -1,5 +1,20 @@
 """MIMIC-III TLS Dataset adapter for PyHealth.
 
+Contributors:
+    Akshad Pai (NetID: avpai2), Matthew Ruth (NetID: mrruth2)
+
+Paper:
+    On the Importance of Step-wise Embeddings for Heterogeneous Clinical
+    Time-Series (Kuznetsova et al., JMLR 2023)
+
+Paper link:
+    https://jmlr.org/papers/v24/22-0850.html
+
+Description:
+    Dataset for MIMIC-III ICU series preprocessed by the TLS pipeline: loads
+    gridded CSV/HDF5 exports into PyHealth events and exposes organ/type
+    feature groups for step-wise embedding models.
+
 This module provides a dataset class for loading MIMIC-III data that has been
 preprocessed by the TLS (Time-series Learning from Scratch) pipeline. The TLS
 pipeline converts raw MIMIC-III data into dense, regularly-gridded ICU

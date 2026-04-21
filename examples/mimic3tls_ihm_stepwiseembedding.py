@@ -1,7 +1,19 @@
 """Step-wise Embedding ablation study for IHM on MIMIC-III (TLS preprocessed).
 
-Paper: "On the Importance of Step-wise Embeddings for Heterogeneous
-Clinical Time-Series" (Kuznetsova et al., JMLR 2023).
+Contributors:
+    Akshad Pai (NetID: avpai2), Matthew Ruth (NetID: mrruth2)
+
+Paper:
+    On the Importance of Step-wise Embeddings for Heterogeneous Clinical
+    Time-Series (Kuznetsova et al., JMLR 2023)
+
+Paper link:
+    https://jmlr.org/papers/v24/22-0850.html
+
+Description:
+    Example script: MIMIC3 TLS dataset, IHM task, StepwiseEmbedding training
+    with ablations over grouping, observation windows, and embedding/backbone
+    settings (synthetic or real TLS CSV under ``--data_root``).
 
 This script demonstrates the full pipeline: dataset loading, task
 construction, model training, and evaluation with ablations across
@@ -23,7 +35,6 @@ Usage:
 """
 
 import argparse
-import os
 import time
 
 import numpy as np
