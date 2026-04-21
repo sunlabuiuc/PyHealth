@@ -1,6 +1,6 @@
 """Audio Question Answering tasks for PyHealth.
 
-This module provides tasks for processing generative text answers 
+This module provides tasks for processing generative text answers
 based on medical audio signals using the CaReSound dataset.
 """
 
@@ -16,6 +16,7 @@ class CaReSoundAQA(BaseTask):
         input_schema (Dict[str, str]): Required inputs (audio_path, question).
         output_schema (Dict[str, str]): Required outputs (answer).
     """
+
     task_name: str = "CaReSoundAQA"
     input_schema: Dict[str, str] = {
         "question": "text",
@@ -32,26 +33,28 @@ class CaReSoundAQA(BaseTask):
         """Process a patient record to extract audio-QA samples."""
         samples: List[Dict[str, Any]] = []
         events = patient.get_events("metadata")
-        
+
         for event in events:
             # The new engine puts CSV columns into attr_dict
             attr = getattr(event, "attr_dict", {})
-            
+
             audio_path = str(attr.get("audio_path", ""))
             question = str(attr.get("question", ""))
             answer = str(attr.get("answer", ""))
             hf_split = str(attr.get("hf_split", "unknown"))
-            
+
             if not audio_path or not question or not answer:
                 continue
 
-            samples.append({
-                "patient_id": patient.patient_id,
-                "visit_id": f"v_{patient.patient_id}", 
-                "audio_path": audio_path,
-                "question": question,
-                "answer": answer,
-                "original_hf_split": hf_split,
-            })
+            samples.append(
+                {
+                    "patient_id": patient.patient_id,
+                    "visit_id": f"v_{patient.patient_id}",
+                    "audio_path": audio_path,
+                    "question": question,
+                    "answer": answer,
+                    "original_hf_split": hf_split,
+                }
+            )
 
         return samples
