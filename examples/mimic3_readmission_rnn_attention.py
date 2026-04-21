@@ -240,7 +240,7 @@ def run_ablation(
             model = model_class(
                 dataset=train_dataset,
                 embedding_dim=config.embedding_dim,
-                num_heads=config.attention_heads,
+                h=config.attention_heads,
             ).to(device)
         else:
             model = model_class(

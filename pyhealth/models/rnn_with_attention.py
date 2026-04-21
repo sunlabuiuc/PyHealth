@@ -22,26 +22,26 @@ from .embedding import EmbeddingModel
 
 class RNN_Attention_Layer(nn.Module):
 
-    def __init__(self, feature_size: int, dropout: float = 0.5, num_heads=4):
+    def __init__(self, feature_size: int, dropout: float = 0.5, h: int = 4):
         super(RNN_Attention_Layer, self).__init__()
         self.feature_size = feature_size
         self.dropout = dropout
         self.dropout_layer = nn.Dropout(p=self.dropout)
 
         self.gru = nn.GRU(feature_size, feature_size, batch_first=True)
-        self.num_heads = num_heads
-        self.attention = self.MultiHeadAttention(feature_size, num_heads)
+        self.num_heads = h
+        self.attention = self.MultiHeadAttention(feature_size, h)
 
     class MultiHeadAttention(nn.Module):
-        def __init__(self, hidden_dim, num_heads):
+        def __init__(self, hidden_dim, h):
             super().__init__()
 
-            self.num_heads = num_heads
+            self.num_heads = h
 
             self.W = nn.ModuleList(
-                [nn.Linear(hidden_dim, hidden_dim) for _ in range(num_heads)])
+                [nn.Linear(hidden_dim, hidden_dim) for _ in range(h)])
             self.v = nn.ModuleList(
-                [nn.Linear(hidden_dim, 1, bias=False) for _ in range(num_heads)])
+                [nn.Linear(hidden_dim, 1, bias=False) for _ in range(h)])
 
         def forward(self, h_seq, mask=None):
             head_outputs = []
@@ -90,7 +90,7 @@ class RNN_Attention_Layer(nn.Module):
 
 class RNN_attention(BaseModel):
 
-    def __init__(self, dataset: SampleDataset, embedding_dim: int = 128, **kwargs):
+    def __init__(self, dataset: SampleDataset, embedding_dim: int = 128, h: int = 4, **kwargs):
         super(RNN_attention, self).__init__(dataset=dataset)
         self.embedding_dim = embedding_dim
 
@@ -106,11 +106,12 @@ class RNN_attention(BaseModel):
         # Create RNN layers for each feature
         # self.rnn_attention = nn.ModuleDict()
         self.rnn_attention = RNN_Attention_Layer(
-            feature_size=embedding_dim, **kwargs)
+            feature_size=embedding_dim, h=h, **kwargs)
 
         output_size = self.get_output_size()
-        num_features = len(self.feature_keys)
-        self.fc = nn.Linear(num_features * self.embedding_dim, output_size)
+        # num_features = len(self.feature_keys)
+        self.num_heads = h
+        self.fc = nn.Linear(self.num_heads * embedding_dim, output_size)
 
     def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
         embedded = self.embedding_model(kwargs)
