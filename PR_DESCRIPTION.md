@@ -1,0 +1,12 @@
+- **Contributor name and NetID/email:** Azfar Rehman (azrehman)
+- **Type of contribution:** Model
+- **Link to original paper:** [Predicting utilization of healthcare services from individual disease trajectories using RNNs with multi-headed attention](https://dl.acm.org/doi/abs/10.1145/3291279.3332420)
+- **High-level description of implementation:** This PR adds an implementation of a Recurrent Neural Network (RNN) with a multi-headed attention mechanism, based on the paper by Kumar et al. The model is designed to predict healthcare service utilization from patient disease trajectories. It uses a GRU to process sequences of medical codes and a multi-headed attention layer to learn diverse representations and capture important patterns in the patient's history.
+- **File guide listing which files to review:**
+    - `pyhealth/models/rnn_with_attention.py` (Core model implementation)
+    - `tests/core/test_rnn_attention.py` (Unit tests)
+    - `examples/mimic3_readmission_rnn_attention.py` (Ablation study and example usage)
+    - `docs/api/models/pyhealth.models.RNNAttention.rst` (Documentation)
+    - `docs/api/models.rst` (Index update)
+    - `pyhealth/models/__init__.py` (Model import)
+- **Follows example PR format from contribution guide:** Yes

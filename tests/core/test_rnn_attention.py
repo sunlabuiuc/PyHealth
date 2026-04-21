@@ -3,7 +3,7 @@ import unittest
 import torch
 
 from pyhealth.datasets import create_sample_dataset, get_dataloader
-from pyhealth.models import RNN_attention
+from pyhealth.models import RNNAttention
 
 
 class TestRNNAttention(unittest.TestCase):
@@ -41,11 +41,11 @@ class TestRNNAttention(unittest.TestCase):
             dataset_name="test_ds",
         )
 
-        self.model = RNN_attention(dataset=self.dataset)
+        self.model = RNNAttention(dataset=self.dataset)
 
     def test_model_initialization(self):
         """Test that the RNNAttention model initializes correctly."""
-        self.assertIsInstance(self.model, RNN_attention)
+        self.assertIsInstance(self.model, RNNAttention)
         self.assertEqual(self.model.embedding_dim, 128)
         self.assertEqual(len(self.model.feature_keys), 2)
         self.assertIn("conditions", self.model.feature_keys)
@@ -54,7 +54,7 @@ class TestRNNAttention(unittest.TestCase):
 
     def test_model_initialization_custom_embedding(self):
         """Test that the RNNAttention model initializes with custom embedding dim."""
-        model_custom = RNN_attention(dataset=self.dataset, embedding_dim=64)
+        model_custom = RNNAttention(dataset=self.dataset, embedding_dim=64)
         self.assertEqual(model_custom.embedding_dim, 64)
 
     def test_model_forward(self):
@@ -108,14 +108,14 @@ class TestRNNAttention(unittest.TestCase):
     def test_invalid_feature_size_error(self):
         """Test that passing feature_size raises ValueError."""
         with self.assertRaises(ValueError) as context:
-            RNN_attention(dataset=self.dataset, feature_size=128)
+            RNNAttention(dataset=self.dataset, feature_size=128)
 
         self.assertIn("feature_size is determined by embedding_dim",
                       str(context.exception))
 
     def test_model_with_different_attention_heads(self):
         """Test that the model works with different numbers of attention heads."""
-        model_2heads = RNN_attention(dataset=self.dataset, h=2)
+        model_2heads = RNNAttention(dataset=self.dataset, h=2)
         self.assertEqual(model_2heads.num_heads, 2)
 
         train_loader = get_dataloader(
