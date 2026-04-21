@@ -312,7 +312,7 @@ class PTBXLMultilabelClassification(BaseTask):
 
         for event in events:
             # ---- 1. Load the .mat signal --------------------------------
-            mat_file = getattr(event, "ptbxl/mat", None)
+            mat_file = getattr(event, "mat", None)
             if not mat_file:
                 logger.debug("Skip %s: no *.mat file", event)
                 continue
@@ -340,7 +340,7 @@ class PTBXLMultilabelClassification(BaseTask):
                 signal = signal[:, ::5]  # shape (12, 1000)
 
             # ---- 3. Parse SNOMED-CT codes --------------------------------
-            dx_codes: str = str(getattr(event, "ptbxl/dx_codes", "") or "")
+            dx_codes: str = str(getattr(event, "dx_codes", "") or "")
             codes = [c.strip() for c in dx_codes.split(",") if c.strip()]
 
             # ---- 4. Map to chosen label space ---------------------------
@@ -359,6 +359,6 @@ class PTBXLMultilabelClassification(BaseTask):
                 # No recognised labels → skip (consistent with other tasks).
                 continue
 
-            samples.append({"signal": signal, "labels": labels})
+            samples.append({"signal": signal, "labels": labels, "split": "split": event.attr_dict.get("split", "train")})
 
         return samples
