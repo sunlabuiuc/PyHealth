@@ -97,7 +97,7 @@ class ECGQADataset(BaseDataset):
 
         if config_path is None:
             logger.info("No config path provided, using default config")
-            config_path = Path(__file__).parent / "configs" / "ecg_qa.yaml"
+            config_path = Path(__file__).parent / "configs" / "ecgqa.yaml"
 
         self.root = root
 
@@ -284,6 +284,6 @@ class ECGQADataset(BaseDataset):
 
     @property
     def default_task(self):
-        """Returns the default task for the ECG-QA dataset: ECGQA."""
-        from pyhealth.tasks import ECGQA
-        return ECGQA()
+        """Returns the default task for the ECG-QA dataset: ECGQAPreprocessing."""
+        from pyhealth.tasks import ECGQAPreprocessing
+        return ECGQAPreprocessing()

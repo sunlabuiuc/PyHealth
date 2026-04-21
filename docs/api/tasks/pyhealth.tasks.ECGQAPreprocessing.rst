@@ -1,7 +1,7 @@
-pyhealth.tasks.ECGQA
+pyhealth.tasks.ECGQAPreprocessing
 =======================================
 
-.. autoclass:: pyhealth.tasks.ECGQA
+.. autoclass:: pyhealth.tasks.ECGQAPreprocessing
     :members:
     :undoc-members:
     :show-inheritance:
