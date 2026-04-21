@@ -207,6 +207,8 @@ class EHRMamba(BaseModel):
         state_size: SSM state size per channel. Default 16.
         conv_kernel: Causal conv kernel size in block. Default 4.
         dropout: Dropout before classification head. Default 0.1.
+        max_position_embeddings: Size of the position embedding table. Must be
+            >= the max_seq_len used in collate_ehr_mamba_batch. Default 4096.
     """
 
     def __init__(
@@ -217,6 +219,7 @@ class EHRMamba(BaseModel):
         state_size: int = 16,
         conv_kernel: int = 4,
         dropout: float = 0.1,
+        max_position_embeddings: int = 4096,
         # PROJECT ADDITION (not in PyHealth's ehrmamba.py): selects between our
         # EHR Mamba paper §2.2 embedding (True) and PyHealth's EmbeddingModel (False).
         use_ehr_mamba_embedding: bool = True,
@@ -230,6 +233,8 @@ class EHRMamba(BaseModel):
             state_size: SSM state size per channel. Defaults to 16.
             conv_kernel: Causal convolution kernel size. Defaults to 4.
             dropout: Dropout probability before classifier. Defaults to 0.1.
+            max_position_embeddings: Position embedding table size; must be >=
+                max_seq_len in collate_ehr_mamba_batch. Defaults to 4096.
             use_ehr_mamba_embedding: If ``True``, use EHR Mamba §2.2
                 embedding. Defaults to ``True``.
         """
@@ -249,7 +254,11 @@ class EHRMamba(BaseModel):
         if use_ehr_mamba_embedding:
             vocab_size = dataset.input_processors["input_ids"].vocab_size()
             self.embedding_model = EHRMambaEmbeddingAdapter(
-                EHRMambaEmbedding(vocab_size=vocab_size, hidden_size=embedding_dim)
+                EHRMambaEmbedding(
+                    vocab_size=vocab_size,
+                    hidden_size=embedding_dim,
+                    max_position_embeddings=max_position_embeddings,
+                )
             )
         else:
             self.embedding_model = EmbeddingModel(dataset, embedding_dim)

@@ -666,18 +666,31 @@ class MIMIC4EHRMambaMortalityTask(MIMIC4EHRMambaTask):
 def collate_ehr_mamba_batch(
     samples: List[Dict[str, Any]],
     pad_token_idx: int = 0,
+    max_seq_len: int = 4096,
 ) -> Dict[str, Any]:
     """Custom collate function for DataLoader with EHR Mamba samples.
 
     Handles both PyHealth-processed integer tensors (input_ids) and raw Python
-    lists for auxiliary metadata fields.  All sequences are right-padded to the
-    length of the longest sequence in the batch.
+    lists for auxiliary metadata fields.  Sequences longer than max_seq_len are
+    truncated keeping [CLS] (index 0) and the most recent (tail) tokens, then
+    all sequences are right-padded to the length of the longest in the batch.
+
+    Truncation note: tokens between [CLS] and the tail are silently dropped —
+    there is no explicit gap signal in the sequence.  The discontinuity is
+    partially mitigated by time_stamps and visit_order embeddings, which retain
+    their original absolute values and allow the model to infer that a large
+    temporal gap exists after [CLS].  A cleaner alternative would be to truncate
+    at the visit level inside the task, but this approach is simpler
+    and sufficient when most patients are within the limit.
 
     Args:
         samples:       List of sample dicts as returned by a MIMIC4EHRMambaTask
                        subclass after PyHealth processing (input_ids already
                        converted to int tensors by SequenceProcessor).
         pad_token_idx: Padding index for integer sequence fields (default 0).
+        max_seq_len:   Sequences longer than this are truncated to
+                       [CLS] + last (max_seq_len - 1) tokens (default 4096).
+                       Must be <= max_position_embeddings in EHRMambaEmbedding.
 
     Returns:
         Dict with keys:
@@ -703,33 +716,40 @@ def collate_ehr_mamba_batch(
             return val.float()
         return torch.tensor(val, dtype=torch.float)
 
+    def _truncate(t: torch.Tensor) -> torch.Tensor:
+        # Keep [CLS] (position 0) + the most recent (max_seq_len - 1) tokens.
+        # Tokens in between are dropped with no explicit gap marker.
+        if t.size(0) > max_seq_len:
+            return torch.cat([t[:1], t[-(max_seq_len - 1):]], dim=0)
+        return t
+
     input_ids = pad_sequence(
-        [_to_long(s["input_ids"]) for s in samples],
+        [_truncate(_to_long(s["input_ids"])) for s in samples],
         batch_first=True,
         padding_value=pad_token_idx,
     )
     token_type_ids = pad_sequence(
-        [_to_long(s["token_type_ids"]) for s in samples],
+        [_truncate(_to_long(s["token_type_ids"])) for s in samples],
         batch_first=True,
         padding_value=MIMIC4_TOKEN_TYPES["PAD"],
     )
     visit_orders = pad_sequence(
-        [_to_long(s["visit_orders"]) for s in samples],
+        [_truncate(_to_long(s["visit_orders"])) for s in samples],
         batch_first=True,
         padding_value=0,
     )
     visit_segments = pad_sequence(
-        [_to_long(s["visit_segments"]) for s in samples],
+        [_truncate(_to_long(s["visit_segments"])) for s in samples],
         batch_first=True,
         padding_value=0,
     )
     time_stamps = pad_sequence(
-        [_to_float(s["time_stamps"]) for s in samples],
+        [_truncate(_to_float(s["time_stamps"])) for s in samples],
         batch_first=True,
         padding_value=0.0,
     )
     ages = pad_sequence(
-        [_to_float(s["ages"]) for s in samples],
+        [_truncate(_to_float(s["ages"])) for s in samples],
         batch_first=True,
         padding_value=0.0,
     )
