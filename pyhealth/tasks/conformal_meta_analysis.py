@@ -38,7 +38,7 @@ Examples:
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from pyhealth.tasks.base_task import BaseTask
 
@@ -52,6 +52,13 @@ DEFAULT_NON_FEATURE_COLUMNS = [
 ]
 
 
+# @dataclass is used here (deviating from the class-attribute pattern
+# in COVID19CXRClassification) because this task exposes ten
+# configurable knobs and needs per-instance mutable defaults for
+# ``input_schema``/``output_schema``. The reference pattern with
+# bare class attributes would either require a verbose hand-written
+# ``__init__`` or share a single mutable schema dict across all
+# instances (a subtle footgun once ``__post_init__`` mutates it).
 @dataclass
 class ConformalMetaAnalysisTask(BaseTask):
     """Regression task for conformal meta-analysis.
@@ -61,20 +68,54 @@ class ConformalMetaAnalysisTask(BaseTask):
     prior_mean columns, they are carried through on each sample so
     the CMA model can use them.
 
+    This task is dataset-agnostic: it works with both
+    :class:`AmiodaroneTrialDataset` (one event per trial, split into
+    trusted/untrusted) and :class:`PMLBMetaAnalysisDataset` (one
+    event per simulated trial, with or without synthetic noise).
+
     Args:
         task_name: Task identifier. Defaults to
-            "ConformalMetaAnalysisTask".
-        target_column: Column holding the true effect. Defaults
-            to "true_effect".
+            ``"ConformalMetaAnalysisTask"``.
+        target_column: Name of the attribute holding the true
+            effect U. Defaults to ``"true_effect"``.
         feature_columns: Optional explicit list of feature column
-            names. If None, auto-detects all numeric columns not
-            in ``exclude_columns``.
+            names. If None, auto-detects all attribute keys not in
+            ``exclude_columns`` (sorted for determinism).
         exclude_columns: Columns to exclude when auto-detecting
-            features. Defaults to the standard non-feature columns.
+            features. Defaults to :data:`DEFAULT_NON_FEATURE_COLUMNS`
+            (``visit_id``, the target, and the three CMA columns).
+        split_column: Optional attribute name used to partition
+            trials (e.g. ``"split"`` in the amiodarone dataset).
+            When set together with ``split_value``, only trials
+            whose ``split_column`` matches are emitted as samples.
+        split_value: Value of ``split_column`` to keep (e.g.
+            ``"trusted"`` for the 10 placebo-controlled amiodarone
+            trials). Ignored unless ``split_column`` is also set.
+        event_type: Optional event-type filter passed through to
+            ``patient.get_events()``. Defaults to None, which
+            accepts all events; set to ``"amiodarone_trials"`` or
+            ``"pmlb_meta_analysis"`` to match the reference pattern
+            of filtering by event type.
+        observed_column: Source column for the noisy observation Y.
+            Set to None to disable the ``observed_effect`` sample
+            key entirely — used for plain regression without the
+            CMA noise columns.
+        variance_column: Source column for the within-trial
+            variance V. Set to None to disable the ``variance``
+            sample key entirely.
+        prior_column: Source column for the untrusted prior mean
+            M(X). Set to None to disable the ``prior_mean`` sample
+            key entirely — used before the prior encoder has been
+            trained.
 
     Attributes:
-        input_schema: Schema describing input features.
-        output_schema: Schema describing the prediction target.
+        input_schema: Dict mapping sample keys to processor types.
+            Always contains ``{"features": "tensor"}``; each of
+            ``"observed_effect"``, ``"variance"``, and
+            ``"prior_mean"`` is added by :meth:`__post_init__` iff
+            the corresponding ``*_column`` field is not None.
+        output_schema: Dict mapping the regression target. Fixed at
+            ``{"true_effect": "regression"}``.
     """
 
     task_name: str = "ConformalMetaAnalysisTask"
@@ -86,6 +127,13 @@ class ConformalMetaAnalysisTask(BaseTask):
 
     split_column: Optional[str] = None  # e.g., "split"
     split_value: Optional[str] = None  # e.g., "trusted"
+
+    # Event-type filter for patient.get_events(). Optional because a
+    # single instance of this task may be reused across datasets with
+    # different event types (amiodarone_trials vs pmlb_meta_analysis);
+    # COVID19CXRClassification hard-codes event_type="covid19_cxr"
+    # only because it's bound to a single dataset.
+    event_type: Optional[str] = None
 
     # Source column names in the dataset's attribute dict. Set to
     # None to disable the corresponding sample key entirely (useful
@@ -120,17 +168,63 @@ class ConformalMetaAnalysisTask(BaseTask):
         if self.prior_column:
             self.input_schema["prior_mean"] = "tensor"
 
-    def __call__(self, patient) -> List[Dict]:
-        """Process one trial into a sample dict.
+    def __call__(self, patient: Any) -> List[Dict[str, Any]]:
+        """Process one trial into a single sample dict.
+
+        The method iterates the patient's events (one per trial in
+        both the amiodarone and PMLB datasets), applies the optional
+        split filter, extracts the target value, builds the feature
+        vector, and finally attaches any configured CMA columns
+        (observed_effect, variance, prior_mean).
+
+        Missing or non-numeric values are handled defensively rather
+        than with an exception:
+
+            - Missing or unparseable ``target_column``: the trial
+              is skipped (returns ``[]``) because a regression
+              sample without a label is unusable.
+            - Missing or unparseable feature values: silently
+              imputed as ``0.0``. This is safe because the
+              dataset's ``prepare_metadata`` already rescales every
+              feature to a zero-centered range ([-1, 1] for
+              continuous, {-1, 0, 1} for booleans, [0, 1] with 0.5
+              NA-imputation for percentages), so 0.0 is a
+              reasonable neutral value.
+            - Missing or unparseable CMA source column values:
+              silently imputed as ``0.0`` so the sample's keys
+              stay in sync with ``input_schema``.
 
         Args:
-            patient: Patient object from the dataset.
+            patient: A Patient object from the dataset, typed as
+                ``Any`` to match the established task pattern.
 
         Returns:
-            List with one sample dict, or [] if the trial is missing
-            a valid target value.
+            A list with either one sample dict or zero dicts. When
+            a sample is emitted, its keys are:
+
+                - ``patient_id``: trial identifier
+                - ``visit_id``: single visit identifier for the trial
+                - ``features``: list of floats (the feature vector X)
+                - ``true_effect``: target float (the true effect U)
+                - ``observed_effect``: float, present iff
+                  ``observed_column`` is not None
+                - ``variance``: float, present iff
+                  ``variance_column`` is not None
+                - ``prior_mean``: float, present iff
+                  ``prior_column`` is not None
+
+            Returns ``[]`` when the patient has no events or the
+            target value is missing, unparseable, or filtered out
+            by ``split_column``/``split_value``.
         """
-        events = patient.get_events()
+        # Pass event_type through only when configured, so the task
+        # remains dataset-agnostic (amiodarone_trials vs
+        # pmlb_meta_analysis) but can still match the reference
+        # pattern of filtering by event type when set.
+        if self.event_type is not None:
+            events = patient.get_events(event_type=self.event_type)
+        else:
+            events = patient.get_events()
         if not events:
             return []
 
@@ -164,7 +258,7 @@ class ConformalMetaAnalysisTask(BaseTask):
             except (TypeError, ValueError):
                 features.append(0.0)
 
-        sample: Dict = {
+        sample: Dict[str, Any] = {
             "patient_id": patient.patient_id,
             "visit_id": attr.get("visit_id", patient.patient_id),
             "features": features,

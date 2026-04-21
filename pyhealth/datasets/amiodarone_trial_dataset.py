@@ -162,7 +162,8 @@ AMIODARONE_RAW_TRIALS = [
     {
         "Name": "Hou et al.21 (Taiwan) 1995",
         "Features": {
-            "Amiodarone Therapy Protocol": "IV, 5 mg/min for 1 h + 3 mg/min for 3 h + 1 mg/min for 6 h + 0.5 mg/min for 14 h",
+            "Amiodarone Therapy Protocol": "IV, 5 mg/min for 1 h + 3 mg/min for 3 h + 1 mg/min for 6 h + 0.5 mg/min"
+                                           " for 14 h",
             "Comparison Treatment": "IV digoxin, 0.0043 mg/kg in 30 min every 2 h for 3 dosages",
             "Time to Outcome Measure": "24 h",
             "Number of Amiodarone Patients": 20,
@@ -288,7 +289,8 @@ AMIODARONE_RAW_TRIALS = [
     {
         "Name": "Kochiadakis et al.12 (Greece) 1999",
         "Features": {
-            "Amiodarone Therapy Protocol": "IV, 300 mg in 1 h + 20 mg/kg in 1 d + 15 mg/kg in 1 d or oral 500 mg 4 times for 1 d + 200 mg 4 times for 1 d",
+            "Amiodarone Therapy Protocol": "IV, 300 mg in 1 h + 20 mg/kg in 1 d + 15 mg/kg in 1 d or oral 500 mg "
+                                           "4 times for 1 d + 200 mg 4 times for 1 d",
             "Comparison Treatment": "Placebo",
             "Time to Outcome Measure": "48 h",
             "Number of Amiodarone Patients": 135,
@@ -330,7 +332,8 @@ AMIODARONE_RAW_TRIALS = [
     {
         "Name": "Vardas et al.31 (Greece) 2000",
         "Features": {
-            "Amiodarone Therapy Protocol": "IV, 300 mg in 1 h + 20 mg/kg in 24 h + oral 600 mg/d for 1 wk + 400 mg/d for 3 wk",
+            "Amiodarone Therapy Protocol": "IV, 300 mg in 1 h + 20 mg/kg in 24 h + oral 600 mg/d for 1 wk + 400 mg/d "
+                                           "for 3 wk",
             "Comparison Treatment": "Placebo",
             "Time to Outcome Measure": "1 and 24 h, 28 d",
             "Number of Amiodarone Patients": 108,
@@ -532,10 +535,28 @@ MANUAL_AMIODARONE_DOSE_MG = {
 # Feature conversion helpers (Figure 6 of the paper)
 # ---------------------------------------------------------------------
 def _parse_comparison_treatment(treatment: str) -> float:
-    """Map comparison treatment to [0, 1].
+    """Map a free-text comparison treatment description to [0, 1].
 
-    0 = placebo, 0.5 = single oral drug, 0.75 = IV drug,
-    1 = intensive high-dose combination.
+    Implements the ``comparison_intensity`` feature described in
+    Figure 6 of Kaul & Gordon (2024). The value encodes how
+    aggressive the control arm is, with higher values representing
+    more intensive comparators:
+
+        - 0.0 if the comparator is a placebo or untreated control
+        - 0.75 if an intravenous antiarrhythmic (diltiazem,
+          verapamil, digoxin, procainamide) is used
+        - 0.5 otherwise (missing, single oral drug, or any other
+          case including a detected antiarrhythmic without an IV
+          route)
+
+    Args:
+        treatment: Raw free-text description of the comparison
+            treatment from the trial's Features dictionary. May be
+            empty, None, or a missing-value sentinel.
+
+    Returns:
+        Intensity score in [0, 1]. Defaults to 0.5 when the input
+        is empty or no rule matches, so the feature is never NA.
     """
     if not treatment:
         return 0.5
@@ -555,7 +576,25 @@ def _parse_comparison_treatment(treatment: str) -> float:
 
 
 def _parse_duration_48h(duration: Any) -> float:
-    """Return -1 if duration <= 48h, +1 if > 48h, 0 if NA."""
+    """Threshold a duration expression at the 48-hour mark.
+
+    Parses a free-text duration like ``"28 h"``, ``"7 d"``,
+    ``"16 wk"``, or ``"35 mo"``, converts the first numeric value
+    to hours, and compares against 48. Used for both
+    ``af_duration_gt_48h`` and ``outcome_time_gt_48h`` per Figure 6
+    of Kaul & Gordon (2024).
+
+    Args:
+        duration: Duration string with a unit suffix (min, h, d,
+            wk, mo, y). May be None, a numeric value, ``"NA"``, or
+            contain a range (e.g. ``"20 min to 48 h"``); only the
+            first numeric token is used.
+
+    Returns:
+        ``-1.0`` if the parsed duration is <= 48 hours,
+        ``+1.0`` if > 48 hours, and ``0.0`` when the input is
+        missing or cannot be parsed.
+    """
     if duration is None:
         return 0.0
     s = str(duration).strip().lower()
@@ -574,7 +613,22 @@ def _parse_duration_48h(duration: Any) -> float:
 
 
 def _to_float_or_na(value: Any) -> Optional[float]:
-    """Convert to float, or None if NA."""
+    """Convert a value to ``float``, preserving missingness.
+
+    Used as a shared coercion step before domain-specific rescaling
+    of continuous features (``mean_age``, ``mean_la_size``) so that
+    downstream code can distinguish "unparseable or NA" from a
+    legitimate zero.
+
+    Args:
+        value: Input value, which may already be numeric, a numeric
+            string, None, or one of the common missing-value
+            sentinels (``"NA"``, ``""``, ``"None"``, any casing).
+
+    Returns:
+        The value as a ``float``, or ``None`` if the input is
+        missing or cannot be parsed as a number.
+    """
     if value is None:
         return None
     if isinstance(value, (int, float)):
@@ -589,7 +643,26 @@ def _to_float_or_na(value: Any) -> Optional[float]:
 
 
 def _parse_boolean(value: Any) -> float:
-    """Convert Yes/No/NA strings to 1 / -1 / 0."""
+    """Convert a Yes/No/NA string to a signed ternary encoding.
+
+    Handles the binary risk-of-bias features from Figure 6 of
+    Kaul & Gordon (2024): ``adequate_concealment``,
+    ``masked_patients``, ``masked_caregiver``, and
+    ``masked_assessor``. The ternary encoding lets the model
+    distinguish a positive finding from an explicit negative and
+    from missing information, without introducing a separate
+    indicator column.
+
+    Args:
+        value: Input value. Accepted truthy strings are ``"yes"``
+            and ``"true"``; falsy strings are ``"no"`` and
+            ``"false"`` (case-insensitive). Anything else — None,
+            ``"NA"``, unknown — is treated as missing.
+
+    Returns:
+        ``1.0`` for truthy inputs, ``-1.0`` for falsy, and
+        ``0.0`` for missing or unrecognized values.
+    """
     if value is None:
         return 0.0
     s = str(value).strip().lower()
@@ -601,7 +674,23 @@ def _parse_boolean(value: Any) -> float:
 
 
 def _parse_percent(value: Any) -> float:
-    """Parse a percent value to [0, 1]. Returns 0.5 if NA."""
+    """Normalize a percentage value into the [0, 1] interval.
+
+    The raw data mixes percent-scale values (e.g. ``76`` meaning
+    76%) with fraction-scale values (e.g. ``0.76``). This helper
+    accepts either and returns a fraction, imputing 0.5 for
+    missing inputs so the feature stays on the same scale as the
+    other continuous features after rescaling.
+
+    Args:
+        value: Input value. May be numeric or string, on a percent
+            scale (0-100) or fraction scale (0-1). Values greater
+            than 1 are divided by 100.
+
+    Returns:
+        Fraction in [0, 1]. Returns ``0.5`` when ``value`` cannot
+        be parsed, so the feature vector never contains NaN.
+    """
     v = _to_float_or_na(value)
     if v is None:
         return 0.5
@@ -612,7 +701,31 @@ def _compute_log_relative_risk(
     events_treat: int, n_treat: int,
     events_ctrl: int, n_ctrl: int,
 ) -> Dict[str, float]:
-    """Compute log relative risk and variance from event counts."""
+    """Compute the log relative risk and its variance.
+
+    The relative risk is ``(events_treat / n_treat) /
+    (events_ctrl / n_ctrl)``; its log is the target effect size
+    used by the conformal meta-analysis task. When either arm has
+    zero events the standard Haldane-Anscombe correction (adding
+    0.5 to event counts and 1.0 to sample sizes) is applied to
+    keep the log finite and the variance positive.
+
+    Args:
+        events_treat: Number of successful events in the amiodarone
+            arm.
+        n_treat: Total patients in the amiodarone arm.
+        events_ctrl: Number of successful events in the control arm.
+        n_ctrl: Total patients in the control arm.
+
+    Returns:
+        Dictionary with two keys:
+
+            - ``log_relative_risk``: ``log(p_treat / p_ctrl)``.
+            - ``variance``: approximate sampling variance of the
+              log relative risk, ``(1 - p_treat) / events_treat +
+              (1 - p_ctrl) / events_ctrl``, used as the within-
+              trial variance V in the meta-analysis.
+    """
     e_t = float(events_treat)
     n_t = float(n_treat)
     e_c = float(events_ctrl)
@@ -681,6 +794,37 @@ class AmiodaroneTrialDataset(BaseDataset):
         num_workers: int = 1,
         dev: bool = False,
     ) -> None:
+        # Sanity-check the embedded trial data. These are structural
+        # invariants baked into the paper's design (21 trials split
+        # into 10 placebo-controlled "trusted" and 11 "untrusted"),
+        # so failing fast here surfaces any accidental edit to
+        # AMIODARONE_RAW_TRIALS before expensive processing.
+        if len(AMIODARONE_RAW_TRIALS) != 21:
+            raise ValueError(
+                f"AMIODARONE_RAW_TRIALS must contain 21 trials, "
+                f"got {len(AMIODARONE_RAW_TRIALS)}."
+            )
+        n_placebo = sum(
+            1 for t in AMIODARONE_RAW_TRIALS
+            if str(t["Features"].get("Comparison Treatment", ""))
+            .strip().lower() == "placebo"
+        )
+        if n_placebo != 10:
+            raise ValueError(
+                f"Expected 10 placebo-controlled (trusted) trials, "
+                f"found {n_placebo}. Check AMIODARONE_RAW_TRIALS "
+                f"for edits to the 'Comparison Treatment' field."
+            )
+        missing_doses = [
+            t["Name"] for t in AMIODARONE_RAW_TRIALS
+            if t["Name"] not in MANUAL_AMIODARONE_DOSE_MG
+        ]
+        if missing_doses:
+            raise ValueError(
+                f"MANUAL_AMIODARONE_DOSE_MG is missing entries for "
+                f"{len(missing_doses)} trial(s): {missing_doses}."
+            )
+
         if config_path is None:
             logger.info("No config path provided, using default config")
             config_path = (
@@ -784,7 +928,31 @@ class AmiodaroneTrialDataset(BaseDataset):
 # Per-trial conversion used by prepare_metadata
 # ---------------------------------------------------------------------
 def _convert_trial(raw: Dict[str, Any]) -> Dict[str, Any]:
-    """Convert one raw trial entry to a numeric feature dict."""
+    """Convert one raw trial entry into a numeric feature dictionary.
+
+    Applies all per-feature conversion rules from Figure 6 of
+    Kaul & Gordon (2024): booleans to signed ternary, percentages
+    to [0, 1], durations to 48 h thresholds, and comparison
+    treatment to an intensity score. Continuous features
+    (``mean_age``, ``mean_la_size``) are emitted as
+    ``..._raw`` columns here and rescaled later by
+    :func:`_rescale_continuous` once the dataset-wide min/max are
+    known. The manually curated total amiodarone dose comes from
+    :data:`MANUAL_AMIODARONE_DOSE_MG`, which overrides the paper's
+    buggy LLM parser (Figure 7).
+
+    Args:
+        raw: One entry from :data:`AMIODARONE_RAW_TRIALS` with keys
+            ``"Name"``, ``"Features"``, and ``"Results"``. The
+            ``"Results"`` value is a four-tuple
+            ``[events_treat, n_treat, events_ctrl, n_ctrl]``.
+
+    Returns:
+        Dictionary containing the trial name, all converted feature
+        values, raw event counts, and a ``placebo_controlled``
+        boolean used to assign the trusted/untrusted split. Ready
+        to be collected into a DataFrame.
+    """
     f = raw["Features"]
     results = raw["Results"]
     return {
@@ -828,7 +996,27 @@ def _convert_trial(raw: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _rescale_continuous(df: pd.DataFrame) -> pd.DataFrame:
-    """Rescale mean_age and mean_la_size to [-1, 1] over the dataset range."""
+    """Rescale continuous features to [-1, 1] using the dataset range.
+
+    Applies a min-max rescaling across all 21 trials to
+    ``mean_age_raw`` and ``mean_la_size_raw``, writing the rescaled
+    values into new columns ``mean_age`` and ``mean_la_size``.
+    Missing values (``None``) are imputed as ``0.0`` after
+    rescaling, which corresponds to the midpoint of the [-1, 1]
+    range. If a feature has zero range (constant or a single
+    non-missing observation) the rescaled column is set to 0.0 for
+    all rows. This matches the continuous-feature handling in
+    Figure 6 of Kaul & Gordon (2024).
+
+    Args:
+        df: DataFrame containing the raw continuous columns
+            ``mean_age_raw`` and ``mean_la_size_raw`` produced by
+            :func:`_convert_trial`. Modified in place.
+
+    Returns:
+        The same DataFrame with two new columns, ``mean_age`` and
+        ``mean_la_size``, both in [-1, 1] with no missing values.
+    """
     for raw_col, scaled_col in [
         ("mean_age_raw", "mean_age"),
         ("mean_la_size_raw", "mean_la_size"),

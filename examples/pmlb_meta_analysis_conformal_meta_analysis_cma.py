@@ -179,8 +179,8 @@ def run_one(
 # Simulation 1: Width vs n across prior quality
 # ---------------------------------------------------------------------
 def simulation_1(
-    n_values: Iterable[int] = (20, 30, 40, 50, 60, 70, 80, 90, 100),
-    seeds: Iterable[int] = (0, 1),
+    n_values: Iterable[int] = (20, 30, 40, 50),
+    seeds: Iterable[int] = range(32),
     ylim: Tuple[float, float] = (0, 2500),
 ) -> Dict:
     """Reproduce Simulation 1: width vs n for bad/okay/good priors."""

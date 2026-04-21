@@ -64,12 +64,6 @@ class CMAPriorEncoder(BaseModel):
         embed_dim: Dimension of the learned embedding phi(x).
             Defaults to 16.
         dropout: Dropout probability between layers. Defaults to 0.0.
-        feature_key: Name of the input feature in the batch.
-            Defaults to "features".
-        target_key: Name of the target in the batch. Defaults to
-            "true_effect" to match ConformalMetaAnalysisTask's
-            output_schema. For amiodarone, the task should map
-            ``log_relative_risk`` to ``true_effect`` in its output.
 
     Attributes:
         hidden_dims: Hidden layer sizes.
@@ -85,8 +79,6 @@ class CMAPriorEncoder(BaseModel):
         hidden_dims: Optional[List[int]] = None,
         embed_dim: int = 16,
         dropout: float = 0.0,
-        feature_key: str = "features",
-        target_key: str = "true_effect",
     ) -> None:
         super().__init__(dataset=dataset)
 
@@ -100,9 +92,14 @@ class CMAPriorEncoder(BaseModel):
         self.hidden_dims = list(hidden_dims)
         self.embed_dim = embed_dim
         self.dropout_p = dropout
-        self.feature_key = feature_key
-        self.target_key = target_key
         self.mode = "regression"
+
+        # Feature and target keys are fixed ("features" and
+        # "true_effect") because they match ConformalMetaAnalysisTask's
+        # input_schema and output_schema. They're not configurable
+        # because the forward signature hardcodes these parameter names
+        # — exposing them as constructor args would be a silently-broken
+        # configuration knob.
 
         # Infer input dimension from the first sample
         input_dim = self._infer_input_dim(dataset)
@@ -118,7 +115,30 @@ class CMAPriorEncoder(BaseModel):
 
     @staticmethod
     def _infer_input_dim(dataset: SampleDataset) -> int:
-        """Peek at the first sample to determine the feature size."""
+        """Infer the feature dimension from the first dataset sample.
+
+        Used at construction time to size the first linear layer
+        of the encoder. Reading from the dataset rather than asking
+        the user for an explicit ``input_dim`` argument means the
+        encoder auto-adapts when the task's feature list changes
+        (e.g. switching between the amiodarone and PMLB datasets,
+        which have different numbers of trial features).
+
+        Args:
+            dataset: A SampleDataset whose samples contain a
+                ``"features"`` key. Only the first sample is read.
+
+        Returns:
+            The number of features in the feature vector as an int,
+            whether the sample stores them as a ``torch.Tensor``
+            or a plain Python sequence.
+
+        Raises:
+            ValueError: If the dataset is empty and no sample can
+                be fetched.
+            KeyError: If the first sample has no ``"features"``
+                key, indicating a task/input_schema mismatch.
+        """
         try:
             first = dataset[0]
         except (IndexError, TypeError):
@@ -142,7 +162,30 @@ class CMAPriorEncoder(BaseModel):
         embed_dim: int,
         dropout: float,
     ) -> nn.Sequential:
-        """Construct the ReLU-MLP."""
+        """Construct the ReLU-MLP that produces phi(x).
+
+        The MLP is built as
+        ``input_dim -> h_1 -> ReLU [-> Dropout] -> ...
+        -> h_k -> ReLU [-> Dropout] -> embed_dim``. Uses
+        :class:`torch.nn.ReLU` (module form) rather than
+        :func:`torch.nn.functional.relu` so that gradient-based
+        interpretability hooks can be registered, as recommended
+        by :class:`BaseModel`. No non-linearity is applied after
+        the final linear layer: the embedding ``phi(x)`` is a raw
+        linear projection whose inner product defines the implicit
+        kernel :math:`\\kappa(x, x') = \\phi(x)^{\\top} \\phi(x')`.
+
+        Args:
+            input_dim: Size of the raw feature vector X.
+            hidden_dims: Widths of the hidden layers; an empty list
+                produces a single linear layer from input to embed.
+            embed_dim: Dimension of the learned embedding phi(x).
+            dropout: Dropout probability applied between layers;
+                skipped when 0.
+
+        Returns:
+            A :class:`torch.nn.Sequential` implementing phi(x).
+        """
         layers: List[nn.Module] = []
         prev = input_dim
         for h in hidden_dims:

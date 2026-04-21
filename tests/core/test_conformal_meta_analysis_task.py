@@ -9,16 +9,40 @@ from datetime import datetime
 from types import SimpleNamespace
 
 
-def _make_patient(attr_dict: dict, patient_id: str = "trial_0"):
-    """Build a minimal Patient-like object for task testing."""
+def _make_patient(
+    attr_dict: dict,
+    patient_id: str = "trial_0",
+    event_type: str = "test_table",
+):
+    """Build a minimal Patient-like object for task testing.
+
+    ``get_events`` accepts an optional ``event_type`` kwarg so tests
+    can exercise the task's event_type filter: the fake patient
+    returns its single event only when the filter matches or is None.
+    """
     event = SimpleNamespace(
-        event_type="test_table",
+        event_type=event_type,
         timestamp=datetime.now(),
         attr_dict=attr_dict,
     )
+
+    def get_events(event_type=None):
+        if event_type is None or event_type == event.event_type:
+            return [event]
+        return []
+
     patient = SimpleNamespace(
         patient_id=patient_id,
-        get_events=lambda: [event],
+        get_events=get_events,
+    )
+    return patient
+
+
+def _make_empty_patient(patient_id: str = "trial_0"):
+    """Build a Patient-like object whose get_events returns []."""
+    patient = SimpleNamespace(
+        patient_id=patient_id,
+        get_events=lambda event_type=None: [],
     )
     return patient
 
@@ -121,6 +145,56 @@ class TestConformalMetaAnalysisTask(unittest.TestCase):
         task = ConformalMetaAnalysisTask()
         patient = _make_patient({"visit_id": "v1", "feat_a": "1.0"})
         self.assertEqual(task(patient), [])
+
+    def test_no_events_returns_empty(self):
+        """Patient with zero events returns an empty list."""
+        from pyhealth.tasks.conformal_meta_analysis import (
+            ConformalMetaAnalysisTask,
+        )
+
+        task = ConformalMetaAnalysisTask()
+        self.assertEqual(task(_make_empty_patient()), [])
+
+    def test_unparseable_feature_falls_back_to_zero(self):
+        """Non-numeric feature values are silently imputed as 0.0.
+
+        This is the documented fallback behavior for the feature
+        extraction path in ``__call__``. The target still needs to
+        be parseable — a non-numeric target returns ``[]``.
+        """
+        from pyhealth.tasks.conformal_meta_analysis import (
+            ConformalMetaAnalysisTask,
+        )
+
+        task = ConformalMetaAnalysisTask(
+            feature_columns=["feat_a", "feat_b"],
+        )
+        patient = _make_patient({
+            "visit_id": "v1",
+            "feat_a": "1.5",
+            "feat_b": "not a number",
+            "true_effect": "2.0",
+        })
+        sample = task(patient)[0]
+        self.assertEqual(sample["features"], [1.5, 0.0])
+
+    def test_event_type_filter_matches(self):
+        """event_type filter selects patients whose events match."""
+        from pyhealth.tasks.conformal_meta_analysis import (
+            ConformalMetaAnalysisTask,
+        )
+
+        task = ConformalMetaAnalysisTask(event_type="amiodarone_trials")
+        matching = _make_patient(
+            {"visit_id": "v1", "feat_a": "1.0", "true_effect": "2.0"},
+            event_type="amiodarone_trials",
+        )
+        non_matching = _make_patient(
+            {"visit_id": "v2", "feat_a": "1.0", "true_effect": "2.0"},
+            event_type="pmlb_meta_analysis",
+        )
+        self.assertEqual(len(task(matching)), 1)
+        self.assertEqual(len(task(non_matching)), 0)
 
 
 if __name__ == "__main__":

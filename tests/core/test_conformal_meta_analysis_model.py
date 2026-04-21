@@ -52,7 +52,13 @@ class TestConformalMetaAnalysisModel(unittest.TestCase):
             ConformalMetaAnalysisModel(dataset=ds, kernel_type="cosine")
 
     def test_forward_returns_expected_keys(self):
-        """Forward pass returns y_pred, interval_lower, interval_upper."""
+        """Forward returns expected keys with correct shapes.
+
+        Also verifies the ``y_prob`` alias matches ``y_pred`` — this
+        alias is provided to satisfy :class:`BaseModel`'s forward
+        return contract while keeping the CMA-specific ``y_pred``
+        name.
+        """
         from pyhealth.models.conformal_meta_analysis_krr import (
             ConformalMetaAnalysisModel,
         )
@@ -74,10 +80,17 @@ class TestConformalMetaAnalysisModel(unittest.TestCase):
             prior_mean=prior_mean,
             true_effect=true_effect,
         )
-        for key in ("y_pred", "interval_lower", "interval_upper",
-                    "loss", "y_true"):
+        for key in ("y_pred", "y_prob", "interval_lower",
+                    "interval_upper", "loss", "y_true"):
             self.assertIn(key, out)
-        self.assertEqual(out["y_pred"].shape[0], n)
+
+        # All per-trial tensors should have shape (n, 1)
+        for key in ("y_pred", "y_prob", "interval_lower",
+                    "interval_upper", "y_true"):
+            self.assertEqual(out[key].shape, (n, 1), f"wrong shape for {key}")
+
+        # y_prob is a deliberate alias for y_pred
+        self.assertTrue(torch.equal(out["y_prob"], out["y_pred"]))
 
     def test_interval_bounds_ordered(self):
         """Interval lower <= upper for each trial."""
@@ -127,6 +140,40 @@ class TestConformalMetaAnalysisModel(unittest.TestCase):
         w1 = (out1["interval_upper"] - out1["interval_lower"]).numpy()
         # Widths should differ for at least one trial
         self.assertFalse(np.allclose(w0, w1))
+
+    def test_kernel_bandwidth_changes_output(self):
+        """Custom kernel_bandwidth produces a different kernel matrix.
+
+        The default bandwidth is 0.2 (matched to the PMLB data
+        generator). Setting a different value must actually flow
+        through to ``_compute_kernel_matrix`` — if someone were to
+        silently ignore the parameter, this test catches it.
+        """
+        from pyhealth.models.conformal_meta_analysis_krr import (
+            ConformalMetaAnalysisModel,
+        )
+        ds = _fake_sample_dataset()
+        rng = np.random.RandomState(3)
+        X = rng.randn(6, 3)
+
+        m_default = ConformalMetaAnalysisModel(dataset=ds)
+        m_wide = ConformalMetaAnalysisModel(
+            dataset=ds, kernel_bandwidth=2.0,
+        )
+        k_default = m_default._compute_kernel_matrix(X, X)
+        k_wide = m_wide._compute_kernel_matrix(X, X)
+        self.assertFalse(np.allclose(k_default, k_wide))
+
+    def test_kernel_bandwidth_invalid_raises(self):
+        """Non-positive kernel_bandwidth is rejected at init."""
+        from pyhealth.models.conformal_meta_analysis_krr import (
+            ConformalMetaAnalysisModel,
+        )
+        ds = _fake_sample_dataset()
+        with self.assertRaises(ValueError):
+            ConformalMetaAnalysisModel(dataset=ds, kernel_bandwidth=0.0)
+        with self.assertRaises(ValueError):
+            ConformalMetaAnalysisModel(dataset=ds, kernel_bandwidth=-1.5)
 
 
 if __name__ == "__main__":

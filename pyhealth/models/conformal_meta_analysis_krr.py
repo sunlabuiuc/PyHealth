@@ -68,8 +68,11 @@ class ConformalMetaAnalysisModel(BaseModel):
             correction (appropriate for low-variance data).
             Defaults to 0.0.
         kernel_type: "gaussian" or "laplace". Defaults to "gaussian".
-        kernel_bandwidth: Kernel bandwidth. If None, uses the median
-            heuristic over pairwise distances.
+        kernel_bandwidth: Kernel bandwidth ``gamma``. If None
+            (default), uses ``0.2`` to match the PMLB data
+            generator in Appendix B.6 of the paper. Override with
+            a positive float for other datasets; the value is used
+            directly (not through a median heuristic).
 
     Attributes:
         alpha: Significance level.
@@ -98,6 +101,11 @@ class ConformalMetaAnalysisModel(BaseModel):
             raise ValueError(f"eta must be >= 0, got {eta}")
         if not (0.0 < alpha < 1.0):
             raise ValueError(f"alpha must be in (0, 1), got {alpha}")
+        if kernel_bandwidth is not None and kernel_bandwidth <= 0:
+            raise ValueError(
+                f"kernel_bandwidth must be > 0 when set, "
+                f"got {kernel_bandwidth}"
+            )
 
         self.alpha = alpha
         self.eta = eta
@@ -111,13 +119,40 @@ class ConformalMetaAnalysisModel(BaseModel):
     def _compute_kernel_matrix(
             self, X1: np.ndarray, X2: np.ndarray
     ) -> np.ndarray:
-        """Compute the pairwise kernel matrix matching the paper's PMLB generator."""
-        # Calculate pairwise differences
+        """Compute the pairwise kernel matrix between two feature batches.
+
+        The kernel is ``exp(-gamma * dist(X1, X2))`` where ``dist``
+        is the mean-over-features squared distance for the Gaussian
+        kernel and mean-over-features absolute distance for the
+        Laplace kernel. Using mean (rather than sum) matches the
+        authors' reference implementation for PMLB; using sum would
+        change the effective bandwidth by a factor of d and break
+        the RKHS assumption baked into the synthetic prior.
+
+        The bandwidth ``gamma`` is taken from ``self.kernel_bandwidth``
+        if set, otherwise defaults to ``0.2`` — the exact value used
+        by the PMLB data generator in Appendix B.6 of Kaul & Gordon
+        (2024). Mismatching the bandwidth between data generation
+        and model fit breaks the conformal coverage guarantee on
+        the synthetic benchmarks.
+
+        Args:
+            X1: First feature matrix, shape ``(n1, d)``.
+            X2: Second feature matrix, shape ``(n2, d)``.
+
+        Returns:
+            Kernel matrix of shape ``(n1, n2)``.
+        """
+        # Pairwise differences over the feature axis
         diff = X1[:, np.newaxis, :] - X2[np.newaxis, :, :]
 
-        # Hardcode gamma = 0.2 to match the data generation phase exactly.
-        # Failing to match this breaks the RKHS assumption of the prior.
-        gamma = 0.2
+        # Default to 0.2 to match the PMLB data generator exactly.
+        # Exposed via kernel_bandwidth for non-PMLB datasets.
+        gamma = (
+            self.kernel_bandwidth
+            if self.kernel_bandwidth is not None
+            else 0.2
+        )
 
         if self.kernel_type == "gaussian":
             # Authors use mean squared distance, not sum squared distance
@@ -148,6 +183,18 @@ class ConformalMetaAnalysisModel(BaseModel):
             Tuple (G, H) of arrays, each shape (n,), where the
             conformal interval for training trial i is G[i] +/- H[i].
         """
+        # Variable names track the notation in Theorem 4 of the
+        # paper rather than snake_case, so the linear-algebra steps
+        # below are comparable line-by-line with the derivation:
+        #   Y    = observed effects (training)
+        #   V    = variances; v, V_bar include the test trial
+        #   M    = prior means; m, M_bar include the test trial
+        #   K    = kernel matrix; K_bar includes the test trial
+        #   I    = identity; lam = ridge parameter
+        #   Q, t = intermediate KRR-style projections
+        #   A, B = coefficients of the affine score a - A^T r
+        #   S2, D, rho = variance-correction terms
+        #   G, H = interval center and half-width (the outputs)
         n_plus_1 = len(M_bar)
         I_bar = np.eye(n_plus_1)
 
@@ -267,12 +314,18 @@ class ConformalMetaAnalysisModel(BaseModel):
             Dictionary with keys:
                 - ``y_pred``: point estimate per trial (midpoint of
                   the interval), shape (batch_size, 1)
+                - ``y_prob``: alias for ``y_pred``, provided to
+                  satisfy :class:`BaseModel`'s forward return
+                  contract
                 - ``interval_lower``: lower bounds, shape
                   (batch_size, 1)
                 - ``interval_upper``: upper bounds, shape
                   (batch_size, 1)
                 - ``loss``: MSE between midpoint and true_effect
-                  (only present if ``true_effect`` is provided)
+                  (only present if ``true_effect`` is provided).
+                  Note that this loss has ``requires_grad=True``
+                  for API compatibility but no autograd graph —
+                  CMA has no trainable parameters.
                 - ``y_true``: the true labels, if provided
         """
         device = features.device
@@ -302,10 +355,16 @@ class ConformalMetaAnalysisModel(BaseModel):
 
         midpoints = (lowers + uppers) / 2.0
 
+        y_pred_tensor = torch.tensor(
+            midpoints, dtype=torch.float32, device=device
+        ).unsqueeze(-1)
+
         out: Dict[str, torch.Tensor] = {
-            "y_pred": torch.tensor(
-                midpoints, dtype=torch.float32, device=device
-            ).unsqueeze(-1),
+            # y_pred is the CMA-specific name; y_prob is aliased to
+            # the same tensor so code relying on the BaseModel.forward
+            # return contract (which advertises "y_prob") keeps working.
+            "y_pred": y_pred_tensor,
+            "y_prob": y_pred_tensor,
             "interval_lower": torch.tensor(
                 lowers, dtype=torch.float32, device=device
             ).unsqueeze(-1),
@@ -321,6 +380,12 @@ class ConformalMetaAnalysisModel(BaseModel):
                 np.isfinite(midpoints), midpoints, U
             )
             mse = float(np.mean((mid_finite - U) ** 2))
+            # requires_grad=True is cosmetic: the MSE is computed in
+            # NumPy so no autograd graph connects it back to this
+            # module's parameters. Calling .backward() on this loss is
+            # a no-op — CMA has no trainable weights. Returning a
+            # leaf-tensor with requires_grad is only done so PyHealth's
+            # generic trainer loop doesn't reject the output.
             out["loss"] = torch.tensor(
                 mse, dtype=torch.float32, device=device, requires_grad=True
             )

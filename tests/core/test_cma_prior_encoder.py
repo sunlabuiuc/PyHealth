@@ -4,7 +4,6 @@ Exercise the trainable encoder with synthetic tensor batches.
 """
 
 import unittest
-from types import SimpleNamespace
 
 import torch
 

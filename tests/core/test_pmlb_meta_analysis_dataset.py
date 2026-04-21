@@ -5,6 +5,7 @@ in milliseconds without needing the ``pmlb`` package or a network.
 """
 
 import os
+import shutil
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -26,6 +27,11 @@ class TestPMLBMetaAnalysisDataset(unittest.TestCase):
 
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        # Clean up the temp directory so the suite doesn't leak
+        # disk state across runs.
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def test_prepare_metadata_creates_csv(self):
         """prepare_metadata writes a CSV with expected columns."""

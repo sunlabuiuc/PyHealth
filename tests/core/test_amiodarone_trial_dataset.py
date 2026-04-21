@@ -5,6 +5,7 @@ need a network or external files.
 """
 
 import os
+import shutil
 import tempfile
 import unittest
 
@@ -16,6 +17,11 @@ class TestAmiodaroneTrialDataset(unittest.TestCase):
 
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        # Clean up the temp directory so the suite doesn't leak
+        # disk state across runs.
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def test_prepare_metadata_creates_csv(self):
         """prepare_metadata produces the expected CSV."""
