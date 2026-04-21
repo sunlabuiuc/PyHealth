@@ -177,6 +177,7 @@ API Reference
     models/pyhealth.models.GNN
     models/pyhealth.models.Transformer
     models/pyhealth.models.TransformersModel
+    models/pyhealth.models.TransformerDeID
     models/pyhealth.models.RETAIN
     models/pyhealth.models.GAMENet
     models/pyhealth.models.GraphCare
@@ -204,6 +205,7 @@ API Reference
     models/pyhealth.models.TextEmbedding
     models/pyhealth.models.BIOT
     models/pyhealth.models.unified_multimodal_embedding_docs
+    models/pyhealth.models.califorest
     models/pyhealth.models.CNNLSTM
     models/pyhealth.models.ResNetLSTM
     models/pyhealth.models.FeatureExtractorManager
