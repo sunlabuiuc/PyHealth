@@ -2,12 +2,13 @@
 
 Covers:
   - EEGGCNNDiseaseDetection  (raw EEG task: PSD, adjacency, bipolar, __call__)
-  - EEGGCNNRawDataset        (metadata CSV generation from directory layout)
+  - EEGGCNNRawDataset        (metadata CSV generation + full precompute_features)
   - EEGGCNNDataset           (FigShare prepare_metadata, alpha variants)
   - EEGGCNNClassification    (task schema, excluded_bands, sample shapes)
 
-All tests use synthetic data — no real EEG recordings are required.
-Tests complete in milliseconds.
+Most tests use synthetic data — no real EEG recordings are required.
+TestRawDatasetPrecompute uses the sample files in
+examples/eeg_gcnn/sample_raw_data/ (committed to the repo).
 """
 
 import os
@@ -608,6 +609,134 @@ class TestEEGGCNNClassification(unittest.TestCase):
     def test_all_band_names_are_valid(self) -> None:
         for band in BAND_NAMES:
             EEGGCNNClassification(excluded_bands=[band])
+
+
+# ===========================================================================
+# EEGGCNNRawDataset — full precompute_features with real sample files
+# ===========================================================================
+
+# Path to the committed sample raw data (relative to repo root).
+_REPO_ROOT = Path(__file__).parent.parent.parent
+_SAMPLE_RAW_DATA = _REPO_ROOT / "examples" / "eeg_gcnn" / "sample_raw_data"
+
+
+@unittest.skipUnless(
+    _SAMPLE_RAW_DATA.exists(),
+    "Sample raw data not found — skipping precompute integration tests",
+)
+class TestRawDatasetPrecompute(unittest.TestCase):
+    """Integration tests for EEGGCNNRawDataset.precompute_features().
+
+    Uses the real (small) EDF/BrainVision files committed under
+    examples/eeg_gcnn/sample_raw_data/.  Processes max 1 TUAB + 1 LEMON
+    subject so the suite stays fast (< 30 s on a laptop).
+    """
+
+    def setUp(self) -> None:
+        from pyhealth.datasets.eeg_gcnn_raw import EEGGCNNRawDataset
+
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.output_dir = self._tmpdir.name
+
+        # Bypass BaseDataset.__init__ — we only need .root + precompute_features
+        self.ds = EEGGCNNRawDataset.__new__(EEGGCNNRawDataset)
+        self.ds.root = str(_SAMPLE_RAW_DATA)
+        self.ds.precompute_features(
+            output_dir=self.output_dir,
+            max_tuab=1,
+            max_lemon=1,
+        )
+
+    def tearDown(self) -> None:
+        self._tmpdir.cleanup()
+
+    # --- output file existence ---
+
+    def test_creates_psd_features_file(self) -> None:
+        self.assertTrue(
+            os.path.exists(os.path.join(self.output_dir, "psd_features_data_X"))
+        )
+
+    def test_creates_labels_file(self) -> None:
+        self.assertTrue(
+            os.path.exists(os.path.join(self.output_dir, "labels_y"))
+        )
+
+    def test_creates_metadata_csv(self) -> None:
+        self.assertTrue(
+            os.path.exists(
+                os.path.join(self.output_dir, "master_metadata_index.csv")
+            )
+        )
+
+    def test_creates_coherence_file(self) -> None:
+        self.assertTrue(
+            os.path.exists(os.path.join(self.output_dir, "spec_coh_values.npy"))
+        )
+
+    def test_creates_electrode_coords_file(self) -> None:
+        self.assertTrue(
+            os.path.exists(
+                os.path.join(self.output_dir, "standard_1010.tsv.txt")
+            )
+        )
+
+    # --- output shapes and content ---
+
+    def test_psd_features_shape(self) -> None:
+        """psd_features_data_X must be (N, 48) — 8 channels × 6 bands."""
+        import joblib
+        X = joblib.load(os.path.join(self.output_dir, "psd_features_data_X"))
+        self.assertEqual(X.ndim, 2)
+        self.assertEqual(X.shape[1], 48)
+        self.assertGreater(X.shape[0], 0)
+
+    def test_coherence_shape(self) -> None:
+        """spec_coh_values must be (N, 64) — 8×8 electrode pairs."""
+        coh = np.load(os.path.join(self.output_dir, "spec_coh_values.npy"))
+        self.assertEqual(coh.ndim, 2)
+        self.assertEqual(coh.shape[1], 64)
+
+    def test_consistent_window_counts(self) -> None:
+        """N must be consistent across psd_features_data_X, labels_y, coherence, and CSV."""
+        import joblib
+        X = joblib.load(os.path.join(self.output_dir, "psd_features_data_X"))
+        y = joblib.load(os.path.join(self.output_dir, "labels_y"))
+        coh = np.load(os.path.join(self.output_dir, "spec_coh_values.npy"))
+        meta = pd.read_csv(
+            os.path.join(self.output_dir, "master_metadata_index.csv")
+        )
+        N = X.shape[0]
+        self.assertEqual(y.shape[0], N)
+        self.assertEqual(coh.shape[0], N)
+        self.assertEqual(len(meta), N)
+
+    def test_labels_are_valid_strings(self) -> None:
+        """labels_y must contain only 'diseased' and/or 'healthy'."""
+        import joblib
+        y = joblib.load(os.path.join(self.output_dir, "labels_y"))
+        for label in y:
+            self.assertIn(label, {"diseased", "healthy"})
+
+    def test_both_classes_present(self) -> None:
+        """With 1 TUAB + 1 LEMON subject both classes must appear."""
+        import joblib
+        y = joblib.load(os.path.join(self.output_dir, "labels_y"))
+        classes = set(y)
+        self.assertIn("diseased", classes)
+        self.assertIn("healthy", classes)
+
+    def test_psd_features_finite(self) -> None:
+        """No NaN or Inf in the PSD feature array."""
+        import joblib
+        X = joblib.load(os.path.join(self.output_dir, "psd_features_data_X"))
+        self.assertTrue(np.all(np.isfinite(X)))
+
+    def test_metadata_has_patient_id_column(self) -> None:
+        meta = pd.read_csv(
+            os.path.join(self.output_dir, "master_metadata_index.csv")
+        )
+        self.assertIn("patient_ID", meta.columns)
 
 
 if __name__ == "__main__":
