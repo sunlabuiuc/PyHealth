@@ -44,15 +44,15 @@ class DailyAndSportActivitiesDataset(BaseDataset):
     Expected folder layout example:
         root/
           a01/
-            p01/
+            p1/
               s01.txt
               s02.txt
           a02/
-            p01/
+            p1/
               s01.txt
 
     Each .txt file is expected to contain numeric sensor values arranged
-    row-wise over time. aXX represents an activity ID, pXX represents a subject ID,
+    row-wise over time. aXX represents an activity ID, p* represents a subject ID,
     and sXX represents a specific sensor ID.
 
     Parsed data format:
@@ -143,9 +143,7 @@ class DailyAndSportActivitiesDataset(BaseDataset):
             >>> dataset = DailyAndSportActivitiesDataset()
             >>> task = dataset.default_task
         """
-        from pyhealth.tasks.daily_sport_activities import (
-            DailyAndSportActivitiesClassification
-        )
+        from pyhealth.tasks import DailyAndSportActivitiesClassification
         return DailyAndSportActivitiesClassification(signal_loader=self.load_signal)
     
     def _download(self, root: str) -> None:
@@ -200,7 +198,7 @@ class DailyAndSportActivitiesDataset(BaseDataset):
             patient, and segment IDs
 
         Raises:
-            ValueError: Folder structure does not follow aXX/pXX/sXX.txt.
+            ValueError: Folder structure does not follow aXX/p*/sXX.txt.
             ValueError: Activity folder name doesn't start with a.
             ValueError: Patient folder name doesn't start with p.
             ValueError: Segment file name doesn't start with s.
@@ -354,39 +352,3 @@ class DailyAndSportActivitiesDataset(BaseDataset):
         pdf["timestamp"] = pd.NaT
 
         return dd.from_pandas(pdf, npartitions=1)
-
-    def parse_data(self) -> List[Dict]:
-        """
-        Debug helper: parse raw files into in-memory samples.
-        
-        Returns:
-            List[Dict[str, Any]]: List of event rows from parsed data.
-
-        Raises:
-            ValueError: No valid parsed data exists.
-        """
-        samples: List[Dict[str, Any]] = []
-        txt_files = self._discover_files()
-
-        for file_path in txt_files:
-            metadata = self._infer_metadata_from_path(file_path)
-            signal = self.load_signal(file_path)
-            activity_name = self._get_activity_name(metadata["activity_id"])
-
-            samples.append(
-                {
-                    "record_id": metadata["record_id"],
-                    "patient_id": metadata["patient_id"],
-                    "visit_id": metadata["segment_id"],
-                    "activity_id": metadata["activity_id"],
-                    "activity": activity_name,
-                    "segment_id": metadata["segment_id"],
-                    "file_path": str(file_path),
-                    "signal": signal,
-                }
-            )
-
-        if not samples:
-            raise ValueError("No samples were parsed from the dataset.")
-
-        return samples

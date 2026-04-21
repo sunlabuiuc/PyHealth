@@ -140,24 +140,23 @@ class DailyAndSportActivitiesClassification(BaseTask):
 
     def __init__(
         self,
+        signal_loader: Callable,
         window_size: int = 50,
         stride: int = 25,
         normalize: bool = True,
         selected_features: Optional[List[int]] = None,
-        signal_loader: Callable = None,
     ) -> None:
         """
         Initializes the DailyAndSportActivitiesClassification task.
 
         Args:
+            signal_loader (Callable): The function to use for parsing signal data.
             window_size (int): The size of the sliding window on the input signal.
             Defaults to 50.
             stride (int): The size of the sliding window move. Defauts to 25.
             normalize (bool): Should the signal data be normalized. Defaults to True.
             selected_features (Optional[List[int]]): Features to select from the signal.
             Defaults to None (all features).
-            signal_loader (Callable): The function to use for parsing signal data.
-            Defaults to None.
 
         Raises:
             ValueError: Window size is negative.
@@ -168,11 +167,11 @@ class DailyAndSportActivitiesClassification(BaseTask):
         if stride <= 0:
             raise ValueError(f"stride must be positive, got {stride}")
 
+        self.signal_loader = signal_loader
         self.window_size = window_size
         self.stride = stride
         self.normalize = normalize
         self.selected_features = selected_features
-        self.signal_loader = signal_loader
         
     def __call__(self, patient: Patient) -> List[Dict]:
         """

@@ -1,7 +1,7 @@
-pyhealth.tasks.daily_sport_activities
+pyhealth.tasks.DailyAndSportActivitiesClassification
 ===============================================
 
-.. autoclass:: pyhealth.tasks.daily_sport_activities.DailyAndSportActivitiesClassification
+.. autoclass:: pyhealth.tasks.DailyAndSportActivitiesClassification
    :members:
    :undoc-members:
    :show-inheritance:
