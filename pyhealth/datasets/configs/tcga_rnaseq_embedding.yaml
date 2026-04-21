@@ -1,0 +1,9 @@
+version: "1.0"
+tables:
+  rnaseq_embedding:
+    file_path: "tcga_rnaseq_embedding.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+      - "cohort"
+      - "embedding_json"

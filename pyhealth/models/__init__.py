@@ -3,6 +3,15 @@ from .agent import Agent, AgentLayer
 from .base_model import BaseModel
 from .transformer_deid import TransformerDeID
 from .biot import BIOT
+from .bulk_rna_bert import (
+    DEFAULT_NORMALIZATION_FACTOR,
+    BulkRNABert,
+    BulkRNABertClassifier,
+    BulkRNABertConfig,
+    bin_expression_values,
+    compute_normalization_factor,
+    load_expression_csv,
+)
 from .cnn import CNN, CNNLayer
 from .concare import ConCare, ConCareLayer
 from .contrawr import ContraWR, ResBlock2D
