@@ -5,7 +5,8 @@ from pathlib import Path
 from unittest.mock import patch
 from collections import Counter
 
-import mne
+import concurrent.futures
+from mne import create_info, io, Annotations
 import numpy as np
 import pandas as pd
 
@@ -66,11 +67,15 @@ class TestMVCLTrainingSleepEEGTask(unittest.TestCase):
             ("SC4011E0", 1),  # subject 01, night 1
             ("SC4022E0", 2),  # subject 02, night 2
         ]
-        for stem, seed in patient_records:
+        def write_patient_file(record):
+            stem, seed = record
             signal = np.full(6000, fill_value=seed, dtype=np.float32)
             for suffix in ("-PSG.edf", "-Hypnogram.edf"):
                 file_path = cls.cassette_dir / f"{stem}{suffix}"
                 signal.tofile(file_path)
+        
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            executor.map(write_patient_file, patient_records)
 
     @classmethod
     def _create_dummy_metadata_csv(cls):
@@ -105,8 +110,8 @@ class TestMVCLTrainingSleepEEGTask(unittest.TestCase):
         if signal.size != 6000:
             raise ValueError(f"Expected 6000 points in {signal_file}, got {signal.size}")
         data = signal.reshape(1, -1)
-        info = mne.create_info(["EEG Fpz-Cz"], sfreq=100, ch_types=["eeg"])
-        return mne.io.RawArray(data, info, verbose="error")
+        info = create_info(["EEG Fpz-Cz"], sfreq=100, ch_types=["eeg"])
+        return io.RawArray(data, info, verbose="error")
 
     @staticmethod
     def _mock_read_annotations(label_file, *args, **kwargs):
@@ -118,7 +123,7 @@ class TestMVCLTrainingSleepEEGTask(unittest.TestCase):
             descriptions = ["Sleep stage 2", "Sleep stage 4"]
         else:
             raise ValueError(f"Unexpected label file: {label_file}")
-        return mne.Annotations(
+        return Annotations(
             onset=[0.0, 30.0],
             duration=[30.0, 30.0],
             description=descriptions,
