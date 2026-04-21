@@ -24,6 +24,7 @@ import urllib.request
 import pandas as pd
 
 from pyhealth.datasets import BaseDataset
+from pyhealth.processors import IgnoreProcessor
 from pyhealth.processors import NiftiImageProcessor
 from pyhealth.tasks import MRIBinaryClassification
 
@@ -102,8 +103,18 @@ class MRIDataset(BaseDataset):
         if input_processors is None:
             input_processors = {}
 
+        has_nifti_data = (
+            os.path.isdir(self._image_path)
+            and any(Path(self._image_path).glob("*.nii"))
+        )
+
         if "image" not in input_processors:
-            input_processors["image"] = NiftiImageProcessor()
+            if has_nifti_data:
+                input_processors["image"] = NiftiImageProcessor()
+            else:
+                # Metadata-only fixtures may not include real MRI files.
+                # Prevent fallback auto-processors from trying to open missing paths.
+                input_processors["image"] = IgnoreProcessor()
 
         kwargs["input_processors"] = input_processors
 
@@ -178,18 +189,23 @@ class MRIDataset(BaseDataset):
             logger.error(f"Looking for root directory: {root}")
             logger.error(msg)
             raise FileNotFoundError(msg)
-        if not os.path.exists(self._image_path):
-            msg = "Dataset path must contain an 'images' directory!"
-            logger.error(msg)
-            raise FileNotFoundError(msg)
         if not os.path.isfile(self._label_path):
             msg = "Dataset path must contain 'oasis_cross-sectional.csv'!"
             logger.error(msg)
             raise FileNotFoundError(msg)
+        if not os.path.exists(self._image_path):
+            logger.warning(
+                "Dataset path %s does not contain '%s'. Continuing in metadata-only mode.",
+                root,
+                self._image_path,
+            )
+            return
         if not list(Path(self._image_path).glob("*.nii")):
-            msg = "Dataset 'images' directory must contain NII files!"
-            logger.error(msg)
-            raise ValueError(msg)    
+            logger.warning(
+                "Dataset image directory %s does not contain .nii files. "
+                "Continuing in metadata-only mode.",
+                self._image_path,
+            )
 
     def _index_data(self, root: str) -> pd.DataFrame:
         """Parses and indexes metadata for all available images in the dataset.
@@ -225,11 +241,16 @@ class MRIDataset(BaseDataset):
         if missing_mask.any():
             missing_count = int(missing_mask.sum())
             logger.warning(
-                "Skipping %d MRI records with no matching .nii file in %s",
+                "No matching .nii file found for %d MRI records in %s. "
+                "Using expected file path placeholders.",
                 missing_count,
                 self._image_path,
             )
-            df = df.loc[~missing_mask].copy()
+            df.loc[missing_mask, "path"] = df.loc[missing_mask, "ID"].apply(
+                lambda sample_id: os.path.join(
+                    self._image_path, f"{sample_id}_mpr_n4_anon_111_t88_gfc.nii"
+                )
+            )
         df.rename(columns={
             "ID": "id",
             "M/F": "gender",

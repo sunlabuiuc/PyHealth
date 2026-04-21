@@ -19,7 +19,7 @@ class TestMRIDataset(unittest.TestCase):
     def setUpClass(cls):
         cls.root = Path(__file__).parent.parent.parent / "test-resources" / "core" / "mri"
         cls.cache_dir = tempfile.TemporaryDirectory()
-        cls.dataset = MRIDataset(cls.root, cache_dir=cls.cache_dir.name, download=True, partial=True)
+        cls.dataset = MRIDataset(cls.root, cache_dir=cls.cache_dir.name, download=False, partial=True)
 
         cls.samples_alzheimer = cls.dataset.set_task(MRIBinaryClassification(disease="alzheimer"))
 
