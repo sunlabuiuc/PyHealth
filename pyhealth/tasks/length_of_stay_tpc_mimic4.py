@@ -2,8 +2,8 @@
 Remaining ICU Length-of-Stay Prediction Task for MIMIC-IV (TPC Format)
 
 Contributors:
-    - [TODO: Add your name(s)]
-    - [TODO: Add your NetID(s)]
+    - Pankaj Meghani, Tarak Jha, Pranash Krishnan
+    - meghani3, tarakj2, pranash2
 
 Paper:
     Title: Temporal Pointwise Convolutional Networks for Length of Stay 
