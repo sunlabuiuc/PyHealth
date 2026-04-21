@@ -33,3 +33,15 @@ tables:
       - "outtime"
       - "first_careunit"
       - "last_careunit"
+
+  chartevents:
+    file_path: "CHARTEVENTS.csv.gz"
+    patient_id: "subject_id"
+    timestamp: "charttime"
+    attributes:
+      - "hadm_id"
+      - "icustay_id"
+      - "itemid"
+      - "charttime"
+      - "value"
+      - "valuenum"
