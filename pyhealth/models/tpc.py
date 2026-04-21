@@ -2,8 +2,8 @@
 Temporal Pointwise Convolution (TPC) Model for ICU Length-of-Stay Prediction
 
 Contributors:
-    - [TODO: Pankaj Meghani, Tarak Jha, Pranash Krishnan]
-    - [TODO: meghani3tarakj2, pranash2]
+    - Pankaj Meghani, Tarak Jha, Pranash Krishnan
+    - meghani3, tarakj2, pranash2
 
 Paper:
     Title: Temporal Pointwise Convolutional Networks for Length of Stay 
