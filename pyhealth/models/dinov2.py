@@ -41,20 +41,20 @@ class DINOv2(BaseModel):
         # Now super().__init__ only gets what it expects
         super().__init__(dataset=dataset, **kwargs)
 
-        # 1. Dimension Mapping for all sizes
+        # Dimension Mapping for all sizes
         dim_map = {"vits14": 384, "vitb14": 768, "vitl14": 1024, "vitg14": 1536}
         if model_size not in dim_map:
             raise ValueError(f"Invalid model_size: {model_size}. Choose from: {list(dim_map.keys())}")
         embed_dim = dim_map[model_size]
 
-        # 2. Guards for feature_keys and label_keys
+        # Guards for feature_keys and label_keys
         if not self.feature_keys or len(self.feature_keys) == 0:
             raise ValueError("DINOv2 requires at least one feature key (e.g., 'image').")
         self.feature_key = self.feature_keys[0]
         
         self.label_key = self.label_key if self.label_key else None
 
-        # 3. TorchHub Loading with Offline Fallback Safety
+        # TorchHub Loading with Offline Fallback Safety
         repo = 'facebookresearch/dinov2'
         hub_model_name = f'dinov2_{model_size}'
         
@@ -114,7 +114,7 @@ class DINOv2(BaseModel):
             
         x = x.to(self.device)
 
-        # 4. Interpretability support: Extract embeddings
+        # Interpretability support: Extract embeddings
         features = self.backbone(x)
         
         if embed:

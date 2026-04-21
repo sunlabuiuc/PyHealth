@@ -1,4 +1,11 @@
-# test_dinov2.py
+"""
+test_dinov2.py
+
+Unit tests for the DINOv2 foundation model integration in PyHealth.
+Uses a mock dataset to isolate model architecture, forward pass, and 
+gradient flow validation without requiring heavy data loading.
+"""
+
 import unittest
 import torch
 from pyhealth.models import DINOv2
@@ -26,6 +33,8 @@ class DummyDermoscopyDataset:
         return self.samples[index]
 
 class TestDINOv2(unittest.TestCase):
+    """Test suite for the DINOv2 model architecture and freezing logic."""
+
     def setUp(self):
         self.dataset = DummyDermoscopyDataset()
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -41,6 +50,7 @@ class TestDINOv2(unittest.TestCase):
         self.model.to(self.device)
 
     def test_initialization(self):
+        """Verifies that the model initializes correctly with PyHealth kwargs."""
         self.assertIsNotNone(self.model)
         self.assertEqual(self.model.mode, "binary")
         self.assertIn("image", self.model.feature_keys)
@@ -56,7 +66,7 @@ class TestDINOv2(unittest.TestCase):
             "melanoma": mock_labels
         }
 
-        # 1. Forward Pass
+        # Forward Pass
         self.model.train() # Set to train to enable gradients
         outputs = self.model(**batch)
 
@@ -64,13 +74,13 @@ class TestDINOv2(unittest.TestCase):
         self.assertIn("y_prob", outputs)
         self.assertEqual(outputs["y_prob"].shape, (batch_size, 1))
         
-        # 2. Gradient Computation (Rubric Requirement)
+        # Gradient Computation
         loss = outputs["loss"]
         loss.backward()
         
         # Check if gradients propagated to the linear classifier head
         self.assertIsNotNone(self.model.fc.weight.grad)
-        self.assertNotEqual(torch.sum(self.model.fc.weight.grad), 0.0)
+        self.assertTrue(torch.any(self.model.fc.weight.grad != 0))
 
         # Verify the backbone is actually frozen (required for Linear Probing)
         # The first parameter of the backbone should have NO gradient
@@ -83,7 +93,7 @@ class TestDINOv2(unittest.TestCase):
         mock_images = torch.randn(batch_size, 3, 224, 224).to(self.device)
         batch = {"image": mock_images}
 
-        # 1. Extract embeddings
+        # Extract embeddings
         self.model.eval()
         embed_outputs = self.model(embed=True, **batch)
         self.assertIn("embed", embed_outputs)
@@ -92,7 +102,7 @@ class TestDINOv2(unittest.TestCase):
         embeddings = embed_outputs["embed"]
         self.assertEqual(embeddings.shape, (batch_size, 384))
 
-        # 2. Test forward_from_embedding
+        # Test forward_from_embedding
         final_outputs = self.model.forward_from_embedding(embeddings)
         self.assertIn("y_prob", final_outputs)
 if __name__ == '__main__':

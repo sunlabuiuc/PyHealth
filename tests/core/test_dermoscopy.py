@@ -11,6 +11,7 @@ Sci. Data 5, 180161 (2018). https://doi.org/10.1038/sdata.2018.161
 """
 
 import os
+import shutil
 # Stop Polars from spinning up 16 threads for 3 tiny images
 os.environ["POLARS_MAX_THREADS"] = "1"
 
@@ -22,6 +23,7 @@ from pyhealth.processors import DermoscopyImageProcessor
 
 class TestDermoscopyDataset(unittest.TestCase):
     def setUp(self):
+        """Initializes the dataset pointer and suppresses known PyHealth warnings."""
         # ignores not being able to close the PyHealth cached .ld files
         warnings.simplefilter("ignore", ResourceWarning)
         # Ensure this directory contains ONLY 2-5 tiny images!
@@ -32,11 +34,21 @@ class TestDermoscopyDataset(unittest.TestCase):
 
         self.dataset = DermoscopyDataset(root=test_data_dir, dev=False, cache_dir=local_cache)
 
+    def tearDown(self):
+        """
+        Cleans up the localized test cache to prevent artifact bloat in the repo.
+        Wiped after every test to prove functionality.
+        """
+        if os.path.exists(self.local_cache):
+            shutil.rmtree(self.local_cache, ignore_errors=True)
+
     def test_load_data(self):
+        """Verifies the base dataset successfully parses the metadata CSV into a Polars DataFrame."""
         # Checking the PyHealth 2.0 DataFrame instead of the old dictionary
         self.assertIsNotNone(self.dataset.global_event_df)
 
     def test_task_and_processor(self):
+        """Verifies the dataset correctly applies tasks, modes, and image processors."""
         processor = DermoscopyImageProcessor(mode="high_whole")
 
         # Architecture natively supports a single string input or a list of strings

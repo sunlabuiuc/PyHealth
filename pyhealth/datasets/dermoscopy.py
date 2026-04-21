@@ -221,7 +221,25 @@ class DermoscopyDataset(BaseDataset):
     # Helper function for the Stable Diffusion data (images modified with artifacts)
     # ==============================================================================
     def _prepare_trap_set(self, root: str, dataset: str) -> Optional[pd.DataFrame]:
-        """Prepare metadata for synthetically generated Trap Sets."""
+        """Prepare metadata for synthetically generated artifact Trap Sets.
+
+        This method parses metadata for datasets modified with visual artifacts 
+        (e.g., rulers, ink). It performs two critical dynamic resolutions:
+        1. Image paths: Scans for various file extensions (.png, .jpg, .bmp) to 
+           accommodate different outputs from Stable Diffusion or image pipelines.
+        2. Mask paths: Links the synthetic image back to its original base dataset's 
+           segmentation mask (e.g., linking a `ph2_with_ruler` image to the original 
+           `ph2` mask) to prevent unnecessary file duplication.
+
+        Args:
+            root (str): Root directory containing the dataset folders.
+            dataset (str): Name of the trap set folder (e.g., 'ph2_with_ruler').
+
+        Returns:
+            Optional[pd.DataFrame]: A DataFrame containing the standardized metadata 
+                columns (patient_id, image_path, mask_path, label, source_dataset), 
+                or None if the metadata CSV is not found.
+        """
         csv_path = os.path.join(root, dataset, "images", "metadata.csv")
         if not os.path.exists(csv_path): return None
         

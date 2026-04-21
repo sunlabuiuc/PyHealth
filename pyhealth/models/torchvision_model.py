@@ -371,7 +371,7 @@ class TorchvisionModel(BaseModel):
             return
         
         self._vit_blocks = blocks
-    
+
     def clear_attention_storage(self) -> None:
         """Clear stored attention maps and gradients."""
         self._attention_maps = []
@@ -460,7 +460,7 @@ class TorchvisionModel(BaseModel):
         attn_output = F.linear(attn_output, mha.out_proj.weight, mha.out_proj.bias)
         
         return attn_output, attn_weights
-    
+
     def forward_with_attention(
         self,
         x: torch.Tensor,
@@ -508,7 +508,7 @@ class TorchvisionModel(BaseModel):
         
         # Forward through encoder blocks with attention capture
         attention_maps = []
-        
+ 
         # Access encoder layers
         if hasattr(self.model.encoder, 'layers'):
             encoder_layers = self.model.encoder.layers
@@ -552,7 +552,7 @@ class TorchvisionModel(BaseModel):
         
         self._attention_maps = attention_maps
         return logits, attention_maps
-    
+
     def get_patch_size(self) -> int:
         """Get the patch size for ViT models.
         
@@ -564,7 +564,7 @@ class TorchvisionModel(BaseModel):
         """
         if not self.is_vit_model():
             raise ValueError("get_patch_size only works with ViT models")
-        
+
         # Extract from model name
         parts = self.model_name.split("_")
         for part in parts:
@@ -573,13 +573,13 @@ class TorchvisionModel(BaseModel):
         
         # Default fallback
         return 16
-    
+
     def get_num_patches(self, input_size: int = 224) -> Tuple[int, int]:
         """Get the number of patches for ViT models.
         
         Args:
             input_size: Input image size (default 224).
-        
+
         Returns:
             Tuple of (height_patches, width_patches). For standard 224x224 input
             with patch_size=16, this is (14, 14).

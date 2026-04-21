@@ -24,7 +24,6 @@ import scipy.ndimage
 from . import register_processor
 from .base_processor import FeatureProcessor
 
-# PATCH 1: Expand the Valid Modes
 VALID_MODES = (
     "whole", "lesion", "background", 
     "bbox", "bbox70", "bbox90",
@@ -225,18 +224,23 @@ class DermoscopyImageProcessor(FeatureProcessor):
         return self.transform(image)
 
     def is_token(self) -> bool:
+        """Returns False as images are not sequence tokens."""
         return False
 
     def schema(self) -> tuple:
+        """Returns the data schema tuple."""
         return ("value",)
 
     def dim(self) -> tuple:
+        """Returns the channel dimension of the output tensor."""
         return (3,)
 
     def spatial(self) -> tuple:
+        """Returns boolean flags indicating which dimensions are spatial (C, H, W)."""
         return (False, True, True)
 
     def __repr__(self) -> str:
+        """Returns the string representation of the processor."""
         return (
             f"DermoscopyImageProcessor(mode={self.mode!r}, "
             f"image_size={self.image_size}, normalize={self.normalize})"

@@ -49,8 +49,16 @@ class DermoscopyMelanomaClassification(BaseTask):
     input_schema: Dict[str, str] = {"image": "dermoscopy_image"}
     output_schema: Dict[str, str] = {"melanoma": "binary"}
 
-    # PATCH: Allow either a single string or a list of strings
     def __init__(self, source_datasets: Optional[Union[str, List[str]]] = None) -> None:
+        """Initializes the classification task and sets up cache isolation.
+
+        Args:
+            source_datasets (Optional[Union[str, List[str]]]): If provided, only samples 
+                whose ``source_dataset`` field matches one of these strings are returned. 
+                Pass a string (e.g., ``"isic2018"``) or a list of strings (e.g., 
+                ``["isic2018", "ham10000"]``) to restrict evaluation or training to specific 
+                sub-datasets. Defaults to ``None`` (all sub-datasets included).
+        """
         # Normalize input: If it's a string, wrap it in a list so the rest of the code works perfectly
         if isinstance(source_datasets, str):
             self.source_datasets = [source_datasets]
@@ -85,10 +93,10 @@ class DermoscopyMelanomaClassification(BaseTask):
         events = patient.get_events(event_type="dermoscopy")
         samples = []
         for event in events:
-            # PATCH 1: Safely fetch from PyHealth 2.0 attr_dict instead of direct attributes
+            # Safely fetch from PyHealth 2.0 attr_dict instead of direct attributes
             source_ds = event.attr_dict.get("source_dataset", "")
 
-            # PATCH 2: Allow multiple datasets for Mega-ResNet (list check instead of strict string equality)
+            # Allow multiple datasets for Mega-ResNet (list check instead of strict string equality)
             if self.source_datasets is not None and source_ds not in self.source_datasets:
                 continue
 
@@ -98,7 +106,7 @@ class DermoscopyMelanomaClassification(BaseTask):
 
             samples.append(
                 {
-                    # PATCH 3: Include patient_id and visit_id to prevent cross-validation data leakage
+                    # Include patient_id and visit_id to prevent cross-validation data leakage
                     # Dermoscopy datasets typically feature a 1:1 patient-to-visit ratio. 
                     # We default visit_id to patient_id to satisfy PyHealth's strict EHR schema. 
                     # If a user explicitly parsed a longitudinal visit_id during dataset 
@@ -106,7 +114,7 @@ class DermoscopyMelanomaClassification(BaseTask):
                     "patient_id": patient.patient_id,
                     "visit_id": getattr(patient, 'visit_id', patient.patient_id),
                     "image": (image_path, mask_path),
-                    # PATCH 4: Protect against Polars string-floats (e.g., "0.0" -> 0.0 -> 0)
+                    # Protect against Polars string-floats (e.g., "0.0" -> 0.0 -> 0)
                     "melanoma": int(float(label)), 
                 }
             )
