@@ -97,8 +97,16 @@ class CNN3DAD(BaseModel):
         widening_factor: int = 8,
         num_blocks: int = 4,
         age_encoding_dim: int = 32,
+        class_weights: list = None,
     ):
         super().__init__(dataset=dataset)
+
+        if class_weights is not None:
+            w = torch.tensor(class_weights, dtype=torch.float)
+            self.register_buffer("class_weights", w)
+        else:
+            self.class_weights = None
+
 
         self.scan_key = scan_key
         self.age_key = age_key
@@ -124,7 +132,7 @@ class CNN3DAD(BaseModel):
 
         self.backbone = nn.Sequential(*blocks)
         self.global_pool = nn.AdaptiveAvgPool3d(1)
-        self.fc1 = nn.Linear(in_ch, 1024)
+        self.fc1 = nn.Sequential(nn.Linear(in_ch, 1024), nn.ReLU(inplace=True))
 
         if self.use_age_encoding:
             max_len = 240
@@ -180,7 +188,8 @@ class CNN3DAD(BaseModel):
             feat = feat + age_enc
 
         logits = self.classifier(feat)
-        loss = self.get_loss_function()(logits, y_true)
+        criterion = nn.CrossEntropyLoss(weight=self.class_weights)
+        loss = criterion(logits, y_true)
         y_prob = self.prepare_y_prob(logits)
 
         return {"loss": loss, "y_prob": y_prob, "y_true": y_true, "logit": logits}
