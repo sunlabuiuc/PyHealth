@@ -26,8 +26,8 @@ from typing import Any, Callable, Dict, List, Optional
 from pyhealth.tasks import BaseTask
 
 
-class ECGQA(BaseTask):
-    """ECG Question Answering task.
+class ECGQAPreprocessing(BaseTask):
+    """ECG Question Answering preprocessing task.
 
     For each patient (ECG recording), this task returns one sample per
     QA pair, containing the question, answer, question type, and an

@@ -5,7 +5,7 @@ project (Tang et al., CHIL 2025) using PyHealth datasets and tasks.
 
 Pipeline:
     1. PTBXLDataset  → PTBXLResampling task → resampled ECG signals (12, 2500)
-    2. ECGQADataset  → ECGQA task (with signal_loader) → multimodal QA samples
+    2. ECGQADataset  → ECGQAPreprocessing task (with signal_loader) → multimodal QA samples
 
 For the full meta-learning training loop, see:
     https://github.com/Tang-Jia-Lu/FSL_ECG_QA/blob/main/train.py
@@ -28,7 +28,7 @@ from pathlib import Path
 
 import torch
 from pyhealth.datasets import PTBXLDataset, ECGQADataset
-from pyhealth.tasks import PTBXLResampling, ECGQA
+from pyhealth.tasks import PTBXLResampling, ECGQAPreprocessing
 
 # ---------- Configuration ----------
 # Update these paths to match your local setup
@@ -88,7 +88,7 @@ def _load_dev_subset(ptbxl_root, ecgqa_root):
         return torch.FloatTensor(signal_lookup[ecg_id])
 
     qa = ECGQADataset(root=tmp_dir)
-    samples = qa.set_task(ECGQA(signal_loader=signal_loader))
+    samples = qa.set_task(ECGQAPreprocessing(signal_loader=signal_loader))
     print(f"  Created {len(samples)} matched QA samples")
     return samples, signal_lookup
 
@@ -112,7 +112,7 @@ def main():
         # Step 3: Load ECG-QA data with signals
         print("Loading ECG-QA dataset...")
         qa = ECGQADataset(root=ECGQA_ROOT)
-        samples = qa.set_task(ECGQA(signal_loader=signal_loader))
+        samples = qa.set_task(ECGQAPreprocessing(signal_loader=signal_loader))
         print(f"  Created {len(samples)} QA samples")
 
     # ---------- Inspect a sample ----------

@@ -7,7 +7,7 @@ from pathlib import Path
 import torch
 
 from pyhealth.datasets import ECGQADataset
-from pyhealth.tasks import ECGQA
+from pyhealth.tasks import ECGQAPreprocessing
 
 
 class TestECGQADataset(unittest.TestCase):
@@ -175,7 +175,7 @@ class TestECGQAVerifyData(unittest.TestCase):
 
 
 class TestECGQATask(unittest.TestCase):
-    """Test the ECGQA task with synthetic data."""
+    """Test the ECGQAPreprocessing task with synthetic data."""
 
     def setUp(self):
         self.temp_dir = tempfile.mkdtemp()
@@ -220,7 +220,7 @@ class TestECGQATask(unittest.TestCase):
     def test_text_only_mode(self):
         """Task with no signal_loader returns text-only samples."""
         dataset = ECGQADataset(root=str(self.root), cache_dir=self._cache_tmp)
-        samples = dataset.set_task(ECGQA())
+        samples = dataset.set_task(ECGQAPreprocessing())
         sample = samples[0]
 
         self.assertIn("question", sample)
@@ -235,7 +235,7 @@ class TestECGQATask(unittest.TestCase):
             return torch.randn(12, 2500)
 
         dataset = ECGQADataset(root=str(self.root), cache_dir=self._cache_tmp)
-        samples = dataset.set_task(ECGQA(signal_loader=fake_loader))
+        samples = dataset.set_task(ECGQAPreprocessing(signal_loader=fake_loader))
         sample = samples[0]
 
         self.assertIn("signal", sample)
