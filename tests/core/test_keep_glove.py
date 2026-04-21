@@ -46,7 +46,7 @@ class TestCooccurrenceDataset:
 class TestKeepGloVe:
     """Tests for KeepGloVe model."""
 
-    def test_forward_returns_scalar_loss(self):
+    def test_forward_and_backward_pass(self):
         from pyhealth.medcode.pretrained_embeddings.keep_emb.train_glove import (
             KeepGloVe,
         )
@@ -61,6 +61,15 @@ class TestKeepGloVe:
         assert glove_loss.item() > 0  # should be positive
         # No init_embeddings, so reg_loss should be 0
         assert reg_loss.item() == 0.0
+
+        # Gradient computation: backprop should populate .grad on embedding
+        # weights (guards against accidental detach / no_grad / non-leaf bugs).
+        (glove_loss + reg_loss).backward()
+        assert model.emb_u.weight.grad is not None
+        assert model.emb_v.weight.grad is not None
+        assert not torch.allclose(
+            model.emb_u.weight.grad, torch.zeros_like(model.emb_u.weight.grad)
+        )
 
     def test_regularization_increases_loss(self):
         from pyhealth.medcode.pretrained_embeddings.keep_emb.train_glove import (
