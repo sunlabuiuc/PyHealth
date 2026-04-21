@@ -107,6 +107,9 @@ Path A — Raw inputs
     who have an underlying neurological condition. Only the ``normal`` split
     is used. Files are EDF format with ``EEG X-REF`` channel naming.
 
+    Download: `TUH EEG Abnormal Corpus <https://www.isip.piconepress.com/projects/tuh_eeg/downloads/tuh_eeg_abnormal/>`_
+    (requires `registration <https://www.isip.piconepress.com/projects/tuh_eeg/html/request_access.php>`_).
+
     Directory layout::
 
         <root>/tuab/train/normal/01_tcp_ar/*.edf
@@ -115,6 +118,12 @@ Path A — Raw inputs
 **LEMON — MPI Leipzig Mind-Body-Emotion Interactions (raw, label 1 = healthy class)**
     EEG recordings from fully healthy volunteers with no neurological history.
     BrainVision format (``*.eeg`` + ``*.vhdr`` + ``*.vmrk``).
+
+    Download: `MPI LEMON <http://fcon_1000.projects.nitrc.org/indi/retro/MPI_LEMON.html>`_
+    (no registration needed). Alternatively use the provided download script::
+
+        python download_lemon.py          # all 213 subjects
+        python download_lemon.py --n 10   # first 10 subjects only
 
     Directory layout::
 
@@ -147,10 +156,22 @@ Path B — Pre-computed input
 Signal Processing
 -----------------
 
-The pipeline below is applied to each raw recording. It is implemented in
-both ``EEGGCNNRawDataset.precompute_features()`` (batch, runs once and saves
-the five output files) and ``EEGGCNNDiseaseDetection.__call__()`` (streaming,
-processes one patient at a time during training without saving).
+The pipeline below is applied to each raw recording. There are two
+implementations depending on the use case:
+
+- **``EEGGCNNRawDataset.precompute_features()``** (batch) — runs once over
+  all raw files and saves the five output arrays to disk.  This is what
+  ``pre_compute.py`` calls, and it is the path used for all training,
+  holdout evaluation, and ablation runs described in this document.
+
+- **``EEGGCNNDiseaseDetection.__call__()``** (streaming) — processes one
+  patient at a time on-the-fly during training without saving intermediate
+  files.  Supports configurable ``adjacency_type`` (``spatial``,
+  ``functional``, ``combined``) and a custom ``bands`` dict for band-level
+  ablation.  Available as an alternative entry point but not used in the
+  training or ablation runs described here — those use ``EEGGCNNDataset``
+  with the ``alpha`` parameter and ``EEGGCNNClassification`` with
+  ``excluded_bands`` instead.
 
 Steps applied in order:
 
@@ -264,15 +285,15 @@ Preprocess raw TUAB and LEMON recordings into the five files required by
     cd examples/eeg_gcnn
 
     # Precompute features from raw TUAB + LEMON
-    python pre_compute.py --root raw_data --output precomputed_data
+    python eeg_gcnn_classification_gcn_precompute.py --root raw_data --output precomputed_data
 
     # Limit subjects for a fast validation run
-    python pre_compute.py --max-tuab 10 --max-lemon 10
+    python eeg_gcnn_classification_gcn_precompute.py --max-tuab 10 --max-lemon 10
 
     # Train the GCN on the precomputed features
-    python training_pipeline_shallow_gcnn.py
+    python eeg_gcnn_classification_gcn_training.py
 
-Expected output from ``pre_compute.py``::
+Expected output from ``eeg_gcnn_classification_gcn_precompute.py``::
 
     EEG-GCNN Feature Precomputation
       raw data  : .../examples/eeg_gcnn/raw_data
@@ -280,7 +301,7 @@ Expected output from ``pre_compute.py``::
       subset    : both
 
     Done. Five pre-computed files written to: .../precomputed_data
-    Next step: python training_pipeline_shallow_gcnn.py
+    Next step: python eeg_gcnn_classification_gcn_training.py
 
 Programmatic Usage
 ~~~~~~~~~~~~~~~~~~
@@ -310,7 +331,7 @@ Training (GCN)
 --------------
 
 Trains on whatever 5-array dataset sits in ``DATA_ROOT`` — either the
-locally pre-computed output of ``pre_compute.py`` (Path A) or the FigShare
+locally pre-computed output of ``eeg_gcnn_classification_gcn_precompute.py`` (Path A) or the FigShare
 download (Path B, 1,593 subjects). The script does not care which one it
 is, since both produce the same five files.
 Run from ``examples/eeg_gcnn/``:
@@ -318,7 +339,7 @@ Run from ``examples/eeg_gcnn/``:
 .. code-block:: bash
 
     conda activate pyhealth
-    python training_pipeline_shallow_gcnn.py
+    python eeg_gcnn_classification_gcn_training.py
 
 Key options:
 
@@ -334,7 +355,7 @@ Key options:
 
    To limit how many subjects are included at the *precompute* stage (before
    training), use the ``--max-tuab`` / ``--max-lemon`` flags of
-   ``pre_compute.py`` or the ``max_tuab`` / ``max_lemon`` arguments of
+   ``eeg_gcnn_classification_gcn_precompute.py`` or the ``max_tuab`` / ``max_lemon`` arguments of
    :meth:`~pyhealth.datasets.EEGGCNNRawDataset.precompute_features`.
 
 Class imbalance (~7:1 TUAB:LEMON) is handled with
@@ -356,7 +377,7 @@ Run from ``examples/eeg_gatcnn/``:
 .. code-block:: bash
 
     conda activate pyhealth
-    python training_pipeline_shallow_gatcnn.py
+    python eeg_gcnn_classification_gat_training.py
 
 Key options:
 
@@ -381,8 +402,8 @@ Evaluate on the held-out 30% test subjects after training:
 
 .. code-block:: bash
 
-    python heldout_test_run_gcnn.py    # GCN
-    python heldout_test_run_gatcnn.py  # GAT
+    python eeg_gcnn_classification_gcn_evaluation.py    # GCN
+    python eeg_gcnn_classification_gat_evaluation.py  # GAT
 
 Both scripts:
 
@@ -394,7 +415,49 @@ Both scripts:
 5. Report mean ± std across folds.
 
 Reported metrics: ``auroc_patient``, ``precision``, ``recall``, ``f1``,
-``bal_acc``. See the project slides for the numerical results.
+``bal_acc``.
+
+Results
+-------
+
+All results use the full raw dataset (TUAB normal + MPI LEMON), 70/30
+patient-level train/test split, 10-fold cross-validation, combined
+adjacency (α = 0.5). GCN trained with SGD + MultiStepLR; GAT trained
+with Adam + ReduceLROnPlateau (lr=1e-3, patience=5, factor=0.5).
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 14 14 14 14 14
+
+   * - Model
+     - AUROC
+     - Precision
+     - Recall
+     - F1
+     - Bal. Acc
+   * - Shallow EEG-GCNN (paper, FigShare)
+     - 0.90 ± 0.02
+     - —
+     - —
+     - —
+     - 0.83 ± 0.02
+   * - **GCN** (raw data, α = 0.5)
+     - 0.914 ± 0.008
+     - 0.978 ± 0.006
+     - 0.822 ± 0.043
+     - 0.892 ± 0.023
+     - 0.849 ± 0.007
+   * - **GAT** (raw data, Adam + Plateau)
+     - **0.942 ± 0.025**
+     - **0.986 ± 0.009**
+     - **0.864 ± 0.041**
+     - **0.920 ± 0.023**
+     - **0.885 ± 0.032**
+
+Both models trained on the raw pipeline exceed the paper's FigShare
+baseline. The GAT with Adam + ReduceLROnPlateau outperforms the GCN on
+every metric, reversing the earlier result where GAT underperformed due
+to SGD being a poor fit for attention-based architectures.
 
 Ablation Studies
 ----------------
@@ -420,7 +483,7 @@ Re-run with a different alpha:
 
 .. code-block:: python
 
-    ALPHA = 0.0   # functional only — in training_pipeline_shallow_gcnn.py
+    ALPHA = 0.0   # functional only — in eeg_gcnn_classification_gcn_training.py
     ALPHA = 0.25  # coherence-heavy
     ALPHA = 0.5   # combined (paper default)
     ALPHA = 0.75  # spatial-heavy
@@ -445,7 +508,7 @@ Run from ``examples/eeg_gcnn/``:
 
 .. code-block:: bash
 
-    python run_band_ablation.py
+    python eeg_gcnn_classification_gcn_band_ablation.py
 
 Uses the ``excluded_bands`` parameter of
 :class:`~pyhealth.tasks.EEGGCNNClassification`:
