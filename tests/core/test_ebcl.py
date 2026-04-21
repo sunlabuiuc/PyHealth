@@ -194,6 +194,42 @@ class TestEBCL(unittest.TestCase):
         self.assertEqual(ret["post_attention_post_conditions"].shape[0], 2)
         self.assertEqual(ret["post_attention_post_labs"].shape[0], 2)
 
+    def test_supervised_uses_post_requires_paired_dataset(self):
+        with self.assertRaisesRegex(ValueError, "supervised_uses_post=True"):
+            EBCL(dataset=self.supervised_dataset, supervised_uses_post=True)
+
+    def test_partial_post_pairs_are_rejected(self):
+        partial_dataset = create_sample_dataset(
+            samples=[
+                {
+                    "patient_id": "patient-0",
+                    "visit_id": "visit-0",
+                    "conditions": ["A", "B"],
+                    "labs": [1.0, 2.0, 3.0],
+                    "post_conditions": ["B"],
+                    "label": 1,
+                },
+                {
+                    "patient_id": "patient-1",
+                    "visit_id": "visit-1",
+                    "conditions": ["C"],
+                    "labs": [0.5, 1.5, 2.5],
+                    "post_conditions": ["C"],
+                    "label": 0,
+                },
+            ],
+            input_schema={
+                "conditions": "sequence",
+                "labs": "tensor",
+                "post_conditions": "sequence",
+            },
+            output_schema={"label": "binary"},
+            dataset_name="ebcl_partial_post",
+        )
+
+        with self.assertRaisesRegex(ValueError, "Missing post features for: labs"):
+            EBCL(dataset=partial_dataset)
+
 
 if __name__ == "__main__":
     unittest.main()

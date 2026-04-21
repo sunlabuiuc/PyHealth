@@ -219,6 +219,24 @@ class EBCL(BaseModel):
         if not self.base_feature_keys:
             raise ValueError("EBCL requires at least one pre-event feature key.")
 
+        missing_post_pairs = [
+            feature_key
+            for feature_key in self.base_feature_keys
+            if feature_key not in self.post_feature_keys
+        ]
+        self.has_post_pairs = len(self.post_feature_keys) > 0
+        if self.has_post_pairs and missing_post_pairs:
+            raise ValueError(
+                "EBCL requires a complete set of post-event feature pairs when "
+                "any post-event features are provided. Missing post features for: "
+                + ", ".join(missing_post_pairs)
+            )
+        if self.supervised_uses_post and not self.has_post_pairs:
+            raise ValueError(
+                "supervised_uses_post=True requires matching post-event "
+                "features for every pre-event feature."
+            )
+
         self.embedding_model = EmbeddingModel(dataset, embedding_dim)
         self.position_embedding = nn.Embedding(max_seq_len, embedding_dim)
 
@@ -234,7 +252,7 @@ class EBCL(BaseModel):
                 dropout=dropout,
                 activation="gelu",
                 batch_first=True,
-                norm_first=True,
+                norm_first=False,
             )
 
         for feature_key in self.base_feature_keys:
@@ -539,10 +557,11 @@ class EBCL(BaseModel):
             for key, value in pre_attention.items():
                 results[f"pre_attention_{key}"] = value
 
-        has_any_post = any(key in kwargs for key in self.post_feature_keys.values())
-        has_all_post = (
-            all(key in kwargs for key in self.post_feature_keys.values())
-            and len(self.post_feature_keys) == len(self.base_feature_keys)
+        has_any_post = self.has_post_pairs and any(
+            key in kwargs for key in self.post_feature_keys.values()
+        )
+        has_all_post = self.has_post_pairs and all(
+            key in kwargs for key in self.post_feature_keys.values()
         )
 
         if has_any_post and not has_all_post:
