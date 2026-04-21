@@ -62,6 +62,7 @@ from .mimic3_tls import MIMIC3TLSDataset
 from .mimic4 import MIMIC4CXRDataset, MIMIC4Dataset, MIMIC4EHRDataset, MIMIC4NoteDataset
 from .mimicextract import MIMICExtractDataset
 from .omop import OMOPDataset
+from .physionet_deid import PhysioNetDeIDDataset
 from .sample_dataset import SampleBuilder, SampleDataset, create_sample_dataset
 from .shhs import SHHSDataset
 from .sleepedf import SleepEDFDataset
