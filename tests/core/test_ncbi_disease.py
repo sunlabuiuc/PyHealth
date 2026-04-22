@@ -57,6 +57,8 @@ class TestNCBIDiseaseDataset(unittest.TestCase):
 
         sample = self.recognition_samples[0]
         self.assertIn("text", sample)
+        self.assertIn("source_text", sample)
+        self.assertIn("target_text", sample)
         self.assertIn("entities", sample)
         self.assertIn("concept_ids", sample)
         self.assertIn("split", sample)
@@ -69,6 +71,7 @@ class TestNCBIDiseaseDataset(unittest.TestCase):
         self.assertEqual(sample["text"], "Asthma worsens quickly.")
         self.assertEqual(sample["entities"][0]["start"], 0)
         self.assertEqual(sample["entities"][0]["text"], "Asthma")
+        self.assertEqual(sample["target_text"], "B-Disease O O")
 
 
 class TestNCBIDiseaseRecognition(unittest.TestCase):

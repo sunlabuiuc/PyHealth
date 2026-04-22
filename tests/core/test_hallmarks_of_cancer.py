@@ -81,6 +81,14 @@ class TestHallmarksOfCancerDataset(unittest.TestCase):
             row0 = samples[0]
             self.assertIn("text", row0)
             self.assertIn("labels", row0)
+            self.assertIn("source_text", row0)
+            self.assertIn("target_text", row0)
+            self.assertEqual(
+                row0["target_text"],
+                HallmarksOfCancerSentenceClassification.labels_to_target_text(
+                    row0["labels"]
+                ),
+            )
 
 
 if __name__ == "__main__":

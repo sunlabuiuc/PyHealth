@@ -1,24 +1,13 @@
-"""
-Hallmarks of Cancer (HOC) sentence multilabel classification with :class:`~pyhealth.models.T5Classifier`.
+"""Hallmarks of Cancer text-to-text classification with the local T5 model.
 
-This script supports:
+This script supports synthetic demo data (``--demo``) and real exported HOC
+data (``--data_root`` with ``hallmarks_of_cancer.csv``).
 
-1. **Synthetic demo data** (``--demo``): writes a small ``hallmarks_of_cancer.csv`` under a
-   temporary directory so you can run without downloading anything.
-2. **Real data**: set ``--data_root`` to an **existing** folder on your machine that
-   contains ``hallmarks_of_cancer.csv`` (not a placeholder like ``/path/to/...``).
-   See ``examples/data_prep/export_hallmarks_of_cancer_bigbio.py`` to build the CSV.
+The ablation compares learning rates under the same ``t5-small`` backbone while
+using the seq2seq task representation:
 
-**Ablation (course requirement):** compares pooling strategies and learning rates under a
-fixed ``t5-small`` backbone on the same train/validation splits. Metrics are reported on
-the validation split (``f1_macro``, ``hamming_loss``, plus ``loss`` from the trainer).
-
-First Hugging Face download of ``t5-small`` requires network access once (cached afterward).
-
-Example::
-
-    python examples/hallmarks_of_cancer_HallmarksOfCancerSentenceClassification_t5classifier.py --demo --epochs 2
-
+- source: ``hoc: <sentence>``
+- target: serialized hallmark labels joined by ``" ; "``
 """
 
 from __future__ import annotations
@@ -28,10 +17,13 @@ import random
 import tempfile
 from pathlib import Path
 
+import numpy as np
 import torch
+from sklearn.metrics import f1_score, hamming_loss
+from sklearn.preprocessing import MultiLabelBinarizer
 
 from pyhealth.datasets import HallmarksOfCancerDataset, get_dataloader
-from pyhealth.models import T5Classifier
+from pyhealth.models import T5
 from pyhealth.tasks.hallmarks_of_cancer_classification import (
     HallmarksOfCancerSentenceClassification,
 )
@@ -76,8 +68,33 @@ def _build_dataloaders(data_root: str, cache_parent: Path, batch_size: int):
     return train_ds, val_ds, train_loader, val_loader
 
 
+def _evaluate_seq2seq(model: T5, dataloader) -> dict[str, float]:
+    y_true = []
+    y_pred = []
+    for batch in dataloader:
+        generated = model.generate_text(batch["source_text"])
+        y_true.extend(batch["labels"])
+        y_pred.extend(
+            HallmarksOfCancerSentenceClassification.target_text_to_labels(text)
+            for text in generated
+        )
+
+    label_space = sorted({label for labels in (y_true + y_pred) for label in labels})
+    mlb = MultiLabelBinarizer(classes=label_space)
+    y_true_bin = mlb.fit_transform(y_true)
+    y_pred_bin = mlb.transform(y_pred)
+
+    return {
+        "f1_macro": float(
+            f1_score(y_true_bin, y_pred_bin, average="macro", zero_division=0)
+        ),
+        "hamming_loss": float(hamming_loss(y_true_bin, y_pred_bin)),
+        "exact_match": float(np.mean(np.all(y_true_bin == y_pred_bin, axis=1))),
+    }
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description="HOC + T5Classifier ablation example")
+    parser = argparse.ArgumentParser(description="HOC + T5 seq2seq ablation example")
     parser.add_argument(
         "--demo",
         action="store_true",
@@ -134,34 +151,30 @@ def main() -> None:
     )
 
     ablations = [
-        {"pooling": "mean", "lr": 1e-4, "name": "mean_lr1e-4"},
-        {"pooling": "mean", "lr": 5e-4, "name": "mean_lr5e-4"},
-        {"pooling": "first", "lr": 1e-4, "name": "first_lr1e-4"},
+        {"lr": 1e-4, "name": "lr1e-4"},
+        {"lr": 5e-4, "name": "lr5e-4"},
+        {"lr": 1e-3, "name": "lr1e-3"},
     ]
 
-    # multilabel_metrics_fn accepts sklearn metric names only; "loss" is added by Trainer.evaluate().
-    metrics = ["f1_macro", "hamming_loss"]
-
-    print("=== Hallmarks of Cancer — T5Classifier ablation ===")
+    print("=== Hallmarks of Cancer — T5 seq2seq ablation ===")
     print(f"data_root={data_root}, device={device}, pretrained={args.pretrained}")
     print(f"train batches ≈ {len(train_loader)}, val batches ≈ {len(val_loader)}")
 
     results = []
     for cfg in ablations:
-        model = T5Classifier(
+        model = T5(
             dataset=train_ds,
             pretrained_model_name=args.pretrained,
-            max_length=128,
-            dropout=0.1,
-            pooling=cfg["pooling"],
+            max_source_length=128,
+            max_target_length=64,
+            generation_max_length=64,
         )
         trainer = Trainer(
             model,
             device=device,
             enable_logging=False,
-            metrics=metrics,
         )
-        print(f"\n--- Run: {cfg['name']} (pooling={cfg['pooling']}, lr={cfg['lr']}) ---")
+        print(f"\n--- Run: {cfg['name']} (lr={cfg['lr']}) ---")
         trainer.train(
             train_loader,
             val_dataloader=val_loader,
@@ -171,6 +184,7 @@ def main() -> None:
             load_best_model_at_last=False,
         )
         final_scores = trainer.evaluate(val_loader)
+        final_scores.update(_evaluate_seq2seq(model, val_loader))
         results.append((cfg["name"], final_scores))
         for k, v in final_scores.items():
             print(f"  {k}: {v:.6f}")

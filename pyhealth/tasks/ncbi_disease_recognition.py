@@ -1,4 +1,4 @@
-"""Tasks for the NCBI Disease corpus."""
+"""Text-to-text disease recognition task for the NCBI Disease corpus."""
 
 from __future__ import annotations
 
@@ -11,11 +11,11 @@ from .base_task import BaseTask
 
 
 class NCBIDiseaseRecognition(BaseTask):
-    """Document-level disease span extraction task for the NCBI Disease corpus.
+    """Document-level disease recognition task formatted for seq2seq T5 training.
 
-    This task exposes disease mentions as raw span annotations so users can build
-    token-classification or concept-normalization pipelines on top of PyHealth's
-    dataset abstraction.
+    The task exposes a ``source_text`` prompt and a ``target_text`` BIO-tag
+    sequence while preserving raw entity spans and concept identifiers in the
+    sample for inspection and evaluation.
 
     Args:
         text_source: Which field to expose as the main text input.
@@ -34,11 +34,8 @@ class NCBIDiseaseRecognition(BaseTask):
     """
 
     task_name: str = "NCBIDiseaseRecognition"
-    input_schema: Dict[str, str] = {"text": "text"}
-    output_schema: Dict[str, str] = {
-        "entities": "raw",
-        "concept_ids": "raw",
-    }
+    input_schema: Dict[str, str] = {"source_text": "text"}
+    output_schema: Dict[str, str] = {"target_text": "text"}
 
     def __init__(
         self,
@@ -105,6 +102,7 @@ class NCBIDiseaseRecognition(BaseTask):
         abstract = str(getattr(event, "abstract", "") or "")
         entities = self._load_entities(str(getattr(event, "mentions_json", "") or ""))
         text, entities = self._select_text_and_entities(title, abstract, entities)
+        _, bio_tags = self.entities_to_bio_tags(text, entities)
 
         concept_ids = sorted(
             {
@@ -121,6 +119,8 @@ class NCBIDiseaseRecognition(BaseTask):
                 "document_id": str(getattr(event, "doc_id", "")),
                 "split": str(getattr(event, "split", "")),
                 "text": text,
+                "source_text": f"ncbi disease: {text}",
+                "target_text": " ".join(bio_tags),
                 "title": title,
                 "abstract": abstract,
                 "entities": entities,

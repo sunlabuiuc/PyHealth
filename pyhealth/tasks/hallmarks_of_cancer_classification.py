@@ -1,4 +1,4 @@
-"""Hallmarks of Cancer (HOC) sentence-level multi-label classification task."""
+"""Hallmarks of Cancer (HOC) text-to-text classification task."""
 
 from __future__ import annotations
 
@@ -31,12 +31,12 @@ def _parse_labels_raw(raw: str) -> List[str]:
 
 
 class HallmarksOfCancerSentenceClassification(BaseTask):
-    """Multi-label sentence classification on the Hallmarks of Cancer corpus.
+    """Sentence-level hallmark prediction formatted for seq2seq T5 training.
 
-    Each PyHealth "patient" is one sentence row. Inputs are sentence strings;
-    outputs are lists of hallmark class names (including ``none`` when no
-    hallmark applies), matching the BigBio ``hallmarks_of_cancer_bigbio_text``
-    schema.
+    Each PyHealth "patient" is one sentence row. The task exposes a
+    ``source_text`` prompt and a ``target_text`` string containing the hallmark
+    labels joined by ``" ; "``. Raw ``labels`` are preserved in the sample for
+    downstream inspection and metric computation.
 
     Args:
         split: Which split to keep: ``train``, ``validation``, or ``test``.
@@ -44,8 +44,8 @@ class HallmarksOfCancerSentenceClassification(BaseTask):
 
     Attributes:
         task_name: Fixed task name string.
-        input_schema: ``{"text": "text"}``.
-        output_schema: ``{"labels": "multilabel"}``.
+        input_schema: ``{"source_text": "text"}``.
+        output_schema: ``{"target_text": "text"}``.
 
     Examples:
         >>> from pyhealth.datasets import HallmarksOfCancerDataset
@@ -63,8 +63,24 @@ class HallmarksOfCancerSentenceClassification(BaseTask):
                 f"split must be 'train', 'validation', or 'test', got {split!r}"
             )
         self.split = split
-        self.input_schema: Dict[str, str] = {"text": "text"}
-        self.output_schema: Dict[str, str] = {"labels": "multilabel"}
+        self.input_schema: Dict[str, str] = {"source_text": "text"}
+        self.output_schema: Dict[str, str] = {"target_text": "text"}
+
+    @staticmethod
+    def labels_to_target_text(labels: List[str]) -> str:
+        """Serialize a label list into a deterministic target string."""
+        normalized = sorted(label.strip() for label in labels if label.strip())
+        if not normalized:
+            return "none"
+        return " ; ".join(normalized)
+
+    @staticmethod
+    def target_text_to_labels(target_text: str) -> List[str]:
+        """Parse a generated hallmark string back into label names."""
+        text = (target_text or "").strip()
+        if not text:
+            return []
+        return [label.strip() for label in text.split(";") if label.strip()]
 
     def pre_filter(self, df: pl.LazyFrame) -> pl.LazyFrame:
         """Keep only rows for the requested train/validation/test split."""
@@ -81,11 +97,14 @@ class HallmarksOfCancerSentenceClassification(BaseTask):
             if not isinstance(raw_labels, str):
                 raw_labels = str(raw_labels)
             labels = _parse_labels_raw(raw_labels)
+            target_text = self.labels_to_target_text(labels)
             samples.append(
                 {
                     "patient_id": patient.patient_id,
                     "record_id": patient.patient_id,
                     "text": text,
+                    "source_text": f"hoc: {text}",
+                    "target_text": target_text,
                     "labels": labels,
                 }
             )

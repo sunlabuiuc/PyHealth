@@ -197,7 +197,7 @@ API Reference
     models/pyhealth.models.GRASP
     models/pyhealth.models.MedLink
     models/pyhealth.models.TCN
-    models/pyhealth.models.T5Classifier
+    models/pyhealth.models.T5
     models/pyhealth.models.TFMTokenizer
     models/pyhealth.models.GAN
     models/pyhealth.models.VAE
