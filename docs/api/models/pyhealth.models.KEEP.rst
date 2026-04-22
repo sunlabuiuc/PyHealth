@@ -16,8 +16,9 @@ ontology structure with patient co-occurrence statistics in two stages:
   against patient-level code co-occurrence, pulling empirically related
   concepts closer while staying anchored to the ontology.
 
-Reference: Elhussein et al., *"KEEP: Integrating Medical Ontologies with
-Clinical Data for Robust Code Embeddings"*, CHIL 2025.
+Reference: Elhussein et al., `"KEEP: Integrating Medical Ontologies with
+Clinical Data for Robust Code Embeddings" <https://arxiv.org/abs/2510.05049>`_,
+CHIL 2025.
 
 Because SNOMED itself cannot be redistributed under IHTSDO licensing, the
 pipeline reads Athena OMOP vocabulary dumps (downloaded locally from
