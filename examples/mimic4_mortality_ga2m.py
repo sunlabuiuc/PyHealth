@@ -5,10 +5,11 @@ Reproduces the mortality prediction pipeline from:
     Generalized Additive Models with Interactions", MLHC 2020.
     https://proceedings.mlr.press/v126/hegselmann20a.html
 
-This script runs three ablations matching the project proposal:
-    1. Full GA2M (main effects + top-34 interactions)
+This script runs four ablations matching the project proposal:
+    1. Full GA2M (main effects + top-10 interactions)
     2. Main effects only (use_interactions=False)
     3. Reduced feature set (mean features only, no std)
+    4. Logistic Regression baseline (sklearn)
 
 Metrics: AUC-ROC and AUC-PR (paper Section 2.2).
 
@@ -30,6 +31,8 @@ import numpy as np
 import torch
 from sklearn.metrics import roc_auc_score, average_precision_score
 from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LogisticRegression
+from sklearn.preprocessing import StandardScaler
 
 #  check if pyhealth is installed
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -49,7 +52,6 @@ def evaluate(model: GA2M, loader, device: str = "cpu") -> dict:
 
     with torch.no_grad():
         for batch in loader:
-            # out = model(**{k: v.to(device) for k, v in batch.items()})
             out = model(**{k: v.to(device) for k, v in batch.items() if isinstance(v, torch.Tensor)})
             all_probs.append(out["y_prob"].cpu().numpy())
             all_labels.append(out["y_true"].cpu().numpy())
@@ -64,6 +66,45 @@ def evaluate(model: GA2M, loader, device: str = "cpu") -> dict:
     return {
         "auc_roc": roc_auc_score(y_true, y_prob),
         "auc_pr":  average_precision_score(y_true, y_prob),
+    }
+
+
+def run_logistic_regression(samples, test_size=0.2, seed=42) -> dict:
+    # sklearn logistic regression baseline for comparison w/ GA2M
+    # unknown sentinels (-1) are replaced with 0 before scaling
+    train_samples, test_samples = train_test_split(
+        samples,
+        test_size=test_size,
+        random_state=seed,
+        stratify=[s["label"] for s in samples],
+    )
+
+    # extract feature arrays, replacing sentinel with 0 for sklearn
+    X_train = np.array([s["features"] for s in train_samples])
+    X_test  = np.array([s["features"] for s in test_samples])
+    X_train[X_train == UNKNOWN_SENTINEL] = 0.0
+    X_test[X_test == UNKNOWN_SENTINEL]   = 0.0
+
+    y_train = np.array([s["label"] for s in train_samples])
+    y_test  = np.array([s["label"] for s in test_samples])
+
+    # standardise features — logistic regression is sensitive to scale
+    scaler = StandardScaler()
+    X_train = scaler.fit_transform(X_train)
+    X_test  = scaler.transform(X_test)
+
+    # use high max_iter to ensure convergence on small demo data
+    clf = LogisticRegression(max_iter=1000, random_state=seed)
+    clf.fit(X_train, y_train)
+
+    y_prob = clf.predict_proba(X_test)[:, 1]
+
+    if len(np.unique(y_test)) < 2:
+        return {"auc_roc": float("nan"), "auc_pr": float("nan")}
+
+    return {
+        "auc_roc": roc_auc_score(y_test, y_prob),
+        "auc_pr":  average_precision_score(y_test, y_prob),
     }
 
 
@@ -211,8 +252,7 @@ def main():
     results["Main Effects Only"] = metrics
 
     # ablation 3: Reduced feature set (mean features only, std masked)
-    # w/ only mean features
-    #   zero out std positions
+    # zero out std positions (odd indices) to test whether variability matters
     reduced_samples = []
     for s in all_samples:
         feats = list(s["features"])
@@ -232,6 +272,16 @@ def main():
         lr=args.lr,
     )
     results["Mean Features Only"] = metrics
+
+    # ablation 4: Logistic Regression baseline
+    # simpler interpretable model — tests whether GA2M's added complexity helps
+    print(f"\n{'='*60}")
+    print(f"Experiment: Logistic Regression Baseline")
+    print(f"{'='*60}")
+    metrics = run_logistic_regression(all_samples)
+    print(f"\n  AUC-ROC : {metrics['auc_roc']:.4f}")
+    print(f"  AUC-PR  : {metrics['auc_pr']:.4f}")
+    results["Logistic Regression"] = metrics
 
     # summary of results
     print(f"\n{'='*60}")
