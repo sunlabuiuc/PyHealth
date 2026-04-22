@@ -1,8 +1,9 @@
 import json
 from pathlib import Path
 
-import pytest
+import polars as pl
 
+from pyhealth.data import Patient
 from pyhealth.datasets import ECGQADataset
 from pyhealth.tasks import ECGQASingleChooseTask
 
@@ -93,47 +94,42 @@ def _write_fake_ecgqa_ptbxl(root: Path) -> None:
         )
 
 
-def test_ecgqa_task_builds_samples(tmp_path):
+def _build_patient_from_dataset(
+    tmp_path: Path, task: ECGQASingleChooseTask
+) -> Patient:
     root = tmp_path / "ecgqa_ptbxl"
     _write_fake_ecgqa_ptbxl(root)
-
     dataset = ECGQADataset(
         root=str(root),
         split="train",
         question_source="paraphrased",
         single_ecg_only=True,
     )
+    df = task.pre_filter(pl.from_pandas(dataset.load_data().compute()).lazy()).collect()
+    patient_df = df.filter(pl.col("patient_id") == "10001")
+    return Patient(patient_id="10001", data_source=patient_df)
+
+
+def test_ecgqa_task_builds_samples(tmp_path):
     task = ECGQASingleChooseTask()
-    sample_dataset = dataset.set_task(task, num_workers=1)
+    patient = _build_patient_from_dataset(tmp_path, task)
+    samples = task(patient)
 
-    assert len(sample_dataset) == 2
+    assert len(samples) == 1
+    sample = samples[0]
+    assert sample["patient_id"] == "10001"
+    assert sample["visit_id"] == "101"
+    assert sample["record_id"] == 101
+    assert sample["question"] == ["is", "there", "arrhythmia?"]
+    assert sample["label"] == "no"
 
-    sample = sample_dataset[0]
-    assert "patient_id" in sample
-    assert "visit_id" in sample
-    assert "record_id" in sample
-    assert "question" in sample
-    assert "label" in sample
-
-    assert hasattr(sample["question"], "ndim")
-    assert sample["question"].ndim == 1
-    assert len(sample["question"]) > 0
-    assert int(sample["label"]) in {0, 1}
 
 def test_ecgqa_task_drop_none_answers(tmp_path):
-    root = tmp_path / "ecgqa_ptbxl"
-    _write_fake_ecgqa_ptbxl(root)
-
-    dataset = ECGQADataset(
-        root=str(root),
-        split="train",
-        question_source="paraphrased",
-        single_ecg_only=True,
-    )
     task = ECGQASingleChooseTask(
         question_types=["single-query"],
         drop_none_answers=True,
     )
+    patient = _build_patient_from_dataset(tmp_path, task)
+    samples = task(patient)
 
-    with pytest.raises(ValueError, match="zero samples"):
-        dataset.set_task(task, num_workers=1)
+    assert samples == []
