@@ -68,6 +68,10 @@ nlp = [
   "rouge_score~=0.1.2",
   "nltk~=3.9.1",
 ]
+llm = [
+  "openai>=1.0",
+  "python-dotenv>=1.0",
+]
 
 [project.urls]
 Homepage = "https://github.com/sunlabuiuc/PyHealth"
