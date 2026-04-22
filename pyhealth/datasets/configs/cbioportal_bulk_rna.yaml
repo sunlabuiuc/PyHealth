@@ -1,0 +1,15 @@
+version: "1.0"
+tables:
+  samples:
+    file_path: "cbioportal_bulk_rna_samples-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+      - "sample_id"
+      - "cancer_type"
+      - "subtype"
+      - "os_months"
+      - "dfs_months"
+      - "os_status"
+      - "dfs_status"
+      - "expression_json"
