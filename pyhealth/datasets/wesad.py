@@ -10,7 +10,10 @@ Paper:
     Wearable Stress and Affect Detection", ICMI 2018.
 
 Dataset URL:
-    https://ubicomp.eti.uni-siegen.de/home/datasets/icmi18/
+    https://www.eti.uni-siegen.de/ubicomp/home/datasets/icmi18/index.html.en
+
+    Mirror (UCI ML Repository):
+    https://archive.ics.uci.edu/dataset/465/wesad+wearable+stress+and+affect+detection
 """
 
 import logging
@@ -49,7 +52,10 @@ class WESADDataset(BaseDataset):
         - Labels: 0=not defined, 1=baseline, 2=stress, 3=amusement
 
     Dataset is available at:
-        https://ubicomp.eti.uni-siegen.de/home/datasets/icmi18/
+        https://www.eti.uni-siegen.de/ubicomp/home/datasets/icmi18/index.html.en
+
+        UCI mirror:
+        https://archive.ics.uci.edu/dataset/465/wesad+wearable+stress+and+affect+detection
 
     Args:
         root: Root directory of the extracted WESAD dataset. Should
