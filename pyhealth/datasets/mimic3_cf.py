@@ -169,45 +169,6 @@ class MIMIC3CirculatoryFailureDataset(BaseDataset):
 
         return first_failure
 
-        # filter MAP
-        map_df = chartevents[chartevents["ITEMID"] == 220052]
-
-        # convert time
-        map_df["CHARTTIME"] = pd.to_datetime(map_df["CHARTTIME"])
-
-        # load cohort
-        cohort = pd.DataFrame(self.load_cohort())
-        cohort["intime"] = pd.to_datetime(cohort["intime"])
-        cohort["outtime"] = pd.to_datetime(cohort["outtime"])
-
-        # merge
-        merged = map_df.merge(
-            cohort,
-            left_on="ICUSTAY_ID",
-            right_on="icustay_id",
-        )
-
-        # filter ICU period
-        filtered = merged[
-            (merged["CHARTTIME"] >= merged["intime"])
-            & (merged["CHARTTIME"] <= merged["outtime"])
-        ].copy()
-
-        # label
-        filtered["failure_label"] = (filtered["VALUENUM"] < 65).astype(int)
-
-        # first failure time
-        failure_events = filtered[filtered["failure_label"] == 1]
-
-        first_failure = (
-            failure_events.groupby("ICUSTAY_ID")["CHARTTIME"]
-            .min()
-            .reset_index()
-            .rename(columns={"CHARTTIME": "first_failure_time"})
-        )
-
-        return first_failure
-
     def get_patient_by_icustay_id(self, icustay_id: int):
         """Build one task-ready patient dict for a given ICU stay."""
 

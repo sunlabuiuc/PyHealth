@@ -85,7 +85,7 @@ def print_metrics(title: str, metrics: dict) -> None:
 
 def main() -> None:
     dataset = MIMIC3CirculatoryFailureDataset(
-        root="mimic_test"
+        root="mimic-iii-dataset"
     )
 
     # task ablation: prediction windows
