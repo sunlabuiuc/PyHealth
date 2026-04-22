@@ -206,6 +206,7 @@ Available Tasks
     :maxdepth: 3
 
     Base Task <tasks/pyhealth.tasks.BaseTask>
+    Left AMA Prediction (MIMIC-III) <tasks/pyhealth.tasks.against_medical_advice_prediction>
     In-Hospital Mortality (MIMIC-IV) <tasks/pyhealth.tasks.InHospitalMortalityMIMIC4>
     MIMIC-III ICD-9 Coding <tasks/pyhealth.tasks.MIMIC3ICD9Coding>
     Cardiology Detection <tasks/pyhealth.tasks.cardiology_detect>

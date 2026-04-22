@@ -1,4 +1,5 @@
 from .base_task import BaseTask
+from .against_medical_advice_prediction import AgainstMedicalAdvicePredictionMIMIC3
 from .benchmark_ehrshot import BenchmarkEHRShot
 from .cancer_survival import CancerMutationBurden, CancerSurvivalPrediction
 from .bmd_hs_disease_classification import BMDHSDiseaseClassification
