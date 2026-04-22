@@ -69,7 +69,9 @@ class DrugRecommendationMIMIC3(BaseTask):
                 .to_series()
                 .to_list()
             )
-
+            if not conditions:
+                continue
+ 
             # Get procedure codes using hadm_id
             procedures_icd = patient.get_events(
                 event_type="procedures_icd",
@@ -81,7 +83,9 @@ class DrugRecommendationMIMIC3(BaseTask):
                 .to_series()
                 .to_list()
             )
-
+            if not procedures:
+                continue
+ 
             # Get prescriptions using hadm_id
             prescriptions = patient.get_events(
                 event_type="prescriptions",
@@ -91,12 +95,10 @@ class DrugRecommendationMIMIC3(BaseTask):
             drugs = (
                 prescriptions.select(pl.col("prescriptions/ndc")).to_series().to_list()
             )
-
+ 
             # ATC 3 level (first 4 characters)
             drugs = [drug[:4] for drug in drugs if drug]
-
-            # Exclude visits without condition, procedure, or drug code
-            if len(conditions) * len(procedures) * len(drugs) == 0:
+            if not drugs:
                 continue
 
             samples.append(
@@ -212,7 +214,9 @@ class DrugRecommendationMIMIC4(BaseTask):
                 .to_series()
                 .to_list()
             )
-
+            if not conditions:
+                continue
+ 
             # Get procedure codes using hadm_id
             procedures_icd = patient.get_events(
                 event_type="procedures_icd",
@@ -229,7 +233,9 @@ class DrugRecommendationMIMIC4(BaseTask):
                 .to_series()
                 .to_list()
             )
-
+            if not procedures:
+                continue
+ 
             # Get prescriptions using hadm_id
             prescriptions = patient.get_events(
                 event_type="prescriptions",
@@ -239,12 +245,10 @@ class DrugRecommendationMIMIC4(BaseTask):
             drugs = (
                 prescriptions.select(pl.col("prescriptions/ndc")).to_series().to_list()
             )
-
+ 
             # ATC 3 level (first 4 characters)
             drugs = [drug[:4] for drug in drugs if drug]
-
-            # Exclude visits without condition, procedure, or drug code
-            if len(conditions) * len(procedures) * len(drugs) == 0:
+            if not drugs:
                 continue
 
             samples.append(
@@ -330,12 +334,15 @@ def drug_recommendation_mimic3_fn(patient: Patient):
     for i in range(len(patient)):
         visit: Visit = patient[i]
         conditions = visit.get_code_list(table="DIAGNOSES_ICD")
+        if not conditions:
+            continue
         procedures = visit.get_code_list(table="PROCEDURES_ICD")
+        if not procedures:
+            continue
         drugs = visit.get_code_list(table="PRESCRIPTIONS")
         # ATC 3 level
         drugs = [drug[:4] for drug in drugs]
-        # exclude: visits without condition, procedure, or drug code
-        if len(conditions) * len(procedures) * len(drugs) == 0:
+        if not drugs:
             continue
         # TODO: should also exclude visit with age < 18
         samples.append(
@@ -411,12 +418,15 @@ def drug_recommendation_mimic4_fn(patient: Patient):
     for i in range(len(patient)):
         visit: Visit = patient[i]
         conditions = visit.get_code_list(table="diagnoses_icd")
+        if not conditions:
+            continue
         procedures = visit.get_code_list(table="procedures_icd")
+        if not procedures:
+            continue
         drugs = visit.get_code_list(table="prescriptions")
         # ATC 3 level
         drugs = [drug[:4] for drug in drugs]
-        # exclude: visits without condition, procedure, or drug code
-        if len(conditions) * len(procedures) * len(drugs) == 0:
+        if not drugs:
             continue
         # TODO: should also exclude visit with age < 18
         samples.append(
@@ -530,7 +540,9 @@ class DrugRecommendationEICU(BaseTask):
                 getattr(event, "icd9code", "") for event in diagnoses
                 if getattr(event, "icd9code", None)
             ]
-
+            if not conditions:
+                continue
+ 
             # Get physical exam codes
             physical_exams = patient.get_events(
                 event_type="physicalexam",
@@ -540,7 +552,9 @@ class DrugRecommendationEICU(BaseTask):
                 getattr(event, "physicalexampath", "") for event in physical_exams
                 if getattr(event, "physicalexampath", None)
             ]
-
+            if not procedures:
+                continue
+ 
             # Get medication codes
             medications = patient.get_events(
                 event_type="medication",
@@ -550,9 +564,7 @@ class DrugRecommendationEICU(BaseTask):
                 getattr(event, "drugname", "") for event in medications
                 if getattr(event, "drugname", None)
             ]
-
-            # Exclude visits without condition, procedure, or drug code
-            if len(conditions) * len(procedures) * len(drugs) == 0:
+            if not drugs:
                 continue
 
             samples.append(
@@ -624,10 +636,13 @@ def drug_recommendation_omop_fn(patient: Patient):
     for i in range(len(patient)):
         visit: Visit = patient[i]
         conditions = visit.get_code_list(table="condition_occurrence")
+        if not conditions:
+            continue
         procedures = visit.get_code_list(table="procedure_occurrence")
+        if not procedures:
+            continue
         drugs = visit.get_code_list(table="drug_exposure")
-        # exclude: visits without condition, procedure, or drug code
-        if len(conditions) * len(procedures) * len(drugs) == 0:
+        if not drugs:
             continue
         # TODO: should also exclude visit with age < 18
         samples.append(

@@ -54,19 +54,22 @@ class MortalityPredictionMIMIC3(BaseTask):
             diagnoses = patient.get_events(
                 event_type="diagnoses_icd", filters=[("hadm_id", "==", visit.hadm_id)]
             )
+            conditions = [event.icd9_code for event in diagnoses]
+            if not conditions:
+                continue
+
             procedures = patient.get_events(
                 event_type="procedures_icd", filters=[("hadm_id", "==", visit.hadm_id)]
             )
+            procedures_list = [event.icd9_code for event in procedures]
+            if not procedures_list:
+                continue
+
             prescriptions = patient.get_events(
                 event_type="prescriptions", filters=[("hadm_id", "==", visit.hadm_id)]
             )
-
-            conditions = [event.icd9_code for event in diagnoses]
-            procedures_list = [event.icd9_code for event in procedures]
             drugs = [event.ndc for event in prescriptions if event.ndc]
-
-            # Exclude visits without condition, procedure, or drug code
-            if len(conditions) * len(procedures_list) * len(drugs) == 0:
+            if not drugs:
                 continue
 
             samples.append(
@@ -260,30 +263,32 @@ class MortalityPredictionMIMIC4(BaseTask):
                 start=admission.timestamp,
                 end=admission_dischtime,
             )
+            conditions = self._clean_sequence(
+                [getattr(event, "icd_code", None) for event in diagnoses_icd]
+            )
+            if not conditions:
+                continue
+
             procedures_icd = patient.get_events(
                 event_type="procedures_icd",
                 start=admission.timestamp,
                 end=admission_dischtime,
             )
+            procedures_list = self._clean_sequence(
+                [getattr(event, "icd_code", None) for event in procedures_icd]
+            )
+            if not procedures_list:
+                continue
+
             prescriptions = patient.get_events(
                 event_type="prescriptions",
                 start=admission.timestamp,
                 end=admission_dischtime,
             )
-
-            # Extract relevant data
-            conditions = self._clean_sequence(
-                [getattr(event, "icd_code", None) for event in diagnoses_icd]
-            )
-            procedures_list = self._clean_sequence(
-                [getattr(event, "icd_code", None) for event in procedures_icd]
-            )
             drugs = self._clean_sequence(
                 [getattr(event, "ndc", None) for event in prescriptions]
             )
-
-            # Exclude visits without condition, procedure, or drug code
-            if len(conditions) * len(procedures_list) * len(drugs) == 0:
+            if not drugs:
                 continue
 
             samples.append(
@@ -848,31 +853,33 @@ class MortalityPredictionEICU(BaseTask):
                 event_type="diagnosis",
                 filters=[("patientunitstayid", "==", stay_id)]
             )
-            physical_exams = patient.get_events(
-                event_type="physicalexam",
-                filters=[("patientunitstayid", "==", stay_id)]
-            )
-            medications = patient.get_events(
-                event_type="medication",
-                filters=[("patientunitstayid", "==", stay_id)]
-            )
-
-            # Extract codes - use icd9code for diagnoses, physicalexampath for exams, drugname for meds
             conditions = [
                 getattr(event, "icd9code", "") for event in diagnoses
                 if getattr(event, "icd9code", None)
             ]
+            if not conditions:
+                continue
+ 
+            physical_exams = patient.get_events(
+                event_type="physicalexam",
+                filters=[("patientunitstayid", "==", stay_id)]
+            )
             procedures_list = [
                 getattr(event, "physicalexampath", "") for event in physical_exams
                 if getattr(event, "physicalexampath", None)
             ]
+            if not procedures_list:
+                continue
+ 
+            medications = patient.get_events(
+                event_type="medication",
+                filters=[("patientunitstayid", "==", stay_id)]
+            )
             drugs = [
                 getattr(event, "drugname", "") for event in medications
                 if getattr(event, "drugname", None)
             ]
-
-            # Exclude visits without condition, procedure, or drug code
-            if len(conditions) * len(procedures_list) * len(drugs) == 0:
+            if not drugs:
                 continue
 
             # TODO: Exclude visits with age < 18
@@ -977,18 +984,20 @@ class MortalityPredictionEICU2(BaseTask):
                 getattr(event, "admitdxpath", "") for event in admission_dx
                 if getattr(event, "admitdxpath", None)
             ]
-            
-            # Get treatment codes
+            # Combine admission diagnoses and diagnosis strings
+            conditions = admission_dx_codes + diagnosis_strings
+            if not conditions:
+                continue
+ 
+            treatments = patient.get_events(
+                event_type="treatment",
+                filters=[("patientunitstayid", "==", stay_id)]
+            )
             treatment_codes = [
                 getattr(event, "treatmentstring", "") for event in treatments
                 if getattr(event, "treatmentstring", None)
             ]
-
-            # Combine admission diagnoses and diagnosis strings
-            conditions = admission_dx_codes + diagnosis_strings
-
-            # Exclude visits without sufficient codes
-            if len(conditions) * len(treatment_codes) == 0:
+            if not treatment_codes:
                 continue
 
             # TODO: Exclude visits with age < 18
