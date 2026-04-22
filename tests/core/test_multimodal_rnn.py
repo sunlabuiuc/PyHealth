@@ -273,6 +273,118 @@ class TestMultimodalRNN(unittest.TestCase):
         self.assertFalse(self.model._is_sequential_processor(tensor_proc))
 
 
+class TestMultimodalRNNNestedSequence(unittest.TestCase):
+    """Tests for MultimodalRNN with nested_sequence features.
+
+    Covers the bug where drugs_hist = [[]] (first sample in drug recommendation
+    tasks) caused: RuntimeError: Length of all samples has to be greater than 0
+    because MultimodalRNN was flattening visits*codes into a single sequence
+    instead of pooling codes within visits first.
+    """
+
+    def _make_drug_rec_samples(self):
+        """Mimics DrugRecommendationMIMIC4 output for a 2-patient dataset.
+
+        samples[0] for each patient always has drugs_hist = [[]] — one visit
+        with an empty inner list, because the task zeroes out the current
+        visit's drugs from the history.
+        """
+        return [
+            # patient-0, visit-0: first ever visit → drugs_hist has one empty inner list
+            {
+                "patient_id": "p0", "visit_id": "v0",
+                "conditions": [["cond-1", "cond-2"]],
+                "drugs_hist": [[]],          # <-- the problematic case
+                "label": ["drug-A"],
+            },
+            # patient-0, visit-1: second visit → current slot cleared
+            {
+                "patient_id": "p0", "visit_id": "v1",
+                "conditions": [["cond-1", "cond-2"], ["cond-3"]],
+                "drugs_hist": [["drug-A"], []],
+                "label": ["drug-B"],
+            },
+            # patient-1, visit-0: another first-visit case
+            {
+                "patient_id": "p1", "visit_id": "v2",
+                "conditions": [["cond-4"]],
+                "drugs_hist": [[]],
+                "label": ["drug-A"],
+            },
+            # patient-1, visit-1
+            {
+                "patient_id": "p1", "visit_id": "v3",
+                "conditions": [["cond-4"], ["cond-5", "cond-6"]],
+                "drugs_hist": [["drug-B"], []],
+                "label": ["drug-B"],
+            },
+        ]
+
+    def test_forward_with_empty_inner_list(self):
+        """MultimodalRNN must not crash when a nested_sequence has empty inner lists.
+
+        Before the fix, MultimodalRNN flattened (visits * max_codes) into a single
+        sequence dimension, giving length=0 for patients whose inner lists were all
+        empty (e.g. drugs_hist=[[]] for first-visit samples).
+        """
+        dataset = create_sample_dataset(
+            samples=self._make_drug_rec_samples(),
+            input_schema={
+                "conditions": "nested_sequence",
+                "drugs_hist": "nested_sequence",
+            },
+            output_schema={"label": "multilabel"},
+            dataset_name="test_empty_inner",
+        )
+        loader = get_dataloader(dataset, batch_size=4, shuffle=False)
+        model = MultimodalRNN(dataset=dataset, embedding_dim=32, hidden_dim=32)
+        model.eval()
+
+        batch = next(iter(loader))
+        with torch.no_grad():
+            result = model(**batch)
+
+        self.assertIn("loss", result)
+        self.assertIn("y_prob", result)
+        self.assertEqual(result["y_prob"].shape[0], 4)
+
+    def test_nested_sequence_visit_level_mask(self):
+        """Verify the fixed MultimodalRNN uses visit-level masks (not code-level).
+
+        With visit-level masking, a patient with 2 visits where the second is
+        empty should have sequence length 1, not 0.
+        """
+        samples = [
+            # One non-empty visit followed by one empty visit
+            {
+                "patient_id": "p0", "visit_id": "v0",
+                "conditions": [["cond-1"], []],
+                "label": 1,
+            },
+            {
+                "patient_id": "p1", "visit_id": "v1",
+                "conditions": [["cond-2", "cond-3"], ["cond-4"]],
+                "label": 0,
+            },
+        ]
+        dataset = create_sample_dataset(
+            samples=samples,
+            input_schema={"conditions": "nested_sequence"},
+            output_schema={"label": "binary"},
+            dataset_name="test_visit_mask",
+        )
+        loader = get_dataloader(dataset, batch_size=2, shuffle=False)
+        model = MultimodalRNN(dataset=dataset, embedding_dim=16, hidden_dim=16)
+        model.eval()
+
+        batch = next(iter(loader))
+        with torch.no_grad():
+            result = model(**batch)
+
+        self.assertIn("loss", result)
+        self.assertEqual(result["y_prob"].shape[0], 2)
+
+
 if __name__ == "__main__":
     unittest.main()
 
