@@ -24,6 +24,31 @@ Usage:
 
     # Use real Synthea data:
     python examples/synthea_mortality_prediction_rnn.py --root /path/to/synthea/csv
+
+Findings (5,676 Synthea patients, seed 42, cohort = 1,849 samples):
+
+    AUROC (feature set x prediction window)
+    +----------------------------+--------+--------+--------+
+    | features \\ window         | 180d   | 365d   | 730d   |
+    +----------------------------+--------+--------+--------+
+    | conditions only            | 0.927  | 0.948  | 0.882  |
+    | conditions + medications   | 0.918  | 0.965  | 0.973  |
+    | full (cond + meds + proc)  | 0.919  | 0.915  | 0.961  |
+    +----------------------------+--------+--------+--------+
+
+    1. Medications carry strong independent signal: conditions+meds doubles
+       F1 (0.50 -> 0.80) at 180d and lifts AUROC from 0.948 to 0.965 at 365d.
+    2. Adding procedures on top of conditions+meds provides no benefit on
+       Synthea and slightly hurts 365d AUROC (0.965 -> 0.915) - procedure
+       codes are largely redundant with diagnoses under Synthea's generator.
+    3. Longer prediction windows raise the positive rate (6.3 -> 10.0%) and
+       help the conditions+meds model (AUROC 0.918 -> 0.973), but hurt the
+       conditions-only model at 730d (0.948 -> 0.882) because diagnosis-only
+       features decouple from distant deaths.
+
+    Neither ablation axis (feature modality or prediction window) appears
+    in the original CEHR-GAN-BERT paper, which fixes a 365-day window and
+    uses all features.
 """
 
 import argparse
@@ -224,51 +249,51 @@ def _generate_demo_data(root: str) -> None:
     ]
 
     # ---- conditions.csv ----------------------------------------------
-    # One condition per encounter
+    # One condition per encounter (Synthea uses date-only for conditions)
     conditions_rows = [
         ["START", "PATIENT", "ENCOUNTER", "CODE", "DESCRIPTION"],
-        ["2020-01-10T08:00:00Z", "p001", "e001", "38341003", "Hypertension"],
-        ["2021-03-01T09:00:00Z", "p001", "e002", "44054006", "Diabetes mellitus type 2"],
-        ["2021-04-10T10:00:00Z", "p002", "e003", "195662009", "Acute viral pharyngitis"],
-        ["2021-10-01T08:00:00Z", "p002", "e004", "38341003", "Hypertension"],
-        ["2022-01-10T07:00:00Z", "p003", "e005", "22298006", "Myocardial infarction"],
-        ["2022-06-01T09:00:00Z", "p003", "e006", "38341003", "Hypertension"],
-        ["2021-01-05T08:00:00Z", "p004", "e007", "254637007", "Non-small cell lung cancer"],
-        ["2019-04-01T10:00:00Z", "p005", "e008", "195662009", "Acute viral pharyngitis"],
-        ["2020-08-15T08:00:00Z", "p005", "e009", "38341003", "Hypertension"],
-        ["2021-11-01T07:00:00Z", "p005", "e010", "44054006", "Diabetes mellitus type 2"],
-        ["2020-02-10T08:00:00Z", "p006", "e011", "38341003", "Hypertension"],
-        ["2021-05-20T09:00:00Z", "p006", "e012", "44054006", "Diabetes mellitus type 2"],
-        ["2020-06-15T10:00:00Z", "p007", "e013", "195662009", "Acute viral pharyngitis"],
-        ["2021-09-01T08:00:00Z", "p007", "e014", "38341003", "Hypertension"],
-        ["2019-11-10T07:00:00Z", "p008", "e015", "22298006", "Myocardial infarction"],
-        ["2020-07-01T09:00:00Z", "p008", "e016", "38341003", "Hypertension"],
-        ["2021-01-15T08:00:00Z", "p009", "e017", "44054006", "Diabetes mellitus type 2"],
-        ["2022-03-10T10:00:00Z", "p009", "e018", "195662009", "Acute viral pharyngitis"],
-        ["2020-05-05T08:00:00Z", "p010", "e019", "38341003", "Hypertension"],
-        ["2021-08-20T09:00:00Z", "p010", "e020", "44054006", "Diabetes mellitus type 2"],
-        ["2019-09-01T10:00:00Z", "p011", "e021", "195662009", "Acute viral pharyngitis"],
-        ["2020-12-15T08:00:00Z", "p011", "e022", "22298006", "Myocardial infarction"],
-        ["2021-07-01T07:00:00Z", "p011", "e023", "38341003", "Hypertension"],
-        ["2020-03-10T09:00:00Z", "p012", "e024", "38341003", "Hypertension"],
-        ["2021-06-15T08:00:00Z", "p012", "e025", "44054006", "Diabetes mellitus type 2"],
-        ["2021-02-01T10:00:00Z", "p013", "e026", "195662009", "Acute viral pharyngitis"],
-        ["2022-05-20T08:00:00Z", "p013", "e027", "38341003", "Hypertension"],
-        ["2020-10-01T09:00:00Z", "p014", "e028", "44054006", "Diabetes mellitus type 2"],
-        ["2021-12-10T08:00:00Z", "p014", "e029", "22298006", "Myocardial infarction"],
-        ["2019-07-15T10:00:00Z", "p015", "e030", "38341003", "Hypertension"],
-        ["2020-11-01T08:00:00Z", "p015", "e031", "195662009", "Acute viral pharyngitis"],
-        ["2021-04-15T09:00:00Z", "p016", "e032", "44054006", "Diabetes mellitus type 2"],
-        ["2022-01-05T08:00:00Z", "p016", "e033", "38341003", "Hypertension"],
-        ["2020-08-01T10:00:00Z", "p017", "e034", "195662009", "Acute viral pharyngitis"],
-        ["2021-10-20T08:00:00Z", "p017", "e035", "22298006", "Myocardial infarction"],
-        ["2019-12-01T09:00:00Z", "p018", "e036", "38341003", "Hypertension"],
-        ["2021-03-15T08:00:00Z", "p018", "e037", "44054006", "Diabetes mellitus type 2"],
-        ["2020-04-10T10:00:00Z", "p019", "e038", "195662009", "Acute viral pharyngitis"],
-        ["2021-07-20T08:00:00Z", "p019", "e039", "38341003", "Hypertension"],
-        ["2022-02-01T09:00:00Z", "p019", "e040", "44054006", "Diabetes mellitus type 2"],
-        ["2021-05-10T08:00:00Z", "p020", "e041", "22298006", "Myocardial infarction"],
-        ["2022-08-15T10:00:00Z", "p020", "e042", "38341003", "Hypertension"],
+        ["2020-01-10", "p001", "e001", "38341003", "Hypertension"],
+        ["2021-03-01", "p001", "e002", "44054006", "Diabetes mellitus type 2"],
+        ["2021-04-10", "p002", "e003", "195662009", "Acute viral pharyngitis"],
+        ["2021-10-01", "p002", "e004", "38341003", "Hypertension"],
+        ["2022-01-10", "p003", "e005", "22298006", "Myocardial infarction"],
+        ["2022-06-01", "p003", "e006", "38341003", "Hypertension"],
+        ["2021-01-05", "p004", "e007", "254637007", "Non-small cell lung cancer"],
+        ["2019-04-01", "p005", "e008", "195662009", "Acute viral pharyngitis"],
+        ["2020-08-15", "p005", "e009", "38341003", "Hypertension"],
+        ["2021-11-01", "p005", "e010", "44054006", "Diabetes mellitus type 2"],
+        ["2020-02-10", "p006", "e011", "38341003", "Hypertension"],
+        ["2021-05-20", "p006", "e012", "44054006", "Diabetes mellitus type 2"],
+        ["2020-06-15", "p007", "e013", "195662009", "Acute viral pharyngitis"],
+        ["2021-09-01", "p007", "e014", "38341003", "Hypertension"],
+        ["2019-11-10", "p008", "e015", "22298006", "Myocardial infarction"],
+        ["2020-07-01", "p008", "e016", "38341003", "Hypertension"],
+        ["2021-01-15", "p009", "e017", "44054006", "Diabetes mellitus type 2"],
+        ["2022-03-10", "p009", "e018", "195662009", "Acute viral pharyngitis"],
+        ["2020-05-05", "p010", "e019", "38341003", "Hypertension"],
+        ["2021-08-20", "p010", "e020", "44054006", "Diabetes mellitus type 2"],
+        ["2019-09-01", "p011", "e021", "195662009", "Acute viral pharyngitis"],
+        ["2020-12-15", "p011", "e022", "22298006", "Myocardial infarction"],
+        ["2021-07-01", "p011", "e023", "38341003", "Hypertension"],
+        ["2020-03-10", "p012", "e024", "38341003", "Hypertension"],
+        ["2021-06-15", "p012", "e025", "44054006", "Diabetes mellitus type 2"],
+        ["2021-02-01", "p013", "e026", "195662009", "Acute viral pharyngitis"],
+        ["2022-05-20", "p013", "e027", "38341003", "Hypertension"],
+        ["2020-10-01", "p014", "e028", "44054006", "Diabetes mellitus type 2"],
+        ["2021-12-10", "p014", "e029", "22298006", "Myocardial infarction"],
+        ["2019-07-15", "p015", "e030", "38341003", "Hypertension"],
+        ["2020-11-01", "p015", "e031", "195662009", "Acute viral pharyngitis"],
+        ["2021-04-15", "p016", "e032", "44054006", "Diabetes mellitus type 2"],
+        ["2022-01-05", "p016", "e033", "38341003", "Hypertension"],
+        ["2020-08-01", "p017", "e034", "195662009", "Acute viral pharyngitis"],
+        ["2021-10-20", "p017", "e035", "22298006", "Myocardial infarction"],
+        ["2019-12-01", "p018", "e036", "38341003", "Hypertension"],
+        ["2021-03-15", "p018", "e037", "44054006", "Diabetes mellitus type 2"],
+        ["2020-04-10", "p019", "e038", "195662009", "Acute viral pharyngitis"],
+        ["2021-07-20", "p019", "e039", "38341003", "Hypertension"],
+        ["2022-02-01", "p019", "e040", "44054006", "Diabetes mellitus type 2"],
+        ["2021-05-10", "p020", "e041", "22298006", "Myocardial infarction"],
+        ["2022-08-15", "p020", "e042", "38341003", "Hypertension"],
     ]
 
     # ---- medications.csv ---------------------------------------------
@@ -534,11 +559,12 @@ def main():
     # ------------------------------------------------------------------
     # Note on demo data
     # ------------------------------------------------------------------
-    print(
-        "\nNOTE: With demo data (20 patients), train/val/test splits are very\n"
-        "small and metrics may be unreliable or N/A.  Use a full Synthea\n"
-        "dataset (--root) for meaningful performance comparisons.\n"
-    )
+    if args.demo:
+        print(
+            "\nNOTE: With demo data (20 patients), train/val/test splits are very\n"
+            "small and metrics may be unreliable or N/A.  Use a full Synthea\n"
+            "dataset (--root) for meaningful performance comparisons.\n"
+        )
 
 
 if __name__ == "__main__":

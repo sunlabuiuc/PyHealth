@@ -29,7 +29,7 @@ tables:
     file_path: "conditions.csv"
     patient_id: "patient"
     timestamp: "start"
-    timestamp_format: "%Y-%m-%dT%H:%M:%SZ"
+    timestamp_format: "%Y-%m-%d"
     attributes:
       - "ENCOUNTER"
       - "CODE"

@@ -1,12 +1,12 @@
 START,PATIENT,ENCOUNTER,CODE,DESCRIPTION
-2020-01-10T08:00:00Z,p001,e001,38341003,Hypertension
-2021-03-01T09:00:00Z,p001,e002,44054006,Diabetes mellitus type 2
-2021-03-01T09:00:00Z,p001,e002,73211009,Diabetes mellitus
-2019-06-15T10:00:00Z,p002,e003,195662009,Acute viral pharyngitis
-2020-09-01T08:00:00Z,p002,e004,38341003,Hypertension
-2022-01-10T07:00:00Z,p003,e005,22298006,Myocardial infarction
-2022-06-01T09:00:00Z,p003,e006,38341003,Hypertension
-2021-01-05T08:00:00Z,p004,e007,254637007,Non-small cell lung cancer
-2019-04-01T10:00:00Z,p005,e008,195662009,Acute viral pharyngitis
-2020-08-15T08:00:00Z,p005,e009,38341003,Hypertension
-2021-11-01T07:00:00Z,p005,e010,44054006,Diabetes mellitus type 2
+2020-01-10,p001,e001,38341003,Hypertension
+2021-03-01,p001,e002,44054006,Diabetes mellitus type 2
+2021-03-01,p001,e002,73211009,Diabetes mellitus
+2019-06-15,p002,e003,195662009,Acute viral pharyngitis
+2020-09-01,p002,e004,38341003,Hypertension
+2022-01-10,p003,e005,22298006,Myocardial infarction
+2022-06-01,p003,e006,38341003,Hypertension
+2021-01-05,p004,e007,254637007,Non-small cell lung cancer
+2019-04-01,p005,e008,195662009,Acute viral pharyngitis
+2020-08-15,p005,e009,38341003,Hypertension
+2021-11-01,p005,e010,44054006,Diabetes mellitus type 2
