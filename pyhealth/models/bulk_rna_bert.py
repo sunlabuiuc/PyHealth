@@ -160,7 +160,12 @@ class BulkRNABert(BaseModel):
                 nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
     def encode(self, token_ids: torch.Tensor) -> torch.Tensor:
-        """Encode tokenized RNA-seq into mean-pooled embeddings."""
+        """Encode tokenized RNA-seq into mean-pooled embeddings.
+        Args:
+            token_ids: Tokenized RNA-seq tensor of shape (batch_size, sequence_length).
+        Returns:
+            Mean-pooled embeddings of shape (batch_size, embedding_dim).
+        """
         bsz, seq_len = token_ids.shape
         device = token_ids.device
 
@@ -180,7 +185,20 @@ class BulkRNABert(BaseModel):
         event: Optional[torch.Tensor] = None,
         **kwargs,
     ) -> Dict[str, torch.Tensor]:
-        """Forward pass for downstream task prediction."""
+        """Forward pass for downstream task prediction.
+        Args:
+            token_ids: Tokenized RNA-seq tensor of shape (batch_size, sequence_length).
+            cancer_type: Optional class labels of shape (batch,) for classification loss computation.
+            survival_time: Optional survival times of shape (batch,).
+            event: Optional event indicators of shape (batch,) where 1 = death, 0 = censored.
+        Returns:
+            A dictionary with the following keys:
+                - logit: Raw output logits.
+                - y_prob: Probabilities (classification) or risk scores (survival).
+                - loss: Scalar loss tensor (if labels provided).
+                - y_true: True labels (if labels provided).
+        """
+
         if isinstance(token_ids, tuple):
             token_ids = token_ids[0]
 
@@ -224,7 +242,15 @@ class BulkRNABert(BaseModel):
         mask: torch.Tensor,
         targets: torch.Tensor,
     ) -> torch.Tensor:
-        """Forward pass for MLM pre-training."""
+        """Forward pass for MLM pre-training.
+        Args:
+            token_ids: Tokenized RNA-seq tensor of shape (batch_size, sequence_length).
+            mask: Boolean mask of shape (batch_size, sequence_length) where True indicates a masked position.
+            targets: Original token IDs of shape (batch_size, sequence_length).
+        Returns:
+            Scalar MLM cross-entropy loss over masked positions.
+        """
+
         bsz, seq_len = token_ids.shape
         device = token_ids.device
 
@@ -248,7 +274,16 @@ def _build_mlp(
     output_dim: int,
     dropout: float,
 ) -> nn.Sequential:
-    """Build a MLP with SELU activations, dropout, and layer norm."""
+    """Build a MLP with SELU activations, dropout, and layer norm.
+    Args:
+        input_dim: Input dimension.
+        hidden_dims: List of hidden dimensions.
+        output_dim: Output dimension.
+        dropout: Dropout rate.
+    Returns:
+        A sequential MLP module.
+    """
+
     layers: List[nn.Module] = []
     in_dim = input_dim
     for h in hidden_dims:
@@ -272,7 +307,14 @@ def cox_partial_likelihood_loss(
         approximation for ties.
     Note:
         Returns zero loss if no events are observed in the batch.
+    Args:
+        log_risk: Predicted log-risk scores of shape (batch,).
+        survival_time: Observed survival times of shape (batch,).
+        event: Event indicators of shape (batch,) where 1 = death, 0 = censored.
+    Returns:
+        Scalar negative partial log-likelihood loss.
     """
+
     order = torch.argsort(survival_time, descending=True)
     log_risk = log_risk[order]
     event = event[order]

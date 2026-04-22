@@ -33,7 +33,13 @@ RUNTIME_CONFIG_NAME = "tcga_rnaseq_pyhealth_config.yaml"
 
 
 def _infer_gene_columns_from_tokenized_csv(path: str) -> List[str]:
-    """Return gene column names from a tokenized RNA-seq CSV header."""
+    """Return gene column names from a tokenized RNA-seq CSV header.
+    Args:
+        path: Path to the tokenized RNA-seq CSV file.
+
+    Returns:
+        List of gene column names.
+    """
     header = pd.read_csv(path, nrows=0)
     skip = {"patient_id", "cohort"}
     return [c for c in header.columns if c.lower() not in skip]
@@ -140,7 +146,6 @@ class TCGARNASeqDataset(BaseDataset):
         self.n_genes = n_genes
         self.gene_names: List[str] = []
 
-        # Prepare preprocessed CSVs if not already done
         rnaseq_out = os.path.join(root, "tcga_rnaseq_tokenized-pyhealth.csv")
         clinical_out = os.path.join(root, "tcga_rnaseq_clinical-pyhealth.csv")
 
@@ -183,6 +188,13 @@ class TCGARNASeqDataset(BaseDataset):
 
         Applies log10(1 + x) transformation, max-normalization, and linear
         binning to TPM expression values, then saves tokenized output.
+
+        Args:
+            root: Root directory containing the RNA-seq and clinical data.
+            n_bins: Number of bins for binning the expression values.
+            n_genes: Number of genes to keep. If None, all genes are kept.
+            rnaseq_out: Path to the output tokenized RNA-seq CSV file.
+            clinical_out: Path to the output clinical CSV file.
         """
         rnaseq_raw = os.path.join(root, "rna_seq.csv")
         clinical_raw = os.path.join(root, "clinical.csv")
