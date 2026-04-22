@@ -50,25 +50,42 @@ from pyhealth.models import MixLSTM
 #
 # FINDINGS
 # ----------------
-# Adam consistently better than SGD
-# Adam lowest val loss MSE = 0.430089, test loss MSE = 0.467544
-# SGD loweest val loss MSE = 16.388920, test loss MSE = 16.411073
+# 1. OPTIMIZER COMPARISON
+# ----------------------------------------------------------------------------
+# Conclusion: Adam consistently outperformed SGD across training runs.
+# 
+# | Optimizer | Lowest Val Loss (MSE) | Lowest Test Loss (MSE) |
+# |-----------|-----------------------|------------------------|
+# | Adam      | 0.430089              | 0.467544               |
+# | SGD       | 16.388920             | 16.411073              |
+#
+# 2. LEARNING RATE VS. HIDDEN SIZE COMPARISON
+# --------------------------------------------------------------------------------------------------------------------------
+# Format: (Validation Loss MSE - Test Loss MSE)
+# 
+#           | Hidden Size
+# LR        | 100             150             300             500             700             900             1100
+# ----------|---------------------------------------------------------------------------------------------------------------
+# 0.0001    | (-)             (14.14 - 14.54) (10.76 - 11.05) (7.59 - 7.73)   (5.53 - 5.44)   (4.60 - 4.76)   (4.31 - 4.39)
+# 0.0005    | (10.78 - 11.06) (9.30 - 9.76)   (5.31 - 5.87)   (4.02 - 4.39)   (2.81 - 3.09)   (1.61 - 1.89)   (1.33 - 1.52)
+# 0.001     | (6.37 - 6.51)   (4.49 - 4.62)   (2.60 - 2.67)   (1.26 - 1.31)   (0.87 - 0.91)   (0.69 - 0.77)   (0.43 - 0.46)
+# 0.005     | (2.20 - 2.28)   (1.41 - 1.53)   (0.68 - 0.77)   (0.48 - 0.62)   (0.89 - 1.01)   (-)             (0.68 - 0.74)
+# 0.01      | (1.79 - 1.88)   (1.42 - 1.47)   (1.10 - 1.14)   (1.03 - 1.10)   (1.54 - 1.58)   (0.91 - 0.98)   (2.24 - 2.41)
+# ==========================================================================================================================
 #   
-# Learning Rate comparison
-# learnng rate  hidden-parameter 100, 150, 300, 500, 700, 900, 1100 MSE val loss MSE test loss
-# 0.0001  
-# 0.0005
-# 0.001
-# 0.005 
-# 0.01
+# Conclution:
+#  LR = 0.0001 was the worst performer overall across all hidden sizes
+#  LR = 0.0005 was also the second word performer overall across almost all hidden states
+#  LR = 0.001 this was the learning rate that the paper used. LR value 0.01 and 0.005 were better in the lower hidden sizes 
+#       eg 100, 150, 300, 500. For the reast LR 0.001 was the best choice overall 
+#  LR = 0.05 this rate was the best overall for the lower hidden sizes from 100 to 500 but then had a spike 
+#       at 700 but then managed to go down. Ideal for lower hidden rates
+#  LR = 0.01 this rate was quite spradic and unstable and it went up and down multiple times and is not recommended
 #
-#
-#
-#
-#
-#
-#
-#
+# Overall Conclution of the entire study:
+#  Adam optimization gives the best results
+#  For learning rate 0.001 is great for hidden sizes above 500 and LR = 0.005 is the best for hidden size below 500
+#  
 #
 
 
