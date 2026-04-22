@@ -41,6 +41,10 @@ from .mortality_prediction import (
     MultimodalMortalityPredictionMIMIC3,
     MultimodalMortalityPredictionMIMIC4,
 )
+from .mortality_prediction_with_fairness import (
+    MortalityPredictionWithFairnessMIMIC3,
+)
+from .fairness_utils import audit_predictions
 from .survival_preprocess_support2 import SurvivalPreprocessSupport2
 from .mortality_prediction_stagenet_mimic4 import (
     MortalityPredictionStageNetMIMIC4,
