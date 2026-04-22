@@ -47,6 +47,7 @@ dependencies = [
   "linear-attention-transformer>=0.19.1",
   "datasets (>=4.8.4,<5.0.0)",
   "ipywidgets (>=8.1.8,<9.0.0)",
+  "jupyter (>=1.1.1,<2.0.0)",
 ]
 license = "BSD-3-Clause"
 license-files = ["LICENSE.md"]
@@ -178,6 +179,12 @@ export = "pixi workspace export conda-environment"
 args = [{ "arg" = "args", "default" = "" }]
 env = { CLASS = "zensols.relpo.cli", PYTHONPATH = "src" }
 cmd = "\npython -c \"from $CLASS import main;print('_'*80);main('{{args}}'.split())\""
+
+
+[[tool.poetry.source]]
+name = "pytorch"
+url = "https://download.pytorch.org/whl/cu121"
+priority = "primary"
 
 [dependency-groups]
 dev = [

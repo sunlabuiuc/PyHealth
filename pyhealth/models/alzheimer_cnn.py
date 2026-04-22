@@ -37,7 +37,7 @@ class AlzheimerCNN(BaseModel):
 
         # ── Block 1: Conv2d(1 → C) → InstanceNorm → LeakyReLU → MaxPool ──
         self.block1 = nn.Sequential(
-            nn.Conv2d(1, init_channels, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(1, init_channels, kernel_size=1, stride=1, padding=1),
             nn.InstanceNorm2d(init_channels),
             nn.LeakyReLU(inplace=True),
             nn.MaxPool2d(kernel_size=2, stride=2),
@@ -53,7 +53,7 @@ class AlzheimerCNN(BaseModel):
 
         # ── Block 3: Conv2d(2C → 4C) → InstanceNorm → LeakyReLU → MaxPool ─
         self.block3 = nn.Sequential(
-            nn.Conv2d(init_channels * 2, init_channels * 4, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(init_channels * 2, init_channels * 4, kernel_size=5, stride=1, padding=1),
             nn.InstanceNorm2d(init_channels * 4),
             nn.LeakyReLU(inplace=True),
             nn.MaxPool2d(kernel_size=2, stride=2),
@@ -152,7 +152,7 @@ class AlzheimerCNNNormVariant(BaseModel):
 
         # ── Block 1: Conv2d(1 → C) → Norm → LeakyReLU → MaxPool ──────────
         self.block1 = nn.Sequential(
-            nn.Conv2d(1, init_channels, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(1, init_channels, kernel_size=1, stride=1, padding=1),
             _get_norm(init_channels),
             nn.LeakyReLU(inplace=True),
             nn.MaxPool2d(kernel_size=2, stride=2),
@@ -168,7 +168,7 @@ class AlzheimerCNNNormVariant(BaseModel):
 
         # ── Block 3: Conv2d(2C → 4C) → Norm → LeakyReLU → MaxPool ────────
         self.block3 = nn.Sequential(
-            nn.Conv2d(init_channels * 2, init_channels * 4, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(init_channels * 2, init_channels * 4, kernel_size=5, stride=1, padding=1),
             _get_norm(init_channels * 4),
             nn.LeakyReLU(inplace=True),
             nn.MaxPool2d(kernel_size=2, stride=2),
@@ -357,7 +357,7 @@ class AlzheimerCNNViT(BaseModel):
         # ── CNN backbone: local feature extraction ────────────────────────
         # Two pooling stages reduce 128×128 → 32×32
         self.block1 = nn.Sequential(
-            nn.Conv2d(1, init_channels, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(1, init_channels, kernel_size=1, stride=1, padding=1),
             nn.InstanceNorm2d(init_channels),
             nn.LeakyReLU(inplace=True),
             nn.MaxPool2d(kernel_size=2, stride=2),          # 128 → 64
