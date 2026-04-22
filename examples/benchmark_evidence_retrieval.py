@@ -212,7 +212,8 @@ def _write_markdown_report(
     lines += [
         "## Ablation I — sequential vs single-prompt",
         "",
-        "| Backend | Prompt style | Accuracy | Precision | Recall | FP | Explanations |",
+        "| Backend | Prompt style | Accuracy | Precision | Recall | FP"
+        " | Explanations |",
         "|---|---|:-:|:-:|:-:|:-:|:-:|",
     ]
     for backend_name in ("stub", "llm"):
