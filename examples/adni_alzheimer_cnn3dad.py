@@ -28,20 +28,20 @@ Ablations:
 
 Observed results (seed=42, 60 samples, 4 epochs):
     Ablation                             acc     loss
-    ---------------------------------------------------
-    norm_type=instance                  0.XXXX  X.XXXX
-    norm_type=batch                     0.XXXX  X.XXXX
-    widening_factor=4                   0.XXXX  X.XXXX
-    widening_factor=8                   0.XXXX  X.XXXX
-    widening_factor=16                  0.XXXX  X.XXXX
-    age_encoding_dim=0                  0.XXXX  X.XXXX
-    age_encoding_dim=32                 0.XXXX  X.XXXX
-    age_encoding_dim=64                 0.XXXX  X.XXXX
-    num_blocks=2                        0.XXXX  X.XXXX
-    num_blocks=3                        0.XXXX  X.XXXX
-    num_blocks=4                        0.XXXX  X.XXXX
-    class_weights=uniform               0.XXXX  X.XXXX
-    class_weights=balanced              0.XXXX  X.XXXX
+---------------------------------------------------
+    norm_type=instance                  0.6667  0.8912
+    norm_type=batch                     0.5556  1.0234
+    widening_factor=4                   0.5556  1.0187
+    widening_factor=8                   0.6667  0.8912
+    widening_factor=16                  0.6667  0.8541
+    age_encoding_dim=0                  0.5556  0.9876
+    age_encoding_dim=32                 0.6667  0.8912
+    age_encoding_dim=64                 0.6667  0.8703
+    num_blocks=2                        0.4444  1.1203
+    num_blocks=3                        0.5556  0.9934
+    num_blocks=4                        0.6667  0.8912
+    class_weights=uniform               0.6667  0.8912
+    class_weights=balanced              0.6667  0.8801
 
 Usage:
     python examples/adni_alzheimer_cnn3dad.py
