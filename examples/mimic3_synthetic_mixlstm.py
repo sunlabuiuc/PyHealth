@@ -86,7 +86,14 @@ from pyhealth.models import MixLSTM
 #  Adam optimization gives the best results
 #  For learning rate 0.001 is great for hidden sizes above 500 and LR = 0.005 is the best for hidden size below 500
 #  
+# How to run Study
+# pip install seaborn
+# run the python file
+# you will see 6 .png files diplaying the results as graphs
 #
+
+
+
 
 
 # ──────────────────────────────────────────────────────────────
@@ -139,6 +146,11 @@ ABLATION_LRS = [0.0001, 0.0005, 0.001, 0.005, 0.01]
 # ──────────────────────────────────────────────────────────────
 
 def set_seed(seed: int) -> None:
+    """Set random seeds for Python, NumPy, and PyTorch for reproducibility.
+ 
+    Args:
+        seed: Integer seed value applied to every RNG.
+    """
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -147,6 +159,12 @@ def set_seed(seed: int) -> None:
 
 
 def get_device() -> torch.device:
+    """Detect and return the best available compute device.
+ 
+    Returns:
+        ``torch.device("cuda")`` when a CUDA GPU is available,
+        otherwise ``torch.device("cpu")``.
+    """
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Running on device: {device}")
     return device
@@ -157,6 +175,19 @@ def get_device() -> torch.device:
 # ──────────────────────────────────────────────────────────────
 
 def convert_distb(a: np.ndarray) -> np.ndarray:
+    """Min-max normalize an array and rescale it to sum to one.
+ 
+    The array is first shifted and scaled to the [0, 1] range via
+    min-max normalization, then divided by its sum so that it
+    forms a valid discrete probability distribution.
+ 
+    Args:
+        a: 1-D numpy array of raw (un-normalized) weights.
+ 
+    Returns:
+        A 1-D numpy array of the same shape whose elements are
+        non-negative and sum to 1.
+    """
     a_min = min(a)
     a_max = max(a)
     a = (a - a_min) / (a_max - a_min)
@@ -171,6 +202,34 @@ def generate_distributions(
     input_dim: int,
     change_between_tasks: float,
 ) -> tuple[list[np.ndarray], list[np.ndarray]]:
+    """Generate time-varying weight distributions for synthetic targets.
+ 
+    Creates ``k_dist`` (temporal) and ``d_dist`` (feature) weight
+    vectors that drift by a small delta at each step beyond the
+    lookback window, simulating non-stationary distribution shift.
+ 
+    For time steps before *prev_used_timestamps*, both distributions
+    are uniform placeholders.  At step *prev_used_timestamps* the
+    distributions are initialized randomly, and at each subsequent
+    step a uniform perturbation in ``[-change_between_tasks,
+    +change_between_tasks]`` is added before re-normalization.
+ 
+    Args:
+        T: Total sequence length.
+        prev_used_timestamps: Lookback window size (*l*).
+            Distributions before this index are uniform placeholders.
+        input_dim: Number of input features per time step.
+        change_between_tasks: Maximum per-step drift (*delta*)
+            applied uniformly at random to each weight element.
+ 
+    Returns:
+        A tuple ``(k_dist, d_dist)`` where:
+ 
+        * ``k_dist`` is a list of *T* arrays, each of shape
+          ``(prev_used_timestamps,)``.
+        * ``d_dist`` is a list of *T* arrays, each of shape
+          ``(input_dim,)``.
+    """
     k_dist = []
     d_dist = []
     for i in range(T):
@@ -200,6 +259,31 @@ def generate_xy(
     k_dist: list[np.ndarray],
     d_dist: list[np.ndarray],
 ) -> tuple[np.ndarray, np.ndarray]:
+    
+    """Generate sparse input sequences and their regression targets.
+ 
+    Inputs are 90 % sparse (zeros) with the remaining 10 % drawn
+    uniformly from ``[0, 100)``.  For time steps ``t >= l`` the target
+    is ``x[t-l:t, :] @ d_dist[t] @ k_dist[t]``; earlier targets are
+    ones (placeholders).
+ 
+    Args:
+        num_samples: Number of independent sequences to generate.
+        T: Sequence length (number of time steps).
+        input_dim: Dimensionality of input features.
+        prev_used_timestamps: Lookback window size (*l*).
+        k_dist: Temporal weight distributions as returned by
+            :func:`generate_distributions`.
+        d_dist: Feature weight distributions as returned by
+            :func:`generate_distributions`.
+ 
+    Returns:
+        A tuple ``(x, y)`` where:
+ 
+        * ``x`` has shape ``(num_samples, T, input_dim)``.
+        * ``y`` has shape ``(num_samples, T, 1)``.
+    """
+    
     x_size = num_samples * T * input_dim
     x = np.zeros(x_size)
     sparse_count = int(x_size / 10)
@@ -223,6 +307,23 @@ def generate_xy(
 # ──────────────────────────────────────────────────────────────
 
 def make_dataset(x: np.ndarray, y: np.ndarray, split_name: str):
+    """Wrap numpy arrays into a PyHealth ``SampleDataset``.
+ 
+    Each sequence is registered as a separate patient with a single
+    visit containing the full time-series.
+ 
+    Args:
+        x: Input tensor of shape ``(N, T, D)``.
+        y: Target tensor of shape ``(N, T, 1)``.
+        split_name: Identifier for the split (e.g. ``"train"``,
+            ``"val"``, ``"test"``).  Used in patient IDs and as the
+            PyHealth dataset name suffix.
+ 
+    Returns:
+        A PyHealth ``SampleDataset`` ready to be passed to
+        ``get_dataloader``.
+    """
+
     samples = [
         {
             "patient_id": f"{split_name}-patient-{i}",
@@ -243,6 +344,30 @@ def make_dataset(x: np.ndarray, y: np.ndarray, split_name: str):
 def build_dataloaders(
     k_dist, d_dist, num_samples, T, input_dim, prev_used_timestamps, batch_size
 ):
+    
+    """Generate train / val / test splits and wrap them in DataLoaders.
+ 
+    Three independent datasets are synthesized from the same
+    underlying distributions so that the only source of variance is
+    the random sparse masking and the ordering of non-zero entries.
+ 
+    Args:
+        k_dist: Temporal weight distributions (see
+            :func:`generate_distributions`).
+        d_dist: Feature weight distributions (see
+            :func:`generate_distributions`).
+        num_samples: Number of sequences per split.
+        T: Sequence length.
+        input_dim: Number of input features.
+        prev_used_timestamps: Lookback window size (*l*).
+        batch_size: Mini-batch size for every DataLoader.
+ 
+    Returns:
+        A tuple ``(train_dataset, train_loader, val_loader,
+        test_loader)``.  The raw ``train_dataset`` is also returned
+        because ``MixLSTM.__init__`` requires it to infer schema
+        metadata.
+    """
     x_train, y_train = generate_xy(num_samples, T, input_dim, prev_used_timestamps, k_dist, d_dist)
     x_val, y_val     = generate_xy(num_samples, T, input_dim, prev_used_timestamps, k_dist, d_dist)
     x_test, y_test   = generate_xy(num_samples, T, input_dim, prev_used_timestamps, k_dist, d_dist)
@@ -263,7 +388,24 @@ def build_dataloaders(
 # ──────────────────────────────────────────────────────────────
 
 def collect_predictions(model, test_loader, device):
-    """Run inference and return predictions + ground truth as numpy arrays."""
+    """Run inference on *test_loader* and collect predictions.
+ 
+    The model is set to eval mode and gradients are disabled.  Only
+    time steps from index *l* onward (the non-placeholder region)
+    are retained.
+ 
+    Args:
+        model: A trained ``MixLSTM`` model instance.
+        test_loader: DataLoader yielding test batches.
+        device: Device the model resides on.
+ 
+    Returns:
+        A dictionary with two keys:
+ 
+        * ``"pred"`` — flattened 1-D numpy array of predicted values.
+        * ``"y_true"`` — flattened 1-D numpy array of ground-truth
+          values, aligned element-wise with ``"pred"``.
+    """
     model.eval()
     l = model.prev_used_timestamps
     preds, y_trues = [], []
@@ -298,7 +440,48 @@ def run_hyperparameter_search(
     learning_rate,
     optimizer_class=optim.Adam,
 ):
-    """Execute the hyperparameter search. Returns (results_df, best_predictions, best_model_state)."""
+    
+    """Execute a random hyperparameter search over MixLSTM configs.
+ 
+    Each run samples ``k`` (number of experts) and ``hidden_size``
+    uniformly from the provided lists, trains for *max_epochs*, and
+    records validation / test loss.  The model with the lowest
+    validation loss is retained.
+ 
+    Args:
+        train_data: PyHealth ``SampleDataset`` used to initialize
+            ``MixLSTM`` (needed for schema inference).
+        train_loader: DataLoader for the training split.
+        val_loader: DataLoader for the validation split.
+        test_loader: DataLoader for the test split.
+        device: Compute device (CPU or CUDA).
+        prev_used_timestamps: Lookback window size (*l*) passed to
+            ``MixLSTM``.
+        k_list: Candidate values for the number of mixture experts.
+        hidden_size_list: Candidate values for the LSTM hidden
+            dimension.
+        num_runs: Total number of random configurations to evaluate.
+        max_epochs: Training epochs per run.
+        learning_rate: Learning rate passed to the optimizer.
+        optimizer_class: PyTorch optimizer class (e.g.
+            ``torch.optim.Adam``).
+ 
+    Returns:
+        A tuple ``(results_df, best_predictions, best_model_state)``
+        where:
+ 
+        * ``results_df`` — DataFrame with columns ``Run``,
+          ``k (experts)``, ``Hidden Size``, ``Val Loss``,
+          ``Test Loss``, ``num_params``, and ``epoch``.
+        * ``best_predictions`` — dictionary as returned by
+          :func:`collect_predictions`, augmented with ``"k"``,
+          ``"hidden_size"``, and ``"run"`` keys.  ``None`` when no
+          valid model was found.
+        * ``best_model_state`` — CPU ``state_dict`` of the
+          best-performing model.  ``None`` when no valid model was
+          found.
+    """
+
     results = []
     best_val_loss_overall = np.inf
     best_predictions = None
@@ -370,7 +553,26 @@ def run_single_ablation(
     optimizer_class=optim.Adam,
     optimizer_name: str = "Adam",
 ) -> AblationResult:
-    """Run the full search for one (optimizer, lr) combination and return all results in memory."""
+    
+    """Run the full hyperparameter search for one (optimizer, lr) pair.
+ 
+    This is the main entry point for a single ablation cell.  It
+    seeds RNGs, generates data, builds data loaders, trains all
+    random-search runs, and packages the results into an
+    :class:`AblationResult`.
+ 
+    Args:
+        learning_rate: Learning rate forwarded to the optimizer.
+        optimizer_class: PyTorch optimizer class to use (e.g.
+            ``torch.optim.Adam``, ``torch.optim.SGD``).
+        optimizer_name: Human-readable name stored in the result
+            object and used in plot labels.
+ 
+    Returns:
+        An :class:`AblationResult` containing the results DataFrame,
+        weight distributions, best predictions, and best model state.
+    """
+    
     set_seed(SEED)
     device = get_device()
     logging.getLogger("pyhealth.trainer").setLevel(logging.WARNING)
@@ -421,7 +623,18 @@ def run_single_ablation(
 
 
 def run_all_ablations() -> list[AblationResult]:
-    """Run learning-rate ablations with Adam (original behaviour)."""
+    """Run the learning-rate sweep ablation using the Adam optimizer.
+ 
+    Iterates over every learning rate in :data:`ABLATION_LRS`, runs
+    the full hyperparameter search for each, and prints a summary
+    table.
+ 
+    Returns:
+        A list of :class:`AblationResult` objects, one per learning
+        rate, in the same order as :data:`ABLATION_LRS`.
+    """
+    
+    
     ablation_results = [
         run_single_ablation(lr, optim.Adam, "Adam") for lr in ABLATION_LRS
     ]
@@ -436,17 +649,41 @@ def run_all_ablations() -> list[AblationResult]:
 ABLATION_OPTIMIZER_LR = 0.001  # fixed LR used for the optimizer comparison
 
 def ablations_optimizing_adam() -> AblationResult:
-    """Ablation: Adam optimizer at lr=0.001."""
+
+    """Run the Adam ablation at the fixed comparison learning rate.
+ 
+    Returns:
+        An :class:`AblationResult` for Adam at
+        lr = :data:`ABLATION_OPTIMIZER_LR`.
+    """
+
+    
     return run_single_ablation(ABLATION_OPTIMIZER_LR, optim.Adam, "Adam")
 
 
 def ablations_optimizing_sgd() -> AblationResult:
-    """Ablation: SGD optimizer at lr=0.001."""
+
+    """Run the SGD ablation at the fixed comparison learning rate.
+ 
+    Returns:
+        An :class:`AblationResult` for SGD at
+        lr = :data:`ABLATION_OPTIMIZER_LR`.
+    """
+
     return run_single_ablation(ABLATION_OPTIMIZER_LR, optim.SGD, "SGD")
 
 
 def run_optimizer_ablations() -> list[AblationResult]:
-    """Run Adam vs SGD at a fixed learning rate and print a comparison."""
+    """Compare Adam and SGD at a fixed learning rate.
+ 
+    Both optimizers are trained with
+    lr = :data:`ABLATION_OPTIMIZER_LR` and the results are printed
+    side by side.
+ 
+    Returns:
+        A two-element list ``[adam_result, sgd_result]``.
+    """
+    
     results = [
         ablations_optimizing_adam(),
         ablations_optimizing_sgd(),
@@ -456,7 +693,17 @@ def run_optimizer_ablations() -> list[AblationResult]:
 
 
 def _print_summary(title: str, ablation_results: list[AblationResult]):
-    """Pretty-print a summary table for a list of ablation results."""
+
+    """Pretty-print a summary table for a list of ablation results.
+ 
+    For each :class:`AblationResult` the row with the lowest test
+    loss is selected and its key metrics are displayed.
+ 
+    Args:
+        title: Header string printed above the table.
+        ablation_results: Results to summarize.
+    """
+    
     summary_rows = []
     for result in ablation_results:
         best_row = result.results_df.sort_values(by="Test Loss").iloc[0]
@@ -482,7 +729,20 @@ def _print_summary(title: str, ablation_results: list[AblationResult]):
 # ──────────────────────────────────────────────────────────────
 
 def visualize_hyperparameter_search(ablation_results: list[AblationResult], prefix: str = ""):
-    """Plot MSE loss vs. hidden size for every learning rate."""
+
+    """Plot MSE loss vs. hidden size for every learning rate.
+ 
+    Individual run results are shown as translucent scatter points
+    and per-hidden-size means are overlaid as solid (validation) and
+    dashed (test) lines.
+ 
+    Args:
+        ablation_results: One :class:`AblationResult` per learning
+            rate / optimizer configuration.
+        prefix: String prepended to the output filename (e.g.
+            ``"lr_sweep_"``).
+    """
+    
     print("--- 1. Analyzing Hyperparameter Search (Ablation) ---")
 
     plt.figure(figsize=(12, 7))
@@ -532,7 +792,22 @@ def visualize_hyperparameter_search(ablation_results: list[AblationResult], pref
 
 
 def visualize_predictions(ablation_results: list[AblationResult], num_samples: int = 3, prefix: str = ""):
-    """Plot predicted vs. true values for a few test samples per learning rate."""
+
+    """Plot predicted vs. true values for sample test sequences.
+ 
+    One row of subplots is created per ablation result, with
+    *num_samples* columns each showing a randomly chosen test
+    sequence.
+ 
+    Args:
+        ablation_results: Ablation results whose
+            ``best_predictions`` field will be visualized.  Entries
+            with ``best_predictions is None`` are silently skipped.
+        num_samples: Number of randomly selected test sequences to
+            plot per ablation.
+        prefix: String prepended to the output filename.
+    """
+    
     print("\n--- 2. Analyzing Predictions (Ablation) ---")
 
     # Only include results that have saved predictions
@@ -580,7 +855,19 @@ def visualize_predictions(ablation_results: list[AblationResult], num_samples: i
 
 
 def visualize_synthetic_shift(ablation_results: list[AblationResult], prefix: str = ""):
-    """Plot the k_dist heatmap for each learning rate's task distributions."""
+    """Plot the ``k_dist`` heatmap for each ablation's task distributions.
+ 
+    Each subplot shows how the temporal weight distribution evolves
+    across the *T* time steps (x-axis) over the *l* lookback
+    positions (y-axis).
+ 
+    Args:
+        ablation_results: Ablation results whose ``k_dist`` fields
+            will be visualized.
+        prefix: String prepended to the output filename.
+    """
+
+    
     print("\n--- 3. Analyzing Synthetic Data Shift (Ablation) ---")
 
     fig, axes = plt.subplots(1, len(ablation_results), figsize=(6 * len(ablation_results), 5))
@@ -602,7 +889,18 @@ def visualize_synthetic_shift(ablation_results: list[AblationResult], prefix: st
 
 
 def run_all_visualizations(ablation_results: list[AblationResult], prefix: str = ""):
-    """Generate all three ablation plots from in-memory results."""
+    """Generate all three ablation plot types from in-memory results.
+ 
+    Delegates to :func:`visualize_hyperparameter_search`,
+    :func:`visualize_synthetic_shift`, and
+    :func:`visualize_predictions`.
+ 
+    Args:
+        ablation_results: The list of :class:`AblationResult` objects
+            to visualize.
+        prefix: Filename prefix forwarded to each plotting function.
+    """
+    
     visualize_hyperparameter_search(ablation_results, prefix=prefix)
     visualize_synthetic_shift(ablation_results, prefix=prefix)
     visualize_predictions(ablation_results, prefix=prefix)
