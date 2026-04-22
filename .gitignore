@@ -101,6 +101,7 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+pyhealth_test/*
 
 # Spyder project settings
 .spyderproject

@@ -7082,8 +7082,8 @@ packages:
   timestamp: 1750615908735
 - pypi: ./
   name: pyhealth
-  version: 2.0.1
-  sha256: bf368461a8e66f93ad43f5880295045cbabe6688064af9a650a92bdaf1665332
+  version: 2.0.0
+  sha256: f07719f9dceb759c35507216c8033d2f915d241418d4fad2ab51b37c0e73260f
   requires_dist:
   - torch~=2.7.1
   - torchvision

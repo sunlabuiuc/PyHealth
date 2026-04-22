@@ -799,6 +799,16 @@ def get_norm(
         return ConvGroupNorm(*args, **kwargs)
     else:
         raise ValueError(f'Normalisation with {name=} and {causal=} unknown.')
+
+# =============================================================================
+# Transformer Fusion Module
+# =============================================================================
+# This file uses the reusable TransformerFusion fusion layer from
+# pyhealth.models.fusion to aggregate modality embeddings.
+# The transformer fusion module accepts a dict of temporally aligned
+# modality tensors of shape [B, T, D] and returns a fused tensor of shape [B, T, D].
+
+
 # =============================================================================
 # Dilated CNN Sequence Mixer (Paper-Faithful)
 # =============================================================================
@@ -1096,6 +1106,325 @@ class TemporalConvBlock(nn.Module):
         
         # Convert back to [B, T, D] format
         return out.transpose(1, 2)
+
+
+class BaseFusionModule(nn.Module, ABC):
+    """Abstract base class for multimodal fusion modules."""
+
+    def __init__(self, embed_dim: int, num_modalities: int, **kwargs):
+        super().__init__()
+        self.embed_dim = embed_dim
+        self.num_modalities = num_modalities
+        self._config = kwargs
+
+    @property
+    def config(self) -> Dict[str, Any]:
+        """Get configuration parameters."""
+        return self._config
+
+    @abstractmethod
+    def forward(
+        self,
+        modality_features: List[Optional[Tensor]],
+        modality_mask: Optional[Tensor] = None,
+    ) -> Tensor:
+        """Fuse multimodal features.
+
+        Args:
+            modality_features: List of tensors or None for missing modalities
+            modality_mask: Optional mask indicating present modalities
+
+        Returns:
+            fused_features: [batch_size, seq_len, embed_dim]
+        """
+        pass
+
+    def get_modality_mask(self, modality_features: Union[List[Optional[Tensor]], Dict[str, Optional[Tensor]]]) -> Tensor:
+        """Generate modality mask from a feature list or dict."""
+        if isinstance(modality_features, dict):
+            modality_features = list(modality_features.values())
+
+        device = next((f.device for f in modality_features if f is not None and hasattr(f, 'device')), None)
+        batch_size = next((f.size(0) for f in modality_features if f is not None and hasattr(f, 'size')), 1)
+        modality_mask = torch.tensor(
+            [feat is not None and hasattr(feat, 'device') for feat in modality_features],
+            device=device
+        ).unsqueeze(0).repeat(batch_size, 1)
+        return modality_mask
+
+
+class AttentionMechanism(nn.Module, ABC):
+    """Abstract base class for attention mechanisms."""
+
+    def __init__(self, embed_dim: int, num_heads: int, dropout: float):
+        super().__init__()
+        self.embed_dim = embed_dim
+        self.num_heads = num_heads
+        self.head_dim = embed_dim // num_heads
+        self.dropout = dropout
+
+        if embed_dim % num_heads != 0:
+            raise ValueError("embed_dim must be divisible by num_heads")
+
+    @abstractmethod
+    def forward(self, query: Tensor, key: Tensor, value: Tensor, mask: Optional[Tensor] = None) -> Tensor:
+        pass
+
+
+class MultiHeadAttention(AttentionMechanism):
+    """Standard multi-head attention implementation."""
+
+    def __init__(self, embed_dim: int, num_heads: int = 8, dropout: float = 0.1):
+        super().__init__(embed_dim, num_heads, dropout)
+
+        self.q_proj = nn.Linear(embed_dim, embed_dim)
+        self.k_proj = nn.Linear(embed_dim, embed_dim)
+        self.v_proj = nn.Linear(embed_dim, embed_dim)
+        self.out_proj = nn.Linear(embed_dim, embed_dim)
+        self.dropout_layer = nn.Dropout(dropout)
+        self.scale = self.head_dim ** -0.5
+
+    def forward(self, query: Tensor, key: Tensor, value: Tensor, mask: Optional[Tensor] = None) -> Tensor:
+        batch_size = query.size(0)
+
+        # Linear projections and reshape
+        q = self.q_proj(query).view(batch_size, -1, self.num_heads, self.head_dim).transpose(1, 2)
+        k = self.k_proj(key).view(batch_size, -1, self.num_heads, self.head_dim).transpose(1, 2)
+        v = self.v_proj(value).view(batch_size, -1, self.num_heads, self.head_dim).transpose(1, 2)
+
+        # Attention computation
+        attn_weights = torch.matmul(q, k.transpose(-2, -1)) * self.scale
+
+        # Apply mask if provided
+        if mask is not None:
+            attn_weights = attn_weights.masked_fill(mask == 0, float('-inf'))
+
+        attn_weights = torch.softmax(attn_weights, dim=-1)
+        attn_weights = self.dropout_layer(attn_weights)
+
+        # Apply attention to values
+        attended = torch.matmul(attn_weights, v)
+        attended = attended.transpose(1, 2).contiguous().view(batch_size, -1, self.embed_dim)
+
+        output = self.out_proj(attended)
+        return output
+
+
+class CrossModalAttention(BaseFusionModule):
+    """Cross-modal attention mechanism for fusing features from different modalities."""
+
+    def __init__(
+        self,
+        embed_dim: int,
+        num_heads: int = 8,
+        dropout: float = 0.1,
+        num_modalities: int = 4,
+        **kwargs
+    ):
+        super().__init__(embed_dim, num_modalities, **kwargs)
+        self.attention = MultiHeadAttention(embed_dim, num_heads, dropout)
+
+    def forward(
+        self,
+        modality_features: List[Optional[Tensor]],
+        modality_mask: Optional[Tensor] = None,
+    ) -> Tensor:
+        """
+        Args:
+            modality_features: List of tensors or None for missing modalities
+            modality_mask: [batch_size, num_modalities] - True for present modalities
+
+        Returns:
+            attended_output: [batch_size, seq_len, embed_dim]
+        """
+        if modality_mask is None:
+            modality_mask = self.get_modality_mask(modality_features)
+
+        # Filter present modalities
+        present_features = [f for f in modality_features if f is not None]
+        if not present_features:
+            raise ValueError("At least one modality must be present")
+
+        # Concatenate present features along sequence dimension for cross-attention
+        concatenated = torch.cat(present_features, dim=1)  # [batch, total_seq, embed_dim]
+
+        # Use first present feature as query, concatenated as key/value
+        query = present_features[0]
+
+        # Create attention mask for missing modalities
+        # This is a simplified version - in practice, you'd want more sophisticated masking
+        seq_lengths = [f.size(1) for f in present_features]
+        total_seq = sum(seq_lengths)
+
+        # For now, use the attention mechanism directly
+        output = self.attention(query, concatenated, concatenated)
+
+        return output
+
+
+class TransformerBlock(nn.Module):
+    """Single transformer block with attention and feed-forward."""
+
+    def __init__(
+        self,
+        embed_dim: int,
+        num_heads: int = 8,
+        ff_dim: int = 2048,
+        dropout: float = 0.1,
+        attention_type: str = 'self',
+    ):
+        super().__init__()
+        self.attention_type = attention_type
+
+        if attention_type == 'self':
+            self.attention = MultiHeadAttention(embed_dim, num_heads, dropout)
+        elif attention_type == 'cross':
+            self.attention = CrossModalAttention(embed_dim, num_heads, dropout, num_modalities=1)
+        else:
+            raise ValueError(f"Unknown attention type: {attention_type}")
+
+        self.norm1 = nn.LayerNorm(embed_dim)
+        self.norm2 = nn.LayerNorm(embed_dim)
+
+        # Feed-forward network
+        self.feed_forward = nn.Sequential(
+            nn.Linear(embed_dim, ff_dim),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(ff_dim, embed_dim),
+            nn.Dropout(dropout),
+        )
+
+    def forward(self, x: Tensor, context: Optional[Tensor] = None, mask: Optional[Tensor] = None) -> Tensor:
+        if self.attention_type == 'cross' and context is not None:
+            attn_out = self.attention.attention(x, context, context, mask)
+        else:
+            attn_out = self.attention(x, x, x, mask)
+
+        x = self.norm1(x + attn_out)
+        ff_out = self.feed_forward(x)
+        x = self.norm2(x + ff_out)
+        return x
+
+
+class TransformerFusion(BaseFusionModule):
+    """Transformer-based fusion module for multimodal features with dynamic missing modality handling."""
+
+    def __init__(
+        self,
+        embed_dim: int,
+        num_layers: int = 6,
+        num_heads: int = 8,
+        ff_dim: int = 2048,
+        dropout: float = 0.1,
+        num_modalities: int = 4,
+        max_seq_len: int = 1000,
+        **kwargs
+    ):
+        super().__init__(embed_dim, num_modalities, **kwargs)
+        self.max_seq_len = max_seq_len
+
+        # Positional encoding
+        self.register_buffer('pos_embedding', torch.randn(1, max_seq_len, embed_dim))
+
+        # Modality-specific projections
+        self.modality_projections = nn.ModuleList([
+            nn.Linear(embed_dim, embed_dim) for _ in range(num_modalities)
+        ])
+
+        # Transformer layers
+        self.layers = nn.ModuleList([
+            TransformerBlock(embed_dim, num_heads, ff_dim, dropout, 'self')
+            for _ in range(num_layers)
+        ])
+
+        # Output projection
+        self.output_projection = nn.Linear(embed_dim, embed_dim)
+
+        # Modality importance weights
+        self.modality_weights = nn.Parameter(torch.ones(num_modalities))
+
+    def _project_modalities(self, modality_features: List[Optional[Tensor]]) -> List[Tensor]:
+        """Project each modality to common embedding space."""
+        projected = []
+        for i, feat in enumerate(modality_features):
+            if feat is not None:
+                projected.append(self.modality_projections[i](feat))
+            else:
+                # Create zero tensor for missing modalities
+                batch_size, seq_len = modality_features[0].size(0), modality_features[0].size(1)
+                device = modality_features[0].device
+                projected.append(torch.zeros(batch_size, seq_len, self.embed_dim, device=device))
+        return projected
+
+    def _fuse_features(
+        self,
+        projected_features: List[Tensor],
+        modality_mask: Tensor
+    ) -> Tensor:
+        """Fuse projected features using weighted average."""
+        # Stack features: [num_modalities, batch_size, seq_len, embed_dim]
+        stacked = torch.stack(projected_features, dim=0)
+
+        # Apply modality weights and mask
+        # weights shape: [num_mod, 1, 1, 1] to broadcast over [num_mod, batch, seq_len, embed_dim]
+        weights = self.modality_weights.view(-1, 1, 1, 1)
+        # mask_expanded shape: [num_mod, batch, 1, 1]
+        mask_expanded = modality_mask.t().unsqueeze(-1).unsqueeze(-1)
+
+        weighted_features = stacked * weights * mask_expanded.float()
+
+        # Average across modalities, accounting for missing ones
+        num_present = modality_mask.sum(dim=1, keepdim=True).float().clamp(min=1)  # [batch, 1]
+        fused = weighted_features.sum(dim=0) / num_present.unsqueeze(-1)  # [batch, seq_len, embed_dim]
+        return fused
+
+    def forward(
+        self,
+        modality_features: Union[List[Optional[Tensor]], Dict[str, Tensor]],
+        modality_mask: Optional[Tensor] = None,
+    ) -> Tensor:
+        """
+        Args:
+            modality_features: List of tensors or None, or dict of modality->Tensor
+            modality_mask: [batch_size, num_modalities] - True for present modalities
+
+        Returns:
+            fused_features: [batch_size, seq_len, embed_dim]
+        """
+        if isinstance(modality_features, dict):
+            modality_features = list(modality_features.values())
+
+        if modality_mask is None:
+            modality_mask = self.get_modality_mask(modality_features)
+
+        # Project modalities
+        projected_features = self._project_modalities(modality_features)
+
+        # Fuse features
+        fused = self._fuse_features(projected_features, modality_mask)
+
+        batch_size, seq_len, _ = fused.size()
+
+        # Add positional encoding
+        if seq_len <= self.max_seq_len:
+            fused = fused + self.pos_embedding[:, :seq_len, :]
+        else:
+            # Extend positional encoding if needed
+            extended_pos = torch.cat([
+                self.pos_embedding,
+                torch.zeros(1, seq_len - self.max_seq_len, self.embed_dim, device=fused.device)
+            ], dim=1)
+            fused = fused + extended_pos
+
+        # Apply transformer layers
+        for layer in self.layers:
+            fused = layer(fused, mask=None)  # Self-attention within fused features
+
+        # Final projection
+        output = self.output_projection(fused)
+
+        return output
 
 
 class BaseFusionModule(nn.Module, ABC):
