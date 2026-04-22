@@ -740,11 +740,7 @@ class BulkRNABert(BaseModel):
                 f"{cfg.n_genes}"
             )
 
-        if self.training:
-            masked_tokens, mask_positions = self._apply_mask_discrete(tokens)
-        else:
-            masked_tokens = tokens
-            mask_positions = torch.zeros_like(tokens, dtype=torch.bool)
+        masked_tokens, mask_positions = self._apply_mask_discrete(tokens)
 
         x = self.expression_embedding(masked_tokens)  # (B, L, E)
         x = self._encode(x)
@@ -756,17 +752,14 @@ class BulkRNABert(BaseModel):
         flat_mask = mask_positions.reshape(-1)
         flat_labels[~flat_mask] = -100
 
-        if self.training and flat_mask.any():
+        if flat_mask.any():
             loss = F.cross_entropy(flat_logits, flat_labels, ignore_index=-100)
             y_prob = F.softmax(flat_logits[flat_mask], dim=-1)
             y_true = labels.reshape(-1)[flat_mask]
         else:
-            # Eval path: no masking happened, so there is no MLM target. Return
-            # a zero-loss, all-positions prediction so downstream code can still
-            # consume the outputs (e.g. for extracting embeddings).
             loss = logits.new_zeros(())
-            y_prob = F.softmax(flat_logits, dim=-1)
-            y_true = labels.reshape(-1)
+            y_prob = F.softmax(flat_logits[:0], dim=-1)
+            y_true = labels.reshape(-1)[:0]
 
         return {"loss": loss, "y_prob": y_prob, "y_true": y_true, "logits": logits}
 
@@ -787,14 +780,9 @@ class BulkRNABert(BaseModel):
                 f"{cfg.n_genes}"
             )
 
-        if self.training:
-            corrupted, model_mask, mask_positions = self._apply_mask_continuous(
-                values
-            )
-        else:
-            corrupted = values
-            model_mask = torch.zeros_like(values, dtype=torch.bool)
-            mask_positions = torch.zeros_like(values, dtype=torch.bool)
+        corrupted, model_mask, mask_positions = self._apply_mask_continuous(
+            values
+        )
 
         x = self.expression_embedding(corrupted, model_mask)  # (B, L, E)
         x = self._encode(x)
@@ -804,14 +792,14 @@ class BulkRNABert(BaseModel):
         flat_target = values.reshape(-1)
         flat_mask = mask_positions.reshape(-1)
 
-        if self.training and flat_mask.any():
+        if flat_mask.any():
             loss = F.mse_loss(flat_pred[flat_mask], flat_target[flat_mask])
             y_prob = flat_pred[flat_mask]
             y_true = flat_target[flat_mask]
         else:
             loss = predictions.new_zeros(())
-            y_prob = flat_pred
-            y_true = flat_target
+            y_prob = flat_pred[:0]
+            y_true = flat_target[:0]
 
         return {
             "loss": loss,

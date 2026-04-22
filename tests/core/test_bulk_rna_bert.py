@@ -85,14 +85,18 @@ class TestBulkRNABertDiscrete(unittest.TestCase):
         ]
         self.assertTrue(any(g is not None and g.abs().sum() > 0 for g in grads))
 
-    def test_eval_no_mask(self):
+    def test_eval_applies_mask(self):
+        # Eval now applies the same MLM masking as training so loss /
+        # y_prob / y_true carry meaning when consumed by Trainer.evaluate().
         self.model.eval()
+        torch.manual_seed(0)
         tokens = torch.randint(0, self.cfg.n_bins, (2, self.cfg.n_genes))
         out = self.model(expression=tokens)
-        self.assertEqual(float(out["loss"]), 0.0)
-        self.assertEqual(
-            out["y_prob"].shape, (2 * self.cfg.n_genes, self.cfg.n_bins)
-        )
+        self.assertGreater(float(out["loss"]), 0.0)
+        self.assertEqual(out["y_prob"].dim(), 2)
+        self.assertEqual(out["y_prob"].shape[1], self.cfg.n_bins)
+        self.assertLess(out["y_prob"].shape[0], 2 * self.cfg.n_genes)
+        self.assertEqual(out["y_prob"].shape[0], out["y_true"].shape[0])
 
     def test_masking_ratio(self):
         """Empirical mask ratio should be close to mlm_probability."""
@@ -142,12 +146,18 @@ class TestBulkRNABertContinuous(unittest.TestCase):
         ]
         self.assertTrue(any(g is not None and g.abs().sum() > 0 for g in grads))
 
-    def test_eval_no_mask(self):
+    def test_eval_applies_mask(self):
+        # Eval now applies the same MLM masking as training so loss /
+        # y_prob / y_true carry meaning when consumed by Trainer.evaluate().
         self.model.eval()
+        torch.manual_seed(0)
         values = torch.rand(2, self.cfg.n_genes)
         out = self.model(expression=values)
-        self.assertEqual(float(out["loss"]), 0.0)
+        self.assertGreater(float(out["loss"]), 0.0)
         self.assertEqual(out["predictions"].shape, (2, self.cfg.n_genes))
+        self.assertEqual(out["y_prob"].dim(), 1)
+        self.assertEqual(out["y_prob"].shape, out["y_true"].shape)
+        self.assertLess(out["y_prob"].shape[0], 2 * self.cfg.n_genes)
 
 
 class TestTrainingLoop(unittest.TestCase):
