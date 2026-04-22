@@ -170,7 +170,7 @@ def create_synthetic_dataset(
         
         for epoch_idx in range(num_epochs_per_patient):
             # Temporal signal (2 channels, 3000 time points @ 100Hz for 30 sec)
-            temporal = np.random.randn(2, 3000) * 0.3
+            temporal = np.random.randn(2, 3000) * 2.0
             t = np.linspace(0, 30, 3000)
             
             # Add EEG-like patterns
@@ -297,7 +297,7 @@ def run_ablation_study():
     print("Using SimpleClassifier on synthetic EEG data.\n")
     
     print("[1] Creating synthetic dataset...")
-    all_samples = create_synthetic_dataset(num_patients=5, num_epochs_per_patient=80)
+    all_samples = create_synthetic_dataset(num_patients=3, num_epochs_per_patient=20)
     print(f"    Total samples: {len(all_samples)}")
     
     split_idx = int(0.8 * len(all_samples))
