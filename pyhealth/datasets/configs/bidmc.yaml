@@ -1,0 +1,14 @@
+version: "1.0.0"
+tables:
+  respiratory:
+    file_path: "bidmc-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+    - "signal_file"
+    - "annotation_file"
+    - "age"
+    - "sex"
+    - "location"
+    - "split"
+    - "processed_file"

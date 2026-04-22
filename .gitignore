@@ -140,3 +140,12 @@ data/physionet.org/
 
 # Model weight files (large binaries, distributed separately)
 weightfiles/
+
+# Auto-generated dataset metadata CSVs (contain absolute paths from the
+# machine that ran prepare_metadata). These are rebuilt on first use by
+# the dataset loaders, so checking them in leaks user-specific paths.
+test-resources/**/*-pyhealth.csv
+
+# Per-record preprocessing caches built by dataset loaders with
+# preprocess=True (e.g. LUDB/MIT-BIH/BIDMC .npz files).
+test-resources/**/processed/
