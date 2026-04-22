@@ -266,12 +266,13 @@ class ResNetLSTM(BaseModel):
         x = torch.squeeze(x, 2)
         x = x.permute(0, 2, 1)
 
-        hidden = (
-            torch.zeros(self.num_layers, self.batch_size, self.hidden_dim),
-            torch.zeros(self.num_layers, self.batch_size, self.hidden_dim),
+        batch_size = x.size(0)
+        self.hidden = (
+            x.new_zeros(self.num_layers, batch_size, self.hidden_dim),
+            x.new_zeros(self.num_layers, batch_size, self.hidden_dim)
         )
 
-        output, hidden = self.lstm(x, hidden)
+        output, hidden = self.lstm(x, self.hidden)
         output = output[:, -1, :]
 
         output = self.classifier(output)
