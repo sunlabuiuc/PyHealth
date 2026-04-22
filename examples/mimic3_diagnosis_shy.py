@@ -88,6 +88,21 @@ np.random.seed(SEED)
 torch.manual_seed(SEED)
 
 def recall_at_k(y_prob, y_true, k=5):
+    """
+    Compute Recall@K for multi-label predictions.
+
+    Recall@K measures how many of the true positive labels are captured
+    within the top-K predicted labels for each sample.
+
+    Args:
+        y_prob (torch.Tensor): Predicted probabilities or scores with shape.
+        y_true (torch.Tensor): Ground truth binary labels with shape,
+                                where 1 indicates a true label.
+        k (int, optional): Number of top predictions to consider. Default is 5.
+
+    Returns:
+        float: Average Recall@K across all samples that have at least one true label.
+    """
     topk = torch.topk(y_prob, k, dim=1).indices
 
     recalls = []
@@ -104,6 +119,21 @@ def recall_at_k(y_prob, y_true, k=5):
     return sum(recalls) / len(recalls)
 
 def precision_at_k(y_prob, y_true, k=5):
+    """
+    Compute Precision@K for multi-label predictions.
+
+    Precision@K measures how many of the top-K predicted labels are actually correct
+    for each sample.
+
+    Args:
+        y_prob (torch.Tensor): Predicted probabilities or scores with shape.
+        y_true (torch.Tensor): Ground truth binary labels with shape,
+                                where 1 indicates a true label.
+        k (int, optional): Number of top predictions to consider. Default is 5.
+
+    Returns:
+        float: Average Precision@K across all samples.
+    """
     topk = torch.topk(y_prob, k, dim=1).indices
 
     precisions = []
