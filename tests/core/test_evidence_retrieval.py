@@ -33,6 +33,13 @@ from pyhealth.models import (
 from pyhealth.tasks import EvidenceRetrievalMIMIC3
 from pyhealth.tasks.evidence_retrieval_mimic3 import split_sentences
 
+try:
+    import openai  # noqa: F401
+
+    _OPENAI_AVAILABLE = True
+except ImportError:
+    _OPENAI_AVAILABLE = False
+
 
 class _ScriptedBackend:
     """Tiny backend whose responses are scripted by prompt substring."""
@@ -348,6 +355,11 @@ class TestCBERTLiteRetriever(unittest.TestCase):
         self.assertIn("snippets", outputs)
 
 
+@unittest.skipUnless(
+    _OPENAI_AVAILABLE,
+    "openai package not installed; skipping OpenAIBackend contract tests. "
+    "Install with `pip install openai` to exercise these.",
+)
 class TestOpenAIBackend(unittest.TestCase):
     """OpenAI backend tests — no real API calls, only contract checks."""
 
