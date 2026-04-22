@@ -240,7 +240,7 @@ class KeepEmbedding(BaseModel):
         self.lambda_reg = lambda_reg
         self.reg_norm = reg_norm
         self.log_scale = log_scale
-        self.device = device
+        self._device = device
         self.mode = "regression"  # Set mode for compatibility with BaseModel
         
         # Generate Node2Vec embeddings
@@ -330,10 +330,10 @@ class KeepEmbedding(BaseModel):
             }
         
         # Move inputs to correct device
-        i_indices = i_indices.to(self.device)
-        j_indices = j_indices.to(self.device)
-        counts = counts.to(self.device)
-        weights = weights.to(self.device)
+        i_indices = i_indices.to(self._device)
+        j_indices = j_indices.to(self._device)
+        counts = counts.to(self._device)
+        weights = weights.to(self._device)
         
         # Get embeddings and biases
         embedding_i = self.embeddings_v(i_indices)  # (batch_size, embedding_dim)
@@ -350,7 +350,7 @@ class KeepEmbedding(BaseModel):
         glove_loss = torch.sum(weights * squared_diff)
         
         total_loss = glove_loss
-        reg_loss = torch.tensor(0.0, device=self.device)
+        reg_loss = torch.tensor(0.0, device=self._device)
         
         # Add Node2Vec regularization if lambda > 0
         if self.lambda_reg > 0:
@@ -385,7 +385,7 @@ class KeepEmbedding(BaseModel):
         return {
             "loss": total_loss,
             "logit": glove_loss.detach(),  # Return GloVe component as logit for reference
-            "y_prob": torch.zeros(i_indices.shape[0], device=self.device),  # Placeholder
-            "y_true": torch.zeros(i_indices.shape[0], device=self.device),  # Placeholder
+            "y_prob": torch.zeros(i_indices.shape[0], device=self._device),  # Placeholder
+            "y_true": torch.zeros(i_indices.shape[0], device=self._device),  # Placeholder
             "reg_loss": reg_loss.detach(),  # Return regularization loss for monitoring
         }
