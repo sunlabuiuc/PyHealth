@@ -189,10 +189,13 @@ def _build_merged_csv(
 class TCGARNASeqEmbeddingDataset(BaseDataset):
     """BaseDataset wrapper over pre-computed BulkRNABert TCGA embeddings.
 
-    The dataset materializes (once, lazily) a merged CSV with columns
-    ``patient_id``, ``cohort``, ``embedding_json`` under ``root``, then
-    loads it through the standard :class:`~pyhealth.datasets.BaseDataset`
-    YAML path. Pair with :class:`~pyhealth.tasks.TCGACancerClassification5Cohort`:
+    The dataset materializes a merged CSV with columns
+    ``patient_id``, ``cohort``, ``embedding_json`` under ``root`` on every
+    instantiation, then loads it through the standard
+    :class:`~pyhealth.datasets.BaseDataset` YAML path. Rebuilding the CSV
+    each time avoids silently reusing stale outputs when the caller
+    points at a different checkpoint or mapping file. Pair with
+    :class:`~pyhealth.tasks.TCGACancerClassification5Cohort`:
 
     .. code-block:: python
 
@@ -209,13 +212,15 @@ class TCGARNASeqEmbeddingDataset(BaseDataset):
 
     Args:
         root: Directory used to host the generated merged CSV
-            (``tcga_rnaseq_embedding.csv``). A pre-existing CSV in this
-            directory will be reused.
-        embeddings_path: Path to the ``.npy`` embedding matrix. Ignored
-            if the merged CSV already exists at ``root``.
+            (``tcga_rnaseq_embedding.csv``). The CSV is rebuilt on every
+            instantiation; any pre-existing file at this path is
+            overwritten to guarantee that the loaded data matches the
+            supplied ``embeddings_path`` / ``identifier_csv`` /
+            ``mapping_csv``.
+        embeddings_path: Path to the ``.npy`` embedding matrix. Required.
         identifier_csv: Path to ``tcga_preprocessed.csv`` (only the
-            ``identifier`` column is consumed).
-        mapping_csv: Path to ``tcga_file_mapping.csv``.
+            ``identifier`` column is consumed). Required.
+        mapping_csv: Path to ``tcga_file_mapping.csv``. Required.
         tables: Tables to load. Defaults to ``["rnaseq_embedding"]`` which
             matches the shipped YAML.
         dataset_name: Optional override for :attr:`BaseDataset.dataset_name`.
@@ -228,9 +233,9 @@ class TCGARNASeqEmbeddingDataset(BaseDataset):
     def __init__(
         self,
         root: str | Path,
-        embeddings_path: Optional[str | Path] = None,
-        identifier_csv: Optional[str | Path] = None,
-        mapping_csv: Optional[str | Path] = None,
+        embeddings_path: str | Path,
+        identifier_csv: str | Path,
+        mapping_csv: str | Path,
         tables: Optional[List[str]] = None,
         dataset_name: Optional[str] = None,
         config_path: Optional[str] = None,
@@ -239,16 +244,9 @@ class TCGARNASeqEmbeddingDataset(BaseDataset):
         root_path = Path(root)
         root_path.mkdir(parents=True, exist_ok=True)
         merged_csv = root_path / MERGED_CSV_NAME
-        if not merged_csv.exists():
-            if embeddings_path is None or identifier_csv is None or mapping_csv is None:
-                raise ValueError(
-                    f"{merged_csv} does not exist and one of "
-                    "embeddings_path / identifier_csv / mapping_csv was not "
-                    "provided. Pass all three to build the merged CSV."
-                )
-            _build_merged_csv(
-                embeddings_path, identifier_csv, mapping_csv, merged_csv
-            )
+        _build_merged_csv(
+            embeddings_path, identifier_csv, mapping_csv, merged_csv
+        )
 
         if config_path is None:
             config_path = str(
