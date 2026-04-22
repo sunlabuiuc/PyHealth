@@ -39,7 +39,7 @@ class AlzheimerCNN(BaseModel):
         # CNN Blocks
         # 2D convolution, 2D Instance Normalization, LeakyReLU activation function, 2D Max Pooling
         self.block1 = nn.Sequential(
-            nn.Conv2d(1, init_channels, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(1, init_channels, kernel_size=1, stride=1, padding=1),
             nn.InstanceNorm2d(init_channels),
             nn.LeakyReLU(inplace=True),
             nn.MaxPool2d(kernel_size=2, stride=2),
@@ -54,7 +54,7 @@ class AlzheimerCNN(BaseModel):
         )
         self.block3 = nn.Sequential(
             nn.Conv2d(
-                init_channels * 2, init_channels * 4, kernel_size=3, stride=1, padding=1
+                init_channels * 2, init_channels * 4, kernel_size=5, stride=1, padding=1
             ),
             nn.InstanceNorm2d(init_channels * 4),
             nn.LeakyReLU(inplace=True),
@@ -164,7 +164,7 @@ class AlzheimerCNNNormVariant(BaseModel):
                 return nn.GroupNorm(1, channels)
 
         self.block1 = nn.Sequential(
-            nn.Conv2d(1, init_channels, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(1, init_channels, kernel_size=1, stride=1, padding=1),
             _get_norm(init_channels),
             nn.LeakyReLU(inplace=True),
             nn.MaxPool2d(kernel_size=2, stride=2),
@@ -178,9 +178,7 @@ class AlzheimerCNNNormVariant(BaseModel):
             nn.MaxPool2d(kernel_size=2, stride=2),
         )
         self.block3 = nn.Sequential(
-            nn.Conv2d(
-                init_channels * 2, init_channels * 4, kernel_size=3, stride=1, padding=1
-            ),
+            nn.Conv2d(init_channels * 2, init_channels * 4, kernel_size=5, stride=1, padding=1),
             _get_norm(init_channels * 4),
             nn.LeakyReLU(inplace=True),
             nn.MaxPool2d(kernel_size=2, stride=2),
@@ -353,7 +351,7 @@ class AlzheimerCNNViT(BaseModel):
         # CNN Layer: local feature extraction
         # Two pooling stages reduce 128×128 -> 32×32
         self.block1 = nn.Sequential(
-            nn.Conv2d(1, init_channels, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(1, init_channels, kernel_size=1, stride=1, padding=1),
             nn.InstanceNorm2d(init_channels),
             nn.LeakyReLU(inplace=True),
             nn.MaxPool2d(kernel_size=2, stride=2),  # 128 → 64
