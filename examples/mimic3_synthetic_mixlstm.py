@@ -25,6 +25,53 @@ from pyhealth.trainer import Trainer
 from pyhealth.models import MixLSTM
 
 
+# ======================================================================
+# MixLSTM Hyperparameter Search Experiment
+# Synthetic time-series regression task with PyHealth
+# ======================================================================
+#
+# EXPERIMENTAL SETUP
+# ------------------
+# Dataset: Synthetic non-stationary time-series regression. 1,000 sequences
+#   per split (train/val/test), length T=30, 3 input features. Inputs are
+#   90% sparse. Targets from step l=10 onward are weighted combinations of
+#   prior inputs, where the weights drift by delta=0.05 per step to simulate
+#   distribution shift.
+#
+# Model: MixLSTM (PyHealth) with k=2 experts and lookback window l=10.
+#   Hidden size sampled from {100, 150, 300, 500, 700, 900, 1100}.
+#   20 random-search runs per config, 30 epochs each, batch size 100.
+#
+# ABLATION STUDIES
+# ----------------
+# 1) Learning rate sweep: Adam at lr in {0.0001, 0.0005, 0.001, 0.005, 0.01}
+# 2) Optimizer comparison: Adam vs SGD at lr=0.001
+# 3) Every other parameter kept as default
+#
+# FINDINGS
+# ----------------
+# Adam consistently better than SGD
+# Adam lowest val loss MSE = 0.430089, test loss MSE = 0.467544
+# SGD loweest val loss MSE = 16.388920, test loss MSE = 16.411073
+#   
+# Learning Rate comparison
+# learnng rate  hidden-parameter 100, 150, 300, 500, 700, 900, 1100 MSE val loss MSE test loss
+# 0.0001  
+# 0.0005
+# 0.001
+# 0.005 
+# 0.01
+#
+#
+#
+#
+#
+#
+#
+#
+#
+
+
 # ──────────────────────────────────────────────────────────────
 # In-memory result containers
 # ──────────────────────────────────────────────────────────────
