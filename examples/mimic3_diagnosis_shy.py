@@ -203,8 +203,7 @@ def main():
     """
     # Load dataset
     dataset = MIMIC3Dataset(
-        # root="/path/to/mimic-iii/1.4"    # path to your local MIMIC-III CSV files
-        root="data",
+        root="/path/to/mimic-iii/1.4",    # path to your local MIMIC-III CSV files
         tables=["DIAGNOSES_ICD"],
         # dev=True,
     )
