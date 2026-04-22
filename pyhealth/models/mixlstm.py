@@ -14,6 +14,7 @@ relationship between features and outcomes changes over time.
 import math
 from abc import ABC
 from collections import abc
+from typing import Any, Dict, List, Optional, Tuple, Type, Union
 
 import numpy as np
 import torch
@@ -34,7 +35,7 @@ class MLP(nn.Module):
         bias: Whether linear layers include a bias term.
     """
 
-    def __init__(self, neuron_sizes, activation=nn.LeakyReLU, bias=True):
+    def __init__(self, neuron_sizes: List[int], activation: Type[nn.Module] = nn.LeakyReLU, bias: bool = True) -> None:
         super(MLP, self).__init__()
         self.neuron_sizes = neuron_sizes
 
@@ -47,12 +48,12 @@ class MLP(nn.Module):
 
         self.classifier = nn.Sequential(*layers[:-1])
 
-    def eval_forward(self, x, y):
+    def eval_forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         """Run a forward pass in eval mode (ignores ``y``)."""
         self.eval()
         return self.forward(x)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Flatten the input and pass it through the MLP."""
         x = x.contiguous()
         x = x.view(-1, self.neuron_sizes[0])
@@ -71,7 +72,7 @@ class MoE(nn.Module):
         gate: The gating function that produces mixing coefficients.
     """
 
-    def __init__(self, experts, gate):
+    def __init__(self, experts: nn.Module, gate: "Gate") -> None:
         super(MoE, self).__init__()
         self.experts = experts
         self.gate = gate
@@ -90,13 +91,13 @@ class MoO(MoE):
         expert_dim: Expert dimension after stacking (default: 0).
     """
 
-    def __init__(self, experts, gate, bs_dim=1, expert_dim=0):
+    def __init__(self, experts: nn.ModuleList, gate: "Gate", bs_dim: int = 1, expert_dim: int = 0) -> None:
         super(MoO, self).__init__(experts, gate)
         # this is for RNN architecture: bs_dim = 2 for RNN
         self.bs_dim = bs_dim
         self.expert_dim = expert_dim
 
-    def combine(self, o, coef):
+    def combine(self, o: List[torch.Tensor], coef: torch.Tensor) -> Union[torch.Tensor, List[torch.Tensor]]:
         """Combine expert outputs using the mixing coefficients."""
         if isinstance(o[0], abc.Sequence):  # account for multi_output setting
             return [self.combine(o_, coef) for o_ in zip(*o)]
@@ -112,7 +113,7 @@ class MoO(MoE):
             res = res.transpose(self.bs_dim, -2)
             return res.sum(0)
 
-    def forward(self, x, coef=None):
+    def forward(self, x: torch.Tensor, coef: Optional[torch.Tensor] = None) -> Union[torch.Tensor, List[torch.Tensor]]:
         """Compute each expert's output and combine them."""
         coef = self.gate(x, coef)  # (bs, n_expert) or n_expert
         self.last_coef = coef
@@ -128,7 +129,7 @@ class MoW(MoE):
     assembled expert per time step.
     """
 
-    def forward(self, x, coef=None):
+    def forward(self, x: Any, coef: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
         """Run the assembled expert on the input."""
         # assume experts has already been assembled
         coef = self.gate(x, coef)
@@ -140,7 +141,7 @@ class MoW(MoE):
 class Gate(ABC, nn.Module):
     """Abstract base class for gating functions."""
 
-    def forward(self, x, coef=None):
+    def forward(self, x: Any, coef: Optional[torch.Tensor] = None) -> torch.Tensor:
         raise NotImplementedError()
 
 
@@ -153,12 +154,12 @@ class AdaptiveLSTMGate(Gate):
         normalize: If True, apply softmax to the coefficients.
     """
 
-    def __init__(self, input_size, num_experts, normalize=False):
+    def __init__(self, input_size: int, num_experts: int, normalize: bool = False) -> None:
         super(self.__class__, self).__init__()
         self.forward_function = MLP([input_size, num_experts])
         self.normalize = normalize
 
-    def forward(self, x, coef=None):
+    def forward(self, x: Tuple[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]], coef: Optional[torch.Tensor] = None) -> torch.Tensor:
         """Produce mixing coefficients from the hidden state."""
         x, (h, c) = x  # h (_, bs, d)
         o = self.forward_function(h.transpose(0, 1))  # (bs, num_experts)
@@ -178,7 +179,7 @@ class NonAdaptiveGate(Gate):
         normalize: If True, apply softmax to the coefficients.
     """
 
-    def __init__(self, num_experts, coef=None, fixed=False, normalize=False):
+    def __init__(self, num_experts: int, coef: Optional[torch.Tensor] = None, fixed: bool = False, normalize: bool = False) -> None:
         super(self.__class__, self).__init__()
         self.normalize = normalize
         if coef is None:  # initialization
@@ -191,7 +192,7 @@ class NonAdaptiveGate(Gate):
 
         self.coefficients = coef
 
-    def forward(self, x, coef=None):
+    def forward(self, x: Any, coef: Optional[torch.Tensor] = None) -> torch.Tensor:
         """Return the (optionally normalized) mixing coefficients."""
         if self.normalize:
             return nn.functional.softmax(self.coefficients, 0)
@@ -202,13 +203,13 @@ class NonAdaptiveGate(Gate):
 class IDGate(Gate):
     """Identity gate that passes through a previous coefficient unchanged."""
 
-    def forward(self, x, coef):
+    def forward(self, x: Any, coef: torch.Tensor) -> torch.Tensor:
         """Return the coefficient that was passed in."""
         return coef
 
 
 ################ time series example models ################
-def moo_linear(in_features, out_features, num_experts, bs_dim=1, expert_dim=0):
+def moo_linear(in_features: int, out_features: int, num_experts: int, bs_dim: int = 1, expert_dim: int = 0) -> MoO:
     """Create a MoO over a set of linear layers with tied shape.
 
     Args:
@@ -244,8 +245,8 @@ class mowLSTM_(nn.Module):
         batch_first: If True, expects input shape (batch, seq_len, dim).
     """
 
-    def __init__(self, input_size, hidden_size, num_experts=2,
-                 batch_first=False):
+    def __init__(self, input_size: int, hidden_size: int, num_experts: int = 2,
+                 batch_first: bool = False) -> None:
 
         super(mowLSTM_, self).__init__()
 
@@ -272,7 +273,7 @@ class mowLSTM_(nn.Module):
         # maybe: orthogonal initialization: see jeeheh's code
         # note: pytorch implementation does neither
 
-    def rnn_step(self, x, hidden, coef):
+    def rnn_step(self, x: torch.Tensor, hidden: Tuple[torch.Tensor, torch.Tensor], coef: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         """Run a single LSTM step with mixed expert parameters."""
         bs = x.shape[1]
         h, c = hidden
@@ -289,7 +290,7 @@ class mowLSTM_(nn.Module):
         h = outgate * torch.tanh(c)  # maybe use layer norm here as well
         return h, c
 
-    def forward(self, x, hidden, coef):
+    def forward(self, x: torch.Tensor, hidden: Tuple[torch.Tensor, torch.Tensor], coef: torch.Tensor) -> Tuple[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
         """Run the mixture LSTM over a full sequence."""
         if self.batch_first:  # change to seq_len first
             x = x.transpose(0, 1)
@@ -321,9 +322,9 @@ class mowLSTM(nn.Module):
         activation: Optional activation applied to the final output.
     """
 
-    def __init__(self, input_size, hidden_size, num_classes, num_experts=2,
-                 num_layers=1, batch_first=False, dropout=0,
-                 bidirectional=False, activation=None):
+    def __init__(self, input_size: int, hidden_size: int, num_classes: int, num_experts: int = 2,
+                 num_layers: int = 1, batch_first: bool = False, dropout: float = 0,
+                 bidirectional: bool = False, activation: Optional[nn.Module] = None) -> None:
 
         super(mowLSTM, self).__init__()
 
@@ -351,7 +352,7 @@ class mowLSTM(nn.Module):
                                       batch_first))
             self.dropouts.append(nn.Dropout(p=dropout))
 
-    def forward(self, x, coef):
+    def forward(self, x: Tuple[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]], coef: torch.Tensor) -> Tuple[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
         """Forward pass through the stacked mixture LSTM."""
         x, hidden = x
         self.last_coef = coef
@@ -394,8 +395,8 @@ class ExampleMowLSTM(nn.Module):
         activation: Optional output activation.
     """
 
-    def __init__(self, input_size, hidden_size, num_classes,
-                 num_layers=1, num_directions=1, dropout=0, activation=None):
+    def __init__(self, input_size: int, hidden_size: int, num_classes: int,
+                 num_layers: int = 1, num_directions: int = 1, dropout: float = 0, activation: Optional[nn.Module] = None) -> None:
         super(ExampleMowLSTM, self).__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
@@ -405,7 +406,7 @@ class ExampleMowLSTM(nn.Module):
         self.dropout = dropout
         self.activation = activation
 
-    def setKT(self, k, t):
+    def setKT(self, k: int, t: int) -> None:
         """Configure the model for ``k`` experts and ``t`` time steps.
 
         Args:
@@ -432,7 +433,7 @@ class ExampleMowLSTM(nn.Module):
             #                         normalize=True)
             self.cells.append(MoW(experts, gate))
 
-    def forward(self, x, hidden):
+    def forward(self, x: torch.Tensor, hidden: Tuple[torch.Tensor, torch.Tensor]) -> Tuple[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
         """Run the mixture LSTM step-by-step using the per-step gates."""
         seq_len, bs, _ = x.shape
         o = []
@@ -444,7 +445,7 @@ class ExampleMowLSTM(nn.Module):
         return o, hidden
 
 
-def orthogonal(shape):
+def orthogonal(shape: Tuple[int, ...]) -> np.ndarray:
     """Generate an orthogonal matrix of the given shape via SVD."""
     flat_shape = (int(shape[0]), int(np.prod(shape[1:])))
     a = np.random.normal(0.0, 1.0, flat_shape)
@@ -453,7 +454,7 @@ def orthogonal(shape):
     return q.reshape(shape)
 
 
-def lstm_ortho_initializer(shape, scale=1.0):
+def lstm_ortho_initializer(shape: Tuple[int, ...], scale: float = 1.0) -> np.ndarray:
     """Initialize LSTM weights with orthogonal blocks for each of the 4 gates.
 
     Args:
@@ -550,8 +551,8 @@ class MixLSTM(BaseModel):
         >>> model = MixLSTM(dataset=dataset, num_experts=2, hidden_size=64)
     """
 
-    def __init__(self, dataset: SampleDataset, num_experts=2, hidden_size=100,
-                 prev_used_timestamps=0):
+    def __init__(self, dataset: SampleDataset, num_experts: int = 2, hidden_size: int = 100,
+                 prev_used_timestamps: int = 0) -> None:
         super(MixLSTM, self).__init__(dataset)
 
         # Identify primary input key and infer shape
@@ -600,7 +601,7 @@ class MixLSTM(BaseModel):
         self.hidden_size = hidden_size
         self.model.setKT(num_experts, self.time_steps)
 
-    def forward(self, **kwargs):
+    def forward(self, **kwargs: Any) -> Dict[str, torch.Tensor]:
         """Run a forward pass.
 
         Expects the input tensor under ``kwargs[self.input_key]`` with
@@ -673,6 +674,6 @@ class MixLSTM(BaseModel):
 
         return results
 
-    def after_backward(self):
+    def after_backward(self) -> None:
         """Hook called after backward(); no-op for this model."""
         pass
