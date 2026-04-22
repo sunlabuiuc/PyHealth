@@ -13,8 +13,16 @@ existing ``RespiratoryAbnormalityPredictionICBHI`` task and supports a
 clean three-way ablation over modality usage (audio only / metadata
 only / audio + metadata).
 
+Paper:
+    Zhang, Yuwei, et al. "RespLLM: Unifying Audio and Text with Multimodal
+    LLMs for Generalized Respiratory Health Prediction." arXiv preprint
+    arXiv:2410.05361 (2024).
+
+Paper link:
+    https://arxiv.org/abs/2410.05361
+
 Author:
-    Andrew Zhao (andrew.zhao@aeroseal.com)
+    Andrew Zhao (aazhao2@illinois.edu)
 """
 
 from typing import Dict

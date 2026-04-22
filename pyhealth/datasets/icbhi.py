@@ -4,7 +4,7 @@ PyHealth dataset for the ICBHI 2017 Respiratory Sound Database.
 Dataset link:
     https://bhichallenge.med.auth.gr/ICBHI_2017_Challenge
 
-Dataset paper: (please cite if you use this dataset)
+Dataset paper:
     Rocha, Bruno M., et al. "An open access database for the evaluation of
     respiratory sound classification algorithms." Physiological Measurement
     40.3 (2019): 035001.
@@ -13,7 +13,7 @@ Paper link:
     https://doi.org/10.1088/1361-6579/ab03ea
 
 Author:
-    Andrew Zhao (andrew.zhao@aeroseal.com)
+    Andrew Zhao (aazhao2@illinois.edu)
 """
 import logging
 from pathlib import Path

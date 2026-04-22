@@ -19,16 +19,24 @@ annotations. No labels are invented or smoothed.
 Dataset link:
     https://bhichallenge.med.auth.gr/ICBHI_2017_Challenge
 
-Task paper: (please cite if you use this task)
+Dataset paper:
     Rocha, Bruno M., et al. "An open access database for the evaluation of
     respiratory sound classification algorithms." Physiological Measurement
     40.3 (2019): 035001.
 
-Paper link:
+Dataset paper link:
     https://doi.org/10.1088/1361-6579/ab03ea
 
+Framing paper:
+    Zhang, Yuwei, et al. "RespLLM: Unifying Audio and Text with Multimodal
+    LLMs for Generalized Respiratory Health Prediction." arXiv preprint
+    arXiv:2410.05361 (2024).
+
+Framing paper link:
+    https://arxiv.org/abs/2410.05361
+
 Author:
-    Andrew Zhao (andrew.zhao@aeroseal.com)
+    Andrew Zhao (aazhao2@illinois.edu)
 """
 
 import math
