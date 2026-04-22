@@ -47,16 +47,60 @@ from pyhealth.tasks import EvidenceRetrievalMIMIC3
 
 
 def _load_dotenv_if_available() -> None:
-    """Best-effort load of a ``.env`` file from the current directory.
+    """Best-effort load of a ``.env`` file from the repo root.
 
-    Uses ``python-dotenv`` when installed; otherwise is a no-op and the
-    caller is expected to have exported ``OPENAI_API_KEY`` manually.
+    Uses ``python-dotenv`` when installed. Falls back to a tiny
+    built-in parser so the script works without any optional
+    dependency as long as the file exists and contains simple
+    ``KEY=value`` lines. Existing environment variables are never
+    overwritten.
     """
     try:
         from dotenv import load_dotenv  # type: ignore
-    except ImportError:
+
+        load_dotenv()
         return
-    load_dotenv()
+    except ImportError:
+        pass
+
+    # Fallback: walk up from the script directory looking for .env.
+    here = os.path.abspath(os.path.dirname(__file__))
+    for _ in range(4):
+        candidate = os.path.join(here, ".env")
+        if os.path.isfile(candidate):
+            _parse_simple_dotenv(candidate)
+            return
+        parent = os.path.dirname(here)
+        if parent == here:
+            break
+        here = parent
+
+
+def _parse_simple_dotenv(path: str) -> None:
+    """Parse ``KEY=value`` lines from ``path`` into :data:`os.environ`.
+
+    Ignores blank lines and ``#`` comments. Strips matching pairs of
+    surrounding single or double quotes. Never overwrites a variable
+    that is already set in the process environment.
+
+    Args:
+        path (str): Absolute path to the ``.env`` file.
+    """
+    try:
+        with open(path, "r") as f:
+            for raw in f:
+                line = raw.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, _, value = line.partition("=")
+                key = key.strip()
+                value = value.strip()
+                if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+                    value = value[1:-1]
+                if key and key not in os.environ:
+                    os.environ[key] = value
+    except OSError:
+        return
 
 
 def _resolve_backend_factory(
@@ -81,8 +125,9 @@ def _resolve_backend_factory(
         if not os.environ.get("OPENAI_API_KEY"):
             raise RuntimeError(
                 "--backend openai requires the OPENAI_API_KEY "
-                "environment variable (or a .env file in the repo root "
-                "with python-dotenv installed)."
+                "environment variable. Either add it to a .env file at "
+                "the repo root (OPENAI_API_KEY=sk-...) or export it "
+                "from your shell: `export OPENAI_API_KEY=sk-...`."
             )
         from pyhealth.models import OpenAIBackend
 

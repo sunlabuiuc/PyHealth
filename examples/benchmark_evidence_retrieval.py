@@ -36,11 +36,51 @@ import tempfile
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-try:  # pragma: no cover - optional dep
-    from dotenv import load_dotenv
-    load_dotenv()
-except ImportError:
-    pass
+def _load_env() -> None:
+    """Load a ``.env`` file from the repo root.
+
+    Uses ``python-dotenv`` when installed, otherwise falls back to a
+    minimal ``KEY=value`` parser so the script works without any
+    optional dependency. Never overwrites existing env vars.
+    """
+    try:
+        from dotenv import load_dotenv  # type: ignore
+
+        load_dotenv()
+        return
+    except ImportError:
+        pass
+    here = os.path.abspath(os.path.dirname(__file__))
+    for _ in range(4):
+        candidate = os.path.join(here, ".env")
+        if os.path.isfile(candidate):
+            try:
+                with open(candidate, "r") as f:
+                    for raw in f:
+                        line = raw.strip()
+                        if not line or line.startswith("#") or "=" not in line:
+                            continue
+                        key, _, value = line.partition("=")
+                        key = key.strip()
+                        value = value.strip()
+                        if (
+                            len(value) >= 2
+                            and value[0] == value[-1]
+                            and value[0] in ("'", '"')
+                        ):
+                            value = value[1:-1]
+                        if key and key not in os.environ:
+                            os.environ[key] = value
+            except OSError:
+                pass
+            return
+        parent = os.path.dirname(here)
+        if parent == here:
+            break
+        here = parent
+
+
+_load_env()
 
 from pyhealth.datasets import SyntheticEHRNotesDataset
 from pyhealth.models import (
