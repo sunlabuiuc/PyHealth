@@ -2,12 +2,54 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from pyhealth.models import BaseModel
-from typing import Callable, Dict, cast
+from typing import Callable, Dict, Optional, cast
 
-class GenericMultiViewModel(BaseModel):
-    """
-    A generic Multi-View Contrastive Learning model that supports an arbitrary 
-    number of views and modalities.
+class MultiViewContrastiveModel(BaseModel):
+    """A generic, plug-and-play Multi-View Contrastive Learning (MVCL) model.
+    This model supports an arbitrary number of views and modalities by dynamically 
+    constructing its architecture based on the provided dictionaries of encoders, 
+    projectors, and augmentations. It implements hierarchical cross-view fusion 
+    via Multi-Head Attention and uses a 2N x 2N NT-Xent (InfoNCE) contrastive loss, 
+    aligning with the conceptual framework of Oh and Bui (2025) and TFC-pretraining.
+
+    Args:
+        dataset (SampleDataset): The PyHealth dataset object.
+        encoders (nn.ModuleDict): A dictionary mapping view names (e.g., "xt", "xf") 
+            to their respective PyTorch encoder modules (e.g., Transformer, CNN).
+        projectors (nn.ModuleDict): A dictionary mapping view names to their initial 
+            feature projection layers (e.g., mapping raw inputs to `hidden_dim`).
+        augmentations (Dict[str, Callable]): A dictionary mapping view names to 
+            their specific data augmentation functions (e.g., jittering, frequency masking).
+        pos_encoders (nn.ModuleDict, optional): A dictionary mapping view names to 
+            their positional encoding modules. If a view is not included, it defaults 
+            to `nn.Identity()`. Useful for sequence models. Defaults to an empty dict.
+        hidden_dim (int, optional): The hidden dimension size for the embeddings, 
+            MHA fusion, and projections. Defaults to 128.
+        training_stage (str, optional): The current stage of the model. Accepts 
+            "pretrain" (contrastive representation learning) or "finetune" 
+            (downstream classification). Defaults to "pretrain".
+        num_classes (int, optional): The number of target classes for the downstream 
+            classification task. Defaults to 3.
+        lambda_cl (float, optional): The weight/penalty hyperparameter for the contrastive 
+            loss during the fine-tuning stage. Defaults to 0.1.
+        tau (float, optional): The temperature parameter for the NT-Xent loss function. 
+            Defaults to 0.07.
+
+    Outputs (dict):
+        During "pretrain":
+            - loss (torch.Tensor): The aggregated 2N x 2N NT-Xent contrastive loss across all views.
+            - z_{view} (torch.Tensor): The final fused embeddings for each provided view.
+        During "finetune":
+            - loss (torch.Tensor): The combined cross-entropy loss and contrastive penalty.
+            - logit (torch.Tensor): The raw classification logits.
+            - y_prob (torch.Tensor): The predicted class probabilities.
+            - y_true (torch.Tensor): The ground truth labels.
+            
+    Example:
+        >>> encoders = nn.ModuleDict({"v1": CNNEncoder(), "v2": TextEncoder()})
+        >>> projectors = nn.ModuleDict({"v1": nn.Linear(3, 128), "v2": nn.Linear(768, 128)})
+        >>> augs = {"v1": image_jitter, "v2": text_mask}
+        >>> model = MultiViewContrastiveModel(dataset, encoders, projectors, augs)
     """
     def __init__(
         self, 
@@ -15,7 +57,7 @@ class GenericMultiViewModel(BaseModel):
         encoders: nn.ModuleDict, 
         projectors: nn.ModuleDict,
         augmentations: Dict[str, Callable],
-        pos_encoders: nn.ModuleDict = nn.ModuleDict({}),
+        pos_encoders: Optional[nn.ModuleDict] = None,
         hidden_dim: int = 128,
         training_stage: str = "pretrain", 
         num_classes: int = 3,
@@ -37,11 +79,10 @@ class GenericMultiViewModel(BaseModel):
         self.tau = tau
         self.view_names = list(encoders.keys())
 
-        # Dynamic Modules: The model will automatically build itself based on the keys!
         self.encoders = encoders
         self.projectors = projectors
         self.augmentations = augmentations
-        self.pos_encoders = pos_encoders if len(pos_encoders) > 0 else nn.ModuleDict({
+        self.pos_encoders = pos_encoders if pos_encoders is not None else nn.ModuleDict({
             view: nn.Identity() for view in self.view_names
         })
         
@@ -112,22 +153,26 @@ class GenericMultiViewModel(BaseModel):
         # Stack into [N, num_views, L, hidden_dim]
         H = torch.stack([encoded_views[v] for v in self.view_names], dim=1)
         
-        # Flatten for MHA: [N * num_views, L, hidden_dim]
-        H_flat = H.permute(0, 2, 1, 3).contiguous().view(batch_size * num_views, seq_length, self.hidden_dim)
+        H_permuted = H.permute(0, 2, 1, 3).contiguous()
+        
+        # Flatten Batch and Sequence length together: [N * L, num_views, hidden_dim]
+        H_flat = H_permuted.view(batch_size * seq_length, num_views, self.hidden_dim)
 
         MHA_out, _ = self.fusion_mha(H_flat, H_flat, H_flat)
         H_out = self.fusion_layer_norm(MHA_out + H_flat)
 
-        # Reshape back to [N, num_views, L, hidden_dim]
-        H_out = H_out.view(batch_size, seq_length, num_views, self.hidden_dim).permute(0, 2, 1, 3)
+        # Reshape back to [N, L, num_views, hidden_dim]
+        H_out = H_out.view(batch_size, seq_length, num_views, self.hidden_dim)
         
-        # 3. Concatenate and Project (This restores your original logic!)
+        # 3. Concatenate and Project 
         final_zs = {}
         for i, view in enumerate(self.view_names):
             h_pre = encoded_views[view].mean(dim=1)   # Pre-interaction
-            h_post = H_out[:, i, :].mean(dim=1)       # Post-interaction
             
-            # Reintroducing your concatenation!
+            # Extract from dimension 2 (num_views dimension)
+            h_post = H_out[:, :, i, :].mean(dim=1)    # Post-interaction
+            
+            # Concatenation of pre and post features!
             h_pool = torch.cat([h_pre, h_post], dim=-1) # Shape: [N, hidden_dim * 2]
             
             final_zs[view] = self.F_projectors[view](h_pool)
@@ -135,7 +180,6 @@ class GenericMultiViewModel(BaseModel):
         return final_zs
 
     def forward(self, **kwargs) -> dict[str, torch.Tensor]:
-        # Dynamically extract and prepare the views
         views_data = {view: self._prepare_tensor(kwargs.get(view)) for view in self.view_names}
 
         if self.training_stage == "pretrain":

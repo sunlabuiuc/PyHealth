@@ -12,6 +12,7 @@ References:
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Tuple, Union
 import mne
@@ -77,6 +78,7 @@ class MVCLTrainingSleepEEG(BaseTask):
         eeg_channel: Optional[str] = "EEG Fpz-Cz",
         time_as_feature: bool = False,
         dx_backend: str = "cde",
+        root_path: Optional[Union[str, Path]] = None,
     ) -> None:
         """Initializes the task object.
 
@@ -87,6 +89,7 @@ class MVCLTrainingSleepEEG(BaseTask):
             eeg_channel: Which EEG channel to pick. Defaults to "EEG Fpz-Cz".
             time_as_feature: Whether to add a time feature channel. Defaults to False.
             dx_backend: Backend to use for computing the derivative view. Defaults to "cde".
+            root_path: Optional path to the root directory of the dataset. Defaults to None.
         """
         self.chunk_duration = float(chunk_duration)
         self.window_size = int(window_size)
@@ -94,6 +97,7 @@ class MVCLTrainingSleepEEG(BaseTask):
         self.eeg_channel = eeg_channel
         # ``False`` matches ``preprocess_data`` defaults in MV run_pretrain / run_finetune.
         self.time_as_feature = bool(time_as_feature)
+        self.root_path = root_path
 
         super().__init__()
 
@@ -146,14 +150,16 @@ class MVCLTrainingSleepEEG(BaseTask):
         for event in events:
             if not event.signal_file or not event.label_file:
                 continue
+            signal_file = os.path.join(self.root_path, event.signal_file) if self.root_path else event.signal_file
+            label_file = os.path.join(self.root_path, event.label_file) if self.root_path else event.label_file
             data = mne.io.read_raw_edf(
-                event.signal_file,
+                signal_file,
                 stim_channel="Event marker",
                 infer_types=True,
                 preload=False,
                 verbose="error",
             )
-            ann = mne.read_annotations(event.label_file)
+            ann = mne.read_annotations(label_file)
             data.set_annotations(ann, emit_warning=False)
 
             ann_events, event_id_used = mne.events_from_annotations(
