@@ -13,7 +13,19 @@ from pyhealth.datasets import SampleDataset
 from .base_model import BaseModel
 
 class N2V():
-    """
+    """Node2Vec embeddings for OMOP concepts.
+
+    This class builds a directed knowledge graph from OMOP concept and
+    concept relationship tables, then trains Node2Vec to generate
+    ontology-informed embeddings for medical concepts.
+
+    Attributes:
+        path: Path to the OMOP CSV files.
+        domain_type: List of OMOP domains used to filter concepts.
+        embedding_dim: Dimension of the learned embeddings.
+        walk_length: Length of each random walk.
+        num_walks: Number of walks generated per node.
+        graph: Directed graph constructed from OMOP concepts and relations.
     """
     def __init__(
         self, 
@@ -313,10 +325,10 @@ class KeepEmbedding(BaseModel):
             }
         
         # Move inputs to correct device
-        i_indices = i_indices.to(self.device)
-        j_indices = j_indices.to(self.device)
-        counts = counts.to(self.device)
-        weights = weights.to(self.device)
+        i_indices = i_indices.to(self._device)
+        j_indices = j_indices.to(self._device)
+        counts = counts.to(self._device)
+        weights = weights.to(self._device)
         
         # Get embeddings and biases
         embedding_i = self.embeddings_v(i_indices)  # (batch_size, embedding_dim)
@@ -333,7 +345,7 @@ class KeepEmbedding(BaseModel):
         glove_loss = torch.sum(weights * squared_diff)
         
         total_loss = glove_loss
-        reg_loss = torch.tensor(0.0, device=self.device)
+        reg_loss = torch.tensor(0.0, device=self._device)
         
         # Add Node2Vec regularization if lambda > 0
         if self.lambda_reg > 0:
@@ -368,7 +380,7 @@ class KeepEmbedding(BaseModel):
         return {
             "loss": total_loss,
             "logit": glove_loss.detach(),  # Return GloVe component as logit for reference
-            "y_prob": torch.zeros(i_indices.shape[0], device=self.device),  # Placeholder
-            "y_true": torch.zeros(i_indices.shape[0], device=self.device),  # Placeholder
+            "y_prob": torch.zeros(i_indices.shape[0], device=self._device),  # Placeholder
+            "y_true": torch.zeros(i_indices.shape[0], device=self._device),  # Placeholder
             "reg_loss": reg_loss.detach(),  # Return regularization loss for monitoring
         }
