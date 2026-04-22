@@ -31,6 +31,7 @@ Author:
     Andrew Zhao (andrew.zhao@aeroseal.com)
 """
 
+import math
 from math import gcd
 from typing import Any, Dict, List, Tuple
 
@@ -38,6 +39,12 @@ import numpy as np
 import torch
 
 from pyhealth.tasks import BaseTask
+
+
+# Fixed size of the optional metadata feature vector emitted when
+# ``include_metadata_features=True``. Exposed as a module constant so the
+# model side (e.g. ``RespFusionNet``) can assert against it in tests.
+_METADATA_FEATURE_DIM: int = 7
 
 
 # Historical 4-class (crackle, wheeze) -> class index mapping. Kept at
@@ -109,17 +116,31 @@ class RespiratoryAbnormalityPredictionICBHI(BaseTask):
         target_length: Fixed cycle duration in seconds. Cycles shorter
             than this are zero-padded; longer cycles are truncated.
             Default 5 s.
+        include_metadata_features: If True, each emitted sample also
+            contains a fixed-size ``metadata`` tensor (see
+            :meth:`_metadata_feature_vector`) and the instance-level
+            ``input_schema`` is extended to
+            ``{"signal": "tensor", "metadata": "tensor"}``. This is an
+            opt-in hook used by the multimodal
+            :class:`~pyhealth.models.RespFusionNet` model; when False
+            (default) the task is byte-for-byte compatible with the
+            existing unimodal example and tests.
 
     Raises:
         ValueError: If ``label_mode`` is not one of the supported values.
 
     Attributes:
         task_name (str): ``"RespiratoryAbnormalityPredictionICBHI"``
-        input_schema (Dict[str, str]): ``{"signal": "tensor"}``
+        input_schema (Dict[str, str]): ``{"signal": "tensor"}``, or
+            ``{"signal": "tensor", "metadata": "tensor"}`` when
+            ``include_metadata_features=True``.
         output_schema (Dict[str, str]): ``{"label": "binary"}``
         label_mode (str): The selected ablation mode.
         resample_rate (int): Audio resample rate in Hz.
         target_length (float): Fixed cycle length in seconds.
+        include_metadata_features (bool): Whether the ``metadata`` key is
+            emitted per sample.
+        metadata_feature_dim (int): Length of the metadata vector (7).
 
     Examples:
         >>> from pyhealth.datasets import ICBHIDataset
@@ -141,6 +162,7 @@ class RespiratoryAbnormalityPredictionICBHI(BaseTask):
         label_mode: str = "any_abnormal",
         resample_rate: int = 4000,
         target_length: float = 5.0,
+        include_metadata_features: bool = False,
     ) -> None:
         if label_mode not in _VALID_LABEL_MODES:
             raise ValueError(
@@ -151,6 +173,19 @@ class RespiratoryAbnormalityPredictionICBHI(BaseTask):
         self.label_mode = label_mode
         self.resample_rate = resample_rate
         self.target_length = target_length
+        self.include_metadata_features = bool(include_metadata_features)
+        self.metadata_feature_dim = _METADATA_FEATURE_DIM
+
+        # When metadata features are enabled, shadow the class-level
+        # ``input_schema`` with an instance-level dict that advertises the
+        # additional ``metadata`` tensor. The class attribute is left
+        # untouched so the default (unimodal) contract is unchanged for
+        # any caller that constructs the task with defaults.
+        if self.include_metadata_features:
+            self.input_schema = {
+                "signal": "tensor",
+                "metadata": "tensor",
+            }
 
     def _compute_label(self, has_crackles: int, has_wheezes: int) -> int:
         """Map raw (crackle, wheeze) flags to a binary label per ``label_mode``."""
@@ -207,6 +242,70 @@ class RespiratoryAbnormalityPredictionICBHI(BaseTask):
         pad = np.zeros(n_target - len(data), dtype=np.float32)
         return np.concatenate([data, pad])
 
+    @staticmethod
+    def _safe_float(value: Any) -> Tuple[float, bool]:
+        """Coerce ``value`` to a finite float, returning ``(value, present)``.
+
+        ``present`` is False if ``value`` is ``None``, NaN, or not
+        convertible. In that case the returned float is ``0.0`` — callers
+        must combine this with the ``present`` mask rather than trusting
+        the magnitude.
+        """
+        if value is None:
+            return 0.0, False
+        try:
+            f = float(value)
+        except (TypeError, ValueError):
+            return 0.0, False
+        if not math.isfinite(f):
+            return 0.0, False
+        return f, True
+
+    def _metadata_feature_vector(self, event: Any) -> torch.FloatTensor:
+        """Build the fixed-size patient/context feature vector for a cycle.
+
+        The vector is intentionally small and transparent — one float per
+        dimension, with explicit presence masks so the model can learn to
+        ignore missing fields rather than treating 0 as meaningful.
+
+        Layout (length 7):
+
+        0. ``age / 100`` — normalized age (0 if missing).
+        1. age-present mask (1.0 / 0.0).
+        2. sex is male (1.0 / 0.0).
+        3. sex is female (1.0 / 0.0).
+        4. ``adult_bmi / 50`` — normalized adult BMI (0 if missing).
+        5. adult-BMI-present mask (1.0 / 0.0).
+        6. ``min(duration, 10) / 10`` — normalized cycle duration.
+
+        No fabricated values: fields that are absent, None, NaN, or
+        non-numeric yield 0.0 paired with a 0.0 presence mask, matching
+        the dataset's "never invent placeholders" invariant.
+
+        Args:
+            event: A cycle event as loaded by
+                :class:`~pyhealth.datasets.ICBHIDataset`. Accessed via
+                ``getattr`` to tolerate mock events in tests.
+
+        Returns:
+            A ``torch.FloatTensor`` of shape ``(7,)``.
+        """
+        age, has_age = self._safe_float(getattr(event, "age", None))
+        bmi, has_bmi = self._safe_float(getattr(event, "adult_bmi", None))
+        duration, _ = self._safe_float(getattr(event, "duration", 0.0))
+        sex = getattr(event, "sex", "") or ""
+
+        vec = [
+            age / 100.0 if has_age else 0.0,
+            1.0 if has_age else 0.0,
+            1.0 if sex == "M" else 0.0,
+            1.0 if sex == "F" else 0.0,
+            bmi / 50.0 if has_bmi else 0.0,
+            1.0 if has_bmi else 0.0,
+            min(max(duration, 0.0), 10.0) / 10.0,
+        ]
+        return torch.tensor(vec, dtype=torch.float32)
+
     def __call__(self, patient: Any) -> List[Dict[str, Any]]:
         """Generate one sample per respiratory cycle event.
 
@@ -232,6 +331,9 @@ class RespiratoryAbnormalityPredictionICBHI(BaseTask):
             - ``label_name`` (str): human-readable label string
             - ``metadata_text`` (str, optional): forwarded from the event
               if the dataset provides it
+            - ``metadata`` (torch.FloatTensor, shape ``(7,)``, optional):
+              only present when ``include_metadata_features=True``; see
+              :meth:`_metadata_feature_vector`
         """
         pid = patient.patient_id
         samples: List[Dict[str, Any]] = []
@@ -288,6 +390,8 @@ class RespiratoryAbnormalityPredictionICBHI(BaseTask):
                 metadata_text = getattr(event, "metadata_text", None)
                 if metadata_text is not None:
                     sample["metadata_text"] = metadata_text
+                if self.include_metadata_features:
+                    sample["metadata"] = self._metadata_feature_vector(event)
                 samples.append(sample)
 
         return samples
