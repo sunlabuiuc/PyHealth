@@ -44,7 +44,6 @@ class TestDeepCoxMixtures(unittest.TestCase):
 
     def setUp(self):
         """Set up synthetic dataset and default model."""
-        self.tmp_dir = tempfile.mkdtemp()
         self.dataset = create_sample_dataset(
             samples=SAMPLES,
             input_schema=INPUT_SCHEMA,
@@ -55,8 +54,10 @@ class TestDeepCoxMixtures(unittest.TestCase):
         self.loader = get_dataloader(self.dataset, batch_size=4, shuffle=False)
 
     def tearDown(self):
-        """Clean up temporary directory after each test."""
-        shutil.rmtree(self.tmp_dir, ignore_errors=True)
+        """Clean up pyhealth cache written during tests."""
+        import os
+        cache = os.path.expanduser("~/.cache/pyhealth")
+        shutil.rmtree(cache, ignore_errors=True)
 
     def _batch(self):
         return next(iter(self.loader))
