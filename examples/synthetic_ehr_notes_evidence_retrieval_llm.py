@@ -9,20 +9,32 @@ Paper link:
     https://proceedings.mlr.press/v248/ahsan24a.html
 
 This script exercises the full pipeline end-to-end on the bundled
-:class:`SyntheticEHRNotesDataset`. It then runs the sequential-vs
-single-prompt ablation described in section 6 of the proposal, as well
-as the LLM-vs-IR-baseline comparison. No network access is required
-because both the LLM backend and the IR encoder default to offline
-stubs; swap them in-place to evaluate against real models.
+:class:`SyntheticEHRNotesDataset`. It runs the sequential-vs
+single-prompt ablation described in section 6 of the proposal, the
+LLM-vs-IR-baseline comparison, and a novel ``max_note_chars`` budget
+sweep.
+
+By default it uses the offline :class:`StubLLMBackend` so the script
+has no network dependency. Pass ``--backend openai`` to run the same
+ablations against a real LLM (requires ``pip install openai`` and an
+``OPENAI_API_KEY``).
 
 Usage:
+    # Offline (default) — deterministic stub backend, no network:
     python examples/synthetic_ehr_notes_evidence_retrieval_llm.py
+
+    # Real LLM — reads OPENAI_API_KEY from the environment (or a .env
+    # file when python-dotenv is installed):
+    python examples/synthetic_ehr_notes_evidence_retrieval_llm.py \\
+        --backend openai --model gpt-4o-mini
 
 Author:
     Arnab Karmakar (arnabk3@illinois.edu)
 """
+import argparse
+import os
 import tempfile
-from typing import Dict, Iterable, List
+from typing import Callable, Dict, Iterable, List
 
 from pyhealth.datasets import SyntheticEHRNotesDataset
 from pyhealth.models import (
@@ -32,6 +44,52 @@ from pyhealth.models import (
     StubLLMBackend,
 )
 from pyhealth.tasks import EvidenceRetrievalMIMIC3
+
+
+def _load_dotenv_if_available() -> None:
+    """Best-effort load of a ``.env`` file from the current directory.
+
+    Uses ``python-dotenv`` when installed; otherwise is a no-op and the
+    caller is expected to have exported ``OPENAI_API_KEY`` manually.
+    """
+    try:
+        from dotenv import load_dotenv  # type: ignore
+    except ImportError:
+        return
+    load_dotenv()
+
+
+def _resolve_backend_factory(
+    backend_name: str, model: str
+) -> Callable[[], object]:
+    """Return a zero-arg factory that builds a backend on demand.
+
+    Args:
+        backend_name (str): ``"stub"`` or ``"openai"``.
+        model (str): OpenAI model identifier (ignored for ``"stub"``).
+
+    Returns:
+        Callable that produces a fresh backend instance each call.
+
+    Raises:
+        ValueError: If ``backend_name`` is unrecognized.
+    """
+    if backend_name == "stub":
+        return StubLLMBackend
+    if backend_name == "openai":
+        _load_dotenv_if_available()
+        if not os.environ.get("OPENAI_API_KEY"):
+            raise RuntimeError(
+                "--backend openai requires the OPENAI_API_KEY "
+                "environment variable (or a .env file in the repo root "
+                "with python-dotenv installed)."
+            )
+        from pyhealth.models import OpenAIBackend
+
+        return lambda: OpenAIBackend(model=model)
+    raise ValueError(
+        f"Unknown backend {backend_name!r}. Choose from: stub, openai."
+    )
 
 
 def _binary_metrics(
@@ -78,11 +136,24 @@ def _samples_as_lists(sample_dataset) -> Dict[str, List]:
     return out
 
 
-def run_pipeline() -> None:
-    """Load the dataset, apply the task, run both retrievers, report."""
+def run_pipeline(
+    backend_name: str = "stub", model: str = "gpt-4o-mini"
+) -> None:
+    """Load the dataset, apply the task, run both retrievers, report.
+
+    Args:
+        backend_name (str): ``"stub"`` (default, offline) or
+            ``"openai"`` (requires ``openai`` package + API key).
+        model (str): OpenAI model identifier when
+            ``backend_name == "openai"``. Ignored otherwise.
+    """
+    backend_factory = _resolve_backend_factory(backend_name, model)
     with tempfile.TemporaryDirectory() as data_root, \
             tempfile.TemporaryDirectory() as cache:
         print("=" * 70)
+        print(f"Backend: {backend_name}" + (f" (model={model})"
+                                             if backend_name == "openai"
+                                             else ""))
         print("Step 1: load the synthetic EHR notes dataset")
         print("=" * 70)
         dataset = SyntheticEHRNotesDataset(root=data_root, cache_dir=cache)
@@ -110,11 +181,11 @@ def run_pipeline() -> None:
         print("Step 3: ablation — sequential vs single-prompt LLM retriever")
         print("=" * 70)
         sequential = LLMEvidenceRetriever(
-            backend=StubLLMBackend(),
+            backend=backend_factory(),
             config=LLMRetrieverConfig(prompt_style="sequential"),
         )
         single = LLMEvidenceRetriever(
-            backend=StubLLMBackend(),
+            backend=backend_factory(),
             config=LLMRetrieverConfig(prompt_style="single"),
         )
 
@@ -169,7 +240,7 @@ def run_pipeline() -> None:
         # with a token budget.
         for budget in (80, 160, 320, 4000):
             trimmed = LLMEvidenceRetriever(
-                backend=StubLLMBackend(),
+                backend=backend_factory(),
                 config=LLMRetrieverConfig(
                     prompt_style="sequential", max_note_chars=budget
                 ),
@@ -203,5 +274,29 @@ def _print_metrics(label: str, metrics: Dict[str, float]) -> None:
     )
 
 
+def _parse_args(argv: List[str] = None) -> argparse.Namespace:
+    """Parse CLI arguments for backend selection."""
+    parser = argparse.ArgumentParser(
+        description="Run the LLM-based EHR evidence retrieval pipeline.",
+    )
+    parser.add_argument(
+        "--backend",
+        choices=("stub", "openai"),
+        default="stub",
+        help=(
+            "LLM backend to use. 'stub' is offline and deterministic "
+            "(default). 'openai' calls OpenAI's chat-completions API "
+            "and requires OPENAI_API_KEY."
+        ),
+    )
+    parser.add_argument(
+        "--model",
+        default="gpt-4o-mini",
+        help="OpenAI model identifier. Ignored when --backend=stub.",
+    )
+    return parser.parse_args(argv)
+
+
 if __name__ == "__main__":
-    run_pipeline()
+    args = _parse_args()
+    run_pipeline(backend_name=args.backend, model=args.model)

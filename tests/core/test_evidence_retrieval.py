@@ -14,8 +14,10 @@ Author:
     Arnab Karmakar (arnabk3@illinois.edu)
 """
 import json
+import os
 import tempfile
 import unittest
+from unittest import mock
 
 import torch
 
@@ -25,6 +27,7 @@ from pyhealth.models import (
     HashingEncoder,
     LLMEvidenceRetriever,
     LLMRetrieverConfig,
+    OpenAIBackend,
     StubLLMBackend,
 )
 from pyhealth.tasks import EvidenceRetrievalMIMIC3
@@ -343,6 +346,46 @@ class TestCBERTLiteRetriever(unittest.TestCase):
         self.assertEqual(outputs["logit"].shape, (2, 1))
         self.assertIn("loss", outputs)
         self.assertIn("snippets", outputs)
+
+
+class TestOpenAIBackend(unittest.TestCase):
+    """OpenAI backend tests — no real API calls, only contract checks."""
+
+    def test_missing_api_key_raises(self):
+        with mock.patch.dict(os.environ, {}, clear=True):
+            with self.assertRaises(ValueError):
+                OpenAIBackend()
+
+    def test_explicit_api_key_bypasses_env(self):
+        with mock.patch.dict(os.environ, {}, clear=True):
+            # This should succeed in constructing; we don't call __call__,
+            # so no network I/O occurs.
+            backend = OpenAIBackend(api_key="sk-test-placeholder")
+            self.assertEqual(backend.model, "gpt-4o-mini")
+            self.assertEqual(backend.temperature, 0.0)
+
+    def test_call_uses_configured_model_and_json_format(self):
+        # Stub the OpenAI client to avoid any real API traffic.
+        fake_choice = mock.Mock()
+        fake_choice.message.content = '{"decision": "yes", "role": "sign"}'
+        fake_response = mock.Mock(choices=[fake_choice])
+        fake_client = mock.Mock()
+        fake_client.chat.completions.create.return_value = fake_response
+
+        backend = OpenAIBackend(api_key="sk-test", model="gpt-4o-mini")
+        backend.client = fake_client
+
+        payload = backend("Condition: stroke\nNote:\nMCA infarct.\n")
+        self.assertEqual(payload, '{"decision": "yes", "role": "sign"}')
+
+        # Verify the request was shaped correctly.
+        fake_client.chat.completions.create.assert_called_once()
+        call_kwargs = fake_client.chat.completions.create.call_args.kwargs
+        self.assertEqual(call_kwargs["model"], "gpt-4o-mini")
+        self.assertEqual(
+            call_kwargs["response_format"], {"type": "json_object"}
+        )
+        self.assertEqual(call_kwargs["temperature"], 0.0)
 
 
 class TestSentenceSplitter(unittest.TestCase):

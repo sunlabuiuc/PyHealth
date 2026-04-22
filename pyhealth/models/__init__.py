@@ -51,6 +51,7 @@ from .cbert_lite_retriever import (
     HashingEncoder,
     RankedSentence,
 )
+from .llm_backends import OpenAIBackend
 from .llm_evidence_retriever import (
     EvidenceSnippet,
     LLMEvidenceRetriever,

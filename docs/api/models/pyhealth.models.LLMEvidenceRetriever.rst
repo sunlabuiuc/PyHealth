@@ -36,3 +36,8 @@ API Reference
     :members:
     :undoc-members:
     :show-inheritance:
+
+.. autoclass:: pyhealth.models.OpenAIBackend
+    :members:
+    :undoc-members:
+    :show-inheritance:
