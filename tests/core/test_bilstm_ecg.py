@@ -1,4 +1,5 @@
-"""Tests for the BiLSTMECG model.
+"""
+Unit tests for the BiLSTMECG model.
 
 Covers:
   - model initialisation and attribute checks
@@ -9,6 +10,11 @@ Covers:
   - custom hyperparameters
   - all three output modes (multilabel, multiclass, binary)
   - variable-length input signals
+
+Authors:
+    Anurag Dixit - anuragd2@illinois.edu
+    Kent Spillner - kspillne@illinois.edu
+    John Wells - jtwells2@illinois.edu
 """
 
 import unittest
