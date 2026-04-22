@@ -43,7 +43,7 @@ with existing clinical variables, likely due to consistent standard-of-care
 protocols across the observed timeframe.
 
 Example:
-    PYTHONPATH=.. python examples/seer_survival_prediction_lr.py --root "/path/to/data"
+    PYTHONPATH=.. python examples/seer_survival_prediction_mlp.py --root "/path/to/data"
 """
 
 import argparse
