@@ -422,7 +422,7 @@ class ICBHIDataset(BaseDataset):
 
     @property
     def default_task(self):
-        """Return the default task: :class:`~pyhealth.tasks.RespiratoryAbnormalityPredictionICBHI`."""
+        """Return the default task"""
         from pyhealth.tasks import RespiratoryAbnormalityPredictionICBHI
 
         return RespiratoryAbnormalityPredictionICBHI()
