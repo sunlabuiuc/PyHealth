@@ -13,6 +13,14 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+from pyhealth.datasets.eeg_gcnn_raw import (
+    EEGGCNNRawDataset,
+    _TUAB_FIRST,
+    _TUAB_SECOND,
+    _LEMON_FIRST,
+    _LEMON_SECOND,
+)
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -282,8 +290,6 @@ class TestTaskCall:
 class TestDatasetMetadata:
 
     def test_prepare_tuab_csv(self):
-        from pyhealth.datasets.eeg_gcnn_raw import EEGGCNNRawDataset
-
         with tempfile.TemporaryDirectory() as tmpdir:
             subj_dir = (
                 Path(tmpdir)
@@ -295,7 +301,8 @@ class TestDatasetMetadata:
 
             ds = EEGGCNNRawDataset.__new__(EEGGCNNRawDataset)
             ds.root = tmpdir
-            ds.prepare_metadata()
+            with patch("pathlib.Path.home", return_value=Path(tmpdir) / "fakehome"):
+                ds.prepare_metadata()
 
             csv_path = Path(tmpdir) / "eeg_gcnn-tuab-pyhealth.csv"
             assert csv_path.exists()
@@ -309,8 +316,6 @@ class TestDatasetMetadata:
             assert all(df["source"] == "tuab")
 
     def test_prepare_lemon_csv(self):
-        from pyhealth.datasets.eeg_gcnn_raw import EEGGCNNRawDataset
-
         with tempfile.TemporaryDirectory() as tmpdir:
             subj_dir = Path(tmpdir) / "lemon" / "sub-010002"
             subj_dir.mkdir(parents=True)
@@ -318,7 +323,8 @@ class TestDatasetMetadata:
 
             ds = EEGGCNNRawDataset.__new__(EEGGCNNRawDataset)
             ds.root = tmpdir
-            ds.prepare_metadata()
+            with patch("pathlib.Path.home", return_value=Path(tmpdir) / "fakehome"):
+                ds.prepare_metadata()
 
             csv_path = Path(tmpdir) / "eeg_gcnn-lemon-pyhealth.csv"
             assert csv_path.exists()
@@ -343,6 +349,174 @@ class TestConstants:
 
     def test_num_channels(self):
         assert NUM_CHANNELS == 8
+
+
+# ---------------------------------------------------------------------------
+# EEGGCNNRawDataset — _fix_vhdr_references
+# ---------------------------------------------------------------------------
+
+class TestFixVhdrReferences:
+
+    def test_patches_stale_references(self, tmp_path):
+        sub_dir = tmp_path / "sub-032301"
+        sub_dir.mkdir()
+        (sub_dir / "sub-032301.eeg").touch()
+        (sub_dir / "sub-032301.vmrk").touch()
+        vhdr = sub_dir / "sub-032301.vhdr"
+        vhdr.write_text(
+            "[Common Infos]\nDataFile=sub-010002.eeg\nMarkerFile=sub-010002.vmrk\n"
+        )
+        EEGGCNNRawDataset._fix_vhdr_references(vhdr)
+        content = vhdr.read_text()
+        assert "DataFile=sub-032301.eeg" in content
+        assert "MarkerFile=sub-032301.vmrk" in content
+
+    def test_no_op_when_already_correct(self, tmp_path):
+        sub_dir = tmp_path / "sub-032301"
+        sub_dir.mkdir()
+        (sub_dir / "sub-032301.eeg").touch()
+        (sub_dir / "sub-032301.vmrk").touch()
+        vhdr = sub_dir / "sub-032301.vhdr"
+        original = "[Common Infos]\nDataFile=sub-032301.eeg\nMarkerFile=sub-032301.vmrk\n"
+        vhdr.write_text(original)
+        EEGGCNNRawDataset._fix_vhdr_references(vhdr)
+        assert vhdr.read_text() == original
+
+    def test_no_op_when_no_companion_files(self, tmp_path):
+        sub_dir = tmp_path / "sub-032301"
+        sub_dir.mkdir()
+        vhdr = sub_dir / "sub-032301.vhdr"
+        original = "[Common Infos]\nDataFile=sub-010002.eeg\nMarkerFile=sub-010002.vmrk\n"
+        vhdr.write_text(original)
+        EEGGCNNRawDataset._fix_vhdr_references(vhdr)
+        assert vhdr.read_text() == original
+
+
+# ---------------------------------------------------------------------------
+# EEGGCNNRawDataset — precompute_features with synthetic data
+# ---------------------------------------------------------------------------
+
+def _make_precompute_raw(source="tuab", n_seconds=30, sfreq=250.0):
+    """Synthetic MNE-like raw with the correct bipolar channel names."""
+    n_samples = int(n_seconds * sfreq)
+    rng = np.random.default_rng(42)
+    if source == "tuab":
+        ch_names = list(dict.fromkeys(_TUAB_FIRST + _TUAB_SECOND))
+    else:
+        ch_names = list(dict.fromkeys(_LEMON_FIRST + _LEMON_SECOND))
+    data = (rng.random((len(ch_names), n_samples)) * 1e-5).astype(np.float64)
+    raw = MagicMock()
+    raw.ch_names = ch_names
+    raw.get_data.return_value = data
+    raw.info = {"sfreq": sfreq}
+    return raw
+
+
+class TestPrecomputeFeaturesSynthetic:
+
+    def _make_ds(self, root):
+        ds = EEGGCNNRawDataset.__new__(EEGGCNNRawDataset)
+        ds.root = str(root)
+        return ds
+
+    def _make_tuab_dir(self, root, n_subjects=2):
+        edf_dir = root / "tuab" / "train" / "normal" / "01_tcp_ar"
+        edf_dir.mkdir(parents=True)
+        for i in range(n_subjects):
+            (edf_dir / f"subject{i:03d}_s001_t000.edf").touch()
+
+    def _make_lemon_dir(self, root, n_subjects=2):
+        lemon_dir = root / "lemon"
+        lemon_dir.mkdir(parents=True)
+        for i in range(n_subjects):
+            sub = lemon_dir / f"sub-03230{i}"
+            sub.mkdir()
+            (sub / f"sub-03230{i}.vhdr").touch()
+
+    def test_output_files_created(self, tmp_path):
+        self._make_tuab_dir(tmp_path)
+        ds = self._make_ds(tmp_path)
+        mock_raw = _make_precompute_raw("tuab")
+        with patch.object(EEGGCNNRawDataset, "_load_raw", return_value=mock_raw):
+            ds.precompute_features(output_dir=str(tmp_path / "out"))
+        out = tmp_path / "out"
+        for fname in (
+            "psd_features_data_X", "labels_y",
+            "master_metadata_index.csv", "spec_coh_values.npy",
+            "standard_1010.tsv.txt",
+        ):
+            assert (out / fname).exists(), f"Missing output file: {fname}"
+
+    def test_output_shapes(self, tmp_path):
+        self._make_tuab_dir(tmp_path, n_subjects=2)
+        ds = self._make_ds(tmp_path)
+        mock_raw = _make_precompute_raw("tuab", n_seconds=30)
+        with patch.object(EEGGCNNRawDataset, "_load_raw", return_value=mock_raw):
+            ds.precompute_features(output_dir=str(tmp_path / "out"))
+        from joblib import load as jload
+        X = jload(tmp_path / "out" / "psd_features_data_X")
+        coh = np.load(tmp_path / "out" / "spec_coh_values.npy")
+        # 2 subjects × 3 windows (30 s / 10 s) = 6 windows
+        assert X.shape == (6, 48)    # 8 channels × 6 bands
+        assert coh.shape == (6, 64)  # 8 × 8 edges
+
+    def test_max_tuab_limits_subjects(self, tmp_path):
+        self._make_tuab_dir(tmp_path, n_subjects=4)
+        ds = self._make_ds(tmp_path)
+        mock_raw = _make_precompute_raw("tuab", n_seconds=10)
+        with patch.object(EEGGCNNRawDataset, "_load_raw", return_value=mock_raw):
+            ds.precompute_features(output_dir=str(tmp_path / "out"), max_tuab=2)
+        from joblib import load as jload
+        y = jload(tmp_path / "out" / "labels_y")
+        assert len(y) == 2  # 2 subjects × 1 window each
+
+    def test_max_lemon_limits_subjects(self, tmp_path):
+        self._make_lemon_dir(tmp_path, n_subjects=4)
+        ds = self._make_ds(tmp_path)
+        mock_raw = _make_precompute_raw("lemon", n_seconds=10)
+        with patch.object(EEGGCNNRawDataset, "_load_raw", return_value=mock_raw):
+            ds.precompute_features(output_dir=str(tmp_path / "out"), max_lemon=2)
+        from joblib import load as jload
+        y = jload(tmp_path / "out" / "labels_y")
+        assert len(y) == 2
+
+    def test_labels_correct_for_each_source(self, tmp_path):
+        self._make_tuab_dir(tmp_path, n_subjects=1)
+        self._make_lemon_dir(tmp_path, n_subjects=1)
+        ds = self._make_ds(tmp_path)
+
+        def _mock_load(path, source, sfreq):
+            return _make_precompute_raw(source, n_seconds=10)
+
+        with patch.object(EEGGCNNRawDataset, "_load_raw", side_effect=_mock_load):
+            ds.precompute_features(output_dir=str(tmp_path / "out"))
+        from joblib import load as jload
+        y = jload(tmp_path / "out" / "labels_y")
+        assert "diseased" in y
+        assert "healthy" in y
+
+    def test_skips_bad_recording_and_continues(self, tmp_path):
+        self._make_tuab_dir(tmp_path, n_subjects=2)
+        ds = self._make_ds(tmp_path)
+        mock_raw = _make_precompute_raw("tuab", n_seconds=10)
+        calls = {"n": 0}
+
+        def _mock_load(path, source, sfreq):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise RuntimeError("corrupt file")
+            return mock_raw
+
+        with patch.object(EEGGCNNRawDataset, "_load_raw", side_effect=_mock_load):
+            ds.precompute_features(output_dir=str(tmp_path / "out"))
+        from joblib import load as jload
+        y = jload(tmp_path / "out" / "labels_y")
+        assert len(y) == 1  # only second subject succeeded
+
+    def test_empty_data_raises(self, tmp_path):
+        ds = self._make_ds(tmp_path)
+        with pytest.raises(RuntimeError, match="No windows extracted"):
+            ds.precompute_features(output_dir=str(tmp_path / "out"))
 
 
 # ---------------------------------------------------------------------------

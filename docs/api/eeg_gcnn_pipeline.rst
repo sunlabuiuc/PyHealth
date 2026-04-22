@@ -9,8 +9,8 @@ End-to-end pipeline for EEG-based neurological disease detection, based on:
     *Machine Learning for Health (ML4H) workshop, NeurIPS 2020*.
     https://proceedings.mlr.press/v136/wagh20a.html
 
-**Contributors:** Jimmy Burhan (jburhan2) — Dataset & Task |
-Robert Coffey (rc37) — Models & Training
+**Contributors:** Jimmy Burhan (jburhan2@illinois.edu) — Dataset & Task |
+Robert Coffey (rc37@illinois.edu) — Models & Training
 
 Overview
 --------
