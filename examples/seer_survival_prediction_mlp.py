@@ -17,7 +17,7 @@ Methodology:
 - Model Architecture: Multi-Layer Perceptron (MLP) implemented via the 
   'pyhealth.models.MLP' module.
 - Training Framework: 'pyhealth.trainer.Trainer' with Adam optimization 
-  ($LR=0.001$) and Binary Cross-Entropy loss.
+  (LR=0.001) and Binary Cross-Entropy loss.
 - Dataset: SEER Cancer cohort (n=288,818) with a 5-year survival 
   binary classification task.
 - Experimental Design: 
