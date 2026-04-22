@@ -219,7 +219,9 @@ Available Datasets
 
 .. toctree::
     :maxdepth: 3
+    datasets/pyhealth.datasets.ECGQADataset
 
+    
     datasets/pyhealth.datasets.BaseDataset
     datasets/pyhealth.datasets.SampleDataset
     datasets/pyhealth.datasets.MIMIC3Dataset

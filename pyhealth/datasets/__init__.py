@@ -1,3 +1,5 @@
+from .ecg_qa import ECGQADataset
+
 class BaseEHRDataset:
     """This class is deprecated and should not be used."""
 
