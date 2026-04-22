@@ -1627,9 +1627,18 @@ class RetinaUNet(BaseModel):
     loss computation are handled inside this class, so an external
     retina_unet_train helper is no longer required for core model logic.
 
-    Notes: 
-        Object detection is not a standard classification task, so
-        get_loss_function, prepare_y_prob, and get_outpus_size are not used here.
+    Notes:
+        Segmentation is intentionally hardcoded to binary output
+        (``self.num_classes_seg = 2`` in ``RetinaUNetCore``).
+        The ``num_classes`` argument in this wrapper controls detection
+        classes only and does not change segmentation classes.
+
+        RetinaUNet returns multi-task outputs (detection logits/deltas,
+        post-NMS boxes, and segmentation logits) instead of a single
+        classification probability vector. Because of this, BaseModel
+        helpers ``get_loss_function``, ``prepare_y_prob``, and
+        ``get_output_size`` are intentionally not used, and losses are
+        computed directly in ``forward``.
     """
 
     def __init__(
@@ -1657,7 +1666,8 @@ class RetinaUNet(BaseModel):
         Args:
             dataset: PyHealth SampleDataset instance.
             in_channels: Number of input image channels. Defaults to 1.
-            num_classes: Number of foreground classes. Defaults to 2.
+            num_classes: Number of detection foreground classes.
+                Defaults to 2. This does not change segmentation classes.
             dim: Spatial dimensionality (2 or 3). Defaults to 2.
             fpn_base_channels: FPN stem width. Defaults to 48.
             fpn_out_channels: FPN output width. Defaults to 192.

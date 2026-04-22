@@ -83,7 +83,7 @@ class TestRetinaUNet(unittest.TestCase):
         self.assertEqual(self.model.core.dim, 2)
 
     def test_model_forward(self):
-        """Test forward pass returns standard model keys."""
+        """Test forward pass returns standard model keys and correct shapes."""
         train_loader = get_dataloader(self.dataset, batch_size=2, shuffle=False)
         data_batch = next(iter(train_loader))
 
@@ -95,17 +95,37 @@ class TestRetinaUNet(unittest.TestCase):
         self.assertIn("bbox_loss", ret)
         self.assertIn("seg_loss", ret)
         self.assertIn("det_bboxes", ret)
+        self.assertIn("class_logits", ret)
+        self.assertIn("bbox_deltas", ret)
+        self.assertIn("seg_logits", ret)
         self.assertIn("anchors", ret)
 
+        # Scalar losses
         self.assertEqual(ret["loss"].dim(), 0)
+        self.assertEqual(ret["class_loss"].dim(), 0)
+        self.assertEqual(ret["bbox_loss"].dim(), 0)
+        self.assertEqual(ret["seg_loss"].dim(), 0)
+
+        # (batch, total_anchors, num_classes)
+        self.assertEqual(ret["class_logits"].shape, torch.Size([2, 3060, 2]))
+        # (batch, total_anchors, 4) for 2D
+        self.assertEqual(ret["bbox_deltas"].shape, torch.Size([2, 3060, 4]))
+        # (batch, num_seg_classes, H, W)
+        self.assertEqual(ret["seg_logits"].shape, torch.Size([2, 2, 64, 64]))
+        # (total_anchors, 4) for 2D
+        self.assertEqual(ret["anchors"].shape, torch.Size([3060, 4]))
+        # det_bboxes: (K, 7) for 2D — K varies, column count is fixed
+        self.assertEqual(ret["det_bboxes"].ndim, 2)
+        self.assertEqual(ret["det_bboxes"].shape[1], 7)
 
 
-    def test_model_inference_without_labels(self):
-        """Test inference mode works when only image inputs are provided."""
+    def test_model_accepts_missing_labels_in_eval_mode(self):
+        """Test inference mode: no labels → zero losses and correct output shapes."""
         train_loader = get_dataloader(self.dataset, batch_size=2, shuffle=False)
         data_batch = next(iter(train_loader))
         inference_batch = {"images": data_batch["images"]}
 
+        self.model.eval()
         with torch.no_grad():
             ret = self.model(**inference_batch)
 
@@ -119,23 +139,54 @@ class TestRetinaUNet(unittest.TestCase):
         self.assertIn("seg_logits", ret)
         self.assertIn("anchors", ret)
 
-        self.assertEqual(ret["class_logits"].shape[0], 2)
-        self.assertEqual(ret["bbox_deltas"].shape[0], 2)
-        self.assertEqual(ret["seg_logits"].shape[0], 2)
+        # All losses must be zero when no labels are provided
+        self.assertEqual(ret["loss"].item(), 0.0)
+        self.assertEqual(ret["class_loss"].item(), 0.0)
+        self.assertEqual(ret["bbox_loss"].item(), 0.0)
+        self.assertEqual(ret["seg_loss"].item(), 0.0)
+
+        # (batch, total_anchors, num_classes)
+        self.assertEqual(ret["class_logits"].shape, torch.Size([2, 3060, 2]))
+        # (batch, total_anchors, 4) for 2D
+        self.assertEqual(ret["bbox_deltas"].shape, torch.Size([2, 3060, 4]))
+        # (batch, num_seg_classes, H, W)
+        self.assertEqual(ret["seg_logits"].shape, torch.Size([2, 2, 64, 64]))
+        # (total_anchors, 4) for 2D
+        self.assertEqual(ret["anchors"].shape, torch.Size([3060, 4]))
+        # det_bboxes: (K, 7) for 2D — K varies with NMS, column count is fixed
+        self.assertEqual(ret["det_bboxes"].ndim, 2)
+        self.assertEqual(ret["det_bboxes"].shape[1], 7)
 
     def test_model_backward(self):
-        """Test backward pass computes gradients."""
+        """Test backward pass computes gradients across key submodules."""
         train_loader = get_dataloader(self.dataset, batch_size=2, shuffle=True)
         data_batch = next(iter(train_loader))
 
         ret = self.model(**data_batch)
         ret["loss"].backward()
 
-        has_grad = any(
+        fpn_has_grad = any(
             param.requires_grad and param.grad is not None
-            for param in self.model.parameters()
+            for param in self.model.core.fpn.parameters()
         )
-        self.assertTrue(has_grad, "No parameters have gradients after backward pass")
+        cls_head_has_grad = any(
+            param.requires_grad and param.grad is not None
+            for param in self.model.core.classification_head.parameters()
+        )
+        seg_head_has_grad = any(
+            param.requires_grad and param.grad is not None
+            for param in self.model.core.segmentation_head.parameters()
+        )
+
+        self.assertTrue(fpn_has_grad, "FPN parameters should receive gradients")
+        self.assertTrue(
+            cls_head_has_grad,
+            "Classification head parameters should receive gradients"
+        )
+        self.assertTrue(
+            seg_head_has_grad,
+            "Segmentation head parameters should receive gradients"
+        )
 
 
 if __name__ == "__main__":
