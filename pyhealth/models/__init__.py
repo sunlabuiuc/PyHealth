@@ -37,7 +37,6 @@ from .tfm_tokenizer import (
 )
 from .torchvision_model import TorchvisionModel
 from .transformer import Transformer, TransformerLayer
-from .transformer_fusion_model import TransformerFusionModel
 from .transformers_model import TransformersModel
 from .ehrmamba import EHRMamba, MambaBlock
 from .vae import VAE
