@@ -159,7 +159,12 @@ def make_synthetic_samples(
     return samples
 
 
-def build_dataset(quick: bool, data_root: Optional[str]):
+def build_dataset(
+    quick: bool,
+    data_root: Optional[str],
+    max_samples: Optional[int] = None,
+    seed: int = 0,
+):
     """Build either a synthetic or a real MedicalTranscriptions dataset.
 
     Args:
@@ -167,6 +172,12 @@ def build_dataset(quick: bool, data_root: Optional[str]):
         data_root: Optional path to the raw mtsamples directory. If the path
             does not exist or fails to load, the script falls back to
             synthetic samples with a warning.
+        max_samples: Optional cap on the number of samples returned. When set
+            to a value smaller than the full dataset size, a random subset of
+            that size is drawn (seeded by ``seed``). Useful to keep ablation
+            runtime bounded; the rubric explicitly allows subsampling when
+            compute is limited.
+        seed: RNG seed used only by ``max_samples``.
 
     Returns:
         A fitted ``SampleDataset`` ready for ``get_dataloader``.
@@ -175,17 +186,27 @@ def build_dataset(quick: bool, data_root: Optional[str]):
         if data_root:
             print(f"[warn] data_root={data_root!r} unreadable; using synthetic data")
         samples = make_synthetic_samples(n_per_class=40)
-        return create_sample_dataset(
+        dataset = create_sample_dataset(
             samples=samples,
             input_schema={"transcription": "text"},
             output_schema={"medical_specialty": "multiclass"},
             dataset_name="medical_transcriptions_synth",
         )
+    else:
+        from pyhealth.datasets import MedicalTranscriptionsDataset
 
-    from pyhealth.datasets import MedicalTranscriptionsDataset
+        raw = MedicalTranscriptionsDataset(root=data_root)
+        dataset = raw.set_task()
 
-    raw = MedicalTranscriptionsDataset(root=data_root)
-    return raw.set_task()
+    if max_samples is not None and max_samples < len(dataset):
+        rng = random.Random(seed)
+        indices = rng.sample(range(len(dataset)), max_samples)
+        dataset = dataset.subset(indices)
+        print(
+            f"[info] subsampled dataset to {len(dataset)} rows "
+            f"(seed={seed})"
+        )
+    return dataset
 
 
 # ---------------------------------------------------------------------------
@@ -400,6 +421,15 @@ def main(argv: Optional[List[str]] = None) -> None:
     parser.add_argument("--epochs", type=int, default=2)
     parser.add_argument("--batch_size", type=int, default=16)
     parser.add_argument(
+        "--max_samples",
+        type=int,
+        default=None,
+        help=(
+            "Cap the dataset at this many rows (random subset, seeded). "
+            "Leave unset to use the full corpus."
+        ),
+    )
+    parser.add_argument(
         "--output",
         type=str,
         default="ablations.json",
@@ -413,7 +443,11 @@ def main(argv: Optional[List[str]] = None) -> None:
     )
     args = parser.parse_args(argv)
 
-    dataset = build_dataset(quick=args.quick, data_root=args.data_root)
+    dataset = build_dataset(
+        quick=args.quick,
+        data_root=args.data_root,
+        max_samples=args.max_samples,
+    )
     backbone = (
         "prajjwal1/bert-tiny" if args.quick else "emilyalsentzer/Bio_ClinicalBERT"
     )
