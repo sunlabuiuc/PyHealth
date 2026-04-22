@@ -204,3 +204,5 @@ API Reference
     models/pyhealth.models.TextEmbedding
     models/pyhealth.models.BIOT
     models/pyhealth.models.unified_multimodal_embedding_docs
+    models/pyhealth.models.spes_resnet
+    models/pyhealth.models.spes_transformer
