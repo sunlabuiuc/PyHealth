@@ -158,7 +158,11 @@ jupyter notebook
 You can run specific ablation studies by modifying the script:
 
 ```python
+<<<<<<< HEAD
 # In sleep_multiclass_wav2sleep_comprehensive.py, comment out unwanted studies:
+=======
+# In sleep_multiclass_wav2sleep_corrected.py, comment out unwanted studies:
+>>>>>>> a9f476b (Added jupyter notebook files for ablation studies, abaltion study guide explain the ablation apporach)
 
 # Run only model capacity
 all_results["model_capacity"] = run_model_capacity_ablation(base_samples)
@@ -167,8 +171,11 @@ all_results["model_capacity"] = run_model_capacity_ablation(base_samples)
 # all_results["regularization"] = run_regularization_ablation(base_samples)
 # all_results["missing_modality"] = run_missing_modality_ablation(base_samples)
 # all_results["attention"] = run_attention_visualization_extension(base_samples)
+<<<<<<< HEAD
 
 #  CommandLine command for abaltion : cd PyHealth && source .venv313/bin/activate && python examples/wav2sleep/sleep_multiclass_wav2sleep_comprehensive.py 2>&1
+=======
+>>>>>>> a9f476b (Added jupyter notebook files for ablation studies, abaltion study guide explain the ablation apporach)
 ```
 
 ---
@@ -227,6 +234,7 @@ wav2sleep_experiment_results/
 
 ---
 
+<<<<<<< HEAD
 ## Visualization Analysis
 
 The attention visualization shows:
@@ -235,6 +243,8 @@ The attention visualization shows:
 2. **PPG dominance** in N2 and N3 stages (expected due to stable perfusion)
 3. **Consistent attention patterns** across different model configurations
 
+=======
+>>>>>>> a9f476b (Added jupyter notebook files for ablation studies, abaltion study guide explain the ablation apporach)
 ## Clinical Interpretation
 
 ### Sleep Stage Physiology
@@ -327,7 +337,12 @@ To test additional physiological signals:
 
 ## References
 
+<<<<<<< HEAD
 - Wav2Sleep Paper: [[Citation](https://arxiv.org/abs/2411.04644)]
+=======
+- Wav2Sleep Paper: [Citation]
+- PyHealth Documentation: [Link]
+>>>>>>> a9f476b (Added jupyter notebook files for ablation studies, abaltion study guide explain the ablation apporach)
 - Sleep Staging Standards: AASM Guidelines
 
 ---

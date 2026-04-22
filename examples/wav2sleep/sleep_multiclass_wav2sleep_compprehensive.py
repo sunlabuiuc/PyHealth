@@ -25,12 +25,13 @@ import json
 from pathlib import Path
 import numpy as np
 import pandas as pd
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
 from sklearn.metrics import accuracy_score, f1_score, classification_report
 
-# PyHealth imports following the standard pattern
-from pyhealth.datasets import create_sample_dataset, split_by_patient, get_dataloader
-from pyhealth.models import Wav2Sleep
-from pyhealth.trainer import Trainer
+# Wav2Sleep model import
+from pyhealth.models.wav2sleep import Wav2Sleep
 
 
 # =============================================================================
@@ -38,72 +39,157 @@ from pyhealth.trainer import Trainer
 # =============================================================================
 
 def generate_sleep_samples_for_ablation(num_patients=80, epochs_per_patient_range=(40, 100)):
-    """Generate synthetic multimodal sleep stage data following realistic sleep architecture."""
+    """Generate synthetic multimodal sleep stage data with raw signal format.
+    
+    PyHealth Wav2Sleep model expects:
+    - ECG: raw signal with length multiple of 1024 (sampling rate 1024 Hz)
+    - PPG: raw signal with length multiple of 1024 (sampling rate 1024 Hz)
+    """
+    
+    SAMPLES_PER_EPOCH = 1024  # 1 second per epoch at 1024 Hz
     
     samples = []
     
     for patient_id in range(num_patients):
-        # Random number of sleep epochs per patient (30-second epochs)
+        # Random number of sleep epochs per patient
         num_epochs = np.random.randint(*epochs_per_patient_range)
         
         # Generate realistic sleep stage sequence
         sleep_stages = generate_realistic_sleep_architecture(num_epochs)
         
-        # Generate physiological signals with sleep stage dependencies
-        ecg_data = []
-        ppg_data = []
-        resp_data = []
+        # Generate raw signal data with proper length (multiple of 1024)
+        total_samples = num_epochs * SAMPLES_PER_EPOCH
         
-        for epoch_idx, stage in enumerate(sleep_stages):
-            # Physiological baselines that vary by sleep stage (literature-based)
-            stage_physiology = {
-                0: {'hr': 75, 'spo2': 98, 'resp_rate': 16},  # Wake: elevated vitals
-                1: {'hr': 68, 'spo2': 97, 'resp_rate': 14},  # N1: transitional
-                2: {'hr': 62, 'spo2': 96, 'resp_rate': 12},  # N2: stable reduction
-                3: {'hr': 55, 'spo2': 95, 'resp_rate': 10},  # N3: lowest vitals
-                4: {'hr': 78, 'spo2': 97, 'resp_rate': 15},  # REM: variable/elevated
-            }[stage]
-            
-            # ECG features (32-dimensional) - heart rate variability patterns
-            ecg_features = [
-                stage_physiology['hr'] + np.random.normal(0, 3),  # Heart rate
-                np.random.normal(0.1 * (stage + 1), 0.02),        # HRV RMSSD (stage-dependent)
-                np.random.normal(0.05 * stage, 0.01),             # HRV pNN50
-                np.random.normal(1.2, 0.1),                       # QRS amplitude
-            ] + [np.random.normal(0, 0.1) for _ in range(28)]      # Additional ECG features
-            
-            # PPG features (32-dimensional) - pulse and oxygen patterns
-            ppg_features = [
-                stage_physiology['spo2'] + np.random.normal(0, 0.5),  # SpO2
-                np.random.normal(0.8 * (stage + 1), 0.1),            # Pulse amplitude
-                np.random.normal(0.02 * stage, 0.005),               # Pulse variability
-                np.random.normal(1.0, 0.1),                          # Perfusion index
-            ] + [np.random.normal(0, 0.05) for _ in range(28)]        # Additional PPG features
-            
-            # Respiratory features (32-dimensional) - breathing patterns
-            resp_features = [
-                stage_physiology['resp_rate'] + np.random.normal(0, 1),  # Respiratory rate
-                np.random.normal(500 * (stage + 1), 30),                 # Tidal volume (stage-dependent)
-                np.random.normal(0.3 * stage, 0.05),                     # Respiratory variability
-                np.random.normal(1.0, 0.1),                              # Effort intensity
-            ] + [np.random.normal(0, 0.02) for _ in range(28)]            # Additional respiratory features
-            
-            ecg_data.append(ecg_features)
-            ppg_data.append(ppg_features)
-            resp_data.append(resp_features)
+        # Generate ECG signal with sleep-stage dependent heart rate
+        ecg_signal = generate_ecg_signal(total_samples, sleep_stages)
+        
+        # Generate PPG signal with sleep-stage dependent characteristics
+        ppg_signal = generate_ppg_signal(total_samples, sleep_stages)
         
         sample = {
             "patient_id": f"patient_{patient_id:03d}",
             "visit_id": f"night_{patient_id:03d}",
-            "ecg": ecg_data,
-            "ppg": ppg_data,
-            "resp": resp_data,
-            "sleep_stage": sleep_stages,
+            "ecg": torch.tensor(ecg_signal, dtype=torch.float32).unsqueeze(0),  # [1, total_samples]
+            "ppg": torch.tensor(ppg_signal, dtype=torch.float32).unsqueeze(0),  # [1, total_samples]
+            "sleep_stage": torch.tensor(sleep_stages, dtype=torch.long),
         }
         
         samples.append(sample)
     
     return samples
+
+
+def generate_ecg_signal(total_samples, sleep_stages):
+    """Generate synthetic ECG signal with sleep-stage dependent heart rate.
+    
+    Args:
+        total_samples: Total number of samples (must be multiple of 1024)
+        sleep_stages: List of sleep stages for each epoch
+    
+    Returns:
+        ECG signal as numpy array
+    """
+    # Sleep stage to heart rate mapping (beats per minute)
+    stage_hr = {
+        0: 75,  # Wake: elevated
+        1: 68,  # N1: transitional
+        2: 62,  # N2: stable reduced
+        3: 55,  # N3: lowest
+        4: 78,  # REM: variable elevated
+    }
+    
+    # Sampling rate
+    fs = 1024  # Hz
+    
+    # Generate signal epoch by epoch
+    ecg_signal = np.zeros(total_samples)
+    samples_per_epoch = total_samples // len(sleep_stages)
+    
+    for epoch_idx, stage in enumerate(sleep_stages):
+        hr = stage_hr[stage]
+        # Add some variability
+        hr = hr + np.random.normal(0, 2)
+        
+        # Generate synthetic ECG with this heart rate
+        start_idx = epoch_idx * samples_per_epoch
+        end_idx = start_idx + samples_per_epoch
+        
+        # Create synthetic ECG waveform using simple formula
+        # Heart rate determines beat frequency
+        rr_interval = 60.0 / hr  # seconds per beat
+        samples_per_beat = int(rr_interval * fs)
+        
+        t = np.arange(samples_per_epoch)
+        
+        # Create epoch as combination of sinusoids at beat frequency
+        # Fundamental: heart rate
+        # Harmonics: for QRS complex shape
+        ecg_epoch = (
+            1.0 * np.sin(2 * np.pi * (fs / samples_per_beat) * t) +
+            0.3 * np.sin(2 * np.pi * (fs / samples_per_beat) * 2 * t) +  # 2nd harmonic
+            0.1 * np.sin(2 * np.pi * (fs / samples_per_beat) * 3 * t)    # 3rd harmonic
+        )
+        
+        # Add noise
+        ecg_epoch += np.random.normal(0, 0.05, samples_per_epoch)
+        
+        ecg_signal[start_idx:end_idx] = ecg_epoch
+    
+    return ecg_signal
+
+
+def generate_ppg_signal(total_samples, sleep_stages):
+    """Generate synthetic PPG signal with sleep-stage dependent characteristics.
+    
+    Args:
+        total_samples: Total number of samples (must be multiple of 1024)
+        sleep_stages: List of sleep stages for each epoch
+    
+    Returns:
+        PPG signal as numpy array
+    """
+    # Sleep stage to PPG characteristics
+    stage_ppg = {
+        0: {'amplitude': 1.0, 'frequency': 1.2},   # Wake: higher amplitude, elevated HR
+        1: {'amplitude': 0.9, 'frequency': 1.1},   # N1: transitional
+        2: {'amplitude': 0.8, 'frequency': 1.0},   # N2: stable
+        3: {'amplitude': 0.7, 'frequency': 0.9},   # N3: lowest amplitude, slower
+        4: {'amplitude': 1.0, 'frequency': 1.3},   # REM: variable, higher HR
+    }
+    
+    fs = 1024  # Hz
+    samples_per_epoch = total_samples // len(sleep_stages)
+    
+    ppg_signal = np.zeros(total_samples)
+    
+    for epoch_idx, stage in enumerate(sleep_stages):
+        ppg_params = stage_ppg[stage]
+        # Add variability
+        amplitude = ppg_params['amplitude'] * (1 + np.random.normal(0, 0.05))
+        frequency = ppg_params['frequency'] * (1 + np.random.normal(0, 0.02))
+        
+        start_idx = epoch_idx * samples_per_epoch
+        end_idx = start_idx + samples_per_epoch
+        
+        t = np.arange(samples_per_epoch) / fs
+        
+        # PPG waveform: combination of systolic and diastolic components
+        # Main pulse at frequency
+        pulse = amplitude * np.sin(2 * np.pi * frequency * t)
+        
+        # Dicrotic notch (secondary peak)
+        notch = 0.3 * amplitude * np.sin(2 * np.pi * frequency * t * 2 + np.pi)
+        
+        # Combine
+        ppg_epoch = pulse + notch + np.random.normal(0, 0.02, samples_per_epoch)
+        
+        # Add baseline wander (呼吸波)
+        breath_freq = 0.2  # ~12 breaths per minute
+        baseline = 0.1 * np.sin(2 * np.pi * breath_freq * t)
+        
+        ppg_signal[start_idx:end_idx] = ppg_epoch + baseline
+    
+    return ppg_signal
 
 
 def generate_realistic_sleep_architecture(num_epochs):
@@ -189,59 +275,77 @@ def run_model_capacity_ablation(base_samples):
     for hidden_dim in hidden_dimensions:
         print(f"\n🔍 Testing hidden dimension: {hidden_dim}")
         
-        # Create dataset
-        input_schema = {"ecg": "tensor", "ppg": "tensor", "resp": "tensor"}
-        output_schema = {"sleep_stage": "multiclass"}
+        # Split samples
+        n_samples = len(base_samples)
+        n_train = int(0.7 * n_samples)
+        n_val = int(0.15 * n_samples)
+        train_samples = base_samples[:n_train]
+        val_samples = base_samples[n_train:n_train+n_val]
+        test_samples = base_samples[n_train+n_val:]
         
-        sample_dataset = create_sample_dataset(
-            samples=base_samples,
-            input_schema=input_schema,
-            output_schema=output_schema,
-            dataset_name=f"sleep_capacity_{hidden_dim}",
-        )
+        # Create simple dataset-like object for model
+        class SimpleDataset:
+            def __init__(self, samples):
+                self.samples = samples
+                self.feature_keys = ["ecg", "ppg", "resp"]
+                self.label_keys = ["sleep_stage"]
+                self.input_schema = {"ecg": "tensor", "ppg": "tensor", "resp": "tensor"}
+                self.output_schema = {"sleep_stage": "multiclass"}
+            def __len__(self):
+                return len(self.samples)
+            def __getitem__(self, idx):
+                return self.samples[idx]
         
-        # Split dataset
-        train_dataset, val_dataset, test_dataset = split_by_patient(
-            sample_dataset, [0.7, 0.15, 0.15]
-        )
-        
-        # Create dataloaders
-        train_dataloader = get_dataloader(train_dataset, batch_size=16, shuffle=True)
-        val_dataloader = get_dataloader(val_dataset, batch_size=16, shuffle=False)
-        test_dataloader = get_dataloader(test_dataset, batch_size=16, shuffle=False)
+        dataset = SimpleDataset(train_samples)
         
         # Create model with specified hidden dimension
         model = Wav2Sleep(
-            dataset=sample_dataset,
-            embedding_dim=64,           # Fixed embedding dimension
-            hidden_dim=hidden_dim,      # Variable for capacity analysis
-            dropout=0.1,                # Fixed dropout for capacity analysis
-            use_paper_faithful=True,    # Use paper-faithful architecture
+            dataset=dataset,
+            embedding_dim=64,
+            hidden_dim=hidden_dim,
+            dropout=0.1,
+            use_paper_faithful=True,
         )
         
-        # Train model
-        trainer = Trainer(model=model)
-        trainer.train(
-            train_dataloader=train_dataloader,
-            val_dataloader=val_dataloader,
-            epochs=10,  # Sufficient for capacity analysis
-            monitor="accuracy",
-        )
+        # Train directly (following quick_demo pattern)
+        model.train()
+        optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
+        
+        for epoch in range(10):
+            epoch_loss = 0
+            for sample in train_samples:
+                optimizer.zero_grad()
+                outputs = model(**sample)
+                loss = outputs["loss"]
+                loss.backward()
+                optimizer.step()
+                epoch_loss += loss.item()
+            print(f"   Epoch {epoch+1}: Loss={epoch_loss/len(train_samples):.4f}")
         
         # Evaluate
-        test_metrics = trainer.evaluate(test_dataloader)
+        model.eval()
+        all_preds, all_true = [], []
+        with torch.no_grad():
+            for sample in test_samples:
+                outputs = model(**sample)
+                preds = torch.argmax(outputs["y_prob"], dim=1)
+                all_preds.extend(preds.numpy())
+                all_true.extend(outputs["y_true"].numpy())
+        
+        accuracy = accuracy_score(all_true, all_preds)
+        f1 = f1_score(all_true, all_preds, average="macro")
         
         result = {
             "hidden_dim": hidden_dim,
-            "test_accuracy": test_metrics["accuracy"],
-            "test_f1": test_metrics["f1"],
+            "test_accuracy": accuracy,
+            "test_f1": f1,
             "parameters": sum(p.numel() for p in model.parameters()),
             "complexity_analysis": analyze_model_complexity(hidden_dim),
         }
         results.append(result)
         
-        print(f"   ✓ Hidden {hidden_dim}: Acc={test_metrics['accuracy']:.3f}, "
-              f"F1={test_metrics['f1']:.3f}, Params={result['parameters']:,}")
+        print(f"   ✓ Hidden {hidden_dim}: Acc={accuracy:.3f}, "
+              f"F1={f1:.3f}, Params={result['parameters']:,}")
     
     # Analyze capacity trends
     print(f"\n   📊 Model Capacity Analysis:")
@@ -288,58 +392,75 @@ def run_regularization_ablation(base_samples):
     for dropout_rate in dropout_rates:
         print(f"\n🔍 Testing dropout rate: {dropout_rate}")
         
-        # Create dataset
-        input_schema = {"ecg": "tensor", "ppg": "tensor", "resp": "tensor"}
-        output_schema = {"sleep_stage": "multiclass"}
+        # Split samples
+        n_samples = len(base_samples)
+        n_train = int(0.7 * n_samples)
+        n_val = int(0.15 * n_samples)
+        train_samples = base_samples[:n_train]
+        val_samples = base_samples[n_train:n_train+n_val]
+        test_samples = base_samples[n_train+n_val:]
         
-        sample_dataset = create_sample_dataset(
-            samples=base_samples,
-            input_schema=input_schema,
-            output_schema=output_schema,
-            dataset_name=f"sleep_dropout_{dropout_rate}",
-        )
+        # Create simple dataset-like object
+        class SimpleDataset:
+            def __init__(self, samples):
+                self.samples = samples
+                self.feature_keys = ["ecg", "ppg", "resp"]
+                self.label_keys = ["sleep_stage"]
+                self.input_schema = {"ecg": "tensor", "ppg": "tensor", "resp": "tensor"}
+                self.output_schema = {"sleep_stage": "multiclass"}
+            def __len__(self):
+                return len(self.samples)
+            def __getitem__(self, idx):
+                return self.samples[idx]
         
-        # Split dataset
-        train_dataset, val_dataset, test_dataset = split_by_patient(
-            sample_dataset, [0.7, 0.15, 0.15]
-        )
-        
-        # Create dataloaders
-        train_dataloader = get_dataloader(train_dataset, batch_size=16, shuffle=True)
-        val_dataloader = get_dataloader(val_dataset, batch_size=16, shuffle=False)
-        test_dataloader = get_dataloader(test_dataset, batch_size=16, shuffle=False)
+        dataset = SimpleDataset(train_samples)
         
         # Create model with specified dropout rate
         model = Wav2Sleep(
-            dataset=sample_dataset,
+            dataset=dataset,
             embedding_dim=64,
-            hidden_dim=64,              # Optimal from capacity analysis
-            dropout=dropout_rate,       # Variable for regularization analysis
+            hidden_dim=64,
+            dropout=dropout_rate,
             use_paper_faithful=True,
         )
         
-        # Train model
-        trainer = Trainer(model=model)
-        trainer.train(
-            train_dataloader=train_dataloader,
-            val_dataloader=val_dataloader,
-            epochs=10,
-            monitor="accuracy",
-        )
+        # Train directly
+        model.train()
+        optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
+        
+        for epoch in range(10):
+            epoch_loss = 0
+            for sample in train_samples:
+                optimizer.zero_grad()
+                outputs = model(**sample)
+                loss = outputs["loss"]
+                loss.backward()
+                optimizer.step()
+                epoch_loss += loss.item()
+            print(f"   Epoch {epoch+1}: Loss={epoch_loss/len(train_samples):.4f}")
         
         # Evaluate
-        test_metrics = trainer.evaluate(test_dataloader)
+        model.eval()
+        all_preds, all_true = [], []
+        with torch.no_grad():
+            for sample in test_samples:
+                outputs = model(**sample)
+                preds = torch.argmax(outputs["y_prob"], dim=1)
+                all_preds.extend(preds.numpy())
+                all_true.extend(outputs["y_true"].numpy())
+        
+        accuracy = accuracy_score(all_true, all_preds)
+        f1 = f1_score(all_true, all_preds, average="macro")
         
         result = {
             "dropout_rate": dropout_rate,
-            "test_accuracy": test_metrics["accuracy"],
-            "test_f1": test_metrics["f1"],
-            "regularization_effect": analyze_regularization_effect(dropout_rate, test_metrics),
+            "test_accuracy": accuracy,
+            "test_f1": f1,
+            "regularization_effect": analyze_regularization_effect(dropout_rate, {"accuracy": accuracy, "f1": f1}),
         }
         results.append(result)
         
-        print(f"   ✓ Dropout {dropout_rate}: Acc={test_metrics['accuracy']:.3f}, "
-              f"F1={test_metrics['f1']:.3f}")
+        print(f"   ✓ Dropout {dropout_rate}: Acc={accuracy:.3f}, F1={f1:.3f}")
     
     # Analyze regularization trends
     print(f"\n   📊 Regularization Analysis:")
@@ -381,15 +502,9 @@ def run_missing_modality_ablation(base_samples):
     modality_configs = [
         {
             "name": "All_Modalities",
-            "description": "ECG + PPG + Respiration (baseline)",
-            "modalities": ["ecg", "ppg", "resp"],
-            "clinical_scenario": "Fully equipped sleep lab"
-        },
-        {
-            "name": "ECG_PPG",
-            "description": "ECG and PPG available",
+            "description": "ECG + PPG (baseline)",
             "modalities": ["ecg", "ppg"],
-            "clinical_scenario": "Home monitoring without respiratory sensor"
+            "clinical_scenario": "Fully equipped sleep lab"
         },
         {
             "name": "ECG_Only",
@@ -421,57 +536,67 @@ def run_missing_modality_ablation(base_samples):
             
             filtered_samples.append(filtered_sample)
         
-        # Create input schema for available modalities only
-        input_schema = {modality: "tensor" for modality in config["modalities"]}
-        output_schema = {"sleep_stage": "multiclass"}
+        # Create simple dataset
+        class SimpleDataset:
+            def __init__(self, samples):
+                self.samples = samples
+                self.feature_keys = config["modalities"]
+                self.label_keys = ["sleep_stage"]
+                self.input_schema = {modality: "tensor" for modality in config["modalities"]}
+                self.output_schema = {"sleep_stage": "multiclass"}
+            def __len__(self):
+                return len(self.samples)
+            def __getitem__(self, idx):
+                return self.samples[idx]
         
-        sample_dataset = create_sample_dataset(
-            samples=filtered_samples,
-            input_schema=input_schema,
-            output_schema=output_schema,
-            dataset_name=f"sleep_modality_{config['name'].lower()}",
-        )
+        dataset = SimpleDataset(filtered_samples)
         
-        # Split dataset
-        train_dataset, val_dataset, test_dataset = split_by_patient(
-            sample_dataset, [0.7, 0.15, 0.15]
-        )
-        
-        # Create dataloaders
-        train_dataloader = get_dataloader(train_dataset, batch_size=16, shuffle=True)
-        val_dataloader = get_dataloader(val_dataset, batch_size=16, shuffle=False)
-        test_dataloader = get_dataloader(test_dataset, batch_size=16, shuffle=False)
-        
-        # Create model optimized for missing modalities
+        # Create model
         model = Wav2Sleep(
-            dataset=sample_dataset,
+            dataset=dataset,
             embedding_dim=64,
-            hidden_dim=64,              # Optimal from capacity analysis
-            dropout=0.1,                # Optimal from regularization analysis  
-            use_paper_faithful=True,    # CLS-token fusion handles missing modalities well
+            hidden_dim=64,
+            dropout=0.1,
+            use_paper_faithful=True,
         )
         
-        # Train model
-        trainer = Trainer(model=model)
-        trainer.train(
-            train_dataloader=train_dataloader,
-            val_dataloader=val_dataloader,
-            epochs=10,
-            monitor="accuracy",
-        )
+        # Train directly
+        model.train()
+        optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
+        
+        for epoch in range(10):
+            epoch_loss = 0
+            for sample in filtered_samples:
+                optimizer.zero_grad()
+                outputs = model(**sample)
+                loss = outputs["loss"]
+                loss.backward()
+                optimizer.step()
+                epoch_loss += loss.item()
+            print(f"   Epoch {epoch+1}: Loss={epoch_loss/len(filtered_samples):.4f}")
         
         # Evaluate
-        test_metrics = trainer.evaluate(test_dataloader)
+        model.eval()
+        all_preds, all_true = [], []
+        with torch.no_grad():
+            for sample in filtered_samples:
+                outputs = model(**sample)
+                preds = torch.argmax(outputs["y_prob"], dim=1)
+                all_preds.extend(preds.numpy())
+                all_true.extend(outputs["y_true"].numpy())
+        
+        accuracy = accuracy_score(all_true, all_preds)
+        f1 = f1_score(all_true, all_preds, average="macro")
         
         # Store baseline for comparison
         if config["name"] == "All_Modalities":
-            baseline_accuracy = test_metrics["accuracy"]
+            baseline_accuracy = accuracy
         
         # Calculate performance degradation
         performance_drop = None
         clinical_viability = None
         if baseline_accuracy is not None and config["name"] != "All_Modalities":
-            performance_drop = baseline_accuracy - test_metrics["accuracy"]
+            performance_drop = baseline_accuracy - accuracy
             clinical_viability = "Viable" if performance_drop < 0.1 else "Concerning"
         
         result = {
@@ -479,8 +604,8 @@ def run_missing_modality_ablation(base_samples):
             "description": config["description"],
             "modalities": config["modalities"],
             "clinical_scenario": config["clinical_scenario"],
-            "test_accuracy": test_metrics["accuracy"],
-            "test_f1": test_metrics["f1"],
+            "test_accuracy": accuracy,
+            "test_f1": f1,
             "performance_drop": performance_drop,
             "clinical_viability": clinical_viability,
         }
@@ -488,8 +613,8 @@ def run_missing_modality_ablation(base_samples):
         
         drop_str = f", Drop: {performance_drop:.3f}" if performance_drop else ""
         viability_str = f", Viability: {clinical_viability}" if clinical_viability else ""
-        print(f"   ✓ {config['name']}: Acc={test_metrics['accuracy']:.3f}, "
-              f"F1={test_metrics['f1']:.3f}{drop_str}{viability_str}")
+        print(f"   ✓ {config['name']}: Acc={accuracy:.3f}, "
+              f"F1={f1:.3f}{drop_str}{viability_str}")
     
     # Missing modality robustness analysis
     print(f"\n   📊 Missing Modality Robustness Analysis:")
@@ -526,39 +651,45 @@ def run_attention_visualization_extension(base_samples):
     print("-" * 70)
     
     # Create small dataset for attention analysis
-    attention_samples = base_samples[:20]  # Smaller set for detailed analysis
+    attention_samples = base_samples[:20]
     
-    input_schema = {"ecg": "tensor", "ppg": "tensor", "resp": "tensor"}
-    output_schema = {"sleep_stage": "multiclass"}
+    class SimpleDataset:
+        def __init__(self, samples):
+            self.samples = samples
+            self.feature_keys = ["ecg", "ppg"]
+            self.label_keys = ["sleep_stage"]
+            self.input_schema = {"ecg": "tensor", "ppg": "tensor"}
+            self.output_schema = {"sleep_stage": "multiclass"}
+        def __len__(self):
+            return len(self.samples)
+        def __getitem__(self, idx):
+            return self.samples[idx]
     
-    sample_dataset = create_sample_dataset(
-        samples=attention_samples,
-        input_schema=input_schema,
-        output_schema=output_schema,
-        dataset_name="sleep_attention_analysis",
-    )
+    dataset = SimpleDataset(attention_samples)
     
-    # Create model with attention analysis capabilities
+    # Create model
     model = Wav2Sleep(
-        dataset=sample_dataset,
+        dataset=dataset,
         embedding_dim=64,
         hidden_dim=64,
         dropout=0.1,
-        use_paper_faithful=True,  # Required for CLS-token attention
+        use_paper_faithful=True,
     )
     
-    # Quick training for stable attention patterns
-    train_dataset, _, test_dataset = split_by_patient(sample_dataset, [0.8, 0.0, 0.2])
-    train_dataloader = get_dataloader(train_dataset, batch_size=8, shuffle=True)
-    test_dataloader = get_dataloader(test_dataset, batch_size=1, shuffle=False)  # Batch=1 for attention analysis
+    # Quick training
+    model.train()
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
     
-    trainer = Trainer(model=model)
-    trainer.train(
-        train_dataloader=train_dataloader,
-        val_dataloader=test_dataloader,
-        epochs=8,  # More epochs for stable attention
-        monitor="accuracy",
-    )
+    for epoch in range(8):
+        epoch_loss = 0
+        for sample in attention_samples:
+            optimizer.zero_grad()
+            outputs = model(**sample)
+            loss = outputs["loss"]
+            loss.backward()
+            optimizer.step()
+            epoch_loss += loss.item()
+        print(f"   Epoch {epoch+1}: Loss={epoch_loss/len(attention_samples):.4f}")
     
     # Attention analysis (simplified for demo)
     print(f"\n   📊 Attention Pattern Analysis:")
@@ -699,7 +830,7 @@ if __name__ == "__main__":
     
     # Generate synthetic sleep dataset for ablation studies
     print("\n📊 Generating synthetic multimodal sleep dataset for ablation...")
-    base_samples = generate_sleep_samples_for_ablation(num_patients=80, epochs_per_patient_range=(40, 80))
+    base_samples = generate_sleep_samples_for_ablation(num_patients=20, epochs_per_patient_range=(4, 6))  # Reduced for faster testing
     print(f"   ✓ Generated {len(base_samples)} patient samples with realistic sleep architecture")
     
     # Run systematic ablation studies

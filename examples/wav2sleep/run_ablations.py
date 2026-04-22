@@ -59,10 +59,14 @@ def recommend_ablation_script(deps):
         if deps['pyhealth'] and deps['wav2sleep']:
             return {
 <<<<<<< HEAD
+<<<<<<< HEAD
                 'script': 'sleep_multiclass_wav2sleep_comprehensive.py',
 =======
                 'script': 'sleep_multiclass_wav2sleep_corrected.py',
 >>>>>>> 4592df1 (Removing test packages and classes)
+=======
+                'script': 'sleep_multiclass_wav2sleep_compprehensive.py',
+>>>>>>> a9f476b (Added jupyter notebook files for ablation studies, abaltion study guide explain the ablation apporach)
                 'type': 'Full PyHealth Integration',
                 'runtime': '5-10 minutes',
                 'description': 'Complete ablation with PyHealth Trainer and datasets'
@@ -80,10 +84,14 @@ def recommend_ablation_script(deps):
             'type': 'Missing Dependencies',
             'runtime': 'N/A',
 <<<<<<< HEAD
+<<<<<<< HEAD
             'description': 'Install PyTorch, NumPy, Pandas, and scikit-learn first'
 =======
             'description': 'Install PyTorch, NumPy, and scikit-learn first'
 >>>>>>> 4592df1 (Removing test packages and classes)
+=======
+            'description': 'Install PyTorch, NumPy, Pandas, and scikit-learn first'
+>>>>>>> a9f476b (Added jupyter notebook files for ablation studies, abaltion study guide explain the ablation apporach)
         }
 
 
