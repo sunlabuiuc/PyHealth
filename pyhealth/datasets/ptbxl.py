@@ -211,7 +211,13 @@ class PTBXLDataset(BaseDataset):
             FileNotFoundError: If ptbxl_database.csv is not found in root
         """
         root_path = Path(self.root)
-        files = sorted(root_path.glob("*.hea")) 
+        # Collect .hea files: first try flat layout (files directly in root),
+        # then fall back to g1/…g22/ sub-directory layout.
+        files = sorted(root_path.glob("*.hea"))
+        if not files:
+            for subdir in sorted(root_path.iterdir()):
+                if subdir.is_dir() and subdir.name.startswith('g'):
+                    files.extend(sorted(subdir.glob("*.hea")))
 
 		# Check existence of required .hea files
         if not files:
@@ -238,21 +244,25 @@ class PTBXLDataset(BaseDataset):
                     line = line.strip()
 
                     # Parse individual lines
-                    if line.startswith("#Age:"):
+                    if line.startswith("#Age:") or line.startswith("# Age:"):
                         try:
                             age = int(line.split(":")[1].strip())
                         except ValueError:
                             age = None
-                    elif line.startswith("#Sex:"):
+                    elif line.startswith("#Sex:") or line.startswith("# Sex:"):
                         sex = line.split(":")[1].strip()
-                    elif line.startswith("#Dx:"):
+                    elif line.startswith("#Dx:") or line.startswith("# Dx:"):
                         dx = [x.strip() for x in line.split(":")[1].split(",")]
 
             # Map diagnosis codes to the abbreviations (may need them for tasks)
             dx_abbreviations = [SNOMED_CT_ABBREVIATION[x] for x in dx if x in SNOMED_CT_ABBREVIATION]
 
 			# Train / test / validation splits using the strat_fold column in ptbxl_database.csv
-            strat_fold = db.loc[int(hea_file.stem.replace("HR","")), "strat_fold"]
+            ecg_id = int(hea_file.stem.replace("HR",""))
+            if ecg_id not in db.index:
+                logger.debug(f"Skipping {hea_file.name}: ecg_id {ecg_id} not in ptbxl_database.csv")
+                continue
+            strat_fold = db.loc[ecg_id, "strat_fold"]
             if strat_fold <= 8:
                 split = "train"
             elif strat_fold == 9:
@@ -265,7 +275,7 @@ class PTBXLDataset(BaseDataset):
                   "patient_id":     hea_file.stem,
                   "event_type":     "ptbxl",
                   "timestamp":      pd.NaT,
-                  "ptbxl/mat":      str(root_path / f"{hea_file.stem}.mat"),
+                  "ptbxl/mat":      str(hea_file.with_suffix(".mat")),
                   "ptbxl/age":      age,
                   "ptbxl/sex":      sex,
                   "ptbxl/dx_codes": ",".join(dx),

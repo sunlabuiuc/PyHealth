@@ -125,18 +125,15 @@ class BiLSTMECG(BaseModel):
         dropout: float = 0.2,
         **kwargs,
     ):
-        super().__init__(
-            dataset=dataset,
-            feature_keys=feature_keys,
-            label_key=label_key,
-            mode=mode,
-        )
+        super().__init__(dataset=dataset)
+        self.feature_key = feature_keys[0]
+        self.label_key = label_key
+        self.mode = mode
 
-        sig_info = self.dataset.input_info["signal"]
-        in_channels: int = sig_info["n_channels"]  # 12 for standard 12-lead ECG
+        # PTB-XL always has 12 leads; match the hard-coded default in ResNet18ECG
+        in_channels: int = 12
 
-        self.label_tokenizer = self.get_label_tokenizer()
-        output_size: int = self.get_output_size(self.label_tokenizer)
+        output_size: int = self.get_output_size()
 
         # ── Bidirectional LSTM ────────────────────────────────────────────────
         # Input:  (B, T, C)  after permute
@@ -167,11 +164,8 @@ class BiLSTMECG(BaseModel):
             dict with keys ``"loss"``, ``"y_prob"``, ``"y_true"``,
             ``"logit"`` — the standard PyHealth model output contract.
         """
-        # Stack list[(12,T)] → tensor (B, 12, T)
-        x = torch.tensor(
-            np.array(kwargs[self.feature_keys[0]]),
-            device=self.device,
-        ).float()
+        # Input tensor already collated by the dataloader: (B, 12, T)
+        x: torch.Tensor = kwargs[self.feature_key].to(self.device)
 
         # (B, 12, T) → (B, T, 12) for sequence-first LSTM with batch_first=True
         out, _ = self.lstm(x.permute(0, 2, 1))     # (B, T, hidden*2)
@@ -180,7 +174,7 @@ class BiLSTMECG(BaseModel):
         pooled = self.pool(out.permute(0, 2, 1)).squeeze(-1)  # (B, hidden*2)
         logits = self.fc(pooled)                   # (B, K)
 
-        y_true = self.prepare_labels(kwargs[self.label_key], self.label_tokenizer)
+        y_true = kwargs[self.label_key].to(self.device)
         loss = self.get_loss_function()(logits, y_true)
         y_prob = self.prepare_y_prob(logits)
 
