@@ -1,4 +1,4 @@
-pyhealth.tasks.diagnosis_prediction_mimic3 module
+pyhealth.tasks.diagnosis_prediction_mimic3
 ==========================================
 
 .. autoclass:: pyhealth.tasks.DiagnosisPredictionMIMIC3
