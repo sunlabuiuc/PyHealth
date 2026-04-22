@@ -46,3 +46,9 @@ from .sdoh import SdohClassifier
 from .medlink import MedLink
 from .unified_embedding import UnifiedMultimodalEmbeddingModel, SinusoidalTimeEmbedding
 from .califorest import CaliForest
+from pyhealth.models.alzheimer_cnn import (
+    AlzheimerCNN,
+    AlzheimerCNNViT,
+    AlzheimerCNNNormVariant,
+    PatchEmbedding,
+)
