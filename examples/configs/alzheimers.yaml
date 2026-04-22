@@ -8,4 +8,3 @@ tables:
     attributes:
       - "path"
       - "label"
-      # age removed — not present in Falah/Alzheimer_MRI
