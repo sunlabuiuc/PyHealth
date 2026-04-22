@@ -194,7 +194,7 @@ API Reference
     models/pyhealth.models.ConCare
     models/pyhealth.models.Agent
     models/pyhealth.models.GRASP
-    models/pyhealth.models.KEEP
+    pyhealth.models.KEEP <models/pyhealth.models.KEEP>
     models/pyhealth.models.MedLink
     models/pyhealth.models.TCN
     models/pyhealth.models.TFMTokenizer
