@@ -177,6 +177,7 @@ API Reference
     models/pyhealth.models.GNN
     models/pyhealth.models.Transformer
     models/pyhealth.models.TransformersModel
+    models/pyhealth.models.TransformerDeID
     models/pyhealth.models.RETAIN
     models/pyhealth.models.GAMENet
     models/pyhealth.models.GraphCare
@@ -206,3 +207,4 @@ API Reference
     models/pyhealth.models.unified_multimodal_embedding_docs
     models/pyhealth.models.ConformalMetaAnalysisModel
     models/pyhealth.models.CMAPriorEncoder
+    models/pyhealth.models.califorest
