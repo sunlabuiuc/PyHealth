@@ -133,7 +133,9 @@ class Patient:
         """
         self.patient_id = patient_id
         self.data_source = data_source.sort("timestamp")
-        self.event_type_partitions = self.data_source.partition_by("event_type", maintain_order=True, as_dict=True)
+        self.event_type_partitions = self.data_source.partition_by(
+            ["event_type"], maintain_order=True, as_dict=True
+        )
 
     def _filter_by_time_range_regular(self, df: pl.DataFrame, start: Optional[datetime], end: Optional[datetime]) -> pl.DataFrame:
         """Regular filtering by time. Time complexity: O(n)."""
@@ -165,10 +167,13 @@ class Patient:
 
     def _filter_by_event_type_fast(self, df: pl.DataFrame, event_type: Optional[str]) -> pl.DataFrame:
         """Fast filtering by event type using pre-built event type index. Time complexity: O(1)."""
-        if event_type:
-            return self.event_type_partitions.get((event_type,), df[:0])
-        else:
+        if not event_type:
             return df
+        part = self.event_type_partitions
+        out = part.get((event_type,))
+        if out is None:
+            out = part.get(event_type)
+        return out if out is not None else df[:0]
 
     def get_events(
         self,

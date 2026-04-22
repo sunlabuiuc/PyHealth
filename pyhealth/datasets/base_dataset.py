@@ -229,10 +229,10 @@ def _task_transform_fn(
             patients = (
                 global_event_df.filter(pl.col("patient_id").is_in(batch))
                 .collect(engine="streaming")
-                .partition_by("patient_id", as_dict=True)
+                .partition_by(["patient_id"], as_dict=True)
             )
             for patient_id, patient_df in patients.items():
-                patient_id = patient_id[0]  # Extract string from single-element list
+                patient_id = patient_id[0]  # tuple key -> patient id string
                 patient = Patient(patient_id=patient_id, data_source=patient_df)
                 for sample in task(patient):
                     writer.add_item(write_index, {"sample": pickle.dumps(sample)})
@@ -303,6 +303,21 @@ def _proc_transform_fn(args: tuple[int, Path, int, int, Path]) -> None:
         writer.done()
 
     logger.info(f"Worker {worker_id} finished processing samples.")
+
+
+def _scan_global_event_parquet(path: Path | str) -> pl.LazyFrame:
+    """Scan cached global events; supports single file or Dask parquet directory."""
+    p = Path(path)
+    if p.is_dir():
+        parts = sorted(p.glob("*.parquet"))
+        if not parts:
+            parts = sorted(p.glob("**/*.parquet"))
+        if not parts:
+            raise FileNotFoundError(f"No parquet files found under {p}")
+        if len(parts) == 1:
+            return pl.scan_parquet(parts[0], low_memory=True)
+        return pl.scan_parquet([str(f) for f in parts], low_memory=True)
+    return pl.scan_parquet(p, low_memory=True)
 
 
 class BaseDataset(ABC):
@@ -571,10 +586,7 @@ class BaseDataset(ABC):
                 logger.info(f"Found cached event dataframe: {ret_path}")
             self._global_event_df = ret_path
 
-        return pl.scan_parquet(
-            self._global_event_df,
-            low_memory=True,
-        )
+        return _scan_global_event_parquet(self._global_event_df)
 
     def load_data(self) -> dd.DataFrame:
         """Loads data from the specified tables.
