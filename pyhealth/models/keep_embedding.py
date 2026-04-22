@@ -7,7 +7,6 @@ import numpy as np
 import pandas as pd
 import torch
 import torch.nn.functional as F
-# from scipy import sparse
 from torch import nn
 
 from pyhealth.datasets import SampleDataset
@@ -135,7 +134,7 @@ class N2V():
             print(f"Code {code} not found, returning mean vector.")
             return mean_vector
 
-    def generate_embeddings(self):
+    def generate_embeddings(self, graph):
         """
         Generate node embeddings using Node2Vec algorithm.
         
@@ -211,11 +210,9 @@ class KeepEmbedding(BaseModel):
     
     def __init__(self, 
             dataset: SampleDataset,
-            path: str, 
-            domain_type: list[str], 
+            graph: nx.Graph,
+            num_words: int,
             embedding_dim: int,
-            walk_length: int,
-            num_walks: int,
             lambda_reg: float = 1.0,
             reg_norm: str | float = None,
             log_scale: bool = False,
@@ -228,23 +225,21 @@ class KeepEmbedding(BaseModel):
         self.lambda_reg = lambda_reg
         self.reg_norm = reg_norm
         self.log_scale = log_scale
-        self.device = device
+        self._device = device
         self.mode = "regression"  # Set mode for compatibility with BaseModel
         
         # Generate Node2Vec embeddings
-        print(f"Initializing Node2Vec with embedding_dim={embedding_dim}...")
-        self.n2v = N2V(
-            path=path,
-            domain_type=domain_type,
-            embedding_dim=embedding_dim,
-            walk_length=walk_length,
-            num_walks=num_walks
-        )
+        # print(f"Initializing Node2Vec with embedding_dim={embedding_dim}...")
+        # self.n2v = N2V(
+        #     path=path,
+        #     domain_type=domain_type,
+        #     embedding_dim=embedding_dim,
+        #     walk_length=walk_length,
+        #     num_walks=num_walks
+        # )
         
-        embedding_matrix = self.n2v.generate_embeddings()
+        embedding_matrix = self.n2v.generate_embeddings(graph)
         print(f"Created embedding matrix with shape: {embedding_matrix.shape}")
-        
-        num_words = embedding_matrix.shape[0]
         
         # Create learnable embedding and bias parameters
         self.embeddings_v = nn.Embedding(num_words, embedding_dim)
@@ -257,15 +252,15 @@ class KeepEmbedding(BaseModel):
         self.embeddings_v.weight.data.copy_(embedding_tensor)
         self.embeddings_u.weight.data.copy_(embedding_tensor)
         
+        # Initialize biases to zero
+        self.biases_v.weight.data.fill_(0)
+        self.biases_u.weight.data.fill_(0)
+
         # Store initial embeddings for regularization
         self.register_buffer(
             "initial_embeddings",
             embedding_tensor.clone().to(device)
         )
-        
-        # Initialize biases to zero
-        self.biases_v.weight.data.fill_(0)
-        self.biases_u.weight.data.fill_(0)
         
         print(f"Initialized KEEP Embedding with {num_words} tokens")
         print(f"Embedding dimension: {embedding_dim}")
