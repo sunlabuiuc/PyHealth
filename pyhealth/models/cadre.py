@@ -22,6 +22,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from .base_model import BaseModel
+
 
 class ExpEncoder(nn.Module):
     """Gene expression encoder with contextual attention.
@@ -159,12 +161,17 @@ class DrugDecoder(nn.Module):
         return logits
 
 
-class CADRE(nn.Module):
+class CADRE(BaseModel):
     """CADRE: Contextual Attention-based Drug REsponse prediction model.
 
     Combines :class:`ExpEncoder` (frozen Gene2Vec embeddings + multi-head
     contextual attention) with :class:`DrugDecoder` (collaborative filtering)
     for multi-task binary drug sensitivity prediction.
+
+    Inherits from :class:`~pyhealth.models.BaseModel`.  Because CADRE requires
+    dataset-specific inputs (Gene2Vec matrix, drug/pathway metadata) rather than
+    a generic ``SampleDataset``, ``dataset`` is left as ``None`` and the GDSC-
+    specific arguments are passed directly.
 
     Integrates with PyHealth via :class:`~pyhealth.datasets.GDSCDataset`
     and :class:`~pyhealth.tasks.DrugSensitivityPredictionGDSC`.
@@ -181,6 +188,8 @@ class CADRE(nn.Module):
         use_attention (bool): Enable attention. Default: ``True``.
         use_cntx_attn (bool): Enable contextual (pathway) conditioning.
             Default: ``True``.
+        freeze_gene_emb (bool): Freeze Gene2Vec weights during training.
+            Set ``False`` for the CADRE∆pretrain ablation. Default: ``True``.
 
     Examples:
         >>> import numpy as np
@@ -212,7 +221,9 @@ class CADRE(nn.Module):
         use_cntx_attn: bool = True,
         freeze_gene_emb: bool = True,
     ) -> None:
-        super().__init__()
+        # CADRE takes GDSC-specific constructor args rather than a generic
+        # SampleDataset, so we pass dataset=None to BaseModel.
+        super().__init__(dataset=None)
 
         self.num_drugs = num_drugs
         self.embedding_dim = embedding_dim
@@ -266,7 +277,13 @@ class CADRE(nn.Module):
         logits = self.decoder(cell_repr, self.drg_ids)
         probs = torch.sigmoid(logits)
 
-        result: Dict[str, torch.Tensor] = {"logits": logits, "probs": probs}
+        # "logit" / "y_prob" aliases satisfy the BaseModel forward contract.
+        result: Dict[str, torch.Tensor] = {
+            "logits": logits,
+            "probs": probs,
+            "logit": logits,
+            "y_prob": probs,
+        }
 
         if labels is not None and mask is not None:
             per_element = self.loss_fn(logits, labels.float())
