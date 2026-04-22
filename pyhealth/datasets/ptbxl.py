@@ -234,7 +234,11 @@ class PTBXLDataset(BaseDataset):
             age = None
             sex = None
             dx = []
-            
+
+            ecg_id = int(hea_file.stem.replace("HR", ""))
+            if ecg_id not in db.index:   
+                continue        
+                         
             with open(hea_file, "r") as f:
                 for line in f:
                     line = line.strip()
