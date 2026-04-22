@@ -1,0 +1,11 @@
+version: "1.0"
+tables:
+  alzheimers:
+    file_path: "alzheimers-metadata.csv"
+    patient_id: "patient_id"
+    timestamp: null
+
+    attributes:
+      - "path"
+      - "label"
+      # age removed — not present in Falah/Alzheimer_MRI
