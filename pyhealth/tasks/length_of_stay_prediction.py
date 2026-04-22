@@ -89,23 +89,25 @@ class LengthOfStayPredictionMIMIC3(BaseTask):
                 filters=[("hadm_id", "==", admission.hadm_id)],
             )
             conditions = [event.icd9_code for event in diagnoses_events]
-
+            if not conditions:
+                continue
+ 
             # Get procedure codes using hadm_id
             procedures_events = patient.get_events(
                 event_type="procedures_icd",
                 filters=[("hadm_id", "==", admission.hadm_id)],
             )
             procedures = [event.icd9_code for event in procedures_events]
-
+            if not procedures:
+                continue
+ 
             # Get prescriptions using hadm_id
             prescriptions_events = patient.get_events(
                 event_type="prescriptions",
                 filters=[("hadm_id", "==", admission.hadm_id)],
             )
             drugs = [event.ndc for event in prescriptions_events]
-
-            # Exclude visits without condition, procedure, or drug code
-            if len(conditions) * len(procedures) * len(drugs) == 0:
+            if not drugs:
                 continue
 
             # Calculate length of stay
@@ -181,7 +183,6 @@ class LengthOfStayPredictionMIMIC4(BaseTask):
 
         # Process each admission
         for admission in admissions:
-            # Get diagnosis codes using hadm_id
             diagnoses_events = patient.get_events(
                 event_type="diagnoses_icd",
                 filters=[("hadm_id", "==", admission.hadm_id)],
@@ -190,7 +191,9 @@ class LengthOfStayPredictionMIMIC4(BaseTask):
             conditions = [
                 f"{event.icd_version}_{event.icd_code}" for event in diagnoses_events
             ]
-
+            if not conditions:
+                continue
+ 
             # Get procedure codes using hadm_id
             procedures_events = patient.get_events(
                 event_type="procedures_icd",
@@ -199,16 +202,16 @@ class LengthOfStayPredictionMIMIC4(BaseTask):
             procedures = [
                 f"{event.icd_version}_{event.icd_code}" for event in procedures_events
             ]
-
+            if not procedures:
+                continue
+ 
             # Get prescriptions using hadm_id
             prescriptions_events = patient.get_events(
                 event_type="prescriptions",
                 filters=[("hadm_id", "==", admission.hadm_id)],
             )
             drugs = [event.ndc for event in prescriptions_events]
-
-            # Exclude visits without condition, procedure, or drug code
-            if len(conditions) * len(procedures) * len(drugs) == 0:
+            if not drugs:
                 continue
 
             # Calculate length of stay
@@ -302,7 +305,9 @@ class LengthOfStayPredictioneICU(BaseTask):
                 for event in diagnosis_events
                 if getattr(event, "diagnosisstring", None)
             ]
-
+            if not conditions:
+                continue
+ 
             # --- Physical exams (used as "procedures") ---
             # YAML: physicalexam table has attributes [patientunitstayid,
             #        physicalexamvalue]
@@ -315,7 +320,9 @@ class LengthOfStayPredictioneICU(BaseTask):
                 for event in physicalexam_events
                 if getattr(event, "physicalexamvalue", None)
             ]
-
+            if not procedures:
+                continue
+ 
             # --- Medications ---
             # YAML: medication table has attributes [patientunitstayid,
             #        drugstartoffset, drugstopoffset, drugname, ...]
@@ -328,9 +335,7 @@ class LengthOfStayPredictioneICU(BaseTask):
                 for event in medication_events
                 if getattr(event, "drugname", None)
             ]
-
-            # Exclude stays without condition, procedure, or drug code
-            if len(conditions) * len(procedures) * len(drugs) == 0:
+            if not drugs:
                 continue
 
             # --- Length of stay ---
@@ -418,23 +423,25 @@ class LengthOfStayPredictionOMOP(BaseTask):
                 filters=[("visit_occurrence_id", "==", visit.visit_occurrence_id)],
             )
             conditions = [event.condition_concept_id for event in condition_events]
-
+            if not conditions:
+                continue
+ 
             # Get procedure codes
             procedure_events = patient.get_events(
                 event_type="procedure_occurrence",
                 filters=[("visit_occurrence_id", "==", visit.visit_occurrence_id)],
             )
             procedures = [event.procedure_concept_id for event in procedure_events]
-
+            if not procedures:
+                continue
+ 
             # Get drug exposures
             drug_events = patient.get_events(
                 event_type="drug_exposure",
                 filters=[("visit_occurrence_id", "==", visit.visit_occurrence_id)],
             )
             drugs = [event.drug_concept_id for event in drug_events]
-
-            # Exclude visits without condition, procedure, or drug code
-            if len(conditions) * len(procedures) * len(drugs) == 0:
+            if not drugs:
                 continue
 
             # Calculate length of stay

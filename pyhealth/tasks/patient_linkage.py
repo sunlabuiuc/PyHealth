@@ -26,10 +26,10 @@ def patient_linkage_mimic3_fn(patient: Patient):
         return []
 
     q_conditions = q_visit.get_code_list(table="DIAGNOSES_ICD")
+    if not q_conditions:
+        return []
     d_conditions = d_visit.get_code_list(table="DIAGNOSES_ICD")
-
-    # exclude patients without conditions
-    if len(q_conditions) * len(d_conditions) == 0:
+    if not d_conditions:
         return []
 
     # identifiers
