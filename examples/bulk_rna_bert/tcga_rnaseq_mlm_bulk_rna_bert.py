@@ -292,6 +292,29 @@ def _train(args: argparse.Namespace) -> None:
 
     data, gene_names = _load_data(args)
     n_samples, n_genes = data.shape
+    if args.micro_batch_size < 1:
+        raise ValueError(
+            f"--micro-batch-size must be >= 1 (got {args.micro_batch_size})"
+        )
+    if args.accumulation_steps < 1:
+        raise ValueError(
+            f"--accumulation-steps must be >= 1 "
+            f"(got {args.accumulation_steps})"
+        )
+    if args.micro_batch_size > n_samples:
+        raise ValueError(
+            f"--micro-batch-size ({args.micro_batch_size}) exceeds "
+            f"n_samples ({n_samples}); reduce --micro-batch-size so the "
+            f"iterator can yield at least one batch."
+        )
+    effective_batch = args.micro_batch_size * args.accumulation_steps
+    if effective_batch > n_samples:
+        print(
+            f"[warn] effective batch ({effective_batch}) exceeds n_samples "
+            f"({n_samples}); samples will be reused within a single "
+            f"accumulation window.",
+            flush=True,
+        )
     with open(args.output_dir / "gene_names.json", "w") as f:
         json.dump(gene_names, f)
 
