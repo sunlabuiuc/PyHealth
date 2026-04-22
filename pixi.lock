@@ -7083,7 +7083,11 @@ packages:
 - pypi: ./
   name: pyhealth
   version: 2.0.0
+<<<<<<< HEAD
   sha256: f07719f9dceb759c35507216c8033d2f915d241418d4fad2ab51b37c0e73260f
+=======
+  sha256: a62b244ceb0cb779c8c4a4f8817853fb8936512f225f45c1e568f1a4d8d4b005
+>>>>>>> 8998ffa (Added files for ablation studies under examples)
   requires_dist:
   - torch~=2.7.1
   - torchvision
@@ -7112,7 +7116,11 @@ packages:
   - editdistance~=0.8.1 ; extra == 'nlp'
   - rouge-score~=0.1.2 ; extra == 'nlp'
   - nltk~=3.9.1 ; extra == 'nlp'
+<<<<<<< HEAD
   requires_python: '>=3.12,<3.14'
+=======
+  requires_python: '>=3.12,<3.15'
+>>>>>>> 8998ffa (Added files for ablation studies under examples)
 - pypi: https://files.pythonhosted.org/packages/05/e7/df2285f3d08fee213f2d041540fa4fc9ca6c2d44cf36d3a035bf2a8d2bcc/pyparsing-3.2.3-py3-none-any.whl
   name: pyparsing
   version: 3.2.3
