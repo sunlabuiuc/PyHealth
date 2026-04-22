@@ -1,0 +1,126 @@
+{
+  "llm_label": "gpt-4o-mini",
+  "llm_backend": "openai",
+  "prompt_style": {
+    "stub": {
+      "sequential": {
+        "accuracy": 0.875,
+        "precision": 0.8333333333333334,
+        "recall": 1.0,
+        "fp": 1,
+        "generated_count": 6,
+        "total": 8
+      },
+      "single": {
+        "accuracy": 0.875,
+        "precision": 0.8333333333333334,
+        "recall": 1.0,
+        "fp": 1,
+        "generated_count": 6,
+        "total": 8
+      }
+    },
+    "llm": {
+      "sequential": {
+        "accuracy": 1.0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "fp": 0,
+        "generated_count": 5,
+        "total": 8
+      },
+      "single": {
+        "accuracy": 1.0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "fp": 0,
+        "generated_count": 8,
+        "total": 8
+      }
+    }
+  },
+  "llm_vs_ir": {
+    "stub": {
+      "llm_sequential": {
+        "accuracy": 0.875,
+        "precision": 0.8333333333333334,
+        "recall": 1.0,
+        "fp": 1
+      },
+      "cbert_lite": {
+        "accuracy": 0.625,
+        "precision": 0.75,
+        "recall": 0.6,
+        "fp": 1
+      }
+    },
+    "llm": {
+      "llm_sequential": {
+        "accuracy": 1.0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "fp": 0
+      },
+      "cbert_lite": {
+        "accuracy": 0.625,
+        "precision": 0.75,
+        "recall": 0.6,
+        "fp": 1
+      }
+    }
+  },
+  "budget_sweep": {
+    "stub": {
+      "80": {
+        "accuracy": 0.75,
+        "precision": 0.8,
+        "recall": 0.8,
+        "fp": 1
+      },
+      "160": {
+        "accuracy": 0.875,
+        "precision": 0.8333333333333334,
+        "recall": 1.0,
+        "fp": 1
+      },
+      "320": {
+        "accuracy": 0.875,
+        "precision": 0.8333333333333334,
+        "recall": 1.0,
+        "fp": 1
+      },
+      "4000": {
+        "accuracy": 0.875,
+        "precision": 0.8333333333333334,
+        "recall": 1.0,
+        "fp": 1
+      }
+    },
+    "llm": {
+      "80": {
+        "accuracy": 1.0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "fp": 0
+      },
+      "160": {
+        "accuracy": 1.0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "fp": 0
+      },
+      "320": {
+        "accuracy": 1.0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "fp": 0
+      },
+      "4000": {
+        "accuracy": 1.0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "fp": 0
+      }
+    }
+  }
+}
