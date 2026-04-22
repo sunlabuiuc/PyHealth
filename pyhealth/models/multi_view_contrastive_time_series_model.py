@@ -25,7 +25,7 @@ class PositionalEncoding(nn.Module):
         x = x + self.pe[:, :x.size(1)]
         return self.dropout(x)
 
-class MultiViewContrastiveModel(BaseModel):
+class MultiViewContrastiveTimeSeriesModel(BaseModel):
     """A multi-view contrastive model aligned with Oh and Bui (2025) and TFC."""
 
     def __init__(self, dataset, training_stage="pretrain", num_classes=3, **kwargs):
