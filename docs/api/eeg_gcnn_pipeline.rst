@@ -120,10 +120,7 @@ Path A — Raw inputs
     BrainVision format (``*.eeg`` + ``*.vhdr`` + ``*.vmrk``).
 
     Download: `MPI LEMON <http://fcon_1000.projects.nitrc.org/indi/retro/MPI_LEMON.html>`_
-    (no registration needed). Alternatively use the provided download script::
-
-        python download_lemon.py          # all 213 subjects
-        python download_lemon.py --n 10   # first 10 subjects only
+    (no registration needed).
 
     Directory layout::
 
@@ -210,11 +207,11 @@ Steps applied in order:
       * - alpha
         - 7.5 – 13.0
       * - beta
-        - 13.0 – 30.0
+        - 13.0 – 16.0
       * - low_gamma
-        - 30.0 – 40.0
+        - 16.0 – 30.0
       * - high_gamma
-        - 40.0 – 50.0
+        - 30.0 – 40.0
 
    Result: ``(8, 6)`` node-feature matrix per window (48 values total),
    log-transformed and L2-normalised.
