@@ -60,8 +60,8 @@ CHANGE_BETWEEN_TASKS = 0.05  # delta
 BATCH_SIZE = 100
 K_LIST = [2]
 HIDDEN_SIZE_LIST = [100, 150, 300, 500, 700, 900, 1100]
-NUM_RUNS = 1  # 20
-MAX_EPOCHS = 2  # 30
+NUM_RUNS = 20  # 20
+MAX_EPOCHS = 30  # 30
 
 SAVE_DIR = os.path.dirname(os.path.abspath(__file__))
 
