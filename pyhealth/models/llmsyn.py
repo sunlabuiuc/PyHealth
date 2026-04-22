@@ -307,7 +307,7 @@ class _MockLLMBackend(_BaseLLMBackend):
 
 
 class _OpenAILLMBackend(_BaseLLMBackend):
-    """OpenAI ChatCompletion backend.
+    """OpenAI chat backend (openai>=1.0).
 
     Args:
         api_key: OpenAI API key.
@@ -318,17 +318,16 @@ class _OpenAILLMBackend(_BaseLLMBackend):
         try:
             import openai
 
-            self._openai = openai
-            self._openai.api_key = api_key
+            self._client = openai.OpenAI(api_key=api_key)
         except ImportError as exc:
             raise ImportError(
-                "OpenAI backend requires: pip install openai"
+                "OpenAI backend requires: pip install openai>=1.0"
             ) from exc
         self._model = model
 
     def generate(self, prompt: str, max_tokens: int = 256) -> str:
-        """Call OpenAI ChatCompletion and return the response text."""
-        resp = self._openai.ChatCompletion.create(
+        """Call OpenAI chat completions and return the response text."""
+        resp = self._client.chat.completions.create(
             model=self._model,
             messages=[{"role": "user", "content": prompt}],
             max_tokens=max_tokens,
