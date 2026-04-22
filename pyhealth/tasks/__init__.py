@@ -42,6 +42,11 @@ from .mortality_prediction import (
     MultimodalMortalityPredictionMIMIC4,
 )
 from .survival_preprocess_support2 import SurvivalPreprocessSupport2
+from .tcga_cancer_classification_5cohort import (
+    COHORT_NAMES,
+    LABEL_MAP,
+    TCGACancerClassification5Cohort,
+)
 from .mortality_prediction_stagenet_mimic4 import (
     MortalityPredictionStageNetMIMIC4,
 )
