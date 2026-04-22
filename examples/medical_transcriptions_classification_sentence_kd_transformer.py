@@ -5,14 +5,15 @@ A Case Study on Improving Radiology Report Analysis", CHIL 2024.
 https://proceedings.mlr.press/v248/kim24a.html
 
 This script exercises the PyHealth ``SentenceKDTransformer`` model on an
-existing PyHealth dataset — ``MedicalTranscriptionsDataset`` — and runs four
+existing PyHealth dataset (``MedicalTranscriptionsDataset``) and runs four
 ablations:
 
 1. ``lambda`` (contrastive weight) sweep. The paper only toggles ``lambda``
    between ``0`` and ``1`` (Table 4); we extend the sweep.
 2. Temperature ``tau`` sweep. Never varied in the paper.
-3. Standard model hyperparameters (learning rate, dropout, batch size) —
-   explicitly required by the DL4H Option-2 rubric.
+3. Standard model hyperparameters (learning rate, dropout, batch size).
+   Useful for ruling out the "the learning rate did all the work" confound
+   when interpreting results from the contrastive sweeps.
 4. Backbone comparison (``bert-base-uncased`` vs ``Bio_ClinicalBERT`` vs
    ``RadBERT``). The paper compares backbones only in the fixed Table 2
    setup, never in interaction with the contrastive loss.
@@ -45,21 +46,21 @@ student BERT is distilled against those pseudo-labels. This example does *not*
 replicate that step for three reasons:
 
 1. The ``mtsamples`` corpus ships with ground-truth medical-specialty labels,
-   so no LLM teacher is needed to train the student on this task — the
+   so no LLM teacher is needed to train the student on this task; the
    distillation-from-noisy-teacher framing from the paper is orthogonal here.
-2. A credentialed LLM teacher step would require an OpenAI API key with paid
-   budget, which adds reviewer friction and blocks "Run All" reproducibility
-   for PyHealth users without the credentials.
+2. A credentialed LLM teacher step would require an OpenAI API key with a
+   paid budget, which prevents this script (and the companion notebook) from
+   running end to end for anyone who hasn't set up that account.
 3. For the paper's real deployment setting (credentialed MIMIC-CXR text),
    institutional DUAs generally prohibit sending report text to third-party
    cloud APIs without a BAA. A credential-free default is the safer choice
-   for a general-purpose PyHealth example.
+   for a general-purpose example.
 
 ``SentenceKDTransformer`` itself is teacher-agnostic: any label source (human
 annotation, a rule-based labeler, or a locally-hosted LLM such as
 ``Llama-3-8B``) slots in unchanged. The ablations below exercise the loss
-function and the backbone choice, which are the parts of the paper this
-contribution faithfully reproduces.
+function and the backbone choice, which are the model-level components of
+the paper.
 """
 from __future__ import annotations
 
@@ -175,8 +176,7 @@ def build_dataset(
         max_samples: Optional cap on the number of samples returned. When set
             to a value smaller than the full dataset size, a random subset of
             that size is drawn (seeded by ``seed``). Useful to keep ablation
-            runtime bounded; the rubric explicitly allows subsampling when
-            compute is limited.
+            runtime bounded on a single GPU.
         seed: RNG seed used only by ``max_samples``.
 
     Returns:
@@ -350,7 +350,9 @@ def run_hyperparameter_ablation(
 ) -> List[RunResult]:
     """Ablation 3: standard model hyperparameters (lr, dropout, batch size).
 
-    Required by the DL4H Option-2 Model-contribution rubric.
+    Sweeping these alongside ``lambda`` and ``tau`` rules out the possibility
+    that any contrastive-loss benefit observed in ablations 1 and 2 is really
+    a learning-rate or batch-size effect in disguise.
     """
     grid: List[RunConfig] = []
     for lr in (1e-5, 3e-5, 1e-4):
@@ -473,7 +475,7 @@ def main(argv: Optional[List[str]] = None) -> None:
         rows = run_hyperparameter_ablation(
             dataset, backbone=backbone, epochs=args.epochs
         )
-        _print_table("Ablation 3: lr / dropout / batch size (rubric)", rows)
+        _print_table("Ablation 3: lr / dropout / batch size", rows)
         all_results["hyperparam"] = [asdict(r) for r in rows]
 
     if "backbone" in selected:
