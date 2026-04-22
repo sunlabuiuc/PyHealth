@@ -22,6 +22,9 @@ from pyhealth.models import BaseModel
 
 ###########################################################################
 # Part 1: Mixture of Experts (MoE) Base Classes & Gating Mechanisms
+# Note: The core MoE and LSTM logic in Part 1 & 2 are adapted from the 
+# official MLHC 2019 implementation by Oh et al.
+# Source: https://gitlab.eecs.umich.edu/mld3/mlhc2019_relaxed_parameter_sharing
 ###########################################################################
 class MoE(nn.Module):
     """Abstract base class for Mixture of Experts (MoE).
@@ -361,7 +364,9 @@ class ExampleMowLSTM(nn.Module):
         return o, hidden
 
 ###########################################################################
-# Part 3: PyHealth BaseModel Wrappers
+# Part 3: PyHealth Integration Wrappers
+# Implementation by Temin Kan/temink2
+# These classes wrap the core logic into the PyHealth BaseModel framework.
 ###########################################################################
 class MixLSTM(BaseModel):
     """MixLSTM model with Relaxed Parameter Sharing.
@@ -371,7 +376,7 @@ class MixLSTM(BaseModel):
     it utilizes a mixture of LSTM cells. The parameters are dynamically combined at 
     each timestep using learned mixing coefficients to effectively capture 
     temporal conditional shift in irregular clinical data.
-    
+
     Args:
         dataset: The PyHealth dataset object.
         input_size (int): The dimensionality of the input features. Defaults to 76.
