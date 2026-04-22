@@ -1,6 +1,7 @@
 import json
 import os
 import unittest
+from unittest.mock import patch
 
 import torch
 
@@ -217,6 +218,57 @@ class TestAblationVariants(unittest.TestCase):
     def test_llmsyn_base(self):
         records = self._run_variant(prior_mode="sampled", enable_rag=False)
         self.assertEqual(len(records), 1)
+
+
+class TestRAG(unittest.TestCase):
+    def setUp(self):
+        backend = _MockLLMBackend(seed=42)
+        self.pipeline = _LLMSYNPipeline(
+            backend=backend,
+            stats=_DEFAULT_STATS,
+            noise_scale=0.0,
+            prior_mode="full",
+            enable_rag=True,
+        )
+
+    @patch(
+        "pyhealth.datasets.llmsyn_utils.get_medical_knowledge",
+        return_value="TEST_RAG_TEXT",
+    )
+    def test_rag_is_called(self, mock_rag):
+        self.pipeline.generate_record()
+        mock_rag.assert_called_once()
+
+    @patch(
+        "pyhealth.datasets.llmsyn_utils.get_medical_knowledge",
+        return_value="TEST_RAG_TEXT",
+    )
+    def test_rag_text_in_prompt(self, mock_rag):
+        captured = []
+        original = self.pipeline._backend.generate
+
+        def capturing(prompt, max_tokens=256):
+            captured.append(prompt)
+            return original(prompt, max_tokens)
+
+        self.pipeline._backend.generate = capturing
+        self.pipeline.generate_record()
+        mock_rag.assert_called_once()
+        self.assertTrue(any("TEST_RAG_TEXT" in p for p in captured))
+
+    def test_rag_not_called_when_disabled(self):
+        pipeline = _LLMSYNPipeline(
+            backend=_MockLLMBackend(seed=0),
+            stats=_DEFAULT_STATS,
+            noise_scale=0.0,
+            prior_mode="full",
+            enable_rag=False,
+        )
+        with patch(
+            "pyhealth.datasets.llmsyn_utils.get_medical_knowledge"
+        ) as mock_rag:
+            pipeline.generate_record()
+            mock_rag.assert_not_called()
 
 
 class TestSyntheticEHRGenerationTask(unittest.TestCase):
