@@ -1,0 +1,65 @@
+version: "1.0"
+tables:
+  seer:
+    file_path: processed/seer_pyhealth.csv
+    patient_id: patient_id
+    timestamp: event_time
+    timestamp_format: "%Y-%m-%d"
+    attributes:
+      - age
+      - year_dx
+      - label
+      - race_American Indian/Alaska Native
+      - race_Asian or Pacific Islander
+      - race_Black
+      - race_Unknown
+      - race_White
+      - histology_Histology_8000
+      - histology_Histology_8010
+      - histology_Histology_8140
+      - histology_Histology_8201
+      - histology_Histology_8211
+      - histology_Histology_8401
+      - histology_Histology_8480
+      - histology_Histology_8500
+      - histology_Histology_8503
+      - histology_Histology_8507
+      - histology_Histology_8510
+      - histology_Histology_8520
+      - histology_Histology_8522
+      - histology_Histology_8523
+      - histology_Histology_8524
+      - histology_Histology_8530
+      - histology_Histology_8541
+      - histology_Histology_8543
+      - histology_Histology_8575
+      - histology_Histology_9020
+      - histology_Histology_Other
+      - grade_Grade I
+      - grade_Grade II
+      - grade_Grade III
+      - grade_Grade IV
+      - grade_Unknown
+      - stage_Distant
+      - stage_Localized
+      - stage_Regional
+      - stage_Unknown
+      - stage_Unknown/unstaged
+      - marital_status_Divorced
+      - marital_status_Married (including common law)
+      - marital_status_Separated
+      - marital_status_Single (never married)
+      - marital_status_Unknown
+      - marital_status_Unmarried or Domestic Partner
+      - marital_status_Widowed
+      - laterality_Bilateral
+      - laterality_Left
+      - laterality_Right
+      - laterality_Unknown
+      - er_status_Negative
+      - er_status_Positive
+      - er_status_Unknown
+      - pr_status_Negative
+      - pr_status_Positive
+      - pr_status_Unknown
+    join: []
