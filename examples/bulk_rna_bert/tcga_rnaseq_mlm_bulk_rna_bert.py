@@ -44,7 +44,7 @@ import torch
 from torch.nn.attention import SDPBackend, sdpa_kernel
 
 # Make PyHealth importable when running from a source checkout.
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parent.parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 

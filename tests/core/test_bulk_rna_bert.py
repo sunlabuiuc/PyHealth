@@ -24,6 +24,7 @@ def _import_mlm_example():
     path = (
         Path(__file__).resolve().parents[2]
         / "examples"
+        / "bulk_rna_bert"
         / "tcga_rnaseq_mlm_bulk_rna_bert.py"
     )
     spec = importlib.util.spec_from_file_location(

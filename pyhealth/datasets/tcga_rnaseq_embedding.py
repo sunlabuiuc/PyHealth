@@ -18,7 +18,7 @@ mapping CSV. It exposes two entry points:
 Inputs expected on disk (both entry points):
 
 * ``embeddings_path`` — ``.npy`` file produced by
-  ``examples/tcga_rnaseq_extract_embeddings_bulk_rna_bert.py``. Row ``i``
+  ``examples/bulk_rna_bert/tcga_rnaseq_extract_embeddings_bulk_rna_bert.py``. Row ``i``
   of this file must correspond to row ``i`` of ``identifier_csv``.
 * ``identifier_csv`` — the preprocessed TCGA CSV (``tcga_preprocessed.csv``)
   used during pre-training. Only the ``identifier`` column is consumed here.
