@@ -43,14 +43,13 @@ class TestDeepCoxMixtures(unittest.TestCase):
     """Test cases for the DeepCoxMixtures model."""
 
     def setUp(self):
-        """Set up synthetic dataset and default model in a temporary directory."""
+        """Set up synthetic dataset and default model."""
         self.tmp_dir = tempfile.mkdtemp()
         self.dataset = create_sample_dataset(
             samples=SAMPLES,
             input_schema=INPUT_SCHEMA,
             output_schema=OUTPUT_SCHEMA,
             dataset_name="test_dcm",
-            cache_dir=self.tmp_dir,
         )
         self.model = DeepCoxMixtures(dataset=self.dataset)
         self.loader = get_dataloader(self.dataset, batch_size=4, shuffle=False)
