@@ -67,3 +67,4 @@ from .variant_classification import (
     VariantClassificationClinVar,
 )
 from .patient_linkage_mimic3 import PatientLinkageMIMIC3Task
+from .future_severity_prediction import FutureSeverityPredictionEICU
