@@ -102,18 +102,41 @@ from pyhealth.models import MixLSTM
 
 @dataclass
 class AblationResult:
-    """Everything produced by a single ablation run."""
+    """Container for every artefact produced by a single ablation run.
+ 
+    Attributes:
+        learning_rate: The learning rate used for this ablation.
+        optimizer_name: Human-readable optimizer name (e.g. ``"Adam"``).
+        results_df: DataFrame with one row per random-search run.
+            Columns include ``Run``, ``k (experts)``, ``Hidden Size``,
+            ``Val Loss``, ``Test Loss``, ``num_params``, and ``epoch``.
+        k_dist: List of *T* numpy arrays representing the temporal
+            weight distribution at each time step.
+        d_dist: List of *T* numpy arrays representing the feature
+            weight distribution at each time step.
+        best_predictions: Dictionary with keys ``"pred"``,
+            ``"y_true"``, ``"k"``, ``"hidden_size"``, and ``"run"``
+            for the model that achieved the lowest validation loss.
+            ``None`` if no valid model was produced.
+        best_model_state: ``state_dict`` (on CPU) of the best model.
+            ``None`` if no valid model was produced.
+    """
     learning_rate: float
     optimizer_name: str
     results_df: pd.DataFrame
     k_dist: list[np.ndarray]
     d_dist: list[np.ndarray]
-    best_predictions: dict | None = None   # {"pred": ..., "y_true": ..., "k": ..., "hidden_size": ...}
+    best_predictions: dict | None = None 
     best_model_state: dict | None = None
 
     @property
     def label(self) -> str:
-        """Human-readable label for plots and logs."""
+        """Return a human-readable label for plots and logs.
+ 
+        Returns:
+            A string of the form ``"<optimizer> lr=<lr>"``.
+        """
+        
         return f"{self.optimizer_name} lr={self.learning_rate}"
 
 
@@ -131,8 +154,8 @@ CHANGE_BETWEEN_TASKS = 0.05  # delta
 BATCH_SIZE = 100
 K_LIST = [2]
 HIDDEN_SIZE_LIST = [100, 150, 300, 500, 700, 900, 1100]
-NUM_RUNS = 20  # 20
-MAX_EPOCHS = 30  # 30
+NUM_RUNS = 1  # 20
+MAX_EPOCHS = 2  # 30
 
 SAVE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -368,9 +391,15 @@ def build_dataloaders(
         because ``MixLSTM.__init__`` requires it to infer schema
         metadata.
     """
-    x_train, y_train = generate_xy(num_samples, T, input_dim, prev_used_timestamps, k_dist, d_dist)
-    x_val, y_val     = generate_xy(num_samples, T, input_dim, prev_used_timestamps, k_dist, d_dist)
-    x_test, y_test   = generate_xy(num_samples, T, input_dim, prev_used_timestamps, k_dist, d_dist)
+    x_train, y_train = generate_xy(
+        num_samples, T, input_dim, prev_used_timestamps, k_dist, d_dist
+        )
+    x_val, y_val     = generate_xy(
+        num_samples, T, input_dim, prev_used_timestamps, k_dist, d_dist
+        )
+    x_test, y_test   = generate_xy(
+        num_samples, T, input_dim, prev_used_timestamps, k_dist, d_dist
+        )
 
     train_data = make_dataset(x_train, y_train, "train")
     val_data   = make_dataset(x_val, y_val, "val")
@@ -840,7 +869,10 @@ def visualize_predictions(ablation_results: list[AblationResult], num_samples: i
         for col, sample_idx in enumerate(sample_indices):
             ax = axes[row][col]
             ax.plot(y_true[sample_idx], label="True", color="blue", marker="o", markersize=4)
-            ax.plot(pred[sample_idx], label="Predicted", color="red", linestyle="--", marker="x", markersize=4)
+            ax.plot(
+                pred[sample_idx], label="Predicted", 
+                color="red", linestyle="--", marker="x", markersize=4
+                )
             ax.set_title(f"{tag} | Sample #{sample_idx}")
             ax.set_xlabel("Time Steps")
             ax.set_ylabel("Value")
