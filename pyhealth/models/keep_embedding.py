@@ -29,20 +29,16 @@ class N2V():
     """
     def __init__(
         self, 
-        path:str, 
-        domain_type:list[str], 
-        embedding_dim:int,
-        walk_length:int,
-        num_walks:int
+        embedding_dim:int=None,
+        walk_length:int=None,
+        num_walks:int=None
     ):
-        self.path = path
-        self.domain_type = domain_type
         self.embedding_dim = embedding_dim
         self.walk_length = walk_length
         self.num_walks = num_walks
     
     # Create graph from concept and their relationships data
-    def _create_graph(self) -> nx.DiGraph:
+    def create_graph(self, path, domain_type) -> nx.DiGraph:
         """
         Create a directed graph from OMOP concept relationships.
         
@@ -58,22 +54,22 @@ class N2V():
             ValueError: If no concepts found for specified domains.
         """
         # Load concept table
-        concept_path = os.path.join(self.path, "2b_concept.csv")  
+        concept_path = os.path.join(path, "2b_concept.csv")  
         print(f"Loading concepts from {concept_path}")
         concept_df = pd.read_csv(concept_path, dtype=str)
  
         # Load concept relationships table
-        concept_relationship_path = os.path.join(self.path, "2b_concept_relationship.csv")
+        concept_relationship_path = os.path.join(path, "2b_concept_relationship.csv")
         print(f"Loading concept relationships from {concept_relationship_path}")
         concept_rel_df = pd.read_csv(concept_relationship_path, dtype=str)
         
         print(f"Loaded {len(concept_df)} concepts and {len(concept_rel_df)} relationships")
 
-        if self.domain_type != ["all"]:
+        if domain_type != ["all"]:
             # Filter concepts by target domain
-            concept_df = concept_df[concept_df["domain_id"].isin(self.domain_type)].copy()
+            concept_df = concept_df[concept_df["domain_id"].isin(domain_type)].copy()
         
-            print(f"Filtered to {len(concept_df)} concepts in domains: {self.domain_type}")
+            print(f"Filtered to {len(concept_df)} concepts in domains: {domain_type}")
         
         # Create set of filtered concept IDs for quick lookup
         filtered_concept_ids = set(concept_df["concept_id"].values)
@@ -154,12 +150,9 @@ class N2V():
         embeddings for each concept based on its network structure.
         
         Returns:
-            gensim.models.Word2Vec: Trained Node2Vec model for concept embeddings.
+            tuple: (embedding_matrix, node_ids) where embedding_matrix is the numpy array
+                   of embeddings and node_ids is the list of graph node IDs in order.
         """
-        # Create graph from concepts and relationships
-        print("Creating OMOP knowledge graph")
-        graph = self._create_graph()
-        
         print(f"Graph created with {len(graph.nodes())} nodes and {len(graph.edges())} edges")
         
         if len(graph.nodes()) == 0:
@@ -195,7 +188,7 @@ class N2V():
         embedding_matrix = np.vstack(vectors)
         print(f"Embedding matrix shape: {embedding_matrix.shape}")
         
-        return embedding_matrix
+        return embedding_matrix, keys
 
 class KeepEmbedding(BaseModel):
     """KEEP Embedding: Fine-tune Node2Vec embeddings using GloVe while penalizing 
@@ -217,17 +210,22 @@ class KeepEmbedding(BaseModel):
             Default: None (cosine similarity).
         log_scale (bool): Whether to apply log scaling to regularization distance. 
             Default: False.
+        code_to_index (dict, optional): Mapping from concept codes to vocabulary indices.
+            If provided, embeddings are filtered to only include codes in this mapping.
         device (str): Device to use ('cuda' or 'cpu'). Default: 'cpu'.
     """
     
     def __init__(self, 
             dataset: SampleDataset,
             graph: nx.Graph,
+            embedding_dim:int,
+            walk_length:int,
+            num_walks:int,
             num_words: int,
-            embedding_dim: int,
             lambda_reg: float = 1.0,
             reg_norm: str | float = None,
             log_scale: bool = False,
+            code_to_index: dict = None,
             device: str = "cpu"
         ):
         """Initialize KEEP Embedding model."""
@@ -241,17 +239,40 @@ class KeepEmbedding(BaseModel):
         self.mode = "regression"  # Set mode for compatibility with BaseModel
         
         # Generate Node2Vec embeddings
-        # print(f"Initializing Node2Vec with embedding_dim={embedding_dim}...")
-        # self.n2v = N2V(
-        #     path=path,
-        #     domain_type=domain_type,
-        #     embedding_dim=embedding_dim,
-        #     walk_length=walk_length,
-        #     num_walks=num_walks
-        # )
+        print(f"Initializing Node2Vec with embedding_dim={embedding_dim}...")
+        self.n2v = N2V(
+            embedding_dim=embedding_dim,
+            walk_length=walk_length,
+            num_walks=num_walks
+        )
         
-        embedding_matrix = self.n2v.generate_embeddings(graph)
+        embedding_matrix, node_ids = self.n2v.generate_embeddings(graph)
         print(f"Created embedding matrix with shape: {embedding_matrix.shape}")
+        
+        # Filter embeddings if code_to_index mapping is provided
+        if code_to_index is not None:
+            print(f"Filtering embeddings from {len(node_ids)} concepts to {num_words} vocabulary items...")
+            # Create a mapping from node IDs to embeddings
+            node_to_embedding = {node_id: embedding_matrix[i] for i, node_id in enumerate(node_ids)}
+            
+            # Build filtered embedding matrix for only codes in vocabulary
+            filtered_vectors = []
+            missing_count = 0
+            for idx in range(num_words):
+                # Find the concept code for this index
+                code = next((code for code, code_idx in code_to_index.items() if code_idx == idx), None)
+                if code is not None and code in node_to_embedding:
+                    filtered_vectors.append(node_to_embedding[code])
+                else:
+                    missing_count += 1
+                    # Use mean of all embeddings as fallback
+                    filtered_vectors.append(np.mean(embedding_matrix, axis=0))
+            
+            if missing_count > 0:
+                print(f"  {missing_count}/{num_words} codes not found in graph, using mean embedding as fallback")
+            
+            embedding_matrix = np.vstack(filtered_vectors)
+            print(f"Filtered embedding matrix shape: {embedding_matrix.shape}")
         
         # Create learnable embedding and bias parameters
         self.embeddings_v = nn.Embedding(num_words, embedding_dim)
