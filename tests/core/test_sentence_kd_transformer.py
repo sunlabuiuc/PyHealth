@@ -1,22 +1,18 @@
 """Unit tests for ``pyhealth.models.SentenceKDTransformer``.
 
 All tests use small synthetic tensors or a tiny synthetic text dataset
-paired with the paper's primary backbone ``StanfordAIMI/RadBERT``
-(~440 MB first-run download). No real medical datasets are touched.
-HuggingFace caches are redirected into a per-class temporary directory
-that is cleaned up in :meth:`tearDownClass`.
+paired with ``prajjwal1/bert-tiny`` (4.4M parameters, ~17 MB first-run
+download into the user's standard HuggingFace cache). No real medical
+datasets are touched.
 
-Because RadBERT is a BERT-base-sized model (~110M parameters), these
-tests are noticeably slower than the tiny-backbone variants used in
-other PyHealth model tests. First run on a fresh HuggingFace cache will
-download the weights; subsequent runs reuse the on-disk cache and
-complete in under a minute on CPU.
+The production default for ``SentenceKDTransformer`` is the paper's
+``StanfordAIMI/RadBERT`` backbone, but tests substitute bert-tiny so the
+whole suite finishes in well under two seconds of compute on a CI
+runner. The substitution exercises every code path identically since
+the model is backbone-agnostic above the encoder.
 """
 from __future__ import annotations
 
-import os
-import shutil
-import tempfile
 import time
 import unittest
 from typing import List
@@ -29,8 +25,10 @@ from pyhealth.models import SentenceKDTransformer
 from pyhealth.models.sentence_kd_transformer import supervised_contrastive_loss
 
 
-# Paper's primary backbone. See Kim et al. 2024, Section 3.
-_BACKBONE = "StanfordAIMI/RadBERT"
+# Tiny BERT for fast CI. The model's production default is RadBERT
+# (Kim et al. 2024, Section 3); tests use a small stand-in so the suite
+# stays under the CI per-test budget.
+_BACKBONE = "prajjwal1/bert-tiny"
 
 
 def _make_text_dataset():
@@ -117,9 +115,6 @@ class TestSentenceKDTransformer(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        cls._tmp = tempfile.mkdtemp(prefix="skd_hf_cache_")
-        cls._prev_hf_home = os.environ.get("HF_HOME")
-        os.environ["HF_HOME"] = cls._tmp
         cls.dataset = _make_text_dataset()
         cls.model = SentenceKDTransformer(
             dataset=cls.dataset,
@@ -128,14 +123,6 @@ class TestSentenceKDTransformer(unittest.TestCase):
             temperature=0.07,
             max_length=64,
         )
-
-    @classmethod
-    def tearDownClass(cls) -> None:
-        if cls._prev_hf_home is None:
-            os.environ.pop("HF_HOME", None)
-        else:
-            os.environ["HF_HOME"] = cls._prev_hf_home
-        shutil.rmtree(cls._tmp, ignore_errors=True)
 
     # ---- instantiation -------------------------------------------------
     def test_instantiation_and_inferred_shapes(self):
@@ -198,15 +185,17 @@ class TestSentenceKDTransformer(unittest.TestCase):
         self.assertGreater(head_grad.abs().sum().item(), 0.0)
 
     def test_lambda_zero_loss_matches_cross_entropy(self):
-        model = SentenceKDTransformer(
-            dataset=self.dataset, model_name=_BACKBONE, lam=0.0, max_length=64
-        )
-        loader = get_dataloader(self.dataset, batch_size=6, shuffle=False)
-        batch = next(iter(loader))
-        with torch.no_grad():
-            out = model(**batch)
-            ce = F.cross_entropy(out["logit"], out["y_true"])
-        self.assertTrue(torch.allclose(out["loss"], ce, atol=1e-6))
+        original_lam = self.model.lam
+        self.model.lam = 0.0
+        try:
+            loader = get_dataloader(self.dataset, batch_size=6, shuffle=False)
+            batch = next(iter(loader))
+            with torch.no_grad():
+                out = self.model(**batch)
+                ce = F.cross_entropy(out["logit"], out["y_true"])
+            self.assertTrue(torch.allclose(out["loss"], ce, atol=1e-6))
+        finally:
+            self.model.lam = original_lam
 
     # ---- document-level inference --------------------------------------
     def test_document_predict_shapes_and_ranges(self):
@@ -265,36 +254,20 @@ class TestSentenceKDTransformer(unittest.TestCase):
         self.assertFalse(self.model.training)
 
 
-class TestSentenceKDTransformerTiming(unittest.TestCase):
-    """Sanity-check that a single forward+backward step completes in
-    reasonable wall-clock time for CI.
-
-    RadBERT is BERT-base-sized (~110M parameters), so on CPU one step is
-    orders of magnitude slower than a tiny-backbone smoke test. The
-    threshold here is picked to catch regressions (e.g. an accidental
-    O(n^2) in the contrastive loss over a large batch) rather than to
-    enforce absolute speed.
-    """
-
-    @classmethod
-    def setUpClass(cls) -> None:
-        cls.dataset = _make_text_dataset()
-        cls.model = SentenceKDTransformer(
-            dataset=cls.dataset, model_name=_BACKBONE, lam=1.0, max_length=64
-        )
-
+    # ---- regression-style timing check ---------------------------------
     def test_forward_backward_finishes_under_regression_threshold(self):
+        """Catch regressions like an accidental O(n^2) in the contrastive
+        loss over a large batch. With bert-tiny on CPU a forward+backward
+        over 8 short sentences should finish in tens of milliseconds.
+        """
         loader = get_dataloader(self.dataset, batch_size=8, shuffle=False)
         batch = next(iter(loader))
-        # Warm-up pass to prime tokenizer caches and layer fusion.
         _ = self.model(**batch)
         start = time.perf_counter()
         out = self.model(**batch)
         out["loss"].backward()
         elapsed = time.perf_counter() - start
-        # Generous threshold: RadBERT forward+backward on CPU for a batch
-        # of 8 short sentences is typically 0.5-3s on modern CI hardware.
-        self.assertLess(elapsed, 30.0, f"forward+backward took {elapsed:.3f}s")
+        self.assertLess(elapsed, 2.0, f"forward+backward took {elapsed:.3f}s")
 
 
 if __name__ == "__main__":
