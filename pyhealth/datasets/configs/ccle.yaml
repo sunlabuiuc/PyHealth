@@ -1,0 +1,52 @@
+version: "1.0"
+# CCLE (Cancer Cell Line Encyclopedia) dataset configuration.
+#
+# Data format: flat matrix files (cell lines × genes, cell lines × drugs).
+# This schema documents the expected file layout. CCLEDataset loads these
+# files directly via pandas rather than the BaseDataset YAML-table pipeline,
+# because the expression and sensitivity data are dense matrices rather than
+# per-patient event tables.
+#
+# Required files in data_dir:
+#   exp_ccle.csv          - Binary gene expression matrix  (cell lines × genes)
+#   ccle.csv              - Binary drug sensitivity matrix (cell lines × drugs)
+#   drug_info_ccle.csv    - Drug metadata: drug name, Target pathway
+#   exp_emb_ccle.csv      - Gene2Vec embedding matrix      (n_genes+1 × emb_dim)
+tables:
+  expression:
+    file_path: "exp_ccle.csv"
+    patient_id: "cell_line_id"
+    timestamp: null
+    attributes: []
+    description: >
+      Binary gene expression matrix.  Rows are CCLE cell-line names; columns
+      are 1-indexed gene positions.  Value 1 = gene expressed, 0 = not expressed.
+  sensitivity:
+    file_path: "ccle.csv"
+    patient_id: "cell_line_id"
+    timestamp: null
+    attributes: []
+    description: >
+      Binary drug sensitivity matrix.  Rows are CCLE cell-line names; columns
+      are drug names.  Value 1 = sensitive, 0 = resistant, NaN = untested.
+      Note: raw CCLE labels are inverted relative to the paper convention;
+      CCLEDataset automatically flips them so that 1 = sensitive consistently.
+  drug_info:
+    file_path: "drug_info_ccle.csv"
+    patient_id: null
+    timestamp: null
+    attributes:
+      - "Target pathway"
+    description: >
+      Drug metadata table.  Indexed by drug name (matching ccle.csv columns).
+      Used to build the drug-to-pathway mapping required by the CADRE
+      contextual attention layer.
+  gene_embeddings:
+    file_path: "exp_emb_ccle.csv"
+    patient_id: null
+    timestamp: null
+    attributes: []
+    description: >
+      Pre-trained Gene2Vec embedding matrix.  Row 0 is the zero-padding vector;
+      subsequent rows correspond to 1-indexed gene positions matching the
+      columns of exp_ccle.csv.
