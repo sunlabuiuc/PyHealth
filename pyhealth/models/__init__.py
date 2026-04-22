@@ -1,6 +1,7 @@
 from .adacare import AdaCare, AdaCareLayer, MultimodalAdaCare
 from .agent import Agent, AgentLayer
 from .base_model import BaseModel
+from .transformer_deid import TransformerDeID
 from .biot import BIOT
 from .cnn import CNN, CNNLayer
 from .concare import ConCare, ConCareLayer
@@ -46,3 +47,4 @@ from .medlink import MedLink
 from .unified_embedding import UnifiedMultimodalEmbeddingModel, SinusoidalTimeEmbedding
 from .multi_view_contrastive_time_series_model import MultiViewContrastiveTimeSeriesModel
 from .mvcl_model import MultiViewContrastiveModel
+from .califorest import CaliForest
