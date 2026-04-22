@@ -126,7 +126,9 @@ _TEMPLATES = {
 }
 
 
-def make_synthetic_samples(n_per_class: int = 40, seed: int = 0) -> List[Dict[str, Any]]:
+def make_synthetic_samples(
+    n_per_class: int = 40, seed: int = 0
+) -> List[Dict[str, Any]]:
     """Build a balanced synthetic mtsamples-style dataset.
 
     Args:
@@ -390,7 +392,10 @@ def main(argv: Optional[List[str]] = None) -> None:
         "--data_root",
         type=str,
         default=None,
-        help="Path to the mtsamples raw directory. Falls back to synthetic if unreadable.",
+        help=(
+            "Path to the mtsamples raw directory. "
+            "Falls back to synthetic if unreadable."
+        ),
     )
     parser.add_argument("--epochs", type=int, default=2)
     parser.add_argument("--batch_size", type=int, default=16)
@@ -409,7 +414,9 @@ def main(argv: Optional[List[str]] = None) -> None:
     args = parser.parse_args(argv)
 
     dataset = build_dataset(quick=args.quick, data_root=args.data_root)
-    backbone = "prajjwal1/bert-tiny" if args.quick else "emilyalsentzer/Bio_ClinicalBERT"
+    backbone = (
+        "prajjwal1/bert-tiny" if args.quick else "emilyalsentzer/Bio_ClinicalBERT"
+    )
     selected = {name.strip() for name in args.ablations.split(",") if name.strip()}
 
     all_results: Dict[str, List[Dict[str, Any]]] = {}
