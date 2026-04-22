@@ -7082,8 +7082,8 @@ packages:
   timestamp: 1750615908735
 - pypi: ./
   name: pyhealth
-  version: 2.0.0
-  sha256: f07719f9dceb759c35507216c8033d2f915d241418d4fad2ab51b37c0e73260f
+  version: 2.0.1
+  sha256: bf368461a8e66f93ad43f5880295045cbabe6688064af9a650a92bdaf1665332
   requires_dist:
   - torch~=2.7.1
   - torchvision
@@ -7108,6 +7108,10 @@ packages:
   - more-itertools~=10.8.0
   - einops>=0.8.0
   - linear-attention-transformer>=0.19.1
+  - torch-geometric>=2.6.0 ; extra == 'graph'
+  - editdistance~=0.8.1 ; extra == 'nlp'
+  - rouge-score~=0.1.2 ; extra == 'nlp'
+  - nltk~=3.9.1 ; extra == 'nlp'
   requires_python: '>=3.12,<3.14'
 - pypi: https://files.pythonhosted.org/packages/05/e7/df2285f3d08fee213f2d041540fa4fc9ca6c2d44cf36d3a035bf2a8d2bcc/pyparsing-3.2.3-py3-none-any.whl
   name: pyparsing
