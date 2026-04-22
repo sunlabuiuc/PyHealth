@@ -1,3 +1,11 @@
+"""
+Example ablation script for MIMIC-III circulatory failure prediction.
+
+This script compares different prediction windows (6h, 12h, 24h) and
+feature settings using logistic regression. It is intended as an example
+usage script for the dataset-task pipeline and ablation study.
+"""
+
 from pyhealth.datasets import MIMIC3CirculatoryFailureDataset
 from pyhealth.tasks import CirculatoryFailurePredictionTask
 
@@ -85,6 +93,7 @@ def print_metrics(title: str, metrics: dict) -> None:
 
 def main() -> None:
     dataset = MIMIC3CirculatoryFailureDataset(
+        # path to the unzipped MIMIC-III database on your machine
         root="mimic-iii-dataset"
     )
 
