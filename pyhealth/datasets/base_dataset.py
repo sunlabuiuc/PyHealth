@@ -223,7 +223,14 @@ def _task_transform_fn(
         writer = BinaryWriter(cache_dir=str(output_dir), chunk_bytes="64MB")
 
         write_index = 0
-        batches = itertools.batched(patient_ids, BATCH_SIZE)
+        batched_fn = getattr(itertools, "batched", None)
+        if batched_fn is None:
+            batches = (
+                tuple(patient_ids[idx : idx + BATCH_SIZE])
+                for idx in range(0, len(patient_ids), BATCH_SIZE)
+            )
+        else:
+            batches = batched_fn(patient_ids, BATCH_SIZE)
         for batch in batches:
             complete = 0
             patients = (
