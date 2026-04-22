@@ -178,6 +178,11 @@ class TestRetinaUNet(unittest.TestCase):
             for param in self.model.core.segmentation_head.parameters()
         )
 
+        bbox_head_has_grad = any(
+            param.requires_grad and param.grad is not None
+            for param in self.model.core.bbox_head.parameters()
+        )
+
         self.assertTrue(fpn_has_grad, "FPN parameters should receive gradients")
         self.assertTrue(
             cls_head_has_grad,
@@ -187,7 +192,10 @@ class TestRetinaUNet(unittest.TestCase):
             seg_head_has_grad,
             "Segmentation head parameters should receive gradients"
         )
-
+        self.assertTrue(
+            bbox_head_has_grad,
+            "Bounding box head parameters should receive gradients"
+        )
 
 if __name__ == "__main__":
     unittest.main()
