@@ -1,4 +1,5 @@
 """Reproduction of Simulations 1-4 from Kaul & Gordon (2024) on PMLB.
+link to project video overview "https://mediaspace.illinois.edu/media/t/1_x2dgugmf"
 
 This script reproduces the four simulations from Figure 2 of
 Kaul, S. and Gordon, G. J. 2024. "Meta-Analysis with Untrusted
@@ -188,12 +189,21 @@ def run_one(
     hksj_width = hhi - hlo
     hksj_cov = float(np.mean((U_test >= hlo) & (U_test <= hhi)))
 
-    # Fixed-prior evaluation
-    residuals = Y_train - M_train
-    resid_sd = float(np.std(residuals))
-    half = t_dist.ppf(1 - alpha / 2, df=n_train - 1) * resid_sd
-    prior_width = 2 * half
-    prior_cov = float(np.mean(np.abs(U_test - M_test) <= half))
+    # Fixed-prior evaluation (Conformalized)
+    abs_residuals = np.abs(Y_train - M_train)
+
+    # Calculate the conformal quantile
+    tau = int(np.ceil((1 - alpha) * (n_train + 1)))
+
+    if tau <= n_train:
+        # Sort and extract the threshold
+        q_val = np.sort(abs_residuals)[tau - 1]
+        prior_width = 2 * q_val
+    else:
+        # Not enough data to guarantee coverage at this alpha
+        prior_width = np.inf
+
+    prior_cov = float(np.mean(np.abs(U_test - M_test) <= q_val))
 
     return {
         "cma_width": cma_width,
@@ -209,8 +219,8 @@ def run_one(
 # Simulation 1: Width vs n across prior quality
 # ---------------------------------------------------------------------
 def simulation_1(
-    n_values: Iterable[int] = (20, 30, 40, 50),
-    seeds: Iterable[int] = range(32),
+    n_values: Iterable[int] = (20, 30, 40, 50,100),
+    seeds: Iterable[int] = range(2),
     ylim: Tuple[float, float] = (0, 2500),
 ) -> Dict:
     """Reproduce Simulation 1: width vs n for bad/okay/good priors.
@@ -261,10 +271,11 @@ def simulation_1(
 # ---------------------------------------------------------------------
 # Simulation 2: Coverage vs effect noise (CMA vs HKSJ)
 # ---------------------------------------------------------------------
+# picture in presentation needed seed range of 10 to get enough variation
 def simulation_2(
-    noise_values: Iterable[float] = (1.0, 50.0, 100.0, 200.0, 400.0),
+    noise_values: Iterable[float] = (1.0, 50.0, 100.0),
     n_values: Iterable[int] = (50, 200),
-    seeds: Iterable[int] = (0, 1),
+    seeds: Iterable[int] = range(2),
     alpha: float = 0.05,
     ylim: Tuple[float, float] = (0.80, 1.02),
 ) -> Dict:
@@ -328,10 +339,11 @@ def simulation_2(
 # ---------------------------------------------------------------------
 # Simulation 3: Coverage with eta=0 vs eta>0
 # ---------------------------------------------------------------------
+# picture in presentation needed seed range of 20 to get enough variation
 def simulation_3(
-    noise_values: Iterable[float] = (1.0, 100.0, 500.0, 1000.0),
+    noise_values: Iterable[float] = (1.0, 20.0, 50.0),
     n_values: Iterable[int] = (50, 200),
-    seeds: Iterable[int] = (0, 1),
+    seeds: Iterable[int] = range(2),
     alpha: float = 0.1,
     ylim: Tuple[float, float] = (0.85, 1.02),
 ) -> Dict:
@@ -401,7 +413,7 @@ def simulation_3(
 def simulation_4(
     prior_values: Iterable[float] = (0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0),
     n_values: Iterable[int] = (16, 200),
-    seeds: Iterable[int] = (0, 1),
+    seeds: Iterable[int] = range(2),
     alpha: float = 0.1,
     ylim: Tuple[float, float] = (0, 5000),
 ) -> Dict:
@@ -461,18 +473,18 @@ def simulation_4(
 
 
 if __name__ == "__main__":
-    # print("=" * 60)
-    # print("Reproducing Kaul & Gordon (2024) Simulations 1-4 on PMLB")
-    # print("=" * 60)
-    #
-    # print("\n>>> Simulation 1 (width vs n)")
-    # sim1 = simulation_1()
-    #
-    # print("\n>>> Simulation 2 (coverage vs effect noise)")
-    # sim2 = simulation_2()
-    #
-    # print("\n>>> Simulation 3 (eta=0 vs eta>0)")
-    # sim3 = simulation_3()
+    print("=" * 60)
+    print("Reproducing Kaul & Gordon (2024) Simulations 1-4 on PMLB")
+    print("=" * 60)
+
+    print("\n>>> Simulation 1 (width vs n)")
+    sim1 = simulation_1()
+
+    print("\n>>> Simulation 2 (coverage vs effect noise)")
+    sim2 = simulation_2()
+
+    print("\n>>> Simulation 3 (eta=0 vs eta>0)")
+    sim3 = simulation_3()
 
     print("\n>>> Simulation 4 (width vs prior error)")
     sim4 = simulation_4()

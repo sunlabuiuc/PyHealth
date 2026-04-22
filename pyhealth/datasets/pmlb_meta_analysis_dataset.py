@@ -225,6 +225,8 @@ class PMLBMetaAnalysisDataset(BaseDataset):
         df.insert(1, "visit_id", [f"visit_{i}" for i in range(len(df))])
         df = df.rename(columns={"target": "true_effect"})
 
+
+
         if synthesize_noise:
             df = PMLBMetaAnalysisDataset._add_synthetic_noise(
                 df,

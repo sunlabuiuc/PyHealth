@@ -1020,6 +1020,7 @@ def _rescale_continuous(df: pd.DataFrame) -> pd.DataFrame:
     for raw_col, scaled_col in [
         ("mean_age_raw", "mean_age"),
         ("mean_la_size_raw", "mean_la_size"),
+        ("amiodarone_total_24h_mg", "amiodarone_total_24h_mg"),
     ]:
         values = df[raw_col].astype(float)
         valid = values.dropna()

@@ -1,4 +1,5 @@
 """PubMedBERT encoder ablation for the amiodarone case study.
+link to project video overview "https://mediaspace.illinois.edu/media/t/1_x2dgugmf"
 
 This script extends Kaul & Gordon (2024) by testing whether a
 domain-specific pretrained language model (PubMedBERT) produces
@@ -54,9 +55,7 @@ Reference:
 
 from __future__ import annotations
 
-import json
 import os
-from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
@@ -78,9 +77,350 @@ from pyhealth.trainer import Trainer
 # ---------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------
-ABSTRACTS_PATH = Path("./amiodarone_abstracts.json")
 DATASET_ROOT = "./data/amiodarone"
 PUBMEDBERT = "microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract"
+
+
+# ---------------------------------------------------------------------
+# Embedded abstract corpus
+# ---------------------------------------------------------------------
+# Real published abstracts for 17 of the 21 amiodarone trials, keyed
+# by the ``trial_name`` that appears in the dataset CSV. Trials with
+# an empty string fall back to ``generate_clinical_prose``.
+#
+# Source: PubMed-indexed journal abstracts from the original trial
+# publications. Quoted verbatim for research reproduction under fair
+# use. Not redistributed as a standalone corpus.
+AMIODARONE_ABSTRACTS: Dict[str, str] = {
+    "Cowan et al.16 (England) 1986": (
+        "Thirty-four patients with atrial fibrillation complicating "
+        "suspected acute myocardial infarction were randomised to "
+        "treatment with intravenous amiodarone (n = 18) or intravenous "
+        "digoxin (n = 16). After 24 h, similar proportions of patients "
+        "in each group had reverted to sinus rhythm. However, there "
+        "was a tendency towards earlier reversion with amiodarone. At "
+        "4 h, 72% of the amiodarone group had reverted to sinus rhythm, "
+        "compared with 31% of the digoxin group (p < 0.1). This "
+        "tendency was more marked in patients with definite infarction "
+        "(at 4 h, amiodarone 75% reversion, digoxin 10% reversion). "
+        "Neither drug had a significant effect on blood pressure. "
+        "Atrial fibrillation may cause serious haemodynamic "
+        "deterioration in acute myocardial infarction. In comparison "
+        "with digoxin, amiodarone offers more rapid control of the "
+        "ventricular response rate and may, in addition, restore sinus "
+        "rhythm more rapidly."
+    ),
+    "Noc et al.17 (Slovenia) 1990": (
+        "Amiodarone and verapamil are well-known antiarrhythmic drugs "
+        "used for treatment of ventricular and supraventricular "
+        "arrhythmias. We compared the efficacy of intravenous "
+        "amiodarone versus verapamil for conversion of paroxysmal "
+        "atrial fibrillation to sinus rhythm in a single-blind "
+        "randomized study. The patient population consisted of 24 "
+        "consecutive patients with paroxysmal atrial fibrillation (15 "
+        "men and 9 women aged 71 +/- 9.6 years, range 51 to 85). The "
+        "duration of arrhythmia ranged from 20 minutes to 48 hours at "
+        "entry. Patients were treated with either amiodarone (5 mg/kg "
+        "body weight intravenously over 3 minutes) or verapamil "
+        "(0.075 mg/kg intravenously over 1 minute, repeated after 10 "
+        "minutes). Treatment was considered successful if conversion "
+        "occurred within 3 hours. One of the 11 patients initially "
+        "given verapamil converted to sinus rhythm. However, 77% (10 "
+        "of 13) of patients who initially received amiodarone "
+        "converted (p < 0.001). The conversion occurred 10 to 175 "
+        "minutes after administration of amiodarone. In conclusion, "
+        "intravenous amiodarone is an effective and safe "
+        "antiarrhythmic agent in promoting conversion of paroxysmal "
+        "atrial fibrillation to sinus rhythm."
+    ),
+    "Capucci et al.18 (Italy) 1992": (
+        "Sixty-two patients with recent-onset (less than or equal to "
+        "1 week) atrial fibrillation (NYHA class 1 and 2) were "
+        "randomized in a single-blind study to one of the following "
+        "treatment groups: (1) flecainide (300 mg) as a single oral "
+        "loading dose; or (2) amiodarone (5 mg/kg) as an intravenous "
+        "bolus, followed by 1.8 g/day; or (3) placebo for the first "
+        "8 hours. Twenty-four-hour Holter recording was performed, "
+        "and conversion to sinus rhythm at 3, 8, 12 and 24 hours was "
+        "considered as the criterion of efficacy. Conversion to sinus "
+        "rhythm was achieved within 8 hours (placebo-controlled "
+        "period) in 20 of 22 patients (91%) treated with flecainide, "
+        "7 of 19 (37%) treated with amiodarone (p < 0.001 vs "
+        "flecainide), and 10 of 21 (48%) treated with placebo (p < "
+        "0.01 vs flecainide). Resumption of sinus rhythm within 24 "
+        "hours occurred in 21 of 22 patients (95%) with flecainide "
+        "and in 17 of 19 (89%) with amiodarone (p = not significant). "
+        "Mean conversion times were shorter for flecainide (190 +/- "
+        "147 minutes) than for amiodarone (705 +/- 418; p < 0.001)."
+    ),
+    "Cochrane et al.19 (Australia) 1994": (
+        "Despite the widespread use of amiodarone in non-surgical "
+        "patients, its role in the management of supraventricular "
+        "tachyarrhythmias after cardiac surgery is not clear. We set "
+        "out to compare the relative efficacy of amiodarone and "
+        "digoxin in the management of atrial fibrillation and flutter "
+        "in the early postoperative period. This prospective "
+        "randomised trial comprised 30 patients, previously in sinus "
+        "rhythm, who developed sustained atrial fibrillation or "
+        "flutter following myocardial revascularisation, valve "
+        "surgery or combined procedures. Amiodarone was administered "
+        "as an intravenous loading dose followed by a continuous "
+        "infusion. Digoxin was given as an intravenous loading dose "
+        "followed by oral maintenance therapy. There was a marked "
+        "reduction in heart rate in both groups, mainly in the first "
+        "6 h, from 146 to 89 beats per minute in the amiodarone "
+        "group and from 144 to 95 in the digoxin group. At the end "
+        "of the 24 h, one of the 15 patients in the amiodarone group "
+        "and 3 of the 15 patients in the digoxin group remained in "
+        "atrial fibrillation. We conclude that intravenous "
+        "amiodarone therapy is safe and at least as effective as "
+        "digoxin in the initial management of arrhythmias after "
+        "cardiac surgery."
+    ),
+    "Donovan et al.20 (Australia) 1995": (
+        "After 8 hours there were no significant differences in "
+        "reversion between the treatment groups: flecainide "
+        "(n = 23, 68%), amiodarone (n = 19, 58%) and placebo "
+        "(n = 18, 56%). Amiodarone promptly reduced the ventricular "
+        "rate and this effect was maintained for 8 hours in those "
+        "whose reversion to stable sinus rhythm was unsuccessful; "
+        "flecainide was no more effective than placebo in "
+        "controlling ventricular rate. Adverse effects were not "
+        "significantly different in the 3 groups. Thus, intravenous "
+        "flecainide results in earlier reversion of atrial "
+        "fibrillation than does intravenous amiodarone or placebo."
+    ),
+    "Hou et al.21 (Taiwan) 1995": (
+        "A 24 h intravenous dosing regimen of amiodarone was designed "
+        "to reach a peak plasma concentration at 1 h and to maintain "
+        "the concentration above a certain level during the infusion "
+        "period. A randomized, open-label, digoxin-controlled study "
+        "was undertaken to observe the efficacy and safety of the "
+        "dosing regimen of amiodarone in treating recent-onset, "
+        "persistent, atrial fibrillation and flutter with ventricular "
+        "rates above 130 beats/min. Fifty patients with a mean age "
+        "of 70 +/- 7 (SD) years were enrolled and randomly assigned "
+        "to receive either amiodarone intravenously (n = 26) or "
+        "digoxin (n = 24). The mean heart rates in the amiodarone "
+        "group decreased significantly from 157 +/- 20 beats/min to "
+        "122 +/- 25 beats/min after 1 h. Overall, 24 of 26 patients "
+        "(92%) in the amiodarone group and 17 of 24 (71%) in the "
+        "digoxin group were restored to sinus rhythm within 24 h. "
+        "The accumulated rates of conversion over 24 h were "
+        "significantly different between the two groups (p = "
+        "0.0048). Digoxin, while not as effective as amiodarone in "
+        "the treatment of recent-onset atrial fibrillation and "
+        "flutter, appears to be safer."
+    ),
+    "Kondili et al.22 (Albania) 1995": "",
+    "Galve et al.23 (Spain) 1996": (
+        "This study was designed to determine the efficacy of "
+        "intravenous amiodarone in the management of recent-onset "
+        "atrial fibrillation. One hundred consecutive patients with "
+        "recent-onset (< 1 week) atrial fibrillation and not taking "
+        "antiarrhythmic agents were randomized to receive either "
+        "intravenous amiodarone, 5 mg/kg body weight in 30 min "
+        "followed by 1,200 mg over 24 h, or an identical amount of "
+        "saline. Both groups received intravenous digoxin. By the "
+        "end of the 24-h treatment period, 34 patients (68%, 95% CI "
+        "53% to 80%) in the amiodarone group and 30 (60%, 95% CI "
+        "45% to 74%) in the control group had returned to sinus "
+        "rhythm (p = 0.532). Mean times of conversion were 328 +/- "
+        "335 and 332 +/- 359 min, respectively (p = 0.957). Among "
+        "patients who did not convert to sinus rhythm, treatment "
+        "with amiodarone was associated with a slower ventricular "
+        "rate (82 +/- 15 beats/min vs 91 +/- 23 beats/min, p = "
+        "0.022). Intravenous amiodarone, at the doses used in this "
+        "study, produces a modest but not significant benefit in "
+        "converting acute atrial fibrillation to sinus rhythm."
+    ),
+    "Kontoyannis et al.24 (Greece) 2001": (
+        "Atrial fibrillation is a fairly common complication of "
+        "acute myocardial infarction (AMI). The aim of this study "
+        "was to examine the safety and efficacy of intravenous "
+        "amiodarone in converting AF associated with AMI. Seventy "
+        "patients with AMI complicated with AF were prospectively "
+        "divided into 3 groups: (a) group D (n = 26), 0.75 mg "
+        "digoxin was administered intravenously and thereafter as "
+        "needed; (b) group AM (n = 16), 300 mg of amiodarone was "
+        "infused over 2 hours followed by 44 mg/hour for up to 60 "
+        "hours or until sinus rhythm was restored; (c) group D+AM "
+        "(n = 28), 0.75 mg of digoxin was administered for the "
+        "initial 2 hours followed by amiodarone infusion as in "
+        "group AM. Sinus rhythm was restored by the end of the 96th "
+        "hour in 18/26 patients from group D, and in all patients "
+        "from group AM and group D+AM. The corresponding duration "
+        "of AF was 51 +/- 34 hours, 17 +/- 15 hours and 9 +/- 13 "
+        "hours, respectively (F = 15.4, p < 0.001). Intravenous "
+        "amiodarone was well tolerated and was effective in "
+        "decreasing the duration of AF."
+    ),
+    "Bellandi et al.26 (Italy) 1999": "",
+    "Cotter et al.27 (Israel) 1999": (
+        "Spontaneous conversion of recent onset paroxysmal atrial "
+        "fibrillation to normal sinus rhythm occurs commonly and is "
+        "not affected by low-dose amiodarone treatment. In a "
+        "randomized, placebo-controlled trial of 100 patients with "
+        "paroxysmal atrial fibrillation of recent onset (< 48 h) we "
+        "compared the effects of treatment with continuous "
+        "intravenous amiodarone 125 mg per hour (total 3 g) and "
+        "intravenous placebo. Conversion to normal sinus rhythm "
+        "occurred within 24 h in 32 of 50 patients (64%) in the "
+        "placebo group, most of whom converted within 8 h. The "
+        "conversion rate during 24 h of treatment in the amiodarone "
+        "group was 92% (p = 0.0017). In patients still in atrial "
+        "fibrillation after 8 h of treatment, the pulse rate "
+        "decreased significantly more in the amiodarone as compared "
+        "to the placebo group (83 +/- 15 vs 114 +/- 20 beats/min, "
+        "p = 0.0014). Intravenous high-dose amiodarone safely "
+        "facilitates conversion of paroxysmal atrial fibrillation."
+    ),
+    "Kochiadakis et al.12 (Greece) 1999": "",
+    "Peuhkurinen et al.30 (Finland) 2000": (
+        "The present study evaluates the efficacy and safety of a "
+        "single oral dose of amiodarone in patients with "
+        "recent-onset atrial fibrillation (< 48 hours). Seventy-two "
+        "patients were randomized to receive 30 mg/kg of either "
+        "amiodarone or placebo. Conversion to sinus rhythm was "
+        "verified by 24-hour Holter monitoring. At 8 hours, "
+        "approximately 50% of patients in the amiodarone group and "
+        "20% in the placebo group had converted to sinus rhythm, "
+        "whereas after 24 hours the corresponding figures were 87% "
+        "and 35%, respectively. The median time for conversion "
+        "(8.7 hours for amiodarone and 7.9 hours for placebo) did "
+        "not differ in the groups. Amiodarone was hemodynamically "
+        "well tolerated, and the number of adverse events in the "
+        "study groups was similar. Amiodarone as a single oral dose "
+        "of 30 mg/kg appears to be effective and safe in patients "
+        "with recent-onset atrial fibrillation."
+    ),
+    "Vardas et al.31 (Greece) 2000": (
+        "To investigate the efficacy and safety of amiodarone "
+        "administered as the drug of first choice in the conversion "
+        "of atrial fibrillation, regardless of its duration. "
+        "Two-hundred eight consecutive patients (102 men; mean age "
+        "65 +/- 10 years) with atrial fibrillation were enrolled. "
+        "One-hundred eight patients received amiodarone, and 100 "
+        "patients received placebo treatment. Patients randomized to "
+        "amiodarone received 300 mg IV for 1 h, then 20 mg/kg for "
+        "24 h, followed by 600 mg/d orally for 1 week and 400 mg/d "
+        "for 3 weeks. Conversion to sinus rhythm was achieved in 87 "
+        "of 108 patients (80.05%) who received amiodarone, and in "
+        "40 of 100 patients (40%) in the placebo group (p < "
+        "0.0001). Statistical analysis showed that the duration of "
+        "the arrhythmia and the size of the left atrium affected "
+        "both the likelihood of conversion to sinus rhythm and the "
+        "time to conversion in both groups. Amiodarone appears to "
+        "be safe and effective in the termination of atrial "
+        "fibrillation."
+    ),
+    "Joseph and Ward32 (Australia) 2000": (
+        "A prospective, randomized controlled trial of new-onset "
+        "atrial fibrillation was conducted to compare the efficacy "
+        "and safety of sotalol and amiodarone (active treatment) "
+        "with rate control by digoxin alone for successful "
+        "reversion to sinus rhythm at 48 hours. We prospectively "
+        "randomly assigned 120 patients with atrial fibrillation of "
+        "less than 24 hours duration to treatment with sotalol, "
+        "amiodarone, or digoxin using a single intravenous dose "
+        "followed by 48 hours of oral treatment. There was a "
+        "significant reduction in the time to reversion with both "
+        "sotalol (13.0 +/- 2.5 hours, p < 0.01) and amiodarone "
+        "(18.1 +/- 2.9 hours, p < 0.05) treatment compared with "
+        "digoxin only (26.9 +/- 3.4 hours). By 48 hours, the active "
+        "treatment group was significantly more likely to have "
+        "reverted to sinus rhythm than the rate control group (95% "
+        "vs 78%, p < 0.05). Immediate pharmacologic therapy for "
+        "new-onset atrial fibrillation with class III antiarrhythmic "
+        "drugs improves complication-free 48-hour reversion rates "
+        "compared with rate control with digoxin."
+    ),
+    "Cybulski et al.33 (Poland) 2001": "",
+    "Natale et al.25 (United States) 1998": "",
+    "Bianconi et al.28 (Italy) 2000": (
+        "This study compared the efficacy and safety of intravenous "
+        "dofetilide with amiodarone and placebo in converting "
+        "atrial fibrillation or flutter to sinus rhythm. One "
+        "hundred and fifty patients with atrial fibrillation or "
+        "flutter (duration range 2 h to 6 months) were given 15-min "
+        "intravenous infusions of 8 ug/kg of dofetilide (n = 48), "
+        "5 mg/kg of amiodarone (n = 50), or placebo (n = 52) and "
+        "monitored continuously for 3 h. Sinus rhythm was restored "
+        "in 35%, 4%, and 4% of patients, respectively (p < 0.001, "
+        "dofetilide vs placebo; p = ns, amiodarone vs placebo). "
+        "Dofetilide was more effective in atrial flutter than in "
+        "atrial fibrillation (cardioversion rates 75% and 22%, "
+        "respectively; p = 0.004). Intravenous dofetilide is "
+        "significantly more effective than amiodarone or placebo "
+        "in restoring sinus rhythm in patients with atrial "
+        "fibrillation or flutter."
+    ),
+    "Galperin et al.29 (Argentina) 2000": (
+        "We sought to assess the efficacy and safety of amiodarone "
+        "for restoration and maintenance of sinus rhythm in "
+        "patients with chronic atrial fibrillation in a "
+        "prospective, randomized, double blind trial. Ninety-five "
+        "patients with chronic atrial fibrillation, lasting an "
+        "average of 35.6 months, were randomized to either "
+        "amiodarone (600 mg/d) (47 patients) or placebo (48 "
+        "patients) during four weeks. Nonresponders underwent "
+        "electric cardioversion. Sixteen patients (34.04%) in the "
+        "amiodarone group reverted within 27.28 +/- 8.85 days in "
+        "comparison with 0% in the placebo group (p < 0.000009). "
+        "Altogether, conversion was obtained in 79.54% of the "
+        "amiodarone group patients and in 38.46% of the placebo "
+        "group patients (p < 0.0001). During follow-up, atrial "
+        "fibrillation relapsed in 13 (37.14%) of 35 patients of the "
+        "amiodarone group within 8.84 +/- 8.57 months and in 12 "
+        "(80%) of 15 patients of the placebo group within 2.74 "
+        "+/- 3.41 months. Oral amiodarone restored sinus rhythm in "
+        "one third of patients with chronic atrial fibrillation, "
+        "increased the success rate of electric cardioversion, "
+        "decreased the number of relapses and delayed their "
+        "occurrence."
+    ),
+    "Hohnloser et al.3 (Germany) 2000": (
+        "Atrial fibrillation is the most commonly encountered "
+        "sustained cardiac arrhythmia. Restoration and maintenance "
+        "of sinus rhythm is believed by many physicians to be "
+        "superior to rate control only. The Pharmacological "
+        "Intervention in Atrial Fibrillation (PIAF) trial was a "
+        "randomised trial in 252 patients with atrial fibrillation "
+        "of between 7 days and 360 days duration, which compared "
+        "rate (group A, 125 patients) with rhythm control (group "
+        "B, 127 patients). In group A, diltiazem was used as "
+        "first-line therapy and amiodarone was used in group B. "
+        "Over the entire observation period of 1 year, a similar "
+        "proportion of patients reported improvement in symptoms "
+        "in both groups (76 vs 70 responders, p = 0.317). "
+        "Amiodarone administration resulted in pharmacological "
+        "restoration of sinus rhythm in 23% of patients. With "
+        "respect to symptomatic improvement, rate versus rhythm "
+        "control yielded similar clinical results. Exercise "
+        "tolerance is better with rhythm control, although hospital "
+        "admission is more frequent."
+    ),
+    "Villani et al.11 (Italy) 2000": (
+        "Pretreatment with calcium channel blocker may improve the "
+        "efficacy of electric cardioversion by reversing the "
+        "so-called 'electric remodeling' phenomenon. The efficacy "
+        "of diltiazem or amiodarone pretreatment (oral, 1 month "
+        "before and 1 month after conversion) on direct-current "
+        "conversion of persistent atrial fibrillation was assessed "
+        "in 120 patients, randomly assigned to 3 matched groups: "
+        "A (n = 44, diltiazem); B (n = 46, amiodarone), and C "
+        "(n = 30, digoxin). Spontaneous conversion to sinus rhythm "
+        "was achieved in 6% of patients of group A, 25% of group "
+        "B and 3% of group C (A/C vs B, p < 0.005). Current "
+        "conversion was more successful in group B (91%) compared "
+        "with group A (76%) and group C (67%) (B vs A/C, p < "
+        "0.05). At 1 month the recurrence rate was lower in group "
+        "B (28%) versus groups A (56%) and C (78%) (B vs A/C, p < "
+        "0.01). Diltiazem is less effective than amiodarone in "
+        "determining spontaneous or electric conversion, with a "
+        "higher recurrence rate."
+    ),
+}
 
 
 # ---------------------------------------------------------------------
@@ -431,18 +771,8 @@ def run_bert_ablation(
         )
         bert_available = False
 
-    # Load abstracts (empty dict if file not present)
-    if ABSTRACTS_PATH.exists():
-        abstracts = json.loads(
-            ABSTRACTS_PATH.read_text(encoding="utf-8")
-        )
-    else:
-        print(
-            f"[INFO] {ABSTRACTS_PATH} not found. Using generated "
-            f"prose for all trials. Populate this file with "
-            f"{{trial_name: abstract_text}} to use real PDFs."
-        )
-        abstracts = {}
+    # Abstract corpus is embedded at the top of this file.
+    abstracts = AMIODARONE_ABSTRACTS
 
     # Load dataset and build lookup
     dataset = AmiodaroneTrialDataset(root=DATASET_ROOT)
