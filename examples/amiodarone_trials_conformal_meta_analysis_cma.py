@@ -1,5 +1,5 @@
 """PubMedBERT encoder ablation for the amiodarone case study.
-link to project video overview "https://mediaspace.illinois.edu/media/t/1_x2dgugmf"
+
 
 This script extends Kaul & Gordon (2024) by testing whether a
 domain-specific pretrained language model (PubMedBERT) produces

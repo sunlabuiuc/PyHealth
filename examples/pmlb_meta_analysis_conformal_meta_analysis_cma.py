@@ -1,5 +1,5 @@
 """Reproduction of Simulations 1-4 from Kaul & Gordon (2024) on PMLB.
-link to project video overview "https://mediaspace.illinois.edu/media/t/1_x2dgugmf"
+
 
 This script reproduces the four simulations from Figure 2 of
 Kaul, S. and Gordon, G. J. 2024. "Meta-Analysis with Untrusted
