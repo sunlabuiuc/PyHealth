@@ -16,7 +16,7 @@ integration-tested elsewhere. Here we test:
 5. Cheap validation paths (invalid subset, invalid label_mode).
 
 Author:
-    Andrew Zhao (andrew.zhao@aeroseal.com)
+    Andrew Zhao (NetID: aazhao2, aazhao2@illinois.edu)
 """
 import tempfile
 import unittest
@@ -32,8 +32,20 @@ def _write_wav(path: Path, sample_rate: int, data: np.ndarray) -> None:
     scipy.io.wavfile.write(str(path), sample_rate, data)
 
 
-def _make_fixture(root: Path) -> None:
-    """Populate *root* with raw-ICBHI-shaped synthetic data."""
+def _make_fixture(
+    root: Path,
+    *,
+    write_splits: bool = True,
+    write_diagnosis: bool = True,
+    write_demographics: bool = True,
+) -> None:
+    """Populate *root* with raw-ICBHI-shaped synthetic data.
+
+    Optional flags mirror the real-world failure modes the loader has
+    to handle: any of the sidecar metadata files may be absent in a
+    bare ICBHI distribution, and the loader should still produce valid
+    train/test CSVs.
+    """
     sample_rate = 4000
     n_samples = sample_rate * 4
     audio = np.zeros(n_samples, dtype=np.int16)
@@ -44,27 +56,29 @@ def _make_fixture(root: Path) -> None:
         ("102", "1b1", "Ar", "sc", "Meditron", "test"),
     ]
 
-    train_stems, test_stems = [], []
+    stems_by_split = {"train": [], "test": []}
     for pid, rec, loc, mode, equip, split in recordings:
         stem = f"{pid}_{rec}_{loc}_{mode}_{equip}"
         _write_wav(root / f"{stem}.wav", sample_rate, audio)
         (root / f"{stem}.txt").write_text("0.0\t1.5\t0\t0\n1.5\t3.0\t1\t0\n")
-        (train_stems if split == "train" else test_stems).append(stem)
+        stems_by_split[split].append(stem)
 
-    (root / "ICBHI_challenge_diagnosis.txt").write_text(
-        "101 Healthy\n102 URTI\n"
-    )
-    (root / "ICBHI_Challenge_demographic_information.txt").write_text(
-        "101 45 M 22.5 NA NA\n102 5 F NA 18.2 108.0\n"
-    )
-    split_dir = root / "ICBHI_challenge_train_and_test_txt"
-    split_dir.mkdir()
-    (split_dir / "ICBHI_challenge_train.txt").write_text(
-        "\n".join(train_stems) + "\n"
-    )
-    (split_dir / "ICBHI_challenge_test.txt").write_text(
-        "\n".join(test_stems) + "\n"
-    )
+    if write_diagnosis:
+        (root / "ICBHI_challenge_diagnosis.txt").write_text(
+            "101\tHealthy\n102\tURTI\n"
+        )
+    if write_demographics:
+        (root / "ICBHI_Challenge_demographic_information.txt").write_text(
+            "101\t45\tM\t22.5\tNA\tNA\n102\t5\tF\tNA\t18.2\t108.0\n"
+        )
+    if write_splits:
+        # Real ICBHI ships a single combined <stem>\t<split> file.
+        lines = [f"{s}\ttrain" for s in stems_by_split["train"]] + [
+            f"{s}\ttest" for s in stems_by_split["test"]
+        ]
+        (root / "ICBHI_challenge_train_test.txt").write_text(
+            "\n".join(lines) + "\n"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -183,6 +197,151 @@ class TestICBHIPrepareMetadata(unittest.TestCase):
     def test_cycle_ids_zero_indexed(self):
         for _, group in self.train_df.groupby("recording_id"):
             self.assertEqual(sorted(group["cycle_id"].tolist()), [0, 1])
+
+
+# ---------------------------------------------------------------------------
+# Real-ICBHI edge cases — missing sidecar files. Each test builds a bare
+# fixture that omits one of the optional metadata files and asserts the
+# loader still produces a valid pair of split CSVs with sensible defaults.
+# ---------------------------------------------------------------------------
+
+class TestICBHIMissingSplitFileFallback(unittest.TestCase):
+    """No split file → deterministic patient-level fallback split."""
+
+    @classmethod
+    def setUpClass(cls):
+        from pyhealth.datasets import ICBHIDataset
+
+        cls.tmpdir = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        cls.root = Path(cls.tmpdir.name)
+        _make_fixture(cls.root, write_splits=False)
+
+        stub = ICBHIDataset.__new__(ICBHIDataset)
+        stub.root = str(cls.root)
+        stub.prepare_metadata()
+
+        # Either the data dir or the user cache may hold the CSV (the
+        # loader falls back to the cache on permission errors). Try
+        # both locations so the test passes on read-only tmpdirs too.
+        cls.train_df = cls._read_csv(cls.root, "train")
+        cls.test_df = cls._read_csv(cls.root, "test")
+
+    @staticmethod
+    def _read_csv(root: Path, split: str) -> pd.DataFrame:
+        shared = root / f"icbhi-{split}-pyhealth.csv"
+        if shared.exists():
+            return pd.read_csv(shared)
+        cache = Path.home() / ".cache" / "pyhealth" / "icbhi"
+        return pd.read_csv(cache / f"icbhi-{split}-pyhealth.csv")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmpdir.cleanup()
+
+    def test_both_csvs_written(self):
+        self.assertGreater(len(self.train_df), 0)
+        self.assertGreater(len(self.test_df), 0)
+
+    def test_patient_disjoint_across_splits(self):
+        """A patient must appear in exactly one split — no leakage."""
+        train_patients = set(self.train_df["patient_id"].astype(str))
+        test_patients = set(self.test_df["patient_id"].astype(str))
+        self.assertEqual(train_patients & test_patients, set())
+
+    def test_all_recordings_assigned(self):
+        """Every WAV stem should land in exactly one split."""
+        all_recs = set(self.train_df["recording_id"]) | set(
+            self.test_df["recording_id"]
+        )
+        self.assertEqual(
+            all_recs,
+            {
+                "101_1b1_Al_sc_Meditron",
+                "101_2b1_Ar_sc_Meditron",
+                "102_1b1_Ar_sc_Meditron",
+            },
+        )
+
+    def test_deterministic_across_runs(self):
+        """Same fixture + same seed → same split assignment."""
+        from pyhealth.datasets import ICBHIDataset
+
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d2:
+            root2 = Path(d2)
+            _make_fixture(root2, write_splits=False)
+            stub2 = ICBHIDataset.__new__(ICBHIDataset)
+            stub2.root = str(root2)
+            stub2.prepare_metadata()
+            train2 = self._read_csv(root2, "train")
+        self.assertEqual(
+            sorted(set(self.train_df["recording_id"])),
+            sorted(set(train2["recording_id"])),
+        )
+
+
+class TestICBHIMissingDiagnosisFile(unittest.TestCase):
+    """Missing diagnosis file → diagnosis defaults to 'Unknown'."""
+
+    @classmethod
+    def setUpClass(cls):
+        from pyhealth.datasets import ICBHIDataset
+
+        cls.tmpdir = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        cls.root = Path(cls.tmpdir.name)
+        _make_fixture(cls.root, write_diagnosis=False)
+
+        stub = ICBHIDataset.__new__(ICBHIDataset)
+        stub.root = str(cls.root)
+        stub.prepare_metadata()
+
+        cls.train_df = pd.read_csv(cls.root / "icbhi-train-pyhealth.csv")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmpdir.cleanup()
+
+    def test_diagnosis_defaults_to_unknown(self):
+        self.assertEqual(set(self.train_df["diagnosis"]), {"Unknown"})
+
+    def test_metadata_text_omits_unknown_diagnosis(self):
+        # _build_metadata_text skips diagnosis when it's "Unknown" —
+        # never fabricate a placeholder string.
+        for text in self.train_df["metadata_text"]:
+            self.assertNotIn("Unknown", text)
+
+
+class TestICBHIMissingDemographicsFile(unittest.TestCase):
+    """Missing demographics file → age=NaN, sex='', BMI/weight/height NaN."""
+
+    @classmethod
+    def setUpClass(cls):
+        from pyhealth.datasets import ICBHIDataset
+
+        cls.tmpdir = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        cls.root = Path(cls.tmpdir.name)
+        _make_fixture(cls.root, write_demographics=False)
+
+        stub = ICBHIDataset.__new__(ICBHIDataset)
+        stub.root = str(cls.root)
+        stub.prepare_metadata()
+
+        cls.train_df = pd.read_csv(cls.root / "icbhi-train-pyhealth.csv")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmpdir.cleanup()
+
+    def test_age_is_nan(self):
+        self.assertTrue(self.train_df["age"].isna().all())
+
+    def test_sex_is_empty(self):
+        # pandas reads "" as NaN for object columns, which is fine.
+        sex_values = self.train_df["sex"].fillna("").astype(str).unique()
+        self.assertEqual(set(sex_values), {""})
+
+    def test_bmi_weight_height_all_nan(self):
+        for col in ("adult_bmi", "child_weight", "child_height"):
+            self.assertTrue(self.train_df[col].isna().all(), col)
 
 
 # ---------------------------------------------------------------------------

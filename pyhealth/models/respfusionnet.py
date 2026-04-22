@@ -22,7 +22,7 @@ Paper link:
     https://arxiv.org/abs/2410.05361
 
 Author:
-    Andrew Zhao (aazhao2@illinois.edu)
+    Andrew Zhao (NetID: aazhao2, aazhao2@illinois.edu)
 """
 
 from typing import Dict

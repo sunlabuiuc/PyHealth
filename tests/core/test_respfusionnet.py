@@ -11,7 +11,7 @@ goal is to cover the public contract of the model:
 4. Modality ablation (audio-only, metadata-only, both).
 
 Author:
-    Andrew Zhao (andrew.zhao@aeroseal.com)
+    Andrew Zhao (NetID: aazhao2, aazhao2@illinois.edu)
 """
 
 import unittest

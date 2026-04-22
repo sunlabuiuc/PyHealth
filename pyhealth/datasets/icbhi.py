@@ -4,7 +4,7 @@ PyHealth dataset for the ICBHI 2017 Respiratory Sound Database.
 Dataset link:
     https://bhichallenge.med.auth.gr/ICBHI_2017_Challenge
 
-Dataset paper:
+Dataset paper: (please cite if you use this dataset)
     Rocha, Bruno M., et al. "An open access database for the evaluation of
     respiratory sound classification algorithms." Physiological Measurement
     40.3 (2019): 035001.
@@ -13,7 +13,7 @@ Paper link:
     https://doi.org/10.1088/1361-6579/ab03ea
 
 Author:
-    Andrew Zhao (aazhao2@illinois.edu)
+    Andrew Zhao (NetID: aazhao2, aazhao2@illinois.edu)
 """
 import logging
 from pathlib import Path
@@ -83,14 +83,28 @@ class ICBHIDataset(BaseDataset):
     .. code-block:: text
 
         <root>/
-        ├── 101_1u_Al_sc_Meditron.wav
-        ├── 101_1u_Al_sc_Meditron.txt    # cycle annotations
+        ├── 101_1b1_Al_sc_Meditron.wav
+        ├── 101_1b1_Al_sc_Meditron.txt    # cycle annotations
         ├── ...
-        ├── ICBHI_challenge_diagnosis.txt
-        ├── ICBHI_Challenge_demographic_information.txt  (optional)
-        └── ICBHI_challenge_train_and_test_txt/
-            ├── ICBHI_challenge_train.txt
-            └── ICBHI_challenge_test.txt
+        ├── ICBHI_challenge_train_test.txt            # optional
+        ├── ICBHI_challenge_diagnosis.txt             # optional
+        └── ICBHI_Challenge_demographic_information.txt  # optional
+
+    Every ``*.txt`` file listed above is optional. If the combined
+    ``ICBHI_challenge_train_test.txt`` split file is absent, the loader
+    falls back to a deterministic patient-level 80/20 split (fixed
+    seed, so splits are reproducible across runs). If the diagnosis or
+    demographics files are absent, their fields default to ``"Unknown"``
+    and ``NaN`` / empty string respectively — values are never
+    fabricated. This makes the loader usable on "audio-only" ICBHI
+    re-hosts that omit the metadata sidecar files.
+
+    The split file, when present, is a single tab-separated file with
+    one line per recording::
+
+        101_1b1_Al_sc_Meditron\ttest
+        103_2b2_Ar_mc_LittC2SE\ttrain
+        ...
 
     Filename format:
         ``{patient_id}_{rec_index}_{chest_location}_{mode}_{equipment}``
@@ -232,6 +246,106 @@ class ICBHIDataset(BaseDataset):
         return demographic_map
 
     @staticmethod
+    def _load_official_splits(root: Path) -> Dict[str, set]:
+        """Load the official ICBHI train/test split, or ``{}`` if absent.
+
+        The official ICBHI 2017 release ships split assignments as a
+        single tab-separated file with one ``<stem>\\t<split>`` line per
+        recording, where ``<split>`` is ``train`` or ``test``::
+
+            101_1b1_Al_sc_Meditron\ttest
+            103_2b2_Ar_mc_LittC2SE\ttrain
+
+        Several plausible locations are probed before giving up so the
+        loader works with both the flat and the older subdirectory-
+        based archive layouts.
+
+        Args:
+            root: Root directory of the raw ICBHI data.
+
+        Returns:
+            ``{"train": {stems}, "test": {stems}}`` if a split file is
+            found, otherwise ``{}``. Lines whose label is neither
+            ``train`` nor ``test`` (case-insensitive) are silently
+            skipped.
+        """
+        candidates = [
+            root / "ICBHI_challenge_train_test.txt",
+            root / "ICBHI_challenge_train_and_test_txt.txt",
+            root
+            / "ICBHI_challenge_train_and_test_txt"
+            / "ICBHI_challenge_train_test.txt",
+        ]
+        split_file = next((c for c in candidates if c.exists()), None)
+        if split_file is None:
+            return {}
+
+        splits: Dict[str, set] = {"train": set(), "test": set()}
+        for line in split_file.read_text().strip().splitlines():
+            parts = line.split()
+            if len(parts) < 2:
+                continue
+            stem, label = parts[0], parts[1].lower()
+            if label in splits:
+                splits[label].add(stem)
+        return splits
+
+    @staticmethod
+    def _fallback_patient_split(root: Path) -> Dict[str, set]:
+        """Deterministic patient-level 80/20 split over ``root/*.wav``.
+
+        Used only when :meth:`_load_official_splits` cannot find an
+        official split file. A fixed seed (``598``) guarantees that
+        repeated instantiations yield identical train/test assignments
+        so downstream experiments are reproducible without pinning a
+        split file.
+
+        The split is patient-level — every recording from a given
+        patient ends up in exactly one of ``train`` / ``test``. This is
+        important because ICBHI has multiple recordings per patient;
+        a recording-level random split would leak patients across
+        folds and overstate test-time performance.
+
+        Args:
+            root: Root directory containing ``*.wav`` files.
+
+        Returns:
+            ``{"train": {stems}, "test": {stems}}`` covering every WAV
+            under ``root`` exactly once. Returns empty sets if no WAV
+            files are found.
+        """
+        import random
+
+        all_stems = sorted(p.stem for p in root.glob("*.wav"))
+        if not all_stems:
+            return {"train": set(), "test": set()}
+        patients = sorted({s.split("_", 1)[0] for s in all_stems})
+        rng = random.Random(598)
+        rng.shuffle(patients)
+        # Clamp cutoff into [1, len-1] when there are ≥2 patients so
+        # both splits are non-empty. With exactly 1 patient the whole
+        # dataset lands in train (test is empty) — the caller will
+        # log a warning and skip writing the empty-split CSV.
+        if len(patients) >= 2:
+            cutoff = min(
+                len(patients) - 1,
+                max(1, int(round(len(patients) * 0.8))),
+            )
+        else:
+            cutoff = len(patients)
+        train_patients = set(patients[:cutoff])
+        return {
+            "train": {
+                s for s in all_stems if s.split("_", 1)[0] in train_patients
+            },
+            "test": {
+                s
+                for s in all_stems
+                if s.split("_", 1)[0] not in train_patients
+            },
+        }
+
+    @staticmethod
     def _build_metadata_text(
         patient_id: str,
         diagnosis: str,
@@ -280,6 +394,14 @@ class ICBHIDataset(BaseDataset):
         - ``<root>/icbhi-train-pyhealth.csv``
         - ``<root>/icbhi-test-pyhealth.csv``
 
+        Resolves train/test assignments via
+        :meth:`_load_official_splits`; when no official split file is
+        available, falls back to :meth:`_fallback_patient_split` (a
+        deterministic patient-level 80/20 split). Likewise, the
+        diagnosis and demographics sidecar files are optional — missing
+        values default to ``"Unknown"`` / ``NaN`` / empty string rather
+        than causing a failure.
+
         If a CSV already exists (in ``<root>`` or the user cache), that
         split is skipped so repeat instantiations are fast. Falls back to
         writing CSVs under ``~/.cache/pyhealth/icbhi/`` when the data
@@ -291,26 +413,27 @@ class ICBHIDataset(BaseDataset):
         diagnosis_map = self._load_diagnosis_map(root)
         demographic_map = self._load_demographic_map(root)
 
+        splits = self._load_official_splits(root)
+        if not splits or not (splits.get("train") and splits.get("test")):
+            logger.warning(
+                "No official ICBHI split file found under %s — using "
+                "deterministic patient-level 80/20 fallback (seed=598).",
+                root,
+            )
+            splits = self._fallback_patient_split(root)
+
         for split in ("train", "test"):
             shared_csv = root / f"icbhi-{split}-pyhealth.csv"
             cache_csv = cache_dir / f"icbhi-{split}-pyhealth.csv"
             if shared_csv.exists() or cache_csv.exists():
                 continue
 
-            split_file = (
-                root
-                / "ICBHI_challenge_train_and_test_txt"
-                / f"ICBHI_challenge_{split}.txt"
-            )
-            if not split_file.exists():
-                logger.warning("Split file not found: %s — skipping", split_file)
+            split_stems = splits.get(split, set())
+            if not split_stems:
+                logger.warning(
+                    "Empty %s split for %s — skipping CSV write", split, root
+                )
                 continue
-
-            split_stems = {
-                line.strip()
-                for line in split_file.read_text().strip().splitlines()
-                if line.strip()
-            }
 
             rows: List[dict] = []
             for wav_path in sorted(root.glob("*.wav")):
