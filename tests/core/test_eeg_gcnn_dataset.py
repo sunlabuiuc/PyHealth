@@ -68,6 +68,10 @@ def _write_synthetic_root(root: str) -> None:
     Path(os.path.join(root, "standard_1010.tsv.txt")).write_text(_COORDS_TSV)
 
 
+# ---------------------------------------------------------------------------
+# Dummy patient / event for task tests
+# ---------------------------------------------------------------------------
+
 @dataclass
 class _DummyEvent:
     node_features_path: str
