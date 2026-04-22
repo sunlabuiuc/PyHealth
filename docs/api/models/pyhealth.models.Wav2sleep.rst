@@ -75,16 +75,6 @@ Fusion Modules
     :undoc-members:
     :show-inheritance:
 
-.. autoclass:: pyhealth.models.DynamicModalityFusion
-    :members:
-    :undoc-members:
-    :show-inheritance:
-
-.. autoclass:: pyhealth.models.FusionTransformer
-    :members:
-    :undoc-members:
-    :show-inheritance:
-
 Temporal Modeling
 ^^^^^^^^^^^^^^^^^
 

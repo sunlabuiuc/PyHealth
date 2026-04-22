@@ -1,8 +1,13 @@
 """Unit tests for :class:`~pyhealth.models.wav2sleep.Wav2Sleep` on synthetic data.
 
-Builds a small on-disk :class:`~pyhealth.datasets.sample_dataset.SampleDataset`,
-instantiates a reduced ``Wav2Sleep``, and checks forward outputs, shapes, and
-gradients.
+Raw synthetic patient dicts are written as ``pickle`` files under a
+:class:`tempfile.TemporaryDirectory`, then read back so the test exercises real
+disk I/O for **sample payloads**. A fitted ``schema.pkl`` lives alongside them.
+:class:`~pyhealth.datasets.sample_dataset.InMemorySampleDataset` is built from
+the **loaded** dicts so forwards stay fast without ``litdata.optimize`` (which
+is what :class:`~pyhealth.datasets.sample_dataset.SampleDataset` normally needs
+for chunk files). The temp tree is always deleted in
+:meth:`TestWav2SleepSynthetic.tearDownClass`.
 """
 
 from __future__ import annotations
@@ -14,11 +19,14 @@ import unittest
 from pathlib import Path
 from typing import Any
 
-import litdata
 import torch
 
 from pyhealth.datasets import get_dataloader
-from pyhealth.datasets.sample_dataset import SampleBuilder, SampleDataset
+from pyhealth.datasets.sample_dataset import (
+    InMemorySampleDataset,
+    SampleBuilder,
+    SampleDataset,
+)
 from pyhealth.models.wav2sleep import SIGNAL_TO_SAMPLES_PER_EPOCH, Wav2Sleep
 
 #: Samples per epoch for ECG in tests (must match encoder expectations).
@@ -60,6 +68,25 @@ def _synthetic_samples(*, n_patients: int = 2) -> list[dict[str, Any]]:
     return out
 
 
+def _write_raw_samples_to_dir(samples: list[dict[str, Any]], raw_dir: Path) -> None:
+    """Pickle each raw sample dict under ``raw_dir`` (``sample_000.pkl``, ...)."""
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    for i, sample in enumerate(samples):
+        path = raw_dir / f"sample_{i:03d}.pkl"
+        with path.open("wb") as f:
+            pickle.dump(sample, f)
+
+
+def _load_raw_samples_from_dir(raw_dir: Path, n: int) -> list[dict[str, Any]]:
+    """Load ``n`` pickled sample dicts from ``raw_dir`` in index order."""
+    out: list[dict[str, Any]] = []
+    for i in range(n):
+        path = raw_dir / f"sample_{i:03d}.pkl"
+        with path.open("rb") as f:
+            out.append(pickle.load(f))
+    return out
+
+
 def _build_tiny_model(dataset: SampleDataset) -> Wav2Sleep:
     """Construct a small ``Wav2Sleep`` for fast tests.
 
@@ -84,54 +111,53 @@ def _build_tiny_model(dataset: SampleDataset) -> Wav2Sleep:
 
 
 class TestWav2SleepSynthetic(unittest.TestCase):
-    """End-to-end checks against a shared temporary :class:`SampleDataset`.
-
-    Attributes:
-        _tmpdir: Temporary directory holding the litdata-optimized dataset.
-        dataset: Open :class:`SampleDataset` built in :meth:`setUpClass`.
-    """
+    """End-to-end checks: raw samples and schema on disk; dataset in RAM."""
 
     _tmpdir: tempfile.TemporaryDirectory[str]
-    dataset: SampleDataset
+    _n_samples: int
+    dataset: InMemorySampleDataset
 
     @classmethod
     def setUpClass(cls) -> None:
-        """Create schema, materialize chunks, and open the dataset."""
+        """Materialize raw samples + schema under a temp dir, then load RAM."""
         cls._tmpdir = tempfile.TemporaryDirectory()
         try:
-            root = Path(cls._tmpdir.name) / "ds"
+            root = Path(cls._tmpdir.name) / "sample_dataset_stub"
             root.mkdir(parents=True, exist_ok=False)
+            raw_dir = root / "raw_samples"
 
             samples = _synthetic_samples(n_patients=2)
+            cls._n_samples = len(samples)
+            _write_raw_samples_to_dir(samples, raw_dir)
+            loaded = _load_raw_samples_from_dir(raw_dir, cls._n_samples)
+
             builder = SampleBuilder(
                 input_schema={"ecg": "tensor", "ppg": "tensor"},
                 output_schema={"sleep_stage": "multiclass"},
             )
-            builder.fit(samples)
-            builder.save(str(root / "schema.pkl"))
-            litdata.optimize(
-                fn=builder.transform,
-                inputs=[{"sample": pickle.dumps(s)} for s in samples],
-                output_dir=str(root),
-                chunk_bytes="64MB",
-                num_workers=0,
+            builder.fit(loaded)
+            schema_path = root / "schema.pkl"
+            builder.save(str(schema_path))
+            assert schema_path.is_file()
+
+            cls.dataset = InMemorySampleDataset(
+                samples=loaded,
+                input_schema={"ecg": "tensor", "ppg": "tensor"},
+                output_schema={"sleep_stage": "multiclass"},
             )
-            cls.dataset = SampleDataset(path=str(root))
         except Exception:
             cls._tmpdir.cleanup()
             raise
 
     @classmethod
     def tearDownClass(cls) -> None:
-        """Drain the dataloader, close the dataset, and remove temp files."""
+        """Close the dataset and delete the temporary directory tree."""
         if hasattr(cls, "dataset"):
-            loader = get_dataloader(cls.dataset, batch_size=2, shuffle=False)
-            for _ in loader:
-                pass
             cls.dataset.close()
             del cls.dataset
         gc.collect()
-        cls._tmpdir.cleanup()
+        if hasattr(cls, "_tmpdir"):
+            cls._tmpdir.cleanup()
 
     def _one_batch(self) -> dict[str, Any]:
         """Return the first batch from the test dataloader.
@@ -140,6 +166,17 @@ class TestWav2SleepSynthetic(unittest.TestCase):
             Batch dict compatible with :meth:`Wav2Sleep.forward`.
         """
         return next(iter(get_dataloader(self.dataset, batch_size=2, shuffle=False)))
+
+    def test_wav2sleep_synthetic_schema_in_temp_dir(self) -> None:
+        """Fitted schema was written under the class temp directory."""
+        root = Path(self._tmpdir.name)
+        self.assertTrue((root / "sample_dataset_stub" / "schema.pkl").is_file())
+
+    def test_wav2sleep_synthetic_raw_pickles_in_temp_dir(self) -> None:
+        """One pickle file per synthetic patient under ``raw_samples``."""
+        raw_dir = Path(self._tmpdir.name) / "sample_dataset_stub" / "raw_samples"
+        for i in range(self._n_samples):
+            self.assertTrue((raw_dir / f"sample_{i:03d}.pkl").is_file())
 
     def test_wav2sleep_synthetic_instantiation(self) -> None:
         """Model exposes expected hyperparameters and label key."""
