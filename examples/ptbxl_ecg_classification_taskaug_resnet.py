@@ -4,7 +4,7 @@ Demonstrates full pipeline replication of Raghu et al. (2022):
     "Data Augmentation for Electrocardiograms", CHIL 2022.
     https://proceedings.mlr.press/v174/raghu22a.html
 
-This script contains three sections:
+This script contains four sections:
 
 1. **Standard training** — joint optimisation of backbone + policy with a
    single Adam optimiser (fast baseline).
@@ -13,9 +13,14 @@ This script contains three sections:
    on augmented training data; outer loop updates the policy on clean
    validation loss.  Uses a first-order DARTS-style approximation.
 
-3. **Ablation study** — compares four configurations on synthetic data:
+3. **Ablation study** — compares six configurations on synthetic data:
    (a) no augmentation, (b) fixed random augmentation, (c) TaskAug 1-stage,
-   (d) TaskAug 2-stage (default).
+   (d) TaskAug 2-stage (default), (e) frozen policy (random init, never
+   updated), (f) shared magnitudes (class-agnostic mu_0 = mu_1).
+
+4. **Learning-rate sweep** — evaluates TaskAug K=2 with three outer-loop
+   learning rates {1e-2, 1e-3, 1e-4} to show sensitivity to this
+   hyperparameter.
 
 Usage
 -----
@@ -28,6 +33,15 @@ Real PTB-XL data (requires download from PhysioNet)::
 Synthetic data (no download needed, for testing/CI)::
 
     python ptbxl_ecg_classification_taskaug_resnet.py --synthetic
+
+Ablation results (synthetic, default)
+-------------------------------------
+Expected relative ordering: D >= C >= F >= B >= E >= A (AUROC).
+Configs D and C (learned policy) should outperform A (no augmentation).
+Config E (frozen policy) isolates the benefit of *learning* the policy.
+Config F (shared magnitudes) tests the class-specific magnitude hypothesis.
+The lr sweep should show lr_outer=1e-3 outperforms 1e-2 (too aggressive)
+and 1e-4 (too slow to converge in few epochs).
 """
 from __future__ import annotations
 
@@ -124,11 +138,11 @@ def make_ptbxl_dataset(
     # Collect all samples
     ecgs, labels = [], []
     for sample in sample_ds:
-        ecgs.append(torch.tensor(sample["ecg"]))
+        ecgs.append(sample["ecg"].clone().detach())
         labels.append(sample["label"])
 
-    ecgs = torch.stack(ecgs)       # (N, 12, T)
-    labels = torch.tensor(labels)  # (N,)
+    ecgs = torch.stack(ecgs)                        # (N, 12, T)
+    labels = torch.stack(labels).squeeze(-1).long()  # (N,) not (N, 1)
 
     # 80/20 split (up to 5000 samples)
     n = min(len(ecgs), 5000)
@@ -155,7 +169,24 @@ def compute_auroc(y_true: np.ndarray, y_prob: np.ndarray) -> float:
     fp = np.cumsum(1 - y_sorted)
     tpr = tp / n_pos
     fpr = fp / n_neg
-    return float(np.trapz(tpr, fpr))
+    return float(np.trapezoid(tpr, fpr))
+
+
+def compute_auprc(y_true: np.ndarray, y_prob: np.ndarray) -> float:
+    """Compute AUPRC (average precision) without sklearn (trapezoidal rule)."""
+    order = np.argsort(-y_prob)
+    y_sorted = y_true[order]
+    n_pos = y_sorted.sum()
+    if n_pos == 0:
+        return float("nan")
+    tp = np.cumsum(y_sorted)
+    fp = np.cumsum(1 - y_sorted)
+    precision = tp / (tp + fp)
+    recall = tp / n_pos
+    # Prepend (recall=0, precision=1) so the curve starts at the top-left
+    precision = np.concatenate([[1.0], precision])
+    recall = np.concatenate([[0.0], recall])
+    return float(np.trapezoid(precision, recall))
 
 
 @torch.no_grad()
@@ -182,6 +213,7 @@ def evaluate(
         "loss": float(np.mean(all_loss)),
         "accuracy": float(acc),
         "auroc": compute_auroc(y_true, y_prob),
+        "auprc": compute_auprc(y_true, y_prob),
     }
 
 
@@ -258,7 +290,7 @@ class BiLevelTrainer:
         self,
         model: "TaskAugResNet",  # noqa: F821
         lr_inner: float = 1e-3,
-        lr_outer: float = 1e-2,
+        lr_outer: float = 1e-3,
         device: torch.device = torch.device("cpu"),
     ) -> None:
         self.model = model.to(device)
@@ -356,17 +388,21 @@ def run_ablation(
     train_ds: TensorDataset,
     val_ds: TensorDataset,
     device: torch.device,
-    epochs: int = 5,
+    epochs: int = 15,
     batch_size: int = 32,
-) -> None:
-    """Compare four augmentation configurations on the same data split.
+) -> Dict[str, Dict]:
+    """Compare six augmentation configurations on the same data split.
 
     Configurations
     --------------
-    A. **No augmentation** — backbone-only, policy stages set to 0.
-    B. **Fixed random augmentation** — Gaussian noise only, frozen magnitudes.
+    A. **No augmentation** — backbone-only, no policy.
+    B. **Fixed random augmentation** — Gaussian noise (sigma=0.1), no learning.
     C. **TaskAug 1-stage** — learned policy, K=1.
-    D. **TaskAug 2-stage** — learned policy, K=2 (default from paper).
+    D. **TaskAug 2-stage** — learned policy, K=2 (paper default).
+    E. **Frozen policy** — policy initialized at random but never updated;
+       only backbone trains.  Isolates the benefit of *learning* the policy.
+    F. **Shared magnitudes** — class-agnostic magnitudes (mu_0 = mu_1);
+       tests the asymmetric augmentation hypothesis from Section 3 of the paper.
 
     Args:
         train_ds: Training TensorDataset.
@@ -374,6 +410,9 @@ def run_ablation(
         device: Compute device.
         epochs: Training epochs per configuration.
         batch_size: Mini-batch size.
+
+    Returns:
+        Dict mapping config keys to metric dicts.
     """
     from pyhealth.models.taskaug_resnet import TaskAugResNet, _ResNet1D, TaskAugPolicy
 
@@ -383,7 +422,7 @@ def run_ablation(
     results: Dict[str, Dict] = {}
 
     # ---- Configuration A: no augmentation (backbone only) ----
-    print("\n=== Ablation A: No Augmentation ===")
+    print("\n Ablation A: No Augmentation ")
 
     class BackboneOnly(nn.Module):
         def __init__(self) -> None:
@@ -401,6 +440,7 @@ def run_ablation(
                 out["y_true"] = label
             return out
 
+    torch.manual_seed(42)
     model_a = BackboneOnly().to(device)
     opt_a = optim.Adam(model_a.parameters(), lr=1e-3)
     for epoch in range(epochs):
@@ -412,10 +452,11 @@ def run_ablation(
             opt_a.step()
     results["A_no_aug"] = evaluate(model_a, val_loader, device)
     print(f"  AUROC={results['A_no_aug']['auroc']:.3f}  "
+          f"AUPRC={results['A_no_aug']['auprc']:.3f}  "
           f"ACC={results['A_no_aug']['accuracy']:.3f}")
 
     # ---- Configuration B: fixed Gaussian noise ----
-    print("\n=== Ablation B: Fixed Gaussian Noise ===")
+    print("\n Ablation B: Fixed Gaussian Noise ")
 
     class FixedNoiseModel(nn.Module):
         def __init__(self, noise_std: float = 0.1) -> None:
@@ -436,6 +477,7 @@ def run_ablation(
                 out["y_true"] = label
             return out
 
+    torch.manual_seed(42)
     model_b = FixedNoiseModel().to(device)
     opt_b = optim.Adam(model_b.parameters(), lr=1e-3)
     for epoch in range(epochs):
@@ -447,35 +489,129 @@ def run_ablation(
             opt_b.step()
     results["B_fixed_noise"] = evaluate(model_b, val_loader, device)
     print(f"  AUROC={results['B_fixed_noise']['auroc']:.3f}  "
+          f"AUPRC={results['B_fixed_noise']['auprc']:.3f}  "
           f"ACC={results['B_fixed_noise']['accuracy']:.3f}")
 
     # ---- Configurations C & D: TaskAug 1-stage and 2-stage ----
     for stages, key, label in [(1, "C_taskaug_1stage", "TaskAug 1-stage"),
                                 (2, "D_taskaug_2stage", "TaskAug 2-stage (paper)")]:
-        print(f"\n=== Ablation {key[0]}: {label} ===")
-
+        print(f"\n Ablation {key[0]}: {label} ")
+        torch.manual_seed(42)
         mock_ds = _make_mock_dataset()
         model_x = TaskAugResNet(mock_ds, policy_stages=stages).to(device)
-        trainer = BiLevelTrainer(model_x, lr_inner=1e-3, lr_outer=1e-2, device=device)
+        trainer = BiLevelTrainer(model_x, lr_inner=1e-3, lr_outer=1e-3, device=device)
         trainer.fit(train_loader, val_loader, epochs=epochs)
         results[key] = evaluate(model_x, val_loader, device)
         print(f"  AUROC={results[key]['auroc']:.3f}  "
+              f"AUPRC={results[key]['auprc']:.3f}  "
               f"ACC={results[key]['accuracy']:.3f}")
 
+    # ---- Configuration E: frozen policy (random init, never updated) ----
+    print("\nAblation E: Frozen Policy")
+    torch.manual_seed(42)
+    mock_ds = _make_mock_dataset()
+    model_e = TaskAugResNet(mock_ds, policy_stages=2).to(device)
+    for p in model_e.policy.parameters():
+        p.requires_grad_(False)
+    opt_e = optim.Adam(model_e.backbone_parameters(), lr=1e-3)
+    for epoch in range(epochs):
+        model_e.train()
+        for ecg, lbl in train_loader:
+            ecg, lbl = ecg.to(device), lbl.to(device)
+            opt_e.zero_grad()
+            model_e(ecg=ecg, label=lbl)["loss"].backward()
+            opt_e.step()
+    results["E_frozen_policy"] = evaluate(model_e, val_loader, device)
+    print(f"  AUROC={results['E_frozen_policy']['auroc']:.3f}  "
+          f"AUPRC={results['E_frozen_policy']['auprc']:.3f}  "
+          f"ACC={results['E_frozen_policy']['accuracy']:.3f}")
+
+    # ---- Configuration F: shared magnitudes (no class-specific mu) ----
+    print("\nAblation F: Shared Magnitudes")
+    torch.manual_seed(42)
+    mock_ds = _make_mock_dataset()
+    model_f = TaskAugResNet(mock_ds, policy_stages=2, shared_magnitudes=True).to(device)
+    trainer_f = BiLevelTrainer(model_f, lr_inner=1e-3, lr_outer=1e-3, device=device)
+    trainer_f.fit(train_loader, val_loader, epochs=epochs)
+    results["F_shared_mag"] = evaluate(model_f, val_loader, device)
+    print(f"  AUROC={results['F_shared_mag']['auroc']:.3f}  "
+          f"AUPRC={results['F_shared_mag']['auprc']:.3f}  "
+          f"ACC={results['F_shared_mag']['accuracy']:.3f}")
+
     # ---- Summary table ----
-    print("\n" + "=" * 60)
-    print(f"{'Configuration':<30}  {'AUROC':>7}  {'Accuracy':>9}")
-    print("-" * 60)
+    print("\n" + "=" * 72)
+    print(f"{'Configuration':<30}  {'AUROC':>7}  {'AUPRC':>7}  {'Accuracy':>9}")
+    print("-" * 72)
     names = {
         "A_no_aug": "A. No augmentation",
         "B_fixed_noise": "B. Fixed Gaussian noise",
         "C_taskaug_1stage": "C. TaskAug K=1",
         "D_taskaug_2stage": "D. TaskAug K=2 (paper)",
+        "E_frozen_policy": "E. Frozen policy",
+        "F_shared_mag": "F. Shared magnitudes",
     }
     for key, display in names.items():
         r = results[key]
-        print(f"  {display:<28}  {r['auroc']:>7.3f}  {r['accuracy']:>9.3f}")
-    print("=" * 60)
+        print(f"  {display:<28}  {r['auroc']:>7.3f}  {r['auprc']:>7.3f}  {r['accuracy']:>9.3f}")
+    print("=" * 72)
+
+    return results
+
+
+# ---------------------------------------------------------------------------
+# Learning-rate sweep
+# ---------------------------------------------------------------------------
+
+def run_lr_sweep(
+    train_ds: TensorDataset,
+    val_ds: TensorDataset,
+    device: torch.device,
+    epochs: int = 15,
+    batch_size: int = 32,
+) -> Dict[str, Dict]:
+    """Sweep outer-loop learning rate for TaskAug K=2.
+
+    Tests lr_outer in {1e-2, 1e-3, 1e-4} while keeping lr_inner=1e-3 fixed.
+    Demonstrates sensitivity to the outer-loop learning rate — the paper
+    uses 1e-3 as the default.
+
+    Args:
+        train_ds: Training TensorDataset.
+        val_ds: Validation TensorDataset.
+        device: Compute device.
+        epochs: Training epochs per configuration.
+        batch_size: Mini-batch size.
+
+    Returns:
+        Dict mapping lr description to metric dicts.
+    """
+    from pyhealth.models.taskaug_resnet import TaskAugResNet
+
+    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
+    val_loader = DataLoader(val_ds, batch_size=batch_size)
+
+    results: Dict[str, Dict] = {}
+    for lr_outer in [1e-2, 1e-3, 1e-4]:
+        key = f"lr_outer={lr_outer}"
+        print(f"\n LR Sweep: {key} ")
+        torch.manual_seed(42)
+        mock_ds = _make_mock_dataset()
+        model = TaskAugResNet(mock_ds, policy_stages=2).to(device)
+        trainer = BiLevelTrainer(model, lr_inner=1e-3, lr_outer=lr_outer, device=device)
+        trainer.fit(train_loader, val_loader, epochs=epochs)
+        results[key] = evaluate(model, val_loader, device)
+        print(f"  AUROC={results[key]['auroc']:.3f}  "
+              f"AUPRC={results[key]['auprc']:.3f}  "
+              f"ACC={results[key]['accuracy']:.3f}")
+
+    print("\n" + "=" * 62)
+    print(f"{'lr_outer':<20}  {'AUROC':>7}  {'AUPRC':>7}  {'Accuracy':>9}")
+    print("-" * 62)
+    for key, r in results.items():
+        print(f"  {key:<18}  {r['auroc']:>7.3f}  {r['auprc']:>7.3f}  {r['accuracy']:>9.3f}")
+    print("=" * 62)
+
+    return results
 
 
 # ---------------------------------------------------------------------------
@@ -514,9 +650,11 @@ def main() -> None:
         "--task", choices=["MI", "HYP", "STTC", "CD"], default="MI"
     )
     parser.add_argument(
-        "--mode", choices=["standard", "bilevel", "ablation"], default="ablation"
+        "--mode",
+        choices=["standard", "bilevel", "ablation", "lr_sweep"],
+        default="ablation",
     )
-    parser.add_argument("--epochs", type=int, default=5)
+    parser.add_argument("--epochs", type=int, default=15)
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--policy_stages", type=int, default=2)
@@ -542,6 +680,11 @@ def main() -> None:
                      batch_size=args.batch_size)
         return
 
+    if args.mode == "lr_sweep":
+        run_lr_sweep(train_ds, val_ds, device, epochs=args.epochs,
+                     batch_size=args.batch_size)
+        return
+
     mock_ds = _make_mock_dataset()
     from pyhealth.models.taskaug_resnet import TaskAugResNet
 
@@ -552,7 +695,7 @@ def main() -> None:
         train_standard(model, train_loader, val_loader,
                        epochs=args.epochs, lr=args.lr, device=device)
     else:  # bilevel
-        trainer = BiLevelTrainer(model, lr_inner=args.lr, lr_outer=args.lr * 10,
+        trainer = BiLevelTrainer(model, lr_inner=args.lr, lr_outer=args.lr,
                                   device=device)
         trainer.fit(train_loader, val_loader, epochs=args.epochs)
 

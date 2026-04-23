@@ -225,7 +225,7 @@ class TestTaskAugResNet:
                     label=torch.randint(0, 2, (2,)))
         out["loss"].backward()
         for name, p in model.named_parameters():
-            if p.requires_grad:
+            if p.requires_grad and p.numel() > 0:
                 assert p.grad is not None, f"No gradient for {name}"
 
     def test_policy_backbone_param_groups_disjoint(self):

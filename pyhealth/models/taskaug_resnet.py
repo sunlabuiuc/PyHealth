@@ -174,6 +174,30 @@ def _no_op(x: torch.Tensor, _mag: torch.Tensor) -> torch.Tensor:
     return x
 
 
+def _lead_dropout(x: torch.Tensor, mag: torch.Tensor) -> torch.Tensor:
+    """Randomly zero out ECG leads with probability proportional to ``|mag|``.
+
+    Each lead is independently zeroed with probability ``min(|mag|, 0.5)``,
+    capped at 50 % so at least half the leads are always retained.
+
+    Args:
+        x: Input signal of shape ``(B, C, T)``.
+        mag: Per-sample dropout probability of shape ``(B,)``.
+
+    Returns:
+        Signal with randomly dropped leads, shape ``(B, C, T)``.
+    """
+    B, C, T = x.shape
+    out = x.clone()
+    p_drop = mag.abs().clamp(0.0, 0.5)
+    for b in range(B):
+        mask = torch.bernoulli(
+            torch.full((C,), float(p_drop[b].item()), device=x.device)
+        ).bool()
+        out[b, mask, :] = 0.0
+    return out
+
+
 _OPS: List = [
     _gaussian_noise,
     _magnitude_scale,
@@ -182,8 +206,9 @@ _OPS: List = [
     _temporal_warp,
     _temporal_displacement,
     _no_op,
+    _lead_dropout,
 ]
-_NUM_OPS: int = len(_OPS)  # 7
+_NUM_OPS: int = len(_OPS)  # 8
 
 
 # ---------------------------------------------------------------------------
@@ -210,10 +235,16 @@ class TaskAugPolicy(nn.Module):
         mag_pos: ``(K, N_ops)`` per-stage magnitudes for label=1 samples.
     """
 
-    def __init__(self, num_stages: int = 2, temperature: float = 1.0) -> None:
+    def __init__(
+        self,
+        num_stages: int = 2,
+        temperature: float = 1.0,
+        shared_magnitudes: bool = False,
+    ) -> None:
         super().__init__()
         self.num_stages = num_stages
         self.temperature = temperature
+        self.shared_magnitudes = shared_magnitudes
 
         self.logits = nn.Parameter(torch.zeros(num_stages, _NUM_OPS))
         self.mag_neg = nn.Parameter(0.1 * torch.ones(num_stages, _NUM_OPS))
@@ -237,12 +268,15 @@ class TaskAugPolicy(nn.Module):
                 self.logits[k], tau=self.temperature, hard=False
             )
 
-            # Per-sample class-specific magnitude: (B, N_ops)
-            mag_k = (
-                self.mag_neg[k].unsqueeze(0)
-                + labels_f.unsqueeze(-1)
-                * (self.mag_pos[k] - self.mag_neg[k]).unsqueeze(0)
-            ).abs()
+            # Per-sample magnitude: class-specific or shared
+            if self.shared_magnitudes:
+                mag_k = self.mag_neg[k].unsqueeze(0).abs().expand(x.shape[0], -1)
+            else:
+                mag_k = (
+                    self.mag_neg[k].unsqueeze(0)
+                    + labels_f.unsqueeze(-1)
+                    * (self.mag_pos[k] - self.mag_neg[k]).unsqueeze(0)
+                ).abs()
 
             # Soft weighted combination of all augmented versions
             augmented = torch.zeros_like(x)
@@ -410,6 +444,7 @@ class TaskAugResNet(BaseModel):
         num_leads: int = 12,
         policy_stages: int = 2,
         temperature: float = 1.0,
+        shared_magnitudes: bool = False,
     ) -> None:
         super().__init__(dataset)
         self.mode = "binary"  # binary classification throughout
@@ -417,6 +452,7 @@ class TaskAugResNet(BaseModel):
         self.policy = TaskAugPolicy(
             num_stages=policy_stages,
             temperature=temperature,
+            shared_magnitudes=shared_magnitudes,
         )
         self.backbone = _ResNet1D(
             in_channels=num_leads,

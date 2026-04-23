@@ -45,7 +45,8 @@ class PTBXLDataset(BaseDataset):
         config_path: Path to a custom YAML schema config.  Defaults to the
             built-in ``configs/ptbxl.yaml``.
         sampling_rate: Waveform sampling rate to load.  Must be ``100`` or
-            ``500`` (Hz).  Default: ``100``.
+            ``500`` (Hz).  Default: ``500`` (matches Raghu et al. 2022, which
+            resamples the 500 Hz records to 250 Hz before modelling).
         dev: If ``True``, restrict to the first 100 patients for fast
             development iterations.
 
@@ -61,7 +62,7 @@ class PTBXLDataset(BaseDataset):
         root: str,
         dataset_name: Optional[str] = None,
         config_path: Optional[str] = None,
-        sampling_rate: int = 100,
+        sampling_rate: int = 500,
         dev: bool = False,
     ) -> None:
         if sampling_rate not in (100, 500):
@@ -116,7 +117,9 @@ class PTBXLDataset(BaseDataset):
         df = pd.read_csv(db_path, index_col="ecg_id")
         df["scp_codes"] = df["scp_codes"].apply(ast.literal_eval)
 
-        # Build {scp_code -> diagnostic_superclass} mapping from scp_statements
+        # Build {scp_code -> diagnostic_class} mapping from scp_statements.
+        # In PTB-XL, diagnostic_class holds the 5 superclass labels used by
+        # the TaskAug paper: MI, HYP, STTC, CD, NORM.
         superclass_map: Dict[str, str] = {}
         scp_path = os.path.join(root, "scp_statements.csv")
         if os.path.exists(scp_path):
