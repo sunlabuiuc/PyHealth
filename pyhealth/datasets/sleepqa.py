@@ -61,7 +61,7 @@ class SleepQADataset(BaseDataset):
     def _download(self, root: str) -> None:
         """Downloads raw SleepQA JSON from the official source."""
         os.makedirs(root, exist_ok=True)
-        link = "link = "https://raw.githubusercontent.com/IvaBojic/SleepQA/main/data/training/sleep-train.json"
+        link = "https://raw.githubusercontent.com/IvaBojic/SleepQA/main/data/training/sleep-train.json"
         logger.info(f"Downloading SleepQA to {self._json_path}...")
         urllib.request.urlretrieve(link, self._json_path)
 
