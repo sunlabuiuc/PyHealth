@@ -5,7 +5,7 @@ import pandas as pd
 from .base_dataset import BaseDataset
 
 logger = logging.getLogger(__name__)
-
+MAP_ITEMID = 220052
 
 class MIMIC3CirculatoryFailureDataset(BaseDataset):
     """MIMIC-III dataset for circulatory failure early-warning prediction.
@@ -86,9 +86,6 @@ class MIMIC3CirculatoryFailureDataset(BaseDataset):
     def build_failure_labels(self):
         """Build first failure time per ICU stay (MAP < 65) using chunked reads."""
 
-        import pandas as pd
-        from pathlib import Path
-
         root = Path(self.root)
 
         # load cohort once
@@ -113,7 +110,7 @@ class MIMIC3CirculatoryFailureDataset(BaseDataset):
 
         for chunk in chunks:
             # filter MAP only
-            chunk = chunk[chunk["ITEMID"] == 220052].copy()
+            chunk = chunk[chunk["ITEMID"] == MAP_ITEMID].copy()
             if chunk.empty:
                 continue
 
@@ -172,11 +169,6 @@ class MIMIC3CirculatoryFailureDataset(BaseDataset):
     def get_patient_by_icustay_id(self, icustay_id: int):
         """Build one task-ready patient dict for a given ICU stay."""
 
-        import pandas as pd
-        from pathlib import Path
-
-        root = Path(self.root)
-
         # 1) load cohort
         cohort_df = pd.DataFrame(self.load_cohort())
         cohort_df["intime"] = pd.to_datetime(cohort_df["intime"])
@@ -230,9 +222,6 @@ class MIMIC3CirculatoryFailureDataset(BaseDataset):
 
     def load_map_cache(self):
         """Load MAP (mean arterial pressure) data once and cache it."""
-
-        import pandas as pd
-        from pathlib import Path
 
         if hasattr(self, "_map_cache"):
             return self._map_cache
