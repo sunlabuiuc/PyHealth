@@ -112,24 +112,13 @@ Run the following tests to ensure your PyHealth environment is configured correc
 
 ## 🚀 Pipeline 1: Basic Melanoma Classification
 
-This pipeline demonstrates a standard, lightweight workflow for melanoma classification using PyHealth. It is ideal for testing your local environment, exploring the dataset structure, or running a quick baseline training loop before advancing to the complex artifact studies.
+This pipeline demonstrates a standard, lightweight workflow for melanoma classification using PyHealth. It is ideal for testing your local environment, exploring the dataset structure, or running a quick baseline training loop before advancing to the complex artifact studies. You can also walk through the Jupyter Notebook for an interactive, cell-by-cell execution of this pipeline.
 
 **Relevant Files (located in `/examples/dermoscopy`):**
 
 - `dermoscopy_melanoma_classification.py`
 
 - `dermoscopy_melanoma_classification.ipynb`
-
-**Example Run:**
-
-```bash
-python examples/dermoscopy/dermoscopy_melanoma_classification.py \
-    --model resnet50 \
-    --epochs 5 \
-    --data_dir ../data
-```
-
-You can also walk through the Jupyter Notebook for an interactive, cell-by-cell execution of this pipeline.
 
 ## 🔬 Pipeline 2: Artifact Robustness Experiments
 
