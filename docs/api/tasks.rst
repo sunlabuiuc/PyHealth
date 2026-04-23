@@ -230,3 +230,5 @@ Available Tasks
     Mutation Pathogenicity (COSMIC) <tasks/pyhealth.tasks.MutationPathogenicityPrediction>
     Cancer Survival Prediction (TCGA) <tasks/pyhealth.tasks.CancerSurvivalPrediction>
     Cancer Mutation Burden (TCGA) <tasks/pyhealth.tasks.CancerMutationBurden>
+    Temporal Evaluation <tasks/pyhealth.tasks.temporal_evaluation>
+    Temporal Mortality (MIMIC-IV) <tasks/pyhealth.tasks.temporal_risk_prediction>
