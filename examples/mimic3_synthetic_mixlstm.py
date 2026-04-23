@@ -30,6 +30,10 @@ from pyhealth.models import MixLSTM
 # Synthetic time-series regression task with PyHealth
 # ======================================================================
 #
+# REQUIREMENTS 
+# Please do pip install seaborn~=0.13.2 to make sure the graphs are displyed and the abalation study 
+# runs smoothly. Added pip install seaborn~=0.13.2 in pyproject.toml file
+#
 # EXPERIMENTAL SETUP
 # ------------------
 # Dataset: Synthetic non-stationary time-series regression. 1,000 sequences
