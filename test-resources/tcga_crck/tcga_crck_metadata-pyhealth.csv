@@ -1,0 +1,6 @@
+patient_id,slide_id,tile_path,tile_index,data_split,label
+TCGA-CC-0003,TCGA-CC-0003-01Z-00-DX2,/home/ubuntu/PyHealth/test-resources/tcga_crck/CRC_DX_TRAIN/MSIMUT/blk-WWMIEPLQMACE-TCGA-CC-0003-01Z-00-DX2.png,0,train,1
+TCGA-CC-0003,TCGA-CC-0003-01Z-00-DX1,/home/ubuntu/PyHealth/test-resources/tcga_crck/CRC_DX_TRAIN/MSIMUT/blk-WWKFIIMTFPSG-TCGA-CC-0003-01Z-00-DX1.png,0,train,1
+TCGA-BB-0002,TCGA-BB-0002-01Z-00-DX2,/home/ubuntu/PyHealth/test-resources/tcga_crck/CRC_DX_TRAIN/MSS/blk-YYKVVRTRMCKG-TCGA-BB-0002-01Z-00-DX2.png,0,train,0
+TCGA-BB-0002,TCGA-BB-0002-01Z-00-DX1,/home/ubuntu/PyHealth/test-resources/tcga_crck/CRC_DX_TRAIN/MSS/blk-YYIVRGPNDWWN-TCGA-BB-0002-01Z-00-DX1.png,0,train,0
+TCGA-AA-0001,TCGA-AA-0001-01Z-00-DX1,/home/ubuntu/PyHealth/test-resources/tcga_crck/CRC_DX_TEST/MSS/blk-YYNNMCRNWWEP-TCGA-AA-0001-01Z-00-DX1.png,0,test,0
