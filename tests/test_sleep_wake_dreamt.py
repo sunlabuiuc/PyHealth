@@ -1,13 +1,17 @@
-import numpy as np
-import pytest
-import tempfile
 import os
+import tempfile
 from unittest.mock import MagicMock, patch
+
+import numpy as np
+import pandas as pd
+import pytest
+
 from pyhealth.tasks.sleep_wake_dreamt import (
-    SleepWakeDetectionDREAMT,
     EPOCH_SAMPLES,
     SIGNAL_COLS,
-    WAKE_LABEL,
+    SleepStagingDREAMT,
+    SleepWakeDetectionDREAMT,
+    extract_epoch_features,
 )
 
 def make_fake_patient(
@@ -34,7 +38,6 @@ def make_fake_patient(
         stages[(i + 1) * EPOCH_SAMPLES - 1] = stage
     data["Sleep_Stage"] = stages
 
-    import pandas as pd
     fake_df = pd.DataFrame(data)
 
     # Write to a real temp file if tmp_dir provided
@@ -122,8 +125,10 @@ class TestSleepWakeDetectionDREAMT:
     def test_signal_shape(self):
         """Each epoch signal is a 1D engineered feature vector."""
         task = SleepWakeDetectionDREAMT()
-        patient, fake_df = make_fake_patient(n_epochs=2,
-                                            sleep_stages=["N2", "W"])
+        patient, fake_df = make_fake_patient(
+            n_epochs=2,
+            sleep_stages=["N2", "W"]
+        )
         with patch("pandas.read_csv", return_value=fake_df):
             samples = task(patient)
         for s in samples:
@@ -187,18 +192,48 @@ class TestSleepWakeDetectionDREAMT:
             samples = task(patient)
             assert len(samples) == 3
             assert all("signal" in s for s in samples)
+            
+    def test_missing_required_columns_returns_empty(self):
+        """Returns empty list when required columns are missing."""
+        task = SleepWakeDetectionDREAMT()
+        patient, fake_df = make_fake_patient(
+            n_epochs=3,
+            sleep_stages=["R", "N2", "W"]
+        )
+        fake_df = fake_df.drop(columns=["HR"])
+        with patch("pandas.read_csv", return_value=fake_df):
+            samples = task(patient)
+        assert samples == []
+        
+    def test_extract_epoch_features_output(self):
+        """Feature extraction returns a valid 1D feature vector."""
+        n_rows = EPOCH_SAMPLES
+        data = {
+            "BVP": np.random.randn(n_rows).astype(np.float32),
+            "ACC_X": np.random.randn(n_rows).astype(np.float32),
+            "ACC_Y": np.random.randn(n_rows).astype(np.float32),
+            "ACC_Z": np.random.randn(n_rows).astype(np.float32),
+            "EDA": np.random.randn(n_rows).astype(np.float32),
+            "TEMP": (33.0 + 0.1 * np.random.randn(n_rows)).astype(np.float32),
+            "HR": (70.0 + np.random.randn(n_rows)).astype(np.float32),
+        }
+        fake_df = pd.DataFrame(data)
+        features = extract_epoch_features(fake_df)
+        assert isinstance(features, np.ndarray)
+        assert features.ndim == 1
+        assert len(features) > 0
+        # Check numerical validity
+        assert np.isfinite(features).all()
     
 class TestSleepStagingDREAMT:
 
     def test_instantiation(self):
         """SleepStagingDREAMT can be instantiated."""
-        from pyhealth.tasks.sleep_wake_dreamt import SleepStagingDREAMT
         task = SleepStagingDREAMT()
         assert task.task_name == "SleepStagingDREAMT"
 
     def test_schema_defined(self):
         """Input and output schemas are defined correctly."""
-        from pyhealth.tasks.sleep_wake_dreamt import SleepStagingDREAMT
         task = SleepStagingDREAMT()
         assert "signal" in task.input_schema
         assert "label" in task.output_schema
@@ -206,7 +241,6 @@ class TestSleepStagingDREAMT:
 
     def test_fine_labels(self):
         """Each sleep stage maps to correct integer label."""
-        from pyhealth.tasks.sleep_wake_dreamt import SleepStagingDREAMT
         task = SleepStagingDREAMT()
         patient, fake_df = make_fake_patient(
             n_epochs=5,
@@ -219,7 +253,6 @@ class TestSleepStagingDREAMT:
 
     def test_missing_skipped(self):
         """Missing epochs are skipped in multi-class task too."""
-        from pyhealth.tasks.sleep_wake_dreamt import SleepStagingDREAMT
         task = SleepStagingDREAMT()
         patient, fake_df = make_fake_patient(
             n_epochs=3,
@@ -231,7 +264,6 @@ class TestSleepStagingDREAMT:
 
     def test_signal_is_feature_vector(self):
         """Signal output is a 1D engineered feature vector."""
-        from pyhealth.tasks.sleep_wake_dreamt import SleepStagingDREAMT
         task = SleepStagingDREAMT()
         patient, fake_df = make_fake_patient(
             n_epochs=2,

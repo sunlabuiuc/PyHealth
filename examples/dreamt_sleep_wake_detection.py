@@ -29,13 +29,12 @@ Usage:
 
 import argparse
 import numpy as np
+import lightgbm as lgb
+from imblearn.over_sampling import SMOTE
 from sklearn.model_selection import GroupShuffleSplit
-from sklearn.metrics import (
-    f1_score,
-    roc_auc_score,
-    cohen_kappa_score,
-    accuracy_score,
-)
+
+from pyhealth.datasets import DREAMTDataset
+from pyhealth.metrics import binary_metrics_fn
 
 
 def make_synthetic_samples(n_patients: int = 5, n_epochs_per_patient: int = 40):
@@ -56,14 +55,14 @@ def make_synthetic_samples(n_patients: int = 5, n_epochs_per_patient: int = 40):
     np.random.seed(42)
     samples = []
     for i in range(n_patients):
-        pid = f"S{i+1:03d}"
+        sid = f"S{i+1:03d}"
         ahi = np.random.uniform(5, 40)
         bmi = np.random.uniform(25, 45)
         for epoch_idx in range(n_epochs_per_patient):
             label = 1 if np.random.random() < 0.25 else 0
             signal = np.random.randn(96).astype(np.float32)
             samples.append({
-                "patient_id": pid,
+                "patient_id": sid,
                 "epoch_index": epoch_idx,
                 "signal": signal.flatten(),
                 "ahi": ahi,
@@ -72,8 +71,6 @@ def make_synthetic_samples(n_patients: int = 5, n_epochs_per_patient: int = 40):
             })
     return samples
 
-
-# Helpers 
 
 def samples_to_arrays(samples):
     """Convert task samples into numpy arrays for sklearn.
@@ -105,39 +102,34 @@ def samples_to_arrays(samples):
 
 
 def evaluate(y_true, y_pred, y_prob, label=""):
-    """Print evaluation metrics matching paper Table 2."""
-    print(f"\n{'─'*55}")
-    print(f"  {label}")
-    print(f"{'─'*55}")
-    print(f"  F1 Score : {f1_score(y_true, y_pred):.3f}")
-    print(f"  AUROC    : {roc_auc_score(y_true, y_prob):.3f}")
-    print(f"  Accuracy : {accuracy_score(y_true, y_pred):.3f}")
-    print(f"  Kappa    : {cohen_kappa_score(y_true, y_pred):.3f}")
+    """Print binary classification metrics using PyHealth metrics."""
+    metrics = binary_metrics_fn(
+        y_true,
+        y_prob,
+        metrics=["f1", "roc_auc", "pr_auc", "accuracy", "cohen_kappa"],
+    )
+    print(f"\n{'─' * 55}")
+    print(label)
+    print(f"\n{'─' * 55}")
+    for k, v in metrics.items():
+        print(f"{k:20s}: {v:.3f}")
 
 
 def main(root: str = None, demo: bool = False):
-    try:
-        import lightgbm as lgb
-    except ImportError:
-        print("lightgbm not installed. Run: pip install lightgbm")
-        return
-
+    if lgb is None:
+        raise ImportError("lightgbm not installed. Run: pip install lightgbm")
+    print("\n[1/4] Loading data...")
     if demo:
-        print("\n[1/4] Generating synthetic DREAMT-like data (demo mode)...")
+        print("Using synthetic data")
         print("      To use real data: --root /path/to/dreamt/2.1.0")
         all_samples = make_synthetic_samples(
             n_patients=5, n_epochs_per_patient=40
         )
     else:
-        print("\n[1/4] Loading real DREAMT dataset from PhysioNet...")
-        from pyhealth.datasets import DREAMTDataset
-        from pyhealth.tasks import SleepWakeDetectionDREAMT
+        print("\nUsing real DREAMT dataset from PhysioNet...")
         dataset = DREAMTDataset(root=root)
-        task = SleepWakeDetectionDREAMT()
-        all_samples = []
-        for pid in dataset.unique_patient_ids:
-            patient = dataset.get_patient(pid)
-            all_samples.extend(task(patient))
+        task_dataset = dataset.set_task(SleepWakeDetectionDREAMT())
+        all_samples = task_dataset.samples
 
     print(f"    Total epochs : {len(all_samples)}")
     wake = sum(s["label"] == 1 for s in all_samples)
@@ -159,7 +151,6 @@ def main(root: str = None, demo: bool = False):
 
     # SMOTE balancing on training set (paper section 3.1)
     try:
-        from imblearn.over_sampling import SMOTE
         X_train, y_train = SMOTE(random_state=42).fit_resample(
             X_train, y_train
         )
@@ -173,7 +164,8 @@ def main(root: str = None, demo: bool = False):
     clf_a.fit(X_train, y_train)
     evaluate(y_test, clf_a.predict(X_test),
              clf_a.predict_proba(X_test)[:, 1],
-             "Ablation A: Baseline LightGBM (no clinical metadata)")
+             "Ablation A: Baseline LightGBM (no clinical metadata)"
+    )
 
     # Ablation B: LightGBM + AHI 
     X_train_b = np.hstack([
@@ -185,7 +177,8 @@ def main(root: str = None, demo: bool = False):
     clf_b.fit(X_train_b, y_train)
     evaluate(y_test, clf_b.predict(X_test_b),
              clf_b.predict_proba(X_test_b)[:, 1],
-             "Ablation B: LightGBM + AHI (apnea severity)")
+             "Ablation B: LightGBM + AHI (apnea severity)"
+    )
 
     # Ablation C:LightGBM + BMI 
     X_train_c = np.hstack([
@@ -197,7 +190,8 @@ def main(root: str = None, demo: bool = False):
     clf_c.fit(X_train_c, y_train)
     evaluate(y_test, clf_c.predict(X_test_c),
              clf_c.predict_proba(X_test_c)[:, 1],
-             "Ablation C: LightGBM + BMI (obesity)")
+             "Ablation C: LightGBM + BMI (obesity)"
+    )
 
 
 if __name__ == "__main__":

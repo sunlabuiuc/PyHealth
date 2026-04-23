@@ -1,4 +1,4 @@
-rstpyhealth.tasks.sleep\_wake\_dreamt
+pyhealth.tasks.sleep_wake_dreamt
 ===================================
 
 .. autoclass:: pyhealth.tasks.sleep_wake_dreamt.SleepWakeDetectionDREAMT

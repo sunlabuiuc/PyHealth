@@ -1,7 +1,13 @@
+import logging
 from typing import Any, Dict, List, Optional
+
 import numpy as np
 import pandas as pd
+from scipy.signal import butter, cheby2, filtfilt
+
 from .base_task import BaseTask
+
+logger = logging.getLogger(__name__)
 
 # Sampling frequency of the E4 after upsampling (paper sec 2.3)
 SAMPLE_RATE_HZ = 64
@@ -43,11 +49,41 @@ def _butter_bandpass(
         Filtered signal as numpy array
     """
     try:
-        from scipy.signal import butter, filtfilt
         nyq = fs / 2.0
         b, a = butter(order, [low / nyq, high / nyq], btype="band")
         return filtfilt(b, a, signal).astype(np.float32)
-    except Exception:
+    except Exception as e:
+        logger.debug(f"_butter_bandpass failed: {e}")
+        return signal.astype(np.float32)
+   
+    
+def _cheby_bandpass(
+    signal: np.ndarray,
+    low: float,
+    high: float,
+    fs: int,
+    order: int = 4,
+    rs: float = 20.0,
+) -> np.ndarray:
+    """Apply a Chebyshev type II bandpass filter to a 1D signal.
+
+    Args:
+        signal: 1D numpy array of signal values
+        low: lower cutoff frequency in Hz
+        high: upper cutoff frequency in Hz
+        fs: sampling frequency in Hz
+        order: filter order
+        rs: Minimum stopband attenuation in dB.
+
+    Returns:
+        Filtered signal as numpy array
+    """
+    try:
+        nyq = fs / 2.0
+        b, a = cheby2(order, rs, [low / nyq, high / nyq], btype="bandpass")
+        return filtfilt(b, a, signal).astype(np.float32)
+    except Exception as e:
+        logger.debug(f"_cheby_bandpass failed: {e}")
         return signal.astype(np.float32)
 
 
@@ -69,11 +105,11 @@ def _butter_lowpass(
         Filtered signal as numpy array
     """
     try:
-        from scipy.signal import butter, filtfilt
         nyq = fs / 2.0
         b, a = butter(order, cutoff / nyq, btype="low")
         return filtfilt(b, a, signal).astype(np.float32)
-    except Exception:
+    except Exception as e:
+        logger.debug(f"_butter_lowpass failed: {e}")
         return signal.astype(np.float32)
 
 
@@ -172,7 +208,13 @@ def extract_epoch_features(
 
     # ── BVP / HRV features (paper sec 2.5) ───────────────────────────────────
     bvp = safe_col("BVP")
-    bvp_filt = _butter_bandpass(bvp, low=0.5, high=20.0, fs=fs, order=4)
+    bvp_filt = _cheby_bandpass(
+        bvp, 
+        low=0.5, 
+        high=20.0, 
+        fs=fs, 
+        order=4, 
+        rs=20.0)
     feats.extend(summary_stats(bvp_filt))
 
     # ── EDA features (paper sec 2.5) ─────────────────────────────────────────
@@ -343,7 +385,8 @@ def _process_patient(
     """Shared processing logic for both task classes.
 
     Reads the patient's overnight E4 CSV, slices into 30-second epochs,
-    extracts features, and maps PSG labels using the provided label_map.
+    performs signal quality filtering, extracts features, and maps PSG 
+    labels using the provided label_map.
 
     Args:
         patient: A patient object from DREAMTDataset
@@ -354,7 +397,7 @@ def _process_patient(
     Returns:
         List of sample dicts, one per valid labeled epoch.
     """
-    samples = []
+    samples: List[Dict[str, Any]] = []
 
     events = patient.get_events(event_type="dreamt_sleep")
     if not events:
@@ -368,17 +411,24 @@ def _process_patient(
     try:
         ahi = float(event.ahi) if event.ahi is not None else 0.0
         bmi = float(event.bmi) if event.bmi is not None else 0.0
-    except (ValueError, TypeError):
+    except (ValueError, TypeError) as e:
+        logger.warning(
+            f"Invalid AHI/BMI for patient {patient.patient_id}: {e}"
+        )
         ahi, bmi = 0.0, 0.0
 
     try:
         df = pd.read_csv(file_path)
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Failed to read file {file_path}: {e}")
         return samples
 
     # Verify required columns
     required = SIGNAL_COLS + ["Sleep_Stage"]
     if any(c not in df.columns for c in required):
+        logger.warning(
+            f"Missing required columns in file {file_path}"
+        )
         return samples
 
     n_epochs = len(df) // EPOCH_SAMPLES
@@ -404,13 +454,15 @@ def _process_patient(
         if np.isnan(signal).any() or np.isinf(signal).any():
             continue
 
-        samples.append({
-            "patient_id": patient.patient_id,
-            "epoch_index": epoch_idx,
-            "signal": signal,
-            "ahi": ahi,
-            "bmi": bmi,
-            "label": label,
-        })
+        samples.append(
+            {
+                "patient_id": patient.patient_id,
+                "epoch_index": epoch_idx,
+                "signal": signal,
+                "ahi": ahi,
+                "bmi": bmi,
+                "label": label,
+            }
+        )
 
     return samples
