@@ -12,46 +12,39 @@ from torch import nn
 from pyhealth.datasets import SampleDataset
 from .base_model import BaseModel
 
-class N2V():
-    """Node2Vec embeddings for OMOP concepts.
+class N2V:
+    """Generate Node2Vec embeddings for OMOP concepts.
 
-    This class builds a directed knowledge graph from OMOP concept and
-    concept relationship tables, then trains Node2Vec to generate
-    ontology-informed embeddings for medical concepts.
+    Builds a directed knowledge graph from OMOP concept relationship tables
+    and trains Node2Vec to create graph embeddings.
 
     Attributes:
-        path: Path to the OMOP CSV files.
-        domain_type: List of OMOP domains used to filter concepts.
-        embedding_dim: Dimension of the learned embeddings.
+        embedding_dim: Dimension of learned embeddings.
         walk_length: Length of each random walk.
-        num_walks: Number of walks generated per node.
-        graph: Directed graph constructed from OMOP concepts and relations.
+        num_walks: Number of walks per node.
     """
     def __init__(
-        self, 
-        embedding_dim:int=None,
-        walk_length:int=None,
-        num_walks:int=None
-    ):
+        self,
+        embedding_dim: int | None = None,
+        walk_length: int | None = None,
+        num_walks: int | None = None,
+    ) -> None:
         self.embedding_dim = embedding_dim
         self.walk_length = walk_length
         self.num_walks = num_walks
     
-    # Create graph from concept and their relationships data
-    def create_graph(self, path, domain_type) -> nx.DiGraph:
-        """
-        Create a directed graph from OMOP concept relationships.
-        
-        Loads concepts and their relationships from CSV files, filters by domain_type,
-        and builds a NetworkX DiGraph where nodes are concept IDs and edges are
-        concept relationships (maps_to).
-        
+    def create_graph(
+        self, path: str, domain_type: list[str]
+    ) -> nx.DiGraph:
+        """Create a Network directed graph from OMOP concept relationships.
+
+        Args:
+            path: Path to OMOP concept CSV files.
+            domain_type: List of domain IDs to include.
+
         Returns:
-            nx.DiGraph: Directed graph with concept_id as nodes and relationships as edges.
-        
-        Raises:
-            FileNotFoundError: If CSV files are not found.
-            ValueError: If no concepts found for specified domains.
+            Directed graph with concept IDs as nodes and relationships
+                as edges.
         """
         # Load concept table
         concept_path = os.path.join(path, "2b_concept.csv")  
@@ -110,30 +103,36 @@ class N2V():
         
         return graph
 
-    def _build_index_mapping(self, node_embeddings):
-        """
-        Build a dictionary to map concept code to the index in node_embeddings.
-        
+    def _build_index_mapping(
+        self, node_embeddings: object
+    ) -> dict[int, int]:
+        """Map concept codes to embedding indices.
+
         Args:
-            node_embeddings: Gensim Word2Vec model word vectors
-            
+            node_embeddings: Word2Vec model word vectors.
+
         Returns:
-            dict: Mapping from concept_id (int) to index in embeddings
+            Mapping from concept_id to index in embeddings.
         """
         return {int(key): i for i, key in enumerate(node_embeddings.index_to_key)}
 
-    def _get_vector_iso(self, code, node_embeddings, index_mapping, mean_vector):
-        """
-        Return concept embedding for the given code or mean vector if not found.
-        
+    def _get_vector_iso(
+        self,
+        code: int,
+        node_embeddings: object,
+        index_mapping: dict,
+        mean_vector: np.ndarray,
+    ) -> np.ndarray:
+        """Get embedding vector for code or mean vector if not found.
+
         Args:
-            code: Concept ID
-            node_embeddings: Gensim Word2Vec model word vectors
-            index_mapping: Dictionary mapping concept_id to index
-            mean_vector: Mean vector to use as fallback
-            
+            code: Concept ID.
+            node_embeddings: Word2Vec model word vectors.
+            index_mapping: Concept ID to embedding index mapping.
+            mean_vector: Fallback vector to use if code not found.
+
         Returns:
-            np.ndarray: Embedding vector for the concept
+            Embedding vector for the concept.
         """
         index = index_mapping.get(int(code))
         if index is not None:
@@ -142,16 +141,18 @@ class N2V():
             print(f"Code {code} not found, returning mean vector.")
             return mean_vector
 
-    def generate_embeddings(self, graph):
-        """
-        Generate node embeddings using Node2Vec algorithm.
-        
-        Creates a graph from OMOP concepts and applies Node2Vec to generate
-        embeddings for each concept based on its network structure.
-        
+    def generate_embeddings(
+        self, graph: nx.DiGraph
+    ) -> tuple[np.ndarray, list]:
+        """Generate node embeddings using Node2Vec.
+
+        Args:
+            graph: Directed graph of OMOP concepts and relationships.
+
         Returns:
-            tuple: (embedding_matrix, node_ids) where embedding_matrix is the numpy array
-                   of embeddings and node_ids is the list of graph node IDs in order.
+            Tuple of (embedding_matrix, node_ids) where embedding_matrix
+                is numpy array of embeddings and node_ids is the list of
+                node IDs in order.
         """
         print(f"Graph created with {len(graph.nodes())} nodes and {len(graph.edges())} edges")
         
@@ -191,43 +192,65 @@ class N2V():
         return embedding_matrix, keys
 
 class KeepEmbedding(BaseModel):
-    """KEEP Embedding: Fine-tune Node2Vec embeddings using GloVe while penalizing 
-    deviation from original embeddings.
-    
-    Balances:
-        - Co-occurrence structure (GloVe objective)
-        - Graph structure prior (Node2Vec via regularization)
-    
+    """KEEP Embedding Framework
+
+
+    Fine-tune Node2Vec embeddings using GloVe with graph regularization.
+
+    Balances co-occurrence structure (GloVe) with graph (Node2Vec) via regularization
+    to generate medical concept embeddings.
+
     Args:
-        dataset (SampleDataset): The dataset to train the model.
-        path (str): Path to OMOP data files for graph construction.
-        domain_type (list[str]): Domain types to include in graph.
-        embedding_dim (int): Dimension of embeddings.
-        walk_length (int): Length of random walks for Node2Vec.
-        num_walks (int): Number of random walks per node for Node2Vec.
-        lambda_reg (float): Regularization strength for Node2Vec prior. Default: 1.0.
-        reg_norm (str or float): Norm type for regularization ('cosine' or numeric p-norm). 
-            Default: None (cosine similarity).
-        log_scale (bool): Whether to apply log scaling to regularization distance. 
-            Default: False.
-        code_to_index (dict, optional): Mapping from concept codes to vocabulary indices.
-            If provided, embeddings are filtered to only include codes in this mapping.
-        device (str): Device to use ('cuda' or 'cpu'). Default: 'cpu'.
+        dataset: Dataset to train the model.
+        graph: Directed graph of concepts and relationships.
+        embedding_dim: Dimension of embeddings.
+        walk_length: Length of random walks for Node2Vec.
+        num_walks: Number of random walks per node.
+        num_words: Size of vocabulary.
+        lambda_reg: Regularization strength (default: 1.0).
+        reg_norm: Norm type ('cosine' or numeric p-norm, default: None).
+        log_scale: Apply log scaling to regularization distance
+            (default: False).
+        code_to_index: Optional mapping from concept codes to indices.
+        device: Device to use ('cuda' or 'cpu', default: 'cpu').
+
+    Examples:
+        >>> from pyhealth.datasets import OMOPDataset
+        >>> from pyhealth.models import KeepEmbedding
+        >>> dataset = SampleDataset(num_patients=100, num_visits=10, num_codes=50)
+        >>> graph = n2v.create_graph()  # Build knowledge graph from concept and relationship tables
+        >>> dataset = OMOPDataset(...)
+        >>> # Build co-occurrence matrix from dataset
+        >>> # Load co-occurrence matrix as GloveDatset Dataloader
+        >>> model = KeepEmbedding(
+        ...     dataset=None,
+        ...     graph=graph,
+        ...     embedding_dim=128,
+        ...     walk_length=10,
+        ...     num_walks=5,
+        ...     num_words=50,
+        ...     lambda_reg=0.5,
+        ...     reg_norm='cosine',
+        ...     log_scale=True,
+        ...     device='cuda'
+        ... )
+        >>> # Use embeddings for with downstream PyHealth models
     """
     
-    def __init__(self, 
-            dataset: SampleDataset,
-            graph: nx.Graph,
-            embedding_dim:int,
-            walk_length:int,
-            num_walks:int,
-            num_words: int,
-            lambda_reg: float = 1.0,
-            reg_norm: str | float = None,
-            log_scale: bool = False,
-            code_to_index: dict = None,
-            device: str = "cpu"
-        ):
+    def __init__(
+        self,
+        dataset: SampleDataset,
+        graph: nx.Graph,
+        embedding_dim: int,
+        walk_length: int,
+        num_walks: int,
+        num_words: int,
+        lambda_reg: float = 1.0,
+        reg_norm: str | float | None = None,
+        log_scale: bool = False,
+        code_to_index: dict | None = None,
+        device: str = "cpu",
+    ) -> None:
         """Initialize KEEP Embedding model."""
         super().__init__(dataset=dataset)
         
@@ -301,38 +324,26 @@ class KeepEmbedding(BaseModel):
         print(f"Regularization norm: {reg_norm}")
         print(f"Log scaling: {log_scale}")
     
-    def forward(self, 
-                i_indices: torch.Tensor = None,
-                j_indices: torch.Tensor = None,
-                counts: torch.Tensor = None,
-                weights: torch.Tensor = None,
-                **kwargs) -> dict[str, torch.Tensor]:
-        """Forward pass for KEEP Embedding.
-        
-        Computes GloVe loss with optional Node2Vec regularization. For compatibility
-        with BaseModel.forward(), returns a dictionary with keys: loss, y_prob, 
-        y_true, logit.
-        
-        For training GloVe objective, pass:
-            - i_indices: Token indices (batch_size,)
-            - j_indices: Context token indices (batch_size,)
-            - counts: Co-occurrence counts (batch_size,)
-            - weights: Weights for each co-occurrence pair (batch_size,)
-        
+    def forward(
+        self,
+        i_indices: torch.Tensor | None = None,
+        j_indices: torch.Tensor | None = None,
+        counts: torch.Tensor | None = None,
+        weights: torch.Tensor | None = None,
+        **kwargs,
+    ) -> dict[str, torch.Tensor]:
+        """Compute GloVe loss with optional Node2Vec regularization.
+
         Args:
-            i_indices (torch.Tensor, optional): Token indices.
-            j_indices (torch.Tensor, optional): Context token indices.
-            counts (torch.Tensor, optional): Co-occurrence counts.
-            weights (torch.Tensor, optional): Weights for loss terms.
+            i_indices: Token indices (batch_size,).
+            j_indices: Context token indices (batch_size,).
+            counts: Co-occurrence counts (batch_size,).
+            weights: Weights for loss terms (batch_size,).
             **kwargs: Additional arguments for compatibility.
-        
+
         Returns:
-            dict: Dictionary with keys:
-                - loss: Total loss (GloVe + regularization if applicable)
-                - logit: Placeholder tensor (for BaseModel compatibility)
-                - y_prob: Placeholder tensor (for BaseModel compatibility)
-                - y_true: Placeholder tensor (for BaseModel compatibility)
-                - reg_loss: Regularization loss component (if applicable)
+            Dictionary with keys: loss, logit, y_prob, y_true,
+                reg_loss.
         """
         
         # If no GloVe inputs provided, return dummy output
