@@ -1902,6 +1902,109 @@ class RetinaUNet(BaseModel):
 
         # Return (M, N) to match your original implementation's shape
         return (inter_vol / union_vol.clamp(min=1e-6)).T
+        
+    @staticmethod
+    def _encode_boxes_2d(gt_boxes, anchors, std_devs):
+        """
+        Encodes 2D ground-truth boxes relative to anchor boxes using standard 
+        Faster R-CNN delta formulation (normalized center offsets and log-ratios).
+
+        Args:
+            gt_boxes (torch.Tensor): Ground-truth boxes of shape (N, 4) 
+                in [y1, x1, y2, x2] format.
+            anchors (torch.Tensor): Anchor boxes of shape (N, 4) 
+                in [y1, x1, y2, x2] format.
+            std_devs (torch.Tensor): Scaling factors for normalization 
+                in [std_y, std_x, std_h, std_w] format.
+
+        Returns:
+            torch.Tensor: Encoded regression targets (deltas) of shape (N, 4) 
+                in [dy, dx, dh, dw] format.
+        """
+        std_devs = std_devs.to(anchors.device)
+        eps = 1e-7 
+
+        # Calculate Dimensions (Width, Height)
+        gt_h = gt_boxes[:, 2] - gt_boxes[:, 0]
+        gt_w = gt_boxes[:, 3] - gt_boxes[:, 1]
+
+        an_h = anchors[:, 2] - anchors[:, 0]
+        an_w = anchors[:, 3] - anchors[:, 1]
+
+        # Calculate Centers
+        gt_cy = gt_boxes[:, 0] + 0.5 * gt_h
+        gt_cx = gt_boxes[:, 1] + 0.5 * gt_w
+
+        an_cy = anchors[:, 0] + 0.5 * an_h
+        an_cx = anchors[:, 1] + 0.5 * an_w
+
+        # Standard Formulation (The Inverses of decoder)
+        dy = (gt_cy - an_cy) / (an_h + eps)
+        dx = (gt_cx - an_cx) / (an_w + eps)
+
+        dh = torch.log(gt_h / (an_h + eps) + eps)
+        dw = torch.log(gt_w / (an_w + eps) + eps)        
+
+        # Apply the Scale
+        # We divide by std_dev here so that when the decoder multiplies 
+        # by them at inference, they return to the correct magnitude.
+        deltas = torch.stack([dy, dx, dh, dw], dim=1)
+
+        return deltas / std_devs
+    
+    @staticmethod
+    def _encode_boxes_3d(gt_boxes, anchors, std_devs):
+        """
+        Encodes 3D ground-truth boxes relative to anchor boxes using standard 
+        Faster R-CNN delta formulation (normalized center offsets and log-ratios).
+
+        Args:
+            gt_boxes (torch.Tensor): Ground-truth boxes of shape (N, 6) 
+                in [y1, x1, y2, x2, z1, z2] format.
+            anchors (torch.Tensor): Anchor boxes of shape (N, 6) 
+                in [y1, x1, y2, x2, z1, z2] format.
+            std_devs (torch.Tensor): Scaling factors of shape (6,) 
+                in [std_y, std_x, std_z, std_h, std_w, std_d] format.
+
+        Returns:
+            torch.Tensor: Encoded regression targets of shape (N, 6) 
+                in [dy, dx, dz, dh, dw, dd] format.
+        """
+        std_devs = std_devs.to(device=anchors.device)
+        eps = 1e-7
+
+        # Calculate Dimensions (Width, Height, Depth)
+        gt_h = gt_boxes[:, 2] - gt_boxes[:, 0]
+        gt_w = gt_boxes[:, 3] - gt_boxes[:, 1]
+        gt_d = gt_boxes[:, 5] - gt_boxes[:, 4]
+        
+        an_h = anchors[:, 2] - anchors[:, 0]
+        an_w = anchors[:, 3] - anchors[:, 1]
+        an_d = anchors[:, 5] - anchors[:, 4]
+
+        # Calculate Centers
+        gt_cy = gt_boxes[:, 0] + 0.5 * gt_h
+        gt_cx = gt_boxes[:, 1] + 0.5 * gt_w
+        gt_cz = gt_boxes[:, 4] + 0.5 * gt_d
+        
+        an_cy = anchors[:, 0] + 0.5 * an_h
+        an_cx = anchors[:, 1] + 0.5 * an_w
+        an_cz = anchors[:, 4] + 0.5 * an_d
+        # Standard Formulation (The Inverses of decoder)
+        dy = (gt_cy - an_cy) / (an_h + eps)
+        dx = (gt_cx - an_cx) / (an_w + eps)
+        dz = (gt_cz - an_cz) / (an_d + eps)
+        
+        dh = torch.log(gt_h / (an_h + eps) + eps)
+        dw = torch.log(gt_w / (an_w + eps) + eps)
+        dd = torch.log(gt_d / (an_d + eps) + eps)
+
+        # Apply the Scale
+        # We divide by std_dev here so that when the decoder multiplies 
+        # by them at inference, they return to the correct magnitude.
+        deltas = torch.stack([dy, dx, dz, dh, dw, dd], dim=1)
+
+        return deltas / std_devs
 
     def _compute_anchor_matches(
             self,
@@ -1976,7 +2079,15 @@ class RetinaUNet(BaseModel):
 
         # 5. Regression Targets (Deltas)
         matched_gt_boxes = gt_boxes[best_gt_idx_per_anchor]
-        anchor_target_deltas = (matched_gt_boxes - anchors) / (anchors + 1e-5)
+        
+        if dim == 2:
+            anchor_target_deltas = self._encode_boxes_2d(
+                matched_gt_boxes, anchors, std_devs=self.core.rpn_bbox_std_dev
+            )
+        else:
+            anchor_target_deltas = self._encode_boxes_3d(
+                matched_gt_boxes, anchors, std_devs=self.core.rpn_bbox_std_dev
+            )
 
         return anchor_class_match, anchor_target_deltas
 
