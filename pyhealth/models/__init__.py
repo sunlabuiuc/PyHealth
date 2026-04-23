@@ -4,6 +4,7 @@ from .base_model import BaseModel
 from .transformer_deid import TransformerDeID
 from .biot import BIOT
 from .cnn import CNN, CNNLayer
+from .cnn3d_ad import CNN3DAD, ConvBlock3D
 from .concare import ConCare, ConCareLayer
 from .contrawr import ContraWR, ResBlock2D
 from .deepr import Deepr, DeeprLayer
