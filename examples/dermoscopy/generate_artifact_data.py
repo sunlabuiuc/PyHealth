@@ -1,6 +1,3 @@
-# Contributor: [Your Name]
-# NetID: [Your NetID]
-
 """
 Synthetic Artifact Generation for Dermoscopy Trap Sets.
 
@@ -8,14 +5,22 @@ This script utilizes Stable Diffusion Inpainting with LoRA (Low-Rank Adaptation)
 to synthetically inject clinical artifacts (e.g., rulers, ink, gel bubbles) into 
 datasets, recreating the 'Trap Sets' used in Jin (2025).
 
-Paper: "A Study of Artifacts on Melanoma Classification under Diffusion-Based Perturbations" (CHIL 2025)
-Citation here
-Reference: Rombach, R., et al. (2022). High-Resolution Image Synthesis with Latent Diffusion Models. CVPR. 
-(Model: runwayml/stable-diffusion-inpainting).
-
 - Fully integrated with DermoscopyDataset for automatic metadata caching and path resolution.
 - Automatically generates the 'metadata.csv' required by `_prepare_trap_set` in DermoscopyDataset 
   to ensure seamless loading during model evaluation.
+
+Methods from Paper: Jin, Q., et al. (2025). A Study of Artifacts on Melanoma Classification under 
+Diffusion-Based Perturbations. CHIL 2025. https://github.com/QixuanJin99/dermoscopic_artifacts/tree/main
+
+References:
+- Rombach, R., et al. (2022). High-Resolution Image Synthesis with Latent Diffusion Models. CVPR. 
+  (Model: runwayml/stable-diffusion-inpainting).
+- Ruiz, N., et al. (2023). DreamBooth: Fine Tuning Text-to-Image Diffusion Models for Subject-Driven Generation. CVPR.
+- Hu, E. J., et al. (2022). LoRA: Low-Rank Adaptation of Large Language Models. ICLR.
+- von Platen, P., et al. (2022). Diffusers: State-of-the-art diffusion models. Hugging Face.
+
+Author:
+    Mumme, Raymond Paul rmumme2@illinois.edu
 """
 
 import os

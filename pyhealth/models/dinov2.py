@@ -1,6 +1,3 @@
-# Contributor: [Your Name]
-# NetID: [Your NetID]
-
 import torch
 import torch.nn as nn
 from pyhealth.models.base_model import BaseModel
@@ -19,13 +16,15 @@ class DINOv2(BaseModel):
 
     Paper Reference:
         - Oquab et al., "DINOv2: Learning Robust Visual Features without Supervision" (2023)
-        - "A Study of Artifacts on Melanoma Classification under Diffusion-Based Perturbations" (CHIL 2025)
 
     Args:
         dataset (SampleDataset): The PyHealth dataset object to train the model.
         model_size (str, optional): The size of the DINOv2 backbone to pull from 
             TorchHub ("vits14", "vitb14", "vitl14", "vitg14"). Defaults to "vits14".
         **kwargs: Additional keyword arguments passed to BaseModel.
+    
+    Author:
+        Mumme, Raymond Paul rmumme2@illinois.edu
 
     Examples:
         >>> from pyhealth.models import DINOv2

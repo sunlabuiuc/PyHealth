@@ -1,13 +1,21 @@
-# Contributor: [Your Name]
-# NetID: [Your NetID]
-# Paper Title: A Study of Artifacts on Melanoma Classification under Diffusion-Based Perturbations
-
 """
 Master Training Script for Melanoma Classification.
 
 Executes 5-Fold Cross-Validation OR Single Master Model training. Handles 
 out-of-domain transfer learning evaluation, automatically plots training curves,
 and prints formatted Summary Tables.
+
+Methods from Paper: Jin, Q., et al. (2025). A Study of Artifacts on Melanoma Classification under 
+Diffusion-Based Perturbations. CHIL 2025. https://github.com/QixuanJin99/dermoscopic_artifacts/tree/main
+
+References:
+- He, K., et al. (2016). Deep Residual Learning for Image Recognition. CVPR.
+- Liu, Z., et al. (2021). Swin Transformer: Hierarchical Vision Transformer using Shifted Windows. ICCV.
+- Oquab, M., et al. (2024). DINOv2: Learning Robust Visual Features without Supervision. TMLR.
+- Liu, Z., et al. (2022). A ConvNet for the 2020s. CVPR.
+
+Author:
+    Mumme, Raymond Paul rmumme2@illinois.edu
 """
 
 import argparse

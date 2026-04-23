@@ -4,6 +4,12 @@ test_dinov2.py
 Unit tests for the DINOv2 foundation model integration in PyHealth.
 Uses a mock dataset to isolate model architecture, forward pass, and 
 gradient flow validation without requiring heavy data loading.
+
+Reference: 
+- Oquab, M., et al. (2024). DINOv2: Learning Robust Visual Features without Supervision. TMLR.
+
+Author:
+    Mumme, Raymond Paul rmumme2@illinois.edu
 """
 
 import unittest
