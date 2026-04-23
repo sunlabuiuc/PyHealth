@@ -12,6 +12,7 @@ import logging
 from os import PathLike
 from typing import Any, Dict, List, Tuple
 
+import neurokit2 as nk
 import numpy as np
 import pandas as pd
 from scipy.ndimage import gaussian_filter1d
@@ -21,8 +22,6 @@ from scipy.stats.mstats import winsorize
 
 from ..data import Patient
 from .base_task import BaseTask
-
-nk = None  # Lazy-loaded optional neurokit2 module.
 
 BASE_FEATURE_NAMES = [
     "acc_x_trimmed_mean",
@@ -104,20 +103,6 @@ class SleepWakeClassification(BaseTask):
         self.epoch_seconds = epoch_seconds
         self.sampling_rate = sampling_rate
         super().__init__()
-
-    def _require_neurokit2(self) -> None:
-        """Ensures the optional neurokit2 dependency is available when needed."""
-        global nk
-        if nk is None:
-            try:
-                import neurokit2 as neurokit
-            except ImportError as error:
-                raise ImportError(
-                    "SleepWakeClassification feature extraction requires the "
-                    "optional dependency 'neurokit2'. Please install it to use "
-                    "BVP or EDA feature extraction."
-                ) from error
-            nk = neurokit
 
     def _convert_sleep_stage_to_binary_label(
         self,
@@ -440,7 +425,6 @@ class SleepWakeClassification(BaseTask):
         Returns:
             A list of feature dictionaries, one per epoch.
         """
-        self._require_neurokit2()
         filtered = self._filter_blood_volume_pulse_signal(signal, sampling_rate_hz)
         epochs = self._split_signal_into_epochs(filtered, sampling_rate_hz)
         epoch_features = []
@@ -485,7 +469,6 @@ class SleepWakeClassification(BaseTask):
         Returns:
             A list of feature dictionaries, one per epoch.
         """
-        self._require_neurokit2()
         detrended = self._detrend_signal_by_segments(
             signal,
             sampling_rate_hz,

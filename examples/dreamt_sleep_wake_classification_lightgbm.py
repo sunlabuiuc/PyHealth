@@ -294,7 +294,7 @@ def main() -> None:
             f"{YELLOW}Warning:{RESET} synthetic samples are randomly generated to "
             "make the example runnable without DREAMT. The resulting metrics are "
             "not realistic and should not be interpreted as evidence for the "
-            "task or paper claims\n."
+            "task or paper claims.\n"
         )
         print(f"{BOLD}Train patients:{RESET} {', '.join(TRAIN_PATIENT_IDS)}")
         print(f"{BOLD}Eval patients:{RESET}  {', '.join(EVAL_PATIENT_IDS)}")
