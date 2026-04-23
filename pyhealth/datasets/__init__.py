@@ -60,6 +60,7 @@ from .medical_transcriptions import MedicalTranscriptionsDataset
 from .mimic3 import MIMIC3Dataset
 from .mimic4 import MIMIC4CXRDataset, MIMIC4Dataset, MIMIC4EHRDataset, MIMIC4NoteDataset
 from .mimicextract import MIMICExtractDataset
+from .mri_dataset import MRIDataset
 from .omop import OMOPDataset
 from .physionet_deid import PhysioNetDeIDDataset
 from .sample_dataset import SampleBuilder, SampleDataset, create_sample_dataset
