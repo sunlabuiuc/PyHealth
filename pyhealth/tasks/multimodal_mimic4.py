@@ -1,3 +1,4 @@
+import re
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Union, Tuple, ClassVar
 
@@ -50,6 +51,26 @@ class BaseMultimodalMIMIC4Task(BaseTask):
         window_hours: Optional[float] = None,
     ):
         self.window_hours = window_hours
+
+    @staticmethod
+    def _extract_section(
+        text: str, section: Union[str, List[str]]
+    ) -> Optional[str]:
+        """Extract one or more named sections from a MIMIC-IV discharge note.
+        """
+        sections = [section] if isinstance(section, str) else section
+        parts = []
+        for name in sections:
+            pattern = re.compile(
+                rf"(?m)^[ \t]*{re.escape(name)}:[ \t]*\n(.*?)(?=^[ \t]*\S[^\n]*:[ \t]*\n|\Z)",
+                re.DOTALL | re.IGNORECASE,
+            )
+            m = pattern.search(text)
+            if m:
+                extracted = m.group(1).strip()
+                if extracted:
+                    parts.append(extracted)
+        return "\n\n".join(parts) if parts else None
 
     @staticmethod
     def _clean_text(text: Optional[str]) -> Optional[str]:
@@ -242,6 +263,7 @@ class BaseMultimodalMIMIC4Task(BaseTask):
         admission_time: datetime,
         start_time: Optional[datetime] = None,
         end_time: Optional[datetime] = None,
+        section: Optional[Union[str, List[str]]] = None,
     ) -> Tuple[List[str], List[float]]:
         """Collect notes of a given type for one admission.
 
@@ -252,6 +274,8 @@ class BaseMultimodalMIMIC4Task(BaseTask):
             admission_time: Admission start time; used to compute time offsets.
             start_time: Optional start of the time window
             end_time: Optional end of the time window
+            section: Optional section name or list of section names to extract
+                from each note
 
         Returns:
             Tuple of (texts, hours_from_admission). Falls back to
@@ -269,7 +293,10 @@ class BaseMultimodalMIMIC4Task(BaseTask):
         note_times: List[float] = []
         for note in notes:
             try:
-                note_text = self._clean_text(note.text)
+                raw = note.text
+                if section is not None and raw:
+                    raw = self._extract_section(raw, section)
+                note_text = self._clean_text(raw)
                 if note_text:
                     time_from_admission = self._to_hours(
                         (note.timestamp - admission_time).total_seconds()
@@ -367,6 +394,7 @@ class ClinicalNotesMIMIC4(BaseMultimodalMIMIC4Task):
                 admission_time,
                 start_time=effective_start,
                 end_time=effective_end,
+                section=["Chief Complaint", "History of Present Illness"],
             )
             all_discharge_texts.extend(discharge_texts)
             all_discharge_times_from_admission.extend(discharge_times)
@@ -378,6 +406,7 @@ class ClinicalNotesMIMIC4(BaseMultimodalMIMIC4Task):
                 admission_time,
                 start_time=effective_start,
                 end_time=effective_end,
+                section="Findings",
             )
             all_radiology_texts.extend(radiology_texts)
             all_radiology_times_from_admission.extend(radiology_times)
@@ -528,6 +557,7 @@ class ClinicalNotesICDLabsMIMIC4(BaseMultimodalMIMIC4Task):
                 admission_time,
                 start_time=effective_start,
                 end_time=effective_end,
+                section=["Chief Complaint", "History of Present Illness"],
             )
             all_discharge_texts.extend(discharge_texts)
             all_discharge_times_from_admission.extend(discharge_times)
@@ -539,6 +569,7 @@ class ClinicalNotesICDLabsMIMIC4(BaseMultimodalMIMIC4Task):
                 admission_time,
                 start_time=effective_start,
                 end_time=effective_end,
+                section="Findings",
             )
             all_radiology_texts.extend(radiology_texts)
             all_radiology_times_from_admission.extend(radiology_times)
@@ -835,6 +866,7 @@ class ClinicalNotesICDLabsCXRMIMIC4(BaseMultimodalMIMIC4Task):
                 admission_time,
                 start_time=effective_start,
                 end_time=admission_end,
+                section=["Chief Complaint", "History of Present Illness"],
             )
             all_discharge_texts.extend(discharge_texts)
             all_discharge_times_from_admission.extend(discharge_times)
