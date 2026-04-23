@@ -1,0 +1,10 @@
+version: "1.0"
+tables:
+  wav2sleep:
+    file_path: "wav2sleep-metadata.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+    - source_dataset
+    - edf_path
+    - label_path
