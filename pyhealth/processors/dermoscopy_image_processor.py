@@ -10,7 +10,9 @@ Supports spatial and frequency processing modes that leverage segmentation masks
 The processor accepts (image_path, mask_path) tuples and applies the selected
 mode before resizing and converting to a tensor.
 
-Reuses mask/mode logic from the dermoscopic_artifacts repository.
+Author:
+    Wang, Ziquan ziquanw2@illinois.edu
+    Mumme, Raymond Paul rmumme2@illinois.edu
 """
 
 from pathlib import Path
@@ -25,11 +27,20 @@ from . import register_processor
 from .base_processor import FeatureProcessor
 
 VALID_MODES = (
-    "whole", "lesion", "background", 
-    "bbox", "bbox70", "bbox90",
-    "high_whole", "high_lesion", "high_background",
-    "low_whole", "low_lesion", "low_background"
+    "whole",
+    "lesion",
+    "background",
+    "bbox",
+    "bbox70",
+    "bbox90",
+    "high_whole",
+    "high_lesion",
+    "high_background",
+    "low_whole",
+    "low_lesion",
+    "low_background",
 )
+
 
 def _load_and_binarize_mask(mask_path: str, target_size: Tuple[int, int]) -> np.ndarray:
     """Load a segmentation mask, resize to match the image, and binarize it.
@@ -45,6 +56,7 @@ def _load_and_binarize_mask(mask_path: str, target_size: Tuple[int, int]) -> np.
     mask_img = mask_img.resize(target_size, Image.NEAREST)
     mask = np.array(mask_img)
     return (mask > 0).astype(np.uint8)
+
 
 def apply_mode(image: np.ndarray, mask: np.ndarray, mode: str) -> np.ndarray:
     """Apply a processing mode to a dermoscopic image using its segmentation mask.
@@ -70,42 +82,46 @@ def apply_mode(image: np.ndarray, mask: np.ndarray, mode: str) -> np.ndarray:
         if len(y_idxs) > 0 and len(x_idxs) > 0:
             y_min, y_max = y_idxs.min(), y_idxs.max()
             x_min, x_max = x_idxs.min(), x_idxs.max()
-            
+
             if mode == "bbox":
-                pass # no expansion, use the tight bounding box
+                pass  # no expansion, use the tight bounding box
             else:
                 if mode == "bbox70":
                     expand_ratio = 0.7
                 elif mode == "bbox90":
                     expand_ratio = 0.9
                 else:
-                    raise ValueError(f"Unknown bbox mode '{mode}'. Must be 'bbox', 'bbox70', or 'bbox90'.")
-                
+                    raise ValueError(
+                        f"Unknown bbox mode '{mode}'. Must be 'bbox', 'bbox70', or 'bbox90'."
+                    )
+
                 img_h, img_w = image.shape[:2]
                 bbox_h, bbox_w = max(1, y_max - y_min), max(1, x_max - x_min)
                 target_area = expand_ratio * img_h * img_w
-                bbox_center_y, bbox_center_x = (y_min + y_max) // 2, (x_min + x_max) // 2
-                
+                bbox_center_y, bbox_center_x = (y_min + y_max) // 2, (
+                    x_min + x_max
+                ) // 2
+
                 new_bbox_h = int(np.sqrt(target_area * (bbox_h / bbox_w)))
                 new_bbox_w = int(np.sqrt(target_area * (bbox_w / bbox_h)))
-                
+
                 y_min = max(0, bbox_center_y - new_bbox_h // 2)
                 y_max = min(img_h, bbox_center_y + new_bbox_h // 2)
                 x_min = max(0, bbox_center_x - new_bbox_w // 2)
                 x_max = min(img_w, bbox_center_x + new_bbox_w // 2)
-            
+
             # Use a copy to prevent in-place modification of the original array
             bbox_image = image.copy()
             # Add +1 to the max bounds to match OpenCV's inclusive drawing logic (like in cv2.rectangle)
-            bbox_image[y_min:y_max+1, x_min:x_max+1] = 0
+            bbox_image[y_min : y_max + 1, x_min : x_max + 1] = 0
 
             return bbox_image
         else:
-            return image # Failsafe if mask is entirely empty
+            return image  # Failsafe if mask is entirely empty
 
     # Base Image Prep for Frequency Ablations
     if "whole" in mode:
-        base_image = image.copy() # pass the base_image through without modification
+        base_image = image.copy()  # pass the base_image through without modification
     elif "lesion" in mode:
         base_image = image * mask[:, :, np.newaxis]
     elif "background" in mode:
@@ -119,13 +135,14 @@ def apply_mode(image: np.ndarray, mask: np.ndarray, mode: str) -> np.ndarray:
         low_freq = scipy.ndimage.gaussian_filter(image_gray, sigma=1)
         high_freq = image_gray - low_freq
         high_freq = np.clip(high_freq, 0, 255).astype(np.uint8)
-        base_image = np.stack((high_freq,)*3, axis=-1)
+        base_image = np.stack((high_freq,) * 3, axis=-1)
     elif mode.startswith("low_"):
         base_image = scipy.ndimage.gaussian_filter(base_image, sigma=(1, 1, 0))
     else:
         raise ValueError(f"Unknown mode '{mode}'. Must be one of {VALID_MODES}")
 
     return base_image
+
 
 @register_processor("dermoscopy_image")
 class DermoscopyImageProcessor(FeatureProcessor):
@@ -149,6 +166,7 @@ class DermoscopyImageProcessor(FeatureProcessor):
         >>> tensor.shape
         torch.Size([3, 224, 224])
     """
+
     def __init__(
         self,
         mode: str = "whole",
@@ -179,9 +197,7 @@ class DermoscopyImageProcessor(FeatureProcessor):
         if self.to_tensor:
             transform_list.append(transforms.ToTensor())
         if self.normalize:
-            transform_list.append(
-                transforms.Normalize(mean=self.mean, std=self.std)
-            )
+            transform_list.append(transforms.Normalize(mean=self.mean, std=self.std))
         return transforms.Compose(transform_list)
 
     def process(self, value: Union[Tuple[str, str], str]) -> Any:
@@ -206,12 +222,12 @@ class DermoscopyImageProcessor(FeatureProcessor):
         image_path = Path(image_path)
         if not image_path.exists():
             raise FileNotFoundError(f"Image file not found: {image_path}")
-        
+
         # Load image as RGB numpy array
         with Image.open(image_path) as img:
             img = img.convert("RGB")
             image = np.array(img)
-        
+
         # Apply mode-based processing
         if self.mode != "whole" and mask_path is not None:
             mask_path = Path(mask_path)

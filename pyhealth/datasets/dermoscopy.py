@@ -34,7 +34,8 @@ Data Sources:
         - Mendonça et al., "PH2 - A dermoscopic image database for research and benchmarking" (2013)
 
 Author:
-    Generated for PyHealth integration of dermoscopic_artifacts datasets.
+    Wang, Ziquan ziquanw2@illinois.edu
+    Mumme, Raymond Paul rmumme2@illinois.edu
 """
 
 import logging
@@ -52,6 +53,7 @@ from pyhealth.processors import DermoscopyImageProcessor
 from pyhealth.tasks import DermoscopyMelanomaClassification
 
 logger = logging.getLogger(__name__)
+
 
 class DermoscopyDataset(BaseDataset):
     """Composite dermoscopy dataset combining ISIC 2018, HAM10000, and PH2.
@@ -159,7 +161,7 @@ class DermoscopyDataset(BaseDataset):
             dev=dev,
         )
 
-        # self.cache_dir is now resolved by PyHealth. 
+        # self.cache_dir is now resolved by PyHealth.
         # Wipe the parquet index so it re-reads the freshly written CSV,
         # but leave the heavy `tasks/` folder untouched.
         target_parquet = self.cache_dir / "global_event_df.parquet"
@@ -169,7 +171,9 @@ class DermoscopyDataset(BaseDataset):
                     shutil.rmtree(target_parquet)
                 else:
                     os.remove(target_parquet)
-                logger.info(f"Cleared old event cache at {target_parquet} to force CSV reload.")
+                logger.info(
+                    f"Cleared old event cache at {target_parquet} to force CSV reload."
+                )
             except OSError:
                 pass
 
@@ -192,7 +196,7 @@ class DermoscopyDataset(BaseDataset):
             elif ds == "ph2":
                 df = self._prepare_ph2(root)
             elif "_with_" in ds:
-                df = self._prepare_trap_set(root, ds) 
+                df = self._prepare_trap_set(root, ds)
             else:
                 df = None
 
@@ -207,9 +211,13 @@ class DermoscopyDataset(BaseDataset):
 
         combined = pd.concat(all_frames, axis=0, ignore_index=True)
         # Ensure patient_id exists for PyHealth engine
-        if 'patient_id' not in combined.columns:
-            combined['patient_id'] = combined['isic_id'] if 'isic_id' in combined.columns else combined.index.astype(str)
-            combined['visit_id'] = combined['patient_id']
+        if "patient_id" not in combined.columns:
+            combined["patient_id"] = (
+                combined["isic_id"]
+                if "isic_id" in combined.columns
+                else combined.index.astype(str)
+            )
+            combined["visit_id"] = combined["patient_id"]
 
         output_path = os.path.join(root, "dermoscopy-metadata-pyhealth.csv")
         combined.to_csv(output_path, index=False)
@@ -223,12 +231,12 @@ class DermoscopyDataset(BaseDataset):
     def _prepare_trap_set(self, root: str, dataset: str) -> Optional[pd.DataFrame]:
         """Prepare metadata for synthetically generated artifact Trap Sets.
 
-        This method parses metadata for datasets modified with visual artifacts 
+        This method parses metadata for datasets modified with visual artifacts
         (e.g., rulers, ink). It performs two critical dynamic resolutions:
-        1. Image paths: Scans for various file extensions (.png, .jpg, .bmp) to 
+        1. Image paths: Scans for various file extensions (.png, .jpg, .bmp) to
            accommodate different outputs from Stable Diffusion or image pipelines.
-        2. Mask paths: Links the synthetic image back to its original base dataset's 
-           segmentation mask (e.g., linking a `ph2_with_ruler` image to the original 
+        2. Mask paths: Links the synthetic image back to its original base dataset's
+           segmentation mask (e.g., linking a `ph2_with_ruler` image to the original
            `ph2` mask) to prevent unnecessary file duplication.
 
         Args:
@@ -236,55 +244,79 @@ class DermoscopyDataset(BaseDataset):
             dataset (str): Name of the trap set folder (e.g., 'ph2_with_ruler').
 
         Returns:
-            Optional[pd.DataFrame]: A DataFrame containing the standardized metadata 
-                columns (patient_id, image_path, mask_path, label, source_dataset), 
+            Optional[pd.DataFrame]: A DataFrame containing the standardized metadata
+                columns (patient_id, image_path, mask_path, label, source_dataset),
                 or None if the metadata CSV is not found.
         """
         csv_path = os.path.join(root, dataset, "images", "metadata.csv")
-        if not os.path.exists(csv_path): return None
-        
+        if not os.path.exists(csv_path):
+            return None
+
         df = pd.read_csv(csv_path)
         img_dir = os.path.join(root, dataset, "images")
-        base_dataset = dataset.split('_with_')[0]
+        base_dataset = dataset.split("_with_")[0]
 
         # Normalize required PyHealth columns
-        if 'label' not in df.columns and 'diagnosis_1' in df.columns:
-            df['label'] = df['diagnosis_1'].apply(lambda x: 1 if str(x).strip().lower() == 'malignant' else 0)
-        
-        id_col = 'patient_id' if 'patient_id' in df.columns else ('isic_id' if 'isic_id' in df.columns else 'image_id')
-        if 'patient_id' not in df.columns:
-            df['patient_id'] = df[id_col]
+        if "label" not in df.columns and "diagnosis_1" in df.columns:
+            df["label"] = df["diagnosis_1"].apply(
+                lambda x: 1 if str(x).strip().lower() == "malignant" else 0
+            )
+
+        id_col = (
+            "patient_id"
+            if "patient_id" in df.columns
+            else ("isic_id" if "isic_id" in df.columns else "image_id")
+        )
+        if "patient_id" not in df.columns:
+            df["patient_id"] = df[id_col]
 
         def get_clean_basename(pid_str):
             """Strips pyhealth prefixes and file extensions to get the pure ID (e.g. IMD002)"""
-            b = pid_str.replace(f"{base_dataset}_", "").replace("isic_", "").replace("ph2_", "")
+            b = (
+                pid_str.replace(f"{base_dataset}_", "")
+                .replace("isic_", "")
+                .replace("ph2_", "")
+            )
             return os.path.splitext(b)[0]
 
         # Dynamically find the Stable Diffusion image (Checks for .png, .jpg, etc)
         def resolve_image_path(row):
             basename = get_clean_basename(str(row[id_col]))
-            for ext in ['.png', '.jpg', '.bmp', '.jpeg', '.PNG', '.JPG']:
+            for ext in [".png", ".jpg", ".bmp", ".jpeg", ".PNG", ".JPG"]:
                 candidate = os.path.join(img_dir, basename + ext)
                 if os.path.exists(candidate):
                     return candidate
-            return os.path.join(img_dir, basename + ".jpg") # Fallback
+            return os.path.join(img_dir, basename + ".jpg")  # Fallback
 
         # Dynamically link the original masks based on the source dataset
         def resolve_mask_path(row):
             # If a valid mask_path is already in the CSV, just use it
-            if 'mask_path' in row and pd.notnull(row['mask_path']) and os.path.exists(str(row['mask_path'])):
-                return row['mask_path']
-            
+            if (
+                "mask_path" in row
+                and pd.notnull(row["mask_path"])
+                and os.path.exists(str(row["mask_path"]))
+            ):
+                return row["mask_path"]
+
             basename = get_clean_basename(str(row[id_col]))
             if base_dataset == "ph2":
-                return os.path.join(root, "ph2", "PH2 Dataset images", basename, f"{basename}_lesion", f"{basename}_lesion.bmp")
+                return os.path.join(
+                    root,
+                    "ph2",
+                    "PH2 Dataset images",
+                    basename,
+                    f"{basename}_lesion",
+                    f"{basename}_lesion.bmp",
+                )
             elif base_dataset in ["isic2018", "ham10000"]:
-                return os.path.join(root, base_dataset, "masks", f"{basename}_segmentation.png")
+                return os.path.join(
+                    root, base_dataset, "masks", f"{basename}_segmentation.png"
+                )
             return ""
 
-        df['image_path'] = df.apply(resolve_image_path, axis=1)
-        df['mask_path'] = df.apply(resolve_mask_path, axis=1)
-        df['source_dataset'] = dataset
+        df["image_path"] = df.apply(resolve_image_path, axis=1)
+        df["mask_path"] = df.apply(resolve_mask_path, axis=1)
+        df["source_dataset"] = dataset
         return df
 
     def _filter_labels(self, csv_path: str, dataset: str) -> Optional[pd.DataFrame]:
