@@ -154,8 +154,8 @@ CHANGE_BETWEEN_TASKS = 0.05  # delta
 BATCH_SIZE = 100
 K_LIST = [2]
 HIDDEN_SIZE_LIST = [100, 150, 300, 500, 700, 900, 1100]
-NUM_RUNS = 1  # 20
-MAX_EPOCHS = 2  # 30
+NUM_RUNS = 20  # 20
+MAX_EPOCHS = 30  # 30
 
 SAVE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -329,7 +329,7 @@ def generate_xy(
 # PyHealth dataset helpers
 # ──────────────────────────────────────────────────────────────
 
-def make_dataset(x: np.ndarray, y: np.ndarray, split_name: str):
+def make_dataset(x: np.ndarray, y: np.ndarray, split_name: str) -> "SampleDataset":
     """Wrap numpy arrays into a PyHealth ``SampleDataset``.
  
     Each sequence is registered as a separate patient with a single
@@ -366,7 +366,7 @@ def make_dataset(x: np.ndarray, y: np.ndarray, split_name: str):
 
 def build_dataloaders(
     k_dist, d_dist, num_samples, T, input_dim, prev_used_timestamps, batch_size
-):
+) -> tuple["SampleDataset", torch.utils.data.DataLoader, torch.utils.data.DataLoader, torch.utils.data.DataLoader]:
     
     """Generate train / val / test splits and wrap them in DataLoaders.
  
@@ -416,7 +416,7 @@ def build_dataloaders(
 # Training & evaluation
 # ──────────────────────────────────────────────────────────────
 
-def collect_predictions(model, test_loader, device):
+def collect_predictions(model, test_loader, device) -> dict[str, np.ndarray]:
     """Run inference on *test_loader* and collect predictions.
  
     The model is set to eval mode and gradients are disabled.  Only
@@ -468,7 +468,7 @@ def run_hyperparameter_search(
     max_epochs,
     learning_rate,
     optimizer_class=optim.Adam,
-):
+) -> tuple[pd.DataFrame, dict | None, dict | None]:
     
     """Execute a random hyperparameter search over MixLSTM configs.
  
@@ -721,7 +721,7 @@ def run_optimizer_ablations() -> list[AblationResult]:
     return results
 
 
-def _print_summary(title: str, ablation_results: list[AblationResult]):
+def _print_summary(title: str, ablation_results: list[AblationResult])-> None:
 
     """Pretty-print a summary table for a list of ablation results.
  
@@ -757,7 +757,7 @@ def _print_summary(title: str, ablation_results: list[AblationResult]):
 # Visualization  (all functions take in-memory data)
 # ──────────────────────────────────────────────────────────────
 
-def visualize_hyperparameter_search(ablation_results: list[AblationResult], prefix: str = ""):
+def visualize_hyperparameter_search(ablation_results: list[AblationResult], prefix: str = "") -> None:
 
     """Plot MSE loss vs. hidden size for every learning rate.
  
@@ -820,7 +820,7 @@ def visualize_hyperparameter_search(ablation_results: list[AblationResult], pref
     print(f"  Saved: {out_path}")
 
 
-def visualize_predictions(ablation_results: list[AblationResult], num_samples: int = 3, prefix: str = ""):
+def visualize_predictions(ablation_results: list[AblationResult], num_samples: int = 3, prefix: str = "") -> None:
 
     """Plot predicted vs. true values for sample test sequences.
  
@@ -886,7 +886,7 @@ def visualize_predictions(ablation_results: list[AblationResult], num_samples: i
     print(f"  Saved: {out_path}")
 
 
-def visualize_synthetic_shift(ablation_results: list[AblationResult], prefix: str = ""):
+def visualize_synthetic_shift(ablation_results: list[AblationResult], prefix: str = "") -> None:
     """Plot the ``k_dist`` heatmap for each ablation's task distributions.
  
     Each subplot shows how the temporal weight distribution evolves
@@ -920,7 +920,7 @@ def visualize_synthetic_shift(ablation_results: list[AblationResult], prefix: st
     print(f"  Saved: {out_path}")
 
 
-def run_all_visualizations(ablation_results: list[AblationResult], prefix: str = ""):
+def run_all_visualizations(ablation_results: list[AblationResult], prefix: str = "") -> None:
     """Generate all three ablation plot types from in-memory results.
  
     Delegates to :func:`visualize_hyperparameter_search`,
@@ -942,7 +942,7 @@ def run_all_visualizations(ablation_results: list[AblationResult], prefix: str =
 # Main
 # ──────────────────────────────────────────────────────────────
 
-def main():
+def main() -> None:
     # Learning-rate sweep (Adam only, multiple LRs)
     lr_results = run_all_ablations()
     run_all_visualizations(lr_results, prefix="lr_sweep_")
