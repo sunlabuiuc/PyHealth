@@ -3,7 +3,7 @@
 Reproduces Zhang et al., "Dossier: Fact Checking in Electronic Health
 Records while Preserving Patient Privacy", MLHC 2024.
 
-Paper: https://arxiv.org/abs/2311.01556
+Paper: https://proceedings.mlr.press/v252/zhang24a.html
 
 PyHealth contribution type: Option 4 — Full Pipeline (Dataset + Task + Model).
   - Dataset:  MIMIC-III (PhysioNet), loaded via DOSSIERPipeline._load_mimic3_tables
@@ -43,12 +43,6 @@ Paper results (Zhang et al., Claude-2, 4,250 hard MIMIC-III claims):
   no_umls  →  63.1%   (+8.1 pp — KG alone helps significantly)
   no_gkg   →  53.4%   (-1.6 pp — UMLS alone hurts without KG grounding)
   full     →  75.1%   (+20.1 pp — UMLS + KG together create synergy)
-
-Our results (claude-haiku-4-5, 12 claims, 2 admissions):
-  neither  →  66.7%   (simpler threshold claims; haiku performs well)
-  no_gkg   →  41.7%   (UMLS tagging without KG hurts on our claims too)
-  no_umls  →  pending SemMedDB build
-  full     →  pending SemMedDB build
 
 Novel Extensions (not in the original paper):
   1. LLM model comparison (--llm_sweep): paper used only Claude-2; we compare
