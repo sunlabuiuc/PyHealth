@@ -11,7 +11,7 @@ from pyhealth.models import MixLSTM
 class TestMixLSTMRegression(unittest.TestCase):
     """Test MixLSTM in per-timestep regression mode (MLHC2019 synthetic task)."""
 
-    def setUp(self):
+    def setUp(self) -> None:
         """Set up small synthetic regression dataset and model."""
         self.tmp_dir = tempfile.mkdtemp()
 
@@ -57,7 +57,7 @@ class TestMixLSTMRegression(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.tmp_dir, ignore_errors=True)
 
-    def test_instantiation(self):
+    def test_instantiation(self) -> None:
         """Test that model initializes with correct attributes."""
         self.assertIsInstance(self.model, MixLSTM)
         self.assertTrue(self.model._per_timestep)
@@ -66,7 +66,7 @@ class TestMixLSTMRegression(unittest.TestCase):
         self.assertEqual(self.model.hidden_size, 16)
         self.assertEqual(self.model.prev_used_timestamps, 3)
 
-    def test_forward_output_keys(self):
+    def test_forward_output_keys(self) -> None:
         """Test that forward returns expected keys for regression."""
         loader = get_dataloader(self.dataset, batch_size=self.batch_size, shuffle=False)
         batch = next(iter(loader))
@@ -79,7 +79,7 @@ class TestMixLSTMRegression(unittest.TestCase):
         self.assertIn("y_prob", ret)
         self.assertIn("y_true", ret)
 
-    def test_forward_output_shapes(self):
+    def test_forward_output_shapes(self) -> None:
         """Test output tensor shapes for per-timestep regression."""
         loader = get_dataloader(self.dataset, batch_size=self.batch_size, shuffle=False)
         batch = next(iter(loader))
@@ -97,7 +97,7 @@ class TestMixLSTMRegression(unittest.TestCase):
         # loss is scalar
         self.assertEqual(ret["loss"].dim(), 0)
 
-    def test_forward_no_labels(self):
+    def test_forward_no_labels(self) -> None:
         """Test forward without labels returns logit/y_prob but no loss."""
         loader = get_dataloader(self.dataset, batch_size=self.batch_size, shuffle=False)
         batch = next(iter(loader))
@@ -112,7 +112,7 @@ class TestMixLSTMRegression(unittest.TestCase):
         self.assertNotIn("loss", ret)
         self.assertNotIn("y_true", ret)
 
-    def test_backward_gradients(self):
+    def test_backward_gradients(self) -> None:
         """Test that loss.backward() produces gradients on all trainable params."""
         loader = get_dataloader(self.dataset, batch_size=self.batch_size, shuffle=False)
         batch = next(iter(loader))
@@ -126,7 +126,7 @@ class TestMixLSTMRegression(unittest.TestCase):
         )
         self.assertTrue(has_gradient, "No parameters received gradients")
 
-    def test_loss_is_finite(self):
+    def test_loss_is_finite(self) -> None:
         """Test that loss is finite (not NaN or Inf)."""
         loader = get_dataloader(self.dataset, batch_size=self.batch_size, shuffle=False)
         batch = next(iter(loader))
@@ -136,7 +136,7 @@ class TestMixLSTMRegression(unittest.TestCase):
 
         self.assertTrue(torch.isfinite(ret["loss"]).item(), "Loss is not finite")
 
-    def test_custom_hyperparameters(self):
+    def test_custom_hyperparameters(self) -> None:
         """Test model with different num_experts and hidden_size."""
         model = MixLSTM(
             dataset=self.dataset,
@@ -157,7 +157,7 @@ class TestMixLSTMRegression(unittest.TestCase):
 class TestMixLSTMClassification(unittest.TestCase):
     """Test MixLSTM in classification mode (standard PyHealth label task)."""
 
-    def setUp(self):
+    def setUp(self) -> None:
         """Set up small synthetic classification dataset and model."""
         self.tmp_dir = tempfile.mkdtemp()
 
@@ -194,13 +194,13 @@ class TestMixLSTMClassification(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.tmp_dir, ignore_errors=True)
 
-    def test_instantiation(self):
+    def test_instantiation(self) -> None:
         """Test that classification model initializes correctly."""
         self.assertIsInstance(self.model, MixLSTM)
         self.assertFalse(self.model._per_timestep)
         self.assertEqual(self.model.mode, "multiclass")
 
-    def test_forward_output_keys(self):
+    def test_forward_output_keys(self) -> None:
         """Test that forward returns expected keys for classification."""
         loader = get_dataloader(self.dataset, batch_size=self.batch_size, shuffle=False)
         batch = next(iter(loader))
@@ -213,7 +213,7 @@ class TestMixLSTMClassification(unittest.TestCase):
         self.assertIn("y_prob", ret)
         self.assertIn("y_true", ret)
 
-    def test_forward_output_shapes(self):
+    def test_forward_output_shapes(self) -> None:
         """Test output tensor shapes for classification (last timestep)."""
         loader = get_dataloader(self.dataset, batch_size=self.batch_size, shuffle=False)
         batch = next(iter(loader))
@@ -232,7 +232,7 @@ class TestMixLSTMClassification(unittest.TestCase):
         # loss is scalar
         self.assertEqual(ret["loss"].dim(), 0)
 
-    def test_forward_no_labels(self):
+    def test_forward_no_labels(self) -> None:
         """Test forward without labels returns logit/y_prob but no loss."""
         loader = get_dataloader(self.dataset, batch_size=self.batch_size, shuffle=False)
         batch = next(iter(loader))
@@ -246,7 +246,7 @@ class TestMixLSTMClassification(unittest.TestCase):
         self.assertNotIn("loss", ret)
         self.assertNotIn("y_true", ret)
 
-    def test_backward_gradients(self):
+    def test_backward_gradients(self) -> None:
         """Test that loss.backward() produces gradients."""
         loader = get_dataloader(self.dataset, batch_size=self.batch_size, shuffle=False)
         batch = next(iter(loader))
@@ -260,7 +260,7 @@ class TestMixLSTMClassification(unittest.TestCase):
         )
         self.assertTrue(has_gradient, "No parameters received gradients")
 
-    def test_y_prob_sums_to_one(self):
+    def test_y_prob_sums_to_one(self) -> None:
         """Test that y_prob (softmax) sums to ~1 for each sample."""
         loader = get_dataloader(self.dataset, batch_size=self.batch_size, shuffle=False)
         batch = next(iter(loader))
