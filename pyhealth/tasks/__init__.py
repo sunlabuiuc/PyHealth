@@ -29,6 +29,7 @@ from .length_of_stay_prediction import (
     LengthOfStayPredictionOMOP,
 )
 from .length_of_stay_stagenet_mimic4 import LengthOfStayStageNetMIMIC4
+from .remaining_length_of_stay_tpc_mimic4 import RemainingLengthOfStayTPC_MIMIC4
 from .medical_coding import MIMIC3ICD9Coding
 from .medical_transcriptions_classification import MedicalTranscriptionsClassification
 from .mortality_prediction import (

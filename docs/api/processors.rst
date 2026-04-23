@@ -497,3 +497,6 @@ API Reference
     processors/pyhealth.processors.StageNetProcessor
     processors/pyhealth.processors.StageNetTensorProcessor
     processors/pyhealth.processors.GraphProcessor
+    processors/pyhealth.processors.RegressionSequenceProcessor
+    processors/pyhealth.processors.TPCStaticProcessor
+    processors/pyhealth.processors.TPCTimeseriesProcessor

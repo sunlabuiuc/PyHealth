@@ -50,6 +50,9 @@ from .audio_processor import AudioProcessor
 from .ignore_processor import IgnoreProcessor
 from .temporal_timeseries_processor import TemporalTimeseriesProcessor
 from .tuple_time_text_processor import TupleTimeTextProcessor
+from .tpc_timeseries_processor import TPCTimeseriesProcessor
+from .tpc_static_processor import TPCStaticProcessor
+from .regression_sequence_processor import RegressionSequenceProcessor
 
 # Expose public API
 from .base_processor import (
@@ -79,4 +82,7 @@ __all__ = [
     "GraphProcessor",
     "AudioProcessor",
     "TupleTimeTextProcessor",
+    "TPCTimeseriesProcessor",
+    "TPCStaticProcessor",
+    "RegressionSequenceProcessor",
 ]
