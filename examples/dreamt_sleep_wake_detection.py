@@ -17,7 +17,8 @@ This example demonstrates:
     4. Ablation: comparing LightGBM vs LightGBM + AHI vs LightGBM + BMI
 
 Requirements:
-    pip install lightgbm scikit-learn imbalanced-learn
+    pip install lightgbm 
+    pip install imbalanced-learn
 
 Usage:
     # Run with synthetic demo data (no PhysioNet access needed):
@@ -102,7 +103,7 @@ def samples_to_arrays(samples):
     )
 
 
-def evaluate(y_true, y_pred, y_prob, label=""):
+def evaluate(y_true, y_prob, label=""):
     """Print binary classification metrics using PyHealth metrics."""
     metrics = binary_metrics_fn(
         y_true,
@@ -117,8 +118,6 @@ def evaluate(y_true, y_pred, y_prob, label=""):
 
 
 def main(root: str = None, demo: bool = False):
-    if lgb is None:
-        raise ImportError("lightgbm not installed. Run: pip install lightgbm")
     print("\n[1/4] Loading data...")
     if demo:
         print("Using synthetic data")
@@ -127,13 +126,10 @@ def main(root: str = None, demo: bool = False):
             n_patients=5, n_epochs_per_patient=40
         )
     else:
-        print("\nUsing real DREAMT dataset from PhysioNet...")
+        print("\nUsing real DREAMT dataset via PyHealth...")
         dataset = DREAMTDataset(root=root)
-        task = SleepWakeDetectionDREAMT()
-        all_samples = []
-        for pid in dataset.unique_patient_ids:
-            patient = dataset.get_patient(pid)
-            all_samples.extend(task(patient))
+        task_dataset = dataset.set_task(SleepWakeDetectionDREAMT())
+        all_samples = task_dataset.samples
 
     print(f"    Total epochs : {len(all_samples)}")
     wake = sum(s["label"] == 1 for s in all_samples)
@@ -166,7 +162,7 @@ def main(root: str = None, demo: bool = False):
     # Ablation A: Baseline LightGBM 
     clf_a = lgb.LGBMClassifier(n_estimators=200, random_state=42, verbose=-1)
     clf_a.fit(X_train, y_train)
-    evaluate(y_test, clf_a.predict(X_test),
+    evaluate(y_test,
              clf_a.predict_proba(X_test)[:, 1],
              "Ablation A: Baseline LightGBM (no clinical metadata)"
     )
@@ -179,7 +175,7 @@ def main(root: str = None, demo: bool = False):
     X_test_b = np.hstack([X_test, ahi_test.reshape(-1, 1)])
     clf_b = lgb.LGBMClassifier(n_estimators=200, random_state=42, verbose=-1)
     clf_b.fit(X_train_b, y_train)
-    evaluate(y_test, clf_b.predict(X_test_b),
+    evaluate(y_test,
              clf_b.predict_proba(X_test_b)[:, 1],
              "Ablation B: LightGBM + AHI (apnea severity)"
     )
@@ -192,7 +188,7 @@ def main(root: str = None, demo: bool = False):
     X_test_c = np.hstack([X_test, bmi_test.reshape(-1, 1)])
     clf_c = lgb.LGBMClassifier(n_estimators=200, random_state=42, verbose=-1)
     clf_c.fit(X_train_c, y_train)
-    evaluate(y_test, clf_c.predict(X_test_c),
+    evaluate(y_test,
              clf_c.predict_proba(X_test_c)[:, 1],
              "Ablation C: LightGBM + BMI (obesity)"
     )
