@@ -1,0 +1,16 @@
+dataset_name: "MIMIC-CXR-Longitudinal"
+tables:
+  metadata:
+    file_name: "mimic-cxr-2.1.0-metadata.csv.gz"
+    primary_key: "dicom_id"
+    patient_key: "subject_id"
+    visit_key: "study_id"
+    timestamp_key: "study_date"
+  chexpert:
+    file_name: "mimic-cxr-2.1.0-chexpert.csv.gz"
+    primary_key: "dicom_id"
+    visit_key: "study_id"
+  reports:
+    file_name: "mimic-cxr-sections.csv.gz"
+    primary_key: "study_id"
+    visit_key: "study_id"

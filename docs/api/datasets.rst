@@ -229,6 +229,7 @@ Available Datasets
     datasets/pyhealth.datasets.eICUDataset
     datasets/pyhealth.datasets.ISRUCDataset
     datasets/pyhealth.datasets.MIMICExtractDataset
+    datasets/pyhealth.datasets.MIMICCXRLongitudinalDataset
     datasets/pyhealth.datasets.OMOPDataset
     datasets/pyhealth.datasets.DREAMTDataset
     datasets/pyhealth.datasets.SHHSDataset
