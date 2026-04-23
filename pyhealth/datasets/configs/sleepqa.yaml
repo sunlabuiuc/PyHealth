@@ -1,0 +1,13 @@
+# Author: Jeffrey Yan (jeffreyyan23)
+version: "1.0"
+tables:
+  sleepqa:
+    file_path: "sleepqa-metadata-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+    - "visit_id"
+    - "question"
+    - "passage"
+    - "answer_text"
+    - "answer_start"
