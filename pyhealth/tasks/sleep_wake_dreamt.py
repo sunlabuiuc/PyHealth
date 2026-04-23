@@ -279,11 +279,9 @@ class SleepWakeDetectionDREAMT(BaseTask):
     task_name: str = "SleepWakeDetectionDREAMT"
 
     input_schema: Dict[str, str] = {
-        # Engineered feature vector per 30-sec epoch
-        "signal": "float",
-        # Clinical metadata for mixed-effects modeling (paper sec 2.6)
-        "ahi": "float",
-        "bmi": "float",
+        "signal": "tensor",
+        "ahi": "regression",
+        "bmi": "regression",
     }
 
     output_schema: Dict[str, str] = {
@@ -353,9 +351,9 @@ class SleepStagingDREAMT(BaseTask):
     task_name: str = "SleepStagingDREAMT"
 
     input_schema: Dict[str, str] = {
-        "signal": "float",
-        "ahi": "float",
-        "bmi": "float",
+        "signal": "tensor",
+        "ahi": "regression",
+        "bmi": "regression",
     }
 
     output_schema: Dict[str, str] = {

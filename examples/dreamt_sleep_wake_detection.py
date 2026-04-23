@@ -34,6 +34,7 @@ from imblearn.over_sampling import SMOTE
 from sklearn.model_selection import GroupShuffleSplit
 
 from pyhealth.datasets import DREAMTDataset
+from pyhealth.tasks import SleepWakeDetectionDREAMT
 from pyhealth.metrics import binary_metrics_fn
 
 
@@ -128,8 +129,11 @@ def main(root: str = None, demo: bool = False):
     else:
         print("\nUsing real DREAMT dataset from PhysioNet...")
         dataset = DREAMTDataset(root=root)
-        task_dataset = dataset.set_task(SleepWakeDetectionDREAMT())
-        all_samples = task_dataset.samples
+        task = SleepWakeDetectionDREAMT()
+        all_samples = []
+        for pid in dataset.unique_patient_ids:
+            patient = dataset.get_patient(pid)
+            all_samples.extend(task(patient))
 
     print(f"    Total epochs : {len(all_samples)}")
     wake = sum(s["label"] == 1 for s in all_samples)
