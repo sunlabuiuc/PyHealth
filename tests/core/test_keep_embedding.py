@@ -52,6 +52,8 @@ for _mod in (
     "pyhealth.models.text_embedding",
     "pyhealth.models.sdoh",
     "pyhealth.models.unified_embedding",
+    "pyhealth.models.transformer_deid",
+    "pyhealth.models.califorest",
 ):
     sys.modules.setdefault(_mod, MagicMock())
 
@@ -69,8 +71,6 @@ class TestN2VHelpers(unittest.TestCase):
     def setUp(self):
         """Set up a minimal N2V instance."""
         self.n2v = N2V(
-            path="/fake",
-            domain_type=["all"],
             embedding_dim=EMBEDDING_DIM,
             walk_length=5,
             num_walks=5,
@@ -107,14 +107,15 @@ class TestKeepEmbeddingInit(unittest.TestCase):
     def setUp(self):
         """Set up a KeepEmbedding instance with N2V mocked out."""
         fake_matrix = np.random.randn(NUM_CONCEPTS, EMBEDDING_DIM).astype(np.float32)
-        with patch.object(N2V, "generate_embeddings", return_value=fake_matrix):
+        fake_keys = list(range(NUM_CONCEPTS))
+        with patch.object(N2V, "generate_embeddings", return_value=(fake_matrix, fake_keys)):
             self.model = KeepEmbedding(
                 dataset=None,
-                path="/fake/path",
-                domain_type=["all"],
+                graph=MagicMock(),
                 embedding_dim=EMBEDDING_DIM,
                 walk_length=5,
                 num_walks=5,
+                num_words=NUM_CONCEPTS,
                 device="cpu",
             )
 
@@ -136,14 +137,15 @@ class TestKeepEmbeddingForward(unittest.TestCase):
     def _make_model(self, lambda_reg=1.0, reg_norm=None, log_scale=False):
         """Return a KeepEmbedding with N2V mocked out."""
         fake_matrix = np.random.randn(NUM_CONCEPTS, EMBEDDING_DIM).astype(np.float32)
-        with patch.object(N2V, "generate_embeddings", return_value=fake_matrix):
+        fake_keys = list(range(NUM_CONCEPTS))
+        with patch.object(N2V, "generate_embeddings", return_value=(fake_matrix, fake_keys)):
             return KeepEmbedding(
                 dataset=None,
-                path="/fake/path",
-                domain_type=["all"],
+                graph=MagicMock(),
                 embedding_dim=EMBEDDING_DIM,
                 walk_length=5,
                 num_walks=5,
+                num_words=NUM_CONCEPTS,
                 lambda_reg=lambda_reg,
                 reg_norm=reg_norm,
                 log_scale=log_scale,
@@ -205,14 +207,15 @@ class TestKeepEmbeddingBackward(unittest.TestCase):
     def _make_model(self, lambda_reg=1.0):
         """Return a KeepEmbedding with N2V mocked out."""
         fake_matrix = np.random.randn(NUM_CONCEPTS, EMBEDDING_DIM).astype(np.float32)
-        with patch.object(N2V, "generate_embeddings", return_value=fake_matrix):
+        fake_keys = list(range(NUM_CONCEPTS))
+        with patch.object(N2V, "generate_embeddings", return_value=(fake_matrix, fake_keys)):
             return KeepEmbedding(
                 dataset=None,
-                path="/fake/path",
-                domain_type=["all"],
+                graph=MagicMock(),
                 embedding_dim=EMBEDDING_DIM,
                 walk_length=5,
                 num_walks=5,
+                num_words=NUM_CONCEPTS,
                 lambda_reg=lambda_reg,
                 device="cpu",
             )
