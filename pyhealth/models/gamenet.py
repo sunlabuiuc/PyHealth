@@ -43,7 +43,7 @@ class GCNLayer(nn.Module):
         if self.bias is not None:
             self.bias.data.uniform_(-stdv, stdv)
 
-    def forward(self, input: torch.tensor, adj: torch.tensor) -> torch.tensor:
+    def forward(self, input: torch.Tensor, adj: torch.Tensor) -> torch.Tensor:
         """
         Args:
             input: input feature tensor of shape [num_nodes, in_features].
@@ -74,7 +74,7 @@ class GCN(nn.Module):
         dropout: dropout rate. Default is 0.5.
     """
 
-    def __init__(self, adj: torch.tensor, hidden_size: int, dropout: float = 0.5):
+    def __init__(self, adj: torch.Tensor, hidden_size: int, dropout: float = 0.5):
         super(GCN, self).__init__()
         self.emb_dim = hidden_size
         self.dropout = dropout
@@ -89,7 +89,7 @@ class GCN(nn.Module):
         self.dropout_layer = nn.Dropout(p=dropout)
         self.gcn2 = GCNLayer(hidden_size, hidden_size)
 
-    def normalize(self, mx: torch.tensor) -> torch.tensor:
+    def normalize(self, mx: torch.Tensor) -> torch.Tensor:
         """Normalizes the matrix row-wise."""
         rowsum = mx.sum(1)
         r_inv = torch.pow(rowsum, -1).flatten()
@@ -98,7 +98,7 @@ class GCN(nn.Module):
         mx = torch.mm(r_mat_inv, mx)
         return mx
 
-    def forward(self) -> torch.tensor:
+    def forward(self) -> torch.Tensor:
         """Forward propagation.
 
         Returns:
@@ -144,8 +144,8 @@ class GAMENetLayer(nn.Module):
     def __init__(
         self,
         hidden_size: int,
-        ehr_adj: torch.tensor,
-        ddi_adj: torch.tensor,
+        ehr_adj: torch.Tensor,
+        ddi_adj: torch.Tensor,
         dropout: float = 0.5,
     ):
         super(GAMENetLayer, self).__init__()
@@ -163,11 +163,11 @@ class GAMENetLayer(nn.Module):
 
     def forward(
         self,
-        queries: torch.tensor,
-        prev_drugs: torch.tensor,
-        curr_drugs: torch.tensor,
-        mask: Optional[torch.tensor] = None,
-    ) -> Tuple[torch.tensor, torch.tensor]:
+        queries: torch.Tensor,
+        prev_drugs: torch.Tensor,
+        curr_drugs: torch.Tensor,
+        mask: Optional[torch.Tensor] = None,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Forward propagation.
 
         Args:
@@ -355,7 +355,7 @@ class GAMENet(BaseModel):
         # save ddi adj
         np.save(os.path.join(CACHE_PATH, "ddi_adj.npy"), ddi_adj.numpy())
 
-    def generate_ehr_adj(self) -> torch.tensor:
+    def generate_ehr_adj(self) -> torch.Tensor:
         """Generates the EHR graph adjacency matrix."""
         label_vocab = self.dataset.output_processors[self.label_key].label_vocab
         label_size = len(label_vocab)
@@ -376,7 +376,7 @@ class GAMENet(BaseModel):
                     ehr_adj[med2, med1] = 1
         return ehr_adj
 
-    def generate_ddi_adj(self) -> torch.tensor:
+    def generate_ddi_adj(self) -> torch.Tensor:
         """Generates the DDI graph adjacency matrix."""
         atc = ATC()
         ddi = atc.get_ddi(gamenet_ddi=True)
