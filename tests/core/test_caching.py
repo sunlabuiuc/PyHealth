@@ -66,6 +66,11 @@ class MockTask2(BaseTask):
         return samples
 
 
+class MockTaskAlias(MockTask):
+    """Task with the same task_name/state/schema as MockTask but a different class."""
+    pass
+
+
 class MockDataset(BaseDataset):
     """Mock dataset for testing purposes."""
 
@@ -110,6 +115,14 @@ class TestCachingFunctionality(BaseTestCase):
     def tearDown(self):
         self.temp_dir.cleanup()
 
+    def _task_cache_dir(self, task):
+        task_params = json.dumps(
+            self.dataset._task_cache_signature(task),
+            sort_keys=True,
+            default=str,
+        )
+        return self.dataset.cache_dir / "tasks" / f"{task.task_name}_{uuid.uuid5(uuid.NAMESPACE_DNS, task_params)}"
+
     def test_set_task_signature(self):
         """Test that set_task has the correct method signature."""
         import inspect
@@ -141,12 +154,7 @@ class TestCachingFunctionality(BaseTestCase):
             self.assertEqual(len(sample_dataset), 4)
 
             # Ensure intermediate cache files are created in default location
-            task_params = json.dumps(
-                {"input_schema": {"test_attribute": "raw"}, "output_schema": {"test_label": "binary"}, "param": 0},
-                sort_keys=True,
-                default=str
-            )
-            task_cache_dir = self.dataset.cache_dir / "tasks" / f"{self.task.task_name}_{uuid.uuid5(uuid.NAMESPACE_DNS, task_params)}"
+            task_cache_dir = self._task_cache_dir(self.task)
             self.assertTrue((task_cache_dir / "task_df.ld" / "index.json").exists())
 
             # Cache artifacts should be present for StreamingDataset
@@ -177,13 +185,7 @@ class TestCachingFunctionality(BaseTestCase):
 
     def test_default_cache_dir_is_used(self):
         """When cache_dir is omitted, default cache dir should be used."""
-        task_params = json.dumps(
-            {"input_schema": {"test_attribute": "raw"}, "output_schema": {"test_label": "binary"}, "param": 0},
-            sort_keys=True,
-            default=str
-        )
-
-        task_cache = self.dataset.cache_dir / "tasks" / f"{self.task.task_name}_{uuid.uuid5(uuid.NAMESPACE_DNS, task_params)}"
+        task_cache = self._task_cache_dir(self.task)
         sample_dataset = self.dataset.set_task(self.task)
 
         self.assertTrue(task_cache.exists())
@@ -208,25 +210,15 @@ class TestCachingFunctionality(BaseTestCase):
         cached_dataset.close()
 
     def test_tasks_with_diff_param_values_get_diff_caches(self):
-        sample_dataset1 = self.dataset.set_task(MockTask(param=1))
-        sample_dataset2 = self.dataset.set_task(MockTask(param=2))
+        task1 = MockTask(param=1)
+        task2 = MockTask(param=2)
+        sample_dataset1 = self.dataset.set_task(task1)
+        sample_dataset2 = self.dataset.set_task(task2)
 
         self.assertNotEqual(sample_dataset1.path, sample_dataset2.path)
 
-        task_params1 = json.dumps(
-            {"input_schema": {"test_attribute": "raw"}, "output_schema": {"test_label": "binary"}, "param": 1},
-            sort_keys=True,
-            default=str
-        )
-
-        task_params2 = json.dumps(
-            {"input_schema": {"test_attribute": "raw"}, "output_schema": {"test_label": "binary"}, "param": 2},
-            sort_keys=True,
-            default=str
-        )
-
-        task_cache1 = self.dataset.cache_dir / "tasks" / f"{self.task.task_name}_{uuid.uuid5(uuid.NAMESPACE_DNS, task_params1)}"
-        task_cache2 = self.dataset.cache_dir / "tasks" / f"{self.task.task_name}_{uuid.uuid5(uuid.NAMESPACE_DNS, task_params2)}"
+        task_cache1 = self._task_cache_dir(task1)
+        task_cache2 = self._task_cache_dir(task2)
 
         self.assertTrue(task_cache1.exists())
         self.assertTrue(task_cache2.exists())
@@ -240,25 +232,15 @@ class TestCachingFunctionality(BaseTestCase):
         sample_dataset2.close()
 
     def test_tasks_with_diff_output_schemas_get_diff_caches(self):
-        sample_dataset1 = self.dataset.set_task(MockTask())
-        sample_dataset2 = self.dataset.set_task(MockTask2())
+        task1 = MockTask()
+        task2 = MockTask2()
+        sample_dataset1 = self.dataset.set_task(task1)
+        sample_dataset2 = self.dataset.set_task(task2)
 
         self.assertNotEqual(sample_dataset1.path, sample_dataset2.path)
 
-        task_params1 = json.dumps(
-            {"input_schema": {"test_attribute": "raw"}, "output_schema": {"test_label": "binary"}, "param": 0},
-            sort_keys=True,
-            default=str
-        )
-
-        task_params2 = json.dumps(
-            {"input_schema": {"test_attribute": "raw"}, "output_schema": {"test_label": "multiclass"}, "param": 0},
-            sort_keys=True,
-            default=str
-        )
-
-        task_cache1 = self.dataset.cache_dir / "tasks" / f"{self.task.task_name}_{uuid.uuid5(uuid.NAMESPACE_DNS, task_params1)}"
-        task_cache2 = self.dataset.cache_dir / "tasks" / f"{self.task.task_name}_{uuid.uuid5(uuid.NAMESPACE_DNS, task_params2)}"
+        task_cache1 = self._task_cache_dir(task1)
+        task_cache2 = self._task_cache_dir(task2)
 
         self.assertTrue(task_cache1.exists())
         self.assertTrue(task_cache2.exists())
@@ -267,6 +249,20 @@ class TestCachingFunctionality(BaseTestCase):
         self.assertTrue((self.dataset.cache_dir / "global_event_df.parquet").exists())
         self.assertEqual(len(sample_dataset1), 4)
         self.assertEqual(len(sample_dataset2), 4)
+
+        sample_dataset1.close()
+        sample_dataset2.close()
+
+    def test_tasks_with_same_name_and_state_but_diff_classes_get_diff_caches(self):
+        task1 = MockTask()
+        task2 = MockTaskAlias()
+
+        sample_dataset1 = self.dataset.set_task(task1)
+        sample_dataset2 = self.dataset.set_task(task2)
+
+        self.assertNotEqual(sample_dataset1.path, sample_dataset2.path)
+        self.assertTrue(self._task_cache_dir(task1).exists())
+        self.assertTrue(self._task_cache_dir(task2).exists())
 
         sample_dataset1.close()
         sample_dataset2.close()
