@@ -22,7 +22,32 @@ from scipy.stats.mstats import winsorize
 from ..data import Patient
 from .base_task import BaseTask
 
-nk = None
+nk = None  # Lazy-loaded optional neurokit2 module.
+
+BASE_FEATURE_NAMES = [
+    "acc_x_trimmed_mean",
+    "acc_x_max",
+    "acc_x_iqr",
+    "acc_y_trimmed_mean",
+    "acc_y_max",
+    "acc_y_iqr",
+    "acc_z_trimmed_mean",
+    "acc_z_max",
+    "acc_z_iqr",
+    "acc_magnitude_deviation_mad",
+    "temp_mean",
+    "temp_min",
+    "temp_max",
+    "temp_std",
+    "bvp_rmssd",
+    "bvp_sdnn",
+    "bvp_pnn50",
+    "eda_scr_amp_mean",
+    "eda_scr_amp_max",
+    "eda_scr_rise_mean",
+    "eda_scr_recovery_mean",
+]
+TEMPORAL_FEATURE_SUFFIXES = ["smooth", "derivative", "rolling_variance"]
 
 
 class SleepWakeClassification(BaseTask):
@@ -32,7 +57,37 @@ class SleepWakeClassification(BaseTask):
     extracts physiological features from multiple sensor modalities,
     augments them with temporal context, and assigns a binary sleep/wake
     label to each epoch.
+
+    The processing flow is:
+    1. Read ``dreamt_sleep`` events from a DREAMT patient.
+    2. Load each event's 64 Hz wearable CSV from ``event.file_64hz``.
+    3. Split wearable signals into non-overlapping fixed-length epochs.
+    4. Extract accelerometer, temperature, BVP, and EDA features per epoch.
+    5. Keep only epochs available across all required modalities.
+    6. Build a 21-dimensional base feature vector for each epoch.
+    7. Add temporal context for every base feature: Gaussian-smoothed value,
+       temporal derivative, and rolling variance.
+    8. Convert the epoch sleep-stage mode into a binary label.
+    9. Return one PyHealth sample per labeled epoch.
+
+    Each output sample contains ``patient_id``, ``record_id``,
+    ``epoch_index``, ``features``, and ``label``. ``features`` is a flat
+    list of 84 floats: 21 base features followed by 63 temporal features
+    (three temporal features for each base feature). ``label`` is ``1`` for
+    wake and ``0`` for sleep stages REM, N1, N2, and N3.
+
+    Examples:
+        >>> from pyhealth.datasets import DREAMTDataset
+        >>> from pyhealth.tasks import SleepWakeClassification
+        >>> dataset = DREAMTDataset(root="/path/to/dreamt")
+        >>> samples = dataset.set_task(SleepWakeClassification())
+        >>> sample = samples[0]
+        >>> len(sample["features"])
+        84
     """
+
+    base_feature_names = BASE_FEATURE_NAMES
+    temporal_feature_suffixes = TEMPORAL_FEATURE_SUFFIXES
 
     task_name = "SleepWakeClassification"
     input_schema = {"features": "tensor"}
@@ -678,40 +733,31 @@ class SleepWakeClassification(BaseTask):
             epoch_index
         ]
 
+        feature_sources = {
+            "acc_x": accelerometer_x_features,
+            "acc_y": accelerometer_y_features,
+            "acc_z": accelerometer_z_features,
+            "acc_magnitude_deviation": accelerometer_magnitude_deviation_features,
+            "temp": temperature_features,
+            "bvp": blood_volume_pulse_features,
+            "eda": electrodermal_activity_features,
+        }
+
         features = []
-        features.extend(
-            accelerometer_x_features[feature_name]
-            for feature_name in ["trimmed_mean", "max", "iqr"]
-        )
-        features.extend(
-            accelerometer_y_features[feature_name]
-            for feature_name in ["trimmed_mean", "max", "iqr"]
-        )
-        features.extend(
-            accelerometer_z_features[feature_name]
-            for feature_name in ["trimmed_mean", "max", "iqr"]
-        )
-        features.extend(
-            accelerometer_magnitude_deviation_features[feature_name]
-            for feature_name in ["mad"]
-        )
-        features.extend(
-            temperature_features[feature_name]
-            for feature_name in ["mean", "min", "max", "std"]
-        )
-        features.extend(
-            blood_volume_pulse_features[feature_name]
-            for feature_name in ["rmssd", "sdnn", "pnn50"]
-        )
-        features.extend(
-            electrodermal_activity_features[feature_name]
-            for feature_name in [
-                "scr_amp_mean",
-                "scr_amp_max",
-                "scr_rise_mean",
-                "scr_recovery_mean",
-            ]
-        )
+        for feature_name in self.base_feature_names:
+            source_name, source_feature_name = feature_name.split("_", 1)
+            if feature_name.startswith("acc_magnitude_deviation_"):
+                source_name = "acc_magnitude_deviation"
+                source_feature_name = feature_name.replace(
+                    "acc_magnitude_deviation_",
+                    "",
+                    1,
+                )
+            elif feature_name.startswith("acc_"):
+                source_name = "_".join(feature_name.split("_")[:2])
+                source_feature_name = "_".join(feature_name.split("_")[2:])
+            features.append(feature_sources[source_name][source_feature_name])
+
         return features
 
     def _build_record_epoch_feature_matrix(

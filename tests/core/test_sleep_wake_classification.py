@@ -100,6 +100,31 @@ class TestSleepWakeClassification(unittest.TestCase):
             task._extract_binary_label_for_epoch(record_dataframe, 1, 2), 0
         )
 
+    def test_base_feature_name_contract_matches_feature_vector(self):
+        task = SleepWakeClassification()
+        feature_sets = {
+            "accelerometer_x": [{"trimmed_mean": 1.0, "max": 2.0, "iqr": 3.0}],
+            "accelerometer_y": [{"trimmed_mean": 4.0, "max": 5.0, "iqr": 6.0}],
+            "accelerometer_z": [{"trimmed_mean": 7.0, "max": 8.0, "iqr": 9.0}],
+            "accelerometer_magnitude_deviation": [{"mad": 10.0}],
+            "temperature": [{"mean": 11.0, "min": 12.0, "max": 13.0, "std": 14.0}],
+            "blood_volume_pulse": [{"rmssd": 15.0, "sdnn": 16.0, "pnn50": 17.0}],
+            "electrodermal_activity": [
+                {
+                    "scr_amp_mean": 18.0,
+                    "scr_amp_max": 19.0,
+                    "scr_rise_mean": 20.0,
+                    "scr_recovery_mean": 21.0,
+                }
+            ],
+        }
+
+        features = task._build_epoch_feature_vector(feature_sets, epoch_index=0)
+
+        self.assertEqual(len(task.base_feature_names), 21)
+        self.assertEqual(len(features), len(task.base_feature_names))
+        self.assertEqual(features, [float(i) for i in range(1, 22)])
+
     def test_build_record_epoch_feature_matrix_returns_empty_when_columns_missing(self):
         task = SleepWakeClassification(epoch_seconds=2, sampling_rate=1)
         record_dataframe = pd.DataFrame(
