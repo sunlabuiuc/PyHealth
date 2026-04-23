@@ -269,16 +269,12 @@ class mowLSTM_(nn.Module):
             for name, weight in m.named_parameters():
                 nn.init.uniform_(weight, -stdv, stdv)
 
-        # maybe: layer normalization: see jeeheh's code
-        # maybe: orthogonal initialization: see jeeheh's code
-        # note: pytorch implementation does neither
 
     def rnn_step(self, x: torch.Tensor, hidden: Tuple[torch.Tensor, torch.Tensor], coef: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         """Run a single LSTM step with mixed expert parameters."""
         bs = x.shape[1]
         h, c = hidden
         gates = self.input_weights(x, coef) + self.hidden_weights(h, coef)
-        # maybe: layer normalization: see jeeheh's code
 
         ingate, forgetgate, cellgate, outgate = gates.view(bs, -1).chunk(4, 1)
         ingate = torch.sigmoid(ingate)
@@ -426,11 +422,6 @@ class ExampleMowLSTM(nn.Module):
 
         for _ in range(t):
             gate = NonAdaptiveGate(self.k, normalize=True)
-            # gate = AdaptiveLSTMGate(self.hidden_size *\
-            #                         self.num_layers *\
-            #                         self.num_directions,
-            #                         self.k,
-            #                         normalize=True)
             self.cells.append(MoW(experts, gate))
 
     def forward(self, x: torch.Tensor, hidden: Tuple[torch.Tensor, torch.Tensor]) -> Tuple[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
@@ -647,7 +638,7 @@ class MixLSTM(BaseModel):
         logits_seq = outputs.permute(1, 0, 2)
 
         if self._per_timestep:
-            # --- Per-timestep regression (original MLHC2019 synthetic task)
+            # --- Per-timestep regression mode ---
             results = {"logit": logits_seq, "y_prob": logits_seq}
             if self.label_key and self.label_key in kwargs:
                 y_true = kwargs[self.label_key].to(device)
