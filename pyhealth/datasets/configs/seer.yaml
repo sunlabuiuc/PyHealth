@@ -1,0 +1,25 @@
+version: "1.0"
+tables:
+  seer:
+    file_path: "seer_clinical.csv"
+    patient_id: "PATIENT_ID"
+    timestamp: null
+    attributes:
+      - "AGE_AT_DIAGNOSIS"
+      - "SEX"
+      - "RACE"
+      - "PRIMARY_SITE"
+      - "HISTOLOGY"
+      - "STAGE"
+      - "GRADE"
+      - "TUMOR_SIZE_MM"
+      - "REGIONAL_NODES_EXAMINED"
+      - "REGIONAL_NODES_POSITIVE"
+      - "SURVIVAL_MONTHS"
+      - "VITAL_STATUS"
+      - "YEAR_OF_DIAGNOSIS"
+      - "SEQUENCE_NUMBER"
+      - "LATERALITY"
+      - "SURGERY"
+      - "RADIATION"
+      - "CHEMOTHERAPY"
