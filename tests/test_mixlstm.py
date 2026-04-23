@@ -54,7 +54,7 @@ class TestMixLSTMRegression(unittest.TestCase):
         )
         self.batch_size = 4
 
-    def tearDown(self):
+    def tearDown(self) -> None:
         shutil.rmtree(self.tmp_dir, ignore_errors=True)
 
     def test_instantiation(self) -> None:
@@ -191,7 +191,7 @@ class TestMixLSTMClassification(unittest.TestCase):
         )
         self.batch_size = 4
 
-    def tearDown(self):
+    def tearDown(self) -> None:
         shutil.rmtree(self.tmp_dir, ignore_errors=True)
 
     def test_instantiation(self) -> None:
