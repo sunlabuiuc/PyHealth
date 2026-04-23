@@ -1,3 +1,5 @@
+# Author: Mumme, Raymond Paul rmumme2@illinois.edu
+
 import torch
 import torch.nn as nn
 from pyhealth.models.base_model import BaseModel
@@ -22,9 +24,6 @@ class DINOv2(BaseModel):
         model_size (str, optional): The size of the DINOv2 backbone to pull from 
             TorchHub ("vits14", "vitb14", "vitl14", "vitg14"). Defaults to "vits14".
         **kwargs: Additional keyword arguments passed to BaseModel.
-    
-    Author:
-        Mumme, Raymond Paul rmumme2@illinois.edu
 
     Examples:
         >>> from pyhealth.models import DINOv2

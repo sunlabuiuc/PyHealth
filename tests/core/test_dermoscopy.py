@@ -4,8 +4,8 @@ test_dermoscopy.py
 Unit tests for the PyHealth DermoscopyDataset integration.
 This test suite uses a mocked subset of the HAM10000 dataset.
 
-Dataset Citation:
-Tschandl, P., Rosendahl, C. & Kittler, H. The HAM10000 dataset, a large collection 
+Dataset Reference:
+- Tschandl, P., Rosendahl, C. & Kittler, H. The HAM10000 dataset, a large collection 
 of multi-source dermatoscopic images of common pigmented skin lesions. 
 Sci. Data 5, 180161 (2018). https://doi.org/10.1038/sdata.2018.161
 

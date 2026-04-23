@@ -9,9 +9,6 @@ Reference:
 - Zhuang Liu, Hanzi Mao, Chao-Yuan Wu, Christoph Feichtenhofer, Trevor Darrell, Saining Xie. (2022).
 "A ConvNet for the 2020s." IEEE Conference on Computer Vision and Pattern Recognition (CVPR).
 
-Reference: 
-- Oquab, M., et al. (2024). DINOv2: Learning Robust Visual Features without Supervision. TMLR.
-
 Author:
     Mumme, Raymond Paul rmumme2@illinois.edu
 """

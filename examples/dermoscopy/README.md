@@ -1,6 +1,11 @@
 
 # Dermoscopy Artifact Robustness under Diffusion-Based Perturbations
 
+**Authors:**
+
+- Mumme, Raymond Paul <rmumme2@illinois.edu>
+- Wang, Ziquan <ziquanw2@illinois.edu>
+
 This repository contains the complete experimental pipeline and reproducibility codebase for analyzing the robustness of foundation models in dermatology against diffusion-generated artifacts. This work builds upon and extends the methodology presented in _A Study of Artifacts on Melanoma Classification under Diffusion-Based Perturbations (CHIL 2025)_.
 
 ## 📚 Core Citations & Repositories
