@@ -1,0 +1,15 @@
+# Author: Edward Guan (edwardg2@illinois.edu)
+version: "1.0"
+tables:
+  dsa:
+    file_path: "dsa-metadata-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+      - label
+      - activity_id
+      - activity_name
+      - filepath
+      - segment_id
+      - pair_id
+      - visit_id
