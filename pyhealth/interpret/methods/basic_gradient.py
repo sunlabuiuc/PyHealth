@@ -130,7 +130,7 @@ class BasicGradientSaliencyMaps(BaseInterpreter):
         output = self.model(image=batch_images, disease=batch_labels)
         y_prob = output['y_prob']
         target_class = y_prob.argmax(dim=1)
-        scores = y_prob.gather(1, target_class.unsqueeze(1)).squeeze()
+        scores = y_prob.gather(1, target_class.unsqueeze(1)).squeeze(1)
 
         # Compute gradients
         self.model.zero_grad()

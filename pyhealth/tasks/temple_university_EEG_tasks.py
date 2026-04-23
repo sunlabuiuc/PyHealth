@@ -187,8 +187,8 @@ class EEGEventsTUEV(BaseTask):
                         "signal_file": edf_path,
                         "split": split,
                         "signal": signal,
-                        "offending_channel": int(offending_channel.squeeze()),
-                        "label": int(label.squeeze()) - 1,
+                        "offending_channel": int(offending_channel.item()),
+                        "label": int(label.item()) - 1,
                     }
                     if self.compute_stft:
                         # get_stft_torch expects (B, C, T); unsqueeze/squeeze the batch dim
