@@ -1,4 +1,5 @@
-"""PTB-XL multi-label ECG classification task.
+"""
+PTB-XL multi-label ECG classification task.
 
 This module provides :class:`PTBXLMultilabelClassification`, a
 :class:`~pyhealth.tasks.BaseTask` subclass that turns a
@@ -76,8 +77,10 @@ The two constructor arguments create the natural ablation grid:
 | ``"diagnostic"``  | 500       | 27-class / 500 Hz      |
 +-------------------+-----------+------------------------+
 
-Author:
-    CS-598 DLH Project Team
+Authors:
+    Anurag Dixit - anuragd2@illinois.edu
+    Kent Spillner - kspillne@illinois.edu
+    John Wells - jtwells2@illinois.edu
 """
 
 import logging

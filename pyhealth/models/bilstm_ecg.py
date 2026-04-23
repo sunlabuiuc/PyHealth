@@ -1,4 +1,5 @@
-"""Bidirectional LSTM for 12-lead ECG multi-label classification.
+"""
+Bidirectional LSTM for 12-lead ECG multi-label classification.
 
 This module provides :class:`BiLSTMECG`, a :class:`~pyhealth.models.BaseModel`
 subclass implementing the Bidirectional LSTM architecture benchmarked in:
@@ -53,8 +54,10 @@ Signal format expected
 ``(12, T)`` loaded by ``SampleSignalDataset`` from a ``.pkl`` file.  :math:`T`
 is typically 1000 at 100 Hz or 5000 at 500 Hz.
 
-Author:
-    CS-598 DLH Project Team — PyHealth contribution
+Authors:
+    Anurag Dixit - anuragd2@illinois.edu
+    Kent Spillner - kspillne@illinois.edu
+    John Wells - jtwells2@illinois.edu
 """
 
 from typing import List, Optional

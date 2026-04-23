@@ -1,4 +1,5 @@
-"""1-D SE-ResNet-50 ECG model.
+"""
+1-D SE-ResNet-50 ECG model.
 
 Implements the ``se_resnet1d50`` backbone used in:
 
@@ -20,6 +21,11 @@ convolution in each stage uses ``kernel_size=1, padding=0`` (not 3/1 as in
 the SENet-154 variant).
 
 See :mod:`pyhealth.models.resnet_ecg_base` for shared building blocks.
+
+Authors:
+    Anurag Dixit - anuragd2@illinois.edu
+    Kent Spillner - kspillne@illinois.edu
+    John Wells - jtwells2@illinois.edu
 """
 
 from typing import Optional

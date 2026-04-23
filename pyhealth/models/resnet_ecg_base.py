@@ -1,4 +1,5 @@
-"""Shared building blocks for 1-D ResNet-based ECG models.
+"""
+Shared building blocks for 1-D ResNet-based ECG models.
 
 This module provides:
 
@@ -16,6 +17,11 @@ References:
     Nonaka N. & Seita J. (2021). In-depth Benchmarking of Deep Neural Network
     Architectures for ECG Diagnosis. *PMLR* 149:1–19.
     https://proceedings.mlr.press/v149/nonaka21a.html
+
+Authors:
+    Anurag Dixit - anuragd2@illinois.edu
+    Kent Spillner - kspillne@illinois.edu
+    John Wells - jtwells2@illinois.edu
 """
 
 from typing import Callable, Dict, List, Optional, Type, Union

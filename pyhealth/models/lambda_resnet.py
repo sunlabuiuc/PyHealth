@@ -1,4 +1,5 @@
-"""1-D Lambda-ResNet-18 ECG model.
+"""
+1-D Lambda-ResNet-18 ECG model.
 
 Implements the ``lambda_resnet1d18`` backbone used in:
 
@@ -30,6 +31,11 @@ The lambda layer is described in:
   stability guards.
 
 See :mod:`pyhealth.models.resnet_ecg_base` for shared building blocks.
+
+Authors:
+    Anurag Dixit - anuragd2@illinois.edu
+    Kent Spillner - kspillne@illinois.edu
+    John Wells - jtwells2@illinois.edu
 """
 
 from typing import List, Optional

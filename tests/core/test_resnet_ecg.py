@@ -1,4 +1,5 @@
-"""Tests for 1-D ResNet-based ECG models.
+"""
+Tests for 1-D ResNet-based ECG models.
 
 Covers ResNet18ECG, SEResNet50ECG, and LambdaResNet18ECG, exercising:
   - model initialisation and attribute checks
@@ -8,6 +9,11 @@ Covers ResNet18ECG, SEResNet50ECG, and LambdaResNet18ECG, exercising:
   - custom hyperparameter variants
   - all three output modes (multilabel, multiclass, binary)
   - forward_sliding_window evaluation helper
+
+Authors:
+    Anurag Dixit - anuragd2@illinois.edu
+    Kent Spillner - kspillne@illinois.edu
+    John Wells - jtwells2@illinois.edu
 """
 
 import unittest

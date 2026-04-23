@@ -1,4 +1,5 @@
-"""Plain 1-D ResNet-18 ECG model.
+"""
+Plain 1-D ResNet-18 ECG model.
 
 Implements the ``resnet1d18`` backbone used in:
 
@@ -7,6 +8,11 @@ Implements the ``resnet1d18`` backbone used in:
     https://proceedings.mlr.press/v149/nonaka21a.html
 
 See :mod:`pyhealth.models.resnet_ecg_base` for the shared building blocks.
+
+Authors:
+    Anurag Dixit - anuragd2@illinois.edu
+    Kent Spillner - kspillne@illinois.edu
+    John Wells - jtwells2@illinois.edu
 """
 
 from pyhealth.datasets import SampleDataset
