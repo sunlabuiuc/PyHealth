@@ -404,17 +404,9 @@ class LayerwiseRelevancePropagation(BaseInterpreter):
 
         if mode == "binary":
             # Binary logits have shape [B] or [B, 1].
-            # target_class_idx=1 (positive) → use logit as-is.
-            # target_class_idx=0 (negative) → negate so LRP attributes for the
-            # "not-positive" direction (relevance conservation still holds for -logit).
-            if target_class_idx is not None:
-                idx = (
-                    target_class_idx
-                    if isinstance(target_class_idx, int)
-                    else int(target_class_idx.item())
-                )
-                if idx == 0:
-                    return -logits
+            # target_class_idx is ignored for binary models: attribution is always
+            # computed towards the positive class (logit as-is).  Callers who want
+            # to interpret negative-class contributions should negate the result.
             return logits
         if mode in ("multiclass", "multilabel"):
             if target_class_idx is None:
@@ -452,8 +444,9 @@ class LayerwiseRelevancePropagation(BaseInterpreter):
     ) -> torch.Tensor:
         """Propagate relevance through a residual block with correct LRP skip-connection split.
 
-        At each residual addition ``out = main_path + identity`` the epsilon rule requires
-        splitting the incoming relevance proportionally:
+        At each residual addition ``out = main_path + identity`` the LRP rule requires
+        splitting the incoming relevance proportionally.  The active rule (epsilon or
+        alpha-beta) is determined by ``self.rule``:
             R_main     = (main_path / stabilise(main_path + identity)) * R_in
             R_identity = (identity  / stabilise(main_path + identity)) * R_in
 
@@ -478,17 +471,37 @@ class LayerwiseRelevancePropagation(BaseInterpreter):
         else:
             identity = block_input
 
-        # LRP-epsilon split at the residual addition
+        # LRP split at the residual addition, dispatched by rule.
         if (main_out is not None
                 and identity is not None
                 and main_out.shape == identity.shape
                 and r_in.shape == main_out.shape):
-            total = main_out + identity
-            sign = total.sign()
-            sign = torch.where(sign == 0, torch.ones_like(sign), sign)
-            denom = total + self.epsilon * sign
-            r_for_main = (main_out / denom) * r_in
-            r_for_identity = (identity / denom) * r_in
+            if self.rule == "alphabeta":
+                # Alpha-beta rule for an addition node:
+                #   z_j^+ = sum of positive inputs,  z_j^- = sum of negative inputs
+                #   R_i = (alpha * a_i^+ / stabilise(z_j^+)
+                #          - beta  * a_i^- / stabilise(z_j^-)) * R_j
+                z_pos = torch.clamp(main_out, min=0) + torch.clamp(identity, min=0)
+                z_neg = torch.clamp(main_out, max=0) + torch.clamp(identity, max=0)
+                denom_pos = stabilize_denominator(z_pos, self.epsilon)
+                denom_neg = stabilize_denominator(z_neg, self.epsilon)
+                r_for_main = (
+                    self.alpha * torch.clamp(main_out, min=0) / denom_pos
+                    - self.beta  * torch.clamp(main_out, max=0) / denom_neg
+                ) * r_in
+                r_for_identity = (
+                    self.alpha * torch.clamp(identity, min=0) / denom_pos
+                    - self.beta  * torch.clamp(identity, max=0) / denom_neg
+                ) * r_in
+            else:
+                # Epsilon rule for an addition node:
+                #   R_i = (a_i / stabilise(z_j)) * R_j
+                total = main_out + identity
+                sign = total.sign()
+                sign = torch.where(sign == 0, torch.ones_like(sign), sign)
+                denom = total + self.epsilon * sign
+                r_for_main = (main_out / denom) * r_in
+                r_for_identity = (identity / denom) * r_in
         else:
             r_for_main = r_in
             r_for_identity = None
@@ -525,29 +538,42 @@ class LayerwiseRelevancePropagation(BaseInterpreter):
         tracked residual block (BasicBlock / Bottleneck), all sub-layers of that
         block are handled by ``_propagate_through_residual_block`` which applies
         a proper LRP-epsilon split at the skip-connection addition.
+
+        For models with per-feature branches (e.g. MLP, StageNet) the relevance
+        is split across features *immediately after* propagating through the shared
+        classifier head (``self.model.fc``), which is the mathematically correct
+        split point.  Each feature's slice is then independently propagated through
+        its own sub-network layers (identified by the feature key appearing as a
+        dotted path component in the layer name, e.g. ``mlp.conditions.0``).
+        This preserves the relevance-conservation invariant of Eq. (2) in the
+        Binder et al. (2016) paper, up to the epsilon perturbation.
         """
         current_relevance = output_relevance
         layer_names = list(reversed(list(ctx.activations.keys())))
 
         feature_relevances = {}
-        concat_detected = False
         blocks_handled: set = set()
 
-        # Pre-compute expected combined embedding size for shape-based concat detection
-        # (Issue 8). This is reliable when all features have consistent embedding dims.
-        expected_concat_size: Optional[int] = None
+        feat_keys: list = []
         n_features = 0
         if isinstance(input_embeddings, dict) and hasattr(self.model, "feature_keys"):
-            n_features = len(
-                [k for k in self.model.feature_keys if k in input_embeddings]
-            )
-            if n_features > 1:
-                try:
-                    expected_concat_size = sum(
-                        emb.size(-1) for emb in input_embeddings.values()
-                    )
-                except Exception:
-                    expected_concat_size = None
+            feat_keys = [k for k in self.model.feature_keys if k in input_embeddings]
+            n_features = len(feat_keys)
+
+        # Detect whether the model has separate per-feature branches that feed
+        # into a shared classifier (self.model.fc).  This is True when:
+        #   (a) the model exposes a `fc` attribute (the final Linear head), AND
+        #   (b) every feature key appears as a dotted path component in at least
+        #       one recorded layer activation (e.g. "mlp.conditions.0").
+        # Both MLP and StageNet satisfy these criteria.
+        all_layer_name_parts: set = set()
+        for ln in ctx.activations:
+            all_layer_name_parts.update(ln.split("."))
+        has_per_feature_branches = (
+            n_features > 1
+            and hasattr(self.model, "fc")
+            and all(fk in all_layer_name_parts for fk in feat_keys)
+        )
 
         idx = 0
         while idx < len(layer_names):
@@ -575,32 +601,6 @@ class LayerwiseRelevancePropagation(BaseInterpreter):
             module = activation_info["module"]
             output_tensor = activation_info["output"]
 
-            # Detect concatenation point (multi-feature MLP pattern)
-            if not concat_detected and isinstance(module, nn.Linear) and n_features > 1:
-                # Primary signal: shape matches the sum of all embedding dims
-                if (
-                    expected_concat_size is not None
-                    and current_relevance.dim() == 2
-                    and current_relevance.size(1) == expected_concat_size
-                ):
-                    concat_detected = True
-                # Fallback: string heuristic (warns to aid debugging)
-                elif (
-                    idx + 1 < len(layer_names)
-                    and hasattr(self.model, "feature_keys")
-                ):
-                    next_name = layer_names[idx + 1]
-                    if "mlp." in next_name and any(
-                        f in next_name for f in self.model.feature_keys
-                    ):
-                        logger.warning(
-                            "LRP concat detection fell back to string heuristic for "
-                            "layer '%s'; consider ensuring all embedding dims are "
-                            "consistent so shape-based detection triggers instead.",
-                            layer_name,
-                        )
-                        concat_detected = True
-
             if current_relevance.shape != output_tensor.shape:
                 current_relevance = self._match_shapes(
                     current_relevance, output_tensor.shape
@@ -610,24 +610,30 @@ class LayerwiseRelevancePropagation(BaseInterpreter):
                 module, activation_info, current_relevance
             )
 
-            if concat_detected and current_relevance.dim() == 2:
-                n_feat = len(self.model.feature_keys)
-                dim = current_relevance.size(1) // n_feat
-                for i, fk in enumerate(self.model.feature_keys):
+            # After propagating through the shared classifier head, split the
+            # relevance across per-feature branches and propagate each independently.
+            # Using module identity avoids fragile shape-based heuristics and
+            # ensures the split happens at the correct point in the computation graph.
+            if (
+                has_per_feature_branches
+                and module is self.model.fc
+                and current_relevance.dim() == 2
+            ):
+                per_feat = current_relevance.size(1) // n_features
+                for i, fk in enumerate(feat_keys):
                     feature_relevances[fk] = current_relevance[
-                        :, i * dim : (i + 1) * dim
+                        :, i * per_feat : (i + 1) * per_feat
                     ]
-                # Process remaining feature-specific layers
-                for fk in self.model.feature_keys:
+                # Propagate each feature's relevance through its own sub-network.
+                # A layer belongs to feature fk when fk is a dotted-path component
+                # of the layer name (e.g. "mlp.conditions.0" → "conditions").
+                for fk in feat_keys:
                     cur = feature_relevances[fk]
                     for ln in layer_names[idx + 1:]:
-                        if fk not in ln:
+                        if fk not in ln.split("."):
                             continue
                         ai = ctx.activations[ln]
-                        m = ai["module"]
-                        if cur.shape != ai["output"].shape:
-                            cur = self._match_shapes(cur, ai["output"].shape)
-                        cur = self._propagate_through_layer(m, ai, cur)
+                        cur = self._propagate_through_layer(ai["module"], ai, cur)
                     feature_relevances[fk] = cur
                 return self._split_relevance_to_features(
                     feature_relevances, input_embeddings
@@ -735,6 +741,7 @@ class LayerwiseRelevancePropagation(BaseInterpreter):
                     continue
                 emb = input_embeddings[key]
                 if emb.dim() == 3 and rel.dim() == 2:
+                    T = emb.size(1)
                     feat_dim = emb.size(-1)
                     if rel.size(1) > feat_dim:
                         # Strip appended dimensions (e.g. StageNet concatenates
@@ -742,7 +749,11 @@ class LayerwiseRelevancePropagation(BaseInterpreter):
                         # kernel Linear; LRP returns relevance for the full
                         # concatenated input, so discard the time columns).
                         rel = rel[:, :feat_dim]
-                    rel = rel.unsqueeze(1).expand_as(emb)
+                    # Divide by T to reverse mean pooling: each of the T
+                    # timesteps contributed equally, so each receives 1/T of
+                    # the pooled relevance.  This preserves the relevance-sum
+                    # conservation invariant (Eq. 2) through the pooling step.
+                    rel = (rel.unsqueeze(1) / T).expand_as(emb)
                 result[key] = rel
             return result
 

@@ -429,13 +429,19 @@ class TestRelevanceConservation(unittest.TestCase):
 
     def test_relevance_sums_to_output(self):
         """Test that sum of relevances approximately equals model output.
-        
+
         This is the key property of LRP: conservation.
         Sum of input relevances ≈ f(x) for the target class.
-        
-        Note: For complex architectures (branching, skip connections),
-        conservation violations of 50-200% are acceptable in practice.
-        This is documented in the LRP literature.
+
+        The epsilon rule is only *approximately* conservative: for each Linear
+        layer the per-layer conservation ratio is (Wx)/(Wx+b+ε).  With a
+        randomly-initialised model the logit is tiny, so biases can be
+        comparable in magnitude and cause multi-hundred-percent relative
+        error even though the absolute error is small.  The 3× bound below
+        is therefore a structural sanity check (catch NaN, sign-flips from
+        catastrophic cancellation, or broken split logic) rather than a
+        tight conservation guarantee.  Tight conservation (≤15 %) is expected
+        for trained models where |logit| ≫ |bias|.
         """
         lrp = LayerwiseRelevancePropagation(self.trained_model, rule="epsilon", epsilon=0.01)
 
@@ -450,13 +456,11 @@ class TestRelevanceConservation(unittest.TestCase):
         # Sum all relevances
         total_relevance = sum(attr.sum().item() for attr in attributions.values())
 
-        # Check conservation with generous tolerance for branching architectures
+        # Check conservation — 3× bound is the structural safety net
         print(f"\nLogit: {logit:.4f}, Total relevance: {total_relevance:.4f}")
         relative_diff = abs(total_relevance - logit) / max(abs(logit), 1e-6)
         print(f"Relative difference: {relative_diff:.2%}")
-        
-        # Allow up to 200% violation (3x) for branching architectures
-        # This is consistent with the LRP literature for complex models
+
         self.assertLess(relative_diff, 3.0,
             f"Conservation violated beyond acceptable threshold: "
             f"total_relevance={total_relevance:.4f}, logit={logit:.4f}, "
@@ -1277,7 +1281,13 @@ class TestStageNetLRP(unittest.TestCase):
         total = sum(a.sum().item() for a in attrs.values())
 
         rel = abs(total - logit) / max(abs(logit), 1e-6)
-        self.assertLess(rel, 3.0,
+        # StageNet uses a custom step-wise LSTM implementation whose repeated
+        # Linear calls overwrite hook activations, so only the last timestep is
+        # seen during backward propagation.  Combined with the bias-induced
+        # epsilon-rule error (see note in TestRelevanceConservation), a 1.5×
+        # relative bound is a structural sanity check rather than a tight
+        # conservation guarantee.
+        self.assertLess(rel, 1.5,
             f"Conservation violated: logit={logit:.4f}, sum={total:.4f}, rel={rel:.2%}")
 
     def test_epsilon_vs_alphabeta_differ(self):

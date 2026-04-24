@@ -378,22 +378,27 @@ class Conv2dLRPHandler(LRPLayerHandler):
         b_pos = torch.clamp(layer.bias, min=0) if layer.bias is not None else None
         b_neg = torch.clamp(layer.bias, max=0) if layer.bias is not None else None
 
+        # Use separate denominators for positive and negative paths, matching
+        # LinearLRPHandler.  This implements the standard alpha-beta formula:
+        #   R_i = alpha * sum_j (z_ij+ / z_j+) * R_j
+        #         - beta  * sum_j (z_ij- / z_j-) * R_j
         z_pos = F.conv2d(x, W_pos, b_pos, **conv_kw)
         z_neg = F.conv2d(x, W_neg, b_neg, **conv_kw)
-        z_sum = z_pos + z_neg
-        sign = z_sum.sign()
-        sign = torch.where(sign == 0, torch.ones_like(sign), sign)
-        z_total = z_sum + epsilon * sign
+        denom_pos = stabilize_denominator(z_pos, epsilon, rule="epsilon")
+        denom_neg = stabilize_denominator(z_neg, epsilon, rule="epsilon")
 
-        s = relevance_output / z_total
         out_pad = conv_output_padding(layer, z_pos.shape, x.shape)
         trans_kw = dict(
             stride=layer.stride, padding=layer.padding,
             output_padding=out_pad, dilation=layer.dilation, groups=layer.groups,
         )
-        c_pos = crop_spatial(F.conv_transpose2d(s, W_pos, None, **trans_kw), x.shape)
-        c_neg = crop_spatial(F.conv_transpose2d(s, W_neg, None, **trans_kw), x.shape)
-        return x * (alpha * c_pos + beta * c_neg)
+        c_pos = crop_spatial(
+            F.conv_transpose2d(relevance_output / denom_pos, W_pos, None, **trans_kw), x.shape
+        )
+        c_neg = crop_spatial(
+            F.conv_transpose2d(relevance_output / denom_neg, W_neg, None, **trans_kw), x.shape
+        )
+        return x * (alpha * c_pos - beta * c_neg)
 
 
 class MaxPool2dLRPHandler(LRPLayerHandler):
@@ -562,8 +567,10 @@ class RNNLRPHandler(LRPLayerHandler):
         cache = self._get_cached(layer)
         x = cache["input"]
         if x.dim() == 3:
-            # relevance_output: [B, H] → expand to [B, T, H]
-            return relevance_output.unsqueeze(1).expand(x.shape[0], x.shape[1], -1)
+            # relevance_output: [B, H] → distribute equally over T timesteps.
+            # Dividing by T preserves the total relevance sum (Eq. 2 conservation).
+            T = x.shape[1]
+            return (relevance_output.unsqueeze(1) / T).expand(x.shape[0], T, -1).contiguous()
         return relevance_output
 
 
