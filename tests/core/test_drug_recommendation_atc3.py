@@ -1,16 +1,14 @@
+import csv
+import gzip
+import shutil
+import tempfile
 import unittest
-from types import SimpleNamespace
+from pathlib import Path
 from unittest.mock import patch
 
-import polars as pl
-
 import pyhealth.tasks.drug_recommendation as drug_rec
-from pyhealth.tasks import (
-    DrugRecommendationMIMIC3,
-    DrugRecommendationMIMIC4,
-    drug_recommendation_mimic3_fn,
-    drug_recommendation_mimic4_fn,
-)
+from pyhealth.datasets import MIMIC3Dataset, MIMIC4Dataset
+from pyhealth.tasks import DrugRecommendationMIMIC3, DrugRecommendationMIMIC4
 
 
 class FakeNDCToATC3Map:
@@ -27,46 +25,11 @@ class FakeNDCToATC3Map:
         return self.mapping.get(ndc, [])
 
 
-class FakePatient:
-    patient_id = "patient-1"
-
-    def __init__(self, tables):
-        self.tables = tables
-
-    def get_events(self, event_type, filters=None, return_df=False):
-        if event_type == "admissions":
-            return [SimpleNamespace(hadm_id="visit-1"), SimpleNamespace(hadm_id="visit-2")]
-
-        hadm_id = filters[0][2]
-        rows = self.tables[event_type][hadm_id]
-        if return_df:
-            return pl.DataFrame(rows)
-        return rows
-
-
-class FakeVisit:
-    def __init__(self, visit_id, table_codes):
-        self.visit_id = visit_id
-        self.table_codes = table_codes
-
-    def get_code_list(self, table):
-        return self.table_codes[table]
-
-
-class FakeLegacyPatient:
-    patient_id = "patient-legacy"
-
-    def __init__(self, visits):
-        self.visits = visits
-
-    def __len__(self):
-        return len(self.visits)
-
-    def __getitem__(self, index):
-        return self.visits[index]
-
-
 class TestDrugRecommendationATC3(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.resources_root = Path(__file__).parents[2] / "test-resources" / "core"
+
     def setUp(self):
         drug_rec._NDC_TO_ATC3_MAPPER = None
         drug_rec._NDC_TO_ATC3_CACHE.clear()
@@ -77,144 +40,134 @@ class TestDrugRecommendationATC3(unittest.TestCase):
         )
         self.addCleanup(patcher.stop)
         self.crossmap_load = patcher.start()
+        self.temp_dirs = []
 
     def tearDown(self):
         drug_rec._NDC_TO_ATC3_MAPPER = None
         drug_rec._NDC_TO_ATC3_CACHE.clear()
+        for temp_dir in self.temp_dirs:
+            temp_dir.cleanup()
 
-    def test_mimic3_drug_recommendation_maps_ndc_to_atc3(self):
-        patient = FakePatient(
+    def _copy_demo(self, demo_name):
+        temp_dir = tempfile.TemporaryDirectory()
+        self.temp_dirs.append(temp_dir)
+        source = self.resources_root / demo_name
+        target = Path(temp_dir.name) / demo_name
+        shutil.copytree(source, target)
+        return target, temp_dir
+
+    def _rewrite_prescription_ndcs(self, path, replacements):
+        opener = gzip.open if path.suffix == ".gz" else open
+        with opener(path, "rt", newline="") as f:
+            reader = csv.DictReader(f)
+            rows = list(reader)
+            fieldnames = reader.fieldnames
+
+        if fieldnames is None:
+            raise ValueError(f"No CSV header found in {path}")
+
+        counts = {hadm_id: 0 for hadm_id in replacements}
+        templates = {}
+        rewritten_rows = []
+        for row in rows:
+            hadm_id = str(row["hadm_id"])
+            if hadm_id in replacements:
+                templates.setdefault(hadm_id, row.copy())
+                index = counts[hadm_id]
+                ndcs = replacements[hadm_id]
+                row["ndc"] = ndcs[index] if index < len(ndcs) else "99999999999"
+                counts[hadm_id] += 1
+            rewritten_rows.append(row)
+
+        for hadm_id, ndcs in replacements.items():
+            if hadm_id not in templates:
+                raise ValueError(f"No prescription rows found for hadm_id={hadm_id}")
+            while counts[hadm_id] < len(ndcs):
+                row = templates[hadm_id].copy()
+                if "row_id" in row:
+                    row["row_id"] = str(10_000_000 + len(rewritten_rows))
+                row["ndc"] = ndcs[counts[hadm_id]]
+                rewritten_rows.append(row)
+                counts[hadm_id] += 1
+
+        with opener(path, "wt", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(rewritten_rows)
+
+    def _assert_atc3_samples(self, samples, first_hadm_id, second_hadm_id):
+        by_visit = {str(sample["visit_id"]): sample for sample in samples}
+        self.assertIn(first_hadm_id, by_visit)
+        self.assertIn(second_hadm_id, by_visit)
+
+        first_sample = by_visit[first_hadm_id]
+        second_sample = by_visit[second_hadm_id]
+        self.assertEqual(first_sample["drugs"], ["A10B", "C03C"])
+        self.assertEqual(second_sample["drugs"], ["N02B"])
+        self.assertNotIn("1111", first_sample["drugs"])
+        self.assertNotIn("2222", first_sample["drugs"])
+        self.assertNotIn("3333", second_sample["drugs"])
+        self.assertNotIn("0", first_sample["drugs"])
+        self.assertNotIn("9999", first_sample["drugs"])
+
+    def test_mimic3_demo_drug_recommendation_maps_ndc_to_atc3(self):
+        demo_path, cache_dir = self._copy_demo("mimic3demo")
+        self._rewrite_prescription_ndcs(
+            demo_path / "PRESCRIPTIONS.csv.gz",
             {
-                "diagnoses_icd": {
-                    "visit-1": {"diagnoses_icd/icd9_code": ["25000"]},
-                    "visit-2": {"diagnoses_icd/icd9_code": ["4019"]},
-                },
-                "procedures_icd": {
-                    "visit-1": {"procedures_icd/icd9_code": ["3893"]},
-                    "visit-2": {"procedures_icd/icd9_code": ["9904"]},
-                },
-                "prescriptions": {
-                    "visit-1": {
-                        "prescriptions/ndc": [
-                            "11111111111",
-                            "22222222222",
-                            "11111111111",
-                            "0",
-                            None,
-                            "99999999999",
-                        ]
-                    },
-                    "visit-2": {"prescriptions/ndc": ["33333333333"]},
-                },
-            }
+                "142582": [
+                    "11111111111",
+                    "22222222222",
+                    "11111111111",
+                    "0",
+                    "99999999999",
+                ],
+                "122098": ["33333333333", "", "<NA>"],
+            },
+        )
+        dataset = MIMIC3Dataset(
+            root=str(demo_path),
+            tables=["diagnoses_icd", "procedures_icd", "prescriptions"],
+            cache_dir=cache_dir.name,
         )
 
-        samples = DrugRecommendationMIMIC3()(patient)
+        samples = DrugRecommendationMIMIC3()(dataset.get_patient("10059"))
 
         self.crossmap_load.assert_called_once_with("NDC", "ATC")
-        self.assertEqual(samples[0]["drugs"], ["A10B", "C03C"])
-        self.assertEqual(samples[0]["drugs_hist"], [[]])
-        self.assertEqual(samples[1]["drugs"], ["N02B"])
-        self.assertEqual(samples[1]["drugs_hist"], [["A10B", "C03C"], []])
-        self.assertNotIn("1111", samples[0]["drugs"])
-        self.assertNotIn("0", samples[0]["drugs"])
+        self._assert_atc3_samples(samples, "142582", "122098")
         self.assertTrue(
             all(kwargs == {"level": 3} for _, kwargs in self.mapper.calls)
         )
 
-    def test_mimic4_drug_recommendation_maps_ndc_to_atc3(self):
-        patient = FakePatient(
+    def test_mimic4_demo_drug_recommendation_maps_ndc_to_atc3(self):
+        demo_path, cache_dir = self._copy_demo("mimic4demo")
+        self._rewrite_prescription_ndcs(
+            demo_path / "hosp" / "prescriptions.csv",
             {
-                "diagnoses_icd": {
-                    "visit-1": {
-                        "diagnoses_icd/icd_version": ["9"],
-                        "diagnoses_icd/icd_code": ["25000"],
-                    },
-                    "visit-2": {
-                        "diagnoses_icd/icd_version": ["10"],
-                        "diagnoses_icd/icd_code": ["I10"],
-                    },
-                },
-                "procedures_icd": {
-                    "visit-1": {
-                        "procedures_icd/icd_version": ["9"],
-                        "procedures_icd/icd_code": ["3893"],
-                    },
-                    "visit-2": {
-                        "procedures_icd/icd_version": ["10"],
-                        "procedures_icd/icd_code": ["5A1D70Z"],
-                    },
-                },
-                "prescriptions": {
-                    "visit-1": {"prescriptions/ndc": ["11111111111", "22222222222"]},
-                    "visit-2": {
-                        "prescriptions/ndc": ["33333333333", "", "<NA>"]
-                    },
-                },
-            }
+                "20001": [
+                    "11111111111",
+                    "22222222222",
+                    "11111111111",
+                    "0",
+                    "99999999999",
+                ],
+                "20002": ["33333333333", "", "<NA>"],
+            },
+        )
+        dataset = MIMIC4Dataset(
+            ehr_root=str(demo_path),
+            ehr_tables=["diagnoses_icd", "procedures_icd", "prescriptions"],
+            cache_dir=cache_dir.name,
+            num_workers=1,
         )
 
-        samples = DrugRecommendationMIMIC4()(patient)
+        samples = DrugRecommendationMIMIC4()(dataset.get_patient("10001"))
 
         self.crossmap_load.assert_called_once_with("NDC", "ATC")
-        self.assertEqual(samples[0]["drugs"], ["A10B", "C03C"])
-        self.assertEqual(samples[1]["drugs"], ["N02B"])
-        self.assertNotIn("3333", samples[1]["drugs"])
+        self._assert_atc3_samples(samples, "20001", "20002")
         self.assertTrue(
             all(kwargs == {"level": 3} for _, kwargs in self.mapper.calls)
         )
-
-    def test_legacy_drug_recommendation_functions_map_ndc_to_atc3(self):
-        mimic3_patient = FakeLegacyPatient(
-            [
-                FakeVisit(
-                    "visit-1",
-                    {
-                        "DIAGNOSES_ICD": ["25000"],
-                        "PROCEDURES_ICD": ["3893"],
-                        "PRESCRIPTIONS": ["11111111111", "22222222222"],
-                    },
-                ),
-                FakeVisit(
-                    "visit-2",
-                    {
-                        "DIAGNOSES_ICD": ["4019"],
-                        "PROCEDURES_ICD": ["9904"],
-                        "PRESCRIPTIONS": ["33333333333"],
-                    },
-                ),
-            ]
-        )
-        mimic4_patient = FakeLegacyPatient(
-            [
-                FakeVisit(
-                    "visit-1",
-                    {
-                        "diagnoses_icd": ["9_25000"],
-                        "procedures_icd": ["9_3893"],
-                        "prescriptions": ["11111111111", "22222222222"],
-                    },
-                ),
-                FakeVisit(
-                    "visit-2",
-                    {
-                        "diagnoses_icd": ["10_I10"],
-                        "procedures_icd": ["10_5A1D70Z"],
-                        "prescriptions": ["33333333333"],
-                    },
-                ),
-            ]
-        )
-
-        mimic3_samples = drug_recommendation_mimic3_fn(mimic3_patient)
-        mimic4_samples = drug_recommendation_mimic4_fn(mimic4_patient)
-
-        self.assertEqual(mimic3_samples[0]["drugs"], ["A10B", "C03C"])
-        self.assertEqual(mimic3_samples[1]["drugs"], ["N02B"])
-        self.assertEqual(mimic4_samples[0]["drugs"], ["A10B", "C03C"])
-        self.assertEqual(mimic4_samples[1]["drugs"], ["N02B"])
-        self.assertNotIn("1111", mimic3_samples[0]["drugs"])
-        self.assertNotIn("1111", mimic4_samples[0]["drugs"])
 
 
 if __name__ == "__main__":
