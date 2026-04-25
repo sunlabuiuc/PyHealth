@@ -1,7 +1,7 @@
 """
-test_convnext.py
+test_convnext_tiny.py
 
-Unit tests for the custom ConvNeXt architecture integration within 
+Unit tests for the custom ConvNeXt Tiny architecture integration within 
 PyHealth's TorchvisionModel wrapper. Validates nested classifier 
 replacement and hidden embedding extraction.
 
@@ -46,7 +46,6 @@ class DummyVisionDataset:
         """Retrieves a single sample from the mock dataset by index."""
         return self.samples[index]
 
-
 class TestConvNeXt(unittest.TestCase):
     """Test suite specifically for the ConvNeXt additions to TorchvisionModel."""
     
@@ -59,25 +58,23 @@ class TestConvNeXt(unittest.TestCase):
         """Verifies the nested classifier replacement and forward pass for ConvNeXt."""
         model = TorchvisionModel(
             dataset=self.dataset,
-            feature_keys=["image"],
-            label_keys=["label"],
             model_name="convnext_tiny",
-            model_config={"weights": None} # Random weights to test architecture safely
+            model_config={"weights": None}
         )
         model.to(self.device)
         model.train() # Enable gradients
         
         batch_size = 2
         mock_images = torch.randn(batch_size, 3, 224, 224).to(self.device)
-        mock_labels = torch.randint(0, 2, (batch_size,)).to(self.device)
+        mock_labels = torch.randint(0, 2, (batch_size, 1), dtype=torch.float32).to(self.device)
         
-        # 1. Test Forward Pass
+        # Test Forward Pass
         outputs = model(image=mock_images, label=mock_labels)
         self.assertIn("loss", outputs)
         self.assertIn("y_prob", outputs)
         self.assertEqual(outputs["y_prob"].shape, (batch_size, 1))
         
-        # 2. Verify Gradient Flow through the specifically replaced classifier.2
+        # Verify Gradient Flow through the specifically replaced classifier.2
         loss = outputs["loss"]
         loss.backward()
         self.assertIsNotNone(model.model.classifier[2].weight.grad)
@@ -87,8 +84,6 @@ class TestConvNeXt(unittest.TestCase):
         """Verifies that ConvNeXt correctly extracts hidden embeddings."""
         model = TorchvisionModel(
             dataset=self.dataset,
-            feature_keys=["image"],
-            label_keys=["label"],
             model_name="convnext_tiny",
             model_config={"weights": None}
         )

@@ -41,31 +41,33 @@ class DummyDermoscopyDataset:
 class TestDINOv2(unittest.TestCase):
     """Test suite for the DINOv2 model architecture and freezing logic."""
 
-    def setUp(self):
-        self.dataset = DummyDermoscopyDataset()
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    @classmethod
+    def setUpClass(cls):
+        """Runs once for the entire test class to prevent reloading weights."""
+        cls.dataset = DummyDermoscopyDataset()
+        cls.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         # Add the required BaseModel schema arguments
-        self.model = DINOv2(
-            dataset=self.dataset,
+        cls.model = DINOv2(
+            dataset=cls.dataset,
             feature_keys=["image"],
             label_key="melanoma",
             mode="binary",
             model_size="vits14"
         )
-        self.model.to(self.device)
+        cls.model.to(cls.device)
 
     def test_initialization(self):
         """Verifies that the model initializes correctly with PyHealth kwargs."""
-        self.assertIsNotNone(self.model)
-        self.assertEqual(self.model.mode, "binary")
-        self.assertIn("image", self.model.feature_keys)
+        self.assertIsNotNone(self.__class__.model)
+        self.assertEqual(self.__class__.model.mode, "binary")
+        self.assertIn("image", self.__class__.model.feature_keys)
 
     def test_forward_pass_and_gradients(self):
         """Verifies forward pass, shapes, and gradient flow (required by rubric)."""
         batch_size = 4
-        mock_images = torch.randn(batch_size, 3, 224, 224).to(self.device)
-        mock_labels = torch.randint(0, 2, (batch_size,)).to(self.device)
+        mock_images = torch.randn(batch_size, 3, 224, 224).to(self.__class__.device)
+        mock_labels = torch.randint(0, 2, (batch_size,)).to(self.__class__.device)
         
         batch = {
             "image": mock_images,
@@ -73,8 +75,9 @@ class TestDINOv2(unittest.TestCase):
         }
 
         # Forward Pass
-        self.model.train() # Set to train to enable gradients
-        outputs = self.model(**batch)
+        self.__class__.model.train() # Set to train to enable gradients
+        self.__class__.model.zero_grad() # Clear gradients from any prior tests
+        outputs = self.__class__.model(**batch)
 
         self.assertIn("loss", outputs)
         self.assertIn("y_prob", outputs)
@@ -85,23 +88,23 @@ class TestDINOv2(unittest.TestCase):
         loss.backward()
         
         # Check if gradients propagated to the linear classifier head
-        self.assertIsNotNone(self.model.fc.weight.grad)
-        self.assertTrue(torch.any(self.model.fc.weight.grad != 0))
+        self.assertIsNotNone(self.__class__.model.fc.weight.grad)
+        self.assertTrue(torch.any(self.__class__.model.fc.weight.grad != 0))
 
         # Verify the backbone is actually frozen (required for Linear Probing)
         # The first parameter of the backbone should have NO gradient
-        backbone_param = next(self.model.backbone.parameters())
+        backbone_param = next(self.__class__.model.backbone.parameters())
         self.assertIsNone(backbone_param.grad)
     
     def test_embedding_extraction(self):
         """Verifies the embed=True mode and forward_from_embedding."""
         batch_size = 2
-        mock_images = torch.randn(batch_size, 3, 224, 224).to(self.device)
+        mock_images = torch.randn(batch_size, 3, 224, 224).to(self.__class__.device)
         batch = {"image": mock_images}
 
         # Extract embeddings
-        self.model.eval()
-        embed_outputs = self.model(embed=True, **batch)
+        self.__class__.model.eval()
+        embed_outputs = self.__class__.model(embed=True, **batch)
         self.assertIn("embed", embed_outputs)
         
         # vits14 should output 384 dimensions
@@ -109,7 +112,8 @@ class TestDINOv2(unittest.TestCase):
         self.assertEqual(embeddings.shape, (batch_size, 384))
 
         # Test forward_from_embedding
-        final_outputs = self.model.forward_from_embedding(embeddings)
+        final_outputs = self.__class__.model.forward_from_embedding(embeddings)
         self.assertIn("y_prob", final_outputs)
+
 if __name__ == '__main__':
     unittest.main()

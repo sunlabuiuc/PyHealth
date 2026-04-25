@@ -111,7 +111,7 @@ Run the following tests to ensure your PyHealth environment is configured correc
 
 - `pytest tests/core/test_dermoscopy.py`
 
-- `pytest tests/core/test_convnext.py`
+- `pytest tests/core/test_convnext_tiny.py`
 
 - `pytest tests/core/test_dinov2.py`
 
@@ -483,7 +483,7 @@ self.instance_images_path = [
 ```
 
 **Fixing the LoRA Alpha Default:**
-The paper utilizes an Alpha of 32 to scale the LoRA weight updates by 0.5 (`alpha / rank`), preventing the model from overfitting to the artifacts and forgetting core lesion morphology. However, `train_dreambooth_lora.py` does not expose an `--alpha` flag; it hardcodes `lora_alpha=args.rank`. To replicate the paper, we manually edited the source code at line ~939 to force the correct scaling:
+The paper utilizes an Alpha of 32 to scale the LoRA weight updates by 0.5 (`alpha / rank`), preventing the model from overfitting to the artifacts and forgetting core lesion morphology. However, `train_dreambooth_lora.py` does not expose an `--alpha` flag; it hardcodes `lora_alpha=args.rank`. To replicate the paper, we manually edited the source code at lines ~941 and ~952 to force the correct scaling:
 
 ```python
 # Modified in train_dreambooth_lora.py

@@ -33,9 +33,9 @@ class TestDermoscopyDataset(unittest.TestCase):
         current_dir = os.path.dirname(os.path.abspath(__file__))
         test_data_dir = os.path.join(current_dir, "../../test-resources/core/dermoscopy")
 
-        local_cache = os.path.join(test_data_dir, ".test_cache")
+        self.local_cache = os.path.join(test_data_dir, ".test_cache")
 
-        self.dataset = DermoscopyDataset(root=test_data_dir, dev=False, cache_dir=local_cache)
+        self.dataset = DermoscopyDataset(root=test_data_dir, dev=False, cache_dir=self.local_cache)
 
     def tearDown(self):
         """
