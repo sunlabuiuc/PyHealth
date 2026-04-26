@@ -1,0 +1,9 @@
+version: "1.0"
+tables:
+  ibi_sleep:
+    file_path: "ibi_sleep-metadata.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+      - "npz_path"
+      - "ahi"
