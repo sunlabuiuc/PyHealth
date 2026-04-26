@@ -1,0 +1,13 @@
+dataset_name: medlingo
+task: abbreviation_expansion
+modality: text
+
+tables:
+  - medlingo
+
+fields:
+  - abbr
+  - context
+  - label
+
+label_field: label
