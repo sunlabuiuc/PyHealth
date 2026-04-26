@@ -26,6 +26,7 @@ SUPPORTED_MODELS = [
     "swin_t",
     "swin_s",
     "swin_b",
+    "convnext_tiny",
 ]
 
 SUPPORTED_MODELS_FINAL_LAYER = {}
@@ -38,6 +39,9 @@ for model in SUPPORTED_MODELS:
         SUPPORTED_MODELS_FINAL_LAYER[model] = "heads.head"
     elif "swin" in model:
         SUPPORTED_MODELS_FINAL_LAYER[model] = "head"
+    elif "convnext" in model:
+        # ConvNeXT's classifier is a Sequential block; the Linear layer is at index 2
+        SUPPORTED_MODELS_FINAL_LAYER[model] = "classifier.2"
     else:
         raise NotImplementedError
 
@@ -79,6 +83,11 @@ class TorchvisionModel(BaseModel):
 
         Paper: Ze Liu, Han Hu, Yutong Lin, et al.
         "Swin Transformer V2: Scaling Up Capacity and Resolution."
+        IEEE Conference on Computer Vision and Pattern Recognition (CVPR), 2022.
+    
+    ConvNeXT (convnext_tiny):
+        Paper: Zhuang Liu, Hanzi Mao, Chao-Yuan Wu, Christoph Feichtenhofer, Trevor Darrell, Saining Xie.
+        "A ConvNet for the 2020s."
         IEEE Conference on Computer Vision and Pattern Recognition (CVPR), 2022.
 
     Args:
@@ -156,8 +165,19 @@ class TorchvisionModel(BaseModel):
         hidden_dim = final_layer.in_features
         self.hidden_dim = hidden_dim  # Store for embedding extraction
         output_size = self.get_output_size()
-        layer_name = final_layer_name.split(".")[0]
-        setattr(self.model, layer_name, nn.Linear(hidden_dim, output_size))
+        
+        # Layer replacement for nested architectures (e.g., ConvNeXt).
+        # Traversing the dot notation to replace only the specific target node
+        # preserves necessary pre-processing layers like Flatten() or LayerNorm2d
+        # that are otherwise lost if the entire parent block is replaced.
+        if "." in final_layer_name:
+            parent_path, child_name = final_layer_name.rsplit(".", 1)
+            parent_module = self.model
+            for name in parent_path.split("."):
+                parent_module = getattr(parent_module, name)
+            setattr(parent_module, child_name, nn.Linear(hidden_dim, output_size))
+        else:
+            setattr(self.model, final_layer_name, nn.Linear(hidden_dim, output_size))
         
         # Initialize attention hooks storage for ViT interpretability
         self._attention_maps: List[torch.Tensor] = []
@@ -264,6 +284,12 @@ class TorchvisionModel(BaseModel):
             embeddings = self.model.avgpool(x)
             embeddings = torch.flatten(embeddings, 1)
 
+        elif "convnext" in self.model_name:
+            # For ConvNeXt: forward through features, then avgpool
+            x = self.model.features(x)
+            x = self.model.avgpool(x)
+            embeddings = torch.flatten(x, 1)
+
         else:
             raise NotImplementedError(
                 f"Embedding extraction not implemented for {self.model_name}"
@@ -297,8 +323,14 @@ class TorchvisionModel(BaseModel):
         
         # Get the final classification layer
         final_layer_name = SUPPORTED_MODELS_FINAL_LAYER[self.model_name]
-        layer_name = final_layer_name.split(".")[0]
-        fc_layer = getattr(self.model, layer_name)
+
+        # Safe layer traversal for interpretability vectors (TCAV).
+        # Iterating through the dot notation routes the 2D concept vector directly 
+        # into the final linear layer. This avoids dimension mismatch errors with 
+        # spatial layers (like LayerNorm2d) located within the parent block.
+        fc_layer = self.model
+        for part in final_layer_name.split("."):
+            fc_layer = getattr(fc_layer, part)
         
         # Apply classification head
         logits = fc_layer(embeddings)
@@ -339,7 +371,7 @@ class TorchvisionModel(BaseModel):
             return
         
         self._vit_blocks = blocks
-    
+
     def clear_attention_storage(self) -> None:
         """Clear stored attention maps and gradients."""
         self._attention_maps = []
@@ -428,7 +460,7 @@ class TorchvisionModel(BaseModel):
         attn_output = F.linear(attn_output, mha.out_proj.weight, mha.out_proj.bias)
         
         return attn_output, attn_weights
-    
+
     def forward_with_attention(
         self,
         x: torch.Tensor,
@@ -476,7 +508,7 @@ class TorchvisionModel(BaseModel):
         
         # Forward through encoder blocks with attention capture
         attention_maps = []
-        
+ 
         # Access encoder layers
         if hasattr(self.model.encoder, 'layers'):
             encoder_layers = self.model.encoder.layers
@@ -520,7 +552,7 @@ class TorchvisionModel(BaseModel):
         
         self._attention_maps = attention_maps
         return logits, attention_maps
-    
+
     def get_patch_size(self) -> int:
         """Get the patch size for ViT models.
         
@@ -532,7 +564,7 @@ class TorchvisionModel(BaseModel):
         """
         if not self.is_vit_model():
             raise ValueError("get_patch_size only works with ViT models")
-        
+
         # Extract from model name
         parts = self.model_name.split("_")
         for part in parts:
@@ -541,13 +573,13 @@ class TorchvisionModel(BaseModel):
         
         # Default fallback
         return 16
-    
+
     def get_num_patches(self, input_size: int = 224) -> Tuple[int, int]:
         """Get the number of patches for ViT models.
         
         Args:
             input_size: Input image size (default 224).
-        
+
         Returns:
             Tuple of (height_patches, width_patches). For standard 224x224 input
             with patch_size=16, this is (14, 14).
