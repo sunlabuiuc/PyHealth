@@ -222,6 +222,7 @@ Available Tasks
     Sleep Staging (SleepEDF) <tasks/pyhealth.tasks.SleepStagingSleepEDF>
     Temple University EEG Tasks <tasks/pyhealth.tasks.temple_university_EEG_tasks>
     Sleep Staging v2 <tasks/pyhealth.tasks.sleep_staging_v2>
+    Sleep/Wake Detection & Staging (DREAMT) <tasks/pyhealth.tasks.sleep_wake_dreamt>
     Benchmark EHRShot <tasks/pyhealth.tasks.benchmark_ehrshot>
     ChestX-ray14 Binary Classification <tasks/pyhealth.tasks.ChestXray14BinaryClassification>
     De-Identification NER <tasks/pyhealth.tasks.DeIDNERTask>
@@ -230,3 +231,4 @@ Available Tasks
     Mutation Pathogenicity (COSMIC) <tasks/pyhealth.tasks.MutationPathogenicityPrediction>
     Cancer Survival Prediction (TCGA) <tasks/pyhealth.tasks.CancerSurvivalPrediction>
     Cancer Mutation Burden (TCGA) <tasks/pyhealth.tasks.CancerMutationBurden>
+    
