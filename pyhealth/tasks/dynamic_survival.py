@@ -1,0 +1,752 @@
+# Authors: Skyler Lehto (lehto2@illinois.edu),
+#          Ryan Bradley (ryancb3@illinois.edu),
+#          Weonah Choi (weonahc2@illinois.edu)
+# Paper: Dynamic Survival Analysis for Early Event Prediction (Yèche et al., 2024)
+# Link: https://arxiv.org/abs/2403.12818
+# Description: Anchor-based discrete-time survival task for longitudinal EHR data.
+
+"""
+Dynamic Survival Task for PyHealth.
+
+This module implements a dynamic survival prediction task using:
+- Anchor-based sampling
+- Observation windows
+- Discrete-time survival labels
+
+The task converts longitudinal EHR data into sequence samples
+for survival modeling.
+"""
+
+from collections import defaultdict
+from typing import Any, Dict, List, Optional, Union, Tuple, Type
+
+
+import numpy as np
+from pyhealth.medcode import CrossMap
+from pyhealth.tasks.base_task import BaseTask
+
+
+DIAG_MAPPER = CrossMap("ICD9CM", "CCSCM")
+PROC_MAPPER = CrossMap("ICD9PROC", "CCSPROC")
+DRUG_MAPPER = CrossMap("NDC", "ATC")
+
+
+def build_daily_time_series_from_df(patient) -> List[Dict[str, Any]]:
+    """
+    Build daily time series from a dataframe-based patient.
+
+    This function handles the PyHealth main dataset structure where
+    all events are stored in a single dataframe (patient.data_source).
+    It extracts relevant medical events and aggregates them into
+    daily time steps.
+
+    Called by :func:`build_daily_time_series` when the patient object
+    exposes a ``data_source`` attribute.
+
+    Args:
+        patient (Any): A PyHealth patient object with a dataframe
+            stored in `patient.data_source`.
+
+    Returns:
+        List[Dict[str, Any]]: A list of daily aggregated visits where
+        each entry contains:
+            - time (int): day index
+            - diagnosis (List[str])
+            - procedure (List[str])
+            - drug (List[str])
+    """
+    df = patient.data_source
+
+    events = []
+
+    for row in df.iter_rows(named=True):
+        timestamp = row.get("timestamp")
+        event_type = str(row.get("event_type")).lower()
+
+        # Extract code based on event type
+        if event_type == "diagnoses_icd":
+            code = row.get("diagnoses_icd/icd9_code")
+
+        elif event_type == "procedures_icd":
+            code = row.get("procedures_icd/icd9_code")
+
+        elif event_type == "prescriptions":
+            code = row.get("prescriptions/ndc")
+
+        else:
+            # Ignore non-medical tables (patients, admissions, icustays)
+            continue
+
+        # Skip invalid rows
+        if timestamp is None or code is None:
+            continue
+
+        events.append((timestamp, code, event_type))
+
+    if not events:
+        return []
+
+    # Sort events by time
+    events.sort(key=lambda x: x[0])
+    first_time = events[0][0]
+
+    # Map time -> codes
+    time_to_codes = defaultdict(
+        lambda: {"diagnosis": set(), "procedure": set(), "drug": set()}
+    )
+
+    for timestamp, code, event_type in events:
+        delta_day = (timestamp - first_time).days
+
+        if event_type == "diagnoses_icd":
+            time_to_codes[delta_day]["diagnosis"].add(code)
+
+        elif event_type == "procedures_icd":
+            time_to_codes[delta_day]["procedure"].add(code)
+
+        elif event_type == "prescriptions":
+            time_to_codes[delta_day]["drug"].add(code)
+
+    max_day = max(time_to_codes.keys())
+
+    visits = []
+    current_diag, current_proc, current_drug = set(), set(), set()
+
+    # Build cumulative daily visits
+    for day in range(max_day + 1):
+        if day in time_to_codes:
+            current_diag.update(time_to_codes[day]["diagnosis"])
+            current_proc.update(time_to_codes[day]["procedure"])
+            current_drug.update(time_to_codes[day]["drug"])
+
+        visits.append(
+            {
+                "time": day,
+                "diagnosis": list(current_diag),
+                "procedure": list(current_proc),
+                "drug": list(current_drug),
+            }
+        )
+
+    return visits
+
+
+def build_daily_time_series(patient) -> List[Dict[str, Any]]:
+    """
+    Convert patient events into a daily time series.
+
+    Called by :meth:`DynamicSurvivalTask.__call__` and
+    :meth:`DynamicSurvivalTask.build_vocab` to normalise any patient
+    format into a flat list of daily visit dicts before feature encoding.
+
+    Args:
+        patient: Patient object with visits and event lists.
+
+    Returns:
+        List of daily aggregated visits.
+    """
+    events = []
+    
+    if hasattr(patient, "data_source"):
+        return build_daily_time_series_from_df(patient)
+
+
+    if hasattr(patient, "get_visits"):
+        visits = patient.get_visits()
+    else:
+        visits = patient.visits.values()
+
+    for visit in visits:
+        for table in [
+            "DIAGNOSES_ICD",
+            "PROCEDURES_ICD",
+            "PRESCRIPTIONS",
+        ]:
+            for event in visit.event_list_dict.get(table, []):
+                timestamp = (
+                    event.timestamp
+                    if event.timestamp is not None
+                    else visit.encounter_time
+                )
+                if timestamp is None:
+                    continue
+                events.append((timestamp, event.code, event.vocabulary))
+
+    if not events:
+        return []
+
+    events.sort(key=lambda x: x[0])
+    first_time = events[0][0]
+
+    time_to_codes = defaultdict(
+        lambda: {"diagnosis": set(), "procedure": set(), "drug": set()}
+    )
+
+    for timestamp, code, vocab in events:
+        delta_day = (timestamp - first_time).days
+
+        if vocab == "ICD9CM":
+            time_to_codes[delta_day]["diagnosis"].add(code)
+        elif vocab == "ICD9PROC":
+            time_to_codes[delta_day]["procedure"].add(code)
+        elif vocab == "NDC":
+            time_to_codes[delta_day]["drug"].add(code)
+
+    max_day = max(time_to_codes.keys())
+
+    visits = []
+    current_diag, current_proc, current_drug = set(), set(), set()
+
+    for day in range(max_day + 1):
+        if day in time_to_codes:
+            current_diag.update(time_to_codes[day]["diagnosis"])
+            current_proc.update(time_to_codes[day]["procedure"])
+            current_drug.update(time_to_codes[day]["drug"])
+
+        visits.append(
+            {
+                "time": day,
+                "diagnosis": list(current_diag),
+                "procedure": list(current_proc),
+                "drug": list(current_drug),
+            }
+        )
+
+    return visits
+
+
+class DynamicSurvivalEngine:
+    """Core engine for dynamic survival sample generation."""
+
+    def __init__(
+        self,
+        horizon: int = 24,
+        observation_window: int = 24,
+        anchor_interval: int = 12,
+        anchor_strategy: str = "fixed",
+    ):
+        """Initialize the engine with survival prediction parameters.
+
+        Args:
+            horizon: Number of discrete time steps in the prediction window.
+            observation_window: Look-back window width in days.
+            anchor_interval: Spacing between anchors under the fixed strategy.
+            anchor_strategy: "fixed" for evenly spaced anchors or "single" for
+                one anchor at the earliest valid prediction point.
+        """
+        self.horizon = horizon
+        self.observation_window = observation_window
+        self.anchor_interval = anchor_interval
+        self.anchor_strategy = anchor_strategy
+
+    def generate_anchors(
+        self,
+        event_times: List[int],
+        outcome_time: Optional[int],
+        censor_time: Optional[int] = None,
+    ) -> List[int]:
+        """Generate anchor time points for survival sample generation.
+    
+        Anchors define the time points from which prediction windows are
+        constructed. Under the 'fixed' strategy, anchors are placed at
+        regular intervals between the first observable time and the event
+        or censor time. Under the 'single' strategy, only one anchor is
+        placed at the event or censor time.
+    
+        Args:
+            event_times: Sorted list of visit timestamps in days relative
+                to the patient's first recorded event.
+            outcome_time: Day of the observed event, or None if censored.
+            censor_time: Day of censoring, or None if event was observed.
+    
+        Returns:
+            List of integer anchor times at which samples are generated.
+            Returns an empty list if no valid anchors can be constructed
+            (e.g. observation window exceeds available history).
+        """
+        if not event_times:
+            return []
+    
+        max_time = (
+            outcome_time
+            if outcome_time is not None
+            else (censor_time if censor_time is not None else max(event_times))
+        )
+    
+        start_time = min(event_times) + self.observation_window
+
+        # single: one anchor per patient at the earliest valid prediction point,
+        # giving the maximum delta. Ablates anchor density vs. fixed while
+        # testing the hardest (most distant) prediction scenario.
+        if self.anchor_strategy == "single":
+            if start_time < max_time:
+                return [int(start_time)]
+            return []
+
+        # fixed (default): evenly spaced anchors across the valid range
+        if start_time >= max_time:
+            return []
+        anchors = list(range(int(start_time), int(max_time), self.anchor_interval))
+        return anchors if anchors else []
+    
+    
+    def generate_survival_label(
+        self,
+        anchor_time: int,
+        event_time: Optional[int],
+        censor_time: Optional[int] = None,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Generate a discrete-time survival label vector and risk mask.
+    
+        For each horizon step k, y[k] indicates whether the event occurs
+        exactly k steps after the anchor. The mask encodes which steps
+        contribute to the survival likelihood: steps after the event or
+        after censoring are excluded.
+    
+        Convention: censor_time is treated as the last observed event-free
+        step, so mask[delta] = 1 and mask[delta+1:] = 0, mirroring the
+        event case where the event step itself is included.
+    
+        Args:
+            anchor_time: The anchor time point in days.
+            event_time: Observed event time in days, or None if censored.
+            censor_time: Censoring time in days, or None if event observed.
+    
+        Returns:
+            Tuple of (y, mask), each a float32 array of shape (horizon,).
+            y[k] = 1.0 if the event occurs at step k, else 0.0.
+            mask[k] = 1.0 if step k is in the risk set, else 0.0.
+        """
+        y = np.zeros(self.horizon, dtype=float)
+        mask = np.ones(self.horizon, dtype=float)
+    
+        if event_time is not None:
+            delta = int(event_time - anchor_time)
+    
+            if delta < 0:
+                mask[:] = 0
+            elif delta < self.horizon:
+                y[delta] = 1
+                mask[delta + 1:] = 0
+    
+        elif censor_time is not None:
+            delta = int(censor_time - anchor_time)
+            if delta < self.horizon:
+                mask[max(0, delta + 1):] = 0
+    
+        return y, mask
+    
+    
+    def process_patient(
+        self, patient: Dict[str, Any]
+    ) -> List[Dict[str, Any]]:
+        """Convert a single patient dictionary into survival samples.
+    
+        For each anchor time generated from the patient's visit history,
+        extracts the observation window, encodes features, and generates
+        the corresponding survival label and mask.
+    
+        Args:
+            patient: Dictionary with keys:
+                - patient_id (str): unique patient identifier.
+                - visits (List[Dict]): list of visit dicts, each with
+                  'time' (int) and 'feature' (np.ndarray) keys.
+                - outcome_time (Optional[int]): event time in days.
+                - censor_time (Optional[int]): censor time in days.
+    
+        Returns:
+            List of sample dictionaries, each containing:
+                - patient_id (str): patient identifier.
+                - visit_id (str): unique anchor-based sample identifier.
+                - x (np.ndarray): feature matrix of shape (T, d).
+                - y (np.ndarray): hazard label vector of shape (horizon,).
+                - mask (np.ndarray): risk set mask of shape (horizon,).
+            Returns an empty list if no valid anchors or sequences exist.
+        """
+        samples = []
+    
+        pid = patient.get("patient_id", "unknown")
+        visits = patient.get("visits", [])
+        event_time = patient.get("outcome_time")
+        censor_time = patient.get("censor_time")
+    
+        event_times = [v["time"] for v in visits if "time" in v]
+        anchors = self.generate_anchors(event_times, event_time, censor_time)
+    
+        for anchor in anchors:
+            obs_start = anchor - self.observation_window
+            seq = []
+    
+            for visit in visits:
+                if obs_start <= visit["time"] < anchor:
+                    if "feature" not in visit:
+                        continue
+    
+                    feat = np.concatenate(
+                        [
+                            np.array(
+                                [(visit["time"] - obs_start) / self.observation_window],
+                                dtype=np.float32,
+                            ),
+                            np.array(visit["feature"], dtype=np.float32),
+                        ]
+                    )
+                    seq.append(feat)
+    
+            if not seq:
+                continue
+    
+            x = np.array(seq, dtype=np.float32)
+            y, mask = self.generate_survival_label(
+                anchor, event_time, censor_time
+            )
+    
+            samples.append(
+                {
+                    "patient_id": pid,
+                    "visit_id": f"{pid}_{anchor}",
+                    "x": x,
+                    "y": y.astype(np.float32),
+                    "mask": mask.astype(np.float32),
+                }
+            )
+    
+        return samples
+
+
+class DynamicSurvivalTask(BaseTask):
+    """PyHealth-compatible dynamic survival task for early event prediction.
+
+    Implements the anchor-based discrete-time survival formulation from:
+    Yèche et al. (2024), *Dynamic Survival Analysis for Early Event Prediction*.
+    arXiv:2403.12818.
+
+    Each patient is converted into one or more survival samples, one per
+    anchor time point. At each anchor, the model predicts a discrete-time
+    hazard sequence over a fixed prediction horizon.
+
+    Attributes:
+        task_name (str): Identifier for this task, used by PyHealth internals.
+        input_schema (Dict[str, str]): Maps 'x' to 'tensor' processor.
+        output_schema (Dict[str, str]): Maps 'y' and 'mask' to 'tensor' processors.
+        use_diag (bool): Whether to include diagnosis codes in features.
+        use_proc (bool): Whether to include procedure codes in features.
+        use_drug (bool): Whether to include drug codes in features.
+        engine (DynamicSurvivalEngine): Core engine handling anchor generation,
+            label construction, and sample assembly.
+        diag_vocab (Dict[str, int]): Diagnosis code to index mapping.
+        proc_vocab (Dict[str, int]): Procedure code to index mapping.
+        drug_vocab (Dict[str, int]): Drug code to index mapping.
+
+    Example:
+        >>> from pyhealth.tasks.dynamic_survival import DynamicSurvivalTask
+        >>> dataset = MockDataset()
+        >>> task = DynamicSurvivalTask(
+        ...     dataset=dataset,
+        ...     horizon=24,
+        ...     observation_window=24,
+        ...     anchor_strategy="fixed",
+        ... )
+        >>> samples = task(patient)
+    """
+
+    task_name: str = "dynamic_survival"
+
+    input_schema = {
+        "x": "tensor",
+    }
+
+    output_schema = {
+        "y": "tensor",
+        "mask": "tensor",
+    }
+   
+
+    def __init__(
+        self,
+        dataset,
+        horizon: int = 24,
+        observation_window: int = 24,
+        anchor_interval: int = 12,
+        anchor_strategy: str = "fixed",
+        use_diag: bool = True,
+        use_proc: bool = True,
+        use_drug: bool = True,
+    ):
+        """Initialize the task and build code vocabularies from the dataset.
+
+        Args:
+            dataset: PyHealth dataset or MockDataset used to build vocabularies.
+            horizon: Prediction horizon in discrete time steps.
+            observation_window: Look-back window width in days.
+            anchor_interval: Anchor spacing in days (fixed strategy only).
+            anchor_strategy: "fixed" or "single" anchor placement strategy.
+            use_diag: Include diagnosis codes in features.
+            use_proc: Include procedure codes in features.
+            use_drug: Include drug codes in features.
+        """
+        super().__init__()
+
+        self.use_diag = use_diag
+        self.use_proc = use_proc
+        self.use_drug = use_drug
+
+        self.engine = DynamicSurvivalEngine(
+            horizon, observation_window, anchor_interval, anchor_strategy
+        )
+
+        self.diag_mapper = DIAG_MAPPER
+        self.proc_mapper = PROC_MAPPER
+        self.drug_mapper = DRUG_MAPPER
+
+        self.diag_vocab, self.proc_vocab, self.drug_vocab = (
+            self.build_vocab(dataset)
+        )
+
+    def build_vocab(self, dataset) -> Tuple[Dict, Dict, Dict]:
+        """Build code vocabularies from a dataset for feature encoding.
+
+        Iterates over patients in the dataset to collect all unique
+        diagnosis, procedure, and drug codes, then constructs index
+        mappings used by encode_multi_hot().
+
+        Called by :meth:`__init__` immediately after the engine is
+        constructed, so vocabularies are ready before any patient is
+        processed.
+
+        Args:
+            dataset: Dataset object supporting either iter_patients()
+                (PyHealth datasets) or a patients dict attribute
+                (MockDataset).
+
+        Returns:
+            Tuple of (diag_vocab, proc_vocab, drug_vocab), each a dict
+            mapping code strings to integer indices.
+        """
+        diag_set, proc_set, drug_set = set(), set(), set()
+
+        if hasattr(dataset, "iter_patients"):
+            patient_iter = dataset.iter_patients()
+        else:
+            patient_iter = dataset.patients.values()
+
+        for patient in patient_iter:
+            visits = build_daily_time_series(patient)
+    
+            for visit in visits:
+                if self.use_diag:
+                    diag_set.update(visit["diagnosis"])
+                if self.use_proc:
+                    proc_set.update(visit["procedure"])
+                if self.use_drug:
+                    drug_set.update(visit["drug"])
+    
+        self.diag_vocab = {c: i for i, c in enumerate(sorted(diag_set))}
+        self.proc_vocab = {c: i for i, c in enumerate(sorted(proc_set))}
+        self.drug_vocab = {c: i for i, c in enumerate(sorted(drug_set))}
+    
+        return self.diag_vocab, self.proc_vocab, self.drug_vocab
+    
+    def encode_multi_hot(self, codes: List[str], vocab: Dict[str, int]) -> np.ndarray:
+        """Encode a list of codes as a multi-hot vector using a vocabulary.
+
+        Called by :meth:`__call__` for each visit to convert diagnosis,
+        procedure, and drug code lists into fixed-length binary feature
+        vectors before concatenation into the sample's feature matrix.
+
+        Args:
+            codes: List of code strings to encode (e.g. ICD codes, NDC codes).
+            vocab: Dictionary mapping code strings to integer indices.
+
+        Returns:
+            Binary np.ndarray of shape (len(vocab),) where index i is 1.0
+            if the corresponding code is present in codes, else 0.0.
+            Returns a zero vector if vocab is empty or no codes match.
+        """
+        vec = np.zeros(len(vocab))
+        for code in codes:
+            if code in vocab:
+                vec[vocab[code]] = 1
+        return vec
+
+    def __call__(self, patient) -> List[Dict[str, Any]]:
+        """
+        Convert a patient into dynamic survival samples.
+
+        This is the primary entry point called by ``dataset.set_task(task)``
+        for every patient in the dataset. It dispatches to the appropriate
+        processing path based on the patient's type, then delegates to
+        :meth:`DynamicSurvivalEngine.process_patient`.
+
+        This function supports three types of patient inputs:
+        1. Mock patients with visit dictionaries
+        2. Dict-style patients (used in tests)
+        3. PyHealth dataframe-based patients
+
+        For dataframe-based patients, mortality is extracted using
+        the 'expire_flag' field from patient-level events.
+
+        Args:
+            patient (Any): Patient object.
+
+        Returns:
+            List[Dict[str, Any]]: Survival samples.
+        """
+
+        if hasattr(patient, "visits") and isinstance(patient.visits, dict):
+            visits_list = list(patient.visits.values())
+
+            if len(visits_list) == 0:
+                return []
+
+            processed_visits = []
+            start_time = visits_list[0].encounter_time
+
+            for visit in visits_list:
+                features = []
+
+                if self.use_diag:
+                    codes = [
+                        e.code
+                        for e in visit.event_list_dict.get("DIAGNOSES_ICD", [])
+                    ]
+                    features.append(
+                        self.encode_multi_hot(codes, self.diag_vocab)
+                    )
+
+                if self.use_proc:
+                    codes = [
+                        e.code
+                        for e in visit.event_list_dict.get("PROCEDURES_ICD", [])
+                    ]
+                    features.append(
+                        self.encode_multi_hot(codes, self.proc_vocab)
+                    )
+
+                if self.use_drug:
+                    codes = [
+                        e.code
+                        for e in visit.event_list_dict.get("PRESCRIPTIONS", [])
+                    ]
+                    features.append(
+                        self.encode_multi_hot(codes, self.drug_vocab)
+                    )
+
+                x = (
+                    np.concatenate(features).astype(np.float32)
+                    if features
+                    else np.zeros(1, dtype=np.float32)
+                )
+
+                time_idx = (visit.encounter_time - start_time).days
+
+                processed_visits.append(
+                    {
+                        "time": time_idx,
+                        "feature": x,
+                    }
+                )
+
+            death_time = getattr(patient, "death_datetime", None)
+
+            if death_time:
+                outcome_time = (death_time - start_time).days
+                censor_time = None
+            else:
+                outcome_time = None
+                censor_time = processed_visits[-1]["time"]
+
+            patient_dict = {
+                "patient_id": patient.patient_id,
+                "visits": processed_visits,
+                "outcome_time": outcome_time,
+                "censor_time": censor_time,
+            }
+
+            return self.engine.process_patient(patient_dict)
+
+        # Dict-style patient (tests)
+        if isinstance(patient, dict):
+            return self.engine.process_patient(patient)
+
+        # PyHealth dataframe patient
+        visits_raw = build_daily_time_series(patient)
+        if not visits_raw:
+            return []
+
+        processed_visits = []
+
+        for visit in visits_raw:
+            features = []
+
+            if self.use_diag:
+                mapped = [
+                    m
+                    for c in visit["diagnosis"]
+                    for m in self.diag_mapper.map(c)
+                    if m
+                ]
+                features.append(
+                    self.encode_multi_hot(mapped, self.diag_vocab)
+                )
+
+            if self.use_proc:
+                mapped = [
+                    m
+                    for c in visit["procedure"]
+                    for m in self.proc_mapper.map(c)
+                    if m
+                ]
+                features.append(
+                    self.encode_multi_hot(mapped, self.proc_vocab)
+                )
+
+            if self.use_drug:
+                mapped = [
+                    m
+                    for c in visit["drug"]
+                    for m in self.drug_mapper.map(c)
+                    if m
+                ]
+                features.append(
+                    self.encode_multi_hot(mapped, self.drug_vocab)
+                )
+
+            x = (
+                np.concatenate(features).astype(np.float32)
+                if features
+                else np.zeros(1, dtype=np.float32)
+            )
+
+            processed_visits.append(
+                {
+                    "time": visit["time"],
+                    "feature": x,
+                }
+            )
+
+        # Extract mortality signal
+        death_flag = False
+
+        if hasattr(patient, "get_events"):
+            for event in patient.get_events():
+                if event.event_type == "patients":
+                    if event.attr_dict.get("expire_flag") == "1":
+                        death_flag = True
+                        break
+
+        if death_flag:
+            outcome_time = processed_visits[-1]["time"]
+            censor_time = None
+        else:
+            outcome_time = None
+            censor_time = processed_visits[-1]["time"]
+
+        patient_dict = {
+            "patient_id": getattr(patient, "patient_id", "unknown"),
+            "visits": processed_visits,
+            "outcome_time": outcome_time,
+            "censor_time": censor_time,
+        }
+
+        return self.engine.process_patient(patient_dict)
