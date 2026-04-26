@@ -46,6 +46,7 @@ Available Processors
 - ``TimeImageProcessor``: For time-stamped image sequences (e.g., serial X-rays)
 - ``TensorProcessor``: For pre-processed tensor data
 - ``RawProcessor``: Pass-through processor for raw data
+- ``NIftIImageProcessor``: For NIftI MRI images
 
 **Specialized Processors:**
 
@@ -497,3 +498,4 @@ API Reference
     processors/pyhealth.processors.StageNetProcessor
     processors/pyhealth.processors.StageNetTensorProcessor
     processors/pyhealth.processors.GraphProcessor
+    processors/pyhealth.processors.NIftIImageProcessor

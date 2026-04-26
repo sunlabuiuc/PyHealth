@@ -47,6 +47,7 @@ class SampleSignalDataset:
 
 
 from .base_dataset import BaseDataset
+from .adni import ADNIDataset
 from .cardiology import CardiologyDataset
 from .chestxray14 import ChestXray14Dataset
 from .clinvar import ClinVarDataset
