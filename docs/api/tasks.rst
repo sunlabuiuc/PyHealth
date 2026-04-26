@@ -230,3 +230,5 @@ Available Tasks
     Mutation Pathogenicity (COSMIC) <tasks/pyhealth.tasks.MutationPathogenicityPrediction>
     Cancer Survival Prediction (TCGA) <tasks/pyhealth.tasks.CancerSurvivalPrediction>
     Cancer Mutation Burden (TCGA) <tasks/pyhealth.tasks.CancerMutationBurden>
+    Cancer Classification from bulk RNAseq (cBioPortal) <tasks/pyhealth.tasks.bulk_rna_cancer_classification>
+    Cancer Survival Prediction from bulk RNAseq (cBioPortal) <tasks/pyhealth.tasks.bulk_rna_survival_prediction>
