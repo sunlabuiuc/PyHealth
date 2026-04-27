@@ -23,6 +23,12 @@ from .drug_recommendation import (
     drug_recommendation_omop_fn,
 )
 from .in_hospital_mortality_mimic4 import InHospitalMortalityMIMIC4
+from .mimic3_clinical_aggregation import (
+    CLINICAL_AGGREGATION_MAP,
+    CLINICAL_CATEGORIES,
+    apply_clinical_aggregation,
+)
+from .mimic3_icu_reentry import ICUReEntryClassification
 from .length_of_stay_prediction import (
     LengthOfStayPredictioneICU,
     LengthOfStayPredictionMIMIC3,
