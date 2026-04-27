@@ -155,6 +155,8 @@ This is the experimental pipeline of the repository. It scales up the core PyHea
 
 **Logging:** Logs are saved to `~/dermoscopy_logs/train`
 
+**Time for Training and Evaluation:** ~19 hours, 12 minutes
+
 ### `run_all_original.sh`
 
 (executed inside root directory of PyHealth repo)
@@ -399,6 +401,8 @@ if __name__ == "__main__":
 ## 🧬 Phase 2: Generating Synthetic Artifacts (LoRA)
 
 **Intent:** To evaluate artifact robustness, we need highly controlled "Trap Sets." Because the original authors did not release their specific DreamBooth weights, we curate data and train our own custom LoRAs for five artifacts: `dark-corner`, `gel-bubble`, `ink`, `patches`, and `ruler`. _(Note: Artifacts are named with hyphens to prevent file-parsing conflicts)._
+
+**Time for Generation:** ~36 minutes _(Note: This only includes the total time to run `generate_artifact_data.py`, but not the time to perform DreamBooth LoRA training, which wasn't tracked. However, DreamBooth LoRA training took roughly the same time or a bit longer)._
 
 ### 1. Data Curation & Resizing
 
@@ -654,6 +658,8 @@ python examples/dermoscopy/generate_artifact_data.py --data_dir ../data --source
 **Intent:** This phase measures the performance gap between clean evaluation data and artifact-injected evaluation data. By testing the previously trained Phase 1 models against the synthetic Phase 2 Trap Sets, we aim to quantify any potential drops in AUROC.
 
 **Logging:** Logs are saved to `~/dermoscopy_logs/eval_artifacts`
+
+**Time for Evaluation:** ~1 hour, 32 minutes
 
 ### `run_all_eval_artifacts.sh`
 
@@ -948,6 +954,8 @@ _(Note: The `run_epoch_ablation.py` script holds temporary weights directly in G
 
 **Logging:** Logs are saved to `~/dermoscopy_logs/ablation_test`
 
+**Time for Study:** ~1 hour, 46 minutes
+
 ### `run_epochs.sh`
 
 (executed inside root directory of PyHealth repo)
@@ -1191,6 +1199,10 @@ We then compare three distinct aggregation methodologies across the Trap Sets to
 **Weights:** Weights are saved to `~/dermoscopy_outputs` in the specific model folders.
 
 **Logging:** Logs are saved to `~/dermoscopy_logs/train` and `~/dermoscopy_logs/eval_artifacts`
+
+**Time for Training:** ~8 hours, 34 minutes
+
+**Time for Evaluation:** ~14 minutes
 
 ### `run_strategies.sh`
 
