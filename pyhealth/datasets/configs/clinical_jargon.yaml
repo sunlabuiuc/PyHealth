@@ -1,0 +1,20 @@
+version: "1.0"
+tables:
+  examples:
+    file_path: "clinical_jargon_examples.csv"
+    patient_id: null
+    timestamp: null
+    attributes:
+      - "sample_id"
+      - "benchmark"
+      - "abbreviation"
+      - "context"
+      - "question"
+      - "question_zero_shot"
+      - "gold_expansion"
+      - "gold_aliases_json"
+      - "surface_form_group"
+      - "paper59_included"
+      - "source_file"
+      - "candidate_expansions_json"
+      - "candidate_expansions_paper59_json"
