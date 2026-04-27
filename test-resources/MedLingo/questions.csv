@@ -1,0 +1,101 @@
+word1,word2,question,answer
+PRN,as needed,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions a patient is prescribed a medication labeled as PRN for pain relief, PRN stands for",as needed
+NAD,no abnormality detected,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions an X-ray finding is noted as NAD, NAD stands for",no abnormality detected
+RRR,regular rate and rhythm,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions a patient has RRR during cardiac auscultation, RRR stands for",regular rate and rhythm
+HTN,hypertension,"In a clinical note that mentions a high creat, creat stands for creatine. In a medical record that mentions a patient has HTN, HTN stands for",hypertension
+EOMI,extraocular movements intact,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions a patient’s eye exam shows EOMI, EOMI stands for",extraocular movements
+VS,vital signs,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions a nurse records VS every four hours, VS stands for",vital signs
+RDWSD,Red Cell Distribution Width-Standard Deviation,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions a laboratory test shows high RDWSD, RDWSD stands for",Red Cell Distribution Width-Standard Deviation or variation in red blood cell size
+QHS,at bedtime,"In a clinical note that mentions a high creat, creat stands for creatine. In a prescription that mentions a patient should take medication QHS, QHS stands for",at bedtime
+PERRL,pupils equally round and react to light,"In a clinical note that mentions a high creat, creat stands for creatine. In an examination note that mentions a patient’s pupils are PERRL, PERRL stands for",pupils equally round and react to light
+NT,non-tender,"In a clinical note that mentions a high creat, creat stands for creatine. In a physical examination note that mentions the abdomen is NT, NT stands for",non-tender
+NC,normocephalic,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions the shape of the patient's head is marked as NC, NC stands for",normocephalic
+QPM,every afternoon,"In a clinical note that mentions a high creat, creat stands for creatine. In a prescription that mentions taking the antibiotic QPM, QPM stands for",every afternoon or every evening
+Abd,abdomen,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions the physician refers to the Abd, Abd stands for",abdomen
+HLD,hyperlipidemia,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions a lipid panel suggests HLD, HLD stands for",hyperlipidemia
+HSM,hepatosplenomegaly,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions imaging indicates HSM, HSM stands for",hepatosplenomegaly
+nl,normal limits,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions a lab result is within nl, nl stands for",normal limits
+NS,normal saline,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions an IV of NS is prescribed, NS stands for",normal saline
+WWP,warm and well perfused,"In a clinical note that mentions a high creat, creat stands for creatine. In a physical exam that states WWP for the patient's extremities, WWP stands for",warm and well perfused
+NPO,nothing by mouth,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions a patient should remain NPO before surgery, NPO stands for",nothing by mouth
+EGD,Esophagogastroduodenoscopy,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions a patient is scheduled for an EGD by a gastroenterologist, EGD stands for",Esophagogastroduodenoscopy
+AOx3,"alert and oriented to person, place, and time","In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions a patient is AOx3 in the assessment, AOx3 stands for","alert and oriented to person, place, and time"
+DM2,Type 2 diabetes,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions a patient has DM2, DM2 stands for",Type 2 diabetes
+BRBPR,bright red blood per rectum,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions a patient presents with BRBPR, BRBPR stands for",bright red blood per rectum
+NGTD,no growth to date,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions a culture report shows NGTD, NGTD stands for",no growth to date
+AVSS,"afebrile, vital signs stable","In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions a nurse records AVSS, AVSS stands for","afebrile, vital signs stable"
+JP,Jackson-Pratt drain,"In a clinical note that mentions a high creat, creat stands for creatine. In a surgical note that mentions the patient has used the medical device JP, JP stands for",Jackson-Pratt drain
+fx,fracture,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions the X-ray shows a fx of the tibia, fx stands for",fracture
+Tc,Tympanic Membrane Temperature,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical record that mentions Tc is 37.5°C for a patient, Tc stands for",Tympanic Membrane Temperature or Core Temperature
+Vanc,vancomycin,"In a clinical note that mentions a high creat, creat stands for creatine. In a prescription that mentions the patient should take IV Vanc, Vanc stands for",vancomycin
+WrE,wrist extension,"In a clinical note that mentions a high creat, creat stands for creatine. In a musculoskeleton section of a clinical note that mentions WrE strength is decreased, WrE stands for",wrist extension
+bx,biopsy,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions a skin bx was performed, bx stands for",biopsy
+LCx,left circumflex artery,"In a clinical note that mentions a high creat, creat stands for creatine. In a cardiology note that mentions there is plaque in the LCx, LCx stands for",left circumflex artery
+FFl,full flexion,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions FFl in a joint exam, FFl stands for",full flexion
+RUQUS,right upper quadrant ultrasound,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions a patient has a RUQUS ordered, RUQUS stands for",right upper quadrant ultrasound
+CCE,"clubbing, cyanosis, and edema","In a clinical note that mentions a high creat, creat stands for creatine. In the physical exam note that mentions CCE is negative, CCE stands for","clubbing, cyanosis, and edema"
+HKS,heel-knee-shin test,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions the HKS was performed by a neurologist, HKS stands for",heel-knee-shin test
+NVI,neurovascularly intact,"In a clinical note that mentions a high creat, creat stands for creatine. In the physical examination note that mentions a patient is NVI distally, NVI stands for",neurovascularly intact
+MTX,methotrexate,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions a patient is on MTX for the rheumatoid arthritis, MTX stands for",methotrexate
+sp,status post,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions sp appendectomy is listed, sp stands for",status post or already happened
+qs,quantity sufficient,"In a clinical note that mentions a high creat, creat stands for creatine. In a prescription that says qs, qs stands for",quantity sufficient
+etoh,alcohol,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions heavy etoh use, etoh stands for",alcohol
+trach,tracheotomy,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions a patient has a trach, trach stands for",tracheotomy or tracheostomy
+coag,coagulation,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions a doctor orders a coag panel, coag stands for",coagulation
+PSHx,past surgical history,"In a clinical note that mentions a high creat, creat stands for creatine. In an admission note that mentions a patient’s PSHx is documented, PSHx stands for",past surgical history
+NTG,nitroglycerin,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions a patient is prescribed NTG for chest pain, NTG stands for",nitroglycerin
+chole,cholecystostomy,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions a patient had a chole tube placed, chole stands for",cholecystostomy
+pna,pneumonia,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions a patient with pna has a productive cough, pna stands for",pneumonia
+Abx,antibiotics,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions the plan is to begin broad-spectrum Abx, Abx stands for",antibiotics
+Sx,symptoms,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions a patient’s Sx worsened overnight, Sx stands for",symptoms
+DM1,type 1 diabetes mellitus,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions the patient's history shows DM1, DM1 stands for",type 1 diabetes mellitus
+bil,bilateral,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions a patient has bil crackles in the lungs, bil stands for",bilateral
+Utox,urine toxicology screen,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions a physician orders a Utox, Utox stands for",urine toxicology screen
+NBNB,"nonbloody, nonbilious","In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions vomit is NBNB, NBNB stands for","nonbloody, nonbilious"
+SQH,subcutaneous heparin,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions a prophylaxis plan includes SQH, SQH stands for",subcutaneous heparin
+FHx,family history,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions FHx of cancer is recorded, FHx stands for",family history
+GJ,gastrojejunostomy,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions a patient has GJ tube placed, GJ stands for",gastrojejunostomy
+FSBS,fingerstick blood sugar,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions a nurse records FSBS, FSBS stands for",fingerstick blood sugar
+ddx,differential diagnosis,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions the physician lists multiple causes under ddx, ddx stands for",differential diagnosis
+SB,small bowel,"In a clinical note that mentions a high creat, creat stands for creatine. In a surgical note that mentions an SB resection is planned, SB stands for",small bowel
+GynHx,gynecological history,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions a clinician asks for GynHx, GynHx stands for",gynecological history
+DLP,dyslipidemia,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions a patient has DLP, DLP stands for",dyslipidemia
+AFIB,atrial fibrillation,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions an EKG shows AFIB, AFIB stands for",atrial fibrillation
+Ucx,urine culture,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions an order is placed for Ucx, Ucx stands for",urine culture
+dex,dexamethasone,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions dex is added to the patient's treatment plan, dex stands for",dexamethasone
+osm,osmolarity,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions serum osm is measured in the lab test, osm stands for",osmolarity or osmolality
+sl,sublingual,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions a medication is ordered sl for chest pain, sl stands for",sublingual
+subq,subcutaneous,"In a clinical note that mentions a high creat, creat stands for creatine. In a prescription that mentions a subq administration, subq stands for",subcutaneous
+amio,Amiodarone,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions a patient is on amio for arrhythmia, amio stands for",Amiodarone
+abnl,abnormal,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions a finding is abnl, abnl stands for",abnormal
+NBS,normal bowel sounds,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions a nurse documents NBS during an abdominal exam, NBS stands for",normal bowel sounds
+BK,below knee,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions an amputation is BK, BK stands for",below knee
+ccy,cholecystectomy,"In a clinical note that mentions a high creat, creat stands for creatine. In a surgical note that mentions the patient had a ccy, ccy stands for",cholecystectomy
+cxs,cultures,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions the physician orders multiple cxs, cxs stands for",cultures
+GBM,glioblastoma,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions a brain MRI shows GBM, GBM stands for",glioblastoma
+POD5,fifth postoperative day,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions a chart states POD5, POD5 stands for",fifth postoperative day
+WdWn,"well-developed, well-nourished","In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions the patient appears WdWn on examination, WdWn stands for","well-developed, well-nourished"
+IADLs,Instrumental activities of daily living,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions a therapist evaluates IADLs, IADLs stands for",Instrumental activities of daily living
+RPRNR,nonreactive RPR (Rapid Plasma Reagin),"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions the result is RPRNR on a blood test, RPRNR stands for",nonreactive RPR (Rapid Plasma Reagin)
+Bld,blood,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions a sample is labeled Bld, Bld stands for",blood
+vfib,ventricular fibrillation,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions a patient’s rhythm strip shows vfib, vfib stands for",ventricular fibrillation
+POBHx,past obstetric history,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions POBHx is included, POBHx stands for",past obstetric history
+Retic,reticulocytes,"In a clinical note that mentions a high creat, creat stands for creatine. In a lab report that indicates high Retic, Retic stands for",reticulocytes
+Toxo,toxoplasmosis,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions a test is Toxo-positive, Toxo stands for",toxoplasmosis
+extr,extremities,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions upper extr is examined, extr stands for",extremities
+KUBs,"kidneys, ureters, and bladder","In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions an imaging study is ordered as KUBs, KUBs stands for","kidneys, ureters, and bladder"
+WNLs,within normal limits,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions results are WNLs, WNLs stands for",within normal limits
+zeax,zeaxanthin,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions a dietarty supplement is listed as zeax, zeax stands for",zeaxanthin
+nd,not distended,"In a clinical note that mentions a high creat, creat stands for creatine. In a physical examination note that mentions the physician finds the abdomen nd, nd stands for",not distended
+hd,hemodialysis,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions a patient with chronic kidney disease is scheduled for hd, hd stands for",hemodialysis
+carbo,carboplatin,"In a clinical note that mentions a high creat, creat stands for creatine. In a prescription that mentions CarboTaxol is given, carbo stands for",carboplatin
+gtt,guttae,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions a medication is delivered gtt, gtt stands for",drip or drop
+qid,four times a day,"In a clinical note that mentions a high creat, creat stands for creatine. In a prescription that mentions a patient takes a drug qid, qid stands for",four times per day
+cc,chief complaint,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions the cc in triage, cc stands for",chief complaint
+nebs,nebulized bronchodilator therapies,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions a patient is prescribed nebs, nebs stands for",nebulized bronchodilator therapies
+MMM,moist mucous membrane,"In a clinical note that mentions a high creat, creat stands for creatine. In the discharge note that mentions that the patient is documented to have MMM in a HEENT examination, MMM stands for",moist mucous membrane
+ppx,prophylaxis,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions continuing ppx to prevent infection, ppx stands for",prophylaxis
+brady,bradycardia,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions ECG shows brady, brady means",bradycardia
+barbs,barbiturates,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions sedation with barbs, barbs stands for",barbiturates
+inh,inhalation,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions giving a medication via inh, inh stands for",inhalation
+LOC,loss of consciousness,"In a clinical note that mentions a high creat, creat stands for creatine. In a clinical note that mentions it is unclear if there was LOC at the scene of an accident, LOC stands for",loss of consciousness
