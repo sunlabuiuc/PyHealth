@@ -200,6 +200,7 @@ API Reference
     models/pyhealth.models.TFMTokenizer
     models/pyhealth.models.GAN
     models/pyhealth.models.VAE
+    models/pyhealth.models.RetinaUNet
     models/pyhealth.models.SDOH
     models/pyhealth.models.VisionEmbeddingModel
     models/pyhealth.models.TextEmbedding
