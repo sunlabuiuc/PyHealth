@@ -140,4 +140,5 @@ data/physionet.org/
 .codex
 
 # Model weight files (large binaries, distributed separately)
-weightfiles/
+weightfiles/examples/run_h1_h4_eicu.py
+examples/run_h1_h4_eicu.py
