@@ -1,0 +1,3933 @@
+import importlib.util
+import shutil
+import unittest
+import uuid
+from contextlib import contextmanager
+from pathlib import Path
+from unittest.mock import patch
+
+import pandas as pd
+import pytest
+from pyhealth.datasets.base_dataset import BaseDataset
+
+def _load_model_build_mistrust_score_table():
+    module_path = (
+        Path(__file__).resolve().parents[2] / "pyhealth" / "models" / "eol_mistrust.py"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "pyhealth.models.eol_mistrust_dataset_tests",
+        module_path,
+    )
+    module = importlib.util.module_from_spec(spec)
+    assert spec is not None and spec.loader is not None
+    spec.loader.exec_module(module)
+    return module.build_mistrust_score_table
+
+
+_model_build_mistrust_score_table = _load_model_build_mistrust_score_table()
+
+
+def _load_eol_mistrust_module():
+    module_path = (
+        Path(__file__).resolve().parents[2] / "pyhealth" / "datasets" / "eol_mistrust.py"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "pyhealth.datasets.eol_mistrust_dataset_tests",
+        module_path,
+    )
+    module = importlib.util.module_from_spec(spec)
+    assert spec is not None and spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+def _load_eol_mistrust_dataset_class_module():
+    module_path = (
+        Path(__file__).resolve().parents[2]
+        / "pyhealth"
+        / "datasets"
+        / "eol_mistrust_dataset.py"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "pyhealth.datasets.eol_mistrust_dataset_class_tests",
+        module_path,
+    )
+    module = importlib.util.module_from_spec(spec)
+    assert spec is not None and spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+@contextmanager
+def _workspace_tempdir():
+    """Yield a system temporary directory path that is cleaned up on exit.
+
+    Uses :class:`tempfile.TemporaryDirectory` so no persistent scratch folder
+    is left behind inside the repository tree.
+    """
+    import tempfile
+
+    with tempfile.TemporaryDirectory(
+        prefix="pyhealth_eol_dataset_",
+        ignore_cleanup_errors=True,
+    ) as path:
+        yield path
+
+
+class _FakeProbEstimator:
+    def __init__(self, probabilities):
+        self.probabilities = list(probabilities)
+        self.was_fit = False
+        self.fit_X = None
+        self.fit_y = None
+
+    def fit(self, X, y):
+        self.was_fit = True
+        self.fit_X = X.copy() if hasattr(X, "copy") else X
+        self.fit_y = y.copy() if hasattr(y, "copy") else y
+        return self
+
+    def predict_proba(self, X):
+        probs = self.probabilities[:len(X)]
+        return [[1.0 - prob, prob] for prob in probs]
+
+
+class TestEOLMistrustPreprocessing(unittest.TestCase):
+    """TDD spec for the end-of-life mistrust data-preparation pipeline."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.module = _load_eol_mistrust_module()
+
+    def setUp(self):
+        self.admissions = pd.DataFrame(
+            [
+                {
+                    "hadm_id": 100,
+                    "subject_id": 1,
+                    "admittime": "2100-01-01 00:00:00",
+                    "dischtime": "2100-01-02 00:00:00",
+                    "ethnicity": "WHITE - RUSSIAN",
+                    "insurance": "Medicare",
+                    "discharge_location": "HOME",
+                    "hospital_expire_flag": 0,
+                    "has_chartevents_data": 1,
+                },
+                {
+                    "hadm_id": 101,
+                    "subject_id": 2,
+                    "admittime": "2100-02-01 00:00:00",
+                    "dischtime": "2100-02-02 12:00:00",
+                    "ethnicity": "BLACK/AFRICAN AMERICAN",
+                    "insurance": "Private",
+                    "discharge_location": "HOME HOSPICE",
+                    "hospital_expire_flag": 0,
+                    "has_chartevents_data": 1,
+                },
+                {
+                    "hadm_id": 102,
+                    "subject_id": 3,
+                    "admittime": "2100-03-01 00:00:00",
+                    "dischtime": "2100-03-01 05:00:00",
+                    "ethnicity": "HISPANIC OR LATINO",
+                    "insurance": "Self Pay",
+                    "discharge_location": "SKILLED NURSING FACILITY",
+                    "hospital_expire_flag": 0,
+                    "has_chartevents_data": 1,
+                },
+                {
+                    "hadm_id": 103,
+                    "subject_id": 4,
+                    "admittime": "2100-04-01 00:00:00",
+                    "dischtime": "2100-04-01 20:00:00",
+                    "ethnicity": "ASIAN - CHINESE",
+                    "insurance": "Medicaid",
+                    "discharge_location": "SKILLED NURSING FACILITY",
+                    "hospital_expire_flag": 0,
+                    "has_chartevents_data": 1,
+                },
+                {
+                    "hadm_id": 104,
+                    "subject_id": 5,
+                    "admittime": "2100-05-01 00:00:00",
+                    "dischtime": "2100-05-01 10:00:00",
+                    "ethnicity": "PATIENT DECLINED TO ANSWER",
+                    "insurance": "Government",
+                    "discharge_location": "HOME",
+                    "hospital_expire_flag": 1,
+                    "has_chartevents_data": 1,
+                },
+                {
+                    "hadm_id": 105,
+                    "subject_id": 6,
+                    "admittime": "2100-06-01 00:00:00",
+                    "dischtime": "2100-06-02 06:00:00",
+                    "ethnicity": "WHITE",
+                    "insurance": "Private",
+                    "discharge_location": "HOME",
+                    "hospital_expire_flag": 0,
+                    "has_chartevents_data": 0,
+                },
+                {
+                    "hadm_id": 106,
+                    "subject_id": 7,
+                    "admittime": "2100-07-01 00:00:00",
+                    "dischtime": "2100-07-02 06:00:00",
+                    "ethnicity": "WHITE",
+                    "insurance": "Private",
+                    "discharge_location": "LEFT AGAINST MEDICAL ADVICE",
+                    "hospital_expire_flag": 0,
+                    "has_chartevents_data": 1,
+                },
+                {
+                    "hadm_id": 107,
+                    "subject_id": 8,
+                    "admittime": "2100-08-01 00:00:00",
+                    "dischtime": "2100-08-02 00:00:00",
+                    "ethnicity": "BLACK/CAPE VERDEAN",
+                    "insurance": "Medicare",
+                    "discharge_location": "HOME HOSPICE",
+                    "hospital_expire_flag": 1,
+                    "has_chartevents_data": 1,
+                },
+            ]
+        )
+        self.patients = pd.DataFrame(
+            [
+                {"subject_id": 1, "gender": "M", "dob": "2070-01-01 00:00:00"},
+                {"subject_id": 2, "gender": "F", "dob": "1800-01-01 00:00:00"},
+                {"subject_id": 3, "gender": "F", "dob": "2080-03-01 00:00:00"},
+                {"subject_id": 4, "gender": "M", "dob": "2060-04-01 00:00:00"},
+                {"subject_id": 5, "gender": "F", "dob": "2050-05-01 00:00:00"},
+                {"subject_id": 6, "gender": "M", "dob": "2040-06-01 00:00:00"},
+                {"subject_id": 7, "gender": "F", "dob": "2075-07-01 00:00:00"},
+                {"subject_id": 8, "gender": "M", "dob": "2035-08-01 00:00:00"},
+            ]
+        )
+        self.icustays = pd.DataFrame(
+            [
+                {"hadm_id": 100, "icustay_id": 1001, "intime": "2100-01-01 00:00:00", "outtime": "2100-01-01 11:00:00"},
+                {"hadm_id": 100, "icustay_id": 1002, "intime": "2100-01-01 12:00:00", "outtime": "2100-01-01 23:00:00"},
+                {"hadm_id": 101, "icustay_id": 1011, "intime": "2100-02-01 00:00:00", "outtime": "2100-02-01 13:00:00"},
+                {"hadm_id": 103, "icustay_id": 1031, "intime": "2100-04-01 00:00:00", "outtime": "2100-04-01 12:00:00"},
+                {"hadm_id": 104, "icustay_id": 1041, "intime": "2100-05-01 01:00:00", "outtime": "2100-05-01 10:00:00"},
+                {"hadm_id": 105, "icustay_id": 1051, "intime": "2100-06-01 00:00:00", "outtime": "2100-06-01 14:00:00"},
+                {"hadm_id": 106, "icustay_id": 1061, "intime": "2100-07-01 00:00:00", "outtime": "2100-07-01 15:00:00"},
+                {"hadm_id": 107, "icustay_id": 1071, "intime": "2100-08-01 00:00:00", "outtime": "2100-08-01 13:00:00"},
+            ]
+        )
+        self.noteevents = pd.DataFrame(
+            [
+                {
+                    "hadm_id": 101,
+                    "category": "Nursing",
+                    "text": "Patient refuses treatment and was noncompliant with medication.  Date:[**5-1-18**]",
+                    "iserror": 0,
+                },
+                {
+                    "hadm_id": 101,
+                    "category": "Physician",
+                    "text": "Autopsy was discussed with the family.",
+                    "iserror": 0,
+                },
+                {
+                    "hadm_id": 103,
+                    "category": "Nursing",
+                    "text": "Cooperative patient. Follows commands.",
+                    "iserror": 0,
+                },
+                {
+                    "hadm_id": 104,
+                    "category": "Discharge",
+                    "text": "AUTOPSY requested.",
+                    "iserror": 1,
+                },
+                {
+                    "hadm_id": 104,
+                    "category": "Nursing",
+                    "text": "No concerns documented.",
+                    "iserror": 0,
+                },
+                {
+                    "hadm_id": 106,
+                    "category": "Nursing",
+                    "text": "Patient remains nonadherent with follow up plan.",
+                    "iserror": 0,
+                },
+            ]
+        )
+        self.d_items = pd.DataFrame(
+            [
+                {"itemid": 1, "label": "Education Readiness", "dbsource": "carevue"},
+                {"itemid": 2, "label": "Pain Level", "dbsource": "metavision"},
+                {"itemid": 3, "label": "Code Status", "dbsource": "carevue"},
+            ]
+        )
+        self.chartevents = pd.DataFrame(
+            [
+                {"hadm_id": 101, "itemid": 1, "value": "No", "icustay_id": 1011},
+                {"hadm_id": 101, "itemid": 1, "value": "No", "icustay_id": 1011},
+                {"hadm_id": 101, "itemid": 2, "value": "7-Mod to Severe", "icustay_id": 1011},
+                {"hadm_id": 101, "itemid": 3, "value": "Full Code", "icustay_id": 1011},
+                {"hadm_id": 103, "itemid": 1, "value": "Yes", "icustay_id": 1031},
+                {"hadm_id": 103, "itemid": 3, "value": "DNR/DNI", "icustay_id": 1031},
+                {"hadm_id": 104, "itemid": 3, "value": "Full Code", "icustay_id": 1041},
+                {"hadm_id": 106, "itemid": 3, "value": "Full Code", "icustay_id": 1061},
+                {"hadm_id": 107, "itemid": 3, "value": "Comfort Measures Only", "icustay_id": 1071},
+            ]
+        )
+        self.ventdurations = pd.DataFrame(
+            [
+                {
+                    "icustay_id": 1011,
+                    "ventnum": 1,
+                    "starttime": "2100-02-01 00:00:00",
+                    "endtime": "2100-02-01 02:00:00",
+                    "duration_hours": 2.0,
+                },
+                {
+                    "icustay_id": 1011,
+                    "ventnum": 2,
+                    "starttime": "2100-02-01 11:30:00",
+                    "endtime": "2100-02-01 12:30:00",
+                    "duration_hours": 1.0,
+                },
+                {
+                    "icustay_id": 1011,
+                    "ventnum": 3,
+                    "starttime": "2100-02-01 23:31:00",
+                    "endtime": "2100-02-02 00:31:00",
+                    "duration_hours": 1.0,
+                },
+            ]
+        )
+        self.vasopressordurations = pd.DataFrame(
+            [
+                {
+                    "icustay_id": 1031,
+                    "vasonum": 1,
+                    "starttime": "2100-04-01 01:00:00",
+                    "endtime": "2100-04-01 03:00:00",
+                    "duration_hours": 2.0,
+                },
+                {
+                    "icustay_id": 1031,
+                    "vasonum": 2,
+                    "starttime": "2100-04-01 02:30:00",
+                    "endtime": "2100-04-01 05:00:00",
+                    "duration_hours": 2.5,
+                },
+                {
+                    "icustay_id": 1031,
+                    "vasonum": 3,
+                    "starttime": "2100-04-01 14:00:00",
+                    "endtime": "2100-04-01 15:00:00",
+                    "duration_hours": 1.0,
+                },
+            ]
+        )
+        self.oasis = pd.DataFrame(
+            [
+                {"hadm_id": 101, "icustay_id": 1011, "oasis": 15},
+                {"hadm_id": 103, "icustay_id": 1031, "oasis": 20},
+                {"hadm_id": 106, "icustay_id": 1061, "oasis": 8},
+                {"hadm_id": 107, "icustay_id": 1071, "oasis": 30},
+            ]
+        )
+        self.sapsii = pd.DataFrame(
+            [
+                {"hadm_id": 101, "icustay_id": 1011, "sapsii": 42},
+                {"hadm_id": 103, "icustay_id": 1031, "sapsii": 55},
+                {"hadm_id": 106, "icustay_id": 1061, "sapsii": 12},
+                {"hadm_id": 107, "icustay_id": 1071, "sapsii": 70},
+            ]
+        )
+        self.mistrust_scores = pd.DataFrame(
+            [
+                {
+                    "hadm_id": 101,
+                    "noncompliance_score_z": 1.2,
+                    "autopsy_score_z": 0.7,
+                    "negative_sentiment_score_z": 0.9,
+                },
+                {
+                    "hadm_id": 103,
+                    "noncompliance_score_z": -0.3,
+                    "autopsy_score_z": -0.2,
+                    "negative_sentiment_score_z": -0.1,
+                },
+                {
+                    "hadm_id": 106,
+                    "noncompliance_score_z": 0.8,
+                    "autopsy_score_z": -0.4,
+                    "negative_sentiment_score_z": 0.2,
+                },
+                {
+                    "hadm_id": 107,
+                    "noncompliance_score_z": -1.0,
+                    "autopsy_score_z": 1.1,
+                    "negative_sentiment_score_z": -1.0,
+                },
+            ]
+        )
+
+    def _get_callable(self, name):
+        self.assertTrue(
+            hasattr(self.module, name),
+            msg=f"Implement `{name}` in pyhealth.datasets.eol_mistrust",
+        )
+        attr = getattr(self.module, name)
+        self.assertTrue(callable(attr), msg=f"`{name}` must be callable")
+        return attr
+
+    def _assert_hadm_unique(self, df, msg_prefix):
+        self.assertIn("hadm_id", df.columns, msg=f"{msg_prefix} must include hadm_id")
+        self.assertTrue(
+            df["hadm_id"].is_unique,
+            msg=f"{msg_prefix} must be unique at the admission level",
+        )
+
+    def _build_database_environment_inputs(
+        self,
+        num_admissions=50010,
+        include_multiple_icustays=True,
+    ):
+        hadm_ids = list(range(200000, 200000 + num_admissions))
+        subject_ids = list(range(300000, 300000 + num_admissions))
+        icustay_ids = list(range(400000, 400000 + num_admissions))
+
+        admissions = pd.DataFrame(
+            {
+                "hadm_id": hadm_ids,
+                "subject_id": subject_ids,
+                "admittime": ["2100-01-01 00:00:00"] * num_admissions,
+                "dischtime": ["2100-01-02 00:00:00"] * num_admissions,
+                "ethnicity": ["WHITE"] * num_admissions,
+                "insurance": ["Medicare"] * num_admissions,
+                "discharge_location": ["HOME"] * num_admissions,
+                "hospital_expire_flag": [0] * num_admissions,
+                "has_chartevents_data": [1] * num_admissions,
+            }
+        )
+        patients = pd.DataFrame(
+            {
+                "subject_id": subject_ids,
+                "gender": ["M"] * num_admissions,
+                "dob": ["2070-01-01 00:00:00"] * num_admissions,
+            }
+        )
+        icustays = pd.DataFrame(
+            {
+                "hadm_id": hadm_ids,
+                "icustay_id": icustay_ids,
+                "intime": ["2100-01-01 00:00:00"] * num_admissions,
+                "outtime": ["2100-01-01 13:00:00"] * num_admissions,
+            }
+        )
+        if include_multiple_icustays:
+            icustays = pd.concat(
+                [
+                    icustays,
+                    pd.DataFrame(
+                        [
+                            {
+                                "hadm_id": hadm_ids[0],
+                                "icustay_id": 999999,
+                                "intime": "2100-01-02 00:00:00",
+                                "outtime": "2100-01-02 14:00:00",
+                            }
+                        ]
+                    ),
+                ],
+                ignore_index=True,
+            )
+
+        noteevents = pd.DataFrame(
+            [
+                {
+                    "hadm_id": hadm_ids[0],
+                    "category": "Nursing",
+                    "text": "Patient refuses treatment and autopsy discussed.",
+                    "iserror": 0,
+                }
+            ]
+        )
+        d_items = pd.DataFrame(
+            [
+                {"itemid": 1, "label": "Education Readiness", "dbsource": "carevue"},
+            ]
+        )
+        chartevents = pd.DataFrame(
+            [
+                {
+                    "hadm_id": hadm_ids[0],
+                    "itemid": 1,
+                    "value": "No",
+                    "icustay_id": icustay_ids[0],
+                }
+            ]
+        )
+        ventdurations = pd.DataFrame(
+            [
+                {
+                    "icustay_id": icustay_ids[0],
+                    "ventnum": 1,
+                    "starttime": "2100-01-01 00:00:00",
+                    "endtime": "2100-01-01 01:00:00",
+                    "duration_hours": 1.0,
+                }
+            ]
+        )
+        vasopressordurations = pd.DataFrame(
+            [
+                {
+                    "icustay_id": icustay_ids[0],
+                    "vasonum": 1,
+                    "starttime": "2100-01-01 02:00:00",
+                    "endtime": "2100-01-01 03:00:00",
+                    "duration_hours": 1.0,
+                }
+            ]
+        )
+        oasis = pd.DataFrame(
+            [
+                {"hadm_id": hadm_ids[0], "icustay_id": icustay_ids[0], "oasis": 15},
+            ]
+        )
+        sapsii = pd.DataFrame(
+            [
+                {"hadm_id": hadm_ids[0], "icustay_id": icustay_ids[0], "sapsii": 42},
+            ]
+        )
+
+        raw_tables = {
+            "admissions": admissions,
+            "patients": patients,
+            "icustays": icustays,
+            "noteevents": noteevents,
+            "chartevents": chartevents,
+            "d_items": d_items,
+        }
+        materialized_views = {
+            "ventdurations": ventdurations,
+            "vasopressordurations": vasopressordurations,
+            "oasis": oasis,
+            "sapsii": sapsii,
+        }
+        return raw_tables, materialized_views
+
+    def test_map_ethnicity_matches_required_categories(self):
+        map_ethnicity = self._get_callable("map_ethnicity")
+        self.assertEqual(map_ethnicity("WHITE - RUSSIAN"), "WHITE")
+        self.assertEqual(map_ethnicity("BLACK/AFRICAN AMERICAN"), "BLACK")
+        self.assertEqual(map_ethnicity("ASIAN - CHINESE"), "ASIAN")
+        self.assertEqual(map_ethnicity("HISPANIC OR LATINO"), "HISPANIC")
+        self.assertEqual(map_ethnicity("AMERICAN INDIAN/ALASKA NATIVE"), "NATIVE AMERICAN")
+        self.assertEqual(map_ethnicity("PATIENT DECLINED TO ANSWER"), "OTHER")
+        self.assertEqual(map_ethnicity(None), "OTHER")
+
+    def test_validate_database_environment_rejects_non_mimiciii_schema(self):
+        validate_database_environment = self._get_callable("validate_database_environment")
+        raw_tables, materialized_views = self._build_database_environment_inputs(
+            num_admissions=50001
+        )
+
+        with self.assertRaisesRegex(ValueError, "Database schema must be mimiciii."):
+            validate_database_environment(
+                raw_tables,
+                materialized_views,
+                schema_name="mimiciv",
+            )
+
+    def test_validate_database_environment_rejects_non_postgres_flavor(self):
+        validate_database_environment = self._get_callable("validate_database_environment")
+        raw_tables, materialized_views = self._build_database_environment_inputs(
+            num_admissions=50001
+        )
+
+        with self.assertRaisesRegex(ValueError, "Database flavor must be PostgreSQL."):
+            validate_database_environment(
+                raw_tables,
+                materialized_views,
+                database_flavor="sqlite",
+            )
+
+    def test_validate_database_environment_accepts_postgres_alias(self):
+        validate_database_environment = self._get_callable("validate_database_environment")
+        raw_tables, materialized_views = self._build_database_environment_inputs(
+            num_admissions=50001
+        )
+
+        summary = validate_database_environment(
+            raw_tables,
+            materialized_views,
+            database_flavor="postgres",
+        )
+
+        self.assertEqual(summary["database_flavor"], "postgres")
+
+    def test_validate_database_environment_requires_all_required_raw_tables(self):
+        validate_database_environment = self._get_callable("validate_database_environment")
+        raw_tables, materialized_views = self._build_database_environment_inputs(
+            num_admissions=50001
+        )
+        raw_tables.pop("noteevents")
+
+        with self.assertRaisesRegex(ValueError, "Missing required raw tables: noteevents"):
+            validate_database_environment(raw_tables, materialized_views)
+
+    def test_validate_database_environment_requires_all_required_materialized_views(self):
+        validate_database_environment = self._get_callable("validate_database_environment")
+        raw_tables, materialized_views = self._build_database_environment_inputs(
+            num_admissions=50001
+        )
+        materialized_views.pop("oasis")
+
+        with self.assertRaisesRegex(ValueError, "Missing required materialized views: oasis"):
+            validate_database_environment(raw_tables, materialized_views)
+
+    def test_validate_database_environment_requires_required_raw_table_columns(self):
+        validate_database_environment = self._get_callable("validate_database_environment")
+        raw_tables, materialized_views = self._build_database_environment_inputs(
+            num_admissions=50001
+        )
+        raw_tables["admissions"] = raw_tables["admissions"].drop(
+            columns=["has_chartevents_data"]
+        )
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "admissions is missing required columns: has_chartevents_data",
+        ):
+            validate_database_environment(raw_tables, materialized_views)
+
+    def test_validate_database_environment_requires_required_materialized_view_columns(self):
+        validate_database_environment = self._get_callable("validate_database_environment")
+        raw_tables, materialized_views = self._build_database_environment_inputs(
+            num_admissions=50001
+        )
+        materialized_views["ventdurations"] = materialized_views["ventdurations"].drop(
+            columns=["endtime"]
+        )
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "ventdurations is missing required columns: endtime",
+        ):
+            validate_database_environment(raw_tables, materialized_views)
+
+    def test_validate_database_environment_requires_large_base_admissions_backbone(self):
+        validate_database_environment = self._get_callable("validate_database_environment")
+        raw_tables, materialized_views = self._build_database_environment_inputs(
+            num_admissions=10
+        )
+
+        with self.assertRaisesRegex(ValueError, "must exceed 50,000 rows"):
+            validate_database_environment(raw_tables, materialized_views)
+
+    def test_validate_database_environment_enforces_50000_row_boundary(self):
+        validate_database_environment = self._get_callable("validate_database_environment")
+
+        raw_tables_50000, materialized_views_50000 = self._build_database_environment_inputs(
+            num_admissions=50000
+        )
+        with self.assertRaisesRegex(ValueError, "must exceed 50,000 rows"):
+            validate_database_environment(raw_tables_50000, materialized_views_50000)
+
+        raw_tables_50001, materialized_views_50001 = self._build_database_environment_inputs(
+            num_admissions=50001
+        )
+        summary = validate_database_environment(raw_tables_50001, materialized_views_50001)
+        self.assertEqual(summary["base_admissions_rows"], 50001)
+
+    def test_validate_database_environment_rejects_null_subject_id_in_base_backbone(self):
+        validate_database_environment = self._get_callable("validate_database_environment")
+        raw_tables, materialized_views = self._build_database_environment_inputs(
+            num_admissions=50001
+        )
+        raw_tables["admissions"].loc[0, "subject_id"] = pd.NA
+
+        with self.assertRaisesRegex(ValueError, "Base admissions contains null subject_id"):
+            validate_database_environment(raw_tables, materialized_views)
+
+    def test_validate_database_environment_rejects_null_hadm_id_in_base_backbone(self):
+        validate_database_environment = self._get_callable("validate_database_environment")
+        raw_tables, materialized_views = self._build_database_environment_inputs(
+            num_admissions=50001
+        )
+        raw_tables["admissions"].loc[0, "hadm_id"] = pd.NA
+
+        with self.assertRaisesRegex(ValueError, "Base admissions contains null hadm_id"):
+            validate_database_environment(raw_tables, materialized_views)
+
+    def test_validate_database_environment_requires_non_null_icustay_bridge_keys(self):
+        validate_database_environment = self._get_callable("validate_database_environment")
+
+        for column in ["hadm_id", "icustay_id"]:
+            with self.subTest(column=column):
+                raw_tables, materialized_views = self._build_database_environment_inputs(
+                    num_admissions=50001
+                )
+                raw_tables["icustays"].loc[0, column] = pd.NA
+
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "icustays must provide non-null hadm_id and icustay_id",
+                ):
+                    validate_database_environment(raw_tables, materialized_views)
+
+    def test_validate_database_environment_requires_accessible_note_text(self):
+        validate_database_environment = self._get_callable("validate_database_environment")
+        raw_tables, materialized_views = self._build_database_environment_inputs(
+            num_admissions=50001
+        )
+        raw_tables["noteevents"]["text"] = pd.NA
+
+        with self.assertRaisesRegex(ValueError, "noteevents.text must be accessible"):
+            validate_database_environment(raw_tables, materialized_views)
+
+    def test_validate_database_environment_requires_accessible_chartevent_values(self):
+        validate_database_environment = self._get_callable("validate_database_environment")
+        raw_tables, materialized_views = self._build_database_environment_inputs(
+            num_admissions=50001
+        )
+        raw_tables["chartevents"]["value"] = pd.NA
+
+        with self.assertRaisesRegex(ValueError, "chartevents.value must be accessible"):
+            validate_database_environment(raw_tables, materialized_views)
+
+    def test_validate_database_environment_requires_ventdurations_to_join_to_icustays(self):
+        validate_database_environment = self._get_callable("validate_database_environment")
+        raw_tables, materialized_views = self._build_database_environment_inputs(
+            num_admissions=50001
+        )
+        materialized_views["ventdurations"]["icustay_id"] = 123456789
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "ventdurations must join to icustays through icustay_id",
+        ):
+            validate_database_environment(raw_tables, materialized_views)
+
+    def test_validate_database_environment_requires_vasopressors_to_join_to_icustays(self):
+        validate_database_environment = self._get_callable("validate_database_environment")
+        raw_tables, materialized_views = self._build_database_environment_inputs(
+            num_admissions=50001
+        )
+        materialized_views["vasopressordurations"]["icustay_id"] = 123456789
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "vasopressordurations must join to icustays through icustay_id",
+        ):
+            validate_database_environment(raw_tables, materialized_views)
+
+    def test_validate_database_environment_requires_chartevents_to_join_to_d_items(self):
+        validate_database_environment = self._get_callable("validate_database_environment")
+        raw_tables, materialized_views = self._build_database_environment_inputs(
+            num_admissions=50001
+        )
+        raw_tables["chartevents"]["itemid"] = 999999
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "chartevents must join to d_items through itemid",
+        ):
+            validate_database_environment(raw_tables, materialized_views)
+
+    def test_validate_database_environment_requires_nonempty_admission_level_acuity(self):
+        validate_database_environment = self._get_callable("validate_database_environment")
+        raw_tables, materialized_views = self._build_database_environment_inputs(
+            num_admissions=50001
+        )
+        materialized_views["oasis"] = pd.DataFrame(
+            columns=["hadm_id", "icustay_id", "oasis"]
+        )
+        materialized_views["sapsii"] = pd.DataFrame(
+            columns=["hadm_id", "icustay_id", "sapsii"]
+        )
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "oasis and sapsii must join back to admissions on hadm_id",
+        ):
+            validate_database_environment(raw_tables, materialized_views)
+
+    def test_validate_database_environment_returns_summary_for_valid_inputs(self):
+        validate_database_environment = self._get_callable("validate_database_environment")
+        raw_tables, materialized_views = self._build_database_environment_inputs(
+            num_admissions=50001
+        )
+
+        summary = validate_database_environment(raw_tables, materialized_views)
+
+        self.assertEqual(summary["database_flavor"], "postgresql")
+        self.assertEqual(summary["schema_name"], "mimiciii")
+        self.assertEqual(summary["base_admissions_rows"], 50001)
+        self.assertEqual(
+            summary["raw_tables"],
+            ["admissions", "chartevents", "d_items", "icustays", "noteevents", "patients"],
+        )
+        self.assertEqual(
+            summary["materialized_views"],
+            ["oasis", "sapsii", "vasopressordurations", "ventdurations"],
+        )
+        self.assertTrue(summary["supports_multiple_icustays_per_hadm"])
+
+    def test_validate_database_environment_reports_when_multiple_icustays_are_absent(self):
+        validate_database_environment = self._get_callable("validate_database_environment")
+        raw_tables, materialized_views = self._build_database_environment_inputs(
+            num_admissions=50001,
+            include_multiple_icustays=False,
+        )
+
+        summary = validate_database_environment(raw_tables, materialized_views)
+
+        self.assertFalse(summary["supports_multiple_icustays_per_hadm"])
+
+    def test_map_insurance_matches_required_categories_and_falls_back_safely(self):
+        map_insurance = self._get_callable("map_insurance")
+        self.assertEqual(map_insurance("Medicare"), "Public")
+        self.assertEqual(map_insurance("Medicaid"), "Public")
+        self.assertEqual(map_insurance("Government"), "Public")
+        self.assertEqual(map_insurance("Private"), "Private")
+        self.assertEqual(map_insurance("Self Pay"), "Self-Pay")
+        self.assertEqual(map_insurance("Other Plan"), "Self-Pay")
+
+    def test_build_base_admissions_raises_clear_error_when_required_columns_are_missing(self):
+        build_base_admissions = self._get_callable("build_base_admissions")
+        admissions_missing = self.admissions.drop(columns=["has_chartevents_data"])
+        with self.assertRaisesRegex(ValueError, "has_chartevents_data"):
+            build_base_admissions(admissions_missing, self.patients)
+
+    def test_build_base_admissions_filters_has_chartevents_and_joins_patients(self):
+        build_base_admissions = self._get_callable("build_base_admissions")
+        base = build_base_admissions(self.admissions, self.patients)
+        self.assertIsInstance(base, pd.DataFrame)
+        self.assertIn("gender", base.columns)
+        self.assertIn("dob", base.columns)
+        self.assertNotIn(105, set(base["hadm_id"]))
+        self.assertEqual(len(base), 7)
+        self._assert_hadm_unique(base, "Base admissions")
+
+    def test_build_base_admissions_rejects_duplicate_patient_rows_for_subject_id(self):
+        build_base_admissions = self._get_callable("build_base_admissions")
+        duplicated_patients = pd.concat(
+            [
+                self.patients,
+                pd.DataFrame(
+                    [
+                        {
+                            "subject_id": 1,
+                            "gender": "F",
+                            "dob": "2071-01-01 00:00:00",
+                        }
+                    ]
+                ),
+            ],
+            ignore_index=True,
+        )
+
+        with self.assertRaises(pd.errors.MergeError):
+            build_base_admissions(self.admissions, duplicated_patients)
+
+    def test_build_demographics_table_applies_age_los_race_and_insurance_rules(self):
+        build_base_admissions = self._get_callable("build_base_admissions")
+        build_demographics_table = self._get_callable("build_demographics_table")
+        base = build_base_admissions(self.admissions, self.patients)
+        demographics = build_demographics_table(base)
+
+        required = {
+            "hadm_id",
+            "subject_id",
+            "race",
+            "age",
+            "los_hours",
+            "los_days",
+            "insurance",
+            "gender",
+        }
+        self.assertTrue(required.issubset(set(demographics.columns)))
+
+        by_hadm = demographics.set_index("hadm_id")
+        self.assertEqual(by_hadm.loc[101, "race"], "BLACK")
+        self.assertEqual(by_hadm.loc[103, "race"], "ASIAN")
+        self.assertEqual(by_hadm.loc[104, "race"], "OTHER")
+        self.assertEqual(by_hadm.loc[101, "age"], 90.0)
+        self.assertAlmostEqual(by_hadm.loc[103, "los_hours"], 20.0)
+        self.assertAlmostEqual(by_hadm.loc[106, "los_days"], 30.0 / 24.0)
+        self.assertEqual(by_hadm.loc[104, "insurance"], "Public")
+        self.assertEqual(by_hadm.loc[106, "insurance"], "Private")
+        self._assert_hadm_unique(demographics, "Demographics table")
+
+    def test_build_demographics_table_paper_like_uses_notebook_style_los_days_only(self):
+        build_base_admissions = self._get_callable("build_base_admissions")
+        build_demographics_table = self._get_callable("build_demographics_table")
+        base = build_base_admissions(self.admissions, self.patients)
+
+        demographics = build_demographics_table(base, paper_like=True).set_index("hadm_id")
+
+        self.assertAlmostEqual(
+            by := float(demographics.loc[106, "los_hours"]),
+            30.0,
+            msg="paper_like demographics should preserve total los_hours for cohort filtering",
+        )
+        self.assertAlmostEqual(
+            float(demographics.loc[106, "los_days"]),
+            6.0,
+            msg="paper_like demographics should mirror the notebook's modulo-24-hour LOS representation in los_days",
+        )
+
+    def test_build_eol_cohort_enforces_six_hour_los_filter_and_discharge_priority(self):
+        build_base_admissions = self._get_callable("build_base_admissions")
+        build_demographics_table = self._get_callable("build_demographics_table")
+        build_eol_cohort = self._get_callable("build_eol_cohort")
+
+        base = build_base_admissions(self.admissions, self.patients)
+        demographics = build_demographics_table(base)
+        eol = build_eol_cohort(base, demographics)
+
+        self.assertIsInstance(eol, pd.DataFrame)
+        self.assertEqual(set(eol["hadm_id"]), {101, 103, 104, 107})
+
+        by_hadm = eol.set_index("hadm_id")
+        self.assertEqual(by_hadm.loc[101, "discharge_category"], "Hospice")
+        self.assertEqual(by_hadm.loc[103, "discharge_category"], "Skilled Nursing Facility")
+        self.assertEqual(by_hadm.loc[104, "discharge_category"], "Deceased")
+        self.assertEqual(by_hadm.loc[107, "discharge_category"], "Deceased")
+        self.assertNotIn(102, set(eol["hadm_id"]))
+        self._assert_hadm_unique(eol, "EOL cohort")
+
+    def test_build_eol_cohort_requires_stay_of_at_least_six_hours(self):
+        build_base_admissions = self._get_callable("build_base_admissions")
+        build_demographics_table = self._get_callable("build_demographics_table")
+        build_eol_cohort = self._get_callable("build_eol_cohort")
+
+        admissions = pd.DataFrame(
+            [
+                {
+                    "hadm_id": 891,
+                    "subject_id": 891,
+                    "admittime": "2100-09-01 00:00:00",
+                    "dischtime": "2100-09-01 06:00:00",
+                    "ethnicity": "WHITE",
+                    "insurance": "Medicare",
+                    "discharge_location": "HOME HOSPICE",
+                    "hospital_expire_flag": 0,
+                    "has_chartevents_data": 1,
+                },
+                {
+                    "hadm_id": 892,
+                    "subject_id": 892,
+                    "admittime": "2100-09-01 00:00:00",
+                    "dischtime": "2100-09-01 05:59:00",
+                    "ethnicity": "BLACK/AFRICAN AMERICAN",
+                    "insurance": "Private",
+                    "discharge_location": "HOME HOSPICE",
+                    "hospital_expire_flag": 0,
+                    "has_chartevents_data": 1,
+                },
+            ]
+        )
+        patients = pd.DataFrame(
+            [
+                {"subject_id": 891, "gender": "M", "dob": "2070-09-01 00:00:00"},
+                {"subject_id": 892, "gender": "F", "dob": "2070-09-01 00:00:00"},
+            ]
+        )
+
+        base = build_base_admissions(admissions, patients)
+        demographics = build_demographics_table(base)
+        eol = build_eol_cohort(base, demographics)
+
+        self.assertIn(891, set(eol["hadm_id"]))
+        self.assertNotIn(892, set(eol["hadm_id"]))
+
+    def test_build_eol_cohort_accepts_snf_discharge_text(self):
+        build_base_admissions = self._get_callable("build_base_admissions")
+        build_demographics_table = self._get_callable("build_demographics_table")
+        build_eol_cohort = self._get_callable("build_eol_cohort")
+
+        admissions = pd.DataFrame(
+            [
+                {
+                    "hadm_id": 901,
+                    "subject_id": 91,
+                    "admittime": "2100-09-01 00:00:00",
+                    "dischtime": "2100-09-02 12:01:00",
+                    "ethnicity": "WHITE",
+                    "insurance": "Medicare",
+                    "discharge_location": "SNF",
+                    "hospital_expire_flag": 0,
+                    "has_chartevents_data": 1,
+                }
+            ]
+        )
+        patients = pd.DataFrame(
+            [
+                {"subject_id": 91, "gender": "M", "dob": "2070-09-01 00:00:00"},
+            ]
+        )
+
+        base = build_base_admissions(admissions, patients)
+        demographics = build_demographics_table(base)
+        eol = build_eol_cohort(base, demographics)
+
+        self.assertEqual(set(eol["hadm_id"]), {901})
+
+    def test_build_all_cohort_keeps_only_adult_admissions_with_twelve_cumulative_icu_hours(self):
+        build_base_admissions = self._get_callable("build_base_admissions")
+        build_all_cohort = self._get_callable("build_all_cohort")
+
+        base = build_base_admissions(self.admissions, self.patients)
+        all_cohort = build_all_cohort(base, self.icustays)
+
+        self.assertIsInstance(all_cohort, pd.DataFrame)
+        self.assertEqual(set(all_cohort["hadm_id"]), {100, 101, 103, 106, 107})
+        self.assertNotIn(
+            105,
+            set(all_cohort["hadm_id"]),
+            msg="Admissions excluded by has_chartevents_data should stay excluded downstream",
+        )
+        self.assertNotIn(
+            104,
+            set(all_cohort["hadm_id"]),
+            msg="Admissions with under-12-hour cumulative ICU exposure should be excluded",
+        )
+        self._assert_hadm_unique(all_cohort, "ALL cohort")
+
+    def test_build_all_cohort_remains_unique_when_multiple_qualifying_icu_stays_exist(self):
+        build_base_admissions = self._get_callable("build_base_admissions")
+        build_all_cohort = self._get_callable("build_all_cohort")
+
+        admissions = pd.DataFrame(
+            [
+                {
+                    "hadm_id": 801,
+                    "subject_id": 81,
+                    "admittime": "2100-08-01 00:00:00",
+                    "dischtime": "2100-08-02 00:00:00",
+                    "ethnicity": "WHITE",
+                    "insurance": "Medicare",
+                    "discharge_location": "HOME",
+                    "hospital_expire_flag": 0,
+                    "has_chartevents_data": 1,
+                }
+            ]
+        )
+        patients = pd.DataFrame(
+            [
+                {"subject_id": 81, "gender": "M", "dob": "2070-08-01 00:00:00"},
+            ]
+        )
+        icustays = pd.DataFrame(
+            [
+                {
+                    "hadm_id": 801,
+                    "icustay_id": 8011,
+                    "intime": "2100-08-01 00:00:00",
+                    "outtime": "2100-08-01 13:00:00",
+                },
+                {
+                    "hadm_id": 801,
+                    "icustay_id": 8012,
+                    "intime": "2100-08-01 14:00:00",
+                    "outtime": "2100-08-02 04:00:00",
+                },
+            ]
+        )
+
+        base = build_base_admissions(admissions, patients)
+        all_cohort = build_all_cohort(base, icustays)
+
+        self.assertEqual(list(all_cohort["hadm_id"]), [801])
+        self._assert_hadm_unique(all_cohort, "ALL cohort with multiple qualifying ICU stays")
+
+    def test_build_treatment_totals_raises_clear_error_on_missing_required_columns(self):
+        build_treatment_totals = self._get_callable("build_treatment_totals")
+        vent_missing = self.ventdurations.drop(columns=["starttime"])
+        with self.assertRaisesRegex(ValueError, "starttime"):
+            build_treatment_totals(self.icustays, vent_missing, self.vasopressordurations)
+
+    def test_build_treatment_totals_merges_overlapping_and_short_gap_spans(self):
+        build_treatment_totals = self._get_callable("build_treatment_totals")
+        totals = build_treatment_totals(
+            self.icustays,
+            self.ventdurations,
+            self.vasopressordurations,
+        )
+
+        self.assertIsInstance(totals, pd.DataFrame)
+        self.assertTrue({"hadm_id", "total_vent_min", "total_vaso_min"}.issubset(totals.columns))
+
+        by_hadm = totals.fillna(0).set_index("hadm_id")
+        self.assertEqual(
+            by_hadm.loc[101, "total_vent_min"],
+            750.0,
+            msg="Vent spans within the ICU window must merge before summing by hadm_id",
+        )
+        self.assertEqual(
+            by_hadm.loc[103, "total_vaso_min"],
+            240.0,
+            msg="Vasopressor spans outside the ICU window should be excluded before merging",
+        )
+        self._assert_hadm_unique(totals, "Treatment totals")
+
+    def test_build_treatment_totals_uses_icustay_bridge_and_respects_600_minute_boundary(self):
+        build_treatment_totals = self._get_callable("build_treatment_totals")
+        icustays = pd.DataFrame(
+            [
+                {"hadm_id": 200, "icustay_id": 2001, "intime": "2100-09-01 00:00:00", "outtime": "2100-09-01 12:00:00"},
+                {"hadm_id": 200, "icustay_id": 2002, "intime": "2100-09-01 20:00:00", "outtime": "2100-09-02 04:00:00"},
+            ]
+        )
+        ventdurations = pd.DataFrame(
+            [
+                {
+                    "hadm_id": 999,
+                    "icustay_id": 2001,
+                    "ventnum": 1,
+                    "starttime": "2100-09-01 00:00:00",
+                    "endtime": "2100-09-01 01:00:00",
+                    "duration_hours": 1.0,
+                },
+                {
+                    "hadm_id": 999,
+                    "icustay_id": 2001,
+                    "ventnum": 2,
+                    "starttime": "2100-09-01 11:00:00",
+                    "endtime": "2100-09-01 12:00:00",
+                    "duration_hours": 1.0,
+                },
+                {
+                    "hadm_id": 999,
+                    "icustay_id": 2002,
+                    "ventnum": 3,
+                    "starttime": "2100-09-01 22:01:00",
+                    "endtime": "2100-09-01 23:01:00",
+                    "duration_hours": 1.0,
+                },
+            ]
+        )
+        empty_vaso = pd.DataFrame(
+            columns=["icustay_id", "vasonum", "starttime", "endtime", "duration_hours"]
+        )
+        totals = build_treatment_totals(icustays, ventdurations, empty_vaso)
+        row = totals.fillna(0).set_index("hadm_id").loc[200]
+        self.assertEqual(
+            row["total_vent_min"],
+            780.0,
+            msg="Gap == 600 must merge, gap == 601 must not merge, and hadm_id must be derived from icustays",
+        )
+
+    def test_build_treatment_totals_filters_spans_outside_icu_window_in_all_modes(self):
+        build_treatment_totals = self._get_callable("build_treatment_totals")
+        icustays = pd.DataFrame(
+            [
+                {
+                    "hadm_id": 210,
+                    "icustay_id": 2101,
+                    "intime": "2100-09-10 00:00:00",
+                    "outtime": "2100-09-10 12:00:00",
+                }
+            ]
+        )
+        ventdurations = pd.DataFrame(
+            [
+                {
+                    "icustay_id": 2101,
+                    "ventnum": 1,
+                    "starttime": "2100-09-10 01:00:00",
+                    "endtime": "2100-09-10 02:00:00",
+                    "duration_hours": 1.0,
+                },
+                {
+                    "icustay_id": 2101,
+                    "ventnum": 2,
+                    "starttime": "2100-09-10 12:30:00",
+                    "endtime": "2100-09-10 13:30:00",
+                    "duration_hours": 1.0,
+                },
+            ]
+        )
+        empty_vaso = pd.DataFrame(
+            columns=["icustay_id", "vasonum", "starttime", "endtime", "duration_hours"]
+        )
+
+        default_totals = build_treatment_totals(
+            icustays,
+            ventdurations,
+            empty_vaso,
+        ).fillna(0).set_index("hadm_id")
+        paper_like_totals = build_treatment_totals(
+            icustays,
+            ventdurations,
+            empty_vaso,
+            paper_like=True,
+        ).fillna(0).set_index("hadm_id")
+
+        self.assertEqual(
+            float(default_totals.loc[210, "total_vent_min"]),
+            60.0,
+            msg="default treatment totals should keep only spans fully contained within the ICU stay window",
+        )
+        self.assertEqual(
+            float(paper_like_totals.loc[210, "total_vent_min"]),
+            60.0,
+            msg="paper_like treatment totals should keep only spans fully contained within the ICU stay window",
+        )
+
+    def test_build_treatment_totals_handles_mixed_tz_awareness_in_default_mode(self):
+        build_treatment_totals = self._get_callable("build_treatment_totals")
+        icustays = pd.DataFrame(
+            [
+                {
+                    "hadm_id": 211,
+                    "icustay_id": 2111,
+                    "intime": "2100-09-11 00:00:00",
+                    "outtime": "2100-09-11 12:00:00",
+                }
+            ]
+        )
+        ventdurations = pd.DataFrame(
+            [
+                {
+                    "icustay_id": 2111,
+                    "ventnum": 1,
+                    "starttime": "2100-09-11T01:00:00+00:00",
+                    "endtime": "2100-09-11T02:00:00+00:00",
+                    "duration_hours": 1.0,
+                },
+                {
+                    "icustay_id": 2111,
+                    "ventnum": 2,
+                    "starttime": "2100-09-11T13:00:00+00:00",
+                    "endtime": "2100-09-11T14:00:00+00:00",
+                    "duration_hours": 1.0,
+                },
+            ]
+        )
+        empty_vaso = pd.DataFrame(
+            columns=["icustay_id", "vasonum", "starttime", "endtime", "duration_hours"]
+        )
+
+        totals = build_treatment_totals(
+            icustays,
+            ventdurations,
+            empty_vaso,
+        ).fillna(0).set_index("hadm_id")
+
+        self.assertEqual(
+            float(totals.loc[211, "total_vent_min"]),
+            60.0,
+            msg="default ICU-window filtering should normalize tz-aware and tz-naive timestamps before comparison",
+        )
+
+    def test_prepare_note_text_for_sentiment_collapses_whitespace_only(self):
+        prepare_note_text_for_sentiment = self._get_callable("prepare_note_text_for_sentiment")
+        cleaned = prepare_note_text_for_sentiment(
+            "Patient\trefuses\n\n treatment   Date:[**5-1-18**]"
+        )
+        self.assertEqual(
+            cleaned,
+            "Patient refuses treatment Date:[**5-1-18**]",
+            msg="Whitespace tokenization should collapse whitespace without stripping de-identification markers",
+        )
+        self.assertEqual(prepare_note_text_for_sentiment("   \n\t "), "")
+        self.assertEqual(prepare_note_text_for_sentiment(None), "")
+
+    def test_build_note_corpus_concatenates_non_error_notes_and_can_include_missing_admissions(self):
+        build_note_corpus = self._get_callable("build_note_corpus")
+        corpus = build_note_corpus(
+            self.noteevents,
+            all_hadm_ids=[101, 103, 104, 106, 107],
+        )
+
+        self.assertIsInstance(corpus, pd.DataFrame)
+        self.assertTrue({"hadm_id", "note_text"}.issubset(corpus.columns))
+        self._assert_hadm_unique(corpus, "Note corpus")
+
+        by_hadm = corpus.set_index("hadm_id")
+        self.assertEqual(set(corpus["hadm_id"]), {101, 103, 104, 106, 107})
+        self.assertIn("Patient refuses treatment", by_hadm.loc[101, "note_text"])
+        self.assertIn("Autopsy was discussed", by_hadm.loc[101, "note_text"])
+        self.assertNotIn(
+            "AUTOPSY requested",
+            by_hadm.loc[104, "note_text"],
+            msg="Error notes must be excluded before admission-level concatenation",
+        )
+        self.assertEqual(
+            by_hadm.loc[107, "note_text"],
+            "",
+            msg="Admissions without notes should still appear when all_hadm_ids is provided",
+        )
+
+    def test_build_note_corpus_filters_out_notes_for_hadm_ids_outside_requested_all_cohort(self):
+        build_note_corpus = self._get_callable("build_note_corpus")
+        notes = pd.concat(
+            [
+                self.noteevents,
+                pd.DataFrame(
+                    [
+                        {
+                            "hadm_id": 999,
+                            "category": "Nursing",
+                            "text": "Outside cohort note that should be dropped.",
+                            "iserror": 0,
+                        }
+                    ]
+                ),
+            ],
+            ignore_index=True,
+        )
+
+        corpus = build_note_corpus(notes, all_hadm_ids=[101, 103, 104])
+
+        self.assertEqual(set(corpus["hadm_id"]), {101, 103, 104})
+        self.assertNotIn(999, set(corpus["hadm_id"]))
+
+    def test_build_note_corpus_preserves_empty_strings_after_left_join(self):
+        build_note_corpus = self._get_callable("build_note_corpus")
+        corpus = build_note_corpus(self.noteevents, all_hadm_ids=[101, 103, 999]).set_index(
+            "hadm_id"
+        )
+        self.assertEqual(corpus.loc[999, "note_text"], "")
+        self.assertFalse(pd.isna(corpus.loc[999, "note_text"]))
+
+    def test_build_note_corpus_can_filter_to_discharge_summaries_for_sentiment(self):
+        build_note_corpus = self._get_callable("build_note_corpus")
+        notes = pd.DataFrame(
+            [
+                {"hadm_id": 1, "category": "Nursing", "text": "nursing detail", "iserror": 0},
+                {
+                    "hadm_id": 1,
+                    "category": "Discharge summary",
+                    "text": "discharge summary text",
+                    "iserror": 0,
+                },
+                {"hadm_id": 2, "category": "Nursing", "text": "only nursing", "iserror": 0},
+            ]
+        )
+        corpus = build_note_corpus(
+            notes,
+            all_hadm_ids=[1, 2],
+            categories=["Discharge summary"],
+        ).set_index("hadm_id")
+        self.assertEqual(corpus.loc[1, "note_text"], "discharge summary text")
+        self.assertEqual(corpus.loc[2, "note_text"], "")
+
+    def test_build_note_corpus_raises_clear_error_when_required_columns_are_missing(self):
+        build_note_corpus = self._get_callable("build_note_corpus")
+        notes_missing = self.noteevents.drop(columns=["text"])
+        with self.assertRaisesRegex(ValueError, "text"):
+            build_note_corpus(notes_missing)
+
+    def test_build_note_labels_ignores_error_notes_and_extracts_rule_based_labels(self):
+        build_note_labels = self._get_callable("build_note_labels")
+        labels = build_note_labels(self.noteevents)
+
+        self.assertIsInstance(labels, pd.DataFrame)
+        self.assertTrue(
+            {"hadm_id", "noncompliance_label", "autopsy_label"}.issubset(labels.columns)
+        )
+
+        by_hadm = labels.set_index("hadm_id")
+        self.assertEqual(by_hadm.loc[101, "noncompliance_label"], 1)
+        self.assertTrue(
+            pd.isna(by_hadm.loc[101, "autopsy_label"]),
+            msg="discussed without consent/decline → NaN (unlabeled)",
+        )
+        self.assertEqual(by_hadm.loc[103, "noncompliance_label"], 0)
+        self.assertTrue(
+            pd.isna(by_hadm.loc[104, "autopsy_label"]),
+            msg="no autopsy mention → NaN (unlabeled)",
+        )
+        self.assertEqual(by_hadm.loc[106, "noncompliance_label"], 0)
+        self._assert_hadm_unique(labels, "Note labels")
+
+    def test_build_note_labels_can_include_all_hadm_ids_with_zero_defaults(self):
+        build_note_labels = self._get_callable("build_note_labels")
+        labels = build_note_labels(
+            self.noteevents,
+            all_hadm_ids=[101, 103, 104, 106, 107],
+        )
+        self._assert_hadm_unique(labels, "Note labels with all admissions")
+        by_hadm = labels.set_index("hadm_id")
+        self.assertEqual(set(labels["hadm_id"]), {101, 103, 104, 106, 107})
+        self.assertEqual(by_hadm.loc[107, "noncompliance_label"], 0)
+        self.assertTrue(
+            pd.isna(by_hadm.loc[107, "autopsy_label"]),
+            msg="no notes → NaN (unlabeled)",
+        )
+
+    def test_build_note_labels_raises_clear_error_when_required_columns_are_missing(self):
+        build_note_labels = self._get_callable("build_note_labels")
+        notes_missing = self.noteevents.drop(columns=["iserror"])
+        with self.assertRaisesRegex(ValueError, "iserror"):
+            build_note_labels(notes_missing)
+
+    def test_build_note_labels_default_corrected_autopsy_treats_no_autopsy_as_negative(self):
+        build_note_labels = self._get_callable("build_note_labels")
+        notes = pd.concat(
+            [
+                self.noteevents,
+                pd.DataFrame(
+                    [
+                        {
+                            "hadm_id": 108,
+                            "category": "Nursing",
+                            "text": "Medication compliance reviewed with patient. No autopsy planned.",
+                            "iserror": 0,
+                        }
+                    ]
+                ),
+            ],
+            ignore_index=True,
+        )
+        labels = build_note_labels(notes).set_index("hadm_id")
+        self.assertEqual(
+            labels.loc[108, "noncompliance_label"],
+            0,
+            msg="Substring rules should not fire on generic compliance mentions",
+        )
+        self.assertEqual(
+            labels.loc[108, "autopsy_label"],
+            0,
+            msg="corrected autopsy flow should treat explicit 'no autopsy' phrasing as a negative label",
+        )
+
+    def test_build_note_labels_paper_like_autopsy_keeps_no_autopsy_as_unlabeled(self):
+        build_note_labels = self._get_callable("build_note_labels")
+        notes = pd.DataFrame(
+            [
+                {
+                    "hadm_id": 108,
+                    "category": "Nursing",
+                    "text": "Medication compliance reviewed with patient. No autopsy planned.",
+                    "iserror": 0,
+                }
+            ]
+        )
+        labels = build_note_labels(
+            notes,
+            autopsy_label_mode="paper_like",
+        ).set_index("hadm_id")
+        self.assertEqual(labels.loc[108, "noncompliance_label"], 0)
+        self.assertTrue(
+            pd.isna(labels.loc[108, "autopsy_label"]),
+            msg="paper_like autopsy flow should preserve the notebook's stricter keyword behavior",
+        )
+
+    def test_build_note_labels_does_not_treat_hyphenated_or_refusal_phrases_as_noncompliance(self):
+        build_note_labels = self._get_callable("build_note_labels")
+        notes = pd.DataFrame(
+            [
+                {
+                    "hadm_id": 201,
+                    "category": "Nursing",
+                    "text": "Patient is non-complian with medications.",
+                    "iserror": 0,
+                },
+                {
+                    "hadm_id": 202,
+                    "category": "Nursing",
+                    "text": "Patient remains non-adher to treatment plan.",
+                    "iserror": 0,
+                },
+                {
+                    "hadm_id": 203,
+                    "category": "Nursing",
+                    "text": "Patient refuses treatment at this time.",
+                    "iserror": 0,
+                },
+            ]
+        )
+
+        labels = build_note_labels(notes).set_index("hadm_id")
+        self.assertEqual(labels.loc[201, "noncompliance_label"], 0)
+        self.assertEqual(labels.loc[202, "noncompliance_label"], 0)
+        self.assertEqual(labels.loc[203, "noncompliance_label"], 0)
+
+    def test_build_note_labels_matches_only_noncompliant_keyword_case_insensitively(self):
+        build_note_labels = self._get_callable("build_note_labels")
+        notes = pd.DataFrame(
+            [
+                {
+                    "hadm_id": 211,
+                    "category": "Nursing",
+                    "text": "Team documented ongoing noncompliance with medications.",
+                    "iserror": 0,
+                },
+                {
+                    "hadm_id": 212,
+                    "category": "Nursing",
+                    "text": "Patient was described as noncompliant during rounds.",
+                    "iserror": 0,
+                },
+            ]
+        )
+
+        labels = build_note_labels(notes).set_index("hadm_id")
+        self.assertEqual(labels.loc[211, "noncompliance_label"], 0)
+        self.assertEqual(labels.loc[212, "noncompliance_label"], 1)
+
+    def test_build_note_labels_distinguishes_autopsy_consent_from_decline(self):
+        build_note_labels = self._get_callable("build_note_labels")
+        notes = pd.DataFrame(
+            [
+                {
+                    "hadm_id": 221,
+                    "category": "Nursing",
+                    "text": "Family gave consent for autopsy and autopsy was performed.",
+                    "iserror": 0,
+                },
+                {
+                    "hadm_id": 222,
+                    "category": "Nursing",
+                    "text": "Autopsy declined by family. No autopsy will be performed.",
+                    "iserror": 0,
+                },
+                {
+                    "hadm_id": 223,
+                    "category": "Nursing",
+                    "text": "Autopsy discussed with family.",
+                    "iserror": 0,
+                },
+            ]
+        )
+        labels = build_note_labels(notes).set_index("hadm_id")
+        self.assertEqual(labels.loc[221, "autopsy_label"], 1)
+        self.assertEqual(labels.loc[222, "autopsy_label"], 0)
+        self.assertTrue(
+            pd.isna(labels.loc[223, "autopsy_label"]),
+            msg="discussed without consent/decline → NaN",
+        )
+
+    def test_build_note_labels_autopsy_recognizes_agree_and_request_keywords(self):
+        build_note_labels = self._get_callable("build_note_labels")
+        notes = pd.DataFrame(
+            [
+                {
+                    "hadm_id": 231,
+                    "category": "Nursing",
+                    "text": "Family agreed to autopsy after discussion.",
+                    "iserror": 0,
+                },
+                {
+                    "hadm_id": 232,
+                    "category": "Nursing",
+                    "text": "Family requested autopsy be performed.",
+                    "iserror": 0,
+                },
+                {
+                    "hadm_id": 233,
+                    "category": "Nursing",
+                    "text": "Autopsy findings revealed pulmonary embolism.",
+                    "iserror": 0,
+                },
+            ]
+        )
+        labels = build_note_labels(notes).set_index("hadm_id")
+        self.assertEqual(labels.loc[231, "autopsy_label"], 1)
+        self.assertEqual(labels.loc[232, "autopsy_label"], 1)
+        self.assertTrue(
+            pd.isna(labels.loc[233, "autopsy_label"]),
+            msg="Reporting autopsy findings without consent/agree/request → NaN",
+        )
+
+    def test_build_note_labels_autopsy_conflict_consent_and_decline_yields_nan(self):
+        build_note_labels = self._get_callable("build_note_labels")
+        notes = pd.DataFrame(
+            [
+                {
+                    "hadm_id": 241,
+                    "category": "Nursing",
+                    "text": "Family initially agreed to autopsy.\nHowever family later declined autopsy.",
+                    "iserror": 0,
+                },
+            ]
+        )
+        labels = build_note_labels(notes).set_index("hadm_id")
+        self.assertTrue(
+            pd.isna(labels.loc[241, "autopsy_label"]),
+            msg="Ambiguous consent+decline → NaN (excluded from proxy training)",
+        )
+
+    def test_build_note_labels_autopsy_uses_line_level_matching(self):
+        build_note_labels = self._get_callable("build_note_labels")
+        notes = pd.DataFrame(
+            [
+                {
+                    "hadm_id": 251,
+                    "category": "Nursing",
+                    "text": "Patient consent for surgery obtained.\nAutopsy findings were reviewed.",
+                    "iserror": 0,
+                },
+            ]
+        )
+        labels = build_note_labels(notes).set_index("hadm_id")
+        self.assertTrue(
+            pd.isna(labels.loc[251, "autopsy_label"]),
+            msg="consent on a different line from autopsy → NaN",
+        )
+
+    def test_build_note_labels_corrected_autopsy_prefers_explicit_negative_over_request_across_lines(self):
+        build_note_labels = self._get_callable("build_note_labels")
+        notes = pd.DataFrame(
+            [
+                {
+                    "hadm_id": 242,
+                    "category": "Nursing",
+                    "text": "Autopsy was requested by the family.\nNo autopsy was performed per family wishes.",
+                    "iserror": 0,
+                },
+            ]
+        )
+        labels = build_note_labels(notes).set_index("hadm_id")
+        self.assertEqual(
+            labels.loc[242, "autopsy_label"],
+            0,
+            msg="corrected autopsy flow should treat later explicit no-autopsy phrasing as negative even if an earlier line mentions request",
+        )
+
+    def test_build_note_labels_corrected_autopsy_treats_request_declined_as_negative(self):
+        build_note_labels = self._get_callable("build_note_labels")
+        notes = pd.DataFrame(
+            [
+                {
+                    "hadm_id": 243,
+                    "category": "Nursing",
+                    "text": "Request for autopsy was declined.",
+                    "iserror": 0,
+                },
+            ]
+        )
+        labels = build_note_labels(notes).set_index("hadm_id")
+        self.assertEqual(
+            labels.loc[243, "autopsy_label"],
+            0,
+            msg="corrected autopsy flow should treat request-declined phrasing as negative rather than ambiguous",
+        )
+
+    def test_build_note_labels_corrected_autopsy_ignores_unrelated_refused_phrase(self):
+        build_note_labels = self._get_callable("build_note_labels")
+        notes = pd.DataFrame(
+            [
+                {
+                    "hadm_id": 244,
+                    "category": "Discharge summary",
+                    "text": "Family consented to autopsy and took belongings. Family refused social work follow-up.",
+                    "iserror": 0,
+                },
+            ]
+        )
+        labels = build_note_labels(notes).set_index("hadm_id")
+        self.assertEqual(
+            labels.loc[244, "autopsy_label"],
+            1,
+            msg="corrected autopsy flow should not let an unrelated refused phrase override explicit autopsy consent",
+        )
+
+    def test_build_note_labels_corrected_autopsy_ignores_unrelated_declined_phrase(self):
+        build_note_labels = self._get_callable("build_note_labels")
+        notes = pd.DataFrame(
+            [
+                {
+                    "hadm_id": 245,
+                    "category": "Discharge summary",
+                    "text": "Medical examiner declined exam. Permission for autopsy obtained from family.",
+                    "iserror": 0,
+                },
+            ]
+        )
+        labels = build_note_labels(notes).set_index("hadm_id")
+        self.assertEqual(
+            labels.loc[245, "autopsy_label"],
+            1,
+            msg="corrected autopsy flow should not let a non-autopsy declined phrase override explicit autopsy permission",
+        )
+
+    def test_build_note_labels_corrected_autopsy_uses_previous_sentence_for_autopsy_stub(self):
+        build_note_labels = self._get_callable("build_note_labels")
+        notes = pd.DataFrame(
+            [
+                {
+                    "hadm_id": 246,
+                    "category": "Discharge summary",
+                    "text": "Family was offered autopsy. Family declined. Autopsy.",
+                    "iserror": 0,
+                },
+            ]
+        )
+        labels = build_note_labels(notes).set_index("hadm_id")
+        self.assertEqual(
+            labels.loc[246, "autopsy_label"],
+            0,
+            msg="corrected autopsy flow should recover a nearby decline when autopsy is split into a stub sentence",
+        )
+
+    def test_identify_table2_itemids_discovers_matching_labels_across_dbsources(self):
+        identify_table2_itemids = self._get_callable("identify_table2_itemids")
+        d_items = pd.DataFrame(
+            [
+                {"itemid": 10, "label": "Education Readiness", "dbsource": "carevue"},
+                {"itemid": 11, "label": "Education Readiness", "dbsource": "metavision"},
+                {"itemid": 12, "label": "Pain Level", "dbsource": "carevue"},
+                {"itemid": 13, "label": "Follows Commands", "dbsource": "metavision"},
+                {"itemid": 14, "label": "Completely Unrelated Label", "dbsource": "carevue"},
+            ]
+        )
+        itemids = identify_table2_itemids(d_items)
+        self.assertIsInstance(itemids, (set, list, tuple))
+        itemids = set(itemids)
+        self.assertTrue({10, 11, 12, 13}.issubset(itemids))
+        self.assertNotIn(
+            14,
+            itemids,
+            msg="Only Table 2 concepts should be selected from d_items",
+        )
+
+    def test_identify_table2_itemids_supports_case_insensitive_partial_label_matching(self):
+        identify_table2_itemids = self._get_callable("identify_table2_itemids")
+        d_items = pd.DataFrame(
+            [
+                {
+                    "itemid": 20,
+                    "label": "Richmond-RAS Scale Assessment",
+                    "dbsource": "carevue",
+                },
+                {
+                    "itemid": 21,
+                    "label": "pain level verbal response",
+                    "dbsource": "metavision",
+                },
+                {
+                    "itemid": 22,
+                    "label": "SOCIAL WORK CONSULT NOTE",
+                    "dbsource": "carevue",
+                },
+                {
+                    "itemid": 23,
+                    "label": "Completely unrelated field",
+                    "dbsource": "metavision",
+                },
+            ]
+        )
+
+        itemids = set(identify_table2_itemids(d_items))
+        self.assertIn(20, itemids)
+        self.assertIn(21, itemids)
+        self.assertIn(22, itemids)
+        self.assertNotIn(23, itemids)
+
+    def test_identify_table2_itemids_does_not_reverse_match_short_unrelated_labels(self):
+        identify_table2_itemids = self._get_callable("identify_table2_itemids")
+        d_items = pd.DataFrame(
+            [
+                {"itemid": 30, "label": "ALT", "dbsource": "carevue"},
+                {"itemid": 31, "label": "NO", "dbsource": "carevue"},
+                {"itemid": 32, "label": "TH", "dbsource": "carevue"},
+                {"itemid": 33, "label": "Bath", "dbsource": "carevue"},
+                {"itemid": 34, "label": "Pain Level", "dbsource": "metavision"},
+            ]
+        )
+
+        itemids = set(identify_table2_itemids(d_items))
+        self.assertEqual(itemids, {33, 34})
+
+    def test_identify_table2_itemids_raises_clear_error_when_required_columns_are_missing(self):
+        identify_table2_itemids = self._get_callable("identify_table2_itemids")
+        d_items_missing = self.d_items.drop(columns=["label"])
+        with self.assertRaisesRegex(ValueError, "label"):
+            identify_table2_itemids(d_items_missing)
+
+    def test_build_chartevent_feature_matrix_creates_binary_label_value_features(self):
+        build_chartevent_feature_matrix = self._get_callable("build_chartevent_feature_matrix")
+        feature_matrix = build_chartevent_feature_matrix(
+            self.chartevents,
+            self.d_items,
+            allowed_labels={"Education Readiness", "Pain Level"},
+        )
+
+        self.assertIsInstance(feature_matrix, pd.DataFrame)
+        expected_columns = {
+            "hadm_id",
+            "Education Readiness: No",
+            "Education Readiness: Yes",
+            "Pain Level: 7-Mod to Severe",
+        }
+        self.assertTrue(expected_columns.issubset(set(feature_matrix.columns)))
+
+        by_hadm = feature_matrix.fillna(0).set_index("hadm_id")
+        self.assertEqual(by_hadm.loc[101, "Education Readiness: No"], 1)
+        self.assertEqual(by_hadm.loc[101, "Pain Level: 7-Mod to Severe"], 1)
+        self.assertEqual(by_hadm.loc[103, "Education Readiness: Yes"], 1)
+        self.assertEqual(
+            by_hadm.loc[101, "Education Readiness: No"],
+            1,
+            msg="Repeated charted values must stay binary at the admission level",
+        )
+        self._assert_hadm_unique(feature_matrix, "Chartevent feature matrix")
+
+    def test_build_chartevent_feature_matrix_can_preserve_all_hadm_ids_with_zero_rows(self):
+        build_chartevent_feature_matrix = self._get_callable("build_chartevent_feature_matrix")
+        feature_matrix = build_chartevent_feature_matrix(
+            self.chartevents,
+            self.d_items,
+            allowed_labels={"Education Readiness", "Pain Level"},
+            all_hadm_ids=[101, 103, 106, 107],
+        ).fillna(0)
+        self._assert_hadm_unique(feature_matrix, "Chartevent feature matrix with all admissions")
+        self.assertEqual(set(feature_matrix["hadm_id"]), {101, 103, 106, 107})
+        zero_row = feature_matrix.set_index("hadm_id").loc[106]
+        self.assertTrue(
+            (zero_row == 0).all(),
+            msg="Admissions without matching chart features should still appear as all-zero rows when all_hadm_ids is provided",
+        )
+
+    def test_build_chartevent_feature_matrix_normalizes_values_and_ignores_blank_entries(self):
+        build_chartevent_feature_matrix = self._get_callable("build_chartevent_feature_matrix")
+        chartevents = pd.concat(
+            [
+                self.chartevents,
+                pd.DataFrame(
+                    [
+                        {"hadm_id": 103, "itemid": 1, "value": " No ", "icustay_id": 1031},
+                        {"hadm_id": 103, "itemid": 2, "value": "", "icustay_id": 1031},
+                        {"hadm_id": 103, "itemid": 2, "value": None, "icustay_id": 1031},
+                    ]
+                ),
+            ],
+            ignore_index=True,
+        )
+        feature_matrix = build_chartevent_feature_matrix(
+            chartevents,
+            self.d_items,
+            allowed_labels={"Education Readiness", "Pain Level"},
+        ).fillna(0).set_index("hadm_id")
+        self.assertIn(
+            "Education Readiness: No",
+            feature_matrix.columns,
+            msg="Feature columns must preserve the required 'label: value' naming scheme",
+        )
+        self.assertEqual(
+            feature_matrix.loc[103, "Education Readiness: No"],
+            1,
+            msg="Value normalization should trim whitespace and lowercase to stable feature keys",
+        )
+        self.assertNotIn(
+            "Pain Level: ",
+            set(feature_matrix.columns),
+            msg="Blank values should not produce empty feature columns",
+        )
+
+    def test_build_chartevent_feature_matrix_canonicalizes_case_variants_and_filters_numeric_heavy_values(self):
+        build_chartevent_feature_matrix = self._get_callable("build_chartevent_feature_matrix")
+        d_items = pd.DataFrame(
+            [
+                {"itemid": 1, "label": "Bath", "dbsource": "carevue"},
+                {"itemid": 2, "label": "bath", "dbsource": "metavision"},
+                {"itemid": 3, "label": "BATH", "dbsource": "carevue"},
+            ]
+        )
+        chartevents = pd.DataFrame(
+            [
+                {"hadm_id": 801, "itemid": 1, "value": "Done", "icustay_id": 8011},
+                {"hadm_id": 802, "itemid": 2, "value": "DONE.", "icustay_id": 8021},
+                {"hadm_id": 803, "itemid": 3, "value": "08/13", "icustay_id": 8031},
+                {"hadm_id": 804, "itemid": 1, "value": "110/56", "icustay_id": 8041},
+                {"hadm_id": 805, "itemid": 2, "value": "20ppm", "icustay_id": 8051},
+            ]
+        )
+
+        feature_matrix = build_chartevent_feature_matrix(
+            chartevents,
+            d_items,
+            allowed_labels={"Bath"},
+            all_hadm_ids=[801, 802, 803, 804, 805],
+        ).fillna(0).set_index("hadm_id")
+
+        self.assertIn("Bath: Done", feature_matrix.columns)
+        self.assertNotIn("bath: DONE.", set(feature_matrix.columns))
+        self.assertNotIn("BATH: 08/13", set(feature_matrix.columns))
+        self.assertNotIn("Bath: 110/56", set(feature_matrix.columns))
+        self.assertNotIn("bath: 20ppm", set(feature_matrix.columns))
+        self.assertEqual(int(feature_matrix.loc[801, "Bath: Done"]), 1)
+        self.assertEqual(int(feature_matrix.loc[802, "Bath: Done"]), 1)
+        self.assertEqual(int(feature_matrix.loc[803, "Bath: Done"]), 0)
+        self.assertEqual(int(feature_matrix.loc[804, "Bath: Done"]), 0)
+        self.assertEqual(int(feature_matrix.loc[805, "Bath: Done"]), 0)
+
+    def test_build_chartevent_feature_matrix_paper_like_uses_notebook_label_dictionary_and_value_collapse(self):
+        build_chartevent_feature_matrix = self._get_callable("build_chartevent_feature_matrix")
+        d_items = pd.DataFrame(
+            [
+                {"itemid": 1, "label": "Bath", "dbsource": "carevue"},
+                {"itemid": 2, "label": "Reason For Restraint", "dbsource": "carevue"},
+                {"itemid": 3, "label": "Restraint Location", "dbsource": "carevue"},
+                {"itemid": 4, "label": "Restraint Device", "dbsource": "carevue"},
+                {"itemid": 5, "label": "Education Topic #1", "dbsource": "carevue"},
+                {"itemid": 6, "label": "Pain Management", "dbsource": "carevue"},
+                {"itemid": 7, "label": "Patient/Family Informed", "dbsource": "carevue"},
+                {"itemid": 8, "label": "ALT", "dbsource": "carevue"},
+            ]
+        )
+        chartevents = pd.DataFrame(
+            [
+                {"hadm_id": 901, "itemid": 1, "value": "Hair washed", "icustay_id": 9011},
+                {"hadm_id": 902, "itemid": 2, "value": "Acute risk of line pulling", "icustay_id": 9021},
+                {"hadm_id": 903, "itemid": 3, "value": "Right ankle", "icustay_id": 9031},
+                {"hadm_id": 904, "itemid": 4, "value": "Soft limb restraint", "icustay_id": 9041},
+                {"hadm_id": 905, "itemid": 5, "value": "Medications", "icustay_id": 9051},
+                {"hadm_id": 906, "itemid": 6, "value": "PCA", "icustay_id": 9061},
+                {"hadm_id": 907, "itemid": 7, "value": "Yes", "icustay_id": 9071},
+                {"hadm_id": 908, "itemid": 8, "value": "1000", "icustay_id": 9081},
+            ]
+        )
+
+        feature_matrix = build_chartevent_feature_matrix(
+            chartevents,
+            d_items,
+            all_hadm_ids=list(range(901, 909)),
+            paper_like=True,
+        ).fillna(0).set_index("hadm_id")
+
+        self.assertIn("bath: hair", feature_matrix.columns)
+        self.assertIn("reason for restraint: threat of harm", feature_matrix.columns)
+        self.assertIn("restraint location: some restraint", feature_matrix.columns)
+        self.assertIn("restraint device: limb", feature_matrix.columns)
+        self.assertIn("education topic: medications", feature_matrix.columns)
+        self.assertIn("informed: yes", feature_matrix.columns)
+        self.assertNotIn(
+            "pain management: pca",
+            set(feature_matrix.columns),
+            msg="paper_like=True should mirror the notebook and skip pain-management feature expansion",
+        )
+        self.assertNotIn(
+            "alt: 1000",
+            set(feature_matrix.columns),
+            msg="paper_like=True should rely on the explicit notebook label dictionary rather than broad heuristic matches",
+        )
+        self.assertEqual(int(feature_matrix.loc[901, "bath: hair"]), 1)
+        self.assertEqual(int(feature_matrix.loc[902, "reason for restraint: threat of harm"]), 1)
+        self.assertEqual(int(feature_matrix.loc[903, "restraint location: some restraint"]), 1)
+        self.assertEqual(int(feature_matrix.loc[904, "restraint device: limb"]), 1)
+        self.assertEqual(int(feature_matrix.loc[905, "education topic: medications"]), 1)
+        self.assertEqual(int(feature_matrix.loc[907, "informed: yes"]), 1)
+        self.assertTrue((feature_matrix.loc[906] == 0).all())
+        self.assertTrue((feature_matrix.loc[908] == 0).all())
+
+    def test_build_chartevent_feature_matrix_default_mode_remains_available_when_paper_like_is_disabled(self):
+        build_chartevent_feature_matrix = self._get_callable("build_chartevent_feature_matrix")
+        d_items = pd.DataFrame(
+            [
+                {"itemid": 1, "label": "Pain Management", "dbsource": "carevue"},
+            ]
+        )
+        chartevents = pd.DataFrame(
+            [
+                {"hadm_id": 951, "itemid": 1, "value": "PCA", "icustay_id": 9511},
+            ]
+        )
+
+        default_matrix = build_chartevent_feature_matrix(
+            chartevents,
+            d_items,
+            allowed_labels={"Pain Management"},
+            paper_like=False,
+        )
+        paper_like_matrix = build_chartevent_feature_matrix(
+            chartevents,
+            d_items,
+            paper_like=True,
+        )
+
+        self.assertIn("Pain Management: PCA", default_matrix.columns)
+        self.assertNotIn("pain management: pca", set(paper_like_matrix.columns))
+
+    def test_build_chartevent_feature_matrix_deduplicates_repeated_pairs_to_one_binary_value(self):
+        build_chartevent_feature_matrix = self._get_callable("build_chartevent_feature_matrix")
+        chartevents = pd.DataFrame(
+            [
+                {"hadm_id": 301, "itemid": 1, "value": "No", "icustay_id": 3011},
+                {"hadm_id": 301, "itemid": 1, "value": "No", "icustay_id": 3011},
+                {"hadm_id": 301, "itemid": 1, "value": "No", "icustay_id": 3011},
+            ]
+        )
+        d_items = pd.DataFrame(
+            [
+                {"itemid": 1, "label": "Education Readiness", "dbsource": "carevue"},
+            ]
+        )
+
+        feature_matrix = build_chartevent_feature_matrix(
+            chartevents,
+            d_items,
+            allowed_labels={"Education Readiness"},
+        ).set_index("hadm_id")
+
+        self.assertIn(
+            "Education Readiness: No",
+            feature_matrix.columns,
+            msg="Repeated label/value pairs must map into the required single binary feature column",
+        )
+        self.assertEqual(feature_matrix.loc[301, "Education Readiness: No"], 1)
+
+    def test_build_chartevent_feature_matrix_preserves_rare_single_occurrence_features(self):
+        build_chartevent_feature_matrix = self._get_callable("build_chartevent_feature_matrix")
+        chartevents = pd.DataFrame(
+            [
+                {"hadm_id": 401, "itemid": 41, "value": "Yes", "icustay_id": 4011},
+            ]
+        )
+        d_items = pd.DataFrame(
+            [
+                {"itemid": 41, "label": "Family Meeting", "dbsource": "carevue"},
+            ]
+        )
+
+        feature_matrix = build_chartevent_feature_matrix(
+            chartevents,
+            d_items,
+            allowed_labels={"Family Meeting"},
+            all_hadm_ids=[401, 402],
+        ).fillna(0).set_index("hadm_id")
+
+        self.assertIn(
+            "Family Meeting: Yes",
+            feature_matrix.columns,
+            msg="Rare one-off chart-event features must not be pruned from the matrix",
+        )
+        self.assertEqual(feature_matrix.loc[401, "Family Meeting: Yes"], 1)
+        self.assertEqual(feature_matrix.loc[402, "Family Meeting: Yes"], 0)
+
+    def test_build_chartevent_feature_matrix_outputs_binary_values_under_duplicates_and_missing_rows(self):
+        build_chartevent_feature_matrix = self._get_callable("build_chartevent_feature_matrix")
+        chartevents = pd.DataFrame(
+            [
+                {"hadm_id": 501, "itemid": 1, "value": "No", "icustay_id": 5011},
+                {"hadm_id": 501, "itemid": 1, "value": "No", "icustay_id": 5011},
+                {"hadm_id": 501, "itemid": 2, "value": "7-Mod to Severe", "icustay_id": 5011},
+                {"hadm_id": 502, "itemid": 2, "value": None, "icustay_id": 5021},
+            ]
+        )
+        feature_matrix = build_chartevent_feature_matrix(
+            chartevents,
+            self.d_items,
+            allowed_labels={"Education Readiness", "Pain Level"},
+            all_hadm_ids=[501, 502, 503],
+        ).fillna(0)
+
+        feature_columns = [column for column in feature_matrix.columns if column != "hadm_id"]
+        self.assertTrue(feature_columns)
+        self.assertTrue(feature_matrix[feature_columns].isin([0, 1]).all().all())
+
+    def test_build_chartevent_feature_matrix_raises_clear_error_when_required_columns_are_missing(self):
+        build_chartevent_feature_matrix = self._get_callable("build_chartevent_feature_matrix")
+        chartevents_missing = self.chartevents.drop(columns=["itemid"])
+        with self.assertRaisesRegex(ValueError, "itemid"):
+            build_chartevent_feature_matrix(chartevents_missing, self.d_items)
+
+    def test_z_normalize_scores_standardizes_each_metric_independently(self):
+        z_normalize_scores = self._get_callable("z_normalize_scores")
+        raw = pd.DataFrame(
+            [
+                {"hadm_id": 1, "noncompliance_score": 1.0, "autopsy_score": 10.0, "negative_sentiment_score": -0.2},
+                {"hadm_id": 2, "noncompliance_score": 2.0, "autopsy_score": 20.0, "negative_sentiment_score": 0.0},
+                {"hadm_id": 3, "noncompliance_score": 3.0, "autopsy_score": 30.0, "negative_sentiment_score": 0.2},
+            ]
+        )
+        normalized = z_normalize_scores(
+            raw,
+            columns=[
+                "noncompliance_score",
+                "autopsy_score",
+                "negative_sentiment_score",
+            ],
+        )
+
+        for col in [
+            "noncompliance_score",
+            "autopsy_score",
+            "negative_sentiment_score",
+        ]:
+            self.assertAlmostEqual(normalized[col].mean(), 0.0, places=7)
+            self.assertAlmostEqual(normalized[col].std(ddof=0), 1.0, places=7)
+
+    def test_z_normalize_scores_returns_zero_for_zero_variance_columns(self):
+        z_normalize_scores = self._get_callable("z_normalize_scores")
+        raw = pd.DataFrame(
+            [
+                {"hadm_id": 1, "noncompliance_score": 5.0},
+                {"hadm_id": 2, "noncompliance_score": 5.0},
+                {"hadm_id": 3, "noncompliance_score": 5.0},
+            ]
+        )
+        normalized = z_normalize_scores(raw, columns=["noncompliance_score"])
+        self.assertTrue((normalized["noncompliance_score"] == 0.0).all())
+
+    def test_z_normalize_scores_can_auto_detect_score_columns_when_columns_not_provided(self):
+        z_normalize_scores = self._get_callable("z_normalize_scores")
+        raw = pd.DataFrame(
+            [
+                {"hadm_id": 1, "noncompliance_score": 1.0, "autopsy_score": 10.0, "keep": 7.0},
+                {"hadm_id": 2, "noncompliance_score": 2.0, "autopsy_score": 20.0, "keep": 8.0},
+                {"hadm_id": 3, "noncompliance_score": 3.0, "autopsy_score": 30.0, "keep": 9.0},
+            ]
+        )
+        normalized = z_normalize_scores(raw)
+        self.assertAlmostEqual(float(normalized["noncompliance_score"].mean()), 0.0, places=7)
+        self.assertAlmostEqual(float(normalized["autopsy_score"].mean()), 0.0, places=7)
+        self.assertEqual(normalized["keep"].tolist(), [7.0, 8.0, 9.0])
+
+    def test_build_acuity_scores_produces_unique_admission_level_table(self):
+        build_acuity_scores = self._get_callable("build_acuity_scores")
+        acuity = build_acuity_scores(self.oasis, self.sapsii)
+        self.assertIsInstance(acuity, pd.DataFrame)
+        self.assertTrue({"hadm_id", "oasis", "sapsii"}.issubset(acuity.columns))
+        self._assert_hadm_unique(acuity, "Acuity scores")
+        self.assertEqual(set(acuity["hadm_id"]), {101, 103, 106, 107})
+
+    def test_build_acuity_scores_raises_clear_error_when_required_columns_are_missing(self):
+        build_acuity_scores = self._get_callable("build_acuity_scores")
+        oasis_missing = self.oasis.drop(columns=["oasis"])
+        with self.assertRaisesRegex(ValueError, "oasis"):
+            build_acuity_scores(oasis_missing, self.sapsii)
+
+    def test_build_acuity_scores_uses_max_when_multiple_icu_stays_share_a_hadm_id(self):
+        build_acuity_scores = self._get_callable("build_acuity_scores")
+        oasis = pd.DataFrame(
+            [
+                {"hadm_id": 101, "icustay_id": 1011, "oasis": 15},
+                {"hadm_id": 101, "icustay_id": 1012, "oasis": 22},
+            ]
+        )
+        sapsii = pd.DataFrame(
+            [
+                {"hadm_id": 101, "icustay_id": 1011, "sapsii": 42},
+                {"hadm_id": 101, "icustay_id": 1012, "sapsii": 50},
+            ]
+        )
+
+        acuity = build_acuity_scores(oasis, sapsii).set_index("hadm_id")
+        self.assertEqual(acuity.loc[101, "oasis"], 22)
+        self.assertEqual(acuity.loc[101, "sapsii"], 50)
+
+    def test_build_final_model_table_contains_baseline_optional_features_and_targets(self):
+        build_base_admissions = self._get_callable("build_base_admissions")
+        build_demographics_table = self._get_callable("build_demographics_table")
+        build_all_cohort = self._get_callable("build_all_cohort")
+        build_final_model_table = self._get_callable("build_final_model_table")
+
+        base = build_base_admissions(self.admissions, self.patients)
+        demographics = build_demographics_table(base)
+        all_cohort = build_all_cohort(base, self.icustays)
+
+        code_status_items = pd.DataFrame(
+            [
+                {"itemid": 1, "label": "Education Readiness", "dbsource": "carevue"},
+                {"itemid": 2, "label": "Pain Level", "dbsource": "metavision"},
+                {"itemid": 128, "label": "Code Status", "dbsource": "carevue"},
+                {"itemid": 223758, "label": "Code Status", "dbsource": "metavision"},
+            ]
+        )
+        code_status_events = pd.DataFrame(
+            [
+                {"hadm_id": 101, "itemid": 1, "value": "No", "icustay_id": 1011},
+                {"hadm_id": 101, "itemid": 2, "value": "7-Mod to Severe", "icustay_id": 1011},
+                {"hadm_id": 101, "itemid": 128, "value": "Full Code", "icustay_id": 1011},
+                {"hadm_id": 103, "itemid": 128, "value": "DNR/DNI", "icustay_id": 1031},
+                {"hadm_id": 104, "itemid": 128, "value": "Full Code", "icustay_id": 1041},
+                {"hadm_id": 106, "itemid": 128, "value": "Full Code", "icustay_id": 1061},
+                {
+                    "hadm_id": 107,
+                    "itemid": 223758,
+                    "value": "Comfort Measures Only",
+                    "icustay_id": 1071,
+                },
+            ]
+        )
+
+        final_table = build_final_model_table(
+            demographics=demographics,
+            all_cohort=all_cohort,
+            admissions=base,
+            chartevents=code_status_events,
+            d_items=code_status_items,
+            mistrust_scores=self.mistrust_scores,
+            include_race=True,
+            include_mistrust=True,
+        )
+
+        self.assertIsInstance(final_table, pd.DataFrame)
+        required_columns = {
+            "hadm_id",
+            "age",
+            "los_days",
+            "gender_f",
+            "gender_m",
+            "insurance_private",
+            "insurance_public",
+            "insurance_self_pay",
+            "race_white",
+            "race_black",
+            "race_asian",
+            "race_hispanic",
+            "race_native_american",
+            "race_other",
+            "noncompliance_score_z",
+            "autopsy_score_z",
+            "negative_sentiment_score_z",
+            "left_ama",
+            "code_status_dnr_dni_cmo",
+            "in_hospital_mortality",
+        }
+        self.assertTrue(required_columns.issubset(set(final_table.columns)))
+        self.assertEqual(set(final_table["hadm_id"]), set(all_cohort["hadm_id"]))
+
+        by_hadm = final_table.set_index("hadm_id")
+        self.assertEqual(by_hadm.loc[106, "left_ama"], 1)
+        self.assertEqual(by_hadm.loc[101, "left_ama"], 0)
+        self.assertEqual(by_hadm.loc[103, "code_status_dnr_dni_cmo"], 1)
+        self.assertEqual(by_hadm.loc[101, "code_status_dnr_dni_cmo"], 0)
+        self.assertEqual(by_hadm.loc[107, "code_status_dnr_dni_cmo"], 1)
+        self.assertEqual(by_hadm.loc[107, "in_hospital_mortality"], 1)
+        self.assertEqual(by_hadm.loc[101, "in_hospital_mortality"], 0)
+        self._assert_hadm_unique(final_table, "Final model table")
+
+    def test_build_final_model_table_z_normalizes_age_and_los_days(self):
+        """age and los_days must be z-normalized (mean≈0, std≈1) in the final table,
+        matching the reference notebook which z-normalizes continuous features before
+        L1 logistic regression."""
+        import numpy as np
+
+        build_base_admissions = self._get_callable("build_base_admissions")
+        build_demographics_table = self._get_callable("build_demographics_table")
+        build_all_cohort = self._get_callable("build_all_cohort")
+        build_final_model_table = self._get_callable("build_final_model_table")
+
+        base = build_base_admissions(self.admissions, self.patients)
+        demographics = build_demographics_table(base)
+        all_cohort = build_all_cohort(base, self.icustays)
+
+        code_status_items = pd.DataFrame(
+            [
+                {"itemid": 1, "label": "Education Readiness", "dbsource": "carevue"},
+                {"itemid": 2, "label": "Pain Level", "dbsource": "metavision"},
+                {"itemid": 128, "label": "Code Status", "dbsource": "carevue"},
+                {"itemid": 223758, "label": "Code Status", "dbsource": "metavision"},
+            ]
+        )
+        code_status_events = pd.DataFrame(
+            [
+                {"hadm_id": 101, "itemid": 128, "value": "Full Code", "icustay_id": 1011},
+                {"hadm_id": 103, "itemid": 128, "value": "DNR/DNI", "icustay_id": 1031},
+                {"hadm_id": 104, "itemid": 128, "value": "Full Code", "icustay_id": 1041},
+                {"hadm_id": 106, "itemid": 128, "value": "Full Code", "icustay_id": 1061},
+                {"hadm_id": 107, "itemid": 223758, "value": "Comfort Measures Only", "icustay_id": 1071},
+            ]
+        )
+
+        final_table = build_final_model_table(
+            demographics=demographics,
+            all_cohort=all_cohort,
+            admissions=base,
+            chartevents=code_status_events,
+            d_items=code_status_items,
+            mistrust_scores=self.mistrust_scores,
+            include_race=True,
+            include_mistrust=True,
+        )
+
+        for col in ["age", "los_days"]:
+            values = final_table[col].dropna()
+            self.assertGreater(len(values), 1, f"{col} must have >1 non-NaN value")
+            col_mean = values.mean()
+            col_std = values.std(ddof=0)
+            self.assertAlmostEqual(col_mean, 0.0, places=5,
+                                   msg=f"{col} mean should be ~0 after z-normalization")
+            self.assertAlmostEqual(col_std, 1.0, places=5,
+                                   msg=f"{col} std should be ~1 after z-normalization")
+
+    def test_build_final_model_table_left_ama_requires_exact_discharge_location_match(self):
+        build_base_admissions = self._get_callable("build_base_admissions")
+        build_demographics_table = self._get_callable("build_demographics_table")
+        build_all_cohort = self._get_callable("build_all_cohort")
+        build_final_model_table = self._get_callable("build_final_model_table")
+
+        admissions = pd.DataFrame(
+            [
+                {
+                    "hadm_id": 201,
+                    "subject_id": 21,
+                    "admittime": "2100-01-01 00:00:00",
+                    "dischtime": "2100-01-02 00:00:00",
+                    "ethnicity": "WHITE",
+                    "insurance": "Medicare",
+                    "discharge_location": "LEFT AGAINST MEDICAL ADVICE",
+                    "hospital_expire_flag": 0,
+                    "has_chartevents_data": 1,
+                },
+                {
+                    "hadm_id": 202,
+                    "subject_id": 22,
+                    "admittime": "2100-02-01 00:00:00",
+                    "dischtime": "2100-02-02 00:00:00",
+                    "ethnicity": "BLACK/AFRICAN AMERICAN",
+                    "insurance": "Private",
+                    "discharge_location": "TRANSFER AGAINST MEDICAL ADVICE REVIEW",
+                    "hospital_expire_flag": 0,
+                    "has_chartevents_data": 1,
+                },
+            ]
+        )
+        patients = pd.DataFrame(
+            [
+                {"subject_id": 21, "gender": "M", "dob": "2070-01-01 00:00:00"},
+                {"subject_id": 22, "gender": "F", "dob": "2070-01-01 00:00:00"},
+            ]
+        )
+        icustays = pd.DataFrame(
+            [
+                {
+                    "hadm_id": 201,
+                    "icustay_id": 2011,
+                    "intime": "2100-01-01 00:00:00",
+                    "outtime": "2100-01-01 13:00:00",
+                },
+                {
+                    "hadm_id": 202,
+                    "icustay_id": 2021,
+                    "intime": "2100-02-01 00:00:00",
+                    "outtime": "2100-02-01 13:00:00",
+                },
+            ]
+        )
+
+        base = build_base_admissions(admissions, patients)
+        demographics = build_demographics_table(base)
+        all_cohort = build_all_cohort(base, icustays)
+        mistrust_scores = pd.DataFrame(
+            [
+                {
+                    "hadm_id": 201,
+                    "noncompliance_score_z": 0.0,
+                    "autopsy_score_z": 0.0,
+                    "negative_sentiment_score_z": 0.0,
+                },
+                {
+                    "hadm_id": 202,
+                    "noncompliance_score_z": 0.0,
+                    "autopsy_score_z": 0.0,
+                    "negative_sentiment_score_z": 0.0,
+                },
+            ]
+        )
+        empty_chartevents = pd.DataFrame(columns=["hadm_id", "itemid", "value", "icustay_id"])
+        empty_d_items = pd.DataFrame(columns=["itemid", "label", "dbsource"])
+
+        final_table = build_final_model_table(
+            demographics=demographics,
+            all_cohort=all_cohort,
+            admissions=base,
+            chartevents=empty_chartevents,
+            d_items=empty_d_items,
+            mistrust_scores=mistrust_scores,
+            include_race=True,
+            include_mistrust=True,
+        ).set_index("hadm_id")
+
+        self.assertEqual(final_table.loc[201, "left_ama"], 1)
+        self.assertEqual(final_table.loc[202, "left_ama"], 0)
+
+    def test_build_final_model_table_code_status_uses_only_required_itemids(self):
+        build_base_admissions = self._get_callable("build_base_admissions")
+        build_demographics_table = self._get_callable("build_demographics_table")
+        build_all_cohort = self._get_callable("build_all_cohort")
+        build_final_model_table = self._get_callable("build_final_model_table")
+
+        admissions = pd.DataFrame(
+            [
+                {
+                    "hadm_id": 301,
+                    "subject_id": 31,
+                    "admittime": "2100-03-01 00:00:00",
+                    "dischtime": "2100-03-02 00:00:00",
+                    "ethnicity": "WHITE",
+                    "insurance": "Medicare",
+                    "discharge_location": "HOME",
+                    "hospital_expire_flag": 0,
+                    "has_chartevents_data": 1,
+                },
+                {
+                    "hadm_id": 302,
+                    "subject_id": 32,
+                    "admittime": "2100-03-01 00:00:00",
+                    "dischtime": "2100-03-02 00:00:00",
+                    "ethnicity": "BLACK/AFRICAN AMERICAN",
+                    "insurance": "Private",
+                    "discharge_location": "HOME",
+                    "hospital_expire_flag": 0,
+                    "has_chartevents_data": 1,
+                },
+                {
+                    "hadm_id": 303,
+                    "subject_id": 33,
+                    "admittime": "2100-03-01 00:00:00",
+                    "dischtime": "2100-03-02 00:00:00",
+                    "ethnicity": "ASIAN",
+                    "insurance": "Medicare",
+                    "discharge_location": "HOME",
+                    "hospital_expire_flag": 0,
+                    "has_chartevents_data": 1,
+                },
+            ]
+        )
+        patients = pd.DataFrame(
+            [
+                {"subject_id": 31, "gender": "M", "dob": "2070-01-01 00:00:00"},
+                {"subject_id": 32, "gender": "F", "dob": "2070-01-01 00:00:00"},
+                {"subject_id": 33, "gender": "M", "dob": "2070-01-01 00:00:00"},
+            ]
+        )
+        icustays = pd.DataFrame(
+            [
+                {
+                    "hadm_id": 301,
+                    "icustay_id": 3011,
+                    "intime": "2100-03-01 00:00:00",
+                    "outtime": "2100-03-01 13:00:00",
+                },
+                {
+                    "hadm_id": 302,
+                    "icustay_id": 3021,
+                    "intime": "2100-03-01 00:00:00",
+                    "outtime": "2100-03-01 13:00:00",
+                },
+                {
+                    "hadm_id": 303,
+                    "icustay_id": 3031,
+                    "intime": "2100-03-01 00:00:00",
+                    "outtime": "2100-03-01 13:00:00",
+                },
+            ]
+        )
+        d_items = pd.DataFrame(
+            [
+                {"itemid": 999, "label": "Code Status", "dbsource": "carevue"},
+                {"itemid": 128, "label": "Code Status", "dbsource": "carevue"},
+                {"itemid": 223758, "label": "Code Status", "dbsource": "metavision"},
+            ]
+        )
+        chartevents = pd.DataFrame(
+            [
+                {"hadm_id": 301, "itemid": 999, "value": "DNR/DNI", "icustay_id": 3011},
+                {"hadm_id": 302, "itemid": 128, "value": "DNR/DNI", "icustay_id": 3021},
+                {
+                    "hadm_id": 303,
+                    "itemid": 223758,
+                    "value": "Comfort Measures Only",
+                    "icustay_id": 3031,
+                },
+            ]
+        )
+
+        base = build_base_admissions(admissions, patients)
+        demographics = build_demographics_table(base)
+        all_cohort = build_all_cohort(base, icustays)
+        mistrust_scores = pd.DataFrame(
+            [
+                {
+                    "hadm_id": 301,
+                    "noncompliance_score_z": 0.0,
+                    "autopsy_score_z": 0.0,
+                    "negative_sentiment_score_z": 0.0,
+                },
+                {
+                    "hadm_id": 302,
+                    "noncompliance_score_z": 0.0,
+                    "autopsy_score_z": 0.0,
+                    "negative_sentiment_score_z": 0.0,
+                },
+                {
+                    "hadm_id": 303,
+                    "noncompliance_score_z": 0.0,
+                    "autopsy_score_z": 0.0,
+                    "negative_sentiment_score_z": 0.0,
+                },
+            ]
+        )
+
+        final_table = build_final_model_table(
+            demographics=demographics,
+            all_cohort=all_cohort,
+            admissions=base,
+            chartevents=chartevents,
+            d_items=d_items,
+            mistrust_scores=mistrust_scores,
+            include_race=True,
+            include_mistrust=True,
+        ).set_index("hadm_id")
+
+        self.assertTrue(pd.isna(final_table.loc[301, "code_status_dnr_dni_cmo"]))
+        self.assertEqual(final_table.loc[302, "code_status_dnr_dni_cmo"], 1)
+        self.assertEqual(final_table.loc[303, "code_status_dnr_dni_cmo"], 1)
+
+    def test_build_code_status_target_excludes_admissions_without_charted_code_status(self):
+        build_code_status_target = getattr(self.module, "_build_task_code_status_target")
+        code_status_itemids = getattr(self.module, "CODE_STATUS_ITEMIDS")
+        d_items = pd.DataFrame(
+            [
+                {"itemid": 128, "label": "Code Status", "dbsource": "carevue"},
+                {"itemid": 223758, "label": "Code Status", "dbsource": "metavision"},
+                {"itemid": 1, "label": "Education Readiness", "dbsource": "carevue"},
+            ]
+        )
+        chartevents = pd.DataFrame(
+            [
+                {"hadm_id": 601, "itemid": 128, "value": "DNR/DNI", "icustay_id": 6011},
+                {"hadm_id": 602, "itemid": 1, "value": "No", "icustay_id": 6021},
+            ]
+        )
+
+        target = build_code_status_target(chartevents, itemids=code_status_itemids)
+        self.assertEqual(set(target["hadm_id"]), {601})
+
+    def test_build_code_status_target_recognizes_truncated_dnr_and_cpr_not_indicated_values(self):
+        build_code_status_target = getattr(self.module, "_build_task_code_status_target")
+        code_status_itemids = getattr(self.module, "CODE_STATUS_ITEMIDS")
+        chartevents = pd.DataFrame(
+            [
+                {"hadm_id": 701, "itemid": 128, "value": "Do Not Resuscita", "icustay_id": 7011},
+                {"hadm_id": 702, "itemid": 223758, "value": "CPR Not Indicate", "icustay_id": 7021},
+                {"hadm_id": 703, "itemid": 128, "value": "Full Code", "icustay_id": 7031},
+            ]
+        )
+
+        target = build_code_status_target(chartevents, itemids=code_status_itemids).set_index("hadm_id")
+        self.assertEqual(int(target.loc[701, "code_status_dnr_dni_cmo"]), 1)
+        self.assertEqual(int(target.loc[702, "code_status_dnr_dni_cmo"]), 1)
+        self.assertEqual(int(target.loc[703, "code_status_dnr_dni_cmo"]), 0)
+
+    def test_build_code_status_target_uses_last_charted_status_when_charttime_is_present(self):
+        build_code_status_target = getattr(self.module, "_build_task_code_status_target")
+        code_status_itemids = getattr(self.module, "CODE_STATUS_ITEMIDS")
+        chartevents = pd.DataFrame(
+            [
+                {
+                    "hadm_id": 801,
+                    "itemid": 128,
+                    "value": "Full Code",
+                    "icustay_id": 8011,
+                    "charttime": "2100-01-01 01:00:00",
+                },
+                {
+                    "hadm_id": 801,
+                    "itemid": 128,
+                    "value": "Comfort Measures",
+                    "icustay_id": 8011,
+                    "charttime": "2100-01-01 02:00:00",
+                },
+                {
+                    "hadm_id": 802,
+                    "itemid": 223758,
+                    "value": "Do Not Intubate",
+                    "icustay_id": 8021,
+                    "charttime": "2100-01-02 01:00:00",
+                },
+                {
+                    "hadm_id": 802,
+                    "itemid": 223758,
+                    "value": "Full Code",
+                    "icustay_id": 8021,
+                    "charttime": "2100-01-02 03:00:00",
+                },
+            ]
+        )
+
+        target = build_code_status_target(chartevents, itemids=code_status_itemids).set_index("hadm_id")
+        self.assertEqual(int(target.loc[801, "code_status_dnr_dni_cmo"]), 1)
+        self.assertEqual(int(target.loc[802, "code_status_dnr_dni_cmo"]), 0)
+
+    def test_build_code_status_target_paper_like_uses_notebook_encounter_order_not_charttime(self):
+        build_code_status_target = getattr(self.module, "_build_task_code_status_target")
+        code_status_itemids = getattr(self.module, "CODE_STATUS_ITEMIDS")
+        chartevents = pd.DataFrame(
+            [
+                {
+                    "hadm_id": 811,
+                    "itemid": 128,
+                    "value": "Full Code",
+                    "icustay_id": 8111,
+                    "charttime": "2100-01-01 03:00:00",
+                },
+                {
+                    "hadm_id": 811,
+                    "itemid": 128,
+                    "value": "Do Not Resuscita",
+                    "icustay_id": 8111,
+                    "charttime": "2100-01-01 01:00:00",
+                },
+            ]
+        )
+
+        corrected = build_code_status_target(chartevents, itemids=code_status_itemids).set_index("hadm_id")
+        paper_like = build_code_status_target(
+            chartevents,
+            itemids=code_status_itemids,
+            code_status_mode="paper_like",
+        ).set_index("hadm_id")
+
+        self.assertEqual(int(corrected.loc[811, "code_status_dnr_dni_cmo"]), 0)
+        self.assertEqual(int(paper_like.loc[811, "code_status_dnr_dni_cmo"]), 1)
+
+    def test_build_code_status_target_paper_like_preserves_notebook_label_leak_for_unrecognized_values(self):
+        build_code_status_target = getattr(self.module, "_build_task_code_status_target")
+        code_status_itemids = getattr(self.module, "CODE_STATUS_ITEMIDS")
+        chartevents = pd.DataFrame(
+            [
+                {"hadm_id": 821, "itemid": 128, "value": "Do Not Resuscita", "icustay_id": 8211},
+                {"hadm_id": 822, "itemid": 223758, "value": "Other/Remarks", "icustay_id": 8221},
+                {"hadm_id": 823, "itemid": 223758, "value": "CPR Not Indicate", "icustay_id": 8231},
+            ]
+        )
+
+        corrected = build_code_status_target(chartevents, itemids=code_status_itemids).set_index("hadm_id")
+        paper_like = build_code_status_target(
+            chartevents,
+            itemids=code_status_itemids,
+            code_status_mode="paper_like",
+        ).set_index("hadm_id")
+
+        self.assertEqual(int(corrected.loc[822, "code_status_dnr_dni_cmo"]), 0)
+        self.assertEqual(int(corrected.loc[823, "code_status_dnr_dni_cmo"]), 1)
+        self.assertEqual(int(paper_like.loc[822, "code_status_dnr_dni_cmo"]), 1)
+        self.assertEqual(int(paper_like.loc[823, "code_status_dnr_dni_cmo"]), 1)
+
+    def test_build_code_status_target_from_csv_uses_last_charted_status(self):
+        build_code_status_target_from_csv = self._get_callable("build_code_status_target_from_csv")
+
+        with _workspace_tempdir() as tmpdir:
+            csv_path = Path(tmpdir) / "chartevents.csv"
+            pd.DataFrame(
+                [
+                    {
+                        "HADM_ID": 901,
+                        "ITEMID": 128,
+                        "CHARTTIME": "2100-01-01 01:00:00",
+                        "VALUE": "Full Code",
+                    },
+                    {
+                        "HADM_ID": 901,
+                        "ITEMID": 128,
+                        "CHARTTIME": "2100-01-01 05:00:00",
+                        "VALUE": "Do Not Resuscita",
+                    },
+                    {
+                        "HADM_ID": 902,
+                        "ITEMID": 223758,
+                        "CHARTTIME": "2100-01-02 01:00:00",
+                        "VALUE": "CPR Not Indicate",
+                    },
+                    {
+                        "HADM_ID": 902,
+                        "ITEMID": 223758,
+                        "CHARTTIME": "2100-01-02 06:00:00",
+                        "VALUE": "Full Code",
+                    },
+                ]
+            ).to_csv(csv_path, index=False)
+
+            target = build_code_status_target_from_csv(csv_path, chunksize=2).set_index("hadm_id")
+
+        self.assertEqual(int(target.loc[901, "code_status_dnr_dni_cmo"]), 1)
+        self.assertEqual(int(target.loc[902, "code_status_dnr_dni_cmo"]), 0)
+
+    def test_build_code_status_target_from_csv_paper_like_uses_notebook_encounter_order(self):
+        build_code_status_target_from_csv = self._get_callable("build_code_status_target_from_csv")
+
+        with _workspace_tempdir() as tmpdir:
+            csv_path = Path(tmpdir) / "chartevents.csv"
+            pd.DataFrame(
+                [
+                    {
+                        "HADM_ID": 911,
+                        "ITEMID": 128,
+                        "CHARTTIME": "2100-01-01 03:00:00",
+                        "VALUE": "Full Code",
+                    },
+                    {
+                        "HADM_ID": 911,
+                        "ITEMID": 128,
+                        "CHARTTIME": "2100-01-01 01:00:00",
+                        "VALUE": "Do Not Resuscita",
+                    },
+                    {
+                        "HADM_ID": 912,
+                        "ITEMID": 223758,
+                        "CHARTTIME": "2100-01-02 02:00:00",
+                        "VALUE": "Other/Remarks",
+                    },
+                ]
+            ).to_csv(csv_path, index=False)
+
+            corrected = build_code_status_target_from_csv(csv_path, chunksize=2).set_index("hadm_id")
+            paper_like = build_code_status_target_from_csv(
+                csv_path,
+                chunksize=2,
+                code_status_mode="paper_like",
+            ).set_index("hadm_id")
+
+        self.assertEqual(int(corrected.loc[911, "code_status_dnr_dni_cmo"]), 0)
+        self.assertEqual(int(corrected.loc[912, "code_status_dnr_dni_cmo"]), 0)
+        self.assertEqual(int(paper_like.loc[911, "code_status_dnr_dni_cmo"]), 1)
+        self.assertEqual(int(paper_like.loc[912, "code_status_dnr_dni_cmo"]), 1)
+
+    def test_build_chartevent_artifacts_from_csv_defaults_code_status_mode_to_path(self):
+        build_chartevent_artifacts_from_csv = self._get_callable("build_chartevent_artifacts_from_csv")
+        d_items = pd.DataFrame(
+            [
+                {"itemid": 1, "label": "Bath", "dbsource": "carevue"},
+                {"itemid": 128, "label": "Code Status", "dbsource": "carevue"},
+            ]
+        )
+
+        with _workspace_tempdir() as tmpdir:
+            csv_path = Path(tmpdir) / "chartevents.csv"
+            pd.DataFrame(
+                [
+                    {
+                        "HADM_ID": 921,
+                        "ITEMID": 1,
+                        "CHARTTIME": "2100-01-01 00:30:00",
+                        "VALUE": "Done",
+                        "ICUSTAY_ID": 9211,
+                    },
+                    {
+                        "HADM_ID": 921,
+                        "ITEMID": 128,
+                        "CHARTTIME": "2100-01-01 03:00:00",
+                        "VALUE": "Full Code",
+                        "ICUSTAY_ID": 9211,
+                    },
+                    {
+                        "HADM_ID": 921,
+                        "ITEMID": 128,
+                        "CHARTTIME": "2100-01-01 01:00:00",
+                        "VALUE": "Do Not Resuscita",
+                        "ICUSTAY_ID": 9211,
+                    },
+                ]
+            ).to_csv(csv_path, index=False)
+
+            normal_features, normal_targets = build_chartevent_artifacts_from_csv(
+                csv_path,
+                d_items,
+                allowed_labels={"Bath"},
+                all_hadm_ids=[921],
+                chunksize=2,
+            )
+            paper_features, paper_targets = build_chartevent_artifacts_from_csv(
+                csv_path,
+                d_items,
+                all_hadm_ids=[921],
+                chunksize=2,
+                paper_like=True,
+            )
+
+        self.assertEqual(normal_features["hadm_id"].tolist(), [921])
+        self.assertEqual(paper_features["hadm_id"].tolist(), [921])
+        self.assertEqual(int(normal_targets.loc[0, "code_status_dnr_dni_cmo"]), 0)
+        self.assertEqual(int(paper_targets.loc[0, "code_status_dnr_dni_cmo"]), 1)
+
+    def test_build_note_artifacts_from_csv_dispatches_autopsy_mode(self):
+        build_note_artifacts_from_csv = self._get_callable("build_note_artifacts_from_csv")
+
+        with _workspace_tempdir() as tmpdir:
+            csv_path = Path(tmpdir) / "noteevents.csv"
+            pd.DataFrame(
+                [
+                    {
+                        "HADM_ID": 931,
+                        "CATEGORY": "Nursing",
+                        "TEXT": "Request for autopsy was declined.",
+                        "ISERROR": None,
+                    }
+                ]
+            ).to_csv(csv_path, index=False)
+
+            _, corrected_labels = build_note_artifacts_from_csv(
+                csv_path,
+                all_hadm_ids=[931],
+                autopsy_label_mode="corrected",
+                chunksize=1,
+            )
+            _, paper_like_labels = build_note_artifacts_from_csv(
+                csv_path,
+                all_hadm_ids=[931],
+                autopsy_label_mode="paper_like",
+                chunksize=1,
+            )
+
+        self.assertEqual(int(corrected_labels.loc[0, "hadm_id"]), 931)
+        self.assertEqual(float(corrected_labels.loc[0, "autopsy_label"]), 0.0)
+        self.assertTrue(pd.isna(float(paper_like_labels.loc[0, "autopsy_label"])))
+
+    def test_build_chartevent_feature_matrix_from_csv_canonicalizes_case_variants_and_filters_numeric_heavy_values(self):
+        build_chartevent_feature_matrix_from_csv = self._get_callable("build_chartevent_feature_matrix_from_csv")
+        d_items = pd.DataFrame(
+            [
+                {"itemid": 1, "label": "Bath", "dbsource": "carevue"},
+                {"itemid": 2, "label": "bath", "dbsource": "metavision"},
+            ]
+        )
+
+        with _workspace_tempdir() as tmpdir:
+            csv_path = Path(tmpdir) / "chartevents.csv"
+            pd.DataFrame(
+                [
+                    {"HADM_ID": 901, "ITEMID": 1, "VALUE": "Done", "ICUSTAY_ID": 9011},
+                    {"HADM_ID": 902, "ITEMID": 2, "VALUE": "DONE.", "ICUSTAY_ID": 9021},
+                    {"HADM_ID": 903, "ITEMID": 1, "VALUE": "08/13", "ICUSTAY_ID": 9031},
+                    {"HADM_ID": 904, "ITEMID": 2, "VALUE": "110/56", "ICUSTAY_ID": 9041},
+                ]
+            ).to_csv(csv_path, index=False)
+
+            feature_matrix = build_chartevent_feature_matrix_from_csv(
+                csv_path,
+                d_items,
+                allowed_labels={"Bath"},
+                all_hadm_ids=[901, 902, 903, 904],
+                chunksize=2,
+            ).fillna(0).set_index("hadm_id")
+
+        self.assertIn("Bath: Done", feature_matrix.columns)
+        self.assertEqual(int(feature_matrix.loc[901, "Bath: Done"]), 1)
+        self.assertEqual(int(feature_matrix.loc[902, "Bath: Done"]), 1)
+        self.assertEqual(int(feature_matrix.loc[903, "Bath: Done"]), 0)
+        self.assertEqual(int(feature_matrix.loc[904, "Bath: Done"]), 0)
+
+    def test_build_chartevent_feature_matrix_from_csv_paper_like_uses_notebook_dictionary(self):
+        build_chartevent_feature_matrix_from_csv = self._get_callable("build_chartevent_feature_matrix_from_csv")
+        d_items = pd.DataFrame(
+            [
+                {"itemid": 1, "label": "Bath", "dbsource": "carevue"},
+                {"itemid": 2, "label": "Reason For Restraint", "dbsource": "carevue"},
+                {"itemid": 3, "label": "Pain Management", "dbsource": "carevue"},
+            ]
+        )
+
+        with _workspace_tempdir() as tmpdir:
+            csv_path = Path(tmpdir) / "chartevents.csv"
+            pd.DataFrame(
+                [
+                    {"HADM_ID": 911, "ITEMID": 1, "VALUE": "Refused", "ICUSTAY_ID": 9111},
+                    {"HADM_ID": 912, "ITEMID": 2, "VALUE": "Risk for falls", "ICUSTAY_ID": 9121},
+                    {"HADM_ID": 913, "ITEMID": 3, "VALUE": "PCA", "ICUSTAY_ID": 9131},
+                ]
+            ).to_csv(csv_path, index=False)
+
+            feature_matrix = build_chartevent_feature_matrix_from_csv(
+                csv_path,
+                d_items,
+                all_hadm_ids=[911, 912, 913],
+                chunksize=2,
+                paper_like=True,
+            ).fillna(0).set_index("hadm_id")
+
+        self.assertIn("bath: refused", feature_matrix.columns)
+        self.assertIn("reason for restraint: risk for falls", feature_matrix.columns)
+        self.assertNotIn("pain management: pca", set(feature_matrix.columns))
+        self.assertEqual(int(feature_matrix.loc[911, "bath: refused"]), 1)
+        self.assertEqual(int(feature_matrix.loc[912, "reason for restraint: risk for falls"]), 1)
+        self.assertTrue((feature_matrix.loc[913] == 0).all())
+
+    def test_build_final_model_table_supports_baseline_only_configuration(self):
+        build_base_admissions = self._get_callable("build_base_admissions")
+        build_demographics_table = self._get_callable("build_demographics_table")
+        build_all_cohort = self._get_callable("build_all_cohort")
+        build_final_model_table = self._get_callable("build_final_model_table")
+
+        base = build_base_admissions(self.admissions, self.patients)
+        demographics = build_demographics_table(base)
+        all_cohort = build_all_cohort(base, self.icustays)
+        final_table = build_final_model_table(
+            demographics=demographics,
+            all_cohort=all_cohort,
+            admissions=base,
+            chartevents=self.chartevents,
+            d_items=self.d_items,
+            mistrust_scores=self.mistrust_scores,
+            include_race=False,
+            include_mistrust=False,
+        )
+        self.assertNotIn("race_white", final_table.columns)
+        self.assertNotIn("noncompliance_score_z", final_table.columns)
+        self.assertIn("age", final_table.columns)
+        self.assertIn("left_ama", final_table.columns)
+
+    def test_build_final_model_table_baseline_only_columns_match_required_set(self):
+        build_base_admissions = self._get_callable("build_base_admissions")
+        build_demographics_table = self._get_callable("build_demographics_table")
+        build_all_cohort = self._get_callable("build_all_cohort")
+        build_final_model_table = self._get_callable("build_final_model_table")
+
+        base = build_base_admissions(self.admissions, self.patients)
+        demographics = build_demographics_table(base)
+        all_cohort = build_all_cohort(base, self.icustays)
+        final_table = build_final_model_table(
+            demographics=demographics,
+            all_cohort=all_cohort,
+            admissions=base,
+            chartevents=self.chartevents,
+            d_items=self.d_items,
+            mistrust_scores=self.mistrust_scores,
+            include_race=False,
+            include_mistrust=False,
+        )
+        expected_columns = {
+            "hadm_id",
+            "age",
+            "los_days",
+            "gender_f",
+            "gender_m",
+            "insurance_private",
+            "insurance_public",
+            "insurance_self_pay",
+            "left_ama",
+            "code_status_dnr_dni_cmo",
+            "in_hospital_mortality",
+        }
+        self.assertEqual(set(final_table.columns), expected_columns)
+        self.assertEqual(len(final_table.columns), 11)
+
+    def test_build_final_model_table_from_code_status_targets_matches_raw_chartevents_path(self):
+        build_base_admissions = self._get_callable("build_base_admissions")
+        build_demographics_table = self._get_callable("build_demographics_table")
+        build_all_cohort = self._get_callable("build_all_cohort")
+        build_final_model_table = self._get_callable("build_final_model_table")
+        build_final_model_table_from_code_status_targets = self._get_callable(
+            "build_final_model_table_from_code_status_targets"
+        )
+        build_task_code_status_target = getattr(self.module, "_build_task_code_status_target")
+        code_status_itemids = getattr(self.module, "CODE_STATUS_ITEMIDS")
+
+        base = build_base_admissions(self.admissions, self.patients)
+        demographics = build_demographics_table(base)
+        all_cohort = build_all_cohort(base, self.icustays)
+        code_status_targets = build_task_code_status_target(
+            self.chartevents,
+            itemids=code_status_itemids,
+        )
+
+        from_raw = build_final_model_table(
+            demographics=demographics,
+            all_cohort=all_cohort,
+            admissions=base,
+            chartevents=self.chartevents,
+            d_items=self.d_items,
+            mistrust_scores=self.mistrust_scores,
+            include_race=False,
+            include_mistrust=False,
+        ).sort_values("hadm_id").reset_index(drop=True)
+        from_targets = build_final_model_table_from_code_status_targets(
+            demographics=demographics,
+            all_cohort=all_cohort,
+            admissions=base,
+            code_status_targets=code_status_targets,
+            mistrust_scores=self.mistrust_scores,
+            include_race=False,
+            include_mistrust=False,
+        ).sort_values("hadm_id").reset_index(drop=True)
+
+        pd.testing.assert_frame_equal(from_raw, from_targets)
+
+    def test_build_final_model_table_race_one_hot_covers_all_required_categories(self):
+        build_base_admissions = self._get_callable("build_base_admissions")
+        build_demographics_table = self._get_callable("build_demographics_table")
+        build_all_cohort = self._get_callable("build_all_cohort")
+        build_final_model_table = self._get_callable("build_final_model_table")
+
+        admissions = pd.DataFrame(
+            [
+                {
+                    "hadm_id": 701,
+                    "subject_id": 71,
+                    "admittime": "2100-07-01 00:00:00",
+                    "dischtime": "2100-07-02 00:00:00",
+                    "ethnicity": "WHITE",
+                    "insurance": "Medicare",
+                    "discharge_location": "HOME",
+                    "hospital_expire_flag": 0,
+                    "has_chartevents_data": 1,
+                },
+                {
+                    "hadm_id": 702,
+                    "subject_id": 72,
+                    "admittime": "2100-07-01 00:00:00",
+                    "dischtime": "2100-07-02 00:00:00",
+                    "ethnicity": "BLACK/AFRICAN AMERICAN",
+                    "insurance": "Private",
+                    "discharge_location": "HOME",
+                    "hospital_expire_flag": 0,
+                    "has_chartevents_data": 1,
+                },
+                {
+                    "hadm_id": 703,
+                    "subject_id": 73,
+                    "admittime": "2100-07-01 00:00:00",
+                    "dischtime": "2100-07-02 00:00:00",
+                    "ethnicity": "ASIAN - CHINESE",
+                    "insurance": "Medicare",
+                    "discharge_location": "HOME",
+                    "hospital_expire_flag": 0,
+                    "has_chartevents_data": 1,
+                },
+                {
+                    "hadm_id": 704,
+                    "subject_id": 74,
+                    "admittime": "2100-07-01 00:00:00",
+                    "dischtime": "2100-07-02 00:00:00",
+                    "ethnicity": "HISPANIC OR LATINO",
+                    "insurance": "Private",
+                    "discharge_location": "HOME",
+                    "hospital_expire_flag": 0,
+                    "has_chartevents_data": 1,
+                },
+                {
+                    "hadm_id": 705,
+                    "subject_id": 75,
+                    "admittime": "2100-07-01 00:00:00",
+                    "dischtime": "2100-07-02 00:00:00",
+                    "ethnicity": "AMERICAN INDIAN/ALASKA NATIVE",
+                    "insurance": "Medicare",
+                    "discharge_location": "HOME",
+                    "hospital_expire_flag": 0,
+                    "has_chartevents_data": 1,
+                },
+                {
+                    "hadm_id": 706,
+                    "subject_id": 76,
+                    "admittime": "2100-07-01 00:00:00",
+                    "dischtime": "2100-07-02 00:00:00",
+                    "ethnicity": "PATIENT DECLINED TO ANSWER",
+                    "insurance": "Private",
+                    "discharge_location": "HOME",
+                    "hospital_expire_flag": 0,
+                    "has_chartevents_data": 1,
+                },
+            ]
+        )
+        patients = pd.DataFrame(
+            [
+                {"subject_id": 71, "gender": "M", "dob": "2070-07-01 00:00:00"},
+                {"subject_id": 72, "gender": "F", "dob": "2070-07-01 00:00:00"},
+                {"subject_id": 73, "gender": "M", "dob": "2070-07-01 00:00:00"},
+                {"subject_id": 74, "gender": "F", "dob": "2070-07-01 00:00:00"},
+                {"subject_id": 75, "gender": "M", "dob": "2070-07-01 00:00:00"},
+                {"subject_id": 76, "gender": "F", "dob": "2070-07-01 00:00:00"},
+            ]
+        )
+        icustays = pd.DataFrame(
+            [
+                {"hadm_id": 701, "icustay_id": 7011, "intime": "2100-07-01 00:00:00", "outtime": "2100-07-01 13:00:00"},
+                {"hadm_id": 702, "icustay_id": 7021, "intime": "2100-07-01 00:00:00", "outtime": "2100-07-01 13:00:00"},
+                {"hadm_id": 703, "icustay_id": 7031, "intime": "2100-07-01 00:00:00", "outtime": "2100-07-01 13:00:00"},
+                {"hadm_id": 704, "icustay_id": 7041, "intime": "2100-07-01 00:00:00", "outtime": "2100-07-01 13:00:00"},
+                {"hadm_id": 705, "icustay_id": 7051, "intime": "2100-07-01 00:00:00", "outtime": "2100-07-01 13:00:00"},
+                {"hadm_id": 706, "icustay_id": 7061, "intime": "2100-07-01 00:00:00", "outtime": "2100-07-01 13:00:00"},
+            ]
+        )
+        mistrust_scores = pd.DataFrame(
+            [
+                {
+                    "hadm_id": hadm_id,
+                    "noncompliance_score_z": 0.0,
+                    "autopsy_score_z": 0.0,
+                    "negative_sentiment_score_z": 0.0,
+                }
+                for hadm_id in [701, 702, 703, 704, 705, 706]
+            ]
+        )
+
+        base = build_base_admissions(admissions, patients)
+        demographics = build_demographics_table(base)
+        all_cohort = build_all_cohort(base, icustays)
+        final_table = build_final_model_table(
+            demographics=demographics,
+            all_cohort=all_cohort,
+            admissions=base,
+            chartevents=pd.DataFrame(columns=["hadm_id", "itemid", "value", "icustay_id"]),
+            d_items=pd.DataFrame(columns=["itemid", "label", "dbsource"]),
+            mistrust_scores=mistrust_scores,
+            include_race=True,
+            include_mistrust=False,
+        ).set_index("hadm_id")
+
+        self.assertEqual(final_table.loc[701, "race_white"], 1)
+        self.assertEqual(final_table.loc[702, "race_black"], 1)
+        self.assertEqual(final_table.loc[703, "race_asian"], 1)
+        self.assertEqual(final_table.loc[704, "race_hispanic"], 1)
+        self.assertEqual(final_table.loc[705, "race_native_american"], 1)
+        self.assertEqual(final_table.loc[706, "race_other"], 1)
+
+    def test_write_minimal_deliverables_creates_required_artifact_files(self):
+        write_minimal_deliverables = self._get_callable("write_minimal_deliverables")
+        artifacts = {
+            "base_admissions": pd.DataFrame([{"hadm_id": 101}]),
+            "eol_cohort": pd.DataFrame([{"hadm_id": 101}]),
+            "all_cohort": pd.DataFrame([{"hadm_id": 101}]),
+            "treatment_totals": pd.DataFrame([{"hadm_id": 101, "total_vent_min": 810.0, "total_vaso_min": 0.0}]),
+            "chartevent_feature_matrix": pd.DataFrame([{"hadm_id": 101, "feature_a": 1}]),
+            "note_labels": pd.DataFrame([{"hadm_id": 101, "noncompliance_label": 1, "autopsy_label": 1}]),
+            "mistrust_scores": pd.DataFrame([{"hadm_id": 101, "noncompliance_score_z": 1.0}]),
+            "acuity_scores": pd.DataFrame([{"hadm_id": 101, "oasis": 15, "sapsii": 42}]),
+            "final_model_table": pd.DataFrame([{"hadm_id": 101, "left_ama": 0}]),
+        }
+
+        with _workspace_tempdir() as temp_dir:
+            output_dir = Path(temp_dir)
+            write_minimal_deliverables(artifacts, output_dir)
+
+            expected_files = {
+                "base_admissions.csv",
+                "eol_cohort.csv",
+                "all_cohort.csv",
+                "treatment_totals.csv",
+                "chartevent_feature_matrix.csv",
+                "note_labels.csv",
+                "mistrust_scores.csv",
+                "acuity_scores.csv",
+                "final_model_table.csv",
+            }
+            written_files = {path.name for path in output_dir.iterdir()}
+            self.assertEqual(expected_files, written_files)
+
+    def test_write_minimal_deliverables_sorts_by_hadm_id_and_writes_without_index(self):
+        write_minimal_deliverables = self._get_callable("write_minimal_deliverables")
+        artifacts = {
+            "base_admissions": pd.DataFrame([{"hadm_id": 103}, {"hadm_id": 101}]),
+            "eol_cohort": pd.DataFrame([{"hadm_id": 103}, {"hadm_id": 101}]),
+            "all_cohort": pd.DataFrame([{"hadm_id": 103}, {"hadm_id": 101}]),
+            "treatment_totals": pd.DataFrame(
+                [
+                    {"hadm_id": 103, "total_vent_min": 0.0, "total_vaso_min": 840.0},
+                    {"hadm_id": 101, "total_vent_min": 810.0, "total_vaso_min": 0.0},
+                ]
+            ),
+            "chartevent_feature_matrix": pd.DataFrame(
+                [
+                    {"hadm_id": 103, "feature_a": 1},
+                    {"hadm_id": 101, "feature_a": 0},
+                ]
+            ),
+            "note_labels": pd.DataFrame(
+                [
+                    {"hadm_id": 103, "noncompliance_label": 0, "autopsy_label": 0},
+                    {"hadm_id": 101, "noncompliance_label": 1, "autopsy_label": 1},
+                ]
+            ),
+            "mistrust_scores": pd.DataFrame(
+                [
+                    {"hadm_id": 103, "noncompliance_score_z": -0.3},
+                    {"hadm_id": 101, "noncompliance_score_z": 1.2},
+                ]
+            ),
+            "acuity_scores": pd.DataFrame(
+                [
+                    {"hadm_id": 103, "oasis": 20, "sapsii": 55},
+                    {"hadm_id": 101, "oasis": 15, "sapsii": 42},
+                ]
+            ),
+            "final_model_table": pd.DataFrame(
+                [
+                    {"hadm_id": 103, "left_ama": 0},
+                    {"hadm_id": 101, "left_ama": 0},
+                ]
+            ),
+        }
+        with _workspace_tempdir() as temp_dir:
+            output_dir = Path(temp_dir)
+            write_minimal_deliverables(artifacts, output_dir)
+            base_admissions = pd.read_csv(output_dir / "base_admissions.csv")
+            self.assertEqual(list(base_admissions["hadm_id"]), [101, 103])
+            self.assertNotIn("Unnamed: 0", base_admissions.columns)
+
+    def test_write_minimal_deliverables_skips_missing_artifacts_without_crashing(self):
+        write_minimal_deliverables = self._get_callable("write_minimal_deliverables")
+        artifacts = {
+            "base_admissions": pd.DataFrame([{"hadm_id": 101}]),
+            "eol_cohort": pd.DataFrame([{"hadm_id": 101}]),
+            "all_cohort": pd.DataFrame([{"hadm_id": 101}]),
+            "treatment_totals": pd.DataFrame(
+                [{"hadm_id": 101, "total_vent_min": 810.0, "total_vaso_min": 0.0}]
+            ),
+            "chartevent_feature_matrix": pd.DataFrame([{"hadm_id": 101, "feature_a": 1}]),
+            "note_labels": pd.DataFrame(
+                [{"hadm_id": 101, "noncompliance_label": 1, "autopsy_label": 0}]
+            ),
+            "mistrust_scores": pd.DataFrame(
+                [{"hadm_id": 101, "noncompliance_score_z": 0.0}]
+            ),
+            "acuity_scores": pd.DataFrame([{"hadm_id": 101, "oasis": 15, "sapsii": 42}]),
+        }
+
+        with _workspace_tempdir() as temp_dir:
+            output_dir = Path(temp_dir)
+            write_minimal_deliverables(artifacts, output_dir)
+            self.assertTrue((output_dir / "base_admissions.csv").exists())
+            self.assertTrue((output_dir / "acuity_scores.csv").exists())
+            self.assertFalse((output_dir / "final_model_table.csv").exists())
+
+    def test_write_minimal_deliverables_sorts_nullable_integer_hadm_ids(self):
+        write_minimal_deliverables = self._get_callable("write_minimal_deliverables")
+        artifacts = {
+            "base_admissions": pd.DataFrame({"hadm_id": pd.Series([103, 101], dtype="Int64")}),
+            "eol_cohort": pd.DataFrame({"hadm_id": pd.Series([103, 101], dtype="Int64")}),
+            "all_cohort": pd.DataFrame({"hadm_id": pd.Series([103, 101], dtype="Int64")}),
+            "treatment_totals": pd.DataFrame(
+                {
+                    "hadm_id": pd.Series([103, 101], dtype="Int64"),
+                    "total_vent_min": [0.0, 810.0],
+                    "total_vaso_min": [840.0, 0.0],
+                }
+            ),
+            "chartevent_feature_matrix": pd.DataFrame({"hadm_id": pd.Series([103, 101], dtype="Int64")}),
+            "note_labels": pd.DataFrame(
+                {
+                    "hadm_id": pd.Series([103, 101], dtype="Int64"),
+                    "noncompliance_label": [0, 1],
+                    "autopsy_label": [0, 1],
+                }
+            ),
+            "mistrust_scores": pd.DataFrame(
+                {
+                    "hadm_id": pd.Series([103, 101], dtype="Int64"),
+                    "noncompliance_score_z": [-0.3, 1.2],
+                }
+            ),
+            "acuity_scores": pd.DataFrame(
+                {
+                    "hadm_id": pd.Series([103, 101], dtype="Int64"),
+                    "oasis": [20, 15],
+                    "sapsii": [55, 42],
+                }
+            ),
+            "final_model_table": pd.DataFrame(
+                {
+                    "hadm_id": pd.Series([103, 101], dtype="Int64"),
+                    "left_ama": [0, 0],
+                }
+            ),
+        }
+
+        with _workspace_tempdir() as temp_dir:
+            output_dir = Path(temp_dir)
+            write_minimal_deliverables(artifacts, output_dir)
+            final_table = pd.read_csv(output_dir / "final_model_table.csv")
+            self.assertEqual(list(final_table["hadm_id"]), [101, 103])
+
+    def test_data_contract_build_base_admissions_output_schema_dtypes_and_uniqueness_are_stable(self):
+        build_base_admissions = self._get_callable("build_base_admissions")
+        base = build_base_admissions(self.admissions, self.patients)
+
+        self.assertEqual(
+            base.columns.tolist(),
+            [
+                "hadm_id",
+                "subject_id",
+                "admittime",
+                "dischtime",
+                "ethnicity",
+                "insurance",
+                "discharge_location",
+                "hospital_expire_flag",
+                "has_chartevents_data",
+                "gender",
+                "dob",
+            ],
+        )
+        self.assertEqual(base["hadm_id"].tolist(), sorted(base["hadm_id"].tolist()))
+        self._assert_hadm_unique(base, "Base admissions contract")
+        self.assertTrue(pd.api.types.is_datetime64_any_dtype(base["admittime"]))
+        self.assertTrue(pd.api.types.is_datetime64_any_dtype(base["dischtime"]))
+        self.assertTrue(pd.api.types.is_datetime64_any_dtype(base["dob"]))
+
+    def test_data_contract_build_demographics_table_output_dtypes_and_uniqueness_are_stable(self):
+        build_base_admissions = self._get_callable("build_base_admissions")
+        build_demographics_table = self._get_callable("build_demographics_table")
+        base = build_base_admissions(self.admissions, self.patients)
+        demographics = build_demographics_table(base)
+
+        self.assertEqual(demographics["hadm_id"].tolist(), sorted(demographics["hadm_id"].tolist()))
+        self._assert_hadm_unique(demographics, "Demographics contract")
+        self.assertTrue(pd.api.types.is_float_dtype(demographics["age"]))
+        self.assertTrue(pd.api.types.is_float_dtype(demographics["los_hours"]))
+        self.assertTrue(pd.api.types.is_float_dtype(demographics["los_days"]))
+        self.assertTrue(pd.api.types.is_datetime64_any_dtype(demographics["admittime"]))
+        self.assertTrue(pd.api.types.is_datetime64_any_dtype(demographics["dischtime"]))
+
+    def test_data_contract_build_eol_and_all_cohorts_are_sorted_unique_and_key_aligned(self):
+        build_base_admissions = self._get_callable("build_base_admissions")
+        build_demographics_table = self._get_callable("build_demographics_table")
+        build_eol_cohort = self._get_callable("build_eol_cohort")
+        build_all_cohort = self._get_callable("build_all_cohort")
+        base = build_base_admissions(self.admissions, self.patients)
+        demographics = build_demographics_table(base)
+        eol = build_eol_cohort(base, demographics)
+        all_cohort = build_all_cohort(base, self.icustays)
+
+        self.assertEqual(eol["hadm_id"].tolist(), sorted(eol["hadm_id"].tolist()))
+        self.assertEqual(all_cohort["hadm_id"].tolist(), sorted(all_cohort["hadm_id"].tolist()))
+        self._assert_hadm_unique(eol, "EOL cohort contract")
+        self._assert_hadm_unique(all_cohort, "ALL cohort contract")
+        self.assertTrue(set(eol["hadm_id"]).issubset(set(base["hadm_id"])))
+        self.assertTrue(set(all_cohort["hadm_id"]).issubset(set(base["hadm_id"])))
+        self.assertTrue(eol["discharge_category"].notna().all())
+
+    def test_data_contract_build_treatment_totals_output_schema_dtypes_and_uniqueness_are_stable(self):
+        build_treatment_totals = self._get_callable("build_treatment_totals")
+        totals = build_treatment_totals(self.icustays, self.ventdurations, self.vasopressordurations)
+
+        self.assertEqual(totals.columns.tolist(), ["hadm_id", "total_vent_min", "total_vaso_min"])
+        self.assertEqual(totals["hadm_id"].tolist(), sorted(totals["hadm_id"].tolist()))
+        self._assert_hadm_unique(totals, "Treatment totals contract")
+        self.assertTrue(pd.api.types.is_float_dtype(pd.to_numeric(totals["total_vent_min"], errors="coerce")))
+        self.assertTrue(pd.api.types.is_float_dtype(pd.to_numeric(totals["total_vaso_min"], errors="coerce")))
+
+    def test_data_contract_build_note_corpus_and_labels_outputs_are_sorted_unique_and_typed(self):
+        build_note_corpus = self._get_callable("build_note_corpus")
+        build_note_labels = self._get_callable("build_note_labels")
+        corpus = build_note_corpus(self.noteevents, all_hadm_ids=[101, 103, 104, 106, 107])
+        labels = build_note_labels(self.noteevents, all_hadm_ids=[101, 103, 104, 106, 107])
+
+        self.assertEqual(corpus["hadm_id"].tolist(), [101, 103, 104, 106, 107])
+        self.assertEqual(labels["hadm_id"].tolist(), [101, 103, 104, 106, 107])
+        self._assert_hadm_unique(corpus, "Note corpus contract")
+        self._assert_hadm_unique(labels, "Note labels contract")
+        self.assertTrue(pd.api.types.is_object_dtype(corpus["note_text"]))
+        self.assertTrue(pd.api.types.is_integer_dtype(labels["noncompliance_label"]))
+        self.assertTrue(pd.api.types.is_float_dtype(labels["autopsy_label"]))
+        self.assertTrue(set(labels["noncompliance_label"].unique()).issubset({0, 1}))
+        self.assertTrue(
+            set(labels["autopsy_label"].dropna().unique()).issubset({0.0, 1.0}),
+            msg="autopsy_label should be 0, 1, or NaN",
+        )
+
+    def test_data_contract_build_chartevent_feature_matrix_output_is_binary_integer_sorted_and_unique(self):
+        build_chartevent_feature_matrix = self._get_callable("build_chartevent_feature_matrix")
+        matrix = build_chartevent_feature_matrix(
+            self.chartevents,
+            self.d_items,
+            all_hadm_ids=[101, 103, 104, 106, 107],
+        )
+
+        self.assertEqual(matrix["hadm_id"].tolist(), [101, 103, 104, 106, 107])
+        self._assert_hadm_unique(matrix, "Feature matrix contract")
+        for column in matrix.columns:
+            if column == "hadm_id":
+                continue
+            self.assertTrue(pd.api.types.is_integer_dtype(matrix[column]), msg=column)
+            self.assertTrue(set(matrix[column].dropna().unique()).issubset({0, 1}), msg=column)
+
+    def test_data_contract_build_acuity_scores_output_is_sorted_unique_and_numeric(self):
+        build_acuity_scores = self._get_callable("build_acuity_scores")
+        acuity = build_acuity_scores(self.oasis, self.sapsii)
+
+        self.assertEqual(acuity["hadm_id"].tolist(), sorted(acuity["hadm_id"].tolist()))
+        self._assert_hadm_unique(acuity, "Acuity contract")
+        self.assertTrue(pd.api.types.is_numeric_dtype(acuity["oasis"]))
+        self.assertTrue(pd.api.types.is_numeric_dtype(acuity["sapsii"]))
+
+    def test_data_contract_build_final_model_table_binary_columns_are_integer_and_zero_one(self):
+        build_base_admissions = self._get_callable("build_base_admissions")
+        build_demographics_table = self._get_callable("build_demographics_table")
+        build_all_cohort = self._get_callable("build_all_cohort")
+        build_final_model_table = self._get_callable("build_final_model_table")
+
+        base = build_base_admissions(self.admissions, self.patients)
+        demographics = build_demographics_table(base)
+        all_cohort = build_all_cohort(base, self.icustays)
+        final_table = build_final_model_table(
+            demographics=demographics,
+            all_cohort=all_cohort,
+            admissions=base,
+            chartevents=self.chartevents,
+            d_items=self.d_items,
+            mistrust_scores=self.mistrust_scores,
+            include_race=True,
+            include_mistrust=True,
+        )
+
+        binary_columns = [
+            "gender_f",
+            "gender_m",
+            "insurance_private",
+            "insurance_public",
+            "insurance_self_pay",
+            "race_white",
+            "race_black",
+            "race_asian",
+            "race_hispanic",
+            "race_native_american",
+            "race_other",
+            "left_ama",
+            "code_status_dnr_dni_cmo",
+            "in_hospital_mortality",
+        ]
+        for column in binary_columns:
+            self.assertTrue(pd.api.types.is_integer_dtype(final_table[column]), msg=column)
+            unique_values = set(pd.Series(final_table[column]).dropna().astype(int).unique())
+            self.assertTrue(unique_values.issubset({0, 1}), msg=column)
+
+    def test_data_contract_write_minimal_deliverables_round_trip_preserves_columns_and_row_counts(self):
+        build_base_admissions = self._get_callable("build_base_admissions")
+        build_demographics_table = self._get_callable("build_demographics_table")
+        build_eol_cohort = self._get_callable("build_eol_cohort")
+        build_all_cohort = self._get_callable("build_all_cohort")
+        build_treatment_totals = self._get_callable("build_treatment_totals")
+        build_note_corpus = self._get_callable("build_note_corpus")
+        build_note_labels = self._get_callable("build_note_labels")
+        build_chartevent_feature_matrix = self._get_callable("build_chartevent_feature_matrix")
+        build_acuity_scores = self._get_callable("build_acuity_scores")
+        build_mistrust_score_table = _model_build_mistrust_score_table
+        build_final_model_table = self._get_callable("build_final_model_table")
+        write_minimal_deliverables = self._get_callable("write_minimal_deliverables")
+
+        base = build_base_admissions(self.admissions, self.patients)
+        demographics = build_demographics_table(base)
+        eol = build_eol_cohort(base, demographics)
+        all_cohort = build_all_cohort(base, self.icustays)
+        treatments = build_treatment_totals(self.icustays, self.ventdurations, self.vasopressordurations)
+        note_corpus = build_note_corpus(self.noteevents, all_hadm_ids=list(all_cohort["hadm_id"]))
+        note_labels = build_note_labels(self.noteevents, all_hadm_ids=list(all_cohort["hadm_id"]))
+        feature_matrix = build_chartevent_feature_matrix(
+            self.chartevents,
+            self.d_items,
+            allowed_labels={"Education Readiness", "Pain Level"},
+            all_hadm_ids=list(all_cohort["hadm_id"]),
+        )
+        acuity = build_acuity_scores(self.oasis, self.sapsii)
+        mistrust_scores = build_mistrust_score_table(
+            feature_matrix=feature_matrix,
+            note_labels=note_labels,
+            note_corpus=note_corpus,
+            estimator_factory=lambda: _FakeProbEstimator([0.9, 0.2, 0.8, 0.1, 0.4, 0.3]),
+            sentiment_fn=lambda text: (
+                {
+                    "Patient refuses treatment and was noncompliant with medication. Date:[**5-1-18**] Autopsy was discussed with the family.": -0.5,
+                    "Cooperative patient. Follows commands.": 0.0,
+                    "Patient remains nonadherent with follow up plan.": -0.2,
+                    "": 0.0,
+                }.get(text, 0.0),
+                0.0,
+            ),
+        )
+        final_table = build_final_model_table(
+            demographics=demographics,
+            all_cohort=all_cohort,
+            admissions=base,
+            chartevents=self.chartevents,
+            d_items=self.d_items,
+            mistrust_scores=mistrust_scores,
+            include_race=True,
+            include_mistrust=True,
+        )
+        artifacts = {
+            "base_admissions": base,
+            "eol_cohort": eol,
+            "all_cohort": all_cohort,
+            "treatment_totals": treatments,
+            "chartevent_feature_matrix": feature_matrix,
+            "note_labels": note_labels,
+            "mistrust_scores": mistrust_scores,
+            "acuity_scores": acuity,
+            "final_model_table": final_table,
+        }
+
+        with _workspace_tempdir() as temp_dir:
+            output_dir = Path(temp_dir)
+            write_minimal_deliverables(artifacts, output_dir)
+            round_trip = {
+                "base_admissions": pd.read_csv(output_dir / "base_admissions.csv"),
+                "eol_cohort": pd.read_csv(output_dir / "eol_cohort.csv"),
+                "all_cohort": pd.read_csv(output_dir / "all_cohort.csv"),
+                "treatment_totals": pd.read_csv(output_dir / "treatment_totals.csv"),
+                "chartevent_feature_matrix": pd.read_csv(output_dir / "chartevent_feature_matrix.csv"),
+                "note_labels": pd.read_csv(output_dir / "note_labels.csv"),
+                "mistrust_scores": pd.read_csv(output_dir / "mistrust_scores.csv"),
+                "acuity_scores": pd.read_csv(output_dir / "acuity_scores.csv"),
+                "final_model_table": pd.read_csv(output_dir / "final_model_table.csv"),
+            }
+
+        for key, original in artifacts.items():
+            self.assertEqual(round_trip[key].shape[0], original.shape[0], msg=key)
+            self.assertEqual(round_trip[key].columns.tolist(), original.columns.tolist(), msg=key)
+
+    def test_end_to_end_artifact_assembly_smoke_spec(self):
+        build_base_admissions = self._get_callable("build_base_admissions")
+        build_demographics_table = self._get_callable("build_demographics_table")
+        build_eol_cohort = self._get_callable("build_eol_cohort")
+        build_all_cohort = self._get_callable("build_all_cohort")
+        build_treatment_totals = self._get_callable("build_treatment_totals")
+        build_note_corpus = self._get_callable("build_note_corpus")
+        build_chartevent_feature_matrix = self._get_callable("build_chartevent_feature_matrix")
+        build_note_labels = self._get_callable("build_note_labels")
+        build_acuity_scores = self._get_callable("build_acuity_scores")
+        build_mistrust_score_table = _model_build_mistrust_score_table
+        build_final_model_table = self._get_callable("build_final_model_table")
+        write_minimal_deliverables = self._get_callable("write_minimal_deliverables")
+
+        base = build_base_admissions(self.admissions, self.patients)
+        demographics = build_demographics_table(base)
+        eol = build_eol_cohort(base, demographics)
+        all_cohort = build_all_cohort(base, self.icustays)
+        treatments = build_treatment_totals(
+            self.icustays,
+            self.ventdurations,
+            self.vasopressordurations,
+        )
+        note_corpus = build_note_corpus(
+            self.noteevents,
+            all_hadm_ids=list(all_cohort["hadm_id"]),
+        )
+        note_labels = build_note_labels(
+            self.noteevents,
+            all_hadm_ids=list(all_cohort["hadm_id"]),
+        )
+        feature_matrix = build_chartevent_feature_matrix(
+            self.chartevents,
+            self.d_items,
+            allowed_labels={"Education Readiness", "Pain Level"},
+            all_hadm_ids=list(all_cohort["hadm_id"]),
+        )
+        acuity = build_acuity_scores(self.oasis, self.sapsii)
+        mistrust_scores = build_mistrust_score_table(
+            feature_matrix=feature_matrix,
+            note_labels=note_labels,
+            note_corpus=note_corpus,
+            estimator_factory=lambda: _FakeProbEstimator([0.9, 0.2, 0.8, 0.1, 0.4, 0.3]),
+            sentiment_fn=lambda text: (
+                {
+                    "Patient refuses treatment and was noncompliant with medication. Date:[**5-1-18**] Autopsy was discussed with the family.": -0.5,
+                    "Cooperative patient. Follows commands.": 0.0,
+                    "Patient remains nonadherent with follow up plan.": -0.2,
+                    "": 0.0,
+                }.get(text, 0.0),
+                0.0,
+            ),
+        )
+        final_table = build_final_model_table(
+            demographics=demographics,
+            all_cohort=all_cohort,
+            admissions=base,
+            chartevents=self.chartevents,
+            d_items=self.d_items,
+            mistrust_scores=mistrust_scores,
+            include_race=True,
+            include_mistrust=True,
+        )
+
+        artifacts = {
+            "base_admissions": base,
+            "eol_cohort": eol,
+            "all_cohort": all_cohort,
+            "treatment_totals": treatments,
+            "chartevent_feature_matrix": feature_matrix,
+            "note_labels": note_labels,
+            "mistrust_scores": mistrust_scores,
+            "acuity_scores": acuity,
+            "final_model_table": final_table,
+        }
+
+        with _workspace_tempdir() as temp_dir:
+            output_dir = Path(temp_dir)
+            write_minimal_deliverables(artifacts, output_dir)
+            self.assertEqual(len(list(output_dir.iterdir())), 9)
+
+
+class TestEOLMistrustDatasetClass(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.dataset_class_module = _load_eol_mistrust_dataset_class_module()
+        cls.task_module = importlib.util.module_from_spec(
+            spec := importlib.util.spec_from_file_location(
+                "pyhealth.tasks.eol_mistrust_dataset_class_tests",
+                Path(__file__).resolve().parents[2]
+                / "pyhealth"
+                / "tasks"
+                / "eol_mistrust.py",
+            )
+        )
+        assert spec is not None and spec.loader is not None
+        spec.loader.exec_module(cls.task_module)
+
+    def _write_minimal_root(self, root: Path) -> None:
+        (root / "mimiciii_clinical").mkdir(parents=True, exist_ok=True)
+        (root / "mimiciii_notes").mkdir(parents=True, exist_ok=True)
+        (root / "mimiciii_derived").mkdir(parents=True, exist_ok=True)
+
+        pd.DataFrame(
+            [
+                {
+                    "subject_id": 1,
+                    "gender": "F",
+                    "dob": "2070-01-01 00:00:00",
+                    "dod": "",
+                    "dod_hosp": "",
+                    "dod_ssn": "",
+                    "expire_flag": 0,
+                },
+                {
+                    "subject_id": 2,
+                    "gender": "M",
+                    "dob": "2065-01-01 00:00:00",
+                    "dod": "",
+                    "dod_hosp": "",
+                    "dod_ssn": "",
+                    "expire_flag": 0,
+                },
+            ]
+        ).to_csv(root / "mimiciii_clinical" / "patients.csv", index=False)
+        pd.DataFrame(
+            [
+                {
+                    "subject_id": 1,
+                    "hadm_id": 11,
+                    "admittime": "2100-01-01 00:00:00",
+                    "dischtime": "2100-01-03 00:00:00",
+                    "deathtime": "",
+                    "admission_type": "EMERGENCY",
+                    "admission_location": "EMERGENCY ROOM ADMIT",
+                    "discharge_location": "HOME",
+                    "insurance": "Private",
+                    "language": "ENGLISH",
+                    "religion": "",
+                    "marital_status": "MARRIED",
+                    "ethnicity": "WHITE",
+                    "edregtime": "",
+                    "edouttime": "",
+                    "diagnosis": "Sepsis",
+                    "hospital_expire_flag": 0,
+                    "has_chartevents_data": 1,
+                },
+                {
+                    "subject_id": 2,
+                    "hadm_id": 22,
+                    "admittime": "2100-02-01 00:00:00",
+                    "dischtime": "2100-02-04 12:00:00",
+                    "deathtime": "",
+                    "admission_type": "URGENT",
+                    "admission_location": "TRANSFER FROM HOSPITAL",
+                    "discharge_location": "HOME",
+                    "insurance": "Medicare",
+                    "language": "ENGLISH",
+                    "religion": "",
+                    "marital_status": "SINGLE",
+                    "ethnicity": "BLACK/AFRICAN AMERICAN",
+                    "edregtime": "",
+                    "edouttime": "",
+                    "diagnosis": "Pneumonia",
+                    "hospital_expire_flag": 1,
+                    "has_chartevents_data": 1,
+                },
+            ]
+        ).to_csv(root / "mimiciii_clinical" / "admissions.csv", index=False)
+        pd.DataFrame(
+            [
+                {
+                    "subject_id": 1,
+                    "hadm_id": 11,
+                    "icustay_id": 111,
+                    "dbsource": "metavision",
+                    "first_careunit": "MICU",
+                    "last_careunit": "MICU",
+                    "intime": "2100-01-01 01:00:00",
+                    "outtime": "2100-01-02 12:00:00",
+                    "los": 1.5,
+                },
+                {
+                    "subject_id": 2,
+                    "hadm_id": 22,
+                    "icustay_id": 222,
+                    "dbsource": "metavision",
+                    "first_careunit": "SICU",
+                    "last_careunit": "SICU",
+                    "intime": "2100-02-01 03:00:00",
+                    "outtime": "2100-02-03 12:00:00",
+                    "los": 2.3,
+                },
+            ]
+        ).to_csv(root / "mimiciii_clinical" / "icustays.csv", index=False)
+        pd.DataFrame(
+            [
+                {
+                    "subject_id": 1,
+                    "hadm_id": 11,
+                    "row_id": 1,
+                    "charttime": "",
+                    "chartdate": "2100-01-01",
+                    "text": "Family meeting note",
+                    "category": "Discharge summary",
+                    "description": "Report",
+                    "storetime": "2100-01-01 12:00:00",
+                    "iserror": "",
+                },
+                {
+                    "subject_id": 2,
+                    "hadm_id": 22,
+                    "row_id": 2,
+                    "charttime": "2100-02-01 08:00:00",
+                    "chartdate": "2100-02-01",
+                    "text": "Patient declining treatment",
+                    "category": "Nursing",
+                    "description": "Note",
+                    "storetime": "2100-02-01 09:00:00",
+                    "iserror": "",
+                },
+            ]
+        ).to_csv(root / "mimiciii_notes" / "noteevents.csv", index=False)
+        pd.DataFrame(
+            [
+                {
+                    "itemid": 128,
+                    "label": "Code Status",
+                    "abbreviation": "",
+                    "dbsource": "carevue",
+                    "linksto": "chartevents",
+                    "category": "",
+                    "unitname": "",
+                    "param_type": "",
+                    "conceptid": "",
+                }
+            ]
+        ).to_csv(root / "mimiciii_clinical" / "d_items.csv", index=False)
+        pd.DataFrame(
+            [
+                {
+                    "subject_id": 1,
+                    "hadm_id": 11,
+                    "icustay_id": 111,
+                    "itemid": 128,
+                    "charttime": "2100-01-01 08:00:00",
+                    "storetime": "2100-01-01 08:30:00",
+                    "cgid": 1,
+                    "value": "Full Code",
+                    "valuenum": "",
+                    "valueuom": "",
+                    "warning": "",
+                    "error": "",
+                    "resultstatus": "",
+                    "stopped": "",
+                },
+                {
+                    "subject_id": 2,
+                    "hadm_id": 22,
+                    "icustay_id": 222,
+                    "itemid": 128,
+                    "charttime": "2100-02-01 08:00:00",
+                    "storetime": "2100-02-01 08:30:00",
+                    "cgid": 2,
+                    "value": "DNR/DNI",
+                    "valuenum": "",
+                    "valueuom": "",
+                    "warning": "",
+                    "error": "",
+                    "resultstatus": "",
+                    "stopped": "",
+                },
+            ]
+        ).to_csv(root / "mimiciii_clinical" / "chartevents.csv", index=False)
+
+    def _write_optional_context_tables(self, root: Path) -> None:
+        pd.DataFrame(
+            [
+                {
+                    "subject_id": 1,
+                    "hadm_id": 11,
+                    "seq_num": 1,
+                    "icd9_code": "0389",
+                },
+                {
+                    "subject_id": 2,
+                    "hadm_id": 22,
+                    "seq_num": 1,
+                    "icd9_code": "486",
+                },
+            ]
+        ).to_csv(root / "mimiciii_clinical" / "diagnoses_icd.csv", index=False)
+        pd.DataFrame(
+            [
+                {
+                    "subject_id": 1,
+                    "hadm_id": 11,
+                    "seq_num": 1,
+                    "icd9_code": "3893",
+                },
+                {
+                    "subject_id": 2,
+                    "hadm_id": 22,
+                    "seq_num": 1,
+                    "icd9_code": "9671",
+                },
+            ]
+        ).to_csv(root / "mimiciii_clinical" / "procedures_icd.csv", index=False)
+        pd.DataFrame(
+            [
+                {
+                    "subject_id": 1,
+                    "hadm_id": 11,
+                    "startdate": "2100-01-01 00:00:00",
+                    "enddate": "2100-01-02 00:00:00",
+                    "drug": "Aspirin",
+                    "drug_type": "MAIN",
+                    "drug_name_poe": "Aspirin",
+                    "drug_name_generic": "Aspirin",
+                    "formulary_drug_cd": "ASP",
+                    "gsn": "",
+                    "ndc": "",
+                    "prod_strength": "81 mg",
+                    "dose_val_rx": "81",
+                    "dose_unit_rx": "mg",
+                    "form_val_disp": "1",
+                    "form_unit_disp": "tab",
+                    "route": "PO",
+                },
+                {
+                    "subject_id": 2,
+                    "hadm_id": 22,
+                    "startdate": "2100-02-01 00:00:00",
+                    "enddate": "2100-02-02 00:00:00",
+                    "drug": "Heparin",
+                    "drug_type": "MAIN",
+                    "drug_name_poe": "Heparin",
+                    "drug_name_generic": "Heparin",
+                    "formulary_drug_cd": "HEP",
+                    "gsn": "",
+                    "ndc": "",
+                    "prod_strength": "5000 unit",
+                    "dose_val_rx": "5000",
+                    "dose_unit_rx": "unit",
+                    "form_val_disp": "1",
+                    "form_unit_disp": "dose",
+                    "route": "IV",
+                },
+            ]
+        ).to_csv(root / "mimiciii_clinical" / "prescriptions.csv", index=False)
+
+    def test_dataset_class_inherits_base_dataset_and_keeps_core_tables(self):
+        dataset_cls = self.dataset_class_module.EOLMistrustDataset
+
+        self.assertTrue(issubclass(dataset_cls, BaseDataset))
+
+        with _workspace_tempdir() as temp_dir:
+            root = Path(temp_dir)
+            self._write_minimal_root(root)
+            dataset = dataset_cls(
+                root=str(root),
+                tables=["noteevents"],
+                cache_dir=root / "cache",
+                num_workers=1,
+            )
+
+            self.assertIn("patients", dataset.tables)
+            self.assertIn("admissions", dataset.tables)
+            self.assertIn("icustays", dataset.tables)
+            self.assertIn("noteevents", dataset.tables)
+
+    @pytest.mark.slow
+    def test_dataset_class_can_set_eol_task_on_minimal_synthetic_tables(self):
+        dataset_cls = self.dataset_class_module.EOLMistrustDataset
+        task = self.task_module.EOLMistrustMortalityPredictionMIMIC3(include_notes=True)
+
+        with _workspace_tempdir() as temp_dir:
+            root = Path(temp_dir)
+            self._write_minimal_root(root)
+            dataset = dataset_cls(
+                root=str(root),
+                tables=["noteevents"],
+                cache_dir=root / "cache",
+                num_workers=1,
+            )
+
+            sample_dataset = dataset.set_task(task, num_workers=1)
+            sample = sample_dataset[0]
+
+            self.assertIn("age", sample)
+            self.assertIn("los_days", sample)
+            self.assertIn("gender", sample)
+            self.assertIn("insurance", sample)
+            self.assertIn("race", sample)
+            self.assertIn("clinical_notes", sample)
+            self.assertIn("in_hospital_mortality", sample)
+
+    def test_dataset_class_defaults_include_available_optional_tables(self):
+        dataset_cls = self.dataset_class_module.EOLMistrustDataset
+
+        with _workspace_tempdir() as temp_dir:
+            root = Path(temp_dir)
+            self._write_minimal_root(root)
+            self._write_optional_context_tables(root)
+            dataset = dataset_cls(
+                root=str(root),
+                cache_dir=root / "cache",
+                num_workers=1,
+            )
+
+            self.assertIn("noteevents", dataset.tables)
+            self.assertIn("chartevents", dataset.tables)
+            self.assertIn("diagnoses_icd", dataset.tables)
+            self.assertIn("procedures_icd", dataset.tables)
+            self.assertIn("prescriptions", dataset.tables)
+
+    def test_dataset_class_tracks_dataset_prepare_mode_for_normal_and_paper_like(self):
+        dataset_cls = self.dataset_class_module.EOLMistrustDataset
+
+        with _workspace_tempdir() as temp_dir:
+            root = Path(temp_dir)
+            self._write_minimal_root(root)
+
+            normal_dataset = dataset_cls(
+                root=str(root),
+                tables=["noteevents"],
+                dataset_prepare_mode="default",
+                cache_dir=root / "cache_normal",
+                num_workers=1,
+            )
+            paper_like_dataset = dataset_cls(
+                root=str(root),
+                tables=["noteevents"],
+                dataset_prepare_mode="paper_like",
+                cache_dir=root / "cache_paper_like",
+                num_workers=1,
+            )
+
+            self.assertEqual(normal_dataset.dataset_prepare_mode, "default")
+            self.assertFalse(normal_dataset.paper_like_dataset_prepare)
+            self.assertEqual(normal_dataset.code_status_mode, "corrected")
+            self.assertEqual(normal_dataset.autopsy_label_mode, "corrected")
+
+            self.assertEqual(paper_like_dataset.dataset_prepare_mode, "paper_like")
+            self.assertTrue(paper_like_dataset.paper_like_dataset_prepare)
+            self.assertEqual(paper_like_dataset.code_status_mode, "paper_like")
+            self.assertEqual(paper_like_dataset.autopsy_label_mode, "paper_like")
+
+    def test_dataset_class_rejects_unknown_dataset_prepare_mode(self):
+        dataset_cls = self.dataset_class_module.EOLMistrustDataset
+
+        with _workspace_tempdir() as temp_dir:
+            root = Path(temp_dir)
+            self._write_minimal_root(root)
+
+            with self.assertRaisesRegex(ValueError, "dataset_prepare_mode"):
+                dataset_cls(
+                    root=str(root),
+                    tables=["noteevents"],
+                    dataset_prepare_mode="mystery_mode",
+                    cache_dir=root / "cache",
+                    num_workers=1,
+                )
+
+
+if __name__ == "__main__":
+    unittest.main()
