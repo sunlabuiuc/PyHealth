@@ -1,0 +1,118 @@
+# MIMIC-IV FHIR Resource Flattening Configuration
+# ================================================
+#
+# This YAML defines the normalized schema for MIMIC-IV FHIR exports after streaming
+# ingestion. Raw NDJSON/NDJSON.GZ resources are parsed and flattened into six
+# per-resource-type Parquet tables (see ``version`` below), then loaded through the
+# standard BaseDataset pipeline for task construction.
+#
+# For ingest details, see the docstring of ``stream_fhir_ndjson_to_flat_tables()``
+# in ``pyhealth/datasets/mimic4_fhir.py``.
+
+version: "fhir_r4_flattened"
+
+# Glob Pattern(s) for NDJSON File Discovery
+# ===========================================
+#
+# ``glob_patterns`` (list) or ``glob_pattern`` (string): Patterns to match NDJSON files
+# under the ingest root directory. Patterns are applied via pathlib.Path.glob().
+#
+# Default: Six targeted patterns matching PhysioNet MIMIC-IV FHIR Mimic* shard families
+# that map to flattened tables. This avoids decompressing and parsing ~10% of PhysioNet
+# exports (MedicationAdministration, Specimen, Organization, …) that are skipped by
+# the flattener.
+#
+# Alternatives:
+#   - For non-PhysioNet naming, use a single broad pattern:
+#       glob_pattern: "**/*.ndjson.gz"
+#   - To test on a subset, use a narrower list:
+#       glob_patterns:
+#         - "**/MimicPatient*.ndjson.gz"
+#         - "**/MimicObservation*.ndjson.gz"
+#
+# Notes:
+#   - Patterns use ``**/`` for recursive search (works in both flat and nested layouts).
+#   - Can be overridden at runtime via MIMIC4FHIRDataset(glob_pattern=...) or
+#     MIMIC4FHIRDataset(glob_patterns=[...]).
+
+glob_patterns:
+  - "**/MimicPatient*.ndjson.gz"
+  - "**/MimicEncounter*.ndjson.gz"
+  - "**/MimicCondition*.ndjson.gz"
+  - "**/MimicObservation*.ndjson.gz"
+  - "**/MimicMedicationRequest*.ndjson.gz"
+  - "**/MimicProcedure*.ndjson.gz"
+
+# Flattened Table Schema
+# ======================
+#
+# Each table is normalized from a single FHIR resource type. Columns are:
+#   - patient_id (str): Foreign key to patient (derived from subject.reference or id).
+#   - [timestamp] (str): ISO 8601 datetime string (coerced; nullable).
+#   - attributes (List[str]): Additional columns from the resource.
+#
+# Unsupported resource types (Medication, MedicationAdministration, Specimen, …)
+# are silently dropped during ingest; only tables listed here are written.
+
+tables:
+  patient:
+    file_path: "patient.parquet"
+    patient_id: "patient_id"
+    timestamp: "birth_date"
+    attributes:
+      - "patient_fhir_id"
+      - "birth_date"
+      - "gender"
+      - "deceased_boolean"
+      - "deceased_datetime"
+
+  encounter:
+    file_path: "encounter.parquet"
+    patient_id: "patient_id"
+    timestamp: "event_time"
+    attributes:
+      - "resource_id"
+      - "encounter_id"
+      - "event_time"
+      - "encounter_class"
+      - "encounter_end"
+
+  condition:
+    file_path: "condition.parquet"
+    patient_id: "patient_id"
+    timestamp: "event_time"
+    attributes:
+      - "resource_id"
+      - "encounter_id"
+      - "event_time"
+      - "concept_key"
+
+  observation:
+    file_path: "observation.parquet"
+    patient_id: "patient_id"
+    timestamp: "event_time"
+    attributes:
+      - "resource_id"
+      - "encounter_id"
+      - "event_time"
+      - "concept_key"
+
+  medication_request:
+    file_path: "medication_request.parquet"
+    patient_id: "patient_id"
+    timestamp: "event_time"
+    attributes:
+      - "resource_id"
+      - "encounter_id"
+      - "event_time"
+      - "concept_key"
+
+  procedure:
+    file_path: "procedure.parquet"
+    patient_id: "patient_id"
+    timestamp: "event_time"
+    attributes:
+      - "resource_id"
+      - "encounter_id"
+      - "event_time"
+      - "concept_key"
