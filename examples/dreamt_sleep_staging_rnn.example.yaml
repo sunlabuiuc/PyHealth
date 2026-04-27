@@ -1,0 +1,37 @@
+# Example configuration for examples/dreamt_sleep_staging_rnn.py
+#
+# Run:
+#   python dreamt_sleep_staging_rnn.py --config dreamt_sleep_staging_rnn.example.yaml
+#
+# CLI flags override values from this file when provided (e.g. --epochs 10).
+
+demo: true
+
+dataset:
+  # Path to a DREAMT version directory (participant_info.csv + data_64Hz/). Ignored when demo: true.
+  root: null
+  dataset_name: null
+  # Optional: custom PyHealth table YAML for DREAMTDataset (see pyhealth/datasets/configs/dreamt.yaml)
+  config_path: null
+
+task:
+  n_classes: 2
+  # One of: ACC, BVP_HRV, EDA_TEMP, ALL (used when signal_columns is null)
+  signal_subset: ALL
+  # If set to a list of column names, overrides signal_subset
+  signal_columns: null
+  epoch_seconds: 30.0
+  sampling_rate: 64
+  apply_filters: true
+
+training:
+  epochs: 2
+  hidden_dim: 64
+  device: cpu
+
+run:
+  # ablations — original two-block signal / label experiments
+  # single — one dataset load, one task, one training run (uses task: above)
+  mode: single
+  # 1 = one random 70/10/20 patient split; 5 = 5-fold patient-level CV (mean metrics)
+  n_folds: 1
