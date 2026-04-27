@@ -45,4 +45,6 @@ from .text_embedding import TextEmbedding
 from .sdoh import SdohClassifier
 from .medlink import MedLink
 from .unified_embedding import UnifiedMultimodalEmbeddingModel, SinusoidalTimeEmbedding
+from .cma_prior_encoder import CMAPriorEncoder
+from .conformal_meta_analysis_krr import ConformalMetaAnalysisModel
 from .califorest import CaliForest
