@@ -222,7 +222,7 @@ def _task_transform_fn(
     ):
         writer = BinaryWriter(cache_dir=str(output_dir), chunk_bytes="64MB")
 
-        write_index = 0
+        index = 0
         batches = itertools.batched(patient_ids, BATCH_SIZE)
         for batch in batches:
             complete = 0
@@ -235,8 +235,8 @@ def _task_transform_fn(
                 patient_id = patient_id[0]  # Extract string from single-element list
                 patient = Patient(patient_id=patient_id, data_source=patient_df)
                 for sample in task(patient):
-                    writer.add_item(write_index, {"sample": pickle.dumps(sample)})
-                    write_index += 1
+                    writer.add_item(index, {"sample": pickle.dumps(sample)})
+                    index += 1
                 complete += 1
             progress.put(complete)
         writer.done()
@@ -287,11 +287,11 @@ def _proc_transform_fn(args: tuple[int, Path, int, int, Path]) -> None:
         builder = SampleBuilder.load(f"{output_dir}/schema.pkl")
 
         complete = 0
-        write_index = 0
+        index = 0
         for i in range(start_idx, end_idx):
             transformed: Dict[str, Any] = builder.transform(dataset[i])
-            writer.add_item(write_index, transformed)
-            write_index += 1
+            writer.add_item(index, transformed)
+            index += 1
             complete += 1
 
             if complete >= BATCH_SIZE:
@@ -303,8 +303,6 @@ def _proc_transform_fn(args: tuple[int, Path, int, int, Path]) -> None:
         writer.done()
 
     logger.info(f"Worker {worker_id} finished processing samples.")
-
-
 class BaseDataset(ABC):
     """Abstract base class for all PyHealth datasets.
 
@@ -335,12 +333,6 @@ class BaseDataset(ABC):
             dataset_name (Optional[str]): Name of the dataset. Defaults to class name.
             config_path (Optional[str]): Path to the configuration YAML file.
             cache_dir (Optional[str | Path]): Directory for caching processed data.
-                Behavior depends on the type passed:
-
-                - **None** (default): Auto-generates a cache path under the default
-                  pyhealth cache directory.
-                - **str** or **Path**: Used as the root cache directory path. A UUID
-                  is appended to the provided path to capture dataset configuration.
             num_workers (int): Number of worker processes for parallel operations.
             dev (bool): Whether to run in dev mode (limits to 1000 patients).
         """
@@ -358,34 +350,12 @@ class BaseDataset(ABC):
             f"Initializing {self.dataset_name} dataset from {self.root} (dev mode: {self.dev})"
         )
 
-        # Cached attributes
         self.cache_dir = self._init_cache_dir(cache_dir)
         self._global_event_df = None
         self._unique_patient_ids = None
 
     def _init_cache_dir(self, cache_dir: str | Path | None) -> Path:
-        """Returns the cache directory path.
-
-        The cache directory is determined by the type of ``cache_dir`` passed
-        to ``__init__``:
-
-        - **None**: Auto-generated under default pyhealth cache directory.
-        - **str** or **Path: Used as the root cache directory path. A UUID
-          is appended to the provided path to capture dataset configuration.
-
-        The cache structure within the directory is::
-
-            {dataset_uuid}/                         # Cache files for this dataset configuration
-                tmp/                                # Temporary files during processing
-                global_event_df.parquet/            # Cached global event dataframe
-                tasks/                              # Cached task-specific data
-                    {task_name}_{task_uuid}/        # Cached data for specific task based on task name, schema, and args
-                        task_df.ld/                 # Intermediate task dataframe based on schema
-                        samples_{proc_uuid}.ld/     # Final processed samples after applying processors
-
-        Returns:
-            Path: The resolved cache directory path.
-        """
+        """Returns the cache directory path."""
         id_str = json.dumps(
             {
                 "root": str(self.root),
@@ -403,18 +373,13 @@ class BaseDataset(ABC):
             cache_dir.mkdir(parents=True, exist_ok=True)
             logger.info(f"No cache_dir provided. Using default cache dir: {cache_dir}")
         else:
-            # Ensure separate cache directories for different table configurations by appending a UUID suffix
             cache_dir = Path(cache_dir) / id
             cache_dir.mkdir(parents=True, exist_ok=True)
             logger.info(f"Using provided cache_dir: {cache_dir}")
         return Path(cache_dir)
 
     def create_tmpdir(self) -> Path:
-        """Creates and returns a new temporary directory within the cache.
-
-        Returns:
-            Path: The path to the new temporary directory.
-        """
+        """Creates and returns a new temporary directory within the cache."""
         tmp_dir = self.cache_dir / "tmp" / str(uuid.uuid4())
         tmp_dir.mkdir(parents=True, exist_ok=True)
         return tmp_dir
@@ -426,23 +391,7 @@ class BaseDataset(ABC):
             shutil.rmtree(tmp_dir)
 
     def _scan_csv_tsv_gz(self, source_path: str) -> dd.DataFrame:
-        """Scans a CSV/TSV file (possibly gzipped) and returns a Dask DataFrame.
-
-        If the cached Parquet file does not exist, it converts the source CSV/TSV file
-        to Parquet and saves it to the cache.
-
-        Args:
-            source_path (str): The source CSV/TSV file path.
-
-        Returns:
-            dd.DataFrame: The Dask DataFrame loaded from the cached Parquet file.
-
-        Raises:
-            FileNotFoundError: If source_path is None and the cached Parquet file does not exist;
-                or if neither the original nor the alternative path of source_path exists.
-            ValueError: If the path does not have an expected extension.
-        """
-        # Ensure the tables cache directory exists
+        """Scans a CSV/TSV file (possibly gzipped) and returns a Dask DataFrame."""
         ret_path = self.create_tmpdir() / "table.parquet"
 
         if not ret_path.exists():
@@ -456,18 +405,15 @@ class BaseDataset(ABC):
                     urlretrieve(source_path, local_path)
                 source_path = str(local_path)
 
-            # Determine delimiter based on file extension
             delimiter = (
                 "\t"
                 if source_path.endswith(".tsv") or source_path.endswith(".tsv.gz")
                 else ","
             )
 
-            # Always infer schema as string to avoid incorrect type inference
-            # Enable newlines_in_values for clinical notes with multi-line text
             schema_reader = pv.open_csv(
                 source_path,
-                read_options=pv.ReadOptions(block_size=1 << 26),  # 64 MB
+                read_options=pv.ReadOptions(block_size=1 << 26),
                 parse_options=pv.ParseOptions(
                     delimiter=delimiter, newlines_in_values=True
                 ),
@@ -476,10 +422,9 @@ class BaseDataset(ABC):
                 [pa.field(name, pa.string()) for name in schema_reader.schema.names]
             )
 
-            # Convert CSV/TSV to Parquet
             csv_reader = pv.open_csv(
                 source_path,
-                read_options=pv.ReadOptions(block_size=1 << 26),  # 64 MB
+                read_options=pv.ReadOptions(block_size=1 << 26),
                 parse_options=pv.ParseOptions(
                     delimiter=delimiter, newlines_in_values=True
                 ),
@@ -494,7 +439,7 @@ class BaseDataset(ABC):
             split_row_groups=True,  # type: ignore
             blocksize="64MB",
         )
-        return df.replace("", pd.NA)  # Replace empty strings with NaN
+        return df.replace("", pd.NA)
 
     def _event_transform(self, output_dir: Path) -> None:
         compute_ok = False
@@ -504,29 +449,26 @@ class BaseDataset(ABC):
                 n_workers=self.num_workers,
                 threads_per_worker=1,
                 processes=not in_notebook(),
-                # Use cache_dir for Dask's scratch space to avoid filling up /tmp or home directory
                 local_directory=str(self.create_tmpdir()),
             ) as cluster:
                 with DaskClient(cluster) as client:
                     if self.dev:
                         logger.info("Dev mode enabled: limiting to 1000 patients")
                         patients = df["patient_id"].unique().head(1000).tolist()
-                        filter = df["patient_id"].isin(patients)
-                        df = df[filter]
+                        filter_mask = df["patient_id"].isin(patients)
+                        df = df[filter_mask]
 
                     logger.info(f"Caching event dataframe to {output_dir}...")
                     collection = df.sort_values("patient_id").to_parquet(
                         output_dir,
-                        write_index=False,
-                        compute=False,
                     )
                     handle = client.compute(collection)
-                    dask_progress(handle)
-                    handle.result()  # type: ignore
-                    compute_ok = True  # Data is fully written to disk
+                    if handle is not None:
+                        dask_progress(handle)
+                        handle.result()  # type: ignore
+                    compute_ok = True
         except TimeoutError:
             if compute_ok:
-                # Cluster shutdown timed out after successful compute — data is intact
                 logger.warning(
                     "Dask cluster shutdown timed out, but data was written successfully. Continuing."
                 )
@@ -535,25 +477,27 @@ class BaseDataset(ABC):
                     logger.error(
                         f"Error during caching, removing incomplete file {output_dir}"
                     )
-                    shutil.rmtree(output_dir)
+                    if output_dir.is_dir():
+                        shutil.rmtree(output_dir)
+                    else:
+                        output_dir.unlink()
                 raise
         except Exception as e:
             if output_dir.exists():
                 logger.error(
                     f"Error during caching, removing incomplete file {output_dir}"
                 )
-                shutil.rmtree(output_dir)
+                if output_dir.is_dir():
+                    shutil.rmtree(output_dir)
+                else:
+                    output_dir.unlink()
             raise e
         finally:
             self.clean_tmpdir()
 
     @property
     def global_event_df(self) -> pl.LazyFrame:
-        """Returns the path to the cached event dataframe.
-
-        Returns:
-            Path: The path to the cached event dataframe.
-        """
+        """Returns the path to the cached event dataframe."""
         self._main_guard(type(self).global_event_df.fget.__name__)  # type: ignore
 
         if self._global_event_df is None:
@@ -564,7 +508,10 @@ class BaseDataset(ABC):
                     logger.warning(
                         f"Incomplete parquet cache at {ret_path} (directory exists but contains no parquet files). Removing and rebuilding."
                     )
-                    shutil.rmtree(ret_path)
+                    if ret_path.is_dir():
+                        shutil.rmtree(ret_path)
+                    else:
+                        ret_path.unlink()
                 logger.info(f"No cached event dataframe found. Creating: {ret_path}")
                 self._event_transform(ret_path)
             else:
@@ -577,27 +524,12 @@ class BaseDataset(ABC):
         )
 
     def load_data(self) -> dd.DataFrame:
-        """Loads data from the specified tables.
-
-        Returns:
-            dd.DataFrame: A concatenated lazy frame of all tables.
-        """
+        """Loads data from the specified tables."""
         frames = [self.load_table(table.lower()) for table in self.tables]
         return dd.concat(frames, axis=0, join="outer")
 
     def load_table(self, table_name: str) -> dd.DataFrame:
-        """Loads a table and processes joins if specified.
-
-        Args:
-            table_name (str): The name of the table to load.
-
-        Returns:
-            dd.DataFrame: The processed Dask dataframe for the table.
-
-        Raises:
-            ValueError: If the table is not found in the config.
-            FileNotFoundError: If the CSV file for the table or join is not found.
-        """
+        """Loads a table and processes joins if specified."""
         assert self.config is not None, "Config must be provided to load tables"
 
         if table_name not in self.config.tables:
@@ -610,10 +542,8 @@ class BaseDataset(ABC):
         logger.info(f"Scanning table: {table_name} from {csv_path}")
         df = self._scan_csv_tsv_gz(csv_path)
 
-        # Convert column names to lowercase before calling preprocess_func
         df = df.rename(columns=str.lower)
 
-        # Check if there is a preprocessing function for this table
         preprocess_func: Optional[Callable[[nw.LazyFrame], nw.LazyFrame]]
         preprocess_func = getattr(self, f"preprocess_{table_name}", None)
         if preprocess_func is not None:
@@ -622,7 +552,6 @@ class BaseDataset(ABC):
             )
             df = preprocess_func(nw.from_native(df)).to_native()  # type: ignore
 
-        # Handle joins
         for join_cfg in table_cfg.join:
             other_csv_path = f"{self.root}/{join_cfg.file_path}"
             other_csv_path = clean_path(other_csv_path)
@@ -633,49 +562,40 @@ class BaseDataset(ABC):
             columns = join_cfg.columns
             how = join_cfg.how
 
-            df: dd.DataFrame = df.merge(
-                join_df[[join_key] + columns], on=join_key, how=how
-            )
+            df = df.merge(join_df[[join_key] + columns], on=join_key, how=how)
 
         patient_id_col = table_cfg.patient_id
         timestamp_col = table_cfg.timestamp
         timestamp_format = table_cfg.timestamp_format
         attribute_cols = table_cfg.attributes
 
-        # Timestamp expression
-        # .astype(str) will convert `pd.NA` to "<NA>", which will raise error in to_datetime
-        #   use .astype("string") instead, which keeps `pd.NA` as is.
         if timestamp_col:
             if isinstance(timestamp_col, list):
-                # Concatenate all timestamp parts in order with no separator
                 timestamp_series: dd.Series = functools.reduce(
                     operator.add, (df[col].astype("string") for col in timestamp_col)
                 )
             else:
                 timestamp_series: dd.Series = df[timestamp_col].astype("string")
 
-            timestamp_series: dd.Series = dd.to_datetime(
+            timestamp_series = dd.to_datetime(
                 timestamp_series,
                 format=timestamp_format,
                 errors="raise",
             )
-            df: dd.DataFrame = df.assign(
-                timestamp=timestamp_series.astype("datetime64[ms]")
-            )
+            df = df.assign(timestamp=timestamp_series.astype("datetime64[ms]"))
         else:
-            df: dd.DataFrame = df.assign(timestamp=pd.NaT)
+            df = df.assign(timestamp=pd.NaT)
 
-        # If patient_id_col is None, use row index as patient_id
         if patient_id_col:
-            df: dd.DataFrame = df.assign(patient_id=df[patient_id_col].astype("string"))
+            df = df.assign(patient_id=df[patient_id_col].astype("string"))
         else:
-            df: dd.DataFrame = df.reset_index(drop=True)
-            df: dd.DataFrame = df.assign(patient_id=df.index.astype("string"))
+            df = df.reset_index(drop=True)
+            df = df.assign(patient_id=df.index.astype("string"))
 
-        df: dd.DataFrame = df.assign(event_type=table_name)
+        df = df.assign(event_type=table_name)
 
         rename_attr = {attr.lower(): f"{table_name}/{attr}" for attr in attribute_cols}
-        df: dd.DataFrame = df.rename(columns=rename_attr)
+        df = df.rename(columns=rename_attr)
 
         attr_cols = [rename_attr[attr.lower()] for attr in attribute_cols]
         final_cols = ["patient_id", "event_type", "timestamp"] + attr_cols
@@ -685,11 +605,7 @@ class BaseDataset(ABC):
 
     @property
     def unique_patient_ids(self) -> List[str]:
-        """Returns a list of unique patient IDs.
-
-        Returns:
-            List[str]: List of unique patient IDs.
-        """
+        """Returns a list of unique patient IDs."""
         if self._unique_patient_ids is None:
             self._unique_patient_ids = (
                 self.global_event_df.select("patient_id")
@@ -702,17 +618,7 @@ class BaseDataset(ABC):
         return self._unique_patient_ids
 
     def get_patient(self, patient_id: str) -> Patient:
-        """Retrieves a Patient object for the given patient ID.
-
-        Args:
-            patient_id (str): The ID of the patient to retrieve.
-
-        Returns:
-            Patient: The Patient object for the given ID.
-
-        Raises:
-            AssertionError: If the patient ID is not found in the dataset.
-        """
+        """Retrieves a Patient object for the given patient ID."""
         assert (
             patient_id in self.unique_patient_ids
         ), f"Patient {patient_id} not found in dataset"
@@ -723,11 +629,7 @@ class BaseDataset(ABC):
         return Patient(patient_id=patient_id, data_source=data_source)
 
     def iter_patients(self, df: Optional[pl.LazyFrame] = None) -> Iterator[Patient]:
-        """Yields Patient objects for each unique patient in the dataset.
-
-        Yields:
-            Iterator[Patient]: An iterator over Patient objects.
-        """
+        """Yields Patient objects for each unique patient in the dataset."""
         if df is None:
             df = self.global_event_df
         patient_ids = (
@@ -756,11 +658,7 @@ class BaseDataset(ABC):
 
     @property
     def default_task(self) -> Optional[BaseTask]:
-        """Returns the default task for the dataset.
-
-        Returns:
-            Optional[BaseTask]: The default task, if any.
-        """
+        """Returns the default task for the dataset."""
         return None
 
     def _task_transform(
@@ -777,7 +675,6 @@ class BaseDataset(ABC):
             .unique()
             .collect(engine="streaming")
             .to_series()
-            # .sort can reduce runtime by 5%.
             .sort()
         )
 
@@ -786,10 +683,8 @@ class BaseDataset(ABC):
                 "Detected Jupyter notebook environment, setting num_workers to 1"
             )
             num_workers = 1
-        num_workers = min(num_workers, len(patient_ids))  # Avoid spawning empty workers
+        num_workers = min(num_workers, len(patient_ids))
 
-        # This ensures worker's polars threads are limited to avoid oversubscription,
-        # which can lead to additional 75% speedup when num_workers is large.
         threads_per_worker = max(1, (os.cpu_count() or 1) // num_workers)
 
         try:
@@ -805,7 +700,6 @@ class BaseDataset(ABC):
                     _litdata_merge(output_dir)
                     return
 
-                # spwan is required for polars in multiprocessing, see https://docs.pola.rs/user-guide/misc/multiprocessing/#summary
                 ctx = multiprocessing.get_context("spawn")
                 queue = ctx.Queue()
                 args_list = [
@@ -835,10 +729,9 @@ class BaseDataset(ABC):
                             except:
                                 pass
 
-                        # remaining items
                         while not queue.empty():
                             progress.update(queue.get())
-                    result.get()  # ensure exceptions are raised
+                    result.get()
                 _litdata_merge(output_dir)
 
                 logger.info(f"Task transformation completed and saved to {output_dir}")
@@ -846,7 +739,11 @@ class BaseDataset(ABC):
             logger.error(
                 f"Error during task transformation, cleaning up output directory: {output_dir}"
             )
-            shutil.rmtree(output_dir)
+            if output_dir.exists():
+                if output_dir.is_dir():
+                    shutil.rmtree(output_dir)
+                else:
+                    output_dir.unlink()
             raise e
 
     def _proc_transform(
@@ -863,7 +760,7 @@ class BaseDataset(ABC):
             )
             num_workers = 1
 
-        num_workers = min(num_workers, num_samples)  # Avoid spawning empty workers
+        num_workers = min(num_workers, num_samples)
         try:
             with set_env(DATA_OPTIMIZER_NUM_WORKERS=str(num_workers)):
                 if num_workers == 1:
@@ -900,18 +797,21 @@ class BaseDataset(ABC):
                             except:
                                 pass
 
-                        # remaining items
                         while not queue.empty():
                             progress.update(queue.get())
-                    result.get()  # ensure exceptions are raised
+                    result.get()
                 _litdata_merge(output_dir)
 
                 logger.info(
                     f"Processor transformation completed and saved to {output_dir}"
                 )
         except Exception as e:
-            logger.error(f"Error during processor transformation.")
-            shutil.rmtree(output_dir)
+            logger.error("Error during processor transformation.")
+            if output_dir.exists():
+                if output_dir.is_dir():
+                    shutil.rmtree(output_dir)
+                else:
+                    output_dir.unlink()
             raise e
         finally:
             self.clean_tmpdir()
@@ -923,31 +823,7 @@ class BaseDataset(ABC):
         input_processors: Optional[Dict[str, FeatureProcessor]] = None,
         output_processors: Optional[Dict[str, FeatureProcessor]] = None,
     ) -> SampleDataset:
-        """Processes the base dataset to generate the task-specific sample dataset.
-        The cache structure is as follows::
-
-            {task_name}_{task_uuid}/        # Cached data for specific task based on task name, schema, and args
-                task_df.ld/                 # Intermediate task dataframe based on schema
-                samples_{proc_uuid}.ld/     # Final processed samples after applying processors
-                    schema.pkl              # Saved SampleBuilder schema
-                    *.bin                   # Processed sample files
-
-        Args:
-            task (Optional[BaseTask]): The task to set. Uses default task if None.
-            num_workers (int): Number of workers for multi-threading. Default is `self.num_workers`.
-            input_processors (Optional[Dict[str, FeatureProcessor]]):
-                Pre-fitted input processors. If provided, these will be used
-                instead of creating new ones from task's input_schema. Defaults to None.
-            output_processors (Optional[Dict[str, FeatureProcessor]]):
-                Pre-fitted output processors. If provided, these will be used
-                instead of creating new ones from task's output_schema. Defaults to None.
-
-        Returns:
-            SampleDataset: The generated sample dataset.
-
-        Raises:
-            AssertionError: If no default task is found and task is None.
-        """
+        """Processes the base dataset to generate the task-specific sample dataset."""
         self._main_guard(self.set_task.__name__)
 
         if task is None:
@@ -1013,26 +889,16 @@ class BaseDataset(ABC):
         samples_path.mkdir(parents=True, exist_ok=True)
 
         def _is_valid_litdata_cache(path: Path) -> bool:
-            """Return True if index.json exists. litdata only writes index.json after
-            all .bin chunks are flushed, so its presence guarantees a complete cache."""
             return (path / "index.json").exists()
 
-        # Fast path: cache already valid, no lock needed (reads are always safe).
-        # Slow path: acquire a per-cache-dir file lock so that concurrent processes
-        # (e.g. parallel hparam jobs) don't race to build the same litdata cache.
-        # The double-checked pattern inside the lock means the winner builds it
-        # once; all others wait, re-check, and skip.
         if not _is_valid_litdata_cache(samples_path):
             lock_path = Path(cache_dir) / "build.lock"
             with FileLock(str(lock_path), timeout=7200):
-                # Re-check inside the lock — another process may have built it
-                # while we were waiting.
                 if _is_valid_litdata_cache(samples_path):
                     logger.info(
                         f"Found cached processed samples at {samples_path} (built by another process)."
                     )
                 else:
-                    # Check if task_df cache is valid; rebuild if not
                     if not _is_valid_litdata_cache(task_df_path):
                         self._task_transform(
                             task,
@@ -1044,8 +910,7 @@ class BaseDataset(ABC):
                             f"Found cached task dataframe at {task_df_path}, skipping task transformation."
                         )
 
-                    # Build processors and fit on the dataset
-                    logger.info(f"Fitting processors on the dataset...")
+                    logger.info("Fitting processors on the dataset...")
                     dataset = litdata.StreamingDataset(
                         str(task_df_path),
                         transform=lambda x: pickle.loads(x["sample"]),
@@ -1059,7 +924,6 @@ class BaseDataset(ABC):
                     builder.fit(dataset)
                     builder.save(str(samples_path / "schema.pkl"))
 
-                    # Apply processors and save final samples to cache_dir
                     logger.info(f"Processing samples and saving to {samples_path}...")
                     self._proc_transform(
                         task_df_path,
@@ -1080,7 +944,6 @@ class BaseDataset(ABC):
 
     def _main_guard(self, func_name: str):
         """Warn if method is accessed from a non-main process."""
-
         if not multiprocessing.current_process().name == "MainProcess":
             logger.warning(
                 f"{func_name} method accessed from a non-main process. This may lead to unexpected behavior.\n"
