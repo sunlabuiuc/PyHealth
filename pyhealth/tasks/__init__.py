@@ -14,6 +14,7 @@ from .chestxray14_multilabel_classification import ChestXray14MultilabelClassifi
 from .covid19_cxr_classification import COVID19CXRClassification
 from .deid_ner import DeIDNERTask
 from .dka import DKAPredictionMIMIC4, T1DDKAPredictionMIMIC4
+from .dsa_activity_classification import DSAActivityClassification
 from .drug_recommendation import (
     DrugRecommendationEICU,
     DrugRecommendationMIMIC3,
