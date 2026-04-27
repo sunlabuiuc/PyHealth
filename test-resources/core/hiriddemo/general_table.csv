@@ -1,0 +1,4 @@
+patientid,admissiontime,sex,age,discharge_status
+148,2183-05-12 11:45:00,M,72,alive
+229,2151-03-02 07:10:00,F,61,dead
+307,2160-09-18 18:30:00,F,47,alive

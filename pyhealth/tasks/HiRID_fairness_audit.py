@@ -1,0 +1,224 @@
+"""
+PyHealth task for FAMEWS-style fairness analysis on HiRID.
+
+Dataset link:
+    https://physionet.org/content/hirid/1.1.1/
+
+Dataset paper: (please cite if you use this dataset)
+    Hoche, M.; Mineeva, O.; Burger, M.; Blasimme, A.; and
+    Ratsch, G. 2024. FAMEWS: a Fairness Auditing tool for
+    Medical Early-Warning Systems. In Proceedings of Ma-
+    chine Learning Research, volume 248, 297–311. Confer-
+    ence on Health, Inference, and Learning (CHIL) 2024.
+
+Dataset paper link:
+    https://proceedings.mlr.press/v248/hoche24a.html
+
+Author:
+    John Doll (doll3@illinois.edu)
+"""
+
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Any, Dict, Iterable, List, Optional
+
+import pandas as pd
+import polars as pl
+
+from pyhealth.tasks import BaseTask
+
+
+class FAMEWSFairnessAudit(BaseTask):
+    """Build per-patient samples for FAMEWS-style fairness analysis on HiRID.
+
+    This task is designed for :class:`~pyhealth.datasets.HiRIDDataset` and
+    returns one sample per patient containing:
+
+    - A multivariate timeseries (for model features)
+    - Demographic metadata used for fairness subgrouping
+
+    By default it reads from ``imputed_stage``. For merged data, set
+    ``stage_table="merged_stage"``.
+
+    The HiRID subgroup configuration used by the original FAMEWS fairness
+    pipeline is bundled at ``FAMEWSFairnessAudit.group_config_path``.
+
+    Examples:
+        >>> from pyhealth.datasets import HiRIDDataset
+        >>> from pyhealth.tasks import FAMEWSFairnessAudit
+        >>> dataset = HiRIDDataset(
+        ...     root="/path/to/hirid/1.1.1",
+        ...     stage="imputed",
+        ... )
+        >>> task = FAMEWSFairnessAudit(stage_table="imputed_stage")
+        >>> samples = dataset.set_task(task)
+    """
+
+    task_name: str = "FAMEWS_fairness_audit"
+    input_schema: Dict[str, str] = {"signals": "timeseries"}
+    output_schema: Dict[str, str] = {}
+    group_config_path: str = str(
+        Path(__file__).parent / "configs" / "group_hirid_complete.yaml"
+    )
+
+    DEFAULT_FEATURE_COLUMNS: List[str] = [
+        "heart_rate",
+        "systolic_bp_invasive",
+        "diastolic_bp_invasive",
+        "mean_arterial_pressure",
+        "cardiac_output",
+        "spo2",
+        "rass",
+        "peak_inspiratory_pressure",
+        "lactate_arterial",
+        "lactate_venous",
+        "inr",
+        "serum_glucose",
+        "c_reactive_protein",
+        "dobutamine",
+        "milrinone",
+        "levosimendan",
+        "theophyllin",
+        "non_opioid_analgesics",
+    ]
+
+    def __init__(
+        self,
+        stage_table: str = "imputed_stage",
+        feature_columns: Optional[Iterable[str]] = None,
+    ) -> None:
+        if stage_table not in {"merged_stage", "imputed_stage"}:
+            raise ValueError(
+                "stage_table must be one of {'merged_stage', 'imputed_stage'}, "
+                f"got '{stage_table}'"
+            )
+        self.stage_table = stage_table
+        self.feature_columns = list(feature_columns) if feature_columns else list(
+            self.DEFAULT_FEATURE_COLUMNS
+        )
+        # Included in vars(task) so cache key changes after time-axis bug fix.
+        self.time_axis_version = "v2"
+
+    @staticmethod
+    def _build_age_group(age_value: Any) -> Optional[str]:
+        try:
+            age = float(age_value)
+        except (TypeError, ValueError):
+            return None
+
+        if age < 50:
+            return "<50"
+        if age < 65:
+            return "50-65"
+        if age < 75:
+            return "65-75"
+        if age < 85:
+            return "75-85"
+        return ">85"
+
+    def _extract_time_axis(self, events_df: pl.DataFrame) -> List[Any]:
+        default_axis = [
+            datetime(1970, 1, 1) + timedelta(hours=i)
+            for i in range(events_df.height)
+        ]
+
+        if "timestamp" in events_df.columns:
+            timestamp_series = events_df.get_column("timestamp")
+            if timestamp_series.null_count() < events_df.height:
+                parsed = pd.to_datetime(timestamp_series.to_list(), errors="coerce")
+                if parsed.notna().any():
+                    time_axis: List[datetime] = []
+                    previous = datetime(1970, 1, 1)
+                    for ts in parsed:
+                        if pd.isna(ts):
+                            previous = previous + timedelta(hours=1)
+                        else:
+                            previous = ts.to_pydatetime()
+                        time_axis.append(previous)
+                    return time_axis
+
+        relative_time_col = f"{self.stage_table}/reldatetime"
+        if relative_time_col in events_df.columns:
+            raw_relative = events_df.get_column(relative_time_col).to_list()
+
+            if len(raw_relative) == 0:
+                return default_axis
+
+            numeric_values: List[float] = []
+            numeric_only = True
+            for value in raw_relative:
+                try:
+                    numeric_values.append(float(value))
+                except (TypeError, ValueError):
+                    numeric_only = False
+                    break
+
+            if numeric_only:
+                non_negative_diffs = [
+                    numeric_values[i] - numeric_values[i - 1]
+                    for i in range(1, len(numeric_values))
+                    if numeric_values[i] >= numeric_values[i - 1]
+                ]
+                # HiRID relative times are commonly encoded in minutes; some exports
+                # may use seconds. Infer units from the median step size.
+                step_median = pd.Series(non_negative_diffs).median() if non_negative_diffs else 0
+                as_seconds = bool(step_median and step_median > 20)
+                origin = datetime(1970, 1, 1)
+                return [
+                    origin + timedelta(seconds=v if as_seconds else v * 60.0)
+                    for v in numeric_values
+                ]
+
+            parsed_relative = pd.to_timedelta(raw_relative, errors="coerce")
+            if parsed_relative.notna().any():
+                origin = datetime(1970, 1, 1)
+                time_axis = []
+                previous = origin
+                for delta in parsed_relative:
+                    if pd.isna(delta):
+                        previous = previous + timedelta(hours=1)
+                    else:
+                        previous = origin + delta.to_pytimedelta()
+                    time_axis.append(previous)
+                return time_axis
+
+        return default_axis
+
+    def __call__(self, patient: Any) -> List[Dict[str, Any]]:
+        patient_general = patient.get_events(event_type="general_table")
+        if len(patient_general) == 0:
+            return []
+
+        stage_df = patient.get_events(event_type=self.stage_table, return_df=True)
+        if stage_df.height == 0:
+            return []
+
+        available_features = [
+            col
+            for col in self.feature_columns
+            if f"{self.stage_table}/{col}" in stage_df.columns
+        ]
+        if len(available_features) == 0:
+            return []
+
+        value_df = stage_df.select(
+            [
+                pl.col(f"{self.stage_table}/{col}").cast(pl.Float64)
+                for col in available_features
+            ]
+        )
+
+        general_event = patient_general[0]
+        age_group = self._build_age_group(getattr(general_event, "age", None))
+
+        sample = {
+            "patient_id": patient.patient_id,
+            "signals": (self._extract_time_axis(stage_df), value_df.to_numpy()),
+            "feature_columns": available_features,
+            "sex": getattr(general_event, "sex", None),
+            "age": getattr(general_event, "age", None),
+            "age_group": age_group,
+            "discharge_status": getattr(general_event, "discharge_status", None),
+        }
+
+        return [sample]

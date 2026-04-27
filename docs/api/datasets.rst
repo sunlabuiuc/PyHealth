@@ -234,6 +234,7 @@ Available Datasets
     datasets/pyhealth.datasets.SHHSDataset
     datasets/pyhealth.datasets.SleepEDFDataset
     datasets/pyhealth.datasets.EHRShotDataset
+    datasets/pyhealth.datasets.HiRIDDataset
     datasets/pyhealth.datasets.Support2Dataset
     datasets/pyhealth.datasets.BMDHSDataset
     datasets/pyhealth.datasets.COVID19CXRDataset
