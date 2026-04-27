@@ -1,0 +1,15 @@
+version: "1.0"
+tables:
+  shhs_sleep:
+    file_path: "shhs-metadata.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+      - "visitnumber"
+      - "age"
+      - "sex"
+      - "bmi"
+      - "ahi"
+      - "signal_file"
+      - "annotation_file"
+      - "ecg_sample_rate"
