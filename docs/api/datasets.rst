@@ -244,5 +244,7 @@ Available Datasets
     datasets/pyhealth.datasets.ClinVarDataset
     datasets/pyhealth.datasets.COSMICDataset
     datasets/pyhealth.datasets.TCGAPRADDataset
+    datasets/pyhealth.datasets.GDSCDataset
+    datasets/pyhealth.datasets.CCLEDataset
     datasets/pyhealth.datasets.splitter
     datasets/pyhealth.datasets.utils
