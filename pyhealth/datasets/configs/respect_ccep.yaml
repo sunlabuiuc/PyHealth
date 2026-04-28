@@ -1,0 +1,20 @@
+version: "1.0"
+tables:
+  respectccep:
+    file_path: "respect_ccep_data-pyhealth.csv"
+    patient_id: "participant_id"
+    timestamp: null
+    attributes:
+      - "session_id"
+      - "run_id"
+      - "age"
+      - "sex"
+      - "recording_electrode"
+      - "stim_1"
+      - "stim_2"
+      - "response_ts"
+      - "response_ts_std"
+      - "soz_label"
+      - "recording_x"
+      - "recording_y"
+      - "recording_z"
