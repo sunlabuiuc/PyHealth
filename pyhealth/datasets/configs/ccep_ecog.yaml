@@ -1,0 +1,15 @@
+version: "1.0"
+tables:
+  ecog:
+    file_path: "ccep_ecog-metadata-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+    - "session_id"
+    - "task_id"
+    - "run_id"
+    - "header_file"
+    - "electrodes_file"
+    - "channels_file"
+    - "events_file"
+    - "has_soz"

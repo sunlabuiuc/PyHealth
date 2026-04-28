@@ -32,6 +32,7 @@ dependencies = [
   "scikit-learn~=1.7.0",
   "networkx",
   "mne~=1.10.0",
+  "mne-bids>=0.18.0",
   "urllib3~=2.5.0",
   "numpy~=2.2.0",
   "tqdm",
