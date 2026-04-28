@@ -41,20 +41,23 @@ Usage
   pixi run -e base python examples/ph2_artifacts_test_resnet50.py --source ph2
   pixi run -e base python examples/ph2_artifacts_test_resnet50.py \\
       --artifacts clean dark_corner ruler
+  pixi run -e base python examples/ph2_artifacts_test_resnet50.py \\
+      --ph2_root ~/ph2/PH2-dataset-master
 """
 
 import argparse
-import csv
 import os
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import torch
 import torch.nn as nn
-from PIL import Image
 from sklearn.metrics import roc_auc_score
-from torch.utils.data import DataLoader, Dataset
-from torchvision import models, transforms
+from torchvision import models
+
+from pyhealth.datasets import PH2Dataset, create_sample_dataset, get_dataloader
+from pyhealth.processors import DermoscopicImageProcessor
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -66,35 +69,12 @@ META_PATH = AUG_DIR / "augmented_metadata.csv"
 ISIC_CKPT_DIR = Path(os.path.expanduser("~/isic2018_data/checkpoints/whole_sigma1.0_none"))
 PH2_CKPT_DIR  = Path(os.path.expanduser("~/ph2_checkpoints/whole"))
 
-TRANSFORM = transforms.Compose([
-    transforms.Resize((224, 224)),
-    transforms.ToTensor(),
-    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-])
-
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 ARTIFACTS = ["clean", "dark_corner", "gel_bubble", "ink", "patches", "ruler", "hair"]
 
-
-# ---------------------------------------------------------------------------
-# Dataset
-# ---------------------------------------------------------------------------
-
-class PH2AugDataset(Dataset):
-    def __init__(self, records, transform=None):
-        self.records = records
-        self.transform = transform
-
-    def __len__(self):
-        return len(self.records)
-
-    def __getitem__(self, idx):
-        path, label = self.records[idx]
-        img = Image.open(path).convert("RGB")
-        if self.transform:
-            img = self.transform(img)
-        return img, label
+# Shared image processor — whole-image mode, ImageNet normalisation (224×224).
+_PROCESSOR = DermoscopicImageProcessor(mode="whole")
 
 
 # ---------------------------------------------------------------------------
@@ -134,15 +114,25 @@ def load_ph2_checkpoint(fold_k: int) -> nn.Module:
 # Evaluation
 # ---------------------------------------------------------------------------
 
+def build_artifact_loader(records):
+    """Create a PyHealth dataloader for a list of (path, label) records."""
+    raw = [{"image": path, "label": label} for path, label in records]
+    ds = create_sample_dataset(
+        raw,
+        input_schema={"image": "image"},
+        output_schema={"label": "binary"},
+        input_processors={"image": _PROCESSOR},
+    )
+    return get_dataloader(ds, batch_size=32, shuffle=False)
+
+
 @torch.no_grad()
-def compute_auroc(model: nn.Module, records) -> float:
-    ds = PH2AugDataset(records, TRANSFORM)
-    loader = DataLoader(ds, batch_size=32, shuffle=False, num_workers=4)
+def compute_auroc(model: nn.Module, loader) -> float:
     probs, labels = [], []
-    for imgs, lbls in loader:
-        p = torch.sigmoid(model(imgs.to(DEVICE))).squeeze(1).cpu().numpy()
+    for batch in loader:
+        p = torch.sigmoid(model(batch["image"].to(DEVICE))).squeeze(1).cpu().numpy()
         probs.extend(p)
-        labels.extend(lbls.numpy())
+        labels.extend(batch["label"].view(-1).numpy())
     return roc_auc_score(labels, probs)
 
 
@@ -156,10 +146,12 @@ def evaluate_source(source: str, records_by_artifact: dict):
 
     results = {}
     for artifact, recs in records_by_artifact.items():
+        # Build the loader once per artifact and reuse across all 5 folds.
+        loader = build_artifact_loader(recs)
         fold_aurocs = []
         for k in range(5):
             model = loader_fn(k)
-            auroc = compute_auroc(model, recs)
+            auroc = compute_auroc(model, loader)
             fold_aurocs.append(auroc)
             del model
             torch.cuda.empty_cache()
@@ -190,20 +182,38 @@ def parse_args():
         "--aug_dir", type=str, default=str(AUG_DIR),
         help="Directory containing augmented images and augmented_metadata.csv",
     )
+    p.add_argument(
+        "--ph2_root", type=str,
+        default=os.path.expanduser("~/ph2/PH2-dataset-master"),
+        help="Root directory of the PH2 dataset (canonical label source).",
+    )
     return p.parse_args()
 
 
 def main():
     args = parse_args()
-    meta_path = Path(args.aug_dir) / "augmented_metadata.csv"
 
-    # Load metadata grouped by artifact
+    # ------------------------------------------------------------------
+    # 1. Use PH2Dataset as the canonical source of image_id → binary label
+    # ------------------------------------------------------------------
+    ph2 = PH2Dataset(root=args.ph2_root)
+    meta_df = pd.read_csv(Path(args.ph2_root) / "ph2_metadata_pyhealth.csv")
+    label_map = {
+        row["image_id"]: int(row["diagnosis"] == "melanoma")
+        for _, row in meta_df.iterrows()
+    }
+
+    # ------------------------------------------------------------------
+    # 2. Build (path, label) records from augmented metadata using PH2 labels
+    # ------------------------------------------------------------------
+    aug_meta = Path(args.aug_dir) / "augmented_metadata.csv"
+    aug_df = pd.read_csv(aug_meta)
+
     records_by_artifact: dict[str, list] = {}
-    with open(meta_path) as f:
-        for row in csv.DictReader(f):
-            artifact = row["artifact"]
-            label = 1 if row["diagnosis"] == "melanoma" else 0
-            records_by_artifact.setdefault(artifact, []).append((row["path"], label))
+    for _, row in aug_df.iterrows():
+        artifact = row["artifact"]
+        label = label_map.get(row["image_id"], int(row["diagnosis"] == "melanoma"))
+        records_by_artifact.setdefault(artifact, []).append((row["path"], label))
 
     artifact_subset = {a: records_by_artifact[a] for a in args.artifacts if a in records_by_artifact}
 
