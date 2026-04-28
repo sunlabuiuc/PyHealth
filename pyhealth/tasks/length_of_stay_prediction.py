@@ -1,8 +1,7 @@
-from datetime import datetime, timedelta
-from typing import Dict, List
+from datetime import datetime
+from typing import Any, Dict, List
 
 from pyhealth.data.data import Patient
-
 from .base_task import BaseTask
 
 
@@ -125,6 +124,175 @@ class LengthOfStayPredictionMIMIC3(BaseTask):
                     "procedures": procedures,
                     "drugs": drugs,
                     "los": los_category,
+                }
+            )
+        # no cohort selection
+        return samples
+
+
+class LengthOfStayThresholdPredictionMIMIC3(BaseTask):
+    """Task for predicting whether length of stay exceeded a certain number of days
+    using the MIMIC-III dataset.
+
+    Length of stay prediction aims at predicting the length of stay (in days) of the
+    current hospital visit based on the clinical information from the visit
+    (e.g., conditions and procedures).
+
+    Args:
+        days: Threshold days
+
+    Raises:
+         TypeError:  if days is not an integer.
+         ValueError: if days is not a positive integer.
+
+    Attributes:
+        task_name: The name of the task.
+        input_schema: The schema for input data, which includes:
+            - conditions: A list of condition codes.
+            - procedures: A list of procedure codes.
+            - drugs: A list of drug codes.
+        output_schema: The schema for output data, which includes:
+            - los: A binary class label for whether length of stay exceeded the given
+                   number of days.
+
+    Examples:
+        >>> from pyhealth.datasets import MIMIC3Dataset
+        >>> from pyhealth.tasks import LengthOfStayPredictionMIMIC3
+        >>> dataset = MIMIC3Dataset(
+        ...    root="/srv/local/data/physionet.org/files/mimiciii/1.4",
+        ...    tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
+        ...    code_mapping={"ICD9CM": "CCSCM"},
+        ... )
+        >>> task = LengthOfStayPredictionMIMIC3(3.0)
+        >>> mimic3_sample = dataset.set_task(task)
+    """
+    task_name: str = "LengthOfStayThresholdPredictionMIMIC3"
+
+    input_schema = {
+        "conditions": "sequence",
+        "procedures": "sequence",
+        "drugs": "sequence",
+    }
+
+    output_schema: Dict[str, str] = {"los": "binary"}
+
+    def __init__(self, days: float = 3, exclude_minors: bool = True):
+        """
+        Initializes the length-of-stay prediction task.
+
+        Args:
+            days: Threshold in days. LOS > days → label = 1.
+            exclude_minors: Whether to exclude minor patients whose age is less than
+            18. Defaults to True.
+        """
+        if not isinstance(days, (int, float)):
+            raise TypeError("Days must be a number (int or float)")
+        if days <= 0:
+            raise ValueError("Days must be greater than 0")
+    
+        self.days = float(days)
+        self.exclude_minors = exclude_minors
+
+    def __call__(self, patient: Any) -> List[Dict]:
+        """
+        Generates binary length-of-stay (LOS) prediction samples for a single patient.
+
+        Each admission is converted into one sample with a binary label indicating
+        whether the length of stay exceeds a specified threshold (``self.days``).
+
+        Visits with no conditions OR no procedures OR no drugs are excluded from
+        the output.
+
+        Args:
+            patient: A patient object (expected to implement get_events())
+
+        Returns:
+            List[Dict]: A list containing a dictionary for each valid admission with:
+                - 'visit_id': MIMIC3 hadm_id.
+                - 'patient_id': MIMIC3 subject_id.
+                - 'conditions': Diagnosis codes from the diagnoses_icd table.
+                - 'procedures': Procedure codes from the procedures_icd table.
+                - 'drugs': Drug codes from the prescriptions table.
+                - 'los': Binary label where 1 indicates LOS > ``self.days`` and 0
+                otherwise.
+
+        Raises:
+            ValueError: If date strings (e.g., date of birth or discharge time)
+            cannot be parsed into datetime objects.
+        """
+        samples = []
+
+        # Get all admissions
+        admissions = patient.get_events(event_type = "admissions")
+        if len(admissions) == 0:
+            return []
+
+        patients = patient.get_events(event_type = "patients")
+        assert len(patients) == 1
+
+        # check for minor (patients less than 18 years old) exclusion
+        if self.exclude_minors:
+            try:
+                dob = datetime.strptime(patients[0].dob, "%Y-%m-%d %H:%M:%S")
+            except ValueError:
+                dob = datetime.strptime(patients[0].dob, "%Y-%m-%d")
+
+        # Process each admission
+        for admission in admissions:
+            if self.exclude_minors:
+                age = admission.timestamp.year - dob.year
+                if (admission.timestamp.month, admission.timestamp.day) < (dob.month,
+                                                                           dob.day):
+                    # Patient's birthday has not yet occurred, adjust age
+                    age -= 1
+                if age < 18:
+                    # Exclude minors
+                    continue
+
+            # Get diagnosis codes using hadm_id
+            diagnoses_events = patient.get_events(
+                event_type = "diagnoses_icd",
+                filters = [("hadm_id", "==", admission.hadm_id)],
+            )
+            conditions = [event.icd9_code for event in diagnoses_events]
+
+            # Get procedure codes using hadm_id
+            procedures_events = patient.get_events(
+                event_type = "procedures_icd",
+                filters = [("hadm_id", "==", admission.hadm_id)],
+            )
+            procedures = [event.icd9_code for event in procedures_events]
+
+            # Get prescriptions using hadm_id
+            prescriptions_events = patient.get_events(
+                event_type = "prescriptions",
+                filters = [("hadm_id", "==", admission.hadm_id)],
+            )
+            drugs = [event.ndc for event in prescriptions_events]
+
+            # Exclude visits without condition, procedure, or drug code
+            if len(conditions) * len(procedures) * len(drugs) == 0:
+                continue
+
+            # Calculate length of stay
+            # admission.timestamp is the admit time (from the timestamp column)
+            # admission.dischtime is the discharge time (from attributes)
+            admit_time = admission.timestamp
+            discharge_time = datetime.strptime(admission.dischtime,
+                                               "%Y-%m-%d %H:%M:%S")
+            los_days = (discharge_time - admit_time).days
+
+            # generate label
+            label = int(los_days > self.days)
+
+            samples.append(
+                {
+                    "visit_id": admission.hadm_id,
+                    "patient_id": patient.patient_id,
+                    "conditions": conditions,
+                    "procedures": procedures,
+                    "drugs": drugs,
+                    "los": label,
                 }
             )
         # no cohort selection
@@ -471,6 +639,11 @@ if __name__ == "__main__":
         dev=True,
     )
     task = LengthOfStayPredictionMIMIC3()
+    sample_dataset = base_dataset.set_task(task)
+    sample_dataset.stats()
+    print(sample_dataset.samples[0] if sample_dataset.samples else "No samples")
+
+    task = LengthOfStayThresholdPredictionMIMIC3(3)
     sample_dataset = base_dataset.set_task(task)
     sample_dataset.stats()
     print(sample_dataset.samples[0] if sample_dataset.samples else "No samples")

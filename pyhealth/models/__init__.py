@@ -21,6 +21,7 @@ from .micron import MICRON, MICRONLayer
 from .mlp import MLP
 from .molerec import MoleRec, MoleRecLayer
 from .retain import MultimodalRETAIN, RETAIN, RETAINLayer
+from .random_forest import RandomForest
 from .rnn import MultimodalRNN, RNN, RNNLayer
 from .safedrug import SafeDrug, SafeDrugLayer
 from .sparcnet import DenseBlock, DenseLayer, SparcNet, TransitionLayer
