@@ -155,7 +155,7 @@ This is the experimental pipeline of the repository. It scales up the core PyHea
 
 **Logging:** Logs are saved to `~/dermoscopy_logs/train`
 
-**Time for Training and Evaluation:** ~19 hours, 12 minutes
+**Time for Training and Evaluation:** ~16 hours, 30 minutes
 
 ### `run_all_original.sh`
 
@@ -1200,7 +1200,7 @@ We then compare three distinct aggregation methodologies across the Trap Sets to
 
 **Logging:** Logs are saved to `~/dermoscopy_logs/train` and `~/dermoscopy_logs/eval_artifacts`
 
-**Time for Training:** ~8 hours, 34 minutes
+**Time for Training:** ~4 hours, 23 minutes
 
 **Time for Evaluation:** ~14 minutes
 
