@@ -39,7 +39,6 @@ Usage
 """
 
 import argparse
-import csv
 import os
 from pathlib import Path
 
@@ -51,8 +50,9 @@ from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import KFold
 from torchvision import models
 
-from pyhealth.datasets import PH2Dataset, create_sample_dataset, get_dataloader
+from pyhealth.datasets import PH2Dataset, get_dataloader
 from pyhealth.processors import DermoscopicImageProcessor
+from pyhealth.tasks import PH2MelanomaClassification
 
 # ---------------------------------------------------------------------------
 # Config
@@ -72,12 +72,12 @@ def build_model():
     return model.to(DEVICE)
 
 
-def train_one_epoch(model, loader, criterion, optimizer):
+def train_one_epoch(model, loader, criterion, optimizer, melanoma_idx):
     model.train()
     total_loss = 0.0
     for batch in loader:
         imgs = batch["image"].to(DEVICE)
-        labels = batch["label"].to(DEVICE)  # shape [B, 1], float32
+        labels = (batch["label"] == melanoma_idx).float().unsqueeze(1).to(DEVICE)
         optimizer.zero_grad()
         loss = criterion(model(imgs), labels)
         loss.backward()
@@ -87,13 +87,14 @@ def train_one_epoch(model, loader, criterion, optimizer):
 
 
 @torch.no_grad()
-def evaluate(model, loader):
+def evaluate(model, loader, melanoma_idx):
     model.eval()
     all_probs, all_labels = [], []
     for batch in loader:
         probs = torch.sigmoid(model(batch["image"].to(DEVICE))).squeeze(1).cpu().numpy()
+        binary = (batch["label"] == melanoma_idx).float().numpy()
         all_probs.extend(probs)
-        all_labels.extend(batch["label"].view(-1).numpy())
+        all_labels.extend(binary)
     return roc_auc_score(all_labels, all_probs)
 
 
@@ -122,30 +123,21 @@ def main():
     CKPT_DIR.mkdir(parents=True, exist_ok=True)
 
     # ------------------------------------------------------------------
-    # 1. Ensure PH2 metadata is prepared, then build binary samples
+    # 1. Build sample dataset via PH2Dataset + PH2MelanomaClassification
     # ------------------------------------------------------------------
-    PH2Dataset(root=args.root)  # validates layout and writes ph2_metadata_pyhealth.csv
-
-    raw_samples = []
-    meta = Path(args.root) / "ph2_metadata_pyhealth.csv"
-    with open(meta) as f:
-        for row in csv.DictReader(f):
-            if row["path"] and row["diagnosis"]:
-                raw_samples.append({
-                    "image": row["path"],
-                    "label": int(row["diagnosis"] == "melanoma"),
-                })
-
-    if args.test:
-        raw_samples = raw_samples[: args.test]
-
     processor = DermoscopicImageProcessor(mode="whole")
-    samples = create_sample_dataset(
-        raw_samples,
-        input_schema={"image": "image"},
-        output_schema={"label": "binary"},
+    dataset = PH2Dataset(root=args.root)
+    samples = dataset.set_task(
+        PH2MelanomaClassification(),
         input_processors={"image": processor},
     )
+
+    # Resolve the index for "melanoma" from the fitted label vocab
+    # (alphabetical sort → atypical_nevus=0, common_nevus=1, melanoma=2)
+    melanoma_idx = samples.output_processors["label"].label_vocab["melanoma"]
+
+    if args.test:
+        samples = samples.subset(np.arange(args.test))
 
     indices = np.arange(len(samples))
     kf = KFold(n_splits=5, shuffle=True, random_state=42)
@@ -170,7 +162,7 @@ def main():
             optimizer = optim.Adam(model.parameters(), lr=args.lr)
 
             for epoch in range(args.epochs):
-                loss = train_one_epoch(model, train_loader, criterion, optimizer)
+                loss = train_one_epoch(model, train_loader, criterion, optimizer, melanoma_idx)
                 print(f"  Epoch {epoch+1:2d}/{args.epochs}  loss={loss:.4f}")
 
             torch.save(model.state_dict(), ckpt_path)
@@ -181,7 +173,7 @@ def main():
             batch_size=args.batch,
             shuffle=False,
         )
-        auroc = evaluate(model, test_loader)
+        auroc = evaluate(model, test_loader, melanoma_idx)
         aurocs.append(auroc)
         print(f"  Fold {fold} test AUROC: {auroc:.4f}")
 
