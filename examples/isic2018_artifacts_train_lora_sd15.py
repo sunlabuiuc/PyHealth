@@ -73,25 +73,29 @@ Optional flags
   --prior_weight Prior preservation loss weight (default 0.3)
   --n_prior     Prior images to generate (default 200)
   --output_dir  Checkpoint root (default ~/lora_checkpoints)
-  --data_csv    Artifact annotation CSV
-  --image_dir   ISIC image directory
+  --root        Root directory of ISIC 2018 artifacts dataset (default ~/isic2018_data)
+  --image_dir   ISIC image sub-directory relative to root
+  --mask_dir    Segmentation mask sub-directory relative to root
+  --annotations_csv  Annotation CSV filename relative to root (default isic_bias.csv)
   --model       Base SD model (default runwayml/stable-diffusion-v1-5)
   --test        Smoke-test mode: 3 images, 1 epoch, 10 prior images
 """
 
 import argparse
-import csv
 import math
 import os
 import random
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import torch
 import torch.nn.functional as F
 from PIL import Image
 from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
+
+from pyhealth.datasets import ISIC2018ArtifactsDataset
 
 
 # ---------------------------------------------------------------------------
@@ -117,33 +121,30 @@ TEXT_ENCODER_LORA_TARGETS = ["q_proj", "k_proj", "v_proj", "out_proj"]
 # Data helpers
 # ---------------------------------------------------------------------------
 
-def sample_instance_images(artifact: str, n: int, data_csv: str, image_dir: str,
+def sample_instance_images(artifact: str, n: int, dataset: ISIC2018ArtifactsDataset,
                             seed: int = 0) -> list:
     """Return up to n image paths for images labelled with `artifact`.
 
-    Prefers single-artifact images (cleanest visual signal); fills remaining
-    slots with multi-artifact images that contain the target artifact.
+    Reads from the PyHealth-generated metadata CSV produced by
+    ``ISIC2018ArtifactsDataset``.  Prefers single-artifact images (cleanest
+    visual signal); fills remaining slots with multi-artifact images that
+    contain the target artifact.
     """
     rng = random.Random(seed)
-    rows = []
-    with open(data_csv) as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            rows.append(row)
 
-    artifact_cols = ["dark_corner", "hair", "gel_bubble", "ruler", "ink", "patches"]
+    meta_path = os.path.join(dataset.root, "isic-artifact-metadata-pyhealth.csv")
+    df = pd.read_csv(meta_path)
+    df = df[df[artifact] == 1]
+
+    artifact_cols = [a for a in ALL_ARTIFACTS if a in df.columns]
 
     single, multi = [], []
-    for row in rows:
-        if int(row[artifact]) != 1:
-            continue
-        path = row.get("path") or os.path.join(image_dir, row["image"])
-        if not os.path.exists(path):
-            path = os.path.join(image_dir, row["image"])
+    for _, row in df.iterrows():
+        path = row["path"]
         if not os.path.exists(path):
             continue
-        n_arts = sum(int(row[a]) for a in artifact_cols if a in row)
-        label = row.get("label_string", "benign")
+        n_arts = sum(int(row[a]) for a in artifact_cols)
+        label = "malignant" if int(row["label"]) == 1 else "benign"
         if n_arts == 1:
             single.append((path, label))
         else:
@@ -154,7 +155,7 @@ def sample_instance_images(artifact: str, n: int, data_csv: str, image_dir: str,
     combined = (single + multi)[:n]
     print(f"  {artifact}: {len(single)} single-artifact, {len(multi)} multi; "
           f"selected {len(combined)} / {n} requested")
-    return combined   # list of (path, label)
+    return combined   # list of (path, label_string)
 
 
 def generate_prior_images(pipe, class_prompts: list, out_dir: Path, seed: int = 0):
@@ -268,7 +269,7 @@ def encode_prompts(tokenizer, text_encoder, prompts: list, device):
 # Training
 # ---------------------------------------------------------------------------
 
-def train_artifact(args, artifact: str):
+def train_artifact(args, artifact: str, dataset: ISIC2018ArtifactsDataset):
     from diffusers import (
         DDPMScheduler,
         StableDiffusionPipeline,
@@ -296,7 +297,7 @@ def train_artifact(args, artifact: str):
     # -----------------------------------------------------------------------
     n_inst = 3 if args.test else args.n_instance
     instance_items = sample_instance_images(
-        artifact, n_inst, args.data_csv, args.image_dir, seed=args.seed
+        artifact, n_inst, dataset, seed=args.seed
     )
     if not instance_items:
         print(f"  WARNING: no images found for {artifact}, skipping.")
@@ -503,12 +504,30 @@ def parse_args():
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--output_dir",
                    default=os.path.expanduser("~/lora_checkpoints"))
-    p.add_argument("--data_csv",
-                   default=os.path.expanduser(
-                       "~/isic2018_data/isic-artifact-metadata-pyhealth.csv"))
-    p.add_argument("--image_dir",
-                   default=os.path.expanduser(
-                       "~/isic2018_data/ISIC2018_Task1-2_Training_Input"))
+    p.add_argument(
+        "--root",
+        type=str,
+        default=os.path.expanduser("~/isic2018_data"),
+        help="Root directory of the ISIC 2018 artifacts dataset.",
+    )
+    p.add_argument(
+        "--image_dir",
+        type=str,
+        default="ISIC2018_Task1-2_Training_Input",
+        help="Sub-directory (relative to root, or absolute path) for ISIC images.",
+    )
+    p.add_argument(
+        "--mask_dir",
+        type=str,
+        default="ISIC2018_Task1_Training_GroundTruth",
+        help="Sub-directory (relative to root, or absolute path) for segmentation masks.",
+    )
+    p.add_argument(
+        "--annotations_csv",
+        type=str,
+        default="isic_bias.csv",
+        help="Annotation CSV filename (relative to root, or absolute path).",
+    )
     p.add_argument("--model", default="runwayml/stable-diffusion-v1-5")
     p.add_argument("--test", action="store_true",
                    help="Smoke-test: 3 images, 1 epoch, 10 prior images")
@@ -519,6 +538,13 @@ def main():
     args = parse_args()
     torch.manual_seed(args.seed)
 
+    dataset = ISIC2018ArtifactsDataset(
+        root=args.root,
+        annotations_csv=args.annotations_csv,
+        image_dir=args.image_dir,
+        mask_dir=args.mask_dir,
+    )
+
     artifacts = ALL_ARTIFACTS if args.artifact == "all" else [args.artifact]
     print(f"Training LoRA for: {artifacts}")
     print(f"Instance images: {3 if args.test else args.n_instance}  "
@@ -526,7 +552,7 @@ def main():
           f"Prior: {10 if args.test else args.n_prior}")
 
     for artifact in artifacts:
-        train_artifact(args, artifact)
+        train_artifact(args, artifact, dataset)
 
     print("\nAll done.")
 
