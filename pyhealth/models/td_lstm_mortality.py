@@ -30,6 +30,78 @@ class TDLSTMMortality(BaseModel):
     - uses feature_key and label_key selected from dataset schemas
     - returns a dictionary containing at least:
         loss, y_prob, y_true, logit
+
+    Example:
+        >>> from pyhealth.datasets import create_sample_dataset, get_dataloader
+        >>> from pyhealth.models.td_lstm_mortality import TDLSTMMortality
+        >>> samples = [
+        ...     {
+        ...         "patient_id": "p1",
+        ...         "visit_id": "v1",
+        ...         "x": [
+        ...             [0, 1, 2],
+        ...             [
+        ...                 [0.1, 0.2, 0.3],
+        ...                 [0.2, 0.1, 0.4],
+        ...                 [0.3, 0.2, 0.5],
+        ...             ],
+        ...         ],
+        ...         "label": 0,
+        ...     },
+        ...     {
+        ...         "patient_id": "p2",
+        ...         "visit_id": "v2",
+        ...         "x": [
+        ...             [0, 1, 2],
+        ...             [
+        ...                 [0.5, 0.4, 0.3],
+        ...                 [0.6, 0.5, 0.4],
+        ...                 [0.7, 0.6, 0.5],
+        ...             ],
+        ...         ],
+        ...         "label": 1,
+        ...     },
+        ... ]
+        >>> dataset = create_sample_dataset(
+        ...     samples=samples,
+        ...     input_schema={"x": "timeseries"},
+        ...     output_schema={"label": "binary"},
+        ...     dataset_name="td_lstm_demo",
+        ... )
+        >>> loader = get_dataloader(dataset, batch_size=2, shuffle=False)
+        >>> batch = next(iter(loader))
+
+        Supervised mode:
+        >>> model = TDLSTMMortality(
+        ...     dataset=dataset,
+        ...     feature_key="x",
+        ...     label_key="label",
+        ...     mode="binary",
+        ...     training_mode="supervised",
+        ... )
+        >>> out = model(**batch)
+        >>> sorted(out.keys())
+        ['logit', 'logits_seq', 'loss', 'probs_seq', 'y_prob', 'y_true']
+
+        TD mode:
+        >>> model = TDLSTMMortality(
+        ...     dataset=dataset,
+        ...     feature_key="x",
+        ...     label_key="label",
+        ...     mode="binary",
+        ...     training_mode="td",
+        ... )
+        >>> target_model = TDLSTMMortality(
+        ...     dataset=dataset,
+        ...     feature_key="x",
+        ...     label_key="label",
+        ...     mode="binary",
+        ...     training_mode="td",
+        ... )
+        >>> target_model.load_state_dict(model.state_dict())
+        >>> out = model(target_model=target_model, **batch)
+        >>> sorted(out.keys())
+        ['logit', 'logits_seq', 'loss', 'probs_seq', 'td_loss', 'terminal_loss', 'y_prob', 'y_true']
     """
 
     VALID_TRAINING_MODES = {"td", "supervised"}
@@ -50,6 +122,28 @@ class TDLSTMMortality(BaseModel):
         embedding_dim: int = 128,
         **kwargs,
     ) -> None:
+        """Initializes the TDLSTMMortality model.
+
+        Args:
+            dataset: PyHealth sample dataset used to infer schema and input shape.
+            feature_key: Name of the time-series feature field in each sample.
+            label_key: Name of the binary label field in each sample.
+            mode: Task mode. Only "binary" is currently supported.
+            hidden_dim: Hidden dimension of the LSTM encoder.
+            num_layers: Number of LSTM layers.
+            dropout: Dropout applied between stacked LSTM layers.
+            gamma: Discount factor used in TD target construction.
+            alpha_terminal: Weight of the terminal BCE anchor in TD mode.
+            n_step: Number of future steps used for TD target construction.
+            lengths_key: Optional batch key containing sequence lengths.
+            embedding_dim: Reserved embedding dimension attribute for compatibility.
+            **kwargs: Additional keyword arguments. Supports training_mode with
+                values "supervised" or "td".
+
+        Raises:
+            ValueError: If hyperparameters are invalid or if mode/training_mode
+                is unsupported.
+        """
         super().__init__(dataset=dataset)
 
         if hidden_dim <= 0:
