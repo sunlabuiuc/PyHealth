@@ -1,9 +1,55 @@
-from typing import Any, Dict, List
+from typing import Any, Dict, Iterable, List, Optional
 
 import polars as pl
 
 from pyhealth.data import Patient, Visit
+from pyhealth.medcode import CrossMap
 from .base_task import BaseTask
+
+
+_NDC_TO_ATC3_MAPPER = None
+_NDC_TO_ATC3_CACHE: Dict[str, List[str]] = {}
+
+
+def _get_ndc_to_atc3_mapper():
+    global _NDC_TO_ATC3_MAPPER
+    if _NDC_TO_ATC3_MAPPER is None:
+        _NDC_TO_ATC3_MAPPER = CrossMap.load("NDC", "ATC")
+    return _NDC_TO_ATC3_MAPPER
+
+
+def _is_missing_ndc(code: Any) -> bool:
+    if code is None:
+        return True
+    code = str(code).strip()
+    return code == "" or code == "0" or code.lower() in {"nan", "none", "<na>"}
+
+
+def _map_ndc_list_to_atc3(
+    ndc_codes: Iterable[Any],
+    mapper: Optional[Any] = None,
+) -> List[str]:
+    """Maps MIMIC prescription NDCs to stable, deduplicated ATC-3 labels."""
+    mapper = _get_ndc_to_atc3_mapper() if mapper is None else mapper
+    drugs: List[str] = []
+    seen = set()
+
+    for ndc in ndc_codes:
+        if _is_missing_ndc(ndc):
+            continue
+        ndc = str(ndc).strip()
+        if ndc not in _NDC_TO_ATC3_CACHE:
+            _NDC_TO_ATC3_CACHE[ndc] = mapper.map(ndc, target_kwargs={"level": 3})
+        mapped_codes = _NDC_TO_ATC3_CACHE[ndc]
+        for code in mapped_codes:
+            if code is None:
+                continue
+            code = str(code).strip()
+            if code and code not in seen:
+                drugs.append(code)
+                seen.add(code)
+
+    return drugs
 
 
 class DrugRecommendationMIMIC3(BaseTask):
@@ -34,6 +80,10 @@ class DrugRecommendationMIMIC3(BaseTask):
         "drugs_hist": "nested_sequence",
     }
     output_schema: Dict[str, str] = {"drugs": "multilabel"}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.cache_version = "ndc_to_atc3_v1"
 
     def __call__(self, patient: Any) -> List[Dict[str, Any]]:
         """Process a patient to create drug recommendation samples.
@@ -89,11 +139,10 @@ class DrugRecommendationMIMIC3(BaseTask):
                 return_df=True,
             )
             drugs = (
-                prescriptions.select(pl.col("prescriptions/drug")).to_series().to_list()
+                prescriptions.select(pl.col("prescriptions/ndc")).to_series().to_list()
             )
 
-            # ATC 3 level (first 4 characters)
-            drugs = [drug[:4] for drug in drugs if drug]
+            drugs = _map_ndc_list_to_atc3(drugs)
 
             # Exclude visits without condition, procedure, or drug code
             if len(conditions) * len(procedures) * len(drugs) == 0:
@@ -173,6 +222,10 @@ class DrugRecommendationMIMIC4(BaseTask):
     }
     output_schema: Dict[str, str] = {"drugs": "multilabel"}
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.cache_version = "ndc_to_atc3_v1"
+
     def __call__(self, patient: Any) -> List[Dict[str, Any]]:
         """Process a patient to create drug recommendation samples.
 
@@ -240,8 +293,7 @@ class DrugRecommendationMIMIC4(BaseTask):
                 prescriptions.select(pl.col("prescriptions/ndc")).to_series().to_list()
             )
 
-            # ATC 3 level (first 4 characters)
-            drugs = [drug[:4] for drug in drugs if drug]
+            drugs = _map_ndc_list_to_atc3(drugs)
 
             # Exclude visits without condition, procedure, or drug code
             if len(conditions) * len(procedures) * len(drugs) == 0:
@@ -332,8 +384,7 @@ def drug_recommendation_mimic3_fn(patient: Patient):
         conditions = visit.get_code_list(table="DIAGNOSES_ICD")
         procedures = visit.get_code_list(table="PROCEDURES_ICD")
         drugs = visit.get_code_list(table="PRESCRIPTIONS")
-        # ATC 3 level
-        drugs = [drug[:4] for drug in drugs]
+        drugs = _map_ndc_list_to_atc3(drugs)
         # exclude: visits without condition, procedure, or drug code
         if len(conditions) * len(procedures) * len(drugs) == 0:
             continue
@@ -413,8 +464,7 @@ def drug_recommendation_mimic4_fn(patient: Patient):
         conditions = visit.get_code_list(table="diagnoses_icd")
         procedures = visit.get_code_list(table="procedures_icd")
         drugs = visit.get_code_list(table="prescriptions")
-        # ATC 3 level
-        drugs = [drug[:4] for drug in drugs]
+        drugs = _map_ndc_list_to_atc3(drugs)
         # exclude: visits without condition, procedure, or drug code
         if len(conditions) * len(procedures) * len(drugs) == 0:
             continue
