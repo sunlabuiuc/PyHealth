@@ -10,7 +10,20 @@ from pyhealth.datasets import BaseSignalDataset
 
 class CardiologyDataset(BaseSignalDataset):
     """Base ECG dataset for Cardiology
+    
+    Download: https://physionet.org/content/challenge-2020/1.0.2/
+    Access: Requires PhysioNet account.
 
+    Required files:
+        - cpsc_2018/ (directory)
+        - cpsc_2018_extra/ (directory)
+        - georgia/ (directory)
+        - ptb/ (directory)
+        - ptb-xl/ (directory)
+        - st_petersburg_incart/ (directory)
+
+    Compatible formats: .mat, .hea
+    Note: All dataset directories must be placed in the root directory.
     Dataset is available at https://physionet.org/content/challenge-2020/1.0.2/
 
     Args:

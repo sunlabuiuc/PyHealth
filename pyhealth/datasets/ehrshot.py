@@ -10,7 +10,14 @@ logger = logging.getLogger(__name__)
 class EHRShotDataset(BaseDataset):
     """
     A dataset class for handling EHRShot data.
+    Download: https://huggingface.co/datasets/StanfordShahLab/ehrshot
+    Access: Requires HuggingFace account and dataset agreement.
 
+    Required files:
+        - ehrshot.csv
+
+    Compatible formats: .csv
+    Note: All files must be placed in the root directory.
     This class is responsible for loading and managing the EHRShot dataset.
 
     Website: https://som-shahlab.github.io/ehrshot-website/
