@@ -1,5 +1,5 @@
 from abc import ABC
-from pyhealth.datasets import SampleBaseDataset
+from pyhealth.datasets import SampleDataset
 
 import torch
 import time
@@ -32,7 +32,7 @@ class KGEBaseModel(ABC, nn.Module):
 
     def __init__(
         self, 
-        dataset: SampleBaseDataset,
+        dataset: SampleDataset,
         e_dim: int = 500,
         r_dim: int = 500,
         ns: str = "uniform",
