@@ -1,0 +1,27 @@
+version: "1.0.0"
+description: "Cleveland Family Study (CFS) Dataset from NSRR"
+tables:
+  demographics:
+    file_path: "datasets/cfs-visit5-dataset-0.7.0.csv"
+    patient_id: "nsrrid"
+    timestamp: null
+    attributes:
+      - "age"
+      - "male"
+      - "race"
+      - "ethnicity"
+      - "bmi"
+      - "smoker"
+      - "ahi"
+      - "ahi_a0h3"
+      - "ahi_a0h4"
+  polysomnography:
+    file_path: "polysomnography-metadata-pyhealth.csv"
+    patient_id: "nsrrid"
+    timestamp: null
+    attributes:
+      - "study_id"
+      - "signal_file"
+      - "label_file"
+      - "label_file_nsrr"
+      - "record_date"
