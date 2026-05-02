@@ -1,0 +1,9 @@
+version: "1.0"
+tables:
+  cxr_segmentation:
+    file_path: "cxr_segmentation-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+    - "image_path"
+    - "mask_path"
