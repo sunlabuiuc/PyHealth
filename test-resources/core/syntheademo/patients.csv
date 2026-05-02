@@ -1,0 +1,6 @@
+Id,BIRTHDATE,DEATHDATE,GENDER,RACE,ETHNICITY
+p001,1950-01-15,2021-06-20,M,white,nonhispanic
+p002,1965-03-22,,F,black,nonhispanic
+p003,1940-07-10,2023-08-15,M,white,hispanic
+p004,1975-11-30,2021-03-10,F,asian,nonhispanic
+p005,1980-05-05,,M,white,nonhispanic

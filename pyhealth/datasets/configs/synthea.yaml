@@ -1,0 +1,58 @@
+version: "2.0"
+tables:
+  patients:
+    file_path: "patients.csv"
+    patient_id: "id"
+    timestamp: null
+    attributes:
+      - "BIRTHDATE"
+      - "DEATHDATE"
+      - "GENDER"
+      - "RACE"
+      - "ETHNICITY"
+
+  encounters:
+    file_path: "encounters.csv"
+    patient_id: "patient"
+    timestamp: "start"
+    timestamp_format: "%Y-%m-%dT%H:%M:%SZ"
+    attributes:
+      - "Id"
+      - "STOP"
+      - "ENCOUNTERCLASS"
+      - "CODE"
+      - "DESCRIPTION"
+      - "REASONCODE"
+      - "REASONDESCRIPTION"
+
+  conditions:
+    file_path: "conditions.csv"
+    patient_id: "patient"
+    timestamp: "start"
+    timestamp_format: "%Y-%m-%d"
+    attributes:
+      - "ENCOUNTER"
+      - "CODE"
+      - "DESCRIPTION"
+
+  medications:
+    file_path: "medications.csv"
+    patient_id: "patient"
+    timestamp: "start"
+    timestamp_format: "%Y-%m-%dT%H:%M:%SZ"
+    attributes:
+      - "ENCOUNTER"
+      - "CODE"
+      - "DESCRIPTION"
+      - "REASONCODE"
+
+  procedures:
+    file_path: "procedures.csv"
+    patient_id: "patient"
+    timestamp: "start"
+    timestamp_format: "%Y-%m-%dT%H:%M:%SZ"
+    attributes:
+      - "ENCOUNTER"
+      - "CODE"
+      - "DESCRIPTION"
+      - "REASONCODE"

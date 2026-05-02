@@ -65,6 +65,7 @@ from .physionet_deid import PhysioNetDeIDDataset
 from .sample_dataset import SampleBuilder, SampleDataset, create_sample_dataset
 from .shhs import SHHSDataset
 from .sleepedf import SleepEDFDataset
+from .synthea import SyntheaDataset
 from .bmd_hs import BMDHSDataset
 from .support2 import Support2Dataset
 from .tcga_prad import TCGAPRADDataset

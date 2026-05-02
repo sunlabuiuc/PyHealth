@@ -42,6 +42,7 @@ from .mortality_prediction import (
     MultimodalMortalityPredictionMIMIC4,
 )
 from .survival_preprocess_support2 import SurvivalPreprocessSupport2
+from .synthea_mortality_prediction import MortalityPredictionSynthea
 from .mortality_prediction_stagenet_mimic4 import (
     MortalityPredictionStageNetMIMIC4,
 )
