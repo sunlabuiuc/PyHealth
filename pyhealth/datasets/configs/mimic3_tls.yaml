@@ -1,0 +1,62 @@
+# Contributors: Akshad Pai (NetID: avpai2), Matthew Ruth (NetID: mrruth2)
+#
+# Paper: On the Importance of Step-wise Embeddings for Heterogeneous Clinical
+#   Time-Series (Kuznetsova et al., JMLR 2023)
+# Paper link: https://jmlr.org/papers/v24/22-0850.html
+#
+# Description: PyHealth dataset config for TLS-exported MIMIC-III timeseries
+#   CSV (patient id, timestamp, IHM label, 42 gridded features per timestep).
+
+version: "1.0"
+tables:
+  timeseries:
+    file_path: "timeseries.csv"
+    patient_id: "patient_id"
+    timestamp: "timestamp"
+    timestamp_format: "%Y-%m-%d %H:%M:%S"
+    attributes:
+      - stay_id
+      - ihm_label
+      - Height
+      - Weight
+      - Diastolic blood pressure
+      - Heart Rate
+      - Glucose
+      - Mean blood pressure
+      - Systolic blood pressure
+      - Temperature
+      - Fraction inspired oxygen
+      - Oxygen saturation
+      - Respiratory rate
+      - Capillary refill rate
+      - pH
+      - Glascow coma scale eye opening_cat_0
+      - Glascow coma scale eye opening_cat_1
+      - Glascow coma scale eye opening_cat_2
+      - Glascow coma scale eye opening_cat_3
+      - Glascow coma scale motor response_cat_0
+      - Glascow coma scale motor response_cat_1
+      - Glascow coma scale motor response_cat_2
+      - Glascow coma scale motor response_cat_3
+      - Glascow coma scale motor response_cat_4
+      - Glascow coma scale motor response_cat_5
+      - Glascow coma scale total_cat_0
+      - Glascow coma scale total_cat_1
+      - Glascow coma scale total_cat_2
+      - Glascow coma scale total_cat_3
+      - Glascow coma scale total_cat_4
+      - Glascow coma scale total_cat_5
+      - Glascow coma scale total_cat_6
+      - Glascow coma scale total_cat_7
+      - Glascow coma scale total_cat_8
+      - Glascow coma scale total_cat_9
+      - Glascow coma scale total_cat_10
+      - Glascow coma scale total_cat_11
+      - Glascow coma scale total_cat_12
+      - Glascow coma scale verbal response_cat_0
+      - Glascow coma scale verbal response_cat_1
+      - Glascow coma scale verbal response_cat_2
+      - Glascow coma scale verbal response_cat_3
+      - Glascow coma scale verbal response_cat_4
+      - Capillary refill rate_cat
+    join: []
