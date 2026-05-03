@@ -1,14 +1,14 @@
-from pyhealth.datasets import SampleBaseDataset
+from torch.utils.data import Dataset
 
 
-class SampleKGDataset(SampleBaseDataset):
+class SampleKGDataset(Dataset):
     """Sample KG dataset class.
 
-    This class inherits from `SampleBaseDataset` and is specifically designed
-        for KG datasets.
+    This class inherits from `torch.utils.data.Dataset` and is specifically
+        designed for KG datasets.
 
     Args:
-        samples: a list of samples 
+        samples: a list of samples
         A sample is a dict containing following data:
         {
             'triple': a positive triple  e.g., (0, 0, 2835)
@@ -24,11 +24,11 @@ class SampleKGDataset(SampleBaseDataset):
         task_name: the name of the task. Default is None.
     """
     def __init__(
-        self, 
-        samples, 
-        dataset_name="", 
-        task_name="", 
-        dev=False,  
+        self,
+        samples,
+        dataset_name="",
+        task_name="",
+        dev=False,
         entity_num=0,
         relation_num=0,
         entity2id=None,
@@ -36,7 +36,10 @@ class SampleKGDataset(SampleBaseDataset):
         **kwargs
         ):
 
-        super().__init__(samples, dataset_name, task_name)
+        super().__init__()
+        self.samples = samples
+        self.dataset_name = dataset_name
+        self.task_name = task_name
         self.dev = dev
         self.entity_num = entity_num
         self.relation_num = relation_num
@@ -64,6 +67,10 @@ class SampleKGDataset(SampleBaseDataset):
         }
         """
         return self.samples[index]
+
+    def __len__(self):
+        """Returns the number of samples in the dataset."""
+        return len(self.samples)
 
     def stat(self):
         """Returns some statistics of the base dataset."""
