@@ -358,26 +358,56 @@ class CatheterAssociatedInfectionPredictionStageNetMIMIC4(_CatheterInfectionBase
     """StageNet-style patient-level catheter infection prediction task.
 
     Predicts catheter-associated urinary tract infection (CAUTI) from longitudinal
-    EHR data. Each qualifying infection admission generates a positive sample whose
-    features are the admissions that preceded it (including full pre-catheter history).
-    A patient with multiple CAUTI events produces multiple independent positive samples.
-    Patients with catheter evidence but no infection produce one negative sample.
+    EHR data.
+
+    Sample Construction
+    -------------------
+    Patient scope:
+        Only patients with at least one admission containing catheter codes
+        (ICD-10: Y84.6, Z46.6, Z46.82, Z93.5, Z93.6, T83.01x–T83.09x, 0T9B70Z,
+        0T2BX0Z, 0T9C7ZZ; ICD-9: 99631, 99632, E8705, E8796) OR at least one
+        qualifying CAUTI/infection event produce samples. Patients with no catheter
+        or infection history anywhere in their record produce no samples.
+
+    Positive samples:
+        Each admission satisfying either criterion below generates one positive sample
+        (plus suffix-augmented variants that drop progressively earlier admissions).
+        A patient with N qualifying infection admissions produces N independent
+        positive samples.
+
+        - Unconditional: admission contains a catheter-specific infection code
+          (T83.511A, T83.518A/D/S, T83.519A/D/S; ICD-9 99664).
+        - Conditional: admission contains both a general UTI code (N39.0, N10,
+          R82.71, N30.x, N34.x) AND a catheter code in the same encounter.
+
+        Feature window (``same_visit`` controls target-admission inclusion):
+          ``same_visit=True``  — prior admissions + current admission with infection
+                                 codes masked (catheter codes retained).
+          ``same_visit=False`` — prior admissions only; target admission excluded.
+
+    Negative samples:
+        Every non-infection admission of a catheter-relevant patient generates one
+        negative sample, regardless of whether that specific admission itself contains
+        catheter codes. This teaches the model that absence of catheter codes is
+        causally sufficient to predict no CAUTI — even for patients with prior catheter
+        or CAUTI history. The full set of non-infection admissions is only emitted once
+        the patient is confirmed catheter-relevant (deferred single-pass approach).
+
+        Feature window:
+          ``same_visit=True``  — prior admissions + current admission (full codes).
+          ``same_visit=False`` — prior admissions only.
+
+    History accumulation:
+        The running feature window grows admission-by-admission in chronological order.
+        Infection admissions are appended to the history with infection codes masked,
+        so subsequent admissions can see prior CAUTI history without leaking the label.
 
     Infection Code Tiers
     --------------------
-    - **Unconditional**: T83.511A, T83.518A/D/S, T83.519A/D/S, ICD-9 996.64.
+    - **Unconditional**: T83.511A, T83.518A/D/S, T83.519A/D/S, ICD-9 99664.
       Any admission containing one of these codes is a positive CAUTI event.
     - **Conditional**: N39.0, N10, R82.71, N30.x, N34.x.
       Positive only if a catheter code also appears in the same admission.
-
-    same_visit Parameter
-    --------------------
-    When ``same_visit=True`` (default), the infection admission's non-infection
-    codes (catheter codes, comorbidities, labs) are appended to the feature window
-    with all infection codes masked out.  This is appropriate for CAUTI because
-    foley catheters are typically placed and removed within a single admission, so
-    the catheter code and infection code co-occur in the same encounter.
-    When ``same_visit=False``, features are restricted to prior admissions only.
 
     Features (per admission in the feature window)
     -----------------------------------------------
@@ -431,10 +461,10 @@ class CatheterAssociatedInfectionPredictionStageNetMIMIC4(_CatheterInfectionBase
         all_lab_times: List[float] = []
 
         all_samples: List[Dict[str, Any]] = []
-        has_any_catheter: bool = False
+        pending_negatives: List[Dict[str, Any]] = []
         previous_admission_time: Optional[datetime] = None
         infection_event_count: int = 0
-        neg_count: int = 0
+        has_catheter_or_cauti: bool = False
 
         for admission in admissions:
             admission_time = getattr(admission, "timestamp", None)
@@ -531,10 +561,9 @@ class CatheterAssociatedInfectionPredictionStageNetMIMIC4(_CatheterInfectionBase
             )
             lab_vector = self._build_lab_vector(lab_df)
 
-            has_any_catheter |= has_catheter
-
             if is_infection_event:
                 infection_event_count += 1
+                has_catheter_or_cauti = True
 
                 if self.same_visit:
                     masked_codes = self._ensure_nonempty_sequence(visit_codes_masked)
@@ -595,26 +624,63 @@ class CatheterAssociatedInfectionPredictionStageNetMIMIC4(_CatheterInfectionBase
                 all_lab_times.append(time_delta)
 
             else:
-                # Non-infection admission: accumulate full codes for feature history.
+                # Non-infection admission.
+                # Snapshot BEFORE appending so same_visit=False can use prior-only window.
+                prev_icd_codes = list(all_icd_codes)
+                prev_icd_times = list(all_icd_times)
+                prev_lab_values = list(all_lab_values)
+                prev_lab_times = list(all_lab_times)
+
                 all_icd_codes.append(self._ensure_nonempty_sequence(visit_codes))
                 all_icd_times.append(time_delta)
                 all_lab_values.append(lab_vector)
                 all_lab_times.append(time_delta)
 
-                # Emit a per-admission negative sample for catheter-evidence patients.
-                if has_any_catheter:
-                    neg_count += 1
-                    all_samples.append(
-                        {
-                            "patient_id": patient.patient_id,
-                            "record_id": f"{patient.patient_id}_neg{neg_count}",
-                            "icd_codes": (list(all_icd_times), list(all_icd_codes)),
-                            "labs": (list(all_lab_times), list(all_lab_values)),
-                            "label": 0,
-                        }
-                    )
+                if has_catheter:
+                    has_catheter_or_cauti = True
+
+                # Build a negative for every non-infection admission. Deferred: only
+                # emitted if this patient is catheter-relevant (checked after the loop).
+                # Feature window respects same_visit:
+                #   True  → prior admissions + this one (current-visit style)
+                #   False → prior admissions only (next-visit style)
+                if self.same_visit:
+                    feat_icd_codes = list(all_icd_codes)
+                    feat_icd_times = list(all_icd_times)
+                    feat_lab_values = list(all_lab_values)
+                    feat_lab_times = list(all_lab_times)
+                else:
+                    feat_icd_codes = prev_icd_codes
+                    feat_icd_times = prev_icd_times
+                    feat_lab_values = prev_lab_values
+                    feat_lab_times = prev_lab_times
+
+                if not feat_icd_codes:
+                    feat_icd_codes = [[f"D_{self.MISSING_TOKEN}"]]
+                    feat_icd_times = [0.0]
+                if not feat_lab_values:
+                    feat_lab_values = [self._zero_lab_vector()]
+                    feat_lab_times = [0.0]
+
+                pending_negatives.append(
+                    {
+                        "patient_id": patient.patient_id,
+                        "record_id": None,  # assigned after the loop
+                        "icd_codes": (feat_icd_times, feat_icd_codes),
+                        "labs": (feat_lab_times, feat_lab_values),
+                        "label": 0,
+                    }
+                )
 
             previous_admission_time = admission_time
+
+        # Emit pending negatives only for catheter-relevant patients (those with at
+        # least one catheter code or CAUTI event). Patients with no catheter or
+        # infection history are outside the target population and produce no samples.
+        if has_catheter_or_cauti:
+            for i, neg in enumerate(pending_negatives, 1):
+                neg["record_id"] = f"{patient.patient_id}_neg{i}"
+            all_samples.extend(pending_negatives)
 
         return all_samples
 
@@ -623,26 +689,56 @@ class CatheterAssociatedInfectionPredictionMIMIC4(_CatheterInfectionBase):
     """Nested-sequence patient-level catheter infection prediction task.
 
     Predicts catheter-associated urinary tract infection (CAUTI) from longitudinal
-    EHR data. Each qualifying infection admission generates a positive sample whose
-    features are the admissions that preceded it (including full pre-catheter history).
-    A patient with multiple CAUTI events produces multiple independent positive samples.
-    Patients with catheter evidence but no infection produce one negative sample.
+    EHR data.
+
+    Sample Construction
+    -------------------
+    Patient scope:
+        Only patients with at least one admission containing catheter codes
+        (ICD-10: Y84.6, Z46.6, Z46.82, Z93.5, Z93.6, T83.01x–T83.09x, 0T9B70Z,
+        0T2BX0Z, 0T9C7ZZ; ICD-9: 99631, 99632, E8705, E8796) OR at least one
+        qualifying CAUTI/infection event produce samples. Patients with no catheter
+        or infection history anywhere in their record produce no samples.
+
+    Positive samples:
+        Each admission satisfying either criterion below generates one positive sample
+        (plus suffix-augmented variants that drop progressively earlier admissions).
+        A patient with N qualifying infection admissions produces N independent
+        positive samples.
+
+        - Unconditional: admission contains a catheter-specific infection code
+          (T83.511A, T83.518A/D/S, T83.519A/D/S; ICD-9 99664).
+        - Conditional: admission contains both a general UTI code (N39.0, N10,
+          R82.71, N30.x, N34.x) AND a catheter code in the same encounter.
+
+        Feature window (``same_visit`` controls target-admission inclusion):
+          ``same_visit=True``  — prior admissions + current admission with infection
+                                 codes masked (catheter codes retained).
+          ``same_visit=False`` — prior admissions only; target admission excluded.
+
+    Negative samples:
+        Every non-infection admission of a catheter-relevant patient generates one
+        negative sample, regardless of whether that specific admission itself contains
+        catheter codes. This teaches the model that absence of catheter codes is
+        causally sufficient to predict no CAUTI — even for patients with prior catheter
+        or CAUTI history. The full set of non-infection admissions is only emitted once
+        the patient is confirmed catheter-relevant (deferred single-pass approach).
+
+        Feature window:
+          ``same_visit=True``  — prior admissions + current admission (full codes).
+          ``same_visit=False`` — prior admissions only.
+
+    History accumulation:
+        The running feature window grows admission-by-admission in chronological order.
+        Infection admissions are appended to the history with infection codes masked,
+        so subsequent admissions can see prior CAUTI history without leaking the label.
 
     Infection Code Tiers
     --------------------
-    - **Unconditional**: T83.511A, T83.518A/D/S, T83.519A/D/S, ICD-9 996.64.
+    - **Unconditional**: T83.511A, T83.518A/D/S, T83.519A/D/S, ICD-9 99664.
       Any admission containing one of these codes is a positive CAUTI event.
     - **Conditional**: N39.0, N10, R82.71, N30.x, N34.x.
       Positive only if a catheter code also appears in the same admission.
-
-    same_visit Parameter
-    --------------------
-    When ``same_visit=True`` (default), the infection admission's non-infection
-    codes (catheter codes, comorbidities, labs, drugs) are appended to the feature
-    window with all infection codes masked out.  This is appropriate for CAUTI
-    because foley catheters are typically placed and removed within a single
-    admission, so the catheter code and infection code co-occur in the same encounter.
-    When ``same_visit=False``, features are restricted to prior admissions only.
 
     Features (per admission in the feature window)
     -----------------------------------------------
@@ -698,9 +794,9 @@ class CatheterAssociatedInfectionPredictionMIMIC4(_CatheterInfectionBase):
         all_labs: List[List[float]] = []
 
         all_samples: List[Dict[str, Any]] = []
-        has_any_catheter: bool = False
+        pending_negatives: List[Dict[str, Any]] = []
         infection_event_count: int = 0
-        neg_count: int = 0
+        has_catheter_or_cauti: bool = False
 
         for admission in admissions:
             admission_time = getattr(admission, "timestamp", None)
@@ -793,10 +889,9 @@ class CatheterAssociatedInfectionPredictionMIMIC4(_CatheterInfectionBase):
             )
             lab_vector = self._build_lab_vector(lab_df)
 
-            has_any_catheter |= has_catheter
-
             if is_infection_event:
                 infection_event_count += 1
+                has_catheter_or_cauti = True
 
                 masked_cond = self._ensure_nonempty_sequence(
                     self._clean_sequence(condition_codes_masked)
@@ -859,7 +954,13 @@ class CatheterAssociatedInfectionPredictionMIMIC4(_CatheterInfectionBase):
                 all_labs.append(lab_vector)
 
             else:
-                # Non-infection admission: accumulate full codes for feature history.
+                # Non-infection admission.
+                # Snapshot BEFORE appending so same_visit=False can use prior-only window.
+                prev_conditions = list(all_conditions)
+                prev_procedures = list(all_procedures)
+                prev_drugs = list(all_drugs)
+                prev_labs = list(all_labs)
+
                 all_conditions.append(
                     self._ensure_nonempty_sequence(
                         self._clean_sequence(condition_codes)
@@ -873,20 +974,50 @@ class CatheterAssociatedInfectionPredictionMIMIC4(_CatheterInfectionBase):
                 all_drugs.append(visit_drugs)
                 all_labs.append(lab_vector)
 
-                # Emit a per-admission negative sample for catheter-evidence patients.
-                if has_any_catheter:
-                    neg_count += 1
-                    all_samples.append(
-                        {
-                            "patient_id": patient.patient_id,
-                            "record_id": f"{patient.patient_id}_neg{neg_count}",
-                            "conditions": list(all_conditions),
-                            "procedures": list(all_procedures),
-                            "drugs": list(all_drugs),
-                            "labs": list(all_labs),
-                            "label": 0,
-                        }
-                    )
+                if has_catheter:
+                    has_catheter_or_cauti = True
+
+                # Build a negative for every non-infection admission. Deferred: only
+                # emitted if this patient is catheter-relevant (checked after the loop).
+                # Feature window respects same_visit:
+                #   True  → prior admissions + this one (current-visit style)
+                #   False → prior admissions only (next-visit style)
+                if self.same_visit:
+                    feat_conditions = list(all_conditions)
+                    feat_procedures = list(all_procedures)
+                    feat_drugs = list(all_drugs)
+                    feat_labs = list(all_labs)
+                else:
+                    feat_conditions = prev_conditions
+                    feat_procedures = prev_procedures
+                    feat_drugs = prev_drugs
+                    feat_labs = prev_labs
+
+                if not feat_conditions:
+                    feat_conditions = [[self.MISSING_TOKEN]]
+                    feat_procedures = [[self.MISSING_TOKEN]]
+                    feat_drugs = [[self.MISSING_TOKEN]]
+                    feat_labs = [self._zero_lab_vector()]
+
+                pending_negatives.append(
+                    {
+                        "patient_id": patient.patient_id,
+                        "record_id": None,  # assigned after the loop
+                        "conditions": feat_conditions,
+                        "procedures": feat_procedures,
+                        "drugs": feat_drugs,
+                        "labs": feat_labs,
+                        "label": 0,
+                    }
+                )
+
+        # Emit pending negatives only for catheter-relevant patients (those with at
+        # least one catheter code or CAUTI event). Patients with no catheter or
+        # infection history are outside the target population and produce no samples.
+        if has_catheter_or_cauti:
+            for i, neg in enumerate(pending_negatives, 1):
+                neg["record_id"] = f"{patient.patient_id}_neg{i}"
+            all_samples.extend(pending_negatives)
 
         return all_samples
 
@@ -896,9 +1027,18 @@ class CatheterAssociatedInfectionPredictionStageNetMIMIC4DualContext(
 ):
     """Dual-context StageNet CAUTI task.
 
+    Delegates to ``CatheterAssociatedInfectionPredictionStageNetMIMIC4`` twice —
+    once with ``same_visit=True`` and once with ``same_visit=False`` — then tags each
+    sample with a ``visit_mode`` field and a ``_current`` / ``_next`` record_id suffix.
+
     Emits both context modes for each sample:
-    - visit_mode="current": same-visit features included
-    - visit_mode="next": prior-admissions-only features
+    - ``visit_mode="current"`` (``same_visit=True``): feature window includes the
+      target admission (infection codes masked for positives; full codes for negatives).
+    - ``visit_mode="next"`` (``same_visit=False``): feature window uses prior
+      admissions only; target admission excluded for both positives and negatives.
+
+    Sample scope and negative-sampling logic are identical to the base class.
+    See ``CatheterAssociatedInfectionPredictionStageNetMIMIC4`` for full details.
     """
 
     task_name: str = "CatheterAssociatedInfectionPredictionStageNetMIMIC4DualContext"
@@ -949,9 +1089,18 @@ class CatheterAssociatedInfectionPredictionStageNetMIMIC4DualContext(
 class CatheterAssociatedInfectionPredictionMIMIC4DualContext(_CatheterInfectionBase):
     """Dual-context nested-sequence CAUTI task.
 
+    Delegates to ``CatheterAssociatedInfectionPredictionMIMIC4`` twice —
+    once with ``same_visit=True`` and once with ``same_visit=False`` — then tags each
+    sample with a ``visit_mode`` field and a ``_current`` / ``_next`` record_id suffix.
+
     Emits both context modes for each sample:
-    - visit_mode="current": same-visit features included
-    - visit_mode="next": prior-admissions-only features
+    - ``visit_mode="current"`` (``same_visit=True``): feature window includes the
+      target admission (infection codes masked for positives; full codes for negatives).
+    - ``visit_mode="next"`` (``same_visit=False``): feature window uses prior
+      admissions only; target admission excluded for both positives and negatives.
+
+    Sample scope and negative-sampling logic are identical to the base class.
+    See ``CatheterAssociatedInfectionPredictionMIMIC4`` for full details.
     """
 
     task_name: str = "CatheterAssociatedInfectionPredictionMIMIC4DualContext"
