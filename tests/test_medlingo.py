@@ -1,10 +1,12 @@
 from pyhealth.datasets.medlingo import MedLingoDataset
 
+# All test samples are synthetic and defined inline to avoid relying on
+# external data files or real clinical records.
 
 def test_medlingo_dataset_structure():
     dataset = MedLingoDataset(root=".")
 
-    # synthetic raw samples (what your JSON would contain)
+    # synthetic samples inline
     samples = [
         {
             "abbr": "SOB",
@@ -18,22 +20,12 @@ def test_medlingo_dataset_structure():
         },
     ]
 
-    # monkey patch process input
-    def mock_process():
-        data = []
-        for i, sample in enumerate(samples):
-            data.append({
-                "patient_id": f"patient_{i}",
-                "visit_id": f"visit_{i}",
-                "medlingo": [sample],
-            })
-        return data
-
-    dataset.process = mock_process  # override
+    # pass samples into dataset
+    dataset = MedLingoDataset(samples=samples)
 
     output = dataset.process()
 
-    # actual assertions
+    # actual assertions to test implementation
     assert len(output) == 2
     assert output[0]["medlingo"][0]["abbr"] == "SOB"
     assert output[1]["medlingo"][0]["label"] == "blood pressure"

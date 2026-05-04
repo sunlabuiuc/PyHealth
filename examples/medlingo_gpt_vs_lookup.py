@@ -1,4 +1,3 @@
-
 """
 GPT vs Lookup baseline evaluation for MedLingo-style clinical abbreviation interpretation.
 
@@ -13,8 +12,8 @@ Evaluation conditions:
 - short clinical context
 
 IMPORTANT:
-This script is intended to run only on cleaned, derived benchmark samples
-(e.g., test-resources/medlingo_samples.json), not on raw MIMIC notes.
+This uses small synthetic MedLingo-style samples defines inline.
+No real patient data or MIMIC data is included.
 
 This script requires an OpenAI API key and is an optional secondary modern LLM evaluation conducted.
 """
@@ -23,7 +22,6 @@ from __future__ import annotations
 
 import os
 import re
-from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
@@ -144,17 +142,39 @@ def accuracy_gpt(
     return correct / total if total > 0 else 0.0
 
 
+SYNTHETIC_MEDLINGO_SAMPLES = [
+    {
+        "abbr": "SOB",
+        "context": "Patient presents with SOB.",
+        "label": "shortness of breath",
+        "source": "synthetic_demo",
+    },
+    {
+        "abbr": "BP",
+        "context": "BP remained stable overnight.",
+        "label": "blood pressure",
+        "source": "synthetic_demo",
+    },
+    {
+        "abbr": "HTN",
+        "context": "History of HTN.",
+        "label": "hypertension",
+        "source": "synthetic_demo",
+    },
+]
+
+
 def main() -> None:
     load_dotenv()
 
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
-        print("Skipping GPT example:a OPENAI_API_KEY not found.")
+        print("Skipping GPT example: OPENAI_API_KEY not found.")
         return
 
     client = OpenAI(api_key=api_key)
 
-    dataset = MedLingoDataset(root="test-resources")
+    dataset = MedLingoDataset(samples=SYNTHETIC_MEDLINGO_SAMPLES)
     records = dataset.process()
 
     samples = []

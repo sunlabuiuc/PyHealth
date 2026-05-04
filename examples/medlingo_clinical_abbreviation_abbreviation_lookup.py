@@ -1,6 +1,10 @@
 """
 This example demonstrates an evaluation of the Clinical Abbreviation Task using the MedLingo dataset. 
-We will perform ablation studies to understand the impact of different input modifications on the model's performance.
+
+All samples used in this example are synthetic and defined inline to ensure reproducibility and to avoid
+reliance on external or real clinical datasets.
+
+We perform ablation studies to understand the impact of different input modifications on model performance.
 
 The ablation studies include:
 1. Base abbreviation-only input. 
@@ -17,14 +21,47 @@ Paper:
 from pyhealth.datasets.medlingo import MedLingoDataset
 from pyhealth.tasks.clinical_abbreviation import ClinicalAbbreviationTask
 
+SYNTHETIC_MEDLINGO_SAMPLES = [
+    {
+        "abbr": "SOB",
+        "context": "Patient presents with SOB.",
+        "label": "shortness of breath",
+        "source": "synthetic_demo",
+    },
+    {
+        "abbr": "BP",
+        "context": "BP remained stable overnight.",
+        "label": "blood pressure",
+        "source": "synthetic_demo",
+    },
+    {
+        "abbr": "HTN",
+        "context": "History of HTN.",
+        "label": "hypertension",
+        "source": "synthetic_demo",
+    },
+    {
+        "abbr": "CHF",
+        "context": "Known CHF with fluid overload.",
+        "label": "congestive heart failure",
+        "source": "synthetic_demo",
+    },
+    {
+        "abbr": "DM",
+        "context": "History of DM with elevated glucose.",
+        "label": "diabetes mellitus",
+        "source": "synthetic_demo",
+    },
+]
+
 def main() -> None:
-    dataset = MedLingoDataset(root="test-resources")
+    dataset = MedLingoDataset(samples=SYNTHETIC_MEDLINGO_SAMPLES)
     records = dataset.process()
 
     samples = []
     for record in records:
-        for sample in record["medlingo"]:
-            samples.append(sample)
+        for s in record["medlingo"]:
+            samples.append(s)
 
     print("=== Base Results: Abbreviation-Only ===")
     base_task = ClinicalAbbreviationTask(use_context=False)

@@ -1,4 +1,3 @@
-import json
 from pathlib import Path
 from typing import Dict, List
 
@@ -15,65 +14,56 @@ class MedLingoDataset(BaseDataset):
         Diagnosing Our Datasets: How Does My Language Model Learn Clinical Information? 
         https://arxiv.org/abs/2505.15024
 
-    This dataset is inspired by the MedLingo benchmark and is constructed from 
-    cleaned, curated clinical abbreviation samples.
+    This dataset is inspired by the MedLingo benchmark and uses synthetic/curated clinical
+    abbreviation samples for demonstration and testing purposes.
+
+    No real patient data or MIMIC data is included in this dataset.
 
     Each sample contains:
         - abbr: clinical abbreviation string
         - context: short clinical text snippet
         - label: ground truth expanded meaning
-        - source: source of the sample (e.g. "mimic_iv", "synthetic_demo")
+        - source: source of the sample (e.g. "synthetic_demo")
 
     Args:
-        root: Root directory containing medlingo_samples.json (e.g., "test-resources" for demo usage)
+        root: Root directory (used for demo/example purposes only)
         config_path: Optional path to dataset config yaml.
 
     Example:
-        >>> dataset = MedLingoDataset(root="data")
+        >>> samples = [{"abbr": "SOB", "context": "Patient has SOB.", "label": "shortness of breath"}]
+        >>> dataset = MedLingoDataset(samples=samples)
         >>> records = dataset.process()
     """
 
     def __init__(
         self,
+        samples: List[Dict[str, str]] | None = None,
         root: str = "",
         config_path: str | None = None,
     ) -> None:
-        tables = ["medlingo"]  # single table dataset
+        self.samples = samples or []
+        tables = ["medlingo"] 
+        
         super().__init__(
             root=root,
             tables=tables,
             dataset_name="medlingo",
             config_path=config_path,
         )
-    
-    @classmethod
-    def from_json(cls, filepath: str | Path) -> "MedLingoDataset":
-        dataset = cls(root=str(Path(filepath).parent))
-        return dataset
 
     
     def process(self) -> List[Dict]:
         """
-        Load MedLingo JSON samples and convert them into PyHealth-style records.
+        Convert MedLingo samples into PyHealth-style records.
 
         Returns:
             A list of patient/visit records with a medlingo table.
         """
-        file_path = Path(self.root) / "medlingo_samples.json"
-
-
-        # Check if the file exists
-        if not file_path.exists():
-            raise FileNotFoundError(f"{file_path} not found.")
-
-
-        with open(file_path, "r", encoding="utf-8") as f:
-            samples = json.load(f)
 
         data = []
 
         # Convert each sample into the standardized format
-        for i, sample in enumerate(samples):
+        for i, sample in enumerate(self.samples):
             data.append({
                 "patient_id": f"patient_{i}",
                 "visit_id": f"visit_{i}",
