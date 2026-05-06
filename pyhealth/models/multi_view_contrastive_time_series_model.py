@@ -1,11 +1,16 @@
+"""Multi-view contrastive time-series model for PyHealth datasets."""
+
+import math
+from typing import Any, Tuple, cast
+
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import numpy as np
-import math
 
+from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
-from typing import Tuple, cast
+
 
 class PositionalEncoding(nn.Module):
     def __init__(self, hidden_dim, dropout=0.1, max_len=1024):
@@ -26,20 +31,58 @@ class PositionalEncoding(nn.Module):
         return self.dropout(x)
 
 class MultiViewContrastiveTimeSeriesModel(BaseModel):
-    """A multi-view contrastive model aligned with Oh and Bui (2025) and TFC."""
+    """Multi-view contrastive model for time-series tensors.
 
-    def __init__(self, dataset, training_stage="pretrain", num_classes=3, **kwargs):
+    This model follows the multi-view contrastive learning setup used for
+    time-domain, derivative, and frequency-domain views. Each view is projected,
+    encoded with a Transformer encoder, fused with cross-view attention, and
+    used for either contrastive pretraining or downstream classification.
+
+    Args:
+        dataset (SampleDataset): Dataset with ``xt``, ``xd``, and ``xf`` tensor
+            inputs and one output label.
+        training_stage (str): Training stage, either ``"pretrain"`` for
+            contrastive representation learning or ``"finetune"`` for
+            classification. Default is ``"pretrain"``.
+        num_classes (int): Number of classes used by the classification head.
+            Default is 3.
+        **kwargs: Additional keyword arguments kept for PyHealth model API
+            compatibility.
+
+    Attributes:
+        hidden_dim: Hidden dimension used by projections, encoders, and fusion.
+        lambda_cl: Weight for the contrastive penalty during finetuning.
+        tau: Temperature used by the NT-Xent contrastive loss.
+
+    Examples:
+        >>> from pyhealth.models import MultiViewContrastiveTimeSeriesModel
+        >>> model = MultiViewContrastiveTimeSeriesModel(
+        ...     dataset=sample_dataset,
+        ...     training_stage="pretrain",
+        ...     num_classes=5,
+        ... )
+        >>> output = model(xt=xt, xd=xd, xf=xf)
+        >>> sorted(output.keys())
+        ['loss', 'z_d', 'z_f', 'z_t']
+    """
+
+    def __init__(
+        self,
+        dataset: SampleDataset,
+        training_stage: str = "pretrain",
+        num_classes: int = 3,
+        **kwargs: Any
+    ):
         super().__init__(dataset=dataset)
         self.hidden_dim = 128
-        seq_length = 256
         self.training_stage = training_stage
         self.lambda_cl = 0.1
         self.tau = 0.07
         self.num_classes = num_classes
 
-        self.proj_t = nn.Linear(1, self.hidden_dim)
-        self.proj_d = nn.Linear(1, self.hidden_dim)
-        self.proj_f = nn.Linear(1, self.hidden_dim)
+        self.temporal_projection = nn.Linear(1, self.hidden_dim)
+        self.derivative_projection = nn.Linear(1, self.hidden_dim)
+        self.frequency_projection = nn.Linear(1, self.hidden_dim)
 
         self.pos_encoder = PositionalEncoding(self.hidden_dim, dropout=0.1)
 
@@ -53,11 +96,11 @@ class MultiViewContrastiveTimeSeriesModel(BaseModel):
         self.encoder_d: nn.TransformerEncoder = make_encoder()
         self.encoder_f: nn.TransformerEncoder = make_encoder()
 
-        # MHA for Hierarchical Fusion
-        self.fusion_mha: nn.MultiheadAttention = nn.MultiheadAttention(embed_dim=self.hidden_dim, num_heads=4, batch_first=True)
+        self.fusion_mha: nn.MultiheadAttention = nn.MultiheadAttention(
+            embed_dim=self.hidden_dim, num_heads=4, batch_first=True
+        )
         self.fusion_layer_norm: nn.LayerNorm = nn.LayerNorm(self.hidden_dim)
 
-        # Feature-specific projectors
         def projector() -> nn.Sequential:
             return nn.Sequential(
                 nn.Linear(self.hidden_dim * 2, self.hidden_dim),
@@ -67,11 +110,13 @@ class MultiViewContrastiveTimeSeriesModel(BaseModel):
                 nn.Linear(self.hidden_dim, self.hidden_dim),
             )
             
-        self.F_t: nn.Sequential = projector()
-        self.F_d: nn.Sequential = projector()
-        self.F_f: nn.Sequential = projector()
+        self.temporal_feature_projector: nn.Sequential = projector()
+        self.derivative_feature_projector: nn.Sequential = projector()
+        self.frequency_feature_projector: nn.Sequential = projector()
 
-        self.classifier_mha = nn.MultiheadAttention(embed_dim=self.hidden_dim, num_heads=1, batch_first=True)
+        self.classifier_mha = nn.MultiheadAttention(
+            embed_dim=self.hidden_dim, num_heads=1, batch_first=True
+        )
         self.classifier = nn.Linear(self.hidden_dim * 3, self.num_classes)
 
     def augment_time(self, x: torch.Tensor, std: float = 0.1) -> torch.Tensor:
@@ -79,22 +124,22 @@ class MultiViewContrastiveTimeSeriesModel(BaseModel):
         noise = torch.randn_like(x) * std
         return x + noise
         
-    def augment_freq(self, sample: torch.Tensor, pertub_ratio: float = 0.05) -> torch.Tensor:
+    def augment_freq(self, sample: torch.Tensor, perturb_ratio: float = 0.05) -> torch.Tensor:
         """Frequency-domain augmentation (remove and add frequencies)"""
-        aug_1 = self.remove_frequency(sample, pertub_ratio)
-        aug_2 = self.add_frequency(sample, pertub_ratio)
-        return aug_1 + aug_2
+        removed_frequency = self.remove_frequency(sample, perturb_ratio)
+        added_frequency = self.add_frequency(sample, perturb_ratio)
+        return removed_frequency + added_frequency
 
-    def remove_frequency(self, x: torch.Tensor, pertub_ratio: float = 0.0) -> torch.Tensor:
-        mask = torch.rand(x.shape, device=x.device) > pertub_ratio
+    def remove_frequency(self, x: torch.Tensor, perturb_ratio: float = 0.0) -> torch.Tensor:
+        mask = torch.rand(x.shape, device=x.device) > perturb_ratio
         return x * mask
 
-    def add_frequency(self, x: torch.Tensor, pertub_ratio: float = 0.0) -> torch.Tensor:
-        mask = torch.rand(x.shape, device=x.device) > (1 - pertub_ratio)
+    def add_frequency(self, x: torch.Tensor, perturb_ratio: float = 0.0) -> torch.Tensor:
+        mask = torch.rand(x.shape, device=x.device) > (1 - perturb_ratio)
         max_amplitude = x.max()
-        random_am = torch.rand(mask.shape, device=x.device) * (max_amplitude * 0.1)
-        pertub_matrix = mask * random_am
-        return x + pertub_matrix
+        random_amplitude = torch.rand(mask.shape, device=x.device) * (max_amplitude * 0.1)
+        perturbation = mask * random_amplitude
+        return x + perturbation
         
     def ntxent_loss(self, zis: torch.Tensor, zjs: torch.Tensor, tau: float) -> torch.Tensor:
         """2N x 2N NTXentLoss aligned with the TFC implementation."""
@@ -134,9 +179,9 @@ class MultiViewContrastiveTimeSeriesModel(BaseModel):
         return loss / (2 * batch_size)
     
     def _forward_features(self, x_t: torch.Tensor, x_d: torch.Tensor, x_f: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        x_t = self.proj_t(x_t)
-        x_d = self.proj_d(x_d)
-        x_f = self.proj_f(x_f)
+        x_t = self.temporal_projection(x_t)
+        x_d = self.derivative_projection(x_d)
+        x_f = self.frequency_projection(x_f)
 
         x_t = self.pos_encoder(x_t)
         x_d = self.pos_encoder(x_d)
@@ -147,23 +192,34 @@ class MultiViewContrastiveTimeSeriesModel(BaseModel):
         h_f = self.encoder_f(x_f)
 
         batch_size, seq_length, _ = h_t.shape
-        H = torch.stack([h_t, h_d, h_f], dim=2)
-        H_flat = H.permute(0, 2, 1, 3).contiguous().view(batch_size * 3, seq_length, self.hidden_dim)
+        view_sequence = torch.stack([h_t, h_d, h_f], dim=2)
+        flattened_views = (
+            view_sequence
+            .permute(0, 2, 1, 3)
+            .contiguous()
+            .view(batch_size * 3, seq_length, self.hidden_dim)
+        )
 
-        MHA_out, _ = self.fusion_mha(H_flat, H_flat, H_flat)
-        H_out = self.fusion_layer_norm(MHA_out + H_flat)
+        attention_output, _ = self.fusion_mha(
+            flattened_views, flattened_views, flattened_views
+        )
+        fused_views = self.fusion_layer_norm(attention_output + flattened_views)
 
-        H_out = H_out.view(batch_size, 3, seq_length, self.hidden_dim).permute(0, 2, 1, 3)
-        h_t_star, h_d_star, h_f_star = H_out[:, :, 0, :], H_out[:, :, 1, :], H_out[:, :, 2, :]
+        fused_views = fused_views.view(batch_size, 3, seq_length, self.hidden_dim).permute(0, 2, 1, 3)
+        h_t_star, h_d_star, h_f_star = (
+            fused_views[:, :, 0, :],
+            fused_views[:, :, 1, :],
+            fused_views[:, :, 2, :],
+        )
         
         # Pool across sequence length and concatenate with pre-interaction features
         h_t_pool = torch.cat([h_t.mean(dim=1), h_t_star.mean(dim=1)], dim=-1)
         h_d_pool = torch.cat([h_d.mean(dim=1), h_d_star.mean(dim=1)], dim=-1)
         h_f_pool = torch.cat([h_f.mean(dim=1), h_f_star.mean(dim=1)], dim=-1)
         
-        z_t = self.F_t(h_t_pool)
-        z_d = self.F_d(h_d_pool)
-        z_f = self.F_f(h_f_pool)
+        z_t = self.temporal_feature_projector(h_t_pool)
+        z_d = self.derivative_feature_projector(h_d_pool)
+        z_f = self.frequency_feature_projector(h_f_pool)
         
         return z_t, z_d, z_f
 
@@ -172,18 +228,14 @@ class MultiViewContrastiveTimeSeriesModel(BaseModel):
         derivative_tensor = self._prepare_tensor(kwargs.get("xd"))  # [N, L, 1]
         frequency_tensor = self._prepare_tensor(kwargs.get("xf"))  # [N, L, 1]
 
-        # --- Stage Routing ---
         if self.training_stage == "pretrain":
-            # 1. Apply domain-specific augmentations
             x_t_aug = self.augment_time(temporal_tensor)
             x_d_aug = self.augment_time(derivative_tensor)
             x_f_aug = self.augment_freq(frequency_tensor)
 
-            # 2. Encode
             z_t, z_d, z_f = self._forward_features(temporal_tensor, derivative_tensor, frequency_tensor)
             z_t_aug, z_d_aug, z_f_aug = self._forward_features(x_t_aug, x_d_aug, x_f_aug)
             
-            # 3. Apply 2N x 2N NTXentLoss 
             loss = self.ntxent_loss(z_t, z_t_aug, self.tau) + \
                    self.ntxent_loss(z_d, z_d_aug, self.tau) + \
                    self.ntxent_loss(z_f, z_f_aug, self.tau)
@@ -201,8 +253,8 @@ class MultiViewContrastiveTimeSeriesModel(BaseModel):
             
             # Cross-view attention for classification
             stacked_emb = torch.stack([z_t, z_d, z_f], dim=1) # [batch_size, 3, hidden_dim]
-            attn_out, _ = self.classifier_mha(stacked_emb, stacked_emb, stacked_emb)
-            emb = attn_out + stacked_emb # Residual connection
+            attention_output, _ = self.classifier_mha(stacked_emb, stacked_emb, stacked_emb)
+            emb = attention_output + stacked_emb # Residual connection
             
             z_combined = emb.reshape(emb.size(0), -1) # Flatten to [batch_size, 3 * hidden_dim]
             logits = self.classifier(z_combined)
