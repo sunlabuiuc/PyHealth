@@ -131,7 +131,12 @@ class MVCLTrainingSleepEEG(BaseTask):
                 - 'label': Mapped 5-class sleep stage label.
         """
         pid = patient.patient_id
-        events = patient.get_events()
+        events = patient.get_events(event_type="sleepedf")
+        if not events:
+            for event_type in ("cassette", "telemetry"):
+                events = patient.get_events(event_type=event_type)
+                if events:
+                    break
         samples: List[Dict[str, Any]] = []
 
         event_id = {
