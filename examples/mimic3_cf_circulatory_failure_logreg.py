@@ -3,43 +3,40 @@ Example ablation script for MIMIC-III circulatory failure prediction.
 
 This script compares different prediction windows (6h, 12h, 24h) and
 feature settings using logistic regression. It is intended as an example
-usage script for the dataset-task pipeline and ablation study.
+usage script for the standard PyHealth dataset → task → SampleDataset pipeline.
+
+Usage:
+    python mimic3_cf_circulatory_failure_logreg.py --root /path/to/mimic-iii
 """
+
+import argparse
+
+import pandas as pd
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score, recall_score, roc_auc_score
+from sklearn.model_selection import train_test_split
 
 from pyhealth.datasets import MIMIC3CirculatoryFailureDataset
 from pyhealth.tasks import CirculatoryFailurePredictionTask
 
-import pandas as pd
-from sklearn.model_selection import train_test_split
-from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score, roc_auc_score, recall_score
 
-
-def samples_to_df(samples: list[dict]) -> pd.DataFrame:
+def samples_to_df(sample_dataset) -> pd.DataFrame:
+    """Converts a SampleDataset into a pandas DataFrame."""
     rows = []
-    for s in samples:
+    for i in range(len(sample_dataset)):
+        s = sample_dataset[i]
         rows.append(
             {
                 "patient_id": s["patient_id"],
                 "icustay_id": s["icustay_id"],
-                "gender": s["gender"],
-                "timestamp": s["timestamp"],
-                "map": s["features"]["map"],
-                "label": s["label"],
+                "gender": s.get("gender"),
+                "timestamp": s.get("timestamp"),
+                "map": to_scalar(s["map"]),
+                "map_diff": to_scalar(s["map_diff"]),
+                "label": int(to_scalar(s["label"])),
             }
         )
-    df = pd.DataFrame(rows)
-    return df
-
-
-def add_advanced_features(df: pd.DataFrame) -> pd.DataFrame:
-    """Add simple temporal features for the advanced setting."""
-    df = df.sort_values(["icustay_id", "timestamp"]).copy()
-    df["map_prev"] = df.groupby("icustay_id")["map"].shift(1)
-    df["map_diff"] = df["map"] - df["map_prev"]
-    df["map_prev"] = df["map_prev"].fillna(df["map"])
-    df["map_diff"] = df["map_diff"].fillna(0.0)
-    return df
+    return pd.DataFrame(rows)
 
 
 def evaluate_model(
@@ -90,27 +87,40 @@ def print_metrics(title: str, metrics: dict) -> None:
     print(f"roc_auc: {metrics['roc_auc']}")
     print(f"recall: {metrics['recall']}")
 
+def to_scalar(x):
+    """Converts scalar tensor-like values to Python scalars."""
+    if hasattr(x, "item"):
+        return x.item()
+    return x
 
 def main() -> None:
-    dataset = MIMIC3CirculatoryFailureDataset(
-        # path to the unzipped MIMIC-III database on your machine
-        root="mimic-iii-dataset"
+    parser = argparse.ArgumentParser(
+        description="MIMIC-III circulatory failure prediction ablation study."
     )
+    parser.add_argument(
+        "--root",
+        type=str,
+        required=True,
+        help="Path to the unzipped MIMIC-III database directory.",
+    )
+    args = parser.parse_args()
 
-    # task ablation: prediction windows
+    dataset = MIMIC3CirculatoryFailureDataset(root=args.root)
+
+    # Task ablation: prediction windows
     for window in [6, 12, 24]:
         print(f"\n############################")
         print(f"Prediction window = {window}h")
         print(f"############################")
 
         task = CirculatoryFailurePredictionTask(prediction_window_hours=window)
-        samples = dataset.set_task(task, max_patients=100)
-        df = samples_to_df(samples)
+        sample_dataset = dataset.set_task(task)
+        df = samples_to_df(sample_dataset)
 
         print("\nSample preview:")
         print(df.head())
 
-        # baseline setting
+        # Baseline setting
         baseline_metrics = evaluate_model(
             df=df,
             feature_cols=["map"],
@@ -118,10 +128,9 @@ def main() -> None:
         )
         print_metrics("Baseline: LogisticRegression(map)", baseline_metrics)
 
-        # advanced setting
-        df_adv = add_advanced_features(df)
+        # Advanced setting
         advanced_metrics = evaluate_model(
-            df=df_adv,
+            df=df,
             feature_cols=["map", "map_diff"],
             balanced=True,
         )
@@ -130,9 +139,9 @@ def main() -> None:
             advanced_metrics,
         )
 
-        # subgroup fairness
+        # Subgroup fairness
         for gender in ["M", "F"]:
-            subgroup_df = df_adv[df_adv["gender"] == gender].copy()
+            subgroup_df = df[df["gender"] == gender].copy()
             subgroup_metrics = evaluate_model(
                 df=subgroup_df,
                 feature_cols=["map", "map_diff"],

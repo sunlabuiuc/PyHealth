@@ -1,26 +1,60 @@
+"""
+MIMIC-III Circulatory Failure Dataset for PyHealth.
+
+Dataset:
+    MIMIC-III Clinical Database v1.4
+    https://physionet.org/content/mimiciii/1.4/
+
+Inspired by:
+    Hoche, M., Mineeva, O., Burger, M., Blasimme, A., & Ratsch, G. (2024). 
+    FAMEWS: A fairness auditing tool for medical early-warning systems. 
+    Proceedings of the Fifth Conference on Health, Inference, and Learning, 248, 297–311. PMLR. 
+    https://proceedings.mlr.press/v248/hoche24a.html
+    
+Description:
+    Configures the MIMIC-III tables required for a circulatory-failure
+    early-warning task.  The dataset keeps data loading separate from
+    task logic; sample generation is handled by
+    ``CirculatoryFailurePredictionTask`` through the standard PyHealth
+    ``dataset.set_task(task)`` pipeline.
+
+Authors:
+    Kuang-Yu Wang (kuangyu4@illinois.edu)
+    Ya Hsuan Yang (yhyang3@illinois.edu)
+"""
+
 import logging
 from pathlib import Path
 from typing import List, Optional
-import pandas as pd
 from .base_dataset import BaseDataset
 
 logger = logging.getLogger(__name__)
-MAP_ITEMID = 220052
+
 
 class MIMIC3CirculatoryFailureDataset(BaseDataset):
-    """MIMIC-III dataset for circulatory failure early-warning prediction.
+    """MIMIC-III wrapper for circulatory failure early-warning prediction.
 
-    This dataset is designed for a FAMEWS-inspired reproduction setting on
-    MIMIC-III. It will support cohort construction, event parsing, and
-    time-series feature extraction for circulatory failure prediction within
-    a future prediction window.
+    This dataset configures the MIMIC-III tables required for a
+    FAMEWS-inspired circulatory failure early-warning task. The dataset keeps
+    data loading separate from task logic; sample generation is handled by
+    ``CirculatoryFailurePredictionTask`` through the standard PyHealth
+    ``dataset.set_task(task)`` pipeline.
 
     Args:
         root: Root directory of the MIMIC-III dataset.
-        tables: Additional tables to load beyond the default cohort tables.
+        tables: Additional tables to load beyond the default tables.
         dataset_name: Name of the dataset instance.
         config_path: Path to the dataset config YAML file.
         **kwargs: Additional keyword arguments passed to BaseDataset.
+
+    Examples:
+        >>> from pyhealth.datasets import MIMIC3CirculatoryFailureDataset
+        >>> from pyhealth.tasks import CirculatoryFailurePredictionTask
+        >>> dataset = MIMIC3CirculatoryFailureDataset(
+        ...     root="/path/to/mimic-iii",
+        ... )
+        >>> task = CirculatoryFailurePredictionTask(prediction_window_hours=12)
+        >>> sample_dataset = dataset.set_task(task)
     """
 
     def __init__(
@@ -36,8 +70,17 @@ class MIMIC3CirculatoryFailureDataset(BaseDataset):
             logger.info("No config path provided, using default config")
             config_path = Path(__file__).parent / "configs" / "mimic3_cf.yaml"
 
-        default_tables = ["patients", "admissions", "icustays"]
-        tables = default_tables + (tables or [])
+        default_tables = [
+            "patients",
+            "admissions",
+            "icustays",
+            "chartevents",
+        ]
+
+        if tables is None:
+            tables = default_tables
+        else:
+            tables = list(dict.fromkeys(default_tables + tables))
 
         super().__init__(
             root=root,
@@ -46,239 +89,3 @@ class MIMIC3CirculatoryFailureDataset(BaseDataset):
             config_path=str(config_path),
             **kwargs,
         )
-
-    def load_cohort(self):
-        """Load patients + admissions + icustays."""
-
-        import pandas as pd
-        from pathlib import Path
-
-        root = Path(self.root)
-
-        patients_df = pd.read_csv(root / "PATIENTS.csv.gz")
-        admissions_df = pd.read_csv(root / "ADMISSIONS.csv.gz")
-        icustays_df = pd.read_csv(root / "ICUSTAYS.csv.gz")
-
-        df = patients_df.merge(admissions_df, on="SUBJECT_ID")
-        df = df.merge(icustays_df, on=["SUBJECT_ID", "HADM_ID"])
-
-        patients = []
-
-        for _, row in df.iterrows():
-            patients.append(
-                {
-                    "patient_id": row["SUBJECT_ID"],
-                    "gender": row["GENDER"],
-                    "hadm_id": row["HADM_ID"],
-                    "icustay_id": row["ICUSTAY_ID"],
-                    "admittime": row["ADMITTIME"],
-                    "intime": row["INTIME"],
-                    "outtime": row["OUTTIME"],
-                }
-            )
-
-        return patients
-
-    def load_patients(self):
-        """Backward-compatible wrapper for current development."""
-        return self.load_cohort()
-
-    def build_failure_labels(self):
-        """Build first failure time per ICU stay (MAP < 65) using chunked reads."""
-
-        root = Path(self.root)
-
-        # load cohort once
-        cohort = pd.DataFrame(self.load_cohort())
-        cohort["intime"] = pd.to_datetime(cohort["intime"])
-        cohort["outtime"] = pd.to_datetime(cohort["outtime"])
-
-        results = []
-
-        chunks = pd.read_csv(
-            root / "CHARTEVENTS.csv.gz",
-            usecols=[
-                "SUBJECT_ID",
-                "HADM_ID",
-                "ICUSTAY_ID",
-                "ITEMID",
-                "CHARTTIME",
-                "VALUENUM",
-            ],
-            chunksize=50000,
-        )
-
-        for chunk in chunks:
-            # filter MAP only
-            chunk = chunk[chunk["ITEMID"] == MAP_ITEMID].copy()
-            if chunk.empty:
-                continue
-
-            chunk["CHARTTIME"] = pd.to_datetime(
-                chunk["CHARTTIME"],
-                format="%Y-%m-%d %H:%M:%S",
-                errors="coerce",
-            )
-
-            merged = chunk.merge(
-                cohort,
-                left_on="ICUSTAY_ID",
-                right_on="icustay_id",
-            )
-
-            if merged.empty:
-                continue
-
-            filtered = merged[
-                (merged["CHARTTIME"] >= merged["intime"])
-                & (merged["CHARTTIME"] <= merged["outtime"])
-            ].copy()
-
-            if filtered.empty:
-                continue
-
-            filtered["failure_label"] = (filtered["VALUENUM"] < 65).astype(int)
-
-            failure_events = filtered[filtered["failure_label"] == 1]
-            if failure_events.empty:
-                continue
-
-            first_failure_chunk = (
-                failure_events.groupby("ICUSTAY_ID")["CHARTTIME"]
-                .min()
-                .reset_index()
-                .rename(columns={"CHARTTIME": "first_failure_time"})
-            )
-
-            results.append(first_failure_chunk)
-
-        if not results:
-            return pd.DataFrame(columns=["ICUSTAY_ID", "first_failure_time"])
-
-        first_failure = pd.concat(results, ignore_index=True)
-
-        # keep earliest failure time per ICU stay across all chunks
-        first_failure = (
-            first_failure.groupby("ICUSTAY_ID")["first_failure_time"]
-            .min()
-            .reset_index()
-        )
-
-        return first_failure
-
-    def get_patient_by_icustay_id(self, icustay_id: int):
-        """Build one task-ready patient dict for a given ICU stay."""
-
-        # 1) load cohort
-        cohort_df = pd.DataFrame(self.load_cohort())
-        cohort_df["intime"] = pd.to_datetime(cohort_df["intime"])
-        cohort_df["outtime"] = pd.to_datetime(cohort_df["outtime"])
-
-        row = cohort_df[cohort_df["icustay_id"] == icustay_id]
-        if row.empty:
-            return None
-        row = row.iloc[0]
-
-        # 2) load failure labels
-        first_failure = self.build_failure_labels()
-        failure_row = first_failure[first_failure["ICUSTAY_ID"] == icustay_id]
-
-        first_failure_time = None
-        if not failure_row.empty:
-            first_failure_time = failure_row.iloc[0]["first_failure_time"]
-
-        # 3) load MAP time series for this ICU stay
-        map_df = self.load_map_cache()
-        ts = map_df[map_df["ICUSTAY_ID"] == icustay_id].copy()  
-        ts = ts[
-            (ts["CHARTTIME"] >= row["intime"]) &
-            (ts["CHARTTIME"] <= row["outtime"])
-        ].copy()
-
-        ts = ts.sort_values("CHARTTIME")
-
-        time_series = []
-        for _, ts_row in ts.iterrows():
-            if pd.isna(ts_row["VALUENUM"]):
-                continue
-            time_series.append(
-                {
-                    "charttime": ts_row["CHARTTIME"],
-                    "map": float(ts_row["VALUENUM"]),
-                }
-            )
-
-        patient = {
-            "patient_id": int(row["patient_id"]),
-            "icustay_id": int(row["icustay_id"]),
-            "gender": row["gender"],
-            "intime": row["intime"],
-            "outtime": row["outtime"],
-            "time_series": time_series,
-            "first_failure_time": first_failure_time,
-        }
-
-        return patient
-
-    def load_map_cache(self):
-        """Load MAP (mean arterial pressure) data once and cache it."""
-
-        if hasattr(self, "_map_cache"):
-            return self._map_cache
-
-        root = Path(self.root)
-
-        print("Loading MAP cache (this will take a bit, only once)...")
-
-        chunks = pd.read_csv(
-            root / "CHARTEVENTS.csv.gz",
-            usecols=["ICUSTAY_ID", "ITEMID", "CHARTTIME", "VALUENUM"],
-            chunksize=100000,
-        )
-
-        parts = []
-
-        for chunk in chunks:
-            chunk = chunk[chunk["ITEMID"] == 220052].copy()
-            if chunk.empty:
-                continue
-
-            chunk["CHARTTIME"] = pd.to_datetime(
-                chunk["CHARTTIME"],
-                format="%Y-%m-%d %H:%M:%S",
-                errors="coerce",
-            )
-
-            parts.append(chunk)
-
-        if parts:
-            df = pd.concat(parts, ignore_index=True)
-        else:
-            df = pd.DataFrame(columns=["ICUSTAY_ID", "CHARTTIME", "VALUENUM"])
-
-        self._map_cache = df
-        print("MAP cache loaded:", len(df))
-
-        return df
-
-    def set_task(self, task, max_patients: int | None = None):
-        """Apply a task function to the cohort and return task samples."""
-
-        samples = []
-        cohort = self.load_cohort()
-
-        if max_patients is not None:
-            cohort = cohort[:max_patients]
-
-        for row in cohort:
-            icustay_id = row["icustay_id"]
-            patient = self.get_patient_by_icustay_id(icustay_id)
-
-            if patient is None:
-                continue
-
-            task_samples = task(patient)
-            if task_samples:
-                samples.extend(task_samples)
-
-        return samples
