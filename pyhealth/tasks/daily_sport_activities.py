@@ -97,10 +97,14 @@ def _sliding_windows(
 
     Raises:
         ValueError: Window size is negative.
+        ValueError: Window size is greater than signal size.
         ValueError: Stride is negative.
     """
     if window_size <= 0:
         raise ValueError(f"window_size must be positive, got {window_size}")
+    
+    if window_size > signal.shape[0]:
+        raise ValueError(f"window_size must be less than signal size ({signal.shape[0]}), got {window_size}")
 
     if stride <= 0:
         raise ValueError(f"stride must be positive, got {stride}")
@@ -131,7 +135,7 @@ class DailyAndSportActivitiesClassification(BaseTask):
         >>> from pyhealth.datasets import DailyAndSportActivitiesDataset
         >>> from pyhealth.tasks import DailyAndSportActivitiesClassification
         >>> dataset = DailyAndSportActivitiesDataset(download=True)
-        >>> task = DailyAndSportActivitiesyClassification()
+        >>> task = DailyAndSportActivitiesClassification()
         >>> samples = dataset.set_task(task)
     """
     task_name: str = "DailyAndSportActivitiesClassification"
