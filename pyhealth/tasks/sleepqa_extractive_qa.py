@@ -18,7 +18,7 @@ class SleepQAExtractiveQA(BaseTask):
     """
     task_name = "SleepQAExtractiveQA"
     input_schema = {"passage": "text", "question": "text"}
-    output_schema = {"answer_text": "text", "answer_start": "multiclass"}
+    output_schema = {"answer_text": "text", "answer_start": "integer"}
 
     def __call__(self, patient: Patient) -> List[Dict]:
         """Processes a patient object into QA samples.
