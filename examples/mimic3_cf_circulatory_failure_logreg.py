@@ -16,9 +16,8 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, recall_score, roc_auc_score
 from sklearn.model_selection import train_test_split
 
-from pyhealth.datasets import MIMIC3CirculatoryFailureDataset
+from pyhealth.datasets import MIMIC3Dataset
 from pyhealth.tasks import CirculatoryFailurePredictionTask
-
 
 def samples_to_df(sample_dataset) -> pd.DataFrame:
     """Converts a SampleDataset into a pandas DataFrame."""
@@ -105,7 +104,10 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    dataset = MIMIC3CirculatoryFailureDataset(root=args.root)
+    dataset = MIMIC3Dataset(
+        root=args.root,
+        tables=["patients", "admissions", "icustays", "chartevents"],
+    )
 
     # Task ablation: prediction windows
     for window in [6, 12, 24]:

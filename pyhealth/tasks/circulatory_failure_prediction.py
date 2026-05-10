@@ -50,10 +50,11 @@ class CirculatoryFailurePredictionTask(BaseTask):
         output_schema: Output label schema for PyHealth processors.
 
     Examples:
-        >>> from pyhealth.datasets import MIMIC3CirculatoryFailureDataset
+        >>> from pyhealth.datasets import MIMIC3Dataset
         >>> from pyhealth.tasks import CirculatoryFailurePredictionTask
-        >>> dataset = MIMIC3CirculatoryFailureDataset(
+        >>> dataset = MIMIC3Dataset(
         ...     root="/path/to/mimic-iii",
+        ...     tables=["chartevents"],
         ... )
         >>> task = CirculatoryFailurePredictionTask(prediction_window_hours=12)
         >>> sample_dataset = dataset.set_task(task)

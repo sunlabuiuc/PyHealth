@@ -91,4 +91,3 @@ from .utils import (
     save_processors,
 )
 from .collate import collate_temporal
-from .mimic3_cf import MIMIC3CirculatoryFailureDataset
