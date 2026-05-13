@@ -90,4 +90,5 @@ from .utils import (
     load_processors,
     save_processors,
 )
+from .wav2sleep import Wav2SleepDataset
 from .collate import collate_temporal
