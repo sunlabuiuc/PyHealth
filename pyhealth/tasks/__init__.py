@@ -57,6 +57,7 @@ from .sleep_staging import (
     sleep_staging_shhs_fn,
     sleep_staging_sleepedf_fn,
 )
+from .sleep_staging_ibi import SleepStagingIBI
 from .sleep_staging_v2 import SleepStagingSleepEDF
 from .temple_university_EEG_tasks import (
     EEGEventsTUEV,
