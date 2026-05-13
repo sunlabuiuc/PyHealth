@@ -1,0 +1,9 @@
+;image;dark_corner;hair;gel_border;gel_bubble;ruler;ink;patches;label;label_string
+0;ISIC_0024306.png;0;0;0;0;1;0;0;0;benign
+1;ISIC_0024307.png;0;1;0;0;0;0;0;1;malignant
+2;ISIC_0024308.png;1;0;0;0;0;0;0;0;benign
+3;ISIC_0024309.png;0;0;0;0;1;1;0;1;malignant
+4;ISIC_0024310.png;0;0;0;0;0;1;0;0;benign
+5;ISIC_0024311.png;0;0;0;0;0;0;0;1;malignant
+6;ISIC_0024312.png;0;0;1;0;0;0;0;0;benign
+7;ISIC_0024313.png;0;0;0;0;0;0;1;1;malignant

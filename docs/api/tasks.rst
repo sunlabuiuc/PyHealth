@@ -226,6 +226,9 @@ Available Tasks
     ChestX-ray14 Binary Classification <tasks/pyhealth.tasks.ChestXray14BinaryClassification>
     De-Identification NER <tasks/pyhealth.tasks.DeIDNERTask>
     ChestX-ray14 Multilabel Classification <tasks/pyhealth.tasks.ChestXray14MultilabelClassification>
+    ISIC 2018 Skin Lesion Classification <tasks/pyhealth.tasks.ISIC2018Classification>
+    ISIC 2018 Dermoscopic Artifacts Classification <tasks/pyhealth.tasks.ISIC2018ArtifactsBinaryClassification>
+    PH2 Melanoma Classification <tasks/pyhealth.tasks.PH2MelanomaClassification>
     Variant Classification (ClinVar) <tasks/pyhealth.tasks.VariantClassificationClinVar>
     Mutation Pathogenicity (COSMIC) <tasks/pyhealth.tasks.MutationPathogenicityPrediction>
     Cancer Survival Prediction (TCGA) <tasks/pyhealth.tasks.CancerSurvivalPrediction>

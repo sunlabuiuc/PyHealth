@@ -329,7 +329,10 @@ def collate_fn_dict_with_padding(batch: List[dict]) -> dict:
 
 
 def get_dataloader(
-    dataset: litdata.StreamingDataset, batch_size: int, shuffle: bool = False
+    dataset: litdata.StreamingDataset,
+    batch_size: int,
+    shuffle: bool = False,
+    num_workers: int = 0,
 ) -> DataLoader:
     """Creates a DataLoader for a given dataset.
 
@@ -337,6 +340,8 @@ def get_dataloader(
         dataset: The dataset to load data from.
         batch_size: The number of samples per batch.
         shuffle: Whether to shuffle the data at every epoch.
+        num_workers: Number of subprocesses for data loading (default: 0,
+            meaning data is loaded in the main process).
 
     Returns:
         A DataLoader instance for the dataset.
@@ -345,6 +350,7 @@ def get_dataloader(
     dataloader = DataLoader(
         dataset,
         batch_size=batch_size,
+        num_workers=num_workers,
         collate_fn=collate_fn_dict_with_padding,
     )
 
