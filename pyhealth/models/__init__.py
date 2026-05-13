@@ -24,6 +24,7 @@ from .retain import MultimodalRETAIN, RETAIN, RETAINLayer
 from .rnn import MultimodalRNN, RNN, RNNLayer
 from .safedrug import SafeDrug, SafeDrugLayer
 from .sparcnet import DenseBlock, DenseLayer, SparcNet, TransitionLayer
+from .spes import SPESResNet, SPESTransformer
 from .stagenet import StageNet, StageNetLayer
 from .stagenet_mha import StageAttentionNet, StageNetAttentionLayer
 from .tcn import TCN, TCNLayer
