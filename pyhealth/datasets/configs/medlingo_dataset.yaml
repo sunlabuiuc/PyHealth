@@ -1,0 +1,36 @@
+# configs/medlingo_dataset.yaml
+#
+# PyHealth 2.0 table schema for the MedLingo dataset.
+#
+# BaseDataset.load_table() reads this config to build the global event
+# DataFrame. Each table entry must define:
+#   file_path   - path to the CSV relative to `root`
+#   patient_id  - column to use as patient_id (the abbreviation, word1)
+#   timestamp   - null since MedLingo has no timestamps
+#   attributes  - additional columns to carry through as event attributes
+#   join        - list of additional files to join (none for MedLingo)
+#
+# Source:
+#   https://github.com/Flora-jia-jfr/diagnosing_our_datasets/tree/main/datasets/MedLingo
+
+version: "1.0"
+
+tables:
+  questions:
+    file_path: questions.csv
+
+    # word1 is the abbreviation — used as the unique patient identifier
+    patient_id: word1
+
+    # No timestamps in MedLingo
+    timestamp: null
+    timestamp_format: null
+
+    # Carry all meaningful columns through as event attributes
+    attributes:
+      - word2
+      - question
+      - answer
+
+    # No joins needed
+    join: []
