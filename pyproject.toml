@@ -6,7 +6,7 @@
 [project]
 name = "pyhealth"
 # must be kept in sync with git tags; is not updated by any automation tools
-version = "2.0.1"
+version = "2.0.0"
 authors = [
   {name = "John Wu", email = "johnwu3@illinois.edu"},
   {name = "Chaoqi Yang"},
@@ -37,6 +37,7 @@ dependencies = [
   "tqdm",
   "polars~=1.35.2",
   "pandas~=2.3.1",
+  "nibabel",
   "pydantic~=2.11.7",
   "dask[complete]~=2025.11.0",
   "litdata~=0.2.59",

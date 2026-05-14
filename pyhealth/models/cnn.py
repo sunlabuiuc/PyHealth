@@ -13,6 +13,7 @@ from pyhealth.models import BaseModel
 from pyhealth.models.embedding import EmbeddingModel
 from pyhealth.processors import (
     ImageProcessor,
+    NiftiImageProcessor,
     MultiHotProcessor,
     SequenceProcessor,
     StageNetProcessor,
@@ -251,7 +252,7 @@ class CNN(BaseModel):
             ),
         ):
             return 1
-        if isinstance(processor, ImageProcessor):
+        if isinstance(processor, (ImageProcessor, NiftiImageProcessor)):
             return 2
         raise ValueError(
             f"Unsupported processor type for feature convolution: {type(processor).__name__}"

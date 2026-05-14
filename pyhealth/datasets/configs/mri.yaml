@@ -1,0 +1,20 @@
+version: "1.0"
+tables:
+  mri:
+    file_path: "mri-metadata-pyhealth.csv"
+    patient_id: "id"
+    timestamp: null
+    attributes:
+    - "path"
+    - "gender"
+    - "dominant_hand"
+    - "age"
+    - "education_level"
+    - "social_economic_status"
+    - "mini_mental_state_examination"
+    - "clinical_dementia_rating"
+    - "estimated_total_intracranial_volume"
+    - "normalized_whole_brain_volume"
+    - "average_symmetric_fissure_thickness"
+    - "delay_of_cognitive_assessment"
+    - "alzheimer"

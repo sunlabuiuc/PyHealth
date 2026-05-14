@@ -8,6 +8,8 @@ import torch.nn as nn
 
 from ..datasets import SampleDataset
 from ..processors import (
+    ImageProcessor,
+    NiftiImageProcessor,
     MultiHotProcessor,
     NestedFloatsProcessor,
     NestedSequenceProcessor,
@@ -232,6 +234,11 @@ class EmbeddingModel(BaseModel):
                 self.embedding_layers[field_name] = nn.Linear(
                     in_features=num_categories, out_features=embedding_dim
                 )
+
+            # Image-like inputs are already dense tensors from processors;
+            # keep them as-is via identity to avoid noisy warnings.
+            elif isinstance(processor, (ImageProcessor, NiftiImageProcessor)):
+                self.embedding_layers[field_name] = nn.Identity()
 
             # Smart Processor (Token-based) -> Transformers
             elif hasattr(processor, "is_token") and processor.is_token():
