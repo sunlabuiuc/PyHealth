@@ -1,0 +1,80 @@
+# PyHealth unified training config — base defaults
+# All values here are the OOM-safe defaults validated on devsplit.
+# Override per-condition and per-model in condition/model-specific configs.
+
+# ── paths ──────────────────────────────────────────────────────────────────────
+ehr_root: /shared/rsaas/physionet.org/files/mimiciv/2.2
+note_root: /shared/rsaas/physionet.org/files/mimic-note
+cache_dir: /home/rianatri/pyhealth_cache
+output_dir: output/unified
+
+# ── task ──────────────────────────────────────────────────────────────────────
+# One of: notes_labs | labs_only | icd_labs | clinical_notes_icd_labs | stagenet
+task: notes_labs
+observation_window_hours: 24
+
+# Task flags (notes_labs only)
+icd_codes: false
+include_vitals: false
+balanced_sampling: false
+balanced_ratio: 1.0
+
+# ── model ─────────────────────────────────────────────────────────────────────
+# One of: mlp | rnn | transformer | bottleneck_transformer | ehrmamba | jambaehr
+model: mlp
+freeze_encoder: false
+
+# Shared embedding dims — safe defaults across all models on 24 GB GPU (frozen)
+# or 80 GB A100 (full BERT).
+embedding_dim: 128
+hidden_dim: 128
+heads: 4
+num_layers: 2
+dropout: 0.1
+
+# ── training ──────────────────────────────────────────────────────────────────
+epochs: 50
+batch_size: 16
+lr: null          # null = model-specific default (1e-4 for all)
+weight_decay: 1.0e-5
+patience: 10
+seed: 42
+num_workers: 2
+
+# ── dev mode ──────────────────────────────────────────────────────────────────
+# 0 = full dataset; N > 0 = limit to N patients (devsplit)
+dev: 0
+
+# ── model-specific overrides ──────────────────────────────────────────────────
+# These are merged at runtime based on `model` value.
+# Keys match CLI args without the leading `--`.
+_model_overrides:
+  transformer:
+    batch_size: 2
+    embedding_dim: 64
+    hidden_dim: 64
+    heads: 2
+    num_layers: 1
+  bottleneck_transformer:
+    batch_size: 2
+    embedding_dim: 96
+    hidden_dim: 96
+    heads: 2
+    num_layers: 1
+    max_grad_norm: 0.5
+    bottlenecks_n: 4
+    fusion_startidx: 1
+  ehrmamba:
+    batch_size: 2
+    embedding_dim: 96
+    hidden_dim: 96
+    mamba_state_size: 16
+    mamba_conv_kernel: 4
+  jambaehr:
+    batch_size: 2
+    embedding_dim: 64
+    hidden_dim: 64
+    jamba_transformer_layers: 1
+    jamba_mamba_layers: 2
+    mamba_state_size: 16
+    mamba_conv_kernel: 4
