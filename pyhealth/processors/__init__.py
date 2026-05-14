@@ -19,6 +19,7 @@ def get_processor(name: str):
 
 # Import all processors so they register themselves
 from .image_processor import ImageProcessor
+from .dermoscopy_image_processor import DermoscopyImageProcessor
 from .label_processor import (
     BinaryLabelProcessor,
     MultiClassLabelProcessor,
@@ -78,5 +79,6 @@ __all__ = [
     "TimeImageProcessor",
     "GraphProcessor",
     "AudioProcessor",
+    "DermoscopyImageProcessor",
     "TupleTimeTextProcessor",
 ]
