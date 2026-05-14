@@ -64,6 +64,7 @@ from .omop import OMOPDataset
 from .physionet_deid import PhysioNetDeIDDataset
 from .sample_dataset import SampleBuilder, SampleDataset, create_sample_dataset
 from .shhs import SHHSDataset
+from .shhs_ecg import SHHSECGDataset
 from .sleepedf import SleepEDFDataset
 from .bmd_hs import BMDHSDataset
 from .support2 import Support2Dataset
