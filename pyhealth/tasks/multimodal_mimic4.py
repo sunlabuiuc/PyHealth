@@ -35,14 +35,14 @@ class ClinicalNotesMIMIC4(BaseTask):
             "discharge_note_times": (
                 "tuple_time_text",
                 {
-                    "tokenizer_model": "bert-base-uncased",
+                    "tokenizer_model": "emilyalsentzer/Bio_ClinicalBERT",
                     "type_tag": "note",
                 },
             ),
             "radiology_note_times": (
                 "tuple_time_text",
                 {
-                    "tokenizer_model": "bert-base-uncased",
+                    "tokenizer_model": "emilyalsentzer/Bio_ClinicalBERT",
                     "type_tag": "note",
                 },
             )
@@ -200,14 +200,14 @@ class ClinicalNotesICDLabsMIMIC4(BaseTask):
             "discharge_note_times": (
                 "tuple_time_text",
                 {
-                    "tokenizer_model": "bert-base-uncased",
+                    "tokenizer_model": "emilyalsentzer/Bio_ClinicalBERT",
                     "type_tag": "note",
                 },
             ),
             "radiology_note_times": (
                 "tuple_time_text",
                 {
-                    "tokenizer_model": "bert-base-uncased",
+                    "tokenizer_model": "emilyalsentzer/Bio_ClinicalBERT",
                     "type_tag": "note",
                 },
             ),
