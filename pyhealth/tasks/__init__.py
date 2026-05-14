@@ -67,3 +67,4 @@ from .variant_classification import (
     VariantClassificationClinVar,
 )
 from .patient_linkage_mimic3 import PatientLinkageMIMIC3Task
+from .ehr_fact_checking import EHRFactCheckingMIMIC3, STANCE_TO_INT, INT_TO_STANCE
