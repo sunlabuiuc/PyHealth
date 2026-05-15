@@ -13,6 +13,12 @@ from .multilabel import multilabel_metrics_fn
 # from .fairness import fairness_metrics_fn
 from .ranking import ranking_metrics_fn
 from .regression import regression_metrics_fn
+from .survival import (
+    concordance_index_censored,
+    brier_score_survival,
+    integrated_brier_score,
+    survival_metrics_fn,
+)
 
 __all__ = [
     "binary_metrics_fn",
@@ -26,4 +32,8 @@ __all__ = [
     "multilabel_metrics_fn",
     "ranking_metrics_fn",
     "regression_metrics_fn",
+    "concordance_index_censored",
+    "brier_score_survival",
+    "integrated_brier_score",
+    "survival_metrics_fn",
 ]
