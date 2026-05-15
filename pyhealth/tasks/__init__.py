@@ -2,6 +2,7 @@ from .base_task import BaseTask
 from .benchmark_ehrshot import BenchmarkEHRShot
 from .cancer_survival import CancerMutationBurden, CancerSurvivalPrediction
 from .bmd_hs_disease_classification import BMDHSDiseaseClassification
+from .wesad_stress_detection import wesad_stress_detection_fn
 from .cardiology_detect import (
     cardiology_isAD_fn,
     cardiology_isAR_fn,

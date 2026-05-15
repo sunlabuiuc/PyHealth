@@ -1,0 +1,8 @@
+dataset_name: WESADNonstationary
+description: WESAD EDA dataset with optional nonstationarity augmentation
+modality: signal
+task_type: classification
+signals:
+  - eda
+label: binary_stress
+sampling_rate: 4

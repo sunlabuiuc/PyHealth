@@ -46,6 +46,7 @@ class SampleSignalDataset:
         )
 
 
+from .wesad_nonstationary import WESADNonstationaryDataset
 from .base_dataset import BaseDataset
 from .cardiology import CardiologyDataset
 from .chestxray14 import ChestXray14Dataset
