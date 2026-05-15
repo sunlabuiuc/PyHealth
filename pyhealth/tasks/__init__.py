@@ -1,6 +1,7 @@
 from .base_task import BaseTask
 from .benchmark_ehrshot import BenchmarkEHRShot
 from .cancer_survival import CancerMutationBurden, CancerSurvivalPrediction
+from .tcga_rnaseq_classification import TCGARNASeqCancerTypeClassification
 from .bmd_hs_disease_classification import BMDHSDiseaseClassification
 from .cardiology_detect import (
     cardiology_isAD_fn,

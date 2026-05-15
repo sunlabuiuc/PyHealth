@@ -170,6 +170,7 @@ API Reference
     :maxdepth: 3
 
     models/pyhealth.models.BaseModel
+    models/pyhealth.models.bulk_rnabert
     models/pyhealth.models.LogisticRegression
     models/pyhealth.models.MLP
     models/pyhealth.models.CNN

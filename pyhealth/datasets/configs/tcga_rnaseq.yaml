@@ -1,0 +1,15 @@
+# Configuration for TCGARNASeqDataset
+# Defines the "rnaseq" table loaded from tcga_rnaseq_pyhealth.csv,
+# which is written by TCGARNASeqDataset._preprocess().
+version: "1.0"
+tables:
+  rnaseq:
+    file_path: "tcga_rnaseq_pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+    - "sample_id"
+    - "cohort"
+    - "survival_time"
+    - "event"
+    - "gene_expression"
