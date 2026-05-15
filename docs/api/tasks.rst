@@ -217,6 +217,8 @@ Available Tasks
     Mortality Prediction (Next Visit) <tasks/pyhealth.tasks.mortality_prediction>
     Mortality Prediction (StageNet MIMIC-IV) <tasks/pyhealth.tasks.mortality_prediction_stagenet_mimic4>
     Patient Linkage (MIMIC-III) <tasks/pyhealth.tasks.patient_linkage_mimic3_fn>
+    ICU Re-entry Classification (MIMIC-III) <tasks/pyhealth.tasks.mimic3_icu_reentry>
+    MIMIC-III Clinical Aggregation <tasks/pyhealth.tasks.mimic3_clinical_aggregation>
     Readmission Prediction <tasks/pyhealth.tasks.readmission_prediction>
     Sleep Staging <tasks/pyhealth.tasks.sleep_staging>
     Sleep Staging (SleepEDF) <tasks/pyhealth.tasks.SleepStagingSleepEDF>
