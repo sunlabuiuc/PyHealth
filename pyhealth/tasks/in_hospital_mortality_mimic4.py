@@ -63,7 +63,8 @@ class InHospitalMortalityMIMIC4(BaseTask):
         samples = []
 
         demographics = patient.get_events(event_type="patients")
-        assert len(demographics) == 1
+        if len(demographics) != 1:
+            raise ValueError(f"Expected exactly 1 demographics record, got {len(demographics)}")
         demographics = demographics[0]
         anchor_age = int(demographics.anchor_age)
         if anchor_age < 18:

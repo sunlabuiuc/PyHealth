@@ -44,7 +44,8 @@ class MedicalTranscriptionsClassification(BaseTask):
         """
         event = patient.get_events(event_type="mtsamples")
         # There should be only one event
-        assert len(event) == 1
+        if len(event) != 1:
+            raise ValueError(f"Expected exactly 1 mtsamples event, got {len(event)}")
         event = event[0]
 
         transcription_valid = isinstance(event.transcription, str)
