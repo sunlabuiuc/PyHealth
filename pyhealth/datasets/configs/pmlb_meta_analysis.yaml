@@ -1,0 +1,27 @@
+# Configuration for PMLBMetaAnalysisDataset
+# Defines how BaseDataset should load and parse the PMLB CSV file.
+#
+# Each row in the CSV represents a single simulated trial:
+#   - patient_id: unique trial identifier
+#   - visit_id: single visit per trial
+#   - true_effect: the target value (used as true effect U)
+#   - remaining columns: trial features (X)
+version: "5.0"
+tables:
+  pmlb_meta_analysis:
+    file_path: "pmlb_meta_analysis-metadata-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+    - "visit_id"
+    - "Inst"
+    - "sex"
+    - "Treatment"
+    - "Grade"
+    - "Age"
+    - "Condition"
+    - "Site"
+    - "T"
+    - "N"
+    - "Status"
+    - "true_effect"

@@ -1,0 +1,42 @@
+# Configuration for PMLBMetaAnalysisDataset (noisy / synthetic variant)
+# Defines how BaseDataset should load and parse the PMLB CSV when
+# the dataset is instantiated with synthesize_noise=True.
+#
+# Each row in the CSV represents a single simulated trial:
+#   - patient_id: unique trial identifier
+#   - visit_id: single visit per trial
+#   - Inst .. Status: trial features (X) from the
+#     1196_BNG_pharynx PMLB regression dataset
+#   - true_effect: underlying true effect U
+#   - observed_effect: noisy observation Y ~ N(U, V) of U
+#   - variance: within-trial variance V, sampled as
+#     Exp(1) * sqrt(effect_noise * E|U|)
+#   - prior_mean: imperfect predictor M of U, calibrated so that
+#     MSE(M, U) = prior_error * Var(U)
+#
+# The three synthetic columns are generated at CSV creation time by
+# PMLBMetaAnalysisDataset._add_synthetic_noise() following Appendix
+# B.6 of Kaul & Gordon (2024). For the clean regression variant
+# (synthesize_noise=False) see pmlb_meta_analysis.yaml.
+version: "5.0"
+tables:
+  pmlb_meta_analysis:
+    file_path: "pmlb_meta_analysis_noisy-metadata-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+    - "visit_id"
+    - "Inst"
+    - "sex"
+    - "Treatment"
+    - "Grade"
+    - "Age"
+    - "Condition"
+    - "Site"
+    - "T"
+    - "N"
+    - "Status"
+    - "true_effect"
+    - "observed_effect"
+    - "variance"
+    - "prior_mean"

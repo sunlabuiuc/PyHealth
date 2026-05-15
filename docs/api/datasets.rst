@@ -244,5 +244,7 @@ Available Datasets
     datasets/pyhealth.datasets.ClinVarDataset
     datasets/pyhealth.datasets.COSMICDataset
     datasets/pyhealth.datasets.TCGAPRADDataset
+    datasets/pyhealth.datasets.PMLBMetaAnalysisDataset
+    datasets/pyhealth.datasets.AmiodaroneTrialDataset
     datasets/pyhealth.datasets.splitter
     datasets/pyhealth.datasets.utils
