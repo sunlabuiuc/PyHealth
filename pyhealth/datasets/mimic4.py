@@ -31,6 +31,20 @@ def log_memory_usage(tag=""):
 class MIMIC4EHRDataset(BaseDataset):
     """
     MIMIC-IV EHR dataset.
+    Download: https://physionet.org/content/mimiciv/2.2/
+    Access: Requires PhysioNet credentialed access and DUA agreement.
+
+    Required files:
+        - admissions.csv
+        - patients.csv
+        - diagnoses_icd.csv
+        - procedures_icd.csv
+        - prescriptions.csv
+        - labevents.csv
+        - icustays.csv
+
+    Compatible formats: .csv
+    Note: All files must be placed in the root directory.
 
     This class is responsible for loading and managing the MIMIC-IV EHR dataset,
     which includes tables such as patients, admissions, and icustays.

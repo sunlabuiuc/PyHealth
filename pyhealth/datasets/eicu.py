@@ -8,7 +8,23 @@ logger = logging.getLogger(__name__)
 
 
 class eICUDataset(BaseDataset):
-    """
+     """
+    Download: https://eicu-crd.mit.edu/
+    Access: Requires PhysioNet credentialed access and DUA agreement.
+    
+    Required files:
+        - patient.csv
+        - hospital.csv
+        - diagnosis.csv
+        - treatment.csv
+        - medication.csv
+        - lab.csv
+        - physicalExam.csv
+        - admissionDx.csv
+    
+    Compatible formats: .csv
+    Note: All files must be placed in the root directory.
+   
     A dataset class for handling eICU data.
 
     The eICU dataset is a large dataset of de-identified health records of ICU
