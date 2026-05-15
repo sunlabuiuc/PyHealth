@@ -10,6 +10,7 @@ from .deepr import Deepr, DeeprLayer
 from .embedding import EmbeddingModel
 from .gamenet import GAMENet, GAMENetLayer
 from .jamba_ehr import JambaEHR, JambaLayer
+from .labrador import LabradorModel
 from .logistic_regression import LogisticRegression
 from .gan import GAN
 from .gnn import GAT, GCN
