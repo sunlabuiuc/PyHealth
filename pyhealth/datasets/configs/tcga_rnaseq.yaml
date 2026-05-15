@@ -1,0 +1,24 @@
+# Reference ``DatasetConfig`` for TCGA RNA-seq (two-gene placeholder layout).
+# Real cohorts: ``TCGARNASeqDataset`` writes ``tcga_rnaseq_pyhealth_config.yaml``
+# under the dataset ``root`` with one attribute per gene after preprocessing.
+version: "1.0"
+tables:
+  rnaseq:
+    file_path: tcga_rnaseq_tokenized-pyhealth.csv
+    patient_id: patient_id
+    timestamp: null
+    attributes:
+      - cohort
+      - gene0
+      - gene1
+    join: []
+  clinical:
+    file_path: tcga_rnaseq_clinical-pyhealth.csv
+    patient_id: patient_id
+    timestamp: null
+    attributes:
+      - cohort
+      - vital_status
+      - days_to_death
+      - days_to_last_follow_up
+    join: []
