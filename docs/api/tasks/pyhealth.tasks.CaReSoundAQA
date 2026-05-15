@@ -1,0 +1,7 @@
+pyhealth.tasks.CaReSoundAQA
+==============================================
+
+.. autoclass:: pyhealth.tasks.CaReSoundAQA
+    :members:
+    :undoc-members:
+    :show-inheritance:
