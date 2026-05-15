@@ -1,0 +1,18 @@
+pyhealth.models.KeepEmbedding
+=============================
+
+KEEP embedding model for ontology-preserving medical code embeddings.
+
+
+Classes
+-------
+
+.. autoclass:: pyhealth.models.KeepEmbedding
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: pyhealth.models.keep_embedding.N2V
+   :members:
+   :undoc-members:
+   :show-inheritance:
