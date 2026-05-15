@@ -1,0 +1,14 @@
+# Authors: Aaron Miller (aaronm6@illinois.edu), Kathryn Thompson (kyt3@illinois.edu), Pushpendra Tiwari (pkt3@illinois.edu)
+version: "1.0"
+tables:
+  chexpert_plus:
+    file_path: "df_chexpert_plus_240401.csv"
+    patient_id: "path_to_image"
+    timestamp: null
+    attributes:
+      - "path_to_image"
+      - "section_findings"
+      - "section_impression"
+      - "section_history"
+      - "section_comparison"
+    join: []

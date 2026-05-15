@@ -13,6 +13,7 @@ from .multilabel import multilabel_metrics_fn
 # from .fairness import fairness_metrics_fn
 from .ranking import ranking_metrics_fn
 from .regression import regression_metrics_fn
+from .rexkg import rexkg_metrics
 
 __all__ = [
     "binary_metrics_fn",

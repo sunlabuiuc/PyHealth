@@ -218,6 +218,8 @@ These examples are located in ``examples/cxr/``.
      - VAE for chest X-ray image generation
    * - ``cxr/ChestXray-image-generation-GAN.ipynb``
      - GAN for chest X-ray image generation (notebook)
+   * - ``cxr/chexpert_plus_rexkg.ipynb``
+     - Radiology KG extraction with CheXpert Plus (ReXKG pipeline, notebook)
 
 Interpretability
 ----------------
