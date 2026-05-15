@@ -1,0 +1,10 @@
+version: "5.0"
+tables:
+  segments:
+    file_path: "dsa-pyhealth.csv"
+    patient_id: subject_id
+    timestamp: null
+    attributes:
+      - segment_path
+      - activity_name
+      - activity_code
