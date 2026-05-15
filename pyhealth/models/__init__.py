@@ -45,4 +45,6 @@ from .text_embedding import TextEmbedding
 from .sdoh import SdohClassifier
 from .medlink import MedLink
 from .unified_embedding import UnifiedMultimodalEmbeddingModel, SinusoidalTimeEmbedding
+from .spes_resnet import SPESResNet
+from .spes_transformer import SPESTransformer
 from .califorest import CaliForest
