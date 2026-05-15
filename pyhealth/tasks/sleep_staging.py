@@ -1,8 +1,14 @@
 import os
 import pickle
+from pathlib import Path
+from typing import Any, Dict, Optional, Sequence
+
 import mne
-import pandas as pd
 import numpy as np
+import pandas as pd
+import polars as pl
+
+from .base_task import BaseTask
 
 
 def sleep_staging_isruc_fn(record, epoch_seconds=10, label_id=1):
@@ -327,6 +333,578 @@ def sleep_staging_shhs_fn(record, epoch_seconds=30):
             }
         )
     return samples
+
+
+class SleepStagingDREAMT(BaseTask):
+    """Three-class sleep staging task for DREAMT-style wearable sequences.
+
+    This task converts one DREAMT subject recording into fixed-length windows of
+    wearable features and maps detailed sleep stages to three classes:
+
+    - ``0``: Wake
+    - ``1``: NREM
+    - ``2``: REM
+
+    Supported input formats:
+
+    - Raw per-subject CSV/Parquet/Pickle files containing wearable columns and a
+      ``Sleep_Stage`` column.
+    - Processed ``.npz``/``.npy`` dictionaries with keys such as
+      ``features``, ``labels``, and optional ``feature_names``.
+
+    The default feature set mirrors the smartwatch-oriented signals available in
+    DREAMT and includes ``IBI`` plus common wearable context channels.
+    """
+
+    task_name: str = "SleepStagingDREAMT"
+    input_schema: Dict[str, str] = {"signal": "tensor"}
+    output_schema: Dict[str, str] = {"label": "multiclass"}
+
+    DEFAULT_FEATURE_COLUMNS = (
+        "IBI",
+        "HR",
+        "BVP",
+        "EDA",
+        "TEMP",
+        "ACC_X",
+        "ACC_Y",
+        "ACC_Z",
+    )
+    _IGNORE_LABEL = -1
+    _LABEL_MAP = {
+        "W": 0,
+        "WAKE": 0,
+        "WAKEFUL": 0,
+        "0": 0,
+        "N1": 1,
+        "N2": 1,
+        "N3": 1,
+        "N4": 1,
+        "NREM": 1,
+        "1": 1,
+        "2": 1,
+        "3": 1,
+        "4": 1,
+        "R": 2,
+        "REM": 2,
+        "5": 2,
+    }
+    _INVALID_LABELS = {"", "P", "PREPARATION", "UNKNOWN", "?", "NAN", "NONE"}
+
+    def __init__(
+        self,
+        feature_columns: Optional[Sequence[str]] = None,
+        label_column: str = "Sleep_Stage",
+        source_preference: str = "wearable",
+        window_seconds: float = 30.0,
+        stride_seconds: Optional[float] = None,
+        window_size: Optional[int] = None,
+        stride: Optional[int] = None,
+        default_sampling_rate_hz: Optional[float] = None,
+        min_labeled_fraction: float = 0.5,
+        pad_short_windows: bool = False,
+        include_partial_last_window: bool = False,
+    ) -> None:
+        if source_preference not in {"auto", "wearable", "psg"}:
+            raise ValueError(
+                "source_preference must be one of 'auto', 'wearable', or 'psg'."
+            )
+        if window_seconds <= 0 and window_size is None:
+            raise ValueError(
+                "window_seconds must be positive when window_size is None."
+            )
+        if min_labeled_fraction <= 0 or min_labeled_fraction > 1:
+            raise ValueError("min_labeled_fraction must be in (0, 1].")
+
+        self.feature_columns = tuple(feature_columns or self.DEFAULT_FEATURE_COLUMNS)
+        self.label_column = label_column
+        self.source_preference = source_preference
+        self.window_seconds = float(window_seconds)
+        self.stride_seconds = (
+            float(stride_seconds) if stride_seconds is not None else None
+        )
+        self.window_size = window_size
+        self.stride = stride
+        self.default_sampling_rate_hz = default_sampling_rate_hz
+        self.min_labeled_fraction = min_labeled_fraction
+        self.pad_short_windows = pad_short_windows
+        self.include_partial_last_window = include_partial_last_window
+
+    def pre_filter(self, df: pl.LazyFrame) -> pl.LazyFrame:
+        return df.filter(
+            (pl.col("event_type") == "dreamt_sleep")
+            & (
+                pl.col("dreamt_sleep/signal_file").is_not_null()
+                | pl.col("dreamt_sleep/file_64hz").is_not_null()
+                | pl.col("dreamt_sleep/file_100hz").is_not_null()
+            )
+        )
+
+    @classmethod
+    def _normalize_stage_label(cls, value: Any) -> int:
+        if pd.isna(value):
+            return cls._IGNORE_LABEL
+        normalized = str(value).strip().upper()
+        if normalized in cls._INVALID_LABELS:
+            return cls._IGNORE_LABEL
+        return cls._LABEL_MAP.get(normalized, cls._IGNORE_LABEL)
+
+    @staticmethod
+    def _load_processed_payload(path: Path) -> Dict[str, Any]:
+        if path.suffix.lower() == ".npz":
+            with np.load(path, allow_pickle=True) as data:
+                return {key: data[key] for key in data.files}
+
+        payload = np.load(path, allow_pickle=True)
+        if isinstance(payload, np.ndarray) and payload.shape == ():
+            payload = payload.item()
+        if not isinstance(payload, dict):
+            raise ValueError(
+                f"Unsupported DREAMT numpy payload in {path}. "
+                "Expected a dict-like object with features and labels."
+            )
+        return payload
+
+    def _load_signal_source(self, event) -> tuple[Path, Optional[float]]:
+        event_sampling_rate = getattr(event, "sampling_rate_hz", None)
+        if event_sampling_rate is not None:
+            try:
+                event_sampling_rate = float(event_sampling_rate)
+            except (TypeError, ValueError):
+                event_sampling_rate = None
+
+        candidates: list[tuple[Optional[str], Optional[float]]] = []
+        if self.source_preference == "wearable":
+            candidates.extend(
+                [
+                    (getattr(event, "file_64hz", None), 64.0),
+                    (getattr(event, "signal_file", None), event_sampling_rate),
+                    (getattr(event, "file_100hz", None), 100.0),
+                ]
+            )
+        elif self.source_preference == "psg":
+            candidates.extend(
+                [
+                    (getattr(event, "file_100hz", None), 100.0),
+                    (getattr(event, "signal_file", None), event_sampling_rate),
+                    (getattr(event, "file_64hz", None), 64.0),
+                ]
+            )
+        else:
+            candidates.extend(
+                [
+                    (getattr(event, "signal_file", None), event_sampling_rate),
+                    (getattr(event, "file_64hz", None), 64.0),
+                    (getattr(event, "file_100hz", None), 100.0),
+                ]
+            )
+
+        for file_path, sample_rate in candidates:
+            if file_path is None or (
+                isinstance(file_path, float) and np.isnan(file_path)
+            ):
+                continue
+            path = Path(str(file_path)).expanduser().resolve()
+            if path.exists():
+                return path, sample_rate
+
+        raise FileNotFoundError(
+            "No DREAMT signal file was found for the requested patient event."
+        )
+
+    def _dataframe_from_payload(
+        self,
+        payload: Dict[str, Any],
+        path: Path,
+    ) -> pd.DataFrame:
+        if "frame" in payload:
+            frame = payload["frame"]
+            if isinstance(frame, pd.DataFrame):
+                return frame.copy()
+            return pd.DataFrame(frame)
+
+        if "features" not in payload or "labels" not in payload:
+            raise ValueError(
+                f"Processed DREAMT file {path} must contain 'features' and 'labels'."
+            )
+
+        features = np.asarray(payload["features"], dtype=np.float32)
+        labels = np.asarray(payload["labels"])
+        if features.ndim != 2:
+            raise ValueError(
+                f"Processed DREAMT file {path} must provide features with shape [T, F]."
+            )
+        if labels.ndim != 1 or labels.shape[0] != features.shape[0]:
+            raise ValueError(
+                f"Processed DREAMT file {path} must provide labels with shape [T]."
+            )
+
+        feature_names = payload.get("feature_names", self.feature_columns)
+        feature_names = [str(name) for name in feature_names]
+        if len(feature_names) != features.shape[1]:
+            raise ValueError(
+                f"feature_names length does not match feature width in {path}."
+            )
+
+        frame = pd.DataFrame(features, columns=feature_names)
+        frame[self.label_column] = labels
+        if "timestamps" in payload:
+            frame["TIMESTAMP"] = np.asarray(payload["timestamps"])
+        return frame
+
+    def _load_frame(self, path: Path) -> pd.DataFrame:
+        suffix = path.suffix.lower()
+        if suffix == ".csv":
+            return pd.read_csv(path)
+        if suffix == ".parquet":
+            return pd.read_parquet(path)
+        if suffix in {".pkl", ".pickle"}:
+            payload = pd.read_pickle(path)
+            if isinstance(payload, pd.DataFrame):
+                return payload
+            if isinstance(payload, dict):
+                return self._dataframe_from_payload(payload, path)
+            raise ValueError(f"Unsupported pickle payload in {path}.")
+        if suffix in {".npz", ".npy"}:
+            payload = self._load_processed_payload(path)
+            return self._dataframe_from_payload(payload, path)
+        raise ValueError(f"Unsupported DREAMT file format: {path.suffix}")
+
+    @staticmethod
+    def _infer_sampling_rate_hz(
+        frame: pd.DataFrame,
+        fallback: Optional[float],
+    ) -> float:
+        if "TIMESTAMP" in frame.columns:
+            timestamps = pd.to_numeric(frame["TIMESTAMP"], errors="coerce").to_numpy()
+            diffs = np.diff(timestamps)
+            diffs = diffs[np.isfinite(diffs) & (diffs > 0)]
+            if diffs.size > 0:
+                median_step = float(np.median(diffs))
+                if median_step > 0:
+                    return 1.0 / median_step
+        if fallback is not None and fallback > 0:
+            return float(fallback)
+        raise ValueError(
+            "Unable to infer DREAMT sampling rate. Provide TIMESTAMP values or "
+            "set default_sampling_rate_hz."
+        )
+
+    def _resolve_window_params(self, sample_rate_hz: float) -> tuple[int, int]:
+        window_size = self.window_size
+        if window_size is None:
+            window_size = max(1, int(round(self.window_seconds * sample_rate_hz)))
+
+        stride = self.stride
+        if stride is None:
+            if self.stride_seconds is not None:
+                stride = max(1, int(round(self.stride_seconds * sample_rate_hz)))
+            else:
+                stride = window_size
+        return window_size, stride
+
+    def _extract_feature_frame(self, frame: pd.DataFrame, path: Path) -> pd.DataFrame:
+        available_columns = {str(column): column for column in frame.columns}
+        feature_data = {}
+        for column in self.feature_columns:
+            source_column = available_columns.get(column)
+            if source_column is None:
+                feature_data[column] = np.zeros(len(frame), dtype=np.float32)
+                continue
+            values = pd.to_numeric(frame[source_column], errors="coerce")
+            feature_data[column] = values.to_numpy(dtype=np.float32)
+
+        if not feature_data:
+            raise ValueError(f"No wearable feature columns were found in {path}.")
+
+        feature_frame = pd.DataFrame(feature_data)
+        feature_frame = feature_frame.ffill().bfill().fillna(0.0)
+        return feature_frame
+
+    def _extract_labels(self, frame: pd.DataFrame, path: Path) -> np.ndarray:
+        if self.label_column not in frame.columns:
+            raise ValueError(
+                f"DREAMT file {path} is missing the label column '{self.label_column}'."
+            )
+        labels = frame[self.label_column].apply(self._normalize_stage_label).to_numpy()
+        return labels.astype(np.int64, copy=False)
+
+    @staticmethod
+    def _majority_label(labels: np.ndarray) -> int:
+        valid = labels[labels >= 0]
+        if valid.size == 0:
+            return SleepStagingDREAMT._IGNORE_LABEL
+        return int(np.bincount(valid).argmax())
+
+    def __call__(self, patient) -> list[dict[str, Any]]:
+        events = patient.get_events("dreamt_sleep")
+        if not events:
+            return []
+
+        samples = []
+        for event in events:
+            signal_path, sampling_rate_hz = self._load_signal_source(event)
+            frame = self._load_frame(signal_path)
+            labels = self._extract_labels(frame, signal_path)
+            valid_mask = labels >= 0
+
+            if valid_mask.sum() == 0:
+                continue
+
+            frame = frame.loc[valid_mask].reset_index(drop=True)
+            labels = labels[valid_mask]
+            feature_frame = self._extract_feature_frame(frame, signal_path)
+            features = feature_frame.to_numpy(dtype=np.float32, copy=False)
+
+            inferred_rate = self._infer_sampling_rate_hz(
+                frame,
+                sampling_rate_hz or self.default_sampling_rate_hz,
+            )
+            window_size, stride = self._resolve_window_params(inferred_rate)
+
+            total_length = features.shape[0]
+            if total_length < window_size and not self.pad_short_windows:
+                continue
+
+            starts = list(range(0, max(total_length - window_size + 1, 1), stride))
+            if (
+                self.include_partial_last_window
+                and total_length > window_size
+                and starts[-1] + window_size < total_length
+            ):
+                starts.append(starts[-1] + stride)
+
+            for window_index, start in enumerate(starts):
+                end = min(start + window_size, total_length)
+                window_features = features[start:end]
+                window_labels = labels[start:end]
+
+                labeled_fraction = float((window_labels >= 0).mean())
+                if labeled_fraction < self.min_labeled_fraction:
+                    continue
+
+                label = self._majority_label(window_labels)
+                if label == self._IGNORE_LABEL:
+                    continue
+
+                if end - start < window_size:
+                    if not self.pad_short_windows:
+                        continue
+                    pad_rows = window_size - (end - start)
+                    window_features = np.pad(
+                        window_features,
+                        pad_width=((0, pad_rows), (0, 0)),
+                        mode="constant",
+                    )
+
+                record_id = f"{patient.patient_id}-{signal_path.stem}-{window_index}"
+                samples.append(
+                    {
+                        "patient_id": patient.patient_id,
+                        "record_id": record_id,
+                        "signal": window_features.astype(np.float32, copy=False),
+                        "label": int(label),
+                        "signal_source": getattr(event, "signal_source", None),
+                        "signal_file": str(signal_path),
+                    }
+                )
+
+        return samples
+
+
+class SleepStagingDREAMTSeq(SleepStagingDREAMT):
+    """Sequence-style DREAMT sleep staging task closer to WatchSleepNet.
+
+    This task converts a DREAMT recording into a sequence of epoch-level
+    feature vectors and labels. Each sample contains:
+
+    - ``signal``: ``[sequence_length, input_dim]``
+    - ``mask``: ``[sequence_length]`` with 1 for valid epochs and 0 for padding
+    - ``label``: ``[sequence_length]`` with padded labels set to
+      ``ignore_index``
+
+    By default, this class uses ``IBI`` only to better align with the paper's
+    shared-modality representation.
+    """
+
+    task_name: str = "SleepStagingDREAMTSeq"
+    input_schema: Dict[str, str] = {
+        "signal": "tensor",
+        "mask": "tensor",
+    }
+    output_schema: Dict[str, str] = {"label": "tensor"}
+
+    def __init__(
+        self,
+        feature_columns: Optional[Sequence[str]] = ("IBI",),
+        label_column: str = "Sleep_Stage",
+        source_preference: str = "wearable",
+        epoch_seconds: float = 30.0,
+        sequence_length: int = 1100,
+        stride_epochs: Optional[int] = None,
+        default_sampling_rate_hz: Optional[float] = None,
+        pad_value: float = 0.0,
+        truncate: bool = True,
+        ignore_index: int = -100,
+    ) -> None:
+        super().__init__(
+            feature_columns=feature_columns,
+            label_column=label_column,
+            source_preference=source_preference,
+            default_sampling_rate_hz=default_sampling_rate_hz,
+        )
+        if epoch_seconds <= 0:
+            raise ValueError("epoch_seconds must be positive.")
+        if sequence_length <= 0:
+            raise ValueError("sequence_length must be positive.")
+
+        self.epoch_seconds = float(epoch_seconds)
+        self.sequence_length = int(sequence_length)
+        self.stride_epochs = stride_epochs
+        self.pad_value = float(pad_value)
+        self.truncate = truncate
+        self.ignore_index = int(ignore_index)
+
+    def _epochize_features_and_labels(
+        self,
+        features: np.ndarray,
+        labels: np.ndarray,
+        sample_rate_hz: float,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        epoch_size = max(1, int(round(self.epoch_seconds * sample_rate_hz)))
+        num_epochs = features.shape[0] // epoch_size
+        if num_epochs == 0:
+            return (
+                np.zeros((0, features.shape[1]), dtype=np.float32),
+                np.zeros((0,), dtype=np.int64),
+            )
+
+        epoch_features: list[np.ndarray] = []
+        epoch_labels: list[int] = []
+        for epoch_index in range(num_epochs):
+            start = epoch_index * epoch_size
+            end = start + epoch_size
+            epoch_feature_values = features[start:end]
+            epoch_label_values = labels[start:end]
+            epoch_label = self._majority_label(epoch_label_values)
+            if epoch_label == self._IGNORE_LABEL:
+                continue
+            epoch_features.append(
+                epoch_feature_values.mean(axis=0).astype(np.float32, copy=False)
+            )
+            epoch_labels.append(epoch_label)
+
+        if not epoch_features:
+            return (
+                np.zeros((0, features.shape[1]), dtype=np.float32),
+                np.zeros((0,), dtype=np.int64),
+            )
+
+        return (
+            np.stack(epoch_features).astype(np.float32, copy=False),
+            np.asarray(epoch_labels, dtype=np.int64),
+        )
+
+    def _build_sequence_sample(
+        self,
+        patient_id: str,
+        signal_path: Path,
+        epoch_features: np.ndarray,
+        epoch_labels: np.ndarray,
+        chunk_index: int,
+        start_epoch: int,
+    ) -> dict[str, Any]:
+        valid_length = min(epoch_features.shape[0], self.sequence_length)
+        feature_dim = epoch_features.shape[1]
+
+        signal = np.full(
+            (self.sequence_length, feature_dim),
+            fill_value=self.pad_value,
+            dtype=np.float32,
+        )
+        mask = np.zeros((self.sequence_length,), dtype=np.float32)
+        labels = np.full(
+            (self.sequence_length,),
+            fill_value=self.ignore_index,
+            dtype=np.int64,
+        )
+
+        signal[:valid_length] = epoch_features[:valid_length]
+        mask[:valid_length] = 1.0
+        labels[:valid_length] = epoch_labels[:valid_length]
+
+        return {
+            "patient_id": patient_id,
+            "record_id": f"{patient_id}-{signal_path.stem}-seq-{chunk_index}",
+            "signal": signal,
+            "mask": mask,
+            "label": labels,
+            "signal_source": None,
+            "signal_file": str(signal_path),
+            "start_epoch": int(start_epoch),
+        }
+
+    def __call__(self, patient) -> list[dict[str, Any]]:
+        events = patient.get_events("dreamt_sleep")
+        if not events:
+            return []
+
+        samples = []
+        for event in events:
+            signal_path, sampling_rate_hz = self._load_signal_source(event)
+            frame = self._load_frame(signal_path)
+            labels = self._extract_labels(frame, signal_path)
+            feature_frame = self._extract_feature_frame(frame, signal_path)
+            features = feature_frame.to_numpy(dtype=np.float32, copy=False)
+
+            inferred_rate = self._infer_sampling_rate_hz(
+                frame,
+                sampling_rate_hz or self.default_sampling_rate_hz,
+            )
+            epoch_features, epoch_labels = self._epochize_features_and_labels(
+                features,
+                labels,
+                inferred_rate,
+            )
+            if epoch_features.shape[0] == 0:
+                continue
+
+            stride_epochs = self.stride_epochs or self.sequence_length
+            if epoch_features.shape[0] <= self.sequence_length:
+                samples.append(
+                    self._build_sequence_sample(
+                        patient.patient_id,
+                        signal_path,
+                        epoch_features,
+                        epoch_labels,
+                        chunk_index=0,
+                        start_epoch=0,
+                    )
+                )
+                continue
+
+            max_start = epoch_features.shape[0] - self.sequence_length
+            starts = list(range(0, max_start + 1, stride_epochs))
+            if (
+                not self.truncate
+                and starts[-1] != max_start
+            ):
+                starts.append(max_start)
+
+            for chunk_index, start_epoch in enumerate(starts):
+                end_epoch = start_epoch + self.sequence_length
+                samples.append(
+                    self._build_sequence_sample(
+                        patient.patient_id,
+                        signal_path,
+                        epoch_features[start_epoch:end_epoch],
+                        epoch_labels[start_epoch:end_epoch],
+                        chunk_index=chunk_index,
+                        start_epoch=start_epoch,
+                    )
+                )
+
+        return samples
 
 
 if __name__ == "__main__":
