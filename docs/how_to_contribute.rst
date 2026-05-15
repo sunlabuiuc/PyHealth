@@ -421,6 +421,26 @@ Task tests should verify:
 
 Use synthetic ``Patient`` objects or minimal datasets (2-5 patients) to test task logic quickly.
 
+**Where Predefined Splits Should Live:**
+
+- Put generic reusable split helpers in ``pyhealth/datasets/splitter.py``.
+- Put dataset-owned official splits next to the dataset loader when the split
+  comes from raw files or shared dataset metadata.
+- Put task-owned official splits next to the task when the split label is
+  attached during sample construction.
+- Do not move dataset-specific file layout logic into ``splitter.py`` unless
+  the helper only consumes a standard sample field such as ``sample["split"]``.
+
+For example, TUH EEG metadata preparation belongs with the dataset/task code,
+while reusable helpers that consume the emitted ``split`` field can live in
+``splitter.py``.
+
+When contributing a dataset or task with official splits:
+
+- document the source of the split (benchmark release, metadata CSV, etc.)
+- preserve the original split labels on the produced samples whenever possible
+- add a synthetic test that verifies the split field or split helper behaviour
+
 Contributing a New Model: File Checklist
 -----------------------------------------
 

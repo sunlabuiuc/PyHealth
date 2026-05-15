@@ -419,6 +419,19 @@ class BaseDataset(ABC):
         tmp_dir.mkdir(parents=True, exist_ok=True)
         return tmp_dir
 
+    @staticmethod
+    def _task_cache_signature(task: BaseTask) -> Dict[str, Any]:
+        """Return the stable task signature used for task cache keys."""
+        return {
+            "task_name": task.task_name,
+            "task_class": task.__class__.__name__,
+            "task_module": task.__class__.__module__,
+            # Task instance attributes usually mirror constructor arguments.
+            "task_state": vars(task),
+            "input_schema": task.input_schema,
+            "output_schema": task.output_schema,
+        }
+
     def clean_tmpdir(self) -> None:
         """Cleans up the temporary directory within the cache."""
         tmp_dir = self.cache_dir / "tmp"
@@ -961,15 +974,19 @@ class BaseDataset(ABC):
             f"Setting task {task.task_name} for {self.dataset_name} base dataset..."
         )
 
-        task_params = json.dumps(
-            {
-                **vars(task),
-                "input_schema": task.input_schema,
-                "output_schema": task.output_schema,
-            },
-            sort_keys=True,
-            default=str,
+        task_signature = self._task_cache_signature(task)
+        logger.info(
+            "Task cache key for %s is derived from task_name=%s, task_class=%s, "
+            "task_module=%s, task_state=%s, input_schema=%s, output_schema=%s",
+            task.task_name,
+            task_signature["task_name"],
+            task_signature["task_class"],
+            task_signature["task_module"],
+            task_signature["task_state"],
+            task_signature["input_schema"],
+            task_signature["output_schema"],
         )
+        task_params = json.dumps(task_signature, sort_keys=True, default=str)
 
         cache_dir = (
             self.cache_dir
