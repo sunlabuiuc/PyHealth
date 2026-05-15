@@ -1,0 +1,50 @@
+version: "1.0"
+# GDSC (Genomics of Drug Sensitivity in Cancer) dataset configuration.
+#
+# Data format: flat matrix files (cell lines × genes, cell lines × drugs).
+# This schema documents the expected file layout. GDSCDataset loads these
+# files directly via pandas rather than the BaseDataset YAML-table pipeline,
+# because the expression and sensitivity data are dense matrices rather than
+# per-patient event tables.
+#
+# Required files in data_dir:
+#   exp_gdsc.csv         - Binary gene expression matrix  (cell lines × genes)
+#   gdsc.csv             - Binary drug sensitivity matrix (cell lines × drugs)
+#   drug_info_gdsc.csv   - Drug metadata: Name, Target pathway, COSMIC drug ID
+#   exp_emb_gdsc.csv     - Gene2Vec embedding matrix      (n_genes+1 × emb_dim)
+tables:
+  expression:
+    file_path: "exp_gdsc.csv"
+    patient_id: "cell_line_id"
+    timestamp: null
+    attributes: []
+    description: >
+      Binary gene expression matrix.  Rows are COSMIC cell-line IDs; columns
+      are 1-indexed gene positions.  Value 1 = gene expressed, 0 = not expressed.
+  sensitivity:
+    file_path: "gdsc.csv"
+    patient_id: "cell_line_id"
+    timestamp: null
+    attributes: []
+    description: >
+      Binary drug sensitivity matrix.  Rows are COSMIC cell-line IDs; columns
+      are COSMIC drug IDs.  Value 1 = sensitive, 0 = resistant, NaN = untested.
+  drug_info:
+    file_path: "drug_info_gdsc.csv"
+    patient_id: null
+    timestamp: null
+    attributes:
+      - "Name"
+      - "Target pathway"
+    description: >
+      Drug metadata table.  Indexed by COSMIC drug ID.  Used to build the
+      drug-to-pathway mapping required by the CADRE contextual attention layer.
+  gene_embeddings:
+    file_path: "exp_emb_gdsc.csv"
+    patient_id: null
+    timestamp: null
+    attributes: []
+    description: >
+      Pre-trained Gene2Vec embedding matrix.  Row 0 is the zero-padding vector;
+      subsequent rows correspond to 1-indexed gene positions matching the
+      columns of exp_gdsc.csv.
