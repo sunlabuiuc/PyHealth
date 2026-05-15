@@ -1,0 +1,14 @@
+version: "1.0.0"
+tables:
+  ecg_records:
+    file_path: "ptbxl_metadata.csv"
+    patient_id: "patient_id"
+    timestamp: "recording_date"
+    timestamp_format: "%Y-%m-%d %H:%M:%S"
+    attributes:
+      - "ecg_id"
+      - "filename"
+      - "mi_label"
+      - "hyp_label"
+      - "sttc_label"
+      - "cd_label"
