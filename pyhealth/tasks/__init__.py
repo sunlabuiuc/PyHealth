@@ -1,3 +1,4 @@
+from .ama_prediction import AMAPredictionMIMIC3
 from .base_task import BaseTask
 from .benchmark_ehrshot import BenchmarkEHRShot
 from .cancer_survival import CancerMutationBurden, CancerSurvivalPrediction
