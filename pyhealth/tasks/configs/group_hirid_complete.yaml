@@ -1,0 +1,9 @@
+group:
+  sex: [F, M]
+  age_group: [<50, 50-65, 65-75, 75-85, '>85']
+  APACHE_group: [Cardiovascular, Neurological, Gastrointestinal, Respiratory, Other, Trauma, Metabolic]
+  surgical_status: [Surgical, Non-surgical]
+
+type_table_group:
+  binary_group: [sex, surgical_status]
+  multicat_group: [age_group, APACHE_group]
