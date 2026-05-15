@@ -1,0 +1,9 @@
+version: "1.0.0"
+tables:
+  wrist:
+    file_path: "wesad-pyhealth.csv"
+    patient_id: "subject_id"
+    timestamp: null
+    attributes:
+    - "signal_file"
+    - "sampling_rate"

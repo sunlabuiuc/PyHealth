@@ -83,6 +83,7 @@ from .splitter import (
 )
 from .tuab import TUABDataset
 from .tuev import TUEVDataset
+from .wesad import WESADDataset
 from .utils import (
     collate_fn_dict,
     collate_fn_dict_with_padding,
