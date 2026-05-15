@@ -1,0 +1,13 @@
+# Author: John Ma (jm119@illinois.edu)
+version: "1.0"
+tables:
+  cardiology:
+    file_path: "cardiology-metadata-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+    - "signal_path"
+    - "dx"
+    - "sex"
+    - "age"
+    - "chosen_dataset"
