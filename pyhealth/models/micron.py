@@ -61,8 +61,8 @@ class MICRONLayer(nn.Module):
 
     @staticmethod
     def compute_reconstruction_loss(
-        logits: torch.tensor, logits_residual: torch.tensor, mask: torch.tensor
-    ) -> torch.tensor:
+        logits: torch.Tensor, logits_residual: torch.Tensor, mask: torch.Tensor
+    ) -> torch.Tensor:
         """Compute reconstruction loss between predicted and actual medication changes.
 
         The reconstruction loss measures how well the model captures medication changes
@@ -70,12 +70,12 @@ class MICRONLayer(nn.Module):
         connections) with actual changes in prescriptions.
 
         Args:
-            logits (torch.tensor): Raw logits for medication predictions across all visits.
-            logits_residual (torch.tensor): Residual logits representing predicted changes.
-            mask (torch.tensor): Boolean mask indicating valid visits.
+            logits (torch.Tensor): Raw logits for medication predictions across all visits.
+            logits_residual (torch.Tensor): Residual logits representing predicted changes.
+            mask (torch.Tensor): Boolean mask indicating valid visits.
 
         Returns:
-            torch.tensor: Mean squared reconstruction loss value.
+            torch.Tensor: Mean squared reconstruction loss value.
         """
         rec_loss = torch.mean(
             torch.square(
@@ -88,10 +88,10 @@ class MICRONLayer(nn.Module):
 
     def forward(
         self,
-        patient_emb: torch.tensor,
-        drugs: torch.tensor,
-        mask: Optional[torch.tensor] = None,
-    ) -> Tuple[torch.tensor, torch.tensor]:
+        patient_emb: torch.Tensor,
+        drugs: torch.Tensor,
+        mask: Optional[torch.Tensor] = None,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Forward propagation.
 
         Args:

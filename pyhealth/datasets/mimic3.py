@@ -42,7 +42,7 @@ class MIMIC3Dataset(BaseDataset):
         **kwargs,
     ) -> None:
         """
-        Initializes the MIMIC4Dataset with the specified parameters.
+        Initializes the MIMIC3Dataset with the specified parameters.
 
         Args:
             root (str): The root directory where the dataset is stored.

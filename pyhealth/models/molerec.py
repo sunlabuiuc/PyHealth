@@ -409,7 +409,7 @@ class MoleRecLayer(torch.nn.Module):
         substructure_mask: torch.Tensor,
         substructure_graph: Union[StaticParaDict, Dict[str, Union[int, torch.Tensor]]],
         molecule_graph: Union[StaticParaDict, Dict[str, Union[int, torch.Tensor]]],
-        mask: Optional[torch.tensor] = None,
+        mask: Optional[torch.Tensor] = None,
         drug_indexes: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Forward propagation.

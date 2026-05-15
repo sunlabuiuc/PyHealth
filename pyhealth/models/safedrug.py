@@ -50,7 +50,7 @@ class MaskLinear(nn.Module):
         if self.bias is not None:
             self.bias.data.uniform_(-stdv, stdv)
 
-    def forward(self, input: torch.tensor, mask: torch.tensor) -> torch.tensor:
+    def forward(self, input: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
         """
         Args:
             input: input feature tensor of shape [batch size, ..., input_size].
@@ -139,8 +139,8 @@ class SafeDrugLayer(nn.Module):
         ddi_adj: an adjacency tensor of shape [num_drugs, num_drugs].
         num_fingerprints: total number of different fingerprints.
         molecule_set: a list of molecule tuples (A, B, C) of length num_molecules.
-            - A <torch.tensor>: fingerprints of atoms in the molecule
-            - B <torch.tensor>: adjacency matrix of the molecule
+            - A <torch.Tensor>: fingerprints of atoms in the molecule
+            - B <torch.Tensor>: adjacency matrix of the molecule
             - C <int>: molecular_size
         average_projection: a tensor of shape [num_drugs, num_molecules] representing
             the average projection for aggregating multiple molecules of the
@@ -257,10 +257,10 @@ class SafeDrugLayer(nn.Module):
 
     def forward(
         self,
-        patient_emb: torch.tensor,
-        drugs: torch.tensor,
-        mask: Optional[torch.tensor] = None,
-    ) -> Tuple[torch.tensor, torch.tensor]:
+        patient_emb: torch.Tensor,
+        drugs: torch.Tensor,
+        mask: Optional[torch.Tensor] = None,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Forward propagation.
 
         Args:
@@ -433,7 +433,7 @@ class SafeDrug(BaseModel):
         ddi_adj = self.generate_ddi_adj()
         np.save(os.path.join(CACHE_PATH, "ddi_adj.npy"), ddi_adj.numpy())
 
-    def generate_ddi_adj(self) -> torch.tensor:
+    def generate_ddi_adj(self) -> torch.Tensor:
         """Generates the DDI graph adjacency matrix."""
         atc = ATC()
         ddi = atc.get_ddi(gamenet_ddi=True)
@@ -472,7 +472,7 @@ class SafeDrug(BaseModel):
                 all_smiles_list[index] += smiles_list
         return all_smiles_list
 
-    def generate_mask_H(self) -> torch.tensor:
+    def generate_mask_H(self) -> torch.Tensor:
         """Generates the molecular segmentation mask H."""
         all_substructures_list = [[] for _ in range(self.label_size)]
         for index, smiles_list in enumerate(self.all_smiles_list):
