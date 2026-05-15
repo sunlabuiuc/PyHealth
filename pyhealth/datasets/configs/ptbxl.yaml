@@ -1,0 +1,4 @@
+dataset_name: PTBXL
+tables:
+  - ptbxl
+root: data/ptb-xl
