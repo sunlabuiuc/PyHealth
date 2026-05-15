@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+import warnings
 from unittest.mock import patch
 
 import polars as pl
@@ -127,6 +128,40 @@ class TestBaseDataset(unittest.TestCase):
                 cached_order,
                 sorted(cached_order),
                 "cached global_event_df parquet must be sorted by patient_id",
+            )
+
+    def test_dev_mode_cache_build_does_not_emit_dask_head_warning(self):
+        small_data = dd.from_pandas(
+            pd.DataFrame(
+                {
+                    "patient_id": ["1", "2", "3"],
+                    "event_type": ["test"] * 3,
+                    "timestamp": [None] * 3,
+                    "test/value": [10, 20, 30],
+                }
+            ),
+            npartitions=1,
+        )
+
+        with tempfile.TemporaryDirectory() as cache_root, patch(
+            "pyhealth.datasets.base_dataset.platformdirs.user_cache_dir",
+            return_value=cache_root,
+        ):
+            dataset = MockDataset(
+                data=small_data,
+                root="/data/root_dev_warning",
+                tables=["table_a"],
+                dataset_name="DevWarningDataset",
+                dev=True,
+            )
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                _ = dataset.global_event_df
+
+            messages = [str(warning.message) for warning in caught]
+            self.assertFalse(
+                any("Insufficient elements for `head`" in message for message in messages),
+                msg=f"Unexpected head warning(s): {messages}",
             )
 
     def test_empty_string_handling(self):

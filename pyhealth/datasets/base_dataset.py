@@ -509,12 +509,17 @@ class BaseDataset(ABC):
             ) as cluster:
                 with DaskClient(cluster) as client:
                     if self.dev:
-                        logger.info("Dev mode enabled: limiting to 1000 patients")
-                        patients = df["patient_id"].unique().head(1000).tolist()
+                        logger.debug("Dev mode enabled: limiting to 1000 patients")
+                        patients = (
+                            df["patient_id"]
+                            .drop_duplicates()
+                            .compute()
+                            .tolist()[:1000]
+                        )
                         filter = df["patient_id"].isin(patients)
                         df = df[filter]
 
-                    logger.info(f"Caching event dataframe to {output_dir}...")
+                    logger.debug(f"Caching event dataframe to {output_dir}...")
                     collection = df.sort_values("patient_id").to_parquet(
                         output_dir,
                         write_index=False,
@@ -565,10 +570,10 @@ class BaseDataset(ABC):
                         f"Incomplete parquet cache at {ret_path} (directory exists but contains no parquet files). Removing and rebuilding."
                     )
                     shutil.rmtree(ret_path)
-                logger.info(f"No cached event dataframe found. Creating: {ret_path}")
+                logger.debug(f"No cached event dataframe found. Creating: {ret_path}")
                 self._event_transform(ret_path)
             else:
-                logger.info(f"Found cached event dataframe: {ret_path}")
+                logger.debug(f"Found cached event dataframe: {ret_path}")
             self._global_event_df = ret_path
 
         return pl.scan_parquet(
