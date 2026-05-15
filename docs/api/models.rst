@@ -175,6 +175,7 @@ API Reference
     models/pyhealth.models.CNN
     models/pyhealth.models.RNN
     models/pyhealth.models.GNN
+    models/pyhealth.models.TransEHR
     models/pyhealth.models.Transformer
     models/pyhealth.models.TransformersModel
     models/pyhealth.models.TransformerDeID

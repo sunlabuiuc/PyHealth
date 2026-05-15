@@ -36,6 +36,7 @@ from .tfm_tokenizer import (
     load_embedding_weights,
 )
 from .torchvision_model import TorchvisionModel
+from .trans_ehr import TransEHR
 from .transformer import Transformer, TransformerLayer
 from .transformers_model import TransformersModel
 from .ehrmamba import EHRMamba, MambaBlock
