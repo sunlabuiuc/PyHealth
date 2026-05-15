@@ -6,6 +6,7 @@ from .biot import BIOT
 from .cnn import CNN, CNNLayer
 from .concare import ConCare, ConCareLayer
 from .contrawr import ContraWR, ResBlock2D
+from .deep_cox_mixtures import DeepCoxMixtures
 from .deepr import Deepr, DeeprLayer
 from .embedding import EmbeddingModel
 from .gamenet import GAMENet, GAMENetLayer
