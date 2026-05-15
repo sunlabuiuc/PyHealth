@@ -190,6 +190,7 @@ API Reference
     models/pyhealth.models.ContraWR
     models/pyhealth.models.SparcNet
     models/pyhealth.models.StageNet
+    models/pyhealth.models.StepwiseEmbedding
     models/pyhealth.models.StageAttentionNet
     models/pyhealth.models.AdaCare
     models/pyhealth.models.ConCare
