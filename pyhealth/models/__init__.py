@@ -17,6 +17,7 @@ from .graph_torchvision_model import Graph_TorchvisionModel
 from .graphcare import GraphCare
 from .grasp import GRASP, GRASPLayer
 from .medlink import MedLink
+from .medtsllm import MedTsLLM
 from .micron import MICRON, MICRONLayer
 from .mlp import MLP
 from .molerec import MoleRec, MoleRecLayer

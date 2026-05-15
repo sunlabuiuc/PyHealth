@@ -1,0 +1,16 @@
+version: "1.0.0"
+tables:
+  ecg:
+    file_path: "ludb-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+    - "lead"
+    - "clip_id"
+    - "signal_file"
+    - "label_file"
+    - "age"
+    - "sex"
+    - "diagnoses"
+    - "split"
+    - "processed_file"

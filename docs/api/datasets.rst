@@ -227,7 +227,10 @@ Available Datasets
     datasets/pyhealth.datasets.MedicalTranscriptionsDataset
     datasets/pyhealth.datasets.CardiologyDataset
     datasets/pyhealth.datasets.eICUDataset
+    datasets/pyhealth.datasets.BIDMCDataset
     datasets/pyhealth.datasets.ISRUCDataset
+    datasets/pyhealth.datasets.LUDBDataset
+    datasets/pyhealth.datasets.MITBIHDataset
     datasets/pyhealth.datasets.MIMICExtractDataset
     datasets/pyhealth.datasets.OMOPDataset
     datasets/pyhealth.datasets.DREAMTDataset

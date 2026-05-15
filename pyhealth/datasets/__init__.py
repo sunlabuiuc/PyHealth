@@ -55,7 +55,10 @@ from .covid19_cxr import COVID19CXRDataset
 from .dreamt import DREAMTDataset
 from .ehrshot import EHRShotDataset
 from .eicu import eICUDataset
+from .bidmc import BIDMCDataset
 from .isruc import ISRUCDataset
+from .ludb import LUDBDataset
+from .mitbih import MITBIHDataset
 from .medical_transcriptions import MedicalTranscriptionsDataset
 from .mimic3 import MIMIC3Dataset
 from .mimic4 import MIMIC4CXRDataset, MIMIC4Dataset, MIMIC4EHRDataset, MIMIC4NoteDataset

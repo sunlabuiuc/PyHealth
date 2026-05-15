@@ -196,6 +196,7 @@ API Reference
     models/pyhealth.models.Agent
     models/pyhealth.models.GRASP
     models/pyhealth.models.MedLink
+    models/pyhealth.models.MedTsLLM
     models/pyhealth.models.TCN
     models/pyhealth.models.TFMTokenizer
     models/pyhealth.models.GAN

@@ -1,5 +1,4 @@
 Tasks
-===============
 
 We support various real-world healthcare predictive tasks defined by **function calls**. The following example tasks are collected from top AI/Medical venues, such as:
 
@@ -212,6 +211,10 @@ Available Tasks
     COVID-19 CXR Classification <tasks/pyhealth.tasks.COVID19CXRClassification>
     DKA Prediction (MIMIC-IV) <tasks/pyhealth.tasks.dka>
     Drug Recommendation <tasks/pyhealth.tasks.drug_recommendation>
+    ECG Anomaly Detection (MIT-BIH) <tasks/pyhealth.tasks.ECGAnomalyDetection>
+    ECG Boundary Detection (MIT-BIH) <tasks/pyhealth.tasks.ECGBoundaryDetection>
+    ECG Wave Segmentation (LUDB) <tasks/pyhealth.tasks.ECGWaveSegmentation>
+    Respiratory Boundary Detection (BIDMC) <tasks/pyhealth.tasks.RespiratoryBoundaryDetection>
     Length of Stay Prediction <tasks/pyhealth.tasks.length_of_stay_prediction>
     Medical Transcriptions Classification <tasks/pyhealth.tasks.MedicalTranscriptionsClassification>
     Mortality Prediction (Next Visit) <tasks/pyhealth.tasks.mortality_prediction>

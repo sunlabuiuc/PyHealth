@@ -22,6 +22,10 @@ from .drug_recommendation import (
     drug_recommendation_mimic4_fn,
     drug_recommendation_omop_fn,
 )
+from .ecg_anomaly_detection import ECGAnomalyDetection
+from .ecg_boundary_detection import ECGBoundaryDetection
+from .ecg_wave_segmentation import ECGWaveSegmentation
+from .respiratory_boundary_detection import RespiratoryBoundaryDetection
 from .in_hospital_mortality_mimic4 import InHospitalMortalityMIMIC4
 from .length_of_stay_prediction import (
     LengthOfStayPredictioneICU,
