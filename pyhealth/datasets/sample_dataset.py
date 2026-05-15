@@ -338,6 +338,23 @@ class SampleDataset(litdata.StreamingDataset):
         """
         return f"Sample dataset {self.dataset_name} {self.task_name}"
 
+    def _rebuild_index_mappings(self) -> None:
+        """Rebuild patient and record lookup maps for the current dataset view."""
+        patient_to_index: Dict[str, List[int]] = {}
+        record_to_index: Dict[str, List[int]] = {}
+
+        for i in range(len(self)):
+            sample = self[i]
+            patient_id = sample.get("patient_id")
+            if patient_id is not None:
+                patient_to_index.setdefault(patient_id, []).append(i)
+            record_id = sample.get("record_id", sample.get("visit_id"))
+            if record_id is not None:
+                record_to_index.setdefault(record_id, []).append(i)
+
+        self.patient_to_index = patient_to_index
+        self.record_to_index = record_to_index
+
     def subset(self, indices: Union[Sequence[int], slice]) -> "SampleDataset":
         """Create a StreamingDataset restricted to the provided indices."""
 
@@ -404,6 +421,7 @@ class SampleDataset(litdata.StreamingDataset):
         new_dataset.subsampled_files = new_subsampled_files
         new_dataset.region_of_interest = new_roi
         new_dataset.reset()
+        new_dataset._rebuild_index_mappings()
 
         return new_dataset
 
@@ -528,6 +546,7 @@ class InMemorySampleDataset(SampleDataset):
 
         new_dataset = copy.deepcopy(self)
         new_dataset._data = samples
+        new_dataset._rebuild_index_mappings()
         return new_dataset
 
     def close(self) -> None:

@@ -28,6 +28,28 @@ class TestSampleDatasetParity(unittest.TestCase):
         )
         return ds_disk, ds_mem
 
+    def _get_metadata_datasets(self):
+        samples = [
+            {"patient_id": "p1", "record_id": "r1", "feature": 0, "label": 0},
+            {"patient_id": "p1", "record_id": "r2", "feature": 1, "label": 1},
+            {"patient_id": "p2", "record_id": "r3", "feature": 2, "label": 0},
+            {"patient_id": "p1", "record_id": "r4", "feature": 3, "label": 1},
+            {"patient_id": "p3", "record_id": "r5", "feature": 4, "label": 0},
+        ]
+        ds_disk = create_sample_dataset(
+            samples=samples,
+            input_schema=self.input_schema,
+            output_schema=self.output_schema,
+            in_memory=False
+        )
+        ds_mem = create_sample_dataset(
+            samples=samples,
+            input_schema=self.input_schema,
+            output_schema=self.output_schema,
+            in_memory=True
+        )
+        return ds_disk, ds_mem
+
     def test_len(self):
         ds_disk, ds_mem = self._get_datasets()
         self.assertEqual(len(ds_disk), 20)
@@ -82,6 +104,38 @@ class TestSampleDatasetParity(unittest.TestCase):
         
         for d, m in zip(list_disk, list_mem):
             self.assertEqual(d["feature"], m["feature"])
+
+    def test_subset_rebuilds_index_metadata(self):
+        ds_disk, ds_mem = self._get_metadata_datasets()
+        indices = [1, 3, 4]
+
+        sub_disk = ds_disk.subset(indices)
+        sub_mem = ds_mem.subset(indices)
+
+        expected_patient = {"p1": [0, 1], "p3": [2]}
+        expected_record = {"r2": [0], "r4": [1], "r5": [2]}
+
+        self.assertEqual(ds_disk.patient_to_index["p1"], [0, 1, 3])
+        self.assertEqual(ds_mem.patient_to_index["p1"], [0, 1, 3])
+        self.assertEqual(sub_disk.patient_to_index, expected_patient)
+        self.assertEqual(sub_mem.patient_to_index, expected_patient)
+        self.assertEqual(sub_disk.record_to_index, expected_record)
+        self.assertEqual(sub_mem.record_to_index, expected_record)
+
+    def test_subset_slice_rebuilds_index_metadata(self):
+        ds_disk, ds_mem = self._get_metadata_datasets()
+        s = slice(1, 5, 2)
+
+        sub_disk = ds_disk.subset(s)
+        sub_mem = ds_mem.subset(s)
+
+        expected_patient = {"p1": [0, 1]}
+        expected_record = {"r2": [0], "r4": [1]}
+
+        self.assertEqual(sub_disk.patient_to_index, expected_patient)
+        self.assertEqual(sub_mem.patient_to_index, expected_patient)
+        self.assertEqual(sub_disk.record_to_index, expected_record)
+        self.assertEqual(sub_mem.record_to_index, expected_record)
 
     def test_set_shuffle(self):
         ds_disk, ds_mem = self._get_datasets()
