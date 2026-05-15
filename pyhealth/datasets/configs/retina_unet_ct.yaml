@@ -1,0 +1,22 @@
+# Config for RetinaUNetCTDataset.
+#
+# Retina U-Net-style CT detection data is volumetric and file-based
+# (one volume.npy + mask.npy per patient), not tabular. The constructor
+# parameters below are the defaults; override them at dataset construction
+# rather than editing this file.
+#
+# This YAML is carried to match the upstream PyHealth dataset layout
+# convention (BaseDataset expects a config_path); it intentionally does
+# not declare tables because this dataset is not table-backed.
+
+dataset_name: RetinaUNetCTDataset
+
+volume_file: volume.npy
+mask_file: mask.npy
+
+axial_axis: 0
+skip_empty_slices: false
+
+hu_window: null  # e.g. [-1000, 400] for lung window
+
+default_task: pyhealth.tasks.retina_unet_detection.RetinaUNetDetectionTask

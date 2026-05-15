@@ -1,0 +1,11 @@
+Final-epoch val metrics
+--------------------------------
+    λ |  seg IoU |     F1 | precision | recall
+ 0.00 |    0.094 |  0.014 |     0.007 |  0.927
+ 0.50 |    0.284 |  0.015 |     0.008 |  0.927
+ 1.00 |    0.313 |  0.013 |     0.006 |  0.878
+ 2.00 |    0.296 |  0.019 |     0.010 |  0.927
+
+train patients: ['patient_001', 'patient_003', 'patient_004', 'patient_006', 'patient_007', 'patient_008', 'patient_011', 'patient_014', 'patient_015', 'patient_017', 'patient_019', 'patient_020', 'patient_023', 'patient_024', 'patient_025', 'patient_026', 'patient_033', 'patient_034', 'patient_035', 'patient_036', 'patient_204', 'patient_304']
+val patients:   ['patient_367']
+device:         cuda  epochs: 20
