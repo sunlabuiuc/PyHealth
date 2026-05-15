@@ -225,6 +225,8 @@ Available Datasets
     datasets/pyhealth.datasets.MIMIC3Dataset
     datasets/pyhealth.datasets.MIMIC4Dataset
     datasets/pyhealth.datasets.MedicalTranscriptionsDataset
+    datasets/pyhealth.datasets.NCBIDiseaseDataset
+    datasets/pyhealth.datasets.HallmarksOfCancerDataset
     datasets/pyhealth.datasets.CardiologyDataset
     datasets/pyhealth.datasets.eICUDataset
     datasets/pyhealth.datasets.ISRUCDataset

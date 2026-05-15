@@ -214,6 +214,7 @@ Available Tasks
     Drug Recommendation <tasks/pyhealth.tasks.drug_recommendation>
     Length of Stay Prediction <tasks/pyhealth.tasks.length_of_stay_prediction>
     Medical Transcriptions Classification <tasks/pyhealth.tasks.MedicalTranscriptionsClassification>
+    Hallmarks of Cancer (sentence, multilabel) <tasks/pyhealth.tasks.HallmarksOfCancerSentenceClassification>
     Mortality Prediction (Next Visit) <tasks/pyhealth.tasks.mortality_prediction>
     Mortality Prediction (StageNet MIMIC-IV) <tasks/pyhealth.tasks.mortality_prediction_stagenet_mimic4>
     Patient Linkage (MIMIC-III) <tasks/pyhealth.tasks.patient_linkage_mimic3_fn>
@@ -228,5 +229,6 @@ Available Tasks
     ChestX-ray14 Multilabel Classification <tasks/pyhealth.tasks.ChestXray14MultilabelClassification>
     Variant Classification (ClinVar) <tasks/pyhealth.tasks.VariantClassificationClinVar>
     Mutation Pathogenicity (COSMIC) <tasks/pyhealth.tasks.MutationPathogenicityPrediction>
+    NCBI Disease Recognition <tasks/pyhealth.tasks.NCBIDiseaseRecognition>
     Cancer Survival Prediction (TCGA) <tasks/pyhealth.tasks.CancerSurvivalPrediction>
     Cancer Mutation Burden (TCGA) <tasks/pyhealth.tasks.CancerMutationBurden>

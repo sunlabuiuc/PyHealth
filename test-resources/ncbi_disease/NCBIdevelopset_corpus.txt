@@ -1,0 +1,5 @@
+
+2001|t|Asthma
+2001|a|Type 2 diabetes is common.
+2001	0	6	Asthma	SpecificDisease	D001249
+2001	7	22	Type 2 diabetes	SpecificDisease	D003924
