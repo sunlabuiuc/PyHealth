@@ -1,4 +1,5 @@
 from .base_task import BaseTask
+from .ptbxl_diagnosis import PTBXLDiagnosis, PTBXLMulticlassDiagnosis
 from .benchmark_ehrshot import BenchmarkEHRShot
 from .cancer_survival import CancerMutationBurden, CancerSurvivalPrediction
 from .bmd_hs_disease_classification import BMDHSDiseaseClassification
@@ -12,7 +13,6 @@ from .cardiology_detect import (
 from .chestxray14_binary_classification import ChestXray14BinaryClassification
 from .chestxray14_multilabel_classification import ChestXray14MultilabelClassification
 from .covid19_cxr_classification import COVID19CXRClassification
-from .deid_ner import DeIDNERTask
 from .dka import DKAPredictionMIMIC4, T1DDKAPredictionMIMIC4
 from .drug_recommendation import (
     DrugRecommendationEICU,
