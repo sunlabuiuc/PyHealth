@@ -1,0 +1,4 @@
+patient_id,record_id,signal_file,source,label
+tuab_aaaaaaav,s004,sample_raw_data/tuab/train/normal/01_tcp_ar/aaaaaaav_s004_t000.edf,tuab,0
+tuab_aaaaaabn,s005,sample_raw_data/tuab/train/normal/01_tcp_ar/aaaaaabn_s005_t000.edf,tuab,0
+tuab_aaaaaaff,s002,sample_raw_data/tuab/train/normal/01_tcp_ar/aaaaaaff_s002_t000.edf,tuab,0

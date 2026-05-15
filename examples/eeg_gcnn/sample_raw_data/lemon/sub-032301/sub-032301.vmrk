@@ -1,0 +1,44 @@
+Brain Vision Data Exchange Marker File, Version 1.0
+; Exported using pybv 0.7.6
+
+[Common Infos]
+Codepage=UTF-8
+DataFile=sub-032301.eeg
+
+[Marker Infos]
+; Each entry: Mk<Marker number>=<Type>,<Description>,<Position in data points>,
+;             <Size in data points>, <Channel number (0 = marker is related to all channels)>
+;             <Date (YYYYMMDDhhmmssuuuuuu)>
+; Fields are delimited by commas, some fields might be omitted (empty).
+; Commas in type or description text are coded as "\1".
+Mk1=New Segment,,1,1,0,20131111134740346211
+Mk2=Comment,no USB Connection to actiCAP,1,0,0
+Mk3=Stimulus,S  1,998,0,0
+Mk4=Stimulus,S  1,1594,0,0
+Mk5=Stimulus,S210,1597,0,0
+Mk6=Stimulus,S210,2097,0,0
+Mk7=Stimulus,S210,2597,0,0
+Mk8=Stimulus,S210,3097,0,0
+Mk9=Stimulus,S210,3597,0,0
+Mk10=Stimulus,S210,4097,0,0
+Mk11=Stimulus,S210,4597,0,0
+Mk12=Stimulus,S210,5097,0,0
+Mk13=Stimulus,S210,5597,0,0
+Mk14=Stimulus,S210,6097,0,0
+Mk15=Stimulus,S210,6597,0,0
+Mk16=Stimulus,S210,7097,0,0
+Mk17=Stimulus,S210,7597,0,0
+Mk18=Stimulus,S210,8097,0,0
+Mk19=Stimulus,S210,8597,0,0
+Mk20=Stimulus,S210,9097,0,0
+Mk21=Stimulus,S210,9597,0,0
+Mk22=Stimulus,S210,10097,0,0
+Mk23=Stimulus,S210,10597,0,0
+Mk24=Stimulus,S210,11097,0,0
+Mk25=Stimulus,S210,11597,0,0
+Mk26=Stimulus,S210,12097,0,0
+Mk27=Stimulus,S210,12597,0,0
+Mk28=Stimulus,S210,13097,0,0
+Mk29=Stimulus,S210,13597,0,0
+Mk30=Stimulus,S210,14097,0,0
+Mk31=Stimulus,S210,14597,0,0
