@@ -68,6 +68,7 @@ from .sleepedf import SleepEDFDataset
 from .bmd_hs import BMDHSDataset
 from .support2 import Support2Dataset
 from .tcga_prad import TCGAPRADDataset
+from .daily_sport_activities import DailyAndSportActivitiesDataset
 from .splitter import (
     sample_balanced,
     split_by_patient,
