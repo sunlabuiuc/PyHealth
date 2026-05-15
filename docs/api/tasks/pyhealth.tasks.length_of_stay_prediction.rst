@@ -9,6 +9,11 @@ Task Classes
     :undoc-members:
     :show-inheritance:
 
+.. autoclass:: pyhealth.tasks.length_of_stay_prediction.LengthOfStayThresholdPredictionMIMIC3
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
 .. autoclass:: pyhealth.tasks.length_of_stay_prediction.LengthOfStayPredictionMIMIC4
     :members:
     :undoc-members:

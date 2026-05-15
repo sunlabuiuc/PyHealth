@@ -28,6 +28,7 @@ from .length_of_stay_prediction import (
     LengthOfStayPredictionMIMIC3,
     LengthOfStayPredictionMIMIC4,
     LengthOfStayPredictionOMOP,
+    LengthOfStayThresholdPredictionMIMIC3,
 )
 from .length_of_stay_stagenet_mimic4 import LengthOfStayStageNetMIMIC4
 from .medical_coding import MIMIC3ICD9Coding
