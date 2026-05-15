@@ -58,6 +58,7 @@ from .sleep_staging import (
     sleep_staging_sleepedf_fn,
 )
 from .sleep_staging_v2 import SleepStagingSleepEDF
+from .sofa_lab_forecasting_mimic3 import SofaLabForecastingMIMIC3
 from .temple_university_EEG_tasks import (
     EEGEventsTUEV,
     EEGAbnormalTUAB
