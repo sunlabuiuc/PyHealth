@@ -1,0 +1,525 @@
+# Authors: Skyler Lehto (lehto2@illinois.edu),
+#          Ryan Bradley (ryancb3@illinois.edu),
+#          Weonah Choi (weonahc2@illinois.edu)
+# Paper: Dynamic Survival Analysis for Early Event Prediction (Yèche et al., 2024)
+# Link: https://arxiv.org/abs/2403.12818
+# Description: GRU-based ablation study over anchor strategy, window size, and horizon.
+
+"""
+Ablation Study for Dynamic Survival Task
+
+We evaluate:
+- Anchor strategy (fixed vs single)
+- Observation window size
+- Prediction horizon
+
+We use a GRU model on synthetic patients.
+
+Findings:
+- Anchor strategy affects performance (fixed generally outperforms single).
+- Observation window size shows no consistent monotonic trend.
+- Prediction horizon changes task difficulty and performance.
+
+Results are printed to show how task configurations affect model performance.
+
+NOTE:
+- Evaluation includes BCE, AuPRC, and C-index.
+- C-index is computed if scikit-survival is available (optional dependency).
+"""
+
+import random
+from datetime import datetime, timedelta
+
+import numpy as np
+import pandas as pd
+import torch
+import torch.nn as nn
+
+from sklearn.metrics import average_precision_score
+
+try:
+    from sksurv.metrics import concordance_index_censored
+    HAS_SKSURV = True
+except ImportError:
+    HAS_SKSURV = False
+
+from pyhealth.tasks.dynamic_survival import DynamicSurvivalTask
+
+# use import if running on real MIMIC
+# from pyhealth.datasets import MIMIC3Dataset
+
+from examples.synthetic_dataset import generate_synthetic_dataset
+from examples.mock_ehr import MockEvent, MockVisit, MockPatient, MockDataset
+
+
+np.random.seed(42)
+torch.manual_seed(42)
+random.seed(42)
+
+
+# Synthetic Patient Generator
+
+def generate_synthetic_patients(n=20, seed=42):
+    """Generate synthetic MockPatient objects for experiments.
+
+    Args:
+        n: Number of patients to generate.
+        seed: Random seed for reproducibility.
+
+    Returns:
+        List of MockPatient objects with randomized visits and death times.
+    """
+    random.seed(seed)
+    base_time = datetime(2025, 4, 1)
+
+    patients = []
+
+    for i in range(n):
+
+        num_visits = random.randint(5, 10)
+        visit_times = sorted(random.sample(range(1, 40), num_visits))
+
+        visits_data = [
+            {
+                "time": base_time + timedelta(days=t),
+                "diagnosis": [str(random.randint(1000, 9999))]
+            }
+            for t in visit_times
+        ]
+
+        if random.random() < 0.5:
+            death_time = base_time + timedelta(
+                days=max(visit_times) + random.randint(5, 15)
+            )
+        else:
+            death_time = None
+
+        patients.append(
+            MockPatient(
+                pid=f"P{i}",
+                visits_data=visits_data,
+                death_time=death_time,
+            )
+        )
+
+    return patients
+
+
+# Model
+
+class GRUModel(nn.Module):
+    def __init__(self, input_dim, hidden_dim=32, horizon=24):
+        super().__init__()
+        self.rnn = nn.GRU(input_dim, hidden_dim, batch_first=True)
+        self.fc = nn.Linear(hidden_dim, horizon)
+
+    def forward(self, x):
+        _, h = self.rnn(x)
+        return torch.sigmoid(self.fc(h.squeeze(0)))
+
+
+# Batch Function
+
+def prepare_batch(samples):
+    X, Y, M = [], [], []
+
+    for s in samples:
+        x = np.array(s["x"], dtype=np.float32)
+        y = np.array(s["y"], dtype=np.float32)
+        m = np.array(s["mask"], dtype=np.float32)
+
+        X.append(x)
+        Y.append(y)
+        M.append(m)
+
+    max_len = max(len(x) for x in X)
+
+    X_pad = []
+    for x in X:
+        pad = np.zeros((max_len - len(x), x.shape[1]))
+        X_pad.append(np.vstack([x, pad]))
+
+    return (
+        torch.tensor(np.array(X_pad), dtype=torch.float32),
+        torch.tensor(np.array(Y), dtype=torch.float32),
+        torch.tensor(np.array(M), dtype=torch.float32),
+    )
+
+
+# Prior Estimation Utilities for Bias Initialization(DSA Extension)
+
+def data_prior(samples):
+    """
+    Estimate event probability using Maximum Likelihood Estimation (MLE).
+
+    This computes the empirical event rate over all valid timesteps
+    (i.e., where mask > 0).
+
+    Args:
+        samples (list): List of sample dictionaries containing "y" and "mask".
+
+    Returns:
+        float: Estimated probability of event occurrence.
+    """
+    total = 0
+    events = 0
+
+    for s in samples:
+        y = np.array(s["y"], dtype=np.float32)
+        m = np.array(s["mask"], dtype=np.float32)
+
+        valid = m > 0
+        events += y[valid].sum()
+        total += valid.sum()
+
+    return events / total if total > 0 else 0.0
+
+
+def gaussian_sample_prior(mean=-2.0, std=0.5):
+    """
+    Sample a prior probability from a Gaussian distribution in logit space.
+
+    The sampled value is transformed via the sigmoid function to obtain
+    a valid probability in (0, 1).
+
+    Args:
+        mean (float): Mean of the Gaussian (in logit space).
+        std (float): Standard deviation.
+
+    Returns:
+        float: Sampled probability.
+    """
+    z = np.random.normal(mean, std)
+    p = 1 / (1 + np.exp(-z))  # sigmoid transform
+    return float(p)
+
+
+def bayesian_posterior_prior(samples):
+    """
+    Estimate event probability using a Bayesian posterior with Beta(1,1) prior.
+
+    This corresponds to a Laplace-smoothed estimate of the event rate.
+
+    Args:
+        samples (list): List of sample dictionaries containing "y" and "mask".
+
+    Returns:
+        float: Posterior mean probability.
+    """
+    total = 0
+    events = 0
+
+    for s in samples:
+        y = np.array(s["y"], dtype=np.float32)
+        m = np.array(s["mask"], dtype=np.float32)
+
+        valid = m > 0
+        events += y[valid].sum()
+        total += valid.sum()
+
+    alpha = events + 1.0
+    beta = (total - events) + 1.0
+
+    return alpha / (alpha + beta)
+
+
+# Training Loop
+
+def train_model(samples, horizon, prior=None):
+    """Train a GRU model on survival samples using masked BCE loss.
+
+    Args:
+        samples: List of sample dicts with keys "x", "y", "mask".
+        horizon: Prediction horizon (sets the output dimension).
+        prior: Optional event rate prior for Bayesian bias initialization.
+
+    Returns:
+        Trained GRUModel instance.
+    """
+    X, Y, M = prepare_batch(samples)
+
+    model = GRUModel(input_dim=X.shape[-1], horizon=horizon)
+
+    # Bayesian initialization
+    if prior is not None:
+        p = prior
+        bias_init = torch.log(torch.tensor(p / (1 - p)))
+
+        with torch.no_grad():
+            model.fc.bias.fill_(bias_init)
+
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
+
+    for epoch in range(5):
+        pred = model(X)
+
+        loss = -(Y * torch.log(pred + 1e-8) +
+                 (1 - Y) * torch.log(1 - pred + 1e-8))
+        loss = (loss * M).sum() / M.sum()
+
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+    return model
+
+
+# Evaluation
+
+def evaluate(model, samples):
+    """Print masked BCE and MSE for a trained model on the given samples.
+
+    Args:
+        model: Trained GRUModel.
+        samples: List of sample dicts with keys "x", "y", "mask".
+    """
+    X, Y, M = prepare_batch(samples)
+
+    with torch.no_grad():
+        pred = model(X)
+
+        bce = -(Y * torch.log(pred + 1e-8) +
+                (1 - Y) * torch.log(1 - pred + 1e-8))
+        bce = (bce * M).sum() / M.sum()
+
+        mse = ((pred - Y) ** 2 * M).sum() / M.sum()
+
+    print(f"\nFinal Performance → BCE={bce.item():.4f} | MSE={mse.item():.4f}")
+
+def evaluate_3metrics(model, samples):
+    """Compute BCE, AuPRC, and C-index for a trained model.
+
+    Args:
+        model: Trained GRUModel.
+        samples: List of sample dicts with keys "x", "y", "mask".
+
+    Returns:
+        Tuple of (bce, auprc, cindex). auprc and cindex are None if
+        insufficient events exist to compute them.
+    """
+    X, Y, M = prepare_batch(samples)
+
+    with torch.no_grad():
+        pred = model(X)
+
+        # BCE
+        loss = -(Y * torch.log(pred + 1e-8) +
+                 (1 - Y) * torch.log(1 - pred + 1e-8))
+        bce = (loss * M).sum() / M.sum()
+
+        # AuPRC
+        y_true = Y[M > 0].cpu().numpy().flatten()
+        y_pred = pred[M > 0].cpu().numpy().flatten()
+        auprc = None if y_true.sum() == 0 else average_precision_score(y_true, y_pred)
+
+        # C-index
+        times, risks, events = [], [], []
+
+        for i in range(len(Y)):
+            y_i = Y[i].cpu().numpy()
+            pred_i = pred[i].cpu().numpy()
+            m_i = M[i].cpu().numpy()
+
+            event_idx = np.where(y_i > 0)[0]
+            valid_idx = np.where(m_i > 0)[0]
+            if len(valid_idx) == 0:
+                # Skip samples with no usable data (fully zeroed mask).
+                continue
+
+            if len(event_idx) > 0:
+                # y is one-hot by construction (generate_survival_label sets exactly one
+                # index), so event_idx always has one element and [0] is the event time.
+                event_time = event_idx[0]
+                observed = True
+            else:
+                # No event within horizon, use last unmasked step as the censoring time
+                # (i.e., last time we know the patient was event-free).
+                event_time = valid_idx[-1]
+                observed = False
+
+            cumulative_risk = float(1.0 - np.prod(1.0 - pred_i))
+            times.append(event_time)
+            risks.append(cumulative_risk)
+            events.append(observed)
+
+        events_arr = np.array(events, dtype=bool)
+        times_arr = np.array(times)
+        risks_arr = np.array(risks)
+
+        if len(times_arr) < 2 or not events_arr.any():
+            cindex = None
+        try:
+                from sksurv.metrics import concordance_index_censored
+
+                event_times = times_arr[events_arr]
+
+                if (~events_arr).any():
+                    other_times = times_arr[~events_arr]
+                else:
+                    other_times = times_arr[events_arr]
+
+                if not (event_times.min() < other_times.max()):
+                    cindex = None
+                else:
+                    result = concordance_index_censored(events_arr, times_arr, risks_arr)
+                    cindex = result[0] if isinstance(result, tuple) else result.concordance
+
+        except ImportError:
+            cindex = None
+        except Exception:
+            cindex = None
+    return bce.item(), auprc, cindex
+
+
+# RUN EXPERIMENT FUNCTION
+
+def run_experiment(dataset, horizon, window, anchor):
+    """Run one training/evaluation trial for a given task configuration.
+
+    Args:
+        dataset: MockDataset instance.
+        horizon: Prediction horizon in time steps.
+        window: Observation window size in days.
+        anchor: Anchor strategy ("fixed" or "single").
+
+    Returns:
+        Tuple of (bce, mse), or None if no samples were generated.
+    """
+    task = DynamicSurvivalTask(
+        dataset,
+        horizon=horizon,
+        observation_window=window,
+        anchor_strategy=anchor
+    )
+
+    samples = dataset.set_task(task)
+
+    if len(samples) == 0:
+        return None
+
+    model = train_model(samples, horizon=horizon)
+
+    X, Y, M = prepare_batch(samples)
+
+    with torch.no_grad():
+        pred = model(X)
+
+        bce = -(Y * torch.log(pred + 1e-8) +
+                (1 - Y) * torch.log(1 - pred + 1e-8))
+        bce = (bce * M).sum() / M.sum()
+
+        mse = ((pred - Y) ** 2 * M).sum() / M.sum()
+
+    return bce.item(), mse.item()
+
+
+def main():
+    # Use synthetic patients so this script runs without a local MIMIC download.
+    # To run on real MIMIC-III, replace with:
+    #   dataset = MIMIC3Dataset(root="<your_path>", tables=[...], dev=True)
+    patients = generate_synthetic_patients(20)
+    dataset = MockDataset(patients)
+
+    # 1. Anchor Ablation
+    anchors = ["fixed", "single"]
+    bce_list, auprc_list, cindex_list = [], [], []
+
+    for anchor in anchors:
+        task = DynamicSurvivalTask(
+            dataset, horizon=30, observation_window=12, anchor_strategy=anchor
+        )
+        samples = dataset.set_task(task)
+        if not samples:
+            print(f"{anchor} → no samples generated, skipping")
+            continue
+        model = train_model(samples, 30)
+        bce, auprc, cidx = evaluate_3metrics(model, samples)    
+        bce_list.append(bce)
+        auprc_list.append(auprc)
+        cindex_list.append(cidx)
+
+    df_anchor = pd.DataFrame({
+        "Anchor": anchors, "BCE": bce_list,
+        "AuPRC": auprc_list, "C-index": cindex_list
+    })
+    print("\n=== Results ===")
+    print("(C-index shown only if scikit-survival is installed)\n")
+    print("\n=== Anchor Ablation Results ===")
+    print(df_anchor.round(4))
+
+    # 2. Window Ablation
+    windows = [6, 12, 24]
+    bce_list, auprc_list, cindex_list = [], [], []
+
+    for w in windows:
+        task = DynamicSurvivalTask(
+            dataset, horizon=10, observation_window=w, anchor_strategy="fixed"
+        )
+        samples = dataset.set_task(task)
+        if not samples:
+            print(f"window={w} → no samples, skipping")
+            continue
+        model = train_model(samples, 10)
+        bce, auprc, cidx = evaluate_3metrics(model, samples)        
+        bce_list.append(bce)
+        auprc_list.append(auprc)
+        cindex_list.append(cidx)
+
+    df_window = pd.DataFrame({
+        "Window": windows, "BCE": bce_list,
+        "AuPRC": auprc_list, "C-index": cindex_list
+    })
+    print("\n=== Window Ablation Results ===")
+    print(df_window.round(4))
+
+    # 3. Horizon Ablation    
+    horizons = [5, 10, 20]
+    bce_list, auprc_list, cindex_list = [], [], []
+
+    for h in horizons:
+        task = DynamicSurvivalTask(
+            dataset, horizon=h, observation_window=12, anchor_strategy="fixed"
+        )
+        samples = dataset.set_task(task)
+        if not samples:
+            print(f"horizon={h} → no samples, skipping")
+            continue
+        model = train_model(samples, h)
+        bce, auprc, cidx = evaluate_3metrics(model, samples)        
+        bce_list.append(bce)
+        auprc_list.append(auprc)
+        cindex_list.append(cidx)
+
+    df_horizon = pd.DataFrame({
+        "Horizon": horizons, "BCE": bce_list,
+        "AuPRC": auprc_list, "C-index": cindex_list
+    })
+    print("\n=== Horizon Ablation Results ===")
+    print(df_horizon.round(4))
+
+    # 4. Prior Ablation
+    task = DynamicSurvivalTask(
+        dataset, horizon=10, observation_window=12, anchor_strategy="fixed",
+    )
+    samples = dataset.set_task(task)
+    priors = {
+        "No Prior(MLE)": None,
+        "Data": data_prior(samples),
+        "Bayesian": bayesian_posterior_prior(samples),
+    }
+
+    results = []
+
+    for name, prior in priors.items():
+        model = train_model(samples, horizon=10, prior=prior)
+        bce, auprc, cidx = evaluate_3metrics(model, samples)
+        results.append((name, bce, auprc, cidx))
+
+    df_prior = pd.DataFrame(results, columns=["Prior", "BCE", "AuPRC", "C-index"])
+
+    print("\n=== Prior Ablation Results (Extension)===")
+    print(df_prior.round(4))
+
+
+if __name__ == "__main__":
+    main()
