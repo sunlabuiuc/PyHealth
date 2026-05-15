@@ -208,6 +208,7 @@ Available Tasks
     Base Task <tasks/pyhealth.tasks.BaseTask>
     In-Hospital Mortality (MIMIC-IV) <tasks/pyhealth.tasks.InHospitalMortalityMIMIC4>
     MIMIC-III ICD-9 Coding <tasks/pyhealth.tasks.MIMIC3ICD9Coding>
+    MIMIC-IV ICD-10 Coding <tasks/pyhealth.tasks.MIMIC4ICD10Coding>
     Cardiology Detection <tasks/pyhealth.tasks.cardiology_detect>
     COVID-19 CXR Classification <tasks/pyhealth.tasks.COVID19CXRClassification>
     DKA Prediction (MIMIC-IV) <tasks/pyhealth.tasks.dka>
