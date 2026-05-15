@@ -48,6 +48,9 @@ routes each feature type automatically.
    * - :doc:`models/pyhealth.models.GraphCare`
      - You want to augment EHR codes with a medical knowledge graph
      - Combines code sequences with a :class:`~pyhealth.graph.KnowledgeGraph`
+   * - :doc:`models/pyhealth.models.EBCL`
+     - You have paired pre- and post–index event code sequences and want CLIP-style contrastive pretraining
+     - Shared RNN encoder over two windows; see :mod:`pyhealth.models.ebcl`
 
 How BaseModel Works
 --------------------
@@ -185,6 +188,7 @@ API Reference
     models/pyhealth.models.SafeDrug
     models/pyhealth.models.MoleRec
     models/pyhealth.models.Deepr
+    models/pyhealth.models.EBCL
     models/pyhealth.models.EHRMamba
     models/pyhealth.models.JambaEHR
     models/pyhealth.models.ContraWR
