@@ -206,3 +206,6 @@ API Reference
     models/pyhealth.models.BIOT
     models/pyhealth.models.unified_multimodal_embedding_docs
     models/pyhealth.models.califorest
+    models/pyhealth.models.CNNLSTM
+    models/pyhealth.models.ResNetLSTM
+    models/pyhealth.models.FeatureExtractorManager

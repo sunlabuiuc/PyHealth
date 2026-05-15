@@ -19,3 +19,4 @@ tasks, such as drug drug interaction (DDI) rate.
     metrics/pyhealth.metrics.prediction_set
     metrics/pyhealth.metrics.fairness
     metrics/pyhealth.metrics.interpretability
+    metrics/pyhealth.metrics.eeg_margin

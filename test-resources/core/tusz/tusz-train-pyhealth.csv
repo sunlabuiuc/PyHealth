@@ -1,0 +1,2 @@
+patient_id,record_id,signal_file
+aaaaaaac,s001_t001,test-resources/core/tusz/train/aaaaaaac/s001_t001/01_tcp_ar/aaaaaaac_s001_t001.edf

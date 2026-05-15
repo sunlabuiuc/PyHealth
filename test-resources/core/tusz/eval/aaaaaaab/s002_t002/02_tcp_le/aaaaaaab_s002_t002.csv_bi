@@ -1,0 +1,3 @@
+channel,start_time,stop_time,label,confidence
+TERM,1775.9090,2236.0000,seiz,1.0000
+TERM,2269.7070,2273.0909,seiz,1.0000
