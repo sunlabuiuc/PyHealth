@@ -1,0 +1,11 @@
+version: "1.0"
+tables:
+  questions:
+    file_path: "questions.csv"
+    patient_id: null
+    timestamp: null
+    attributes:
+      - "word1"
+      - "word2"
+      - "question"
+      - "answer"
