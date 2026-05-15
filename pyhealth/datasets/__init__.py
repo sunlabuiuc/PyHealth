@@ -68,6 +68,11 @@ from .sleepedf import SleepEDFDataset
 from .bmd_hs import BMDHSDataset
 from .support2 import Support2Dataset
 from .tcga_prad import TCGAPRADDataset
+from .tcga_rnaseq_embedding import (
+    TCGARNASeqEmbeddingDataset,
+    load_tcga_cancer_classification_5cohort,
+    stratified_split_indices,
+)
 from .splitter import (
     sample_balanced,
     split_by_patient,

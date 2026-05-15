@@ -204,5 +204,6 @@ API Reference
     models/pyhealth.models.VisionEmbeddingModel
     models/pyhealth.models.TextEmbedding
     models/pyhealth.models.BIOT
+    models/pyhealth.models.bulk_rna_bert
     models/pyhealth.models.unified_multimodal_embedding_docs
     models/pyhealth.models.califorest
