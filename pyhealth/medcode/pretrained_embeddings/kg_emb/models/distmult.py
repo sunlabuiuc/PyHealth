@@ -1,5 +1,5 @@
 from.kg_base import KGEBaseModel
-from pyhealth.datasets import SampleBaseDataset
+from pyhealth.datasets import SampleDataset
 import torch
 
 
@@ -12,7 +12,7 @@ class DistMult(KGEBaseModel):
     """
     def __init__(
         self, 
-        dataset: SampleBaseDataset, 
+        dataset: SampleDataset,
         e_dim: int = 300, 
         r_dim: int = 300, 
         ns: str = "adv", 
