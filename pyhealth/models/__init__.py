@@ -45,4 +45,5 @@ from .text_embedding import TextEmbedding
 from .sdoh import SdohClassifier
 from .medlink import MedLink
 from .unified_embedding import UnifiedMultimodalEmbeddingModel, SinusoidalTimeEmbedding
+from .td_icu_mortality import TDICUMortalityModel
 from .califorest import CaliForest
