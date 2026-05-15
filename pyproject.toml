@@ -45,6 +45,7 @@ dependencies = [
   "more-itertools~=10.8.0",
   "einops>=0.8.0",
   "linear-attention-transformer>=0.19.1",
+  "orjson~=3.10",
 ]
 license = "BSD-3-Clause"
 license-files = ["LICENSE.md"]
@@ -97,7 +98,8 @@ preview = ["pixi-build"]
 
 # virtual environments (each under '.pixi/envs') for specific tasks
 [tool.pixi.environments]
-default = { features = ["pyverbase"], solve-group = "default" }
+# Include `base` so `pixi run python` sees editable `pyhealth` (not only `pixi run -e base`).
+default = { features = ["pyverbase", "base"], solve-group = "default" }
 test = { features = ["pyverbase", "test"] }
 base = { features = ["pyverbase", "base"] }
 nlp = { features = ["pyverbase", "nlp"] }
