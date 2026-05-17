@@ -358,8 +358,22 @@ if __name__ == "__main__":
         use_cls_token=True,
     )
 
+    model_pooled = VisionEmbeddingModel(
+        dataset=dataset,
+        embedding_dim=128,
+        backbone="cnn",
+        pool="mean",
+    )
+
+
+
     loader = get_dataloader(dataset, batch_size=4, shuffle=False)
     batch = next(iter(loader))
+
+    embeddings_pooled = model_pooled({"chest_xray": batch["chest_xray"]})
+    print(f"Pooled output shape: {embeddings_pooled['chest_xray'].shape}")  # expect (4, 1, 128)
+    print(f"Pooled output info: {model_pooled.get_output_info('chest_xray')}")  # expect num_tokens=1
+
 
     embeddings = model({"chest_xray": batch["chest_xray"]})
     print(f"Input shape: {batch['chest_xray'].shape}")
