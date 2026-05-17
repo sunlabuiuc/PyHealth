@@ -10,7 +10,7 @@ from pyhealth.interpret.api import Interpretable
 from .base_interpreter import BaseInterpreter
 
 
-class ShapExplainer(BaseInterpreter):
+class Shap(BaseInterpreter):
     """SHAP (SHapley Additive exPlanations) attribution method for PyHealth models.
 
     This class implements the SHAP method for computing feature attributions in 
@@ -121,8 +121,6 @@ class ShapExplainer(BaseInterpreter):
                 implement forward_from_embedding() method.
         """
         super().__init__(model)
-        if not isinstance(model, Interpretable):
-            raise ValueError("Model must implement Interpretable interface")
         self.model = model
         self.use_embeddings = use_embeddings
         self.n_background_samples = n_background_samples
@@ -131,13 +129,8 @@ class ShapExplainer(BaseInterpreter):
         self.random_seed = random_seed
 
         # Validate model requirements
-        if use_embeddings:
-            assert hasattr(model, "forward_from_embedding"), (
-                f"Model {type(model).__name__} must implement "
-                "forward_from_embedding() method to support embedding-level "
-                "SHAP values. Set use_embeddings=False to use "
-                "input-level attributions (only for continuous features)."
-            )
+        if use_embeddings and not isinstance(model, Interpretable):
+            raise ValueError("Model must implement Interpretable interface or use_embeddings must be False.")
 
     # ------------------------------------------------------------------
     # Public API
@@ -227,33 +220,7 @@ class ShapExplainer(BaseInterpreter):
         # Extract and prepare inputs
         base_logits = self.model.forward(**inputs)["logit"]
 
-        # Enforce target class selection for multi-class models to avoid class flipping
-        if self._prediction_mode() == "binary":
-            if target_class_idx is not None:
-                target = torch.tensor([target_class_idx], device=device)
-            else:
-                target = (torch.sigmoid(base_logits) > 0.5).long()
-        elif self._prediction_mode() == "multiclass":
-            if target_class_idx is not None:
-                target = torch.nn.functional.one_hot(
-                    torch.tensor(target_class_idx, device=device),
-                    num_classes=base_logits.shape[-1],
-                )
-            else:
-                target = torch.argmax(base_logits, dim=-1)
-                target = torch.nn.functional.one_hot(
-                    target, num_classes=base_logits.shape[-1]
-                )
-        elif self._prediction_mode() == "multilabel":
-            if target_class_idx is not None:
-                target = torch.nn.functional.one_hot(
-                    torch.tensor(target_class_idx, device=device),
-                    num_classes=base_logits.shape[-1],
-                )
-            else:
-                target = torch.sigmoid(base_logits) > 0.5
-        else:
-            raise ValueError("Unsupported prediction mode for SHAP attribution.")
+        target_indices = self._resolve_target_indices(base_logits, target_class_idx)
 
         if baseline is None:
             baselines = self._generate_background_samples(
@@ -275,7 +242,7 @@ class ShapExplainer(BaseInterpreter):
         # (raw indices are meaningless for interpolation), while continuous
         # features stay raw so each raw dimension gets its own SHAP value.
         # Continuous features will be embedded inside _evaluate_sample().
-        if self.use_embeddings:
+        if self.use_embeddings and isinstance(self.model, Interpretable):
             embedding_model = self.model.get_embedding_model()
             assert embedding_model is not None, (
                 "Model must have an embedding model for embedding-based SHAP."
@@ -302,7 +269,7 @@ class ShapExplainer(BaseInterpreter):
             xs=values,
             bs=baselines,
             n_features=n_features,
-            target=target,
+            target_indices=target_indices,
         )
 
         return self._map_to_input_shapes(out, shapes)
@@ -316,7 +283,7 @@ class ShapExplainer(BaseInterpreter):
         xs: Dict[str, torch.Tensor],
         bs: Dict[str, torch.Tensor],
         n_features: dict[str, int],
-        target: torch.Tensor,
+        target_indices: torch.Tensor,
     ) -> Dict[str, torch.Tensor]:
         """Compute SHAP values using the Kernel SHAP approximation method.
 
@@ -332,7 +299,7 @@ class ShapExplainer(BaseInterpreter):
             xs: Dictionary of input values (or embeddings).
             bs: Dictionary of baseline values (or embeddings).
             n_features: Dictionary mapping feature keys to feature counts.
-            target: Target tensor for prediction comparison.
+            target_indices: [batch] tensor of target class indices.
 
         Returns:
             Dictionary mapping feature keys to SHAP value tensors.
@@ -360,7 +327,7 @@ class ShapExplainer(BaseInterpreter):
                 coalition, keys, n_features, batch_size
             )
             perturb = self._create_perturbed_sample(xs, bs, gates)
-            pred = self._evaluate_sample(inputs, perturb, target)
+            pred = self._evaluate_sample(inputs, perturb, target_indices)
 
             coalition_vectors.append(coalition.float())
             coalition_preds.append(pred.detach())
@@ -381,7 +348,7 @@ class ShapExplainer(BaseInterpreter):
                 coalition, keys, n_features, batch_size
             )
             perturb = self._create_perturbed_sample(xs, bs, gates)
-            pred = self._evaluate_sample(inputs, perturb, target)
+            pred = self._evaluate_sample(inputs, perturb, target_indices)
 
             coalition_vectors.append(coalition.float())
             coalition_preds.append(pred.detach())
@@ -487,7 +454,7 @@ class ShapExplainer(BaseInterpreter):
         self,
         inputs: dict[str, tuple[torch.Tensor, ...]],
         perturb: dict[str, torch.Tensor],
-        target: torch.Tensor,
+        target_indices: torch.Tensor,
     ) -> torch.Tensor:
         """Evaluate model prediction for a perturbed sample.
 
@@ -499,18 +466,18 @@ class ShapExplainer(BaseInterpreter):
         Args:
             inputs: Original input tuples from the dataloader.
             perturb: Dictionary of perturbed value tensors.
-            target: Target tensor used to select which class prediction to
-                return.  For binary this is a 0/1 scalar or (batch,1) tensor;
-                for multiclass/multilabel it is a one-hot vector.
+            target_indices: [batch] tensor of target class indices.
 
         Returns:
             Target-class prediction scalar per batch item, shape (batch_size,).
         """
         inputs = inputs.copy()
-        # For continuous (non-token) features, embed through embedding_model
-        # so forward_from_embedding receives proper embeddings.
-        # Token features were already embedded before perturbation.
-        if self.use_embeddings:
+
+        if self.use_embeddings and isinstance(self.model, Interpretable):
+            # For continuous (non-token) features, embed through
+            # embedding_model so forward_from_embedding receives proper
+            # embeddings.  Token features were already embedded before
+            # perturbation.
             embedding_model = self.model.get_embedding_model()
             assert embedding_model is not None, (
                 "Model must have an embedding model for embedding-based SHAP."
@@ -534,58 +501,17 @@ class ShapExplainer(BaseInterpreter):
                 *inputs[k][schema.index("value") + 1 :],
             )
 
-        logits = self.model.forward_from_embedding(**inputs)["logit"]
-
-        return self._extract_target_prediction(logits, target)
-
-    def _extract_target_prediction(
-        self,
-        logits: torch.Tensor,
-        target: torch.Tensor,
-    ) -> torch.Tensor:
-        """Extract the model's prediction for the target class.
-
-        Kernel SHAP decomposes f(x) ≈ φ₀ + Σ φᵢ zᵢ via weighted least squares.
-        Using **raw logits** (unbounded) rather than probabilities (bounded
-        [0, 1]) is critical: sigmoid compression squashes coalition differences
-        in the saturated regions, producing uniformly small SHAP values and
-        degraded feature rankings.
-
-        Args:
-            logits: Raw model logits, shape (batch_size, n_classes) or
-                (batch_size, 1).
-            target: Target indicator.  Binary: scalar/tensor with 0 or 1.
-                Multiclass: one-hot tensor.  Multilabel: multi-hot tensor.
-
-        Returns:
-            Scalar prediction per batch item, shape (batch_size,).
-        """
-        mode = self._prediction_mode()
-
-        if mode == "binary":
-            # Use raw logit — not sigmoid probability — to preserve the
-            # dynamic range that Kernel SHAP's linear decomposition needs.
-            logit = logits.squeeze(-1)  # (batch,)
-            t = target.float()
-            if t.dim() > 1:
-                t = t.squeeze(-1)
-            # target=1  →  logit   (higher logit ⇒ more positive class)
-            # target=0  → −logit   (higher value ⇒ more negative class)
-            return t * logit + (1 - t) * (-logit)
-
-        elif mode == "multiclass":
-            # target is one-hot; dot-product extracts the target-class logit
-            return (target.float() * logits).sum(dim=-1)  # (batch,)
-
-        elif mode == "multilabel":
-            # target is multi-hot; average logits over active labels
-            t = target.float()
-            n_active = t.sum(dim=-1).clamp(min=1)  # avoid div-by-zero
-            return (t * logits).sum(dim=-1) / n_active  # (batch,)
-
+        if self.use_embeddings and isinstance(self.model, Interpretable):
+            # Values are already embedded; bypass the model's own embedding.
+            logits = self.model.forward_from_embedding(**inputs)["logit"]
         else:
-            # regression or unknown — just return the logit
-            return logits.squeeze(-1)
+            # Values are raw (token IDs / continuous floats); let the
+            # model's regular forward pass handle embedding internally.
+            logits = self.model.forward(**inputs)["logit"]
+
+        return logits.gather(
+            1, target_indices.unsqueeze(1)
+        ).squeeze(1)
 
     # ------------------------------------------------------------------
     # Weighted least squares solver
@@ -666,9 +592,11 @@ class ShapExplainer(BaseInterpreter):
         baselines = {}
 
         for k, v in values.items():
-            if use_embeddings and self.model.dataset.input_processors[k].is_token():
+            if self.model.dataset.input_processors[k].is_token():
                 # Token features: UNK token (index 1) as baseline.
-                # Embedding happens later in attribute().
+                # When use_embeddings=True, embedding happens later in
+                # attribute(); when use_embeddings=False, the UNK token
+                # IDs are used directly as the perturbed replacement.
                 baseline = torch.ones_like(v)
             else:
                 # Continuous features: use small neutral values (near-zero)
@@ -772,3 +700,5 @@ class ShapExplainer(BaseInterpreter):
             mapped[key] = reshaped
 
         return mapped
+    
+ShapExplainer = Shap  # Alias for backward compatibility

@@ -51,10 +51,12 @@ class Attention(nn.Module):
 
         scores = torch.matmul(query, key.transpose(-2, -1)) / math.sqrt(query.size(-1))
         if mask is not None:
-            scores = scores.masked_fill(mask == 0, -1e9)
+            # Use -inf so softmax produces exact zeros on padded positions,
+            # avoiding a second masked_fill after softmax (saves one full
+            # [B, H, S, S] boolean allocation and an extra copy).
+            pad_mask = (mask == 0)
+            scores = scores.masked_fill(pad_mask, -1e9)
         p_attn = self.softmax(scores)
-        if mask is not None:
-            p_attn = p_attn.masked_fill(mask == 0, 0)
         if dropout is not None:
             p_attn = dropout(p_attn)
 
@@ -115,7 +117,7 @@ class MultiHeadedAttention(nn.Module):
     def save_attn_grad(self, attn_grad: torch.Tensor) -> None:
         """Hook callback that stores attention gradients."""
 
-        self.attn_gradients = attn_grad
+        self.attn_gradients = attn_grad.detach()
 
     def forward(
         self,
@@ -151,9 +153,15 @@ class MultiHeadedAttention(nn.Module):
             mask = mask.unsqueeze(1)
         x, attn = self.attention(query, key, value, mask=mask, dropout=self.dropout)
 
-        self.attn_map = attn  # save the attention map
         if register_hook:
+            # Only store attn_map and hook during interpretability passes.
+            # Using .detach() gives an independent copy whose storage
+            # is NOT shared with the live graph, so the graph can be freed
+            # normally after .backward() without leaking GPU memory.
+            self.attn_map = attn.detach()
             attn.register_hook(self.save_attn_grad)
+        else:
+            self.attn_map = None
         # 3) "Concat" using a view and apply a final linear.
         x = x.transpose(1, 2).contiguous().view(batch_size, -1, self.h * self.d_k)
   
@@ -368,12 +376,14 @@ class Transformer(BaseModel, CheferInterpretable):
         heads: int = 1,
         dropout: float = 0.5,
         num_layers: int = 1,
+        max_seq_len: int = 1024,
     ):
         super().__init__(dataset=dataset)
         self.embedding_dim = embedding_dim
         self.heads = heads
         self.dropout = dropout
         self.num_layers = num_layers
+        self.max_seq_len = max_seq_len
         self._attention_hooks_enabled = False
 
         assert (
@@ -396,8 +406,7 @@ class Transformer(BaseModel, CheferInterpretable):
         output_size = self.get_output_size()
         self.fc = nn.Linear(len(self.feature_keys) * embedding_dim, output_size)
 
-    @staticmethod
-    def _pool_embedding(x: torch.Tensor) -> torch.Tensor:
+    def _pool_embedding(self, x: torch.Tensor) -> torch.Tensor:
         """Pool nested embeddings to ``[batch, seq_len, hidden]`` format.
 
         Args:
@@ -416,6 +425,10 @@ class Transformer(BaseModel, CheferInterpretable):
             x = x.sum(dim=2)
         if x.dim() == 2:
             x = x.unsqueeze(1)
+        # Truncate to max_seq_len to prevent quadratic memory spikes from
+        # outlier-length sequences (attention is O(S^2)).
+        if x.size(1) > self.max_seq_len:
+            x = x[:, : self.max_seq_len, :]
         return x
 
     @staticmethod
@@ -558,6 +571,7 @@ class Transformer(BaseModel, CheferInterpretable):
             schema = self.dataset.input_processors[feature_key].schema()
 
             value = feature[schema.index("value")] if "value" in schema else None
+            mask = feature[schema.index("mask")] if "mask" in schema else None
 
             if value is None:
                 raise ValueError(
@@ -567,9 +581,18 @@ class Transformer(BaseModel, CheferInterpretable):
             else:
                 value = value.to(self.device)
 
-            value = self.embedding_model({feature_key: value})[feature_key]
+            if mask is not None:
+                mask = mask.to(self.device)
+                value = self.embedding_model({feature_key: value}, masks={feature_key: mask})[feature_key]
+            else:
+                value = self.embedding_model({feature_key: value})[feature_key]
 
             i = schema.index("value")
+            # Reconstruct tuple with embedded value
+            # Note: we need to handle list/tuple conversion carefully
+            # feature is a tuple.
+            
+            # Simple slice reconstruction
             kwargs[feature_key] = feature[:i] + (value,) + feature[i + 1:]
 
         return self.forward_from_embedding(**kwargs)

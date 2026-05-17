@@ -158,6 +158,5 @@ class TestAdaCare(unittest.TestCase):
         expected_embed_dim = len(self.model.feature_keys) * self.model.hidden_dim
         self.assertEqual(ret["embed"].shape[1], expected_embed_dim)
 
-
 if __name__ == "__main__":
     unittest.main()

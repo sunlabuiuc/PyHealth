@@ -75,14 +75,6 @@ def get_directory_size(path: str | Path) -> int:
     return total
 
 
-def ensure_empty_dir(path: str | Path) -> None:
-    """Ensure directory exists and is empty."""
-    p = Path(path)
-    if p.exists():
-        shutil.rmtree(p)
-    p.mkdir(parents=True, exist_ok=True)
-
-
 def remove_dir(path: str | Path, retries: int = 3, delay: float = 1.0) -> None:
     """Remove a directory with retry logic."""
     p = Path(path)
@@ -558,7 +550,7 @@ def showcase_sample(sample: Dict[str, Any], sample_dataset=None,
                 visit_info = lookup_icd_codes(visit_codes, "ICD10CM", max_display=10)
                 if all(info["name"] == "[Unknown code]" for info in visit_info):
                     visit_info = lookup_icd_codes(visit_codes, "ICD9CM", max_display=10)
-                
+
                 codes_preview = ", ".join(info['code'] for info in visit_info)
                 if len(visit_codes) > 10:
                     codes_preview += f" (+{len(visit_codes) - 10} more)"
@@ -578,7 +570,7 @@ def showcase_sample(sample: Dict[str, Any], sample_dataset=None,
                 if all(info["name"] in ["[Unknown code]", "[ICD10PROC unavailable]"]
                        for info in visit_info):
                     visit_info = lookup_icd_codes(visit_codes, "ICD9PROC", max_display=10)
-                
+
                 codes_preview = ", ".join(info['code'] for info in visit_info)
                 if len(visit_codes) > 10:
                     codes_preview += f" (+{len(visit_codes) - 10} more)"
@@ -651,7 +643,7 @@ def showcase_sample(sample: Dict[str, Any], sample_dataset=None,
     # - lab_times: list of floats from raw processor
     lab_values_tensor = sample.get("lab_values")
     lab_times_raw = sample.get("lab_times", [])
-    
+
     labs_data = None
     if lab_values_tensor is not None and len(lab_times_raw) > 0:
         # Convert tensor to list of lists for display functions
@@ -870,7 +862,7 @@ def main():
     from pyhealth.tasks import MultimodalMortalityPredictionMIMIC4
 
     cache_root = Path(args.cache_dir)
-    
+
     # Create cache directory name based on configuration
     cache_suffix = "_dev" if args.dev else ""
     if args.no_notes and args.no_cxr:
@@ -881,9 +873,8 @@ def main():
         cache_suffix += "_ehr_notes"
     else:
         cache_suffix += "_full"
-    
+
     base_cache_dir = cache_root / f"base_dataset{cache_suffix}"
-    task_cache_dir = cache_root / f"task_samples{cache_suffix}"
 
     # Initialize memory tracker
     tracker = PeakMemoryTracker(poll_interval_s=0.1)
@@ -946,15 +937,14 @@ def main():
     sample_dataset = base_dataset.set_task(
         task,
         num_workers=num_workers,
-        cache_dir=str(task_cache_dir),
     )
 
     task_process_s = time.time() - task_start
     total_s = time.time() - run_start
     peak_rss_bytes = tracker.peak_bytes()
-    
+
     print(f"  ✓ Task completed in {task_process_s:.2f}s", flush=True)
-    
+
     # Get sample count first (faster, uses cached count if available)
     print("  Getting sample count...", flush=True)
     try:
@@ -967,12 +957,13 @@ def main():
     except Exception as e:
         print(f"  ✗ Error getting sample count: {e}")
         num_samples = 0
-    
+
     # Calculate cache size (can be slow for large directories)
     if not args.skip_benchmark:
         print("  Calculating cache size...", flush=True)
         cache_calc_start = time.time()
-        task_cache_bytes = get_directory_size(task_cache_dir)
+        tasks_dir = base_cache_dir / "tasks"
+        task_cache_bytes = get_directory_size(tasks_dir)
         cache_calc_time = time.time() - cache_calc_start
         print(f"  ✓ Task cache size: {format_size(task_cache_bytes)} "
               f"(calculated in {cache_calc_time:.1f}s)")

@@ -319,7 +319,6 @@ def main():
     sample_dataset = base_dataset.set_task(
         MortalityPredictionStageNetMIMIC4(),
         num_workers=8,
-        cache_dir="../../mimic4_stagenet_cache",
         input_processors=input_processors,
         output_processors=output_processors,
     )

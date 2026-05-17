@@ -37,6 +37,36 @@ Before diving into the details, here are some excellent pull requests that demon
 
 These contributions demonstrate the level of completeness and documentation we appreciate. Take some time to review them to understand our expectations!
 
+Review Criteria
+===============
+
+All contributions to PyHealth are evaluated based on the following criteria:
+
+1. **Completeness**
+
+   Your contribution should be production-ready and complete. This includes:
+   
+   - Comprehensive test cases with synthetic data
+   - Complete API documentation following our style guide
+   - Proper inheritance from base classes with all required methods implemented
+   - Working examples demonstrating usage
+   - Clear docstrings for all public methods and classes
+
+2. **Relevance to Healthcare**
+
+   PyHealth is a healthcare-focused library. Contributions should address healthcare-specific problems or datasets. Being sourced from or inspired by a peer-reviewed publication strengthens your contribution and provides validation of the approach.
+
+3. **Relevance to the Package**
+
+   Your contribution should enhance PyHealth's utility for the broader community. Consider:
+   
+   - Does this add meaningful functionality that others will use?
+   - Does it integrate well with existing PyHealth components?
+   - Does it follow established patterns and conventions?
+   - Will it create confusion or maintenance burden?
+   
+   The goal is to grow PyHealth thoughtfully, not just add features for the sake of features.
+
 Getting Started
 ===============
 

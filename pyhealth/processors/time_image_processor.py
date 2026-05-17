@@ -14,7 +14,7 @@ import torchvision.transforms as transforms
 from PIL import Image
 
 from . import register_processor
-from .base_processor import FeatureProcessor
+from .base_processor import FeatureProcessor, ModalityType, TemporalFeatureProcessor
 
 
 def _convert_mode(img: Image.Image, mode: str) -> Image.Image:
@@ -31,7 +31,7 @@ def _convert_mode(img: Image.Image, mode: str) -> Image.Image:
 
 
 @register_processor("time_image")
-class TimeImageProcessor(FeatureProcessor):
+class TimeImageProcessor(TemporalFeatureProcessor):
     """Feature processor that loads images and pairs them with timestamps.
 
     Takes a tuple of (image_paths, time_differences) and returns a tuple
@@ -314,6 +314,26 @@ class TimeImageProcessor(FeatureProcessor):
             Number of channels, or None if unknown.
         """
         return self.n_channels
+
+    def modality(self) -> ModalityType:
+        """Medical image → IMAGE modality."""
+        return ModalityType.IMAGE
+
+    def value_dim(self) -> int:
+        """Flattened image size C*H*W (used with CNN encoder).
+        Returns None if fit() has not been called yet."""
+        if self.n_channels is None:
+            return None
+        return self.n_channels * self.image_size * self.image_size
+
+    def process_temporal(self, value) -> dict:
+        """Return dict output for UnifiedMultimodalEmbeddingModel.
+
+        Returns:
+            {"value": FloatTensor (N, C, H, W), "time": FloatTensor (N,)}
+        """
+        images, timestamps, _tag = self.process(value)
+        return {"value": images, "time": timestamps}
 
     def __repr__(self) -> str:
         return (

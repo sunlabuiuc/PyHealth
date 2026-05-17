@@ -296,6 +296,7 @@ class SampleDataset(litdata.StreamingDataset):
         """
         super().__init__(path, **kwargs)
 
+        self.path = path
         self.dataset_name = "" if dataset_name is None else dataset_name
         self.task_name = "" if task_name is None else task_name
 

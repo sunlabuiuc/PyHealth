@@ -103,6 +103,10 @@ class NestedSequenceProcessor(FeatureProcessor, TokenProcessorInterface):
                 self.code_vocab[token] = i
                 i += 1
 
+    def tokens(self) -> set[str]:
+        """Return the set of tokens in the processor's vocabulary."""
+        return set(self.code_vocab.keys())
+
     def process(self, value: List[List[Any]]) -> torch.Tensor:
         """Process nested sequence into padded 2D tensor.
 
@@ -145,6 +149,10 @@ class NestedSequenceProcessor(FeatureProcessor, TokenProcessorInterface):
             encoded_sequences.append(indices)
 
         return torch.tensor(encoded_sequences, dtype=torch.long)
+
+    def vocab_size(self) -> int:
+        """Return the size of the processor's vocabulary."""
+        return len(self.code_vocab)
 
     def size(self) -> int:
         """Return max inner length (embedding dimension) for unified API."""

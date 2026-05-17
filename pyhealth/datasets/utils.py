@@ -15,6 +15,12 @@ from pyhealth.utils import create_directory
 
 MODULE_CACHE_PATH = os.path.join(BASE_CACHE_PATH, "datasets")
 create_directory(MODULE_CACHE_PATH)
+#PyG import for graph-based models
+try:
+    from torch_geometric.data import Data as PyGData, Batch as PyGBatch
+    HAS_PYG = True
+except ImportError:
+    HAS_PYG = False
 
 
 # basic tables which are a part of the defined datasets
@@ -294,6 +300,9 @@ def collate_fn_dict_with_padding(batch: List[dict]) -> dict:
 
             # Return as tuple (time, values)
             collated[key] = (collated_times, collated_values)
+            # PyG Data objects (graph processor output)
+        elif HAS_PYG and isinstance(values[0], PyGData):
+            collated[key] = PyGBatch.from_data_list(values)
 
         elif isinstance(values[0], torch.Tensor):
             # Check if shapes are the same

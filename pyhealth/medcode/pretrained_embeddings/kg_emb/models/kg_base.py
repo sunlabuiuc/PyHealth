@@ -389,7 +389,7 @@ class KGEBaseModel(ABC, nn.Module):
 
     
     def from_pretrained(self, path):
-        state_dict = torch.load(path, map_location=self.device)
+        state_dict = torch.load(path, map_location=self.device, weights_only=True)
         self.update_embedding_size(state_dict)
         self.load_state_dict(state_dict)
         return

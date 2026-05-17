@@ -3,11 +3,11 @@ from typing import Any, Dict, List, Optional, Tuple, Iterable
 import torch
 
 from . import register_processor
-from .base_processor import FeatureProcessor, TokenProcessorInterface
+from .base_processor import FeatureProcessor, ModalityType, TemporalFeatureProcessor, TokenProcessorInterface
 
 
 @register_processor("stagenet")
-class StageNetProcessor(FeatureProcessor, TokenProcessorInterface):
+class StageNetProcessor(TemporalFeatureProcessor, TokenProcessorInterface):
     """
     Feature processor for StageNet CODE inputs with coupled value/time data.
 
@@ -139,6 +139,10 @@ class StageNetProcessor(FeatureProcessor, TokenProcessorInterface):
                 self.code_vocab[token] = i
                 i += 1
 
+    def tokens(self) -> set[str]:
+        """Return the set of tokens in the processor's vocabulary."""
+        return set(self.code_vocab.keys())
+
     def process(
         self, value: Tuple[Optional[List], List]
     ) -> Tuple[Optional[torch.Tensor], torch.Tensor]:
@@ -217,6 +221,10 @@ class StageNetProcessor(FeatureProcessor, TokenProcessorInterface):
 
         return torch.tensor(encoded_sequences, dtype=torch.long)
 
+    def vocab_size(self) -> int:
+        """Return the size of the processor's vocabulary."""
+        return len(self.code_vocab)
+
     def size(self) -> int:
         """Return vocabulary size."""
         return len(self.code_vocab)
@@ -260,6 +268,27 @@ class StageNetProcessor(FeatureProcessor, TokenProcessorInterface):
         # Flat codes: single sequence dimension is spatial
         return (True,)
 
+    def modality(self) -> ModalityType:
+        """Discrete EHR codes → CODE modality."""
+        return ModalityType.CODE
+
+    def value_dim(self) -> int:
+        """Vocabulary size (used with nn.Embedding in UnifiedMultimodalEmbeddingModel).
+        Must be called after fit()."""
+        return len(self.code_vocab)
+
+    def process_temporal(self, value) -> dict:
+        """Return dict output for UnifiedMultimodalEmbeddingModel.
+
+        Calls the existing process() (backward-compatible tuple) and wraps
+        the result as a dict with 'value' and 'time' keys.
+
+        Returns:
+            {"value": LongTensor (S,), "time": FloatTensor (S,) or None}
+        """
+        time_tensor, value_tensor = self.process(value)
+        return {"value": value_tensor, "time": time_tensor}
+
     def __repr__(self):
         if self._is_nested:
             return (
@@ -277,7 +306,7 @@ class StageNetProcessor(FeatureProcessor, TokenProcessorInterface):
 
 
 @register_processor("stagenet_tensor")
-class StageNetTensorProcessor(FeatureProcessor):
+class StageNetTensorProcessor(TemporalFeatureProcessor):
     """
     Feature processor for StageNet NUMERIC inputs with coupled value/time data.
 
@@ -447,6 +476,24 @@ class StageNetTensorProcessor(FeatureProcessor):
             return (True, False)
         # Flat: single sequence dimension is spatial
         return (True,)
+
+    def modality(self) -> ModalityType:
+        """Continuous lab/vital measurements → NUMERIC modality."""
+        return ModalityType.NUMERIC
+
+    def value_dim(self) -> int:
+        """Number of numeric features per time-step (used with nn.Linear).
+        Must be called after fit()."""
+        return self._size if self._size is not None else 1
+
+    def process_temporal(self, value) -> dict:
+        """Return dict output for UnifiedMultimodalEmbeddingModel.
+
+        Returns:
+            {"value": FloatTensor (T, F), "time": FloatTensor (T,) or None}
+        """
+        time_tensor, value_tensor = self.process(value)
+        return {"value": value_tensor, "time": time_tensor}
 
     def __repr__(self):
         return (

@@ -107,6 +107,10 @@ class DeepNestedSequenceProcessor(FeatureProcessor, TokenProcessorInterface):
                 self.code_vocab[token] = i
                 i += 1
 
+    def tokens(self) -> set[str]:
+        """Return the set of tokens in the processor's vocabulary."""
+        return set(self.code_vocab.keys())
+
     def process(self, value: List[List[List[Any]]]) -> torch.Tensor:
         """Process deep nested sequence into padded 3D tensor.
 
@@ -168,6 +172,10 @@ class DeepNestedSequenceProcessor(FeatureProcessor, TokenProcessorInterface):
             encoded_groups.append(group_encoded)
 
         return torch.tensor(encoded_groups, dtype=torch.long)
+
+    def vocab_size(self) -> int:
+        """Return the size of the processor's vocabulary."""
+        return len(self.code_vocab)
 
     def size(self) -> int:
         """Return max inner length (embedding dimension) for unified API."""

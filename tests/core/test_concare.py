@@ -295,5 +295,23 @@ class TestConCare(unittest.TestCase):
         self.assertIn("y_prob", ret)
 
 
+    def test_batch_size_one(self):
+        """Test that ConCare handles batch_size=1 without crashing.
+
+        Regression test: bare .squeeze() in FinalAttentionQKV removed the
+        batch dimension when batch_size=1, causing softmax to fail with
+        'IndexError: Dimension out of range'.
+        """
+        train_loader = get_dataloader(self.dataset, batch_size=1, shuffle=False)
+        data_batch = next(iter(train_loader))
+
+        with torch.no_grad():
+            ret = self.model(**data_batch)
+
+        self.assertIn("loss", ret)
+        self.assertIn("y_prob", ret)
+        self.assertEqual(ret["y_prob"].shape[0], 1)
+
+
 if __name__ == "__main__":
     unittest.main()

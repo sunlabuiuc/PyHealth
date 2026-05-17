@@ -105,8 +105,9 @@ class IntegratedGradientGIM(BaseInterpreter):
                 near-zero for continuous features).
             steps: Number of interpolation steps.  Overrides the instance
                 default when given.
-            target_class_idx: Target class for attribution.  ``None``
-                uses the model's predicted class.
+            target_class_idx: Target class for attribution. For binary
+                classification (single logit output), this is a no-op.
+                ``None`` uses the argmax of model output.
             **kwargs: Dataloader batch (feature tensors + optional labels).
 
         Returns:
@@ -155,10 +156,7 @@ class IntegratedGradientGIM(BaseInterpreter):
         with torch.no_grad():
             base_logits = self.model.forward(**inputs)["logit"]
 
-        mode = self._prediction_mode()
-        target = self._resolve_target(
-            base_logits, mode, target_class_idx, device
-        )
+        target_indices = self._resolve_target_indices(base_logits, target_class_idx)
 
         # ----- baselines -----
         if baseline is None:
@@ -201,7 +199,7 @@ class IntegratedGradientGIM(BaseInterpreter):
             xs=values,
             bs=baselines,
             steps=steps,
-            target=target,
+            target_indices=target_indices,
             token_keys=token_keys,
             continuous_keys=continuous_keys,
         )
@@ -217,7 +215,7 @@ class IntegratedGradientGIM(BaseInterpreter):
         xs: Dict[str, torch.Tensor],
         bs: Dict[str, torch.Tensor],
         steps: int,
-        target: torch.Tensor,
+        target_indices: torch.Tensor,
         token_keys: set[str],
         continuous_keys: set[str],
     ) -> Dict[str, torch.Tensor]:
@@ -280,7 +278,7 @@ class IntegratedGradientGIM(BaseInterpreter):
             with _GIMHookContext(self.model, self.temperature):
                 output = self.model.forward_from_embedding(**forward_inputs)
                 logits = output["logit"]
-                target_output = self._compute_target_output(logits, target)
+                target_output = self._compute_target_output(logits, target_indices)
 
                 self.model.zero_grad(set_to_none=True)
                 target_output.backward(retain_graph=True)
@@ -308,58 +306,16 @@ class IntegratedGradientGIM(BaseInterpreter):
     # ------------------------------------------------------------------
     # Target helpers (shared logic with IG / GIM)
     # ------------------------------------------------------------------
-    @staticmethod
-    def _resolve_target(
-        logits: torch.Tensor,
-        mode: str,
-        target_class_idx: Optional[int],
-        device: torch.device,
-    ) -> torch.Tensor:
-        """Convert logits and optional class index into a target tensor."""
-        if mode == "binary":
-            if target_class_idx is not None:
-                return torch.tensor([target_class_idx], device=device)
-            return (torch.sigmoid(logits) > 0.5).long()
-
-        if mode == "multiclass":
-            if target_class_idx is not None:
-                return F.one_hot(
-                    torch.tensor(target_class_idx, device=device),
-                    num_classes=logits.shape[-1],
-                ).float()
-            target = torch.argmax(logits, dim=-1)
-            return F.one_hot(target, num_classes=logits.shape[-1]).float()
-
-        if mode == "multilabel":
-            if target_class_idx is not None:
-                return F.one_hot(
-                    torch.tensor(target_class_idx, device=device),
-                    num_classes=logits.shape[-1],
-                ).float()
-            return (torch.sigmoid(logits) > 0.5).float()
-
-        raise ValueError(f"Unsupported prediction mode: {mode}")
 
     def _compute_target_output(
         self,
         logits: torch.Tensor,
-        target: torch.Tensor,
+        target_indices: torch.Tensor,
     ) -> torch.Tensor:
         """Scalar target output for backpropagation."""
-        target_f = target.to(logits.device).float()
-        mode = self._prediction_mode()
-
-        if mode == "binary":
-            while target_f.dim() < logits.dim():
-                target_f = target_f.unsqueeze(-1)
-            target_f = target_f.expand_as(logits)
-            signs = 2.0 * target_f - 1.0
-            return (signs * logits).sum()
-        else:
-            while target_f.dim() < logits.dim():
-                target_f = target_f.unsqueeze(0)
-            target_f = target_f.expand_as(logits)
-            return (target_f * logits).sum()
+        return logits.gather(
+            1, target_indices.unsqueeze(1)
+        ).squeeze(1).sum()
 
     # ------------------------------------------------------------------
     # Baseline generation
