@@ -15,12 +15,17 @@ class TransformersModel(BaseModel):
         self,
         dataset: SampleDataset,
         model_name: str,
+        dropout: float = 0.1,
     ):
         super(TransformersModel, self).__init__(
             dataset=dataset,
         )
         self.model_name = model_name
-        self.model = AutoModel.from_pretrained(model_name)
+        self.model = AutoModel.from_pretrained(
+            model_name,
+            hidden_dropout_prob=dropout,
+            attention_probs_dropout_prob=dropout,
+        )
         assert (
             len(self.feature_keys) == 1
         ), "Only one feature key is supported if Transformers is initialized"
@@ -32,6 +37,7 @@ class TransformersModel(BaseModel):
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
         output_size = self.get_output_size()
         hidden_dim = self.model.config.hidden_size
+        self.dropout = nn.Dropout(dropout)
         self.fc = nn.Linear(hidden_dim, output_size)
 
     def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
@@ -45,7 +51,7 @@ class TransformersModel(BaseModel):
         x = x.to(self.device)
         # TODO: should not use pooler_output, but use the last hidden state
         embeddings = self.model(**x).pooler_output
-        logits = self.fc(embeddings)
+        logits = self.fc(self.dropout(embeddings))
         y_true = kwargs[self.label_key].to(self.device)
         loss = self.get_loss_function()(logits, y_true)
         y_prob = self.prepare_y_prob(logits)

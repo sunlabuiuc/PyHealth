@@ -486,6 +486,157 @@ def split_by_sample_conformal_tuh(
         )
 
 
+def split_by_patient_tuh(
+    dataset: SampleDataset,
+    ratios: Union[Tuple[float, float], List[float]],
+    seed: Optional[int] = None,
+    get_index: Optional[bool] = False,
+):
+    """Splits a TUH EEG dataset by PATIENT within the TUH train partition.
+
+    Like :func:`split_by_patient_conformal_tuh` but returns a 3-way split
+    (train / val / test) instead of 4-way (train / val / cal / test).  The
+    test set is always the TUH eval partition; no calibration set is produced.
+
+    Ensures that **all windows from a given patient stay in the same split**
+    (train or val), preventing within-patient data leakage.
+
+    Args:
+        dataset: a ``SampleDataset`` produced by ``EEGEventsTUEV`` or
+            ``EEGAbnormalTUAB``.  Each sample must carry a ``"split"`` field
+            (``"train"`` or ``"eval"``) and the dataset must have a
+            ``patient_to_index`` mapping.
+        ratios: fraction of *patients* in the TUH train partition to assign to
+            train / val respectively.  Must be a length-2 sequence summing
+            to 1.0.
+        seed: random seed used to shuffle the patient list.
+        get_index: if ``True``, return three :class:`torch.Tensor` index
+            vectors instead of :class:`~torch.utils.data.Subset` objects.
+
+    Returns:
+        ``(train_dataset, val_dataset, test_dataset)``
+    """
+    assert len(ratios) == 2, (
+        "ratios must have exactly 2 elements (train/val). "
+        "The test set is determined by the TUH eval partition."
+    )
+    assert abs(sum(ratios) - 1.0) < 1e-6, "ratios must sum to 1.0"
+
+    train_patient_to_indices: dict = {}
+    test_list: List[int] = []
+
+    for pid, indices in dataset.patient_to_index.items():
+        first_sample = dataset[indices[0]]
+        assert "split" in first_sample, (
+            f"Patient {pid}: sample missing 'split' field. "
+            "Use EEGEventsTUEV or EEGAbnormalTUAB to build the dataset."
+        )
+        if first_sample["split"] == "train":
+            train_patient_to_indices[pid] = list(indices)
+        else:
+            test_list.extend(list(indices))
+
+    patient_ids = list(train_patient_to_indices.keys())
+    rng = np.random.default_rng(seed)
+    rng.shuffle(patient_ids)
+
+    n = len(patient_ids)
+    train_end = int(n * ratios[0])
+
+    train_pids = patient_ids[:train_end]
+    val_pids = patient_ids[train_end:]
+
+    train_index = np.array(
+        list(chain(*[train_patient_to_indices[p] for p in train_pids]))
+    )
+    val_index = np.array(
+        list(chain(*[train_patient_to_indices[p] for p in val_pids]))
+    )
+    test_index = np.array(test_list)
+
+    if get_index:
+        return (
+            torch.tensor(train_index),
+            torch.tensor(val_index),
+            torch.tensor(test_index),
+        )
+    else:
+        return (
+            dataset.subset(train_index),  # type: ignore
+            dataset.subset(val_index),    # type: ignore
+            dataset.subset(test_index),   # type: ignore
+        )
+
+
+def split_by_sample_tuh(
+    dataset: SampleDataset,
+    ratios: Union[Tuple[float, float], List[float]],
+    seed: Optional[int] = None,
+    get_index: Optional[bool] = False,
+):
+    """Splits a TUH EEG dataset (TUEV/TUAB) using its pre-defined split.
+
+    Like :func:`split_by_sample_conformal_tuh` but returns a 3-way split
+    (train / val / test) instead of 4-way (train / val / cal / test).  The
+    test set is always the TUH eval partition; no calibration set is produced.
+
+    Args:
+        dataset: a ``SampleDataset`` object produced by ``EEGEventsTUEV`` or
+            ``EEGAbnormalTUAB``
+        ratios: the fraction of the train pool assigned to train / val
+            respectively.  Must be a length-2 sequence summing to 1.0.
+        seed: random seed for shuffling the train pool
+        get_index: if True, return three ``torch.Tensor`` index vectors instead
+            of ``Subset`` objects
+
+    Returns:
+        train_dataset, val_dataset, test_dataset
+    """
+    assert len(ratios) == 2, (
+        "ratios must have exactly 2 elements (train/val). "
+        "The test set is determined by the dataset's own eval partition."
+    )
+    assert abs(sum(ratios) - 1.0) < 1e-6, "ratios must sum to 1.0"
+
+    for i in range(len(dataset)):
+        assert "split" in dataset[i], (
+            f"Sample {i} is missing the 'split' field. "
+            "Use EEGEventsTUEV or EEGAbnormalTUAB to build the dataset."
+        )
+
+    train_pool: List[int] = []
+    test_list: List[int] = []
+    for i in range(len(dataset)):
+        if dataset[i]["split"] == "train":
+            train_pool.append(i)
+        else:
+            test_list.append(i)
+
+    rng = np.random.default_rng(seed)
+    train_arr = np.array(train_pool)
+    rng.shuffle(train_arr)
+
+    n = len(train_arr)
+    train_end = int(n * ratios[0])
+
+    train_index = train_arr[:train_end]
+    val_index = train_arr[train_end:]
+    test_index = np.array(test_list)
+
+    if get_index:
+        return (
+            torch.tensor(train_index),
+            torch.tensor(val_index),
+            torch.tensor(test_index),
+        )
+    else:
+        return (
+            dataset.subset(train_index),  # type: ignore
+            dataset.subset(val_index),    # type: ignore
+            dataset.subset(test_index),   # type: ignore
+        )
+
+
 def split_by_sample_conformal(
     dataset: SampleDataset,
     ratios: Union[Tuple[float, float, float, float], List[float]],

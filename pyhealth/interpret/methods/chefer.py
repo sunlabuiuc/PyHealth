@@ -128,7 +128,7 @@ class CheferRelevance(BaseInterpreter):
         >>> print(attributions["conditions"].shape)  # [batch, num_tokens]
         >>>
         >>> # Optional: attribute to a specific class (e.g., class 1)
-        >>> attributions = interpreter.attribute(class_index=1, **batch)
+        >>> attributions = interpreter.attribute(target_class_idx=1, **batch)
     """
 
     def __init__(self, model: BaseModel):
@@ -139,14 +139,16 @@ class CheferRelevance(BaseInterpreter):
 
     def attribute(
         self,
-        class_index: Optional[int] = None,
+        target_class_idx: Optional[int] = None,
         **data,
     ) -> Dict[str, torch.Tensor]:
         """Compute relevance scores for each input token.
 
         Args:
-            class_index: Target class index to compute attribution for.
-                If None (default), uses the model's predicted class.
+            target_class_idx: Target class index to compute attribution for.
+                If None (default), uses the argmax of model output.
+                For binary classification (single logit output), this is
+                a no-op because there is only one output.
             **data: Input data from dataloader batch containing feature
                 keys and label key.
 
@@ -163,15 +165,10 @@ class CheferRelevance(BaseInterpreter):
             self.model.set_attention_hooks(False)
 
         # --- 2. Backward from target class ---
-        if class_index is None:
-            class_index_t = torch.argmax(logits, dim=-1)
-        elif isinstance(class_index, int):
-            class_index_t = torch.tensor(class_index)
-        else:
-            class_index_t = class_index
+        target_indices = self._resolve_target_indices(logits, target_class_idx)
 
         one_hot = F.one_hot(
-            class_index_t.detach().clone(), logits.size(1)
+            target_indices.detach().clone(), logits.size(1)
         ).float()
         one_hot = one_hot.requires_grad_(True)
         scalar = torch.sum(one_hot.to(logits.device) * logits)

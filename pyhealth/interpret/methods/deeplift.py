@@ -411,35 +411,7 @@ class DeepLift(BaseInterpreter):
         with torch.no_grad():
             base_logits = self.model.forward(**inputs)["logit"]
 
-        mode = self._prediction_mode()
-        if mode == "binary":
-            if target_class_idx is not None:
-                target = torch.tensor([target_class_idx], device=device)
-            else:
-                target = (torch.sigmoid(base_logits) > 0.5).long()
-        elif mode == "multiclass":
-            if target_class_idx is not None:
-                target = F.one_hot(
-                    torch.tensor(target_class_idx, device=device),
-                    num_classes=base_logits.shape[-1],
-                ).float()
-            else:
-                target = torch.argmax(base_logits, dim=-1)
-                target = F.one_hot(
-                    target, num_classes=base_logits.shape[-1]
-                ).float()
-        elif mode == "multilabel":
-            if target_class_idx is not None:
-                target = F.one_hot(
-                    torch.tensor(target_class_idx, device=device),
-                    num_classes=base_logits.shape[-1],
-                ).float()
-            else:
-                target = (torch.sigmoid(base_logits) > 0.5).float()
-        else:
-            raise ValueError(
-                "Unsupported prediction mode for DeepLIFT attribution."
-            )
+        target_indices = self._resolve_target_indices(base_logits, target_class_idx)
 
         # Generate baselines
         if baseline is None:
@@ -491,7 +463,7 @@ class DeepLift(BaseInterpreter):
             inputs=inputs,
             xs=values,
             bs=baselines,
-            target=target,
+            target_indices=target_indices,
             token_keys=token_keys,
         )
 
@@ -505,7 +477,7 @@ class DeepLift(BaseInterpreter):
         inputs: Dict[str, tuple[torch.Tensor, ...]],
         xs: Dict[str, torch.Tensor],
         bs: Dict[str, torch.Tensor],
-        target: torch.Tensor,
+        target_indices: torch.Tensor,
         token_keys: set[str],
     ) -> Dict[str, torch.Tensor]:
         """Core DeepLIFT computation using the Rescale rule.
@@ -517,8 +489,7 @@ class DeepLift(BaseInterpreter):
             inputs: Full input tuples keyed by feature name.
             xs: Input values (embedded if token features with use_embeddings).
             bs: Baseline values (embedded if token features with use_embeddings).
-            target: Target tensor for computing the scalar output to
-                differentiate (one-hot for multiclass, class idx for binary).
+            target_indices: [batch] tensor of target class indices.
             token_keys: Set of feature keys that are token (already embedded).
 
         Returns:
@@ -590,9 +561,9 @@ class DeepLift(BaseInterpreter):
         baseline_logits = baseline_output["logit"] # type: ignore[index]
 
         # Compute per-sample target outputs
-        target_output = self._compute_target_output(logits, target)
+        target_output = self._compute_target_output(logits, target_indices)
         baseline_target_output = self._compute_target_output(
-            baseline_logits, target
+            baseline_logits, target_indices
         )
 
         self.model.zero_grad(set_to_none=True)
@@ -626,46 +597,22 @@ class DeepLift(BaseInterpreter):
     def _compute_target_output(
         self,
         logits: torch.Tensor,
-        target: torch.Tensor,
+        target_indices: torch.Tensor,
     ) -> torch.Tensor:
         """Compute per-sample target output.
 
-        Creates a differentiable per-sample scalar from the model logits
-        that, when summed and differentiated, gives the gradient of the
-        target class logit w.r.t. the input.
+        Selects the target-class logit for each sample.
 
         Args:
-            logits: Model output logits, shape [batch, num_classes] or
-                [batch, 1].
-            target: Target tensor. For binary: [batch] or [1] with 0/1
-                class indices. For multiclass/multilabel: [batch, num_classes]
-                one-hot or multi-hot tensor.
+            logits: Model output logits, shape [batch, num_classes].
+            target_indices: [batch] tensor of target class indices.
 
         Returns:
             Per-sample target output tensor, shape [batch].
         """
-        target_f = target.to(logits.device).float()
-        mode = self._prediction_mode()
-
-        if mode == "binary":
-            while target_f.dim() < logits.dim():
-                target_f = target_f.unsqueeze(-1)
-            target_f = target_f.expand_as(logits)
-            signs = 2.0 * target_f - 1.0
-            # Sum over all dims except batch to get per-sample scalar
-            per_sample = (signs * logits)
-            if per_sample.dim() > 1:
-                per_sample = per_sample.sum(dim=tuple(range(1, per_sample.dim())))
-            return per_sample
-        else:
-            # multiclass or multilabel: target is one-hot/multi-hot
-            while target_f.dim() < logits.dim():
-                target_f = target_f.unsqueeze(0)
-            target_f = target_f.expand_as(logits)
-            per_sample = (target_f * logits)
-            if per_sample.dim() > 1:
-                per_sample = per_sample.sum(dim=tuple(range(1, per_sample.dim())))
-            return per_sample
+        return logits.gather(
+            1, target_indices.unsqueeze(1)
+        ).squeeze(1)
 
     # ------------------------------------------------------------------
     # Completeness enforcement
