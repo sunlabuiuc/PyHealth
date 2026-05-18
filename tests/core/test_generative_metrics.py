@@ -71,6 +71,42 @@ def _make_dataframes():
     return train_ehr, test_ehr, syn_ehr
 
 
+def _generate_ehr(
+    n_patients, vocab, seed, id_offset=0,
+    n_visits_range=(2, 7), n_codes_range=(2, 6),
+):
+    """Generates a random EHR dataframe with patients drawn from ``vocab``."""
+    rng = np.random.default_rng(seed)
+    rows = []
+    for i in range(n_patients):
+        pid = str(id_offset + i)
+        n_visits = int(rng.integers(*n_visits_range))
+        label = int(rng.integers(0, 2))
+        for t in range(n_visits):
+            n_codes = int(rng.integers(*n_codes_range))
+            codes = rng.choice(
+                vocab, size=min(n_codes, len(vocab)), replace=False
+            )
+            for code in codes:
+                rows.append(
+                    {"id": pid, "time": t,
+                     "visit_codes": str(code), "labels": label}
+                )
+    return pd.DataFrame(rows).astype(
+        {"visit_codes": str, "labels": int, "time": int, "id": str}
+    )
+
+
+def _perturb_ehr(df, vocab, frac, seed):
+    """Returns a copy of ``df`` with a fraction of codes randomly replaced."""
+    rng = np.random.default_rng(seed)
+    df = df.copy().reset_index(drop=True)
+    mask = rng.random(len(df)) < frac
+    new_codes = rng.choice(vocab, size=int(mask.sum()))
+    df.loc[mask, "visit_codes"] = [str(c) for c in new_codes]
+    return df
+
+
 class GenerativeMetricsTestCase(unittest.TestCase):
     """Shared fixtures and assertion helpers for the generative metrics."""
 
@@ -250,6 +286,179 @@ class TestEvaluateSyntheticEHR(GenerativeMetricsTestCase):
                 self.train_ehr, self.test_ehr, self.syn_ehr, **self.cols,
                 metrics="bad",
             )
+
+
+class TestMetricsBehavior(unittest.TestCase):
+    """Sanity checks: metrics should respond to how close synthetic data is.
+
+    Three synthetic datasets are compared against the same real data:
+
+        - ``exact``: an exact copy of the real training data,
+        - ``similar``: the training data with ~15% of codes randomly changed,
+        - ``different``: independent data over a disjoint code vocabulary.
+
+    A well-behaved metric should rank these consistently (e.g. an exact copy
+    is the worst case for privacy and the best case for fidelity).
+    """
+
+    VOCAB_REAL = list(range(50))
+    VOCAB_DIFF = list(range(100, 150))
+
+    @classmethod
+    def setUpClass(cls):
+        cls.train_ehr = _generate_ehr(60, cls.VOCAB_REAL, seed=1, id_offset=0)
+        cls.test_ehr = _generate_ehr(
+            60, cls.VOCAB_REAL, seed=2, id_offset=10000
+        )
+        cls.syn_exact = cls.train_ehr.copy()
+        cls.syn_similar = _perturb_ehr(
+            cls.train_ehr, cls.VOCAB_REAL, frac=0.15, seed=3
+        )
+        cls.syn_different = _generate_ehr(
+            60, cls.VOCAB_DIFF, seed=4, id_offset=20000
+        )
+        cls.cols = dict(
+            subject_col=SUBJECT_COL,
+            visit_col=VISIT_COL,
+            code_col=CODE_COL,
+            label_col=LABEL_COL,
+        )
+
+    def test_prevalence_orders_by_similarity(self):
+        # Prevalence similarity should degrade monotonically: exact > similar
+        # > different.
+        results = {}
+        for name, syn in [
+            ("exact", self.syn_exact),
+            ("similar", self.syn_similar),
+            ("different", self.syn_different),
+        ]:
+            np.random.seed(0)
+            results[name] = compute_prevalence_metrics(
+                self.train_ehr, syn,
+                subject_col=SUBJECT_COL, code_col=CODE_COL, n_bootstraps=10,
+            )
+
+        rmse = {k: v["Prevalence_RMSE"][0] for k, v in results.items()}
+        r2 = {k: v["Prevalence_R2"][0] for k, v in results.items()}
+        pearson = {k: v["Prevalence_Pearson"][0] for k, v in results.items()}
+
+        # An exact copy has identical code prevalence.
+        self.assertAlmostEqual(rmse["exact"], 0.0, places=9)
+        self.assertAlmostEqual(r2["exact"], 1.0, places=6)
+        self.assertAlmostEqual(pearson["exact"], 1.0, places=6)
+
+        # Error grows / agreement shrinks as synthetic data drifts away.
+        self.assertLess(rmse["exact"], rmse["similar"])
+        self.assertLess(rmse["similar"], rmse["different"])
+        self.assertGreater(r2["exact"], r2["similar"])
+        self.assertGreater(r2["similar"], r2["different"])
+        self.assertGreaterEqual(pearson["exact"], pearson["similar"])
+        self.assertGreater(pearson["similar"], pearson["different"])
+
+    def test_nnaar_flags_exact_copies(self):
+        # NNAAR should be high when synthetic data memorizes the training set
+        # and near zero otherwise.
+        nnaar = {}
+        for name, syn in [
+            ("exact", self.syn_exact),
+            ("similar", self.syn_similar),
+            ("different", self.syn_different),
+        ]:
+            np.random.seed(0)
+            nnaar[name] = calc_nnaar(
+                self.train_ehr, self.test_ehr, syn,
+                **self.cols, sample_size=1000, n_runs=3,
+            )["nnaar"][0]
+
+        self.assertGreater(nnaar["exact"], 0.5)
+        self.assertGreater(nnaar["exact"], nnaar["similar"])
+        self.assertGreater(nnaar["exact"], nnaar["different"])
+        self.assertLess(nnaar["similar"], 0.3)
+        self.assertLess(nnaar["different"], 0.3)
+
+    def test_membership_inference_detects_training_data(self):
+        # The attack should succeed when synthetic data is derived from the
+        # training set and be near chance when it is unrelated.
+        acc = {}
+        for name, syn in [
+            ("exact", self.syn_exact),
+            ("similar", self.syn_similar),
+            ("different", self.syn_different),
+        ]:
+            np.random.seed(0)
+            acc[name] = calc_membership_inference(
+                self.train_ehr, self.test_ehr, syn,
+                **self.cols, num_attack_samples=1000, n_runs=5,
+            )["MIA_Accuracy"][0]
+
+        self.assertGreater(acc["exact"], 0.8)
+        self.assertGreater(acc["exact"], acc["different"])
+        self.assertGreater(acc["similar"], acc["different"])
+        self.assertLess(acc["different"], 0.7)
+
+    def test_discriminator_privacy_orders_by_similarity(self):
+        # A discriminator easily separates a disjoint-vocabulary synthetic set
+        # (accuracy ~1, privacy score ~0) but not data derived from the real
+        # data (lower accuracy, higher privacy score).
+        score, acc = {}, {}
+        for name, syn in [
+            ("exact", self.syn_exact),
+            ("similar", self.syn_similar),
+            ("different", self.syn_different),
+        ]:
+            np.random.seed(0)
+            result = compute_discriminator_privacy(
+                train_fn=train_sklearn_model,
+                train_ehr=self.train_ehr, test_ehr=self.test_ehr,
+                syn_ehr=syn, **self.cols, n_bootstraps=10, model="rf",
+            )
+            score[name] = result["Privacy_Score"][0]
+            acc[name] = result["Privacy_Discriminator_Accuracy"][0]
+
+        # The disjoint-vocabulary set is trivially detected.
+        self.assertGreater(acc["different"], 0.8)
+        self.assertLess(score["different"], 0.1)
+        # Data derived from the real data is harder to flag.
+        self.assertGreater(acc["different"], acc["exact"])
+        self.assertGreater(acc["different"], acc["similar"])
+        self.assertGreater(score["exact"], score["different"])
+        self.assertGreater(score["similar"], score["different"])
+
+    def test_mle_orders_by_similarity(self):
+        # Utility should be highest for an exact copy and degrade as the
+        # synthetic data drifts away from the real data.
+        mle = {}
+        for name, syn in [
+            ("exact", self.syn_exact),
+            ("similar", self.syn_similar),
+            ("different", self.syn_different),
+        ]:
+            np.random.seed(0)
+            mle[name] = compute_mle(
+                train_fn=train_sklearn_model,
+                train_ehr=self.train_ehr, test_ehr=self.test_ehr,
+                syn_ehr=syn, **self.cols, n_bootstraps=10, model="rf",
+            )
+
+        # An exact copy reproduces real utility exactly.
+        exact = mle["exact"]
+        self.assertAlmostEqual(exact["MLE_Difference"][0], 0.0, places=9)
+        self.assertAlmostEqual(exact["MLE_Difference"][1], 0.0, places=9)
+        self.assertAlmostEqual(exact["MLE_Ratio"][0], 1.0, places=9)
+        self.assertAlmostEqual(
+            exact["MLE_Synth_Accuracy"][0], exact["MLE_Real_Accuracy"][0],
+            places=9,
+        )
+
+        # Synthetic-trained accuracy degrades monotonically.
+        diff = {k: abs(v["MLE_Difference"][0]) for k, v in mle.items()}
+        ratio = {k: v["MLE_Ratio"][0] for k, v in mle.items()}
+        self.assertLessEqual(diff["exact"], diff["similar"])
+        self.assertLess(diff["similar"], diff["different"])
+        self.assertGreaterEqual(ratio["exact"], ratio["similar"])
+        self.assertGreater(ratio["similar"], ratio["different"])
+        self.assertLess(ratio["different"], 1.0)
 
 
 if __name__ == "__main__":
