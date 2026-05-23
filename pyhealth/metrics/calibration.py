@@ -99,7 +99,7 @@ def _ECE_classwise(prob:np.ndarray, label_onehot:np.ndarray, bins=20, threshold=
     return summs, class_losses
 
 def ece_confidence_multiclass(prob:np.ndarray, label:np.ndarray, bins=20, adaptive=False):
-    """Expected Calibration Error (ECE).
+    r"""Expected Calibration Error (ECE).
 
     We group samples into 'bins' basing on the top-class prediction.
     Then, we compute the absolute difference between the average top-class prediction and
@@ -108,7 +108,7 @@ def ece_confidence_multiclass(prob:np.ndarray, label:np.ndarray, bins=20, adapti
     It could be expressed by the following formula, with :math:`B_m` denoting the m-th bin:
 
     .. math::
-        ECE = \\sum_{m=1}^M \\frac{|B_m|}{N} |acc(B_m) - conf(B_m)|
+        ECE = \sum_{m=1}^M \frac{|B_m|}{N} |acc(B_m) - conf(B_m)|
 
     Example:
         >>> pred = np.asarray([[0.2, 0.2, 0.6], [0.2, 0.31, 0.49], [0.1, 0.1, 0.8]])
@@ -119,7 +119,7 @@ def ece_confidence_multiclass(prob:np.ndarray, label:np.ndarray, bins=20, adapti
     Explanation of the example: The bins are [0, 0.5] and (0.5, 1].
     In the first bin, we have one sample with top-class prediction of 0.49, and its
     accuracy is 0. In the second bin, we have average confidence of 0.7 and average
-    accuracy of 1. Thus, the ECE is :math:`\\frac{1}{3} \cdot 0.49 + \\frac{2}{3}\cdot 0.3=0.3633`.
+    accuracy of 1. Thus, the ECE is :math:`\frac{1}{3} \cdot 0.49 + \frac{2}{3}\cdot 0.3=0.3633`.
 
     Args:
         prob (np.ndarray): (N, C)
