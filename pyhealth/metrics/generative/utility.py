@@ -49,6 +49,17 @@ def compute_mle(
     (Train-Synthetic-Test-Real, TSTR). Both are evaluated on the same real test
     set. Synthetic accuracy/F1 close to real accuracy/F1 indicates high utility.
 
+    Note:
+        The current implementation hard-codes the downstream task to
+        next-visit prediction (built via
+        :func:`build_next_visit_prediction_dataset`). This is degenerate for
+        bag-of-codes generators such as MedGAN and CorGAN, which emit a
+        single aggregate visit per patient and so always get label=0. A
+        future revision will let callers plug in static-label tasks
+        (mortality, readmission, "ever diagnosed with X", ...) so MLE is
+        meaningful for both sequential (HALO, GPT2, PromptEHR) and
+        bag-of-codes (MedGAN, CorGAN) generators.
+
     Args:
         train_fn: A training function such as
             :func:`pyhealth.metrics.generative.utils.train_lstm_model` or

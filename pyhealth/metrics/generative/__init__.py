@@ -10,6 +10,15 @@ record (EHR) data along three axes:
 
 The convenience function :func:`evaluate_synthetic_ehr` runs the full suite
 and returns a single merged dictionary of ``{metric_name: (mean, std)}``.
+
+Note:
+    The MLE (utility) component is currently hard-coded to next-visit
+    prediction and is therefore only meaningful for sequential generators
+    (HALO, GPT2, PromptEHR). It will be expanded to support pluggable
+    downstream tasks so that bag-of-codes generators (MedGAN, CorGAN) can
+    be evaluated with a static-label task (e.g. mortality, readmission).
+    Until then, prefer the privacy and prevalence metrics when evaluating
+    MedGAN/CorGAN output.
 """
 
 import logging
