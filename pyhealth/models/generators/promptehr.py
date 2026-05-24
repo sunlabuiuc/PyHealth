@@ -23,10 +23,12 @@ reference implementation are preserved here:
   prepended to the encoder. This is the prompt-tuning core without the
   demographic reparameterization.
 * **Span-infilling objective.** The reference learns by masking spans of codes
-  and reconstructing them. Here the encoder sees a corrupted (randomly masked)
-  copy of the patient's code stream and the decoder reconstructs the full
-  stream -- the standard BART denoising objective and the same masked-prediction
-  spirit.
+  and reconstructing them. Here the encoder sees a BART-style span-infilled
+  copy of the patient's code stream -- random non-overlapping spans with
+  lengths drawn from ``Poisson(mean_span_len)`` are each replaced by a single
+  ``[MASK]`` sentinel until roughly ``mask_prob`` of the stream is covered --
+  and the decoder reconstructs the full stream. This matches the original BART
+  text-infilling objective used by PromptEHR rather than per-token masking.
 
 Each patient's visits are serialized into a single code stream::
 
@@ -76,8 +78,10 @@ class PromptEHR(BaseModel):
             the encoder. Default: 8.
         max_len: Maximum code-stream length (``max_position_embeddings``);
             streams are truncated to this length. Default: 512.
-        mask_prob: Probability of masking each code token in the encoder input
-            for the denoising objective. Default: 0.15.
+        mask_prob: Target fraction of the (non-sentinel) code stream covered
+            by masked spans in the encoder input. Default: 0.15.
+        mean_span_len: Mean of the Poisson distribution used to sample span
+            lengths for BART-style span infilling. Default: 3.0.
         batch_size: Training batch size. Default: 16.
         epochs: Number of training epochs. Default: 50.
         lr: Learning rate for the Adam optimizer. Default: 1e-4.
@@ -112,6 +116,7 @@ class PromptEHR(BaseModel):
         prompt_length: int = 8,
         max_len: int = 512,
         mask_prob: float = 0.15,
+        mean_span_len: float = 3.0,
         batch_size: int = 16,
         epochs: int = 50,
         lr: float = 1e-4,
@@ -131,6 +136,7 @@ class PromptEHR(BaseModel):
         self._lr = lr
         self.max_len = max_len
         self.mask_prob = mask_prob
+        self.mean_span_len = mean_span_len
         self.prompt_length = prompt_length
 
         # Code vocab from the NestedSequenceProcessor (includes <pad>=0, <unk>=1).
@@ -203,19 +209,56 @@ class PromptEHR(BaseModel):
         return streams
 
     def _corrupt(self, stream: List[int]) -> List[int]:
-        """Build the encoder input: BOS + a randomly masked copy + EOS.
+        """Build the encoder input: BOS + a BART span-infilled copy of the stream.
 
-        Code tokens are replaced with ``[MASK]`` with probability
-        ``mask_prob``; the modality prompt and visit separators are preserved.
-        This is the BART/PromptEHR span-infilling objective.
+        Selects random non-overlapping spans inside the stream (excluding the
+        leading ``[CODE_PROMPT]`` modality marker and the trailing ``[EOS]``)
+        with lengths drawn from ``Poisson(mean_span_len)`` until roughly
+        ``mask_prob`` of the stream is covered, then replaces each span with a
+        single ``[MASK]`` sentinel. Visit separators and code tokens are both
+        eligible for masking, matching the original BART text-infilling
+        objective used by PromptEHR.
         """
-        corrupted: List[int] = [self.bos_id]
-        for tok in stream:
-            if tok < self.code_vocab_size and torch.rand(1).item() < self.mask_prob:
-                corrupted.append(self.mask_id)
-            else:
-                corrupted.append(tok)
-        return corrupted
+        bos = [self.bos_id]
+        n = len(stream)
+        # Inner range excludes the leading [CODE_PROMPT] and trailing [EOS].
+        inner_lo, inner_hi = 1, n - 1
+        inner_len = inner_hi - inner_lo
+        if inner_len <= 0:
+            return bos + list(stream)
+
+        target_masked = int(round(self.mask_prob * inner_len))
+        if target_masked <= 0:
+            return bos + list(stream)
+
+        spans: List[tuple] = []  # (start, end), half-open, in stream coords
+        masked = 0
+        # Cap attempts to avoid pathological loops on tiny / fully-packed streams.
+        for _ in range(4 * inner_len):
+            if masked >= target_masked:
+                break
+            span_len = max(1, int(np.random.poisson(self.mean_span_len)))
+            span_len = min(span_len, inner_len)
+            start = int(np.random.randint(inner_lo, inner_hi - span_len + 1))
+            end = start + span_len
+            if any(start < e and end > s for (s, e) in spans):
+                continue
+            spans.append((start, end))
+            masked += span_len
+
+        if not spans:
+            return bos + list(stream)
+
+        spans.sort()
+        out: List[int] = bos + list(stream[:inner_lo])
+        cur = inner_lo
+        for (s, e) in spans:
+            out.extend(stream[cur:s])
+            out.append(self.mask_id)
+            cur = e
+        out.extend(stream[cur:inner_hi])
+        out.extend(stream[inner_hi:])
+        return out
 
     def _encode_batch(self, visits: torch.Tensor):
         """Convert padded visit indices to encoder inputs and decoder labels.
