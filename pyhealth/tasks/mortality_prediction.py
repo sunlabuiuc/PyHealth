@@ -875,7 +875,13 @@ class MortalityPredictionEICU(BaseTask):
             if len(conditions) * len(procedures_list) * len(drugs) == 0:
                 continue
 
-            # TODO: Exclude visits with age < 18
+            # Exclude stays with age < 18
+            age = getattr(stay, "age", None)
+            try:
+                if age is not None and str(age) != "> 89" and int(float(age)) < 18:
+                    continue
+            except (ValueError, TypeError):
+                pass
 
             samples.append(
                 {
@@ -991,7 +997,13 @@ class MortalityPredictionEICU2(BaseTask):
             if len(conditions) * len(treatment_codes) == 0:
                 continue
 
-            # TODO: Exclude visits with age < 18
+            # Exclude stays with age < 18
+            age = getattr(stay, "age", None)
+            try:
+                if age is not None and str(age) != "> 89" and int(float(age)) < 18:
+                    continue
+            except (ValueError, TypeError):
+                pass
 
             samples.append(
                 {

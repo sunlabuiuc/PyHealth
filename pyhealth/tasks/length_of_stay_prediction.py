@@ -116,7 +116,18 @@ class LengthOfStayPredictionMIMIC3(BaseTask):
             los_days = (discharge_time - admit_time).days
             los_category = categorize_los(los_days)
 
-            # TODO: should also exclude visit with age < 18
+            # Skip pediatric admissions
+            demographics = patient.get_events(event_type="patients")
+            if demographics:
+                dob_str = getattr(demographics[0], "dob", None)
+                if dob_str is not None:
+                    try:
+                        dob = datetime.strptime(str(dob_str)[:10], "%Y-%m-%d")
+                        if (admit_time - dob).days / 365.25 < 18:
+                            continue
+                    except (ValueError, TypeError):
+                        pass
+
             samples.append(
                 {
                     "visit_id": admission.hadm_id,
@@ -219,7 +230,16 @@ class LengthOfStayPredictionMIMIC4(BaseTask):
             los_days = (discharge_time - admit_time).days
             los_category = categorize_los(los_days)
 
-            # TODO: should also exclude visit with age < 18
+            # Skip pediatric admissions
+            demographics = patient.get_events(event_type="patients")
+            if demographics:
+                anchor_age = getattr(demographics[0], "anchor_age", None)
+                try:
+                    if anchor_age is not None and int(float(anchor_age)) < 18:
+                        continue
+                except (ValueError, TypeError):
+                    pass
+
             samples.append(
                 {
                     "visit_id": admission.hadm_id,
@@ -447,7 +467,21 @@ class LengthOfStayPredictionOMOP(BaseTask):
             los_days = (discharge_time - admit_time).days
             los_category = categorize_los(los_days)
 
-            # TODO: should also exclude visit with age < 18
+            # Skip pediatric visits
+            demographics = patient.get_events(event_type="person")
+            if demographics:
+                person = demographics[0]
+                birth_year = getattr(person, "year_of_birth", None)
+                if birth_year is not None:
+                    try:
+                        birth_month = int(getattr(person, "month_of_birth", None) or 1)
+                        birth_day = int(getattr(person, "day_of_birth", None) or 1)
+                        dob = datetime(int(birth_year), birth_month, birth_day)
+                        if (admit_time - dob).days / 365.25 < 18:
+                            continue
+                    except (ValueError, TypeError):
+                        pass
+
             samples.append(
                 {
                     "visit_id": visit.visit_occurrence_id,
