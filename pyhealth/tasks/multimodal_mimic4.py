@@ -314,21 +314,21 @@ class ClinicalNotesMIMIC4(BaseMultimodalMIMIC4Task):
 
     task_name: str = "ClinicalNotesMIMIC4"
     input_schema: Dict[str, Union[str, Tuple[str, Dict]]] = {
-        "discharge_note_times": (
-            "tuple_time_text",
-            {
-                "tokenizer_model": "bert-base-uncased",
-                "type_tag": "note",
-            },
-        ),
-        "radiology_note_times": (
-            "tuple_time_text",
-            {
-                "tokenizer_model": "bert-base-uncased",
-                "type_tag": "note",
-            },
-        ),
-    }
+            "discharge_note_times": (
+                "tuple_time_text",
+                {
+                    "tokenizer_model": "emilyalsentzer/Bio_ClinicalBERT",
+                    "type_tag": "note",
+                },
+            ),
+            "radiology_note_times": (
+                "tuple_time_text",
+                {
+                    "tokenizer_model": "emilyalsentzer/Bio_ClinicalBERT",
+                    "type_tag": "note",
+                },
+            )
+        }
     output_schema: Dict[str, str] = {"mortality": "binary"}
 
     def __call__(self, patient: Any) -> List[Dict[str, Any]]:
@@ -451,23 +451,37 @@ class ClinicalNotesICDLabsMIMIC4(BaseMultimodalMIMIC4Task):
 
     task_name: str = "ClinicalNotesICDLabsMIMIC4"
     input_schema: Dict[str, Union[str, Tuple[str, Dict]]] = {
-        "discharge_note_times": (
-            "tuple_time_text",
-            {
-                "tokenizer_model": "bert-base-uncased",
-                "type_tag": "note",
-            },
-        ),
-        "radiology_note_times": (
-            "tuple_time_text",
-            {
-                "tokenizer_model": "bert-base-uncased",
-                "type_tag": "note",
-            },
-        ),
-        "icd_codes": ("stagenet", {"padding": PADDING}),
-        "labs": ("stagenet_tensor", {}),
-        "labs_mask": ("stagenet_tensor", {}),
+            "discharge_note_times": (
+                "tuple_time_text",
+                {
+                    "tokenizer_model": "emilyalsentzer/Bio_ClinicalBERT",
+                    "type_tag": "note",
+                },
+            ),
+            "radiology_note_times": (
+                "tuple_time_text",
+                {
+                    "tokenizer_model": "emilyalsentzer/Bio_ClinicalBERT",
+                    "type_tag": "note",
+                },
+            ),
+            "icd_codes": ("stagenet", {"padding": PADDING}),
+            "labs": ("stagenet_tensor", {}),
+            "labs_mask": ("stagenet_tensor", {}),
+        }
+    output_schema: Dict[str, str] = {"mortality": "binary"}
+
+    LAB_CATEGORIES: ClassVar[Dict[str, List[str]]] = {
+        "Sodium": ["50824", "52455", "50983", "52623"],
+        "Potassium": ["50822", "52452", "50971", "52610"],
+        "Chloride": ["50806", "52434", "50902", "52535"],
+        "Bicarbonate": ["50803", "50804"],
+        "Glucose": ["50809", "52027", "50931", "52569"],
+        "Calcium": ["50808", "51624"],
+        "Magnesium": ["50960"],
+        "Anion Gap": ["50868", "52500"],
+        "Osmolality": ["52031", "50964", "51701"],
+        "Phosphate": ["50970"],
     }
     output_schema: Dict[str, str] = {"mortality": "binary"}
 
