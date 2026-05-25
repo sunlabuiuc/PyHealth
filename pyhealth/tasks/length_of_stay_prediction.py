@@ -319,6 +319,17 @@ class LengthOfStayPredictioneICU(BaseTask):
     }
     output_schema: Dict[str, str] = {"los": "multiclass"}
 
+    def __init__(self, exclude_minors: bool = True, **kwargs) -> None:
+        """Initializes the task object.
+
+        Args:
+            exclude_minors: Whether to exclude stays where the patient
+                was under 18 years old. Defaults to True.
+            **kwargs: Passed to :class:`~pyhealth.tasks.BaseTask`.
+        """
+        super().__init__(**kwargs)
+        self.exclude_minors = exclude_minors
+
     def __call__(self, patient: Patient) -> List[Dict]:
         samples = []
 
@@ -376,6 +387,15 @@ class LengthOfStayPredictioneICU(BaseTask):
             # Exclude stays without condition, procedure, or drug code
             if len(conditions) * len(procedures) * len(drugs) == 0:
                 continue
+
+            # Skip pediatric stays
+            if self.exclude_minors:
+                age = getattr(stay, "age", None)
+                try:
+                    if age is not None and str(age) != "> 89" and int(float(age)) < 18:
+                        continue
+                except (ValueError, TypeError):
+                    pass
 
             # --- Length of stay ---
             # unitdischargeoffset is the number of minutes from ICU admission
