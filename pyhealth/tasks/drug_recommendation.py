@@ -339,7 +339,7 @@ class DrugRecommendationMIMIC4(BaseTask):
         return samples
 
 
-def drug_recommendation_mimic3_fn(patient: Patient):
+def drug_recommendation_mimic3_fn(patient: Patient, exclude_minors: bool = True):
     """Processes a single patient for the drug recommendation task.
 
     Drug recommendation aims at recommending a set of drugs given the patient health
@@ -382,17 +382,18 @@ def drug_recommendation_mimic3_fn(patient: Patient):
     samples = []
 
     # Skip pediatric patients
-    demographics = patient.get_events(event_type="patients")
-    admissions = patient.get_events(event_type="admissions")
-    if demographics and admissions:
-        dob_str = getattr(demographics[0], "dob", None)
-        if dob_str is not None:
-            try:
-                dob = datetime.strptime(str(dob_str)[:10], "%Y-%m-%d")
-                if (admissions[0].timestamp - dob).days / 365.25 < 18:
-                    return []
-            except (ValueError, TypeError):
-                pass
+    if exclude_minors:
+        demographics = patient.get_events(event_type="patients")
+        admissions = patient.get_events(event_type="admissions")
+        if demographics and admissions:
+            dob_str = getattr(demographics[0], "dob", None)
+            if dob_str is not None:
+                try:
+                    dob = datetime.strptime(str(dob_str)[:10], "%Y-%m-%d")
+                    if (admissions[0].timestamp - dob).days / 365.25 < 18:
+                        return []
+                except (ValueError, TypeError):
+                    pass
 
     for i in range(len(patient)):
         visit: Visit = patient[i]
@@ -439,7 +440,7 @@ def drug_recommendation_mimic3_fn(patient: Patient):
     return samples
 
 
-def drug_recommendation_mimic4_fn(patient: Patient):
+def drug_recommendation_mimic4_fn(patient: Patient, exclude_minors: bool = True):
     """Processes a single patient for the drug recommendation task.
 
     Drug recommendation aims at recommending a set of drugs given the patient health
@@ -475,14 +476,15 @@ def drug_recommendation_mimic4_fn(patient: Patient):
     samples = []
 
     # Skip pediatric patients
-    demographics = patient.get_events(event_type="patients")
-    if demographics:
-        anchor_age = getattr(demographics[0], "anchor_age", None)
-        try:
-            if anchor_age is not None and int(float(anchor_age)) < 18:
-                return []
-        except (ValueError, TypeError):
-            pass
+    if exclude_minors:
+        demographics = patient.get_events(event_type="patients")
+        if demographics:
+            anchor_age = getattr(demographics[0], "anchor_age", None)
+            try:
+                if anchor_age is not None and int(float(anchor_age)) < 18:
+                    return []
+            except (ValueError, TypeError):
+                pass
 
     for i in range(len(patient)):
         visit: Visit = patient[i]
@@ -668,7 +670,7 @@ class DrugRecommendationEICU(BaseTask):
         return samples
 
 
-def drug_recommendation_omop_fn(patient: Patient):
+def drug_recommendation_omop_fn(patient: Patient, exclude_minors: bool = True):
     """Processes a single patient for the drug recommendation task.
 
     Drug recommendation aims at recommending a set of drugs given the patient health
@@ -697,20 +699,21 @@ def drug_recommendation_omop_fn(patient: Patient):
     samples = []
 
     # Skip pediatric patients
-    demographics = patient.get_events(event_type="person")
-    if demographics:
-        person = demographics[0]
-        birth_year = getattr(person, "year_of_birth", None)
-        if birth_year is not None:
-            try:
-                birth_month = int(getattr(person, "month_of_birth", None) or 1)
-                birth_day = int(getattr(person, "day_of_birth", None) or 1)
-                dob = datetime(int(birth_year), birth_month, birth_day)
-                visits = patient.get_events(event_type="visit_occurrence")
-                if visits and (visits[0].timestamp - dob).days / 365.25 < 18:
-                    return []
-            except (ValueError, TypeError):
-                pass
+    if exclude_minors:
+        demographics = patient.get_events(event_type="person")
+        if demographics:
+            person = demographics[0]
+            birth_year = getattr(person, "year_of_birth", None)
+            if birth_year is not None:
+                try:
+                    birth_month = int(getattr(person, "month_of_birth", None) or 1)
+                    birth_day = int(getattr(person, "day_of_birth", None) or 1)
+                    dob = datetime(int(birth_year), birth_month, birth_day)
+                    visits = patient.get_events(event_type="visit_occurrence")
+                    if visits and (visits[0].timestamp - dob).days / 365.25 < 18:
+                        return []
+                except (ValueError, TypeError):
+                    pass
 
     for i in range(len(patient)):
         visit: Visit = patient[i]

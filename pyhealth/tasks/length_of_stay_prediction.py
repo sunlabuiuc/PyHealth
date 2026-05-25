@@ -73,6 +73,17 @@ class LengthOfStayPredictionMIMIC3(BaseTask):
     }
     output_schema: Dict[str, str] = {"los": "multiclass"}
 
+    def __init__(self, exclude_minors: bool = True, **kwargs) -> None:
+        """Initializes the task object.
+
+        Args:
+            exclude_minors: Whether to exclude admissions where the patient
+                was under 18 years old. Defaults to True.
+            **kwargs: Passed to :class:`~pyhealth.tasks.BaseTask`.
+        """
+        super().__init__(**kwargs)
+        self.exclude_minors = exclude_minors
+
     def __call__(self, patient: Patient) -> List[Dict]:
         samples = []
 
@@ -117,16 +128,17 @@ class LengthOfStayPredictionMIMIC3(BaseTask):
             los_category = categorize_los(los_days)
 
             # Skip pediatric admissions
-            demographics = patient.get_events(event_type="patients")
-            if demographics:
-                dob_str = getattr(demographics[0], "dob", None)
-                if dob_str is not None:
-                    try:
-                        dob = datetime.strptime(str(dob_str)[:10], "%Y-%m-%d")
-                        if (admit_time - dob).days / 365.25 < 18:
-                            continue
-                    except (ValueError, TypeError):
-                        pass
+            if self.exclude_minors:
+                demographics = patient.get_events(event_type="patients")
+                if demographics:
+                    dob_str = getattr(demographics[0], "dob", None)
+                    if dob_str is not None:
+                        try:
+                            dob = datetime.strptime(str(dob_str)[:10], "%Y-%m-%d")
+                            if (admit_time - dob).days / 365.25 < 18:
+                                continue
+                        except (ValueError, TypeError):
+                            pass
 
             samples.append(
                 {
@@ -182,6 +194,17 @@ class LengthOfStayPredictionMIMIC4(BaseTask):
     }
     output_schema: Dict[str, str] = {"los": "multiclass"}
 
+    def __init__(self, exclude_minors: bool = True, **kwargs) -> None:
+        """Initializes the task object.
+
+        Args:
+            exclude_minors: Whether to exclude admissions where the patient
+                was under 18 years old. Defaults to True.
+            **kwargs: Passed to :class:`~pyhealth.tasks.BaseTask`.
+        """
+        super().__init__(**kwargs)
+        self.exclude_minors = exclude_minors
+
     def __call__(self, patient: Patient) -> List[Dict]:
         samples = []
 
@@ -231,14 +254,15 @@ class LengthOfStayPredictionMIMIC4(BaseTask):
             los_category = categorize_los(los_days)
 
             # Skip pediatric admissions
-            demographics = patient.get_events(event_type="patients")
-            if demographics:
-                anchor_age = getattr(demographics[0], "anchor_age", None)
-                try:
-                    if anchor_age is not None and int(float(anchor_age)) < 18:
-                        continue
-                except (ValueError, TypeError):
-                    pass
+            if self.exclude_minors:
+                demographics = patient.get_events(event_type="patients")
+                if demographics:
+                    anchor_age = getattr(demographics[0], "anchor_age", None)
+                    try:
+                        if anchor_age is not None and int(float(anchor_age)) < 18:
+                            continue
+                    except (ValueError, TypeError):
+                        pass
 
             samples.append(
                 {
@@ -422,6 +446,17 @@ class LengthOfStayPredictionOMOP(BaseTask):
     }
     output_schema: Dict[str, str] = {"los": "multiclass"}
 
+    def __init__(self, exclude_minors: bool = True, **kwargs) -> None:
+        """Initializes the task object.
+
+        Args:
+            exclude_minors: Whether to exclude visits where the patient
+                was under 18 years old. Defaults to True.
+            **kwargs: Passed to :class:`~pyhealth.tasks.BaseTask`.
+        """
+        super().__init__(**kwargs)
+        self.exclude_minors = exclude_minors
+
     def __call__(self, patient: Patient) -> List[Dict]:
         samples = []
 
@@ -468,19 +503,20 @@ class LengthOfStayPredictionOMOP(BaseTask):
             los_category = categorize_los(los_days)
 
             # Skip pediatric visits
-            demographics = patient.get_events(event_type="person")
-            if demographics:
-                person = demographics[0]
-                birth_year = getattr(person, "year_of_birth", None)
-                if birth_year is not None:
-                    try:
-                        birth_month = int(getattr(person, "month_of_birth", None) or 1)
-                        birth_day = int(getattr(person, "day_of_birth", None) or 1)
-                        dob = datetime(int(birth_year), birth_month, birth_day)
-                        if (admit_time - dob).days / 365.25 < 18:
-                            continue
-                    except (ValueError, TypeError):
-                        pass
+            if self.exclude_minors:
+                demographics = patient.get_events(event_type="person")
+                if demographics:
+                    person = demographics[0]
+                    birth_year = getattr(person, "year_of_birth", None)
+                    if birth_year is not None:
+                        try:
+                            birth_month = int(getattr(person, "month_of_birth", None) or 1)
+                            birth_day = int(getattr(person, "day_of_birth", None) or 1)
+                            dob = datetime(int(birth_year), birth_month, birth_day)
+                            if (admit_time - dob).days / 365.25 < 18:
+                                continue
+                        except (ValueError, TypeError):
+                            pass
 
             samples.append(
                 {
