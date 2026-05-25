@@ -189,8 +189,6 @@ Module 1: <pyhealth.datasets>
         root="https://storage.googleapis.com/pyhealth/Synthetic_MIMIC-III/",
         # raw CSV table name
         tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
-        # map all NDC codes to CCS codes in these tables
-        code_mapping={"NDC": "CCSCM"},
     )
 
 .. image:: figure/structured-dataset.png

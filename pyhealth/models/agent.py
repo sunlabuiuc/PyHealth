@@ -462,15 +462,15 @@ class Agent(BaseModel):
             pred_prob = torch.sigmoid(pred)
             #reward=1-[true-pred_prob]
             #High reward when prediction matches label for both classes
-            rewards=(1-torch.abs(true.float()- pred_prob)).squeeze()
+            rewards = (1 - torch.abs(true.float() - pred_prob)).squeeze(dim=-1)
         elif self.mode == "multiclass":
             pred_prob = torch.softmax(pred, dim=-1)
             y_onehot = torch.zeros_like(pred_prob).scatter(1, true.unsqueeze(1), 1)
-            rewards = (pred_prob * y_onehot).sum(-1).squeeze()
+            rewards = (pred_prob * y_onehot).sum(dim=-1)
         elif self.mode == "multilabel":
             pred_prob = torch.sigmoid(pred)
-            #Reward based on how well predictions match all labels 
-            rewards = (1 - torch.abs(true.float() - pred_prob)).mean(dim=-1).squeeze()
+            # Reward based on how well predictions match all labels
+            rewards = (1 - torch.abs(true.float() - pred_prob)).mean(dim=-1)
         else:
             raise ValueError(f"Unsupported mode: {self.mode}")
 

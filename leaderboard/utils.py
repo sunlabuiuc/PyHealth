@@ -64,9 +64,6 @@ def get_dataset(dataset_name):
         mimic3dataset = MIMIC3Dataset(
             root="/srv/local/data/physionet.org/files/mimiciii/1.4",
             tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
-            dev=False,
-            code_mapping={"NDC": "ATC"},
-            refresh_cache=False,
         )
         dataset = mimic3dataset
 
@@ -83,9 +80,6 @@ def get_dataset(dataset_name):
         mimic4dataset = MIMIC4Dataset(
             root="/srv/local/data/physionet.org/files/mimiciv/2.0/hosp",
             tables=["diagnoses_icd", "procedures_icd", "prescriptions"],
-            dev=False,
-            code_mapping={"NDC": "ATC"},
-            refresh_cache=False,
         )
         dataset = mimic4dataset
 

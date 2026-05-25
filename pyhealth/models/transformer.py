@@ -52,10 +52,12 @@ class Attention(nn.Module):
 
         scores = torch.matmul(query, key.transpose(-2, -1)) / math.sqrt(query.size(-1))
         if mask is not None:
-            scores = scores.masked_fill(mask == 0, -1e9)
+            # Use -inf so softmax produces exact zeros on padded positions,
+            # avoiding a second masked_fill after softmax (saves one full
+            # [B, H, S, S] boolean allocation and an extra copy).
+            pad_mask = (mask == 0)
+            scores = scores.masked_fill(pad_mask, -1e9)
         p_attn = self.softmax(scores)
-        if mask is not None:
-            p_attn = p_attn.masked_fill(mask == 0, 0)
         if dropout is not None:
             p_attn = dropout(p_attn)
 
@@ -116,7 +118,7 @@ class MultiHeadedAttention(nn.Module):
     def save_attn_grad(self, attn_grad: torch.Tensor) -> None:
         """Hook callback that stores attention gradients."""
 
-        self.attn_gradients = attn_grad
+        self.attn_gradients = attn_grad.detach()
 
     def forward(
         self,
@@ -152,9 +154,15 @@ class MultiHeadedAttention(nn.Module):
             mask = mask.unsqueeze(1)
         x, attn = self.attention(query, key, value, mask=mask, dropout=self.dropout)
 
-        self.attn_map = attn  # save the attention map
         if register_hook:
+            # Only store attn_map and hook during interpretability passes.
+            # Using .detach() gives an independent copy whose storage
+            # is NOT shared with the live graph, so the graph can be freed
+            # normally after .backward() without leaking GPU memory.
+            self.attn_map = attn.detach()
             attn.register_hook(self.save_attn_grad)
+        else:
+            self.attn_map = None
         # 3) "Concat" using a view and apply a final linear.
         x = x.transpose(1, 2).contiguous().view(batch_size, -1, self.h * self.d_k)
   
@@ -378,13 +386,14 @@ class Transformer(BaseModel, CheferInterpretable):
         heads: int = 1,
         dropout: float = 0.5,
         num_layers: int = 1,
-        unified_embedding: Optional[UnifiedMultimodalEmbeddingModel] = None,
+        max_seq_len: int = 1024,
     ):
         super().__init__(dataset=dataset)
         self.embedding_dim = embedding_dim
         self.heads = heads
         self.dropout = dropout
         self.num_layers = num_layers
+        self.max_seq_len = max_seq_len
         self._attention_hooks_enabled = False
         self._use_unified = unified_embedding is not None
 
@@ -417,60 +426,7 @@ class Transformer(BaseModel, CheferInterpretable):
                 )
             self.fc = nn.Linear(len(self.feature_keys) * embedding_dim, output_size)
 
-    def _build_unified_inputs(
-        self, kwargs: Dict[str, Any]
-    ) -> Dict[str, Dict[str, torch.Tensor]]:
-        """Build the inputs dict required by UnifiedMultimodalEmbeddingModel.
-
-        Reads each feature field from *kwargs* using the processor schema to
-        extract ``value``, ``time``, and optional ``mask`` tensors.
-        """
-        inputs: Dict[str, Dict[str, torch.Tensor]] = {}
-        for field_name in self.feature_keys:
-            feature = kwargs[field_name]
-            if isinstance(feature, torch.Tensor):
-                feature = (feature,)
-            schema = self.dataset.input_processors[field_name].schema()
-            field_dict: Dict[str, torch.Tensor] = {}
-            if "value" in schema:
-                field_dict["value"] = feature[schema.index("value")].to(self.device)
-            if "time" in schema:
-                field_dict["time"] = feature[schema.index("time")].to(self.device)
-            if "mask" in schema:
-                field_dict["mask"] = feature[schema.index("mask")].to(self.device)
-            inputs[field_name] = field_dict
-        return inputs
-
-    def _forward_unified(
-        self,
-        **kwargs: torch.Tensor | tuple[torch.Tensor, ...],
-    ) -> Dict[str, torch.Tensor]:
-        """Forward pass in unified-embedding mode.
-
-        Calls :class:`UnifiedMultimodalEmbeddingModel` to produce a single
-        temporally-sorted event sequence, then encodes it with one
-        :class:`TransformerLayer` and projects to label space.
-        """
-        inputs = self._build_unified_inputs(kwargs)
-        out = self.embedding_model(inputs)
-        sequence   = out["sequence"]       # (B, S_total, E)
-        event_mask = out["mask"].bool()    # (B, S_total)
-
-        _, cls_emb = self._unified_backbone(sequence, event_mask)
-        logits = self.fc(cls_emb)
-        y_prob = self.prepare_y_prob(logits)
-
-        results: Dict[str, torch.Tensor] = {"logit": logits, "y_prob": y_prob}
-        if self.label_key in kwargs:
-            y_true = cast(torch.Tensor, kwargs[self.label_key]).to(self.device)
-            results["loss"] = self.get_loss_function()(logits, y_true)
-            results["y_true"] = y_true
-        if kwargs.get("embed", False):
-            results["embed"] = cls_emb
-        return results
-
-    @staticmethod
-    def _pool_embedding(x: torch.Tensor) -> torch.Tensor:
+    def _pool_embedding(self, x: torch.Tensor) -> torch.Tensor:
         """Pool nested embeddings to ``[batch, seq_len, hidden]`` format.
 
         Args:
@@ -489,6 +445,10 @@ class Transformer(BaseModel, CheferInterpretable):
             x = x.sum(dim=2)
         if x.dim() == 2:
             x = x.unsqueeze(1)
+        # Truncate to max_seq_len to prevent quadratic memory spikes from
+        # outlier-length sequences (attention is O(S^2)).
+        if x.size(1) > self.max_seq_len:
+            x = x[:, : self.max_seq_len, :]
         return x
 
     @staticmethod

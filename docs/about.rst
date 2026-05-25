@@ -3,7 +3,7 @@ About us
 
 PyHealth is developed and maintained by a diverse community of researchers and practitioners.
 
-Current Maintainers
+Maintainers
 ------------------
 
 `Zhenbang Wu <https://zzachw.github.io/>`_ (Ph.D. Student @ University of Illinois Urbana-Champaign)
@@ -12,11 +12,11 @@ Current Maintainers
 
 `Junyi Gao <http://aboutme.vixerunt.org/>`_ (M.S. @ UIUC, Ph.D. Student @ University of Edinburgh)
 
-Paul Landes (University of Illinois College of Medicine)
+`Paul Landes <https://scholar.google.com/citations?user=7xs2tnQAAAAJ&hl=en>`_ (University of Illinois College of Medicine)
 
 `Jimeng Sun <http://sunlab.org/>`_ (Professor @ University of Illinois Urbana-Champaign)
 
-Major Reviewers
+Reviewers
 ---------------
 
 Eric Schrock (University of Illinois Urbana-Champaign)
@@ -52,7 +52,7 @@ Muni Bondu
 
 *...and more members as the initiative continues to expand*
 
-Alumni
+Past Contributors
 ------
 
 `Chaoqi Yang <https://ycq091044.github.io//>`_ (Ph.D. Student @ University of Illinois Urbana-Champaign)

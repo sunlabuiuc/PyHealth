@@ -116,11 +116,13 @@ class VisionEmbeddingModel(BaseModel, BaseEmbeddingModel):
         freeze_backbone: bool = False,
         dropout: float = 0.0,
         use_cls_token: bool = False,
+        pool: Optional[Literal["mean"]] = None,
     ) -> None:
         super().__init__(dataset)
 
         self._embedding_dim = embedding_dim
         self.patch_size = patch_size
+        self.pool = pool
         self.backbone_type = backbone
         self.use_cls_token = use_cls_token
 
@@ -286,6 +288,9 @@ class VisionEmbeddingModel(BaseModel, BaseEmbeddingModel):
             x = x + self.pos_embeddings[field_name]
             x = self.dropout(x)
 
+            if self.pool == "mean":
+                x = x.mean(dim=1, keepdim=True)
+
             embedded[field_name] = x
 
             if output_mask:
@@ -303,7 +308,10 @@ class VisionEmbeddingModel(BaseModel, BaseEmbeddingModel):
         info = self._field_info[field_name].copy()
         info["embedding_dim"] = self._embedding_dim
         info["has_cls_token"] = self.use_cls_token
-        info["num_tokens"] = info["num_patches"] + (1 if self.use_cls_token else 0)
+        if self.pool == "mean":
+            info["num_tokens"] = 1
+        else:
+            info["num_tokens"] = info["num_patches"] + (1 if self.use_cls_token else 0)
         return info
 
     def __repr__(self) -> str:
@@ -350,8 +358,22 @@ if __name__ == "__main__":
         use_cls_token=True,
     )
 
+    model_pooled = VisionEmbeddingModel(
+        dataset=dataset,
+        embedding_dim=128,
+        backbone="cnn",
+        pool="mean",
+    )
+
+
+
     loader = get_dataloader(dataset, batch_size=4, shuffle=False)
     batch = next(iter(loader))
+
+    embeddings_pooled = model_pooled({"chest_xray": batch["chest_xray"]})
+    print(f"Pooled output shape: {embeddings_pooled['chest_xray'].shape}")  # expect (4, 1, 128)
+    print(f"Pooled output info: {model_pooled.get_output_info('chest_xray')}")  # expect num_tokens=1
+
 
     embeddings = model({"chest_xray": batch["chest_xray"]})
     print(f"Input shape: {batch['chest_xray'].shape}")

@@ -13,7 +13,6 @@ class TestBIOT(unittest.TestCase):
         n_channels = 18
         n_time = 10
         n_fft = 200
-        hop_length = 100
         n_samples = n_fft * n_time  # 2000
 
         self.samples = [
@@ -62,7 +61,6 @@ class TestBIOT(unittest.TestCase):
             depth=4,
             n_fft=200,
             hop_length=100,
-            n_classes=6,
             n_channels=18,
         )
 
@@ -89,7 +87,8 @@ class TestBIOT(unittest.TestCase):
         self.assertEqual(ret["y_prob"].shape[0], 2)
         self.assertEqual(ret["y_true"].shape[0], 2)
         self.assertEqual(ret["logit"].shape[0], 2)
-        self.assertEqual(ret["logit"].shape[1], 6)  # n_classes
+        expected_size = self.dataset.output_processors["label"].size()
+        self.assertEqual(ret["logit"].shape[1], expected_size)
         self.assertEqual(ret["loss"].dim(), 0)
 
     def test_model_backward(self):
@@ -104,12 +103,16 @@ class TestBIOT(unittest.TestCase):
             param.requires_grad and param.grad is not None
             for param in self.model.parameters()
         )
-        self.assertTrue(has_gradient, "No parameters have gradients after backward pass")
+        self.assertTrue(
+            has_gradient, "No parameters have gradients after backward pass"
+        )
 
     def test_model_different_batch_sizes(self):
         """Test BIOT with different batch sizes."""
         for batch_size in [1, 2, 4]:
-            train_loader = get_dataloader(self.dataset, batch_size=batch_size, shuffle=False)
+            train_loader = get_dataloader(
+                self.dataset, batch_size=batch_size, shuffle=False
+            )
             data_batch = next(iter(train_loader))
 
             with torch.no_grad():
@@ -139,17 +142,6 @@ class TestBIOT(unittest.TestCase):
 
     def test_model_different_n_classes(self):
         """Test BIOT with different number of classes."""
-        model_binary = BIOT(
-            dataset=self.dataset,
-            emb_size=256,
-            heads=8,
-            depth=4,
-            n_fft=200,
-            hop_length=100,
-            n_classes=1,
-            n_channels=18,
-        )
-
         binary_samples = [
             {
                 "patient_id": f"patient-{i}",
@@ -165,6 +157,16 @@ class TestBIOT(unittest.TestCase):
             input_schema={"signal": "tensor"},
             output_schema={"label": "binary"},
             dataset_name="test_cbramod_binary",
+        )
+
+        model_binary = BIOT(
+            dataset=binary_dataset,
+            emb_size=256,
+            heads=8,
+            depth=4,
+            n_fft=200,
+            hop_length=100,
+            n_channels=18,
         )
 
         train_loader = get_dataloader(binary_dataset, batch_size=2, shuffle=True)
@@ -183,7 +185,6 @@ class TestBIOT(unittest.TestCase):
             depth=2,
             n_fft=200,
             hop_length=100,
-            n_classes=6,
             n_channels=18,
         )
 
@@ -194,7 +195,8 @@ class TestBIOT(unittest.TestCase):
             ret = model_small(**data_batch)
 
         self.assertIn("loss", ret)
-        self.assertEqual(ret["logit"].shape[1], 6)
+        expected_size = self.dataset.output_processors["label"].size()
+        self.assertEqual(ret["logit"].shape[1], expected_size)
 
 
 if __name__ == "__main__":

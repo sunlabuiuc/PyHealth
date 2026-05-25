@@ -35,6 +35,7 @@ def collate_temporal(batch: list[dict[str, Any]]) -> dict[str, Any]:
 
     * ``Tensor``         — stack if same shape, pad to longest otherwise
     * ``dict[str, ...]`` — recursively collate each sub-key  *(temporal feature)*
+    * ``tuple``          — recursively collate each element assuming homogeneous tuple structure
     * ``int / float``    — ``torch.tensor(...)``
     * anything else      — kept as a plain Python list
 
@@ -68,6 +69,21 @@ def collate_temporal(batch: list[dict[str, Any]]) -> dict[str, Any]:
 
         elif isinstance(first, torch.Tensor):
             result[key] = _stack_or_pad(vals)
+
+        elif isinstance(first, tuple):
+            # Handle tuple outputs (e.g., from TupleTimeTextProcessor with tokenizer)
+            # Transpose list of tuples to group corresponding elements, then collate each group
+            transposed = list(zip(*vals))  # Now we have [elem0_list, elem1_list, ...]
+            collated_elements = []
+            for elem_vals in transposed:
+                if isinstance(elem_vals[0], torch.Tensor):
+                    if all(e.shape == elem_vals[0].shape for e in elem_vals):
+                        collated_elements.append(torch.stack(list(elem_vals)))
+                    else:
+                        collated_elements.append(pad_sequence(list(elem_vals), batch_first=True))
+                else:
+                    collated_elements.append(list(elem_vals))
+            result[key] = tuple(collated_elements)
 
         elif isinstance(first, (int, float)):
             result[key] = torch.tensor(vals)

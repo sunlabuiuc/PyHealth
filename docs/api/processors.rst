@@ -3,6 +3,12 @@ Processors
 
 Processors in PyHealth handle data preprocessing and transformation for healthcare predictive tasks. They convert raw data into tensors suitable for machine learning models.
 
+Processors sit between :doc:`tasks` (which define *what* data to extract) and
+:doc:`models` (which consume the resulting tensors). You rarely call processors
+directly — they are configured through the ``input_schema`` and
+``output_schema`` of a task and applied automatically during
+``dataset.set_task()``.
+
 Overview
 --------
 

@@ -155,6 +155,9 @@ class ContraWR(BaseModel):
         assert len(self.label_keys) == 1, (
             "Only one label key is supported if ContraWR is initialized"
         )
+        # ContraWR computes its own STFT internally — drop any precomputed
+        # auxiliary keys (e.g. "stft") that TFMTokenizer adds to input_schema.
+        self.feature_keys = [k for k in self.feature_keys if k != "stft"]
         assert len(self.feature_keys) == 1, (
             "Only one feature key is supported if ContraWR is initialized"
         )
