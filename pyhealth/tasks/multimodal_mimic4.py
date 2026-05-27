@@ -826,6 +826,10 @@ class ClinicalNotesICDLabsCXRMIMIC4(BaseMultimodalMIMIC4Task):
         for admission in admissions_to_process:
             admission_time = admission.timestamp
 
+            # Skip admissions that start at or after the observation window closes, prevents Polars searchsorted OverflowError.
+            if effective_end is not None and admission_time >= effective_end:
+                continue
+
             try:
                 admission_dischtime = datetime.strptime(
                     admission.dischtime, "%Y-%m-%d %H:%M:%S"
