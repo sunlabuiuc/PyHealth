@@ -1,4 +1,6 @@
-"""Unified multimodal embedding + EHRMamba runner for MIMIC-IV + CXR.
+"""Unified multimodal embedding + BottleneckTransformer runner.
+
+Runs EHR + notes + X-ray (MIMIC-IV + CXR) with ClinicalNotesICDLabsCXRMIMIC4.
 
 This script runs EHR + notes + X-ray (metadata/negbio) with the
 ClinicalNotesICDLabsCXRMIMIC4 task.
@@ -10,12 +12,12 @@ Default roots are set to shared PhysioNet mounts:
 
 Quick start:
     python examples/mortality_prediction/
-    multimodal_embedding_mamba_mimic4_cxr.py \
+    multimodal_embedding_bottleneck_mimic4_cxr.py \
       --quick-test
 
 Smoke test (single forward + inference, no train):
     python examples/mortality_prediction/
-    multimodal_embedding_mamba_mimic4_cxr.py \
+    multimodal_embedding_bottleneck_mimic4_cxr.py \
       --smoke-forward
 """
 
@@ -35,15 +37,20 @@ from pyhealth.datasets import (
     split_by_patient,
     split_by_sample,
 )
-from pyhealth.models import EHRMamba, UnifiedMultimodalEmbeddingModel
+from pyhealth.models import UnifiedMultimodalEmbeddingModel
+from pyhealth.models.bottleneck_transformer import BottleneckTransformer
 from pyhealth.tasks.multimodal_mimic4 import ClinicalNotesICDLabsCXRMIMIC4
 from pyhealth.trainer import Trainer
 
 
 def _split_dataset(dataset: Any, seed: int) -> Tuple[Any, Any, Any]:
-    train_ds, val_ds, test_ds = split_by_patient(dataset, [0.8, 0.1, 0.1], seed=seed)
+    train_ds, val_ds, test_ds = split_by_patient(
+        dataset, [0.8, 0.1, 0.1], seed=seed
+    )
     if len(train_ds) == 0 or len(test_ds) == 0:
-        train_ds, val_ds, test_ds = split_by_sample(dataset, [0.8, 0.1, 0.1], seed=seed)
+        train_ds, val_ds, test_ds = split_by_sample(
+            dataset, [0.8, 0.1, 0.1], seed=seed
+        )
     return train_ds, val_ds, test_ds
 
 
@@ -55,8 +62,9 @@ def _build_run_output_path(args: argparse.Namespace) -> str:
         f"cxr{args.cxr_variant}"
         f"_emb{args.embedding_dim}"
         f"_layers{args.num_layers}"
-        f"_state{args.state_size}"
-        f"_conv{args.conv_kernel}"
+        f"_heads{args.heads}"
+        f"_bottleneck{args.bottlenecks_n}"
+        f"_fuse{args.fusion_startidx}"
         f"_drop{dropout_tag}"
         f"_win{args.observation_window_hours}"
         f"_ep{args.epochs}"
@@ -70,7 +78,10 @@ def _build_run_output_path(args: argparse.Namespace) -> str:
         f"_smoke{int(args.smoke_forward)}"
     )
     return os.path.join(
-        os.getcwd(), "output", "multimodal_embedding_mamba_mimic4_cxr", run_tag
+        os.getcwd(),
+        "output",
+        "multimodal_embedding_bottleneck_mimic4_cxr",
+        run_tag,
     )
 
 
@@ -123,7 +134,10 @@ def run(args: argparse.Namespace) -> Tuple[int, int]:
         if processor is None:
             print(f"  - {key}: <no processor>")
             continue
-        print(f"  - {key}: {type(processor).__name__}, " f"schema={processor.schema()}")
+        print(
+            f"  - {key}: {type(processor).__name__}, "
+            f"schema={processor.schema()}"
+        )
 
     train_ds, val_ds, test_ds = _split_dataset(sample_dataset, seed=args.seed)
 
@@ -131,18 +145,24 @@ def run(args: argparse.Namespace) -> Tuple[int, int]:
         processors=sample_dataset.input_processors,
         embedding_dim=args.embedding_dim,
     )
-    model = EHRMamba(
+    model = BottleneckTransformer(
         dataset=sample_dataset,
         embedding_dim=args.embedding_dim,
+        bottlenecks_n=args.bottlenecks_n,
+        fusion_startidx=args.fusion_startidx,
         num_layers=args.num_layers,
-        state_size=args.state_size,
-        conv_kernel=args.conv_kernel,
+        heads=args.heads,
         dropout=args.dropout,
         unified_embedding=unified,
     )
-    print(f"EHRMamba unified mode: {model._use_unified}")
+    print(
+        f"BottleneckTransformer bottlenecks_n={args.bottlenecks_n}, "
+        f"fusion_startidx={args.fusion_startidx}"
+    )
 
-    train_loader = get_dataloader(train_ds, batch_size=args.batch_size, shuffle=True)
+    train_loader = get_dataloader(
+        train_ds, batch_size=args.batch_size, shuffle=True
+    )
     val_loader = (
         get_dataloader(val_ds, batch_size=args.batch_size, shuffle=False)
         if len(val_ds) > 0
@@ -155,7 +175,8 @@ def run(args: argparse.Namespace) -> Tuple[int, int]:
     )
 
     print(
-        "Split sizes: " f"train={len(train_ds)}, val={len(val_ds)}, test={len(test_ds)}"
+        "Split sizes: "
+        f"train={len(train_ds)}, val={len(val_ds)}, test={len(test_ds)}"
     )
 
     debug_batch = next(iter(train_loader))
@@ -169,7 +190,10 @@ def run(args: argparse.Namespace) -> Tuple[int, int]:
         if isinstance(feature, tuple):
             for i, elem in enumerate(feature):
                 shape = getattr(elem, "shape", None)
-                print(f"      tuple[{i}] type={type(elem).__name__} " f"shape={shape}")
+                print(
+                    f"      tuple[{i}] type={type(elem).__name__} "
+                    f"shape={shape}"
+                )
 
         if processor is not None and isinstance(feature, tuple):
             for field_name in ("value", "time", "mask"):
@@ -250,8 +274,10 @@ def run(args: argparse.Namespace) -> Tuple[int, int]:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Run unified multimodal embedding + EHRMamba on "
-        "MIMIC-IV mortality with CXR."
+        description=(
+            "Run unified multimodal embedding + BottleneckTransformer "
+            "on MIMIC-IV mortality with CXR."
+        )
     )
     parser.add_argument(
         "--ehr-root",
@@ -282,9 +308,10 @@ def parse_args() -> argparse.Namespace:
 
     parser.add_argument("--embedding-dim", type=int, default=64)
     parser.add_argument("--num-layers", type=int, default=2)
-    parser.add_argument("--state-size", type=int, default=16)
-    parser.add_argument("--conv-kernel", type=int, default=4)
+    parser.add_argument("--heads", type=int, default=1)
     parser.add_argument("--dropout", type=float, default=0.1)
+    parser.add_argument("--bottlenecks-n", type=int, default=4)
+    parser.add_argument("--fusion-startidx", type=int, default=1)
 
     parser.add_argument("--observation-window-hours", type=int, default=24)
 
@@ -327,4 +354,7 @@ def parse_args() -> argparse.Namespace:
 if __name__ == "__main__":
     cli_args = parse_args()
     num_patient_ids, num_rows = run(cli_args)
-    print(f"Inference completed (patient_ids={num_patient_ids}, " f"rows={num_rows}).")
+    print(
+        f"Inference completed (patient_ids={num_patient_ids}, "
+        f"rows={num_rows})."
+    )

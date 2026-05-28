@@ -137,6 +137,9 @@ class Trainer:
         monitor_criterion: str = "max",
         load_best_model_at_last: bool = True,
         patience=None,
+        accumulation_steps: int = 1,
+        use_amp: bool = False,
+        amp_dtype: str = "bf16",
     ):
         """Trains the model.
 
@@ -156,9 +159,24 @@ class Trainer:
                 Default is True.
             patience: Number of epochs to wait for improvement before early stopping.
                 Default is None, which means no early stopping.
+            accumulation_steps: Gradient accumulation steps to simulate a larger
+                effective batch size. Default is 1 (no accumulation).
+            use_amp: Whether to use automatic mixed precision. Default is False.
+            amp_dtype: AMP dtype — "bf16" (stable, recommended) or "fp16".
+                Default is "bf16".
         """
         if optimizer_params is None:
             optimizer_params = {"lr": 1e-3}
+
+        _amp_dtype = (
+            torch.bfloat16 if amp_dtype == "bf16" else torch.float16
+        )
+        # GradScaler only needed for fp16; bf16 has fp32 dynamic range
+        scaler = (
+            torch.cuda.amp.GradScaler()
+            if (use_amp and _amp_dtype == torch.float16)
+            else None
+        )
 
         # logging
         logger.info("Training:")
@@ -172,6 +190,8 @@ class Trainer:
         logger.info(f"Monitor criterion: {monitor_criterion}")
         logger.info(f"Epochs: {epochs}")
         logger.info(f"Patience: {patience}")
+        logger.info(f"Accumulation steps: {accumulation_steps}")
+        logger.info(f"AMP: {use_amp} (dtype={amp_dtype})")
 
         # set optimizer
         param = list(self.model.named_parameters())
@@ -208,7 +228,7 @@ class Trainer:
             epoch_start = time.perf_counter()
             # batch training loop
             logger.info("")
-            for _ in trange(
+            for step_idx in trange(
                 steps_per_epoch,
                 desc=f"Epoch {epoch} / {epochs}",
                 smoothing=0.05,
@@ -218,20 +238,39 @@ class Trainer:
                 except StopIteration:
                     data_iterator = iter(train_dataloader)
                     data = next(data_iterator)
-                # forward
-                output = self.model(**data)
-                loss = output["loss"]
+                # forward (with optional AMP)
+                if use_amp:
+                    with torch.autocast(device_type="cuda", dtype=_amp_dtype):
+                        output = self.model(**data)
+                        loss = output["loss"] / accumulation_steps
+                else:
+                    output = self.model(**data)
+                    loss = output["loss"] / accumulation_steps
                 # backward
-                loss.backward()
-                if max_grad_norm is not None:
-                    torch.nn.utils.clip_grad_norm_(
-                        self.model.parameters(), max_grad_norm
-                    )
-                # update
-                optimizer.step()
-                optimizer.zero_grad()
-                training_loss.append(loss.item())
-                global_step += 1
+                if scaler is not None:
+                    scaler.scale(loss).backward()
+                else:
+                    loss.backward()
+                training_loss.append(loss.item() * accumulation_steps)
+                # optimizer step every accumulation_steps batches or epoch end
+                is_update_step = (
+                    (step_idx + 1) % accumulation_steps == 0
+                    or (step_idx + 1) == steps_per_epoch
+                )
+                if is_update_step:
+                    if max_grad_norm is not None:
+                        if scaler is not None:
+                            scaler.unscale_(optimizer)
+                        torch.nn.utils.clip_grad_norm_(
+                            self.model.parameters(), max_grad_norm
+                        )
+                    if scaler is not None:
+                        scaler.step(optimizer)
+                        scaler.update()
+                    else:
+                        optimizer.step()
+                    optimizer.zero_grad()
+                    global_step += 1
 
             epoch_time = time.perf_counter() - epoch_start
             vram = _vram_stats(self.device)
