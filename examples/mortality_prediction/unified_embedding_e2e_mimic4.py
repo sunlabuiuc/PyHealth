@@ -64,6 +64,7 @@ from pyhealth.models.jamba_ehr import JambaEHR
 from pyhealth.tasks import MortalityPredictionStageNetMIMIC4
 from pyhealth.tasks.multimodal_mimic4 import ClinicalNotesICDLabsMIMIC4, ICDLabsMIMIC4
 from pyhealth.trainer import Trainer
+from pyhealth.utils import set_seed
 
 
 def _build_base_dataset(args: argparse.Namespace) -> MIMIC4Dataset:
@@ -204,6 +205,8 @@ def _write_predictions(
 
 
 def run(args: argparse.Namespace) -> Path:
+    set_seed(args.seed)
+
     base_dataset = _build_base_dataset(args)
     task = _build_task(args)
     sample_dataset = base_dataset.set_task(task, num_workers=args.num_workers)
@@ -271,6 +274,7 @@ def run(args: argparse.Namespace) -> Path:
             max_grad_norm=effective_max_grad_norm,
             monitor="pr_auc",
             load_best_model_at_last=True,
+            patience=args.patience,
         )
 
     inference_loader = test_loader or val_loader or train_loader
@@ -295,7 +299,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--task",
         type=str,
-        choices=["stagenet", "icd_labs", "clinical_notes_icd_labs"],
+        choices=["icd_labs", "clinical_notes_icd_labs"],
         default="stagenet",
     )
     parser.add_argument(
@@ -335,6 +339,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device", type=str, default=None)
     parser.add_argument("--num-workers", type=int, default=1)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--patience", type=int, default=None)
     parser.add_argument("--dev", action="store_true")
 
     # Task-specific
