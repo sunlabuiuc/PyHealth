@@ -1,0 +1,8 @@
+# PyHealth E2E balanced condition — notes+labs with 1:1 pos:neg undersampling
+_inherit: base.yaml
+
+task: notes_labs
+balanced_sampling: true
+balanced_ratio: 1.0
+epochs: 50
+output_dir: output/e2e_full/balanced

@@ -1,0 +1,14 @@
+# PyHealth smoke test config — devsplit, fast iteration
+# Inherits base.yaml defaults; overrides for fast validation.
+
+_inherit: base.yaml
+
+task: notes_labs
+model: mlp
+dev: 1000
+epochs: 5
+patience: 5
+batch_size: 16
+embedding_dim: 64
+hidden_dim: 64
+output_dir: output/smoke

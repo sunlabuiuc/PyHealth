@@ -1,0 +1,6 @@
+# PyHealth E2E labs-only condition — EHR-only reference baseline
+_inherit: base.yaml
+
+task: labs_only
+epochs: 50
+output_dir: output/e2e_full/labs_only
