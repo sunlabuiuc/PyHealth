@@ -18,7 +18,7 @@ Getting Started
 
 New to PyHealth tasks? Start here:
 
-- **Tutorial**: `Introduction to pyhealth.tasks <https://colab.research.google.com/drive/1kKkkBVS_GclHoYTbnOtjyYnSee79hsyT?usp=sharing>`_ - Learn the basics of defining and using tasks
+- **Tutorial**: `Introduction to pyhealth.tasks <https://colab.research.google.com/drive/1QB0acnGb-wOuK53UNSgHxjCW74QeYjUl?usp=sharing>`_ - Learn the basics of defining and using tasks
 - **Code Examples**: Browse all examples online at https://github.com/sunlabuiuc/PyHealth/tree/master/examples
 - **Pipeline Examples**: Check out our :doc:`../tutorials` page for complete end-to-end examples including:
 
@@ -224,6 +224,7 @@ Available Tasks
     Sleep Staging v2 <tasks/pyhealth.tasks.sleep_staging_v2>
     Benchmark EHRShot <tasks/pyhealth.tasks.benchmark_ehrshot>
     ChestX-ray14 Binary Classification <tasks/pyhealth.tasks.ChestXray14BinaryClassification>
+    De-Identification NER <tasks/pyhealth.tasks.DeIDNERTask>
     ChestX-ray14 Multilabel Classification <tasks/pyhealth.tasks.ChestXray14MultilabelClassification>
     ECG Question Answering <tasks/pyhealth.tasks.ECGQAPreprocessing>
     PTB-XL Signal Resampling <tasks/pyhealth.tasks.PTBXLResampling>

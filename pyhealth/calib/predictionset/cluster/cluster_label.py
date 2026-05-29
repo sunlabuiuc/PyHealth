@@ -214,8 +214,8 @@ class ClusterLabel(SetPredictor):
 
         print(f"Cluster assignments: {np.bincount(cal_cluster_labels)}")
 
-        # Compute conformity scores (probabilities of true class)
-        conformity_scores = y_prob[np.arange(N), y_true]
+        # Compute non-conformity scores (higher = less conforming)
+        conformity_scores = 1.0 - y_prob[np.arange(N), y_true]
 
         # Compute cluster-specific thresholds
         self.cluster_thresholds = {}
@@ -226,13 +226,13 @@ class ClusterLabel(SetPredictor):
             if len(cluster_scores) == 0:
                 print(
                     f"Warning: No calibration samples in cluster {cluster_id}, "
-                    "using -inf threshold (include all classes)"
+                    "using +inf NC threshold (include all classes)"
                 )
                 if isinstance(self.alpha, float):
-                    self.cluster_thresholds[cluster_id] = -np.inf
+                    self.cluster_thresholds[cluster_id] = np.inf
                 else:
                     self.cluster_thresholds[cluster_id] = np.array(
-                        [-np.inf] * K
+                        [np.inf] * K
                     )
             else:
                 if isinstance(self.alpha, float):
@@ -240,7 +240,7 @@ class ClusterLabel(SetPredictor):
                     t = _query_quantile(cluster_scores, self.alpha)
                     self.cluster_thresholds[cluster_id] = t
                 else:
-                    # Class-conditional coverage: one threshold per class per cluster
+                    # Class-conditional: one threshold per class per cluster
                     if len(self.alpha) != K:
                         raise ValueError(
                             f"alpha must have length {K} for class-conditional "
@@ -253,12 +253,12 @@ class ClusterLabel(SetPredictor):
                             class_scores = cluster_scores[class_mask]
                             t_k = _query_quantile(class_scores, self.alpha[k])
                         else:
-                            # If no calibration examples for this class in this cluster
+                            # No examples for this class in cluster: include always
                             print(
                                 f"Warning: No calibration examples for class {k} "
-                                f"in cluster {cluster_id}, using -inf threshold"
+                                f"in cluster {cluster_id}, using +inf threshold"
                             )
-                            t_k = -np.inf
+                            t_k = np.inf
                         t.append(t_k)
                     self.cluster_thresholds[cluster_id] = np.array(t)
 
@@ -313,7 +313,8 @@ class ClusterLabel(SetPredictor):
             )
             cluster_thresholds = cluster_thresholds.view(view_shape)
 
-        pred["y_predset"] = pred["y_prob"] >= cluster_thresholds
+        # Include class y if its NC score (1 - p(y)) <= NC threshold
+        pred["y_predset"] = (1.0 - pred["y_prob"]) <= cluster_thresholds
         pred.pop("embed", None)  # do not expose internal embedding to caller
         return pred
 

@@ -88,15 +88,15 @@ class TestDeepLiftMLP(unittest.TestCase):
         self.assertIsInstance(attributions["procedures"], torch.Tensor)
 
     def test_attribution_with_target_class(self):
-        """Test attribution computation with specific target class."""
+        """For binary (single logit), target_class_idx is a no-op."""
         dl = DeepLift(self.model)
         data_batch = next(iter(self.test_loader))
 
         attr_class_0 = dl.attribute(**data_batch, target_class_idx=0)
         attr_class_1 = dl.attribute(**data_batch, target_class_idx=1)
 
-        # Attributions should differ for different classes
-        self.assertFalse(
+        # Single-logit binary: target_class_idx is a no-op, both should match
+        self.assertTrue(
             torch.allclose(attr_class_0["conditions"], attr_class_1["conditions"])
         )
 

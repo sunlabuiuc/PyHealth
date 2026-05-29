@@ -16,17 +16,11 @@ import torch
 from torch.utils.data import Subset
 
 from pyhealth.calib.base_classes import SetPredictor
+from pyhealth.calib.predictionset.base_conformal import _query_quantile
 from pyhealth.calib.utils import prepare_numpy_dataset
 from pyhealth.models import BaseModel
 
 __all__ = ["LABEL"]
-
-
-def _query_quantile(scores, alpha):
-    scores = np.sort(scores)
-    N = len(scores)
-    loc = int(np.floor(alpha * (N + 1))) - 1
-    return -np.inf if loc == -1 else scores[loc]
 
 
 class LABEL(SetPredictor):
@@ -110,11 +104,17 @@ class LABEL(SetPredictor):
         y_true = cal_dataset["y_true"]
 
         N, K = cal_dataset["y_prob"].shape
+        # NC scores: 1 - p(true class); higher = less conforming
         if isinstance(self.alpha, float):
-            t = _query_quantile(y_prob[np.arange(N), y_true], self.alpha)
+            t = _query_quantile(
+                1.0 - y_prob[np.arange(N), y_true], self.alpha
+            )
         else:
             t = [
-                _query_quantile(y_prob[y_true == k, k], self.alpha[k]) for k in range(K)
+                _query_quantile(
+                    1.0 - y_prob[y_true == k, k], self.alpha[k]
+                )
+                for k in range(K)
             ]
         self.t = torch.tensor(t, device=self.device)
 
@@ -127,7 +127,8 @@ class LABEL(SetPredictor):
         :rtype: Dict[str, torch.Tensor]
         """
         pred = self.model(**kwargs)
-        pred["y_predset"] = pred["y_prob"] > self.t
+        # Include class y if its NC score (1 - p(y)) <= NC threshold
+        pred["y_predset"] = (1.0 - pred["y_prob"]) <= self.t
         return pred
 
 if __name__ == "__main__":

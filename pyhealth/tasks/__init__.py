@@ -14,6 +14,7 @@ from .ecgqa_preprocess import ECGQAPreprocessing
 from .ptbxl_resampling import PTBXLResampling
 from .chestxray14_multilabel_classification import ChestXray14MultilabelClassification
 from .covid19_cxr_classification import COVID19CXRClassification
+from .deid_ner import DeIDNERTask
 from .dka import DKAPredictionMIMIC4, T1DDKAPredictionMIMIC4
 from .drug_recommendation import (
     DrugRecommendationEICU,
