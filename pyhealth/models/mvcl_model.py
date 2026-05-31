@@ -73,12 +73,13 @@ class MultiViewContrastiveModel(BaseModel):
     ):
         super().__init__(dataset=dataset)
         self.training_stage = training_stage
-        self.mode = ""
-        
-        # Disable inference metrics during pre-training
+
+        # Disable inference metrics during pre-training only.
+        # For finetuning/inference, preserve the task mode resolved by BaseModel
+        # (e.g., "binary", "multiclass", or "multilabel").
         if self.training_stage == "pretrain":
-            self.mode = None 
-            
+            self.mode = None
+
         self.hidden_dim = hidden_dim
         self.num_classes = num_classes
         self.lambda_cl = lambda_cl
