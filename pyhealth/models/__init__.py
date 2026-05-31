@@ -45,4 +45,6 @@ from .text_embedding import TextEmbedding
 from .sdoh import SdohClassifier
 from .medlink import MedLink
 from .unified_embedding import UnifiedMultimodalEmbeddingModel, SinusoidalTimeEmbedding
+from .multi_view_contrastive_time_series_model import MultiViewContrastiveTimeSeriesModel
+from .mvcl_model import MultiViewContrastiveModel
 from .califorest import CaliForest

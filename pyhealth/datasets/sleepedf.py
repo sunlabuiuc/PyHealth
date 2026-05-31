@@ -58,6 +58,7 @@ class SleepEDFDataset(BaseDataset):
         dataset_name: Optional[str] = None,
         config_path: Optional[str] = None,
         subset: Optional[str] = "cassette",
+        dev: bool = False,
     ) -> None:
         subset = (subset or "cassette").lower()
         if subset not in {"cassette", "telemetry"}:
@@ -87,6 +88,7 @@ class SleepEDFDataset(BaseDataset):
             tables=default_tables,
             dataset_name=dataset_name or "sleepedf",
             config_path=config_path,
+            dev=dev,
         )
 
     def prepare_metadata_cassette(self, root: str) -> None:
