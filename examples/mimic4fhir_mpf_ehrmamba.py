@@ -19,9 +19,14 @@ from pyhealth.models import EHRMambaCEHR
 from pyhealth.tasks.mpf_clinical_prediction import MPFClinicalPredictionTask
 from pyhealth.trainer import Trainer
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-DEMO_ROOT = REPO_ROOT / "datasets" / "physionet.org" / "mimic-iv-fhir-demo" / "2.1.0" / "fhir"
-CACHE_DIR = REPO_ROOT / "datasets" / ".cache" / "pyhealth" / "fhir-demo"
+# Absolute paths to the bundled PhysioNet MIMIC-IV-on-FHIR demo and its cache.
+DEMO_ROOT = Path(
+    "/home/johnwu3/projects/PyHealth_Branch_Testing/datasets/"
+    "physionet.org/mimic-iv-fhir-demo/2.1.0/fhir"
+)
+CACHE_DIR = Path(
+    "/home/johnwu3/projects/PyHealth_Branch_Testing/datasets/.cache/pyhealth/fhir-demo"
+)
 
 
 def main() -> None:
