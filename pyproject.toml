@@ -41,6 +41,7 @@ dependencies = [
   "dask[complete]~=2025.11.0",
   "litdata~=0.2.59",
   "pyarrow~=22.0.0",
+  "orjson~=3.10",
   "narwhals~=2.13.0",
   "more-itertools~=10.8.0",
   "einops>=0.8.0",
