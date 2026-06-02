@@ -3,7 +3,7 @@ Split conformal prediction for length of stay prediction on MIMIC-IV.
 
 Trains a Transformer on the MIMIC-IV LOS task (10 classes), then wraps it with
 LABEL (split conformal prediction) to use prediction sets instead of point predictions to
-guarantee coverage?
+guarantee coverage.
 
 Coverage on a single split is noisy here bc the demo only leaves  about 15 calibration
 patients, so I averaged over a few seeds like the conformal eeg example.
@@ -19,6 +19,8 @@ The targets are all within the error bars. Coverage is near the target
 but noisy with so little patients. Sets shrink w/ less coverage.
 On full MIMIC-IV the model would be stronger, so the sets get much smaller and coverage
 tighter.
+
+I also print the per-class miscoverage_ps (miscoverage on each true LOS class).
 
 Run on the demo:
     python los_mimic4_conformal.py --root /path/to/mimic-iv-clinical-database-demo-2.2
@@ -37,6 +39,11 @@ from pyhealth.datasets import (
     get_dataloader,
     split_by_patient_conformal,
 )
+from pyhealth.metrics.prediction_set import (
+    miscoverage_overall_ps,
+    miscoverage_ps,
+    size,
+)
 from pyhealth.models import Transformer
 from pyhealth.tasks import LengthOfStayPredictionMIMIC4
 from pyhealth.trainer import Trainer
@@ -48,7 +55,7 @@ logging.getLogger("pyhealth").setLevel(logging.WARNING)
 def run_seed(samples, seed, alphas):
     """Split, train, and run conformal for one seed.
 
-    Returns {alpha: (coverage, avg_set_size)} measured on the test split.
+    Returns {alpha: (coverage, avg_set_size, per_class_miscoverage)} on the test split.
     """
     random.seed(seed)
     np.random.seed(seed)
@@ -78,9 +85,11 @@ def run_seed(samples, seed, alphas):
             test_loader, additional_outputs=["y_predset"]
         )
         predset = extra["y_predset"]
-        coverage = predset[np.arange(len(y_true)), y_true].mean()
-        set_size = predset.sum(axis=1).mean()
-        results[alpha] = (coverage, set_size)
+        y_true = np.asarray(y_true)  # the miscoverage fns need a 1D int array
+        coverage = 1 - miscoverage_overall_ps(predset, y_true)
+        set_size = size(predset)
+        class_miscov = miscoverage_ps(predset, y_true)
+        results[alpha] = (coverage, set_size, class_miscov)
     return results
 
 
@@ -100,19 +109,27 @@ def main(root):
     # average seeds
     coverage = {a: [] for a in alphas}
     set_size = {a: [] for a in alphas}
+    class_miscov = {a: [] for a in alphas}
     for seed in seeds:
         results = run_seed(samples, seed, alphas)
         for a in alphas:
             coverage[a].append(results[a][0])
             set_size[a].append(results[a][1])
+            class_miscov[a].append(results[a][2])
 
     print(f"\nresults over {len(seeds)} seeds (mean +/- std)")
     print("alpha  target  coverage      avg_set_size")
     for a in alphas:
         cov = np.array(coverage[a])
-        size = np.array(set_size[a])
+        sizes = np.array(set_size[a])
         print(f"{a:.2f}    {1 - a:.0%}    {cov.mean():.2f} +/- {cov.std():.2f}   "
-              f"{size.mean():.1f} +/- {size.std():.1f}")
+              f"{sizes.mean():.1f} +/- {sizes.std():.1f}")
+
+    # per-class miscoverage_ps (one value per LOS class), averaged over seeds
+    print(f"\nper-class miscoverage_ps (mean over {len(seeds)} seeds)")
+    for a in alphas:
+        per_class = np.stack(class_miscov[a]).mean(0)
+        print(f"alpha={a:.2f}: " + np.array2string(per_class, precision=2, floatmode="fixed"))
 
 
 if __name__ == "__main__":
