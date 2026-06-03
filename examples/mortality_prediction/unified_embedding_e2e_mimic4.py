@@ -72,7 +72,7 @@ from pyhealth.tasks import MortalityPredictionStageNetMIMIC4
 from pyhealth.tasks.multimodal_mimic4 import (
     ClinicalNotesICDLabsMIMIC4,
     ICDLabsMIMIC4,
-    LabsOnlyMIMIC4,
+    LabsMIMIC4,
     NotesLabsMIMIC4,
 )
 from pyhealth.trainer import Trainer
@@ -105,10 +105,8 @@ def _build_base_dataset(args: argparse.Namespace) -> MIMIC4Dataset:
             if "chartevents" not in ehr_tables:
                 ehr_tables.append("chartevents")
 
-    if args.task == "labs_only":
-        # Pure EHR baseline: only labevents, no notes, no ICD codes.
+    if args.task == "labs":
         ehr_tables = ["labevents"]
-        note_tables = None
 
     return MIMIC4Dataset(
         ehr_root=args.ehr_root,
@@ -134,8 +132,8 @@ def _build_task(args: argparse.Namespace):
             include_icd=args.icd_codes,
             include_vitals=args.include_vitals,
         )
-    if args.task == "labs_only":
-        return LabsOnlyMIMIC4(window_hours=args.observation_window_hours)
+    if args.task == "labs":
+        return LabsMIMIC4(window_hours=args.observation_window_hours)
     raise ValueError(f"Unknown task: {args.task}")
 
 
@@ -387,7 +385,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--task",
         type=str,
-        choices=["stagenet", "icd_labs", "clinical_notes_icd_labs", "notes_labs", "labs_only"],
+        choices=["stagenet", "icd_labs", "clinical_notes_icd_labs", "notes_labs", "labs"],
         default="stagenet",
         help=(
             "notes_labs: admission-context text (CC/HPI/PMH/MedsOnAdm) + labs. "
