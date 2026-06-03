@@ -8,8 +8,12 @@ real data:
     - Code-prevalence similarity: compares per-code patient-level prevalence
       between real and synthetic data (R-squared, Pearson correlation, RMSE).
 
-All functions take flat EHR dataframes (one row per patient/visit/code event)
-and return ``{metric_name: (mean, std)}`` summaries over bootstrap resamples.
+All functions take flat / long-format EHR dataframes -- one row per
+``(patient, visit, code)`` event, with default columns
+``[id, time, visit_codes, labels]`` (see :mod:`pyhealth.metrics.generative`
+for the full column contract) -- and return ``{metric_name: (mean, std)}``
+summaries over bootstrap resamples. The real (``train_ehr``, ``test_ehr``) and
+synthetic (``syn_ehr``) dataframes must share the same schema.
 """
 
 import copy
@@ -64,12 +68,13 @@ def compute_mle(
         train_fn: A training function such as
             :func:`pyhealth.metrics.generative.utils.train_lstm_model` or
             ``train_sklearn_model``, returning ``(model, y_true, y_pred)``.
-        train_ehr: Real training EHR dataframe.
-        test_ehr: Real held-out test EHR dataframe.
-        syn_ehr: Synthetic EHR dataframe.
+        train_ehr: Real training EHR dataframe, flat
+            ``[id, time, visit_codes, labels]`` format.
+        test_ehr: Real held-out test EHR dataframe; same schema as ``train_ehr``.
+        syn_ehr: Synthetic EHR dataframe; same schema as ``train_ehr``.
         subject_col: Column name for patient/subject identifiers.
         visit_col: Column name for visit/timestep identifiers.
-        code_col: Column name for the medical codes.
+        code_col: Column name for the medical codes (one code per row).
         label_col: Column name for the label (overwritten by the next-visit
             prediction label).
         n_bootstraps: Number of bootstrap resamples of the predictions.
@@ -79,6 +84,15 @@ def compute_mle(
         Dictionary mapping the MLE metrics (real/synthetic accuracy and F1,
             their difference and ratio) to their ``(mean, std)`` across
             bootstraps.
+
+    Examples:
+        >>> from pyhealth.metrics.generative.utility import compute_mle
+        >>> from pyhealth.metrics.generative.utils import train_lstm_model
+        >>> # train_ehr, test_ehr, syn_ehr are flat
+        >>> # [id, time, visit_codes, labels] dataframes sharing one schema --
+        >>> # see evaluate_synthetic_ehr for how to build them.
+        >>> result = compute_mle(train_lstm_model, train_ehr, test_ehr, syn_ehr)
+        >>> synth_acc_mean, synth_acc_std = result["MLE_Synth_Accuracy"]
     """
     logger.info("Computing MLE (utility)")
 
@@ -175,16 +189,31 @@ def compute_prevalence_metrics(
     with R-squared, Pearson correlation and RMSE; bootstrap resampling is over
     codes.
 
+    This metric only reads ``subject_col`` and ``code_col``, but ``train_ehr``
+    and ``syn_ehr`` are expected to be the same flat
+    ``[id, time, visit_codes, labels]`` frames used by the other metrics.
+
     Args:
-        train_ehr: Real training EHR dataframe.
-        syn_ehr: Synthetic EHR dataframe.
+        train_ehr: Real training EHR dataframe, flat
+            ``[id, time, visit_codes, labels]`` format.
+        syn_ehr: Synthetic EHR dataframe; same schema as ``train_ehr``.
         subject_col: Column name for patient/subject identifiers.
-        code_col: Column name for the medical codes.
+        code_col: Column name for the medical codes (one code per row).
         n_bootstraps: Number of bootstrap resamples over codes.
 
     Returns:
         Dictionary mapping ``"Prevalence_R2"``, ``"Prevalence_Pearson"`` and
             ``"Prevalence_RMSE"`` to their ``(mean, std)`` across bootstraps.
+
+    Examples:
+        >>> from pyhealth.metrics.generative.utility import (
+        ...     compute_prevalence_metrics,
+        ... )
+        >>> # train_ehr and syn_ehr are flat [id, time, visit_codes, labels]
+        >>> # dataframes sharing one schema -- see evaluate_synthetic_ehr for
+        >>> # how to build them.
+        >>> result = compute_prevalence_metrics(train_ehr, syn_ehr)
+        >>> r2_mean, r2_std = result["Prevalence_R2"]
     """
     logger.info("Computing prevalence metrics")
 

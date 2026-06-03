@@ -7,9 +7,13 @@ records it was trained on. They include:
     - Membership Inference Attack (MIA) metrics
     - A discriminator-based adversarial-accuracy privacy score
 
-All functions take flat EHR dataframes (one row per patient/visit/code event)
-and return ``{metric_name: (mean, std)}`` summaries computed over multiple runs
-or bootstrap resamples.
+All functions take flat / long-format EHR dataframes -- one row per
+``(patient, visit, code)`` event, with default columns
+``[id, time, visit_codes, labels]`` (see :mod:`pyhealth.metrics.generative`
+for the full column contract) -- and return ``{metric_name: (mean, std)}``
+summaries computed over multiple runs or bootstrap resamples. The real
+(``train_ehr``, ``test_ehr``) and synthetic (``syn_ehr``) dataframes must share
+the same schema.
 """
 
 import copy
@@ -60,13 +64,17 @@ def calc_nnaar(
     and ``AA_TS`` is the adversarial accuracy between train and synthetic data.
     Values near 0 indicate low privacy risk.
 
+    All three dataframes are flat ``[id, time, visit_codes, labels]`` frames
+    sharing the same schema (see :mod:`pyhealth.metrics.generative`).
+
     Args:
-        train_ehr: Real training EHR dataframe.
-        test_ehr: Real held-out test EHR dataframe.
-        syn_ehr: Synthetic EHR dataframe.
+        train_ehr: Real training EHR dataframe, flat
+            ``[id, time, visit_codes, labels]`` format.
+        test_ehr: Real held-out test EHR dataframe; same schema as ``train_ehr``.
+        syn_ehr: Synthetic EHR dataframe; same schema as ``train_ehr``.
         subject_col: Column name for patient/subject identifiers.
         visit_col: Column name for visit/timestep identifiers.
-        code_col: Column name for the medical codes.
+        code_col: Column name for the medical codes (one code per row).
         label_col: Column name for the label (unused, kept for a uniform API).
         sample_size: Number of patients to sample per dataset per run.
         n_runs: Number of independent sampling runs.
@@ -75,6 +83,14 @@ def calc_nnaar(
     Returns:
         Dictionary mapping ``"nnaar"``, ``"aa_es"`` and ``"aa_ts"`` to their
             ``(mean, std)`` across runs.
+
+    Examples:
+        >>> from pyhealth.metrics.generative import calc_nnaar
+        >>> # train_ehr, test_ehr, syn_ehr are flat
+        >>> # [id, time, visit_codes, labels] dataframes sharing one schema --
+        >>> # see evaluate_synthetic_ehr for how to build them.
+        >>> result = calc_nnaar(train_ehr, test_ehr, syn_ehr)
+        >>> nnaar_mean, nnaar_std = result["nnaar"]
     """
     logger.info(
         "Calculating NNAAR (sample_size=%d, n_runs=%d)", sample_size, n_runs
@@ -159,13 +175,18 @@ def calc_membership_inference(
     nearest-neighbor distance at its median; F1, precision, recall and accuracy
     near 0.5 indicate low membership-inference risk.
 
+    All three dataframes are flat ``[id, time, visit_codes, labels]`` frames
+    sharing the same schema (see :mod:`pyhealth.metrics.generative`).
+
     Args:
-        train_ehr: Real training EHR dataframe (members).
-        test_ehr: Real held-out test EHR dataframe (non-members).
-        syn_ehr: Synthetic EHR dataframe.
+        train_ehr: Real training EHR dataframe (members), flat
+            ``[id, time, visit_codes, labels]`` format.
+        test_ehr: Real held-out test EHR dataframe (non-members); same schema as
+            ``train_ehr``.
+        syn_ehr: Synthetic EHR dataframe; same schema as ``train_ehr``.
         subject_col: Column name for patient/subject identifiers.
         visit_col: Column name for visit/timestep identifiers.
-        code_col: Column name for the medical codes.
+        code_col: Column name for the medical codes (one code per row).
         label_col: Column name for the label (unused, kept for a uniform API).
         num_attack_samples: Total attack-set size (half members, half not).
         n_runs: Number of independent sampling runs.
@@ -174,6 +195,14 @@ def calc_membership_inference(
     Returns:
         Dictionary mapping ``"MIA_F1"``, ``"MIA_Precision"``, ``"MIA_Recall"``
             and ``"MIA_Accuracy"`` to their ``(mean, std)`` across runs.
+
+    Examples:
+        >>> from pyhealth.metrics.generative import calc_membership_inference
+        >>> # train_ehr, test_ehr, syn_ehr are flat
+        >>> # [id, time, visit_codes, labels] dataframes sharing one schema --
+        >>> # see evaluate_synthetic_ehr for how to build them.
+        >>> result = calc_membership_inference(train_ehr, test_ehr, syn_ehr)
+        >>> f1_mean, f1_std = result["MIA_F1"]
     """
     logger.info(
         "Calculating Membership Inference (attack_size=%d, n_runs=%d)",
@@ -259,13 +288,14 @@ def compute_discriminator_privacy(
             ``train_sklearn_model``. It must accept ``train_ehr``, ``test_ehr``,
             the four column-name arguments and return ``(model, y_true,
             y_pred)``.
-        train_ehr: Real training EHR dataframe.
+        train_ehr: Real training EHR dataframe, flat
+            ``[id, time, visit_codes, labels]`` format.
         test_ehr: Real held-out test EHR dataframe (unused; kept for a uniform
-            API with the other metrics).
-        syn_ehr: Synthetic EHR dataframe.
+            API with the other metrics); same schema as ``train_ehr``.
+        syn_ehr: Synthetic EHR dataframe; same schema as ``train_ehr``.
         subject_col: Column name for patient/subject identifiers.
         visit_col: Column name for visit/timestep identifiers.
-        code_col: Column name for the medical codes.
+        code_col: Column name for the medical codes (one code per row).
         label_col: Column name for the original label (unused; the
             discriminator target replaces it).
         n_bootstraps: Number of bootstrap resamples of the predictions.
@@ -275,6 +305,17 @@ def compute_discriminator_privacy(
     Returns:
         Dictionary mapping ``"Privacy_Discriminator_Accuracy"`` and
             ``"Privacy_Score"`` to their ``(mean, std)`` across bootstraps.
+
+    Examples:
+        >>> from pyhealth.metrics.generative import compute_discriminator_privacy
+        >>> from pyhealth.metrics.generative.utils import train_lstm_model
+        >>> # train_ehr, test_ehr, syn_ehr are flat
+        >>> # [id, time, visit_codes, labels] dataframes sharing one schema --
+        >>> # see evaluate_synthetic_ehr for how to build them.
+        >>> result = compute_discriminator_privacy(
+        ...     train_lstm_model, train_ehr, test_ehr, syn_ehr
+        ... )
+        >>> score_mean, score_std = result["Privacy_Score"]
     """
     logger.info("Computing discriminator privacy")
 

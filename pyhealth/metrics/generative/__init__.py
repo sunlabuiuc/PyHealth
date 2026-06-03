@@ -11,6 +11,27 @@ record (EHR) data along three axes:
 The convenience function :func:`evaluate_synthetic_ehr` runs the full suite
 and returns a single merged dictionary of ``{metric_name: (mean, std)}``.
 
+Input format:
+    Every metric consumes plain pandas dataframes in *flat / long* format --
+    **one row per (patient, visit, code) event** -- so the logic stays easy to
+    inspect. By default each dataframe has four columns
+    ``[id, time, visit_codes, labels]`` (override the names via the
+    ``subject_col`` / ``visit_col`` / ``code_col`` / ``label_col`` arguments):
+
+        - ``id`` (``subject_col``): patient identifier. Any hashable value;
+          commonly ``str`` or ``int``.
+        - ``time`` (``visit_col``): visit index / timestep. Sortable, usually
+          ``int``; visits are ordered per patient by this column.
+        - ``visit_codes`` (``code_col``): a **single** medical code for this
+          row (``str`` or ``int``). One code per row -- a visit containing *k*
+          codes spans *k* rows. Cells are scalars, **not** lists or arrays.
+        - ``labels`` (``label_col``): per-patient binary label (0/1, ``int``).
+
+    The real (``train_ehr``, ``test_ehr``) and synthetic (``syn_ehr``)
+    dataframes must all share this same schema. ``labels`` is ignored by the
+    privacy metrics and is overwritten internally by the utility metrics, but
+    is required so every dataframe has a uniform schema.
+
 Note:
     The MLE (utility) component is currently hard-coded to next-visit
     prediction and is therefore only meaningful for sequential generators
@@ -67,14 +88,20 @@ def evaluate_synthetic_ehr(
     Computes privacy and/or utility metrics comparing synthetic EHR data
     against real train/test data, and returns a single merged dictionary.
 
+    All three dataframes are flat / long-format (one row per
+    ``(patient, visit, code)`` event) and must share the same schema. See the
+    module docstring (:mod:`pyhealth.metrics.generative`) for the full column
+    contract, and the example below for how to build them.
+
     Args:
-        train_ehr: Real training EHR dataframe.
-        test_ehr: Real held-out test EHR dataframe.
-        syn_ehr: Synthetic EHR dataframe.
+        train_ehr: Real training EHR dataframe, flat
+            ``[id, time, visit_codes, labels]`` format.
+        test_ehr: Real held-out test EHR dataframe; same schema as ``train_ehr``.
+        syn_ehr: Synthetic EHR dataframe; same schema as ``train_ehr``.
         subject_col: Column name for patient/subject identifiers.
         visit_col: Column name for visit/timestep identifiers.
-        code_col: Column name for the medical codes.
-        label_col: Column name for the label.
+        code_col: Column name for the medical codes (one code per row).
+        label_col: Column name for the per-patient binary label.
         sample_size: Number of patients sampled per dataset for the
             privacy metrics.
         mode: Predictive backbone for the utility metrics; ``"lstm"`` uses the
@@ -92,6 +119,46 @@ def evaluate_synthetic_ehr(
 
     Raises:
         ValueError: If ``metrics`` or ``mode`` is not a recognized value.
+
+    Examples:
+        The inputs are flat / long-format dataframes -- one row per
+        ``(patient, visit, code)`` event -- with four columns by default:
+
+            - ``id``: patient identifier (any hashable; ``str`` or ``int``).
+            - ``time``: visit index / timestep (sortable; usually ``int``).
+            - ``visit_codes``: a single medical code for this row (``str`` or
+              ``int``). One code per row -- a visit with *k* codes spans *k*
+              rows; cells are scalars, not lists/arrays.
+            - ``labels``: per-patient binary label (0/1, ``int``).
+
+        ``train_ehr``, ``test_ehr`` and ``syn_ehr`` must all share this schema.
+
+        >>> import pandas as pd
+        >>> from pyhealth.metrics.generative import evaluate_synthetic_ehr
+        >>>
+        >>> # One row per (patient, visit, code). Patient "p0" has two visits
+        >>> # (time 0 with two codes, time 1 with one code); "p1" has one visit.
+        >>> rows = [
+        ...     {"id": "p0", "time": 0, "visit_codes": "428.0", "labels": 0},
+        ...     {"id": "p0", "time": 0, "visit_codes": "250.00", "labels": 0},
+        ...     {"id": "p0", "time": 1, "visit_codes": "401.9", "labels": 0},
+        ...     {"id": "p1", "time": 0, "visit_codes": "428.0", "labels": 0},
+        ... ]
+        >>> train_ehr = pd.DataFrame(rows)
+        >>> test_ehr = train_ehr.copy()  # same schema; real held-out patients
+        >>> syn_ehr = train_ehr.copy()   # same schema; generator output
+        >>>
+        >>> results = evaluate_synthetic_ehr(
+        ...     train_ehr, test_ehr, syn_ehr, metrics="privacy", sample_size=2
+        ... )
+        >>> nnaar_mean, nnaar_std = results["nnaar"]
+        >>>
+        >>> # Custom column names: pass *_col to match your dataframe.
+        >>> results = evaluate_synthetic_ehr(
+        ...     train_ehr, test_ehr, syn_ehr,
+        ...     subject_col="id", visit_col="time",
+        ...     code_col="visit_codes", label_col="labels",
+        ... )
     """
     if metrics not in ("all", "privacy", "utility"):
         raise ValueError(

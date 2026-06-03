@@ -67,10 +67,19 @@ if __name__ == "__main__":
         print(f"    {patient['visits']}")
 
     # STEP 7: Evaluate the synthetic data with the generative metrics suite.
-    # evaluate_synthetic_ehr expects flat dataframes with one row per code:
-    #   columns = [id, time, visit_codes, labels]
-    # `labels` is a placeholder -- the utility metric overwrites it with the
-    # next-visit prediction target.
+    # evaluate_synthetic_ehr (and every metric it calls) expects flat /
+    # long-format dataframes -- ONE ROW PER (patient, visit, code) event --
+    # with four columns:
+    #   - id           patient identifier            (any hashable; str here)
+    #   - time         visit index / timestep        (sortable; int here)
+    #   - visit_codes  a SINGLE medical code         (str or int; one per row,
+    #                                                  NOT a list/array -- a
+    #                                                  visit with k codes spans
+    #                                                  k rows)
+    #   - labels       per-patient binary label      (0/1, int)
+    # train_df, test_df and syn_df below all share this exact schema. `labels`
+    # is a placeholder here: privacy metrics ignore it and the utility metric
+    # overwrites it with the next-visit prediction target.
     index_to_code = {
         v: k for k, v in sample_dataset.input_processors["visits"].code_vocab.items()
     }
@@ -101,6 +110,9 @@ if __name__ == "__main__":
         f"\nEval rows -- train: {len(train_df)}, test: {len(test_df)}, "
         f"synthetic: {len(syn_df)}"
     )
+    # Show the flat schema: one row per (patient, visit, code) event.
+    print("\ntrain_df schema (one row per (patient, visit, code)):")
+    print(train_df.head())
 
     # sample_size / n_bootstraps / n_runs are kept small for the dev subset;
     # raise them when running on the full MIMIC-III cohort.
