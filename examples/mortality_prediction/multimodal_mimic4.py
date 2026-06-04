@@ -18,7 +18,7 @@ from pyhealth.tasks.base_task import BaseTask
 
 TASK = "ClinicalNotesICDLabsMIMIC4"  # Options: ClinicalNotesMIMIC4, ICDLabsMIMIC4, ClinicalNotesICDLabsMIMIC4, ClinicalNotesICDLabsCXRMIMIC4  # The idea here is that we want additive tasks so we can evaluate the value in adding more modalities
 DEV_MODE = True
-ENVIRONMENT = "SunLabCluster"  # Either 'Local' or 'CampusCluster' or "SunLabCluster"
+ENVIRONMENT = "CampusCluster"  # Either 'Local' or 'CampusCluster' or "SunLabCluster"
 NETID = "wp14" # For personal cache
 
 if ENVIRONMENT == "Local":
