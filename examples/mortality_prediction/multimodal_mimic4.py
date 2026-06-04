@@ -18,7 +18,7 @@ from pyhealth.tasks.base_task import BaseTask
 
 TASK = "ClinicalNotesICDLabsMIMIC4"  # Options: ClinicalNotesMIMIC4, ICDLabsMIMIC4, ClinicalNotesICDLabsMIMIC4, ClinicalNotesICDLabsCXRMIMIC4  # The idea here is that we want additive tasks so we can evaluate the value in adding more modalities
 DEV_MODE = True
-ENVIRONMENT = "SunLabCluster"  # Either 'Local' or 'Cluster' or "SunLabCluster"
+ENVIRONMENT = "SunLabCluster"  # Either 'Local' or 'CampusCluster' or "SunLabCluster"
 NETID = "wp14" # For personal cache
 
 if ENVIRONMENT == "Local":
@@ -38,7 +38,7 @@ if ENVIRONMENT == "Local":
     cache_dir = os.path.join(
         pyhealth_repo_root, "local_data/local/data/wp/pyhealth_cache"
     )
-elif ENVIRONMENT == "Cluster":
+elif ENVIRONMENT == "CampusCluster":
 
     ehr_root = "/projects/illinois/eng/cs/jimeng/physionet.org/files/mimiciv/2.2"
     note_root = "/projects/illinois/eng/cs/jimeng/physionet.org/files/mimic-note"
