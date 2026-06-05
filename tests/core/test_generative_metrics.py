@@ -358,7 +358,10 @@ class TestMetricsBehavior(unittest.TestCase):
 
     def test_nnaar_flags_exact_copies(self):
         # NNAAR should be high when synthetic data memorizes the training set
-        # and near zero otherwise.
+        # and near zero otherwise. With proper self-exclusion in the
+        # within-set nearest-neighbor search, both exact copies and near-copies
+        # (15% perturbed) leak training membership -> high NNAAR, while
+        # independent synthetic data (disjoint vocabulary) does not -> ~0.
         nnaar = {}
         for name, syn in [
             ("exact", self.syn_exact),
@@ -371,11 +374,15 @@ class TestMetricsBehavior(unittest.TestCase):
                 **self.cols, sample_size=1000, n_runs=3,
             )["nnaar"][0]
 
-        self.assertGreater(nnaar["exact"], 0.5)
-        self.assertGreater(nnaar["exact"], nnaar["similar"])
+        # Memorized / near-memorized synthetic data leaks -> high NNAAR.
+        self.assertGreater(nnaar["exact"], 0.3)
+        self.assertGreater(nnaar["similar"], 0.3)
+        # An exact copy is at least as leaky as a perturbed near-copy.
+        self.assertGreaterEqual(nnaar["exact"], nnaar["similar"])
+        # Independent synthetic data does not leak -> NNAAR ~ 0.
+        self.assertLess(abs(nnaar["different"]), 0.15)
         self.assertGreater(nnaar["exact"], nnaar["different"])
-        self.assertLess(nnaar["similar"], 0.3)
-        self.assertLess(nnaar["different"], 0.3)
+        self.assertGreater(nnaar["similar"], nnaar["different"])
 
     def test_membership_inference_detects_training_data(self):
         # The attack should succeed when synthetic data is derived from the

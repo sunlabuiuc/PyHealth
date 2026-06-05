@@ -179,7 +179,10 @@ class MedGAN(BaseModel):
     Args:
         dataset: A fitted ``SampleDataset`` whose ``input_schema`` contains
             ``{"visits": "multi_hot"}`` and whose ``output_schema`` is empty.
-        latent_dim: Generator noise dimensionality. Default: 128.
+        latent_dim: Generator noise dimensionality. Default: 128. The
+            generator's residual connection requires ``latent_dim ==
+            hidden_dim``; if they differ, ``latent_dim`` is silently aligned to
+            ``hidden_dim``.
         hidden_dim: Generator hidden width (also the autoencoder embedding
             dimension). Default: 128.
         discriminator_hidden_dim: Discriminator hidden width. Default: 256.
@@ -231,6 +234,11 @@ class MedGAN(BaseModel):
                 "MultiHotProcessor."
             )
 
+        # The generator's residual connection (``out + residual`` with
+        # ``residual`` being the noise input) requires latent_dim == hidden_dim.
+        # Align silently if the user mismatched, mirroring CorGAN.
+        if latent_dim != hidden_dim:
+            latent_dim = hidden_dim
         self.latent_dim = latent_dim
         self.hidden_dim = hidden_dim
         self._batch_size = batch_size

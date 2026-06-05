@@ -32,6 +32,27 @@ Input format:
     privacy metrics and is overwritten internally by the utility metrics, but
     is required so every dataframe has a uniform schema.
 
+Why dataframes (and not plain ``List[...]``)?
+    The flat dataframe is purely the *interchange* format -- a single, uniform
+    interface shared by every metric and produced once by
+    :func:`pyhealth.tasks.to_evaluation_dataframe`. Internally each family uses
+    whatever representation is most natural:
+
+        - **Privacy** metrics immediately reduce the frame to a nested
+          ``List[List[set]]`` (sequence of per-visit code sets) via
+          ``convert_visits_to_sets`` and do all distance work on plain Python
+          lists -- no pandas in the hot loop.
+        - **Utility / fidelity** metrics genuinely benefit from the dataframe:
+          code-prevalence uses ``groupby(...).nunique()``, MLE builds the
+          next-visit-prediction supervision with grouped per-patient label
+          assignment, and the discriminator metric concatenates / filters /
+          relabels real-vs-synthetic rows. Re-implementing these on raw lists
+          would be more code for no gain.
+
+    So the long-form frame keeps the public API consistent and the heavy
+    transforms readable, while the per-metric internals are free to drop down
+    to lists where that is simpler.
+
 Note:
     The MLE (utility) component is currently hard-coded to next-visit
     prediction and is therefore only meaningful for sequential generators

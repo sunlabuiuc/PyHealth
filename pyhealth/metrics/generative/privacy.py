@@ -119,31 +119,41 @@ def calc_nnaar(
         else:
             s_syn = list(synthetic)
 
-        # AA_ES (test vs synthetic).
+        # AA_ES (test vs synthetic). The within-set term searches the set the
+        # query came from, so we pass ``skip_index`` to exclude the query
+        # itself (otherwise every within-set distance is a trivial 0 self-match).
         val1 = sum(
             1
-            for p in tqdm(s_test, desc="Test vs Syn", disable=not verbose)
+            for i, p in enumerate(
+                tqdm(s_test, desc="Test vs Syn", disable=not verbose)
+            )
             if find_nearest_neighbor_dist(p, s_syn)
-            > find_nearest_neighbor_dist(p, s_test)
+            > find_nearest_neighbor_dist(p, s_test, skip_index=i)
         )
         val2 = sum(
             1
-            for p in tqdm(s_syn, desc="Syn vs Test", disable=not verbose)
+            for i, p in enumerate(
+                tqdm(s_syn, desc="Syn vs Test", disable=not verbose)
+            )
             if find_nearest_neighbor_dist(p, s_test)
-            > find_nearest_neighbor_dist(p, s_syn)
+            > find_nearest_neighbor_dist(p, s_syn, skip_index=i)
         )
         # AA_TS (train vs synthetic).
         val3 = sum(
             1
-            for p in tqdm(s_train, desc="Train vs Syn", disable=not verbose)
+            for i, p in enumerate(
+                tqdm(s_train, desc="Train vs Syn", disable=not verbose)
+            )
             if find_nearest_neighbor_dist(p, s_syn)
-            > find_nearest_neighbor_dist(p, s_train)
+            > find_nearest_neighbor_dist(p, s_train, skip_index=i)
         )
         val4 = sum(
             1
-            for p in tqdm(s_syn, desc="Syn vs Train", disable=not verbose)
+            for i, p in enumerate(
+                tqdm(s_syn, desc="Syn vs Train", disable=not verbose)
+            )
             if find_nearest_neighbor_dist(p, s_train)
-            > find_nearest_neighbor_dist(p, s_syn)
+            > find_nearest_neighbor_dist(p, s_syn, skip_index=i)
         )
 
         aa_es = 0.5 * (val1 / n + val2 / n)

@@ -47,6 +47,27 @@ class TestMedGAN(unittest.TestCase):
         proc_vocab = self.dataset.input_processors["visits"].size()
         self.assertEqual(self.model.input_dim, proc_vocab)
 
+    def test_latent_dim_aligned_to_hidden_dim(self):
+        """The generator's residual requires latent_dim == hidden_dim; a
+        mismatched latent_dim is silently aligned instead of crashing."""
+        with tempfile.TemporaryDirectory() as tmp:
+            model = MedGAN(
+                dataset=self.dataset,
+                latent_dim=4,
+                hidden_dim=8,
+                discriminator_hidden_dim=16,
+                batch_size=2,
+                ae_epochs=1,
+                gan_epochs=1,
+                save_dir=tmp,
+            )
+            self.assertEqual(model.latent_dim, 8)
+            self.assertEqual(model.hidden_dim, 8)
+            # The aligned model trains and generates without a shape mismatch.
+            model.train_model(self.dataset, device="cpu")
+            out = model.generate(num_samples=2, device="cpu")
+        self.assertEqual(len(out), 2)
+
     def test_components_present(self):
         """Autoencoder, generator, and discriminator are all registered submodules."""
         self.assertTrue(hasattr(self.model, "autoencoder"))

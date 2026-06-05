@@ -527,6 +527,11 @@ class CorGAN(BaseModel):
             betas=self._betas,
             weight_decay=self._weight_decay,
         )
+        # WGAN sign convention under Adam (gradient *descent*): the critic
+        # maximises E[D(real)] - E[D(fake)] and the generator maximises
+        # E[D(fake)]. Maximising a term therefore means seeding ``backward``
+        # with ``mone`` (so the descent step ascends that term); ``one`` is
+        # used for the term we want to push down.
         one = torch.tensor(1.0, device=self.device)
         mone = torch.tensor(-1.0, device=self.device)
         gen_iters = 0
@@ -557,12 +562,14 @@ class CorGAN(BaseModel):
 
                     optimizer_d.zero_grad()
                     errD_real = torch.mean(self.critic(real)).squeeze()
-                    errD_real.backward(one)
+                    # Maximise E[D(real)] -> ascend errD_real (seed with mone).
+                    errD_real.backward(mone)
 
                     z = torch.randn(bs, self.latent_dim, device=self.device)
                     fake = self.autoencoder.decode(self.generator(z))
                     errD_fake = torch.mean(self.critic(fake.detach())).squeeze()
-                    errD_fake.backward(mone)
+                    # Minimise E[D(fake)] -> descend errD_fake (seed with one).
+                    errD_fake.backward(one)
                     last_d = (errD_real - errD_fake).item()
 
                     optimizer_d.step()
@@ -574,7 +581,8 @@ class CorGAN(BaseModel):
                 z = torch.randn(bs, self.latent_dim, device=self.device)
                 fake = self.autoencoder.decode(self.generator(z))
                 errG = torch.mean(self.critic(fake)).squeeze()
-                errG.backward(one)
+                # Maximise E[D(fake)] -> ascend errG (seed with mone).
+                errG.backward(mone)
                 optimizer_g.step()
                 last_g = errG.item()
                 gen_iters += 1

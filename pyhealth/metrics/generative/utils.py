@@ -119,20 +119,30 @@ def calculate_hamming_distance_cutoff(
 
 
 def find_nearest_neighbor_dist(
-    query: List[set], reference_dataset: List[List[set]]
+    query: List[set],
+    reference_dataset: List[List[set]],
+    skip_index: Optional[int] = None,
 ) -> float:
     """Finds the distance from a query patient to its nearest neighbor.
 
     Args:
         query: Query patient as a list of code sets.
         reference_dataset: Patients to search over.
+        skip_index: Optional index in ``reference_dataset`` to skip. Use this
+            when ``query`` is itself a member of ``reference_dataset`` (i.e. a
+            within-set nearest-neighbor search) so the patient does not match
+            itself at distance 0. Genuine duplicates at other indices can still
+            legitimately produce a distance of 0.
 
     Returns:
         The smallest :func:`calculate_hamming_distance_cutoff` distance between
-            ``query`` and any patient in ``reference_dataset``.
+            ``query`` and any patient in ``reference_dataset`` (excluding
+            ``skip_index`` when provided).
     """
     best = float("inf")
-    for ref in reference_dataset:
+    for i, ref in enumerate(reference_dataset):
+        if i == skip_index:
+            continue
         d = calculate_hamming_distance_cutoff(query, ref, best)
         if d == 0:
             return 0
@@ -314,8 +324,13 @@ def train_lstm_model(
     all_codes = set()
     all_codes.update(train_ehr[code_col].unique().tolist())
     all_codes.update(test_ehr[code_col].unique().tolist())
-    # Start indices at 1 to reserve 0 for padding.
-    code_to_idx = {code: idx for idx, code in enumerate(all_codes, start=1)}
+    # Sort before enumerating: a Python set has non-deterministic iteration
+    # order across processes, which would make the feature mapping (and thus
+    # the trained model / reported metrics) irreproducible even with a fixed
+    # seed. Start indices at 1 to reserve 0 for padding.
+    code_to_idx = {
+        code: idx for idx, code in enumerate(sorted(all_codes), start=1)
+    }
 
     train_data, _ = process_patient_data_for_lstm(
         train_ehr, subject_col, visit_col, code_col, label_col, code_to_idx
@@ -445,8 +460,13 @@ def train_sklearn_model(
     all_codes = set()
     all_codes.update(train_ehr[code_col].unique().tolist())
     all_codes.update(test_ehr[code_col].unique().tolist())
-    # Start indices at 1 to reserve 0 for padding.
-    code_to_idx = {code: idx for idx, code in enumerate(all_codes, start=1)}
+    # Sort before enumerating: a Python set has non-deterministic iteration
+    # order across processes, which would make the feature mapping (and thus
+    # the trained model / reported metrics) irreproducible even with a fixed
+    # seed. Start indices at 1 to reserve 0 for padding.
+    code_to_idx = {
+        code: idx for idx, code in enumerate(sorted(all_codes), start=1)
+    }
     train_ehr[code_col] = train_ehr[code_col].map(code_to_idx)
     test_ehr[code_col] = test_ehr[code_col].map(code_to_idx)
 
