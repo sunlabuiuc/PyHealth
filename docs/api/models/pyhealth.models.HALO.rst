@@ -1,9 +1,9 @@
 pyhealth.models.HALO
 ===================================
 
-HALO (Hierarchical Autoregressive Language mOdel) for synthetic EHR generation.
+HALO (Hierarchical Autoregressive Language model) for synthetic EHR generation.
 A faithful port of the reference implementation
-(`HALO_Inpatient <https://github.com/Brandon-Theodorou/HALO_Inpatient>`_),
+(`HALO_Inpatient <https://github.com/btheodorou99/HALO_Inpatient>`_),
 wrapped as a PyHealth :class:`~pyhealth.models.BaseModel`.
 
 Reference:
