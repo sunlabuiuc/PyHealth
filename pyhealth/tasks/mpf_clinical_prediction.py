@@ -157,7 +157,12 @@ def collect_cehr_timeline_events(
         for ev in patient.get_events(event_type=et):
             concept_key = getattr(ev, "concept_key", None) or f"{et}|unknown"
             enc_id = getattr(ev, "encounter_id", None)
-            t = ev.timestamp
+            # ``ev.timestamp`` is coerced (``None`` -> ``datetime.now()`` by
+            # ``Event.__init__``), so it can't reveal a missing time. The raw,
+            # null-aware signal is the ``event_time`` attribute (the yaml
+            # surfaces it for every clinical table); use it as the null sentinel
+            # and ``ev.timestamp`` for the already-parsed value.
+            t = ev.timestamp if getattr(ev, "event_time", None) is not None else None
             if enc_id and enc_id in encounter_visit_idx:
                 if t is None:
                     t = encounter_start_by_id.get(enc_id)

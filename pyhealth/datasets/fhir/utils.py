@@ -424,7 +424,11 @@ def iter_ndjson_objects(path: Path) -> Iterator[Dict[str, Any]]:
             line = line.strip()
             if not line:
                 continue
-            parsed = orjson.loads(line)
+            try:
+                parsed = orjson.loads(line)
+            except orjson.JSONDecodeError as e:
+                logger.warning("Skipping invalid JSON line in %s: %s", path, e)
+                continue
             if isinstance(parsed, dict):
                 yield parsed
 

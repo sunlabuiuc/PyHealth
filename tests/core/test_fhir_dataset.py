@@ -100,7 +100,18 @@ def write_two_class_plus_third_ndjson(directory: Path, *, name: str = "fixture.n
 def _patient_from_rows(patient_id: str, rows: List[Dict[str, object]]) -> Patient:
     """Build a Patient whose ``timestamp`` column is a real datetime, matching
     the shape ``FHIRDataset.load_table`` produces in production.
+
+    Production flat tables always carry a ``{event_type}/event_time`` column
+    (null when the source had no time), and ``timestamp`` is derived from it.
+    Mirror that here so ``Event`` attribute access sees ``event_time`` (the
+    null-aware signal the timeline uses): inject ``{event_type}/event_time`` =
+    the row's ``timestamp`` when not already set.
     """
+    rows = [dict(r) for r in rows]
+    for r in rows:
+        et = r.get("event_type")
+        if et and f"{et}/event_time" not in r:
+            r[f"{et}/event_time"] = r.get("timestamp")
     df = pl.DataFrame(rows).with_columns(
         pl.col("timestamp").str.to_datetime(strict=False)
     )
@@ -536,6 +547,48 @@ class TestFHIRDataset(unittest.TestCase):
         )
         events = collect_cehr_timeline_events(patient)
         self.assertEqual([event[1] for event in events], ["encounter|AMB", "a|1", "b|2"])
+
+    def test_timestampless_clinical_event_uses_encounter_start(self) -> None:
+        """A clinical event with no ``event_time`` that is linked to an encounter
+        must be placed at the encounter's start, not coerced to ~``now()``.
+
+        ``Event.__init__`` coerces ``timestamp=None`` to ``datetime.now()``, so
+        the timeline relies on the raw ``event_time`` attribute as the null
+        sentinel; this locks that fallback.
+        """
+        patient = _patient_from_rows(
+            "p1",
+            [
+                {
+                    "patient_id": "p1",
+                    "event_type": "patient",
+                    "timestamp": None,
+                    "patient/birth_date": "1950-01-01",
+                },
+                {
+                    "patient_id": "p1",
+                    "event_type": "encounter",
+                    "timestamp": "2020-06-01T10:00:00",
+                    "encounter/encounter_id": "e1",
+                    "encounter/encounter_class": "IMP",
+                },
+                {
+                    "patient_id": "p1",
+                    "event_type": "condition",
+                    "timestamp": None,  # timestamp-less clinical event
+                    "condition/encounter_id": "e1",
+                    "condition/concept_key": "http://hl7.org/fhir/sid/icd-10-cm|I10",
+                },
+            ],
+        )
+        events = collect_cehr_timeline_events(patient)
+        enc_time = next(t for t, _ck, et, _v in events if et == "encounter")
+        cond_time = next(
+            t
+            for t, ck, _et, _v in events
+            if ck == "http://hl7.org/fhir/sid/icd-10-cm|I10"
+        )
+        self.assertEqual(cond_time, enc_time)
 
     def test_observation_effective_period_start_yields_event_time(self) -> None:
         """Choice-type fix: an Observation carrying only ``effectivePeriod.start``
