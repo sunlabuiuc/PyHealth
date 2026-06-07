@@ -1,0 +1,9 @@
+version: "1.0"
+tables:
+  summaries:
+    file_path: "summaries.csv"
+    patient_id: null
+    timestamp: null
+    attributes:
+    - "text"
+    - "summary"
