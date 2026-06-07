@@ -201,6 +201,11 @@ API Reference
     models/pyhealth.models.TFMTokenizer
     models/pyhealth.models.GAN
     models/pyhealth.models.VAE
+    models/pyhealth.models.HALO
+    models/pyhealth.models.GPT2
+    models/pyhealth.models.PromptEHR
+    models/pyhealth.models.MedGAN
+    models/pyhealth.models.CorGAN
     models/pyhealth.models.SDOH
     models/pyhealth.models.VisionEmbeddingModel
     models/pyhealth.models.TextEmbedding
