@@ -187,9 +187,13 @@ EEG and Sleep Analysis
    * - ``EEG_events_SparcNet.py``
      - SparcNet for EEG event detection
    * - ``EEG_isAbnormal_SparcNet.py``
+<<<<<<< HEAD
       - SparcNet for EEG abnormality detection
    * - ``CBraMod_tuab_eeg_abnormal_classification.py``
      - CBraMod for EEG abnormality detection on TUAB
+=======
+     - SparcNet for EEG abnormality detection
+>>>>>>> origin/master
    * - ``cardiology_detection_isAR_SparcNet.py``
      - SparcNet for cardiology arrhythmia detection
 
