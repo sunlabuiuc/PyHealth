@@ -24,6 +24,15 @@ class AttentionRollout(BaseInterpreter):
     It serves as the standard baseline that gradient-based attention methods
     are compared against.
 
+    .. note::
+        "Gradient-free" refers to the attribution **math**: no backward pass
+        is run and no gradients enter the rollout computation. It does **not**
+        mean the call is safe inside ``torch.no_grad()``. The shared
+        attention-readout plumbing registers a gradient hook on the attention
+        tensors during the forward pass, so running ``attribute(**batch)``
+        under ``torch.no_grad()`` raises a ``RuntimeError``. Call it under the
+        default (grad-enabled) context.
+
     This interpreter works with any model that exposes the attention-readout
     methods ``set_attention_hooks``, ``get_attention_layers``, and
     ``get_relevance_tensor`` (currently :class:`~pyhealth.models.Transformer`
@@ -147,6 +156,12 @@ class AttentionRollout(BaseInterpreter):
                 Scores are non-negative and, before the input-shape expansion,
                 sum to 1 across tokens (a consequence of composing
                 row-stochastic matrices).
+
+        Note:
+            Do not call this method inside a ``torch.no_grad()`` context. Even
+            though rollout uses no gradients, enabling attention hooks registers
+            a gradient hook during the forward pass, which requires grad-enabled
+            tensors and otherwise raises a ``RuntimeError``.
         """
 
         self.model.set_attention_hooks(True)
