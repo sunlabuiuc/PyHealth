@@ -420,16 +420,10 @@ class BaseDataset(ABC):
         return tmp_dir
 
     def clean_tmpdir(self) -> None:
-        """Cleans up the temporary directory within the cache.
-
-        ``ignore_errors=True`` tolerates polars/pyarrow stream-writer
-        finalizers that may still be flushing into ``flattened_fhir_tables/``
-        when we get here. The tmp dir is not load-bearing -- leftover bytes
-        will be reclaimed on the next ``clean_tmpdir`` or by the OS.
-        """
+        """Cleans up the temporary directory within the cache."""
         tmp_dir = self.cache_dir / "tmp"
         if tmp_dir.exists():
-            shutil.rmtree(tmp_dir, ignore_errors=True)
+            shutil.rmtree(tmp_dir)
 
     def _scan_csv_tsv_gz(self, source_path: str) -> dd.DataFrame:
         """Scans a CSV/TSV file (possibly gzipped) and returns a Dask DataFrame.
