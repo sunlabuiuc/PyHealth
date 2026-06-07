@@ -45,6 +45,13 @@ from .survival_preprocess_support2 import SurvivalPreprocessSupport2
 from .mortality_prediction_stagenet_mimic4 import (
     MortalityPredictionStageNetMIMIC4,
 )
+from .generate_ehr import (
+    EHRGeneration,
+    EHRGenerationMIMIC3,
+    EHRGenerationMIMIC4,
+    decode_dataset,
+    to_evaluation_dataframe,
+)
 from .patient_linkage import patient_linkage_mimic3_fn
 from .readmission_prediction import (
     ReadmissionPredictionEICU,
