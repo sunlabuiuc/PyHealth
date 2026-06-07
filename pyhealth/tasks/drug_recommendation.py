@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional
 
 import polars as pl
@@ -338,7 +339,7 @@ class DrugRecommendationMIMIC4(BaseTask):
         return samples
 
 
-def drug_recommendation_mimic3_fn(patient: Patient):
+def drug_recommendation_mimic3_fn(patient: Patient, exclude_minors: bool = True):
     """Processes a single patient for the drug recommendation task.
 
     Drug recommendation aims at recommending a set of drugs given the patient health
@@ -379,6 +380,21 @@ def drug_recommendation_mimic3_fn(patient: Patient):
         }
     """
     samples = []
+
+    # Skip pediatric patients
+    if exclude_minors:
+        demographics = patient.get_events(event_type="patients")
+        admissions = patient.get_events(event_type="admissions")
+        if demographics and admissions:
+            dob_str = getattr(demographics[0], "dob", None)
+            if dob_str is not None:
+                try:
+                    dob = datetime.strptime(str(dob_str)[:10], "%Y-%m-%d")
+                    if (admissions[0].timestamp - dob).days / 365.25 < 18:
+                        return []
+                except (ValueError, TypeError):
+                    pass
+
     for i in range(len(patient)):
         visit: Visit = patient[i]
         conditions = visit.get_code_list(table="DIAGNOSES_ICD")
@@ -388,7 +404,6 @@ def drug_recommendation_mimic3_fn(patient: Patient):
         # exclude: visits without condition, procedure, or drug code
         if len(conditions) * len(procedures) * len(drugs) == 0:
             continue
-        # TODO: should also exclude visit with age < 18
         samples.append(
             {
                 "visit_id": visit.visit_id,
@@ -425,7 +440,7 @@ def drug_recommendation_mimic3_fn(patient: Patient):
     return samples
 
 
-def drug_recommendation_mimic4_fn(patient: Patient):
+def drug_recommendation_mimic4_fn(patient: Patient, exclude_minors: bool = True):
     """Processes a single patient for the drug recommendation task.
 
     Drug recommendation aims at recommending a set of drugs given the patient health
@@ -459,6 +474,18 @@ def drug_recommendation_mimic4_fn(patient: Patient):
         [{'visit_id': '130744', 'patient_id': '103', 'conditions': [['42', '109', '19', '122', '98', '663', '58', '51']], 'procedures': [['1']], 'label': [['2', '3', '4']]}]
     """
     samples = []
+
+    # Skip pediatric patients
+    if exclude_minors:
+        demographics = patient.get_events(event_type="patients")
+        if demographics:
+            anchor_age = getattr(demographics[0], "anchor_age", None)
+            try:
+                if anchor_age is not None and int(float(anchor_age)) < 18:
+                    return []
+            except (ValueError, TypeError):
+                pass
+
     for i in range(len(patient)):
         visit: Visit = patient[i]
         conditions = visit.get_code_list(table="diagnoses_icd")
@@ -468,7 +495,6 @@ def drug_recommendation_mimic4_fn(patient: Patient):
         # exclude: visits without condition, procedure, or drug code
         if len(conditions) * len(procedures) * len(drugs) == 0:
             continue
-        # TODO: should also exclude visit with age < 18
         samples.append(
             {
                 "visit_id": visit.visit_id,
@@ -644,7 +670,7 @@ class DrugRecommendationEICU(BaseTask):
         return samples
 
 
-def drug_recommendation_omop_fn(patient: Patient):
+def drug_recommendation_omop_fn(patient: Patient, exclude_minors: bool = True):
     """Processes a single patient for the drug recommendation task.
 
     Drug recommendation aims at recommending a set of drugs given the patient health
@@ -671,6 +697,24 @@ def drug_recommendation_omop_fn(patient: Patient):
     """
 
     samples = []
+
+    # Skip pediatric patients
+    if exclude_minors:
+        demographics = patient.get_events(event_type="person")
+        if demographics:
+            person = demographics[0]
+            birth_year = getattr(person, "year_of_birth", None)
+            if birth_year is not None:
+                try:
+                    birth_month = int(getattr(person, "month_of_birth", None) or 1)
+                    birth_day = int(getattr(person, "day_of_birth", None) or 1)
+                    dob = datetime(int(birth_year), birth_month, birth_day)
+                    visits = patient.get_events(event_type="visit_occurrence")
+                    if visits and (visits[0].timestamp - dob).days / 365.25 < 18:
+                        return []
+                except (ValueError, TypeError):
+                    pass
+
     for i in range(len(patient)):
         visit: Visit = patient[i]
         conditions = visit.get_code_list(table="condition_occurrence")
@@ -679,7 +723,6 @@ def drug_recommendation_omop_fn(patient: Patient):
         # exclude: visits without condition, procedure, or drug code
         if len(conditions) * len(procedures) * len(drugs) == 0:
             continue
-        # TODO: should also exclude visit with age < 18
         samples.append(
             {
                 "visit_id": visit.visit_id,
