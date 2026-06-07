@@ -97,9 +97,9 @@ class AttentionRollout(BaseInterpreter):
     """
         
     def __init__(self, model: BaseModel, head_fusion: str = "mean"):
-        if head_fusion != "mean": 
+        if head_fusion != "mean":
             raise ValueError(
-                f"Unsupported head_fusion='{self.head_fusion}'. "
+                f"Unsupported head_fusion='{head_fusion}'. "
                 "Currently supported values: mean."
             )
 
