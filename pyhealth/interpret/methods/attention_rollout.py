@@ -104,7 +104,7 @@ class AttentionRollout(BaseInterpreter):
         >>> # target_class_idx is accepted but ignored (rollout is class-agnostic)
         >>> same = interpreter.attribute(target_class_idx=1, **batch)
     """
-        
+
     def __init__(self, model: BaseModel, head_fusion: str = "mean"):
         if head_fusion != "mean":
             raise ValueError(
@@ -126,7 +126,7 @@ class AttentionRollout(BaseInterpreter):
                 f"{', '.join(required_methods)}. "
                 f"Missing: {', '.join(missing_methods)}."
             )
-        
+
         super().__init__(model)
         self.head_fusion = head_fusion
 
@@ -211,18 +211,18 @@ class AttentionRollout(BaseInterpreter):
 
         attributions = self.model.get_relevance_tensor(R, **data)
         return self._map_to_input_shapes(attributions, data)
-        
+
     def _fuse_heads(self, attn_map: torch.Tensor) -> torch.Tensor:
         """Fuse attention heads from [batch, heads, seq, seq] to [batch, seq, seq]."""
 
         if self.head_fusion == "mean":
             return attn_map.mean(dim=1)
-        
+
         raise ValueError(
             f"Unsupported head_fusion='{self.head_fusion}'. "
             "Currently supported values: mean."
         )
-     
+
     def _map_to_input_shapes(
         self,
         attributions: Dict[str, torch.Tensor],
@@ -263,7 +263,7 @@ class AttentionRollout(BaseInterpreter):
                     attr = attr.expand_as(val)
             result[key] = attr
         return result
-    
+
     @staticmethod
     def _add_residual(attn: torch.Tensor) -> torch.Tensor:
         """

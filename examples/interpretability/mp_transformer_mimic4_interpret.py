@@ -121,7 +121,7 @@ def main():
         "deeplift": DeepLift(model, use_embeddings=True),
         "gim": GIM(model),
         "chefer": CheferRelevance(model),
-        "attention_rollout": AttentionRollout(model),
+        "rollout": AttentionRollout(model),
         "shap": ShapExplainer(model, use_embeddings=True),
         "lime": LimeExplainer(model, use_embeddings=True, n_samples=200),
     }
