@@ -240,6 +240,7 @@ Available Datasets
     datasets/pyhealth.datasets.BMDHSDataset
     datasets/pyhealth.datasets.COVID19CXRDataset
     datasets/pyhealth.datasets.ChestXray14Dataset
+    datasets/pyhealth.datasets.ECGQADataset
     datasets/pyhealth.datasets.PhysioNetDeIDDataset
     datasets/pyhealth.datasets.TUABDataset
     datasets/pyhealth.datasets.TUEVDataset
@@ -248,3 +249,4 @@ Available Datasets
     datasets/pyhealth.datasets.TCGAPRADDataset
     datasets/pyhealth.datasets.splitter
     datasets/pyhealth.datasets.utils
+    datasets/pyhealth.datasets.PTBXLDataset

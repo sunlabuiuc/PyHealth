@@ -1,0 +1,16 @@
+version: "3.0.0"
+tables:
+  ecg_qa:
+    file_path: "ecg-qa-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+      - "ecg_id"
+      - "question"
+      - "answer"
+      - "question_type"
+      - "attribute_type"
+      - "template_id"
+      - "question_id"
+      - "sample_id"
+      - "attribute"

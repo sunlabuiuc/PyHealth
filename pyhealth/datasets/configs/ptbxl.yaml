@@ -1,0 +1,11 @@
+version: "1.0.3"
+tables:
+  ptb-xl:
+    file_path: "ptbxl.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+      - "load_from_path"
+      - "signal_file"
+      - "label_file"
+      - "save_to_path"
