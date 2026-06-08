@@ -1,0 +1,56 @@
+version: "1.4"
+tables:
+  patients:
+    file_path: "PATIENTS.csv.gz"
+    patient_id: "subject_id"
+    timestamp: null
+    attributes:
+      - "gender"
+      - "dob"
+      - "expire_flag"
+
+  admissions:
+    file_path: "ADMISSIONS.csv.gz"
+    patient_id: "subject_id"
+    timestamp: "admittime"
+    attributes:
+      - "hadm_id"
+      - "admission_type"
+      - "discharge_location"
+      - "dischtime"
+      - "hospital_expire_flag"
+
+  diagnoses_icd:
+    file_path: "DIAGNOSES_ICD.csv.gz"
+    patient_id: "subject_id"
+    join:
+      - file_path: "ADMISSIONS.csv.gz"
+        "on": "hadm_id"
+        how: "inner"
+        columns:
+          - "dischtime"
+    timestamp: "dischtime"
+    attributes:
+      - "hadm_id"
+      - "icd9_code"
+      - "seq_num"
+
+  noteevents:
+    file_path: "NOTEEVENTS.csv.gz"
+    patient_id: "subject_id"
+    join:
+      - file_path: "ADMISSIONS.csv.gz"
+        "on": "hadm_id"
+        how: "inner"
+        columns:
+          - "dischtime"
+    timestamp:
+      - "charttime"
+    attributes:
+      - "row_id"
+      - "hadm_id"
+      - "text"
+      - "category"
+      - "description"
+      - "iserror"
+      - "storetime"

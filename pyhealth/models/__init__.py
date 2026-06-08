@@ -1,4 +1,5 @@
 from .adacare import AdaCare, AdaCareLayer, MultimodalAdaCare
+from .ehr_evidence_llm import ZeroShotEvidenceLLM
 from .agent import Agent, AgentLayer
 from .base_model import BaseModel
 from .transformer_deid import TransformerDeID

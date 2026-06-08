@@ -57,7 +57,7 @@ from .ehrshot import EHRShotDataset
 from .eicu import eICUDataset
 from .isruc import ISRUCDataset
 from .medical_transcriptions import MedicalTranscriptionsDataset
-from .mimic3 import MIMIC3Dataset
+from .mimic3 import MIMIC3Dataset, MIMIC3NoteDataset
 from .mimic4 import MIMIC4CXRDataset, MIMIC4Dataset, MIMIC4EHRDataset, MIMIC4NoteDataset
 from .fhir import FHIRDataset, MIMIC4FHIR
 from .mimicextract import MIMICExtractDataset
