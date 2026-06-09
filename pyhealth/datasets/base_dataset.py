@@ -382,7 +382,21 @@ class BaseDataset(ABC):
                     {task_name}_{task_uuid}/        # Cached data for specific task based on task name, schema, and args
                         task_df.ld/                 # Intermediate task dataframe based on schema
                         samples_{proc_uuid}.ld/     # Final processed samples after applying processors
+        Important: when to clear the cache manually
+          The cache ID only tracks root, tables, dataset_name, and dev.
+          If you change your raw data files, column mappings, or any 
+          processing logic without changing these four values, PyHealth
+          will load old cached data without warning. Delete the cache
+          folder manually if you suspect this has happened.
 
+        Default cache location (when cache_dir is None):
+              Linux/Mac: ~/.cache/pyhealth/
+              Windows: C:\\Users\\<you>\\AppData\\Local\\pyhealth\\
+
+        Concurrency warning:
+              Running multiple processes that cache the same dataset at
+              the same time may cause crashes if the cache does not
+              exist yet. Run a single process first to create the cache.
         Returns:
             Path: The resolved cache directory path.
         """
