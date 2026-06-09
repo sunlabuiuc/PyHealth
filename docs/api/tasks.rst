@@ -218,6 +218,7 @@ Available Tasks
     MPF Clinical Prediction (FHIR) <tasks/pyhealth.tasks.mpf_clinical_prediction>
     Mortality Prediction (Next Visit) <tasks/pyhealth.tasks.mortality_prediction>
     Mortality Prediction (StageNet MIMIC-IV) <tasks/pyhealth.tasks.mortality_prediction_stagenet_mimic4>
+    Mortality Prediction Synthea (Mortality-Disch) <tasks/pyhealth.tasks.synthea_mortality_prediction>
     Patient Linkage (MIMIC-III) <tasks/pyhealth.tasks.patient_linkage_mimic3_fn>
     Readmission Prediction <tasks/pyhealth.tasks.readmission_prediction>
     Sleep Staging <tasks/pyhealth.tasks.sleep_staging>
