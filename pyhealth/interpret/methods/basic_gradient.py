@@ -210,6 +210,9 @@ class BasicGradientSaliencyMaps(BaseInterpreter):
     def visualize_saliency_map(self, plt, *, image_index, title=None, id2label=None, alpha=0.3):
         """Display an image with its saliency map overlay.
         
+        This method uses the SaliencyVisualizer for rendering and adds model
+        prediction information to the visualization.
+        
         Args:
             plt: matplotlib.pyplot instance
             image_index: Index of image within batch
@@ -217,6 +220,8 @@ class BasicGradientSaliencyMaps(BaseInterpreter):
             id2label: Optional dictionary mapping class indices to labels
             alpha: Transparency of saliency overlay (default: 0.3)
         """
+        from pyhealth.interpret.methods.saliency_visualization import SaliencyVisualizer
+        
         if plt is None:
             import matplotlib.pyplot as plt
 
@@ -258,26 +263,13 @@ class BasicGradientSaliencyMaps(BaseInterpreter):
                 title = f"True: {true_label_str}, Predicted: {pred_label_str}"
             else:
                 title = f"{title} - True: {true_label_str}, Predicted: {pred_label_str}"
-
-        # Convert image to numpy for display
-        if img_tensor.dim() == 4:
-            img_tensor = img_tensor[0]
-        img_np = img_tensor.detach().cpu().numpy()
-        if img_np.shape[0] in [1, 3]:  # CHW to HWC
-            img_np = np.transpose(img_np, (1, 2, 0))
-        if img_np.shape[-1] == 1:
-            img_np = img_np.squeeze(-1)
-            
-        # Convert saliency to numpy
-        if saliency.dim() > 2:
-            saliency = saliency[0]
-        saliency_np = saliency.detach().cpu().numpy()
         
-        # Create visualization
-        plt.figure(figsize=(15, 7))
-        plt.axis('off')
-        plt.imshow(img_np, cmap='gray')
-        plt.imshow(saliency_np, cmap='hot', alpha=alpha)
-        if title:
-            plt.title(title)
-        plt.show()
+        # Use SaliencyVisualizer for rendering
+        visualizer = SaliencyVisualizer(default_alpha=alpha)
+        visualizer.plot_saliency_overlay(
+            plt,
+            image=img_tensor[0],
+            saliency=saliency,
+            title=title,
+            alpha=alpha
+        )
