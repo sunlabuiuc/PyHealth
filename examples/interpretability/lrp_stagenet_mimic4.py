@@ -91,10 +91,13 @@ def print_lrp_results(attributions, sample_batch, sample_dataset, top_k=10):
 
 
 def main():
+    import os
     # Load MIMIC-IV
     print("Loading MIMIC-IV dataset...")
+    _default_ehr_root = "/srv/local/data/physionet.org/files/mimiciv/2.2/"
+    _ehr_root = os.environ.get("MIMIC4_EHR_ROOT", _default_ehr_root)
     base_dataset = MIMIC4Dataset(
-        ehr_root="/srv/local/data/physionet.org/files/mimiciv/2.2/",
+        ehr_root=_ehr_root,
         ehr_tables=[
             "patients", "admissions", "diagnoses_icd",
             "procedures_icd", "labevents",
@@ -104,25 +107,25 @@ def main():
     base_dataset.stats()
 
     # Processors
-    processor_dir = Path("../../output/processors/stagenet_mortality_mimic4_lrp")
-    cache_dir = Path("../../mimic4_stagenet_lrp_cache")
+    _script_dir = Path(__file__).resolve().parent
+    _repo_root = _script_dir.parent.parent
+    processor_dir = _repo_root / "output" / "processors" / "stagenet_mortality_mimic4_lrp"
 
     if processor_dir.exists() and any(processor_dir.iterdir()):
         print(f"Loading processors from {processor_dir}")
-        input_processors = load_processors(str(processor_dir))
+        input_processors, output_processors = load_processors(str(processor_dir))
         sample_dataset = base_dataset.set_task(
             MortalityPredictionStageNetMIMIC4(padding=20),
-            processors=input_processors,
-            cache_dir=str(cache_dir),
+            input_processors=input_processors,
+            output_processors=output_processors,
         )
     else:
         print("Creating new processors...")
         processor_dir.mkdir(parents=True, exist_ok=True)
         sample_dataset = base_dataset.set_task(
             MortalityPredictionStageNetMIMIC4(padding=20),
-            cache_dir=str(cache_dir),
         )
-        save_processors(sample_dataset.input_processors, str(processor_dir))
+        save_processors(sample_dataset, str(processor_dir))
 
     print(f"Samples: {len(sample_dataset)}")
 
@@ -165,9 +168,15 @@ def main():
         probs = output["y_prob"]
         pred = torch.argmax(probs, dim=-1)
         true_label = sample_batch[model.label_key]
-    print(f"\nPrediction: true={int(true_label[0].item())}, "
-          f"pred={int(pred[0].item())}, "
-          f"P(survived)={probs[0, 0].item():.4f}, P(died)={probs[0, 1].item():.4f}")
+    if probs.shape[1] == 1:
+        # Binary sigmoid output: single column = P(positive/died)
+        print(f"\nPrediction: true={int(true_label[0].item())}, "
+              f"pred={int(pred[0].item())}, "
+              f"P(died)={probs[0, 0].item():.4f}")
+    else:
+        print(f"\nPrediction: true={int(true_label[0].item())}, "
+              f"pred={int(pred[0].item())}, "
+              f"P(survived)={probs[0, 0].item():.4f}, P(died)={probs[0, 1].item():.4f}")
 
     # Epsilon rule
     print("\nLRP Epsilon-Rule (eps=0.01):")

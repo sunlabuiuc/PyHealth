@@ -404,9 +404,11 @@ class LayerwiseRelevancePropagation(BaseInterpreter):
 
         if mode == "binary":
             # Binary logits have shape [B] or [B, 1].
-            # target_class_idx is ignored for binary models: attribution is always
-            # computed towards the positive class (logit as-is).  Callers who want
-            # to interpret negative-class contributions should negate the result.
+            # Convention: class index 1 (or None) → positive class (logit as-is).
+            #             class index 0            → negative class (negate logit).
+            # This makes target_class_idx meaningful for binary models.
+            if target_class_idx == 0:
+                return -logits
             return logits
         if mode in ("multiclass", "multilabel"):
             if target_class_idx is None:
