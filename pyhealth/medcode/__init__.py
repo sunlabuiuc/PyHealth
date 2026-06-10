@@ -7,6 +7,7 @@ from .codes.icd9cm import ICD9CM
 from .codes.icd9proc import ICD9PROC
 from .codes.ndc import NDC
 from .codes.rxnorm import RxNorm
+from .codes.snomed import SNOMED
 from .codes.umls import UMLS
 from .cross_map import CrossMap
 from .inner_map import InnerMap

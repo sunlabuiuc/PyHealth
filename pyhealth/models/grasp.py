@@ -448,6 +448,9 @@ class GRASP(BaseModel):
         static_key: Optional[str] = None,
         embedding_dim: int = 128,
         hidden_dim: int = 128,
+        pretrained_emb_path=None,
+        freeze_pretrained: bool = False,
+        normalize_pretrained: bool = False,
         **kwargs
     ):
         super(GRASP, self).__init__(
@@ -465,7 +468,13 @@ class GRASP(BaseModel):
         self.label_key = self.label_keys[0]
         self.mode = self.dataset.output_schema[self.label_key]
 
-        self.embedding_model = EmbeddingModel(dataset, embedding_dim)
+        self.embedding_model = EmbeddingModel(
+            dataset,
+            embedding_dim,
+            pretrained_emb_path=pretrained_emb_path,
+            freeze_pretrained=freeze_pretrained,
+            normalize_pretrained=normalize_pretrained,
+        )
 
         # Determine static feature dimension
         self.static_dim = 0

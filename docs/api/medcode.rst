@@ -61,6 +61,11 @@ Diagnosis codes:
     :undoc-members:
     :show-inheritance:
 
+.. autoclass:: pyhealth.medcode.SNOMED
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
 Procedure codes:
 ----------------------
 
@@ -96,8 +101,3 @@ Medication codes:
     :members:
     :undoc-members:
     :show-inheritance:
-
-
-
-
-    
