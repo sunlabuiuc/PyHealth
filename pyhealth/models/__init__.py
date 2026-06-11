@@ -41,6 +41,7 @@ from .transformers_model import TransformersModel
 from .ehrmamba import EHRMamba, MambaBlock
 from .ehrmamba_cehr import EHRMambaCEHR
 from .vae import VAE
+from .wav2sleep import ResidualBlock1D, SignalEncoder, Wav2Sleep, load_shhs_samples, load_cfs_samples
 from .vision_embedding import VisionEmbeddingModel
 from .text_embedding import TextEmbedding
 from .sdoh import SdohClassifier
