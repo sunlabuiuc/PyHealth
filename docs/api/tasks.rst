@@ -204,7 +204,9 @@ Available Tasks
 
 .. toctree::
     :maxdepth: 3
+    tasks/pyhealth.tasks.ECGQASingleChooseTask
 
+    
     Base Task <tasks/pyhealth.tasks.BaseTask>
     In-Hospital Mortality (MIMIC-IV) <tasks/pyhealth.tasks.InHospitalMortalityMIMIC4>
     MIMIC-III ICD-9 Coding <tasks/pyhealth.tasks.MIMIC3ICD9Coding>
