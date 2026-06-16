@@ -1,25 +1,1869 @@
-note_id,subject_id,hadm_id,note_type,note_seq,charttime,storetime,text
-d1,10001,19999,DS,1,2150-02-18 12:00:00,2150-02-18 13:00:00,Patient 10001 admitted for evaluation. Vitals stable. Labs reviewed. Discharged in good condition.
-d2,10002,20000,DS,1,2151-01-02 12:00:00,2151-01-02 13:00:00,Patient 10002 admitted for evaluation. Vitals stable. Labs reviewed. Discharged in good condition.
-d3,10001,20001,DS,1,2150-03-18 12:00:00,2150-03-18 13:00:00,Patient 10001 admitted for evaluation. Vitals stable. Labs reviewed. Discharged in good condition.
-d4,10001,20002,DS,1,2150-06-25 12:00:00,2150-06-25 13:00:00,Patient 10001 admitted for evaluation. Vitals stable. Labs reviewed. Discharged in good condition.
-d5,10002,20003,DS,1,2151-01-12 12:00:00,2151-01-12 13:00:00,Patient 10002 admitted for evaluation. Vitals stable. Labs reviewed. Discharged in good condition.
-d6,10002,20004,DS,1,2151-04-20 12:00:00,2151-04-20 13:00:00,Patient 10002 admitted for evaluation. Vitals stable. Labs reviewed. Discharged in good condition.
-d7,10003,20005,DS,1,2152-03-05 12:00:00,2152-03-05 13:00:00,Patient 10003 admitted for evaluation. Vitals stable. Labs reviewed. Discharged in good condition.
-d8,10003,20006,DS,1,2152-08-15 12:00:00,2152-08-15 13:00:00,Patient 10003 admitted for evaluation. Vitals stable. Labs reviewed. Discharged in good condition.
-d9,10004,20007,DS,1,2150-05-02 12:00:00,2150-05-02 13:00:00,Patient 10004 admitted for evaluation. Vitals stable. Labs reviewed. Discharged in good condition.
-d10,10005,20008,DS,1,2151-07-22 12:00:00,2151-07-22 13:00:00,Patient 10005 admitted for evaluation. Vitals stable. Labs reviewed. Discharged in good condition.
-d11,10006,20009,DS,1,2152-09-08 12:00:00,2152-09-08 13:00:00,Patient 10006 admitted for evaluation. Vitals stable. Labs reviewed. Discharged in good condition.
-d12,10006,20010,DS,1,2152-11-18 12:00:00,2152-11-18 13:00:00,Patient 10006 admitted for evaluation. Vitals stable. Labs reviewed. Discharged in good condition.
-d13,10007,20011,DS,1,2150-04-11 12:00:00,2150-04-11 13:00:00,Patient 10007 admitted for evaluation. Vitals stable. Labs reviewed. Discharged in good condition.
-d14,10008,20012,DS,1,2151-10-25 12:00:00,2151-10-25 13:00:00,Patient 10008 admitted for evaluation. Vitals stable. Labs reviewed. Discharged in good condition.
-d15,10008,20013,DS,1,2151-12-20 12:00:00,2151-12-20 13:00:00,Patient 10008 admitted for evaluation. Vitals stable. Labs reviewed. Discharged in good condition.
-d16,10009,20014,DS,1,2152-03-23 12:00:00,2152-03-23 13:00:00,Patient 10009 admitted for evaluation. Vitals stable. Labs reviewed. Discharged in good condition.
-d17,10010,20015,DS,1,2150-08-05 12:00:00,2150-08-05 13:00:00,Patient 10010 admitted for evaluation. Vitals stable. Labs reviewed. Discharged in good condition.
-d18,1,1,DS,1,2150-01-01 12:00:00,2150-01-01 13:00:00,Patient 1 admitted for evaluation. Vitals stable. Labs reviewed. Discharged in good condition.
-d19,1,2,DS,1,2150-01-16 12:00:00,2150-01-16 13:00:00,Patient 1 admitted for evaluation. Vitals stable. Labs reviewed. Discharged in good condition.
-d20,2,3,DS,1,2150-01-01 12:00:00,2150-01-01 13:00:00,Patient 2 admitted for evaluation. Vitals stable. Labs reviewed. Discharged in good condition.
-d21,2,4,DS,1,2150-01-16 12:00:00,2150-01-16 13:00:00,Patient 2 admitted for evaluation. Vitals stable. Labs reviewed. Discharged in good condition.
-d22,2,5,DS,1,2150-01-21 12:00:00,2150-01-21 13:00:00,Patient 2 admitted for evaluation. Vitals stable. Labs reviewed. Discharged in good condition.
-d23,2,6,DS,1,2150-01-22 12:00:00,2150-01-22 13:00:00,Patient 2 admitted for evaluation. Vitals stable. Labs reviewed. Discharged in good condition.
-d24,3,7,DS,1,2150-01-01 12:00:00,2150-01-01 13:00:00,Patient 3 admitted for evaluation. Vitals stable. Labs reviewed. Discharged in good condition.
+"note_id","subject_id","hadm_id","note_type","note_seq","charttime","storetime","text"
+"d1","10001","19999","DS","1","2150-02-18 12:00:00","2150-02-18 13:00:00","Name:  ___                  Unit No:   ___
+
+Admission Date:  ___              Discharge Date:   ___
+
+Date of Birth:  ___             Sex:   M
+
+Service: SURGERY
+
+Allergies:
+morphine
+
+Attending: ___.
+
+Chief Complaint:
+abdominal pain
+
+Major Surgical or Invasive Procedure:
+none
+
+History of Present Illness:
+This patient is a ___ year old male who complains of right lower quadrant
+abdominal pain for 2 days. Pain worsens with movement. Patient denies fevers
+or chills. No relief with over-the-counter analgesics.
+
+Past Medical History:
+none
+
+Social History:
+___
+
+Family History:
+NC
+
+Physical Exam:
+Temp: 97.8 HR: 90 BP: 124/86 Resp: 14 O2Sat: 100
+Abdomen: right lower quadrant tenderness without rebound
+
+Pertinent Results:
+WBC-8.9 RBC-5.59 Hgb-12.5 Hct-42.0
+Glucose-99 UreaN-13 Creat-1.0 Na-137 K-4.0 Cl-103 HCO3-22
+
+Brief Hospital Course:
+Patient admitted for observation. Serial abdominal exams performed.
+Pain resolved with conservative management. Diet advanced without issue.
+Discharged home in stable condition.
+
+Medications on Admission:
+none
+
+Discharge Medications:
+none
+
+Discharge Disposition:
+Home
+
+Discharge Diagnosis:
+abdominal pain
+
+Discharge Condition:
+Mental Status: Clear and coherent.
+Level of Consciousness: Alert and interactive.
+Activity Status: Ambulatory - Independent.
+
+Discharge Instructions:
+Return to ER for worsening pain, fever >101.5F, vomiting, or new symptoms.
+
+Followup Instructions:
+Follow up with primary care physician in 1 week."
+"d2","10002","20000","DS","1","2151-01-02 12:00:00","2151-01-02 13:00:00","Name:  ___                  Unit No:   ___
+
+Admission Date:  ___              Discharge Date:   ___
+
+Date of Birth:  ___             Sex:   F
+
+Service: CARDIOLOGY
+
+Allergies:
+penicillin
+
+Attending: ___.
+
+Chief Complaint:
+chest pain
+
+Major Surgical or Invasive Procedure:
+cardiac catheterization
+
+History of Present Illness:
+___ year old female with hypertension presenting with substernal chest pain
+radiating to the left arm, onset 3 hours prior to admission. Associated
+diaphoresis and shortness of breath. EKG showed ST depression in V4-V6.
+
+Past Medical History:
+1. Hypertension
+2. Hyperlipidemia
+3. Type 2 Diabetes Mellitus
+
+Social History:
+Non-smoker. Occasional alcohol use. Lives with spouse.
+
+Family History:
+Father with MI at age 60. Mother with hypertension.
+
+Physical Exam:
+Temp: 98.2 HR: 88 BP: 152/94 Resp: 18 O2Sat: 97
+Cardiovascular: Regular rate and rhythm. No murmurs.
+Chest: Clear to auscultation bilaterally.
+
+Pertinent Results:
+Troponin I: 2.4 (elevated)
+BNP: 180
+WBC-9.1 Hgb-11.8 Hct-36.2 Plt-220
+
+Brief Hospital Course:
+Patient admitted for NSTEMI. Heparin drip initiated. Cardiac cath revealed
+70% LAD stenosis; drug-eluting stent placed. Post-procedure course
+uncomplicated. Discharged on dual antiplatelet therapy.
+
+Medications on Admission:
+1. Lisinopril 10 mg daily
+2. Atorvastatin 40 mg nightly
+3. Metformin 1000 mg twice daily
+
+Discharge Medications:
+1. Aspirin 81 mg daily
+2. Clopidogrel 75 mg daily
+3. Lisinopril 10 mg daily
+4. Atorvastatin 80 mg nightly
+5. Metformin 1000 mg twice daily
+
+Discharge Disposition:
+Home with services
+
+Discharge Diagnosis:
+NSTEMI, coronary artery disease
+
+Discharge Condition:
+Mental Status: Clear and coherent.
+Level of Consciousness: Alert and interactive.
+Activity Status: Ambulatory - Independent.
+
+Discharge Instructions:
+Do not stop aspirin or clopidogrel without consulting your cardiologist.
+Call your doctor for chest pain, shortness of breath, or leg swelling.
+
+Followup Instructions:
+Follow up with cardiology in 1 week."
+"d3","10001","20001","DS","1","2150-03-18 12:00:00","2150-03-18 13:00:00","Name:  ___                  Unit No:   ___
+
+Admission Date:  ___              Discharge Date:   ___
+
+Date of Birth:  ___             Sex:   M
+
+Service: MEDICINE
+
+Allergies:
+sulfa drugs
+
+Attending: ___.
+
+Chief Complaint:
+shortness of breath
+
+Major Surgical or Invasive Procedure:
+none
+
+History of Present Illness:
+___ year old male with known COPD presenting with 3 days of worsening dyspnea
+and productive cough with yellow sputum. Patient reports increased inhaler use
+without improvement. Denies fever. Smoking history: 40 pack-years.
+
+Past Medical History:
+1. COPD, moderate severity
+2. Hypertension
+3. Gastroesophageal reflux disease
+
+Social History:
+Former smoker, quit 5 years ago. No alcohol or illicit drug use. Lives alone.
+
+Family History:
+Mother with asthma. No family history of lung cancer.
+
+Physical Exam:
+Temp: 98.6 HR: 102 BP: 138/82 Resp: 24 O2Sat: 88% on room air
+Chest: Diffuse expiratory wheezes. Prolonged expiratory phase.
+Accessory muscle use noted.
+
+Pertinent Results:
+ABG: pH 7.34 pCO2 52 pO2 58 HCO3 28
+WBC-11.2 (elevated) CXR: hyperinflation, no consolidation
+
+Brief Hospital Course:
+Admitted for COPD exacerbation. Started on systemic steroids, nebulized
+bronchodilators, and supplemental oxygen. Azithromycin added for possible
+infectious trigger. O2 sats improved to 94% on 2L NC. Discharged on
+steroid taper.
+
+Medications on Admission:
+1. Albuterol inhaler PRN
+2. Tiotropium 18 mcg daily
+3. Lisinopril 5 mg daily
+4. Omeprazole 20 mg daily
+
+Discharge Medications:
+1. Prednisone 40 mg daily x 3 days then taper per schedule
+2. Azithromycin 250 mg daily x 3 days (2 doses remaining)
+3. Albuterol inhaler q4h PRN
+4. Tiotropium 18 mcg daily
+5. Lisinopril 5 mg daily
+
+Discharge Disposition:
+Home
+
+Discharge Diagnosis:
+COPD exacerbation
+
+Discharge Condition:
+Mental Status: Clear and coherent.
+Level of Consciousness: Alert and interactive.
+Activity Status: Ambulatory with mild exertional dyspnea.
+
+Discharge Instructions:
+Complete the full steroid taper. Use albuterol inhaler as needed.
+Return to ER for oxygen saturation below 90%, severe dyspnea, or confusion.
+
+Followup Instructions:
+Follow up with pulmonology in 2 weeks."
+"d4","10001","20002","DS","1","2150-06-25 12:00:00","2150-06-25 13:00:00","Name:  ___                  Unit No:   ___
+
+Admission Date:  ___              Discharge Date:   ___
+
+Date of Birth:  ___             Sex:   F
+
+Service: CARDIOLOGY
+
+Allergies:
+no known drug allergies
+
+Attending: ___.
+
+Chief Complaint:
+leg swelling and shortness of breath
+
+Major Surgical or Invasive Procedure:
+none
+
+History of Present Illness:
+___ year old female with history of congestive heart failure (EF 30%) presenting
+with 1 week of progressive bilateral lower extremity edema and orthopnea.
+Weight gain of 8 lbs over past week. Patient reports dietary indiscretion
+with increased sodium intake.
+
+Past Medical History:
+1. Congestive heart failure, EF 30%
+2. Atrial fibrillation
+3. Hypertension
+4. Chronic kidney disease stage 3
+
+Social History:
+Non-smoker. No alcohol. Lives with daughter.
+
+Family History:
+Father with heart failure. Sister with hypertension.
+
+Physical Exam:
+Temp: 98.0 HR: 96 (irregularly irregular) BP: 148/90 Resp: 20 O2Sat: 94%
+JVD present. Bilateral crackles at lung bases.
+2+ pitting edema to knees bilaterally.
+
+Pertinent Results:
+BNP: 1840 (markedly elevated)
+Creatinine 1.8 (baseline 1.5)
+CXR: pulmonary vascular congestion, bilateral pleural effusions
+
+Brief Hospital Course:
+Admitted for decompensated CHF. IV furosemide initiated with good diuretic
+response (negative 3L over 48 hours). Transitioned to oral diuretics.
+Weight at discharge 4 lbs below admission weight. Cardiology consulted.
+
+Medications on Admission:
+1. Furosemide 40 mg daily
+2. Carvedilol 12.5 mg twice daily
+3. Lisinopril 5 mg daily
+4. Warfarin 5 mg daily
+5. Digoxin 0.125 mg daily
+
+Discharge Medications:
+1. Furosemide 80 mg daily (increased)
+2. Carvedilol 12.5 mg twice daily
+3. Lisinopril 5 mg daily
+4. Warfarin 5 mg daily
+5. Digoxin 0.125 mg daily
+
+Discharge Disposition:
+Home with services
+
+Discharge Diagnosis:
+Acute decompensated heart failure
+
+Discharge Condition:
+Mental Status: Clear and coherent.
+Level of Consciousness: Alert and interactive.
+Activity Status: Ambulatory with assistance.
+
+Discharge Instructions:
+Weigh yourself daily. If weight increases by more than 2 lbs in a day or
+5 lbs in a week, call your doctor immediately. Restrict sodium to 2g/day.
+
+Followup Instructions:
+Follow up with cardiologist in 3 days."
+"d5","10002","20003","DS","1","2151-01-12 12:00:00","2151-01-12 13:00:00","Name:  ___                  Unit No:   ___
+
+Admission Date:  ___              Discharge Date:   ___
+
+Date of Birth:  ___             Sex:   M
+
+Service: MEDICINE
+
+Allergies:
+amoxicillin
+
+Attending: ___.
+
+Chief Complaint:
+fever and productive cough
+
+Major Surgical or Invasive Procedure:
+none
+
+History of Present Illness:
+___ year old male presenting with 5 days of productive cough with green sputum,
+fever to 101.8F, and pleuritic chest pain. Patient reports decreased appetite
+and fatigue. No sick contacts. Up to date on vaccinations.
+
+Past Medical History:
+1. Type 2 Diabetes Mellitus
+2. Hypertension
+
+Social History:
+Non-smoker. No alcohol or drug use. Works as a teacher.
+
+Family History:
+No family history of pulmonary disease.
+
+Physical Exam:
+Temp: 101.6 HR: 108 BP: 128/78 Resp: 22 O2Sat: 93% on room air
+Chest: Decreased breath sounds and dullness to percussion at right base.
+Egophony present at right lower lobe.
+
+Pertinent Results:
+WBC-14.8 (elevated) with left shift
+Procalcitonin: 2.1 (elevated)
+CXR: right lower lobe consolidation consistent with pneumonia
+
+Brief Hospital Course:
+Admitted for community-acquired pneumonia. Started on ceftriaxone and
+azithromycin. O2 sats improved on 4L NC. Transitioned to oral antibiotics
+on hospital day 3. Glucose levels monitored and insulin sliding scale used.
+
+Medications on Admission:
+1. Metformin 500 mg twice daily
+2. Lisinopril 10 mg daily
+3. Aspirin 81 mg daily
+
+Discharge Medications:
+1. Levofloxacin 750 mg daily x 5 days (3 doses remaining)
+2. Metformin 500 mg twice daily
+3. Lisinopril 10 mg daily
+4. Aspirin 81 mg daily
+
+Discharge Disposition:
+Home
+
+Discharge Diagnosis:
+Community-acquired pneumonia
+
+Discharge Condition:
+Mental Status: Clear and coherent.
+Level of Consciousness: Alert and interactive.
+Activity Status: Ambulatory - Independent.
+
+Discharge Instructions:
+Complete the full antibiotic course. Return for worsening shortness of breath,
+persistent fever, or hemoptysis.
+
+Followup Instructions:
+Follow up with primary care in 1 week for repeat CXR."
+"d6","10002","20004","DS","1","2151-04-20 12:00:00","2151-04-20 13:00:00","Name:  ___                  Unit No:   ___
+
+Admission Date:  ___              Discharge Date:   ___
+
+Date of Birth:  ___             Sex:   F
+
+Service: NEUROLOGY
+
+Allergies:
+codeine
+
+Attending: ___.
+
+Chief Complaint:
+sudden onset left-sided weakness
+
+Major Surgical or Invasive Procedure:
+IV tPA administration
+
+History of Present Illness:
+___ year old female with hypertension and atrial fibrillation brought by EMS
+with sudden onset left arm and leg weakness and facial droop noted 2 hours
+prior to arrival. Last known well time established. NIHSS 12 on arrival.
+CT head showed no hemorrhage. IV tPA administered within window.
+
+Past Medical History:
+1. Atrial fibrillation
+2. Hypertension
+3. Hyperlipidemia
+
+Social History:
+Non-smoker. Rare alcohol use. Retired. Lives alone.
+
+Family History:
+Father with stroke at age 72. Mother with hypertension.
+
+Physical Exam:
+Temp: 98.4 HR: 84 (irregular) BP: 168/96 Resp: 16 O2Sat: 98%
+Neuro: left facial droop, left arm 3/5 strength, left leg 4/5 strength.
+Dysarthria present.
+
+Pertinent Results:
+MRI brain: right MCA territory infarct
+Echo: no thrombus. EF 55%.
+INR: 1.1 (not anticoagulated at time of stroke)
+
+Brief Hospital Course:
+Admitted to stroke unit. tPA given without hemorrhagic complication.
+Deficits improved over 48 hours. Anticoagulation initiated with apixaban.
+Physical therapy and speech therapy consulted. Swallow evaluation passed.
+
+Medications on Admission:
+1. Metoprolol 25 mg twice daily
+2. Amlodipine 5 mg daily
+3. Atorvastatin 20 mg nightly
+
+Discharge Medications:
+1. Apixaban 5 mg twice daily (new)
+2. Aspirin 81 mg daily
+3. Metoprolol 25 mg twice daily
+4. Amlodipine 5 mg daily
+5. Atorvastatin 80 mg nightly (increased)
+
+Discharge Disposition:
+Rehabilitation facility
+
+Discharge Diagnosis:
+Acute ischemic stroke, right MCA territory
+
+Discharge Condition:
+Mental Status: Clear and coherent.
+Level of Consciousness: Alert and interactive.
+Activity Status: Ambulatory with assistance.
+
+Discharge Instructions:
+Take apixaban as directed. Do not stop without consulting your neurologist.
+Call 911 immediately for any new weakness, vision changes, or speech difficulty.
+
+Followup Instructions:
+Follow up with neurology in 2 weeks."
+"d7","10003","20005","DS","1","2152-03-05 12:00:00","2152-03-05 13:00:00","Name:  ___                  Unit No:   ___
+
+Admission Date:  ___              Discharge Date:   ___
+
+Date of Birth:  ___             Sex:   M
+
+Service: SURGERY
+
+Allergies:
+morphine
+
+Attending: ___.
+
+Chief Complaint:
+abdominal pain
+
+Major Surgical or Invasive Procedure:
+none
+
+History of Present Illness:
+This patient is a ___ year old male who complains of right lower quadrant
+abdominal pain for 2 days. Pain worsens with movement. Patient denies fevers
+or chills. No relief with over-the-counter analgesics.
+
+Past Medical History:
+none
+
+Social History:
+___
+
+Family History:
+NC
+
+Physical Exam:
+Temp: 97.8 HR: 90 BP: 124/86 Resp: 14 O2Sat: 100
+Abdomen: right lower quadrant tenderness without rebound
+
+Pertinent Results:
+WBC-8.9 RBC-5.59 Hgb-12.5 Hct-42.0
+Glucose-99 UreaN-13 Creat-1.0 Na-137 K-4.0 Cl-103 HCO3-22
+
+Brief Hospital Course:
+Patient admitted for observation. Serial abdominal exams performed.
+Pain resolved with conservative management. Diet advanced without issue.
+Discharged home in stable condition.
+
+Medications on Admission:
+none
+
+Discharge Medications:
+none
+
+Discharge Disposition:
+Home
+
+Discharge Diagnosis:
+abdominal pain
+
+Discharge Condition:
+Mental Status: Clear and coherent.
+Level of Consciousness: Alert and interactive.
+Activity Status: Ambulatory - Independent.
+
+Discharge Instructions:
+Return to ER for worsening pain, fever >101.5F, vomiting, or new symptoms.
+
+Followup Instructions:
+Follow up with primary care physician in 1 week."
+"d8","10003","20006","DS","1","2152-08-15 12:00:00","2152-08-15 13:00:00","Name:  ___                  Unit No:   ___
+
+Admission Date:  ___              Discharge Date:   ___
+
+Date of Birth:  ___             Sex:   F
+
+Service: CARDIOLOGY
+
+Allergies:
+penicillin
+
+Attending: ___.
+
+Chief Complaint:
+chest pain
+
+Major Surgical or Invasive Procedure:
+cardiac catheterization
+
+History of Present Illness:
+___ year old female with hypertension presenting with substernal chest pain
+radiating to the left arm, onset 3 hours prior to admission. Associated
+diaphoresis and shortness of breath. EKG showed ST depression in V4-V6.
+
+Past Medical History:
+1. Hypertension
+2. Hyperlipidemia
+3. Type 2 Diabetes Mellitus
+
+Social History:
+Non-smoker. Occasional alcohol use. Lives with spouse.
+
+Family History:
+Father with MI at age 60. Mother with hypertension.
+
+Physical Exam:
+Temp: 98.2 HR: 88 BP: 152/94 Resp: 18 O2Sat: 97
+Cardiovascular: Regular rate and rhythm. No murmurs.
+Chest: Clear to auscultation bilaterally.
+
+Pertinent Results:
+Troponin I: 2.4 (elevated)
+BNP: 180
+WBC-9.1 Hgb-11.8 Hct-36.2 Plt-220
+
+Brief Hospital Course:
+Patient admitted for NSTEMI. Heparin drip initiated. Cardiac cath revealed
+70% LAD stenosis; drug-eluting stent placed. Post-procedure course
+uncomplicated. Discharged on dual antiplatelet therapy.
+
+Medications on Admission:
+1. Lisinopril 10 mg daily
+2. Atorvastatin 40 mg nightly
+3. Metformin 1000 mg twice daily
+
+Discharge Medications:
+1. Aspirin 81 mg daily
+2. Clopidogrel 75 mg daily
+3. Lisinopril 10 mg daily
+4. Atorvastatin 80 mg nightly
+5. Metformin 1000 mg twice daily
+
+Discharge Disposition:
+Home with services
+
+Discharge Diagnosis:
+NSTEMI, coronary artery disease
+
+Discharge Condition:
+Mental Status: Clear and coherent.
+Level of Consciousness: Alert and interactive.
+Activity Status: Ambulatory - Independent.
+
+Discharge Instructions:
+Do not stop aspirin or clopidogrel without consulting your cardiologist.
+Call your doctor for chest pain, shortness of breath, or leg swelling.
+
+Followup Instructions:
+Follow up with cardiology in 1 week."
+"d9","10004","20007","DS","1","2150-05-02 12:00:00","2150-05-02 13:00:00","Name:  ___                  Unit No:   ___
+
+Admission Date:  ___              Discharge Date:   ___
+
+Date of Birth:  ___             Sex:   M
+
+Service: MEDICINE
+
+Allergies:
+sulfa drugs
+
+Attending: ___.
+
+Chief Complaint:
+shortness of breath
+
+Major Surgical or Invasive Procedure:
+none
+
+History of Present Illness:
+___ year old male with known COPD presenting with 3 days of worsening dyspnea
+and productive cough with yellow sputum. Patient reports increased inhaler use
+without improvement. Denies fever. Smoking history: 40 pack-years.
+
+Past Medical History:
+1. COPD, moderate severity
+2. Hypertension
+3. Gastroesophageal reflux disease
+
+Social History:
+Former smoker, quit 5 years ago. No alcohol or illicit drug use. Lives alone.
+
+Family History:
+Mother with asthma. No family history of lung cancer.
+
+Physical Exam:
+Temp: 98.6 HR: 102 BP: 138/82 Resp: 24 O2Sat: 88% on room air
+Chest: Diffuse expiratory wheezes. Prolonged expiratory phase.
+Accessory muscle use noted.
+
+Pertinent Results:
+ABG: pH 7.34 pCO2 52 pO2 58 HCO3 28
+WBC-11.2 (elevated) CXR: hyperinflation, no consolidation
+
+Brief Hospital Course:
+Admitted for COPD exacerbation. Started on systemic steroids, nebulized
+bronchodilators, and supplemental oxygen. Azithromycin added for possible
+infectious trigger. O2 sats improved to 94% on 2L NC. Discharged on
+steroid taper.
+
+Medications on Admission:
+1. Albuterol inhaler PRN
+2. Tiotropium 18 mcg daily
+3. Lisinopril 5 mg daily
+4. Omeprazole 20 mg daily
+
+Discharge Medications:
+1. Prednisone 40 mg daily x 3 days then taper per schedule
+2. Azithromycin 250 mg daily x 3 days (2 doses remaining)
+3. Albuterol inhaler q4h PRN
+4. Tiotropium 18 mcg daily
+5. Lisinopril 5 mg daily
+
+Discharge Disposition:
+Home
+
+Discharge Diagnosis:
+COPD exacerbation
+
+Discharge Condition:
+Mental Status: Clear and coherent.
+Level of Consciousness: Alert and interactive.
+Activity Status: Ambulatory with mild exertional dyspnea.
+
+Discharge Instructions:
+Complete the full steroid taper. Use albuterol inhaler as needed.
+Return to ER for oxygen saturation below 90%, severe dyspnea, or confusion.
+
+Followup Instructions:
+Follow up with pulmonology in 2 weeks."
+"d10","10005","20008","DS","1","2151-07-22 12:00:00","2151-07-22 13:00:00","Name:  ___                  Unit No:   ___
+
+Admission Date:  ___              Discharge Date:   ___
+
+Date of Birth:  ___             Sex:   F
+
+Service: CARDIOLOGY
+
+Allergies:
+no known drug allergies
+
+Attending: ___.
+
+Chief Complaint:
+leg swelling and shortness of breath
+
+Major Surgical or Invasive Procedure:
+none
+
+History of Present Illness:
+___ year old female with history of congestive heart failure (EF 30%) presenting
+with 1 week of progressive bilateral lower extremity edema and orthopnea.
+Weight gain of 8 lbs over past week. Patient reports dietary indiscretion
+with increased sodium intake.
+
+Past Medical History:
+1. Congestive heart failure, EF 30%
+2. Atrial fibrillation
+3. Hypertension
+4. Chronic kidney disease stage 3
+
+Social History:
+Non-smoker. No alcohol. Lives with daughter.
+
+Family History:
+Father with heart failure. Sister with hypertension.
+
+Physical Exam:
+Temp: 98.0 HR: 96 (irregularly irregular) BP: 148/90 Resp: 20 O2Sat: 94%
+JVD present. Bilateral crackles at lung bases.
+2+ pitting edema to knees bilaterally.
+
+Pertinent Results:
+BNP: 1840 (markedly elevated)
+Creatinine 1.8 (baseline 1.5)
+CXR: pulmonary vascular congestion, bilateral pleural effusions
+
+Brief Hospital Course:
+Admitted for decompensated CHF. IV furosemide initiated with good diuretic
+response (negative 3L over 48 hours). Transitioned to oral diuretics.
+Weight at discharge 4 lbs below admission weight. Cardiology consulted.
+
+Medications on Admission:
+1. Furosemide 40 mg daily
+2. Carvedilol 12.5 mg twice daily
+3. Lisinopril 5 mg daily
+4. Warfarin 5 mg daily
+5. Digoxin 0.125 mg daily
+
+Discharge Medications:
+1. Furosemide 80 mg daily (increased)
+2. Carvedilol 12.5 mg twice daily
+3. Lisinopril 5 mg daily
+4. Warfarin 5 mg daily
+5. Digoxin 0.125 mg daily
+
+Discharge Disposition:
+Home with services
+
+Discharge Diagnosis:
+Acute decompensated heart failure
+
+Discharge Condition:
+Mental Status: Clear and coherent.
+Level of Consciousness: Alert and interactive.
+Activity Status: Ambulatory with assistance.
+
+Discharge Instructions:
+Weigh yourself daily. If weight increases by more than 2 lbs in a day or
+5 lbs in a week, call your doctor immediately. Restrict sodium to 2g/day.
+
+Followup Instructions:
+Follow up with cardiologist in 3 days."
+"d11","10006","20009","DS","1","2152-09-08 12:00:00","2152-09-08 13:00:00","Name:  ___                  Unit No:   ___
+
+Admission Date:  ___              Discharge Date:   ___
+
+Date of Birth:  ___             Sex:   M
+
+Service: MEDICINE
+
+Allergies:
+amoxicillin
+
+Attending: ___.
+
+Chief Complaint:
+fever and productive cough
+
+Major Surgical or Invasive Procedure:
+none
+
+History of Present Illness:
+___ year old male presenting with 5 days of productive cough with green sputum,
+fever to 101.8F, and pleuritic chest pain. Patient reports decreased appetite
+and fatigue. No sick contacts. Up to date on vaccinations.
+
+Past Medical History:
+1. Type 2 Diabetes Mellitus
+2. Hypertension
+
+Social History:
+Non-smoker. No alcohol or drug use. Works as a teacher.
+
+Family History:
+No family history of pulmonary disease.
+
+Physical Exam:
+Temp: 101.6 HR: 108 BP: 128/78 Resp: 22 O2Sat: 93% on room air
+Chest: Decreased breath sounds and dullness to percussion at right base.
+Egophony present at right lower lobe.
+
+Pertinent Results:
+WBC-14.8 (elevated) with left shift
+Procalcitonin: 2.1 (elevated)
+CXR: right lower lobe consolidation consistent with pneumonia
+
+Brief Hospital Course:
+Admitted for community-acquired pneumonia. Started on ceftriaxone and
+azithromycin. O2 sats improved on 4L NC. Transitioned to oral antibiotics
+on hospital day 3. Glucose levels monitored and insulin sliding scale used.
+
+Medications on Admission:
+1. Metformin 500 mg twice daily
+2. Lisinopril 10 mg daily
+3. Aspirin 81 mg daily
+
+Discharge Medications:
+1. Levofloxacin 750 mg daily x 5 days (3 doses remaining)
+2. Metformin 500 mg twice daily
+3. Lisinopril 10 mg daily
+4. Aspirin 81 mg daily
+
+Discharge Disposition:
+Home
+
+Discharge Diagnosis:
+Community-acquired pneumonia
+
+Discharge Condition:
+Mental Status: Clear and coherent.
+Level of Consciousness: Alert and interactive.
+Activity Status: Ambulatory - Independent.
+
+Discharge Instructions:
+Complete the full antibiotic course. Return for worsening shortness of breath,
+persistent fever, or hemoptysis.
+
+Followup Instructions:
+Follow up with primary care in 1 week for repeat CXR."
+"d12","10006","20010","DS","1","2152-11-18 12:00:00","2152-11-18 13:00:00","Name:  ___                  Unit No:   ___
+
+Admission Date:  ___              Discharge Date:   ___
+
+Date of Birth:  ___             Sex:   F
+
+Service: NEUROLOGY
+
+Allergies:
+codeine
+
+Attending: ___.
+
+Chief Complaint:
+sudden onset left-sided weakness
+
+Major Surgical or Invasive Procedure:
+IV tPA administration
+
+History of Present Illness:
+___ year old female with hypertension and atrial fibrillation brought by EMS
+with sudden onset left arm and leg weakness and facial droop noted 2 hours
+prior to arrival. Last known well time established. NIHSS 12 on arrival.
+CT head showed no hemorrhage. IV tPA administered within window.
+
+Past Medical History:
+1. Atrial fibrillation
+2. Hypertension
+3. Hyperlipidemia
+
+Social History:
+Non-smoker. Rare alcohol use. Retired. Lives alone.
+
+Family History:
+Father with stroke at age 72. Mother with hypertension.
+
+Physical Exam:
+Temp: 98.4 HR: 84 (irregular) BP: 168/96 Resp: 16 O2Sat: 98%
+Neuro: left facial droop, left arm 3/5 strength, left leg 4/5 strength.
+Dysarthria present.
+
+Pertinent Results:
+MRI brain: right MCA territory infarct
+Echo: no thrombus. EF 55%.
+INR: 1.1 (not anticoagulated at time of stroke)
+
+Brief Hospital Course:
+Admitted to stroke unit. tPA given without hemorrhagic complication.
+Deficits improved over 48 hours. Anticoagulation initiated with apixaban.
+Physical therapy and speech therapy consulted. Swallow evaluation passed.
+
+Medications on Admission:
+1. Metoprolol 25 mg twice daily
+2. Amlodipine 5 mg daily
+3. Atorvastatin 20 mg nightly
+
+Discharge Medications:
+1. Apixaban 5 mg twice daily (new)
+2. Aspirin 81 mg daily
+3. Metoprolol 25 mg twice daily
+4. Amlodipine 5 mg daily
+5. Atorvastatin 80 mg nightly (increased)
+
+Discharge Disposition:
+Rehabilitation facility
+
+Discharge Diagnosis:
+Acute ischemic stroke, right MCA territory
+
+Discharge Condition:
+Mental Status: Clear and coherent.
+Level of Consciousness: Alert and interactive.
+Activity Status: Ambulatory with assistance.
+
+Discharge Instructions:
+Take apixaban as directed. Do not stop without consulting your neurologist.
+Call 911 immediately for any new weakness, vision changes, or speech difficulty.
+
+Followup Instructions:
+Follow up with neurology in 2 weeks."
+"d13","10007","20011","DS","1","2150-04-11 12:00:00","2150-04-11 13:00:00","Name:  ___                  Unit No:   ___
+
+Admission Date:  ___              Discharge Date:   ___
+
+Date of Birth:  ___             Sex:   M
+
+Service: SURGERY
+
+Allergies:
+morphine
+
+Attending: ___.
+
+Chief Complaint:
+abdominal pain
+
+Major Surgical or Invasive Procedure:
+none
+
+History of Present Illness:
+This patient is a ___ year old male who complains of right lower quadrant
+abdominal pain for 2 days. Pain worsens with movement. Patient denies fevers
+or chills. No relief with over-the-counter analgesics.
+
+Past Medical History:
+none
+
+Social History:
+___
+
+Family History:
+NC
+
+Physical Exam:
+Temp: 97.8 HR: 90 BP: 124/86 Resp: 14 O2Sat: 100
+Abdomen: right lower quadrant tenderness without rebound
+
+Pertinent Results:
+WBC-8.9 RBC-5.59 Hgb-12.5 Hct-42.0
+Glucose-99 UreaN-13 Creat-1.0 Na-137 K-4.0 Cl-103 HCO3-22
+
+Brief Hospital Course:
+Patient admitted for observation. Serial abdominal exams performed.
+Pain resolved with conservative management. Diet advanced without issue.
+Discharged home in stable condition.
+
+Medications on Admission:
+none
+
+Discharge Medications:
+none
+
+Discharge Disposition:
+Home
+
+Discharge Diagnosis:
+abdominal pain
+
+Discharge Condition:
+Mental Status: Clear and coherent.
+Level of Consciousness: Alert and interactive.
+Activity Status: Ambulatory - Independent.
+
+Discharge Instructions:
+Return to ER for worsening pain, fever >101.5F, vomiting, or new symptoms.
+
+Followup Instructions:
+Follow up with primary care physician in 1 week."
+"d14","10008","20012","DS","1","2151-10-25 12:00:00","2151-10-25 13:00:00","Name:  ___                  Unit No:   ___
+
+Admission Date:  ___              Discharge Date:   ___
+
+Date of Birth:  ___             Sex:   F
+
+Service: CARDIOLOGY
+
+Allergies:
+penicillin
+
+Attending: ___.
+
+Chief Complaint:
+chest pain
+
+Major Surgical or Invasive Procedure:
+cardiac catheterization
+
+History of Present Illness:
+___ year old female with hypertension presenting with substernal chest pain
+radiating to the left arm, onset 3 hours prior to admission. Associated
+diaphoresis and shortness of breath. EKG showed ST depression in V4-V6.
+
+Past Medical History:
+1. Hypertension
+2. Hyperlipidemia
+3. Type 2 Diabetes Mellitus
+
+Social History:
+Non-smoker. Occasional alcohol use. Lives with spouse.
+
+Family History:
+Father with MI at age 60. Mother with hypertension.
+
+Physical Exam:
+Temp: 98.2 HR: 88 BP: 152/94 Resp: 18 O2Sat: 97
+Cardiovascular: Regular rate and rhythm. No murmurs.
+Chest: Clear to auscultation bilaterally.
+
+Pertinent Results:
+Troponin I: 2.4 (elevated)
+BNP: 180
+WBC-9.1 Hgb-11.8 Hct-36.2 Plt-220
+
+Brief Hospital Course:
+Patient admitted for NSTEMI. Heparin drip initiated. Cardiac cath revealed
+70% LAD stenosis; drug-eluting stent placed. Post-procedure course
+uncomplicated. Discharged on dual antiplatelet therapy.
+
+Medications on Admission:
+1. Lisinopril 10 mg daily
+2. Atorvastatin 40 mg nightly
+3. Metformin 1000 mg twice daily
+
+Discharge Medications:
+1. Aspirin 81 mg daily
+2. Clopidogrel 75 mg daily
+3. Lisinopril 10 mg daily
+4. Atorvastatin 80 mg nightly
+5. Metformin 1000 mg twice daily
+
+Discharge Disposition:
+Home with services
+
+Discharge Diagnosis:
+NSTEMI, coronary artery disease
+
+Discharge Condition:
+Mental Status: Clear and coherent.
+Level of Consciousness: Alert and interactive.
+Activity Status: Ambulatory - Independent.
+
+Discharge Instructions:
+Do not stop aspirin or clopidogrel without consulting your cardiologist.
+Call your doctor for chest pain, shortness of breath, or leg swelling.
+
+Followup Instructions:
+Follow up with cardiology in 1 week."
+"d15","10008","20013","DS","1","2151-12-20 12:00:00","2151-12-20 13:00:00","Name:  ___                  Unit No:   ___
+
+Admission Date:  ___              Discharge Date:   ___
+
+Date of Birth:  ___             Sex:   M
+
+Service: MEDICINE
+
+Allergies:
+sulfa drugs
+
+Attending: ___.
+
+Chief Complaint:
+shortness of breath
+
+Major Surgical or Invasive Procedure:
+none
+
+History of Present Illness:
+___ year old male with known COPD presenting with 3 days of worsening dyspnea
+and productive cough with yellow sputum. Patient reports increased inhaler use
+without improvement. Denies fever. Smoking history: 40 pack-years.
+
+Past Medical History:
+1. COPD, moderate severity
+2. Hypertension
+3. Gastroesophageal reflux disease
+
+Social History:
+Former smoker, quit 5 years ago. No alcohol or illicit drug use. Lives alone.
+
+Family History:
+Mother with asthma. No family history of lung cancer.
+
+Physical Exam:
+Temp: 98.6 HR: 102 BP: 138/82 Resp: 24 O2Sat: 88% on room air
+Chest: Diffuse expiratory wheezes. Prolonged expiratory phase.
+Accessory muscle use noted.
+
+Pertinent Results:
+ABG: pH 7.34 pCO2 52 pO2 58 HCO3 28
+WBC-11.2 (elevated) CXR: hyperinflation, no consolidation
+
+Brief Hospital Course:
+Admitted for COPD exacerbation. Started on systemic steroids, nebulized
+bronchodilators, and supplemental oxygen. Azithromycin added for possible
+infectious trigger. O2 sats improved to 94% on 2L NC. Discharged on
+steroid taper.
+
+Medications on Admission:
+1. Albuterol inhaler PRN
+2. Tiotropium 18 mcg daily
+3. Lisinopril 5 mg daily
+4. Omeprazole 20 mg daily
+
+Discharge Medications:
+1. Prednisone 40 mg daily x 3 days then taper per schedule
+2. Azithromycin 250 mg daily x 3 days (2 doses remaining)
+3. Albuterol inhaler q4h PRN
+4. Tiotropium 18 mcg daily
+5. Lisinopril 5 mg daily
+
+Discharge Disposition:
+Home
+
+Discharge Diagnosis:
+COPD exacerbation
+
+Discharge Condition:
+Mental Status: Clear and coherent.
+Level of Consciousness: Alert and interactive.
+Activity Status: Ambulatory with mild exertional dyspnea.
+
+Discharge Instructions:
+Complete the full steroid taper. Use albuterol inhaler as needed.
+Return to ER for oxygen saturation below 90%, severe dyspnea, or confusion.
+
+Followup Instructions:
+Follow up with pulmonology in 2 weeks."
+"d16","10009","20014","DS","1","2152-03-23 12:00:00","2152-03-23 13:00:00","Name:  ___                  Unit No:   ___
+
+Admission Date:  ___              Discharge Date:   ___
+
+Date of Birth:  ___             Sex:   F
+
+Service: CARDIOLOGY
+
+Allergies:
+no known drug allergies
+
+Attending: ___.
+
+Chief Complaint:
+leg swelling and shortness of breath
+
+Major Surgical or Invasive Procedure:
+none
+
+History of Present Illness:
+___ year old female with history of congestive heart failure (EF 30%) presenting
+with 1 week of progressive bilateral lower extremity edema and orthopnea.
+Weight gain of 8 lbs over past week. Patient reports dietary indiscretion
+with increased sodium intake.
+
+Past Medical History:
+1. Congestive heart failure, EF 30%
+2. Atrial fibrillation
+3. Hypertension
+4. Chronic kidney disease stage 3
+
+Social History:
+Non-smoker. No alcohol. Lives with daughter.
+
+Family History:
+Father with heart failure. Sister with hypertension.
+
+Physical Exam:
+Temp: 98.0 HR: 96 (irregularly irregular) BP: 148/90 Resp: 20 O2Sat: 94%
+JVD present. Bilateral crackles at lung bases.
+2+ pitting edema to knees bilaterally.
+
+Pertinent Results:
+BNP: 1840 (markedly elevated)
+Creatinine 1.8 (baseline 1.5)
+CXR: pulmonary vascular congestion, bilateral pleural effusions
+
+Brief Hospital Course:
+Admitted for decompensated CHF. IV furosemide initiated with good diuretic
+response (negative 3L over 48 hours). Transitioned to oral diuretics.
+Weight at discharge 4 lbs below admission weight. Cardiology consulted.
+
+Medications on Admission:
+1. Furosemide 40 mg daily
+2. Carvedilol 12.5 mg twice daily
+3. Lisinopril 5 mg daily
+4. Warfarin 5 mg daily
+5. Digoxin 0.125 mg daily
+
+Discharge Medications:
+1. Furosemide 80 mg daily (increased)
+2. Carvedilol 12.5 mg twice daily
+3. Lisinopril 5 mg daily
+4. Warfarin 5 mg daily
+5. Digoxin 0.125 mg daily
+
+Discharge Disposition:
+Home with services
+
+Discharge Diagnosis:
+Acute decompensated heart failure
+
+Discharge Condition:
+Mental Status: Clear and coherent.
+Level of Consciousness: Alert and interactive.
+Activity Status: Ambulatory with assistance.
+
+Discharge Instructions:
+Weigh yourself daily. If weight increases by more than 2 lbs in a day or
+5 lbs in a week, call your doctor immediately. Restrict sodium to 2g/day.
+
+Followup Instructions:
+Follow up with cardiologist in 3 days."
+"d17","10010","20015","DS","1","2150-08-05 12:00:00","2150-08-05 13:00:00","Name:  ___                  Unit No:   ___
+
+Admission Date:  ___              Discharge Date:   ___
+
+Date of Birth:  ___             Sex:   M
+
+Service: MEDICINE
+
+Allergies:
+amoxicillin
+
+Attending: ___.
+
+Chief Complaint:
+fever and productive cough
+
+Major Surgical or Invasive Procedure:
+none
+
+History of Present Illness:
+___ year old male presenting with 5 days of productive cough with green sputum,
+fever to 101.8F, and pleuritic chest pain. Patient reports decreased appetite
+and fatigue. No sick contacts. Up to date on vaccinations.
+
+Past Medical History:
+1. Type 2 Diabetes Mellitus
+2. Hypertension
+
+Social History:
+Non-smoker. No alcohol or drug use. Works as a teacher.
+
+Family History:
+No family history of pulmonary disease.
+
+Physical Exam:
+Temp: 101.6 HR: 108 BP: 128/78 Resp: 22 O2Sat: 93% on room air
+Chest: Decreased breath sounds and dullness to percussion at right base.
+Egophony present at right lower lobe.
+
+Pertinent Results:
+WBC-14.8 (elevated) with left shift
+Procalcitonin: 2.1 (elevated)
+CXR: right lower lobe consolidation consistent with pneumonia
+
+Brief Hospital Course:
+Admitted for community-acquired pneumonia. Started on ceftriaxone and
+azithromycin. O2 sats improved on 4L NC. Transitioned to oral antibiotics
+on hospital day 3. Glucose levels monitored and insulin sliding scale used.
+
+Medications on Admission:
+1. Metformin 500 mg twice daily
+2. Lisinopril 10 mg daily
+3. Aspirin 81 mg daily
+
+Discharge Medications:
+1. Levofloxacin 750 mg daily x 5 days (3 doses remaining)
+2. Metformin 500 mg twice daily
+3. Lisinopril 10 mg daily
+4. Aspirin 81 mg daily
+
+Discharge Disposition:
+Home
+
+Discharge Diagnosis:
+Community-acquired pneumonia
+
+Discharge Condition:
+Mental Status: Clear and coherent.
+Level of Consciousness: Alert and interactive.
+Activity Status: Ambulatory - Independent.
+
+Discharge Instructions:
+Complete the full antibiotic course. Return for worsening shortness of breath,
+persistent fever, or hemoptysis.
+
+Followup Instructions:
+Follow up with primary care in 1 week for repeat CXR."
+"d18","1","1","DS","1","2150-01-01 12:00:00","2150-01-01 13:00:00","Name:  ___                  Unit No:   ___
+
+Admission Date:  ___              Discharge Date:   ___
+
+Date of Birth:  ___             Sex:   F
+
+Service: NEUROLOGY
+
+Allergies:
+codeine
+
+Attending: ___.
+
+Chief Complaint:
+sudden onset left-sided weakness
+
+Major Surgical or Invasive Procedure:
+IV tPA administration
+
+History of Present Illness:
+___ year old female with hypertension and atrial fibrillation brought by EMS
+with sudden onset left arm and leg weakness and facial droop noted 2 hours
+prior to arrival. Last known well time established. NIHSS 12 on arrival.
+CT head showed no hemorrhage. IV tPA administered within window.
+
+Past Medical History:
+1. Atrial fibrillation
+2. Hypertension
+3. Hyperlipidemia
+
+Social History:
+Non-smoker. Rare alcohol use. Retired. Lives alone.
+
+Family History:
+Father with stroke at age 72. Mother with hypertension.
+
+Physical Exam:
+Temp: 98.4 HR: 84 (irregular) BP: 168/96 Resp: 16 O2Sat: 98%
+Neuro: left facial droop, left arm 3/5 strength, left leg 4/5 strength.
+Dysarthria present.
+
+Pertinent Results:
+MRI brain: right MCA territory infarct
+Echo: no thrombus. EF 55%.
+INR: 1.1 (not anticoagulated at time of stroke)
+
+Brief Hospital Course:
+Admitted to stroke unit. tPA given without hemorrhagic complication.
+Deficits improved over 48 hours. Anticoagulation initiated with apixaban.
+Physical therapy and speech therapy consulted. Swallow evaluation passed.
+
+Medications on Admission:
+1. Metoprolol 25 mg twice daily
+2. Amlodipine 5 mg daily
+3. Atorvastatin 20 mg nightly
+
+Discharge Medications:
+1. Apixaban 5 mg twice daily (new)
+2. Aspirin 81 mg daily
+3. Metoprolol 25 mg twice daily
+4. Amlodipine 5 mg daily
+5. Atorvastatin 80 mg nightly (increased)
+
+Discharge Disposition:
+Rehabilitation facility
+
+Discharge Diagnosis:
+Acute ischemic stroke, right MCA territory
+
+Discharge Condition:
+Mental Status: Clear and coherent.
+Level of Consciousness: Alert and interactive.
+Activity Status: Ambulatory with assistance.
+
+Discharge Instructions:
+Take apixaban as directed. Do not stop without consulting your neurologist.
+Call 911 immediately for any new weakness, vision changes, or speech difficulty.
+
+Followup Instructions:
+Follow up with neurology in 2 weeks."
+"d19","1","2","DS","1","2150-01-16 12:00:00","2150-01-16 13:00:00","Name:  ___                  Unit No:   ___
+
+Admission Date:  ___              Discharge Date:   ___
+
+Date of Birth:  ___             Sex:   M
+
+Service: SURGERY
+
+Allergies:
+morphine
+
+Attending: ___.
+
+Chief Complaint:
+abdominal pain
+
+Major Surgical or Invasive Procedure:
+none
+
+History of Present Illness:
+This patient is a ___ year old male who complains of right lower quadrant
+abdominal pain for 2 days. Pain worsens with movement. Patient denies fevers
+or chills. No relief with over-the-counter analgesics.
+
+Past Medical History:
+none
+
+Social History:
+___
+
+Family History:
+NC
+
+Physical Exam:
+Temp: 97.8 HR: 90 BP: 124/86 Resp: 14 O2Sat: 100
+Abdomen: right lower quadrant tenderness without rebound
+
+Pertinent Results:
+WBC-8.9 RBC-5.59 Hgb-12.5 Hct-42.0
+Glucose-99 UreaN-13 Creat-1.0 Na-137 K-4.0 Cl-103 HCO3-22
+
+Brief Hospital Course:
+Patient admitted for observation. Serial abdominal exams performed.
+Pain resolved with conservative management. Diet advanced without issue.
+Discharged home in stable condition.
+
+Medications on Admission:
+none
+
+Discharge Medications:
+none
+
+Discharge Disposition:
+Home
+
+Discharge Diagnosis:
+abdominal pain
+
+Discharge Condition:
+Mental Status: Clear and coherent.
+Level of Consciousness: Alert and interactive.
+Activity Status: Ambulatory - Independent.
+
+Discharge Instructions:
+Return to ER for worsening pain, fever >101.5F, vomiting, or new symptoms.
+
+Followup Instructions:
+Follow up with primary care physician in 1 week."
+"d20","2","3","DS","1","2150-01-01 12:00:00","2150-01-01 13:00:00","Name:  ___                  Unit No:   ___
+
+Admission Date:  ___              Discharge Date:   ___
+
+Date of Birth:  ___             Sex:   F
+
+Service: CARDIOLOGY
+
+Allergies:
+penicillin
+
+Attending: ___.
+
+Chief Complaint:
+chest pain
+
+Major Surgical or Invasive Procedure:
+cardiac catheterization
+
+History of Present Illness:
+___ year old female with hypertension presenting with substernal chest pain
+radiating to the left arm, onset 3 hours prior to admission. Associated
+diaphoresis and shortness of breath. EKG showed ST depression in V4-V6.
+
+Past Medical History:
+1. Hypertension
+2. Hyperlipidemia
+3. Type 2 Diabetes Mellitus
+
+Social History:
+Non-smoker. Occasional alcohol use. Lives with spouse.
+
+Family History:
+Father with MI at age 60. Mother with hypertension.
+
+Physical Exam:
+Temp: 98.2 HR: 88 BP: 152/94 Resp: 18 O2Sat: 97
+Cardiovascular: Regular rate and rhythm. No murmurs.
+Chest: Clear to auscultation bilaterally.
+
+Pertinent Results:
+Troponin I: 2.4 (elevated)
+BNP: 180
+WBC-9.1 Hgb-11.8 Hct-36.2 Plt-220
+
+Brief Hospital Course:
+Patient admitted for NSTEMI. Heparin drip initiated. Cardiac cath revealed
+70% LAD stenosis; drug-eluting stent placed. Post-procedure course
+uncomplicated. Discharged on dual antiplatelet therapy.
+
+Medications on Admission:
+1. Lisinopril 10 mg daily
+2. Atorvastatin 40 mg nightly
+3. Metformin 1000 mg twice daily
+
+Discharge Medications:
+1. Aspirin 81 mg daily
+2. Clopidogrel 75 mg daily
+3. Lisinopril 10 mg daily
+4. Atorvastatin 80 mg nightly
+5. Metformin 1000 mg twice daily
+
+Discharge Disposition:
+Home with services
+
+Discharge Diagnosis:
+NSTEMI, coronary artery disease
+
+Discharge Condition:
+Mental Status: Clear and coherent.
+Level of Consciousness: Alert and interactive.
+Activity Status: Ambulatory - Independent.
+
+Discharge Instructions:
+Do not stop aspirin or clopidogrel without consulting your cardiologist.
+Call your doctor for chest pain, shortness of breath, or leg swelling.
+
+Followup Instructions:
+Follow up with cardiology in 1 week."
+"d21","2","4","DS","1","2150-01-16 12:00:00","2150-01-16 13:00:00","Name:  ___                  Unit No:   ___
+
+Admission Date:  ___              Discharge Date:   ___
+
+Date of Birth:  ___             Sex:   M
+
+Service: MEDICINE
+
+Allergies:
+sulfa drugs
+
+Attending: ___.
+
+Chief Complaint:
+shortness of breath
+
+Major Surgical or Invasive Procedure:
+none
+
+History of Present Illness:
+___ year old male with known COPD presenting with 3 days of worsening dyspnea
+and productive cough with yellow sputum. Patient reports increased inhaler use
+without improvement. Denies fever. Smoking history: 40 pack-years.
+
+Past Medical History:
+1. COPD, moderate severity
+2. Hypertension
+3. Gastroesophageal reflux disease
+
+Social History:
+Former smoker, quit 5 years ago. No alcohol or illicit drug use. Lives alone.
+
+Family History:
+Mother with asthma. No family history of lung cancer.
+
+Physical Exam:
+Temp: 98.6 HR: 102 BP: 138/82 Resp: 24 O2Sat: 88% on room air
+Chest: Diffuse expiratory wheezes. Prolonged expiratory phase.
+Accessory muscle use noted.
+
+Pertinent Results:
+ABG: pH 7.34 pCO2 52 pO2 58 HCO3 28
+WBC-11.2 (elevated) CXR: hyperinflation, no consolidation
+
+Brief Hospital Course:
+Admitted for COPD exacerbation. Started on systemic steroids, nebulized
+bronchodilators, and supplemental oxygen. Azithromycin added for possible
+infectious trigger. O2 sats improved to 94% on 2L NC. Discharged on
+steroid taper.
+
+Medications on Admission:
+1. Albuterol inhaler PRN
+2. Tiotropium 18 mcg daily
+3. Lisinopril 5 mg daily
+4. Omeprazole 20 mg daily
+
+Discharge Medications:
+1. Prednisone 40 mg daily x 3 days then taper per schedule
+2. Azithromycin 250 mg daily x 3 days (2 doses remaining)
+3. Albuterol inhaler q4h PRN
+4. Tiotropium 18 mcg daily
+5. Lisinopril 5 mg daily
+
+Discharge Disposition:
+Home
+
+Discharge Diagnosis:
+COPD exacerbation
+
+Discharge Condition:
+Mental Status: Clear and coherent.
+Level of Consciousness: Alert and interactive.
+Activity Status: Ambulatory with mild exertional dyspnea.
+
+Discharge Instructions:
+Complete the full steroid taper. Use albuterol inhaler as needed.
+Return to ER for oxygen saturation below 90%, severe dyspnea, or confusion.
+
+Followup Instructions:
+Follow up with pulmonology in 2 weeks."
+"d22","2","5","DS","1","2150-01-21 12:00:00","2150-01-21 13:00:00","Name:  ___                  Unit No:   ___
+
+Admission Date:  ___              Discharge Date:   ___
+
+Date of Birth:  ___             Sex:   F
+
+Service: CARDIOLOGY
+
+Allergies:
+no known drug allergies
+
+Attending: ___.
+
+Chief Complaint:
+leg swelling and shortness of breath
+
+Major Surgical or Invasive Procedure:
+none
+
+History of Present Illness:
+___ year old female with history of congestive heart failure (EF 30%) presenting
+with 1 week of progressive bilateral lower extremity edema and orthopnea.
+Weight gain of 8 lbs over past week. Patient reports dietary indiscretion
+with increased sodium intake.
+
+Past Medical History:
+1. Congestive heart failure, EF 30%
+2. Atrial fibrillation
+3. Hypertension
+4. Chronic kidney disease stage 3
+
+Social History:
+Non-smoker. No alcohol. Lives with daughter.
+
+Family History:
+Father with heart failure. Sister with hypertension.
+
+Physical Exam:
+Temp: 98.0 HR: 96 (irregularly irregular) BP: 148/90 Resp: 20 O2Sat: 94%
+JVD present. Bilateral crackles at lung bases.
+2+ pitting edema to knees bilaterally.
+
+Pertinent Results:
+BNP: 1840 (markedly elevated)
+Creatinine 1.8 (baseline 1.5)
+CXR: pulmonary vascular congestion, bilateral pleural effusions
+
+Brief Hospital Course:
+Admitted for decompensated CHF. IV furosemide initiated with good diuretic
+response (negative 3L over 48 hours). Transitioned to oral diuretics.
+Weight at discharge 4 lbs below admission weight. Cardiology consulted.
+
+Medications on Admission:
+1. Furosemide 40 mg daily
+2. Carvedilol 12.5 mg twice daily
+3. Lisinopril 5 mg daily
+4. Warfarin 5 mg daily
+5. Digoxin 0.125 mg daily
+
+Discharge Medications:
+1. Furosemide 80 mg daily (increased)
+2. Carvedilol 12.5 mg twice daily
+3. Lisinopril 5 mg daily
+4. Warfarin 5 mg daily
+5. Digoxin 0.125 mg daily
+
+Discharge Disposition:
+Home with services
+
+Discharge Diagnosis:
+Acute decompensated heart failure
+
+Discharge Condition:
+Mental Status: Clear and coherent.
+Level of Consciousness: Alert and interactive.
+Activity Status: Ambulatory with assistance.
+
+Discharge Instructions:
+Weigh yourself daily. If weight increases by more than 2 lbs in a day or
+5 lbs in a week, call your doctor immediately. Restrict sodium to 2g/day.
+
+Followup Instructions:
+Follow up with cardiologist in 3 days."
+"d23","2","6","DS","1","2150-01-22 12:00:00","2150-01-22 13:00:00","Name:  ___                  Unit No:   ___
+
+Admission Date:  ___              Discharge Date:   ___
+
+Date of Birth:  ___             Sex:   M
+
+Service: MEDICINE
+
+Allergies:
+amoxicillin
+
+Attending: ___.
+
+Chief Complaint:
+fever and productive cough
+
+Major Surgical or Invasive Procedure:
+none
+
+History of Present Illness:
+___ year old male presenting with 5 days of productive cough with green sputum,
+fever to 101.8F, and pleuritic chest pain. Patient reports decreased appetite
+and fatigue. No sick contacts. Up to date on vaccinations.
+
+Past Medical History:
+1. Type 2 Diabetes Mellitus
+2. Hypertension
+
+Social History:
+Non-smoker. No alcohol or drug use. Works as a teacher.
+
+Family History:
+No family history of pulmonary disease.
+
+Physical Exam:
+Temp: 101.6 HR: 108 BP: 128/78 Resp: 22 O2Sat: 93% on room air
+Chest: Decreased breath sounds and dullness to percussion at right base.
+Egophony present at right lower lobe.
+
+Pertinent Results:
+WBC-14.8 (elevated) with left shift
+Procalcitonin: 2.1 (elevated)
+CXR: right lower lobe consolidation consistent with pneumonia
+
+Brief Hospital Course:
+Admitted for community-acquired pneumonia. Started on ceftriaxone and
+azithromycin. O2 sats improved on 4L NC. Transitioned to oral antibiotics
+on hospital day 3. Glucose levels monitored and insulin sliding scale used.
+
+Medications on Admission:
+1. Metformin 500 mg twice daily
+2. Lisinopril 10 mg daily
+3. Aspirin 81 mg daily
+
+Discharge Medications:
+1. Levofloxacin 750 mg daily x 5 days (3 doses remaining)
+2. Metformin 500 mg twice daily
+3. Lisinopril 10 mg daily
+4. Aspirin 81 mg daily
+
+Discharge Disposition:
+Home
+
+Discharge Diagnosis:
+Community-acquired pneumonia
+
+Discharge Condition:
+Mental Status: Clear and coherent.
+Level of Consciousness: Alert and interactive.
+Activity Status: Ambulatory - Independent.
+
+Discharge Instructions:
+Complete the full antibiotic course. Return for worsening shortness of breath,
+persistent fever, or hemoptysis.
+
+Followup Instructions:
+Follow up with primary care in 1 week for repeat CXR."
+"d24","3","7","DS","1","2150-01-01 12:00:00","2150-01-01 13:00:00","Name:  ___                  Unit No:   ___
+
+Admission Date:  ___              Discharge Date:   ___
+
+Date of Birth:  ___             Sex:   F
+
+Service: NEUROLOGY
+
+Allergies:
+codeine
+
+Attending: ___.
+
+Chief Complaint:
+sudden onset left-sided weakness
+
+Major Surgical or Invasive Procedure:
+IV tPA administration
+
+History of Present Illness:
+___ year old female with hypertension and atrial fibrillation brought by EMS
+with sudden onset left arm and leg weakness and facial droop noted 2 hours
+prior to arrival. Last known well time established. NIHSS 12 on arrival.
+CT head showed no hemorrhage. IV tPA administered within window.
+
+Past Medical History:
+1. Atrial fibrillation
+2. Hypertension
+3. Hyperlipidemia
+
+Social History:
+Non-smoker. Rare alcohol use. Retired. Lives alone.
+
+Family History:
+Father with stroke at age 72. Mother with hypertension.
+
+Physical Exam:
+Temp: 98.4 HR: 84 (irregular) BP: 168/96 Resp: 16 O2Sat: 98%
+Neuro: left facial droop, left arm 3/5 strength, left leg 4/5 strength.
+Dysarthria present.
+
+Pertinent Results:
+MRI brain: right MCA territory infarct
+Echo: no thrombus. EF 55%.
+INR: 1.1 (not anticoagulated at time of stroke)
+
+Brief Hospital Course:
+Admitted to stroke unit. tPA given without hemorrhagic complication.
+Deficits improved over 48 hours. Anticoagulation initiated with apixaban.
+Physical therapy and speech therapy consulted. Swallow evaluation passed.
+
+Medications on Admission:
+1. Metoprolol 25 mg twice daily
+2. Amlodipine 5 mg daily
+3. Atorvastatin 20 mg nightly
+
+Discharge Medications:
+1. Apixaban 5 mg twice daily (new)
+2. Aspirin 81 mg daily
+3. Metoprolol 25 mg twice daily
+4. Amlodipine 5 mg daily
+5. Atorvastatin 80 mg nightly (increased)
+
+Discharge Disposition:
+Rehabilitation facility
+
+Discharge Diagnosis:
+Acute ischemic stroke, right MCA territory
+
+Discharge Condition:
+Mental Status: Clear and coherent.
+Level of Consciousness: Alert and interactive.
+Activity Status: Ambulatory with assistance.
+
+Discharge Instructions:
+Take apixaban as directed. Do not stop without consulting your neurologist.
+Call 911 immediately for any new weakness, vision changes, or speech difficulty.
+
+Followup Instructions:
+Follow up with neurology in 2 weeks."
