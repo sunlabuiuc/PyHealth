@@ -1109,36 +1109,55 @@ class LabsMIMIC4(BaseMultimodalMIMIC4Task):
         self.window_hours = window_hours
 
     def __call__(self, patient: Any) -> List[Dict[str, Any]]:  # type: ignore[override]
-        admissions = self._build_admissions_to_process(patient)
-        if not admissions:
+        admissions_to_process, mortality_label = self._build_admissions_to_process(
+            patient
+        )
+        if not admissions_to_process:
             return []
 
-        for admission_time, admission_dischtime, admission in admissions:
-            mortality_label = self._get_mortality_label(patient, admission)
-            effective_start, effective_end = self._compute_window(
-                admission_time, admission_dischtime, self.window_hours
-            )
+        effective_start, effective_end = self._compute_effective_window(
+            admissions_to_process
+        )
+
+        all_lab_times: List[float] = []
+        all_lab_values: List[List[float]] = []
+        all_lab_masks: List[List[bool]] = []
+
+        for admission in admissions_to_process:
+            admission_time = admission.timestamp
+
+            try:
+                admission_dischtime = datetime.strptime(
+                    admission.dischtime, "%Y-%m-%d %H:%M:%S"
+                )
+            except (ValueError, AttributeError):
+                admission_dischtime = admission_time
+            if admission_dischtime < admission_time:
+                admission_dischtime = admission_time
 
             lab_times, lab_values, lab_masks = self._collect_labs(
                 patient=patient,
                 admission_time=admission_time,
-                end_time=effective_end,
+                end_time=admission_dischtime,
             )
+            all_lab_times.extend(lab_times)
+            all_lab_values.extend(lab_values)
+            all_lab_masks.extend(lab_masks)
 
-            if len(lab_values) == 0:
-                lab_values.append(
-                    [self.MISSING_FLOAT_TOKEN] * len(self.LAB_CATEGORY_NAMES)
-                )
-                lab_masks.append([False] * len(self.LAB_CATEGORY_NAMES))
-                lab_times.append(self.MISSING_FLOAT_TOKEN)
+        if len(all_lab_values) == 0:
+            all_lab_values.append(
+                [self.MISSING_FLOAT_TOKEN] * len(self.LAB_CATEGORY_NAMES)
+            )
+            all_lab_masks.append([False] * len(self.LAB_CATEGORY_NAMES))
+            all_lab_times.append(self.MISSING_FLOAT_TOKEN)
 
-            single_patient_longitudinal_record = {
-                "patient_id": patient.patient_id,
-                "labs": (lab_times, lab_values),
-                "labs_mask": (lab_times, lab_masks),
-                "mortality": mortality_label,
-                "window_start": effective_start,
-                "window_end": effective_end,
-            }
+        single_patient_longitudinal_record = {
+            "patient_id": patient.patient_id,
+            "labs": (all_lab_times, all_lab_values),
+            "labs_mask": (all_lab_times, all_lab_masks),
+            "mortality": mortality_label,
+            "window_start": effective_start,
+            "window_end": effective_end,
+        }
 
-            return [single_patient_longitudinal_record]
+        return [single_patient_longitudinal_record]
