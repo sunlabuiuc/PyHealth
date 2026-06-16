@@ -316,7 +316,7 @@ def run(args: argparse.Namespace) -> Path:
 
     trainer = Trainer(
         model=model,
-        metrics=["pr_auc", "roc_auc", "f1", "f1_opt", "accuracy"],
+        metrics=["pr_auc", "roc_auc", "f1", "accuracy"],
         device=args.device,
         enable_logging=True,
         output_path=str(output_dir),
