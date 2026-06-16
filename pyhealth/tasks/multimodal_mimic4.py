@@ -1079,7 +1079,7 @@ class NotesLabsMIMIC4(BaseMultimodalMIMIC4Task):
         return [record]
 
 
-class LabsOnlyMIMIC4(BaseMultimodalMIMIC4Task):
+class LabsMIMIC4(BaseMultimodalMIMIC4Task):
     """EHR-only mortality prediction using lab values — no notes, no ICD codes.
 
     Serves as the structured-EHR reference baseline for multimodal ablations.
@@ -1096,7 +1096,7 @@ class LabsOnlyMIMIC4(BaseMultimodalMIMIC4Task):
 
     PADDING: int = 0
 
-    task_name: str = "LabsOnlyMIMIC4"
+    task_name: str = "LabsMIMIC4"
 
     input_schema: ClassVar[Dict] = {
         "labs": ("stagenet_tensor", {}),
@@ -1132,7 +1132,7 @@ class LabsOnlyMIMIC4(BaseMultimodalMIMIC4Task):
                 lab_masks.append([False] * len(self.LAB_CATEGORY_NAMES))
                 lab_times.append(self.MISSING_FLOAT_TOKEN)
 
-            yield {
+            single_patient_longitudinal_record = {
                 "patient_id": patient.patient_id,
                 "labs": (lab_times, lab_values),
                 "labs_mask": (lab_times, lab_masks),
@@ -1140,3 +1140,5 @@ class LabsOnlyMIMIC4(BaseMultimodalMIMIC4Task):
                 "window_start": effective_start,
                 "window_end": effective_end,
             }
+
+            return [single_patient_longitudinal_record]
