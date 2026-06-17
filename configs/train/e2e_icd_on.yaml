@@ -1,0 +1,7 @@
+# PyHealth E2E ICD-on condition — notes+labs+ICD (discharge-coded leakage ablation)
+_inherit: base.yaml
+
+task: notes_labs
+icd_codes: true
+epochs: 50
+output_dir: output/e2e_full/icd_on

@@ -135,6 +135,7 @@ tables:
     patient_id: "subject_id"
     timestamp: "chartdate"
     attributes:
+      - "hadm_id"
       - "hcpcs_cd"
       - "seq_num"
       - "short_description"

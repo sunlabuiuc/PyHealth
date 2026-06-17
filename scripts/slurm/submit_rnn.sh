@@ -21,7 +21,7 @@ for seed in "${SEEDS[@]}"; do
         --mem=32G --gres=gpu:1 --time=6:00:00 \
         --output="logs/slurm/table2_rnn_seed${seed}_%j.out" \
         --error="logs/slurm/table2_rnn_seed${seed}_%j.err" \
-        --export=ALL,CACHE_DIR=/u/rianatri/pyhealth_cache,MODEL=rnn,SEED="${seed}",TABLE2_BS_RNN=16 \
+        --export=ALL,CACHE_DIR=/u/rianatri/pyhealth_cache,MODEL=rnn,SEED="${seed}",TABLE2_BS_RNN=16,TABLE2_TASK="${TABLE2_TASK:-clinical_notes_icd_labs}" \
         scripts/slurm/run_table2.sh | awk '{print $NF}')
     echo "  Submitted rnn seed=${seed} → ${job}"
 done

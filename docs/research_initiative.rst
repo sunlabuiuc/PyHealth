@@ -11,6 +11,12 @@ about advancing computational healthcare, regardless of their career stage or in
 participants work on innovative projects that advance the field of computational healthcare, contributing 
 to publications, open-source software, and the broader healthcare AI community.
 
+Our goals are to build:
+
+1. **Easily accessible and reproducible research** — Making healthcare AI research transparent and replicable
+2. **Solutions to real-world healthcare problems** — Tackling important clinical challenges with practical impact
+3. **Connections with healthcare professionals** — Bridging the gap between AI researchers and clinical practitioners
+
 The initiative provides participants with hands-on experience in:
 
 - **Healthcare AI Research**: Working on real-world healthcare problems using electronic health records (EHRs) and clinical data
@@ -19,17 +25,45 @@ The initiative provides participants with hands-on experience in:
 - **Academic Publishing**: Co-authoring research papers and presenting findings
 - **Collaborative Research**: Working alongside researchers and industry partners
 
-Mission & Goals
----------------
+Program Logistics
+-----------------
 
-We're an open-source community of researchers with the goal of building:
+**Format**: Remote
 
-1. **Easily accessible and reproducible research** — Making healthcare AI research transparent and replicable
-2. **Solutions to real-world healthcare problems** — Tackling important clinical challenges with practical impact
-3. **Connections with healthcare professionals** — Bridging the gap between AI researchers and clinical practitioners
+**Time Commitment**: 10–20 hours per week during active research cycles
 
-We connect those who want to work on healthcare problems with industry and academic collaborators to create 
-meaningful impact in healthcare AI.
+**Eligibility**: Open to anyone! We welcome people from all backgrounds—students, engineers, researchers,
+and healthcare professionals. We don't care about your title or institution. We only ask that you have the
+ability to write decent-quality code and are self-driven to work hard on healthcare problems.
+See `How to Apply`_ to get started.
+
+**Open Projects**: Browse available research projects and find one that matches your interests:
+`Open Projects List <https://docs.google.com/spreadsheets/d/1DLDpjBi40esOqaDWUvHTvCEEEoixyORTDisemIOkMBo/edit?usp=sharing>`_
+
+The program runs on a rolling, year-round basis with recurring terms aligned to major healthcare AI
+conference cycles. Each term culminates in a submission to a top-tier venue.
+
+.. list-table:: Upcoming Research Terms
+   :widths: 20 25 30 25
+   :header-rows: 1
+   :class: research-table
+
+   * - Term
+     - Period
+     - Target Conference
+     - Est. Submission Deadline
+   * - Summer Term
+     - Apr – Aug 2026
+     - `ML4H 2026 <https://ml4h.cc>`_
+     - ~Sep 2026
+   * - Fall Term
+     - Sep – Dec 2026
+     - `CHIL 2027 <https://chilconference.org>`_
+     - ~Feb 2027
+   * - Spring Term
+     - Jan – Apr 2027
+     - `MLHC 2027 <https://www.mlforhc.org>`_
+     - ~May 2027
 
 Research Contributions
 ----------------------
@@ -48,6 +82,11 @@ drug recommendation, and healthcare AI infrastructure.
      - Paper Title
      - Venue
      - Links
+   * - 2026
+     - Arjun Chatterjee, Sayeed Sajjad Razin
+     - Making Conformal Predictors Robust in Healthcare Settings: a Case Study on EEG Classification
+     - Under Review at AIME
+     - `Paper <https://arxiv.org/abs/2602.19483>`_
    * - 2025
      - Zilal Eiz Al Din
      - MIMIC-RD: Can LLMs differentially diagnose rare diseases in real-world clinical settings?
@@ -70,31 +109,6 @@ drug recommendation, and healthcare AI infrastructure.
    
    **Latest from ML4H 2025**: Our first cohort successfully published three papers at ML4H, covering rare diseases, 
    social determinants of health, and prostate cancer genomics—all at the forefront of healthcare and AI research!
-
-Program Information
--------------------
-
-**Duration**: Ongoing year-round program with targeted submission cycles
-
-**Format**: Remote
-
-**Time Commitment**: 10–20 hours per week during active research cycles
-
-**Eligibility**: Open to anyone! We welcome people from all backgrounds—students, engineers, researchers, 
-and healthcare professionals. We don't care about your title or institution. We only ask that you have the 
-ability to write decent-quality code and are self-driven to work hard on healthcare problems.
-
-**Current Cycle**: Spring 2026, targeting `MLHC 2026 <https://www.mlforhc.org/paper-submission>`_ (Machine Learning for Healthcare)
-
-**Key Dates for Spring 2026**:
-
-- **Official start date**: January 20, 2026 — Kickoff meeting (details via Discord)
-- **Pre-submission intent deadline**: April 10, 2026
-- **Full submission deadline**: April 11, 2026
-- **Conference dates**: August 15–16, 2026
-
-**Open Projects**: Browse available research projects and find one that matches your interests: 
-`Open Projects List <https://docs.google.com/spreadsheets/d/1DLDpjBi40esOqaDWUvHTvCEEEoixyORTDisemIOkMBo/edit?usp=sharing>`_
 
 Research Areas
 --------------

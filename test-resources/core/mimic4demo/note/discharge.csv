@@ -6,7 +6,7 @@ d4,10001,20002,DS,1,2150-06-25 12:00:00,2150-06-25 13:00:00,Patient 10001 admitt
 d5,10002,20003,DS,1,2151-01-12 12:00:00,2151-01-12 13:00:00,Patient 10002 admitted for evaluation. Vitals stable. Labs reviewed. Discharged in good condition.
 d6,10002,20004,DS,1,2151-04-20 12:00:00,2151-04-20 13:00:00,Patient 10002 admitted for evaluation. Vitals stable. Labs reviewed. Discharged in good condition.
 d7,10003,20005,DS,1,2152-03-05 12:00:00,2152-03-05 13:00:00,Patient 10003 admitted for evaluation. Vitals stable. Labs reviewed. Discharged in good condition.
-d8,10003,20006,DS,1,2152-08-15 12:00:00,2152-08-15 13:00:00,Patient 10003 admitted for evaluation. Vitals stable. Labs reviewed. Discharged in good condition.
+d8,10003,20006,DS,1,2152-08-15 12:00:00,2152-08-15 13:00:00,Patient 10003 admitted for evaluation. Vitals unstable on presentation. Clinical status deteriorated despite aggressive management. Patient expired during this admission. Death pronounced on 2152-08-15.
 d9,10004,20007,DS,1,2150-05-02 12:00:00,2150-05-02 13:00:00,Patient 10004 admitted for evaluation. Vitals stable. Labs reviewed. Discharged in good condition.
 d10,10005,20008,DS,1,2151-07-22 12:00:00,2151-07-22 13:00:00,Patient 10005 admitted for evaluation. Vitals stable. Labs reviewed. Discharged in good condition.
 d11,10006,20009,DS,1,2152-09-08 12:00:00,2152-09-08 13:00:00,Patient 10006 admitted for evaluation. Vitals stable. Labs reviewed. Discharged in good condition.

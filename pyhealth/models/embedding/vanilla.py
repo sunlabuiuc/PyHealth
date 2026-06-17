@@ -111,7 +111,7 @@ def init_embedding_with_pretrained(
     return loaded
 
 
-class EmbeddingModel(BaseModel, BaseEmbeddingModel):
+class EmbeddingModel(BaseModel):
     """
     EmbeddingModel is responsible for creating embedding layers for different types of input data.
 
@@ -164,14 +164,16 @@ class EmbeddingModel(BaseModel, BaseEmbeddingModel):
                     SequenceProcessor,
                     StageNetProcessor,
                     NestedSequenceProcessor,
-                    DeepNestedSequenceProcessor
+                    DeepNestedSequenceProcessor,
                 ),
             ):
                 vocab_size = len(processor.code_vocab)
 
                 # For NestedSequenceProcessor and DeepNestedSequenceProcessor, don't use padding_idx
                 # because empty visits/groups need non-zero embeddings.
-                if isinstance(processor, (NestedSequenceProcessor, DeepNestedSequenceProcessor)):
+                if isinstance(
+                    processor, (NestedSequenceProcessor, DeepNestedSequenceProcessor)
+                ):
                     self.embedding_layers[field_name] = nn.Embedding(
                         num_embeddings=vocab_size,
                         embedding_dim=embedding_dim,
@@ -242,16 +244,23 @@ class EmbeddingModel(BaseModel, BaseEmbeddingModel):
                 try:
                     from transformers import AutoModel
                 except ImportError:
-                    raise ImportError("Please install `transformers` to use token-based processors.")
+                    raise ImportError(
+                        "Please install `transformers` to use token-based processors."
+                    )
 
                 # Load the model
-                self.embedding_layers[field_name] = AutoModel.from_pretrained(processor.tokenizer_model)
+                self.embedding_layers[field_name] = AutoModel.from_pretrained(
+                    processor.tokenizer_model
+                )
 
                 # Check if we need projection
-                if self.embedding_layers[field_name].config.hidden_size != self.embedding_dim:
+                if (
+                    self.embedding_layers[field_name].config.hidden_size
+                    != self.embedding_dim
+                ):
                     self.embedding_layers[f"{field_name}_proj"] = nn.Linear(
                         self.embedding_layers[field_name].config.hidden_size,
-                        self.embedding_dim
+                        self.embedding_dim,
                     )
 
             else:
@@ -260,15 +269,15 @@ class EmbeddingModel(BaseModel, BaseEmbeddingModel):
                     field_name,
                 )
 
-    @property
-    def embedding_dim(self) -> int:
-        return self._embedding_dim
-
-    def forward(self,
-                inputs: Dict[str, torch.Tensor],
-                masks: Dict[str, torch.Tensor] = None,
-                output_mask: bool = False
-                ) -> Dict[str, torch.Tensor] | tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor]]:
+    def forward(
+        self,
+        inputs: Dict[str, torch.Tensor],
+        masks: Dict[str, torch.Tensor] = None,
+        output_mask: bool = False,
+    ) -> (
+        Dict[str, torch.Tensor]
+        | tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor]]
+    ):
 
         embedded: Dict[str, torch.Tensor] = {}
         out_masks: Dict[str, torch.Tensor] = {} if output_mask else None
@@ -288,14 +297,14 @@ class EmbeddingModel(BaseModel, BaseEmbeddingModel):
             # or check if it has 'config' attribute
             if hasattr(layer, "config") and hasattr(layer, "forward"):
                 # It's likely a transformer
-                tensor = tensor.to(self.device).long() # Ensure LongTensor for IDs
+                tensor = tensor.to(self.device).long()  # Ensure LongTensor for IDs
 
                 mask = None
                 if masks is not None and field_name in masks:
                     mask = masks[field_name].to(self.device)
 
                 # Handle 3D input (Batch, Num_Notes, Seq_Len)
-                is_3d = (inputs[field_name].dim() == 3)
+                is_3d = inputs[field_name].dim() == 3
 
                 if is_3d:
                     b, n, l = inputs[field_name].shape
@@ -308,16 +317,21 @@ class EmbeddingModel(BaseModel, BaseEmbeddingModel):
                 x = output.last_hidden_state  # (Batch, Seq, Hidden)
 
                 if is_3d:
-                    # Pool the sequence dim (L) to one vector per note using CLS token (index 0)
-                    x = x[:, 0, :]  # (B*N, H)
+                    # If we had 3D input, we MUST pool the sequence dim (L) to get one vector per note
+                    # Resulting shape: (B, N, H)
 
+                    # Pool L dim -> (B*N, H) using CLS token (index 0)
+                    x = x[:, 0, :]
+
+                    # Check projections
                     if f"{field_name}_proj" in self.embedding_layers:
                         x = self.embedding_layers[f"{field_name}_proj"](x)
 
                     x = x.view(b, n, -1)
 
                 else:
-                    # 2D input (Batch, Seq) -> (Batch, Seq, Hidden): token-level embeddings
+                    # 2D input (Batch, Seq) -> (Batch, Seq, Hidden)
+                    # No pooling, treating as sequence of tokens (word embeddings)
                     if f"{field_name}_proj" in self.embedding_layers:
                         x = self.embedding_layers[f"{field_name}_proj"](x)
 
@@ -334,10 +348,14 @@ class EmbeddingModel(BaseModel, BaseEmbeddingModel):
                     out_masks[field_name] = masks[field_name].to(self.device)
                 elif hasattr(processor, "code_vocab"):
                     pad_idx = processor.code_vocab.get("<pad>", 0)
-                    out_masks[field_name] = (tensor != pad_idx)
+                    out_masks[field_name] = tensor != pad_idx
                 else:
+                    # Default mask generation (e.g. for simple linear layers where 0 might be padding?)
+                    # Be careful changing this behavior.
+                    # Previous code:
+                    # masks[field_name] = (tensor != pad_idx) -> where pad_idx was 0 default
                     pad_idx = 0
-                    out_masks[field_name] = (tensor != pad_idx)
+                    out_masks[field_name] = tensor != pad_idx
 
         if output_mask:
             return embedded, out_masks

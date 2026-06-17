@@ -27,7 +27,7 @@ class COVID19CXRClassification(BaseTask):
     """
 
     task_name: str = "COVID19CXRClassification"
-    input_schema: Dict[str, str] = {"image": "image"}
+    input_schema: Dict = {"image": ("image", {"mode": "RGB"})}
     output_schema: Dict[str, str] = {"disease": "multiclass"}
 
     def __call__(self, patient: Any) -> List[Dict[str, Any]]:

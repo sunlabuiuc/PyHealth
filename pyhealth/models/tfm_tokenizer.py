@@ -828,11 +828,8 @@ class TFMTokenizer(BaseModel):
             y_true = kwargs[label_key].to(self.device)
 
             # Reshape tokens to (B, C, T) for multi-channel classifier
-            # tokens shape: (B, T) -> (B, 1, T)
-            logits = self.classifier(tokens_reshaped,num_ch=C)
+            logits = self.classifier(tokens_reshaped, num_ch=C)
             loss_fn = self.get_loss_function()
-            print(f"logits shape: {logits.shape}")
-            print(f"y_true shape: {y_true.shape}")
             cls_loss = loss_fn(logits, y_true)
             total_loss = recon_loss + vq_loss + cls_loss
             y_prob = self.prepare_y_prob(logits)
@@ -848,6 +845,11 @@ class TFMTokenizer(BaseModel):
             )
         else:
             results["loss"] = recon_loss + vq_loss
+
+        if kwargs.get("embed", False):
+            # Mean-pool over channels (C) and time steps (T) → (B, emb_size)
+            # quant_out_reshaped: (B, C, T, E)
+            results["embed"] = quant_out_reshaped.mean(dim=(1, 2))
 
         return results
 
@@ -930,7 +932,25 @@ class TFMTokenizer(BaseModel):
         self.tokenizer.load_state_dict(torch.load(tokenizer_checkpoint_path, map_location=map_location, weights_only=True), strict=strict)
 
         if classifier_checkpoint_path is not None and not is_masked_training:
-            self.classifier.load_state_dict(torch.load(classifier_checkpoint_path, map_location=map_location, weights_only=True))
+            ckpt = torch.load(classifier_checkpoint_path, map_location=map_location, weights_only=True)
+            model_n = self.classifier.classification_head.weight.shape[0]
+            ckpt_n = ckpt["classification_head.weight"].shape[0]
+            if ckpt_n != model_n:
+                if ckpt_n == 1 and model_n == 2:
+                    # Checkpoint was trained with 1-class sigmoid BCE; model expects
+                    # 2-class softmax.  The conversion is exact:
+                    #   softmax([-logit, logit]) = [1-sigmoid(logit), sigmoid(logit)]
+                    w = ckpt["classification_head.weight"]   # [1, D]
+                    b = ckpt["classification_head.bias"]     # [1]
+                    ckpt["classification_head.weight"] = torch.cat([-w, w], dim=0)
+                    ckpt["classification_head.bias"]   = torch.cat([-b, b], dim=0)
+                    print(f"  ℹ Adapted classifier head from 1-class sigmoid → 2-class softmax")
+                else:
+                    raise RuntimeError(
+                        f"Classifier head shape mismatch: checkpoint has {ckpt_n} class(es) "
+                        f"but model expects {model_n}.  Cannot auto-adapt."
+                    )
+            self.classifier.load_state_dict(ckpt)
             print(f"✓ Successfully loaded weights from {classifier_checkpoint_path}")
         elif is_masked_training:
             load_embedding_weights(self.tokenizer, self.classifier)

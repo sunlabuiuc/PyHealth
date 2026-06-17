@@ -10,6 +10,10 @@ Tasks
     MortalityPredictionStageNetMIMIC4: ICD codes + 10-dim lab vectors,
     patient-level samples aggregated across all admissions.
 
+--task icd_labs
+    ICDLabsMIMIC4: ICD codes + 10-dim lab vectors via the unified
+    multimodal pipeline.  No notes required.
+
 --task clinical_notes_icd_labs
     ClinicalNotesICDLabsMIMIC4: discharge/radiology notes + ICD + labs.
     Requires --note-root.  Legacy; ICD codes are discharge-coded (leakage).
@@ -69,12 +73,16 @@ from pyhealth.models.bottleneck_transformer import BottleneckTransformer
 from pyhealth.models.ehrmamba import EHRMamba
 from pyhealth.models.jamba_ehr import JambaEHR
 from pyhealth.tasks import MortalityPredictionStageNetMIMIC4
+<<<<<<< HEAD
 from pyhealth.tasks.multimodal_mimic4 import (
     ClinicalNotesICDLabsMIMIC4,
     ICDLabsMIMIC4,
     LabsMIMIC4,
     NotesLabsMIMIC4,
 )
+=======
+from pyhealth.tasks.multimodal_mimic4 import ClinicalNotesICDLabsMIMIC4, ICDLabsMIMIC4
+>>>>>>> origin/main
 from pyhealth.trainer import Trainer
 from pyhealth.utils import set_seed
 
@@ -91,6 +99,7 @@ def _build_base_dataset(args: argparse.Namespace) -> MIMIC4Dataset:
     if args.task == "icd_labs":
         ehr_tables = ["diagnoses_icd", "procedures_icd", "labevents"]
 
+<<<<<<< HEAD
     if args.task == "notes_labs":
         if not args.note_root:
             raise ValueError("--task notes_labs requires --note-root.")
@@ -108,6 +117,8 @@ def _build_base_dataset(args: argparse.Namespace) -> MIMIC4Dataset:
     if args.task == "labs":
         ehr_tables = ["labevents"]
 
+=======
+>>>>>>> origin/main
     return MIMIC4Dataset(
         ehr_root=args.ehr_root,
         ehr_tables=ehr_tables,
@@ -385,7 +396,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--task",
         type=str,
+<<<<<<< HEAD
         choices=["stagenet", "icd_labs", "clinical_notes_icd_labs", "notes_labs", "labs"],
+=======
+        choices=["icd_labs", "clinical_notes_icd_labs"],
+>>>>>>> origin/main
         default="stagenet",
         help=(
             "notes_labs: admission-context text (CC/HPI/PMH/MedsOnAdm) + labs. "

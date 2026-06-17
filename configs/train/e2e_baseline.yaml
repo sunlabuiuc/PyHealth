@@ -1,0 +1,11 @@
+# PyHealth E2E baseline condition — notes+labs, ICD off, no balancing
+# Full dataset, 50 epochs, patience=10.
+
+_inherit: base.yaml
+
+task: notes_labs
+icd_codes: false
+include_vitals: false
+balanced_sampling: false
+epochs: 50
+output_dir: output/e2e_full/baseline
