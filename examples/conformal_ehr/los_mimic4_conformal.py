@@ -154,7 +154,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--alphas",
-        default="0.2,0.1,0.05",
+        default="0.2,0.1,0.05,0.01",
         help="Comma-separated target miscoverage rates, e.g. '0.2,0.1,0.05'.",
     )
     parser.add_argument(
