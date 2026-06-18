@@ -70,7 +70,7 @@ def run_seed(samples, seed: int, alphas: list[float], epochs: int) -> dict:
         train_dataloader=train_loader,
         val_dataloader=val_loader,
         epochs=epochs,
-        monitor="accuracy",
+        monitor="f1_macro",
     )
 
     results = {}
