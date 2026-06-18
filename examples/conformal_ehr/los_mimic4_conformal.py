@@ -66,7 +66,7 @@ def run_seed(samples, seed: int, alphas: list[float], epochs: int) -> dict:
     test_loader = get_dataloader(test_data, batch_size=32, shuffle=False)
 
     model = Transformer(dataset=samples)
-    Trainer(model=model, enable_logging=False).train(
+    Trainer(model=model).train(
         train_dataloader=train_loader,
         val_dataloader=val_loader,
         epochs=epochs,
@@ -99,8 +99,7 @@ def main(
 ) -> None:
     dataset = MIMIC4Dataset(
         ehr_root=root,
-        ehr_tables=["patients", "admissions", "diagnoses_icd",
-                    "procedures_icd", "prescriptions"],
+        ehr_tables=["diagnoses_icd", "procedures_icd", "prescriptions"],
         dev=dev,
     )
     samples = dataset.set_task(LengthOfStayPredictionMIMIC4())
