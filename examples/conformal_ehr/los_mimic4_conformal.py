@@ -128,7 +128,8 @@ def main(
     print(f"\nPer-class miscoverage_ps (mean over {len(seeds)} seeds):")
     for a in alphas:
         per_class = np.stack(class_miscov[a]).mean(0)
-        print(f"alpha={a:.2f}: " + np.array2string(per_class, precision=2, floatmode="fixed"))
+        print(f"alpha={a:.2f}: "
+              + np.array2string(per_class, precision=2, floatmode="fixed"))
 
 
 if __name__ == "__main__":
@@ -154,7 +155,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--alphas",
         default="0.2,0.1,0.05,0.01",
-        help="Comma-separated target miscoverage rates, e.g. '0.2,0.1,0.05'.",
+        help="Comma-separated target miscoverage rates, e.g. '0.2,0.1,0.05,0.01'.",
     )
     parser.add_argument(
         "--dev",
