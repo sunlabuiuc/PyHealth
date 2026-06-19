@@ -8,10 +8,6 @@ This example demonstrates:
 3. Evaluating the prediction sets via overall coverage, average set size, and
    per-class miscoverage, averaged over multiple random seeds.
 
-Coverage on any single calibration/test split is high-variance, so results are
-averaged over several seeds and reported as mean +/- std. Per-class miscoverage is
-also reported, since it exposes class imbalance that overall coverage can hide.
-
 Usage:
     # Full dataset
     python los_mimic4_conformal.py --root /path/to/mimiciv/2.2
@@ -57,7 +53,7 @@ def run_seed(samples, seed: int, alphas: list[float], epochs: int) -> dict:
     np.random.seed(seed)
     torch.manual_seed(seed)
 
-    # Train / validation / calibration / test split (calibration is conformal-specific).
+    # Train / validation / calibration / test split.
     train_data, val_data, cal_data, test_data = split_by_patient_conformal(
         samples, ratios=[0.6, 0.1, 0.1, 0.2], seed=seed
     )
@@ -81,7 +77,6 @@ def run_seed(samples, seed: int, alphas: list[float], epochs: int) -> dict:
             test_loader, additional_outputs=["y_predset"]
         )
         predset = extra["y_predset"]
-        # The miscoverage metrics expect a 1D integer array of labels.
         y_true = np.asarray(y_true)
         coverage = 1 - miscoverage_overall_ps(predset, y_true)
         set_size = size(predset)
@@ -124,7 +119,6 @@ def main(
         print(f"{a:.2f}    {1 - a:.0%}    {cov.mean():.2f} +/- {cov.std():.2f}   "
               f"{sizes.mean():.1f} +/- {sizes.std():.1f}")
 
-    # Per-class miscoverage_ps (one value per LOS class), averaged over seeds.
     print(f"\nPer-class miscoverage_ps (mean over {len(seeds)} seeds):")
     for a in alphas:
         per_class = np.stack(class_miscov[a]).mean(0)
