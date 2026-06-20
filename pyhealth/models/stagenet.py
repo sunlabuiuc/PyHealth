@@ -440,6 +440,7 @@ class StageNet(BaseModel, Interpretable):
                     f"StageNet format with time intervals for "
                     f"better performance.",
                     UserWarning,
+                    stacklevel=2,
                 )
             else:
                 time = time.to(self.device)
@@ -453,6 +454,7 @@ class StageNet(BaseModel, Interpretable):
                     f"Feature '{feature_key}' does not have mask "
                     f"information. Default mask will be created from "
                     f"embedded values. But it may not be accurate.",
+                    stacklevel=2,
                 )
                 mask = (value.abs().sum(dim=-1) != 0).int()
             elif not processor.is_token() and value.dim() == mask.dim():
