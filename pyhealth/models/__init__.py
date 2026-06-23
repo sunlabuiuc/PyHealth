@@ -16,6 +16,7 @@ from .gnn import GAT, GCN
 from .graph_torchvision_model import Graph_TorchvisionModel
 from .graphcare import GraphCare
 from .grasp import GRASP, GRASPLayer
+from .medfuse import MedFuse, MedFuseLayer
 from .medlink import MedLink
 from .micron import MICRON, MICRONLayer
 from .mlp import MLP
@@ -39,6 +40,7 @@ from .torchvision_model import TorchvisionModel
 from .transformer import Transformer, TransformerLayer
 from .transformers_model import TransformersModel
 from .ehrmamba import EHRMamba, MambaBlock
+from .ehrmamba_cehr import EHRMambaCEHR
 from .vae import VAE
 from .vision_embedding import VisionEmbeddingModel
 from .text_embedding import TextEmbedding
@@ -46,3 +48,8 @@ from .sdoh import SdohClassifier
 from .medlink import MedLink
 from .unified_embedding import UnifiedMultimodalEmbeddingModel, SinusoidalTimeEmbedding
 from .califorest import CaliForest
+from .generators.halo import HALO
+from .generators.gpt2 import GPT2
+from .generators.promptehr import PromptEHR
+from .generators.medgan import MedGAN
+from .generators.corgan import CorGAN

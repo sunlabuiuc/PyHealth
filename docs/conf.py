@@ -190,6 +190,7 @@ html_theme_options = {
 }
 
 html_css_files = ["css/override.css", "css/sphinx_gallery.css"]
+html_js_files = ["external_links.js"]
 html_show_sphinx = False
 
 # -- Options for HTMLHelp output ---------------------------------------------
