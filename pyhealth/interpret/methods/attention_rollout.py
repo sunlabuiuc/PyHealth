@@ -218,11 +218,6 @@ class AttentionRollout(BaseInterpreter):
         if self.head_fusion == "mean":
             return attn_map.mean(dim=1)
 
-        raise ValueError(
-            f"Unsupported head_fusion='{self.head_fusion}'. "
-            "Currently supported values: mean."
-        )
-
     def _map_to_input_shapes(
         self,
         attributions: Dict[str, torch.Tensor],
