@@ -1,6 +1,17 @@
-# Author: Felipe Amaral Bonchristiano
-# NetID: felipea5
-# Description: Attention rollout interpretability method implementation for PyHealth 2.0
+"""Attention rollout for transformer interpretability.
+
+This module implements the canonical attention rollout method, a
+forward-pass-only, gradient-free, class-agnostic attention-flow baseline.
+It complements the gradient-weighted, class-specific
+:class:`~pyhealth.interpret.methods.CheferRelevance`.
+
+Paper:
+    Abnar, Samira, and Willem Zuidema.
+    "Quantifying Attention Flow in Transformers."
+    Proceedings of the 58th Annual Meeting of the Association for
+    Computational Linguistics (ACL), 2020.
+    https://arxiv.org/abs/2005.00928
+"""
 
 from typing import Dict, Optional
 
@@ -214,8 +225,7 @@ class AttentionRollout(BaseInterpreter):
 
     def _fuse_heads(self, attn_map: torch.Tensor) -> torch.Tensor:
         """Fuse attention heads from [batch, heads, seq, seq] to [batch, seq, seq]."""
-
-        if self.head_fusion == "mean":
+        if (self.head_fusion == "mean"):
             return attn_map.mean(dim=1)
 
     def _map_to_input_shapes(
