@@ -33,7 +33,7 @@ def ranking_metrics_fn(qrels: Dict[str, Dict[str, int]],
     """
     try:
         import pytrec_eval
-    except:
+    except ImportError:
         raise ImportError("pytrec_eval is not installed. Please install it manually by running \
             'pip install pytrec_eval'.")
     ret = {}
