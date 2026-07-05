@@ -1,0 +1,190 @@
+# Canonical configuration for MIMIC-IV mortality training runs.
+#
+# This file is the source of truth for the `run-multimodal-training` skill.
+# When a user asks to launch / monitor / relaunch a combo, read this file first.
+# Do not invent hyperparameter values; if a combo isn't defined here, ask.
+#
+# Three sections:
+#   defaults     — applied to every run unless overridden in the experiment entry
+#   tasks        — modality combos and which roots they require
+#   experiments  — named, GPU-pinned combos ready to launch. Each entry is fully
+#                  self-contained for RAM-sensitive params (batch_size,
+#                  embedding_dim, hidden_dim, etc.) because those vary per
+#                  (task, model) combination — there is no per-model defaults
+#                  layer.
+
+defaults:
+  project_dir: /home/joshua86/PyHealth
+  conda_env: pyhealth2
+  ehr_root: /shared/rsaas/physionet.org/files/mimiciv/2.2
+  note_root: /shared/rsaas/physionet.org/files/mimic-note
+  cxr_root: /shared/rsaas/physionet.org/files/MIMIC-CXR
+  cxr_variant: sunlab
+  cache_dir: null            # null → ~/.cache/pyhealth (975 GB free). /shared/eng/pyhealth is full (39 GB free) — do not use.
+  output_dir: output/unified
+  observation_window_hours: 24
+  seed: 42
+  dropout: 0.1
+  weight_decay: 0.0
+  num_workers: 1
+  epochs: 10
+  wandb_project: pyhealth-multimodal   # documentation only — runner hardcodes this; mandatory, no opt-out
+
+tasks:
+  cxr:
+    class: CXRMIMIC4
+    roots: [ehr, cxr]
+  icd_cxr:
+    class: ICDCXRMIMIC4
+    roots: [ehr, cxr]
+  labs_cxr:
+    class: LabsCXRMIMIC4
+    roots: [ehr, cxr]
+  icd_labs_cxr:
+    class: ICDLabsCXRMIMIC4
+    roots: [ehr, cxr]
+  icd_labs:
+    class: ICDLabsMIMIC4
+    roots: [ehr]
+  clinical_notes_icd_labs:
+    class: ClinicalNotesICDLabsMIMIC4
+    roots: [ehr, note]
+
+# Each entry inherits in this order (later wins):
+#   defaults  <  entry's own keys  <  user override at launch time.
+# RAM-sensitive params (batch_size, embedding_dim, hidden_dim, lr, and any
+# model-structural keys like heads / num_layers / mamba_state_size) must be
+# set explicitly per entry — they vary across (task, model) combinations
+# because each modality combo has a different memory footprint.
+experiments:
+  - name: cxr_mlp
+    task: cxr
+    model: mlp
+    gpu: 0
+    batch_size: 16
+    embedding_dim: 128
+    hidden_dim: 128
+    lr: 1.0e-3
+
+  - name: labs_cxr_mlp
+    task: labs_cxr
+    model: mlp
+    gpu: 3
+    batch_size: 16
+    embedding_dim: 128
+    hidden_dim: 128
+    lr: 1.0e-3
+
+  - name: icd_cxr_mlp
+    task: icd_cxr
+    model: mlp
+    gpu: 5
+    batch_size: 16
+    embedding_dim: 128
+    hidden_dim: 128
+    lr: 1.0e-3
+
+  - name: icd_labs_cxr_mlp
+    task: icd_labs_cxr
+    model: mlp
+    gpu: 7
+    batch_size: 8
+    embedding_dim: 128
+    hidden_dim: 128
+    lr: 1.0e-3
+    epochs: 20
+
+  # ICD + labs (EHR-only tabular) — sweep across four temporal models.
+  # All share GPU 5 / 7 rotation (2 in parallel × 2 rounds).
+  - name: icd_labs_mlp
+    task: icd_labs
+    model: mlp
+    gpu: 5
+    batch_size: 16
+    embedding_dim: 64
+    hidden_dim: 64
+    lr: 1.0e-3
+
+  - name: icd_labs_ehrmamba
+    task: icd_labs
+    model: ehrmamba
+    gpu: 7
+    batch_size: 8
+    embedding_dim: 64
+    hidden_dim: 64
+    lr: 1.0e-3
+    num_layers: 2
+    mamba_state_size: 16
+    mamba_conv_kernel: 4
+
+  - name: icd_labs_jambaehr
+    task: icd_labs
+    model: jambaehr
+    gpu: 5
+    batch_size: 8
+    embedding_dim: 64
+    hidden_dim: 64
+    lr: 1.0e-3
+    heads: 4
+    jamba_transformer_layers: 2
+    jamba_mamba_layers: 6
+    mamba_state_size: 16
+    mamba_conv_kernel: 4
+
+  - name: icd_labs_bottleneck_transformer
+    task: icd_labs
+    model: bottleneck_transformer
+    gpu: 7
+    batch_size: 4
+    embedding_dim: 64
+    hidden_dim: 64
+    lr: 1.0e-4              # auto-applied by runner for BT; set explicit per YAML rule
+    heads: 4
+    num_layers: 2
+    bottlenecks_n: 4
+    fusion_startidx: 1
+
+  # CXR-only with JambaEHR (transformer + mamba mix). vision_pool=mean (1 vec/image).
+  - name: cxr_jambaehr
+    task: cxr
+    model: jambaehr
+    gpu: 5
+    batch_size: 4
+    embedding_dim: 64
+    hidden_dim: 64
+    lr: 1.0e-3
+    heads: 4
+    jamba_transformer_layers: 2
+    jamba_mamba_layers: 6
+    mamba_state_size: 16
+    mamba_conv_kernel: 4
+
+  # labs+CXR with Transformer, vision_pool=mean (1 vec/image, original behavior).
+  - name: labs_cxr_transformer_compressed
+    task: labs_cxr
+    model: transformer
+    gpu: 5
+    batch_size: 4
+    embedding_dim: 64
+    hidden_dim: 64
+    heads: 4
+    num_layers: 2
+    lr: 1.0e-3
+    vision_pool: mean
+    output_dir: output/unified_e2e/labs_cxr_transformer_compressed   # distinct from uncompressed to avoid CSV collision
+
+  # labs+CXR with Transformer, vision_pool=none (all ~196 patch tokens/image flattened
+  # into the sequence). Sequence length per sample inflates ~196x; transformer attention
+  # is O(n^2). batch_size=1 is the safe floor on 80GB; expect slow epochs.
+  - name: labs_cxr_transformer_uncompressed
+    task: labs_cxr
+    model: transformer
+    gpu: 5
+    batch_size: 1
+    embedding_dim: 64
+    hidden_dim: 64
+    heads: 4
+    num_layers: 2
+    lr: 1.0e-3
+    vision_pool: none
+    output_dir: output/unified_e2e/labs_cxr_transformer_uncompressed
