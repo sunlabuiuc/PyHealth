@@ -1,0 +1,33 @@
+name: PR Contribution Rules
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  contribution-rules:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch PR base and head commits
+        run: |
+          git fetch origin ${{ github.event.pull_request.base.sha }} --depth=1
+          git fetch origin ${{ github.event.pull_request.head.sha }} --depth=1
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install ruff
+        run: pip install 'ruff~=0.15'
+
+      - name: Check PR contribution rules
+        run: |
+          python tools/check_pr_rules.py \
+            --base ${{ github.event.pull_request.base.sha }} \
+            --head ${{ github.event.pull_request.head.sha }}
