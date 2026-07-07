@@ -1509,7 +1509,7 @@ git commit -m "docs: add EEGBCI pattern discovery example"
 - Consumes: public classes and helpers from tasks 2 and 3.
 - Produces: Sphinx API pages.
 
-- [ ] **Step 1: Add dataset API page**
+- [x] **Step 1: Add dataset API page**
 
 Create `docs/api/datasets/pyhealth.datasets.EEGBCIDataset.rst`:
 
@@ -1523,7 +1523,7 @@ pyhealth.datasets.EEGBCIDataset
     :show-inheritance:
 ```
 
-- [ ] **Step 2: Add task API page**
+- [x] **Step 2: Add task API page**
 
 Create `docs/api/tasks/pyhealth.tasks.eegbci.rst`:
 
@@ -1537,7 +1537,7 @@ pyhealth.tasks.eegbci
     :show-inheritance:
 ```
 
-- [ ] **Step 3: Include pages in API indexes**
+- [x] **Step 3: Include pages in API indexes**
 
 Add the dataset page to the relevant `.. toctree::` in `docs/api/datasets.rst`:
 
@@ -1551,7 +1551,7 @@ Add the task page to the relevant `.. toctree::` in `docs/api/tasks.rst`:
    tasks/pyhealth.tasks.eegbci
 ```
 
-- [ ] **Step 4: Run docs import smoke**
+- [x] **Step 4: Run docs import smoke**
 
 Run:
 
@@ -1573,7 +1573,7 @@ EEGMotorImageryEEGBCI
 EEGBCIPatternDiscovery
 ```
 
-- [ ] **Step 5: Commit task 6**
+- [x] **Step 5: Commit task 6**
 
 Run:
 
@@ -1684,3 +1684,4 @@ Do not include the optional embedding comparison in the initial implementation. 
 - 2026-07-07: Task 3 complete; `.venv/bin/python -m pytest tests/core/test_eegbci.py -v` passes with 21 tests.
 - 2026-07-07: Task 4 complete; normal EEGBCI tests pass with 21 passed/1 skipped, and `PYHEALTH_RUN_REAL_EEGBCI=1 .venv/bin/python -m pytest tests/core/test_eegbci.py::TestEEGBCIRealDataSmoke -v` passes against subject 1 run 3.
 - 2026-07-07: Task 5 complete; `.venv/bin/python examples/eeg/eegbci/eegbci_pattern_discovery.py --subjects 1 --runs 3 --max-windows 20 --download` writes a 20-row CSV and Markdown summary.
+- 2026-07-07: Task 6 complete; docs import smoke prints `EEGBCIDataset`, `EEGMotorImageryEEGBCI`, and `EEGBCIPatternDiscovery`.
