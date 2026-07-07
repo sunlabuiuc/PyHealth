@@ -1,6 +1,8 @@
 import unittest
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
+from typing import List
 from unittest.mock import patch
 
 import numpy as np
@@ -187,3 +189,122 @@ class TestEEGBCIDataset(unittest.TestCase):
 
         ds = EEGBCIDataset.__new__(EEGBCIDataset)
         self.assertIsInstance(ds.default_task, EEGBCIPatternDiscovery)
+
+
+from pyhealth.tasks.eegbci import EEGBCIPatternDiscovery, EEGMotorImageryEEGBCI
+
+
+@dataclass
+class _EEGBCIEvent:
+    signal_file: str
+    record_id: str = "R03"
+    subject_id: int = 1
+    run: int = 3
+    run_type: str = "motor_execution_left_right"
+    source: str = "physionet_eegbci"
+
+
+class _EEGBCIPatient:
+    def __init__(self, patient_id: str, events: List[_EEGBCIEvent]):
+        self.patient_id = patient_id
+        self._events = events
+
+    def get_events(self, event_type=None) -> List[_EEGBCIEvent]:
+        if event_type not in (None, "records"):
+            return []
+        return self._events
+
+
+class TestEEGBCITasks(unittest.TestCase):
+    def test_task_schema_attributes(self):
+        task = EEGMotorImageryEEGBCI()
+        self.assertEqual(task.task_name, "EEGBCI_motor_imagery")
+        self.assertEqual(task.input_schema, {"signal": "tensor", "stft": "tensor"})
+        self.assertEqual(task.output_schema, {"label": "multiclass"})
+
+    def test_task_schema_without_stft(self):
+        task = EEGMotorImageryEEGBCI(compute_stft=False)
+        self.assertEqual(task.input_schema, {"signal": "tensor"})
+
+    def test_pattern_discovery_schema_attributes(self):
+        task = EEGBCIPatternDiscovery(compute_stft=False)
+        self.assertEqual(task.task_name, "EEGBCI_pattern_discovery")
+        self.assertEqual(task.input_schema, {"signal": "tensor"})
+
+    def test_iter_annotation_windows_uses_full_2s_windows(self):
+        import mne
+        from pyhealth.tasks.eegbci import iter_annotation_windows
+
+        sfreq = 200.0
+        raw = mne.io.RawArray(
+            np.zeros((2, int(sfreq * 6))),
+            mne.create_info(["C3", "C4"], sfreq=sfreq, ch_types=["eeg", "eeg"]),
+            verbose="error",
+        )
+        raw.set_annotations(
+            mne.Annotations(onset=[0.5, 2.0], duration=[1.0, 3.0], description=["T0", "T1"])
+        )
+        windows = iter_annotation_windows(raw, run=3, window_size=2.0)
+        self.assertEqual(len(windows), 1)
+        self.assertEqual(windows[0]["event_code"], "T1")
+        self.assertEqual(windows[0]["task_label"], "execute_left_fist")
+        self.assertEqual(windows[0]["start_sample"], 400)
+        self.assertEqual(windows[0]["end_sample"], 800)
+
+    def test_motor_imagery_task_returns_samples_from_raw(self):
+        import mne
+
+        sfreq = 200.0
+        raw = mne.io.RawArray(
+            np.ones((16, int(sfreq * 5))),
+            mne.create_info(
+                list(
+                    __import__(
+                        "pyhealth.tasks.eegbci", fromlist=["EEGBCI_COMPAT_CHANNELS"]
+                    ).EEGBCI_COMPAT_CHANNELS
+                ),
+                sfreq=sfreq,
+                ch_types=["eeg"] * 16,
+            ),
+            verbose="error",
+        )
+        raw.set_annotations(mne.Annotations(onset=[0.0], duration=[2.0], description=["T1"]))
+        patient = _EEGBCIPatient("S001", [_EEGBCIEvent(signal_file="dummy.edf")])
+        task = EEGMotorImageryEEGBCI(compute_stft=False, resample_rate=None, bandpass_filter=None)
+
+        with patch("pyhealth.tasks.eegbci.mne.io.read_raw_edf", return_value=raw):
+            samples = task(patient)
+
+        self.assertEqual(len(samples), 1)
+        sample = samples[0]
+        self.assertEqual(sample["patient_id"], "S001")
+        self.assertEqual(sample["record_id"], "R03")
+        self.assertEqual(sample["event_code"], "T1")
+        self.assertEqual(sample["task_label"], "execute_left_fist")
+        self.assertEqual(sample["label"], 1)
+        self.assertEqual(tuple(sample["signal"].shape), (16, 400))
+
+    def test_pattern_discovery_adds_bandpower_metadata(self):
+        import mne
+        from pyhealth.tasks.eegbci import EEGBCI_COMPAT_CHANNELS
+
+        sfreq = 200.0
+        times = np.arange(0, 2, 1 / sfreq)
+        alpha = np.sin(2 * np.pi * 10 * times)
+        raw = mne.io.RawArray(
+            np.tile(alpha, (16, 1)),
+            mne.create_info(list(EEGBCI_COMPAT_CHANNELS), sfreq=sfreq, ch_types=["eeg"] * 16),
+            verbose="error",
+        )
+        raw.set_annotations(mne.Annotations(onset=[0.0], duration=[2.0], description=["T0"]))
+        patient = _EEGBCIPatient("S001", [_EEGBCIEvent(signal_file="dummy.edf")])
+        task = EEGBCIPatternDiscovery(compute_stft=False, resample_rate=None, bandpass_filter=None)
+
+        with patch("pyhealth.tasks.eegbci.mne.io.read_raw_edf", return_value=raw):
+            samples = task(patient)
+
+        self.assertEqual(len(samples), 1)
+        sample = samples[0]
+        self.assertEqual(sample["bandpower"]["dominant_band"], "alpha")
+        self.assertEqual(sample["brain_state_hypothesis"], "relaxed_or_idle")
+        self.assertIn("interpretation", sample)

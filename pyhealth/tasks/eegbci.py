@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Tuple
 
+import mne
 import numpy as np
+import torch
+
+from pyhealth.tasks import BaseTask
 
 EEGBCI_RUN_TYPES = {
     3: "motor_execution_left_right",
@@ -230,5 +234,136 @@ def interpret_band_profile(features: Dict[str, float | str]) -> Dict[str, str]:
     }
 
 
-class EEGBCIPatternDiscovery:
-    """Placeholder default task until the EEGBCI task implementation is added."""
+def iter_annotation_windows(
+    raw: mne.io.BaseRaw,
+    run: int,
+    window_size: float = 2.0,
+) -> List[Dict[str, Any]]:
+    sfreq = float(raw.info["sfreq"])
+    window_samples = int(round(window_size * sfreq))
+    windows: List[Dict[str, Any]] = []
+    for idx, annotation in enumerate(raw.annotations):
+        event_code = str(annotation["description"])
+        if event_code not in {"T0", "T1", "T2"}:
+            continue
+        start_sample = int(round(float(annotation["onset"]) * sfreq))
+        duration_samples = int(round(float(annotation["duration"]) * sfreq))
+        n_full_windows = duration_samples // window_samples
+        for window_idx in range(n_full_windows):
+            s0 = start_sample + window_idx * window_samples
+            s1 = s0 + window_samples
+            task_label = task_label_for_event(run, event_code)
+            windows.append(
+                {
+                    "trial_id": f"ann{idx:04d}_win{window_idx:03d}",
+                    "event_code": event_code,
+                    "task_label": task_label,
+                    "label_family": label_family_for_run(run),
+                    "label": numeric_label_for_task(task_label),
+                    "start_time": s0 / sfreq,
+                    "end_time": s1 / sfreq,
+                    "start_sample": s0,
+                    "end_sample": s1,
+                }
+            )
+    return windows
+
+
+class EEGMotorImageryEEGBCI(BaseTask):
+    task_name: str = "EEGBCI_motor_imagery"
+    input_schema: Dict[str, str] = {"signal": "tensor", "stft": "tensor"}
+    output_schema: Dict[str, str] = {"label": "multiclass"}
+
+    def __init__(
+        self,
+        window_size: float = 2.0,
+        resample_rate: float | None = 200,
+        bandpass_filter: Tuple[float, float] | None = (0.5, 45.0),
+        channel_mode: str = "compat16",
+        normalization: str | None = "95th_percentile",
+        compute_stft: bool = True,
+    ) -> None:
+        super().__init__()
+        self.window_size = window_size
+        self.resample_rate = resample_rate
+        self.bandpass_filter = bandpass_filter
+        self.channel_mode = channel_mode
+        self.normalization = normalization
+        self.compute_stft = compute_stft
+        if not compute_stft:
+            self.input_schema = {"signal": "tensor"}
+
+    def __call__(self, patient: Any) -> List[Dict[str, Any]]:
+        return self._base_samples_from_patient(patient)
+
+    def read_raw(self, signal_file: str) -> mne.io.BaseRaw:
+        raw = mne.io.read_raw_edf(signal_file, preload=True, verbose="error")
+        raw.pick_types(eeg=True, stim=False, exclude=[])
+        if self.bandpass_filter is not None:
+            raw.filter(
+                l_freq=self.bandpass_filter[0],
+                h_freq=self.bandpass_filter[1],
+                verbose="error",
+            )
+        if self.resample_rate is not None:
+            raw.resample(self.resample_rate, n_jobs=1, verbose="error")
+        return raw
+
+    def _base_samples_from_patient(self, patient: Any) -> List[Dict[str, Any]]:
+        samples: List[Dict[str, Any]] = []
+        for event in patient.get_events("records"):
+            raw = self.read_raw(event.signal_file)
+            data = raw.get_data(units="uV")
+            selected, selected_names = select_eegbci_channels(
+                data, raw.ch_names, self.channel_mode
+            )
+            selected = normalize_signal(selected, self.normalization)
+            sfreq = float(raw.info["sfreq"])
+            for idx, window in enumerate(
+                iter_annotation_windows(raw, int(event.run), self.window_size)
+            ):
+                signal_np = selected[:, window["start_sample"] : window["end_sample"]]
+                if signal_np.shape[-1] != int(round(self.window_size * sfreq)):
+                    continue
+                signal = torch.FloatTensor(signal_np)
+                sample = {
+                    "patient_id": patient.patient_id,
+                    "record_id": event.record_id,
+                    "subject_id": int(event.subject_id),
+                    "run": int(event.run),
+                    "run_type": event.run_type,
+                    "signal_file": event.signal_file,
+                    "trial_id": f"{patient.patient_id}_{event.record_id}_{idx:04d}",
+                    "event_code": window["event_code"],
+                    "task_label": window["task_label"],
+                    "label_family": window["label_family"],
+                    "label": int(window["label"]),
+                    "signal": signal,
+                    "channel_names": selected_names,
+                    "start_time": window["start_time"],
+                    "end_time": window["end_time"],
+                    "sample_rate": sfreq,
+                }
+                if self.compute_stft:
+                    from pyhealth.models.tfm_tokenizer import get_stft_torch
+
+                    sample["stft"] = get_stft_torch(signal.unsqueeze(0)).squeeze(0)
+                samples.append(sample)
+            raw.close()
+        return samples
+
+
+class EEGBCIPatternDiscovery(EEGMotorImageryEEGBCI):
+    task_name: str = "EEGBCI_pattern_discovery"
+
+    def __call__(self, patient: Any) -> List[Dict[str, Any]]:
+        samples = self._base_samples_from_patient(patient)
+        for sample in samples:
+            features = compute_band_powers(
+                sample["signal"].detach().cpu().numpy(),
+                float(sample["sample_rate"]),
+            )
+            interpretation = interpret_band_profile(features)
+            sample["bandpower"] = features
+            sample.update(interpretation)
+        return samples

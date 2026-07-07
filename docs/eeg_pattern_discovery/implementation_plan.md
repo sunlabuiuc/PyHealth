@@ -889,7 +889,7 @@ git commit -m "feat: add EEGBCI dataset"
 - Consumes: dataset metadata events with `signal_file`, `run`, `record_id`, `run_type`.
 - Produces: `EEGMotorImageryEEGBCI` and `EEGBCIPatternDiscovery` samples.
 
-- [ ] **Step 1: Add task schema tests**
+- [x] **Step 1: Add task schema tests**
 
 Append to `tests/core/test_eegbci.py`:
 
@@ -940,7 +940,7 @@ class TestEEGBCITasks(unittest.TestCase):
         self.assertEqual(task.input_schema, {"signal": "tensor"})
 ```
 
-- [ ] **Step 2: Run schema tests to verify failure**
+- [x] **Step 2: Run schema tests to verify failure**
 
 Run:
 
@@ -950,7 +950,7 @@ pytest tests/core/test_eegbci.py::TestEEGBCITasks -v
 
 Expected: FAIL because classes do not exist.
 
-- [ ] **Step 3: Implement task constructors**
+- [x] **Step 3: Implement task constructors**
 
 Add to `pyhealth/tasks/eegbci.py`:
 
@@ -990,7 +990,7 @@ class EEGBCIPatternDiscovery(EEGMotorImageryEEGBCI):
     task_name: str = "EEGBCI_pattern_discovery"
 ```
 
-- [ ] **Step 4: Run schema tests**
+- [x] **Step 4: Run schema tests**
 
 Run:
 
@@ -1000,7 +1000,7 @@ pytest tests/core/test_eegbci.py::TestEEGBCITasks -v
 
 Expected: PASS for schema tests.
 
-- [ ] **Step 5: Add failing annotation window tests**
+- [x] **Step 5: Add failing annotation window tests**
 
 Append to `TestEEGBCITasks`:
 
@@ -1026,7 +1026,7 @@ Append to `TestEEGBCITasks`:
         self.assertEqual(windows[0]["end_sample"], 800)
 ```
 
-- [ ] **Step 6: Implement annotation windowing**
+- [x] **Step 6: Implement annotation windowing**
 
 Add before the task classes:
 
@@ -1065,7 +1065,7 @@ def iter_annotation_windows(
     return windows
 ```
 
-- [ ] **Step 7: Run annotation tests**
+- [x] **Step 7: Run annotation tests**
 
 Run:
 
@@ -1075,7 +1075,7 @@ pytest tests/core/test_eegbci.py::TestEEGBCITasks::test_iter_annotation_windows_
 
 Expected: PASS.
 
-- [ ] **Step 8: Add failing sample-generation tests**
+- [x] **Step 8: Add failing sample-generation tests**
 
 Append to `TestEEGBCITasks`:
 
@@ -1135,7 +1135,7 @@ Append to `TestEEGBCITasks`:
         self.assertIn("interpretation", sample)
 ```
 
-- [ ] **Step 9: Implement EDF reading and sample generation**
+- [x] **Step 9: Implement EDF reading and sample generation**
 
 Add methods inside `EEGMotorImageryEEGBCI`:
 
@@ -1216,7 +1216,7 @@ Override `__call__` in `EEGBCIPatternDiscovery`:
         return samples
 ```
 
-- [ ] **Step 10: Export tasks**
+- [x] **Step 10: Export tasks**
 
 Modify `pyhealth/tasks/__init__.py`:
 
@@ -1226,7 +1226,7 @@ from pyhealth.tasks.eegbci import EEGBCIPatternDiscovery, EEGMotorImageryEEGBCI
 
 Place it near other EEG task exports.
 
-- [ ] **Step 11: Run task tests**
+- [x] **Step 11: Run task tests**
 
 Run:
 
@@ -1236,7 +1236,7 @@ pytest tests/core/test_eegbci.py::TestEEGBCITasks -v
 
 Expected: PASS.
 
-- [ ] **Step 12: Commit task 3**
+- [x] **Step 12: Commit task 3**
 
 Run:
 
@@ -1681,3 +1681,4 @@ Do not include the optional embedding comparison in the initial implementation. 
 - 2026-07-07: Ran automatic engineering review and incorporated decisions on dataset/task boundaries, channel strategy, annotation timing, edge cases, and test coverage.
 - 2026-07-07: Task 1 complete on branch `eegbci-pattern-discovery`; helper tests pass with `.venv/bin/python -m pytest tests/core/test_eegbci.py::TestEEGBCIHelpers -v`.
 - 2026-07-07: Task 2 complete; dataset metadata tests pass with `.venv/bin/python -m pytest tests/core/test_eegbci.py::TestEEGBCIDataset -v`.
+- 2026-07-07: Task 3 complete; `.venv/bin/python -m pytest tests/core/test_eegbci.py -v` passes with 21 tests.
