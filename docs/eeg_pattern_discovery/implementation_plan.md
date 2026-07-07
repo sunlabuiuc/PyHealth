@@ -1685,3 +1685,4 @@ Do not include the optional embedding comparison in the initial implementation. 
 - 2026-07-07: Task 4 complete; normal EEGBCI tests pass with 21 passed/1 skipped, and `PYHEALTH_RUN_REAL_EEGBCI=1 .venv/bin/python -m pytest tests/core/test_eegbci.py::TestEEGBCIRealDataSmoke -v` passes against subject 1 run 3.
 - 2026-07-07: Task 5 complete; `.venv/bin/python examples/eeg/eegbci/eegbci_pattern_discovery.py --subjects 1 --runs 3 --max-windows 20 --download` writes a 20-row CSV and Markdown summary.
 - 2026-07-07: Task 6 complete; docs import smoke prints `EEGBCIDataset`, `EEGMotorImageryEEGBCI`, and `EEGBCIPatternDiscovery`.
+- 2026-07-07: Final verification complete; default EEGBCI tests pass with 21 passed/1 skipped, import smoke prints `imports ok`, opt-in real-data smoke passes, the example writes verified 20-row artifacts, and `graphify update .` refreshed the code graph.
