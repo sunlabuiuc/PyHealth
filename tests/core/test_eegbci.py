@@ -1,3 +1,4 @@
+import os
 import unittest
 import tempfile
 from dataclasses import dataclass
@@ -9,6 +10,7 @@ import numpy as np
 import pandas as pd
 
 from pyhealth.tasks.eegbci import (
+    EEGBCI_LABELS,
     label_family_for_run,
     numeric_label_for_task,
     run_type_for_run,
@@ -169,7 +171,7 @@ class TestEEGBCIDataset(unittest.TestCase):
             ) as load_data:
                 ds.prepare_metadata()
 
-            load_data.assert_called_once_with(1, [4], path=str(root))
+            load_data.assert_called_once_with(1, [4], path=str(root), update_path=False)
             df = pd.read_csv(root / "eegbci-pyhealth.csv")
             self.assertEqual(df.loc[0, "record_id"], "R04")
             self.assertEqual(df.loc[0, "run_type"], "motor_imagery_left_right")
@@ -308,3 +310,23 @@ class TestEEGBCITasks(unittest.TestCase):
         self.assertEqual(sample["bandpower"]["dominant_band"], "alpha")
         self.assertEqual(sample["brain_state_hypothesis"], "relaxed_or_idle")
         self.assertIn("interpretation", sample)
+
+
+@unittest.skipUnless(
+    os.environ.get("PYHEALTH_RUN_REAL_EEGBCI") == "1",
+    "Set PYHEALTH_RUN_REAL_EEGBCI=1 to download and test real EEGBCI data.",
+)
+class TestEEGBCIRealDataSmoke(unittest.TestCase):
+    def test_real_eegbci_subject_1_run_3_pattern_discovery(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            dataset = EEGBCIDataset(root=tmp, subjects=[1], runs=[3], download=True)
+            sample_dataset = dataset.set_task(
+                EEGBCIPatternDiscovery(compute_stft=False, window_size=2.0)
+            )
+            self.assertGreater(len(sample_dataset), 0)
+            sample = sample_dataset[0]
+            self.assertIn("signal", sample)
+            self.assertEqual(sample["signal"].shape[0], 16)
+            self.assertIn(sample["task_label"], set(EEGBCI_LABELS))
+            self.assertIn("bandpower", sample)
+            self.assertIn("brain_state_hypothesis", sample)

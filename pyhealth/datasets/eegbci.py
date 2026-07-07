@@ -58,7 +58,7 @@ class EEGBCIDataset(BaseDataset):
             paths_by_run: dict[int, Path] = {}
             if self.download:
                 downloaded = mne.datasets.eegbci.load_data(
-                    subject, self.runs, path=str(root)
+                    subject, self.runs, path=str(root), update_path=False
                 )
                 for path in downloaded:
                     p = Path(path)

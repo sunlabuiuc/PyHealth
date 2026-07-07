@@ -1256,7 +1256,7 @@ git commit -m "feat: add EEGBCI tasks"
 - Consumes: `PYHEALTH_RUN_REAL_EEGBCI=1`.
 - Produces: skipped-by-default network/data smoke test.
 
-- [ ] **Step 1: Add skipped-by-default smoke test**
+- [x] **Step 1: Add skipped-by-default smoke test**
 
 Append to `tests/core/test_eegbci.py`:
 
@@ -1284,7 +1284,7 @@ class TestEEGBCIRealDataSmoke(unittest.TestCase):
             self.assertIn("brain_state_hypothesis", sample)
 ```
 
-- [ ] **Step 2: Run default tests and confirm skip**
+- [x] **Step 2: Run default tests and confirm skip**
 
 Run:
 
@@ -1294,7 +1294,7 @@ pytest tests/core/test_eegbci.py -v
 
 Expected: PASS with `TestEEGBCIRealDataSmoke` skipped.
 
-- [ ] **Step 3: Run opt-in smoke test when network access is acceptable**
+- [x] **Step 3: Run opt-in smoke test when network access is acceptable**
 
 Run:
 
@@ -1304,7 +1304,7 @@ PYHEALTH_RUN_REAL_EEGBCI=1 pytest tests/core/test_eegbci.py::TestEEGBCIRealDataS
 
 Expected: PASS after MNE downloads subject `1`, run `3`.
 
-- [ ] **Step 4: Commit task 4**
+- [x] **Step 4: Commit task 4**
 
 Run:
 
@@ -1682,3 +1682,4 @@ Do not include the optional embedding comparison in the initial implementation. 
 - 2026-07-07: Task 1 complete on branch `eegbci-pattern-discovery`; helper tests pass with `.venv/bin/python -m pytest tests/core/test_eegbci.py::TestEEGBCIHelpers -v`.
 - 2026-07-07: Task 2 complete; dataset metadata tests pass with `.venv/bin/python -m pytest tests/core/test_eegbci.py::TestEEGBCIDataset -v`.
 - 2026-07-07: Task 3 complete; `.venv/bin/python -m pytest tests/core/test_eegbci.py -v` passes with 21 tests.
+- 2026-07-07: Task 4 complete; normal EEGBCI tests pass with 21 passed/1 skipped, and `PYHEALTH_RUN_REAL_EEGBCI=1 .venv/bin/python -m pytest tests/core/test_eegbci.py::TestEEGBCIRealDataSmoke -v` passes against subject 1 run 3.
