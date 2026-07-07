@@ -635,7 +635,7 @@ git commit -m "feat: add EEGBCI helper functions"
 - Produces: `EEGBCIDataset(root, dataset_name=None, config_path=None, subjects=None, runs=None, download=False, **kwargs)`.
 - Produces metadata file: `<root>/eegbci-pyhealth.csv`.
 
-- [ ] **Step 1: Add failing dataset metadata tests**
+- [x] **Step 1: Add failing dataset metadata tests**
 
 Append to `tests/core/test_eegbci.py`:
 
@@ -714,7 +714,7 @@ class TestEEGBCIDataset(unittest.TestCase):
         self.assertIsInstance(ds.default_task, EEGBCIPatternDiscovery)
 ```
 
-- [ ] **Step 2: Run dataset tests to verify failure**
+- [x] **Step 2: Run dataset tests to verify failure**
 
 Run:
 
@@ -724,7 +724,7 @@ pytest tests/core/test_eegbci.py::TestEEGBCIDataset -v
 
 Expected: FAIL with `ModuleNotFoundError: No module named 'pyhealth.datasets.eegbci'`.
 
-- [ ] **Step 3: Implement `EEGBCIDataset`**
+- [x] **Step 3: Implement `EEGBCIDataset`**
 
 Create `pyhealth/datasets/eegbci.py`:
 
@@ -827,7 +827,7 @@ class EEGBCIDataset(BaseDataset):
         return EEGBCIPatternDiscovery()
 ```
 
-- [ ] **Step 4: Add dataset config**
+- [x] **Step 4: Add dataset config**
 
 Create `pyhealth/datasets/configs/eegbci.yaml`:
 
@@ -847,7 +847,7 @@ tables:
     - "source"
 ```
 
-- [ ] **Step 5: Export dataset**
+- [x] **Step 5: Export dataset**
 
 Modify `pyhealth/datasets/__init__.py`:
 
@@ -857,7 +857,7 @@ from pyhealth.datasets.eegbci import EEGBCIDataset
 
 Place the import beside other EEG dataset exports.
 
-- [ ] **Step 6: Run dataset tests**
+- [x] **Step 6: Run dataset tests**
 
 Run:
 
@@ -867,7 +867,7 @@ pytest tests/core/test_eegbci.py::TestEEGBCIDataset -v
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit task 2**
+- [x] **Step 7: Commit task 2**
 
 Run:
 
@@ -1680,3 +1680,4 @@ Do not include the optional embedding comparison in the initial implementation. 
 - 2026-07-07: Converted draft requirements/design into a concrete TDD implementation plan using `superpowers:writing-plans`.
 - 2026-07-07: Ran automatic engineering review and incorporated decisions on dataset/task boundaries, channel strategy, annotation timing, edge cases, and test coverage.
 - 2026-07-07: Task 1 complete on branch `eegbci-pattern-discovery`; helper tests pass with `.venv/bin/python -m pytest tests/core/test_eegbci.py::TestEEGBCIHelpers -v`.
+- 2026-07-07: Task 2 complete; dataset metadata tests pass with `.venv/bin/python -m pytest tests/core/test_eegbci.py::TestEEGBCIDataset -v`.

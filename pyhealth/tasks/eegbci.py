@@ -228,3 +228,7 @@ def interpret_band_profile(features: Dict[str, float | str]) -> Dict[str, str]:
             "metadata, not evidence of cognition or a clinical diagnosis."
         ),
     }
+
+
+class EEGBCIPatternDiscovery:
+    """Placeholder default task until the EEGBCI task implementation is added."""

@@ -1,6 +1,10 @@
 import unittest
+import tempfile
+from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
+import pandas as pd
 
 from pyhealth.tasks.eegbci import (
     label_family_for_run,
@@ -115,3 +119,71 @@ class TestEEGBCIHelpers(unittest.TestCase):
         self.assertEqual(interpretation["brain_state_hypothesis"], "relaxed_or_idle")
         self.assertIn(interpretation["confidence"], {"low", "medium", "high"})
         self.assertIn("consistent with", interpretation["interpretation"])
+
+
+from pyhealth.datasets.eegbci import EEGBCIDataset
+
+
+class TestEEGBCIDataset(unittest.TestCase):
+    def test_prepare_metadata_with_existing_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            edf = root / "files" / "eegmmidb" / "1.0.0" / "S001" / "S001R03.edf"
+            edf.parent.mkdir(parents=True)
+            edf.write_bytes(b"")
+
+            ds = EEGBCIDataset.__new__(EEGBCIDataset)
+            ds.root = str(root)
+            ds.subjects = [1]
+            ds.runs = [3]
+            ds.download = False
+            ds.prepare_metadata()
+
+            csv_path = root / "eegbci-pyhealth.csv"
+            self.assertTrue(csv_path.exists())
+            df = pd.read_csv(csv_path)
+            self.assertEqual(len(df), 1)
+            self.assertEqual(df.loc[0, "patient_id"], "S001")
+            self.assertEqual(df.loc[0, "record_id"], "R03")
+            self.assertEqual(df.loc[0, "subject_id"], 1)
+            self.assertEqual(df.loc[0, "run"], 3)
+            self.assertEqual(df.loc[0, "run_type"], "motor_execution_left_right")
+            self.assertEqual(df.loc[0, "source"], "physionet_eegbci")
+
+    def test_prepare_metadata_download_uses_mne_loader(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            fake_path = root / "S001R04.edf"
+            fake_path.write_bytes(b"")
+            ds = EEGBCIDataset.__new__(EEGBCIDataset)
+            ds.root = str(root)
+            ds.subjects = [1]
+            ds.runs = [4]
+            ds.download = True
+
+            with patch(
+                "pyhealth.datasets.eegbci.mne.datasets.eegbci.load_data",
+                return_value=[str(fake_path)],
+            ) as load_data:
+                ds.prepare_metadata()
+
+            load_data.assert_called_once_with(1, [4], path=str(root))
+            df = pd.read_csv(root / "eegbci-pyhealth.csv")
+            self.assertEqual(df.loc[0, "record_id"], "R04")
+            self.assertEqual(df.loc[0, "run_type"], "motor_imagery_left_right")
+
+    def test_prepare_metadata_missing_local_file_raises(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ds = EEGBCIDataset.__new__(EEGBCIDataset)
+            ds.root = tmp
+            ds.subjects = [1]
+            ds.runs = [3]
+            ds.download = False
+            with self.assertRaisesRegex(FileNotFoundError, "download=True"):
+                ds.prepare_metadata()
+
+    def test_default_task_returns_pattern_discovery(self):
+        from pyhealth.tasks.eegbci import EEGBCIPatternDiscovery
+
+        ds = EEGBCIDataset.__new__(EEGBCIDataset)
+        self.assertIsInstance(ds.default_task, EEGBCIPatternDiscovery)
