@@ -1326,7 +1326,7 @@ git commit -m "test: add opt-in EEGBCI real-data smoke test"
 - CLI flags: `--root`, `--subjects`, `--runs`, `--output-dir`, `--max-windows`, `--download`.
 - Produces: `eegbci_pattern_windows.csv` and `eegbci_pattern_summary.md`.
 
-- [ ] **Step 1: Create example script**
+- [x] **Step 1: Create example script**
 
 Create `examples/eeg/eegbci/eegbci_pattern_discovery.py`:
 
@@ -1441,7 +1441,7 @@ if __name__ == "__main__":
     main()
 ```
 
-- [ ] **Step 2: Create README**
+- [x] **Step 2: Create README**
 
 Create `examples/eeg/eegbci/README.md`:
 
@@ -1471,7 +1471,7 @@ Outputs are written to `outputs/eegbci_pattern_discovery/` by default:
 - `eegbci_pattern_summary.md`
 ````
 
-- [ ] **Step 3: Run example on a tiny subset**
+- [x] **Step 3: Run example on a tiny subset**
 
 Run:
 
@@ -1486,7 +1486,7 @@ Wrote outputs/eegbci_pattern_discovery/eegbci_pattern_windows.csv
 Wrote outputs/eegbci_pattern_discovery/eegbci_pattern_summary.md
 ```
 
-- [ ] **Step 4: Commit task 5**
+- [x] **Step 4: Commit task 5**
 
 Run:
 
@@ -1683,3 +1683,4 @@ Do not include the optional embedding comparison in the initial implementation. 
 - 2026-07-07: Task 2 complete; dataset metadata tests pass with `.venv/bin/python -m pytest tests/core/test_eegbci.py::TestEEGBCIDataset -v`.
 - 2026-07-07: Task 3 complete; `.venv/bin/python -m pytest tests/core/test_eegbci.py -v` passes with 21 tests.
 - 2026-07-07: Task 4 complete; normal EEGBCI tests pass with 21 passed/1 skipped, and `PYHEALTH_RUN_REAL_EEGBCI=1 .venv/bin/python -m pytest tests/core/test_eegbci.py::TestEEGBCIRealDataSmoke -v` passes against subject 1 run 3.
+- 2026-07-07: Task 5 complete; `.venv/bin/python examples/eeg/eegbci/eegbci_pattern_discovery.py --subjects 1 --runs 3 --max-windows 20 --download` writes a 20-row CSV and Markdown summary.
