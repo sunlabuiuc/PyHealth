@@ -174,6 +174,80 @@ def derive_state_hypothesis(row: dict) -> dict:
     }
 
 
+def derive_task_state_relation(row: dict) -> dict:
+    label_family = row.get("label_family", "")
+    task_label = row.get("task_label", "")
+    state = row.get("state_hypothesis", "")
+
+    if state == "possible_artifact_profile":
+        relation = "not_applicable"
+        confidence = "medium"
+        rationale = (
+            "Artifact-like frequency evidence is flagged for inspection instead of "
+            "task-label comparison."
+        )
+    elif state == "mixed_ambiguous_profile":
+        relation = "ambiguous"
+        confidence = "low"
+        rationale = (
+            "No frequency-profile state won clearly enough to compare strongly with "
+            "the task label."
+        )
+    elif task_label == "rest" and state == "idle_alpha_profile":
+        relation = "supports_label"
+        confidence = "medium"
+        rationale = "The idle-like alpha profile is consistent with a rest-labeled EEGBCI window."
+    elif label_family == "motor_execution" and state == "sensorimotor_engagement_profile":
+        relation = "supports_label"
+        confidence = "medium"
+        rationale = (
+            "The motor-engaged frequency profile is consistent with an "
+            "execution-labeled window."
+        )
+    elif label_family == "motor_imagery" and state == "sensorimotor_engagement_profile":
+        relation = "adds_detail"
+        confidence = "medium"
+        rationale = (
+            "The motor-engaged frequency profile adds signal detail to an "
+            "imagery-labeled window."
+        )
+    elif label_family in {"motor_execution", "motor_imagery"} and state == "idle_alpha_profile":
+        relation = "disagrees"
+        confidence = "medium"
+        rationale = "The idle-like alpha profile does not align with a motor-labeled EEGBCI window."
+    elif state == "slow_wave_dominant_pattern":
+        relation = "adds_detail"
+        confidence = "low"
+        rationale = "The slow-wave dominant pattern adds frequency detail but is not a direct task match."
+    else:
+        relation = "ambiguous"
+        confidence = "low"
+        rationale = (
+            "The task label and frequency-profile state do not have a stronger "
+            "deterministic mapping."
+        )
+
+    return {
+        "task_state_relation": relation,
+        "task_state_rationale": rationale,
+        "task_state_confidence": confidence,
+    }
+
+
+def derive_quality_columns(row: dict) -> dict:
+    flags = str(row.get("quality_flags", ""))
+    state = row.get("state_hypothesis", "")
+    confidence = row.get("state_confidence", row.get("confidence", ""))
+    return {
+        "is_low_confidence": confidence == "low" or "low_confidence" in flags,
+        "is_possible_artifact": state == "possible_artifact_profile"
+        or "artifact" in flags
+        or "high_gamma" in flags,
+        "is_mixed_or_ambiguous": state == "mixed_ambiguous_profile"
+        or "ambiguous" in flags,
+    }
+
+
 def write_summary(rows: list[dict], path: Path) -> None:
     task_counts = Counter(row["task_label"] for row in rows)
     hypothesis_counts = Counter(row["brain_state_hypothesis"] for row in rows)

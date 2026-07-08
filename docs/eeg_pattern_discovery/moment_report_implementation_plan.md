@@ -468,7 +468,7 @@ Expected: pass. The fallback test still fails until `annotate_moment_rows()` exi
 - Produces: `derive_task_state_relation(row: dict) -> dict`
 - Produces: `derive_quality_columns(row: dict) -> dict`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Add:
 
@@ -515,7 +515,7 @@ Add:
         self.assertFalse(flags["is_mixed_or_ambiguous"])
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run:
 
@@ -525,7 +525,7 @@ Run:
 
 Expected: fail because helper functions are missing.
 
-- [ ] **Step 3: Implement relation and quality helpers**
+- [x] **Step 3: Implement relation and quality helpers**
 
 Add:
 
@@ -586,7 +586,7 @@ def derive_quality_columns(row: dict) -> dict:
     }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run:
 

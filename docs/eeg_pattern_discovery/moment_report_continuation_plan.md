@@ -444,3 +444,7 @@ graphify update .
   implemented `_baseline_for_row()`, `_clip01()`, and `derive_state_hypothesis()`,
   and verified the state-profile focused test. The fallback-scope test remains
   expected to pass in Task 5 when `annotate_moment_rows()` is added.
+- 2026-07-08: Task 4 is complete: added deterministic task/state relation tests
+  and parseable quality-boolean tests, confirmed missing-helper failures,
+  implemented `derive_task_state_relation()` and `derive_quality_columns()`, and
+  verified the focused relation/quality tests.

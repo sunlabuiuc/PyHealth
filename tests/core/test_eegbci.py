@@ -573,6 +573,64 @@ class TestEEGBCIMomentReportHelpers(unittest.TestCase):
                 self.assertLessEqual(result["evidence_score"], 1.0)
                 self.assertIn("alpha=", result["evidence_summary"])
 
+    def test_task_state_relation_table_is_deterministic(self):
+        from examples.eeg.eegbci.eegbci_pattern_discovery import (
+            derive_task_state_relation,
+        )
+
+        cases = [
+            ("rest", "rest", "idle_alpha_profile", "supports_label"),
+            ("rest", "rest", "mixed_ambiguous_profile", "ambiguous"),
+            ("rest", "rest", "possible_artifact_profile", "not_applicable"),
+            (
+                "execute_left_fist",
+                "motor_execution",
+                "sensorimotor_engagement_profile",
+                "supports_label",
+            ),
+            (
+                "imagine_left_fist",
+                "motor_imagery",
+                "sensorimotor_engagement_profile",
+                "adds_detail",
+            ),
+            ("execute_left_fist", "motor_execution", "idle_alpha_profile", "disagrees"),
+            (
+                "imagine_left_fist",
+                "motor_imagery",
+                "slow_wave_dominant_pattern",
+                "adds_detail",
+            ),
+        ]
+
+        for task_label, label_family, state, expected in cases:
+            with self.subTest(state=state, label_family=label_family):
+                result = derive_task_state_relation(
+                    self._moment_row(
+                        task_label=task_label,
+                        label_family=label_family,
+                        state_hypothesis=state,
+                    )
+                )
+                self.assertEqual(result["task_state_relation"], expected)
+                self.assertIn(result["task_state_confidence"], {"low", "medium", "high"})
+                self.assertGreater(len(result["task_state_rationale"]), 20)
+
+    def test_quality_booleans_are_parseable(self):
+        from examples.eeg.eegbci.eegbci_pattern_discovery import derive_quality_columns
+
+        flags = derive_quality_columns(
+            self._moment_row(
+                state_hypothesis="possible_artifact_profile",
+                state_confidence="low",
+                quality_flags="low_confidence; high_gamma",
+            )
+        )
+
+        self.assertTrue(flags["is_low_confidence"])
+        self.assertTrue(flags["is_possible_artifact"])
+        self.assertFalse(flags["is_mixed_or_ambiguous"])
+
 
 @unittest.skipUnless(
     os.environ.get("PYHEALTH_RUN_REAL_EEGBCI") == "1",
