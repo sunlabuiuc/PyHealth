@@ -468,3 +468,8 @@ graphify update .
   tests; confirmed the old main-flow failures; updated `main()` to annotate all
   rows before capping and to write stable `OUTPUT_COLUMNS`; verified the full
   helper suite and full `tests/core/test_eegbci.py` file.
+- 2026-07-08: Task 9 is complete: updated the EEGBCI example README with the
+  upgraded CSV and Markdown moment-report contract, retained the implementation
+  plan and GStack `/plan-eng-review` progress history, and verified documentation
+  references with `rg` using single quotes around the backtick-containing pattern
+  for zsh compatibility.

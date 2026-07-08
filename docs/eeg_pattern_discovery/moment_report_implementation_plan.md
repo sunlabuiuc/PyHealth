@@ -1259,7 +1259,7 @@ Expected: pass, with the real-data smoke test skipped unless `PYHEALTH_RUN_REAL_
 - Produces: README section describing upgraded moment report fields and limitations.
 - Produces: continuation plan progress entry for implementation.
 
-- [ ] **Step 1: Update README output description**
+- [x] **Step 1: Update README output description**
 
 Replace the CSV paragraph in `examples/eeg/eegbci/README.md` with:
 
@@ -1287,7 +1287,7 @@ summaries from short EEG windows, not clinical findings or evidence of a
 subject's cognition.
 ```
 
-- [ ] **Step 2: Update continuation plan progress**
+- [x] **Step 2: Update continuation plan progress**
 
 Append to `docs/eeg_pattern_discovery/moment_report_continuation_plan.md`:
 
@@ -1297,7 +1297,7 @@ Append to `docs/eeg_pattern_discovery/moment_report_continuation_plan.md`:
   GStack `/plan-eng-review` against the plan before code implementation.
 ```
 
-- [ ] **Step 3: Verify docs mention the plan**
+- [x] **Step 3: Verify docs mention the plan**
 
 Run:
 
