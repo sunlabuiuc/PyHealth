@@ -7,10 +7,11 @@ Date: 2026-07-07
 Source docs:
 - `docs/eeg_pattern_discovery/brainstorm.md`
 - `docs/eeg_pattern_discovery/design.md`
+- `docs/eeg_pattern_discovery/pattern_analysis_redesign.md`
 
 **Goal:** Add a first-class EEGBCI dataset and two EEGBCI tasks to PyHealth so real PhysioNet motor movement/imagery windows can be used for supervised classification and CELM-style exploratory pattern discovery.
 
-**High-Level Summary:** We are turning the standalone CELM EEG pattern-discovery pipeline into a reusable PyHealth dataset, task, and example for real PhysioNet EEGBCI motor movement/imagery data. The research question is whether simple frequency profiles in short EEG windows can surface moment-level brain-state hypotheses that task labels alone miss. The practical problem is that PyHealth has EEG models and task infrastructure, but no first-class EEGBCI path that produces labeled windows, bandpower features, cautious interpretation metadata, and real-data validation without forcing normal CI to download raw EDF files.
+**High-Level Summary:** We are turning the standalone CELM EEG pattern-discovery pipeline into a reusable PyHealth dataset, task, and example for real PhysioNet EEGBCI motor movement/imagery data. The research question is: what is the brain doing in each moment, according to its frequency patterns? More precisely, for each 2-second EEG segment, infer the most likely functional brain-state hypothesis from its frequency-band profile, then compare that hypothesis to the experimental task label. The practical problem is that PyHealth has EEG models and task infrastructure, but no first-class EEGBCI path that produces labeled windows, bandpower features, cautious moment-level interpretation metadata, and real-data validation without forcing normal CI to download raw EDF files.
 
 **Architecture:** `EEGBCIDataset` builds one metadata row per subject/run EDF, following the existing `TUABDataset` and `TUEVDataset` CSV pattern. `EEGMotorImageryEEGBCI` reads EDF annotations and emits fixed windows for task-label prediction; `EEGBCIPatternDiscovery` extends the same windows with Welch bandpower features and cautious interpretation metadata. Offline unit tests mock MNE and EDF reads; an opt-in smoke test downloads one real EEGBCI run.
 
@@ -61,7 +62,7 @@ Resolved decisions:
 - Dependency model: use existing project-level `mne~=1.10.0`; do not add an optional EEG extra in this pass.
 - Real-data validation: no committed `.npz` fixture in the first pass; use mocked offline tests plus the opt-in real-data smoke test.
 - Model boundary: the first pattern-discovery pipeline uses signal processing and deterministic interpretation, not a neural model. PyHealth model training and pretrained embeddings are enabled by the task outputs but deferred from the first deliverable.
-- Analysis stage: the first analysis stage is the CELM-equivalent CSV and Markdown report produced by `examples/eeg/eegbci/eegbci_pattern_discovery.py`.
+- Analysis stage: the first analysis stage is the CELM-equivalent CSV and Markdown report produced by `examples/eeg/eegbci/eegbci_pattern_discovery.py`, upgraded into a moment-state report that compares inferred frequency-pattern states against experimental task labels.
 
 ## Recommended Execution Path
 
@@ -116,11 +117,15 @@ An implementation is complete only when these checks pass:
 - `EEGBCIPatternDiscovery(compute_stft=False)` returns every supervised field plus `bandpower`, `brain_state_hypothesis`, `confidence`, `quality_flags`, and `interpretation`.
 - Default `pytest tests/core/test_eegbci.py -v` passes without network access and skips the real-data smoke test.
 - `PYHEALTH_RUN_REAL_EEGBCI=1 pytest tests/core/test_eegbci.py::TestEEGBCIRealDataSmoke -v` passes against subject `1`, run `3`.
-- The example command writes `eegbci_pattern_windows.csv` and `eegbci_pattern_summary.md`, with at least one row containing task label, dominant band, hypothesis, confidence, and non-clinical interpretation text.
+- The example command writes `eegbci_pattern_windows.csv` and `eegbci_pattern_summary.md`, with rows containing task label, dominant band, state hypothesis, evidence summary, confidence, quality flags, task-label comparison, and non-clinical interpretation text.
 
 ## Analysis Stage Contract
 
-The first analysis stage lives in `examples/eeg/eegbci/eegbci_pattern_discovery.py`. It is not just a demo script. It is the artifact generator that proves the pipeline can answer the research question on real windows.
+The first analysis stage lives in `examples/eeg/eegbci/eegbci_pattern_discovery.py`. It is not just a demo script. It is the artifact generator that proves the pipeline can answer the research question on real windows:
+
+> What is the brain doing in each moment, according to its frequency patterns?
+
+For each 2-second EEG segment, the artifact should infer the most likely functional brain-state hypothesis from the frequency-band profile, then compare that hypothesis to the experimental task label.
 
 Inputs:
 
@@ -130,12 +135,22 @@ Inputs:
 
 Outputs:
 
-- `eegbci_pattern_windows.csv`: one row per window, including subject/run metadata, event code, decoded task label, bandpower values, relative powers, dominant band, ratios, hypothesis, confidence, quality flags, and interpretation.
-- `eegbci_pattern_summary.md`: aggregate counts by task label and brain-state hypothesis, plus the non-clinical caveat.
+- `eegbci_pattern_windows.csv`: one row per window, including subject/run metadata, event code, decoded task label, bandpower values, relative powers, dominant band, ratios, state hypothesis, evidence score or evidence summary, confidence, quality flags, task-label comparison, and interpretation.
+- `eegbci_pattern_summary.md`: a compact research report with run configuration, window coverage, moment-state ledger, task-label x hypothesis matrix, dominant bands by task, confidence and quality audit, bandpower summaries, notable windows, limitations, and next checks.
 
 Question answered:
 
-- Do the frequency-profile hypotheses agree with, sharpen, or flag possible disagreement with the experimental EEGBCI labels?
+- At this moment, does the EEG look relaxed, engaged, drowsy, motor-active, noisy, mixed, or ambiguous?
+- Do the frequency-profile hypotheses agree with, add detail to, or flag possible disagreement with the experimental EEGBCI labels?
+- If all windows collapse to low-confidence or mixed states, what exactly caused that outcome?
+
+Required output-quality behavior:
+
+- Do not start the summary with the generic exploratory caveat.
+- Move the non-clinical safety boundary into a clear methods or limitations section.
+- Do not repeat "This is exploratory signal metadata..." in every row.
+- If every window has low confidence, say that plainly and explain the distributional reason.
+- Surface top windows by alpha/beta, theta/beta, beta-relative, and gamma-relative power so the user can inspect moments that might represent idle, slow-wave, motor-active, or artifact-like patterns.
 
 Deferred analysis:
 
@@ -1686,3 +1701,24 @@ Do not include the optional embedding comparison in the initial implementation. 
 - 2026-07-07: Task 5 complete; `.venv/bin/python examples/eeg/eegbci/eegbci_pattern_discovery.py --subjects 1 --runs 3 --max-windows 20 --download` writes a 20-row CSV and Markdown summary.
 - 2026-07-07: Task 6 complete; docs import smoke prints `EEGBCIDataset`, `EEGMotorImageryEEGBCI`, and `EEGBCIPatternDiscovery`.
 - 2026-07-07: Final verification complete; default EEGBCI tests pass with 21 passed/1 skipped, import smoke prints `imports ok`, opt-in real-data smoke passes, the example writes verified 20-row artifacts, and `graphify update .` refreshed the code graph.
+- 2026-07-08: Ran GStack `/office-hours` and `/plan-ceo-review` after inspecting weak generated outputs. The new product target is an analysis-grade moment report: for each 2-second EEG segment, infer the likely frequency-pattern state, expose evidence, compare it to the experimental task label, and make low-confidence collapse explicit.
+
+## GSTACK REVIEW REPORT
+
+| Review | Trigger | Why | Runs | Status | Findings |
+|--------|---------|-----|------|--------|----------|
+| CEO Review | `/plan-ceo-review` | Scope & strategy | 1 | CLEAR | Selective expansion: 5 proposals, 4 accepted, 1 deferred. Accepted: rest-normalized evidence, parseable quality flags, representative window cards, analysis versioning. Deferred: HTML report. |
+| Codex Review | `/codex review` | Independent 2nd opinion | 0 | — | — |
+| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 1 | STALE | Prior engineering review cleared the original dataset/task/example implementation, but it predates the new moment-report output contract. |
+| Design Review | `/plan-design-review` | UI/UX gaps | 0 | — | No UI scope. |
+| DX Review | `/plan-devex-review` | Developer experience gaps | 0 | — | — |
+
+**CEO:** Scope baseline is Approach B with Approach D's north star: build the analysis-grade moment report now, not the full atlas.
+
+**ACCEPTED SCOPE:** Add rest-normalized evidence, parseable quality booleans, representative window cards, and `analysis_version`.
+
+**DEFERRED:** HTML report belongs to the later atlas phase.
+
+**BOUNDARY DECISION:** Keep `state_hypothesis`, `evidence_score`, rest-normalized deltas, `task_state_relation`, and related moment-report fields example-only in `examples/eeg/eegbci/eegbci_pattern_discovery.py`. Do not add them to the reusable `EEGBCIPatternDiscovery` task API in this PR.
+
+**VERDICT:** CEO REVIEW CLEAR. Fresh engineering review is recommended after the output contract is implemented because the prior `/plan-eng-review` predates the new analysis scope.

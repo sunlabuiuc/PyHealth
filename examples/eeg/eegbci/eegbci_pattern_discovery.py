@@ -59,10 +59,6 @@ def sample_to_row(sample: dict) -> dict:
         "dominant_band": bandpower["dominant_band"],
         "alpha_beta_ratio": bandpower["alpha_beta_ratio"],
         "theta_beta_ratio": bandpower["theta_beta_ratio"],
-        "brain_state_hypothesis": sample["brain_state_hypothesis"],
-        "confidence": sample["confidence"],
-        "quality_flags": sample["quality_flags"],
-        "interpretation": sample["interpretation"],
         **{key: value for key, value in bandpower.items() if key.endswith("_power")},
         **{key: value for key, value in bandpower.items() if key.endswith("_relative")},
     }
@@ -248,6 +244,22 @@ def derive_quality_columns(row: dict) -> dict:
     }
 
 
+def derive_moment_interpretation(row: dict) -> str:
+    state = row.get("state_hypothesis", "missing")
+    confidence = row.get("state_confidence", "missing")
+    evidence = row.get("evidence_score", "")
+    relation = row.get("task_state_relation", "missing")
+    task = row.get("task_label", "missing")
+    dominant = row.get("dominant_band", "missing")
+    scope = row.get("rest_reference_scope", "missing")
+    return (
+        f"The segment is consistent with `{state}` based on a `{dominant}`-dominant "
+        f"frequency profile ({confidence} confidence, evidence {evidence}). "
+        f"The task label is `{task}`, the task/state relation is `{relation}`, "
+        f"and the rest reference is `{scope}`."
+    )
+
+
 BASE_OUTPUT_COLUMNS = (
     "patient_id",
     "record_id",
@@ -266,9 +278,6 @@ BASE_OUTPUT_COLUMNS = (
     "dominant_band",
     "alpha_beta_ratio",
     "theta_beta_ratio",
-    "brain_state_hypothesis",
-    "confidence",
-    "quality_flags",
     "interpretation",
     "delta_power",
     "theta_power",
@@ -325,6 +334,7 @@ def annotate_moment_rows(rows: list[dict], baselines: dict) -> list[dict]:
 
         next_row.update(derive_state_hypothesis(next_row))
         next_row.update(derive_task_state_relation(next_row))
+        next_row["interpretation"] = derive_moment_interpretation(next_row)
         next_row.update(derive_quality_columns(next_row))
         annotated.append(next_row)
     return annotated

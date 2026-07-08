@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 from pathlib import Path
 from typing import Optional
@@ -11,6 +13,16 @@ from .base_dataset import BaseDataset
 from pyhealth.tasks.eegbci import EEGBCIPatternDiscovery, run_type_for_run
 
 logger = logging.getLogger(__name__)
+
+EEGBCI_METADATA_COLUMNS = {
+    "patient_id",
+    "record_id",
+    "subject_id",
+    "run",
+    "run_type",
+    "signal_file",
+    "source",
+}
 
 
 class EEGBCIDataset(BaseDataset):
@@ -29,17 +41,31 @@ class EEGBCIDataset(BaseDataset):
         if config_path is None:
             config_path = Path(__file__).parent / "configs" / "eegbci.yaml"
         self.root = root
-        self.subjects = subjects or [1, 2, 3]
-        self.runs = runs or list(range(3, 15))
+        self.subjects = list(subjects) if subjects is not None else [1, 2, 3]
+        self.runs = list(runs) if runs is not None else list(range(3, 15))
         self.download = download
+        self.selection_key = self._build_selection_key()
         self.prepare_metadata()
+        dataset_name = dataset_name or "eegbci"
         super().__init__(
             root=root,
             tables=["records"],
-            dataset_name=dataset_name or "eegbci",
+            dataset_name=f"{dataset_name}_{self.selection_key}",
             config_path=config_path,
             **kwargs,
         )
+
+    def _build_selection_key(self) -> str:
+        payload = {
+            "subjects": [int(subject) for subject in self.subjects],
+            "runs": [int(run) for run in self.runs],
+        }
+        digest = hashlib.sha1(
+            json.dumps(payload, sort_keys=True).encode("utf-8")
+        ).hexdigest()[:10]
+        subject_part = "-".join(f"{int(subject):03d}" for subject in self.subjects)
+        run_part = "-".join(f"{int(run):02d}" for run in self.runs)
+        return f"s{subject_part}_r{run_part}_{digest}"
 
     def _find_local_edf(self, subject: int, run: int) -> Path | None:
         root = Path(self.root)
@@ -47,10 +73,27 @@ class EEGBCIDataset(BaseDataset):
         matches = sorted(root.rglob(pattern))
         return matches[0] if matches else None
 
+    def _requested_pairs(self) -> list[tuple[int, int]]:
+        return sorted(
+            (int(subject), int(run))
+            for subject in self.subjects
+            for run in self.runs
+        )
+
+    def _metadata_matches_request(self, csv_path: Path) -> bool:
+        try:
+            df = pd.read_csv(csv_path)
+        except Exception:
+            return False
+        if not EEGBCI_METADATA_COLUMNS.issubset(df.columns):
+            return False
+        pairs = sorted((int(row.subject_id), int(row.run)) for row in df.itertuples())
+        return pairs == self._requested_pairs()
+
     def prepare_metadata(self) -> None:
         root = Path(self.root)
         csv_path = root / "eegbci-pyhealth.csv"
-        if csv_path.exists():
+        if csv_path.exists() and self._metadata_matches_request(csv_path):
             return
 
         rows: list[dict] = []

@@ -228,8 +228,7 @@ def interpret_band_profile(features: Dict[str, float | str]) -> Dict[str, str]:
         "quality_flags": ";".join(quality_flags) if quality_flags else "none",
         "interpretation": (
             f"The segment is consistent with {hypothesis} based on a "
-            f"{dominant}-dominant frequency profile. This is exploratory signal "
-            "metadata, not evidence of cognition or a clinical diagnosis."
+            f"{dominant}-dominant frequency profile."
         ),
     }
 
@@ -246,7 +245,9 @@ def iter_annotation_windows(
         event_code = str(annotation["description"])
         if event_code not in {"T0", "T1", "T2"}:
             continue
-        start_sample = int(round(float(annotation["onset"]) * sfreq))
+        start_sample = int(
+            raw.time_as_index([float(annotation["onset"])], use_rounding=True)[0]
+        )
         duration_samples = int(round(float(annotation["duration"]) * sfreq))
         n_full_windows = duration_samples // window_samples
         for window_idx in range(n_full_windows):
@@ -338,6 +339,7 @@ class EEGMotorImageryEEGBCI(BaseTask):
                     "task_label": window["task_label"],
                     "label_family": window["label_family"],
                     "label": int(window["label"]),
+                    "eegbci_label": int(window["label"]),
                     "signal": signal,
                     "channel_names": selected_names,
                     "start_time": window["start_time"],
@@ -347,7 +349,9 @@ class EEGMotorImageryEEGBCI(BaseTask):
                 if self.compute_stft:
                     from pyhealth.models.tfm_tokenizer import get_stft_torch
 
-                    sample["stft"] = get_stft_torch(signal.unsqueeze(0)).squeeze(0)
+                    sample["stft"] = get_stft_torch(
+                        signal.unsqueeze(0), resampling_rate=int(round(sfreq))
+                    ).squeeze(0)
                 samples.append(sample)
             raw.close()
         return samples

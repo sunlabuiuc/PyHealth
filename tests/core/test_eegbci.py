@@ -125,6 +125,10 @@ class TestEEGBCIHelpers(unittest.TestCase):
         self.assertEqual(interpretation["brain_state_hypothesis"], "relaxed_or_idle")
         self.assertIn(interpretation["confidence"], {"low", "medium", "high"})
         self.assertIn("consistent with", interpretation["interpretation"])
+        self.assertNotIn(
+            "This is exploratory signal metadata", interpretation["interpretation"]
+        )
+        self.assertNotIn("clinical diagnosis", interpretation["interpretation"])
 
 
 from pyhealth.datasets.eegbci import EEGBCIDataset
@@ -428,10 +432,6 @@ class TestEEGBCIMomentReportHelpers(unittest.TestCase):
             "gamma_relative": 0.10,
             "alpha_beta_ratio": 2.75,
             "theta_beta_ratio": 0.50,
-            "brain_state_hypothesis": "relaxed_or_idle",
-            "confidence": "medium",
-            "quality_flags": "",
-            "interpretation": "Alpha-dominant profile.",
         }
         row.update(overrides)
         return row
@@ -818,25 +818,19 @@ class TestEEGBCIMomentReportHelpers(unittest.TestCase):
         self.assertAlmostEqual(annotated[1]["rest_beta_relative_delta"], 0.10)
         self.assertAlmostEqual(annotated[1]["rest_gamma_relative_delta"], -0.08)
 
-    def test_annotate_moment_rows_preserves_legacy_fields(self):
+    def test_annotate_moment_rows_adds_report_interpretation(self):
         from examples.eeg.eegbci.eegbci_pattern_discovery import (
             annotate_moment_rows,
             build_rest_baselines,
         )
 
-        legacy = self._moment_row(
-            brain_state_hypothesis="legacy_state",
-            confidence="medium",
-            quality_flags="legacy_flag",
-            interpretation="Legacy interpretation.",
-        )
+        row = self._moment_row()
 
-        annotated = annotate_moment_rows([legacy], build_rest_baselines([legacy]))
+        annotated = annotate_moment_rows([row], build_rest_baselines([row]))
 
-        self.assertEqual(annotated[0]["brain_state_hypothesis"], "legacy_state")
-        self.assertEqual(annotated[0]["confidence"], "medium")
-        self.assertEqual(annotated[0]["quality_flags"], "legacy_flag")
-        self.assertEqual(annotated[0]["interpretation"], "Legacy interpretation.")
+        self.assertIn("consistent with", annotated[0]["interpretation"])
+        self.assertIn("task label", annotated[0]["interpretation"])
+        self.assertIn(annotated[0]["state_hypothesis"], annotated[0]["interpretation"])
 
     def test_annotate_moment_rows_does_not_mutate_input_rows(self):
         from examples.eeg.eegbci.eegbci_pattern_discovery import (
@@ -1233,12 +1227,27 @@ class TestEEGBCIMomentReportHelpers(unittest.TestCase):
             "task_state_relation",
             "task_state_rationale",
             "task_state_confidence",
+            "interpretation",
             "is_low_confidence",
             "is_possible_artifact",
             "is_mixed_or_ambiguous",
         ]:
             self.assertIn(column, OUTPUT_COLUMNS)
         self.assertIn("analysis_version", MOMENT_REPORT_COLUMNS)
+
+    def test_output_columns_remove_legacy_task_fields(self):
+        from examples.eeg.eegbci.eegbci_pattern_discovery import OUTPUT_COLUMNS
+
+        for legacy_column in [
+            "brain_state_hypothesis",
+            "confidence",
+            "quality_flags",
+            "legacy_brain_state_hypothesis",
+            "legacy_confidence",
+            "legacy_quality_flags",
+            "legacy_interpretation",
+        ]:
+            self.assertNotIn(legacy_column, OUTPUT_COLUMNS)
 
     def test_empty_dataframe_uses_output_columns(self):
         from examples.eeg.eegbci.eegbci_pattern_discovery import OUTPUT_COLUMNS

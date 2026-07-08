@@ -26,8 +26,7 @@ The CSV has one row per emitted 2-second window. Key columns include subject/run
 metadata, `event_code`, decoded `task_label`, raw EEGBCI numeric label
 (`eegbci_label` / `label`), PyHealth model-local label (`model_label`),
 absolute window timing, band powers, relative band powers, `dominant_band`,
-frequency ratios, legacy `brain_state_hypothesis`, `confidence`,
-`quality_flags`, and `interpretation`.
+frequency ratios, and `interpretation`.
 
 The moment-report columns add analysis-grade fields:
 
@@ -37,6 +36,10 @@ The moment-report columns add analysis-grade fields:
 - `rest_reference_scope` and rest-normalized relative band deltas
 - `task_state_relation`, `task_state_rationale`, and `task_state_confidence`
 - `is_low_confidence`, `is_possible_artifact`, and `is_mixed_or_ambiguous`
+
+The `interpretation` column is report-level text derived from these moment-report
+fields. Legacy task-level fields such as `brain_state_hypothesis`, `confidence`,
+and `quality_flags` are intentionally not written to the CSV.
 
 The Markdown report summarizes state counts, task-label/state agreement,
 rest-normalized bandpower deltas, confidence and quality flags, representative
