@@ -1,4 +1,5 @@
 import os
+import sys
 import unittest
 import tempfile
 from dataclasses import dataclass
@@ -434,6 +435,44 @@ class TestEEGBCIMomentReportHelpers(unittest.TestCase):
         }
         row.update(overrides)
         return row
+
+    def _sample(self, **overrides):
+        sample = {
+            "patient_id": "S001",
+            "record_id": "R03",
+            "subject_id": 1,
+            "run": 3,
+            "run_type": "motor_execution_left_right",
+            "trial_id": "S001_R03_T0_0",
+            "event_code": "T0",
+            "task_label": "rest",
+            "label_family": "rest",
+            "label": 0,
+            "eegbci_label": 0,
+            "start_time": 0.0,
+            "end_time": 2.0,
+            "brain_state_hypothesis": "relaxed_or_idle",
+            "confidence": "medium",
+            "quality_flags": "",
+            "interpretation": "Alpha-dominant profile.",
+            "bandpower": {
+                "dominant_band": "alpha",
+                "alpha_beta_ratio": 2.75,
+                "theta_beta_ratio": 0.50,
+                "delta_power": 0.05,
+                "theta_power": 0.10,
+                "alpha_power": 0.55,
+                "beta_power": 0.20,
+                "gamma_power": 0.10,
+                "delta_relative": 0.05,
+                "theta_relative": 0.10,
+                "alpha_relative": 0.55,
+                "beta_relative": 0.20,
+                "gamma_relative": 0.10,
+            },
+        }
+        sample.update(overrides)
+        return sample
 
     def test_analysis_version_constant(self):
         from examples.eeg.eegbci.eegbci_pattern_discovery import ANALYSIS_VERSION
@@ -1118,6 +1157,178 @@ class TestEEGBCIMomentReportHelpers(unittest.TestCase):
         )
 
         self.assertNotIn("This is exploratory signal metadata", summary)
+
+    def test_moment_report_columns_are_declared(self):
+        from examples.eeg.eegbci.eegbci_pattern_discovery import (
+            MOMENT_REPORT_COLUMNS,
+            OUTPUT_COLUMNS,
+        )
+
+        for column in [
+            "patient_id",
+            "task_label",
+            "alpha_relative",
+            "analysis_version",
+            "state_hypothesis",
+            "state_confidence",
+            "evidence_score",
+            "evidence_summary",
+            "rest_reference_scope",
+            "rest_alpha_relative_delta",
+            "task_state_relation",
+            "task_state_rationale",
+            "task_state_confidence",
+            "is_low_confidence",
+            "is_possible_artifact",
+            "is_mixed_or_ambiguous",
+        ]:
+            self.assertIn(column, OUTPUT_COLUMNS)
+        self.assertIn("analysis_version", MOMENT_REPORT_COLUMNS)
+
+    def test_empty_dataframe_uses_output_columns(self):
+        from examples.eeg.eegbci.eegbci_pattern_discovery import OUTPUT_COLUMNS
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "empty.csv"
+            pd.DataFrame([], columns=OUTPUT_COLUMNS).to_csv(path, index=False)
+
+            df = pd.read_csv(path)
+
+        self.assertEqual(len(df), 0)
+        self.assertEqual(list(df.columns), list(OUTPUT_COLUMNS))
+
+    def test_main_max_windows_zero_writes_empty_artifacts(self):
+        from examples.eeg.eegbci import eegbci_pattern_discovery as example
+
+        class FakeDataset:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def set_task(self, task):
+                return [self_sample]
+
+        self_sample = self._sample()
+        with tempfile.TemporaryDirectory() as tmp:
+            argv = [
+                "eegbci_pattern_discovery.py",
+                "--subjects",
+                "1",
+                "--runs",
+                "3",
+                "--max-windows",
+                "0",
+                "--output-dir",
+                tmp,
+            ]
+            with patch.object(sys, "argv", argv), patch.object(
+                example, "EEGBCIDataset", FakeDataset
+            ):
+                example.main()
+
+            csv_path = Path(tmp) / "eegbci_pattern_windows.csv"
+            summary_path = Path(tmp) / "eegbci_pattern_summary.md"
+            df = pd.read_csv(csv_path)
+            summary = summary_path.read_text(encoding="utf-8")
+
+        self.assertEqual(len(df), 0)
+        self.assertEqual(list(df.columns), list(example.OUTPUT_COLUMNS))
+        self.assertIn("No windows were produced", summary)
+        self.assertIn("Output was capped by `--max-windows`", summary)
+
+    def test_main_baseline_uses_uncapped_rows(self):
+        from examples.eeg.eegbci import eegbci_pattern_discovery as example
+
+        first = self._sample(
+            task_label="execute_left_fist",
+            label_family="motor_execution",
+            alpha_beta_ratio=0.5,
+            bandpower={
+                **self._sample()["bandpower"],
+                "dominant_band": "beta",
+                "alpha_relative": 0.20,
+                "beta_relative": 0.45,
+                "alpha_beta_ratio": 0.5,
+            },
+        )
+        rest = self._sample(
+            task_label="rest",
+            start_time=2.0,
+            bandpower={
+                **self._sample()["bandpower"],
+                "alpha_relative": 0.50,
+                "beta_relative": 0.20,
+            },
+        )
+
+        class FakeDataset:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def set_task(self, task):
+                return [first, rest]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            argv = [
+                "eegbci_pattern_discovery.py",
+                "--subjects",
+                "1",
+                "--runs",
+                "3",
+                "--max-windows",
+                "1",
+                "--output-dir",
+                tmp,
+            ]
+            with patch.object(sys, "argv", argv), patch.object(
+                example, "EEGBCIDataset", FakeDataset
+            ):
+                example.main()
+
+            df = pd.read_csv(Path(tmp) / "eegbci_pattern_windows.csv")
+
+        self.assertEqual(len(df), 1)
+        self.assertEqual(df.loc[0, "rest_reference_scope"], "same_subject_run")
+        self.assertAlmostEqual(df.loc[0, "rest_alpha_relative_delta"], -0.30)
+
+    def test_main_writes_analysis_version_to_every_csv_row(self):
+        from examples.eeg.eegbci import eegbci_pattern_discovery as example
+
+        samples = [self._sample(), self._sample(start_time=2.0, trial_id="second")]
+
+        class FakeDataset:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def set_task(self, task):
+                return samples
+
+        with tempfile.TemporaryDirectory() as tmp:
+            argv = [
+                "eegbci_pattern_discovery.py",
+                "--subjects",
+                "1",
+                "--runs",
+                "3",
+                "--output-dir",
+                tmp,
+            ]
+            with patch.object(sys, "argv", argv), patch.object(
+                example, "EEGBCIDataset", FakeDataset
+            ):
+                example.main()
+
+            df = pd.read_csv(Path(tmp) / "eegbci_pattern_windows.csv")
+
+        self.assertEqual(len(df), 2)
+        self.assertTrue((df["analysis_version"] == example.ANALYSIS_VERSION).all())
+
+    def test_parse_int_list_rejects_invalid_input_loudly(self):
+        from examples.eeg.eegbci.eegbci_pattern_discovery import parse_int_list
+
+        with self.assertRaises(ValueError):
+            parse_int_list("a")
+        with self.assertRaises(ValueError):
+            parse_int_list("3-a")
 
 
 @unittest.skipUnless(

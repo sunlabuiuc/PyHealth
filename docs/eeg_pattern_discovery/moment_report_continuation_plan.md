@@ -463,3 +463,8 @@ graphify update .
   of the old row-level caveat; confirmed missing-renderer failures; implemented
   `render_summary()` and config-aware `write_summary()`; and verified the focused
   renderer tests plus the caveat regression.
+- 2026-07-08: Task 8 is complete: added schema, empty CSV, patched-main
+  `--max-windows=0`, uncapped-baseline, analysis-version CSV, and invalid parser
+  tests; confirmed the old main-flow failures; updated `main()` to annotate all
+  rows before capping and to write stable `OUTPUT_COLUMNS`; verified the full
+  helper suite and full `tests/core/test_eegbci.py` file.

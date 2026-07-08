@@ -1158,7 +1158,7 @@ Expected: pass.
 - Updates: `main()` so all requested rows are collected before truncation.
 - Produces: empty CSV with stable columns when `--max-windows=0`.
 
-- [ ] **Step 1: Write failing schema test**
+- [x] **Step 1: Write failing schema test**
 
 Add:
 
@@ -1191,7 +1191,7 @@ Add:
         self.assertIn("analysis_version", MOMENT_REPORT_COLUMNS)
 ```
 
-- [ ] **Step 2: Run focused helper tests**
+- [x] **Step 2: Run focused helper tests**
 
 Run:
 
@@ -1201,7 +1201,7 @@ Run:
 
 Expected: pass after previous tasks and the schema declaration.
 
-- [ ] **Step 3: Update main flow**
+- [x] **Step 3: Update main flow**
 
 Replace the row collection and output block in `main()` with:
 
@@ -1239,7 +1239,7 @@ Replace the row collection and output block in `main()` with:
 This deliberately uses `OUTPUT_COLUMNS` even when `output_rows` is empty, so
 `--max-windows=0` and no-window runs still produce a parseable CSV contract.
 
-- [ ] **Step 4: Run full EEGBCI unit test file**
+- [x] **Step 4: Run full EEGBCI unit test file**
 
 Run:
 

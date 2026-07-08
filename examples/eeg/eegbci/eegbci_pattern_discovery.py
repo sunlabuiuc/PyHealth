@@ -605,16 +605,32 @@ def main() -> None:
     )
     sample_dataset = dataset.set_task(EEGBCIPatternDiscovery(compute_stft=False))
 
-    rows = []
-    for idx, sample in enumerate(sample_dataset):
-        if args.max_windows is not None and idx >= args.max_windows:
-            break
-        rows.append(sample_to_row(sample))
+    all_rows = [sample_to_row(sample) for sample in sample_dataset]
+    baselines = build_rest_baselines(all_rows)
+    annotated_rows = annotate_moment_rows(all_rows, baselines)
+    output_rows = (
+        annotated_rows[: args.max_windows]
+        if args.max_windows is not None
+        else annotated_rows
+    )
+    output_was_capped = (
+        args.max_windows is not None and len(annotated_rows) > len(output_rows)
+    )
 
     csv_path = output_dir / "eegbci_pattern_windows.csv"
     summary_path = output_dir / "eegbci_pattern_summary.md"
-    pd.DataFrame(rows).to_csv(csv_path, index=False)
-    write_summary(rows, summary_path)
+    pd.DataFrame(output_rows, columns=OUTPUT_COLUMNS).to_csv(csv_path, index=False)
+    write_summary(
+        output_rows,
+        summary_path,
+        {
+            "subjects": parse_int_list(args.subjects),
+            "runs": parse_int_list(args.runs),
+            "max_windows": args.max_windows,
+            "baseline_row_count": len(all_rows),
+            "output_was_capped": output_was_capped,
+        },
+    )
     print(f"Wrote {csv_path}")
     print(f"Wrote {summary_path}")
 
