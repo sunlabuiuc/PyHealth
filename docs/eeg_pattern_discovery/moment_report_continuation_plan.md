@@ -453,3 +453,7 @@ graphify update .
   confirmed missing schema/annotator failures; implemented `BASE_OUTPUT_COLUMNS`,
   `MOMENT_REPORT_COLUMNS`, `OUTPUT_COLUMNS`, and `annotate_moment_rows()`; and
   verified the annotation/fallback and band-delta focused tests.
+- 2026-07-08: Task 6 is complete: added deterministic representative-window
+  tests plus ambiguous and disagreement edge checks, confirmed the missing
+  selector failure, implemented stable selection helpers, and verified the
+  representative-window focused tests.

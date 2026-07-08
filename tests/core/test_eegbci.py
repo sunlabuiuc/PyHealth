@@ -757,6 +757,131 @@ class TestEEGBCIMomentReportHelpers(unittest.TestCase):
 
         self.assertEqual(rows, original)
 
+    def test_select_representative_windows_is_deterministic(self):
+        from examples.eeg.eegbci.eegbci_pattern_discovery import (
+            select_representative_windows,
+        )
+
+        rows = [
+            self._moment_row(
+                subject_id=2,
+                run=4,
+                start_time=6.0,
+                state_hypothesis="idle_alpha_profile",
+                state_confidence="medium",
+                evidence_score=0.80,
+            ),
+            self._moment_row(
+                subject_id=1,
+                run=3,
+                start_time=4.0,
+                state_hypothesis="idle_alpha_profile",
+                state_confidence="medium",
+                evidence_score=0.80,
+            ),
+            self._moment_row(
+                subject_id=1,
+                run=3,
+                start_time=8.0,
+                state_hypothesis="sensorimotor_engagement_profile",
+                state_confidence="high",
+                evidence_score=0.90,
+            ),
+            self._moment_row(
+                subject_id=1,
+                run=3,
+                start_time=10.0,
+                state_hypothesis="mixed_ambiguous_profile",
+                state_confidence="low",
+                evidence_score=0.12,
+            ),
+            self._moment_row(
+                subject_id=1,
+                run=3,
+                start_time=12.0,
+                state_hypothesis="idle_alpha_profile",
+                task_state_relation="disagrees",
+                state_confidence="medium",
+                evidence_score=0.70,
+            ),
+        ]
+
+        selected = select_representative_windows(rows)
+
+        self.assertEqual(selected["cards"]["strongest_idle_like"]["subject_id"], 1)
+        self.assertEqual(
+            selected["cards"]["strongest_motor_engaged"]["state_hypothesis"],
+            "sensorimotor_engagement_profile",
+        )
+        self.assertEqual(selected["cards"]["most_ambiguous"]["start_time"], 10.0)
+        self.assertEqual(
+            selected["cards"]["strongest_task_state_disagreement"][
+                "task_state_relation"
+            ],
+            "disagrees",
+        )
+        self.assertIn("strongest_artifact_like", selected["absent"])
+
+    def test_select_representative_windows_picks_lowest_evidence_ambiguous(self):
+        from examples.eeg.eegbci.eegbci_pattern_discovery import (
+            select_representative_windows,
+        )
+
+        rows = [
+            self._moment_row(
+                subject_id=2,
+                run=3,
+                start_time=4.0,
+                state_hypothesis="mixed_ambiguous_profile",
+                state_confidence="low",
+                evidence_score=0.20,
+            ),
+            self._moment_row(
+                subject_id=1,
+                run=3,
+                start_time=8.0,
+                state_hypothesis="mixed_ambiguous_profile",
+                state_confidence="low",
+                evidence_score=0.10,
+            ),
+        ]
+
+        selected = select_representative_windows(rows)
+
+        self.assertEqual(selected["cards"]["most_ambiguous"]["subject_id"], 1)
+
+    def test_select_representative_windows_picks_strongest_disagreement(self):
+        from examples.eeg.eegbci.eegbci_pattern_discovery import (
+            select_representative_windows,
+        )
+
+        rows = [
+            self._moment_row(
+                subject_id=1,
+                run=3,
+                start_time=4.0,
+                state_hypothesis="idle_alpha_profile",
+                task_state_relation="disagrees",
+                state_confidence="medium",
+                evidence_score=0.50,
+            ),
+            self._moment_row(
+                subject_id=2,
+                run=3,
+                start_time=6.0,
+                state_hypothesis="idle_alpha_profile",
+                task_state_relation="disagrees",
+                state_confidence="medium",
+                evidence_score=0.80,
+            ),
+        ]
+
+        selected = select_representative_windows(rows)
+
+        self.assertEqual(
+            selected["cards"]["strongest_task_state_disagreement"]["subject_id"], 2
+        )
+
 
 @unittest.skipUnless(
     os.environ.get("PYHEALTH_RUN_REAL_EEGBCI") == "1",

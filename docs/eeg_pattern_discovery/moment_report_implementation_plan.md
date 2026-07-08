@@ -780,7 +780,7 @@ Return shape:
 }
 ```
 
-- [ ] **Step 1: Write failing representative selection tests**
+- [x] **Step 1: Write failing representative selection tests**
 
 Add:
 
@@ -805,7 +805,7 @@ Add:
         self.assertIn("strongest_artifact_like", selected["absent"])
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run:
 
@@ -815,7 +815,7 @@ Run:
 
 Expected: fail because `select_representative_windows` is missing.
 
-- [ ] **Step 3: Implement representative selection**
+- [x] **Step 3: Implement representative selection**
 
 Add:
 
@@ -882,7 +882,7 @@ def select_representative_windows(rows: list[dict]) -> dict:
     return {"cards": cards, "absent": absent}
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run:
 

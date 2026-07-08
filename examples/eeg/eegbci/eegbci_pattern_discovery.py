@@ -330,6 +330,72 @@ def annotate_moment_rows(rows: list[dict], baselines: dict) -> list[dict]:
     return annotated
 
 
+def _stable_row_key(row: dict) -> tuple:
+    return (
+        row.get("subject_id", 0),
+        row.get("run", 0),
+        float(row.get("start_time", 0.0) or 0.0),
+    )
+
+
+def _strongest_row(rows: list[dict]) -> dict | None:
+    if not rows:
+        return None
+    return sorted(
+        rows,
+        key=lambda row: (
+            -float(row.get("evidence_score", 0.0) or 0.0),
+            -STATE_CONFIDENCE_RANK.get(row.get("state_confidence", "low"), 0),
+            *_stable_row_key(row),
+        ),
+    )[0]
+
+
+def select_representative_windows(rows: list[dict]) -> dict:
+    definitions = {
+        "strongest_idle_like": "idle_alpha_profile",
+        "strongest_motor_engaged": "sensorimotor_engagement_profile",
+        "strongest_slow_wave": "slow_wave_dominant_pattern",
+        "strongest_artifact_like": "possible_artifact_profile",
+    }
+    cards = {}
+    absent = []
+
+    for card_name, state in definitions.items():
+        candidate = _strongest_row(
+            [row for row in rows if row.get("state_hypothesis") == state]
+        )
+        if candidate is None:
+            absent.append(card_name)
+        else:
+            cards[card_name] = candidate
+
+    ambiguous = [
+        row for row in rows if row.get("state_hypothesis") == "mixed_ambiguous_profile"
+    ]
+    if ambiguous:
+        cards["most_ambiguous"] = sorted(
+            ambiguous,
+            key=lambda row: (
+                float(row.get("evidence_score", 0.0) or 0.0),
+                -STATE_CONFIDENCE_RANK.get(row.get("state_confidence", "low"), 0),
+                *_stable_row_key(row),
+            ),
+        )[0]
+    else:
+        absent.append("most_ambiguous")
+
+    disagreement = _strongest_row(
+        [row for row in rows if row.get("task_state_relation") == "disagrees"]
+    )
+    if disagreement is None:
+        absent.append("strongest_task_state_disagreement")
+    else:
+        cards["strongest_task_state_disagreement"] = disagreement
+
+    return {"cards": cards, "absent": absent}
+
+
 def write_summary(rows: list[dict], path: Path) -> None:
     task_counts = Counter(row["task_label"] for row in rows)
     hypothesis_counts = Counter(row["brain_state_hypothesis"] for row in rows)
