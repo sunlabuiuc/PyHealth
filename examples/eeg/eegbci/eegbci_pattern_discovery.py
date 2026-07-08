@@ -248,6 +248,88 @@ def derive_quality_columns(row: dict) -> dict:
     }
 
 
+BASE_OUTPUT_COLUMNS = (
+    "patient_id",
+    "record_id",
+    "subject_id",
+    "run",
+    "run_type",
+    "trial_id",
+    "event_code",
+    "task_label",
+    "label_family",
+    "label",
+    "eegbci_label",
+    "model_label",
+    "start_time",
+    "end_time",
+    "dominant_band",
+    "alpha_beta_ratio",
+    "theta_beta_ratio",
+    "brain_state_hypothesis",
+    "confidence",
+    "quality_flags",
+    "interpretation",
+    "delta_power",
+    "theta_power",
+    "alpha_power",
+    "beta_power",
+    "gamma_power",
+    "delta_relative",
+    "theta_relative",
+    "alpha_relative",
+    "beta_relative",
+    "gamma_relative",
+)
+
+MOMENT_REPORT_COLUMNS = (
+    "analysis_version",
+    "state_hypothesis",
+    "state_confidence",
+    "evidence_score",
+    "evidence_summary",
+    "rest_reference_scope",
+    "rest_delta_relative_delta",
+    "rest_theta_relative_delta",
+    "rest_alpha_relative_delta",
+    "rest_beta_relative_delta",
+    "rest_gamma_relative_delta",
+    "task_state_relation",
+    "task_state_rationale",
+    "task_state_confidence",
+    "is_low_confidence",
+    "is_possible_artifact",
+    "is_mixed_or_ambiguous",
+)
+
+OUTPUT_COLUMNS = BASE_OUTPUT_COLUMNS + MOMENT_REPORT_COLUMNS
+
+
+def annotate_moment_rows(rows: list[dict], baselines: dict) -> list[dict]:
+    annotated = []
+    for row in rows:
+        next_row = dict(row)
+        scope, baseline = _baseline_for_row(next_row, baselines)
+        next_row["analysis_version"] = ANALYSIS_VERSION
+        next_row["rest_reference_scope"] = scope
+
+        for band in REPORT_BANDS:
+            source_key = f"{band}_relative"
+            delta_key = f"rest_{band}_relative_delta"
+            if baseline and source_key in baseline and next_row.get(source_key) not in ("", None):
+                next_row[delta_key] = round(
+                    float(next_row[source_key]) - float(baseline[source_key]), 6
+                )
+            else:
+                next_row[delta_key] = ""
+
+        next_row.update(derive_state_hypothesis(next_row))
+        next_row.update(derive_task_state_relation(next_row))
+        next_row.update(derive_quality_columns(next_row))
+        annotated.append(next_row)
+    return annotated
+
+
 def write_summary(rows: list[dict], path: Path) -> None:
     task_counts = Counter(row["task_label"] for row in rows)
     hypothesis_counts = Counter(row["brain_state_hypothesis"] for row in rows)

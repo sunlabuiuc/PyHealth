@@ -448,3 +448,8 @@ graphify update .
   and parseable quality-boolean tests, confirmed missing-helper failures,
   implemented `derive_task_state_relation()` and `derive_quality_columns()`, and
   verified the focused relation/quality tests.
+- 2026-07-08: Task 5 is complete: added annotation/schema tests plus
+  band-specific delta, legacy-field preservation, and non-mutation checks;
+  confirmed missing schema/annotator failures; implemented `BASE_OUTPUT_COLUMNS`,
+  `MOMENT_REPORT_COLUMNS`, `OUTPUT_COLUMNS`, and `annotate_moment_rows()`; and
+  verified the annotation/fallback and band-delta focused tests.

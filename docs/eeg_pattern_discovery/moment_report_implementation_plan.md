@@ -609,7 +609,7 @@ Expected: pass.
 - Produces: `MOMENT_REPORT_COLUMNS: tuple[str, ...]`
 - Produces: `OUTPUT_COLUMNS: tuple[str, ...]`
 
-- [ ] **Step 1: Write failing annotation tests**
+- [x] **Step 1: Write failing annotation tests**
 
 Add:
 
@@ -657,7 +657,7 @@ Add:
         self.assertEqual(annotated[0]["rest_alpha_relative_delta"], "")
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run:
 
@@ -667,7 +667,7 @@ Run:
 
 Expected: fail until `annotate_moment_rows()` exists.
 
-- [ ] **Step 3: Implement annotation and schema**
+- [x] **Step 3: Implement annotation and schema**
 
 Add below `derive_quality_columns()`:
 
@@ -752,7 +752,7 @@ def annotate_moment_rows(rows: list[dict], baselines: dict) -> list[dict]:
     return annotated
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run:
 

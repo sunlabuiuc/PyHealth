@@ -631,6 +631,132 @@ class TestEEGBCIMomentReportHelpers(unittest.TestCase):
         self.assertTrue(flags["is_possible_artifact"])
         self.assertFalse(flags["is_mixed_or_ambiguous"])
 
+    def test_annotate_moment_rows_adds_required_fields(self):
+        from examples.eeg.eegbci.eegbci_pattern_discovery import (
+            ANALYSIS_VERSION,
+            MOMENT_REPORT_COLUMNS,
+            annotate_moment_rows,
+            build_rest_baselines,
+        )
+
+        rows = [
+            self._moment_row(task_label="rest", alpha_relative=0.50, beta_relative=0.20),
+            self._moment_row(
+                task_label="execute_left_fist",
+                label_family="motor_execution",
+                alpha_relative=0.20,
+                beta_relative=0.45,
+            ),
+        ]
+
+        annotated = annotate_moment_rows(rows, build_rest_baselines(rows))
+
+        for annotated_row in annotated:
+            for column in MOMENT_REPORT_COLUMNS:
+                self.assertIn(column, annotated_row)
+        row = annotated[1]
+        self.assertEqual(row["analysis_version"], ANALYSIS_VERSION)
+        self.assertIn(
+            row["state_hypothesis"],
+            {
+                "idle_alpha_profile",
+                "sensorimotor_engagement_profile",
+                "slow_wave_dominant_pattern",
+                "possible_artifact_profile",
+                "mixed_ambiguous_profile",
+            },
+        )
+        self.assertIn("rest_alpha_relative_delta", row)
+        self.assertAlmostEqual(row["rest_alpha_relative_delta"], -0.30)
+        self.assertIn("task_state_relation", row)
+        self.assertIn("task_state_rationale", row)
+        self.assertIn("is_low_confidence", row)
+
+    def test_annotate_moment_rows_marks_unavailable_rest(self):
+        from examples.eeg.eegbci.eegbci_pattern_discovery import (
+            annotate_moment_rows,
+            build_rest_baselines,
+        )
+
+        rows = [
+            self._moment_row(
+                task_label="execute_left_fist", label_family="motor_execution"
+            )
+        ]
+
+        annotated = annotate_moment_rows(rows, build_rest_baselines(rows))
+
+        self.assertEqual(annotated[0]["rest_reference_scope"], "unavailable")
+        for band in ("delta", "theta", "alpha", "beta", "gamma"):
+            self.assertEqual(annotated[0][f"rest_{band}_relative_delta"], "")
+
+    def test_rest_delta_values_are_band_specific(self):
+        from examples.eeg.eegbci.eegbci_pattern_discovery import (
+            annotate_moment_rows,
+            build_rest_baselines,
+        )
+
+        rows = [
+            self._moment_row(
+                task_label="rest",
+                delta_relative=0.10,
+                theta_relative=0.20,
+                alpha_relative=0.30,
+                beta_relative=0.25,
+                gamma_relative=0.15,
+            ),
+            self._moment_row(
+                task_label="execute_left_fist",
+                label_family="motor_execution",
+                delta_relative=0.15,
+                theta_relative=0.18,
+                alpha_relative=0.25,
+                beta_relative=0.35,
+                gamma_relative=0.07,
+            ),
+        ]
+
+        annotated = annotate_moment_rows(rows, build_rest_baselines(rows))
+
+        self.assertAlmostEqual(annotated[1]["rest_delta_relative_delta"], 0.05)
+        self.assertAlmostEqual(annotated[1]["rest_theta_relative_delta"], -0.02)
+        self.assertAlmostEqual(annotated[1]["rest_alpha_relative_delta"], -0.05)
+        self.assertAlmostEqual(annotated[1]["rest_beta_relative_delta"], 0.10)
+        self.assertAlmostEqual(annotated[1]["rest_gamma_relative_delta"], -0.08)
+
+    def test_annotate_moment_rows_preserves_legacy_fields(self):
+        from examples.eeg.eegbci.eegbci_pattern_discovery import (
+            annotate_moment_rows,
+            build_rest_baselines,
+        )
+
+        legacy = self._moment_row(
+            brain_state_hypothesis="legacy_state",
+            confidence="medium",
+            quality_flags="legacy_flag",
+            interpretation="Legacy interpretation.",
+        )
+
+        annotated = annotate_moment_rows([legacy], build_rest_baselines([legacy]))
+
+        self.assertEqual(annotated[0]["brain_state_hypothesis"], "legacy_state")
+        self.assertEqual(annotated[0]["confidence"], "medium")
+        self.assertEqual(annotated[0]["quality_flags"], "legacy_flag")
+        self.assertEqual(annotated[0]["interpretation"], "Legacy interpretation.")
+
+    def test_annotate_moment_rows_does_not_mutate_input_rows(self):
+        from examples.eeg.eegbci.eegbci_pattern_discovery import (
+            annotate_moment_rows,
+            build_rest_baselines,
+        )
+
+        rows = [self._moment_row()]
+        original = [dict(row) for row in rows]
+
+        annotate_moment_rows(rows, build_rest_baselines(rows))
+
+        self.assertEqual(rows, original)
+
 
 @unittest.skipUnless(
     os.environ.get("PYHEALTH_RUN_REAL_EEGBCI") == "1",
