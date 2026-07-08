@@ -1315,7 +1315,7 @@ Expected: matches in the continuation plan and README content.
 **Interfaces:**
 - Verifies: local synthetic/unit coverage and real-data example behavior.
 
-- [ ] **Step 1: Run unit tests**
+- [x] **Step 1: Run unit tests**
 
 Run:
 
@@ -1325,7 +1325,7 @@ Run:
 
 Expected: pass, with real-data smoke skipped unless explicitly enabled.
 
-- [ ] **Step 2: Run the example on a tiny real-data request**
+- [x] **Step 2: Run the example on a tiny real-data request**
 
 Run:
 
@@ -1345,7 +1345,7 @@ Expected:
 - Markdown includes all required sections.
 - Markdown does not start with the old generic exploratory caveat.
 
-- [ ] **Step 3: Inspect artifact schema**
+- [x] **Step 3: Inspect artifact schema**
 
 Run:
 
@@ -1383,7 +1383,7 @@ rows 20
 missing []
 ```
 
-- [ ] **Step 4: Inspect Markdown contract**
+- [x] **Step 4: Inspect Markdown contract**
 
 Run:
 
@@ -1393,7 +1393,7 @@ rg "Executive Result|Run Configuration|Window Coverage|Moment-State Summary|Task
 
 Expected: all required headings match.
 
-- [ ] **Step 5: Update Graphify**
+- [x] **Step 5: Update Graphify**
 
 Run:
 

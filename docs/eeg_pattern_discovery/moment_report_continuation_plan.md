@@ -473,3 +473,9 @@ graphify update .
   plan and GStack `/plan-eng-review` progress history, and verified documentation
   references with `rg` using single quotes around the backtick-containing pattern
   for zsh compatibility.
+- 2026-07-08: Task 10 and post-review fixes are complete: full EEGBCI tests pass
+  with `56 passed, 1 skipped`, the real-data example generated 20 CSV rows and a
+  Markdown report with all required sections, artifact schema and confidence
+  consistency checks pass, `graphify update .` completed after code changes, and
+  the independent review findings were fixed or closed in
+  `docs/eeg_pattern_discovery/moment_report_review.md`.

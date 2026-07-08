@@ -239,7 +239,7 @@ def derive_quality_columns(row: dict) -> dict:
     state = row.get("state_hypothesis", "")
     confidence = row.get("state_confidence", row.get("confidence", ""))
     return {
-        "is_low_confidence": confidence == "low" or "low_confidence" in flags,
+        "is_low_confidence": confidence == "low",
         "is_possible_artifact": state == "possible_artifact_profile"
         or "artifact" in flags
         or "high_gamma" in flags,

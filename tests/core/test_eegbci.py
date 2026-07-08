@@ -612,6 +612,35 @@ class TestEEGBCIMomentReportHelpers(unittest.TestCase):
                 self.assertLessEqual(result["evidence_score"], 1.0)
                 self.assertIn("alpha=", result["evidence_summary"])
 
+    def test_state_confidence_requires_margin(self):
+        from examples.eeg.eegbci.eegbci_pattern_discovery import (
+            STATE_CONFIDENCE_RANK,
+            derive_state_hypothesis,
+        )
+
+        clear = derive_state_hypothesis(
+            self._moment_row(
+                alpha_relative=0.70,
+                beta_relative=0.10,
+                gamma_relative=0.04,
+                alpha_beta_ratio=6.0,
+            )
+        )
+        weaker = derive_state_hypothesis(
+            self._moment_row(
+                alpha_relative=0.40,
+                beta_relative=0.22,
+                gamma_relative=0.10,
+                alpha_beta_ratio=2.0,
+            )
+        )
+
+        self.assertEqual(clear["state_hypothesis"], weaker["state_hypothesis"])
+        self.assertGreater(
+            STATE_CONFIDENCE_RANK[clear["state_confidence"]],
+            STATE_CONFIDENCE_RANK[weaker["state_confidence"]],
+        )
+
     def test_task_state_relation_table_is_deterministic(self):
         from examples.eeg.eegbci.eegbci_pattern_discovery import (
             derive_task_state_relation,
@@ -669,6 +698,32 @@ class TestEEGBCIMomentReportHelpers(unittest.TestCase):
         self.assertTrue(flags["is_low_confidence"])
         self.assertTrue(flags["is_possible_artifact"])
         self.assertFalse(flags["is_mixed_or_ambiguous"])
+
+    def test_quality_booleans_do_not_depend_on_string_parsing_only(self):
+        from examples.eeg.eegbci.eegbci_pattern_discovery import derive_quality_columns
+
+        flags = derive_quality_columns(
+            self._moment_row(
+                state_hypothesis="mixed_ambiguous_profile",
+                state_confidence="medium",
+                quality_flags="",
+            )
+        )
+
+        self.assertTrue(flags["is_mixed_or_ambiguous"])
+
+    def test_quality_booleans_do_not_conflate_legacy_low_confidence(self):
+        from examples.eeg.eegbci.eegbci_pattern_discovery import derive_quality_columns
+
+        flags = derive_quality_columns(
+            self._moment_row(
+                state_hypothesis="idle_alpha_profile",
+                state_confidence="medium",
+                quality_flags="low_confidence",
+            )
+        )
+
+        self.assertFalse(flags["is_low_confidence"])
 
     def test_annotate_moment_rows_adds_required_fields(self):
         from examples.eeg.eegbci.eegbci_pattern_discovery import (
@@ -1329,6 +1384,11 @@ class TestEEGBCIMomentReportHelpers(unittest.TestCase):
             parse_int_list("a")
         with self.assertRaises(ValueError):
             parse_int_list("3-a")
+
+    def test_parse_int_list_accepts_ranges_and_singletons(self):
+        from examples.eeg.eegbci.eegbci_pattern_discovery import parse_int_list
+
+        self.assertEqual(parse_int_list("1,3-5"), [1, 3, 4, 5])
 
 
 @unittest.skipUnless(
