@@ -105,6 +105,75 @@ def build_rest_baselines(rows: list[dict]) -> dict:
     }
 
 
+def _baseline_for_row(row: dict, baselines: dict) -> tuple[str, dict | None]:
+    subject_run_key = (row["subject_id"], row["run"])
+    if subject_run_key in baselines["same_subject_run"]:
+        return "same_subject_run", baselines["same_subject_run"][subject_run_key]
+    if row["subject_id"] in baselines["same_subject_all_runs"]:
+        return "same_subject_all_runs", baselines["same_subject_all_runs"][row["subject_id"]]
+    if baselines["global_rest"]:
+        return "global_rest", baselines["global_rest"]
+    return "unavailable", None
+
+
+def _clip01(value: float) -> float:
+    return max(0.0, min(1.0, value))
+
+
+def derive_state_hypothesis(row: dict) -> dict:
+    delta = float(row.get("delta_relative", 0.0) or 0.0)
+    theta = float(row.get("theta_relative", 0.0) or 0.0)
+    alpha = float(row.get("alpha_relative", 0.0) or 0.0)
+    beta = float(row.get("beta_relative", 0.0) or 0.0)
+    gamma = float(row.get("gamma_relative", 0.0) or 0.0)
+    alpha_beta = float(row.get("alpha_beta_ratio", 0.0) or 0.0)
+    theta_beta = float(row.get("theta_beta_ratio", 0.0) or 0.0)
+
+    scores = {
+        "idle_alpha_profile": _clip01((alpha - 0.25) + min(alpha_beta / 8.0, 0.40)),
+        "sensorimotor_engagement_profile": _clip01(
+            (beta - 0.20)
+            + max(gamma - 0.12, 0.0)
+            + max(0.0, 1.5 - alpha_beta) / 6.0
+        ),
+        "slow_wave_dominant_pattern": _clip01(
+            (delta + theta) - 0.45 + min(theta_beta / 8.0, 0.20)
+        ),
+        "possible_artifact_profile": _clip01(
+            (gamma - 0.22) * 2.0 + max(delta - 0.50, 0.0)
+        ),
+    }
+    ordered = sorted(scores.items(), key=lambda item: item[1], reverse=True)
+    winner, winning_score = ordered[0]
+    runner_up = ordered[1][1]
+    margin = winning_score - runner_up
+
+    if winning_score < 0.20 or margin < 0.08:
+        state = "mixed_ambiguous_profile"
+        evidence_score = round(max(winning_score, 0.10), 3)
+        confidence = "low"
+    else:
+        state = winner
+        evidence_score = round(winning_score, 3)
+        if winning_score >= 0.65 and margin >= 0.20:
+            confidence = "high"
+        elif winning_score >= 0.35 and margin >= 0.12:
+            confidence = "medium"
+        else:
+            confidence = "low"
+
+    return {
+        "state_hypothesis": state,
+        "state_confidence": confidence,
+        "evidence_score": evidence_score,
+        "evidence_summary": (
+            f"delta={delta:.3f}; theta={theta:.3f}; alpha={alpha:.3f}; "
+            f"beta={beta:.3f}; gamma={gamma:.3f}; alpha_beta={alpha_beta:.3f}; "
+            f"margin={margin:.3f}"
+        ),
+    }
+
+
 def write_summary(rows: list[dict], path: Path) -> None:
     task_counts = Counter(row["task_label"] for row in rows)
     hypothesis_counts = Counter(row["brain_state_hypothesis"] for row in rows)

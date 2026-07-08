@@ -326,7 +326,7 @@ Expected: pass.
 }
 ```
 
-- [ ] **Step 1: Write failing rest fallback and state tests**
+- [x] **Step 1: Write failing rest fallback and state tests**
 
 Add these tests:
 
@@ -372,7 +372,7 @@ Add these tests:
                 self.assertIn("alpha=", result["evidence_summary"])
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run:
 
@@ -382,7 +382,7 @@ Run:
 
 Expected: fail because `annotate_moment_rows` and `derive_state_hypothesis` are missing.
 
-- [ ] **Step 3: Implement fallback and scoring**
+- [x] **Step 3: Implement fallback and scoring**
 
 Add below `build_rest_baselines()`:
 
@@ -448,7 +448,7 @@ def derive_state_hypothesis(row: dict) -> dict:
     }
 ```
 
-- [ ] **Step 4: Run tests to verify current expected partial failure**
+- [x] **Step 4: Run tests to verify current expected partial failure**
 
 Run:
 

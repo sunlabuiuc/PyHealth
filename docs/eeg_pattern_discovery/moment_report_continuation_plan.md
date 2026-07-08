@@ -439,3 +439,8 @@ graphify update .
 - 2026-07-08: Task 2 is complete: added synthetic rest-baseline tests, confirmed
   the missing-helper failure, implemented `build_rest_baselines()` and
   `_mean_band_values()`, and verified rest-only averaging plus no-rest fallback.
+- 2026-07-08: Task 3 is complete for the planned partial checkpoint: added rest
+  fallback and state-profile tests, confirmed missing-helper failures,
+  implemented `_baseline_for_row()`, `_clip01()`, and `derive_state_hypothesis()`,
+  and verified the state-profile focused test. The fallback-scope test remains
+  expected to pass in Task 5 when `annotate_moment_rows()` is added.

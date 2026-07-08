@@ -476,6 +476,103 @@ class TestEEGBCIMomentReportHelpers(unittest.TestCase):
         self.assertEqual(baselines["same_subject_all_runs"], {})
         self.assertIsNone(baselines["global_rest"])
 
+    def test_annotate_rest_fallback_scopes(self):
+        from examples.eeg.eegbci.eegbci_pattern_discovery import (
+            annotate_moment_rows,
+            build_rest_baselines,
+        )
+
+        rows = [
+            self._moment_row(task_label="rest", subject_id=1, run=3, alpha_relative=0.50),
+            self._moment_row(task_label="rest", subject_id=1, run=4, alpha_relative=0.70),
+            self._moment_row(
+                task_label="execute_left_fist",
+                label_family="motor_execution",
+                subject_id=1,
+                run=3,
+                alpha_relative=0.80,
+            ),
+            self._moment_row(
+                task_label="execute_left_fist",
+                label_family="motor_execution",
+                subject_id=1,
+                run=5,
+                alpha_relative=0.80,
+            ),
+            self._moment_row(
+                task_label="execute_left_fist",
+                label_family="motor_execution",
+                subject_id=2,
+                run=8,
+                alpha_relative=0.80,
+            ),
+        ]
+
+        annotated = annotate_moment_rows(rows, build_rest_baselines(rows))
+
+        self.assertEqual(annotated[2]["rest_reference_scope"], "same_subject_run")
+        self.assertEqual(annotated[3]["rest_reference_scope"], "same_subject_all_runs")
+        self.assertEqual(annotated[4]["rest_reference_scope"], "global_rest")
+
+    def test_derive_state_hypothesis_detects_profiles(self):
+        from examples.eeg.eegbci.eegbci_pattern_discovery import derive_state_hypothesis
+
+        cases = [
+            (
+                self._moment_row(
+                    alpha_relative=0.60,
+                    beta_relative=0.12,
+                    gamma_relative=0.05,
+                    alpha_beta_ratio=5.0,
+                ),
+                "idle_alpha_profile",
+            ),
+            (
+                self._moment_row(
+                    alpha_relative=0.12,
+                    beta_relative=0.48,
+                    gamma_relative=0.16,
+                    alpha_beta_ratio=0.25,
+                ),
+                "sensorimotor_engagement_profile",
+            ),
+            (
+                self._moment_row(
+                    delta_relative=0.42,
+                    theta_relative=0.36,
+                    alpha_relative=0.08,
+                    beta_relative=0.08,
+                ),
+                "slow_wave_dominant_pattern",
+            ),
+            (
+                self._moment_row(
+                    gamma_relative=0.48, alpha_relative=0.10, beta_relative=0.12
+                ),
+                "possible_artifact_profile",
+            ),
+            (
+                self._moment_row(
+                    delta_relative=0.18,
+                    theta_relative=0.20,
+                    alpha_relative=0.22,
+                    beta_relative=0.21,
+                    gamma_relative=0.19,
+                    alpha_beta_ratio=1.05,
+                ),
+                "mixed_ambiguous_profile",
+            ),
+        ]
+
+        for row, expected in cases:
+            with self.subTest(expected=expected):
+                result = derive_state_hypothesis(row)
+                self.assertEqual(result["state_hypothesis"], expected)
+                self.assertIn(result["state_confidence"], {"low", "medium", "high"})
+                self.assertGreaterEqual(result["evidence_score"], 0.0)
+                self.assertLessEqual(result["evidence_score"], 1.0)
+                self.assertIn("alpha=", result["evidence_summary"])
+
 
 @unittest.skipUnless(
     os.environ.get("PYHEALTH_RUN_REAL_EEGBCI") == "1",
