@@ -204,7 +204,7 @@ The returned dict must include:
 }
 ```
 
-- [ ] **Step 1: Write failing baseline tests**
+- [x] **Step 1: Write failing baseline tests**
 
 Add these tests to `TestEEGBCIMomentReportHelpers`:
 
@@ -240,7 +240,7 @@ Add these tests to `TestEEGBCIMomentReportHelpers`:
         self.assertIsNone(baselines["global_rest"])
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run:
 
@@ -253,7 +253,7 @@ Run:
 
 Expected: fail because `build_rest_baselines` is missing.
 
-- [ ] **Step 3: Implement baseline helpers**
+- [x] **Step 3: Implement baseline helpers**
 
 Add below `sample_to_row()`:
 
@@ -294,7 +294,7 @@ def build_rest_baselines(rows: list[dict]) -> dict:
     }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run:
 

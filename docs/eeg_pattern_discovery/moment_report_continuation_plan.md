@@ -436,3 +436,6 @@ graphify update .
   added the synthetic moment-row fixture test, added `ANALYSIS_VERSION`,
   `REPORT_BANDS`, and `STATE_CONFIDENCE_RANK`, confirmed the focused test failed
   before implementation and passed after implementation.
+- 2026-07-08: Task 2 is complete: added synthetic rest-baseline tests, confirmed
+  the missing-helper failure, implemented `build_rest_baselines()` and
+  `_mean_band_values()`, and verified rest-only averaging plus no-rest fallback.

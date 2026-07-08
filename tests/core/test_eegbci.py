@@ -440,6 +440,42 @@ class TestEEGBCIMomentReportHelpers(unittest.TestCase):
 
         self.assertEqual(ANALYSIS_VERSION, "eegbci_pattern_moment_report_v1")
 
+    def test_build_rest_baselines_uses_rest_rows_only(self):
+        from examples.eeg.eegbci.eegbci_pattern_discovery import build_rest_baselines
+
+        rows = [
+            self._moment_row(task_label="rest", subject_id=1, run=3, alpha_relative=0.50),
+            self._moment_row(
+                task_label="execute_left_fist", subject_id=1, run=3, alpha_relative=0.90
+            ),
+            self._moment_row(task_label="rest", subject_id=1, run=4, alpha_relative=0.70),
+        ]
+
+        baselines = build_rest_baselines(rows)
+
+        self.assertAlmostEqual(
+            baselines["same_subject_run"][(1, 3)]["alpha_relative"], 0.50
+        )
+        self.assertAlmostEqual(
+            baselines["same_subject_all_runs"][1]["alpha_relative"], 0.60
+        )
+        self.assertAlmostEqual(baselines["global_rest"]["alpha_relative"], 0.60)
+
+    def test_build_rest_baselines_handles_no_rest_rows(self):
+        from examples.eeg.eegbci.eegbci_pattern_discovery import build_rest_baselines
+
+        rows = [
+            self._moment_row(
+                task_label="execute_left_fist", label_family="motor_execution"
+            )
+        ]
+
+        baselines = build_rest_baselines(rows)
+
+        self.assertEqual(baselines["same_subject_run"], {})
+        self.assertEqual(baselines["same_subject_all_runs"], {})
+        self.assertIsNone(baselines["global_rest"])
+
 
 @unittest.skipUnless(
     os.environ.get("PYHEALTH_RUN_REAL_EEGBCI") == "1",

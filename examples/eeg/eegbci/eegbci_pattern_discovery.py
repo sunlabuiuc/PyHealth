@@ -68,6 +68,43 @@ def sample_to_row(sample: dict) -> dict:
     }
 
 
+def _mean_band_values(rows: list[dict]) -> dict:
+    means = {}
+    for band in REPORT_BANDS:
+        key = f"{band}_relative"
+        values = [float(row[key]) for row in rows if row.get(key) not in ("", None)]
+        if values:
+            means[key] = sum(values) / len(values)
+    return means
+
+
+def build_rest_baselines(rows: list[dict]) -> dict:
+    rest_rows = [row for row in rows if row.get("task_label") == "rest"]
+    same_subject_run = {}
+    same_subject_all_runs = {}
+
+    subject_run_keys = sorted({(row["subject_id"], row["run"]) for row in rest_rows})
+    for key in subject_run_keys:
+        subject_id, run = key
+        grouped = [
+            row
+            for row in rest_rows
+            if row["subject_id"] == subject_id and row["run"] == run
+        ]
+        same_subject_run[key] = _mean_band_values(grouped)
+
+    subject_keys = sorted({row["subject_id"] for row in rest_rows})
+    for subject_id in subject_keys:
+        grouped = [row for row in rest_rows if row["subject_id"] == subject_id]
+        same_subject_all_runs[subject_id] = _mean_band_values(grouped)
+
+    return {
+        "same_subject_run": same_subject_run,
+        "same_subject_all_runs": same_subject_all_runs,
+        "global_rest": _mean_band_values(rest_rows) if rest_rows else None,
+    }
+
+
 def write_summary(rows: list[dict], path: Path) -> None:
     task_counts = Counter(row["task_label"] for row in rows)
     hypothesis_counts = Counter(row["brain_state_hypothesis"] for row in rows)
