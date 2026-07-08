@@ -411,3 +411,28 @@ graphify update .
 - 2026-07-08: Refined and challenged the continuation plan through
   `superpowers:brainstorming`. Wrote the approved design to
   `docs/eeg_pattern_discovery/moment_report_refined_design.md`.
+- 2026-07-08: Converted the approved refined design into
+  `docs/eeg_pattern_discovery/moment_report_implementation_plan.md` using
+  `superpowers:writing-plans`. Ran GStack `/plan-eng-review` against that plan
+  before code implementation; the review approved the example-owned architecture
+  and tightened empty CSV handling with stable `OUTPUT_COLUMNS`.
+- 2026-07-08: Added an extensive correctness test matrix to the implementation
+  plan, covering rest fallback, state scoring, task-state relation, quality
+  booleans, representative windows, Markdown rendering, empty CSV behavior,
+  `--max-windows=0`, uncapped baselines, and end-to-end artifact checks.
+- 2026-07-08: Added a post-implementation review gate to the implementation
+  plan. The recommended workflow is same-chat orchestration, independent
+  sub-agent or fresh review context for GStack `/review`, Markdown review output
+  at `docs/eeg_pattern_discovery/moment_report_review.md`, then main-chat fix
+  implementation and re-verification.
+- 2026-07-08: Tightened the post-implementation review gate: final GStack
+  `/review` must run in an independent sub-agent or separate session, not inline
+  in the same reasoning thread that implemented the feature.
+- 2026-07-08: Added an autonomous execution contract to the implementation plan.
+  It now explicitly requires Tasks 1-10, focused and full verification, artifact
+  checks, `graphify update .`, independent GStack `/review`, review Markdown,
+  accepted-fix implementation, and post-fix re-verification before completion.
+- 2026-07-08: Started moment-report implementation. Task 1 is complete:
+  added the synthetic moment-row fixture test, added `ANALYSIS_VERSION`,
+  `REPORT_BANDS`, and `STATE_CONFIDENCE_RANK`, confirmed the focused test failed
+  before implementation and passed after implementation.

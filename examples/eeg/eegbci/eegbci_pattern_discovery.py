@@ -15,6 +15,17 @@ from pyhealth.datasets import EEGBCIDataset
 from pyhealth.tasks import EEGBCIPatternDiscovery
 
 
+ANALYSIS_VERSION = "eegbci_pattern_moment_report_v1"
+REPORT_BANDS = ("delta", "theta", "alpha", "beta", "gamma")
+STATE_CONFIDENCE_RANK = {"low": 0, "medium": 1, "high": 2}
+
+
+def scalar_value(value):
+    if hasattr(value, "item"):
+        return value.item()
+    return value
+
+
 def parse_int_list(value: str) -> list[int]:
     items: list[int] = []
     for part in value.split(","):
@@ -28,6 +39,8 @@ def parse_int_list(value: str) -> list[int]:
 
 def sample_to_row(sample: dict) -> dict:
     bandpower = sample["bandpower"]
+    model_label = scalar_value(sample["label"])
+    eegbci_label = scalar_value(sample.get("eegbci_label", model_label))
     return {
         "patient_id": sample["patient_id"],
         "record_id": sample["record_id"],
@@ -38,7 +51,9 @@ def sample_to_row(sample: dict) -> dict:
         "event_code": sample["event_code"],
         "task_label": sample["task_label"],
         "label_family": sample["label_family"],
-        "label": sample["label"],
+        "label": eegbci_label,
+        "eegbci_label": eegbci_label,
+        "model_label": model_label,
         "start_time": sample["start_time"],
         "end_time": sample["end_time"],
         "dominant_band": bandpower["dominant_band"],

@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
+import torch
 
 from pyhealth.tasks.eegbci import (
     EEGBCI_LABELS,
@@ -154,6 +155,24 @@ class TestEEGBCIDataset(unittest.TestCase):
             self.assertEqual(df.loc[0, "run_type"], "motor_execution_left_right")
             self.assertEqual(df.loc[0, "source"], "physionet_eegbci")
 
+    def test_prepare_metadata_rebuilds_for_changed_selection(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            first = root / "files" / "eegmmidb" / "1.0.0" / "S001" / "S001R03.edf"
+            second = root / "files" / "eegmmidb" / "1.0.0" / "S002" / "S002R04.edf"
+            first.parent.mkdir(parents=True)
+            second.parent.mkdir(parents=True)
+            first.write_bytes(b"")
+            second.write_bytes(b"")
+
+            EEGBCIDataset(root=str(root), subjects=[1], runs=[3], download=False)
+            EEGBCIDataset(root=str(root), subjects=[2], runs=[4], download=False)
+
+            df = pd.read_csv(root / "eegbci-pyhealth.csv")
+            self.assertEqual(len(df), 1)
+            self.assertEqual(df.loc[0, "subject_id"], 2)
+            self.assertEqual(df.loc[0, "run"], 4)
+
     def test_prepare_metadata_download_uses_mne_loader(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -191,6 +210,48 @@ class TestEEGBCIDataset(unittest.TestCase):
 
         ds = EEGBCIDataset.__new__(EEGBCIDataset)
         self.assertIsInstance(ds.default_task, EEGBCIPatternDiscovery)
+
+    def test_dataset_set_task_offline_integration(self):
+        import mne
+        from pyhealth.tasks.eegbci import EEGBCI_COMPAT_CHANNELS, EEGMotorImageryEEGBCI
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            edf = root / "files" / "eegmmidb" / "1.0.0" / "S001" / "S001R03.edf"
+            edf.parent.mkdir(parents=True)
+            edf.write_bytes(b"")
+            sfreq = 200.0
+            raw = mne.io.RawArray(
+                np.ones((16, int(sfreq * 2))),
+                mne.create_info(
+                    list(EEGBCI_COMPAT_CHANNELS), sfreq=sfreq, ch_types=["eeg"] * 16
+                ),
+                verbose="error",
+            )
+            raw.set_annotations(
+                mne.Annotations(onset=[0.0], duration=[2.0], description=["T1"])
+            )
+            dataset = EEGBCIDataset(
+                root=str(root),
+                subjects=[1],
+                runs=[3],
+                download=False,
+                cache_dir=root / "cache",
+            )
+
+            with patch("pyhealth.tasks.eegbci.mne.io.read_raw_edf", return_value=raw):
+                sample_dataset = dataset.set_task(
+                    EEGMotorImageryEEGBCI(
+                        compute_stft=False, resample_rate=None, bandpass_filter=None
+                    ),
+                    num_workers=1,
+                )
+
+            self.assertEqual(len(sample_dataset), 1)
+            sample = sample_dataset[0]
+            self.assertEqual(sample["task_label"], "execute_left_fist")
+            self.assertEqual(sample["eegbci_label"], 1)
+            self.assertEqual(tuple(sample["signal"].shape), (16, 400))
 
 
 from pyhealth.tasks.eegbci import EEGBCIPatternDiscovery, EEGMotorImageryEEGBCI
@@ -284,7 +345,36 @@ class TestEEGBCITasks(unittest.TestCase):
         self.assertEqual(sample["event_code"], "T1")
         self.assertEqual(sample["task_label"], "execute_left_fist")
         self.assertEqual(sample["label"], 1)
+        self.assertEqual(sample["eegbci_label"], 1)
         self.assertEqual(tuple(sample["signal"].shape), (16, 400))
+
+    def test_stft_uses_current_sample_rate(self):
+        import mne
+        from pyhealth.tasks.eegbci import EEGBCI_COMPAT_CHANNELS
+
+        sfreq = 100.0
+        raw = mne.io.RawArray(
+            np.ones((16, int(sfreq * 2))),
+            mne.create_info(
+                list(EEGBCI_COMPAT_CHANNELS), sfreq=sfreq, ch_types=["eeg"] * 16
+            ),
+            verbose="error",
+        )
+        raw.set_annotations(
+            mne.Annotations(onset=[0.0], duration=[2.0], description=["T1"])
+        )
+        patient = _EEGBCIPatient("S001", [_EEGBCIEvent(signal_file="dummy.edf")])
+        task = EEGMotorImageryEEGBCI(resample_rate=None, bandpass_filter=None)
+
+        with patch("pyhealth.tasks.eegbci.mne.io.read_raw_edf", return_value=raw):
+            with patch(
+                "pyhealth.models.tfm_tokenizer.get_stft_torch",
+                return_value=torch.zeros((1, 16, 50, 1)),
+            ) as get_stft:
+                samples = task(patient)
+
+        self.assertEqual(len(samples), 1)
+        self.assertEqual(get_stft.call_args.kwargs["resampling_rate"], 100)
 
     def test_pattern_discovery_adds_bandpower_metadata(self):
         import mne
@@ -310,6 +400,45 @@ class TestEEGBCITasks(unittest.TestCase):
         self.assertEqual(sample["bandpower"]["dominant_band"], "alpha")
         self.assertEqual(sample["brain_state_hypothesis"], "relaxed_or_idle")
         self.assertIn("interpretation", sample)
+
+
+class TestEEGBCIMomentReportHelpers(unittest.TestCase):
+    def _moment_row(self, **overrides):
+        row = {
+            "patient_id": "S001",
+            "record_id": "R03",
+            "subject_id": 1,
+            "run": 3,
+            "run_type": "motor_execution_left_right",
+            "trial_id": "S001_R03_T0_0",
+            "event_code": "T0",
+            "task_label": "rest",
+            "label_family": "rest",
+            "label": 0,
+            "eegbci_label": 0,
+            "model_label": 0,
+            "start_time": 0.0,
+            "end_time": 2.0,
+            "dominant_band": "alpha",
+            "delta_relative": 0.05,
+            "theta_relative": 0.10,
+            "alpha_relative": 0.55,
+            "beta_relative": 0.20,
+            "gamma_relative": 0.10,
+            "alpha_beta_ratio": 2.75,
+            "theta_beta_ratio": 0.50,
+            "brain_state_hypothesis": "relaxed_or_idle",
+            "confidence": "medium",
+            "quality_flags": "",
+            "interpretation": "Alpha-dominant profile.",
+        }
+        row.update(overrides)
+        return row
+
+    def test_analysis_version_constant(self):
+        from examples.eeg.eegbci.eegbci_pattern_discovery import ANALYSIS_VERSION
+
+        self.assertEqual(ANALYSIS_VERSION, "eegbci_pattern_moment_report_v1")
 
 
 @unittest.skipUnless(
