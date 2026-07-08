@@ -902,7 +902,7 @@ Expected: pass.
 - Produces: `render_summary(rows: list[dict], config: dict) -> str`
 - Updates: `write_summary(rows: list[dict], path: Path, config: dict) -> None`
 
-- [ ] **Step 1: Write failing renderer tests**
+- [x] **Step 1: Write failing renderer tests**
 
 Add:
 
@@ -966,7 +966,7 @@ Add:
         self.assertIn("## Limitations", summary)
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run:
 
@@ -976,7 +976,7 @@ Run:
 
 Expected: fail because `render_summary` is missing.
 
-- [ ] **Step 3: Implement renderer**
+- [x] **Step 3: Implement renderer**
 
 Replace existing `write_summary()` with:
 
@@ -1138,7 +1138,7 @@ def write_summary(rows: list[dict], path: Path, config: dict) -> None:
     path.write_text(render_summary(rows, config), encoding="utf-8")
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run:
 

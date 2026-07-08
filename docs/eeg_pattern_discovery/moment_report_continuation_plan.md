@@ -457,3 +457,9 @@ graphify update .
   tests plus ambiguous and disagreement edge checks, confirmed the missing
   selector failure, implemented stable selection helpers, and verified the
   representative-window focused tests.
+- 2026-07-08: Task 7 is complete: added Markdown renderer tests covering required
+  sections, empty output, all-low-confidence/all-same-state messaging, task/state
+  matrix output, representative card details, limitations placement, and removal
+  of the old row-level caveat; confirmed missing-renderer failures; implemented
+  `render_summary()` and config-aware `write_summary()`; and verified the focused
+  renderer tests plus the caveat regression.

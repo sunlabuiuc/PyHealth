@@ -882,6 +882,243 @@ class TestEEGBCIMomentReportHelpers(unittest.TestCase):
             selected["cards"]["strongest_task_state_disagreement"]["subject_id"], 2
         )
 
+    def test_render_summary_contains_required_sections_and_limitations(self):
+        from examples.eeg.eegbci.eegbci_pattern_discovery import (
+            ANALYSIS_VERSION,
+            annotate_moment_rows,
+            build_rest_baselines,
+            render_summary,
+        )
+
+        rows = [
+            self._moment_row(
+                task_label="execute_left_fist", label_family="motor_execution"
+            )
+        ]
+        annotated = annotate_moment_rows(rows, build_rest_baselines(rows))
+        summary = render_summary(
+            annotated,
+            {
+                "subjects": [1],
+                "runs": [3],
+                "max_windows": 1,
+                "baseline_row_count": 1,
+                "output_was_capped": True,
+            },
+        )
+
+        self.assertIn(ANALYSIS_VERSION, summary.splitlines()[2])
+        for heading in [
+            "## Executive Result",
+            "## Run Configuration",
+            "## Window Coverage",
+            "## Moment-State Summary",
+            "## Task Label x State Matrix",
+            "## Rest-Normalized Bandpower Summary",
+            "## Confidence and Quality Audit",
+            "## Representative Windows",
+            "## Limitations",
+            "## Next Checks",
+        ]:
+            self.assertIn(heading, summary)
+        self.assertIn("No rest baseline was available", summary)
+        self.assertIn("Output was capped by `--max-windows`", summary)
+        self.assertNotIn(
+            "Brain-state hypotheses are exploratory signal metadata",
+            summary.splitlines()[2],
+        )
+
+    def test_render_summary_handles_empty_rows(self):
+        from examples.eeg.eegbci.eegbci_pattern_discovery import render_summary
+
+        summary = render_summary(
+            [],
+            {
+                "subjects": [1],
+                "runs": [3],
+                "max_windows": 0,
+                "baseline_row_count": 0,
+                "output_was_capped": True,
+            },
+        )
+
+        self.assertIn("No windows were produced", summary)
+        self.assertIn("## Limitations", summary)
+
+    def test_render_summary_reports_all_low_confidence_and_same_state(self):
+        from examples.eeg.eegbci.eegbci_pattern_discovery import render_summary
+
+        rows = [
+            self._moment_row(
+                state_hypothesis="mixed_ambiguous_profile",
+                state_confidence="low",
+                evidence_score=0.10,
+                task_state_relation="ambiguous",
+                task_state_confidence="low",
+                rest_reference_scope="unavailable",
+                is_low_confidence=True,
+                is_possible_artifact=False,
+                is_mixed_or_ambiguous=True,
+            ),
+            self._moment_row(
+                start_time=2.0,
+                state_hypothesis="mixed_ambiguous_profile",
+                state_confidence="low",
+                evidence_score=0.12,
+                task_state_relation="ambiguous",
+                task_state_confidence="low",
+                rest_reference_scope="unavailable",
+                is_low_confidence=True,
+                is_possible_artifact=False,
+                is_mixed_or_ambiguous=True,
+            ),
+        ]
+
+        summary = render_summary(
+            rows,
+            {
+                "subjects": [1],
+                "runs": [3],
+                "max_windows": None,
+                "baseline_row_count": 2,
+                "output_was_capped": False,
+            },
+        )
+
+        self.assertIn("Every window is low confidence", summary)
+        self.assertIn("Every window maps to the same state", summary)
+
+    def test_render_summary_reports_task_state_matrix(self):
+        from examples.eeg.eegbci.eegbci_pattern_discovery import render_summary
+
+        rows = [
+            self._moment_row(
+                task_label="rest",
+                state_hypothesis="idle_alpha_profile",
+                state_confidence="medium",
+                evidence_score=0.60,
+                task_state_relation="supports_label",
+                task_state_confidence="medium",
+                rest_reference_scope="same_subject_run",
+            ),
+            self._moment_row(
+                task_label="execute_left_fist",
+                label_family="motor_execution",
+                state_hypothesis="sensorimotor_engagement_profile",
+                state_confidence="medium",
+                evidence_score=0.70,
+                task_state_relation="supports_label",
+                task_state_confidence="medium",
+                rest_reference_scope="same_subject_run",
+            ),
+        ]
+
+        summary = render_summary(
+            rows,
+            {
+                "subjects": [1],
+                "runs": [3],
+                "max_windows": None,
+                "baseline_row_count": 2,
+                "output_was_capped": False,
+            },
+        )
+
+        self.assertIn("rest x idle_alpha_profile: 1", summary)
+        self.assertIn(
+            "execute_left_fist x sensorimotor_engagement_profile: 1", summary
+        )
+
+    def test_render_summary_includes_representative_window_details(self):
+        from examples.eeg.eegbci.eegbci_pattern_discovery import render_summary
+
+        row = self._moment_row(
+            state_hypothesis="idle_alpha_profile",
+            state_confidence="medium",
+            evidence_score=0.75,
+            task_state_relation="supports_label",
+            task_state_confidence="medium",
+            task_state_rationale="The idle-like alpha profile is consistent with rest.",
+            rest_reference_scope="same_subject_run",
+            rest_delta_relative_delta=0.01,
+            rest_theta_relative_delta=0.02,
+            rest_alpha_relative_delta=0.03,
+            rest_beta_relative_delta=-0.02,
+            rest_gamma_relative_delta=-0.01,
+            is_low_confidence=False,
+            is_possible_artifact=False,
+            is_mixed_or_ambiguous=False,
+        )
+
+        summary = render_summary(
+            [row],
+            {
+                "subjects": [1],
+                "runs": [3],
+                "max_windows": None,
+                "baseline_row_count": 1,
+                "output_was_capped": False,
+            },
+        )
+
+        for text in [
+            "Subject 1 run 3 trial S001_R03_T0_0",
+            "Task: rest from 0.0s to 2.0s",
+            "State: idle_alpha_profile",
+            "Dominant band: alpha",
+            "Rest deltas:",
+            "Task relation: supports_label",
+            "low_confidence=False",
+            "Rationale: The idle-like alpha profile",
+        ]:
+            self.assertIn(text, summary)
+
+    def test_render_summary_moves_nonclinical_warning_to_limitations(self):
+        from examples.eeg.eegbci.eegbci_pattern_discovery import render_summary
+
+        summary = render_summary(
+            [self._moment_row(state_hypothesis="idle_alpha_profile")],
+            {
+                "subjects": [1],
+                "runs": [3],
+                "max_windows": None,
+                "baseline_row_count": 1,
+                "output_was_capped": False,
+            },
+        )
+
+        opening = "\n".join(summary.splitlines()[:6])
+        limitations = summary.split("## Limitations", 1)[1]
+        self.assertNotIn("clinical findings", opening)
+        self.assertIn("clinical findings", limitations)
+
+    def test_summary_text_does_not_repeat_old_row_level_caveat(self):
+        from examples.eeg.eegbci.eegbci_pattern_discovery import (
+            annotate_moment_rows,
+            build_rest_baselines,
+            render_summary,
+        )
+
+        rows = [
+            self._moment_row(
+                interpretation="This is exploratory signal metadata, not a diagnosis."
+            )
+        ]
+        annotated = annotate_moment_rows(rows, build_rest_baselines(rows))
+
+        summary = render_summary(
+            annotated,
+            {
+                "subjects": [1],
+                "runs": [3],
+                "max_windows": None,
+                "baseline_row_count": 1,
+                "output_was_capped": False,
+            },
+        )
+
+        self.assertNotIn("This is exploratory signal metadata", summary)
+
 
 @unittest.skipUnless(
     os.environ.get("PYHEALTH_RUN_REAL_EEGBCI") == "1",

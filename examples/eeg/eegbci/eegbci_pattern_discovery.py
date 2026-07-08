@@ -396,25 +396,192 @@ def select_representative_windows(rows: list[dict]) -> dict:
     return {"cards": cards, "absent": absent}
 
 
-def write_summary(rows: list[dict], path: Path) -> None:
-    task_counts = Counter(row["task_label"] for row in rows)
-    hypothesis_counts = Counter(row["brain_state_hypothesis"] for row in rows)
+def _format_count_lines(counter: Counter) -> list[str]:
+    if not counter:
+        return ["- None"]
+    return [f"- {label}: {count}" for label, count in counter.most_common()]
+
+
+def _format_card(row: dict) -> list[str]:
+    bands = ", ".join(
+        f"{band}={float(row.get(f'{band}_relative', 0.0) or 0.0):.3f}"
+        for band in REPORT_BANDS
+    )
+    deltas = ", ".join(
+        f"{band}={row.get(f'rest_{band}_relative_delta', '')}"
+        for band in REPORT_BANDS
+    )
+    return [
+        f"- Subject {row.get('subject_id')} run {row.get('run')} trial {row.get('trial_id')}",
+        f"  - Task: {row.get('task_label')} from {row.get('start_time')}s to {row.get('end_time')}s",
+        (
+            f"  - State: {row.get('state_hypothesis')} "
+            f"({row.get('state_confidence')}, evidence {row.get('evidence_score')})"
+        ),
+        f"  - Dominant band: {row.get('dominant_band')}; relative bands: {bands}",
+        f"  - Rest deltas: {deltas}; scope: {row.get('rest_reference_scope')}",
+        (
+            f"  - Task relation: {row.get('task_state_relation')} "
+            f"({row.get('task_state_confidence')})"
+        ),
+        (
+            f"  - Flags: low_confidence={row.get('is_low_confidence')}, "
+            f"possible_artifact={row.get('is_possible_artifact')}, "
+            f"mixed_or_ambiguous={row.get('is_mixed_or_ambiguous')}"
+        ),
+        f"  - Rationale: {row.get('task_state_rationale')}",
+    ]
+
+
+def render_summary(rows: list[dict], config: dict) -> str:
+    state_counts = Counter(row.get("state_hypothesis", "missing") for row in rows)
+    task_counts = Counter(row.get("task_label", "missing") for row in rows)
+    confidence_counts = Counter(row.get("state_confidence", "missing") for row in rows)
+    relation_counts = Counter(row.get("task_state_relation", "missing") for row in rows)
+    unavailable_rest = sum(
+        row.get("rest_reference_scope") == "unavailable" for row in rows
+    )
+    low_confidence = sum(bool(row.get("is_low_confidence")) for row in rows)
+    artifacts = sum(bool(row.get("is_possible_artifact")) for row in rows)
+    ambiguous = sum(bool(row.get("is_mixed_or_ambiguous")) for row in rows)
+    representatives = select_representative_windows(rows)
+
+    executive = []
+    if not rows:
+        executive.append("No windows were produced for the requested configuration.")
+    else:
+        top_state, top_state_count = state_counts.most_common(1)[0]
+        executive.append(
+            f"Processed {len(rows)} windows. Most common state: `{top_state}` "
+            f"({top_state_count}/{len(rows)})."
+        )
+        if low_confidence == len(rows):
+            executive.append("Every window is low confidence.")
+        if len(state_counts) == 1:
+            executive.append(
+                "Every window maps to the same state; broaden coverage or review thresholds."
+            )
+        if unavailable_rest == len(rows):
+            executive.append("No rest baseline was available for the emitted rows.")
+    if config.get("output_was_capped"):
+        executive.append("Output was capped by `--max-windows`.")
+
     lines = [
-        "# EEGBCI Pattern Discovery Summary",
+        "# EEGBCI Pattern Discovery Moment Report",
         "",
-        "Brain-state hypotheses are exploratory signal metadata, not clinical diagnoses.",
+        f"Analysis version: `{ANALYSIS_VERSION}`",
         "",
-        f"Processed windows: {len(rows)}",
+        "## Executive Result",
         "",
-        "## Task Labels",
+        *[f"- {item}" for item in executive],
+        "",
+        "## Run Configuration",
+        "",
+        f"- Subjects: {config.get('subjects')}",
+        f"- Runs: {config.get('runs')}",
+        f"- Max windows: {config.get('max_windows')}",
+        f"- Baseline source rows: {config.get('baseline_row_count')}",
+        "",
+        "## Window Coverage",
+        "",
+        f"- Output windows: {len(rows)}",
+        f"- Task labels: {dict(task_counts)}",
+        "",
+        "## Moment-State Summary",
+        "",
+        *_format_count_lines(state_counts),
+        "",
+        "## Task Label x State Matrix",
         "",
     ]
-    for label, count in task_counts.most_common():
-        lines.append(f"- {label}: {count}")
-    lines.extend(["", "## Brain-State Hypotheses", ""])
-    for label, count in hypothesis_counts.most_common():
-        lines.append(f"- {label}: {count}")
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    matrix = Counter(
+        (row.get("task_label", "missing"), row.get("state_hypothesis", "missing"))
+        for row in rows
+    )
+    if matrix:
+        for (task_label, state), count in sorted(matrix.items()):
+            lines.append(f"- {task_label} x {state}: {count}")
+    else:
+        lines.append("- None")
+
+    lines.extend(
+        [
+            "",
+            "## Rest-Normalized Bandpower Summary",
+            "",
+            f"- Rows with unavailable rest baseline: {unavailable_rest}",
+        ]
+    )
+    for band in REPORT_BANDS:
+        key = f"rest_{band}_relative_delta"
+        values = [float(row.get(key)) for row in rows if row.get(key) not in ("", None)]
+        if values:
+            lines.append(f"- {band}: mean delta {sum(values) / len(values):.3f}")
+        else:
+            lines.append(f"- {band}: unavailable")
+
+    lines.extend(
+        [
+            "",
+            "## Confidence and Quality Audit",
+            "",
+            f"- State confidence: {dict(confidence_counts)}",
+            f"- Task-state relations: {dict(relation_counts)}",
+            f"- Low-confidence rows: {low_confidence}",
+            f"- Possible artifact rows: {artifacts}",
+            f"- Mixed or ambiguous rows: {ambiguous}",
+            "",
+            "## Representative Windows",
+            "",
+        ]
+    )
+    if representatives["cards"]:
+        for card_name, row in representatives["cards"].items():
+            lines.append(f"### {card_name.replace('_', ' ').title()}")
+            lines.extend(_format_card(row))
+            lines.append("")
+    else:
+        lines.append("- None")
+    if representatives["absent"]:
+        lines.append(
+            f"- Absent representative classes: {', '.join(representatives['absent'])}"
+        )
+
+    lines.extend(
+        [
+            "",
+            "## Limitations",
+            "",
+            (
+                "- These labels are signal-pattern summaries from short EEG windows. "
+                "They are not clinical findings and should not be read as evidence "
+                "of a subject's cognition."
+            ),
+        ]
+    )
+    if unavailable_rest:
+        lines.append("- No rest baseline was available for at least one emitted row.")
+    if config.get("output_was_capped"):
+        lines.append(
+            "- The output was capped, so the artifact may not represent all requested windows."
+        )
+
+    lines.extend(
+        [
+            "",
+            "## Next Checks",
+            "",
+            "- Run with broader subjects/runs to verify that state diversity improves.",
+            "- Inspect possible artifact rows before drawing conclusions from state counts.",
+            "- Compare rest-normalized deltas against the raw relative band shares.",
+        ]
+    )
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def write_summary(rows: list[dict], path: Path, config: dict) -> None:
+    path.write_text(render_summary(rows, config), encoding="utf-8")
 
 
 def main() -> None:
