@@ -135,6 +135,10 @@ from pyhealth.datasets.eegbci import EEGBCIDataset
 
 
 class TestEEGBCIDataset(unittest.TestCase):
+    def _set_metadata_identity(self, ds):
+        ds.selection_key = ds._build_selection_key()
+        ds.metadata_file_name = ds._metadata_file_name()
+
     def test_prepare_metadata_with_existing_files(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -147,9 +151,10 @@ class TestEEGBCIDataset(unittest.TestCase):
             ds.subjects = [1]
             ds.runs = [3]
             ds.download = False
+            self._set_metadata_identity(ds)
             ds.prepare_metadata()
 
-            csv_path = root / "eegbci-pyhealth.csv"
+            csv_path = root / ds.metadata_file_name
             self.assertTrue(csv_path.exists())
             df = pd.read_csv(csv_path)
             self.assertEqual(len(df), 1)
@@ -160,7 +165,40 @@ class TestEEGBCIDataset(unittest.TestCase):
             self.assertEqual(df.loc[0, "run_type"], "motor_execution_left_right")
             self.assertEqual(df.loc[0, "source"], "physionet_eegbci")
 
-    def test_prepare_metadata_rebuilds_for_changed_selection(self):
+    def test_selection_inputs_are_normalized_for_stable_identity(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for subject, run in [(1, 3), (1, 4), (2, 3), (2, 4)]:
+                edf = (
+                    root
+                    / "files"
+                    / "eegmmidb"
+                    / "1.0.0"
+                    / f"S{subject:03d}"
+                    / f"S{subject:03d}R{run:02d}.edf"
+                )
+                edf.parent.mkdir(parents=True, exist_ok=True)
+                edf.write_bytes(b"")
+
+            first = EEGBCIDataset(
+                root=str(root),
+                subjects=[2, 1, 1],
+                runs=[4, 3, 4],
+                download=False,
+            )
+            second = EEGBCIDataset(
+                root=str(root),
+                subjects=[1, 2],
+                runs=[3, 4],
+                download=False,
+            )
+
+            self.assertEqual(first.subjects, [1, 2])
+            self.assertEqual(first.runs, [3, 4])
+            self.assertEqual(first.selection_key, second.selection_key)
+            self.assertEqual(first.dataset_name, second.dataset_name)
+
+    def test_prepare_metadata_uses_selection_specific_files(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             first = root / "files" / "eegmmidb" / "1.0.0" / "S001" / "S001R03.edf"
@@ -170,13 +208,40 @@ class TestEEGBCIDataset(unittest.TestCase):
             first.write_bytes(b"")
             second.write_bytes(b"")
 
-            EEGBCIDataset(root=str(root), subjects=[1], runs=[3], download=False)
-            EEGBCIDataset(root=str(root), subjects=[2], runs=[4], download=False)
+            ds_first = EEGBCIDataset(
+                root=str(root), subjects=[1], runs=[3], download=False
+            )
+            ds_second = EEGBCIDataset(
+                root=str(root), subjects=[2], runs=[4], download=False
+            )
 
-            df = pd.read_csv(root / "eegbci-pyhealth.csv")
-            self.assertEqual(len(df), 1)
-            self.assertEqual(df.loc[0, "subject_id"], 2)
-            self.assertEqual(df.loc[0, "run"], 4)
+            first_csv = root / ds_first.metadata_file_name
+            second_csv = root / ds_second.metadata_file_name
+            self.assertNotEqual(first_csv, second_csv)
+            self.assertTrue(first_csv.exists())
+            self.assertTrue(second_csv.exists())
+
+            first_df = pd.read_csv(first_csv)
+            second_df = pd.read_csv(second_csv)
+            self.assertEqual(first_df.loc[0, "subject_id"], 1)
+            self.assertEqual(first_df.loc[0, "run"], 3)
+            self.assertEqual(second_df.loc[0, "subject_id"], 2)
+            self.assertEqual(second_df.loc[0, "run"], 4)
+
+    def test_find_local_edf_checks_canonical_mne_path_first(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            canonical = root / "files" / "eegmmidb" / "1.0.0" / "S001" / "S001R03.edf"
+            fallback = root / "other" / "S001R03.edf"
+            canonical.parent.mkdir(parents=True)
+            fallback.parent.mkdir(parents=True)
+            canonical.write_bytes(b"")
+            fallback.write_bytes(b"")
+
+            ds = EEGBCIDataset.__new__(EEGBCIDataset)
+            ds.root = str(root)
+
+            self.assertEqual(ds._find_local_edf(1, 3), canonical)
 
     def test_prepare_metadata_download_uses_mne_loader(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -188,6 +253,7 @@ class TestEEGBCIDataset(unittest.TestCase):
             ds.subjects = [1]
             ds.runs = [4]
             ds.download = True
+            self._set_metadata_identity(ds)
 
             with patch(
                 "pyhealth.datasets.eegbci.mne.datasets.eegbci.load_data",
@@ -196,7 +262,7 @@ class TestEEGBCIDataset(unittest.TestCase):
                 ds.prepare_metadata()
 
             load_data.assert_called_once_with(1, [4], path=str(root), update_path=False)
-            df = pd.read_csv(root / "eegbci-pyhealth.csv")
+            df = pd.read_csv(root / ds.metadata_file_name)
             self.assertEqual(df.loc[0, "record_id"], "R04")
             self.assertEqual(df.loc[0, "run_type"], "motor_imagery_left_right")
 
@@ -207,6 +273,7 @@ class TestEEGBCIDataset(unittest.TestCase):
             ds.subjects = [1]
             ds.runs = [3]
             ds.download = False
+            self._set_metadata_identity(ds)
             with self.assertRaisesRegex(FileNotFoundError, "download=True"):
                 ds.prepare_metadata()
 
@@ -479,6 +546,17 @@ class TestEEGBCIMomentReportHelpers(unittest.TestCase):
 
         self.assertEqual(ANALYSIS_VERSION, "eegbci_pattern_moment_report_v1")
 
+    def test_parse_int_list_strips_whitespace(self):
+        from examples.eeg.eegbci.eegbci_pattern_discovery import parse_int_list
+
+        self.assertEqual(parse_int_list("1, 2, 4-6"), [1, 2, 4, 5, 6])
+
+    def test_parse_int_list_rejects_descending_ranges(self):
+        from examples.eeg.eegbci.eegbci_pattern_discovery import parse_int_list
+
+        with self.assertRaisesRegex(ValueError, "Range start must be <= range end"):
+            parse_int_list("5-3")
+
     def test_build_rest_baselines_uses_rest_rows_only(self):
         from examples.eeg.eegbci.eegbci_pattern_discovery import build_rest_baselines
 
@@ -514,6 +592,30 @@ class TestEEGBCIMomentReportHelpers(unittest.TestCase):
         self.assertEqual(baselines["same_subject_run"], {})
         self.assertEqual(baselines["same_subject_all_runs"], {})
         self.assertIsNone(baselines["global_rest"])
+
+    def test_render_summary_reports_rest_baseline_source_rows(self):
+        from examples.eeg.eegbci.eegbci_pattern_discovery import render_summary
+
+        rows = [
+            self._moment_row(task_label="rest"),
+            self._moment_row(
+                task_label="execute_left_fist", label_family="motor_execution"
+            ),
+            self._moment_row(task_label="rest", run=4),
+        ]
+
+        summary = render_summary(
+            rows,
+            {
+                "subjects": [1],
+                "runs": [3, 4],
+                "max_windows": None,
+                "baseline_row_count": 2,
+                "output_was_capped": False,
+            },
+        )
+
+        self.assertIn("- Baseline source rows: 2", summary)
 
     def test_annotate_rest_fallback_scopes(self):
         from examples.eeg.eegbci.eegbci_pattern_discovery import (

@@ -28,10 +28,17 @@ def scalar_value(value):
 
 def parse_int_list(value: str) -> list[int]:
     items: list[int] = []
-    for part in value.split(","):
+    for raw_part in value.split(","):
+        part = raw_part.strip()
+        if not part:
+            raise ValueError("Empty value in integer list")
         if "-" in part:
-            start, end = part.split("-", 1)
-            items.extend(range(int(start), int(end) + 1))
+            start_text, end_text = part.split("-", 1)
+            start = int(start_text.strip())
+            end = int(end_text.strip())
+            if start > end:
+                raise ValueError("Range start must be <= range end")
+            items.extend(range(start, end + 1))
         else:
             items.append(int(part))
     return items
@@ -607,15 +614,18 @@ def main() -> None:
     output_dir = Path(args.output_dir).expanduser()
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    requested_subjects = parse_int_list(args.subjects)
+    requested_runs = parse_int_list(args.runs)
     dataset = EEGBCIDataset(
         root=str(Path(args.root).expanduser()),
-        subjects=parse_int_list(args.subjects),
-        runs=parse_int_list(args.runs),
+        subjects=requested_subjects,
+        runs=requested_runs,
         download=args.download,
     )
     sample_dataset = dataset.set_task(EEGBCIPatternDiscovery(compute_stft=False))
 
     all_rows = [sample_to_row(sample) for sample in sample_dataset]
+    baseline_row_count = sum(row.get("task_label") == "rest" for row in all_rows)
     baselines = build_rest_baselines(all_rows)
     annotated_rows = annotate_moment_rows(all_rows, baselines)
     output_rows = (
@@ -634,10 +644,10 @@ def main() -> None:
         output_rows,
         summary_path,
         {
-            "subjects": parse_int_list(args.subjects),
-            "runs": parse_int_list(args.runs),
+            "subjects": getattr(dataset, "subjects", requested_subjects),
+            "runs": getattr(dataset, "runs", requested_runs),
             "max_windows": args.max_windows,
-            "baseline_row_count": len(all_rows),
+            "baseline_row_count": baseline_row_count,
             "output_was_capped": output_was_capped,
         },
     )

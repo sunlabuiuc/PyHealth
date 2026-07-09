@@ -41,10 +41,15 @@ class EEGBCIDataset(BaseDataset):
         if config_path is None:
             config_path = Path(__file__).parent / "configs" / "eegbci.yaml"
         self.root = root
-        self.subjects = list(subjects) if subjects is not None else [1, 2, 3]
-        self.runs = list(runs) if runs is not None else list(range(3, 15))
+        self.subjects = self._normalize_selection(
+            list(subjects) if subjects is not None else [1, 2, 3]
+        )
+        self.runs = self._normalize_selection(
+            list(runs) if runs is not None else list(range(3, 15))
+        )
         self.download = download
         self.selection_key = self._build_selection_key()
+        self.metadata_file_name = self._metadata_file_name()
         self.prepare_metadata()
         dataset_name = dataset_name or "eegbci"
         super().__init__(
@@ -54,6 +59,12 @@ class EEGBCIDataset(BaseDataset):
             config_path=config_path,
             **kwargs,
         )
+        if self.config is not None:
+            self.config.tables["records"].file_path = self.metadata_file_name
+
+    @staticmethod
+    def _normalize_selection(values: list[int]) -> list[int]:
+        return sorted({int(value) for value in values})
 
     def _build_selection_key(self) -> str:
         payload = {
@@ -67,10 +78,18 @@ class EEGBCIDataset(BaseDataset):
         run_part = "-".join(f"{int(run):02d}" for run in self.runs)
         return f"s{subject_part}_r{run_part}_{digest}"
 
+    def _metadata_file_name(self) -> str:
+        return f"eegbci-pyhealth-{self.selection_key}.csv"
+
     def _find_local_edf(self, subject: int, run: int) -> Path | None:
         root = Path(self.root)
-        pattern = f"S{subject:03d}R{run:02d}.edf"
-        matches = sorted(root.rglob(pattern))
+        filename = f"S{subject:03d}R{run:02d}.edf"
+        canonical_path = (
+            root / "files" / "eegmmidb" / "1.0.0" / f"S{subject:03d}" / filename
+        )
+        if canonical_path.exists():
+            return canonical_path
+        matches = sorted(root.rglob(filename))
         return matches[0] if matches else None
 
     def _requested_pairs(self) -> list[tuple[int, int]]:
@@ -92,7 +111,7 @@ class EEGBCIDataset(BaseDataset):
 
     def prepare_metadata(self) -> None:
         root = Path(self.root)
-        csv_path = root / "eegbci-pyhealth.csv"
+        csv_path = root / self.metadata_file_name
         if csv_path.exists() and self._metadata_matches_request(csv_path):
             return
 
