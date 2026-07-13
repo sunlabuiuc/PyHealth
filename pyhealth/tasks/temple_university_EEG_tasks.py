@@ -129,7 +129,7 @@ class EEGEventsTUEV(BaseTask):
 
         Rawdata.filter(l_freq=bandpass_filter[0], h_freq=bandpass_filter[1], verbose="error")
         Rawdata.notch_filter(notch_filter, verbose="error")
-        Rawdata.resample(resample_rate, n_jobs=5, verbose="error")
+        Rawdata.resample(resample_rate, n_jobs=1, verbose="error")
 
         _, times = Rawdata[:]
         signals = Rawdata.get_data(units="uV")
@@ -256,7 +256,7 @@ class EEGAbnormalTUAB(BaseTask):
 
         Rawdata.filter(l_freq=bandpass_filter[0], h_freq=bandpass_filter[1], verbose="error")
         Rawdata.notch_filter(notch_filter, verbose="error")
-        Rawdata.resample(resample_rate, n_jobs=5, verbose="error")
+        Rawdata.resample(resample_rate, n_jobs=1, verbose="error")
 
         raw_data = Rawdata.get_data(units="uV")
         ch_name = Rawdata.ch_names
