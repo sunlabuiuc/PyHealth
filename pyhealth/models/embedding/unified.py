@@ -450,9 +450,12 @@ class UnifiedMultimodalEmbeddingModel(nn.Module, BaseEmbeddingModel):
             A dict with keys:
 
             * ``"sequence"``, ``(B, S_total, E')``  temporally-sorted events
+              (content + time + type embeddings)
             * ``"time"``    , ``(B, S_total)``       timestamps (hours)
             * ``"mask"``    , ``(B, S_total)``       1=real event, 0=padding
             * ``"type_ids"``, ``(B, S_total)``       modality index per event
+            * ``"token_emb"``, ``(B, S_total, E')`` content-only event embedding
+              (before time/type are added); the target for masked modeling.
         """
         all_embeddings: list[torch.Tensor] = []
         all_times: list[torch.Tensor] = []
@@ -584,4 +587,10 @@ class UnifiedMultimodalEmbeddingModel(nn.Module, BaseEmbeddingModel):
             "time": cat_time,  # (B, S_total)
             "mask": cat_mask,  # (B, S_total)
             "type_ids": cat_types,  # (B, S_total)
+            # Per-event content embedding BEFORE time/type are added (same sort
+            # order as ``sequence``).  Masked-modeling pretrainers should
+            # reconstruct THIS rather than ``sequence``: the time/type
+            # components are largely recoverable from event position, so
+            # including them in the target dilutes the content signal.
+            "token_emb": cat_emb,   # (B, S_total, E')
         }

@@ -272,6 +272,33 @@ def test_unified_model_code_only():
     assert E == 64
 
 
+def test_unified_model_token_emb_is_content_only():
+    """``token_emb`` is the content embedding BEFORE time/type are added, in the
+    same temporally-sorted order as ``sequence``; i.e.
+    ``sequence == token_emb + time_embed(time) + type_embedding(type_ids)``."""
+    from pyhealth.models.embedding import UnifiedMultimodalEmbeddingModel
+
+    processors, inputs = _make_code_processors_and_inputs()
+    model = UnifiedMultimodalEmbeddingModel(processors=processors, embedding_dim=64)
+    model.eval()
+
+    out = model(inputs)
+
+    assert "token_emb" in out
+    assert out["token_emb"].shape == out["sequence"].shape
+
+    # Reconstruct sequence from the content-only token_emb + the position-derived
+    # time and type embeddings; they must match exactly.
+    recomposed = (
+        out["token_emb"]
+        + model.time_embed(out["time"])
+        + model.type_embedding(out["type_ids"])
+    )
+    assert torch.allclose(out["sequence"], recomposed, atol=1e-5)
+    # And token_emb is genuinely distinct from sequence (time/type were added).
+    assert not torch.allclose(out["token_emb"], out["sequence"])
+
+
 def test_unified_model_rejects_non_temporal():
     from pyhealth.models.embedding import UnifiedMultimodalEmbeddingModel
     from pyhealth.processors import SequenceProcessor
