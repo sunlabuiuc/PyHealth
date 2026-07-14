@@ -49,6 +49,10 @@ def run_type_for_run(run: int) -> str:
 
     Raises:
         ValueError: If the run is not supported.
+
+    Examples:
+        >>> run_type_for_run(3)
+        'motor_execution_left_right'
     """
     try:
         return EEGBCI_RUN_TYPES[int(run)]
@@ -67,6 +71,10 @@ def label_family_for_run(run: int) -> str:
 
     Raises:
         ValueError: If the run is not supported.
+
+    Examples:
+        >>> label_family_for_run(4)
+        'motor_imagery'
     """
     run_type = run_type_for_run(run)
     if "execution" in run_type:
@@ -88,6 +96,10 @@ def task_label_for_event(run: int, event_code: str) -> str:
 
     Raises:
         ValueError: If the run or event code is not supported.
+
+    Examples:
+        >>> task_label_for_event(3, "T1")
+        'execute_left_fist'
     """
     code = str(event_code).strip()
     if code == "T0":
@@ -128,6 +140,10 @@ def numeric_label_for_task(task_label: str) -> int:
 
     Raises:
         ValueError: If the task label is not supported.
+
+    Examples:
+        >>> numeric_label_for_task("imagine_both_feet")
+        8
     """
     try:
         return EEGBCI_LABELS[task_label]
@@ -163,6 +179,10 @@ def normalize_eegbci_channel_name(name: str) -> str:
 
     Returns:
         The normalized channel name.
+
+    Examples:
+        >>> normalize_eegbci_channel_name("EEG C3-REF")
+        'C3'
     """
     clean = name.upper().replace(".", "").replace("EEG ", "").replace("-REF", "")
     aliases = {
@@ -189,6 +209,14 @@ def select_eegbci_channels(
 
     Raises:
         ValueError: If the mode is invalid or required channels are missing.
+
+    Examples:
+        >>> data = np.zeros((len(EEGBCI_COMPAT_CHANNELS), 400))
+        >>> selected, _ = select_eegbci_channels(
+        ...     data, list(EEGBCI_COMPAT_CHANNELS)
+        ... )
+        >>> selected.shape
+        (16, 400)
     """
     if channel_mode == "all":
         return data, list(ch_names)
@@ -217,6 +245,10 @@ def normalize_signal(signal: np.ndarray, mode: str | None) -> np.ndarray:
 
     Raises:
         ValueError: If the normalization mode is unsupported.
+
+    Examples:
+        >>> normalize_signal(np.array([[0.0, 100.0]]), "div_by_100").tolist()
+        [[0.0, 1.0]]
     """
     if mode is None:
         return signal
@@ -251,6 +283,12 @@ def compute_band_powers(data: np.ndarray, sfreq: float) -> Dict[str, float | str
 
     Raises:
         ValueError: If data is not two-dimensional.
+
+    Examples:
+        >>> time = np.arange(400) / 200
+        >>> signal = np.sin(2 * np.pi * 10 * time)
+        >>> compute_band_powers(signal[None, :], 200)["dominant_band"]
+        'alpha'
     """
     from scipy.signal import welch
 
@@ -292,6 +330,15 @@ def interpret_band_profile(features: Dict[str, float | str]) -> Dict[str, str]:
 
     Returns:
         A signal-pattern hypothesis, confidence, quality flags, and summary.
+
+    Examples:
+        >>> features = {
+        ...     "dominant_band": "alpha",
+        ...     "alpha_relative": 0.6,
+        ...     "alpha_beta_ratio": 3.0,
+        ... }
+        >>> interpret_band_profile(features)["brain_state_hypothesis"]
+        'relaxed_or_idle'
     """
     dominant = str(features["dominant_band"])
     alpha_rel = float(features.get("alpha_relative", 0.0))
@@ -350,6 +397,13 @@ def iter_annotation_windows(
 
     Raises:
         ValueError: If a supported annotation cannot be decoded for the run.
+
+    Examples:
+        >>> info = mne.create_info(["C3"], 200, "eeg")
+        >>> raw = mne.io.RawArray(np.zeros((1, 400)), info, verbose="error")
+        >>> _ = raw.set_annotations(mne.Annotations([0.0], [2.0], ["T0"]))
+        >>> len(iter_annotation_windows(raw, run=3))
+        1
     """
     sfreq = float(raw.info["sfreq"])
     window_samples = int(round(window_size * sfreq))
@@ -400,6 +454,11 @@ class EEGMotorImageryEEGBCI(BaseTask):
     ``task_label`` and processor ``label`` strings, integer ``eegbci_label`` as a
     PyHealth task-class identifier, channel names, sample rate, and window timing.
     When enabled, ``stft`` is also included.
+
+    Examples:
+        >>> task = EEGMotorImageryEEGBCI(compute_stft=False)
+        >>> task.task_name
+        'EEGBCI_motor_imagery'
     """
 
     task_name: str = "EEGBCI_motor_imagery"
@@ -505,6 +564,11 @@ class EEGBCIPatternDiscovery(EEGMotorImageryEEGBCI):
     ``brain_state_hypothesis``, ``confidence``, ``quality_flags``, and
     ``interpretation``. These fields describe signal patterns and are not clinical
     diagnoses.
+
+    Examples:
+        >>> task = EEGBCIPatternDiscovery(compute_stft=False)
+        >>> task.task_name
+        'EEGBCI_pattern_discovery'
     """
 
     task_name: str = "EEGBCI_pattern_discovery"

@@ -45,6 +45,12 @@ class EEGBCIDataset(BaseDataset):
     Raises:
         FileNotFoundError: If a requested EDF is unavailable and downloading is
             disabled.
+
+    Examples:
+        >>> dataset = EEGBCIDataset(
+        ...     root="/path/to/eegbci", subjects=[1], runs=[3], download=True
+        ... )
+        >>> dataset.stats()
     """
 
     def __init__(
