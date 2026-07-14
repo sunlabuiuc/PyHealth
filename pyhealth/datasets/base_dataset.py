@@ -3,7 +3,7 @@ import os
 import pickle
 from abc import ABC
 from pathlib import Path
-from typing import Dict, Iterator, Iterable, List, Optional, Any, Callable
+from typing import Dict, Iterator, Iterable, List, Optional, Any, Callable, Union
 import functools
 import operator
 from urllib.parse import urlparse, urlunparse
@@ -314,7 +314,7 @@ class BaseDataset(ABC):
         dataset_name (str): Name of the dataset.
         config (dict): Configuration loaded from a YAML file.
         global_event_df (pl.LazyFrame): The global event data frame.
-        dev (bool): Whether to enable dev mode (limit to 1000 patients).
+        dev (Union[bool, int]): Whether to enable dev mode. If True, limit to 1000 patients. If an int, limit to that many patients.
     """
 
     def __init__(
@@ -325,7 +325,7 @@ class BaseDataset(ABC):
         config_path: Optional[str] = None,
         cache_dir: str | Path | None = None,
         num_workers: int = 1,
-        dev: bool = False,
+        dev: Union[bool, int] = False,
     ):
         """Initializes the BaseDataset.
 
@@ -342,7 +342,7 @@ class BaseDataset(ABC):
                 - **str** or **Path**: Used as the root cache directory path. A UUID
                   is appended to the provided path to capture dataset configuration.
             num_workers (int): Number of worker processes for parallel operations.
-            dev (bool): Whether to run in dev mode (limits to 1000 patients).
+            dev (Union[bool, int]): Whether to run in dev mode. If True, limits to 1000 patients. If an int, limits to that many patients.
         """
         if len(set(tables)) != len(tables):
             logger.warning("Duplicate table names in tables list. Removing duplicates.")
@@ -509,8 +509,9 @@ class BaseDataset(ABC):
                     "PYHEALTH_DISABLE_DASK_DISTRIBUTED=1 detected; using local dask scheduler."
                 )
                 if self.dev:
-                    logger.info("Dev mode enabled: limiting to 1000 patients")
-                    patients = df["patient_id"].unique().head(1000, compute=True).tolist()
+                    n = 1000 if self.dev is True else int(self.dev)
+                    logger.info(f"Dev mode enabled: limiting to {n} patients")
+                    patients = df["patient_id"].unique().head(n, compute=True).tolist()
                     patient_filter = df["patient_id"].isin(patients)
                     df = df[patient_filter]
 
@@ -530,8 +531,8 @@ class BaseDataset(ABC):
                 ) as cluster:
                     with DaskClient(cluster) as client:
                         if self.dev:
-                            logger.info("Dev mode enabled: limiting to 1000 patients")
-                            patients = df["patient_id"].unique().head(1000).tolist()
+                            logger.info(f"Dev mode enabled: limiting to {1000 if self.dev is True else int(self.dev)} patients")
+                            patients = df["patient_id"].unique().head(1000 if self.dev is True else int(self.dev)).tolist()
                             filter = df["patient_id"].isin(patients)
                             df = df[filter]
 

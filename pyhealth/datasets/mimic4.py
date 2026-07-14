@@ -1,7 +1,7 @@
 import logging
 import os
 import warnings
-from typing import List, Optional
+from typing import List, Optional, Union
 
 import pandas as pd
 import dask.dataframe as dd
@@ -378,7 +378,7 @@ class MIMIC4Dataset(BaseDataset):
         cxr_config_path: Optional[str] = None,
         cxr_variant: str = "default",
         dataset_name: str = "mimic4",
-        dev: bool = False,
+        dev: Union[bool, int] = False,
         cache_dir: Optional[str] = None,
         num_workers: int = 1,
     ):

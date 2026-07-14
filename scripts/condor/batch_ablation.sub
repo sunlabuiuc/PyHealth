@@ -1,0 +1,100 @@
+# HTCondor submission — PyHealth Ablation Runs
+#
+# Four conditions on devsplit (1000 patients), MLP, 100 epochs:
+#   1. baseline:  notes+labs only (ICD off, vitals off, balanced off)
+#   2. icd_on:    notes+labs+ICD codes (leakage ablation)
+#   3. vitals_on: notes+labs+vitals (chartevents ablation)
+#   4. balanced:  notes+labs with balanced sampling (1:1 pos:neg)
+#
+# All use MLP backbone, seed=42, embedding_dim=128, patience=10.
+# Jobs start with "PyHealth" for easy queue filtering.
+#
+# To submit from the project root on the submit host:
+#   cd /home/rianatri/PyHealth && condor_submit scripts/condor/batch_ablation.sub
+
+initialdir           = /home/rianatri/PyHealth
+executable           = /home/rianatri/PyHealth/scripts/condor/run_table2.sh
+transfer_executable  = False
+arguments            = $(model) $(seed)
+getenv               = True
+
++JobBatchName = "PyHealth"
+
+output = logs/condor/ablation_$(ClusterId)_$(Process)_$(model)_seed$(seed).out
+error  = logs/condor/ablation_$(ClusterId)_$(Process)_$(model)_seed$(seed).err
+log    = logs/condor/ablation_$(ClusterId)_$(Process)_$(model)_seed$(seed).log
+
+request_gpus   = 1
+request_cpus   = 4
+request_memory = 48000
+
+Rank = TARGET.CUDAGlobalMemoryMb
+
+# ── Condition 1: baseline (notes+labs, no ICD, no vitals, no balancing) ────────
+queue model, seed, environment from (
+    mlp, 42, "TABLE2_TASK=notes_labs \
+               TABLE2_RUN_LABEL=PyHealth_baseline \
+               TABLE2_DEV_MODE=1 \
+               TABLE2_DEV_COUNT=1000 \
+               TABLE2_EPOCHS=100 \
+               TABLE2_NUM_WORKERS=2 \
+               TABLE2_FREEZE_ENCODER=0 \
+               TABLE2_ICD_CODES=0 \
+               TABLE2_INCLUDE_VITALS=0 \
+               TABLE2_BALANCED_SAMPLING=0 \
+               TABLE2_OUTPUT_DIR=output/ablation_baseline \
+               TABLE2_WINDOW_HOURS=24 \
+               TABLE2_PATIENCE=10"
+)
+
+# ── Condition 2: icd_on (notes+labs+ICD codes — discharge-coded leakage) ──────
+queue model, seed, environment from (
+    mlp, 42, "TABLE2_TASK=notes_labs \
+               TABLE2_RUN_LABEL=PyHealth_icd_on \
+               TABLE2_DEV_MODE=1 \
+               TABLE2_DEV_COUNT=1000 \
+               TABLE2_EPOCHS=100 \
+               TABLE2_NUM_WORKERS=2 \
+               TABLE2_FREEZE_ENCODER=0 \
+               TABLE2_ICD_CODES=1 \
+               TABLE2_INCLUDE_VITALS=0 \
+               TABLE2_BALANCED_SAMPLING=0 \
+               TABLE2_OUTPUT_DIR=output/ablation_icd_on \
+               TABLE2_WINDOW_HOURS=24 \
+               TABLE2_PATIENCE=10"
+)
+
+# ── Condition 3: vitals_on (notes+labs+vitals from chartevents) ───────────────
+queue model, seed, environment from (
+    mlp, 42, "TABLE2_TASK=notes_labs \
+               TABLE2_RUN_LABEL=PyHealth_vitals_on \
+               TABLE2_DEV_MODE=1 \
+               TABLE2_DEV_COUNT=1000 \
+               TABLE2_EPOCHS=100 \
+               TABLE2_NUM_WORKERS=2 \
+               TABLE2_FREEZE_ENCODER=0 \
+               TABLE2_ICD_CODES=0 \
+               TABLE2_INCLUDE_VITALS=1 \
+               TABLE2_BALANCED_SAMPLING=0 \
+               TABLE2_OUTPUT_DIR=output/ablation_vitals_on \
+               TABLE2_WINDOW_HOURS=24 \
+               TABLE2_PATIENCE=10"
+)
+
+# ── Condition 4: balanced (notes+labs with 1:1 pos:neg training sampling) ─────
+queue model, seed, environment from (
+    mlp, 42, "TABLE2_TASK=notes_labs \
+               TABLE2_RUN_LABEL=PyHealth_balanced \
+               TABLE2_DEV_MODE=1 \
+               TABLE2_DEV_COUNT=1000 \
+               TABLE2_EPOCHS=100 \
+               TABLE2_NUM_WORKERS=2 \
+               TABLE2_FREEZE_ENCODER=0 \
+               TABLE2_ICD_CODES=0 \
+               TABLE2_INCLUDE_VITALS=0 \
+               TABLE2_BALANCED_SAMPLING=1 \
+               TABLE2_BALANCED_RATIO=1.0 \
+               TABLE2_OUTPUT_DIR=output/ablation_balanced \
+               TABLE2_WINDOW_HOURS=24 \
+               TABLE2_PATIENCE=10"
+)

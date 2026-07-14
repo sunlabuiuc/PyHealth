@@ -206,9 +206,11 @@ class UnifiedMultimodalEmbeddingModel(nn.Module, BaseEmbeddingModel):
         image_channels: int = 3,
         patch_size: int = 16,
         field_embeddings: Optional[dict[str, Any]] = None,
+        freeze_text_encoder: bool = False,
     ):
         super().__init__()
         self._embedding_dim = embedding_dim
+        self._freeze_text_encoder = freeze_text_encoder
         _field_embeddings = field_embeddings or {}
 
         self.encoders: nn.ModuleDict = nn.ModuleDict()
@@ -237,7 +239,8 @@ class UnifiedMultimodalEmbeddingModel(nn.Module, BaseEmbeddingModel):
 
             elif m == ModalityType.TEXT:
                 self._build_text_encoder(
-                    field_name, processor, pre_built, embedding_dim
+                    field_name, processor, pre_built, embedding_dim,
+                    freeze=freeze_text_encoder,
                 )
 
             elif m == ModalityType.IMAGE:
@@ -307,6 +310,7 @@ class UnifiedMultimodalEmbeddingModel(nn.Module, BaseEmbeddingModel):
         processor: TemporalFeatureProcessor,
         pre_built: Any,
         embedding_dim: int,
+        freeze: bool = False,
     ) -> None:
         """Build TEXT encoder: BERT + projection, optionally from TextEmbeddingModel."""
 
@@ -330,6 +334,9 @@ class UnifiedMultimodalEmbeddingModel(nn.Module, BaseEmbeddingModel):
             and hasattr(pre_built, "fc")
         ):
             self.encoders[field_name] = pre_built.transformer
+            if freeze:
+                for p in pre_built.transformer.parameters():
+                    p.requires_grad = False
             pre_dim = getattr(pre_built, "embedding_dim", embedding_dim)
             _set_projection(pre_dim, pre_built.fc)
             return
@@ -337,26 +344,14 @@ class UnifiedMultimodalEmbeddingModel(nn.Module, BaseEmbeddingModel):
         if processor.is_token():
             from transformers import AutoModel
 
-            tokenizer_model = getattr(processor, "tokenizer_model", None)
-            if not tokenizer_model:
-                raise ValueError(
-                    f"TEXT processor '{field_name}' is token-based but does not "
-                    "define tokenizer_model."
-                )
-
-            shared_field = self._shared_text_field_by_model.get(tokenizer_model)
-            if shared_field is not None:
-                # Second+ field with same tokenizer: reuse existing encoder, do NOT
-                # register under a new key (avoids duplicate parameter registration).
-                self._text_canonical[field_name] = shared_field
-                shared_encoder = self.encoders[shared_field]
-            else:
-                shared_encoder = AutoModel.from_pretrained(tokenizer_model)
-                self._shared_text_field_by_model[tokenizer_model] = field_name
-                self.encoders[field_name] = shared_encoder
-
-            hidden = shared_encoder.config.hidden_size
-            _set_projection(hidden)
+            bert = AutoModel.from_pretrained(processor.tokenizer_model)
+            if freeze:
+                for p in bert.parameters():
+                    p.requires_grad = False
+            self.encoders[field_name] = bert
+            hidden = bert.config.hidden_size
+            if hidden != embedding_dim:
+                self.projections[field_name] = nn.Linear(hidden, embedding_dim)
         else:
             raise ValueError(
                 f"TEXT processor '{field_name}' must either supply a pre-built "

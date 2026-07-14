@@ -16,8 +16,12 @@ CACHE_DIR="${CACHE_DIR:-/u/${USER}/pyhealth_cache}"
 TABLE2_EPOCHS="${TABLE2_EPOCHS:-20}"
 TABLE2_NUM_WORKERS="${TABLE2_NUM_WORKERS:-2}"
 TABLE2_DEV_MODE="${TABLE2_DEV_MODE:-0}"
+TABLE2_TASK="${TABLE2_TASK:-clinical_notes_icd_labs}"
+TABLE2_WINDOW_HOURS="${TABLE2_WINDOW_HOURS:-24}"
 TABLE2_OUTPUT_DIR="${TABLE2_OUTPUT_DIR:-output/table2}"
 TABLE2_RUN_LABEL="${TABLE2_RUN_LABEL:-full}"
+TABLE2_FREEZE_ENCODER="${TABLE2_FREEZE_ENCODER:-0}"
+TABLE2_ICD_CODES="${TABLE2_ICD_CODES:-0}"
 
 # ── Activate conda ────────────────────────────────────────────────
 module load miniconda3/24.9.2
@@ -62,14 +66,19 @@ echo "  Epochs    : ${TABLE2_EPOCHS}"
 echo "  Workers   : ${TABLE2_NUM_WORKERS}"
 echo "  Dev mode  : ${TABLE2_DEV_MODE}"
 echo "  Output dir: ${TABLE2_OUTPUT_DIR}"
+echo "  Task      : ${TABLE2_TASK}"
+echo "  Window    : ${TABLE2_WINDOW_HOURS}h"
 echo "  Patience  : 5 (early stopping)"
+echo "  Freeze enc: ${TABLE2_FREEZE_ENCODER} (1=freeze BERT)"
+echo "  ICD codes : ${TABLE2_ICD_CODES} (1=include, ablation only)"
 echo "========================================================"
 
 COMMON=(
     --ehr-root "${EHR_ROOT}"
     --note-root "${NOTE_ROOT}"
     --cache-dir "${CACHE_DIR}"
-    --task "${TABLE2_TASK:-clinical_notes_icd_labs}"
+    --task "${TABLE2_TASK}"
+    --observation-window-hours "${TABLE2_WINDOW_HOURS}"
     --model "${MODEL}"
     --embedding-dim 128
     --hidden-dim 128
@@ -86,6 +95,14 @@ COMMON=(
 
 if [[ "${TABLE2_DEV_MODE}" == "1" ]]; then
     COMMON+=(--dev)
+fi
+
+if [[ "${TABLE2_FREEZE_ENCODER}" == "1" ]]; then
+    COMMON+=(--freeze-encoder)
+fi
+
+if [[ "${TABLE2_ICD_CODES}" == "1" ]]; then
+    COMMON+=(--icd-codes)
 fi
 
 if [[ "${TABLE2_DRY_RUN:-0}" == "1" ]]; then

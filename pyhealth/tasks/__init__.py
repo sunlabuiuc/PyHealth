@@ -47,6 +47,7 @@ from .mortality_prediction_stagenet_mimic4 import (
 from .multimodal_mimic4 import (
     ClinicalNotesMIMIC4,
     ClinicalNotesICDLabsMIMIC4,
+    NotesLabsMIMIC4,
 )
 from .patient_linkage import patient_linkage_mimic3_fn
 from .readmission_prediction import (

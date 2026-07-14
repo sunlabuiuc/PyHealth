@@ -1,0 +1,45 @@
+# HTCondor submission — notes_labs POC (single seed, lightweight params)
+#
+# Purpose: proof-of-concept run for the NotesLabsMIMIC4 task (admission-context
+# note sections + StageNet labs, no ICD leakage).  Single seed; no multi-seed
+# coverage needed for a POC.  Models chosen for low VRAM: mlp, rnn,
+# bottleneck_transformer.  BERT encoder is frozen (--freeze-encoder) to halve
+# BERT VRAM and keep each job well under 24 GB (A10 / A40 compatible).
+#
+# Ablation variants:
+#   noteslabs_poc       — recommended: notes + labs, no ICD codes
+#   noteslabs_icd_poc   — ablation: notes + labs + discharge-coded ICD codes
+#
+# To submit:
+#   condor_submit scripts/condor/batch_noteslabs_poc.sub
+
+executable = scripts/condor/run_table2.sh
+arguments  = $(model) $(seed)
+getenv     = True
+
+# notes_labs task, frozen encoder, ablation flag controlled per queue block
+environment = "TABLE2_TASK=notes_labs \
+               TABLE2_OUTPUT_DIR=/home/rianatri/noteslabs_poc \
+               TABLE2_RUN_LABEL=noteslabs_poc \
+               TABLE2_EPOCHS=10 \
+               TABLE2_FREEZE_ENCODER=1 \
+               TABLE2_WINDOW_HOURS=24"
+
+output = logs/condor/noteslabs_poc_$(ClusterId)_$(Process)_$(model)_seed$(seed).out
+error  = logs/condor/noteslabs_poc_$(ClusterId)_$(Process)_$(model)_seed$(seed).err
+log    = logs/condor/noteslabs_poc_$(ClusterId)_$(Process)_$(model)_seed$(seed).log
+
+# 24 GB covers A10/A40 with frozen BERT + embedding_dim=64.
+# For bottleneck_transformer bump to 40 GB if needed on smaller slots.
+request_gpus   = 1
+request_cpus   = 4
+request_memory = 48000
+
+Rank = TARGET.CUDAGlobalMemoryMb
+
+# ── noteslabs_poc: notes + labs, no ICD codes ───────────────────────────────
+queue model, seed from (
+    mlp,                   42
+    rnn,                   42
+    bottleneck_transformer, 42
+)

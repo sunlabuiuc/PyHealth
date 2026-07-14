@@ -22,6 +22,7 @@ def sample_balanced(
     ratio: float = 1.0,
     subsample: float = 1.0,
     seed: Optional[int] = None,
+    label_key: str = "label",
 ) -> SampleDataset:
     """Keep positives and negatives at a target ratio, then cap total size.
 
@@ -32,6 +33,7 @@ def sample_balanced(
             exceeds ``len(dataset) * subsample``, both positives and negatives are downsampled
             proportionally while preserving the ratio as closely as possible.
         seed: Optional RNG seed for reproducible negative sampling.
+        label_key: Key to use for accessing the label field in each sample. Default ``"label"``.
 
     Returns:
         A new ``SampleDataset`` containing all positives plus sampled negatives,
@@ -49,7 +51,7 @@ def sample_balanced(
     neg_indices: List[int] = []
 
     for idx in range(len(dataset)):
-        label = _label_to_int(dataset[idx]["label"])
+        label = _label_to_int(dataset[idx][label_key])
         if label == 1:
             pos_indices.append(idx)
         else:
