@@ -216,6 +216,8 @@ class UnifiedMultimodalEmbeddingModel(nn.Module, BaseEmbeddingModel):
         self.encoders: nn.ModuleDict = nn.ModuleDict()
         self.projections: nn.ModuleDict = nn.ModuleDict()
         self.modality_types: dict[str, ModalityType] = {}
+        self._shared_text_field_by_model: dict[str, str] = {}
+        self._text_canonical: dict[str, str] = {}  # field → first field sharing the same tokenizer
 
         for field_name, processor in processors.items():
             if not isinstance(processor, TemporalFeatureProcessor):
@@ -311,6 +313,21 @@ class UnifiedMultimodalEmbeddingModel(nn.Module, BaseEmbeddingModel):
         freeze: bool = False,
     ) -> None:
         """Build TEXT encoder: BERT + projection, optionally from TextEmbeddingModel."""
+
+        def _set_projection(
+            pre_dim: int, proj_source: Optional[nn.Module] = None
+        ) -> None:
+            if pre_dim != embedding_dim:
+                if proj_source is not None:
+                    self.projections[field_name] = nn.Sequential(
+                        proj_source,
+                        nn.Linear(pre_dim, embedding_dim),
+                    )
+                else:
+                    self.projections[field_name] = nn.Linear(pre_dim, embedding_dim)
+            elif proj_source is not None:
+                self.projections[field_name] = proj_source
+
         if (
             pre_built is not None
             and hasattr(pre_built, "transformer")
@@ -321,13 +338,7 @@ class UnifiedMultimodalEmbeddingModel(nn.Module, BaseEmbeddingModel):
                 for p in pre_built.transformer.parameters():
                     p.requires_grad = False
             pre_dim = getattr(pre_built, "embedding_dim", embedding_dim)
-            if pre_dim != embedding_dim:
-                self.projections[field_name] = nn.Sequential(
-                    pre_built.fc,
-                    nn.Linear(pre_dim, embedding_dim),
-                )
-            else:
-                self.projections[field_name] = pre_built.fc
+            _set_projection(pre_dim, pre_built.fc)
             return
 
         if processor.is_token():
@@ -424,9 +435,12 @@ class UnifiedMultimodalEmbeddingModel(nn.Module, BaseEmbeddingModel):
             A dict with keys:
 
             * ``"sequence"``, ``(B, S_total, E')``  temporally-sorted events
+              (content + time + type embeddings)
             * ``"time"``    , ``(B, S_total)``       timestamps (hours)
             * ``"mask"``    , ``(B, S_total)``       1=real event, 0=padding
             * ``"type_ids"``, ``(B, S_total)``       modality index per event
+            * ``"token_emb"``, ``(B, S_total, E')`` content-only event embedding
+              (before time/type are added); the target for masked modeling.
         """
         all_embeddings: list[torch.Tensor] = []
         all_times: list[torch.Tensor] = []
@@ -443,7 +457,8 @@ class UnifiedMultimodalEmbeddingModel(nn.Module, BaseEmbeddingModel):
                 time = torch.zeros(value.shape[:2], device=value.device)
 
             modality = self.modality_types[field_name]
-            encoder = self.encoders[field_name]
+            encoder_key = self._text_canonical.get(field_name, field_name)
+            encoder = self.encoders[encoder_key]
 
             # ── Encode ────────────────────────────────────────────────────
             if modality == ModalityType.CODE:
@@ -557,4 +572,10 @@ class UnifiedMultimodalEmbeddingModel(nn.Module, BaseEmbeddingModel):
             "time": cat_time,  # (B, S_total)
             "mask": cat_mask,  # (B, S_total)
             "type_ids": cat_types,  # (B, S_total)
+            # Per-event content embedding BEFORE time/type are added (same sort
+            # order as ``sequence``).  Masked-modeling pretrainers should
+            # reconstruct THIS rather than ``sequence``: the time/type
+            # components are largely recoverable from event position, so
+            # including them in the target dilutes the content signal.
+            "token_emb": cat_emb,   # (B, S_total, E')
         }

@@ -1,4 +1,4 @@
-"""Unified multimodal embedding + EHRMamba runner for MIMIC-IV + CXR.
+"""Unified multimodal embedding + Transformer runner for MIMIC-IV + CXR.
 
 This script runs EHR + notes + X-ray (metadata/negbio) with the
 ClinicalNotesICDLabsCXRMIMIC4 task.
@@ -10,12 +10,12 @@ Default roots are set to shared PhysioNet mounts:
 
 Quick start:
     python examples/mortality_prediction/
-    multimodal_embedding_mamba_mimic4_cxr.py \
+    multimodal_embedding_transformer_mimic4_cxr.py \
       --quick-test
 
 Smoke test (single forward + inference, no train):
     python examples/mortality_prediction/
-    multimodal_embedding_mamba_mimic4_cxr.py \
+    multimodal_embedding_transformer_mimic4_cxr.py \
       --smoke-forward
 """
 
@@ -35,7 +35,7 @@ from pyhealth.datasets import (
     split_by_patient,
     split_by_sample,
 )
-from pyhealth.models import EHRMamba, UnifiedMultimodalEmbeddingModel
+from pyhealth.models import Transformer, UnifiedMultimodalEmbeddingModel
 from pyhealth.tasks.multimodal_mimic4 import ClinicalNotesICDLabsCXRMIMIC4
 from pyhealth.trainer import Trainer
 
@@ -55,8 +55,7 @@ def _build_run_output_path(args: argparse.Namespace) -> str:
         f"cxr{args.cxr_variant}"
         f"_emb{args.embedding_dim}"
         f"_layers{args.num_layers}"
-        f"_state{args.state_size}"
-        f"_conv{args.conv_kernel}"
+        f"_heads{args.heads}"
         f"_drop{dropout_tag}"
         f"_win{args.observation_window_hours}"
         f"_ep{args.epochs}"
@@ -70,7 +69,7 @@ def _build_run_output_path(args: argparse.Namespace) -> str:
         f"_smoke{int(args.smoke_forward)}"
     )
     return os.path.join(
-        os.getcwd(), "output", "multimodal_embedding_mamba_mimic4_cxr", run_tag
+        os.getcwd(), "output", "multimodal_embedding_transformer_mimic4_cxr", run_tag
     )
 
 
@@ -131,16 +130,15 @@ def run(args: argparse.Namespace) -> Tuple[int, int]:
         processors=sample_dataset.input_processors,
         embedding_dim=args.embedding_dim,
     )
-    model = EHRMamba(
+    model = Transformer(
         dataset=sample_dataset,
         embedding_dim=args.embedding_dim,
-        num_layers=args.num_layers,
-        state_size=args.state_size,
-        conv_kernel=args.conv_kernel,
+        heads=args.heads,
         dropout=args.dropout,
+        num_layers=args.num_layers,
         unified_embedding=unified,
     )
-    print(f"EHRMamba unified mode: {model._use_unified}")
+    print(f"Transformer unified mode: {model._use_unified}")
 
     train_loader = get_dataloader(train_ds, batch_size=args.batch_size, shuffle=True)
     val_loader = (
@@ -250,7 +248,7 @@ def run(args: argparse.Namespace) -> Tuple[int, int]:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Run unified multimodal embedding + EHRMamba on "
+        description="Run unified multimodal embedding + Transformer on "
         "MIMIC-IV mortality with CXR."
     )
     parser.add_argument(
@@ -281,9 +279,8 @@ def parse_args() -> argparse.Namespace:
     )
 
     parser.add_argument("--embedding-dim", type=int, default=64)
-    parser.add_argument("--num-layers", type=int, default=2)
-    parser.add_argument("--state-size", type=int, default=16)
-    parser.add_argument("--conv-kernel", type=int, default=4)
+    parser.add_argument("--num-layers", type=int, default=1)
+    parser.add_argument("--heads", type=int, default=1)
     parser.add_argument("--dropout", type=float, default=0.1)
 
     parser.add_argument("--observation-window-hours", type=int, default=24)
