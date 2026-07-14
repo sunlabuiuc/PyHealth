@@ -1,3 +1,5 @@
+"""Tasks and signal helpers for PhysioNet EEGBCI recordings."""
+
 from __future__ import annotations
 
 from typing import Any, Dict, List, Tuple
@@ -37,6 +39,17 @@ EEGBCI_LABELS = {
 
 
 def run_type_for_run(run: int) -> str:
+    """Return the experimental condition for an EEGBCI run.
+
+    Args:
+        run: EEGBCI run identifier.
+
+    Returns:
+        The experimental condition name.
+
+    Raises:
+        ValueError: If the run is not supported.
+    """
     try:
         return EEGBCI_RUN_TYPES[int(run)]
     except KeyError as exc:
@@ -44,6 +57,17 @@ def run_type_for_run(run: int) -> str:
 
 
 def label_family_for_run(run: int) -> str:
+    """Return the execution, imagery, or baseline family for a run.
+
+    Args:
+        run: EEGBCI run identifier.
+
+    Returns:
+        The label family.
+
+    Raises:
+        ValueError: If the run is not supported.
+    """
     run_type = run_type_for_run(run)
     if "execution" in run_type:
         return "motor_execution"
@@ -53,6 +77,18 @@ def label_family_for_run(run: int) -> str:
 
 
 def task_label_for_event(run: int, event_code: str) -> str:
+    """Decode a T0/T1/T2 annotation using its run context.
+
+    Args:
+        run: EEGBCI run identifier.
+        event_code: Annotation code such as ``"T0"``, ``"T1"``, or ``"T2"``.
+
+    Returns:
+        The semantic motor-task label.
+
+    Raises:
+        ValueError: If the run or event code is not supported.
+    """
     code = str(event_code).strip()
     if code == "T0":
         return "rest"
@@ -82,6 +118,17 @@ def task_label_for_event(run: int, event_code: str) -> str:
 
 
 def numeric_label_for_task(task_label: str) -> int:
+    """Return the stable PyHealth 0-8 task-class identifier.
+
+    Args:
+        task_label: Semantic EEGBCI task label.
+
+    Returns:
+        The PyHealth task-class identifier.
+
+    Raises:
+        ValueError: If the task label is not supported.
+    """
     try:
         return EEGBCI_LABELS[task_label]
     except KeyError as exc:
@@ -109,6 +156,14 @@ EEGBCI_COMPAT_CHANNELS = (
 
 
 def normalize_eegbci_channel_name(name: str) -> str:
+    """Normalize an EDF channel name and known aliases.
+
+    Args:
+        name: Source channel name.
+
+    Returns:
+        The normalized channel name.
+    """
     clean = name.upper().replace(".", "").replace("EEG ", "").replace("-REF", "")
     aliases = {
         "T9": "FT9",
@@ -122,6 +177,19 @@ def select_eegbci_channels(
     ch_names: List[str],
     channel_mode: str = "compat16",
 ) -> Tuple[np.ndarray, List[str]]:
+    """Select all EEG channels or the compatibility montage.
+
+    Args:
+        data: EEG data with shape ``(channels, time)``.
+        ch_names: Channel names matching the first data dimension.
+        channel_mode: ``"compat16"`` or ``"all"``.
+
+    Returns:
+        The selected data and corresponding channel names.
+
+    Raises:
+        ValueError: If the mode is invalid or required channels are missing.
+    """
     if channel_mode == "all":
         return data, list(ch_names)
     if channel_mode != "compat16":
@@ -138,6 +206,18 @@ def select_eegbci_channels(
 
 
 def normalize_signal(signal: np.ndarray, mode: str | None) -> np.ndarray:
+    """Apply the configured per-channel signal normalization.
+
+    Args:
+        signal: EEG signal with time on the final dimension.
+        mode: ``"95th_percentile"``, ``"div_by_100"``, or ``None``.
+
+    Returns:
+        The normalized signal.
+
+    Raises:
+        ValueError: If the normalization mode is unsupported.
+    """
     if mode is None:
         return signal
     if mode == "95th_percentile":
@@ -160,6 +240,18 @@ BANDS = {
 
 
 def compute_band_powers(data: np.ndarray, sfreq: float) -> Dict[str, float | str]:
+    """Compute absolute and relative Welch band powers and ratios.
+
+    Args:
+        data: EEG data with shape ``(channels, time)``.
+        sfreq: Sampling rate in hertz.
+
+    Returns:
+        Band powers, relative powers, ratios, and the dominant band.
+
+    Raises:
+        ValueError: If data is not two-dimensional.
+    """
     from scipy.signal import welch
 
     if data.ndim != 2:
@@ -193,6 +285,14 @@ def compute_band_powers(data: np.ndarray, sfreq: float) -> Dict[str, float | str
 
 
 def interpret_band_profile(features: Dict[str, float | str]) -> Dict[str, str]:
+    """Produce cautious exploratory interpretation metadata.
+
+    Args:
+        features: Band-power features from :func:`compute_band_powers`.
+
+    Returns:
+        A signal-pattern hypothesis, confidence, quality flags, and summary.
+    """
     dominant = str(features["dominant_band"])
     alpha_rel = float(features.get("alpha_relative", 0.0))
     beta_rel = float(features.get("beta_relative", 0.0))
@@ -238,6 +338,19 @@ def iter_annotation_windows(
     run: int,
     window_size: float = 2.0,
 ) -> List[Dict[str, Any]]:
+    """Convert T0/T1/T2 annotations into complete fixed-duration windows.
+
+    Args:
+        raw: Loaded MNE recording with annotations.
+        run: EEGBCI run identifier used to decode task labels.
+        window_size: Window duration in seconds.
+
+    Returns:
+        Window metadata dictionaries for complete annotation windows.
+
+    Raises:
+        ValueError: If a supported annotation cannot be decoded for the run.
+    """
     sfreq = float(raw.info["sfreq"])
     window_samples = int(round(window_size * sfreq))
     windows: List[Dict[str, Any]] = []
@@ -271,6 +384,24 @@ def iter_annotation_windows(
 
 
 class EEGMotorImageryEEGBCI(BaseTask):
+    """Build fixed-duration EEGBCI motor-task samples.
+
+    Args:
+        window_size: Window duration in seconds.
+        resample_rate: Target sampling rate, or ``None`` to retain the source rate.
+        bandpass_filter: Low and high cutoff frequencies, or ``None`` to disable
+            filtering.
+        channel_mode: ``"compat16"`` for the shared 16-channel montage or ``"all"``
+            for all EEG channels.
+        normalization: ``"95th_percentile"``, ``"div_by_100"``, or ``None``.
+        compute_stft: Whether to include an STFT tensor.
+
+    Each emitted sample includes patient/run/trial metadata, ``signal``, semantic
+    ``task_label`` and processor ``label`` strings, integer ``eegbci_label`` as a
+    PyHealth task-class identifier, channel names, sample rate, and window timing.
+    When enabled, ``stft`` is also included.
+    """
+
     task_name: str = "EEGBCI_motor_imagery"
     input_schema: Dict[str, str] = {"signal": "tensor", "stft": "tensor"}
     output_schema: Dict[str, str] = {"label": "multiclass"}
@@ -285,6 +416,7 @@ class EEGMotorImageryEEGBCI(BaseTask):
         compute_stft: bool = True,
     ) -> None:
         super().__init__()
+        self.cache_version = "semantic_labels_v1"
         self.window_size = window_size
         self.resample_rate = resample_rate
         self.bandpass_filter = bandpass_filter
@@ -298,6 +430,14 @@ class EEGMotorImageryEEGBCI(BaseTask):
         return self._base_samples_from_patient(patient)
 
     def read_raw(self, signal_file: str) -> mne.io.BaseRaw:
+        """Load an EDF and apply configured filtering and resampling.
+
+        Args:
+            signal_file: EDF file path.
+
+        Returns:
+            The preprocessed MNE recording.
+        """
         raw = mne.io.read_raw_edf(signal_file, preload=True, verbose="error")
         raw.pick_types(eeg=True, stim=False, exclude=[])
         if self.bandpass_filter is not None:
@@ -338,7 +478,7 @@ class EEGMotorImageryEEGBCI(BaseTask):
                     "event_code": window["event_code"],
                     "task_label": window["task_label"],
                     "label_family": window["label_family"],
-                    "label": int(window["label"]),
+                    "label": str(window["task_label"]),
                     "eegbci_label": int(window["label"]),
                     "signal": signal,
                     "channel_names": selected_names,
@@ -358,6 +498,15 @@ class EEGMotorImageryEEGBCI(BaseTask):
 
 
 class EEGBCIPatternDiscovery(EEGMotorImageryEEGBCI):
+    """Extend EEGBCI motor-task samples with exploratory band metadata.
+
+    Each emitted sample contains the supervised-task fields from
+    :class:`EEGMotorImageryEEGBCI` plus ``bandpower``,
+    ``brain_state_hypothesis``, ``confidence``, ``quality_flags``, and
+    ``interpretation``. These fields describe signal patterns and are not clinical
+    diagnoses.
+    """
+
     task_name: str = "EEGBCI_pattern_discovery"
 
     def __call__(self, patient: Any) -> List[Dict[str, Any]]:

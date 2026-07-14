@@ -165,6 +165,22 @@ class TestEEGBCIDataset(unittest.TestCase):
             self.assertEqual(df.loc[0, "run_type"], "motor_execution_left_right")
             self.assertEqual(df.loc[0, "source"], "physionet_eegbci")
 
+            edf.unlink()
+            self.assertFalse(ds._metadata_matches_request(csv_path))
+
+    def test_metadata_content_changes_cache_identity(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ds = EEGBCIDataset.__new__(EEGBCIDataset)
+            ds.root = tmp
+            ds.metadata_file_name = "metadata.csv"
+            csv_path = Path(tmp) / ds.metadata_file_name
+
+            csv_path.write_text("signal_file\n/old/path.edf\n", encoding="utf-8")
+            first_key = ds._metadata_cache_key()
+            csv_path.write_text("signal_file\n/new/path.edf\n", encoding="utf-8")
+
+            self.assertNotEqual(first_key, ds._metadata_cache_key())
+
     def test_selection_inputs_are_normalized_for_stable_identity(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -277,24 +293,26 @@ class TestEEGBCIDataset(unittest.TestCase):
             with self.assertRaisesRegex(FileNotFoundError, "download=True"):
                 ds.prepare_metadata()
 
-    def test_default_task_returns_pattern_discovery(self):
-        from pyhealth.tasks.eegbci import EEGBCIPatternDiscovery
+    def test_default_task_returns_motor_imagery(self):
+        from pyhealth.tasks.eegbci import EEGMotorImageryEEGBCI
 
         ds = EEGBCIDataset.__new__(EEGBCIDataset)
-        self.assertIsInstance(ds.default_task, EEGBCIPatternDiscovery)
+        self.assertIs(type(ds.default_task), EEGMotorImageryEEGBCI)
 
     def test_dataset_set_task_offline_integration(self):
         import mne
-        from pyhealth.tasks.eegbci import EEGBCI_COMPAT_CHANNELS, EEGMotorImageryEEGBCI
+        from pyhealth.tasks.eegbci import EEGBCI_COMPAT_CHANNELS
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             edf = root / "files" / "eegmmidb" / "1.0.0" / "S001" / "S001R03.edf"
             edf.parent.mkdir(parents=True)
             edf.write_bytes(b"")
-            sfreq = 200.0
+            sfreq = 160.0
+            times = np.arange(0, 2, 1 / sfreq)
+            signal = np.sin(2 * np.pi * 10 * times)
             raw = mne.io.RawArray(
-                np.ones((16, int(sfreq * 2))),
+                np.tile(signal, (16, 1)),
                 mne.create_info(
                     list(EEGBCI_COMPAT_CHANNELS), sfreq=sfreq, ch_types=["eeg"] * 16
                 ),
@@ -312,18 +330,15 @@ class TestEEGBCIDataset(unittest.TestCase):
             )
 
             with patch("pyhealth.tasks.eegbci.mne.io.read_raw_edf", return_value=raw):
-                sample_dataset = dataset.set_task(
-                    EEGMotorImageryEEGBCI(
-                        compute_stft=False, resample_rate=None, bandpass_filter=None
-                    ),
-                    num_workers=1,
-                )
+                sample_dataset = dataset.set_task(num_workers=1)
 
             self.assertEqual(len(sample_dataset), 1)
+            self.assertEqual(sample_dataset.task_name, "EEGBCI_motor_imagery")
             sample = sample_dataset[0]
             self.assertEqual(sample["task_label"], "execute_left_fist")
             self.assertEqual(sample["eegbci_label"], 1)
             self.assertEqual(tuple(sample["signal"].shape), (16, 400))
+            self.assertIn("stft", sample)
 
 
 from pyhealth.tasks.eegbci import EEGBCIPatternDiscovery, EEGMotorImageryEEGBCI
@@ -356,6 +371,7 @@ class TestEEGBCITasks(unittest.TestCase):
         self.assertEqual(task.task_name, "EEGBCI_motor_imagery")
         self.assertEqual(task.input_schema, {"signal": "tensor", "stft": "tensor"})
         self.assertEqual(task.output_schema, {"label": "multiclass"})
+        self.assertEqual(task.cache_version, "semantic_labels_v1")
 
     def test_task_schema_without_stft(self):
         task = EEGMotorImageryEEGBCI(compute_stft=False)
@@ -416,9 +432,20 @@ class TestEEGBCITasks(unittest.TestCase):
         self.assertEqual(sample["record_id"], "R03")
         self.assertEqual(sample["event_code"], "T1")
         self.assertEqual(sample["task_label"], "execute_left_fist")
-        self.assertEqual(sample["label"], 1)
+        self.assertEqual(sample["label"], "execute_left_fist")
         self.assertEqual(sample["eegbci_label"], 1)
         self.assertEqual(tuple(sample["signal"].shape), (16, 400))
+
+    def test_sparse_task_labels_remain_distinct_for_multiclass_processing(self):
+        from pyhealth.processors import MultiClassLabelProcessor
+
+        labels = ["rest", "execute_both_fists", "execute_both_feet"]
+        processor = MultiClassLabelProcessor()
+        processor.fit([{"label": label} for label in labels], "label")
+
+        self.assertEqual(
+            len({processor.process(label).item() for label in labels}), len(labels)
+        )
 
     def test_stft_uses_current_sample_rate(self):
         import mne
@@ -439,14 +466,10 @@ class TestEEGBCITasks(unittest.TestCase):
         task = EEGMotorImageryEEGBCI(resample_rate=None, bandpass_filter=None)
 
         with patch("pyhealth.tasks.eegbci.mne.io.read_raw_edf", return_value=raw):
-            with patch(
-                "pyhealth.models.tfm_tokenizer.get_stft_torch",
-                return_value=torch.zeros((1, 16, 50, 1)),
-            ) as get_stft:
-                samples = task(patient)
+            samples = task(patient)
 
         self.assertEqual(len(samples), 1)
-        self.assertEqual(get_stft.call_args.kwargs["resampling_rate"], 100)
+        self.assertEqual(tuple(samples[0]["stft"].shape), (16, 50, 3))
 
     def test_pattern_discovery_adds_bandpower_metadata(self):
         import mne
@@ -713,6 +736,33 @@ class TestEEGBCIMomentReportHelpers(unittest.TestCase):
                 self.assertGreaterEqual(result["evidence_score"], 0.0)
                 self.assertLessEqual(result["evidence_score"], 1.0)
                 self.assertIn("alpha=", result["evidence_summary"])
+
+    def test_state_hypothesis_uses_only_finite_rest_deltas(self):
+        from examples.eeg.eegbci.eegbci_pattern_discovery import derive_state_hypothesis
+
+        delta_profiles = (
+            ({"alpha": 0.10, "beta": -0.05}, "idle_alpha_profile"),
+            (
+                {"alpha": -0.10, "beta": 0.08, "gamma": 0.02},
+                "sensorimotor_engagement_profile",
+            ),
+            ({"delta": 0.10, "theta": 0.08}, "slow_wave_dominant_pattern"),
+        )
+        for deltas, expected in delta_profiles:
+            row = self._moment_row()
+            for band in ("delta", "theta", "alpha", "beta", "gamma"):
+                row[f"rest_{band}_relative_delta"] = deltas.get(band, 0.0)
+            result = derive_state_hypothesis(row)
+            self.assertEqual(result["state_hypothesis"], expected)
+            self.assertIn("basis=rest_normalized_delta", result["evidence_summary"])
+
+        for invalid in (float("nan"), float("inf")):
+            row = self._moment_row(alpha_relative=0.65, alpha_beta_ratio=6.5)
+            for band in ("delta", "theta", "alpha", "beta", "gamma"):
+                row[f"rest_{band}_relative_delta"] = invalid
+            result = derive_state_hypothesis(row)
+            self.assertTrue(np.isfinite(result["evidence_score"]))
+            self.assertIn("basis=absolute_band_profile", result["evidence_summary"])
 
     def test_state_confidence_requires_margin(self):
         from examples.eeg.eegbci.eegbci_pattern_discovery import (

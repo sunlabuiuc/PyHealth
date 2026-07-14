@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import math
 import sys
 from collections import Counter
 from pathlib import Path
@@ -124,55 +125,111 @@ def _clip01(value: float) -> float:
 
 
 def derive_state_hypothesis(row: dict) -> dict:
-    delta = float(row.get("delta_relative", 0.0) or 0.0)
-    theta = float(row.get("theta_relative", 0.0) or 0.0)
-    alpha = float(row.get("alpha_relative", 0.0) or 0.0)
-    beta = float(row.get("beta_relative", 0.0) or 0.0)
-    gamma = float(row.get("gamma_relative", 0.0) or 0.0)
-    alpha_beta = float(row.get("alpha_beta_ratio", 0.0) or 0.0)
-    theta_beta = float(row.get("theta_beta_ratio", 0.0) or 0.0)
-
-    scores = {
-        "idle_alpha_profile": _clip01((alpha - 0.25) + min(alpha_beta / 8.0, 0.40)),
-        "sensorimotor_engagement_profile": _clip01(
-            (beta - 0.20)
-            + max(gamma - 0.12, 0.0)
-            + max(0.0, 1.5 - alpha_beta) / 6.0
-        ),
-        "slow_wave_dominant_pattern": _clip01(
-            (delta + theta) - 0.45 + min(theta_beta / 8.0, 0.20)
-        ),
-        "possible_artifact_profile": _clip01(
-            (gamma - 0.22) * 2.0 + max(delta - 0.50, 0.0)
-        ),
+    delta_bands = {
+        band: row.get(f"rest_{band}_relative_delta") for band in REPORT_BANDS
     }
+    try:
+        normalized_deltas = {
+            band: float(value)
+            for band, value in delta_bands.items()
+            if value not in ("", None)
+        }
+    except (TypeError, ValueError):
+        normalized_deltas = {}
+    has_rest_deltas = len(normalized_deltas) == len(REPORT_BANDS) and all(
+        math.isfinite(value) for value in normalized_deltas.values()
+    )
+
+    if has_rest_deltas:
+        evidence_values = normalized_deltas
+        scores = {
+            "idle_alpha_profile": max(evidence_values["alpha"], 0.0)
+            + max(-evidence_values["beta"], 0.0),
+            "sensorimotor_engagement_profile": max(
+                -evidence_values["alpha"], 0.0
+            )
+            + max(evidence_values["beta"], 0.0)
+            + max(evidence_values["gamma"], 0.0),
+            "slow_wave_dominant_pattern": max(evidence_values["delta"], 0.0)
+            + max(evidence_values["theta"], 0.0),
+            "possible_artifact_profile": max(
+                evidence_values["gamma"] - 0.03, 0.0
+            )
+            * 2.0,
+        }
+        evidence_basis = "rest_normalized_delta"
+    else:
+        evidence_values = {
+            band: float(row.get(f"{band}_relative", 0.0) or 0.0)
+            for band in REPORT_BANDS
+        }
+        alpha_beta = float(row.get("alpha_beta_ratio", 0.0) or 0.0)
+        theta_beta = float(row.get("theta_beta_ratio", 0.0) or 0.0)
+        scores = {
+            "idle_alpha_profile": _clip01(
+                (evidence_values["alpha"] - 0.25)
+                + min(alpha_beta / 8.0, 0.40)
+            ),
+            "sensorimotor_engagement_profile": _clip01(
+                (evidence_values["beta"] - 0.20)
+                + max(evidence_values["gamma"] - 0.12, 0.0)
+                + max(0.0, 1.5 - alpha_beta) / 6.0
+            ),
+            "slow_wave_dominant_pattern": _clip01(
+                (evidence_values["delta"] + evidence_values["theta"])
+                - 0.45
+                + min(theta_beta / 8.0, 0.20)
+            ),
+            "possible_artifact_profile": _clip01(
+                (evidence_values["gamma"] - 0.22) * 2.0
+                + max(evidence_values["delta"] - 0.50, 0.0)
+            ),
+        }
+        evidence_basis = "absolute_band_profile"
+
     ordered = sorted(scores.items(), key=lambda item: item[1], reverse=True)
     winner, winning_score = ordered[0]
-    runner_up = ordered[1][1]
-    margin = winning_score - runner_up
+    margin = winning_score - ordered[1][1]
 
-    if winning_score < 0.20 or margin < 0.08:
-        state = "mixed_ambiguous_profile"
-        evidence_score = round(max(winning_score, 0.10), 3)
-        confidence = "low"
-    else:
-        state = winner
-        evidence_score = round(winning_score, 3)
-        if winning_score >= 0.65 and margin >= 0.20:
+    if has_rest_deltas:
+        if winning_score < 0.02 or margin < 0.01:
+            state = "mixed_ambiguous_profile"
+            confidence = "low"
+        elif winning_score >= 0.15 and margin >= 0.08:
+            state = winner
             confidence = "high"
-        elif winning_score >= 0.35 and margin >= 0.12:
+        elif winning_score >= 0.06 and margin >= 0.025:
+            state = winner
             confidence = "medium"
         else:
+            state = winner
             confidence = "low"
+        evidence_score = round(min(winning_score / 0.20, 1.0), 3)
+    else:
+        if winning_score < 0.20 or margin < 0.08:
+            state = "mixed_ambiguous_profile"
+            evidence_score = round(max(winning_score, 0.10), 3)
+            confidence = "low"
+        else:
+            state = winner
+            evidence_score = round(winning_score, 3)
+            if winning_score >= 0.65 and margin >= 0.20:
+                confidence = "high"
+            elif winning_score >= 0.35 and margin >= 0.12:
+                confidence = "medium"
+            else:
+                confidence = "low"
 
     return {
         "state_hypothesis": state,
         "state_confidence": confidence,
         "evidence_score": evidence_score,
         "evidence_summary": (
-            f"delta={delta:.3f}; theta={theta:.3f}; alpha={alpha:.3f}; "
-            f"beta={beta:.3f}; gamma={gamma:.3f}; alpha_beta={alpha_beta:.3f}; "
-            f"margin={margin:.3f}"
+            f"basis={evidence_basis}; delta={evidence_values['delta']:.3f}; "
+            f"theta={evidence_values['theta']:.3f}; "
+            f"alpha={evidence_values['alpha']:.3f}; "
+            f"beta={evidence_values['beta']:.3f}; "
+            f"gamma={evidence_values['gamma']:.3f}; margin={margin:.3f}"
         ),
     }
 

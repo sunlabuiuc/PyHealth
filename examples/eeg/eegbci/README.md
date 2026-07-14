@@ -23,7 +23,7 @@ Outputs are written to `outputs/eegbci_pattern_discovery/` by default:
 - `eegbci_pattern_summary.md`
 
 The CSV has one row per emitted 2-second window. Key columns include subject/run
-metadata, `event_code`, decoded `task_label`, raw EEGBCI numeric label
+metadata, `event_code`, decoded `task_label`, PyHealth task-class identifier
 (`eegbci_label` / `label`), PyHealth model-local label (`model_label`),
 absolute window timing, band powers, relative band powers, `dominant_band`,
 frequency ratios, and `interpretation`.
@@ -47,8 +47,25 @@ windows, limitations, and next checks. These labels are signal-pattern
 summaries from short EEG windows, not clinical findings or evidence of a
 subject's cognition.
 
-Implementation details are tracked in
-`docs/eeg_pattern_discovery/moment_report_implementation_plan.md`.
+## Data source and citation
+
+The example uses PhysioNet's [EEG Motor Movement/Imagery Dataset
+(eegmmidb), version 1.0.0](https://physionet.org/content/eegmmidb/1.0.0/).
+The dataset files are distributed under the
+[Open Data Commons Attribution License v1.0](https://opendatacommons.org/licenses/by/1-0/).
+
+Please cite:
+
+- Schalk, G. (2009). *EEG Motor Movement/Imagery Dataset* (version 1.0.0).
+  PhysioNet. https://doi.org/10.13026/C28G6P
+- Schalk, G., McFarland, D. J., Hinterberger, T., Birbaumer, N., & Wolpaw,
+  J. R. (2004). BCI2000: A General-Purpose Brain-Computer Interface (BCI)
+  System. *IEEE Transactions on Biomedical Engineering, 51*(6), 1034-1043.
+- Goldberger, A. L., Amaral, L. A. N., Glass, L., Hausdorff, J. M., Ivanov,
+  P. C., Mark, R. G., Mietus, J. E., Moody, G. B., Peng, C.-K., & Stanley,
+  H. E. (2000). PhysioBank, PhysioToolkit, and PhysioNet: Components of a new
+  research resource for complex physiologic signals. *Circulation, 101*(23),
+  e215-e220.
 
 `--root` points to the local EEGBCI data directory. With `--download`, MNE
 downloads any missing EDF files under that root. PyHealth task caches are stored

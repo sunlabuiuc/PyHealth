@@ -10,7 +10,7 @@ import mne
 import pandas as pd
 
 from .base_dataset import BaseDataset
-from pyhealth.tasks.eegbci import EEGBCIPatternDiscovery, run_type_for_run
+from pyhealth.tasks.eegbci import EEGMotorImageryEEGBCI, run_type_for_run
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +26,26 @@ EEGBCI_METADATA_COLUMNS = {
 
 
 class EEGBCIDataset(BaseDataset):
-    """PhysioNet EEG Motor Movement/Imagery metadata dataset."""
+    """PhysioNet EEG Motor Movement/Imagery metadata dataset.
+
+    The source dataset is PhysioNet's EEG Motor Movement/Imagery Dataset
+    (``eegmmidb``), version 1.0.0, licensed under the
+    Open Data Commons Attribution License v1.0. Cite Schalk (2009),
+    https://doi.org/10.13026/C28G6P.
+
+    Args:
+        root: Directory containing or receiving EEGBCI EDF files and metadata.
+        dataset_name: Optional dataset name prefix. Defaults to ``"eegbci"``.
+        config_path: Optional dataset configuration path.
+        subjects: Subject identifiers to include. Defaults to ``[1, 2, 3]``.
+        runs: Run identifiers to include. Defaults to runs 3 through 14.
+        download: Whether MNE may download missing EDF files.
+        **kwargs: Additional arguments forwarded to :class:`BaseDataset`.
+
+    Raises:
+        FileNotFoundError: If a requested EDF is unavailable and downloading is
+            disabled.
+    """
 
     def __init__(
         self,
@@ -51,11 +70,12 @@ class EEGBCIDataset(BaseDataset):
         self.selection_key = self._build_selection_key()
         self.metadata_file_name = self._metadata_file_name()
         self.prepare_metadata()
+        metadata_key = self._metadata_cache_key()
         dataset_name = dataset_name or "eegbci"
         super().__init__(
             root=root,
             tables=["records"],
-            dataset_name=f"{dataset_name}_{self.selection_key}",
+            dataset_name=f"{dataset_name}_{self.selection_key}_{metadata_key}",
             config_path=config_path,
             **kwargs,
         )
@@ -64,9 +84,22 @@ class EEGBCIDataset(BaseDataset):
 
     @staticmethod
     def _normalize_selection(values: list[int]) -> list[int]:
+        """Normalize identifiers to sorted, unique integers.
+
+        Args:
+            values: Subject or run identifiers.
+
+        Returns:
+            The normalized identifiers.
+        """
         return sorted({int(value) for value in values})
 
     def _build_selection_key(self) -> str:
+        """Build a stable cache identity for the subject/run selection.
+
+        Returns:
+            The selection key.
+        """
         payload = {
             "subjects": [int(subject) for subject in self.subjects],
             "runs": [int(run) for run in self.runs],
@@ -79,9 +112,32 @@ class EEGBCIDataset(BaseDataset):
         return f"s{subject_part}_r{run_part}_{digest}"
 
     def _metadata_file_name(self) -> str:
+        """Return the selection-specific metadata filename.
+
+        Returns:
+            The CSV filename.
+        """
         return f"eegbci-pyhealth-{self.selection_key}.csv"
 
+    def _metadata_cache_key(self) -> str:
+        """Return a content fingerprint for derived dataset caches.
+
+        Returns:
+            A stable fingerprint of the selection-specific metadata CSV.
+        """
+        csv_path = Path(self.root) / self.metadata_file_name
+        return hashlib.sha1(csv_path.read_bytes()).hexdigest()[:10]
+
     def _find_local_edf(self, subject: int, run: int) -> Path | None:
+        """Find the canonical EDF path before a recursive fallback search.
+
+        Args:
+            subject: PhysioNet subject identifier.
+            run: EEGBCI run identifier.
+
+        Returns:
+            The local EDF path, or ``None`` when no matching file exists.
+        """
         root = Path(self.root)
         filename = f"S{subject:03d}R{run:02d}.edf"
         canonical_path = (
@@ -93,6 +149,11 @@ class EEGBCIDataset(BaseDataset):
         return matches[0] if matches else None
 
     def _requested_pairs(self) -> list[tuple[int, int]]:
+        """Return requested subject/run pairs in stable order.
+
+        Returns:
+            The sorted subject/run pairs.
+        """
         return sorted(
             (int(subject), int(run))
             for subject in self.subjects
@@ -100,6 +161,17 @@ class EEGBCIDataset(BaseDataset):
         )
 
     def _metadata_matches_request(self, csv_path: Path) -> bool:
+        """Check whether cached metadata can be safely reused.
+
+        Valid metadata has the required columns and requested subject/run pairs,
+        and every referenced EDF path still exists.
+
+        Args:
+            csv_path: Metadata CSV path.
+
+        Returns:
+            Whether the cached metadata is reusable.
+        """
         try:
             df = pd.read_csv(csv_path)
         except Exception:
@@ -107,9 +179,17 @@ class EEGBCIDataset(BaseDataset):
         if not EEGBCI_METADATA_COLUMNS.issubset(df.columns):
             return False
         pairs = sorted((int(row.subject_id), int(row.run)) for row in df.itertuples())
-        return pairs == self._requested_pairs()
+        if pairs != self._requested_pairs():
+            return False
+        return all(Path(str(row.signal_file)).is_file() for row in df.itertuples())
 
     def prepare_metadata(self) -> None:
+        """Reuse valid metadata or write rows for every requested EDF.
+
+        Raises:
+            FileNotFoundError: If a requested EDF is unavailable and downloading
+                is disabled.
+        """
         root = Path(self.root)
         csv_path = root / self.metadata_file_name
         if csv_path.exists() and self._metadata_matches_request(csv_path):
@@ -154,5 +234,10 @@ class EEGBCIDataset(BaseDataset):
         logger.info("Wrote EEGBCI metadata to %s", csv_path)
 
     @property
-    def default_task(self) -> EEGBCIPatternDiscovery:
-        return EEGBCIPatternDiscovery()
+    def default_task(self) -> EEGMotorImageryEEGBCI:
+        """Return the canonical supervised EEGBCI task.
+
+        Returns:
+            An :class:`EEGMotorImageryEEGBCI` task.
+        """
+        return EEGMotorImageryEEGBCI()
