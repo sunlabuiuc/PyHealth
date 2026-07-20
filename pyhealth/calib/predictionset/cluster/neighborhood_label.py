@@ -107,6 +107,8 @@ class NeighborhoodLabel(SetPredictor):
     def calibrate(
         self,
         cal_dataset: IterableDataset,
+        train_dataset: Optional[IterableDataset] = None,
+        test_dataset: Optional[IterableDataset] = None,
         cal_embeddings: Optional[np.ndarray] = None,
         batch_size: int = 32,
     ) -> None:
@@ -120,6 +122,12 @@ class NeighborhoodLabel(SetPredictor):
         Args:
             cal_dataset: Calibration dataset (for labels and predictions if
                 cal_embeddings not provided).
+            train_dataset: Unused by this method. Accepted only so callers
+                that generically calibrate any SetPredictor (e.g. CPBench)
+                can pass the same (cal_dataset, train_dataset, test_dataset)
+                arguments to every CP method without branching on which
+                extra data each one needs.
+            test_dataset: Unused by this method (see train_dataset).
             cal_embeddings: Optional precomputed calibration embeddings
                 (n_cal, embedding_dim). If None, extracted from cal_dataset.
             batch_size: Batch size for embedding extraction when cal_embeddings

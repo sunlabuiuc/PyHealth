@@ -197,11 +197,17 @@ class FavMac(SetPredictor):
         self.target_cost = target_cost
         self.delta = delta
 
-    def calibrate(self, cal_dataset):
+    def calibrate(self, cal_dataset, train_dataset=None, test_dataset=None):
         """Calibrate the cost-control procedure.
 
         :param cal_dataset: Calibration set.
         :type cal_dataset: Subset
+        :param train_dataset: Unused by this method. Accepted only so
+            callers that generically calibrate any SetPredictor (e.g.
+            CPBench) can pass the same (cal_dataset, train_dataset,
+            test_dataset) arguments to every CP method without branching on
+            which extra data each one needs.
+        :param test_dataset: Unused by this method (see train_dataset).
         """
         _cal_data = prepare_numpy_dataset(
             self.model, cal_dataset, ["logit", "y_true"], debug=self.debug

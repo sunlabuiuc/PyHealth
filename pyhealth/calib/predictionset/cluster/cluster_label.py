@@ -137,6 +137,8 @@ class ClusterLabel(SetPredictor):
     def calibrate(
         self,
         cal_dataset: IterableDataset,
+        train_dataset: Optional[IterableDataset] = None,
+        test_dataset: Optional[IterableDataset] = None,
         train_embeddings: Optional[np.ndarray] = None,
         cal_embeddings: Optional[np.ndarray] = None,
         batch_size: int = 32,
@@ -151,14 +153,23 @@ class ClusterLabel(SetPredictor):
 
         Args:
             cal_dataset: Calibration set
+            train_dataset: Training set to extract embeddings from, used
+                only if train_embeddings is not already provided. ClusterLabel
+                needs a pool of training-set embeddings to fit clusters on --
+                one of train_dataset or train_embeddings is required.
+            test_dataset: Unused by this method. Accepted only so callers
+                that generically calibrate any SetPredictor (e.g. CPBench)
+                can pass the same (cal_dataset, train_dataset, test_dataset)
+                arguments to every CP method without branching on which
+                extra data each one needs.
             train_embeddings: Optional pre-computed training embeddings
-                of shape (n_train, embedding_dim). If not provided, will
-                be extracted from the model (requires train_dataset parameter).
+                of shape (n_train, embedding_dim). If not provided, will be
+                extracted from train_dataset.
             cal_embeddings: Optional pre-computed calibration embeddings
                 of shape (n_cal, embedding_dim). If not provided, will be
                 extracted from cal_dataset.
             batch_size: Batch size for embedding extraction when
-                cal_embeddings is not provided. Default is 32.
+                cal_embeddings/train_embeddings are not provided. Default 32.
 
         Note:
             Either provide embeddings directly or ensure the model supports
@@ -186,9 +197,16 @@ class ClusterLabel(SetPredictor):
             cal_embeddings = np.asarray(cal_embeddings)
 
         if train_embeddings is None:
-            raise ValueError(
-                "train_embeddings must be provided. "
-                "Extract embeddings from training set using extract_embeddings()."
+            if train_dataset is None:
+                raise ValueError(
+                    "ClusterLabel needs a pool of training-set embeddings to "
+                    "fit clusters on. Provide either train_embeddings "
+                    "directly, or train_dataset so they can be extracted "
+                    "automatically."
+                )
+            print("Extracting embeddings from training set...")
+            train_embeddings = extract_embeddings(
+                self.model, train_dataset, batch_size=batch_size, device=self.device
             )
         else:
             train_embeddings = np.asarray(train_embeddings)
