@@ -69,6 +69,9 @@ nlp = [
   "rouge_score~=0.1.2",
   "nltk~=3.9.1",
 ]
+lint = [
+  "ruff~=0.15",
+]
 
 [project.urls]
 Homepage = "https://github.com/sunlabuiuc/PyHealth"
@@ -80,6 +83,13 @@ Changelog = "https://github.com/sunlabuiuc/PyHealth/blob/master/CHANGELOG.md"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+
+### Ruff
+#
+[tool.ruff]
+line-length = 88
+target-version = "py313"
 
 
 ### Hatchling

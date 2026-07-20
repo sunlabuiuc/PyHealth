@@ -69,6 +69,10 @@ from .temple_university_EEG_tasks import (
     EEGEventsTUEV,
     EEGAbnormalTUAB
 )
+from .eegbci import (
+    EEGBCIPatternDiscovery as EEGBCIPatternDiscovery,
+    EEGMotorImageryEEGBCI as EEGMotorImageryEEGBCI,
+)
 from .variant_classification import (
     MutationPathogenicityPrediction,
     VariantClassificationClinVar,
