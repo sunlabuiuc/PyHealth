@@ -170,25 +170,49 @@ def _compute_likelihood_ratio(
 
 
 def _query_weighted_quantile(
-    scores: np.ndarray, alpha: float, weights: np.ndarray
+    scores: np.ndarray,
+    alpha: float,
+    weights: np.ndarray,
+    test_weight: float = 0.0,
 ) -> float:
-    """Compute weighted quantile of scores.
+    """Compute the weighted conformal quantile of scores.
+
+    Implements the finite-sample correction for weighted conformal prediction
+    under covariate shift (Tibshirani et al. 2019).
 
     Args:
-        scores: Array of conformity scores
-        alpha: Quantile level (between 0 and 1)
-        weights: Weights for each score
+        scores: Array of conformity scores (higher = more conforming).
+        alpha: Quantile level (between 0 and 1).
+        weights: Un-normalized weights (likelihood ratios) for each score.
+        test_weight: Un-normalized weight representing the test point.
+            Reserves ``test_weight / (sum(weights) + test_weight)`` of
+            probability mass at conformity ``-inf``. Default 0.0 recovers the
+            old, uncorrected behavior (kept for backward compatibility with
+            direct callers of this helper).
 
     Returns:
-        The weighted alpha-quantile of scores
+        The weighted alpha-quantile of scores. Returns ``-inf`` if the
+        reserved test-point mass alone already meets or exceeds ``alpha``,
+        since there isn't enough calibration mass to justify a stricter,
+        finite threshold without risking under-coverage.
     """
-    # Sort scores and corresponding weights
     sorted_indices = np.argsort(scores)
     sorted_scores = scores[sorted_indices]
     sorted_weights = weights[sorted_indices]
 
-    # Compute cumulative weights
-    cum_weights = np.cumsum(sorted_weights) / np.sum(sorted_weights)
+    total_weight = np.sum(sorted_weights) + test_weight
+    if total_weight <= 0:
+        return -np.inf
+
+    p_test = test_weight / total_weight
+    if p_test >= alpha:
+        # Not enough calibration mass to reach the target coverage without
+        # dipping into the mass reserved for the test point itself: fall
+        # back to the maximally permissive (safe) threshold.
+        return -np.inf
+
+    # Compute cumulative weights over the reserved-mass-inclusive total.
+    cum_weights = np.cumsum(sorted_weights) / total_weight
 
     # Find the index where cumulative weight exceeds alpha
     idx = np.searchsorted(cum_weights, alpha, side="left")
@@ -197,7 +221,7 @@ def _query_weighted_quantile(
     if idx >= len(sorted_scores):
         idx = len(sorted_scores) - 1
 
-    return sorted_scores[idx]
+    return float(sorted_scores[idx])
 
 
 class CovariateLabel(SetPredictor):
@@ -458,8 +482,7 @@ class CovariateLabel(SetPredictor):
                 self.kde_test, self.kde_cal, X
             )
 
-        # Normalize weights
-        weights = likelihood_ratios / np.sum(likelihood_ratios)
+        # Keep weights un-normalized here
         self._sum_cal_weights = np.sum(likelihood_ratios)
 
         # Extract conformity scores (probabilities of true class)
@@ -467,8 +490,10 @@ class CovariateLabel(SetPredictor):
 
         # Compute weighted quantile thresholds
         if isinstance(self.alpha, float):
-            # Marginal coverage: single threshold
-            t = _query_weighted_quantile(conformity_scores, self.alpha, weights)
+            test_weight = float(np.mean(likelihood_ratios))
+            t = _query_weighted_quantile(
+                conformity_scores, self.alpha, likelihood_ratios, test_weight
+            )
         else:
             # Class-conditional coverage: one threshold per class
             t = []
@@ -476,11 +501,10 @@ class CovariateLabel(SetPredictor):
                 mask = y_true == k
                 if np.sum(mask) > 0:
                     class_scores = conformity_scores[mask]
-                    class_weights = weights[mask]
-                    # Renormalize class weights
-                    class_weights = class_weights / np.sum(class_weights)
+                    class_weights = likelihood_ratios[mask]
+                    class_test_weight = float(np.mean(class_weights))
                     t_k = _query_weighted_quantile(
-                        class_scores, self.alpha[k], class_weights
+                        class_scores, self.alpha[k], class_weights, class_test_weight
                     )
                 else:
                     # If no calibration examples, use -inf (include all)
