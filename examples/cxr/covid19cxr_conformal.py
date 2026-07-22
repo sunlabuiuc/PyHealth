@@ -171,7 +171,8 @@ print(f"  Test embeddings shape: {test_embeddings.shape}")
 print("\nCreating CovariateLabel predictor...")
 covariate_predictor = CovariateLabel(model=resnet, alpha=alpha)
 
-# Calibrate with embeddings (KDEs will be fitted automatically)
+# Calibrate with embeddings (KDEs will be fitted automatically). The
+# calibration weights include a finite-sample correction for the test point.
 print("Calibrating CovariateLabel predictor...")
 print("  - Fitting KDEs for covariate shift correction...")
 covariate_predictor.calibrate(

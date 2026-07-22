@@ -109,9 +109,17 @@ class BaseConformal(SetPredictor):
         alpha: Target miscoverage rate(s). Can be:
             - float: marginal coverage P(Y not in C(X)) <= alpha
             - array: class-conditional P(Y not in C(X) | Y=k) <= alpha[k]
-        score_type: Type of conformity score to use. Options:
-            - "aps": Adaptive Prediction Sets (default, uses probability scores)
-            - "threshold": Simple threshold on probabilities
+        score_type: Type of conformity score to use. Currently only one score
+            is implemented:
+            - "threshold" (default): NC score = 1 - p(true class), the score
+              from Sadinle, Lei, and Wasserman (2019) ("LABEL").
+            - "aps": accepted as a backward-compatible alias for
+              "threshold". Despite the name, this does **not** implement
+              Adaptive Prediction Sets (Romano, Sesia, and Candes 2020) --
+              that method uses a different score (cumulative sorted class
+              probabilities) which is not implemented here. If you need
+              genuine APS, do not rely on this option; it is kept only so
+              existing calls with ``score_type="aps"`` keep working.
         debug: Whether to use debug mode (processes fewer samples)
 
     Examples:
@@ -158,7 +166,7 @@ class BaseConformal(SetPredictor):
         self,
         model: BaseModel,
         alpha: Union[float, np.ndarray],
-        score_type: str = "aps",
+        score_type: str = "threshold",
         debug: bool = False,
         **kwargs,
     ) -> None:
@@ -201,8 +209,7 @@ class BaseConformal(SetPredictor):
             Non-conformity scores of shape (N,) — higher means less conforming.
         """
         N = len(y_true)
-        if self.score_type == "aps" or self.score_type == "threshold":
-            # NC score = 1 - p(true class); higher = less conforming
+        if self.score_type == "threshold" or self.score_type == "aps":
             scores = 1.0 - y_prob[np.arange(N), y_true]
         else:
             raise ValueError(f"Unknown score_type: {self.score_type}")
