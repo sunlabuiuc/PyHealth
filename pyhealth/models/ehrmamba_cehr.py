@@ -18,6 +18,13 @@ from .utils import get_rightmost_masked_timestep
 class EHRMambaCEHR(BaseModel):
     """Mamba backbone over CEHR embeddings (FHIR / MPF pipeline).
 
+    Paper: Same paper as :class:`~pyhealth.models.ehrmamba.EHRMamba` --
+    EHRMAMBA: Towards Generalizable and Scalable Foundation Models for
+    Electronic Health Records (arxiv 2405.14567). This class combines that
+    paper's Mamba backbone (:class:`~pyhealth.models.ehrmamba.MambaBlock`)
+    with CEHR-style embeddings (see
+    :class:`~pyhealth.models.cehr_embeddings.MambaEmbeddingsForCEHR`).
+
     Args:
         dataset: Fitted :class:`~pyhealth.datasets.SampleDataset` with MPF task schema.
         vocab_size: Concept embedding vocabulary size (typically ``task.vocab.vocab_size``).

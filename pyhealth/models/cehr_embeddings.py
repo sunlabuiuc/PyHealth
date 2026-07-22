@@ -48,7 +48,14 @@ class VisitEmbedding(nn.Module):
 
 
 class MambaEmbeddingsForCEHR(nn.Module):
-    """CEHR-style combined embeddings for Mamba (concept + type + time + age + visit)."""
+    """CEHR-style combined embeddings for Mamba (concept + type + time + age + visit).
+
+    Paper: Same paper as :class:`~pyhealth.models.ehrmamba.EHRMamba` --
+    EHRMAMBA: Towards Generalizable and Scalable Foundation Models for
+    Electronic Health Records (arxiv 2405.14567). This embedding scheme is
+    part of that paper's own Odyssey toolkit (see module header for the
+    code source).
+    """
 
     def __init__(
         self,

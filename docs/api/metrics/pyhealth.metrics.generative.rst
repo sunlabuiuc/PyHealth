@@ -2,7 +2,8 @@ pyhealth.metrics.generative
 ===================================
 
 Evaluation metrics for synthetic (generative) EHR data, covering privacy,
-utility, and statistical fidelity.
+utility, and statistical fidelity. See each function's docstring for the
+paper it implements.
 
 .. currentmodule:: pyhealth.metrics.generative
 

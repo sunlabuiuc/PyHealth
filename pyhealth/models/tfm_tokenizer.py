@@ -714,10 +714,16 @@ def load_embedding_weights(source_model, target_model):
 
 class TFMTokenizer(BaseModel):
     """TFM-Tokenizer model.
-    
+
     This model uses VQ-VAE with transformers to tokenize EEG signals. It can
     extract discrete tokens and continuous embeddings for downstream tasks.
-    
+
+    Paper:
+        Pradeepkumar, Jathurshan, Xihao Piao, Zheng Chen, and Jimeng Sun.
+        "Tokenizing Single-Channel EEG with Time-Frequency Motif Learning."
+        ICLR 2026. https://arxiv.org/abs/2502.16060
+        Code: https://github.com/Jathurshan0330/TFM-Tokenizer
+
     The model expects two inputs:
         - STFT spectrogram: shape (batch, n_freq, n_time)
         - Raw temporal signal: shape (batch, n_samples)
