@@ -55,6 +55,24 @@ class MambaEmbeddingsForCEHR(nn.Module):
     Electronic Health Records (arxiv 2405.14567). This embedding scheme is
     part of that paper's own Odyssey toolkit (see module header for the
     code source).
+
+    Examples:
+        >>> import torch
+        >>> from pyhealth.models.cehr_embeddings import MambaEmbeddingsForCEHR
+        >>> embeddings = MambaEmbeddingsForCEHR(vocab_size=100, hidden_size=32)
+        >>> batch_size, seq_len = 2, 5
+        >>> input_ids = torch.randint(0, 100, (batch_size, seq_len))
+        >>> token_type_ids = torch.zeros(batch_size, seq_len, dtype=torch.long)
+        >>> time_stamps = torch.zeros(batch_size, seq_len)
+        >>> ages = torch.zeros(batch_size, seq_len)
+        >>> visit_orders = torch.zeros(batch_size, seq_len, dtype=torch.long)
+        >>> visit_segments = torch.zeros(batch_size, seq_len, dtype=torch.long)
+        >>> out = embeddings(
+        ...     input_ids, token_type_ids, time_stamps, ages,
+        ...     visit_orders, visit_segments,
+        ... )
+        >>> out.shape
+        torch.Size([2, 5, 32])
     """
 
     def __init__(

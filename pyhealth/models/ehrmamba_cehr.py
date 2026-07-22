@@ -34,6 +34,24 @@ class EHRMambaCEHR(BaseModel):
         state_size: SSM state size per channel.
         conv_kernel: Causal conv kernel in each block.
         dropout: Dropout before classifier.
+
+    Examples:
+        >>> from pyhealth.datasets import MIMIC4FHIR, split_by_patient
+        >>> from pyhealth.tasks.mpf_clinical_prediction import (
+        ...     MPFClinicalPredictionTask,
+        ... )
+        >>> from pyhealth.models import EHRMambaCEHR
+        >>> dataset = MIMIC4FHIR(root="/path/to/mimic-iv-fhir-demo")
+        >>> sample_dataset = dataset.set_task(MPFClinicalPredictionTask())
+        >>> train_ds, val_ds, test_ds = split_by_patient(
+        ...     sample_dataset, [0.7, 0.1, 0.2]
+        ... )
+        >>> vocab_size = (
+        ...     sample_dataset.input_processors["concept_ids"].vocab.vocab_size
+        ... )
+        >>> model = EHRMambaCEHR(
+        ...     dataset=sample_dataset, vocab_size=vocab_size, embedding_dim=32
+        ... )
     """
 
     def __init__(
