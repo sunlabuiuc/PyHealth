@@ -18,6 +18,11 @@ def get_processor(name: str):
 
 
 # Import all processors so they register themselves
+from .senselab_processor import (
+    SenselabVADProcessor,
+    SenselabEGeMAPSProcessor,
+    SenselabEmbeddingProcessor,
+)
 from .image_processor import ImageProcessor
 from .label_processor import (
     BinaryLabelProcessor,
@@ -82,4 +87,7 @@ __all__ = [
     "TupleTimeTextProcessor",
     "CehrProcessor",
     "ConceptVocab",
+    "SenselabVADProcessor",
+    "SenselabEGeMAPSProcessor",
+    "SenselabEmbeddingProcessor",
 ]
