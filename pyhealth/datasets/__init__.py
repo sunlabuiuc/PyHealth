@@ -62,6 +62,8 @@ from .mimic4 import MIMIC4CXRDataset, MIMIC4Dataset, MIMIC4EHRDataset, MIMIC4Not
 from .fhir import FHIRDataset, MIMIC4FHIR
 from .mimicextract import MIMICExtractDataset
 from .omop import OMOPDataset
+from .pendulum_data import PendulumData
+from .sample_dataset import SampleDataset
 from .physionet_deid import PhysioNetDeIDDataset
 from .sample_dataset import SampleBuilder, SampleDataset, create_sample_dataset
 from .shhs import SHHSDataset
