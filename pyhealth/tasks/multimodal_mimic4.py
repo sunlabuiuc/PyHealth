@@ -70,30 +70,40 @@ class BaseMultimodalMIMIC4Task(BaseTask):
         item for itemids in VITAL_CATEGORIES.values() for item in itemids
     ]
 
+    RADIOLOGY_CLINICAL_HEADERS: ClassVar[List[str]] = [
+        "indication",
+        "impression",
+        # "findings",
+        # "clinical history",
+        # "history",
+        # "comparison",
+        # "technique",
+        # "conclusion",
+        # "summary"
+    ]
+
+    DISCHARGE_CLINICAL_HEADERS: ClassVar[List[str]] = [
+        "chief complaint",
+        # "history of present illness",
+        # "hpi",
+        # "past medical history",
+        # "past medical and surgical history",
+        # "past medical/surgical history",
+        # "past surgical history",
+        # "medications on admission",
+        # "admission medications",
+        # "home medications",
+        # "social history",
+        # "family history",
+        # "allergies",
+        # "review of systems",
+    ]
+
     def __init__(
         self,
         window_hours: Optional[float] = None,
     ):
         self.window_hours = window_hours
-
-    _ADMISSION_SECTION_TARGETS: ClassVar[frozenset] = frozenset({
-        "chief complaint",
-        "history of present illness",
-        "hpi",
-        "past medical history",
-        "past medical and surgical history",
-        "past medical/surgical history",
-        "past surgical history",
-        "medications on admission",
-        "admission medications",
-        "home medications",
-    })
-
-    # Matches a line that is purely a section header: words + colon + nothing else.
-    # E.g. "Chief Complaint:", "Past Medical History:", "HPI:".
-    _SECTION_HEADER_RE: ClassVar[re.Pattern] = re.compile(
-        r"^\s*([A-Za-z][A-Za-z\s,/\-\.]{1,60}?)\s*:\s*$"
-    )
 
     @staticmethod
     def _clean_text(text: Optional[str]) -> Optional[str]:
@@ -101,68 +111,20 @@ class BaseMultimodalMIMIC4Task(BaseTask):
         return text if text else None
 
     @staticmethod
-    def _extract_admission_sections(text: str) -> str:
-        """Extract admission-context sections from a MIMIC-IV discharge note.
-
-        Parses Chief Complaint, HPI, Past Medical History, and Medications on
-        Admission sections — information clinically available at admission time.
-        Falls back to the first 1 024 characters if no target sections are found.
-        """
-        sections: Dict[str, str] = {}
-        current_key: Optional[str] = None
-        current_lines: List[str] = []
-
-        for line in text.split("\n"):
-            m = BaseMultimodalMIMIC4Task._SECTION_HEADER_RE.match(line)
-            if m:
-                if current_key is not None:
-                    sections[current_key] = "\n".join(current_lines).strip()
-                current_key = m.group(1).strip().lower()
-                current_lines = []
-            elif current_key is not None:
-                current_lines.append(line)
-
-        if current_key is not None:
-            sections[current_key] = "\n".join(current_lines).strip()
-
-        targets = BaseMultimodalMIMIC4Task._ADMISSION_SECTION_TARGETS
-        extracted = [v for k, v in sections.items() if k in targets and v]
-        return " [SEP] ".join(extracted) if extracted else text[:1024]
-
-    def _collect_admission_note_sections(
-        self,
-        patient: Any,
-        hadm_id: Any,
-        admission_time: datetime,
-    ) -> Tuple[List[str], List[float]]:
-        """Collect admission-context text from the discharge note.
-
-        No time filter is applied because the target sections (CC, HPI, PMH,
-        Medications on Admission) describe the patient's state *at admission*
-        regardless of when the note was finalised. Returned timestamps are 0.0
-        so downstream models treat the text as admission-time context.
-        """
-        notes = patient.get_events(
-            event_type="discharge",
-            filters=[("hadm_id", "==", hadm_id)],
-        )
-
-        texts: List[str] = []
-        for note in notes:
-            try:
-                raw = note.text
-                if not raw:
-                    continue
-                extracted = self._extract_admission_sections(raw)
-                if extracted:
-                    texts.append(extracted)
-            except AttributeError:
-                pass
-
-        if not texts:
-            return [self.MISSING_TEXT_TOKEN], [self.MISSING_FLOAT_TOKEN]
-
-        return texts, [0.0] * len(texts)
+    def _parse_note_sections(text: str, note_type: str) -> Dict[str, str]:
+        """Split a note into {lowercased_header: content_text} pairs."""
+        ext_text = text + '\n\n'
+        if note_type == "radiology":
+            section_re = re.compile(r'([a-zA-Z ]+):[ \t\n]+(.+?)\n{2,}', re.DOTALL)
+        elif note_type == "discharge":
+            section_re = re.compile(r'([a-zA-Z ]+):\n+(.+?)\n{2,}', re.DOTALL)
+        else:
+            raise ValueError(f"Note Type '{note_type}' not supported.")
+        return {
+            m.group(1).strip().lower(): m.group(2).strip()
+            for m in section_re.finditer(ext_text)
+            if m.end() - m.start() > 0
+        }
 
     @staticmethod
     def _parse_datetime(value: Any) -> Optional[datetime]:
@@ -425,6 +387,8 @@ class BaseMultimodalMIMIC4Task(BaseTask):
         admission_time: datetime,
         start_time: Optional[datetime] = None,
         end_time: Optional[datetime] = None,
+        section_headers: Optional[List[str]] = None,
+        fallback_to_full_note: bool = False,
     ) -> Tuple[List[str], List[float]]:
         """Collect notes of a given type for one admission.
 
@@ -433,8 +397,13 @@ class BaseMultimodalMIMIC4Task(BaseTask):
             note_event_type: Event type string (e.g. "discharge", "radiology").
             hadm_id: Admission ID to filter by.
             admission_time: Admission start time; used to compute time offsets.
-            start_time: Optional start of the time window
-            end_time: Optional end of the time window
+            start_time: Optional start of the time window.
+            end_time: Optional end of the time window.
+            section_headers: When provided, extract only these named sections
+                from each note (lowercased match against parsed headers).
+            fallback_to_full_note: When True (default), falls back to the full
+                note text if no matching sections are found. When False, notes
+                with no matching sections are dropped entirely.
 
         Returns:
             Tuple of (texts, hours_from_admission). Falls back to
@@ -454,6 +423,14 @@ class BaseMultimodalMIMIC4Task(BaseTask):
             try:
                 note_text = self._clean_text(note.text)
                 if note_text:
+                    if section_headers is not None:
+                        parsed = self._parse_note_sections(note_text, note_type=note_event_type)
+                        extracted = [f"{k}: {v}" for k, v in parsed.items() if k in section_headers and v]
+                        if extracted:
+                            note_text = " [SEP] ".join(extracted)
+                        elif not fallback_to_full_note:
+                            continue
+
                     time_from_admission = self._to_hours(
                         (note.timestamp - admission_time).total_seconds()
                     )
@@ -464,12 +441,6 @@ class BaseMultimodalMIMIC4Task(BaseTask):
             ):  # note object is missing .text or .timestamp attribute (e.g. malformed note)
                 pass
 
-        if (
-            not notes or not texts
-        ):  # If we get an empty list or all notes were malformed
-            return [self.MISSING_TEXT_TOKEN], [
-                self.MISSING_FLOAT_TOKEN
-            ]  # Token representing missing text/time
         return texts, note_times
 
 
@@ -550,6 +521,7 @@ class ClinicalNotesMIMIC4(BaseMultimodalMIMIC4Task):
                 admission_time,
                 start_time=effective_start,
                 end_time=effective_end,
+                section_headers=self.DISCHARGE_CLINICAL_HEADERS,
             )
             all_discharge_texts.extend(discharge_texts)
             all_discharge_times_from_admission.extend(discharge_times)
@@ -561,9 +533,17 @@ class ClinicalNotesMIMIC4(BaseMultimodalMIMIC4Task):
                 admission_time,
                 start_time=effective_start,
                 end_time=effective_end,
+                section_headers=self.RADIOLOGY_CLINICAL_HEADERS,
             )
             all_radiology_texts.extend(radiology_texts)
             all_radiology_times_from_admission.extend(radiology_times)
+
+        if not all_discharge_texts:
+            all_discharge_texts = [self.MISSING_TEXT_TOKEN]
+            all_discharge_times_from_admission = [self.MISSING_FLOAT_TOKEN]
+        if not all_radiology_texts:
+            all_radiology_texts = [self.MISSING_TEXT_TOKEN]
+            all_radiology_times_from_admission = [self.MISSING_FLOAT_TOKEN]
 
         discharge_note_times_from_admission = (
             all_discharge_texts,
@@ -698,6 +678,7 @@ class ClinicalNotesICDLabsMIMIC4(BaseMultimodalMIMIC4Task):
                 admission_time,
                 start_time=effective_start,
                 end_time=effective_end,
+                section_headers=self.DISCHARGE_CLINICAL_HEADERS,
             )
             all_discharge_texts.extend(discharge_texts)
             all_discharge_times_from_admission.extend(discharge_times)
@@ -709,6 +690,7 @@ class ClinicalNotesICDLabsMIMIC4(BaseMultimodalMIMIC4Task):
                 admission_time,
                 start_time=effective_start,
                 end_time=effective_end,
+                section_headers=self.RADIOLOGY_CLINICAL_HEADERS,
             )
             all_radiology_texts.extend(radiology_texts)
             all_radiology_times_from_admission.extend(radiology_times)
@@ -1035,6 +1017,336 @@ class ICDLabsMIMIC4(BaseMultimodalMIMIC4Task):
                     admission.dischtime, "%Y-%m-%d %H:%M:%S"
                 )
             except (ValueError, AttributeError):
+                continue
+
+            if admission_dischtime < admission_time:
+                continue
+
+            visit_icd_codes = self._collect_icd_codes(patient, admission.hadm_id)
+            if visit_icd_codes:
+                if previous_admission_time is None:
+                    time_from_previous = 0.0
+                else:
+                    time_from_previous = self._to_hours(
+                        (admission_time - previous_admission_time).total_seconds()
+                    )
+                all_icd_codes.append(visit_icd_codes)
+                all_icd_times.append(time_from_previous)
+            else:
+                all_icd_codes.append([self.MISSING_CODE_TOKEN])
+                all_icd_times.append(self.MISSING_FLOAT_TOKEN)
+
+            previous_admission_time = admission_time
+
+            lab_times, lab_values, lab_masks = self._collect_labs(
+                patient=patient,
+                admission_time=admission_time,
+                end_time=admission_dischtime,
+            )
+            all_lab_times.extend(lab_times)
+            all_lab_values.extend(lab_values)
+            all_lab_masks.extend(lab_masks)
+
+        if len(all_lab_values) == 0:
+            all_lab_values.append(
+                [self.MISSING_FLOAT_TOKEN] * len(self.LAB_CATEGORY_NAMES)
+            )
+            all_lab_masks.append([False] * len(self.LAB_CATEGORY_NAMES))
+            all_lab_times.append(self.MISSING_FLOAT_TOKEN)
+
+        if len(all_icd_codes) == 0:
+            all_icd_codes.append([self.MISSING_CODE_TOKEN])
+            all_icd_times.append(self.MISSING_FLOAT_TOKEN)
+
+        single_patient_longitudinal_record = {
+            "patient_id": patient.patient_id,
+            "icd_codes": (all_icd_times, all_icd_codes),
+            "labs": (all_lab_times, all_lab_values),
+            "labs_mask": (all_lab_times, all_lab_masks),
+            "mortality": mortality_label,
+            "window_start": effective_start,
+            "window_end": effective_end,
+        }
+
+        return [single_patient_longitudinal_record]
+
+
+class ClinicalNotesICDLabsCXRMIMIC4(BaseMultimodalMIMIC4Task):
+    """Task combining notes, ICD, labs, and CXR for MIMIC-IV mortality.
+
+    Adds temporally filtered CXR signals on top of ``ClinicalNotesICDLabsMIMIC4``:
+    - ``cxr_image_times``: ``(image_paths, hours_from_admission)`` processed by
+      ``TimeImageProcessor``.
+
+        CXR filtering uses event timestamps from the metadata table. Since
+    timestamps are built from StudyDate+StudyTime in dataset configs, studytime
+    is naturally respected in temporal windows.
+    """
+
+    PADDING: int = 0
+
+    task_name: str = "ClinicalNotesICDLabsCXRMIMIC4"
+    input_schema: Dict[str, Union[str, Tuple[str, Dict]]] = {
+        "discharge_note_times": (
+            "tuple_time_text",
+            {
+                "tokenizer_model": "bert-base-uncased",
+                "type_tag": "note",
+            },
+        ),
+        "radiology_note_times": (
+            "tuple_time_text",
+            {
+                "tokenizer_model": "bert-base-uncased",
+                "type_tag": "note",
+            },
+        ),
+        "icd_codes": ("stagenet", {"padding": PADDING}),
+        "labs": ("stagenet_tensor", {}),
+        "labs_mask": ("stagenet_tensor", {}),
+        "cxr_image_times": (
+            "time_image",
+            {
+                "image_size": 224,
+                "mode": "RGB",
+                "padding": "",
+            },
+        ),
+    }
+    output_schema: Dict[str, str] = {"mortality": "binary"}
+
+    def __call__(self, patient: Any) -> List[Dict[str, Any]]:
+        demographics = patient.get_events(event_type="patients")
+        if not demographics:
+            return []
+
+        admissions_to_process, mortality_label = self._build_admissions_to_process(
+            patient
+        )
+        if len(admissions_to_process) == 0:
+            return []
+
+        effective_start, effective_end = self._compute_effective_window(
+            admissions_to_process
+        )
+
+        all_discharge_texts: List[str] = []
+        all_discharge_times_from_admission: List[float] = []
+        all_radiology_texts: List[str] = []
+        all_radiology_times_from_admission: List[float] = []
+        all_icd_codes: List[List[str]] = []
+        all_icd_times: List[float] = []
+        all_lab_values: List[List[float]] = []
+        all_lab_masks: List[List[bool]] = []
+        all_lab_times: List[float] = []
+        all_cxr_paths: List[str] = []
+        all_cxr_times: List[float] = []
+        previous_admission_time = None
+
+        for admission in admissions_to_process:
+            admission_time = admission.timestamp
+
+            # Skip admissions that start at or after the observation window closes, prevents Polars searchsorted OverflowError.
+            if effective_end is not None and admission_time >= effective_end:
+                continue
+
+            try:
+                admission_dischtime = datetime.strptime(
+                    admission.dischtime, "%Y-%m-%d %H:%M:%S"
+                )
+            except (ValueError, AttributeError):
+                # Skip malformed admissions; note collectors are not called for these.
+                continue
+
+            if admission_dischtime < admission_time:
+                # Guard against invalid chronology in source records.
+                continue
+
+            admission_end = admission_dischtime
+            if effective_end is not None and effective_end < admission_end:
+                admission_end = effective_end
+
+            discharge_texts, discharge_times = self._collect_notes(
+                patient,
+                "discharge",
+                admission.hadm_id,
+                admission_time,
+                start_time=effective_start,
+                end_time=admission_end,
+            )
+            all_discharge_texts.extend(discharge_texts)
+            all_discharge_times_from_admission.extend(discharge_times)
+
+            radiology_texts, radiology_times = self._collect_notes(
+                patient,
+                "radiology",
+                admission.hadm_id,
+                admission_time,
+                start_time=effective_start,
+                end_time=admission_end,
+            )
+            all_radiology_texts.extend(radiology_texts)
+            all_radiology_times_from_admission.extend(radiology_times)
+
+            visit_icd_codes = self._collect_icd_codes(patient, admission.hadm_id)
+            if visit_icd_codes:
+                if previous_admission_time is None:
+                    time_from_previous = 0.0
+                else:
+                    time_from_previous = self._to_hours(
+                        (admission_time - previous_admission_time).total_seconds()
+                    )
+                all_icd_codes.append(visit_icd_codes)
+                all_icd_times.append(time_from_previous)
+            else:
+                all_icd_codes.append([self.MISSING_CODE_TOKEN])
+                all_icd_times.append(self.MISSING_FLOAT_TOKEN)
+
+            previous_admission_time = admission_time
+
+            lab_times, lab_values, lab_masks = self._collect_labs(
+                patient=patient,
+                admission_time=admission_time,
+                end_time=admission_dischtime,
+            )
+            all_lab_times.extend(lab_times)
+            all_lab_values.extend(lab_values)
+            all_lab_masks.extend(lab_masks)
+
+            # CXR metadata is filtered by timestamp; this includes StudyTime.
+            metadata_events = patient.get_events(
+                event_type="metadata",
+                start=admission_time,
+                end=admission_end,
+            )
+            for event in metadata_events:
+                try:
+                    if event.image_path:
+                        all_cxr_paths.append(event.image_path)
+                        all_cxr_times.append(
+                            self._to_hours(
+                                (event.timestamp - admission_time).total_seconds()
+                            )
+                        )
+                except AttributeError:
+                    continue
+
+        if len(all_lab_values) == 0:
+            all_lab_values.append(
+                [self.MISSING_FLOAT_TOKEN] * len(self.LAB_CATEGORY_NAMES)
+            )
+            all_lab_masks.append([False] * len(self.LAB_CATEGORY_NAMES))
+            all_lab_times.append(self.MISSING_FLOAT_TOKEN)
+
+        # If all admissions were skipped before ICD collection, ensure a
+        # single placeholder step so StageNetProcessor does not emit None time.
+        if len(all_icd_codes) == 0:
+            all_icd_codes.append([self.MISSING_CODE_TOKEN])
+            all_icd_times.append(self.MISSING_FLOAT_TOKEN)
+
+        # time_image processor expects at least one path/time pair.
+        if len(all_cxr_paths) == 0:
+            all_cxr_paths = [self.MISSING_TEXT_TOKEN]
+            all_cxr_times = [self.MISSING_FLOAT_TOKEN]
+
+        discharge_note_times_from_admission = (
+            all_discharge_texts,
+            all_discharge_times_from_admission,
+        )
+        radiology_note_times_from_admission = (
+            all_radiology_texts,
+            all_radiology_times_from_admission,
+        )
+
+        # Per-admission note fallback happens inside _collect_notes().
+        # This final guard handles the edge case where every admission was
+        # skipped before _collect_notes() was reached.
+        if len(all_discharge_texts) == 0:
+            discharge_note_times_from_admission = (
+                [self.MISSING_TEXT_TOKEN],
+                [self.MISSING_FLOAT_TOKEN],
+            )
+        if len(all_radiology_texts) == 0:
+            radiology_note_times_from_admission = (
+                [self.MISSING_TEXT_TOKEN],
+                [self.MISSING_FLOAT_TOKEN],
+            )
+
+        single_patient_longitudinal_record = {
+            "patient_id": patient.patient_id,
+            "labs": (all_lab_times, all_lab_values),
+            "labs_mask": (all_lab_times, all_lab_masks),
+            "cxr_image_times": (all_cxr_paths, all_cxr_times),
+            "mortality": mortality_label,
+            "window_start": effective_start,
+            "window_end": effective_end,
+        }
+
+        return [single_patient_longitudinal_record]
+
+
+class ICDLabsMIMIC4(BaseMultimodalMIMIC4Task):
+    """Task for ICD codes + lab values mortality prediction using MIMIC-IV.
+
+    A notes-free variant of ``ClinicalNotesICDLabsMIMIC4`` that uses only:
+
+    - **ICD codes**: diagnosis and procedure codes per admission, processed by
+      ``StageNetProcessor`` with inter-admission time offsets.
+    - **Lab values**: 10-dimensional lab vectors (one per lab category) at each
+      measurement timestamp, processed by ``StageNetTensorProcessor``.
+
+    Examples:
+        >>> from pyhealth.datasets import MIMIC4Dataset
+        >>> from pyhealth.tasks.multimodal_mimic4 import ICDLabsMIMIC4
+        >>> dataset = MIMIC4Dataset(
+        ...     ehr_root="/path/to/mimic-iv/2.2",
+        ...     ehr_tables=["diagnoses_icd", "procedures_icd", "labevents"],
+        ... )
+        >>> task = ICDLabsMIMIC4()
+        >>> samples = dataset.set_task(task)
+    """
+
+    PADDING: int = 0
+
+    task_name: str = "ICDLabsMIMIC4"
+    input_schema: Dict[str, Union[str, Tuple[str, Dict]]] = {
+        "icd_codes": ("stagenet", {"padding": PADDING}),
+        "labs": ("stagenet_tensor", {}),
+        "labs_mask": ("stagenet_tensor", {}),
+    }
+    output_schema: Dict[str, str] = {"mortality": "binary"}
+
+    def __call__(self, patient: Any) -> List[Dict[str, Any]]:
+        demographics = patient.get_events(event_type="patients")
+        if not demographics:
+            return []
+
+        admissions_to_process, mortality_label = self._build_admissions_to_process(
+            patient
+        )
+
+        if len(admissions_to_process) == 0:
+            return []
+
+        effective_start, effective_end = self._compute_effective_window(
+            admissions_to_process
+        )
+
+        all_icd_codes: List[List[str]] = []
+        all_icd_times: List[float] = []
+        all_lab_values: List[List[float]] = []
+        all_lab_masks: List[List[bool]] = []
+        all_lab_times: List[float] = []
+        previous_admission_time = None
+
+        for admission in admissions_to_process:
+            admission_time = admission.timestamp
+
+            try:
+                admission_dischtime = datetime.strptime(
+                    admission.dischtime, "%Y-%m-%d %H:%M:%S"
+                )
+            except (ValueError, AttributeError):
                 admission_dischtime = admission_time
             if admission_dischtime < admission_time:
                 admission_dischtime = admission_time
@@ -1195,9 +1507,12 @@ class NotesLabsMIMIC4(BaseMultimodalMIMIC4Task):
             if admission_dischtime < admission_time:
                 admission_dischtime = admission_time
 
-            # Admission-context sections — no time window applied to notes
-            note_texts, note_times = self._collect_admission_note_sections(
-                patient, admission.hadm_id, admission_time
+            note_texts, note_times = self._collect_notes(
+                patient,
+                "discharge",
+                admission.hadm_id,
+                admission_time,
+                section_headers=self.DISCHARGE_CLINICAL_HEADERS,
             )
             all_note_texts.extend(note_texts)
             all_note_times.extend(note_times)
@@ -1259,6 +1574,10 @@ class NotesLabsMIMIC4(BaseMultimodalMIMIC4Task):
             all_vital_masks.append([False] * len(self.VITAL_CATEGORY_NAMES))
             all_vital_times.append(self.MISSING_FLOAT_TOKEN)
 
+        if not all_note_texts:
+            all_note_texts = [self.MISSING_TEXT_TOKEN]
+            all_note_times = [self.MISSING_FLOAT_TOKEN]
+
         record: Dict[str, Any] = {
             "patient_id": patient.patient_id,
             "admission_note_times": (all_note_texts, all_note_times),
@@ -1280,87 +1599,3 @@ class NotesLabsMIMIC4(BaseMultimodalMIMIC4Task):
             record["icd_codes"] = (all_icd_times, all_icd_codes)
 
         return [record]
-
-
-class LabsMIMIC4(BaseMultimodalMIMIC4Task):
-    """EHR-only mortality prediction using lab values — no notes, no ICD codes.
-
-    Serves as the structured-EHR reference baseline for multimodal ablations.
-    Collecting only ``labevents`` keeps the dataset loader fast and avoids any
-    leakage from discharge-coded ICD tables.
-
-    Schema mirrors the ``labs`` / ``labs_mask`` fields from ``NotesLabsMIMIC4``
-    so the same backbone models (MLP, RNN, Transformer, etc.) work unchanged.
-
-    Args:
-        window_hours: Hours from admission to collect lab measurements.
-            ``None`` collects for the full admission span. Default: 24.
-    """
-
-    PADDING: int = 0
-
-    task_name: str = "LabsMIMIC4"
-
-    input_schema: ClassVar[Dict] = {
-        "labs": ("stagenet_tensor", {}),
-        "labs_mask": ("stagenet_tensor", {}),
-    }
-    output_schema: ClassVar[Dict] = {"mortality": "binary"}
-
-    def __init__(self, window_hours: Optional[float] = 24) -> None:
-        super().__init__()
-        self.window_hours = window_hours
-
-    def __call__(self, patient: Any) -> List[Dict[str, Any]]:  # type: ignore[override]
-        admissions_to_process, mortality_label = self._build_admissions_to_process(
-            patient
-        )
-        if not admissions_to_process:
-            return []
-
-        effective_start, effective_end = self._compute_effective_window(
-            admissions_to_process
-        )
-
-        all_lab_times: List[float] = []
-        all_lab_values: List[List[float]] = []
-        all_lab_masks: List[List[bool]] = []
-
-        for admission in admissions_to_process:
-            admission_time = admission.timestamp
-
-            try:
-                admission_dischtime = datetime.strptime(
-                    admission.dischtime, "%Y-%m-%d %H:%M:%S"
-                )
-            except (ValueError, AttributeError):
-                admission_dischtime = admission_time
-            if admission_dischtime < admission_time:
-                admission_dischtime = admission_time
-
-            lab_times, lab_values, lab_masks = self._collect_labs(
-                patient=patient,
-                admission_time=admission_time,
-                end_time=admission_dischtime,
-            )
-            all_lab_times.extend(lab_times)
-            all_lab_values.extend(lab_values)
-            all_lab_masks.extend(lab_masks)
-
-        if len(all_lab_values) == 0:
-            all_lab_values.append(
-                [self.MISSING_FLOAT_TOKEN] * len(self.LAB_CATEGORY_NAMES)
-            )
-            all_lab_masks.append([False] * len(self.LAB_CATEGORY_NAMES))
-            all_lab_times.append(self.MISSING_FLOAT_TOKEN)
-
-        single_patient_longitudinal_record = {
-            "patient_id": patient.patient_id,
-            "labs": (all_lab_times, all_lab_values),
-            "labs_mask": (all_lab_times, all_lab_masks),
-            "mortality": mortality_label,
-            "window_start": effective_start,
-            "window_end": effective_end,
-        }
-
-        return [single_patient_longitudinal_record]
