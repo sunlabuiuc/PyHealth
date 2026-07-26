@@ -2,7 +2,7 @@ project_dir = "/home/wp14/PyHealth"
 seed = 12
 conda_env = "pyhealth2"
 ehr_root = "/shared/rsaas/physionet.org/files/mimiciv/2.2"
-cache_dir = "/home/wp14/pyhealth_cache"
+cache_dir = "/shared/eng/wp14/pyhealth_cache_labs"
 logs_dir = "/home/wp14/logs"
 output_dir = "/home/wp14/output"
 embedding_dim = 128
@@ -17,15 +17,26 @@ weight_decay = 1e-5
 patience = 5
 num_workers = 4
 dev = False
-cuda_visible_devices = "0"
+use_old_cache = True
+use_wandb = True
+wandb_project = "pyhealth-multimodal-labs-only"
+wandb_run_name = None  # defaults to "{model}_seed{seed}" if unset
+cuda_visible_devices = "4"
 session_name = f"rnn_labs_s{seed}"
 
-# ── Step 0: Clean logs and cache ────────────────────────────────────────────
+# ── Step 0a: Check which CUDA GPU is available ───────────────────────────────
 print(f"""
-### STEP 0 (optional): Clean logs and cache
+### STEP 0a: Check which CUDA GPU is available (pick an idle index for CUDA_VISIBLE_DEVICES)
+
+nvidia-smi --query-gpu=index,utilization.gpu,memory.used,memory.free --format=csv
+""")
+
+# ── Step 0b: Clean logs and cache ────────────────────────────────────────────
+print(f"""
+### STEP 0b (optional): Clean logs and cache
 
 rm -rf {logs_dir}/*
-rm -rf {cache_dir}/*
+{'# cache preserved (use_old_cache=True)' if use_old_cache else f'rm -rf {cache_dir}/*'}
 rm -rf {output_dir}/*
 """)
 
@@ -42,6 +53,34 @@ print("\n" + "=" * 60 + "\n")
 log_dir = logs_dir
 log_tag = f"rnn_labs_s{seed}"
 
+flags = [
+    f"--ehr-root {ehr_root}",
+    f"--cache-dir {cache_dir}",
+    f"--task labs{' --dev' if dev else ''}",
+    "--model rnn",
+    f"--embedding-dim {embedding_dim}",
+    f"--hidden-dim {hidden_dim}",
+    f"--rnn-type {rnn_type}",
+    f"--rnn-layers {rnn_layers}",
+    f"--dropout {dropout}",
+    f"--epochs {epochs}",
+    f"--batch-size {batch_size}",
+    f"--lr {lr}",
+    f"--weight-decay {weight_decay}",
+    f"--patience {patience}",
+    f"--num-workers {num_workers}",
+]
+if use_wandb:
+    flags.append("--wandb")
+    flags.append(f"--wandb-project {wandb_project}")
+    if wandb_run_name:
+        flags.append(f"--wandb-run-name {wandb_run_name}")
+flags += [
+    f"--seed {seed}",
+    f"--output-dir {output_dir}",
+]
+flags_block = " \\\n    ".join(flags)
+
 print(f"""
 ### STEP 2: Paste this into the tmux session
 
@@ -52,23 +91,7 @@ cd {project_dir} &&
 export PYTHONPATH={project_dir}:$PYTHONPATH &&
 export CUDA_VISIBLE_DEVICES={cuda_visible_devices} &&
 python examples/mortality_prediction/unified_embedding_e2e_mimic4.py \\
-    --ehr-root {ehr_root} \\
-    --cache-dir {cache_dir} \\
-    --task labs{' --dev' if dev else ''} \\
-    --model rnn \\
-    --embedding-dim {embedding_dim} \\
-    --hidden-dim {hidden_dim} \\
-    --rnn-type {rnn_type} \\
-    --rnn-layers {rnn_layers} \\
-    --dropout {dropout} \\
-    --epochs {epochs} \\
-    --batch-size {batch_size} \\
-    --lr {lr} \\
-    --weight-decay {weight_decay} \\
-    --patience {patience} \\
-    --num-workers {num_workers} \\
-    --seed {seed} \\
-    --output-dir {output_dir} \\
+    {flags_block} \\
     > >(tee {log_dir}/{log_tag}.out) \\
     2> >(tee {log_dir}/{log_tag}.err >&2)
 """)

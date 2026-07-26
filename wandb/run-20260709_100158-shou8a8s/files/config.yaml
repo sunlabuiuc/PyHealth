@@ -1,0 +1,208 @@
+_wandb:
+    value:
+        cli_version: 0.28.0
+        e:
+            6lquc348m0jilcaa1sixo3l7k7b94lks:
+                args:
+                    - --ehr-root
+                    - /shared/rsaas/physionet.org/files/mimiciv/2.2
+                    - --cache-dir
+                    - /home/wp14/pyhealth_cache_labs
+                    - --task
+                    - labs
+                    - --model
+                    - ehrmamba
+                    - --embedding-dim
+                    - "64"
+                    - --num-layers
+                    - "2"
+                    - --mamba-state-size
+                    - "16"
+                    - --mamba-conv-kernel
+                    - "4"
+                    - --dropout
+                    - "0.1"
+                    - --epochs
+                    - "50"
+                    - --batch-size
+                    - "32"
+                    - --lr
+                    - "0.001"
+                    - --weight-decay
+                    - "1e-05"
+                    - --patience
+                    - "5"
+                    - --num-workers
+                    - "4"
+                    - --pos-weight
+                    - "1.0"
+                    - --seed
+                    - "12"
+                    - --output-dir
+                    - /home/wp14/output
+                codePath: examples/mortality_prediction/unified_embedding_e2e_mimic4.py
+                codePathLocal: examples/mortality_prediction/unified_embedding_e2e_mimic4.py
+                cpu_count: 64
+                cpu_count_logical: 128
+                cudaVersion: "13.0"
+                disk:
+                    /:
+                        total: "34342961152"
+                        used: "15993667584"
+                email: williampangbest1@gmail.com
+                executable: /home/wp14/miniconda3/envs/pyhealth2/bin/python
+                git:
+                    commit: 10fabcefeadfd7a87586e898f5250aff0166aed2
+                    remote: https://github.com/Multimodal-PyHealth/PyHealth
+                gpu: NVIDIA RTX A6000
+                gpu_count: 8
+                gpu_nvidia:
+                    - architecture: Ampere
+                      cudaCores: 10752
+                      memoryTotal: "51527024640"
+                      name: NVIDIA RTX A6000
+                      uuid: GPU-29a27c7b-cd4b-9728-9cdc-7102f77d4548
+                    - architecture: Ampere
+                      cudaCores: 10752
+                      memoryTotal: "51527024640"
+                      name: NVIDIA RTX A6000
+                      uuid: GPU-a34186de-ecc3-56c6-0e8f-ff8cfa0cc7b2
+                    - architecture: Ampere
+                      cudaCores: 10752
+                      memoryTotal: "51527024640"
+                      name: NVIDIA RTX A6000
+                      uuid: GPU-a733f3f6-b964-ca65-58ce-c7f32a13d7dc
+                    - architecture: Ampere
+                      cudaCores: 10752
+                      memoryTotal: "51527024640"
+                      name: NVIDIA RTX A6000
+                      uuid: GPU-7209ddee-de68-a17a-f65b-ac0f42256c43
+                    - architecture: Ampere
+                      cudaCores: 10752
+                      memoryTotal: "51527024640"
+                      name: NVIDIA RTX A6000
+                      uuid: GPU-fcf1f5ff-fc35-4cb4-fab0-dc9a5b6b6951
+                    - architecture: Ampere
+                      cudaCores: 10752
+                      memoryTotal: "51527024640"
+                      name: NVIDIA RTX A6000
+                      uuid: GPU-b4e56019-e74d-298f-6c79-cdd64e15066e
+                    - architecture: Ampere
+                      cudaCores: 10752
+                      memoryTotal: "51527024640"
+                      name: NVIDIA RTX A6000
+                      uuid: GPU-fbc6d802-bed5-9722-0929-a9cfd4d6b7bc
+                    - architecture: Ampere
+                      cudaCores: 10752
+                      memoryTotal: "51527024640"
+                      name: NVIDIA RTX A6000
+                      uuid: GPU-12357f2c-fb85-9d97-90b0-a241510c022d
+                host: sunlab-serv-03.cs.illinois.edu
+                memory:
+                    total: "1081502597120"
+                os: Linux-4.18.0-553.124.1.el8_10.x86_64-x86_64-with-glibc2.28
+                program: /home/wp14/PyHealth/examples/mortality_prediction/unified_embedding_e2e_mimic4.py
+                python: CPython 3.12.13
+                root: /home/wp14/PyHealth
+                startedAt: "2026-07-09T15:01:58.665622Z"
+                writerId: 6lquc348m0jilcaa1sixo3l7k7b94lks
+        m: []
+        python_version: 3.12.13
+        t:
+            "1":
+                - 1
+                - 5
+                - 11
+                - 41
+                - 49
+                - 53
+                - 54
+                - 71
+                - 98
+            "2":
+                - 1
+                - 5
+                - 11
+                - 41
+                - 49
+                - 53
+                - 54
+                - 71
+                - 98
+            "3":
+                - 2
+                - 13
+                - 15
+                - 16
+                - 61
+            "4": 3.12.13
+            "5": 0.28.0
+            "6": 4.53.3
+            "12": 0.28.0
+            "13": linux-x86_64
+arch/embedding_dim:
+    value: 64
+arch/hidden_dim:
+    value: 64
+arch/rnn_layers:
+    value: 1
+arch/rnn_type:
+    value: GRU
+data/cache_dir:
+    value: /home/wp14/pyhealth_cache_labs
+data/n_neg_test:
+    value: 17197
+data/n_neg_total:
+    value: 172131
+data/n_neg_train:
+    value: 137687
+data/n_neg_val:
+    value: 17247
+data/n_pos_test:
+    value: 877
+data/n_pos_total:
+    value: 8602
+data/n_pos_train:
+    value: 6899
+data/n_pos_val:
+    value: 826
+data/n_test:
+    value: 18074
+data/n_total:
+    value: 180733
+data/n_train:
+    value: 144586
+data/n_val:
+    value: 18073
+data/pos_rate_test:
+    value: 0.04852273984729446
+data/pos_rate_total:
+    value: 0.047595071182351865
+data/pos_rate_train:
+    value: 0.04771554645678005
+data/pos_rate_val:
+    value: 0.04570353566093067
+dev_mode:
+    value: false
+exp_name:
+    value: ehrmamba_seed12
+hp/batch_size:
+    value: 32
+hp/dropout:
+    value: 0.1
+hp/epochs:
+    value: 50
+hp/lr:
+    value: 0.001
+hp/weight_decay:
+    value: 1e-05
+model:
+    value: ehrmamba
+paths/ehr_root:
+    value: /shared/rsaas/physionet.org/files/mimiciv/2.2
+paths/output_dir:
+    value: /home/wp14/output
+seed:
+    value: 12
+task:
+    value: labs

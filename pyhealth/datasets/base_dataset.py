@@ -84,7 +84,13 @@ def path_exists(path: str) -> bool:
         except requests.RequestException:
             return False
     else:
-        return Path(path).exists()
+        try:
+            return Path(path).exists()
+        except OSError:
+            # Treat unreadable paths (e.g. stale/corrupted filesystem
+            # entries that raise I/O errors on stat) as non-existent so
+            # callers can fall back to an alternate extension.
+            return False
 
 
 def _csv_tsv_gz_path(path: str) -> str:

@@ -1,0 +1,41 @@
+# HTCondor submission — labs-only RNN mortality run
+#
+# Condor equivalent of scripts/will/sunlab/tmux_run_labs_only_rnn_variant.py:
+# same task (labs), same model (rnn), same hyperparameters. Runs unattended
+# instead of in a tmux session; Condor assigns the GPU (no manual
+# nvidia-smi / CUDA_VISIBLE_DEVICES step needed).
+#
+# To submit (from the project root):
+#   mkdir -p logs/condor
+#   condor_submit scripts/will/condor/labs_only_rnn.sub
+#
+# Monitor:
+#   condor_q
+#   tail -f logs/condor/labs_only_rnn_<ClusterId>_0.out
+
+initialdir          = /home/wp14/PyHealth
+executable          = /home/wp14/PyHealth/scripts/will/condor/run_labs_only_rnn.sh
+transfer_executable  = False
+arguments            = $(seed)
+getenv               = True
+
+environment = "EHR_ROOT=/shared/rsaas/physionet.org/files/mimiciv/2.2 \
+               CACHE_DIR=/shared/eng/wp14/pyhealth_cache_labs \
+               OUTPUT_DIR=/home/wp14/output \
+               USE_WANDB=1 \
+               WANDB_PROJECT=pyhealth-multimodal-labs-only"
+
+output = logs/condor/labs_only_rnn_$(ClusterId)_$(Process).out
+error  = logs/condor/labs_only_rnn_$(ClusterId)_$(Process).err
+log    = logs/condor/labs_only_rnn_$(ClusterId)_$(Process).log
+
+request_gpus   = 1
+request_cpus   = 4
+request_memory = 32768MB
+request_disk   = 20GB
+
+Rank = TARGET.CUDAGlobalMemoryMb
+
+queue seed from (
+    12
+)
