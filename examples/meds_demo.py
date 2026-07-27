@@ -125,7 +125,12 @@ def main() -> None:
         epochs=1,
         monitor="roc_auc",
     )
-    print(trainer.evaluate(test_dataloader))
+    metrics = trainer.evaluate(test_dataloader)
+    print(
+        "Test metrics (smoke test only — 1 epoch, tail-truncated sequences; "
+        "not interpretable as model quality):"
+    )
+    print(metrics)
 
 
 if __name__ == "__main__":
