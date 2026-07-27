@@ -30,7 +30,7 @@ from torch.utils.data import IterableDataset
 
 from pyhealth.calib.base_classes import SetPredictor
 from pyhealth.calib.calibration.kcal.kde import RBFKernelMean
-from pyhealth.calib.utils import prepare_numpy_dataset
+from pyhealth.calib.utils import extract_embeddings, prepare_numpy_dataset
 from pyhealth.datasets import get_dataloader
 from pyhealth.models import BaseModel
 
@@ -378,50 +378,71 @@ class CovariateLabel(SetPredictor):
     def calibrate(
         self,
         cal_dataset: IterableDataset,
+        train_dataset: Optional[IterableDataset] = None,
+        test_dataset: Optional[IterableDataset] = None,
         cal_embeddings: Optional[np.ndarray] = None,
         test_embeddings: Optional[np.ndarray] = None,
         cal_weights: Optional[np.ndarray] = None,
+        batch_size: int = 32,
     ):
         """Calibrate the thresholds with covariate shift correction.
 
         This method supports three approaches for handling covariate shift:
-        
-        1. **KDE-based (CoDrug approach)**: Provide cal_embeddings and 
-           test_embeddings (and optionally kde_test/kde_cal). The method will
+
+        1. **KDE-based (CoDrug approach)**: Provide cal_embeddings/test_embeddings
+           (or cal_dataset/test_dataset, from which they'll be extracted
+           automatically) and, optionally, kde_test/kde_cal. The method will
            use kernel density estimation to compute likelihood ratios.
-           
+
         2. **Custom weights**: Directly provide cal_weights computed from your
            own covariate shift correction method (e.g., importance sampling,
            propensity scores, discriminator-based methods, etc.).
-           
+
         3. **Pre-fitted KDEs**: Provide kde_test and kde_cal during initialization
-           along with cal_embeddings here.
+           along with cal_embeddings (or cal_dataset) here.
 
         Args:
-            cal_dataset: Calibration set
+            cal_dataset: Calibration set. Also used to extract cal_embeddings
+                automatically when cal_embeddings is not explicitly given.
+            train_dataset: Unused by this method. Accepted only so callers
+                that generically calibrate any SetPredictor (e.g. CPBench)
+                can pass the same (cal_dataset, train_dataset, test_dataset)
+                arguments to every CP method without branching on which
+                extra data each one needs.
+            test_dataset: Test set to extract test_embeddings from, used only
+                if test_embeddings is not already provided and no KDEs are
+                set. CovariateLabel needs test-side density information to
+                correct for covariate shift -- one of test_dataset,
+                test_embeddings, or cal_weights is required (unless kde_test/
+                kde_cal were already provided at __init__).
             cal_embeddings: Optional pre-computed calibration embeddings
-                of shape (n_cal, embedding_dim). If provided along with
-                test_embeddings and KDEs are not set, will be used to
-                compute likelihood ratios via KDE (CoDrug approach).
+                of shape (n_cal, embedding_dim). If not provided, extracted
+                from cal_dataset.
             test_embeddings: Optional pre-computed test embeddings
-                of shape (n_test, embedding_dim). Used with cal_embeddings
-                for KDE-based likelihood ratio computation.
+                of shape (n_test, embedding_dim). If not provided, extracted
+                from test_dataset when given.
             cal_weights: Optional custom weights for calibration samples
                 of shape (n_cal,). If provided, these weights will be used
                 directly instead of computing likelihood ratios via KDE.
                 Weights should represent importance weights or likelihood ratios
                 p_test(x) / p_cal(x). These will be normalized internally.
+            batch_size: Batch size for embedding extraction when
+                cal_embeddings/test_embeddings are not provided. Default 32.
 
         Note:
             You must provide ONE of:
             1. cal_weights (custom weights), OR
             2. kde_test and kde_cal during initialization, OR
-            3. cal_embeddings and test_embeddings here
+            3. test_embeddings or test_dataset here
 
         Examples:
-            >>> # Approach 1: KDE-based (CoDrug)
-            >>> model.calibrate(cal_dataset, cal_embeddings, test_embeddings)
-            >>> 
+            >>> # Approach 1: KDE-based (CoDrug), embeddings extracted for you
+            >>> model.calibrate(cal_dataset, test_dataset=test_dataset)
+            >>>
+            >>> # Approach 1b: KDE-based (CoDrug), pre-computed embeddings
+            >>> model.calibrate(cal_dataset, cal_embeddings=cal_embeddings,
+            ...     test_embeddings=test_embeddings)
+            >>>
             >>> # Approach 2: Custom weights (e.g., from importance sampling)
             >>> custom_weights = compute_importance_weights(cal_data, test_data)
             >>> model.calibrate(cal_dataset, cal_weights=custom_weights)
@@ -449,37 +470,41 @@ class CovariateLabel(SetPredictor):
             likelihood_ratios = np.asarray(cal_weights, dtype=np.float64)
             print("Using custom calibration weights")
         else:
-            # Use KDE-based approach (CoDrug method)
+            # Use KDE-based approach (CoDrug method). cal_dataset is always
+            # available, so cal-side embeddings can always be obtained.
+            if cal_embeddings is None:
+                print("Extracting embeddings from calibration set...")
+                cal_embeddings = extract_embeddings(
+                    self.model, cal_dataset, batch_size=batch_size, device=self.device
+                )
+            else:
+                cal_embeddings = np.asarray(cal_embeddings)
+
             # Check if we have KDEs
             if self.kde_test is None or self.kde_cal is None:
-                if cal_embeddings is None or test_embeddings is None:
+                if test_embeddings is None and test_dataset is not None:
+                    print("Extracting embeddings from test set...")
+                    test_embeddings = extract_embeddings(
+                        self.model, test_dataset, batch_size=batch_size,
+                        device=self.device,
+                    )
+                if test_embeddings is None:
                     raise ValueError(
-                        "Must provide ONE of:\n"
+                        "CovariateLabel needs test-side density information "
+                        "to correct for covariate shift. Provide ONE of:\n"
                         "  1. cal_weights (custom weights), OR\n"
                         "  2. kde_test and kde_cal during __init__, OR\n"
-                        "  3. cal_embeddings and test_embeddings during calibrate()"
+                        "  3. test_embeddings or test_dataset during calibrate()"
                     )
 
-                # Fit KDEs if embeddings provided
+                # Fit KDEs on the (now available) embeddings
                 print("Fitting KDEs on provided embeddings (CoDrug approach)...")
                 self.kde_cal, self.kde_test = fit_kde(cal_embeddings, test_embeddings)
-
-            # Use provided embeddings or extract from calibration data
-            if cal_embeddings is not None:
-                X = cal_embeddings
-            else:
-                # KDEs should already be provided in this case
-                # We just need to get the embeddings for likelihood ratio
-                # This assumes the model outputs embeddings
-                raise NotImplementedError(
-                    "Automatic embedding extraction not yet supported. "
-                    "Please provide cal_embeddings and test_embeddings."
-                )
 
             # Compute likelihood ratios using KDE
             print("Computing likelihood ratios via KDE...")
             likelihood_ratios = _compute_likelihood_ratio(
-                self.kde_test, self.kde_cal, X
+                self.kde_test, self.kde_cal, cal_embeddings
             )
 
         # Keep weights un-normalized here

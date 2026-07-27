@@ -267,11 +267,17 @@ class SCRIB(SetPredictor):
 
         self.t = None
 
-    def calibrate(self, cal_dataset):
+    def calibrate(self, cal_dataset, train_dataset=None, test_dataset=None):
         """Calibrate/Search for the thresholds used to construct the prediction set.
 
         :param cal_dataset: Calibration set.
         :type cal_dataset: Subset
+        :param train_dataset: Unused by this method. Accepted only so
+            callers that generically calibrate any SetPredictor (e.g.
+            CPBench) can pass the same (cal_dataset, train_dataset,
+            test_dataset) arguments to every CP method without branching on
+            which extra data each one needs.
+        :param test_dataset: Unused by this method (see train_dataset).
         """
         cal_dataset = prepare_numpy_dataset(
             self.model, cal_dataset, ["y_prob", "y_true"], debug=self.debug

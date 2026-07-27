@@ -15,7 +15,7 @@ Paper:
     "Inductive confidence machines for regression." ECML 2002.
 """
 
-from typing import Dict, Union
+from typing import Dict, Optional, Union
 
 import numpy as np
 import torch
@@ -216,11 +216,22 @@ class BaseConformal(SetPredictor):
 
         return scores
 
-    def calibrate(self, cal_dataset: IterableDataset):
+    def calibrate(
+        self,
+        cal_dataset: IterableDataset,
+        train_dataset: Optional[IterableDataset] = None,
+        test_dataset: Optional[IterableDataset] = None,
+    ):
         """Calibrate the thresholds for prediction set construction.
 
         Args:
             cal_dataset: Calibration set (held-out validation data)
+            train_dataset: Unused by this method. Accepted only so callers
+                that generically calibrate any SetPredictor (e.g. CPBench)
+                can pass the same (cal_dataset, train_dataset, test_dataset)
+                arguments to every CP method without branching on which
+                extra data each one needs.
+            test_dataset: Unused by this method (see train_dataset).
         """
         # Get predictions and true labels
         cal_dataset_dict = prepare_numpy_dataset(
