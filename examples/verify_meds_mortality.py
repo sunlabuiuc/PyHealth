@@ -1,14 +1,14 @@
 """Standalone verification of the MEDS in-hospital mortality cohort.
 
-Prints the cohort summary produced by ``InHospitalMortalityMEDS`` on a MEDS
-dataset, so the positive rate (expected ~12/238 on the public MIMIC-IV demo)
-can be confirmed through the actual task pipeline rather than only at the raw
-Parquet level.
+Applies ``InHospitalMortalityMEDS`` via ``set_task`` on a MEDS dataset and
+prints basic cohort counts (expected ~12/238 positives on the public
+MIMIC-IV demo). Prefer this path over a per-patient ``task(get_patient)``
+loop: ``set_task`` uses the library's lazy loading and parallel processing.
 
 Usage:
     # Download the public demo once (open access, ODbL v1.0):
     #   wget -r -N -c -np https://physionet.org/files/mimic-iv-demo-meds/0.0.1/
-    python verify_meds_mortality.py \\
+    python examples/verify_meds_mortality.py \\
         --root physionet.org/files/mimic-iv-demo-meds/0.0.1
 
 The task needs hadm_id; this script uses the bundled
@@ -45,24 +45,17 @@ def main() -> None:
         window_hours=args.window_hours,
     )
 
-    # Apply per patient to keep raw (untokenized) samples, so the label
-    # counts are directly inspectable. set_task would tokenize the codes.
-    samples = []
-    for patient_id in dataset.unique_patient_ids:
-        samples.extend(task(dataset.get_patient(patient_id)))
+    samples = dataset.set_task(task)
+    n = len(samples)
+    n_positive = sum(int(samples[i]["mortality"]) for i in range(n))
+    n_patients = len({samples[i]["patient_id"] for i in range(n)})
 
-    summary = InHospitalMortalityMEDS.summarize(samples)
     print(f"root                 : {args.root}")
     print(f"observation_window   : {args.observation_window}")
-    print(f"n_samples (stays)    : {summary['n_samples']}")
-    print(f"n_patients           : {summary['n_patients']}")
-    print(f"n_positive (died)    : {summary['n_positive']}")
-    print(f"positive_rate        : {summary['positive_rate']:.4f}")
-    print(f"mean_sequence_length : {summary['mean_sequence_length']:.1f}")
-
-    # Cross-check the intended user path returns the same sample count.
-    sample_dataset = dataset.set_task(task)
-    print(f"set_task sample count : {len(sample_dataset)} (should equal n_samples)")
+    print(f"n_samples (stays)    : {n}")
+    print(f"n_patients           : {n_patients}")
+    print(f"n_positive (died)    : {n_positive}")
+    print(f"positive_rate        : {((n_positive / n) if n else 0.0):.4f}")
 
 
 if __name__ == "__main__":

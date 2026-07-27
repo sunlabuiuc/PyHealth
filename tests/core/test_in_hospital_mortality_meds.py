@@ -60,7 +60,8 @@ def _events_to_frame(rows):
             "code": pl.Series([r[2] for r in rows], dtype=pl.String),
             "numeric_value": pl.Series([None] * len(rows), dtype=pl.Float32),
             "hadm_id": pl.Series(
-                [r[3] for r in rows], dtype=pl.Int64  # nullable
+                [r[3] for r in rows],
+                dtype=pl.Int64,  # nullable
             ),
         }
     )
@@ -131,9 +132,7 @@ class TestInHospitalMortalityMEDS(unittest.TestCase):
         samples = self._apply()
         # Three completed stays across the two subjects.
         self.assertEqual(len(samples), 3)
-        self.assertEqual(
-            sorted(s["hadm_id"] for s in samples), [555, 777, 999]
-        )
+        self.assertEqual(sorted(s["hadm_id"] for s in samples), [555, 777, 999])
         # ids are integral, not promoted floats
         self.assertTrue(all(isinstance(s["hadm_id"], int) for s in samples))
 
@@ -201,9 +200,7 @@ class TestInHospitalMortalityMEDS(unittest.TestCase):
         _events_to_frame(rows).write_parquet(self.root / "data" / "0.parquet")
         samples = self._apply()
         self.assertEqual(len(samples), 1)
-        self.assertEqual(
-            samples[0]["codes"], ["HOSPITAL_ADMISSION//EW", "LAB//inside"]
-        )
+        self.assertEqual(samples[0]["codes"], ["HOSPITAL_ADMISSION//EW", "LAB//inside"])
 
     def test_invalid_parameters_raise(self):
         with self.assertRaises(ValueError):
@@ -212,15 +209,6 @@ class TestInHospitalMortalityMEDS(unittest.TestCase):
             InHospitalMortalityMEDS(window_hours=0)
         with self.assertRaises(ValueError):
             InHospitalMortalityMEDS(window_hours=-3)
-
-    def test_summarize(self):
-        summ = InHospitalMortalityMEDS.summarize(self._apply())
-        self.assertEqual(summ["n_samples"], 3)
-        self.assertEqual(summ["n_positive"], 1)
-        self.assertAlmostEqual(summ["positive_rate"], 1 / 3)
-        self.assertEqual(summ["n_patients"], 2)
-        empty = InHospitalMortalityMEDS.summarize([])
-        self.assertEqual(empty["positive_rate"], 0.0)
 
     def test_set_task_integration_yields_expected_count(self):
         """The intended user path runs and produces one sample per stay.
@@ -281,9 +269,9 @@ class TestInHospitalMortalityMEDSDemoSmoke(unittest.TestCase):
             for code in sample["codes"]:
                 self.assertFalse(code.startswith(DISCHARGE_PREFIX))
                 self.assertNotEqual(code, DEATH_CODE)
-        summ = InHospitalMortalityMEDS.summarize(samples)
-        self.assertGreater(summ["n_positive"], 0)
-        self.assertLess(summ["n_positive"], summ["n_samples"])
+        n_positive = sum(int(s["mortality"]) for s in samples)
+        self.assertGreater(n_positive, 0)
+        self.assertLess(n_positive, len(samples))
 
 
 if __name__ == "__main__":

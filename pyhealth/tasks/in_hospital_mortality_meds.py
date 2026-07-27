@@ -244,47 +244,6 @@ class InHospitalMortalityMEDS(BaseTask):
 
         return samples
 
-    @staticmethod
-    def summarize(samples: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Summary statistics of a generated sample set, for cohort reporting.
-
-        Expects the raw list of sample dicts returned by :meth:`__call__`
-        (e.g. by applying the task per patient), not the
-        :class:`~pyhealth.datasets.SampleDataset` from
-        :meth:`~pyhealth.datasets.BaseDataset.set_task` (which tokenizes
-        ``codes`` into integer indices).
-
-        Args:
-            samples (List[Dict[str, Any]]): Raw per-stay dicts from this task.
-
-        Returns:
-            Dict[str, Any]: ``n_samples``, ``n_patients``, ``n_positive``,
-            ``positive_rate`` (0.0 for an empty set), and
-            ``mean_sequence_length``.
-
-        Examples:
-            >>> InHospitalMortalityMEDS.summarize([])
-            {'n_samples': 0, 'n_patients': 0, 'n_positive': 0, \
-'positive_rate': 0.0, 'mean_sequence_length': 0.0}
-        """
-        n = len(samples)
-        if n == 0:
-            return {
-                "n_samples": 0,
-                "n_patients": 0,
-                "n_positive": 0,
-                "positive_rate": 0.0,
-                "mean_sequence_length": 0.0,
-            }
-        n_positive = sum(int(s["mortality"]) for s in samples)
-        return {
-            "n_samples": n,
-            "n_patients": len({s["patient_id"] for s in samples}),
-            "n_positive": n_positive,
-            "positive_rate": n_positive / n,
-            "mean_sequence_length": sum(len(s["codes"]) for s in samples) / n,
-        }
-
 
 def _timedelta_hours(hours: float):
     """Returns a ``datetime.timedelta`` of ``hours`` (kept import-local)."""
