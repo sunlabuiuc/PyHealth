@@ -7,7 +7,7 @@ counterpart of
 The MIMIC-IV task anchors on a visit object and reads
 ``admission.hospital_expire_flag``; MEDS represents a hospitalization as two
 separate events (``HOSPITAL_ADMISSION//*`` and ``HOSPITAL_DISCHARGE//*``)
-that share a ``hadm_id``, so a stay is reconstructed by joining those events
+that share a ``hadm_id``, so a stay is derived by grouping those events
 on that identifier and the label is derived from the discharge code.
 
 Task definition
@@ -159,7 +159,7 @@ class InHospitalMortalityMEDS(BaseTask):
         """
         return df.filter(pl.col("event_type") == "meds")
 
-    def _reconstruct_stays(self, events: pl.DataFrame) -> pl.DataFrame:
+    def _group_stays(self, events: pl.DataFrame) -> pl.DataFrame:
         """Builds one row per stay from admission/discharge events.
 
         Args:
@@ -204,7 +204,7 @@ class InHospitalMortalityMEDS(BaseTask):
         )
         code = pl.col("meds/code")
 
-        stays = self._reconstruct_stays(events)
+        stays = self._group_stays(events)
         if stays.height == 0:
             return []
 
@@ -248,8 +248,14 @@ class InHospitalMortalityMEDS(BaseTask):
     def summarize(samples: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Summary statistics of a generated sample set, for cohort reporting.
 
+        Expects the raw list of sample dicts returned by :meth:`__call__`
+        (e.g. by applying the task per patient), not the
+        :class:`~pyhealth.datasets.SampleDataset` from
+        :meth:`~pyhealth.datasets.BaseDataset.set_task` (which tokenizes
+        ``codes`` into integer indices).
+
         Args:
-            samples (List[Dict[str, Any]]): Output of applying this task.
+            samples (List[Dict[str, Any]]): Raw per-stay dicts from this task.
 
         Returns:
             Dict[str, Any]: ``n_samples``, ``n_patients``, ``n_positive``,
