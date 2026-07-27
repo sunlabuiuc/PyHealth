@@ -23,10 +23,10 @@ Usage:
             --cp-method LABEL \\
             --alpha 0.05 0.1 --seeds 42 43 --epochs 30
 
-    Quick smoke-test (tiny data subset, single seed/alpha, skips training):
+    Quick test (tiny data subset, single seed/alpha, 2 training epochs):
         python benchmark.py \\
             --dataset TUEVDataset --dataset-root /path/to/tuev \\
-            --task EEGEventsTUEV --model ContraWR --cp-method LABEL --dev
+            --task EEGEventsTUEV --model ContraWR --cp-method LABEL --quick-test
 
     Dry run (resolve and validate the combination without touching data):
         python benchmark.py \\
@@ -61,6 +61,11 @@ PROTOCOL = {
     "batch_size": 32,
     "standard_alphas": [0.01, 0.05, 0.10, 0.20],
 }
+
+# --quick-test overrides, matching the convention already established in
+# examples/conformal_eeg/tuev_conventional_conformal.py.
+QUICK_TEST_EPOCHS = 2
+QUICK_TEST_MAX_SAMPLES = 2000
 
 
 # --------------------------------------------------------------------------
@@ -161,7 +166,7 @@ def _parse_kwargs_json(raw: Optional[str], flag_name: str) -> Dict[str, Any]:
 def build_dataset(
     dataset_cls: type,
     root: Optional[str],
-    dev: bool,
+    quick_test: bool,
     dataset_kwargs: Dict[str, Any],
 ) -> Any:
     ctor_params = inspect.signature(dataset_cls.__init__).parameters
@@ -172,13 +177,17 @@ def build_dataset(
     kwargs = dict(dataset_kwargs)
     if root is not None:
         kwargs.setdefault("root", root)
+    # Datasets that support a tiny-subset mode do so via a constructor kwarg
+    # literally named `dev` (a pyhealth-wide convention) -- unrelated to
+    # CPBench's own --quick-test flag name.
     if "dev" not in kwargs:
         if "dev" in ctor_params or accepts_catchall_kwargs:
-            kwargs["dev"] = dev
-        elif dev:
+            kwargs["dev"] = quick_test
+        elif quick_test:
             print(
                 f"  Note: {dataset_cls.__name__} does not support a 'dev' "
-                "flag; loading the full dataset."
+                "flag; loading the full dataset (still capped to "
+                f"{QUICK_TEST_MAX_SAMPLES} samples after task processing)."
             )
 
     try:
@@ -228,6 +237,37 @@ def split_dataset(
         )
 
 
+def split_dataset_with_quick_test_fallback(
+    dataset: Any, split_strategy: str, seed: int, ratios: List[float], quick_test: bool
+) -> Tuple[Any, Any, Any, Any]:
+    """Splits the dataset, falling back to a by-sample split under
+    --quick-test if the requested strategy emptied any partition.
+
+    A patient-level split (the default) can leave a partition empty once the
+    dataset has been capped down to QUICK_TEST_MAX_SAMPLES, since patients
+    aren't evenly represented in a small, arbitrary sample slice. A
+    by-sample split doesn't depend on patient-level structure, so it's a
+    reasonable fallback to keep --quick-test runnable on any dataset,
+    mirroring the same fallback already used in
+    examples/conformal_eeg/tuev_conventional_conformal.py.
+    """
+    train_data, val_data, cal_data, test_data = split_dataset(
+        dataset, split_strategy, seed, ratios
+    )
+    if quick_test and split_strategy == "by_patient" and any(
+        len(part) == 0 for part in (train_data, val_data, cal_data, test_data)
+    ):
+        print(
+            "  [quick-test] A partition was empty after 'by_patient' "
+            "splitting on the capped subset -- falling back to "
+            "'by_sample' splitting for this run."
+        )
+        train_data, val_data, cal_data, test_data = split_dataset(
+            dataset, "by_sample", seed, ratios
+        )
+    return train_data, val_data, cal_data, test_data
+
+
 def train_model(
     model: Any,
     train_data: Any,
@@ -268,7 +308,7 @@ def construct_cp_predictor(
     base_model: Any,
     alpha: Optional[float],
     cp_kwargs: Dict[str, Any],
-    dev: bool,
+    quick_test: bool,
 ) -> Tuple[Any, bool]:
     """Construct (but do not calibrate) any SetPredictor generically, with
     clear error wrapping.
@@ -289,8 +329,10 @@ def construct_cp_predictor(
     used_alpha = "alpha" in ctor_params
     if used_alpha and "alpha" not in kwargs:
         kwargs["alpha"] = alpha
+    # CP methods that support a verbose/debug mode do so via a constructor
+    # kwarg literally named `debug` -- unrelated to CPBench's --quick-test.
     if "debug" in ctor_params and "debug" not in kwargs:
-        kwargs["debug"] = dev
+        kwargs["debug"] = quick_test
 
     try:
         cp_model = cp_cls(model=base_model, **kwargs)
@@ -319,7 +361,7 @@ def build_cp_model(
     train_data: Any,
     cal_data: Any,
     test_data: Any,
-    dev: bool,
+    quick_test: bool,
 ) -> Tuple[Any, bool]:
     """Construct and calibrate any SetPredictor generically.
 
@@ -329,7 +371,9 @@ def build_cp_model(
     to know which extra data a particular CP method needs; each method
     extracts whatever it needs internally.
     """
-    cp_model, used_alpha = construct_cp_predictor(cp_cls, base_model, alpha, cp_kwargs, dev)
+    cp_model, used_alpha = construct_cp_predictor(
+        cp_cls, base_model, alpha, cp_kwargs, quick_test
+    )
     cp_model.calibrate(
         cal_dataset=cal_data, train_dataset=train_data, test_dataset=test_data
     )
@@ -529,10 +573,16 @@ def run_benchmark(args: argparse.Namespace) -> List[Dict[str, Any]]:
 
     _print_section("Loading dataset + task")
     print(f"  data_path = {args.dataset_root}")
-    dataset = build_dataset(DatasetClass, args.dataset_root, args.dev, dataset_kwargs)
+    dataset = build_dataset(
+        DatasetClass, args.dataset_root, args.quick_test, dataset_kwargs
+    )
     task = build_task(TaskClass, task_kwargs)
     dataset = dataset.set_task(task)
     print(f"  Dataset size: {len(dataset)} samples")
+
+    if args.quick_test and len(dataset) > QUICK_TEST_MAX_SAMPLES:
+        dataset = dataset.subset(range(QUICK_TEST_MAX_SAMPLES))
+        print(f"  [quick-test] Capped to {QUICK_TEST_MAX_SAMPLES} samples.")
 
     _print_section("Validating model / cp-method compatibility")
     # Construction only needs model.mode (set from the dataset's schema, not
@@ -542,9 +592,11 @@ def run_benchmark(args: argparse.Namespace) -> List[Dict[str, Any]]:
     # every seed has already finished training.
     probe_model = build_model(ModelClass, dataset, model_kwargs)
     probe_alpha = args.alpha[0] if args.alpha else 0.1
-    construct_cp_predictor(CPClass, probe_model, probe_alpha, cp_kwargs, args.dev)
+    construct_cp_predictor(CPClass, probe_model, probe_alpha, cp_kwargs, args.quick_test)
     print(f"  model.mode='{probe_model.mode}' is compatible with cp-method '{args.cp_method}'")
     del probe_model
+
+    epochs = QUICK_TEST_EPOCHS if args.quick_test else args.epochs
 
     per_seed_results: List[List[Dict[str, Any]]] = []
 
@@ -553,8 +605,8 @@ def run_benchmark(args: argparse.Namespace) -> List[Dict[str, Any]]:
 
         _print_section("Splitting")
         print(f"  ratios={ratios}  seed={seed}  strategy={args.split_strategy}")
-        train_data, val_data, cal_data, test_data = split_dataset(
-            dataset, args.split_strategy, seed, ratios
+        train_data, val_data, cal_data, test_data = split_dataset_with_quick_test_fallback(
+            dataset, args.split_strategy, seed, ratios, args.quick_test
         )
         print(
             f"  train={len(train_data)}  val={len(val_data)}  "
@@ -562,11 +614,11 @@ def run_benchmark(args: argparse.Namespace) -> List[Dict[str, Any]]:
         )
         n_cal = len(cal_data)
 
-        _print_section(f"Training {args.model} ({args.epochs} epochs)")
+        _print_section(f"Training {args.model} ({epochs} epochs)")
         model = build_model(ModelClass, dataset, model_kwargs)
         t0 = time.time()
         model = train_model(
-            model, train_data, val_data, args.epochs, batch_size, args.output_dir,
+            model, train_data, val_data, epochs, batch_size, args.output_dir,
             seed, args.monitor, args.monitor_criterion,
         )
         print(f"  Training time: {time.time() - t0:.1f}s")
@@ -583,7 +635,7 @@ def run_benchmark(args: argparse.Namespace) -> List[Dict[str, Any]]:
             t0 = time.time()
             cp_model, used_alpha = build_cp_model(
                 CPClass, model, alpha, cp_kwargs, train_data, cal_data, test_data,
-                args.dev,
+                args.quick_test,
             )
             cp_model.to(_device())
             cal_time = time.time() - t0
@@ -685,7 +737,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--monitor-criterion", type=str, default="max", choices=["max", "min"], help="Whether higher or lower --monitor is better. Default max.")
     parser.add_argument("--output", type=str, default=None, help="Path to write results JSON.")
     parser.add_argument("--output-dir", type=str, default="./cpbench_runs", help="Directory for Trainer logs.")
-    parser.add_argument("--dev", action="store_true", help="Dev mode: tiny data subset (if the dataset supports it), single seed (42), single alpha (0.10).")
+    parser.add_argument(
+        "--quick-test", dest="quick_test", action="store_true",
+        help=(
+            "Quick test: single seed (42), single alpha (0.10), "
+            f"{QUICK_TEST_EPOCHS} training epochs, dataset's own tiny-subset "
+            f"mode if supported, and the resulting sample-processed dataset "
+            f"further capped to {QUICK_TEST_MAX_SAMPLES} samples. Falls back "
+            "to a by-sample split if by-patient splitting empties a "
+            "partition on the capped data."
+        ),
+    )
     parser.add_argument("--dry-run", action="store_true", help="Resolve and validate the dataset/task/model/cp-method combination without loading data or training.")
 
     return parser.parse_args()
@@ -703,7 +765,7 @@ def main() -> None:
         print(f"Error: --{', --'.join(m.replace('_', '-') for m in missing)} required. Run --list to see options.")
         sys.exit(1)
 
-    if args.dev:
+    if args.quick_test:
         args.alpha = [0.10]
         args.seeds = [42]
     else:
