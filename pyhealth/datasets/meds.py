@@ -3,7 +3,10 @@
 MEDS distributes event data as *typed*, sharded Parquet, already flattened to
 one row per measurement -- ``(subject_id, time, code, numeric_value, ...)`` --
 plus a canonical subject-to-split mapping at
-``metadata/subject_splits.parquet``. This maps almost one-to-one onto
+``metadata/subject_splits.parquet``. See the MEDS schema documentation for
+the canonical subject-to-split mapping:
+https://medical-event-data-standard.github.io/
+This maps almost one-to-one onto
 PyHealth's canonical event schema
 (``patient_id | event_type | timestamp | <table>/<attribute>``).
 
@@ -51,7 +54,8 @@ class MEDSDataset(BaseDataset):
     MEDS data is distributed as sharded, typed Parquet under per-split
     directories (``data/train/*.parquet``, ``data/tuning/*.parquet``,
     ``data/held_out/*.parquet``) plus a canonical subject-to-split map at
-    ``metadata/subject_splits.parquet``.
+    ``metadata/subject_splits.parquet``. See the MEDS schema documentation:
+    https://medical-event-data-standard.github.io/
 
     ``time`` must be a timezone-naive timestamp (MEDS reference schema);
     violations raise ``TypeError`` at construction.
@@ -84,7 +88,7 @@ class MEDSDataset(BaseDataset):
         attribute. This mirrors EHRShot, whose single ``ehrshot`` table also
         carries an event vocabulary in a ``code`` attribute. Whether upstream
         prefers mapping MEDS ``code`` onto ``event_type`` instead is a design
-        question for the maintainer (see ADR).
+        question for the maintainer.
 
     Args:
         root: Root directory of the MEDS dataset (the directory that
@@ -259,9 +263,9 @@ class MEDSDataset(BaseDataset):
         without a timezone (verified against the ``meds`` 0.4.1 package).
 
         This closes, at construction time, the silent-parse hazard of
-        date-like integers (ADR 002, T5): an ``int64`` column holding
-        ``20240101`` is rejected here by dtype instead of being parsed as a
-        date deep inside the Dask graph.
+        date-like integers: an ``int64`` column holding ``20240101`` is
+        rejected here by dtype instead of being parsed as a date deep
+        inside the Dask graph.
 
         Raises:
             TypeError: If the timestamp column is missing from the Parquet
