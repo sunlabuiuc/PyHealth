@@ -19,10 +19,41 @@ specification: https://github.com/Medical-Event-Data-Standard/meds
 """
 
 import argparse
+import tempfile
+from pathlib import Path
+from typing import Any, List
 
 import polars as pl
+import pyhealth.datasets.configs as meds_configs
 
-from pyhealth.datasets import MEDSDataset
+from pyhealth.datasets import MEDSDataset, get_dataloader, split_by_patient
+from pyhealth.models import RNN
+from pyhealth.tasks import InHospitalMortalityMEDS
+from pyhealth.trainer import Trainer
+
+# Full-stay MEDS code sequences are often thousands of events long. Keeping
+# every code makes a vanilla RNN prohibitively slow on CPU, so the training
+# block below keeps only the *most recent* codes per stay. This is a demo
+# ergonomics choice, not a benchmark configuration: production runs should
+# use the unmodified task (``InHospitalMortalityMEDS()``) and an appropriate
+# model/window for the sequence lengths involved.
+_DEMO_MAX_SEQ_LEN = 256
+
+
+class _DemoMortalityTask(InHospitalMortalityMEDS):
+    """Demo-only wrapper that tail-truncates ``codes`` before ``set_task``."""
+
+    def __init__(self, max_seq_len: int = _DEMO_MAX_SEQ_LEN, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.max_seq_len = max_seq_len
+
+    def __call__(self, patient: Any) -> List[dict]:
+        samples = super().__call__(patient)
+        for sample in samples:
+            codes = sample["codes"]
+            if len(codes) > self.max_seq_len:
+                sample["codes"] = codes[-self.max_seq_len :]
+        return samples
 
 
 def main() -> None:
@@ -30,8 +61,7 @@ def main() -> None:
     parser.add_argument(
         "--root",
         required=True,
-        help="Root of the MEDS dataset (directory containing data/ and "
-        "metadata/)",
+        help="Root of the MEDS dataset (directory containing data/ and metadata/)",
     )
     parser.add_argument(
         "--subset",
@@ -60,15 +90,42 @@ def main() -> None:
 
     # 4) Static (null-time) MEDS events, e.g. demographics, are preserved.
     n_static = (
-        events.filter(pl.col("timestamp").is_null())
-        .select(pl.len())
-        .collect()
-        .item()
+        events.filter(pl.col("timestamp").is_null()).select(pl.len()).collect().item()
     )
     print(f"Static (null-time) events: {n_static}")
 
-    # From here, the dataset behaves like any other PyHealth dataset: use
-    # `dataset.set_task(...)` with an existing task to build samples.
+    # 5) In-hospital mortality task + minimal RNN training loop (1 epoch).
+    #    Sequences are tail-truncated via _DemoMortalityTask (see module note).
+    cfg = Path(meds_configs.__file__).parent / "meds_with_hadm.yaml"
+    task_cache = tempfile.mkdtemp(prefix="meds_demo_task_")
+    cohort = MEDSDataset(
+        root=args.root,
+        config_path=str(cfg),
+        subset=args.subset,
+        cache_dir=task_cache,
+    )
+    samples = cohort.set_task(_DemoMortalityTask())
+    print(
+        f"Mortality task samples ({args.subset}, codes tail-truncated to "
+        f"{_DEMO_MAX_SEQ_LEN}): {len(samples)}"
+    )
+
+    train_dataset, val_dataset, test_dataset = split_by_patient(
+        samples, [0.8, 0.1, 0.1]
+    )
+    train_dataloader = get_dataloader(train_dataset, batch_size=32, shuffle=True)
+    val_dataloader = get_dataloader(val_dataset, batch_size=32, shuffle=False)
+    test_dataloader = get_dataloader(test_dataset, batch_size=32, shuffle=False)
+
+    model = RNN(dataset=samples, embedding_dim=64, hidden_dim=64)
+    trainer = Trainer(model=model)
+    trainer.train(
+        train_dataloader=train_dataloader,
+        val_dataloader=val_dataloader,
+        epochs=1,
+        monitor="roc_auc",
+    )
+    print(trainer.evaluate(test_dataloader))
 
 
 if __name__ == "__main__":
