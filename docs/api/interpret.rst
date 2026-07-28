@@ -57,6 +57,7 @@ New to interpretability in PyHealth? Check out these complete examples:
   - Train a ViT model on COVID-19 chest X-ray classification
   - Use CheferRelevance for gradient-weighted attention attribution
   - Visualize which image patches contribute to predictions
+
 **LIME Example:**
 
 - ``examples/lime_stagenet_mimic4.py`` - Demonstrates LIME (Local Interpretable Model-agnostic Explanations) for StageNet mortality prediction. Shows how to:
@@ -78,6 +79,7 @@ Attribution Methods
     interpret/pyhealth.interpret.methods.gim
     interpret/pyhealth.interpret.methods.basic_gradient
     interpret/pyhealth.interpret.methods.chefer
+    interpret/pyhealth.interpret.methods.attention_rollout
     interpret/pyhealth.interpret.methods.deeplift
     interpret/pyhealth.interpret.methods.integrated_gradients
     interpret/pyhealth.interpret.methods.shap

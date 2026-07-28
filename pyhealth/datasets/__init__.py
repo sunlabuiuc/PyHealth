@@ -59,6 +59,7 @@ from .isruc import ISRUCDataset
 from .medical_transcriptions import MedicalTranscriptionsDataset
 from .mimic3 import MIMIC3Dataset
 from .mimic4 import MIMIC4CXRDataset, MIMIC4Dataset, MIMIC4EHRDataset, MIMIC4NoteDataset
+from .fhir import FHIRDataset, MIMIC4FHIR
 from .mimicextract import MIMICExtractDataset
 from .omop import OMOPDataset
 from .physionet_deid import PhysioNetDeIDDataset
@@ -82,6 +83,7 @@ from .splitter import (
     split_by_visit,
     split_by_visit_conformal,
 )
+from .eegbci import EEGBCIDataset as EEGBCIDataset  # noqa: E402
 from .tuab import TUABDataset
 from .tuev import TUEVDataset
 from .utils import (

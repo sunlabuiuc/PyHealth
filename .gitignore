@@ -137,6 +137,7 @@ data/physionet.org/
 
 # VSCode settings
 .vscode/
+.codex
 
 # Model weight files (large binaries, distributed separately)
 weightfiles/

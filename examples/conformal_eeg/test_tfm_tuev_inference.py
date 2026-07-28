@@ -5,6 +5,8 @@ Mirrors the PI's benchmark script but uses the weightfiles/ paths already
 present in this repo.  No training — pure inference to verify weights and
 normalization are correct.
 
+Model: TFMTokenizer, see pyhealth.models.tfm_tokenizer for the paper citation.
+
 Usage:
     python examples/conformal_eeg/test_tfm_tuev_inference.py
     python examples/conformal_eeg/test_tfm_tuev_inference.py --gpu_id 1
