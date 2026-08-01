@@ -1,0 +1,133 @@
+{
+  "os":  "Linux-4.18.0-553.124.1.el8_10.x86_64-x86_64-with-glibc2.28",
+  "python":  "CPython 3.12.9",
+  "startedAt":  "2026-07-28T22:51:03.133326Z",
+  "args":  [
+    "--ehr-root",
+    "/shared/rsaas/physionet.org/files/mimiciv/2.2",
+    "--note-root",
+    "/shared/rsaas/physionet.org/files/mimic-note",
+    "--cache-dir",
+    "/shared/rsaas/wp14/pyhealth_cache_labs_notes",
+    "--task",
+    "notes_labs",
+    "--model",
+    "rnn",
+    "--embedding-dim",
+    "128",
+    "--hidden-dim",
+    "128",
+    "--rnn-type",
+    "GRU",
+    "--rnn-layers",
+    "2",
+    "--dropout",
+    "0.1",
+    "--epochs",
+    "50",
+    "--batch-size",
+    "32",
+    "--lr",
+    "1e-3",
+    "--weight-decay",
+    "1e-5",
+    "--patience",
+    "5",
+    "--num-workers",
+    "4",
+    "--seed",
+    "12",
+    "--output-dir",
+    "/home/wp14/output",
+    "--freeze-encoder",
+    "--wandb",
+    "--wandb-project",
+    "pyhealth-multimodal-labs-notes",
+    "--wandb-run-name",
+    "labs_notes_rnn_seed12"
+  ],
+  "program":  "/home/wp14/PyHealth/examples/mortality_prediction/unified_embedding_e2e_mimic4.py",
+  "codePath":  "examples/mortality_prediction/unified_embedding_e2e_mimic4.py",
+  "codePathLocal":  "examples/mortality_prediction/unified_embedding_e2e_mimic4.py",
+  "git":  {
+    "remote":  "https://github.com/Multimodal-PyHealth/PyHealth",
+    "commit":  "311a149fa5b0b01a248ce08d3c4ec66793cb9b6e"
+  },
+  "email":  "williampangbest1@gmail.com",
+  "root":  "/home/wp14/PyHealth",
+  "host":  "sunlab-c02.cs.illinois.edu",
+  "executable":  "/home/wp14/miniconda3/envs/pyhealth2/bin/python",
+  "cpu_count":  128,
+  "cpu_count_logical":  255,
+  "gpu":  "NVIDIA RTX 6000 Ada Generation",
+  "gpu_count":  8,
+  "disk":  {
+    "/":  {
+      "total":  "34342961152",
+      "used":  "9620135936"
+    }
+  },
+  "memory":  {
+    "total":  "1081448284160"
+  },
+  "gpu_nvidia":  [
+    {
+      "name":  "NVIDIA RTX 6000 Ada Generation",
+      "memoryTotal":  "51527024640",
+      "cudaCores":  18176,
+      "architecture":  "Ada",
+      "uuid":  "GPU-25605dab-2bad-abf9-2f36-f0be6e776096"
+    },
+    {
+      "name":  "NVIDIA RTX 6000 Ada Generation",
+      "memoryTotal":  "51527024640",
+      "cudaCores":  18176,
+      "architecture":  "Ada",
+      "uuid":  "GPU-fa23eb99-d1b2-4c9c-666c-c70c133af1df"
+    },
+    {
+      "name":  "NVIDIA RTX 6000 Ada Generation",
+      "memoryTotal":  "51527024640",
+      "cudaCores":  18176,
+      "architecture":  "Ada",
+      "uuid":  "GPU-39ac7920-1d83-d4cf-c056-920c82599e52"
+    },
+    {
+      "name":  "NVIDIA RTX 6000 Ada Generation",
+      "memoryTotal":  "51527024640",
+      "cudaCores":  18176,
+      "architecture":  "Ada",
+      "uuid":  "GPU-3ab5484f-a069-8752-ca10-8ab181aa5b65"
+    },
+    {
+      "name":  "NVIDIA RTX 6000 Ada Generation",
+      "memoryTotal":  "51527024640",
+      "cudaCores":  18176,
+      "architecture":  "Ada",
+      "uuid":  "GPU-6a135207-d247-4118-1218-1e2321919d87"
+    },
+    {
+      "name":  "NVIDIA RTX 6000 Ada Generation",
+      "memoryTotal":  "51527024640",
+      "cudaCores":  18176,
+      "architecture":  "Ada",
+      "uuid":  "GPU-fdf3835a-4b38-fb01-24cb-f2825806ea1e"
+    },
+    {
+      "name":  "NVIDIA RTX 6000 Ada Generation",
+      "memoryTotal":  "51527024640",
+      "cudaCores":  18176,
+      "architecture":  "Ada",
+      "uuid":  "GPU-583da23f-53e9-cf5f-2f63-7115778d21bf"
+    },
+    {
+      "name":  "NVIDIA RTX 6000 Ada Generation",
+      "memoryTotal":  "51527024640",
+      "cudaCores":  18176,
+      "architecture":  "Ada",
+      "uuid":  "GPU-ed1911c1-9405-0826-f8ff-e8ccb5c880c8"
+    }
+  ],
+  "cudaVersion":  "13.0",
+  "writerId":  "hywo7zaph59r2wyxsjmse4w92d23z449"
+}

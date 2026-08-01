@@ -1,0 +1,235 @@
+_wandb:
+    value:
+        cli_version: 0.28.0
+        e:
+            ng73agh8nenn2b9jmunr6xvc35z4p1o4:
+                args:
+                    - --ehr-root
+                    - /shared/rsaas/physionet.org/files/mimiciv/2.2
+                    - --cache-dir
+                    - /home/wp14/pyhealth_cache_labs
+                    - --task
+                    - labs
+                    - --model
+                    - rnn
+                    - --embedding-dim
+                    - "64"
+                    - --hidden-dim
+                    - "64"
+                    - --rnn-type
+                    - GRU
+                    - --rnn-layers
+                    - "1"
+                    - --dropout
+                    - "0.1"
+                    - --epochs
+                    - "50"
+                    - --batch-size
+                    - "32"
+                    - --lr
+                    - "1e-3"
+                    - --weight-decay
+                    - "1e-5"
+                    - --patience
+                    - "5"
+                    - --num-workers
+                    - "4"
+                    - --pos-weight
+                    - "1.0"
+                    - --seed
+                    - "12"
+                    - --output-dir
+                    - /home/wp14/output
+                    - --wandb
+                    - --wandb-project
+                    - pyhealth-multimodal-labs-only
+                    - --wandb-run-name
+                    - labs_rnn_seed12
+                codePath: examples/mortality_prediction/unified_embedding_e2e_mimic4.py
+                codePathLocal: examples/mortality_prediction/unified_embedding_e2e_mimic4.py
+                cpu_count: 128
+                cpu_count_logical: 255
+                cudaVersion: "13.0"
+                disk:
+                    /:
+                        total: "34342961152"
+                        used: "9632202752"
+                email: williampangbest1@gmail.com
+                executable: /home/wp14/miniconda3/envs/pyhealth2/bin/python
+                git:
+                    commit: 311a149fa5b0b01a248ce08d3c4ec66793cb9b6e
+                    remote: https://github.com/Multimodal-PyHealth/PyHealth
+                gpu: NVIDIA RTX 6000 Ada Generation
+                gpu_count: 8
+                gpu_nvidia:
+                    - architecture: Ada
+                      cudaCores: 18176
+                      memoryTotal: "51527024640"
+                      name: NVIDIA RTX 6000 Ada Generation
+                      uuid: GPU-25605dab-2bad-abf9-2f36-f0be6e776096
+                    - architecture: Ada
+                      cudaCores: 18176
+                      memoryTotal: "51527024640"
+                      name: NVIDIA RTX 6000 Ada Generation
+                      uuid: GPU-fa23eb99-d1b2-4c9c-666c-c70c133af1df
+                    - architecture: Ada
+                      cudaCores: 18176
+                      memoryTotal: "51527024640"
+                      name: NVIDIA RTX 6000 Ada Generation
+                      uuid: GPU-39ac7920-1d83-d4cf-c056-920c82599e52
+                    - architecture: Ada
+                      cudaCores: 18176
+                      memoryTotal: "51527024640"
+                      name: NVIDIA RTX 6000 Ada Generation
+                      uuid: GPU-3ab5484f-a069-8752-ca10-8ab181aa5b65
+                    - architecture: Ada
+                      cudaCores: 18176
+                      memoryTotal: "51527024640"
+                      name: NVIDIA RTX 6000 Ada Generation
+                      uuid: GPU-6a135207-d247-4118-1218-1e2321919d87
+                    - architecture: Ada
+                      cudaCores: 18176
+                      memoryTotal: "51527024640"
+                      name: NVIDIA RTX 6000 Ada Generation
+                      uuid: GPU-fdf3835a-4b38-fb01-24cb-f2825806ea1e
+                    - architecture: Ada
+                      cudaCores: 18176
+                      memoryTotal: "51527024640"
+                      name: NVIDIA RTX 6000 Ada Generation
+                      uuid: GPU-583da23f-53e9-cf5f-2f63-7115778d21bf
+                    - architecture: Ada
+                      cudaCores: 18176
+                      memoryTotal: "51527024640"
+                      name: NVIDIA RTX 6000 Ada Generation
+                      uuid: GPU-ed1911c1-9405-0826-f8ff-e8ccb5c880c8
+                host: sunlab-c02.cs.illinois.edu
+                memory:
+                    total: "1081448284160"
+                os: Linux-4.18.0-553.124.1.el8_10.x86_64-x86_64-with-glibc2.28
+                program: /home/wp14/PyHealth/examples/mortality_prediction/unified_embedding_e2e_mimic4.py
+                python: CPython 3.12.9
+                root: /home/wp14/PyHealth
+                startedAt: "2026-07-27T23:17:47.555043Z"
+                writerId: ng73agh8nenn2b9jmunr6xvc35z4p1o4
+        m: []
+        python_version: 3.12.9
+        t:
+            "1":
+                - 1
+                - 5
+                - 11
+                - 41
+                - 49
+                - 53
+                - 54
+                - 71
+                - 98
+            "2":
+                - 1
+                - 5
+                - 11
+                - 41
+                - 49
+                - 53
+                - 54
+                - 71
+                - 98
+            "3":
+                - 2
+                - 13
+                - 15
+                - 16
+                - 61
+            "4": 3.12.9
+            "5": 0.28.0
+            "6": 4.53.3
+            "12": 0.28.0
+            "13": linux-x86_64
+adam_eps:
+    value: null
+balanced_ratio:
+    value: 1
+balanced_sampling:
+    value: false
+batch_size:
+    value: 32
+bidirectional:
+    value: false
+bottlenecks_n:
+    value: 4
+cache_dir:
+    value: /home/wp14/pyhealth_cache_labs
+dev:
+    value: 0
+device:
+    value: null
+dropout:
+    value: 0.1
+ehr_root:
+    value: /shared/rsaas/physionet.org/files/mimiciv/2.2
+embedding_dim:
+    value: 64
+epochs:
+    value: 50
+freeze_encoder:
+    value: false
+fusion_startidx:
+    value: 1
+heads:
+    value: 4
+hidden_dim:
+    value: 64
+icd_codes:
+    value: false
+include_vitals:
+    value: false
+jamba_mamba_layers:
+    value: 6
+jamba_transformer_layers:
+    value: 2
+lr:
+    value: 0.001
+mamba_conv_kernel:
+    value: 4
+mamba_state_size:
+    value: 16
+max_grad_norm:
+    value: null
+model:
+    value: rnn
+note_root:
+    value: null
+num_layers:
+    value: 2
+num_workers:
+    value: 4
+observation_window_hours:
+    value: 24
+output_dir:
+    value: /home/wp14/output
+patience:
+    value: 5
+pos_weight:
+    value: 1
+rnn_layers:
+    value: 1
+rnn_type:
+    value: GRU
+sampling_strategy:
+    value: none
+seed:
+    value: 12
+task:
+    value: labs
+wandb:
+    value: true
+wandb_entity:
+    value: null
+wandb_project:
+    value: pyhealth-multimodal-labs-only
+wandb_run_name:
+    value: labs_rnn_seed12
+wandb_tags:
+    value: null
+weight_decay:
+    value: 1e-05

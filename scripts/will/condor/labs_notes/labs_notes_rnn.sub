@@ -1,0 +1,59 @@
+# HTCondor submission — labs+notes RNN mortality run
+#
+# Condor equivalent of scripts/will/sunlab/labs_notes/tmux_run_labs_notes_rnn_variant.py:
+# same task (notes_labs), same model (rnn), same hyperparameters. Runs unattended
+# instead of in a tmux session; Condor assigns the GPU (no manual
+# nvidia-smi / CUDA_VISIBLE_DEVICES step needed).
+#
+# To submit (from the project root):
+#   mkdir -p /home/wp14/logs/condor
+#   condor_submit scripts/will/condor/labs_notes/labs_notes_rnn.sub
+#
+# Monitor:
+#   condor_q
+#   tail -f /home/wp14/logs/condor/labs_notes_rnn_<ClusterId>_0.out
+
+initialdir          = /home/wp14/PyHealth
+executable          = /home/wp14/PyHealth/scripts/will/condor/labs_notes/run_labs_notes_rnn.sh
+transfer_executable  = False
+arguments            = $(seed)
+getenv               = True
+
+environment = "EHR_ROOT=/shared/rsaas/physionet.org/files/mimiciv/2.2 \
+               NOTE_ROOT=/shared/rsaas/physionet.org/files/mimic-note \
+               CACHE_DIR=/shared/rsaas/wp14/pyhealth_cache_labs_notes \
+               OUTPUT_DIR=/home/wp14/output \
+               USE_WANDB=1 \
+               WANDB_PROJECT=pyhealth-multimodal-labs-notes \
+               WANDB_RUN_NAME=labs_notes_rnn_seed$(seed) \
+               FREEZE_ENCODER=1"
+
+output = /home/wp14/logs/condor/labs_notes_rnn_$(ClusterId)_$(Process).out
+error  = /home/wp14/logs/condor/labs_notes_rnn_$(ClusterId)_$(Process).err
+log    = /home/wp14/logs/condor/labs_notes_rnn_$(ClusterId)_$(Process).log
+
+stream_output = False
+stream_error  = False
+
+request_gpus   = 1
+request_cpus   = 4
+# Was 163840MB (160GB) — cgroup-killed job 10821 at 162747MB during the
+# full-scale patient_id sort/shuffle (see run_labs_notes_rnn.sh comment).
+# Bumped for headroom now that the distributed cluster (with disk-spilling)
+# is back in play; c02 has ~1TB total and is otherwise idle.
+request_memory = 400000MB
+request_disk   = 20GB
+
+# Previously hardcoded to sunlab-c01 (A100 80GB) because the previous run
+# OOM'd on a 47GB card with ~46.8GB resident. sunlab-c01's condor_startd is
+# currently down (master alive, STARTD_StartTime=0), so it never matches —
+# the only machine in the pool is sunlab-c02 (8x RTX 6000 Ada, 48509MB each).
+# Match any GPU with enough headroom and prefer the biggest; FREEZE_ENCODER=1
+# below (frozen Bio_ClinicalBERT text encoder, ~50% less VRAM for the text
+# branch) is what actually keeps this under 48GB instead of the hostname pin.
+Requirements = (TARGET.GPUs_GlobalMemoryMb >= 40000)
+Rank = TARGET.GPUs_GlobalMemoryMb
+
+queue seed from (
+    12
+)

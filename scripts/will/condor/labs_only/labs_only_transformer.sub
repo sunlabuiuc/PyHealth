@@ -1,0 +1,45 @@
+# HTCondor submission — labs-only Transformer mortality run
+#
+# Condor equivalent of scripts/will/sunlab/tmux_run_labs_only_rnn_variant.py:
+# same task (labs), transformer model, same hyperparameter pattern as
+# labs_only_rnn.sub. Runs unattended instead of in a tmux session; Condor
+# assigns the GPU (no manual nvidia-smi / CUDA_VISIBLE_DEVICES step needed).
+#
+# To submit (from the project root):
+#   mkdir -p /home/wp14/logs/condor
+#   condor_submit scripts/will/condor/labs_only/labs_only_transformer.sub
+#
+# Monitor:
+#   condor_q
+#   tail -f /home/wp14/logs/condor/labs_only_transformer_<ClusterId>_0.out
+
+initialdir          = /home/wp14/PyHealth
+executable          = /home/wp14/PyHealth/scripts/will/condor/labs_only/run_labs_only_transformer.sh
+transfer_executable  = False
+arguments            = $(seed)
+getenv               = True
+
+environment = "EHR_ROOT=/shared/rsaas/physionet.org/files/mimiciv/2.2 \
+               CACHE_DIR=/shared/eng/wp14/pyhealth_cache_labs \
+               OUTPUT_DIR=/home/wp14/output \
+               USE_WANDB=1 \
+               WANDB_PROJECT=pyhealth-multimodal-labs-only \
+               WANDB_RUN_NAME=labs_transformer_seed$(seed)"
+
+output = /home/wp14/logs/condor/labs_only_transformer_$(ClusterId)_$(Process).out
+error  = /home/wp14/logs/condor/labs_only_transformer_$(ClusterId)_$(Process).err
+log    = /home/wp14/logs/condor/labs_only_transformer_$(ClusterId)_$(Process).log
+
+stream_output = False
+stream_error  = False
+
+request_gpus   = 1
+request_cpus   = 4
+request_memory = 163840MB
+request_disk   = 20GB
+
+Rank = TARGET.CUDAGlobalMemoryMb
+
+queue seed from (
+    12
+)

@@ -321,10 +321,12 @@ def run(args: argparse.Namespace) -> Path:
     if args.wandb:
         import wandb
 
+        tags = args.wandb_tags.split(",") if args.wandb_tags else [args.task, args.model]
         wandb_run = wandb.init(
             project=args.wandb_project,
             entity=args.wandb_entity,
             name=args.wandb_run_name or exp_name,
+            tags=tags,
             config=vars(args),
         )
 
@@ -583,6 +585,12 @@ def parse_args() -> argparse.Namespace:
         type=str,
         default=None,
         help="Defaults to '{model}_seed{seed}' if unset.",
+    )
+    parser.add_argument(
+        "--wandb-tags",
+        type=str,
+        default=None,
+        help="Comma-separated wandb tags, e.g. 'labs,rnn'. Defaults to '{task},{model}' if unset.",
     )
 
     # Mamba / JambaEHR-specific
