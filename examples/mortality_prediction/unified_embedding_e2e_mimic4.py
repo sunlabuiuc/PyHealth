@@ -377,6 +377,8 @@ def run(args: argparse.Namespace) -> Path:
             monitor="pr_auc",
             load_best_model_at_last=True,
             patience=args.patience,
+            use_amp=args.use_amp,
+            amp_dtype=args.amp_dtype,
         )
         if wandb_run is not None:
             for epoch_record in metrics_history:
@@ -455,6 +457,18 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--weight-decay", type=float, default=0.0)
     parser.add_argument("--device", type=str, default=None)
+    parser.add_argument(
+        "--use-amp",
+        action="store_true",
+        help="Enable automatic mixed precision training to reduce GPU memory usage.",
+    )
+    parser.add_argument(
+        "--amp-dtype",
+        type=str,
+        default="bf16",
+        choices=["bf16", "fp16"],
+        help="AMP dtype when --use-amp is set. bf16 is more stable (default).",
+    )
     parser.add_argument("--num-workers", type=int, default=1)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--patience", type=int, default=None)
