@@ -1,0 +1,208 @@
+_wandb:
+    value:
+        cli_version: 0.28.0
+        e:
+            ehnpm8n0mxxv1fhcayqyos8u60mb7fch:
+                args:
+                    - --ehr-root
+                    - /home/ubuntu/mimiciv-data/ehr
+                    - --note-root
+                    - /home/ubuntu/mimiciv-data
+                    - --cache-dir
+                    - /home/ubuntu/mimiciv-data/pyhealth_cache_labs_notes
+                    - --task
+                    - notes_labs
+                    - --model
+                    - ehrmamba
+                    - --embedding-dim
+                    - "96"
+                    - --num-layers
+                    - "2"
+                    - --mamba-state-size
+                    - "16"
+                    - --mamba-conv-kernel
+                    - "4"
+                    - --dropout
+                    - "0.1"
+                    - --use-amp
+                    - --amp-dtype
+                    - bf16
+                    - --epochs
+                    - "50"
+                    - --batch-size
+                    - "2"
+                    - --lr
+                    - "0.001"
+                    - --weight-decay
+                    - "1e-05"
+                    - --patience
+                    - "5"
+                    - --pos-weight
+                    - "1"
+                    - --num-workers
+                    - "4"
+                    - --freeze-encoder
+                    - --wandb
+                    - --wandb-project
+                    - pyhealth-multimodal-labs-notes
+                    - --seed
+                    - "12"
+                    - --output-dir
+                    - /home/ubuntu/output
+                codePath: examples/mortality_prediction/unified_embedding_e2e_mimic4.py
+                codePathLocal: examples/mortality_prediction/unified_embedding_e2e_mimic4.py
+                cpu_count: 13
+                cpu_count_logical: 26
+                cudaVersion: "13.0"
+                disk:
+                    /:
+                        total: "2930253778944"
+                        used: "39855661056"
+                email: williampangbest1@gmail.com
+                executable: /home/ubuntu/miniconda3/envs/pyhealth2/bin/python
+                git:
+                    commit: 8ad2d8b82c5e8eb03bf020984a4669f9aa01d5f8
+                    remote: https://github.com/Multimodal-PyHealth/PyHealth
+                gpu: NVIDIA H100 80GB HBM3
+                gpu_count: 1
+                gpu_nvidia:
+                    - architecture: Hopper
+                      cudaCores: 16896
+                      memoryTotal: "85520809984"
+                      name: NVIDIA H100 80GB HBM3
+                      uuid: GPU-f6e0d80a-1ee4-6af1-6585-7b23e7185153
+                host: 192-222-55-48
+                memory:
+                    total: "237490823168"
+                os: Linux-6.8.0-1046-nvidia-x86_64-with-glibc2.35
+                program: /home/ubuntu/PyHealth/examples/mortality_prediction/unified_embedding_e2e_mimic4.py
+                python: CPython 3.12.9
+                root: /home/ubuntu/PyHealth
+                startedAt: "2026-08-03T06:22:03.015199Z"
+                writerId: ehnpm8n0mxxv1fhcayqyos8u60mb7fch
+        m: []
+        python_version: 3.12.9
+        t:
+            "1":
+                - 1
+                - 5
+                - 11
+                - 41
+                - 49
+                - 53
+                - 54
+                - 71
+                - 98
+            "2":
+                - 1
+                - 5
+                - 11
+                - 41
+                - 49
+                - 53
+                - 54
+                - 71
+                - 98
+            "3":
+                - 2
+                - 13
+                - 15
+                - 16
+                - 61
+            "4": 3.12.9
+            "5": 0.28.0
+            "6": 4.53.3
+            "12": 0.28.0
+            "13": linux-x86_64
+adam_eps:
+    value: null
+amp_dtype:
+    value: bf16
+balanced_ratio:
+    value: 1
+balanced_sampling:
+    value: false
+batch_size:
+    value: 2
+bidirectional:
+    value: false
+bottlenecks_n:
+    value: 4
+cache_dir:
+    value: /home/ubuntu/mimiciv-data/pyhealth_cache_labs_notes
+dev:
+    value: 0
+device:
+    value: null
+dropout:
+    value: 0.1
+ehr_root:
+    value: /home/ubuntu/mimiciv-data/ehr
+embedding_dim:
+    value: 96
+epochs:
+    value: 50
+freeze_encoder:
+    value: true
+fusion_startidx:
+    value: 1
+heads:
+    value: 4
+hidden_dim:
+    value: 64
+icd_codes:
+    value: false
+include_vitals:
+    value: false
+jamba_mamba_layers:
+    value: 6
+jamba_transformer_layers:
+    value: 2
+lr:
+    value: 0.001
+mamba_conv_kernel:
+    value: 4
+mamba_state_size:
+    value: 16
+max_grad_norm:
+    value: null
+model:
+    value: ehrmamba
+note_root:
+    value: /home/ubuntu/mimiciv-data
+num_layers:
+    value: 2
+num_workers:
+    value: 4
+observation_window_hours:
+    value: 24
+output_dir:
+    value: /home/ubuntu/output
+patience:
+    value: 5
+pos_weight:
+    value: 1
+rnn_layers:
+    value: 1
+rnn_type:
+    value: GRU
+sampling_strategy:
+    value: none
+seed:
+    value: 12
+task:
+    value: notes_labs
+use_amp:
+    value: true
+wandb:
+    value: true
+wandb_entity:
+    value: null
+wandb_project:
+    value: pyhealth-multimodal-labs-notes
+wandb_run_name:
+    value: null
+wandb_tags:
+    value: null
+weight_decay:
+    value: 1e-05
