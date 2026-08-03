@@ -1,0 +1,89 @@
+{
+  "os":  "Linux-6.8.0-1046-nvidia-x86_64-with-glibc2.35",
+  "python":  "CPython 3.12.9",
+  "startedAt":  "2026-08-03T20:36:31.314140Z",
+  "args":  [
+    "--ehr-root",
+    "/home/ubuntu/mimiciv-data/ehr",
+    "--note-root",
+    "/home/ubuntu/mimiciv-data",
+    "--cache-dir",
+    "/home/ubuntu/mimiciv-data/pyhealth_cache_labs_notes",
+    "--task",
+    "notes_labs",
+    "--model",
+    "bottleneck_transformer",
+    "--embedding-dim",
+    "128",
+    "--heads",
+    "4",
+    "--num-layers",
+    "2",
+    "--bottlenecks-n",
+    "4",
+    "--fusion-startidx",
+    "1",
+    "--dropout",
+    "0.1",
+    "--use-amp",
+    "--amp-dtype",
+    "bf16",
+    "--epochs",
+    "50",
+    "--batch-size",
+    "32",
+    "--lr",
+    "0.001",
+    "--weight-decay",
+    "1e-05",
+    "--patience",
+    "5",
+    "--pos-weight",
+    "1",
+    "--num-workers",
+    "4",
+    "--freeze-encoder",
+    "--wandb",
+    "--wandb-project",
+    "pyhealth-multimodal-labs-notes",
+    "--seed",
+    "12",
+    "--output-dir",
+    "/home/ubuntu/output"
+  ],
+  "program":  "/home/ubuntu/PyHealth/examples/mortality_prediction/unified_embedding_e2e_mimic4.py",
+  "codePath":  "examples/mortality_prediction/unified_embedding_e2e_mimic4.py",
+  "codePathLocal":  "examples/mortality_prediction/unified_embedding_e2e_mimic4.py",
+  "git":  {
+    "remote":  "https://github.com/Multimodal-PyHealth/PyHealth",
+    "commit":  "f9d669fdacb65f4336adf784d674a90bd2fb13fe"
+  },
+  "email":  "williampangbest1@gmail.com",
+  "root":  "/home/ubuntu/PyHealth",
+  "host":  "192-222-55-48",
+  "executable":  "/home/ubuntu/miniconda3/envs/pyhealth2/bin/python",
+  "cpu_count":  13,
+  "cpu_count_logical":  26,
+  "gpu":  "NVIDIA H100 80GB HBM3",
+  "gpu_count":  1,
+  "disk":  {
+    "/":  {
+      "total":  "2930253778944",
+      "used":  "40509689856"
+    }
+  },
+  "memory":  {
+    "total":  "237490823168"
+  },
+  "gpu_nvidia":  [
+    {
+      "name":  "NVIDIA H100 80GB HBM3",
+      "memoryTotal":  "85520809984",
+      "cudaCores":  16896,
+      "architecture":  "Hopper",
+      "uuid":  "GPU-f6e0d80a-1ee4-6af1-6585-7b23e7185153"
+    }
+  ],
+  "cudaVersion":  "13.0",
+  "writerId":  "lv9zun5gwcke312qqebfx0htwufrxqup"
+}
