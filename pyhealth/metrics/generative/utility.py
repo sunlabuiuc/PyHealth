@@ -53,6 +53,13 @@ def compute_mle(
     (Train-Synthetic-Test-Real, TSTR). Both are evaluated on the same real test
     set. Synthetic accuracy/F1 close to real accuracy/F1 indicates high utility.
 
+    Paper:
+        Esteban, Cristobal, Stephanie L. Hyland, and Gunnar Ratsch.
+        "Real-valued (Medical) Time Series Generation with Recurrent
+        Conditional GANs." arXiv:1706.02633 (2017). Introduces and names
+        the "Train on Synthetic, Test on Real" (TSTR) evaluation protocol
+        this function implements.
+
     Note:
         The current implementation hard-codes the downstream task to
         next-visit prediction (built via

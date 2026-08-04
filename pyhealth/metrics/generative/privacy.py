@@ -55,6 +55,12 @@ def calc_nnaar(
 ) -> Dict[str, Tuple[float, float]]:
     """Computes the Nearest Neighbor Adversarial Accuracy Risk (NNAAR).
 
+    Paper:
+        Yale, Andrew, Saloni Dash, Ritik Dutta, Isabelle Guyon, Adrien Pavao,
+        and Kristin P. Bennett. "Generation and Evaluation of Privacy
+        Preserving Synthetic Health Data." Neurocomputing 416 (2020):
+        244-255. https://doi.org/10.1016/j.neucom.2019.12.136
+
     NNAAR measures whether the synthetic data sits closer to the real training
     data than to held-out test data, which would indicate memorization::
 
