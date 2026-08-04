@@ -62,7 +62,7 @@ References:
     Series For Health. https://openreview.net/forum?id=IsHy2ebjIG
 """
 
-from typing import Any, ClassVar, Dict, List, Optional, Tuple
+from typing import Any, ClassVar
 
 import polars as pl
 
@@ -131,14 +131,14 @@ class InHospitalMortalityMEDS(BaseTask):
     """
 
     task_name: str = "InHospitalMortalityMEDS"
-    input_schema: ClassVar[Dict[str, str]] = {"codes": "sequence"}
-    output_schema: ClassVar[Dict[str, str]] = {"mortality": "binary"}
+    input_schema: ClassVar[dict[str, str]] = {"codes": "sequence"}
+    output_schema: ClassVar[dict[str, str]] = {"mortality": "binary"}
 
     def __init__(
         self,
         observation_window: str = _FULL_STAY,
         window_hours: float = 48.0,
-        code_mapping: Optional[Dict[str, Tuple[str, str]]] = None,
+        code_mapping: dict[str, tuple[str, str]] | None = None,
     ) -> None:
         if observation_window not in _VALID_WINDOWS:
             raise ValueError(
@@ -190,7 +190,7 @@ class InHospitalMortalityMEDS(BaseTask):
         )
         return admissions.join(discharges, on="_hadm", how="inner")
 
-    def __call__(self, patient: Any) -> List[Dict[str, Any]]:
+    def __call__(self, patient: Any) -> list[dict[str, Any]]:
         events = patient.get_events(event_type="meds", return_df=True)
         if events.height == 0:
             return []
@@ -208,7 +208,7 @@ class InHospitalMortalityMEDS(BaseTask):
         if stays.height == 0:
             return []
 
-        samples: List[Dict[str, Any]] = []
+        samples: list[dict[str, Any]] = []
         for stay in stays.sort("admit").iter_rows(named=True):
             admit, discharge = stay["admit"], stay["discharge"]
             if discharge <= admit:

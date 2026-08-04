@@ -27,7 +27,7 @@ MEDS spec: https://github.com/Medical-Event-Data-Standard/meds
 
 import logging
 from pathlib import Path
-from typing import List, Literal, Optional
+from typing import Literal
 
 import dask.dataframe as dd
 import pandas as pd
@@ -127,11 +127,11 @@ class MEDSDataset(BaseDataset):
     def __init__(
         self,
         root: str,
-        tables: Optional[List[str]] = None,
+        tables: list[str] | None = None,
         subset: str = "all",
         split_source: SplitSource = "metadata",
-        dataset_name: Optional[str] = None,
-        config_path: Optional[str] = None,
+        dataset_name: str | None = None,
+        config_path: str | None = None,
         **kwargs,
     ) -> None:
         if subset not in (*MEDS_SPLITS, "all"):
@@ -147,7 +147,7 @@ class MEDSDataset(BaseDataset):
         # constructor) reads them.
         self.subset = subset
         self.split_source = split_source
-        self._subset_patient_ids_cache: Optional[List[str]] = None
+        self._subset_patient_ids_cache: list[str] | None = None
 
         if config_path is None:
             logger.info("No config path provided, using default MEDS config")
@@ -192,7 +192,7 @@ class MEDSDataset(BaseDataset):
     # Split handling (canonical split as events + optional subset filter)
     # ------------------------------------------------------------------
 
-    def _subset_patient_ids(self) -> Optional[List[str]]:
+    def _subset_patient_ids(self) -> list[str] | None:
         """Patient IDs belonging to ``self.subset``; ``None`` for ``"all"``.
 
         * ``split_source="metadata"``: read the canonical mapping file. One
