@@ -28,12 +28,9 @@ def parse_args():
     p.add_argument(
         "--task",
         type=str,
-        choices=["clinical_notes_icd_labs", "notes_labs"],
+        choices=["notes_labs"],
         default="notes_labs",
-        help=(
-            "Task to profile. 'notes_labs' (default) uses admission-context "
-            "text sections; 'clinical_notes_icd_labs' profiles the legacy task."
-        ),
+        help="Task to profile. 'notes_labs' uses admission-context text sections.",
     )
     p.add_argument(
         "--icd-codes",
@@ -50,25 +47,17 @@ def main():
     os.environ.setdefault("PYHEALTH_DISABLE_DASK_DISTRIBUTED", "1")
 
     from pyhealth.datasets import MIMIC4Dataset
-    from pyhealth.tasks.multimodal_mimic4 import (
-        ClinicalNotesICDLabsMIMIC4,
-        NotesLabsMIMIC4,
-    )
+    from pyhealth.tasks.multimodal_mimic4 import NotesLabsMIMIC4
 
     print("Building dataset (uses cache if available)...")
 
-    if args.task == "clinical_notes_icd_labs":
-        ehr_tables = ["diagnoses_icd", "procedures_icd", "labevents"]
-        note_tables = ["discharge", "radiology"]
-        task = ClinicalNotesICDLabsMIMIC4()
-    else:  # notes_labs
-        ehr_tables = (
-            ["diagnoses_icd", "procedures_icd", "labevents"]
-            if args.icd_codes
-            else ["labevents"]
-        )
-        note_tables = ["discharge"]
-        task = NotesLabsMIMIC4(window_hours=24, include_icd=args.icd_codes)
+    ehr_tables = (
+        ["diagnoses_icd", "procedures_icd", "labevents"]
+        if args.icd_codes
+        else ["labevents"]
+    )
+    note_tables = ["discharge"]
+    task = NotesLabsMIMIC4(window_hours=24, include_icd=args.icd_codes)
 
     kwargs = dict(
         ehr_root=args.ehr_root,
@@ -104,24 +93,15 @@ def main():
             n_samples += 1
 
             # ── notes ────────────────────────────────────────────
-            if args.task == "clinical_notes_icd_labs":
-                disc_texts, _ = s["discharge_note_times"]
-                note_total += len(disc_texts)
-                note_missing += sum(1 for t in disc_texts if t == MISSING_TEXT)
-
-                rad_texts, _ = s["radiology_note_times"]
-                note_total += len(rad_texts)
-                note_missing += sum(1 for t in rad_texts if t == MISSING_TEXT)
-            else:
-                note_texts, _ = s["admission_note_times"]
-                note_total += len(note_texts)
-                for t in note_texts:
-                    if t == MISSING_TEXT:
-                        note_missing += 1
-                    elif len(t) <= 1024 and t == t[:1024]:
-                        # Heuristic: if the note is exactly 1024 chars, it likely
-                        # came from the fallback raw-note path (no sections found).
-                        note_empty_extracted += 1
+            note_texts, _ = s["admission_note_times"]
+            note_total += len(note_texts)
+            for t in note_texts:
+                if t == MISSING_TEXT:
+                    note_missing += 1
+                elif len(t) <= 1024 and t == t[:1024]:
+                    # Heuristic: if the note is exactly 1024 chars, it likely
+                    # came from the fallback raw-note path (no sections found).
+                    note_empty_extracted += 1
 
             # ── ICD codes ────────────────────────────────────────
             if "icd_codes" in s:
@@ -152,21 +132,17 @@ def main():
     print(f"  Patients processed : {n_patients:>8,}")
     print(f"  Samples (patients) : {n_samples:>8,}")
 
-    if args.task == "clinical_notes_icd_labs":
-        print("\n── Notes (discharge + radiology) ───────────────────────────")
-    else:
-        print("\n── Admission-context notes ─────────────────────────────────")
+    print("\n── Admission-context notes ─────────────────────────────────")
     print(f"  Total note tokens      : {note_total:>8,}")
     print(f"  Missing (empty str)    : {note_missing:>8,}  ({pct(note_missing, note_total):.1f}%)")
-    if args.task == "notes_labs":
-        print(
-            f"  Fallback (raw prefix)  : {note_empty_extracted:>8,}  "
-            f"({pct(note_empty_extracted, note_total):.1f}%)"
-        )
-        print(
-            f"  Effective coverage     : {note_total - note_missing:>8,}  "
-            f"({pct(note_total - note_missing, note_total):.1f}%)"
-        )
+    print(
+        f"  Fallback (raw prefix)  : {note_empty_extracted:>8,}  "
+        f"({pct(note_empty_extracted, note_total):.1f}%)"
+    )
+    print(
+        f"  Effective coverage     : {note_total - note_missing:>8,}  "
+        f"({pct(note_total - note_missing, note_total):.1f}%)"
+    )
 
     if "icd_codes" in s:
         print("\n── ICD Codes ────────────────────────────────────────────────")

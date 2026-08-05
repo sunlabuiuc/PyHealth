@@ -22,7 +22,7 @@ Usage:
         --dev --quick-test
 
     python examples/mortality_prediction/multimodal_dataset_stats.py \\
-        --task ClinicalNotesICDLabsCXRMIMIC4 --output-csv /tmp/stats.csv
+        --task CXRMIMIC4 --output-csv /tmp/stats.csv
 """
 
 from __future__ import annotations
@@ -35,17 +35,41 @@ import numpy as np
 
 from pyhealth.datasets import MIMIC4Dataset
 from pyhealth.tasks.multimodal_mimic4 import (
-    ClinicalNotesICDLabsCXRMIMIC4,
-    ClinicalNotesICDLabsMIMIC4,
-    ClinicalNotesMIMIC4,
+    CXRMIMIC4,
     ICDLabsMIMIC4,
+    LabsMIMIC4,
+    NotesLabsMIMIC4,
 )
 
 TASK_MAP = {
-    "ClinicalNotesICDLabsCXRMIMIC4": ClinicalNotesICDLabsCXRMIMIC4,
-    "ClinicalNotesICDLabsMIMIC4": ClinicalNotesICDLabsMIMIC4,
-    "ClinicalNotesMIMIC4": ClinicalNotesMIMIC4,
     "ICDLabsMIMIC4": ICDLabsMIMIC4,
+    "NotesLabsMIMIC4": NotesLabsMIMIC4,
+    "LabsMIMIC4": LabsMIMIC4,
+    "CXRMIMIC4": CXRMIMIC4,
+}
+
+# Per-task data requirements: which EHR tables, notes, and CXR the task reads.
+TASK_REQUIREMENTS = {
+    "ICDLabsMIMIC4": {
+        "ehr_tables": ["diagnoses_icd", "procedures_icd", "labevents"],
+        "notes": False,
+        "cxr": False,
+    },
+    "NotesLabsMIMIC4": {
+        "ehr_tables": ["labevents"],
+        "notes": True,
+        "cxr": False,
+    },
+    "LabsMIMIC4": {
+        "ehr_tables": ["labevents"],
+        "notes": False,
+        "cxr": False,
+    },
+    "CXRMIMIC4": {
+        "ehr_tables": [],
+        "notes": False,
+        "cxr": True,
+    },
 }
 
 # bert-base-uncased encodes "[MISSING_TEXT]" to ~7 tokens with padding.
@@ -121,7 +145,7 @@ def audit_sample(
     """Audit one processed SampleDataset sample dict."""
     row: Dict[str, Any] = {}
 
-    for note_key in ("discharge_note_times", "radiology_note_times"):
+    for note_key in ("discharge_note_times", "radiology_note_times", "admission_note_times"):
         if note_key not in sample:
             continue
         miss, n_notes, seen_tok = _note_stats(
@@ -152,7 +176,7 @@ def audit_sample(
 
     note_tok = sum(
         row.get(f"{k}__seen_tokens", 0)
-        for k in ("discharge_note_times", "radiology_note_times")
+        for k in ("discharge_note_times", "radiology_note_times", "admission_note_times")
     )
     row["total_tokens"] = (
         note_tok
@@ -192,6 +216,7 @@ def print_report(rows: List[Dict], args: argparse.Namespace) -> None:
     for note_key, label in [
         ("discharge_note_times", "discharge notes"),
         ("radiology_note_times", "radiology notes"),
+        ("admission_note_times", "admission notes"),
     ]:
         miss = _arr(f"{note_key}__missing")
         if len(miss):
@@ -231,6 +256,7 @@ def print_report(rows: List[Dict], args: argparse.Namespace) -> None:
     for note_key, label in [
         ("discharge_note_times", "  discharge"),
         ("radiology_note_times", "  radiology"),
+        ("admission_note_times", "  admission"),
     ]:
         seen = _arr(f"{note_key}__seen_tokens")
         if len(seen) == 0:
@@ -256,23 +282,11 @@ def print_report(rows: List[Dict], args: argparse.Namespace) -> None:
 
 def run(args: argparse.Namespace) -> None:
     task_cls = TASK_MAP[args.task]
-    needs_notes = args.task in (
-        "ClinicalNotesMIMIC4",
-        "ClinicalNotesICDLabsMIMIC4",
-        "ClinicalNotesICDLabsCXRMIMIC4",
-    )
-    needs_cxr = args.task == "ClinicalNotesICDLabsCXRMIMIC4"
-    needs_icd = args.task in (
-        "ClinicalNotesICDLabsMIMIC4",
-        "ICDLabsMIMIC4",
-        "ClinicalNotesICDLabsCXRMIMIC4",
-    )
+    reqs = TASK_REQUIREMENTS[args.task]
+    needs_notes = reqs["notes"]
+    needs_cxr = reqs["cxr"]
 
-    ehr_tables = (
-        ["diagnoses_icd", "procedures_icd", "labevents"]
-        if needs_icd
-        else []
-    )
+    ehr_tables = reqs["ehr_tables"]
     note_tables = ["discharge", "radiology"] if needs_notes else []
     cxr_tables = (
         ["metadata", "negbio", "chexpert", "split"] if needs_cxr else []
@@ -366,7 +380,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--task",
         type=str,
-        default="ClinicalNotesICDLabsCXRMIMIC4",
+        default="NotesLabsMIMIC4",
         choices=list(TASK_MAP.keys()),
     )
     parser.add_argument("--observation-window-hours", type=int, default=24)

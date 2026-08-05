@@ -163,6 +163,9 @@ class UnifiedMultimodalEmbeddingModel(nn.Module, BaseEmbeddingModel):
             PatchEmbedding. Defaults to 224.
         image_channels: Number of input channels for IMAGE fields. Defaults to 3.
         patch_size: Patch size for IMAGE PatchEmbedding encoder. Defaults to 16.
+        image_pool: Pooling strategy applied to IMAGE patch tokens to produce
+            one vector per image event. Only ``"mean"`` (global mean pooling)
+            is currently implemented. Defaults to ``"mean"``.
         field_embeddings: Optional mapping of field names to pre-built unimodal
             embedding models.  Supported types:
 
@@ -205,12 +208,18 @@ class UnifiedMultimodalEmbeddingModel(nn.Module, BaseEmbeddingModel):
         image_size: int = 224,
         image_channels: int = 3,
         patch_size: int = 16,
+        image_pool: str = "mean",
         field_embeddings: Optional[dict[str, Any]] = None,
         freeze_text_encoder: bool = False,
     ):
         super().__init__()
+        if image_pool != "mean":
+            raise NotImplementedError(
+                f"Only image_pool='mean' is implemented, got {image_pool!r}."
+            )
         self._embedding_dim = embedding_dim
         self._freeze_text_encoder = freeze_text_encoder
+        self.image_pool = image_pool
         _field_embeddings = field_embeddings or {}
 
         self.encoders: nn.ModuleDict = nn.ModuleDict()
@@ -252,6 +261,7 @@ class UnifiedMultimodalEmbeddingModel(nn.Module, BaseEmbeddingModel):
                     image_size,
                     image_channels,
                     patch_size,
+                    image_pool,
                 )
 
             elif m in (ModalityType.NUMERIC, ModalityType.SIGNAL):
@@ -369,8 +379,12 @@ class UnifiedMultimodalEmbeddingModel(nn.Module, BaseEmbeddingModel):
         image_size: int,
         image_channels: int,
         patch_size: int,
+        image_pool: str,
     ) -> nn.Module:
-        """Build IMAGE encoder: backbone + mean pool, optionally from VisionEmbeddingModel."""
+        """Build IMAGE encoder: backbone + pool, optionally from VisionEmbeddingModel."""
+        pool_layers: dict[str, nn.Module] = {"mean": _MeanPool()}
+        pool_layer = pool_layers[image_pool]
+
         if (
             pre_built is not None
             and hasattr(pre_built, "embedding_layers")
@@ -380,15 +394,15 @@ class UnifiedMultimodalEmbeddingModel(nn.Module, BaseEmbeddingModel):
             pre_dim = getattr(pre_built, "embedding_dim", embedding_dim)
             if pre_dim != embedding_dim:
                 return nn.Sequential(
-                    backbone, _MeanPool(), nn.Linear(pre_dim, embedding_dim)
+                    backbone, pool_layer, nn.Linear(pre_dim, embedding_dim)
                 )
-            return nn.Sequential(backbone, _MeanPool())
+            return nn.Sequential(backbone, pool_layer)
 
         _image_size = getattr(processor, "image_size", image_size)
         _in_channels = getattr(processor, "in_channels", image_channels)
         return nn.Sequential(
             PatchEmbedding(_image_size, patch_size, _in_channels, embedding_dim),
-            _MeanPool(),
+            pool_layer,
         )
 
     def _build_numeric_encoder(

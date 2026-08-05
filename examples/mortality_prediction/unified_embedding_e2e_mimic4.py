@@ -14,10 +14,6 @@ Tasks
     ICDLabsMIMIC4: ICD codes + 10-dim lab vectors via the unified
     multimodal pipeline.  No notes required.
 
---task clinical_notes_icd_labs
-    ClinicalNotesICDLabsMIMIC4: discharge/radiology notes + ICD + labs.
-    Requires --note-root.  Legacy; ICD codes are discharge-coded (leakage).
-
 --task notes_labs (recommended for multimodal)
     NotesLabsMIMIC4: admission-context note sections + labs, no ICD codes.
     Extracts Chief Complaint, HPI, PMH, Medications on Admission from the
@@ -43,13 +39,13 @@ Example
     # EHRMamba on full dataset (no --dev):
     python examples/mortality_prediction/unified_embedding_e2e_mimic4.py \\
       --ehr-root /data/mimic-iv/2.2 --note-root /data/mimic-iv/note \\
-      --task clinical_notes_icd_labs --model ehrmamba \\
+      --task notes_labs --model ehrmamba \\
       --embedding-dim 128 --num-layers 2 --seed 42
 
     # JambaEHR:
     python examples/mortality_prediction/unified_embedding_e2e_mimic4.py \\
       --ehr-root /data/mimic-iv/2.2 --note-root /data/mimic-iv/note \\
-      --task clinical_notes_icd_labs --model jambaehr \\
+      --task notes_labs --model jambaehr \\
       --embedding-dim 128 --jamba-transformer-layers 2 --jamba-mamba-layers 6
 """
 
@@ -76,7 +72,6 @@ from pyhealth.models.ehrmamba import EHRMamba
 from pyhealth.models.jamba_ehr import JambaEHR
 from pyhealth.tasks import MortalityPredictionStageNetMIMIC4
 from pyhealth.tasks.multimodal_mimic4 import (
-    ClinicalNotesICDLabsMIMIC4,
     ICDLabsMIMIC4,
     LabsMIMIC4,
     NotesLabsMIMIC4,
@@ -88,11 +83,6 @@ from pyhealth.utils import set_seed
 def _build_base_dataset(args: argparse.Namespace) -> MIMIC4Dataset:
     ehr_tables = ["diagnoses_icd", "procedures_icd", "labevents"]
     note_tables = None
-
-    if args.task == "clinical_notes_icd_labs":
-        if not args.note_root:
-            raise ValueError("--task clinical_notes_icd_labs requires --note-root.")
-        note_tables = ["discharge", "radiology"]
 
     if args.task == "notes_labs":
         if not args.note_root:
@@ -122,8 +112,6 @@ def _build_task(args: argparse.Namespace):
         return MortalityPredictionStageNetMIMIC4()
     if args.task == "icd_labs":
         return ICDLabsMIMIC4(window_hours=args.observation_window_hours)
-    if args.task == "clinical_notes_icd_labs":
-        return ClinicalNotesICDLabsMIMIC4(window_hours=args.observation_window_hours)
     if args.task == "notes_labs":
         return NotesLabsMIMIC4(
             window_hours=args.observation_window_hours,
@@ -415,7 +403,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--task",
         type=str,
-        choices=["stagenet", "icd_labs", "clinical_notes_icd_labs", "labs", "notes_labs"],
+        choices=["stagenet", "icd_labs", "labs", "notes_labs"],
         default="stagenet",
         help=(
             "notes_labs: admission-context text (CC/HPI/PMH/MedsOnAdm) + labs. "

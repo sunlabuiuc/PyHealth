@@ -217,12 +217,14 @@ class Trainer:
         patience_counter = 0
         metrics_history: List[Dict] = []
         train_start = time.perf_counter()
+        total_skipped_steps = 0
 
         # epoch training loop
         epoch_iterator = tqdm(range(epochs), desc="Epochs", unit="epoch")
         for epoch in epoch_iterator:
             epoch_iterator.set_postfix_str(f"{epoch + 1}/{epochs}", refresh=False)
             training_loss = []
+            epoch_skipped_steps = 0
             self.model.zero_grad()
             self.model.train()
             if torch.cuda.is_available() and str(self.device).startswith("cuda"):
@@ -261,16 +263,30 @@ class Trainer:
                     or (step_idx + 1) == steps_per_epoch
                 )
                 if is_update_step:
-                    if max_grad_norm is not None:
-                        if scaler is not None:
-                            scaler.unscale_(optimizer)
-                        torch.nn.utils.clip_grad_norm_(
-                            self.model.parameters(), max_grad_norm
+                    if scaler is not None:
+                        scaler.unscale_(optimizer)
+                    # Always compute the grad norm (even with no clipping
+                    # configured) so non-finite gradients can be detected and
+                    # skipped before they permanently poison the model with
+                    # NaN weights.
+                    grad_norm = torch.nn.utils.clip_grad_norm_(
+                        self.model.parameters(),
+                        max_grad_norm if max_grad_norm is not None else float("inf"),
+                    )
+                    step_ok = bool(torch.isfinite(grad_norm))
+                    if not step_ok:
+                        epoch_skipped_steps += 1
+                        total_skipped_steps += 1
+                        logger.warning(
+                            f"epoch-{epoch} step-{global_step}: non-finite "
+                            f"gradient norm ({grad_norm}); skipping optimizer "
+                            f"step."
                         )
                     if scaler is not None:
-                        scaler.step(optimizer)
+                        if step_ok:
+                            scaler.step(optimizer)
                         scaler.update()
-                    else:
+                    elif step_ok:
                         optimizer.step()
                     optimizer.zero_grad()
                     global_step += 1
@@ -297,6 +313,12 @@ class Trainer:
                     f"vram_peak: {vram['vram_peak_mb']:.1f} MB  "
                     f"vram_current: {vram['vram_allocated_mb']:.1f} MB"
                 )
+            if epoch_skipped_steps > 0:
+                logger.warning(
+                    f"Skipped {epoch_skipped_steps} optimizer step(s) this "
+                    f"epoch due to non-finite gradients (total so far: "
+                    f"{total_skipped_steps})."
+                )
             if self.exp_path is not None:
                 self.save_ckpt(os.path.join(self.exp_path, "last.ckpt"))
 
@@ -305,6 +327,7 @@ class Trainer:
                 "global_step": global_step,
                 "train_loss": sum(training_loss) / len(training_loss),
                 "epoch_time_s": round(epoch_time, 3),
+                "skipped_steps": epoch_skipped_steps,
                 **{f"train_{k}": v for k, v in vram.items()},
             }
 

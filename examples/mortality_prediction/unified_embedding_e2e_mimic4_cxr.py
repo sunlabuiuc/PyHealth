@@ -2,15 +2,15 @@
 
 Trains and evaluates a unified-embedding model (MLP / RNN / Transformer /
 BottleneckTransformer / EHRMamba / JambaEHR) on MIMIC-IV mortality using
-clinical notes, ICD codes, lab values, and chest X-rays.
+chest X-rays only (CXRMIMIC4, the imaging-only ablation baseline), or on
+the ICD + labs stagenet baseline for comparison.
 
 Example
 -------
     python examples/mortality_prediction/unified_embedding_e2e_mimic4_cxr.py \\
       --ehr-root /shared/rsaas/physionet.org/files/mimiciv/2.2 \\
-      --note-root /shared/rsaas/physionet.org/files/mimic-note \\
       --cxr-root /shared/rsaas/physionet.org/files/MIMIC-CXR \\
-      --task clinical_notes_icd_labs_cxr \\
+      --task cxr \\
       --model ehrmamba --num-layers 2 \\
       --epochs 10 --batch-size 8 --device cuda:0
 """
@@ -36,28 +36,22 @@ from pyhealth.models.bottleneck_transformer import BottleneckTransformer
 from pyhealth.models.ehrmamba import EHRMamba
 from pyhealth.models.jamba_ehr import JambaEHR
 from pyhealth.tasks import MortalityPredictionStageNetMIMIC4
-from pyhealth.tasks.multimodal_mimic4 import (
-    ClinicalNotesICDLabsMIMIC4,
-    ClinicalNotesICDLabsCXRMIMIC4,
-)
+from pyhealth.tasks.multimodal_mimic4 import CXRMIMIC4
 from pyhealth.trainer import Trainer
 
 
 def _build_base_dataset(args: argparse.Namespace) -> MIMIC4Dataset:
-    ehr_tables = ["diagnoses_icd", "procedures_icd", "labevents"]
-    note_tables = None
-
-    # Notes required for any task that includes clinical text
-    if args.task in ("clinical_notes_icd_labs", "clinical_notes_icd_labs_cxr"):
-        if not args.note_root:
-            raise ValueError(f"--task {args.task} requires --note-root.")
-        note_tables = ["discharge", "radiology"]
+    ehr_tables = (
+        ["diagnoses_icd", "procedures_icd", "labevents"]
+        if args.task == "stagenet"
+        else []
+    )
 
     # CXR metadata tables only loaded for the CXR task
     cxr_kwargs = {}
-    if args.task == "clinical_notes_icd_labs_cxr":
+    if args.task == "cxr":
         if not args.cxr_root:
-            raise ValueError("--task clinical_notes_icd_labs_cxr requires --cxr-root.")
+            raise ValueError("--task cxr requires --cxr-root.")
         cxr_kwargs = dict(
             cxr_root=args.cxr_root,
             cxr_variant=args.cxr_variant,
@@ -67,8 +61,6 @@ def _build_base_dataset(args: argparse.Namespace) -> MIMIC4Dataset:
     return MIMIC4Dataset(
         ehr_root=args.ehr_root,
         ehr_tables=ehr_tables,
-        note_root=args.note_root if note_tables else None,
-        note_tables=note_tables,
         cache_dir=args.cache_dir,
         dev=args.dev,
         num_workers=args.num_workers,
@@ -79,10 +71,8 @@ def _build_base_dataset(args: argparse.Namespace) -> MIMIC4Dataset:
 def _build_task(args: argparse.Namespace):
     if args.task == "stagenet":
         return MortalityPredictionStageNetMIMIC4()
-    if args.task == "clinical_notes_icd_labs":
-        return ClinicalNotesICDLabsMIMIC4(window_hours=args.observation_window_hours)
-    if args.task == "clinical_notes_icd_labs_cxr":
-        return ClinicalNotesICDLabsCXRMIMIC4(window_hours=args.observation_window_hours)
+    if args.task == "cxr":
+        return CXRMIMIC4(window_hours=args.observation_window_hours)
     raise ValueError(f"Unknown task: {args.task}")
 
 
@@ -276,15 +266,14 @@ def parse_args() -> argparse.Namespace:
         description="Run E2E unified embedding on MIMIC-IV + CXR with any of six backbone models."
     )
     parser.add_argument("--ehr-root", type=str, required=True)
-    parser.add_argument("--note-root", type=str, default=None)
     parser.add_argument("--cxr-root", type=str, default=None)
     parser.add_argument("--cxr-variant", type=str, default="sunlab", choices=["default", "sunlab"])
     parser.add_argument("--cache-dir", type=str, default=None)
     parser.add_argument("--output-dir", type=str, default="./output/unified_e2e_cxr")
 
     parser.add_argument(
-        "--task", type=str, default="clinical_notes_icd_labs_cxr",
-        choices=["stagenet", "clinical_notes_icd_labs", "clinical_notes_icd_labs_cxr"],
+        "--task", type=str, default="cxr",
+        choices=["stagenet", "cxr"],
     )
     parser.add_argument(
         "--model", type=str, default="rnn",

@@ -1,22 +1,19 @@
-from datetime import datetime
-from typing import Any, Dict, List, Optional
 import os
 
 # PyHealth Packages
 from pyhealth.datasets import MIMIC4Dataset
 from pyhealth.tasks.multimodal_mimic4 import (
-    ClinicalNotesMIMIC4,
     ICDLabsMIMIC4,
-    ClinicalNotesICDLabsMIMIC4,
-    ClinicalNotesICDLabsCXRMIMIC4,
+    NotesLabsMIMIC4,
+    LabsMIMIC4,
+    CXRMIMIC4,
 )
-from pyhealth.tasks.base_task import BaseTask
 
 # Load MIMIC4 Files
 # There's probably better ways dealing with this on the cluster, but working locally for now
 # (see: https://github.com/sunlabuiuc/PyHealth/blob/master/examples/mortality_prediction/multimodal_mimic4_minimal.py)
 
-TASK = "ClinicalNotesICDLabsMIMIC4"  # Options: ClinicalNotesMIMIC4, ICDLabsMIMIC4, ClinicalNotesICDLabsMIMIC4, ClinicalNotesICDLabsCXRMIMIC4  # The idea here is that we want additive tasks so we can evaluate the value in adding more modalities
+TASK = "NotesLabsMIMIC4"  # Options: ICDLabsMIMIC4, NotesLabsMIMIC4, LabsMIMIC4, CXRMIMIC4  # Each task isolates a different modality subset so we can evaluate the value of adding more modalities
 DEV_MODE = True
 ENVIRONMENT = "CampusCluster"  # Either 'Local' or 'CampusCluster' or "SunLabCluster"
 NETID = "wp14" # For personal cache
@@ -54,33 +51,7 @@ elif ENVIRONMENT == "SunLabCluster":
 
 if __name__ == "__main__":
 
-    if (
-        TASK == "ClinicalNotesMIMIC4"
-    ):  # A bit janky setup at the moment and open to iteration, but conveys the point for now
-        dataset = MIMIC4Dataset(
-            ehr_root=ehr_root,
-            note_root=note_root,
-            ehr_tables=[
-                "diagnoses_icd",
-                "procedures_icd",
-                "prescriptions",
-                "labevents",
-            ],
-            note_tables=["discharge", "radiology"],
-            cache_dir=cache_dir,
-            num_workers=8,
-            dev=DEV_MODE,
-        )
-
-        # Apply multimodal task
-        task = ClinicalNotesMIMIC4()
-        samples = dataset.set_task(task)
-
-        # Get and print sample
-        sample = samples[0]
-        print(sample)
-
-    elif TASK == "ICDLabsMIMIC4":
+    if TASK == "ICDLabsMIMIC4":
         dataset = MIMIC4Dataset(
             ehr_root=ehr_root,
             ehr_tables=[
@@ -102,7 +73,7 @@ if __name__ == "__main__":
         sample = samples[0]
         print(sample)
 
-    elif TASK == "ClinicalNotesICDLabsMIMIC4":
+    elif TASK == "NotesLabsMIMIC4":
         dataset = MIMIC4Dataset(
             ehr_root=ehr_root,
             note_root=note_root,
@@ -119,26 +90,35 @@ if __name__ == "__main__":
         )
 
         # Apply multimodal task
-        task = ClinicalNotesICDLabsMIMIC4()
+        task = NotesLabsMIMIC4()
         samples = dataset.set_task(task)
 
         # Get and print sample
         sample = samples[0]
         print(sample)
 
-    elif TASK == "ClinicalNotesICDLabsCXRMIMIC4":
+    elif TASK == "LabsMIMIC4":
         dataset = MIMIC4Dataset(
             ehr_root=ehr_root,
-            note_root=note_root,
+            ehr_tables=["labevents"],
+            cache_dir=cache_dir,
+            num_workers=8,
+            dev=DEV_MODE,
+        )
+
+        # Apply multimodal task
+        task = LabsMIMIC4()
+        samples = dataset.set_task(task)
+
+        # Get and print sample
+        sample = samples[0]
+        print(sample)
+
+    elif TASK == "CXRMIMIC4":
+        dataset = MIMIC4Dataset(
+            ehr_root=ehr_root,
             cxr_root=cxr_root,
             cxr_variant="sunlab",
-            ehr_tables=[
-                "diagnoses_icd",
-                "procedures_icd",
-                "prescriptions",
-                "labevents",
-            ],
-            note_tables=["discharge", "radiology"],
             cxr_tables=["metadata", "negbio"],
             cache_dir=cache_dir,
             num_workers=8,
@@ -146,7 +126,7 @@ if __name__ == "__main__":
         )
 
         # Apply multimodal task
-        task = ClinicalNotesICDLabsCXRMIMIC4()
+        task = CXRMIMIC4()
         samples = dataset.set_task(task)
 
         # Get and print sample

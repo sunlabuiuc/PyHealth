@@ -42,15 +42,15 @@ class _DummyPatient:
         return []
 
 
-class TestClinicalNotesICDLabsMIMIC4EdgeCases(unittest.TestCase):
+class TestICDLabsMIMIC4EdgeCases(unittest.TestCase):
     def test_malformed_dischtime_keeps_temporal_fields_non_empty(self):
         from pyhealth.processors.stagenet_processor import (
             StageNetProcessor,
             StageNetTensorProcessor,
         )
-        from pyhealth.tasks.multimodal_mimic4 import ClinicalNotesICDLabsMIMIC4
+        from pyhealth.tasks.multimodal_mimic4 import ICDLabsMIMIC4
 
-        task = ClinicalNotesICDLabsMIMIC4(window_hours=24)
+        task = ICDLabsMIMIC4(window_hours=24)
         samples = task(_DummyPatient())
 
         self.assertEqual(len(samples), 1)

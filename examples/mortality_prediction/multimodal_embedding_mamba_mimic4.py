@@ -33,7 +33,7 @@ from pyhealth.datasets import (
     split_by_sample,
 )
 from pyhealth.models import EHRMamba, UnifiedMultimodalEmbeddingModel
-from pyhealth.tasks import ClinicalNotesICDLabsMIMIC4
+from pyhealth.tasks import NotesLabsMIMIC4
 from pyhealth.trainer import Trainer
 
 
@@ -63,7 +63,9 @@ def run(args: argparse.Namespace) -> Tuple[int, int]:
         dev=args.dev,
         num_workers=args.num_workers,
     )
-    task = ClinicalNotesICDLabsMIMIC4(window_hours=args.observation_window_hours)
+    task = NotesLabsMIMIC4(
+        window_hours=args.observation_window_hours, include_icd=True
+    )
     sample_dataset = base_dataset.set_task(task, num_workers=args.num_workers)
 
     if len(sample_dataset) == 0:

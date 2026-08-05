@@ -10,7 +10,7 @@ from __future__ import annotations
 import os
 
 from pyhealth.datasets import MIMIC4Dataset
-from pyhealth.tasks.multimodal_mimic4 import ClinicalNotesICDLabsMIMIC4
+from pyhealth.tasks.multimodal_mimic4 import NotesLabsMIMIC4
 
 
 def main() -> None:
@@ -25,7 +25,7 @@ def main() -> None:
         num_workers=int(os.environ["TABLE2_CACHE_WARM_NUM_WORKERS"]),
     )
     dataset.set_task(
-        ClinicalNotesICDLabsMIMIC4(window_hours=24),
+        NotesLabsMIMIC4(window_hours=24, include_icd=True),
         num_workers=int(os.environ["TABLE2_CACHE_WARM_NUM_WORKERS"]),
     )
 

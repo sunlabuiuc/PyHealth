@@ -7,7 +7,7 @@ import numpy as np
 
 from pyhealth.datasets import MIMIC4Dataset, get_dataloader
 from pyhealth.models import MLP, RNN, UnifiedMultimodalEmbeddingModel
-from pyhealth.tasks import ClinicalNotesICDLabsMIMIC4
+from pyhealth.tasks import ICDLabsMIMIC4
 from pyhealth.trainer import Trainer
 
 
@@ -31,11 +31,11 @@ class TestUnifiedE2EMIMIC4(unittest.TestCase):
                 cache_dir=cls.cache_dir.name,
                 num_workers=1,
             )
-            task = ClinicalNotesICDLabsMIMIC4(window_hours=24)
+            task = ICDLabsMIMIC4()
             cls.sample_dataset = base_dataset.set_task(task, num_workers=1)
             if len(cls.sample_dataset) == 0:
                 raise unittest.SkipTest(
-                    "ClinicalNotesICDLabsMIMIC4 produced no demo samples."
+                    "ICDLabsMIMIC4 produced no demo samples."
                 )
             max_samples = min(16, len(cls.sample_dataset))
             cls.small_dataset = cls.sample_dataset.subset(list(range(max_samples)))
@@ -56,8 +56,6 @@ class TestUnifiedE2EMIMIC4(unittest.TestCase):
         sample = self.sample_dataset[0]
         for key in [
             "patient_id",
-            "discharge_note_times",
-            "radiology_note_times",
             "icd_codes",
             "labs",
             "labs_mask",

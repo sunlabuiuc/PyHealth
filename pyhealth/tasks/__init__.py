@@ -45,12 +45,11 @@ from .mortality_prediction_stagenet_mimic4 import (
     MortalityPredictionStageNetMIMIC4,
 )
 from .multimodal_mimic4 import (
-    ClinicalNotesMIMIC4,
-    ClinicalNotesICDLabsMIMIC4,
-    ClinicalNotesICDLabsCXRMIMIC4,
     ICDLabsMIMIC4,
     LabsMIMIC4,
     NotesLabsMIMIC4,
+    NotesLabsCXRMIMIC4,
+    CXRMIMIC4,
 )
 from .patient_linkage import patient_linkage_mimic3_fn
 from .readmission_prediction import (

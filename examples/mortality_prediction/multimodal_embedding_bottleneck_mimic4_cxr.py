@@ -1,13 +1,12 @@
 """Unified multimodal embedding + BottleneckTransformer runner.
 
-Runs EHR + notes + X-ray (MIMIC-IV + CXR) with ClinicalNotesICDLabsCXRMIMIC4.
+Runs chest X-ray (CXR)-only mortality prediction (MIMIC-IV + CXR) with CXRMIMIC4.
 
-This script runs EHR + notes + X-ray (metadata/negbio) with the
-ClinicalNotesICDLabsCXRMIMIC4 task.
+This script runs chest X-ray (CXR)-only mortality prediction (metadata/negbio)
+with the CXRMIMIC4 task — the imaging-only ablation baseline.
 
 Default roots are set to shared PhysioNet mounts:
 - ehr_root:  /shared/rsaas/physionet.org/files/mimiciv/2.2
-- note_root: /shared/rsaas/physionet.org/files/mimic-note
 - cxr_root:  /shared/rsaas/physionet.org/files/MIMIC-CXR
 
 Quick start:
@@ -39,7 +38,7 @@ from pyhealth.datasets import (
 )
 from pyhealth.models import UnifiedMultimodalEmbeddingModel
 from pyhealth.models.bottleneck_transformer import BottleneckTransformer
-from pyhealth.tasks.multimodal_mimic4 import ClinicalNotesICDLabsCXRMIMIC4
+from pyhealth.tasks.multimodal_mimic4 import CXRMIMIC4
 from pyhealth.trainer import Trainer
 
 
@@ -97,7 +96,6 @@ def run(args: argparse.Namespace) -> Tuple[int, int]:
 
     print("Using dataset roots:")
     print(f"  ehr_root:     {args.ehr_root}")
-    print(f"  note_root:    {args.note_root}")
     print(f"  cxr_root:     {args.cxr_root}")
     print(f"  cxr_variant:  {args.cxr_variant}")
     print(f"  cache_dir:    {args.cache_dir}")
@@ -105,18 +103,16 @@ def run(args: argparse.Namespace) -> Tuple[int, int]:
 
     base_dataset = MIMIC4Dataset(
         ehr_root=args.ehr_root,
-        note_root=args.note_root,
         cxr_root=args.cxr_root,
         cxr_variant=args.cxr_variant,
-        ehr_tables=["diagnoses_icd", "procedures_icd", "labevents"],
-        note_tables=["discharge", "radiology"],
+        ehr_tables=[],
         cxr_tables=["metadata", "negbio", "chexpert", "split"],
         cache_dir=args.cache_dir,
         dev=args.dev,
         num_workers=args.num_workers,
     )
 
-    task = ClinicalNotesICDLabsCXRMIMIC4(
+    task = CXRMIMIC4(
         window_hours=args.observation_window_hours,
     )
     sample_dataset = base_dataset.set_task(task, num_workers=args.num_workers)
@@ -283,11 +279,6 @@ def parse_args() -> argparse.Namespace:
         "--ehr-root",
         type=str,
         default="/shared/rsaas/physionet.org/files/mimiciv/2.2",
-    )
-    parser.add_argument(
-        "--note-root",
-        type=str,
-        default="/shared/rsaas/physionet.org/files/mimic-note",
     )
     parser.add_argument(
         "--cxr-root",
