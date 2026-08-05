@@ -25,6 +25,10 @@ Tasks
     backbone; cuts BERT VRAM by ~50%, useful on smaller GPUs (≤24 GB).
     Add --icd-codes to include discharge-coded ICD codes (ablation only).
 
+--task notes_labs_cxr
+    NotesLabsCXRMIMIC4: same admission-context notes + labs as notes_labs,
+    plus in-window chest X-ray studies. Requires --note-root and --cxr-root.
+
 Example
 -------
     python examples/mortality_prediction/unified_embedding_e2e_mimic4.py \\
@@ -74,6 +78,7 @@ from pyhealth.tasks import MortalityPredictionStageNetMIMIC4
 from pyhealth.tasks.multimodal_mimic4 import (
     ICDLabsMIMIC4,
     LabsMIMIC4,
+    NotesLabsCXRMIMIC4,
     NotesLabsMIMIC4,
 )
 from pyhealth.trainer import Trainer
@@ -83,12 +88,26 @@ from pyhealth.utils import set_seed
 def _build_base_dataset(args: argparse.Namespace) -> MIMIC4Dataset:
     ehr_tables = ["diagnoses_icd", "procedures_icd", "labevents"]
     note_tables = None
+    cxr_kwargs = {}
 
     if args.task == "notes_labs":
         if not args.note_root:
             raise ValueError("--task notes_labs requires --note-root.")
         note_tables = ["discharge", "radiology"]
         ehr_tables = ["diagnoses_icd", "procedures_icd", "labevents"] if args.icd_codes else ["labevents"]
+
+    if args.task == "notes_labs_cxr":
+        if not args.note_root:
+            raise ValueError("--task notes_labs_cxr requires --note-root.")
+        if not args.cxr_root:
+            raise ValueError("--task notes_labs_cxr requires --cxr-root.")
+        note_tables = ["discharge", "radiology"]
+        ehr_tables = ["diagnoses_icd", "procedures_icd", "labevents"] if args.icd_codes else ["labevents"]
+        cxr_kwargs = dict(
+            cxr_root=args.cxr_root,
+            cxr_variant=args.cxr_variant,
+            cxr_tables=["metadata", "negbio", "chexpert", "split"],
+        )
 
     if args.task == "icd_labs":
         ehr_tables = ["diagnoses_icd", "procedures_icd", "labevents"]
@@ -104,6 +123,7 @@ def _build_base_dataset(args: argparse.Namespace) -> MIMIC4Dataset:
         cache_dir=args.cache_dir,
         dev=args.dev if args.dev else False,
         num_workers=args.num_workers,
+        **cxr_kwargs,
     )
 
 
@@ -114,6 +134,12 @@ def _build_task(args: argparse.Namespace):
         return ICDLabsMIMIC4(window_hours=args.observation_window_hours)
     if args.task == "notes_labs":
         return NotesLabsMIMIC4(
+            window_hours=args.observation_window_hours,
+            include_icd=args.icd_codes,
+            include_vitals=args.include_vitals,
+        )
+    if args.task == "notes_labs_cxr":
+        return NotesLabsCXRMIMIC4(
             window_hours=args.observation_window_hours,
             include_icd=args.icd_codes,
             include_vitals=args.include_vitals,
@@ -397,17 +423,21 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--ehr-root", type=str, required=True)
     parser.add_argument("--note-root", type=str, default=None)
+    parser.add_argument("--cxr-root", type=str, default=None)
+    parser.add_argument("--cxr-variant", type=str, default="sunlab", choices=["default", "sunlab"])
     parser.add_argument("--cache-dir", type=str, default=None)
     parser.add_argument("--output-dir", type=str, default="./output/unified_e2e")
 
     parser.add_argument(
         "--task",
         type=str,
-        choices=["stagenet", "icd_labs", "labs", "notes_labs"],
+        choices=["stagenet", "icd_labs", "labs", "notes_labs", "notes_labs_cxr"],
         default="stagenet",
         help=(
             "notes_labs: admission-context text (CC/HPI/PMH/MedsOnAdm) + labs. "
-            "No ICD codes (discharge-coded = leakage). Recommended for multimodal."
+            "No ICD codes (discharge-coded = leakage). Recommended for multimodal. "
+            "notes_labs_cxr: notes_labs plus in-window chest X-rays; requires "
+            "--note-root and --cxr-root."
         ),
     )
     parser.add_argument(
