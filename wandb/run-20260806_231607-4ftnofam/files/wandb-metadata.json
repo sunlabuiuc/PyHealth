@@ -1,0 +1,91 @@
+{
+  "os":  "Linux-6.8.0-1046-nvidia-x86_64-with-glibc2.35",
+  "python":  "CPython 3.12.9",
+  "startedAt":  "2026-08-06T23:16:07.776027Z",
+  "args":  [
+    "--ehr-root",
+    "/home/ubuntu/mimiciv-data/ehr",
+    "--note-root",
+    "/home/ubuntu/mimiciv-data",
+    "--cxr-root",
+    "/home/ubuntu/mimiciv-data/cxr-jpg/2.1.0",
+    "--cxr-variant",
+    "default",
+    "--cache-dir",
+    "/home/ubuntu/mimiciv-data/pyhealth_cache_labs_notes_cxr",
+    "--task",
+    "notes_labs_cxr",
+    "--model",
+    "rnn",
+    "--embedding-dim",
+    "128",
+    "--hidden-dim",
+    "128",
+    "--rnn-type",
+    "GRU",
+    "--rnn-layers",
+    "2",
+    "--dropout",
+    "0.1",
+    "--use-amp",
+    "--amp-dtype",
+    "bf16",
+    "--epochs",
+    "50",
+    "--batch-size",
+    "32",
+    "--lr",
+    "0.001",
+    "--weight-decay",
+    "1e-05",
+    "--patience",
+    "5",
+    "--pos-weight",
+    "1",
+    "--num-workers",
+    "4",
+    "--freeze-encoder",
+    "--wandb",
+    "--wandb-project",
+    "pyhealth-multimodal-labs-notes-cxr",
+    "--seed",
+    "12",
+    "--output-dir",
+    "/home/ubuntu/output"
+  ],
+  "program":  "/home/ubuntu/PyHealth/examples/mortality_prediction/unified_embedding_e2e_mimic4.py",
+  "codePath":  "examples/mortality_prediction/unified_embedding_e2e_mimic4.py",
+  "codePathLocal":  "examples/mortality_prediction/unified_embedding_e2e_mimic4.py",
+  "git":  {
+    "remote":  "https://github.com/Multimodal-PyHealth/PyHealth",
+    "commit":  "9b47d014122d1f6c27ec687a866801c1ea7ea87b"
+  },
+  "email":  "williampangbest1@gmail.com",
+  "root":  "/home/ubuntu/PyHealth",
+  "host":  "192-222-54-167",
+  "executable":  "/home/ubuntu/miniconda3/envs/pyhealth2/bin/python",
+  "cpu_count":  13,
+  "cpu_count_logical":  26,
+  "gpu":  "NVIDIA H100 80GB HBM3",
+  "gpu_count":  1,
+  "disk":  {
+    "/":  {
+      "total":  "2930253778944",
+      "used":  "40225591296"
+    }
+  },
+  "memory":  {
+    "total":  "237490831360"
+  },
+  "gpu_nvidia":  [
+    {
+      "name":  "NVIDIA H100 80GB HBM3",
+      "memoryTotal":  "85520809984",
+      "cudaCores":  16896,
+      "architecture":  "Hopper",
+      "uuid":  "GPU-2c339b2b-6e2c-c14e-5d5f-e5423a2fffbd"
+    }
+  ],
+  "cudaVersion":  "13.0",
+  "writerId":  "7lrmqxrt80qtcf4rol5v0b483zdsbnyw"
+}
