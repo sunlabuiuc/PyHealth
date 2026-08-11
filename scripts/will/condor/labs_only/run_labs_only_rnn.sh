@@ -20,7 +20,7 @@ CACHE_DIR="${CACHE_DIR:-/shared/eng/wp14/pyhealth_cache_labs}"
 OUTPUT_DIR="${OUTPUT_DIR:-/home/wp14/output}"
 CONDA_SH="${CONDA_SH:-}"
 
-DEV_MODE="${DEV_MODE:-0}"
+DEV_MODE="${DEV_MODE:-1}"
 EMBEDDING_DIM="${EMBEDDING_DIM:-64}"
 HIDDEN_DIM="${HIDDEN_DIM:-64}"
 RNN_TYPE="${RNN_TYPE:-GRU}"

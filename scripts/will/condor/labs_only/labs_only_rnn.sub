@@ -7,14 +7,14 @@
 #
 # To submit (from the project root):
 #   mkdir -p /home/wp14/logs/condor
-#   condor_submit scripts/will/condor/labs_only_rnn.sub
+#   condor_submit scripts/will/condor/labs_only/labs_only_rnn.sub
 #
 # Monitor:
 #   condor_q
 #   tail -f /home/wp14/logs/condor/labs_only_rnn_<ClusterId>_0.out
 
 initialdir          = /home/wp14/PyHealth
-executable          = /home/wp14/PyHealth/scripts/will/condor/run_labs_only_rnn.sh
+executable          = /home/wp14/PyHealth/scripts/will/condor/labs_only/run_labs_only_rnn.sh
 transfer_executable  = False
 arguments            = $(seed)
 getenv               = True
