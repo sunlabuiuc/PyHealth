@@ -1,5 +1,7 @@
+import json
 import logging
 import os
+import time
 from datetime import datetime
 from typing import Callable, Dict, List, Optional, Type
 
@@ -35,6 +37,15 @@ def set_logger(log_path: str) -> None:
     handler.setFormatter(formatter)
     logger.addHandler(handler)
     return
+
+
+def _vram_stats(device: str) -> Dict[str, float]:
+    """Returns current and peak VRAM usage in MB for a CUDA device."""
+    if not torch.cuda.is_available() or not str(device).startswith("cuda"):
+        return {}
+    allocated = torch.cuda.memory_allocated(device) / 1024**2
+    peak = torch.cuda.max_memory_allocated(device) / 1024**2
+    return {"vram_allocated_mb": allocated, "vram_peak_mb": peak}
 
 
 def get_metrics_fn(mode: str) -> Callable:
@@ -126,6 +137,9 @@ class Trainer:
         monitor_criterion: str = "max",
         load_best_model_at_last: bool = True,
         patience=None,
+        accumulation_steps: int = 1,
+        use_amp: bool = False,
+        amp_dtype: str = "bf16",
     ):
         """Trains the model.
 
@@ -145,9 +159,24 @@ class Trainer:
                 Default is True.
             patience: Number of epochs to wait for improvement before early stopping.
                 Default is None, which means no early stopping.
+            accumulation_steps: Gradient accumulation steps to simulate a larger
+                effective batch size. Default is 1 (no accumulation).
+            use_amp: Whether to use automatic mixed precision. Default is False.
+            amp_dtype: AMP dtype — "bf16" (stable, recommended) or "fp16".
+                Default is "bf16".
         """
         if optimizer_params is None:
             optimizer_params = {"lr": 1e-3}
+
+        _amp_dtype = (
+            torch.bfloat16 if amp_dtype == "bf16" else torch.float16
+        )
+        # GradScaler only needed for fp16; bf16 has fp32 dynamic range
+        scaler = (
+            torch.cuda.amp.GradScaler()
+            if (use_amp and _amp_dtype == torch.float16)
+            else None
+        )
 
         # logging
         logger.info("Training:")
@@ -161,6 +190,8 @@ class Trainer:
         logger.info(f"Monitor criterion: {monitor_criterion}")
         logger.info(f"Epochs: {epochs}")
         logger.info(f"Patience: {patience}")
+        logger.info(f"Accumulation steps: {accumulation_steps}")
+        logger.info(f"AMP: {use_amp} (dtype={amp_dtype})")
 
         # set optimizer
         param = list(self.model.named_parameters())
@@ -184,43 +215,121 @@ class Trainer:
             steps_per_epoch = len(train_dataloader)
         global_step = 0
         patience_counter = 0
+        metrics_history: List[Dict] = []
+        train_start = time.perf_counter()
+        total_skipped_steps = 0
 
         # epoch training loop
-        for epoch in range(epochs):
+        epoch_iterator = tqdm(range(epochs), desc="Epochs", unit="epoch")
+        for epoch in epoch_iterator:
+            epoch_iterator.set_postfix_str(f"{epoch + 1}/{epochs}", refresh=False)
             training_loss = []
+            epoch_skipped_steps = 0
             self.model.zero_grad()
             self.model.train()
+            if torch.cuda.is_available() and str(self.device).startswith("cuda"):
+                torch.cuda.reset_peak_memory_stats(self.device)
+            epoch_start = time.perf_counter()
             # batch training loop
             logger.info("")
-            for _ in trange(
+            for step_idx in trange(
                 steps_per_epoch,
-                desc=f"Epoch {epoch} / {epochs}",
+                desc=f"Epoch {epoch + 1}/{epochs}",
                 smoothing=0.05,
+                leave=False,
             ):
                 try:
                     data = next(data_iterator)
                 except StopIteration:
                     data_iterator = iter(train_dataloader)
                     data = next(data_iterator)
-                # forward
-                output = self.model(**data)
-                loss = output["loss"]
+                # forward (with optional AMP)
+                if use_amp:
+                    with torch.autocast(device_type="cuda", dtype=_amp_dtype):
+                        output = self.model(**data)
+                        loss = output["loss"] / accumulation_steps
+                else:
+                    output = self.model(**data)
+                    loss = output["loss"] / accumulation_steps
                 # backward
-                loss.backward()
-                if max_grad_norm is not None:
-                    torch.nn.utils.clip_grad_norm_(
-                        self.model.parameters(), max_grad_norm
+                if scaler is not None:
+                    scaler.scale(loss).backward()
+                else:
+                    loss.backward()
+                training_loss.append(loss.item() * accumulation_steps)
+                # optimizer step every accumulation_steps batches or epoch end
+                is_update_step = (
+                    (step_idx + 1) % accumulation_steps == 0
+                    or (step_idx + 1) == steps_per_epoch
+                )
+                if is_update_step:
+                    if scaler is not None:
+                        scaler.unscale_(optimizer)
+                    # Always compute the grad norm (even with no clipping
+                    # configured) so non-finite gradients can be detected and
+                    # skipped before they permanently poison the model with
+                    # NaN weights.
+                    grad_norm = torch.nn.utils.clip_grad_norm_(
+                        self.model.parameters(),
+                        max_grad_norm if max_grad_norm is not None else float("inf"),
                     )
-                # update
-                optimizer.step()
-                optimizer.zero_grad()
-                training_loss.append(loss.item())
-                global_step += 1
+                    step_ok = bool(torch.isfinite(grad_norm))
+                    if not step_ok:
+                        epoch_skipped_steps += 1
+                        total_skipped_steps += 1
+                        logger.warning(
+                            f"epoch-{epoch} step-{global_step}: non-finite "
+                            f"gradient norm ({grad_norm}); skipping optimizer "
+                            f"step."
+                        )
+                    if scaler is not None:
+                        if step_ok:
+                            scaler.step(optimizer)
+                        scaler.update()
+                    elif step_ok:
+                        optimizer.step()
+                    optimizer.zero_grad()
+                    global_step += 1
+
+            epoch_time = time.perf_counter() - epoch_start
+            vram = _vram_stats(self.device)
+
+            epochs_done = epoch + 1
+            epochs_left = epochs - epochs_done
+            elapsed_total = time.perf_counter() - train_start
+            avg_epoch_time = elapsed_total / epochs_done
+            eta_s = avg_epoch_time * epochs_left
+            eta_h, eta_rem = divmod(int(eta_s), 3600)
+            eta_m = eta_rem // 60
+            eta_str = f"{eta_h}h{eta_m:02d}m"
+
             # log and save
             logger.info(f"--- Train epoch-{epoch}, step-{global_step} ---")
             logger.info(f"loss: {sum(training_loss) / len(training_loss):.4f}")
+            logger.info(f"epoch_time: {epoch_time:.2f}s  elapsed: {elapsed_total:.0f}s  ETA: {eta_str} ({epochs_done}/{epochs} epochs)")
+            print(f"[ETA] epoch {epochs_done}/{epochs} done in {epoch_time:.0f}s — ETA to finish: {eta_str}", flush=True)
+            if vram:
+                logger.info(
+                    f"vram_peak: {vram['vram_peak_mb']:.1f} MB  "
+                    f"vram_current: {vram['vram_allocated_mb']:.1f} MB"
+                )
+            if epoch_skipped_steps > 0:
+                logger.warning(
+                    f"Skipped {epoch_skipped_steps} optimizer step(s) this "
+                    f"epoch due to non-finite gradients (total so far: "
+                    f"{total_skipped_steps})."
+                )
             if self.exp_path is not None:
                 self.save_ckpt(os.path.join(self.exp_path, "last.ckpt"))
+
+            epoch_record: Dict = {
+                "epoch": epoch,
+                "global_step": global_step,
+                "train_loss": sum(training_loss) / len(training_loss),
+                "epoch_time_s": round(epoch_time, 3),
+                "skipped_steps": epoch_skipped_steps,
+                **{f"train_{k}": v for k, v in vram.items()},
+            }
 
             # validation
             if val_dataloader is not None:
@@ -228,6 +337,7 @@ class Trainer:
                 logger.info(f"--- Eval epoch-{epoch}, step-{global_step} ---")
                 for key in scores.keys():
                     logger.info("{}: {:.4f}".format(key, scores[key]))
+                epoch_record.update({f"val_{k}": v for k, v in scores.items()})
                 # save best model
                 if monitor is not None:
                     score = scores[monitor]
@@ -247,7 +357,20 @@ class Trainer:
                             logger.info(
                                 f"Early stopping at epoch-{epoch}, step-{global_step}"
                             )
+                            metrics_history.append(epoch_record)
                             break
+
+            metrics_history.append(epoch_record)
+
+        total_time = time.perf_counter() - train_start
+        logger.info(f"--- Training complete: {total_time:.2f}s total ---")
+
+        # persist metrics history
+        if self.exp_path is not None:
+            history_path = os.path.join(self.exp_path, "metrics_history.json")
+            with open(history_path, "w") as f:
+                json.dump(metrics_history, f, indent=2)
+            logger.info(f"Metrics history saved to {history_path}")
 
         # load best model
         if load_best_model_at_last and self.exp_path is not None and os.path.isfile(
@@ -262,7 +385,7 @@ class Trainer:
             for key in scores.keys():
                 logger.info("{}: {:.4f}".format(key, scores[key]))
 
-        return
+        return metrics_history
 
     def inference(self, dataloader, additional_outputs=None,
                   return_patient_ids=False) -> Dict[str, float]:

@@ -12,6 +12,7 @@ from torch import nn
 from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
 from pyhealth.models.embedding import EmbeddingModel
+from pyhealth.models.embedding.unified import UnifiedMultimodalEmbeddingModel
 from pyhealth.interpret.api import CheferInterpretable
 
 # VALID_OPERATION_LEVEL = ["visit", "event"]
@@ -54,7 +55,7 @@ class Attention(nn.Module):
             # Use -inf so softmax produces exact zeros on padded positions,
             # avoiding a second masked_fill after softmax (saves one full
             # [B, H, S, S] boolean allocation and an extra copy).
-            pad_mask = (mask == 0)
+            pad_mask = mask == 0
             scores = scores.masked_fill(pad_mask, -1e9)
         p_attn = self.softmax(scores)
         if dropout is not None:
@@ -164,7 +165,7 @@ class MultiHeadedAttention(nn.Module):
             self.attn_map = None
         # 3) "Concat" using a view and apply a final linear.
         x = x.transpose(1, 2).contiguous().view(batch_size, -1, self.h * self.d_k)
-  
+
         return self.output_linear(x)
 
 
@@ -246,7 +247,7 @@ class TransformerBlock(nn.Module):
         """Deprecated compatibility stub; no-op."""
         return None
 
-    def forward(self, x, mask=None, register_hook = False):
+    def forward(self, x, mask=None, register_hook=False):
         """Forward propagation.
 
         Args:
@@ -256,7 +257,12 @@ class TransformerBlock(nn.Module):
         Returns:
             A tensor of shape [batch_size, seq_len, hidden]
         """
-        x = self.input_sublayer(x, lambda _x: self.attention(_x, _x, _x, mask=mask, register_hook=register_hook))
+        x = self.input_sublayer(
+            x,
+            lambda _x: self.attention(
+                _x, _x, _x, mask=mask, register_hook=register_hook
+            ),
+        )
         x = self.output_sublayer(x, lambda _x: self.feed_forward(_x, mask=mask))
         return self.dropout(x)
 
@@ -297,7 +303,10 @@ class TransformerLayer(nn.Module):
         return None
 
     def forward(
-        self, x: torch.Tensor, mask: Optional[torch.Tensor] = None, register_hook: bool = False
+        self,
+        x: torch.Tensor,
+        mask: Optional[torch.Tensor] = None,
+        register_hook: bool = False,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Forward propagation.
 
@@ -328,12 +337,21 @@ class Transformer(BaseModel, CheferInterpretable):
     an independent :class:`TransformerLayer`. The resulting [CLS]-style
     embeddings are concatenated and passed to a classification head.
 
+    When ``unified_embedding`` is supplied the model switches to **unified
+    mode**: all temporal fields are jointly embedded and time-sorted by
+    :class:`UnifiedMultimodalEmbeddingModel`, then processed by a *single*
+    :class:`TransformerLayer` rather than one layer per field.  This allows
+    full cross-modal attention over the interleaved event sequence.
+
     Args:
         dataset (SampleDataset): dataset providing processed inputs.
         embedding_dim (int): shared embedding dimension.
         heads (int): number of attention heads per transformer block.
         dropout (float): dropout rate applied inside transformer blocks.
         num_layers (int): number of transformer blocks per feature stream.
+        unified_embedding (UnifiedMultimodalEmbeddingModel, optional): when
+            provided, the model uses a single backbone over the unified
+            multi-modal sequence instead of per-field transformers.
 
     Examples:
         >>> from pyhealth.datasets import create_sample_dataset, get_dataloader
@@ -377,6 +395,7 @@ class Transformer(BaseModel, CheferInterpretable):
         dropout: float = 0.5,
         num_layers: int = 1,
         max_seq_len: int = 1024,
+        unified_embedding: Optional[UnifiedMultimodalEmbeddingModel] = None,
     ):
         super().__init__(dataset=dataset)
         self.embedding_dim = embedding_dim
@@ -385,6 +404,7 @@ class Transformer(BaseModel, CheferInterpretable):
         self.num_layers = num_layers
         self.max_seq_len = max_seq_len
         self._attention_hooks_enabled = False
+        self._use_unified = unified_embedding is not None
 
         assert (
             len(self.label_keys) == 1
@@ -392,19 +412,28 @@ class Transformer(BaseModel, CheferInterpretable):
         self.label_key = self.label_keys[0]
         self.mode = self.dataset.output_schema[self.label_key]
 
-        self.embedding_model = EmbeddingModel(dataset, embedding_dim)
+        output_size = self.get_output_size()
 
-        self.transformer: nn.ModuleDict = nn.ModuleDict()
-        for feature_key in self.feature_keys:
-            self.transformer[feature_key] = TransformerLayer(
+        if self._use_unified:
+            self.embedding_model = unified_embedding
+            self._unified_backbone = TransformerLayer(
                 feature_size=embedding_dim,
                 heads=heads,
                 dropout=dropout,
                 num_layers=num_layers,
             )
-
-        output_size = self.get_output_size()
-        self.fc = nn.Linear(len(self.feature_keys) * embedding_dim, output_size)
+            self.fc = nn.Linear(embedding_dim, output_size)
+        else:
+            self.embedding_model = EmbeddingModel(dataset, embedding_dim)
+            self.transformer: nn.ModuleDict = nn.ModuleDict()
+            for feature_key in self.feature_keys:
+                self.transformer[feature_key] = TransformerLayer(
+                    feature_size=embedding_dim,
+                    heads=heads,
+                    dropout=dropout,
+                    num_layers=num_layers,
+                )
+            self.fc = nn.Linear(len(self.feature_keys) * embedding_dim, output_size)
 
     def _pool_embedding(self, x: torch.Tensor) -> torch.Tensor:
         """Pool nested embeddings to ``[batch, seq_len, hidden]`` format.
@@ -442,6 +471,61 @@ class Transformer(BaseModel, CheferInterpretable):
         if invalid_rows.any():
             mask[invalid_rows, 0] = True
         return mask.bool()
+
+    def _build_unified_inputs(
+        self, kwargs: Dict[str, Any]
+    ) -> Dict[str, Dict[str, torch.Tensor]]:
+        """Build inputs expected by UnifiedMultimodalEmbeddingModel."""
+
+        inputs: Dict[str, Dict[str, torch.Tensor]] = {}
+        for field_name in self.feature_keys:
+            feature = kwargs[field_name]
+            if isinstance(feature, torch.Tensor):
+                feature = (feature,)
+
+            schema = self.dataset.input_processors[field_name].schema()
+            field_dict: Dict[str, torch.Tensor] = {}
+            if "value" in schema:
+                field_dict["value"] = feature[schema.index("value")].to(self.device)
+            if "time" in schema:
+                field_dict["time"] = feature[schema.index("time")].to(self.device)
+            if "mask" in schema:
+                field_dict["mask"] = feature[schema.index("mask")].to(self.device)
+            inputs[field_name] = field_dict
+
+        return inputs
+
+    def _forward_unified(
+        self,
+        **kwargs: torch.Tensor | tuple[torch.Tensor, ...],
+    ) -> Dict[str, torch.Tensor]:
+        """Forward pass in unified-embedding mode."""
+
+        register_hook = self._attention_hooks_enabled
+        inputs = self._build_unified_inputs(cast(Dict[str, Any], kwargs))
+        out = self.embedding_model(inputs)
+        sequence = cast(torch.Tensor, out["sequence"])
+        event_mask = cast(torch.Tensor, out["mask"]).bool()
+
+        _, patient_emb = self._unified_backbone(sequence, event_mask, register_hook)
+
+        logits = self.fc(patient_emb)
+        y_prob = self.prepare_y_prob(logits)
+
+        results: Dict[str, torch.Tensor] = {
+            "logit": logits,
+            "y_prob": y_prob,
+        }
+
+        if self.label_key in kwargs:
+            y_true = cast(torch.Tensor, kwargs[self.label_key]).to(self.device)
+            loss = self.get_loss_function()(logits, y_true)
+            results["loss"] = loss
+            results["y_true"] = y_true
+
+        if kwargs.get("embed", False):
+            results["embed"] = patient_emb
+        return results
 
     def forward_from_embedding(
         self,
@@ -500,8 +584,7 @@ class Transformer(BaseModel, CheferInterpretable):
 
             if value is None:
                 raise ValueError(
-                    f"Feature '{feature_key}' must contain 'value' "
-                    f"in the schema."
+                    f"Feature '{feature_key}' must contain 'value' " f"in the schema."
                 )
             else:
                 value = value.to(self.device)
@@ -515,9 +598,7 @@ class Transformer(BaseModel, CheferInterpretable):
             else:
                 mask = self._mask_from_embeddings(value).to(self.device)
 
-            _, cls_emb = self.transformer[feature_key](
-                value, mask, register_hook
-            )
+            _, cls_emb = self.transformer[feature_key](value, mask, register_hook)
             patient_emb.append(cls_emb)
 
         patient_emb = torch.cat(patient_emb, dim=1)
@@ -545,6 +626,11 @@ class Transformer(BaseModel, CheferInterpretable):
     ) -> Dict[str, torch.Tensor]:
         """Forward propagation.
 
+        In **unified mode** (when ``unified_embedding`` was supplied at init)
+        the model jointly embeds all temporal fields and processes them with a
+        single transformer backbone.  Otherwise each field is embedded and
+        encoded independently.
+
         Args:
             **kwargs: keyword arguments for the model.
 
@@ -562,6 +648,9 @@ class Transformer(BaseModel, CheferInterpretable):
                 logit: the raw logits before activation.
                 embed: (if embed=True in kwargs) the patient embedding.
         """
+        if self._use_unified:
+            return self._forward_unified(**kwargs)
+
         for feature_key in self.feature_keys:
             feature = kwargs[feature_key]
 
@@ -575,15 +664,16 @@ class Transformer(BaseModel, CheferInterpretable):
 
             if value is None:
                 raise ValueError(
-                    f"Feature '{feature_key}' must contain 'value' "
-                    f"in the schema."
+                    f"Feature '{feature_key}' must contain 'value' " f"in the schema."
                 )
             else:
                 value = value.to(self.device)
 
             if mask is not None:
                 mask = mask.to(self.device)
-                value = self.embedding_model({feature_key: value}, masks={feature_key: mask})[feature_key]
+                value = self.embedding_model(
+                    {feature_key: value}, masks={feature_key: mask}
+                )[feature_key]
             else:
                 value = self.embedding_model({feature_key: value})[feature_key]
 
@@ -591,9 +681,9 @@ class Transformer(BaseModel, CheferInterpretable):
             # Reconstruct tuple with embedded value
             # Note: we need to handle list/tuple conversion carefully
             # feature is a tuple.
-            
+
             # Simple slice reconstruction
-            kwargs[feature_key] = feature[:i] + (value,) + feature[i + 1:]
+            kwargs[feature_key] = feature[:i] + (value,) + feature[i + 1 :]
 
         return self.forward_from_embedding(**kwargs)
 
@@ -621,9 +711,7 @@ class Transformer(BaseModel, CheferInterpretable):
                     cast(TransformerBlock, blk).attention.get_attn_map(),
                     cast(TransformerBlock, blk).attention.get_attn_grad(),
                 )
-                for blk in cast(
-                    TransformerLayer, self.transformer[key]
-                ).transformer
+                for blk in cast(TransformerLayer, self.transformer[key]).transformer
             ]
             for key in self.feature_keys
         }
