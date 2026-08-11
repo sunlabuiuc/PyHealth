@@ -3,7 +3,7 @@ import os
 import pickle
 from abc import ABC
 from pathlib import Path
-from typing import Dict, Iterator, Iterable, List, Optional, Any, Callable
+from typing import Dict, Iterator, Iterable, List, Optional, Any, Callable, Union
 import functools
 import operator
 from urllib.parse import urlparse, urlunparse
@@ -84,7 +84,13 @@ def path_exists(path: str) -> bool:
         except requests.RequestException:
             return False
     else:
-        return Path(path).exists()
+        try:
+            return Path(path).exists()
+        except OSError:
+            # Treat unreadable paths (e.g. stale/corrupted filesystem
+            # entries that raise I/O errors on stat) as non-existent so
+            # callers can fall back to an alternate extension.
+            return False
 
 
 def _csv_tsv_gz_path(path: str) -> str:
@@ -314,16 +320,7 @@ class BaseDataset(ABC):
         dataset_name (str): Name of the dataset.
         config (dict): Configuration loaded from a YAML file.
         global_event_df (pl.LazyFrame): The global event data frame.
-        dev (bool): Whether to enable dev mode (limit to 1000 patients).
-
-    Examples:
-        >>> from pyhealth.datasets import BaseDataset
-        >>> dataset = BaseDataset(
-        ...     root="/path/to/source",
-        ...     tables=["patients", "diagnoses"],
-        ...     config_path="/path/to/config.yaml",
-        ... )
-        >>> dataset.stats()
+        dev (Union[bool, int]): Whether to enable dev mode. If True, limit to 1000 patients. If an int, limit to that many patients.
     """
 
     def __init__(
@@ -334,7 +331,7 @@ class BaseDataset(ABC):
         config_path: Optional[str] = None,
         cache_dir: str | Path | None = None,
         num_workers: int = 1,
-        dev: bool = False,
+        dev: Union[bool, int] = False,
     ):
         """Initializes the BaseDataset.
 
@@ -351,7 +348,7 @@ class BaseDataset(ABC):
                 - **str** or **Path**: Used as the root cache directory path. A UUID
                   is appended to the provided path to capture dataset configuration.
             num_workers (int): Number of worker processes for parallel operations.
-            dev (bool): Whether to run in dev mode (limits to 1000 patients).
+            dev (Union[bool, int]): Whether to run in dev mode. If True, limits to 1000 patients. If an int, limits to that many patients.
         """
         if len(set(tables)) != len(tables):
             logger.warning("Duplicate table names in tables list. Removing duplicates.")
@@ -434,68 +431,6 @@ class BaseDataset(ABC):
         if tmp_dir.exists():
             shutil.rmtree(tmp_dir)
 
-    def _scan_table(self, source_path: str) -> dd.DataFrame:
-        """Routes a table source to the appropriate scanner based on its format.
-
-        Parquet sources (``.parquet``/``.pq`` files, glob patterns targeting
-        such files, or directories of Parquet shards) are handled by
-        :meth:`_scan_parquet`. Any other source falls back to the existing
-        CSV/TSV(.gz) scanner, preserving prior behavior for all datasets.
-
-        Args:
-            source_path (str): Path to the table source.
-
-        Returns:
-            dd.DataFrame: The Dask DataFrame for the table source.
-        """
-        stripped = source_path.rstrip("/")
-        if stripped.endswith((".parquet", ".pq")) or (
-            not is_url(source_path) and Path(source_path).is_dir()
-        ):
-            return self._scan_parquet(source_path)
-        return self._scan_csv_tsv_gz(source_path)
-
-    def _scan_parquet(self, source_path: str) -> dd.DataFrame:
-        """Scans a Parquet source and returns a Dask DataFrame.
-
-        The source may be a single ``.parquet``/``.pq`` file, a glob pattern,
-        or a directory that is scanned recursively — which supports sharded
-        datasets such as MEDS, laid out as ``data/<split>/<shard>.parquet``.
-
-        Unlike :meth:`_scan_csv_tsv_gz`, no all-string schema coercion is
-        applied: Parquet files embed their schema, so source dtypes (native
-        timestamps, numeric columns, nullable strings) are preserved and
-        handled downstream by :meth:`load_table`.
-
-        Args:
-            source_path (str): Path to a Parquet file, directory, or glob.
-
-        Returns:
-            dd.DataFrame: The Dask DataFrame backed by the Parquet source.
-
-        Raises:
-            FileNotFoundError: If the source path does not exist, or if a
-                directory source contains no Parquet files.
-        """
-        path = Path(source_path)
-        is_glob = any(ch in source_path for ch in "*?[")
-        if not is_glob:
-            if not path.exists():
-                raise FileNotFoundError(
-                    f"Parquet source does not exist: {source_path}"
-                )
-            if path.is_dir() and not any(
-                itertools.chain(path.rglob("*.parquet"), path.rglob("*.pq"))
-            ):
-                raise FileNotFoundError(
-                    f"Directory contains no Parquet files: {source_path}"
-                )
-        return dd.read_parquet(
-            source_path,
-            split_row_groups=True,  # type: ignore
-            blocksize="64MB",
-        )
-
     def _scan_csv_tsv_gz(self, source_path: str) -> dd.DataFrame:
         """Scans a CSV/TSV file (possibly gzipped) and returns a Dask DataFrame.
 
@@ -571,30 +506,52 @@ class BaseDataset(ABC):
         compute_ok = False
         try:
             df = self.load_data()
-            with DaskCluster(
-                n_workers=self.num_workers,
-                threads_per_worker=1,
-                processes=not in_notebook(),
-                # Use cache_dir for Dask's scratch space to avoid filling up /tmp or home directory
-                local_directory=str(self.create_tmpdir()),
-            ) as cluster:
-                with DaskClient(cluster) as client:
-                    if self.dev:
-                        logger.info("Dev mode enabled: limiting to 1000 patients")
-                        patients = df["patient_id"].unique().head(1000).tolist()
-                        filter = df["patient_id"].isin(patients)
-                        df = df[filter]
+            disable_distributed = os.environ.get(
+                "PYHEALTH_DISABLE_DASK_DISTRIBUTED", "0"
+            ) == "1"
 
-                    logger.info(f"Caching event dataframe to {output_dir}...")
-                    collection = df.sort_values("patient_id").to_parquet(
-                        output_dir,
-                        write_index=False,
-                        compute=False,
-                    )
-                    handle = client.compute(collection)
-                    dask_progress(handle)
-                    handle.result()  # type: ignore
-                    compute_ok = True  # Data is fully written to disk
+            if disable_distributed:
+                logger.info(
+                    "PYHEALTH_DISABLE_DASK_DISTRIBUTED=1 detected; using local dask scheduler."
+                )
+                if self.dev:
+                    n = 1000 if self.dev is True else int(self.dev)
+                    logger.info(f"Dev mode enabled: limiting to {n} patients")
+                    patients = df["patient_id"].unique().head(n, compute=True).tolist()
+                    patient_filter = df["patient_id"].isin(patients)
+                    df = df[patient_filter]
+
+                logger.info(f"Caching event dataframe to {output_dir}...")
+                df.sort_values("patient_id").to_parquet(
+                    output_dir,
+                    write_index=False,
+                    compute=True,
+                )
+            else:
+                with DaskCluster(
+                    n_workers=self.num_workers,
+                    threads_per_worker=1,
+                    processes=not in_notebook(),
+                    # Use cache_dir for Dask's scratch space to avoid filling up /tmp or home directory
+                    local_directory=str(self.create_tmpdir()),
+                ) as cluster:
+                    with DaskClient(cluster) as client:
+                        if self.dev:
+                            logger.info(f"Dev mode enabled: limiting to {1000 if self.dev is True else int(self.dev)} patients")
+                            patients = df["patient_id"].unique().head(1000 if self.dev is True else int(self.dev)).tolist()
+                            filter = df["patient_id"].isin(patients)
+                            df = df[filter]
+
+                        logger.info(f"Caching event dataframe to {output_dir}...")
+                        collection = df.sort_values("patient_id").to_parquet(
+                            output_dir,
+                            write_index=False,
+                            compute=False,
+                        )
+                        handle = client.compute(collection)
+                        dask_progress(handle)
+                        handle.result()  # type: ignore
+                        compute_ok = True  # Data is fully written to disk
         except TimeoutError:
             if compute_ok:
                 # Cluster shutdown timed out after successful compute — data is intact
@@ -667,8 +624,7 @@ class BaseDataset(ABC):
 
         Raises:
             ValueError: If the table is not found in the config.
-            FileNotFoundError: If the source file (CSV/TSV or Parquet) for the
-                table or join is not found.
+            FileNotFoundError: If the CSV file for the table or join is not found.
         """
         assert self.config is not None, "Config must be provided to load tables"
 
@@ -680,7 +636,7 @@ class BaseDataset(ABC):
         csv_path = clean_path(csv_path)
 
         logger.info(f"Scanning table: {table_name} from {csv_path}")
-        df = self._scan_table(csv_path)
+        df = self._scan_csv_tsv_gz(csv_path)
 
         # Convert column names to lowercase before calling preprocess_func
         df = df.rename(columns=str.lower)
@@ -699,7 +655,7 @@ class BaseDataset(ABC):
             other_csv_path = f"{self.root}/{join_cfg.file_path}"
             other_csv_path = clean_path(other_csv_path)
             logger.info(f"Joining with table: {other_csv_path}")
-            join_df = self._scan_table(other_csv_path)
+            join_df = self._scan_csv_tsv_gz(other_csv_path)
             join_df = join_df.rename(columns=str.lower)
             join_key = join_cfg.on
             columns = join_cfg.columns
@@ -723,21 +679,14 @@ class BaseDataset(ABC):
                 timestamp_series: dd.Series = functools.reduce(
                     operator.add, (df[col].astype("string") for col in timestamp_col)
                 )
-                timestamp_series = dd.to_datetime(
-                    timestamp_series,
-                    format=timestamp_format,
-                    errors="raise",
-                )
-            elif pd.api.types.is_datetime64_any_dtype(df[timestamp_col].dtype):
-                # Typed sources (e.g. Parquet) already carry native timestamps:
-                # skip the string round-trip and only normalize the unit below.
-                timestamp_series: dd.Series = df[timestamp_col]
             else:
-                timestamp_series = dd.to_datetime(
-                    df[timestamp_col].astype("string"),
-                    format=timestamp_format,
-                    errors="raise",
-                )
+                timestamp_series: dd.Series = df[timestamp_col].astype("string")
+
+            timestamp_series: dd.Series = dd.to_datetime(
+                timestamp_series,
+                format=timestamp_format,
+                errors="raise",
+            )
             df: dd.DataFrame = df.assign(
                 timestamp=timestamp_series.astype("datetime64[ms]")
             )
