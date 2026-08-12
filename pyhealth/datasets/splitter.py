@@ -180,6 +180,77 @@ def split_by_patient(
     return train_dataset, val_dataset, test_dataset
 
 
+def split_by_strat_fold(
+    dataset: SampleDataset,
+    train_folds: tuple[int, ...] | list[int] = tuple(range(1, 9)),
+    val_folds: tuple[int, ...] | list[int] = (9,),
+    test_folds: tuple[int, ...] | list[int] = (10,),
+):
+    """Split a sample dataset using PTB-XL official ``strat_fold`` assignments.
+
+    The recommended PTB-XL protocol uses folds 1–8 for training, fold 9 for
+    validation, and fold 10 for testing (patient-disjoint by construction).
+
+    Samples must contain an integer ``strat_fold`` field (as emitted by
+    :class:`~pyhealth.tasks.ptbxl.PTBXLSuperclassClassification`).
+
+    Args:
+        dataset (SampleDataset): A :class:`~pyhealth.datasets.SampleDataset`
+            (or compatible object exposing ``subset`` and ``__getitem__``).
+        train_folds (Tuple[int, ...] | List[int]): Folds assigned to train
+            (default ``1..8``).
+        val_folds (Tuple[int, ...] | List[int]): Folds assigned to validation
+            (default ``9``).
+        test_folds (Tuple[int, ...] | List[int]): Folds assigned to test
+            (default ``10``).
+
+    Returns:
+        tuple: ``(train_dataset, val_dataset, test_dataset)`` subsets.
+
+    Raises:
+        KeyError: If a sample is missing ``strat_fold``.
+        ValueError: If fold sets overlap or a sample fold is unassigned.
+
+    Examples:
+        >>> # doctest: +SKIP
+        >>> from pyhealth.datasets import split_by_strat_fold
+        >>> train, val, test = split_by_strat_fold(sample_dataset)
+    """
+    train_set = {int(f) for f in train_folds}
+    val_set = {int(f) for f in val_folds}
+    test_set = {int(f) for f in test_folds}
+    if train_set & val_set or train_set & test_set or val_set & test_set:
+        raise ValueError("train_folds, val_folds, and test_folds must be disjoint")
+
+    train_index: list[int] = []
+    val_index: list[int] = []
+    test_index: list[int] = []
+    for i in range(len(dataset)):
+        sample = dataset[i]
+        if "strat_fold" not in sample:
+            raise KeyError(
+                "sample is missing 'strat_fold'; run a PTB-XL task that "
+                "copies strat_fold onto each sample"
+            )
+        fold = int(sample["strat_fold"])
+        if fold in train_set:
+            train_index.append(i)
+        elif fold in val_set:
+            val_index.append(i)
+        elif fold in test_set:
+            test_index.append(i)
+        else:
+            raise ValueError(
+                f"strat_fold={fold} is not in train/val/test fold sets"
+            )
+
+    return (
+        dataset.subset(train_index),  # type: ignore
+        dataset.subset(val_index),  # type: ignore
+        dataset.subset(test_index),  # type: ignore
+    )
+
+
 def split_by_sample(
     dataset: SampleDataset,
     ratios: Union[Tuple[float, float, float], List[float]],
