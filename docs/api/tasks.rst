@@ -225,6 +225,7 @@ Available Tasks
     Sleep Staging (SleepEDF) <tasks/pyhealth.tasks.SleepStagingSleepEDF>
     Temple University EEG Tasks <tasks/pyhealth.tasks.temple_university_EEG_tasks>
     EEGBCI Tasks <tasks/pyhealth.tasks.eegbci>
+    PTB-XL Tasks <tasks/pyhealth.tasks.ptbxl>
     Sleep Staging v2 <tasks/pyhealth.tasks.sleep_staging_v2>
     Benchmark EHRShot <tasks/pyhealth.tasks.benchmark_ehrshot>
     ChestX-ray14 Binary Classification <tasks/pyhealth.tasks.ChestXray14BinaryClassification>
