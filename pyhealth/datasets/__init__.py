@@ -84,6 +84,7 @@ from .splitter import (
     split_by_visit_conformal,
 )
 from .eegbci import EEGBCIDataset as EEGBCIDataset  # noqa: E402
+from .ptbxl import PTBXLDataset as PTBXLDataset
 from .tuab import TUABDataset
 from .tuev import TUEVDataset
 from .utils import (
