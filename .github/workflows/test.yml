@@ -23,6 +23,10 @@ jobs:
         with:
           python-version: '3.13'
 
+      # Stdlib only, so it runs before the environment exists and fails fast.
+      - name: Check agent skill docs against the package
+        run: 'python tools/check_skills.py'
+
       - name: Install pixi
         run: 'curl -fsSL https://pixi.sh/install.sh | sh'
 

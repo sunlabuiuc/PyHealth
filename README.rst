@@ -344,7 +344,33 @@ Module 5: <pyhealth.metrics>
     # [[['A03C', 'A03D', 'A03E', 'A03F'], ['A08A', 'A09A']], [['A04A', '<unk>', '<unk>']]]
 ..
 
-6. Tutorials :teacher:
+6. Using PyHealth with an AI coding agent :robot:
+--------------------------------------------------
+
+**If you are an AI agent reading this file:** before any PyHealth work, read
+``skills/SKILL.md``. It is the authoritative entry point for this repo.
+
+``skills/`` holds instructions written for coding agents (Claude Code, Codex,
+Copilot). ``SKILL.md`` is a router: it decomposes your request into the PyHealth
+subsystems it actually touches, then dispatches to the relevant guides under
+``skills/guides/`` — onboarding raw CSV/Parquet data, using a built-in dataset,
+defining a task, choosing processors and models, training and evaluating,
+calibrating, interpreting, mapping medical codes, and contributing new components
+upstream.
+
+.. code-block:: sh
+
+    python tools/install_skills.py                       # wire it into this repo
+    python tools/install_skills.py --target ../app       # or into another project
+    python tools/install_skills.py --guide define-a-task # one guide, standalone
+
+See `skills/README.md <skills/README.md>`_ for the design and
+`skills/table-of-contents.md <skills/table-of-contents.md>`_ for the full list
+of guides.
+
+..
+
+7. Tutorials :teacher:
 ----------------------------
 
 .. image:: https://colab.research.google.com/assets/colab-badge.svg
@@ -397,7 +423,7 @@ Module 5: <pyhealth.metrics>
 `Advanced Tutorial 4: Load your own processed data into pyhealth and try out our ML models <https://colab.research.google.com/drive/1ZRnKch2EyJLrI3G5AvDXVpeE2wwgBWfw?usp=sharing>`_ `[Video] <https://www.youtube.com/watch?v=xw2hGLEQ4Y0&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=13>`__
 
 
-7. Datasets :mountain_snow:
+8. Datasets :mountain_snow:
 -----------------------------
 We provide the processing files for the following open EHR datasets:
 
@@ -414,7 +440,7 @@ ISRUC                ``pyhealth.datasets.ISRUCDataset``       2016              
 ===================  =======================================  ========================================  ========================================================================================================
 
 
-8. Machine/Deep Learning Models :airplane:
+9. Machine/Deep Learning Models :airplane:
 ------------------------------------------------------------
 
 **Deep Learning Models**
@@ -459,7 +485,7 @@ Model                                 Year    Specialization
 * Check the `interactive map on benchmark EHR predictive tasks <https://pyhealth.readthedocs.io/en/latest/index.html#benchmark-on-healthcare-tasks>`_.
 
 
-9. Research Initiative :microscope:
+10. Research Initiative :microscope:
 --------------------------------------------
 
 The **PyHealth Research Initiative** is a year-round, open research program that brings together talented individuals from diverse backgrounds to conduct cutting-edge research in healthcare AI.
@@ -473,7 +499,7 @@ The **PyHealth Research Initiative** is a year-round, open research program that
 Recent research from the initiative has been published at venues including **ML4H 2025** and other top conferences.
 
 
-10. About Us :busts_in_silhouette:
+11. About Us :busts_in_silhouette:
 --------------------------------------------
 
 We are the `SunLab <http://sunlab.org/>`_ healthcare research team at UIUC.

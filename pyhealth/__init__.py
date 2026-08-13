@@ -19,3 +19,9 @@ formatter = logging.Formatter("%(message)s")
 handler.setFormatter(formatter)
 logger.addHandler(handler)
 
+# One-line stderr pointer at the agent skill, printed only under a coding-agent
+# harness and only until the project registers it. Silent for human users.
+from pyhealth.skills._notice import maybe_notify
+
+maybe_notify()
+
