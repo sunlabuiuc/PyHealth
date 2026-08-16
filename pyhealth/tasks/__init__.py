@@ -56,7 +56,9 @@ from .generate_ehr import (
     to_evaluation_dataframe,
 )
 from .patient_linkage import patient_linkage_mimic3_fn
-from .sepsis_prediction_mimic4 import SepsisPredictionMIMIC4
+from .sepsis_prediction_mimic4 import (
+    SepsisPredictionMIMIC4 as SepsisPredictionMIMIC4,
+)
 from .readmission_prediction import (
     ReadmissionPredictionEICU,
     ReadmissionPredictionMIMIC3,
