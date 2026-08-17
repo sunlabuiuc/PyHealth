@@ -279,7 +279,6 @@ class TimeImageProcessor(TemporalFeatureProcessor):
         Raises:
             ValueError: If image_paths and time_diffs have
                 different lengths.
-            ValueError: If image_paths is empty.
             FileNotFoundError: If any image file does not exist.
         """
         image_paths, time_diffs = value
@@ -291,7 +290,19 @@ class TimeImageProcessor(TemporalFeatureProcessor):
                 f"match."
             )
         if len(image_paths) == 0:
-            raise ValueError("image_paths must be non-empty.")
+            if self.n_channels is not None:
+                c = self.n_channels
+            elif self.mode == "L":
+                c = 1
+            elif self.mode == "RGBA":
+                c = 4
+            else:
+                c = 3
+            images = torch.zeros(
+                (0, c, self.image_size, self.image_size), dtype=torch.float32
+            )
+            timestamps = torch.zeros((0,), dtype=torch.float32)
+            return images, timestamps, "image"
 
         paired = sorted(zip(time_diffs, image_paths), key=lambda x: x[0])
 

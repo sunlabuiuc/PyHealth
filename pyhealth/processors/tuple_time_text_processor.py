@@ -5,7 +5,6 @@ from .base_processor import FeatureProcessor, ModalityType, TemporalFeatureProce
 from . import register_processor
 
 logger = logging.getLogger(__name__)
-_MISSING_TEXT_TOKEN = "[MISSING_TEXT]"
 
 @register_processor("tuple_time_text")
 class TupleTimeTextProcessor(TemporalFeatureProcessor):
@@ -22,7 +21,7 @@ class TupleTimeTextProcessor(TemporalFeatureProcessor):
         self, 
         type_tag: str = "note",
         tokenizer_model: Optional[str] = None,
-        max_length: int = 128,
+        max_length: int = 512,
         padding: bool = True,
         truncation: bool = True,
     ):
@@ -32,8 +31,9 @@ class TupleTimeTextProcessor(TemporalFeatureProcessor):
             type_tag: Modality identifier for automatic routing. Default: "note"
             tokenizer_model: Name or path of the HuggingFace tokenizer to use.
                 If None, texts are returned as raw strings. Default: None
-            max_length: Maximum sequence length for tokenization. Default: 128
-            padding: Whether to pad sequences to max_length. Default: True
+            max_length: Maximum sequence length for tokenization. Default: 512
+            padding: Whether to pad sequences to the longest note in the sample.
+                Default: True
             truncation: Whether to truncate sequences to max_length. Default: True
         """
         super().__init__()
@@ -109,21 +109,21 @@ class TupleTimeTextProcessor(TemporalFeatureProcessor):
             cleaned_texts.append(text)
             cleaned_times.append(t)
 
-        # Fast tokenizer path crashes on empty batches; force a single
-        # missingness token when all notes are empty/malformed.
-        if len(cleaned_texts) == 0:
-            cleaned_texts = [_MISSING_TEXT_TOKEN]
-            cleaned_times = [0.0]
-
         texts = cleaned_texts
         time_diffs = cleaned_times
         time_tensor = torch.tensor(time_diffs, dtype=torch.float32)
 
         if self.tokenizer is not None:
-            # Tokenize the list of texts
+            # Fast tokenizers crash on tokenizer([]). Build empty tensors
+            # ourselves so a patient with no notes is zero events, not a
+            # fake "[MISSING_TEXT]" row whose BERT embedding is a constant
+            # the classifier can use as a mortality feature.
+            if len(texts) == 0:
+                empty = torch.zeros((0, 1), dtype=torch.long)
+                return empty, empty.clone(), empty.clone(), time_tensor, self.type_tag
             encoded = self.tokenizer(
                 texts,
-                padding="max_length" if self.padding else False,
+                padding="longest" if self.padding else False,
                 truncation=self.truncation,
                 max_length=self.max_length,
                 return_tensors="pt"
