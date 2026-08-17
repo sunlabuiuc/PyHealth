@@ -40,16 +40,14 @@ simply `1 - nonconformity`, preserving the same ranking of examples either
 way.
 """
 
-from typing import Optional
-
 import numpy as np
 
 __all__ = [
     "SUPPORTED_SCORE_TYPES",
-    "all_class_nc_scores",
     "all_class_conformity_scores",
-    "true_class_nc_scores",
+    "all_class_nc_scores",
     "true_class_conformity_scores",
+    "true_class_nc_scores",
 ]
 
 SUPPORTED_SCORE_TYPES = ("threshold", "aps")
@@ -89,7 +87,7 @@ def _aps_all_class_nc_scores(
     Returns:
         Nonconformity scores of shape (N, K); higher means less conforming.
     """
-    n, k = y_prob.shape
+    n = y_prob.shape[0]
     # Ties in probability are broken randomly by perturbing the sort key
     # infinitesimally, per the APS paper's note that "label-ordering ties
     # should be broken randomly" when probabilities aren't all distinct.
@@ -117,7 +115,7 @@ def _aps_all_class_nc_scores(
 def all_class_nc_scores(
     y_prob: np.ndarray,
     score_type: str = "threshold",
-    rng: Optional[np.random.Generator] = None,
+    rng: np.random.Generator | None = None,
     randomize: bool = True,
 ) -> np.ndarray:
     """Nonconformity score (higher = less conforming) for every class.
@@ -159,7 +157,7 @@ def all_class_nc_scores(
 def all_class_conformity_scores(
     y_prob: np.ndarray,
     score_type: str = "threshold",
-    rng: Optional[np.random.Generator] = None,
+    rng: np.random.Generator | None = None,
     randomize: bool = True,
 ) -> np.ndarray:
     """Conformity score (higher = more conforming) for every class.
@@ -184,7 +182,7 @@ def true_class_nc_scores(
     y_prob: np.ndarray,
     y_true: np.ndarray,
     score_type: str = "threshold",
-    rng: Optional[np.random.Generator] = None,
+    rng: np.random.Generator | None = None,
     randomize: bool = True,
 ) -> np.ndarray:
     """Nonconformity score of the true class only, shape (N,). Used during
@@ -207,7 +205,7 @@ def true_class_conformity_scores(
     y_prob: np.ndarray,
     y_true: np.ndarray,
     score_type: str = "threshold",
-    rng: Optional[np.random.Generator] = None,
+    rng: np.random.Generator | None = None,
     randomize: bool = True,
 ) -> np.ndarray:
     """Conformity score of the true class only, shape (N,).

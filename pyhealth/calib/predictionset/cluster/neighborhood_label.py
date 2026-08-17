@@ -86,7 +86,7 @@ class NeighborhoodLabel(SetPredictor):
         k_neighbors: int = 50,
         lambda_L: float = 100.0,
         score_type: str = "threshold",
-        random_state: Optional[int] = None,
+        random_state: int | None = None,
         debug: bool = False,
         **kwargs,
     ) -> None:

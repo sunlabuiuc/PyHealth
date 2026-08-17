@@ -356,7 +356,7 @@ class CovariateLabel(SetPredictor):
         kde_test: Optional[Callable] = None,
         kde_cal: Optional[Callable] = None,
         score_type: str = "threshold",
-        random_state: Optional[int] = None,
+        random_state: int | None = None,
         debug: bool = False,
         **kwargs,
     ) -> None:

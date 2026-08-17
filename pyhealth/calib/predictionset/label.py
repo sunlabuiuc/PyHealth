@@ -9,8 +9,6 @@ Paper:
 
 """
 
-from typing import Dict, Optional, Union
-
 import numpy as np
 import torch
 from torch.utils.data import Subset
@@ -47,7 +45,7 @@ class LABEL(SetPredictor):
     :param model: A trained base model.
     :type model: BaseModel
     :param alpha: Target mis-coverage rate(s).
-    :type alpha: Union[float, np.ndarray]
+    :type alpha: float | np.ndarray
     :param score_type: Nonconformity score to use: "threshold" (default,
         the LAC score from Sadinle, Lei, and Wasserman 2019, NC score
         = 1 - p(true class)) or "aps" (Adaptive Prediction Sets, Romano,
@@ -56,7 +54,7 @@ class LABEL(SetPredictor):
     :type score_type: str
     :param random_state: Optional int seed for the RNG used by
         score_type="aps". Ignored for score_type="threshold".
-    :type random_state: Optional[int]
+    :type random_state: int | None
 
     Examples:
         >>> from pyhealth.datasets import ISRUCDataset, split_by_patient, get_dataloader
@@ -93,9 +91,9 @@ class LABEL(SetPredictor):
     def __init__(
         self,
         model: BaseModel,
-        alpha: Union[float, np.ndarray],
+        alpha: float | np.ndarray,
         score_type: str = "threshold",
-        random_state: Optional[int] = None,
+        random_state: int | None = None,
         debug=False,
         **kwargs,
     ) -> None:
@@ -148,13 +146,13 @@ class LABEL(SetPredictor):
             ]
         self.t = torch.tensor(t, device=self.device)
 
-    def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
+    def forward(self, **kwargs) -> dict[str, torch.Tensor]:
         """Forward propagation (just like the original model).
 
         :return: A dictionary with all results from the base model, with the following updates:
 
                     y_predset: a bool tensor representing the prediction for each class.
-        :rtype: Dict[str, torch.Tensor]
+        :rtype: dict[str, torch.Tensor]
         """
         pred = self.model(**kwargs)
         y_prob = pred["y_prob"].detach().cpu().numpy()

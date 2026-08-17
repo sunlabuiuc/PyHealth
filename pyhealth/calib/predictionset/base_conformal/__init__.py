@@ -22,7 +22,7 @@ Paper:
     valid and adaptive coverage." NeurIPS 2020. [score_type="aps"]
 """
 
-from typing import Dict, Optional, Union
+from typing import Union
 
 import numpy as np
 import torch
@@ -188,7 +188,7 @@ class BaseConformal(SetPredictor):
         model: BaseModel,
         alpha: Union[float, np.ndarray],
         score_type: str = "threshold",
-        random_state: Optional[int] = None,
+        random_state: int | None = None,
         debug: bool = False,
         **kwargs,
     ) -> None:
@@ -292,7 +292,7 @@ class BaseConformal(SetPredictor):
         if self.debug:
             print(f"Calibrated thresholds: {self.t}")
 
-    def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
+    def forward(self, **kwargs) -> dict[str, torch.Tensor]:
         """Forward propagation with prediction set construction.
 
         Returns:
