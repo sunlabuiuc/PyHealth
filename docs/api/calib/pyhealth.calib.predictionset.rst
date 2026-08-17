@@ -30,6 +30,12 @@ LABEL (Least Ambiguous Set-valued Classifier)
 SCRIB (Set-classifier with Class-specific Risk Bounds)
 -------------------------------------------------------
 
+SCRIB's threshold search assumes the calibration set's empty-prediction
+handling (``fill_max``) matches what is applied at inference time; both
+``calibrate()`` and ``forward()`` resolve and use the same ``fill_max``
+value, so calibration is never optimized against behavior that inference
+doesn't actually apply.
+
 .. autoclass:: pyhealth.calib.predictionset.SCRIB
    :members:
    :undoc-members:
