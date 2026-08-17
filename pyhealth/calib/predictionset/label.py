@@ -9,7 +9,7 @@ Paper:
 
 """
 
-from typing import Dict, Union
+from typing import Dict, Optional, Union
 
 import numpy as np
 import torch
@@ -17,6 +17,11 @@ from torch.utils.data import Subset
 
 from pyhealth.calib.base_classes import SetPredictor
 from pyhealth.calib.predictionset.base_conformal import _query_quantile
+from pyhealth.calib.predictionset.scores import (
+    SUPPORTED_SCORE_TYPES,
+    all_class_nc_scores,
+    true_class_nc_scores,
+)
 from pyhealth.calib.utils import prepare_numpy_dataset
 from pyhealth.models import BaseModel
 
@@ -43,6 +48,15 @@ class LABEL(SetPredictor):
     :type model: BaseModel
     :param alpha: Target mis-coverage rate(s).
     :type alpha: Union[float, np.ndarray]
+    :param score_type: Nonconformity score to use: "threshold" (default,
+        the LAC score from Sadinle, Lei, and Wasserman 2019, NC score
+        = 1 - p(true class)) or "aps" (Adaptive Prediction Sets, Romano,
+        Sesia, and Candes 2020). See
+        :mod:`pyhealth.calib.predictionset.scores` for the exact formulas.
+    :type score_type: str
+    :param random_state: Optional int seed for the RNG used by
+        score_type="aps". Ignored for score_type="threshold".
+    :type random_state: Optional[int]
 
     Examples:
         >>> from pyhealth.datasets import ISRUCDataset, split_by_patient, get_dataloader
@@ -73,17 +87,30 @@ class LABEL(SetPredictor):
     """
 
     def __init__(
-        self, model: BaseModel, alpha: Union[float, np.ndarray], debug=False, **kwargs
+        self,
+        model: BaseModel,
+        alpha: Union[float, np.ndarray],
+        score_type: str = "threshold",
+        random_state: Optional[int] = None,
+        debug=False,
+        **kwargs,
     ) -> None:
         super().__init__(model, **kwargs)
         if model.mode != "multiclass":
             raise NotImplementedError()
+        if score_type not in SUPPORTED_SCORE_TYPES:
+            raise ValueError(
+                f"Unknown score_type: {score_type!r}. Supported: "
+                f"{SUPPORTED_SCORE_TYPES}."
+            )
         self.mode = self.model.mode  # multiclass
         for param in model.parameters():
             param.requires_grad = False
         self.model.eval()
         self.device = model.device
         self.debug = debug
+        self.score_type = score_type
+        self.rng = np.random.default_rng(random_state)
 
         if not isinstance(alpha, float):
             alpha = np.asarray(alpha)
@@ -104,16 +131,15 @@ class LABEL(SetPredictor):
         y_true = cal_dataset["y_true"]
 
         N, K = cal_dataset["y_prob"].shape
-        # NC scores: 1 - p(true class); higher = less conforming
+        # NC scores: higher = less conforming
+        nc_scores = true_class_nc_scores(
+            y_prob, y_true, score_type=self.score_type, rng=self.rng
+        )
         if isinstance(self.alpha, float):
-            t = _query_quantile(
-                1.0 - y_prob[np.arange(N), y_true], self.alpha
-            )
+            t = _query_quantile(nc_scores, self.alpha)
         else:
             t = [
-                _query_quantile(
-                    1.0 - y_prob[y_true == k, k], self.alpha[k]
-                )
+                _query_quantile(nc_scores[y_true == k], self.alpha[k])
                 for k in range(K)
             ]
         self.t = torch.tensor(t, device=self.device)
@@ -127,8 +153,15 @@ class LABEL(SetPredictor):
         :rtype: Dict[str, torch.Tensor]
         """
         pred = self.model(**kwargs)
-        # Include class y if its NC score (1 - p(y)) <= NC threshold
-        pred["y_predset"] = (1.0 - pred["y_prob"]) <= self.t
+        y_prob = pred["y_prob"].detach().cpu().numpy()
+        nc_scores = all_class_nc_scores(
+            y_prob, score_type=self.score_type, rng=self.rng
+        )
+        nc_scores = torch.as_tensor(
+            nc_scores, device=pred["y_prob"].device, dtype=pred["y_prob"].dtype
+        )
+        # Include class y if its NC score <= NC threshold
+        pred["y_predset"] = nc_scores <= self.t
         return pred
 
 if __name__ == "__main__":
