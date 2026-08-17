@@ -341,6 +341,12 @@ class CovariateLabel(SetPredictor):
         >>> custom_weights = compute_custom_weights(val_data, test_data)
         >>> cal_model = CovariateLabel(model, alpha=0.1)
         >>> cal_model.calibrate(cal_dataset=val_data, cal_weights=custom_weights)
+
+        **Example 3: APS instead of the default threshold score**
+
+        >>> cal_model_aps = CovariateLabel(model, alpha=0.1, score_type="aps")
+        >>> cal_model_aps.calibrate(cal_dataset=val_data,
+        ...     cal_embeddings=cal_embs, test_embeddings=test_embs)
     """
 
     def __init__(

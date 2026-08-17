@@ -133,6 +133,19 @@ def all_class_nc_scores(
 
     Returns:
         Nonconformity scores of shape (N, K).
+
+    Examples:
+        >>> import numpy as np
+        >>> from pyhealth.calib.predictionset.scores import all_class_nc_scores
+        >>> y_prob = np.array([[0.7, 0.2, 0.1], [0.3, 0.5, 0.2]])
+        >>> all_class_nc_scores(y_prob, score_type="threshold")
+        array([[0.3, 0.8, 0.9],
+               [0.7, 0.5, 0.8]])
+        >>> rng = np.random.default_rng(0)
+        >>> scores = all_class_nc_scores(y_prob, score_type="aps", rng=rng)
+        >>> np.round(scores, 2)
+        array([[0.42, 0.82, 0.96],
+               [0.72, 0.36, 0.95]])
     """
     _validate_score_type(score_type)
     if score_type == "threshold":
@@ -155,6 +168,14 @@ def all_class_conformity_scores(
     examples, just the sign convention used by CovariateLabel and
     NeighborhoodLabel (which threshold with ``score >= t`` rather than
     ``nc_score <= t``).
+
+    Examples:
+        >>> import numpy as np
+        >>> from pyhealth.calib.predictionset.scores import all_class_conformity_scores
+        >>> y_prob = np.array([[0.7, 0.2, 0.1], [0.3, 0.5, 0.2]])
+        >>> all_class_conformity_scores(y_prob, score_type="threshold")
+        array([[0.7, 0.2, 0.1],
+               [0.3, 0.5, 0.2]])
     """
     return 1.0 - all_class_nc_scores(y_prob, score_type, rng, randomize)
 
@@ -167,7 +188,16 @@ def true_class_nc_scores(
     randomize: bool = True,
 ) -> np.ndarray:
     """Nonconformity score of the true class only, shape (N,). Used during
-    calibration, where only the true label's score is needed."""
+    calibration, where only the true label's score is needed.
+
+    Examples:
+        >>> import numpy as np
+        >>> from pyhealth.calib.predictionset.scores import true_class_nc_scores
+        >>> y_prob = np.array([[0.7, 0.2, 0.1], [0.3, 0.5, 0.2]])
+        >>> y_true = np.array([0, 1])
+        >>> true_class_nc_scores(y_prob, y_true, score_type="threshold")
+        array([0.3, 0.5])
+    """
     scores = all_class_nc_scores(y_prob, score_type, rng, randomize)
     n = len(y_true)
     return scores[np.arange(n), y_true]
@@ -180,5 +210,14 @@ def true_class_conformity_scores(
     rng: Optional[np.random.Generator] = None,
     randomize: bool = True,
 ) -> np.ndarray:
-    """Conformity score of the true class only, shape (N,)."""
+    """Conformity score of the true class only, shape (N,).
+
+    Examples:
+        >>> import numpy as np
+        >>> from pyhealth.calib.predictionset.scores import true_class_conformity_scores
+        >>> y_prob = np.array([[0.7, 0.2, 0.1], [0.3, 0.5, 0.2]])
+        >>> y_true = np.array([0, 1])
+        >>> true_class_conformity_scores(y_prob, y_true, score_type="threshold")
+        array([0.7, 0.5])
+    """
     return 1.0 - true_class_nc_scores(y_prob, y_true, score_type, rng, randomize)

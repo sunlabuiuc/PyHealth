@@ -84,6 +84,10 @@ class LABEL(SetPredictor):
         ... y_predset=extra_output['y_predset'])
         ... )
         {'accuracy': 0.709843241966832, 'miscoverage_ps': array([0.1499847 , 0.29997638, 0.14993964, 0.14994704, 0.14999252])}
+        >>>
+        >>> # Use APS instead of the default threshold score
+        >>> cal_model_aps = LABEL(model, 0.15, score_type="aps", random_state=0)
+        >>> cal_model_aps.calibrate(cal_dataset=test_data)
     """
 
     def __init__(

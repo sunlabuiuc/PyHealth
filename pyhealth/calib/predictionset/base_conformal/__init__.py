@@ -175,6 +175,12 @@ class BaseConformal(SetPredictor):
         >>> conformal_model_cc = BaseConformal(
         ...     model, alpha=[0.1, 0.15, 0.1, 0.1, 0.1])
         >>> conformal_model_cc.calibrate(cal_dataset=val_data)
+        >>>
+        >>> # Use APS instead of the default threshold score (adapts set
+        >>> # size to how confident the model is on each individual input)
+        >>> conformal_model_aps = BaseConformal(
+        ...     model, alpha=0.1, score_type="aps", random_state=0)
+        >>> conformal_model_aps.calibrate(cal_dataset=val_data)
     """
 
     def __init__(

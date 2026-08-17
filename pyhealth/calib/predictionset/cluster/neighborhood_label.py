@@ -72,6 +72,11 @@ class NeighborhoodLabel(SetPredictor):
         ...     y_true, y_prob, metrics=["accuracy", "miscoverage_ps"],
         ...     y_predset=extra["y_predset"]
         ... )
+        >>>
+        >>> # Use APS instead of the default threshold score
+        >>> ncp_aps = NeighborhoodLabel(
+        ...     model=model, alpha=0.1, k_neighbors=50, score_type="aps")
+        >>> ncp_aps.calibrate(cal_dataset=cal_ds, cal_embeddings=cal_embeddings)
     """
 
     def __init__(
