@@ -56,7 +56,15 @@ class FavMac:
             cutoff = self.target_cost * (n+1) - self.C_max
             return self.quantiletree.query_cumu_weight(cutoff, prev=False)
         else:
-            cutoff = self.delta * (n+1) - 1# We should assume a violation for the next point? Should we minus 1??
+            # The "-1" reserves one unit of probability mass for the
+            # unseen (N+1)-th test point, the same finite-sample
+            # correction used throughout split conformal prediction (see
+            # e.g. base_conformal._query_quantile's ceil((1-alpha)(N+1))).
+            # This matches the paper's own Appendix B.3, Algorithm 5
+            # (COMPUTE THRESHOLD: q = ((N+1)*delta - 1) / tree.root.sum),
+            # which follows directly from the Tc,delta derivation in the
+            # proof of Theorem 4.6 (Appendix A.4).
+            cutoff = self.delta * (n+1) - 1
             return self.quantiletree.query_cumu_weight(cutoff, prev=False)
 
     def _greedy_sequence(self, pred:np.ndarray):
