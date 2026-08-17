@@ -214,6 +214,8 @@ class UnifiedMultimodalEmbeddingModel(nn.Module, BaseEmbeddingModel):
         field_embeddings: Optional[dict[str, Any]] = None,
         freeze_text_encoder: bool = False,
         normalize_content: bool = True,
+        cache_frozen_text: bool = True,
+        max_frozen_text_cache: int = 200_000,
         numeric_standardizers: Optional[dict[str, Any]] = None,
     ):
         super().__init__()
@@ -224,6 +226,9 @@ class UnifiedMultimodalEmbeddingModel(nn.Module, BaseEmbeddingModel):
         self._embedding_dim = embedding_dim
         self._freeze_text_encoder = freeze_text_encoder
         self._frozen_text_fields: set[str] = set()
+        self.cache_frozen_text = cache_frozen_text
+        self.max_frozen_text_cache = max_frozen_text_cache
+        self._frozen_text_cache: dict[str, dict[int, torch.Tensor]] = {}
         self.image_pool = image_pool
         self.normalize_content = normalize_content
         # Statistics live in buffers, so they travel in state_dict. A checkpoint
@@ -442,12 +447,100 @@ class UnifiedMultimodalEmbeddingModel(nn.Module, BaseEmbeddingModel):
     def embedding_dim(self) -> int:
         return self._embedding_dim
 
+    def _encode_text_cls(
+        self,
+        field_name: str,
+        encoder: nn.Module,
+        flat_ids: torch.Tensor,
+        flat_mask: Optional[torch.Tensor],
+    ) -> torch.Tensor:
+        """Return the ``[CLS]`` vector for each row, from a cache when possible.
+
+        A frozen encoder gives the same output for the same tokens, so a run of
+        50 epochs would otherwise repeat the identical 110M-parameter forward
+        pass 50 times.
+
+        The cache has three conditions. It is used only for a field in
+        ``_frozen_text_fields``, so a trainable encoder can never read it. The
+        key is the token identifiers under the attention mask, so a change of
+        tokenizer or truncation budget gives a different key. The cache has a
+        maximum size, and it recalculates a row when the cache is full.
+
+        Key on the REAL tokens only. The collator pads each row to the widest
+        note in its batch, and batch composition changes every epoch because
+        the loader shuffles, so a key over the padded row gives the same note
+        a different key each epoch and the cache never hits. Measured on the
+        full-scale notes run: epoch time did not fall after epoch 1
+        (3458s, 3936s, 4048s, 3835s) because every lookup missed.
+        """
+        if flat_ids.shape[0] == 0:
+            hidden = encoder.config.hidden_size
+            return flat_ids.new_zeros(
+                (0, hidden), dtype=next(encoder.parameters()).dtype
+            )
+
+        if not (self.cache_frozen_text and field_name in self._frozen_text_fields):
+            ctx = torch.no_grad() if field_name in self._frozen_text_fields else nullcontext()
+            with ctx:
+                out = encoder(input_ids=flat_ids, attention_mask=flat_mask)
+            return out.last_hidden_state[:, 0, :]
+
+        cache = self._frozen_text_cache.setdefault(field_name, {})
+        ids_cpu = flat_ids.detach().cpu()
+        mask_cpu = (
+            flat_mask.detach().cpu().to(torch.int8)
+            if flat_mask is not None
+            else torch.ones_like(ids_cpu, dtype=torch.int8)
+        )
+        keys = [
+            hash(tuple(i[m.bool()].tolist())) if m.any() else hash(tuple(i.tolist()))
+            for i, m in zip(ids_cpu, mask_cpu)
+        ]
+
+        first_row_of_key: dict[int, int] = {}
+        for k, key in enumerate(keys):
+            if key not in cache and key not in first_row_of_key:
+                first_row_of_key[key] = k
+        missing = list(first_row_of_key.values())
+        if missing:
+            index = torch.tensor(missing, device=flat_ids.device)
+            with torch.no_grad():
+                out = encoder(
+                    input_ids=flat_ids.index_select(0, index),
+                    attention_mask=(
+                        flat_mask.index_select(0, index)
+                        if flat_mask is not None
+                        else None
+                    ),
+                )
+                fresh = out.last_hidden_state[:, 0, :].detach()
+            for slot, row in zip(missing, fresh):
+                if len(cache) < self.max_frozen_text_cache:
+                    cache[keys[slot]] = row.cpu()
+
+        rows = []
+        for k, key in enumerate(keys):
+            hit = cache.get(key)
+            if hit is None:
+                with torch.no_grad():
+                    out = encoder(
+                        input_ids=flat_ids[k : k + 1],
+                        attention_mask=(
+                            flat_mask[k : k + 1] if flat_mask is not None else None
+                        ),
+                    )
+                rows.append(out.last_hidden_state[0, 0, :].detach())
+            else:
+                rows.append(hit.to(flat_ids.device))
+        return torch.stack(rows).to(dtype=self.type_embedding.weight.dtype)
+
     def train(self, mode: bool = True) -> "UnifiedMultimodalEmbeddingModel":
         """Keep a frozen text encoder in eval mode.
 
         ``nn.Module.train()`` would enable dropout inside the encoder. Its
         output would then change between passes even though every weight has
-        ``requires_grad=False``.
+        ``requires_grad=False``. That makes the cache incorrect, and it also
+        makes a frozen encoder give a different answer for the same input.
         """
         super().train(mode)
         for field_name in self._frozen_text_fields:
@@ -578,17 +671,12 @@ class UnifiedMultimodalEmbeddingModel(nn.Module, BaseEmbeddingModel):
                     (b * n, hidden), dtype=next(encoder.parameters()).dtype
                 )
                 if valid.any():
-                    encode_kwargs = {"input_ids": flat_ids[valid]}
-                    if flat_attn is not None:
-                        encode_kwargs["attention_mask"] = flat_attn[valid]
-                    ctx = (
-                        torch.no_grad()
-                        if field_name in self._frozen_text_fields
-                        else nullcontext()
+                    h = self._encode_text_cls(
+                        field_name,
+                        encoder,
+                        flat_ids[valid],
+                        flat_attn[valid] if flat_attn is not None else None,
                     )
-                    with ctx:
-                        out = encoder(**encode_kwargs)
-                        h = out.last_hidden_state[:, 0, :]
                     cls_emb = cls_emb.to(dtype=h.dtype)
                     cls_emb[valid] = h
                 if field_name in self.projections:
