@@ -5,6 +5,7 @@ import torch.nn as nn
 import torch.nn.utils.rnn as rnn_utils
 
 from pyhealth.datasets import SampleDataset
+from pyhealth.datasets.utils import PAD_MASK_SUFFIX
 from pyhealth.models import BaseModel
 from pyhealth.processors import (
     DeepNestedFloatsProcessor,
@@ -110,6 +111,10 @@ class RNNLayer(nn.Module):
             )
         else:
             lengths = torch.sum(mask.int(), dim=-1).cpu()
+            # pack_padded_sequence rejects a zero length. Before batch padding
+            # was masked this was unreachable; a correct mask makes a sample
+            # with no valid event reachable, so clamp to 1.
+            lengths = torch.clamp(lengths, min=1)
         # Ensure tensor is contiguous for cuDNN compatibility
         x = x.contiguous()
         x = rnn_utils.pack_padded_sequence(
@@ -259,6 +264,9 @@ class RNN(BaseModel):
                 field_dict["time"] = feature[schema.index("time")].to(self.device)
             if "mask" in schema:
                 field_dict["mask"] = feature[schema.index("mask")].to(self.device)
+            pad_mask = kwargs.get(f"{field_name}{PAD_MASK_SUFFIX}")
+            if pad_mask is not None:
+                field_dict["pad_mask"] = pad_mask.to(self.device)
             inputs[field_name] = field_dict
         return inputs
 
