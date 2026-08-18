@@ -71,6 +71,17 @@ def clean_path(path: str) -> str:
         return str(Path(path).expanduser().resolve())
 
 
+def resolve_table_path(root: str, file_path: str) -> str:
+    """Resolve a table file_path against dataset root.
+
+    Absolute paths and URLs are kept as-is so a generated file that cannot
+    live in a read-only data root (PhysioNet) can still be loaded from cache.
+    """
+    if is_url(file_path) or os.path.isabs(file_path):
+        return clean_path(file_path)
+    return clean_path(f"{root}/{file_path}")
+
+
 def path_exists(path: str) -> bool:
     """
     Check if a path exists.
@@ -431,6 +442,68 @@ class BaseDataset(ABC):
         if tmp_dir.exists():
             shutil.rmtree(tmp_dir)
 
+    def _scan_table(self, source_path: str) -> dd.DataFrame:
+        """Routes a table source to the appropriate scanner based on its format.
+
+        Parquet sources (``.parquet``/``.pq`` files, glob patterns targeting
+        such files, or directories of Parquet shards) are handled by
+        :meth:`_scan_parquet`. Any other source falls back to the existing
+        CSV/TSV(.gz) scanner, preserving prior behavior for all datasets.
+
+        Args:
+            source_path (str): Path to the table source.
+
+        Returns:
+            dd.DataFrame: The Dask DataFrame for the table source.
+        """
+        stripped = source_path.rstrip("/")
+        if stripped.endswith((".parquet", ".pq")) or (
+            not is_url(source_path) and Path(source_path).is_dir()
+        ):
+            return self._scan_parquet(source_path)
+        return self._scan_csv_tsv_gz(source_path)
+
+    def _scan_parquet(self, source_path: str) -> dd.DataFrame:
+        """Scans a Parquet source and returns a Dask DataFrame.
+
+        The source may be a single ``.parquet``/``.pq`` file, a glob pattern,
+        or a directory that is scanned recursively — which supports sharded
+        datasets such as MEDS, laid out as ``data/<split>/<shard>.parquet``.
+
+        Unlike :meth:`_scan_csv_tsv_gz`, no all-string schema coercion is
+        applied: Parquet files embed their schema, so source dtypes (native
+        timestamps, numeric columns, nullable strings) are preserved and
+        handled downstream by :meth:`load_table`.
+
+        Args:
+            source_path (str): Path to a Parquet file, directory, or glob.
+
+        Returns:
+            dd.DataFrame: The Dask DataFrame backed by the Parquet source.
+
+        Raises:
+            FileNotFoundError: If the source path does not exist, or if a
+                directory source contains no Parquet files.
+        """
+        path = Path(source_path)
+        is_glob = any(ch in source_path for ch in "*?[")
+        if not is_glob:
+            if not path.exists():
+                raise FileNotFoundError(
+                    f"Parquet source does not exist: {source_path}"
+                )
+            if path.is_dir() and not any(
+                itertools.chain(path.rglob("*.parquet"), path.rglob("*.pq"))
+            ):
+                raise FileNotFoundError(
+                    f"Directory contains no Parquet files: {source_path}"
+                )
+        return dd.read_parquet(
+            source_path,
+            split_row_groups=True,  # type: ignore
+            blocksize="64MB",
+        )
+
     def _scan_csv_tsv_gz(self, source_path: str) -> dd.DataFrame:
         """Scans a CSV/TSV file (possibly gzipped) and returns a Dask DataFrame.
 
@@ -632,11 +705,10 @@ class BaseDataset(ABC):
             raise ValueError(f"Table {table_name} not found in config")
 
         table_cfg = self.config.tables[table_name]
-        csv_path = f"{self.root}/{table_cfg.file_path}"
-        csv_path = clean_path(csv_path)
+        csv_path = resolve_table_path(self.root, table_cfg.file_path)
 
         logger.info(f"Scanning table: {table_name} from {csv_path}")
-        df = self._scan_csv_tsv_gz(csv_path)
+        df = self._scan_table(csv_path)
 
         # Convert column names to lowercase before calling preprocess_func
         df = df.rename(columns=str.lower)
@@ -652,10 +724,9 @@ class BaseDataset(ABC):
 
         # Handle joins
         for join_cfg in table_cfg.join:
-            other_csv_path = f"{self.root}/{join_cfg.file_path}"
-            other_csv_path = clean_path(other_csv_path)
+            other_csv_path = resolve_table_path(self.root, join_cfg.file_path)
             logger.info(f"Joining with table: {other_csv_path}")
-            join_df = self._scan_csv_tsv_gz(other_csv_path)
+            join_df = self._scan_table(other_csv_path)
             join_df = join_df.rename(columns=str.lower)
             join_key = join_cfg.on
             columns = join_cfg.columns
