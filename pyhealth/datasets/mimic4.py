@@ -228,7 +228,7 @@ class MIMIC4CXRSunlabDataset(BaseDataset):
     Sunlab variant of the MIMIC-CXR Chest X-ray dataset.
 
     This variant uses the existing metadata CSV and derives flattened image
-    paths at ``images/{dicom_id}.jpg``.
+    paths at ``{images|resized_images}/{dicom_id}.jpg``.
     """
 
     def __init__(
@@ -245,7 +245,11 @@ class MIMIC4CXRSunlabDataset(BaseDataset):
                 os.path.dirname(__file__), "configs", "mimic4_cxr_sunlab.yaml"
             )
             logger.info(f"Using default Sunlab CXR config: {config_path}")
-        self.prepare_metadata(root)
+        metadata_csv = self.prepare_metadata(root, cache_dir=cache_dir)
+        if os.path.dirname(os.path.abspath(metadata_csv)) != os.path.abspath(root):
+            config_path = self._rewrite_sunlab_config(
+                config_path, metadata_csv, cache_dir or os.path.dirname(metadata_csv)
+            )
         log_memory_usage(f"Before initializing {dataset_name}")
         super().__init__(
             root=root,
@@ -267,7 +271,26 @@ class MIMIC4CXRSunlabDataset(BaseDataset):
             )
         return resolved
 
-    def prepare_metadata(self, root: str) -> None:
+    @staticmethod
+    def _rewrite_sunlab_config(
+        config_path: str, metadata_csv: str, dest_dir: str
+    ) -> str:
+        """Point the sunlab YAML at a metadata CSV that is not under root."""
+        with open(config_path, encoding="utf-8") as f:
+            text = f.read()
+        rewritten = text.replace(
+            "mimic-cxr-2.0.0-metadata-pyhealth-sunlab.csv",
+            metadata_csv,
+        )
+        os.makedirs(dest_dir, exist_ok=True)
+        out = os.path.join(dest_dir, "mimic4_cxr_sunlab.generated.yaml")
+        with open(out, "w", encoding="utf-8") as f:
+            f.write(rewritten)
+        return out
+
+    def prepare_metadata(
+        self, root: str, cache_dir: Optional[str] = None
+    ) -> str:
         metadata_path = os.path.join(root, "mimic-cxr-2.0.0-metadata.csv")
         if not os.path.exists(metadata_path):
             raise FileNotFoundError(
@@ -275,12 +298,25 @@ class MIMIC4CXRSunlabDataset(BaseDataset):
                 "Expected existing metadata linked by dicom_id/subject_id/study_id."
             )
 
-        images_dir = os.path.join(root, "images")
-        if not os.path.isdir(images_dir):
+        # The flattened layout appears under more than one directory name
+        # depending on how the set was produced, so accept either rather than
+        # hardcoding one and failing on a complete, correct dataset.
+        candidates = ("images", "resized_images")
+        images_dir = next(
+            (
+                os.path.join(root, name)
+                for name in candidates
+                if os.path.isdir(os.path.join(root, name))
+            ),
+            None,
+        )
+        if images_dir is None:
             raise FileNotFoundError(
-                f"Sunlab images directory not found: {images_dir}. "
-                "Expected flattened image files at images/{dicom_id}.jpg."
+                f"No flattened image directory under {root}. Looked for "
+                f"{', '.join(candidates)}, each expected to hold "
+                "{dicom_id}.jpg."
             )
+        images_subdir = os.path.basename(images_dir)
 
         metadata = pd.read_csv(metadata_path, dtype=str)
 
@@ -307,15 +343,35 @@ class MIMIC4CXRSunlabDataset(BaseDataset):
         metadata[study_time_col] = metadata[study_time_col].apply(normalize_studytime)
 
         metadata["image_path"] = metadata[dicom_col].apply(
-            lambda dicom_id: os.path.join(root, "images", f"{dicom_id}.jpg")
+            lambda dicom_id: os.path.join(root, images_subdir, f"{dicom_id}.jpg")
         )
 
         # Align with existing config conventions by using lowercase headers.
         metadata.columns = [col.lower() for col in metadata.columns]
 
-        metadata.to_csv(
-            os.path.join(root, "mimic-cxr-2.0.0-metadata-pyhealth-sunlab.csv"),
-            index=False,
+        filename = "mimic-cxr-2.0.0-metadata-pyhealth-sunlab.csv"
+        dest_dirs = []
+        if cache_dir:
+            dest_dirs.append(str(cache_dir))
+        dest_dirs.append(root)
+
+        for d in dest_dirs:
+            existing = os.path.join(d, filename)
+            if os.path.isfile(existing):
+                return existing
+
+        last_err: Optional[OSError] = None
+        for d in dest_dirs:
+            os.makedirs(d, exist_ok=True)
+            dest = os.path.join(d, filename)
+            try:
+                metadata.to_csv(dest, index=False)
+                return dest
+            except OSError as exc:
+                last_err = exc
+                continue
+        raise PermissionError(
+            f"Could not write {filename} under {dest_dirs}: {last_err}"
         )
 
 
