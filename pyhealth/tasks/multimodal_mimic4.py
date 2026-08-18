@@ -85,7 +85,10 @@ class BaseMultimodalMIMIC4Task(BaseTask):
         self.window_hours = window_hours
         # Task cache key is uuid5 over {**vars(task), schemas}. Bump when
         # emitted data changes so leaky caches cannot be reused.
-        self.emitted_data_version = 1
+        # 1: empty events instead of placeholders; per-admission lab window.
+        # 2: CXR/notes_labs_cxr no longer drop later stays against the first
+        #    admission's clock (admission_time >= first_admit + window_hours).
+        self.emitted_data_version = 2
 
     @staticmethod
     def _clean_text(text: Optional[str]) -> Optional[str]:
@@ -732,11 +735,6 @@ class NotesLabsCXRMIMIC4(BaseMultimodalMIMIC4Task):
         for admission in admissions_to_process:
             admission_time = admission.timestamp
 
-            # Skip admissions that start at or after the observation window
-            # closes, prevents Polars searchsorted OverflowError in CXR lookup.
-            if effective_end is not None and admission_time >= effective_end:
-                continue
-
             try:
                 admission_dischtime = datetime.strptime(
                     admission.dischtime, "%Y-%m-%d %H:%M:%S"
@@ -957,11 +955,6 @@ class CXRMIMIC4(BaseMultimodalMIMIC4Task):
 
         for admission in admissions_to_process:
             admission_time = admission.timestamp
-
-            # Skip admissions that start at or after the observation window
-            # closes, prevents Polars searchsorted OverflowError.
-            if effective_end is not None and admission_time >= effective_end:
-                continue
 
             try:
                 admission_dischtime = datetime.strptime(
