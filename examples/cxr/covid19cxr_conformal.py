@@ -6,6 +6,11 @@ This example demonstrates:
 2. Conventional conformal prediction using LABEL
 3. Covariate shift adaptive conformal prediction using CovariateLabel
 4. Comparison of coverage and efficiency between the two methods
+
+For class-specific risk control instead of the marginal/class-conditional
+mis-coverage guarantees LABEL and CovariateLabel provide, see
+pyhealth.calib.predictionset.SCRIB, which minimizes ambiguity subject to
+per-class risk targets (see its docstring for usage).
 """
 
 import numpy as np
