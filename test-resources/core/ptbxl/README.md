@@ -12,4 +12,4 @@
 # - ecg_id=3: missing age + non-empty non-diagnostic dict (PACE-only)
 # - ecg_id=4: true multi-label (IMI+LVH → MI and HYP)
 # - ecg_id=5: empty scp_codes dict {}
-# - ecg_id=1 and 2 share patient_id (patient-level fold leakage checks)
+# - ecg_id=1 and 2 share patient_id (used by check_patient_disjoint tests)

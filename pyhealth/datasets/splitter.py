@@ -187,11 +187,15 @@ def split_by_strat_fold(
     test_folds: tuple[int, ...] | list[int] = (10,),
     fold_field: str = "strat_fold",
     folds: tuple[int, ...] | list[int] | None = None,
+    check_patient_disjoint: bool = False,
 ):
     """Split a sample dataset using integer fold assignments.
 
     The recommended PTB-XL protocol uses folds 1–8 for training, fold 9 for
-    validation, and fold 10 for testing.
+    validation, and fold 10 for testing. Official PTB-XL folds are
+    patient-disjoint; this helper does not assume that of arbitrary data.
+    Pass ``check_patient_disjoint=True`` to verify no ``patient_id`` appears
+    in more than one of train/val/test (uses ``dataset.patient_to_index``).
 
     Pass ``folds`` (one integer per sample, aligned with dataset indices) to
     avoid decoding every sample via ``dataset[i]``. When omitted, fold values
@@ -210,14 +214,19 @@ def split_by_strat_fold(
             is not provided. Defaults to ``\"strat_fold\"``.
         folds (Tuple[int, ...] | List[int] | None): Optional precomputed fold
             for each index. Length must equal ``len(dataset)``.
+        check_patient_disjoint (bool): If True, raise ``ValueError`` when a
+            ``patient_id`` has samples in more than one split. Requires
+            ``dataset.patient_to_index``. Defaults to False.
 
     Returns:
         tuple: ``(train_dataset, val_dataset, test_dataset)`` subsets.
 
     Raises:
         KeyError: If ``folds`` is omitted and a sample is missing ``fold_field``.
-        ValueError: If fold sets overlap, ``folds`` has the wrong length, or
-            a sample fold is unassigned.
+        TypeError: If ``check_patient_disjoint`` is True but the dataset has
+            no ``patient_to_index``.
+        ValueError: If fold sets overlap, ``folds`` has the wrong length, a
+            sample fold is unassigned, or a patient leaks across splits.
 
     Examples:
         >>> # doctest: +SKIP
@@ -261,6 +270,33 @@ def split_by_strat_fold(
         else:
             raise ValueError(
                 f"{fold_field}={fold} is not in train/val/test fold sets"
+            )
+
+    if check_patient_disjoint:
+        patient_to_index = getattr(dataset, "patient_to_index", None)
+        if patient_to_index is None:
+            raise TypeError(
+                "check_patient_disjoint=True requires dataset.patient_to_index"
+            )
+        split_of_index = {}
+        for i in train_index:
+            split_of_index[i] = "train"
+        for i in val_index:
+            split_of_index[i] = "val"
+        for i in test_index:
+            split_of_index[i] = "test"
+        leaks = []
+        for pid, indices in patient_to_index.items():
+            splits = {split_of_index[i] for i in indices if i in split_of_index}
+            if len(splits) > 1:
+                leaks.append((str(pid), splits))
+        if leaks:
+            details = "; ".join(
+                f"{pid} in {sorted(splits)}" for pid, splits in leaks
+            )
+            raise ValueError(
+                "check_patient_disjoint: "
+                f"{len(leaks)} patient(s) appear in multiple splits: {details}"
             )
 
     return (
