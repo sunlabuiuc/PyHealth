@@ -1,6 +1,6 @@
 """End-to-end protocol runner for Unified Embedding on MIMIC-IV.
 
-Trains and evaluates a unified-embedding model (RNN / Transformer /
+Trains and evaluates a unified-embedding model (MLP / RNN / Transformer /
 BottleneckTransformer / EHRMamba / JambaEHR) on a MIMIC-IV mortality task,
 then writes per-sample predictions to CSV.
 
@@ -36,13 +36,14 @@ Example
     python examples/mortality_prediction/unified_embedding_e2e_mimic4.py \\
       --ehr-root /data/mimic-iv/2.2 --note-root /data/mimic-iv/note \\
       --task notes_labs --model jambaehr \\
-      --embedding-dim 128 --jamba-transformer-layers 2 --jamba-mamba-layers 6
+      --embedding-dim 128 --jamba-transformer-layers 2 --jamba-mamba-layers 2
 """
 
 from __future__ import annotations
 
 import argparse
 import csv
+import warnings
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
@@ -54,17 +55,18 @@ from pyhealth.datasets import (
     split_by_patient,
     split_by_sample,
 )
-from pyhealth.models import RNN, Transformer, UnifiedMultimodalEmbeddingModel
+from pyhealth.models import MLP, RNN, Transformer, UnifiedMultimodalEmbeddingModel
 from pyhealth.models.bottleneck_transformer import BottleneckTransformer
 from pyhealth.models.ehrmamba import EHRMamba
 from pyhealth.models.jamba_ehr import JambaEHR
+from pyhealth.processors import fit_lab_standardizer, lab_standardizer_fit_scope
 from pyhealth.tasks.multimodal_mimic4 import (
     LabsMIMIC4,
     NotesLabsCXRMIMIC4,
     NotesLabsMIMIC4,
 )
 from pyhealth.trainer import Trainer
-from pyhealth.utils import set_seed
+from pyhealth.utils import set_seed, write_run_config
 
 
 class WandbLogger:
@@ -148,20 +150,48 @@ def _build_task(args: argparse.Namespace):
     raise ValueError(f"Unknown task: {args.task}")
 
 
-def _split_dataset(dataset: Any, seed: int) -> Tuple[Any, Any, Any]:
+def _split_dataset(dataset: Any, seed: int) -> Tuple[Any, Any, Any, str]:
+    """Split by patient, falling back to by-sample only if that yields nothing.
+
+    The fallback is leaky: a patient with several admissions can then land in
+    both train and test, which inflates the metrics. It only triggers on tiny
+    cohorts, but it must not trigger silently, so the mode is returned and
+    recorded alongside the run's results.
+    """
     train_ds, val_ds, test_ds = split_by_patient(dataset, [0.8, 0.1, 0.1], seed=seed)
     if len(train_ds) == 0 or len(test_ds) == 0:
+        warnings.warn(
+            "split_by_patient produced an empty split, falling back to "
+            "split_by_sample. The same patient may now appear in train and "
+            "test, so these metrics are optimistic and not comparable to "
+            "patient-split runs.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
         train_ds, val_ds, test_ds = split_by_sample(dataset, [0.8, 0.1, 0.1], seed=seed)
-    return train_ds, val_ds, test_ds
+        return train_ds, val_ds, test_ds, "by_sample_fallback_leaky"
+    return train_ds, val_ds, test_ds, "by_patient"
 
 
-def _build_model(args: argparse.Namespace, sample_dataset: Any):
+def _build_model(
+    args: argparse.Namespace,
+    sample_dataset: Any,
+    numeric_standardizers: dict[str, Any] | None = None,
+):
     unified = UnifiedMultimodalEmbeddingModel(
         processors=sample_dataset.input_processors,
         embedding_dim=args.embedding_dim,
         freeze_text_encoder=args.freeze_encoder,
+        numeric_standardizers=numeric_standardizers,
     )
 
+    if args.model == "mlp":
+        return MLP(
+            dataset=sample_dataset,
+            embedding_dim=args.embedding_dim,
+            hidden_dim=args.hidden_dim,
+            unified_embedding=unified,
+        )
     if args.model == "rnn":
         return RNN(
             dataset=sample_dataset,
@@ -258,23 +288,83 @@ def run(args: argparse.Namespace) -> Path:
             "Task produced zero samples. Check roots/tables or adjust settings."
         )
 
-    train_ds, val_ds, test_ds = _split_dataset(sample_dataset, seed=args.seed)
+    split_seed = args.seed if args.split_seed is None else args.split_seed
+    train_ds, val_ds, test_ds, split_mode = _split_dataset(
+        sample_dataset, seed=split_seed
+    )
 
-    model = _build_model(args, sample_dataset)
+    numeric_standardizers: dict[str, Any] = {}
+    if "labs" in sample_dataset.input_processors and not args.no_lab_standardization:
+        if "labs_mask" not in sample_dataset.input_processors:
+            raise RuntimeError(
+                "Lab standardisation requires the labs_mask observation field."
+            )
+        lab_standardizer = fit_lab_standardizer(
+            train_ds,
+            value_field="labs",
+            fit_scope=lab_standardizer_fit_scope(train_ds, value_field="labs"),
+        )
+        numeric_standardizers["labs"] = lab_standardizer
+        print(
+            "[lab-standardization] fitted on train split only: "
+            f"counts={lab_standardizer.observed_count.tolist()} "
+            f"mean={lab_standardizer.mean.tolist()} std={lab_standardizer.std.tolist()}"
+        )
+    elif "labs" in sample_dataset.input_processors:
+        print("[lab-standardization] disabled; reproducing raw-lab baseline.")
 
-    train_loader = get_dataloader(train_ds, batch_size=args.batch_size, shuffle=True)
+    model = _build_model(args, sample_dataset, numeric_standardizers)
+
+    loader_kwargs = {
+        "num_workers": args.loader_num_workers,
+        "pin_memory": args.pin_memory,
+        "persistent_workers": args.persistent_workers,
+        "prefetch_factor": (
+            args.prefetch_factor if args.loader_num_workers > 0 else None
+        ),
+    }
+    train_loader = get_dataloader(
+        train_ds, batch_size=args.batch_size, shuffle=True, **loader_kwargs
+    )
     val_loader = (
-        get_dataloader(val_ds, batch_size=args.batch_size, shuffle=False)
+        get_dataloader(
+            val_ds, batch_size=args.batch_size, shuffle=False, **loader_kwargs
+        )
         if len(val_ds) > 0
         else None
     )
     test_loader = (
-        get_dataloader(test_ds, batch_size=args.batch_size, shuffle=False)
+        get_dataloader(
+            test_ds, batch_size=args.batch_size, shuffle=False, **loader_kwargs
+        )
         if len(test_ds) > 0
         else None
     )
 
-    exp_name = f"{args.model}_seed{args.seed}"
+    if test_loader is not None:
+        inference_loader, eval_split = test_loader, "test"
+    elif val_loader is not None:
+        inference_loader, eval_split = val_loader, "val"
+        warnings.warn(
+            "No test split available; reporting predictions from the VALIDATION "
+            "split. These are not test metrics.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+    else:
+        inference_loader, eval_split = train_loader, "train"
+        warnings.warn(
+            "No test or validation split available; reporting predictions from "
+            "the TRAINING split. These metrics are held-in and meaningless as a "
+            "generalisation estimate.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+
+    # The task MUST be in the name. Without it, two arms of the same comparison
+    # at the same seed, for example --task labs and --task notes_labs, resolve
+    # to one directory and the second run overwrites the first.
+    exp_name = f"{args.task}_{args.model}_seed{args.seed}"
     output_dir = Path(args.output_dir)
 
     wandb_logger = WandbLogger(
@@ -317,6 +407,22 @@ def run(args: argparse.Namespace) -> Path:
 
     optimizer_params["lr"] = effective_lr
 
+    write_run_config(
+        str(output_dir / exp_name),
+        {
+            **vars(args),
+            "resolved_lr": effective_lr,
+            "resolved_max_grad_norm": effective_max_grad_norm,
+            "split_mode": split_mode,
+            "resolved_split_seed": split_seed,
+            "eval_split": eval_split,
+            "n_train": len(train_ds),
+            "n_val": len(val_ds),
+            "n_test": len(test_ds),
+            "lab_standardization": bool(numeric_standardizers),
+        },
+    )
+
     if args.epochs > 0 and len(train_ds) > 0:
         metrics_history = trainer.train(
             train_dataloader=train_loader,
@@ -338,7 +444,6 @@ def run(args: argparse.Namespace) -> Path:
         test_scores = trainer.evaluate(test_loader)
         wandb_logger.log({f"test_{k}": v for k, v in test_scores.items()})
 
-    inference_loader = test_loader or val_loader or train_loader
     y_true, y_prob, _, patient_ids = trainer.inference(
         inference_loader, return_patient_ids=True
     )
@@ -377,18 +482,27 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--model",
         type=str,
-        choices=["rnn", "transformer", "bottleneck_transformer",
+        choices=["mlp", "rnn", "transformer", "bottleneck_transformer",
                  "ehrmamba", "jambaehr"],
         default="rnn",
     )
 
-    parser.add_argument("--embedding-dim", type=int, default=64)
-    parser.add_argument("--hidden-dim", type=int, default=64)
+    parser.add_argument("--embedding-dim", type=int, default=128)
+    parser.add_argument("--hidden-dim", type=int, default=128)
     parser.add_argument("--dropout", type=float, default=0.1)
     parser.add_argument("--epochs", type=int, default=1)
-    parser.add_argument("--batch-size", type=int, default=32)
+    parser.add_argument(
+        "--batch-size",
+        "--batch_size",
+        dest="batch_size",
+        type=int,
+        default=32,
+    )
     parser.add_argument(
         "--lr",
+        "--learning-rate",
+        "--learning_rate",
+        dest="lr",
         type=float,
         default=None,
         help="Learning rate. Default is 1e-4 for all models.",
@@ -411,13 +525,35 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--amp-dtype",
+        "--amp_dtype",
+        dest="amp_dtype",
         type=str,
         default="bf16",
         choices=["bf16", "fp16"],
         help="AMP dtype when --use-amp is set. bf16 is more stable (default).",
     )
     parser.add_argument("--num-workers", type=int, default=1)
+    parser.add_argument(
+        "--loader-num-workers",
+        type=int,
+        default=0,
+        help="Worker processes for runtime batch loading/collation.",
+    )
+    parser.add_argument("--pin-memory", action="store_true", default=False)
+    parser.add_argument("--persistent-workers", action="store_true", default=False)
+    parser.add_argument("--prefetch-factor", type=int, default=2)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument(
+        "--split-seed",
+        "--split_seed",
+        dest="split_seed",
+        type=int,
+        default=None,
+        help=(
+            "Patient-split RNG seed. Defaults to --seed. Set separately when "
+            "a tiny --dev cohort puts no positives in val/test."
+        ),
+    )
     parser.add_argument("--patience", type=int, default=None)
     parser.add_argument(
         "--dev",
@@ -429,6 +565,15 @@ def parse_args() -> argparse.Namespace:
             "Dev mode: limit dataset to N patients for fast iteration. "
             "--dev (no value) defaults to 1000 patients. "
             "--dev 5000 limits to 5000. Omit for full dataset."
+        ),
+    )
+    parser.add_argument(
+        "--patients",
+        type=int,
+        default=None,
+        help=(
+            "Not a supported flag. Do not pass this. Use --dev N for a "
+            "patient-limited smoke, and omit both for the full table."
         ),
     )
     parser.add_argument("--observation-window-hours", type=int, default=24)
@@ -446,7 +591,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--bidirectional", action="store_true")
 
     parser.add_argument("--heads", type=int, default=4)
-    parser.add_argument("--num-layers", type=int, default=2)
+    parser.add_argument(
+        "--num-layers",
+        "--num_layers",
+        dest="num_layers",
+        type=int,
+        default=2,
+    )
 
     parser.add_argument("--bottlenecks-n", type=int, default=4)
     parser.add_argument("--fusion-startidx", type=int, default=1)
@@ -473,7 +624,7 @@ def parse_args() -> argparse.Namespace:
         "--wandb-run-name",
         type=str,
         default=None,
-        help="Defaults to '{model}_seed{seed}' if unset.",
+        help="Defaults to '{task}_{model}_seed{seed}' if unset.",
     )
     parser.add_argument(
         "--wandb-tags",
@@ -482,16 +633,55 @@ def parse_args() -> argparse.Namespace:
         help="Comma-separated wandb tags, e.g. 'labs,rnn'. Defaults to '{task},{model}' if unset.",
     )
 
-    parser.add_argument("--mamba-state-size", type=int, default=16,
-                        help="SSM state size for EHRMamba and JambaEHR blocks.")
-    parser.add_argument("--mamba-conv-kernel", type=int, default=4,
-                        help="Causal conv kernel size for EHRMamba and JambaEHR blocks.")
-    parser.add_argument("--jamba-transformer-layers", type=int, default=2,
-                        help="Number of Transformer (attention) layers in JambaEHR.")
-    parser.add_argument("--jamba-mamba-layers", type=int, default=6,
-                        help="Number of Mamba (SSM) layers in JambaEHR.")
+    parser.add_argument(
+        "--mamba-state-size",
+        "--mamba_state_size",
+        dest="mamba_state_size",
+        type=int,
+        default=16,
+        help="SSM state size for EHRMamba and JambaEHR blocks.",
+    )
+    parser.add_argument(
+        "--mamba-conv-kernel",
+        "--mamba_conv_kernel",
+        "--conv-kernel",
+        "--conv_kernel",
+        dest="mamba_conv_kernel",
+        type=int,
+        default=4,
+        help="Causal conv kernel size for EHRMamba and JambaEHR blocks.",
+    )
+    parser.add_argument(
+        "--jamba-transformer-layers",
+        "--jamba_transformer_layers",
+        dest="jamba_transformer_layers",
+        type=int,
+        default=2,
+        help="Number of Transformer (attention) layers in JambaEHR.",
+    )
+    parser.add_argument(
+        "--jamba-mamba-layers",
+        "--jamba_mamba_layers",
+        dest="jamba_mamba_layers",
+        type=int,
+        default=6,
+        help="Number of Mamba (SSM) layers in JambaEHR. Library default is 6; "
+             "pass 2 for a depth-matched comparison against --num-layers 2.",
+    )
+    parser.add_argument(
+        "--no-lab-standardization",
+        action="store_true",
+        default=False,
+        help="Disable train-split lab z-scoring (raw-lab ablation).",
+    )
 
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.patients is not None:
+        parser.error(
+            "--patients is not a supported flag and is not a 5-patient smoke. "
+            "Omit it for the full table; use --dev N for a patient-limited run."
+        )
+    return args
 
 
 if __name__ == "__main__":
