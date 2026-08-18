@@ -2,9 +2,9 @@
 Unit tests for PTBXLDataset, PTBXLSuperclassClassification, and
 split_by_strat_fold.
 
-Uses small synthetic WFDB fixtures under test-resources/ptbxl/ (not real
-PhysioNet records). Covers censored age (300), missing age, and empty
-diagnostic-superclass labels.
+Uses small synthetic WFDB fixtures under test-resources/core/ptbxl/ (not real
+PhysioNet records). Waveforms are generated at test time. Covers censored
+age (300), missing age, and empty diagnostic-superclass labels.
 
 Author:
     AxelNoun (GitHub: @AxelNoun) — external contributor, no NetID
@@ -20,6 +20,7 @@ from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
+import torch
 
 from pyhealth.datasets.ptbxl import (
     AGE_CENSOR_SENTINEL,
@@ -33,14 +34,15 @@ from pyhealth.datasets.ptbxl import (
 )
 from pyhealth.datasets.splitter import split_by_strat_fold
 from pyhealth.tasks.ptbxl import (
-    PTBXL_EMPTY_SUPERCLASS_COUNT,
     PTBXLSuperclassClassification,
+    _to_bool,
     aggregate_diagnostic_superclasses,
     load_diagnostic_class_map,
 )
 
-FIXTURE_ROOT = Path(__file__).resolve().parents[1] / ".." / "test-resources" / "ptbxl"
-FIXTURE_ROOT = FIXTURE_ROOT.resolve()
+FIXTURE_ROOT = (
+    Path(__file__).resolve().parents[2] / "test-resources" / "core" / "ptbxl"
+)
 
 
 def _write_dummy_wfdb(
@@ -63,24 +65,17 @@ def _write_dummy_wfdb(
 
 
 def _materialize_fixture(dest: Path) -> Path:
-    """Copy committed CSVs and WFDB records under ``dest``."""
+    """Copy committed CSVs and synthesize WFDB records under ``dest``."""
     dest.mkdir(parents=True, exist_ok=True)
     shutil.copy(FIXTURE_ROOT / "ptbxl_database.csv", dest / "ptbxl_database.csv")
     shutil.copy(FIXTURE_ROOT / "scp_statements.csv", dest / "scp_statements.csv")
-    for records_dir in ("records100", "records500"):
-        src = FIXTURE_ROOT / records_dir
-        if src.is_dir():
-            shutil.copytree(src, dest / records_dir, dirs_exist_ok=True)
-    # Fallback: synthesize WFDB if committed waveforms are missing.
     db = pd.read_csv(dest / "ptbxl_database.csv")
     for col, fs, n_samples in (
         ("filename_lr", 100, 50),
         ("filename_hr", 500, 250),
     ):
         for rel in db[col]:
-            base = dest / str(rel)
-            if not Path(str(base) + ".hea").is_file():
-                _write_dummy_wfdb(base, n_samples=n_samples, fs=fs)
+            _write_dummy_wfdb(dest / str(rel), n_samples=n_samples, fs=fs)
     return dest
 
 
@@ -112,6 +107,15 @@ class TestPTBXLHelpers(unittest.TestCase):
         self.assertFalse(is_age_censored(float("nan")))
         self.assertFalse(is_age_censored(65))
 
+    def test_to_bool_parses_flag_cells(self):
+        self.assertTrue(_to_bool(1))
+        self.assertTrue(_to_bool("True"))
+        self.assertTrue(_to_bool("true"))
+        self.assertTrue(_to_bool(True))
+        self.assertFalse(_to_bool(0))
+        self.assertFalse(_to_bool("0"))
+        self.assertFalse(_to_bool(False))
+
     def test_metadata_filename_includes_rate_and_root(self):
         name_a = metadata_filename(100, "/data/ptb-xl/a")
         name_b = metadata_filename(100, "/data/ptb-xl/b")
@@ -121,9 +125,10 @@ class TestPTBXLHelpers(unittest.TestCase):
         self.assertNotEqual(
             metadata_filename(100, "/tmp/x"), metadata_filename(500, "/tmp/x")
         )
-
-    def test_empty_superclass_count_documented(self):
-        self.assertEqual(PTBXL_EMPTY_SUPERCLASS_COUNT, 407)
+        keyed_a = metadata_filename(100, "/tmp/x", "aaaaaaaaaa")
+        keyed_b = metadata_filename(100, "/tmp/x", "bbbbbbbbbb")
+        self.assertIn("aaaaaaaaaa", keyed_a)
+        self.assertNotEqual(keyed_a, keyed_b)
 
 
 class TestPTBXLAggregation(unittest.TestCase):
@@ -252,8 +257,15 @@ class TestPTBXLDatasetMetadata(unittest.TestCase):
     "wfdb optional extra not installed",
 )
 class TestPTBXLSignalIO(unittest.TestCase):
-    def test_load_committed_fixture_shape_channels_time(self):
-        record = FIXTURE_ROOT / "records100" / "00000" / "00001_lr"
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.data_root = _materialize_fixture(self.tmp / "data")
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_load_fixture_shape_channels_time(self):
+        record = self.data_root / "records100" / "00000" / "00001_lr"
         self.assertTrue(Path(str(record) + ".hea").is_file())
         self.assertTrue(Path(str(record) + ".dat").is_file())
         signal = load_ptbxl_record(record)
@@ -262,7 +274,7 @@ class TestPTBXLSignalIO(unittest.TestCase):
         self.assertNotEqual(signal.shape[0], signal.shape[1])
 
     def test_load_strips_extension_never_appends(self):
-        record = FIXTURE_ROOT / "records100" / "00000" / "00001_lr"
+        record = self.data_root / "records100" / "00000" / "00001_lr"
         signal = load_ptbxl_record(Path(str(record) + ".hea"))
         self.assertEqual(signal.shape, (12, 50))
         self.assertNotEqual(signal.shape[0], signal.shape[1])
@@ -353,6 +365,243 @@ class TestPTBXLTaskAndSplit(unittest.TestCase):
         self.assertEqual([s["id"] for s in train._samples], ["a", "d"])
         self.assertEqual([s["id"] for s in val._samples], ["b"])
         self.assertEqual([s["id"] for s in test._samples], ["c"])
+
+    def test_split_by_strat_fold_uses_precomputed_folds(self):
+        class _BoomDS:
+            def __init__(self, n):
+                self._n = n
+
+            def __len__(self):
+                return self._n
+
+            def __getitem__(self, i):
+                raise AssertionError(
+                    "dataset[i] must not be called when folds= is provided"
+                )
+
+            def subset(self, indices):
+                return list(indices)
+
+        train, val, test = split_by_strat_fold(
+            _BoomDS(4),
+            train_folds=(1, 3),
+            val_folds=(9,),
+            test_folds=(10,),
+            folds=[1, 9, 10, 3],
+        )
+        self.assertEqual(train, [0, 3])
+        self.assertEqual(val, [1])
+        self.assertEqual(test, [2])
+
+
+@unittest.skipUnless(
+    __import__("importlib").util.find_spec("wfdb") is not None,
+    "wfdb optional extra not installed",
+)
+class TestPTBXLSetTaskE2E(unittest.TestCase):
+    """Exercise the real set_task / litdata / SampleDataset path (no mocks)."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.data_root = _materialize_fixture(self.tmp / "data")
+        self.cache_dir = self.tmp / "meta_cache"
+        self.dataset = PTBXLDataset(
+            root=str(self.data_root),
+            metadata_cache_dir=self.cache_dir,
+            sampling_rate=100,
+            cache_dir=self.tmp / "pyhealth_cache",
+        )
+        self.task = PTBXLSuperclassClassification(
+            scp_statements_path=self.data_root / "scp_statements.csv",
+        )
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_set_task_builds_samples_without_mocks(self):
+        samples = self.dataset.set_task(self.task, num_workers=1)
+        # Keep: ecg 1 NORM, 2 MI, 4 HYP+MI. Drop: 3 PACE-only and 5 empty {}.
+        self.assertEqual(len(samples), 3)
+
+        sample = samples[0]
+        self.assertEqual(tuple(sample["signal"].shape), (12, 50))
+        self.assertNotEqual(sample["signal"].shape[0], sample["signal"].shape[1])
+        self.assertIn("strat_fold", sample)
+        self.assertIn("labels", sample)
+        # Multi-hot from MultiLabelProcessor, not a list of strings.
+        self.assertEqual(tuple(sample["labels"].shape), (3,))
+        self.assertTrue(torch.is_tensor(sample["labels"]))
+
+    def test_multilabel_vocab_order_is_alphabetical_observed(self):
+        samples = self.dataset.set_task(self.task, num_workers=1)
+        vocab = samples.output_processors["labels"].label_vocab
+        # Fixture only observes HYP, MI, NORM — not CD/STTC. Processor sorts.
+        self.assertEqual(list(vocab.keys()), ["HYP", "MI", "NORM"])
+        self.assertEqual(vocab, {"HYP": 0, "MI": 1, "NORM": 2})
+
+        by_record = {str(s["record_id"]): s for s in samples}
+        # ecg 1 = NORM → [0, 0, 1]; ecg 2 = MI → [0, 1, 0]; ecg 4 = HYP+MI → [1, 1, 0]
+        self.assertEqual(by_record["1"]["labels"].tolist(), [0.0, 0.0, 1.0])
+        self.assertEqual(by_record["2"]["labels"].tolist(), [0.0, 1.0, 0.0])
+        self.assertEqual(by_record["4"]["labels"].tolist(), [1.0, 1.0, 0.0])
+
+    def test_split_by_strat_fold_on_sample_dataset(self):
+        samples = self.dataset.set_task(self.task, num_workers=1)
+        # Kept folds are 1 (ecg 1), 2 (ecg 4), 9 (ecg 2). Fold 10 was dropped.
+        train, val, test = split_by_strat_fold(
+            samples,
+            train_folds=(1,),
+            val_folds=(2,),
+            test_folds=(9,),
+        )
+        self.assertEqual(len(train), 1)
+        self.assertEqual(len(val), 1)
+        self.assertEqual(len(test), 1)
+        self.assertEqual(int(train[0]["strat_fold"]), 1)
+        self.assertEqual(int(val[0]["strat_fold"]), 2)
+        self.assertEqual(int(test[0]["strat_fold"]), 9)
+        self.assertEqual(tuple(train[0]["signal"].shape), (12, 50))
+
+    def test_age_sentinel_through_set_task(self):
+        """Missing age must be an int sentinel; censored age is clipped to 90."""
+        task = PTBXLSuperclassClassification(
+            scp_statements_path=self.data_root / "scp_statements.csv",
+            drop_empty_labels=False,
+        )
+        samples = self.dataset.set_task(task, num_workers=1)
+        by_record = {str(s["record_id"]): s for s in samples}
+
+        missing = by_record["3"]
+        self.assertTrue(missing["age_is_missing"])
+        self.assertIsInstance(missing["age"], (int, np.integer))
+        self.assertEqual(int(missing["age"]), -1)
+        self.assertIsNotNone(missing["age"])
+
+        censored = by_record["2"]
+        self.assertTrue(censored["age_is_censored"])
+        self.assertFalse(censored["age_is_missing"])
+        self.assertEqual(int(censored["age"]), 90)
+
+
+class TestPTBXLCacheIsolation(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_distinct_data_roots_get_distinct_cache_dirs(self):
+        root_a = _materialize_fixture(self.tmp / "a")
+        root_b = _materialize_fixture(self.tmp / "b")
+        db_b = pd.read_csv(root_b / "ptbxl_database.csv")
+        db_b.loc[0, "scp_codes"] = "{'LVH': 100.0}"
+        db_b.to_csv(root_b / "ptbxl_database.csv", index=False)
+
+        shared_meta = self.tmp / "meta"
+        shared_cache = self.tmp / "pyhealth_cache"
+        ds_a = PTBXLDataset(
+            root=str(root_a),
+            metadata_cache_dir=shared_meta,
+            sampling_rate=100,
+            cache_dir=shared_cache,
+        )
+        ds_b = PTBXLDataset(
+            root=str(root_b),
+            metadata_cache_dir=shared_meta,
+            sampling_rate=100,
+            cache_dir=shared_cache,
+        )
+        self.assertNotEqual(ds_a.cache_dir, ds_b.cache_dir)
+        self.assertNotEqual(ds_a.dataset_name, ds_b.dataset_name)
+
+    def test_source_csv_change_invalidates_derived_metadata(self):
+        data_root = _materialize_fixture(self.tmp / "data")
+        meta = self.tmp / "meta"
+        ds1 = PTBXLDataset(
+            root=str(data_root),
+            metadata_cache_dir=meta,
+            sampling_rate=100,
+            cache_dir=self.tmp / "c1",
+        )
+        name1 = ds1.metadata_file_name
+        derived1 = pd.read_csv(meta / name1)
+
+        db = pd.read_csv(data_root / "ptbxl_database.csv")
+        db.loc[0, "scp_codes"] = "{'LVH': 100.0}"
+        db.to_csv(data_root / "ptbxl_database.csv", index=False)
+
+        ds2 = PTBXLDataset(
+            root=str(data_root),
+            metadata_cache_dir=meta,
+            sampling_rate=100,
+            cache_dir=self.tmp / "c2",
+        )
+        self.assertNotEqual(ds2.metadata_file_name, name1)
+        derived2 = pd.read_csv(meta / ds2.metadata_file_name)
+        codes1 = str(
+            derived1.loc[derived1["record_id"].astype(str) == "1", "scp_codes"].iloc[0]
+        )
+        codes2 = str(
+            derived2.loc[derived2["record_id"].astype(str) == "1", "scp_codes"].iloc[0]
+        )
+        self.assertNotEqual(codes1, codes2)
+
+
+class TestPTBXLTaskStability(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.data_root = _materialize_fixture(self.tmp / "data")
+        self.dataset = PTBXLDataset(
+            root=str(self.data_root),
+            metadata_cache_dir=self.tmp / "meta_cache",
+            sampling_rate=100,
+            cache_dir=self.tmp / "pyhealth_cache",
+        )
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_vars_task_stable_after_call(self):
+        task = PTBXLSuperclassClassification(
+            scp_statements_path=self.data_root / "scp_statements.csv",
+        )
+        before = dict(vars(task))
+        fake_signal = np.zeros((12, 50), dtype=np.float32)
+        with patch(
+            "pyhealth.datasets.ptbxl.load_ptbxl_record", return_value=fake_signal
+        ):
+            patient = self.dataset.get_patient(self.dataset.unique_patient_ids[0])
+            task(patient)
+        after = dict(vars(task))
+        self.assertEqual(before, after)
+
+    def test_age_sentinel_from_task_call(self):
+        task = PTBXLSuperclassClassification(
+            scp_statements_path=self.data_root / "scp_statements.csv",
+            drop_empty_labels=False,
+        )
+        fake_signal = np.zeros((12, 50), dtype=np.float32)
+        with patch(
+            "pyhealth.datasets.ptbxl.load_ptbxl_record", return_value=fake_signal
+        ):
+            samples = []
+            for patient in self.dataset.iter_patients():
+                samples.extend(task(patient))
+        by_record = {str(s["record_id"]): s for s in samples}
+
+        missing = by_record["3"]
+        self.assertTrue(missing["age_is_missing"])
+        self.assertIsInstance(missing["age"], int)
+        self.assertEqual(missing["age"], -1)
+
+        censored = by_record["2"]
+        self.assertTrue(censored["age_is_censored"])
+        self.assertEqual(censored["age"], 90)
+
+        present = by_record["1"]
+        self.assertFalse(present["age_is_missing"])
+        self.assertFalse(present["age_is_censored"])
+        self.assertEqual(present["age"], 65)
 
 
 class TestWFDBImportError(unittest.TestCase):
