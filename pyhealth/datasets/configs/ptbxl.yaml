@@ -1,4 +1,4 @@
-version: "1.0.3"
+version: "1.0.3"  # PhysioNet PTB-XL v1.0.3 only; earlier releases are not supported.
 tables:
   records:
     # Template only: PTBXLDataset writes a resolved config whose file_path
