@@ -313,6 +313,15 @@ class Trainer:
             outputs.append(patient_ids)
         return outputs
 
+    def _get_mode(self) -> Optional[str]:
+        try:
+            label_key = self.model.label_keys[0]
+            return self.model._resolve_mode(
+                self.model.dataset.output_schema[label_key]
+            )
+        except (AttributeError, IndexError, KeyError, ValueError):
+            return getattr(self.model, "mode", None)
+
     def evaluate(self, dataloader) -> Dict[str, float]:
         """Evaluates the model.
 
@@ -322,9 +331,9 @@ class Trainer:
         Returns:
             scores: a dictionary of scores.
         """
-        if self.model.mode is not None:
+        mode = self._get_mode()
+        if mode is not None:
             y_true_all, y_prob_all, loss_mean = self.inference(dataloader)
-            mode = self.model.mode
             metrics_fn = get_metrics_fn(mode)
             scores = metrics_fn(y_true_all, y_prob_all, metrics=self.metrics)
             scores["loss"] = loss_mean

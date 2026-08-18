@@ -811,6 +811,17 @@ class MortalityPredictionEICU(BaseTask):
     }
     output_schema: Dict[str, str] = {"mortality": "binary"}
 
+    def __init__(self, exclude_minors: bool = True, **kwargs) -> None:
+        """Initializes the task object.
+
+        Args:
+            exclude_minors: Whether to exclude stays where the patient
+                was under 18 years old. Defaults to True.
+            **kwargs: Passed to :class:`~pyhealth.tasks.BaseTask`.
+        """
+        super().__init__(**kwargs)
+        self.exclude_minors = exclude_minors
+
     def __call__(self, patient: Any) -> List[Dict[str, Any]]:
         """Processes a single patient for the mortality prediction task.
 
@@ -875,7 +886,13 @@ class MortalityPredictionEICU(BaseTask):
             if len(conditions) * len(procedures_list) * len(drugs) == 0:
                 continue
 
-            # TODO: Exclude visits with age < 18
+            if self.exclude_minors:
+                age = getattr(stay, "age", None)
+                try:
+                    if age is not None and str(age) != "> 89" and int(float(age)) < 18:
+                        continue
+                except (ValueError, TypeError):
+                    pass
 
             samples.append(
                 {
@@ -915,6 +932,17 @@ class MortalityPredictionEICU2(BaseTask):
     task_name: str = "MortalityPredictionEICU2"
     input_schema: Dict[str, str] = {"conditions": "sequence", "procedures": "sequence"}
     output_schema: Dict[str, str] = {"mortality": "binary"}
+
+    def __init__(self, exclude_minors: bool = True, **kwargs) -> None:
+        """Initializes the task object.
+
+        Args:
+            exclude_minors: Whether to exclude stays where the patient
+                was under 18 years old. Defaults to True.
+            **kwargs: Passed to :class:`~pyhealth.tasks.BaseTask`.
+        """
+        super().__init__(**kwargs)
+        self.exclude_minors = exclude_minors
 
     def __call__(self, patient: Any) -> List[Dict[str, Any]]:
         """Processes a single patient for the mortality prediction task.
@@ -991,7 +1019,13 @@ class MortalityPredictionEICU2(BaseTask):
             if len(conditions) * len(treatment_codes) == 0:
                 continue
 
-            # TODO: Exclude visits with age < 18
+            if self.exclude_minors:
+                age = getattr(stay, "age", None)
+                try:
+                    if age is not None and str(age) != "> 89" and int(float(age)) < 18:
+                        continue
+                except (ValueError, TypeError):
+                    pass
 
             samples.append(
                 {
