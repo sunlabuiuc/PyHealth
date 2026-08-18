@@ -7,6 +7,7 @@ import warnings
 from typing import Any, Dict, Optional, Tuple, Union, cast
 
 import torch
+import torch.nn.functional as F
 from torch import nn
 
 from pyhealth.datasets import SampleDataset
@@ -56,8 +57,10 @@ class Attention(nn.Module):
             # avoiding a second masked_fill after softmax (saves one full
             # [B, H, S, S] boolean allocation and an extra copy).
             pad_mask = mask == 0
-            scores = scores.masked_fill(pad_mask, -1e9)
+            scores = scores.masked_fill(pad_mask, torch.finfo(scores.dtype).min)
         p_attn = self.softmax(scores)
+        if mask is not None:
+            p_attn = p_attn.masked_fill(mask == 0, 0)
         if dropout is not None:
             p_attn = dropout(p_attn)
 
@@ -150,19 +153,38 @@ class MultiHeadedAttention(nn.Module):
         ]
 
         # 2) Apply attention on all the projected vectors in batch.
-        if mask is not None:
-            mask = mask.unsqueeze(1)
-        x, attn = self.attention(query, key, value, mask=mask, dropout=self.dropout)
-
-        if register_hook:
-            # Only store attn_map and hook during interpretability passes.
-            # Using .detach() gives an independent copy whose storage
-            # is NOT shared with the live graph, so the graph can be freed
-            # normally after .backward() without leaking GPU memory.
+        # Ordinary training uses fused SDPA. The explicit path stays behind
+        # register_hook=True for interpretability.
+        if not register_hook:
+            query_mask = None
+            attn_mask = None
+            if mask is not None:
+                valid = mask.bool()
+                if mask.dim() == 2:
+                    query_mask = valid[:, None, :, None]
+                    attn_mask = valid[:, None, None, :]
+                else:
+                    query_mask = valid.any(dim=-1)[:, None, :, None]
+                    attn_mask = valid.unsqueeze(1)
+            x = F.scaled_dot_product_attention(
+                query,
+                key,
+                value,
+                attn_mask=attn_mask,
+                dropout_p=self.dropout.p if self.training else 0.0,
+            )
+            if query_mask is not None:
+                x = x * query_mask.to(x.dtype)
+            self.attn_map = None
+            self.attn_gradients = None
+        else:
+            if mask is not None:
+                mask = mask.unsqueeze(1)
+            x, attn = self.attention(
+                query, key, value, mask=mask, dropout=self.dropout
+            )
             self.attn_map = attn.detach()
             attn.register_hook(self.save_attn_grad)
-        else:
-            self.attn_map = None
         # 3) "Concat" using a view and apply a final linear.
         x = x.transpose(1, 2).contiguous().view(batch_size, -1, self.h * self.d_k)
 
