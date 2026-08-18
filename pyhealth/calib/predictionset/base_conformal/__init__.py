@@ -10,18 +10,30 @@ score thresholds on a held-out calibration set.
 Paper:
     Vovk, Vladimir, Alexander Gammerman, and Glenn Shafer.
     "Algorithmic learning in a random world." Springer, 2005.
-    
+
     Papadopoulos, Harris, Kostas Proedrou, Volodya Vovk, and Alex Gammerman.
     "Inductive confidence machines for regression." ECML 2002.
+
+    Sadinle, Mauricio, Jing Lei, and Larry Wasserman. "Least ambiguous
+    set-valued classifiers with bounded error levels." Journal of the
+    American Statistical Association (2019). [score_type="threshold"]
+
+    Romano, Yaniv, Matteo Sesia, and Emmanuel Candes. "Classification with
+    valid and adaptive coverage." NeurIPS 2020. [score_type="aps"]
 """
 
-from typing import Dict, Union
+from typing import Union
 
 import numpy as np
 import torch
 from torch.utils.data import IterableDataset
 
 from pyhealth.calib.base_classes import SetPredictor
+from pyhealth.calib.predictionset.scores import (
+    SUPPORTED_SCORE_TYPES,
+    all_class_nc_scores,
+    true_class_nc_scores,
+)
 from pyhealth.calib.utils import prepare_numpy_dataset
 from pyhealth.models import BaseModel
 
@@ -109,17 +121,20 @@ class BaseConformal(SetPredictor):
         alpha: Target miscoverage rate(s). Can be:
             - float: marginal coverage P(Y not in C(X)) <= alpha
             - array: class-conditional P(Y not in C(X) | Y=k) <= alpha[k]
-        score_type: Type of conformity score to use. Currently only one score
-            is implemented:
+        score_type: Type of nonconformity score to use:
             - "threshold" (default): NC score = 1 - p(true class), the score
               from Sadinle, Lei, and Wasserman (2019) ("LABEL").
-            - "aps": accepted as a backward-compatible alias for
-              "threshold". Despite the name, this does **not** implement
-              Adaptive Prediction Sets (Romano, Sesia, and Candes 2020) --
-              that method uses a different score (cumulative sorted class
-              probabilities) which is not implemented here. If you need
-              genuine APS, do not rely on this option; it is kept only so
-              existing calls with ``score_type="aps"`` keep working.
+            - "aps": Adaptive Prediction Sets (Romano, Sesia, and Candes
+              2020). NC score for class k is the cumulative sum of predicted
+              probabilities for classes ranked above k, plus a randomized
+              U * p(k) term (U ~ Uniform(0,1), one draw per example, shared
+              across all candidate classes for that example). Unlike
+              "threshold", this adapts the prediction set size to how
+              peaked or flat the model's predicted distribution is for each
+              individual input. See :mod:`pyhealth.calib.predictionset.scores`
+              for the exact formula.
+        random_state: Optional int seed for the RNG used by score_type="aps"
+            (the U ~ Uniform(0,1) draws). Ignored for score_type="threshold".
         debug: Whether to use debug mode (processes fewer samples)
 
     Examples:
@@ -160,6 +175,12 @@ class BaseConformal(SetPredictor):
         >>> conformal_model_cc = BaseConformal(
         ...     model, alpha=[0.1, 0.15, 0.1, 0.1, 0.1])
         >>> conformal_model_cc.calibrate(cal_dataset=val_data)
+        >>>
+        >>> # Use APS instead of the default threshold score (adapts set
+        >>> # size to how confident the model is on each individual input)
+        >>> conformal_model_aps = BaseConformal(
+        ...     model, alpha=0.1, score_type="aps", random_state=0)
+        >>> conformal_model_aps.calibrate(cal_dataset=val_data)
     """
 
     def __init__(
@@ -167,6 +188,7 @@ class BaseConformal(SetPredictor):
         model: BaseModel,
         alpha: Union[float, np.ndarray],
         score_type: str = "threshold",
+        random_state: int | None = None,
         debug: bool = False,
         **kwargs,
     ) -> None:
@@ -175,6 +197,11 @@ class BaseConformal(SetPredictor):
         if model.mode != "multiclass":
             raise NotImplementedError(
                 "BaseConformal only supports multiclass classification"
+            )
+        if score_type not in SUPPORTED_SCORE_TYPES:
+            raise ValueError(
+                f"Unknown score_type: {score_type!r}. Supported: "
+                f"{SUPPORTED_SCORE_TYPES}."
             )
 
         self.mode = self.model.mode
@@ -187,6 +214,7 @@ class BaseConformal(SetPredictor):
         self.device = model.device
         self.debug = debug
         self.score_type = score_type
+        self.rng = np.random.default_rng(random_state)
 
         # Store alpha
         if not isinstance(alpha, float):
@@ -208,13 +236,9 @@ class BaseConformal(SetPredictor):
         Returns:
             Non-conformity scores of shape (N,) — higher means less conforming.
         """
-        N = len(y_true)
-        if self.score_type == "threshold" or self.score_type == "aps":
-            scores = 1.0 - y_prob[np.arange(N), y_true]
-        else:
-            raise ValueError(f"Unknown score_type: {self.score_type}")
-
-        return scores
+        return true_class_nc_scores(
+            y_prob, y_true, score_type=self.score_type, rng=self.rng
+        )
 
     def calibrate(self, cal_dataset: IterableDataset):
         """Calibrate the thresholds for prediction set construction.
@@ -268,7 +292,7 @@ class BaseConformal(SetPredictor):
         if self.debug:
             print(f"Calibrated thresholds: {self.t}")
 
-    def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
+    def forward(self, **kwargs) -> dict[str, torch.Tensor]:
         """Forward propagation with prediction set construction.
 
         Returns:
@@ -284,8 +308,15 @@ class BaseConformal(SetPredictor):
 
         pred = self.model(**kwargs)
 
-        # Include class y if its NC score (1 - p(y)) <= NC threshold self.t
-        pred["y_predset"] = (1.0 - pred["y_prob"]) <= self.t
+        y_prob = pred["y_prob"].detach().cpu().numpy()
+        nc_scores = all_class_nc_scores(
+            y_prob, score_type=self.score_type, rng=self.rng
+        )
+        nc_scores = torch.as_tensor(
+            nc_scores, device=pred["y_prob"].device, dtype=pred["y_prob"].dtype
+        )
+        # Include class y if its NC score <= NC threshold self.t
+        pred["y_predset"] = nc_scores <= self.t
 
         return pred
 
