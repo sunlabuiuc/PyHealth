@@ -21,10 +21,20 @@ should not ask.
 
 ```bash
 python --version
-python -c "import pyhealth; print(pyhealth.__version__, pyhealth.__file__)" 2>&1 | tail -2
+python -P -c "import pyhealth; print(pyhealth.__version__, pyhealth.__file__)" 2>&1 | tail -2
 ls pyproject.toml setup.py .venv pixi.toml 2>/dev/null
 git remote -v 2>/dev/null | head -2
 ```
+
+**Use `-P`, always.** Python puts the current directory on the import path, and the
+PyHealth repo has a `pyhealth/` directory in its root. Run the check without `-P` from
+inside a checkout and it imports the source tree, prints a version, and tells you
+everything is fine — in a clone where nothing is installed and not one dependency is
+present. `-P` drops cwd from the path so the answer is about the *environment*.
+
+That trap is why a clone is the easiest place to get this wrong: the naive check passes,
+you skip setup, and the failure surfaces later as a missing `litdata` from somewhere deep
+in a dataset load.
 
 That tells you which of four situations you are in:
 
@@ -120,7 +130,7 @@ An install that resolved is not an install that works. Check the layer the user
 will actually hit:
 
 ```bash
-.venv/bin/python -c "
+.venv/bin/python -P -c "
 import pyhealth
 print('pyhealth', pyhealth.__version__)
 from pyhealth.datasets import BaseDataset      # pulls litdata, dask, polars
@@ -131,7 +141,10 @@ print('imports OK')
 
 `import pyhealth` alone proves almost nothing — the top-level package imports
 only the standard library, so it succeeds even when every real dependency is
-missing. The dataset and model imports are what exercise the heavy stack.
+missing. The dataset and model imports are what exercise the heavy stack, and
+they are also what catches the cwd trap from Step 1: run from a checkout, the
+bare import resolves against the source tree while `pyhealth.datasets` still
+dies on `litdata`.
 
 Show the user the version and the OK line. If it fails:
 

@@ -155,3 +155,5 @@ test-resources/meds_demo/
 
 # Tool caches
 .ruff_cache/
+# personal smoke-test script, not a repo artifact
+walkthrough.md

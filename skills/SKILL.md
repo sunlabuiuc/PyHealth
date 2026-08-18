@@ -19,8 +19,12 @@ all of them. Your job is to name which few, then read only those guides.
 Before decomposing anything, check that the thing exists:
 
 ```bash
-python -c "import pyhealth; print(pyhealth.__version__)"
+python -P -c "import pyhealth; print(pyhealth.__version__)"
 ```
+
+The `-P` is load-bearing. Without it Python puts the current directory on the path, so
+running this from a PyHealth checkout imports the *source tree* and reports success even
+when nothing is installed and no dependency is present.
 
 If that fails, the request cannot proceed no matter how well you route it —
 read [set-up-the-environment](guides/set-up-the-environment/SKILL.md) and do the
