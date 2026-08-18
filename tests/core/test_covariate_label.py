@@ -307,6 +307,39 @@ class TestCovariateLabel(unittest.TestCase):
                     torch.all(set_sizes > 0), "Some prediction sets are empty"
                 )
 
+    def test_score_type_aps_runs_end_to_end(self):
+        """score_type='aps' should calibrate and produce non-empty,
+        correctly-typed prediction sets, just like the default 'threshold'."""
+        cal_model = CovariateLabel(
+            model=self.model,
+            alpha=0.3,
+            kde_test=self.kde_test,
+            kde_cal=self.kde_cal,
+            score_type="aps",
+            random_state=42,
+        )
+
+        cal_indices = [0, 1, 2, 3]
+        cal_dataset = self.dataset.subset(cal_indices)
+        cal_embeddings = self._get_embeddings(cal_dataset)
+        test_embeddings = self._get_embeddings(self.dataset)
+
+        cal_model.calibrate(
+            cal_dataset=cal_dataset,
+            cal_embeddings=cal_embeddings,
+            test_embeddings=test_embeddings,
+        )
+
+        test_indices = [4, 5]
+        test_dataset = self.dataset.subset(test_indices)
+        test_loader = get_dataloader(test_dataset, batch_size=2, shuffle=False)
+
+        with torch.no_grad():
+            for data_batch in test_loader:
+                output = cal_model(**data_batch)
+                self.assertEqual(output["y_predset"].dtype, torch.bool)
+                self.assertEqual(output["y_predset"].shape, output["y_prob"].shape)
+
     def test_weighted_quantile_function(self):
         """Test the weighted quantile helper function."""
         from pyhealth.calib.predictionset.covariate.covariate_label import (
