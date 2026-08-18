@@ -88,7 +88,10 @@ class BaseMultimodalMIMIC4Task(BaseTask):
         # 1: empty events instead of placeholders; per-admission lab window.
         # 2: CXR/notes_labs_cxr no longer drop later stays against the first
         #    admission's clock (admission_time >= first_admit + window_hours).
-        self.emitted_data_version = 2
+        # 3: event times are hours from the first stay in the sample, not
+        #    reset per admission (reset times made stay 2 at +6h sort with
+        #    stay 1 at +6h).
+        self.emitted_data_version = 3
 
     @staticmethod
     def _clean_text(text: Optional[str]) -> Optional[str]:
@@ -126,6 +129,16 @@ class BaseMultimodalMIMIC4Task(BaseTask):
     @staticmethod
     def _to_hours(delta_seconds: float) -> float:
         return delta_seconds / 3600.0
+
+    @classmethod
+    def _hours_since(cls, timestamp: datetime, origin: datetime) -> float:
+        """Hours from ``origin`` to ``timestamp``.
+
+        Collection windows stay per admission. The value written onto the
+        unified timeline is hours from the first stay in this sample, so a
+        later stay at +6h does not sort with the first stay at +6h.
+        """
+        return cls._to_hours((timestamp - origin).total_seconds())
 
     def _compute_effective_window(
         self,
@@ -220,13 +233,16 @@ class BaseMultimodalMIMIC4Task(BaseTask):
         patient: Any,
         admission_time: datetime,
         end_time: datetime,
+        time_origin: datetime,
     ) -> Tuple[List[float], List[List[float]], List[List[bool]]]:
         """Collect lab values and observation masks for one admission.
 
         Args:
             patient: Patient object.
-            admission_time: Start of the window; times are relative to this.
+            admission_time: Start of this stay's collection window.
             end_time: End of the window (inclusive).
+            time_origin: First stay in this sample. Event times are hours
+                from here, not from ``admission_time``.
 
         Returns:
             Tuple of (lab_times, lab_values, lab_masks). ``lab_masks`` is a
@@ -285,9 +301,7 @@ class BaseMultimodalMIMIC4Task(BaseTask):
                                 break
                         lab_vector.append(category_value)
                         lab_mask.append(observed)
-                    lab_times.append(
-                        self._to_hours((lab_ts - admission_time).total_seconds())
-                    )
+                    lab_times.append(self._hours_since(lab_ts, time_origin))
                     lab_values.append(lab_vector)
                     lab_masks.append(lab_mask)
         return lab_times, lab_values, lab_masks
@@ -302,6 +316,7 @@ class BaseMultimodalMIMIC4Task(BaseTask):
         end_time: Optional[datetime] = None,
         section_headers: Optional[List[str]] = None,
         fallback_to_full_note: bool = False,
+        time_origin: Optional[datetime] = None,
     ) -> Tuple[List[str], List[float]]:
         """Collect notes of a given type for one admission.
 
@@ -309,7 +324,9 @@ class BaseMultimodalMIMIC4Task(BaseTask):
             patient: Patient object.
             note_event_type: Event type string (e.g. "discharge", "radiology").
             hadm_id: Admission ID to filter by.
-            admission_time: Admission start time; used to compute time offsets.
+            admission_time: This stay's admit time (unused for the timeline
+                once ``time_origin`` is set; kept so existing call sites that
+                pass it positionally stay valid).
             start_time: Optional start of the time window.
             end_time: Optional end of the time window.
             section_headers: When provided, extract only these named sections
@@ -319,8 +336,8 @@ class BaseMultimodalMIMIC4Task(BaseTask):
                 with no matching sections are dropped entirely.
 
         Returns:
-            Tuple of (texts, hours_from_admission). Empty lists when the
-            events list is empty; do not invent a placeholder note.
+            Tuple of (texts, hours from the sample's first stay). Empty lists
+            when the events list is empty; do not invent a placeholder note.
         """
         notes = patient.get_events(
             event_type=note_event_type,
@@ -343,11 +360,9 @@ class BaseMultimodalMIMIC4Task(BaseTask):
                         elif not fallback_to_full_note:
                             continue
 
-                    time_from_admission = self._to_hours(
-                        (note.timestamp - admission_time).total_seconds()
-                    )
+                    origin = time_origin if time_origin is not None else admission_time
                     texts.append(note_text)
-                    note_times.append(time_from_admission)
+                    note_times.append(self._hours_since(note.timestamp, origin))
             except (
                 AttributeError
             ):  # note object is missing .text or .timestamp attribute (e.g. malformed note)
@@ -361,8 +376,8 @@ class ICDLabsMIMIC4(BaseMultimodalMIMIC4Task):
 
     A notes-free structured-EHR task that uses only:
 
-    - **ICD codes**: diagnosis and procedure codes per admission, processed by
-      ``StageNetProcessor`` with inter-admission time offsets.
+    - **ICD codes**: diagnosis and procedure codes per admission, placed on
+      the same hours-from-first-stay timeline as labs.
     - **Lab values**: 10-dimensional lab vectors (one per lab category) at each
       measurement timestamp, processed by ``StageNetTensorProcessor``.
 
@@ -402,13 +417,13 @@ class ICDLabsMIMIC4(BaseMultimodalMIMIC4Task):
         effective_start, effective_end = self._compute_effective_window(
             admissions_to_process
         )
+        time_origin = admissions_to_process[0].timestamp
 
         all_icd_codes: List[List[str]] = []
         all_icd_times: List[float] = []
         all_lab_values: List[List[float]] = []
         all_lab_masks: List[List[bool]] = []
         all_lab_times: List[float] = []
-        previous_admission_time = None
 
         for admission in admissions_to_process:
             admission_time = admission.timestamp
@@ -424,16 +439,8 @@ class ICDLabsMIMIC4(BaseMultimodalMIMIC4Task):
 
             visit_icd_codes = self._collect_icd_codes(patient, admission.hadm_id)
             if visit_icd_codes:
-                if previous_admission_time is None:
-                    time_from_previous = 0.0
-                else:
-                    time_from_previous = self._to_hours(
-                        (admission_time - previous_admission_time).total_seconds()
-                    )
                 all_icd_codes.append(visit_icd_codes)
-                all_icd_times.append(time_from_previous)
-
-            previous_admission_time = admission_time
+                all_icd_times.append(self._hours_since(admission_time, time_origin))
 
             lab_times, lab_values, lab_masks = self._collect_labs(
                 patient=patient,
@@ -441,6 +448,7 @@ class ICDLabsMIMIC4(BaseMultimodalMIMIC4Task):
                 end_time=self._admission_window_end(
                     admission_time, admission_dischtime
                 ),
+                time_origin=time_origin,
             )
             all_lab_times.extend(lab_times)
             all_lab_values.extend(lab_values)
@@ -514,7 +522,7 @@ class NotesLabsMIMIC4(BaseMultimodalMIMIC4Task):
 
     def __init__(
         self,
-        window_hours: Optional[float] = None,
+        window_hours: Optional[float] = 24,
         include_icd: bool = False,
     ) -> None:
         super().__init__(window_hours=window_hours)
@@ -543,6 +551,7 @@ class NotesLabsMIMIC4(BaseMultimodalMIMIC4Task):
         effective_start, effective_end = self._compute_effective_window(
             admissions_to_process
         )
+        time_origin = admissions_to_process[0].timestamp
 
         all_note_texts: List[str] = []
         all_note_times: List[float] = []
@@ -551,7 +560,6 @@ class NotesLabsMIMIC4(BaseMultimodalMIMIC4Task):
         all_lab_times: List[float] = []
         all_icd_codes: List[List[str]] = []
         all_icd_times: List[float] = []
-        previous_admission_time = None
 
         for admission in admissions_to_process:
             admission_time = admission.timestamp
@@ -571,6 +579,7 @@ class NotesLabsMIMIC4(BaseMultimodalMIMIC4Task):
                 admission.hadm_id,
                 admission_time,
                 section_headers=self.DISCHARGE_CLINICAL_HEADERS,
+                time_origin=time_origin,
             )
             all_note_texts.extend(note_texts)
             all_note_times.extend(note_times)
@@ -581,6 +590,7 @@ class NotesLabsMIMIC4(BaseMultimodalMIMIC4Task):
                 patient=patient,
                 admission_time=admission_time,
                 end_time=lab_end,
+                time_origin=time_origin,
             )
             all_lab_times.extend(lab_times)
             all_lab_values.extend(lab_values)
@@ -599,23 +609,18 @@ class NotesLabsMIMIC4(BaseMultimodalMIMIC4Task):
                 start_time=admission_time,
                 end_time=lab_end,
                 section_headers=self.RADIOLOGY_CLINICAL_HEADERS,
+                time_origin=time_origin,
             )
             all_note_texts.extend(radiology_texts)
             all_note_times.extend(radiology_times)
 
             if self.include_icd:
                 visit_icd_codes = self._collect_icd_codes(patient, admission.hadm_id)
-                time_from_previous = (
-                    0.0
-                    if previous_admission_time is None
-                    else self._to_hours(
-                        (admission_time - previous_admission_time).total_seconds()
-                    )
-                )
                 if visit_icd_codes:
                     all_icd_codes.append(visit_icd_codes)
-                    all_icd_times.append(time_from_previous)
-                previous_admission_time = admission_time
+                    all_icd_times.append(
+                        self._hours_since(admission_time, time_origin)
+                    )
 
         record: Dict[str, Any] = {
             "patient_id": patient.patient_id,
@@ -656,7 +661,7 @@ class NotesLabsCXRMIMIC4(BaseMultimodalMIMIC4Task):
 
     Args:
         window_hours: Hours from admission for lab/CXR collection.
-            ``None`` (default) collects for the full admission span.
+            ``None`` collects for the full admission span. Default: 24.
         include_icd: When ``True``, collect discharge-coded ICD codes and add
             ``icd_codes`` to the sample dict / input schema. Default: ``False``.
     """
@@ -691,7 +696,7 @@ class NotesLabsCXRMIMIC4(BaseMultimodalMIMIC4Task):
 
     def __init__(
         self,
-        window_hours: Optional[float] = None,
+        window_hours: Optional[float] = 24,
         include_icd: bool = False,
     ) -> None:
         super().__init__(window_hours=window_hours)
@@ -720,6 +725,7 @@ class NotesLabsCXRMIMIC4(BaseMultimodalMIMIC4Task):
         effective_start, effective_end = self._compute_effective_window(
             admissions_to_process
         )
+        time_origin = admissions_to_process[0].timestamp
 
         all_note_texts: List[str] = []
         all_note_times: List[float] = []
@@ -730,7 +736,6 @@ class NotesLabsCXRMIMIC4(BaseMultimodalMIMIC4Task):
         all_icd_times: List[float] = []
         all_cxr_paths: List[str] = []
         all_cxr_times: List[float] = []
-        previous_admission_time = None
 
         for admission in admissions_to_process:
             admission_time = admission.timestamp
@@ -750,6 +755,7 @@ class NotesLabsCXRMIMIC4(BaseMultimodalMIMIC4Task):
                 admission.hadm_id,
                 admission_time,
                 section_headers=self.DISCHARGE_CLINICAL_HEADERS,
+                time_origin=time_origin,
             )
             all_note_texts.extend(note_texts)
             all_note_times.extend(note_times)
@@ -760,6 +766,7 @@ class NotesLabsCXRMIMIC4(BaseMultimodalMIMIC4Task):
                 patient=patient,
                 admission_time=admission_time,
                 end_time=lab_end,
+                time_origin=time_origin,
             )
             all_lab_times.extend(lab_times)
             all_lab_values.extend(lab_values)
@@ -778,6 +785,7 @@ class NotesLabsCXRMIMIC4(BaseMultimodalMIMIC4Task):
                 start_time=admission_time,
                 end_time=lab_end,
                 section_headers=self.RADIOLOGY_CLINICAL_HEADERS,
+                time_origin=time_origin,
             )
             all_note_texts.extend(radiology_texts)
             all_note_times.extend(radiology_times)
@@ -794,26 +802,18 @@ class NotesLabsCXRMIMIC4(BaseMultimodalMIMIC4Task):
                     if event.image_path:
                         all_cxr_paths.append(event.image_path)
                         all_cxr_times.append(
-                            self._to_hours(
-                                (event.timestamp - admission_time).total_seconds()
-                            )
+                            self._hours_since(event.timestamp, time_origin)
                         )
                 except AttributeError:
                     continue
 
             if self.include_icd:
                 visit_icd_codes = self._collect_icd_codes(patient, admission.hadm_id)
-                time_from_previous = (
-                    0.0
-                    if previous_admission_time is None
-                    else self._to_hours(
-                        (admission_time - previous_admission_time).total_seconds()
-                    )
-                )
                 if visit_icd_codes:
                     all_icd_codes.append(visit_icd_codes)
-                    all_icd_times.append(time_from_previous)
-                previous_admission_time = admission_time
+                    all_icd_times.append(
+                        self._hours_since(admission_time, time_origin)
+                    )
 
         record: Dict[str, Any] = {
             "patient_id": patient.patient_id,
@@ -870,6 +870,7 @@ class LabsMIMIC4(BaseMultimodalMIMIC4Task):
         effective_start, effective_end = self._compute_effective_window(
             admissions_to_process
         )
+        time_origin = admissions_to_process[0].timestamp
 
         all_lab_times: List[float] = []
         all_lab_values: List[List[float]] = []
@@ -893,6 +894,7 @@ class LabsMIMIC4(BaseMultimodalMIMIC4Task):
                 end_time=self._admission_window_end(
                     admission_time, admission_dischtime
                 ),
+                time_origin=time_origin,
             )
             all_lab_times.extend(lab_times)
             all_lab_values.extend(lab_values)
@@ -949,6 +951,7 @@ class CXRMIMIC4(BaseMultimodalMIMIC4Task):
         effective_start, effective_end = self._compute_effective_window(
             admissions_to_process
         )
+        time_origin = admissions_to_process[0].timestamp
 
         all_cxr_paths: List[str] = []
         all_cxr_times: List[float] = []
@@ -980,9 +983,7 @@ class CXRMIMIC4(BaseMultimodalMIMIC4Task):
                     if event.image_path:
                         all_cxr_paths.append(event.image_path)
                         all_cxr_times.append(
-                            self._to_hours(
-                                (event.timestamp - admission_time).total_seconds()
-                            )
+                            self._hours_since(event.timestamp, time_origin)
                         )
                 except AttributeError:
                     continue

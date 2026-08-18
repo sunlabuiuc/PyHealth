@@ -14,7 +14,7 @@ admission globally, so a later stay received a span that had already closed.
 
 CXR / ``notes_labs_cxr`` still skipped those later stays with
 ``admission_time >= first_admit + window_hours``. That skip is gone.
-``emitted_data_version`` is 2 so caches from version 1 cannot be reused.
+``emitted_data_version`` is 3 so caches from version 1-2 cannot be reused.
 
 Repro::
 
@@ -93,7 +93,7 @@ class TestP1ObservationWindow(unittest.TestCase):
 
         task = m.LabsMIMIC4(window_hours=24)
         self.assertIsNotNone(vars(task).get("emitted_data_version"))
-        self.assertGreaterEqual(task.emitted_data_version, 2)
+        self.assertGreaterEqual(task.emitted_data_version, 3)
 
         def cache_key(t, drop_version=False):
             v = dict(vars(t))
@@ -119,3 +119,14 @@ class TestP1ObservationWindow(unittest.TestCase):
         admit = datetime(2180, 5, 6, 8, 0, 0)
         discharge = admit + timedelta(days=9)
         self.assertEqual(task._admission_window_end(admit, discharge), discharge)
+
+    def test_notes_labs_defaults_to_a_24h_window(self):
+        from pyhealth.tasks.multimodal_mimic4 import (
+            LabsMIMIC4,
+            NotesLabsCXRMIMIC4,
+            NotesLabsMIMIC4,
+        )
+
+        self.assertEqual(NotesLabsMIMIC4().window_hours, 24)
+        self.assertEqual(NotesLabsCXRMIMIC4().window_hours, 24)
+        self.assertEqual(LabsMIMIC4().window_hours, 24)
