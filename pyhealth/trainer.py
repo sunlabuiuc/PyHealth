@@ -20,6 +20,40 @@ from pyhealth.utils import create_directory
 logger = logging.getLogger(__name__)
 
 
+_AMP_DTYPES = {
+    "bf16": torch.bfloat16,
+    "bfloat16": torch.bfloat16,
+    "fp16": torch.float16,
+    "float16": torch.float16,
+}
+
+
+def resolve_amp_dtype(amp_dtype: str, use_amp: bool = False) -> torch.dtype:
+    """Validate the mixed-precision dtype and return it.
+
+    The previous expression was ``bfloat16 if amp_dtype == "bf16" else float16``,
+    so every other spelling silently selected fp16 and, through GradScaler,
+    changed gradient behaviour too.
+    """
+    name = str(amp_dtype).lower()
+    if name not in _AMP_DTYPES:
+        raise ValueError(
+            f"amp_dtype must be one of {sorted(_AMP_DTYPES)}, got {amp_dtype!r}."
+        )
+    dtype = _AMP_DTYPES[name]
+    if (
+        use_amp
+        and dtype == torch.bfloat16
+        and torch.cuda.is_available()
+        and not torch.cuda.is_bf16_supported()
+    ):
+        raise RuntimeError(
+            "bf16 mixed precision was requested, but this CUDA device does not "
+            "support bf16."
+        )
+    return dtype
+
+
 def is_best(best_score: float, score: float, monitor_criterion: str) -> bool:
     if monitor_criterion == "max":
         return score > best_score
@@ -168,9 +202,7 @@ class Trainer:
         if optimizer_params is None:
             optimizer_params = {"lr": 1e-3}
 
-        _amp_dtype = (
-            torch.bfloat16 if amp_dtype == "bf16" else torch.float16
-        )
+        _amp_dtype = resolve_amp_dtype(amp_dtype, use_amp=use_amp)
         # GradScaler only needed for fp16; bf16 has fp32 dynamic range
         scaler = (
             torch.cuda.amp.GradScaler()
