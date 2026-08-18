@@ -137,9 +137,7 @@ python = "~=3.13"
 pyhealth = { path = ".", editable = true }
 
 [tool.pixi.feature.test.pypi-dependencies]
-pyhealth = { path = ".", editable = true }
-# Optional PTB-XL waveform dependency — keep CI covering load_ptbxl_record.
-wfdb = ">=4.1.0"
+pyhealth = { path = ".", editable = true, extras = ["ptbxl"] }
 
 [tool.pixi.feature.nlp.pypi-dependencies]
 pyhealth = { path = ".", editable = true }

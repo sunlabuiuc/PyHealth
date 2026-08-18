@@ -80,7 +80,7 @@ from .splitter import (
     split_by_sample_conformal,
     split_by_sample_conformal_tuh,
     split_by_sample_tuh,
-    split_by_strat_fold as split_by_strat_fold,
+    split_by_strat_fold,
     split_by_visit,
     split_by_visit_conformal,
 )
