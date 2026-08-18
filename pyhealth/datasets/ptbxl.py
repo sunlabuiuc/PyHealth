@@ -332,6 +332,8 @@ class PTBXLDataset(BaseDataset):
         **kwargs: Forwarded to :class:`BaseDataset` (``cache_dir``, ``dev``, …).
 
     Attributes:
+        root (str): Same as the constructor ``root`` (the PTB-XL version
+            directory). Derived metadata is *not* stored here.
         data_root (Path): User-provided PTB-XL version root (waveforms + CSVs).
         sampling_rate (int): Selected waveform rate (100 or 500).
         metadata_cache_dir (Path): Directory holding derived metadata CSVs.
@@ -397,24 +399,46 @@ class PTBXLDataset(BaseDataset):
         resolved_config_path = self._write_resolved_config(package_config)
 
         # BaseDataset._init_cache_dir keys on {root, tables, dataset_name, dev}.
-        # root is the shared metadata cache (see comment on super().__init__),
-        # so uniqueness of global_event_df must come from dataset_name — same
-        # pattern as EEGBCIDataset._metadata_cache_key.
+        # root is the user data path (see load_table). dataset_name still
+        # includes a content hash of the derived CSV so replacing
+        # ptbxl_database.csv in-place does not reuse a stale global_event_df.
         base_name = dataset_name or f"ptbxl_{self.sampling_rate}hz"
         dataset_name = (
             f"{base_name}_{root_cache_key(self.data_root)}_"
             f"{self._metadata_cache_key()}"
         )
 
-        # BaseDataset.root is the metadata cache (CSV location); waveforms stay
-        # under data_root via absolute signal_file paths in the CSV.
+        # Keep self.root as the user-provided PTB-XL path so stats()/logs
+        # match what the caller passed. Derived CSVs live in
+        # metadata_cache_dir (read-only data mounts). BaseDataset.load_table
+        # builds csv_path as f"{self.root}/{file_path}" and does not accept
+        # an absolute file_path, so load_table (below) temporarily points
+        # root at the metadata cache for the scan only.
         super().__init__(
-            root=str(self.metadata_cache_dir),
+            root=str(self.data_root),
             tables=["records"],
             dataset_name=dataset_name,
             config_path=str(resolved_config_path),
             **kwargs,
         )
+
+    def load_table(self, table_name: str):
+        """Load tables from ``metadata_cache_dir``, not the user data root.
+
+        See the comment on ``super().__init__`` in :meth:`__init__`.
+
+        Args:
+            table_name (str): Table name from the YAML config.
+
+        Returns:
+            The Dask dataframe produced by :meth:`BaseDataset.load_table`.
+        """
+        original_root = self.root
+        self.root = str(self.metadata_cache_dir)
+        try:
+            return super().load_table(table_name)
+        finally:
+            self.root = original_root
 
     def _write_resolved_config(self, package_config: Path) -> Path:
         """Write a cache-local YAML with the derived metadata CSV filename.

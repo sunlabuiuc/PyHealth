@@ -18,6 +18,13 @@ For more information see `PhysioNet PTB-XL v1.0.3
 
 Optional dependency: install waveform I/O with ``pip install 'pyhealth[ptbxl]'``.
 
+``PTBXLDataset.root`` is the version directory passed to the constructor.
+Derived metadata CSVs are written under ``metadata_cache_dir`` (default
+``~/.cache/pyhealth/datasets/ptbxl/``), not into ``root``, so read-only
+data mounts stay untouched. ``BaseDataset.load_table`` concatenates
+``root / file_path`` and cannot take an absolute path; PTB-XL overrides
+``load_table`` to read the derived CSV from the metadata cache.
+
 API Reference
 -------------
 

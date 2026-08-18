@@ -234,8 +234,9 @@ class TestPTBXLDatasetMetadata(unittest.TestCase):
         self.assertEqual(
             ds.config.tables["records"].file_path, ds.metadata_file_name
         )
+        self.assertEqual(Path(ds.root).resolve(), self.data_root.resolve())
         self.assertTrue(
-            (Path(ds.root) / ds.config.tables["records"].file_path).is_file()
+            (ds.metadata_cache_dir / ds.config.tables["records"].file_path).is_file()
         )
 
         patient_ids = ds.unique_patient_ids
@@ -250,6 +251,8 @@ class TestPTBXLDatasetMetadata(unittest.TestCase):
         self.assertTrue(str(event.signal_file))
         # Absolute waveform path must live under the fixture data root.
         Path(str(event.signal_file)).resolve().relative_to(self.data_root.resolve())
+        # load_table must restore self.root after scanning the cache CSV.
+        self.assertEqual(Path(ds.root).resolve(), self.data_root.resolve())
 
 
 @unittest.skipUnless(
@@ -366,6 +369,57 @@ class TestPTBXLTaskAndSplit(unittest.TestCase):
         self.assertEqual([s["id"] for s in val._samples], ["b"])
         self.assertEqual([s["id"] for s in test._samples], ["c"])
 
+    def test_split_by_strat_fold_check_patient_disjoint(self):
+        class _FakeDS:
+            def __init__(self, samples):
+                self._samples = samples
+                self.patient_to_index = {}
+                for i, sample in enumerate(samples):
+                    self.patient_to_index.setdefault(sample["patient_id"], []).append(
+                        i
+                    )
+
+            def __len__(self):
+                return len(self._samples)
+
+            def __getitem__(self, i):
+                return self._samples[i]
+
+            def subset(self, indices):
+                return _FakeDS([self._samples[i] for i in indices])
+
+        leaked = [
+            {"strat_fold": 1, "patient_id": "15709", "id": "a"},
+            {"strat_fold": 9, "patient_id": "15709", "id": "b"},
+            {"strat_fold": 10, "patient_id": "99", "id": "c"},
+            {"strat_fold": 3, "patient_id": "42", "id": "d"},
+        ]
+        train, val, test = split_by_strat_fold(_FakeDS(leaked))
+        self.assertEqual([s["id"] for s in train._samples], ["a", "d"])
+        self.assertEqual([s["id"] for s in val._samples], ["b"])
+        self.assertEqual([s["id"] for s in test._samples], ["c"])
+        with self.assertRaisesRegex(ValueError, r"15709"):
+            split_by_strat_fold(_FakeDS(leaked), check_patient_disjoint=True)
+
+        class _NoMap:
+            def __len__(self):
+                return 1
+
+            def __getitem__(self, i):
+                return {"strat_fold": 1}
+
+            def subset(self, indices):
+                return indices
+
+        with self.assertRaises(TypeError):
+            split_by_strat_fold(
+                _NoMap(),
+                train_folds=(1,),
+                val_folds=(9,),
+                test_folds=(10,),
+                check_patient_disjoint=True,
+            )
+
     def test_split_by_strat_fold_uses_precomputed_folds(self):
         class _BoomDS:
             def __init__(self, n):
@@ -461,6 +515,18 @@ class TestPTBXLSetTaskE2E(unittest.TestCase):
         self.assertEqual(int(val[0]["strat_fold"]), 2)
         self.assertEqual(int(test[0]["strat_fold"]), 9)
         self.assertEqual(tuple(train[0]["signal"].shape), (12, 50))
+
+    def test_split_by_strat_fold_detects_fixture_patient_leak(self):
+        samples = self.dataset.set_task(self.task, num_workers=1)
+        # Fixture: ecg 1 (fold 1) and ecg 2 (fold 9) share patient_id 15709.
+        with self.assertRaisesRegex(ValueError, r"15709"):
+            split_by_strat_fold(
+                samples,
+                train_folds=(1,),
+                val_folds=(2,),
+                test_folds=(9,),
+                check_patient_disjoint=True,
+            )
 
     def test_age_sentinel_through_set_task(self):
         """Missing age must be an int sentinel; censored age is clipped to 90."""
