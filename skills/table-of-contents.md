@@ -15,6 +15,17 @@ python tools/install_skills.py --guide define-a-task --target ../my-project
 
 ## Using PyHealth
 
+### `set-up-the-environment`
+**Purpose.** Get PyHealth installed and importable before any modeling work — detect what is
+already present, choose the user path (`pip install pyhealth`) or the contributor path (clone
+plus editable install), create the environment with permission, verify the heavy imports rather
+than just the top-level one, and register this skill in the user's project.
+**Prerequisites.** None. Runs before everything, including `scope-a-modeling-request`.
+**Produces.** A working environment, a printed version, and `.claude/skills/pyhealth` plus the
+`AGENTS.md` pointer block in the user's project.
+**Touches.** Nothing in the package — this is environment and install work.
+**Size.** ~205 lines.
+
 ### `scope-a-modeling-request`
 **Purpose.** Turn a vague clinical prediction request into a written, confirmed spec — cohort,
 unit of prediction, index time, observation window, prediction gap, label definition, split

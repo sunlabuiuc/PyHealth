@@ -1,6 +1,6 @@
 ---
 name: pyhealth
-description: Work with PyHealth, the clinical predictive modeling library — load EHR/imaging/signal datasets or onboard raw patient files, define prediction tasks, choose processors and models, train and evaluate, calibrate probabilities, interpret a trained model, map medical codes (ICD/NDC/ATC/CCS), and contribute new datasets, tasks, models, processors, metrics, calibrators, or interpreters upstream. Use for any request involving pyhealth, MIMIC-III/IV, eICU, OMOP, EHRShot, clinical prediction, or this repository's package code.
+description: Work with PyHealth, the clinical predictive modeling library — install and set it up from scratch, load EHR/imaging/signal datasets or onboard raw patient files, define prediction tasks, choose processors and models, train and evaluate, calibrate probabilities, interpret a trained model, map medical codes (ICD/NDC/ATC/CCS), and contribute new datasets, tasks, models, processors, metrics, calibrators, or interpreters upstream. Use for any request involving pyhealth, MIMIC-III/IV, eICU, OMOP, EHRShot, clinical prediction, or this repository's package code — including "help me get started with PyHealth" and installation or environment problems.
 ---
 
 # PyHealth
@@ -13,6 +13,22 @@ and set predictors, 12 interpreters, 10 code vocabularies. A request touches a f
 all of them. Your job is to name which few, then read only those guides.
 
 ---
+
+## 0. Preflight — is PyHealth actually installed?
+
+Before decomposing anything, check that the thing exists:
+
+```bash
+python -c "import pyhealth; print(pyhealth.__version__)"
+```
+
+If that fails, the request cannot proceed no matter how well you route it —
+read [set-up-the-environment](guides/set-up-the-environment/SKILL.md) and do the
+setup first, then come back here and continue. Do not ask the user to install it
+and report back; install it, verify it, and carry on in the same turn.
+
+If it succeeds, say nothing about it and move on. A working environment does not
+need announcing.
 
 ## 1. Decompose the request
 
@@ -50,6 +66,7 @@ Loading every guide "to be safe" defeats the design. Two or three is normal.
 
 | Guide | Use it when | Don't use it when |
 |---|---|---|
+| [set-up-the-environment](guides/set-up-the-environment/SKILL.md) | `import pyhealth` fails, errors, or the user has just cloned the repo | the import already works |
 | [scope-a-modeling-request](guides/scope-a-modeling-request/SKILL.md) | a modeling request leaves cohort, timing, label, or metric undecided | the request is already fully specified, or nothing is being trained |
 | [bring-your-own-data](guides/bring-your-own-data/SKILL.md) | the data is raw files — CSV, TSV, Parquet | it's a supported dataset |
 | [use-a-dataset](guides/use-a-dataset/SKILL.md) | picking or loading a built-in dataset | the data is custom |
@@ -81,6 +98,7 @@ Common combinations:
 
 | Request | Guides, in order |
 |---|---|
+| "help me get started with PyHealth" | set-up-the-environment → scope → *(then whatever they described)* |
 | "predict mortality on MIMIC-IV" | scope → use-a-dataset → define-a-task → choose-a-model → train-and-evaluate |
 | "I have patient CSVs, can I use PyHealth?" | bring-your-own-data → *(then scope, once it loads)* |
 | "add my GRU variant to PyHealth" | add-a-component → ship-a-contribution |

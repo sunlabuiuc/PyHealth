@@ -23,17 +23,17 @@ skills/
 ├── table-of-contents.md  ← full manifest
 ├── shared/               ← glossary, data model, repo conventions
 └── guides/
-    ├── scope-a-modeling-request/     bring-your-own-data/
-    ├── use-a-dataset/                define-a-task/
-    ├── choose-processors/            choose-a-model/
-    ├── train-and-evaluate/           optimize-a-pipeline/
-    ├── calibrate-predictions/        interpret-a-model/
-    ├── map-medical-codes/            add-a-component/
-    └── ship-a-contribution/
+    ├── set-up-the-environment/       scope-a-modeling-request/
+    ├── bring-your-own-data/          use-a-dataset/
+    ├── define-a-task/                choose-processors/
+    ├── choose-a-model/               train-and-evaluate/
+    ├── optimize-a-pipeline/          calibrate-predictions/
+    ├── interpret-a-model/            map-medical-codes/
+    └── add-a-component/              ship-a-contribution/
 ```
 
 Only the router's `description` sits permanently in an agent's context. Guide directories are
-read on demand — nested content is never auto-loaded — so thirteen guides cost no more ambient
+read on demand — nested content is never auto-loaded — so fourteen guides cost no more ambient
 context than one.
 
 ## Install

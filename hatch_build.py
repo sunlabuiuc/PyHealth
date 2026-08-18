@@ -16,6 +16,6 @@ class SkillNoticeHook(BuildHookInterface):
 
     def initialize(self, version, build_data):
         self.app.display_info(
-            "\n[pyhealth] Agent skill: skills/SKILL.md (a router over 13 guides)"
+            "\n[pyhealth] Agent skill: skills/SKILL.md (a router over the PyHealth guides)"
             "\n[pyhealth] Register it in your project:  python -m pyhealth.skills\n"
         )

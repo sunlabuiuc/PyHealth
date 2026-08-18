@@ -90,6 +90,9 @@ def _rel(path: Path, start: Path) -> str:
 
 
 def _inside(path: Path, parent: Path) -> bool:
+    # Resolve both: on macOS a temp dir is /var/... unresolved and
+    # /private/var/... resolved, and comparing the two forms silently says no.
+    path, parent = path.resolve(), parent.resolve()
     return path == parent or parent in path.parents
 
 
@@ -152,12 +155,28 @@ def _should_copy(src: Path, copy: bool) -> bool:
 
 
 def _link_skill(target: Path, copy: bool, src: Path, name: str) -> str:
-    dest = target / ".claude" / "skills" / name
-    dest.parent.mkdir(parents=True, exist_ok=True)
+    # Both sides must be in the same form, or os.path.relpath below walks all
+    # the way to / and back down: /var/... against /private/var/... is a
+    # "relative" path that is neither short nor portable.
+    src = src.resolve()
+    parent = target / ".claude" / "skills"
+    parent.mkdir(parents=True, exist_ok=True)
+    # Resolve the parent, never dest itself — dest may already be a symlink,
+    # and resolving it would hand back the very source we are comparing against.
+    dest = parent.resolve() / name
     copy = _should_copy(src, copy)
 
+    # Relative when both sides sit in the same project, because this symlink
+    # gets committed: an absolute target points into whichever machine ran the
+    # install and dangles in every clone. Absolute only when it must span trees.
+    link_target = (
+        Path(os.path.relpath(src, dest.parent)) if _inside(src, target) else src
+    )
+
     if dest.is_symlink() or dest.exists():
-        if not copy and dest.is_symlink() and dest.resolve() == src:
+        # Compare the stored target, not where it resolves to — an absolute
+        # link written by an older version resolves fine here and nowhere else.
+        if not copy and dest.is_symlink() and os.readlink(dest) == str(link_target):
             return f"unchanged  {_rel(dest, target)}"
         if copy and not dest.is_symlink() and dest.is_dir() and _same_tree(src, dest):
             return f"unchanged  {_rel(dest, target)}"
@@ -169,8 +188,8 @@ def _link_skill(target: Path, copy: bool, src: Path, name: str) -> str:
     if copy:
         shutil.copytree(src, dest)
         return f"copied     {_rel(dest, target)}"
-    dest.symlink_to(src, target_is_directory=True)
-    return f"linked     {_rel(dest, target)} -> {src}"
+    dest.symlink_to(link_target, target_is_directory=True)
+    return f"linked     {_rel(dest, target)} -> {link_target}"
 
 
 def _unlink_skill(target: Path, name: str) -> str:

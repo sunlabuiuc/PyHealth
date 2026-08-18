@@ -1,12 +1,16 @@
 import contextlib
 import io
 import os
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
+from packaging.version import Version
+
 from pyhealth.skills import _notice, skill_root
+from pyhealth.skills import _installer
 from pyhealth.skills._installer import BEGIN, POINTER_TARGETS, main
 
 AGENTS = POINTER_TARGETS[0]
@@ -65,6 +69,31 @@ class TestInstall(SkillsTestCase):
         self.assertIn("Always run the tests.", text)
         self.assertEqual(text.count(BEGIN), 1)
 
+    def test_in_tree_symlink_is_relative(self):
+        """This symlink gets committed — an absolute one dangles in every clone."""
+        # Stand up a checkout-shaped project: skills/ beside .claude/, which is
+        # the layout `python tools/install_skills.py` produces in the repo. It
+        # lives one level inside the tempdir so it can be moved wholesale.
+        project = self.target / "checkout"
+        project.mkdir()
+        src = project / "skills"
+        shutil.copytree(skill_root(), src)
+        with (
+            mock.patch.object(_installer, "skill_root", return_value=src),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            main(["--target", str(project)])
+
+        link = project / ".claude" / "skills" / "pyhealth"
+        raw = os.readlink(link)
+        self.assertEqual(raw, os.path.join("..", "..", "skills"))
+        self.assertTrue((link / "SKILL.md").is_file())
+
+        # Survives the project moving, which is what a clone amounts to.
+        moved = self.target / "elsewhere"
+        shutil.move(str(project), str(moved))
+        self.assertTrue((moved / ".claude" / "skills" / "pyhealth" / "SKILL.md").is_file())
+
     def test_copy_points_agents_at_the_copy(self):
         # The source may be site-packages, which is no place to send an agent.
         self.install("--copy")
@@ -103,6 +132,22 @@ class TestInstall(SkillsTestCase):
         self.assertFalse(missing.exists())
 
 
+class TestVersion(unittest.TestCase):
+    def test_version_matches_pyproject(self):
+        """__version__ drifted from pyproject for the whole 2.0.x line."""
+        import tomllib
+
+        import pyhealth
+
+        pyproject = Path(pyhealth.__file__).resolve().parents[1] / "pyproject.toml"
+        if not pyproject.is_file():
+            self.skipTest("no source tree — running against an installed wheel")
+
+        declared = tomllib.loads(pyproject.read_text())["project"]["version"]
+        # Compare parsed, so 2.1a1 and 2.1.0a1 count as equal.
+        self.assertEqual(Version(pyhealth.__version__), Version(declared))
+
+
 class TestNotice(SkillsTestCase):
     def setUp(self):
         super().setUp()
@@ -112,10 +157,12 @@ class TestNotice(SkillsTestCase):
 
     def notify(self, env, cwd=None):
         self.stderr = io.StringIO()
-        with mock.patch.dict(os.environ, env, clear=True):
-            with mock.patch.object(Path, "cwd", return_value=cwd or self.target):
-                with contextlib.redirect_stderr(self.stderr):
-                    return _notice.maybe_notify()
+        with (
+            mock.patch.dict(os.environ, env, clear=True),
+            mock.patch.object(Path, "cwd", return_value=cwd or self.target),
+            contextlib.redirect_stderr(self.stderr),
+        ):
+            return _notice.maybe_notify()
 
     def test_silent_without_an_agent_harness(self):
         self.assertFalse(self.notify({}))
@@ -143,8 +190,6 @@ class TestNotice(SkillsTestCase):
         self.install()
         # Claude Code's directory is one of two registrations; the pointer
         # block alone must also count, for a Codex-only project.
-        import shutil
-
         shutil.rmtree(self.target / ".claude")
         self.assertFalse(self.notify({"CLAUDECODE": "1"}))
 
