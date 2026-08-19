@@ -6,7 +6,6 @@ from pyhealth.datasets import MIMIC4Dataset
 from pyhealth.tasks import drug_recommendation_mimic4_fn
 
 # import dataloader related functions
-from pyhealth.datasets.splitter import split_by_patient
 from pyhealth.datasets import split_by_patient, get_dataloader
 
 # import gamenet model
