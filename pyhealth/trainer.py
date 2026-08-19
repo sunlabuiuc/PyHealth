@@ -54,6 +54,14 @@ def resolve_amp_dtype(amp_dtype: str, use_amp: bool = False) -> torch.dtype:
     return dtype
 
 
+def autocast_device_type(device) -> str:
+    """Device type string for ``torch.autocast``, from the trainer device."""
+    name = str(device).split(":", 1)[0].lower()
+    if name in ("cuda", "cpu", "mps"):
+        return name
+    return "cpu"
+
+
 def is_best(best_score: float, score: float, monitor_criterion: str) -> bool:
     if monitor_criterion == "max":
         return score > best_score
@@ -277,7 +285,10 @@ class Trainer:
                     data = next(data_iterator)
                 # forward (with optional AMP)
                 if use_amp:
-                    with torch.autocast(device_type="cuda", dtype=_amp_dtype):
+                    with torch.autocast(
+                        device_type=autocast_device_type(self.device),
+                        dtype=_amp_dtype,
+                    ):
                         output = self.model(**data)
                         loss = output["loss"] / accumulation_steps
                 else:

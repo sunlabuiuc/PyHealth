@@ -28,6 +28,13 @@ class TestP1AmpDtype(unittest.TestCase):
         self.assertIs(resolve_amp_dtype("fp16"), torch.float16)
         self.assertIs(resolve_amp_dtype("float16"), torch.float16)
 
+    def test_autocast_device_follows_the_trainer_device(self):
+        from pyhealth.trainer import autocast_device_type
+
+        self.assertEqual(autocast_device_type("cuda:0"), "cuda")
+        self.assertEqual(autocast_device_type("cpu"), "cpu")
+        self.assertEqual(autocast_device_type("mps"), "mps")
+
     def test_unknown_spelling_raises(self):
         from pyhealth.trainer import resolve_amp_dtype
 
