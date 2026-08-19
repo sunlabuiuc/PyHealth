@@ -85,13 +85,17 @@ class BaseMultimodalMIMIC4Task(BaseTask):
         self.window_hours = window_hours
         # Task cache key is uuid5 over {**vars(task), schemas}. Bump when
         # emitted data changes so leaky caches cannot be reused.
-        # 1: empty events instead of placeholders; per-admission lab window.
+        # 1: empty events instead of placeholders; per-admission collection span.
         # 2: CXR/notes_labs_cxr no longer drop later stays against the first
         #    admission's clock (admission_time >= first_admit + window_hours).
         # 3: event times are hours from the first stay in the sample, not
         #    reset per admission (reset times made stay 2 at +6h sort with
         #    stay 1 at +6h).
-        self.emitted_data_version = 3
+        # 4: class/runner default is full stay (window_hours=None);
+        #    admission-context discharge sections stamped at admit, not
+        #    charttime. v3 caches used a 24h class default and discharge
+        #    charttime on those notes.
+        self.emitted_data_version = 4
 
     @staticmethod
     def _clean_text(text: Optional[str]) -> Optional[str]:
@@ -134,9 +138,10 @@ class BaseMultimodalMIMIC4Task(BaseTask):
     def _hours_since(cls, timestamp: datetime, origin: datetime) -> float:
         """Hours from ``origin`` to ``timestamp``.
 
-        Collection windows stay per admission. The value written onto the
-        unified timeline is hours from the first stay in this sample, so a
-        later stay at +6h does not sort with the first stay at +6h.
+        Collection windows stay per admission (full stay, or admit+window
+        when ``window_hours`` is set). The value written onto the unified
+        timeline is hours from the first stay in this sample, so a later
+        stay at +6h does not sort with the first stay at +6h.
         """
         return cls._to_hours((timestamp - origin).total_seconds())
 
@@ -317,6 +322,7 @@ class BaseMultimodalMIMIC4Task(BaseTask):
         section_headers: Optional[List[str]] = None,
         fallback_to_full_note: bool = False,
         time_origin: Optional[datetime] = None,
+        event_time: Optional[datetime] = None,
     ) -> Tuple[List[str], List[float]]:
         """Collect notes of a given type for one admission.
 
@@ -324,16 +330,20 @@ class BaseMultimodalMIMIC4Task(BaseTask):
             patient: Patient object.
             note_event_type: Event type string (e.g. "discharge", "radiology").
             hadm_id: Admission ID to filter by.
-            admission_time: This stay's admit time (unused for the timeline
-                once ``time_origin`` is set; kept so existing call sites that
-                pass it positionally stay valid).
+            admission_time: This stay's admit time. Used as the timeline
+                origin when ``time_origin`` is omitted.
             start_time: Optional start of the time window.
             end_time: Optional end of the time window.
             section_headers: When provided, extract only these named sections
                 from each note (lowercased match against parsed headers).
-            fallback_to_full_note: When True (default), falls back to the full
-                note text if no matching sections are found. When False, notes
-                with no matching sections are dropped entirely.
+            fallback_to_full_note: When True, falls back to the full note text
+                if no matching sections are found. When False, notes with no
+                matching sections are dropped entirely.
+            time_origin: Timeline origin. Hours are measured from here.
+            event_time: If set, stamp every collected note at this instant.
+                Discharge-section text is admission-context and should pass
+                this stay's admit. Radiology omits it and uses exam
+                ``charttime``.
 
         Returns:
             Tuple of (texts, hours from the sample's first stay). Empty lists
@@ -361,8 +371,9 @@ class BaseMultimodalMIMIC4Task(BaseTask):
                             continue
 
                     origin = time_origin if time_origin is not None else admission_time
+                    stamp = event_time if event_time is not None else note.timestamp
                     texts.append(note_text)
-                    note_times.append(self._hours_since(note.timestamp, origin))
+                    note_times.append(self._hours_since(stamp, origin))
             except (
                 AttributeError
             ):  # note object is missing .text or .timestamp attribute (e.g. malformed note)
@@ -381,17 +392,17 @@ class NotesLabsMIMIC4(BaseMultimodalMIMIC4Task):
     Text is extracted from the MIMIC-IV discharge note by parsing the Chief
     Complaint, History of Present Illness, Past Medical History, and Medications
     on Admission sections — all of which describe the patient's state at the
-    start of the stay. The extracted text is assigned timestamp 0.0.
+    start of the stay. The extracted text is stamped at that stay's admit.
 
     Radiology reports are also included, parsed for their Indication and
     Impression sections and bounded to the same observation window as labs
-    (rather than timestamp 0.0), since — unlike the discharge summary — they
+    (rather than that stay's admit), since — unlike the discharge summary — they
     are written at exam time and describe findings from later in the stay.
 
     Fields:
-        admission_note_times: Admission-context discharge-note text at time
-            0.0, plus in-window radiology note text at its exam-relative
-            timestamp.
+        admission_note_times: Admission-context discharge-note text stamped
+            at that stay's admit (hours from the first stay), plus in-window
+            radiology note text at exam time.
         labs: 10-dim lab vectors at each measurement timestamp.
         labs_mask: Boolean observation mask parallel to ``labs``.
         icd_codes: (only when ``include_icd=True``) Diagnosis + procedure codes
@@ -399,7 +410,7 @@ class NotesLabsMIMIC4(BaseMultimodalMIMIC4Task):
 
     Args:
         window_hours: Hours from admission for lab collection. ``None``
-            collects for the full admission span. Default: 24.
+            collects for the full admission span. Default: ``None``.
         include_icd: When ``True``, collect discharge-coded ICD codes and add
             ``icd_codes`` to the sample dict / input schema. Default: ``False``.
             MIMIC-IV timestamps those codes at ``dischtime``, so this leaks
@@ -429,7 +440,7 @@ class NotesLabsMIMIC4(BaseMultimodalMIMIC4Task):
 
     def __init__(
         self,
-        window_hours: Optional[float] = 24,
+        window_hours: Optional[float] = None,
         include_icd: bool = False,
     ) -> None:
         super().__init__(window_hours=window_hours)
@@ -487,6 +498,7 @@ class NotesLabsMIMIC4(BaseMultimodalMIMIC4Task):
                 admission_time,
                 section_headers=self.DISCHARGE_CLINICAL_HEADERS,
                 time_origin=time_origin,
+                event_time=admission_time,
             )
             all_note_texts.extend(note_texts)
             all_note_times.extend(note_times)
@@ -556,9 +568,9 @@ class NotesLabsCXRMIMIC4(BaseMultimodalMIMIC4Task):
     experiments, same as ``NotesLabsMIMIC4``.
 
     Fields:
-        admission_note_times: Admission-context discharge-note text at time
-            0.0, plus in-window radiology note text at its exam-relative
-            timestamp.
+        admission_note_times: Admission-context discharge-note text stamped
+            at that stay's admit (hours from the first stay), plus in-window
+            radiology note text at exam time.
         labs: 10-dim lab vectors at each measurement timestamp.
         labs_mask: Boolean observation mask parallel to ``labs``.
         cxr_image_times: In-window CXR image paths at their exam-relative
@@ -568,7 +580,7 @@ class NotesLabsCXRMIMIC4(BaseMultimodalMIMIC4Task):
 
     Args:
         window_hours: Hours from admission for lab/CXR collection.
-            ``None`` collects for the full admission span. Default: 24.
+            ``None`` collects for the full admission span. Default: ``None``.
         include_icd: When ``True``, collect discharge-coded ICD codes and add
             ``icd_codes`` to the sample dict / input schema. Default: ``False``.
             MIMIC-IV timestamps those codes at ``dischtime``, so this leaks
@@ -606,7 +618,7 @@ class NotesLabsCXRMIMIC4(BaseMultimodalMIMIC4Task):
 
     def __init__(
         self,
-        window_hours: Optional[float] = 24,
+        window_hours: Optional[float] = None,
         include_icd: bool = False,
     ) -> None:
         super().__init__(window_hours=window_hours)
@@ -666,6 +678,7 @@ class NotesLabsCXRMIMIC4(BaseMultimodalMIMIC4Task):
                 admission_time,
                 section_headers=self.DISCHARGE_CLINICAL_HEADERS,
                 time_origin=time_origin,
+                event_time=admission_time,
             )
             all_note_texts.extend(note_texts)
             all_note_times.extend(note_times)
@@ -754,7 +767,7 @@ class LabsMIMIC4(BaseMultimodalMIMIC4Task):
 
     Args:
         window_hours: Hours from admission to collect lab measurements.
-            ``None`` collects for the full admission span. Default: 24.
+            ``None`` collects for the full admission span. Default: ``None``.
     """
 
     PADDING: int = 0
@@ -767,7 +780,7 @@ class LabsMIMIC4(BaseMultimodalMIMIC4Task):
     }
     output_schema: ClassVar[Dict] = {"mortality": "binary"}
 
-    def __init__(self, window_hours: Optional[float] = 24) -> None:
+    def __init__(self, window_hours: Optional[float] = None) -> None:
         super().__init__(window_hours=window_hours)
 
     def __call__(self, patient: Any) -> List[Dict[str, Any]]:  # type: ignore[override]

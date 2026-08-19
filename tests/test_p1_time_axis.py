@@ -3,7 +3,11 @@
 The sample is patient-level: every admission up to the first death is one
 sequence. Event times were hours from *that stay's* admit, then concatenated,
 so stay 2 at +6h sorted with stay 1 at +6h. Collection is still per stay
-(admit, admit+window]. Times are hours from the first stay in the sample.
+(admit through discharge, or admit+window if ``window_hours`` is set). Times
+are hours from the first stay in the sample.
+
+Admission-context discharge sections are stamped at that stay's admit, not
+at the discharge note's ``charttime``. Radiology stays at exam time.
 
 Single-stay patients are unchanged. Time embeddings use geometric
 wavelengths from 1 hour to 10 years so a later stay at +9606h does not
@@ -81,3 +85,48 @@ class TestP1TimeAxis(unittest.TestCase):
         t9606 = emb(torch.tensor([9606.0]))
         self.assertFalse(torch.allclose(t6, t726, atol=1e-5))
         self.assertFalse(torch.allclose(t6, t9606, atol=1e-5))
+
+    def test_discharge_sections_are_stamped_at_admit_not_charttime(self):
+        from types import SimpleNamespace
+
+        from pyhealth.tasks.multimodal_mimic4 import NotesLabsCXRMIMIC4, NotesLabsMIMIC4
+
+        first = datetime(2180, 5, 6, 8, 0, 0)
+        stay2_admit = first + timedelta(days=400)
+        charttime = stay2_admit + timedelta(days=9)
+        note = SimpleNamespace(
+            text="Chief Complaint:\n\nshortness of breath\n\n",
+            timestamp=charttime,
+        )
+
+        class FakePatient:
+            def get_events(self, event_type, start=None, end=None, filters=None):
+                return [note]
+
+        task = NotesLabsMIMIC4()
+        _texts, times = task._collect_notes(
+            FakePatient(),
+            "discharge",
+            hadm_id=1,
+            admission_time=stay2_admit,
+            section_headers=task.DISCHARGE_CLINICAL_HEADERS,
+            time_origin=first,
+            event_time=stay2_admit,
+        )
+        self.assertEqual(times, [400 * 24.0])
+
+        _texts, rad_times = task._collect_notes(
+            FakePatient(),
+            "radiology",
+            hadm_id=1,
+            admission_time=stay2_admit,
+            time_origin=first,
+        )
+        self.assertAlmostEqual(rad_times[0], 400 * 24.0 + 9 * 24.0)
+
+        for cls in (NotesLabsMIMIC4, NotesLabsCXRMIMIC4):
+            self.assertIn(
+                "event_time=admission_time",
+                inspect.getsource(cls.__call__),
+                msg=cls.__name__,
+            )

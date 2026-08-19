@@ -122,3 +122,10 @@ class TestP2RunnerMeasurement(unittest.TestCase):
         args = _parse(mod, "--model", "jambaehr")
         self.assertEqual(args.jamba_transformer_layers, 2)
         self.assertEqual(args.jamba_mamba_layers, 6)
+
+    def test_observation_window_defaults_to_full_stay(self):
+        mod = _load_runner()
+        args = _parse(mod)
+        self.assertIsNone(args.observation_window_hours)
+        args_24 = _parse(mod, "--observation-window-hours", "24")
+        self.assertEqual(args_24.observation_window_hours, 24)

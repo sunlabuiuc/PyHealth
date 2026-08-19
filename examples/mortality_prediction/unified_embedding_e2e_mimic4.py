@@ -576,7 +576,15 @@ def parse_args() -> argparse.Namespace:
             "patient-limited smoke, and omit both for the full table."
         ),
     )
-    parser.add_argument("--observation-window-hours", type=int, default=24)
+    parser.add_argument(
+        "--observation-window-hours",
+        type=int,
+        default=None,
+        help=(
+            "If set, collect labs/CXR/radiology only this many hours from each "
+            "admission. Default: full stay (through discharge)."
+        ),
+    )
     parser.add_argument(
         "--freeze-encoder",
         action="store_true",

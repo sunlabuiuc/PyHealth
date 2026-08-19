@@ -14,7 +14,10 @@ admission globally, so a later stay received a span that had already closed.
 
 CXR / ``notes_labs_cxr`` still skipped those later stays with
 ``admission_time >= first_admit + window_hours``. That skip is gone.
-``emitted_data_version`` is 3 so caches from version 1-2 cannot be reused.
+``emitted_data_version`` is 4 so caches from version 1-3 cannot be reused.
+The table protocol default is full stay (``window_hours=None``). Passing
+``window_hours=24`` still caps collection per admission; CXR arms must not
+skip later stays against the first admission's clock.
 
 Repro::
 
@@ -92,7 +95,7 @@ class TestP1ObservationWindow(unittest.TestCase):
 
         task = m.LabsMIMIC4(window_hours=24)
         self.assertIsNotNone(vars(task).get("emitted_data_version"))
-        self.assertGreaterEqual(task.emitted_data_version, 3)
+        self.assertGreaterEqual(task.emitted_data_version, 4)
 
         def cache_key(t, drop_version=False):
             v = dict(vars(t))
@@ -119,16 +122,18 @@ class TestP1ObservationWindow(unittest.TestCase):
         discharge = admit + timedelta(days=9)
         self.assertEqual(task._admission_window_end(admit, discharge), discharge)
 
-    def test_notes_labs_defaults_to_a_24h_window(self):
+    def test_protocol_default_is_full_stay(self):
         from pyhealth.tasks.multimodal_mimic4 import (
+            CXRMIMIC4,
             LabsMIMIC4,
             NotesLabsCXRMIMIC4,
             NotesLabsMIMIC4,
         )
 
-        self.assertEqual(NotesLabsMIMIC4().window_hours, 24)
-        self.assertEqual(NotesLabsCXRMIMIC4().window_hours, 24)
-        self.assertEqual(LabsMIMIC4().window_hours, 24)
+        self.assertIsNone(NotesLabsMIMIC4().window_hours)
+        self.assertIsNone(NotesLabsCXRMIMIC4().window_hours)
+        self.assertIsNone(LabsMIMIC4().window_hours)
+        self.assertIsNone(CXRMIMIC4().window_hours)
 
     def test_discharge_coded_icd_is_not_a_mortality_task(self):
         from pyhealth.tasks import multimodal_mimic4 as m
