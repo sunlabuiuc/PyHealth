@@ -1,7 +1,7 @@
 import logging
 import os
 import warnings
-from typing import List, Optional
+from typing import List, Optional, Union
 
 import pandas as pd
 import dask.dataframe as dd
@@ -223,6 +223,158 @@ class MIMIC4CXRDataset(BaseDataset):
         return
 
 
+class MIMIC4CXRSunlabDataset(BaseDataset):
+    """
+    Sunlab variant of the MIMIC-CXR Chest X-ray dataset.
+
+    This variant uses the existing metadata CSV and derives flattened image
+    paths at ``{images|resized_images}/{dicom_id}.jpg``.
+    """
+
+    def __init__(
+        self,
+        root: str,
+        tables: List[str],
+        dataset_name: str = "mimic4_cxr_sunlab",
+        config_path: Optional[str] = None,
+        cache_dir: Optional[str] = None,
+        **kwargs,
+    ):
+        if config_path is None:
+            config_path = os.path.join(
+                os.path.dirname(__file__), "configs", "mimic4_cxr_sunlab.yaml"
+            )
+            logger.info(f"Using default Sunlab CXR config: {config_path}")
+        metadata_csv = self.prepare_metadata(root, cache_dir=cache_dir)
+        if os.path.dirname(os.path.abspath(metadata_csv)) != os.path.abspath(root):
+            config_path = self._rewrite_sunlab_config(
+                config_path, metadata_csv, cache_dir or os.path.dirname(metadata_csv)
+            )
+        log_memory_usage(f"Before initializing {dataset_name}")
+        super().__init__(
+            root=root,
+            tables=tables,
+            dataset_name=dataset_name,
+            config_path=config_path,
+            cache_dir=cache_dir,
+            **kwargs,
+        )
+        log_memory_usage(f"After initializing {dataset_name}")
+
+    @staticmethod
+    def _resolve_column_name(columns: List[str], target: str) -> str:
+        lower_to_original = {col.lower(): col for col in columns}
+        resolved = lower_to_original.get(target.lower())
+        if resolved is None:
+            raise ValueError(
+                f"Expected column '{target}' in metadata, available columns: {columns}"
+            )
+        return resolved
+
+    @staticmethod
+    def _rewrite_sunlab_config(
+        config_path: str, metadata_csv: str, dest_dir: str
+    ) -> str:
+        """Point the sunlab YAML at a metadata CSV that is not under root."""
+        with open(config_path, encoding="utf-8") as f:
+            text = f.read()
+        rewritten = text.replace(
+            "mimic-cxr-2.0.0-metadata-pyhealth-sunlab.csv",
+            metadata_csv,
+        )
+        os.makedirs(dest_dir, exist_ok=True)
+        out = os.path.join(dest_dir, "mimic4_cxr_sunlab.generated.yaml")
+        with open(out, "w", encoding="utf-8") as f:
+            f.write(rewritten)
+        return out
+
+    def prepare_metadata(
+        self, root: str, cache_dir: Optional[str] = None
+    ) -> str:
+        metadata_path = os.path.join(root, "mimic-cxr-2.0.0-metadata.csv")
+        if not os.path.exists(metadata_path):
+            raise FileNotFoundError(
+                f"Sunlab metadata file not found: {metadata_path}. "
+                "Expected existing metadata linked by dicom_id/subject_id/study_id."
+            )
+
+        # The flattened layout appears under more than one directory name
+        # depending on how the set was produced, so accept either rather than
+        # hardcoding one and failing on a complete, correct dataset.
+        candidates = ("images", "resized_images")
+        images_dir = next(
+            (
+                os.path.join(root, name)
+                for name in candidates
+                if os.path.isdir(os.path.join(root, name))
+            ),
+            None,
+        )
+        if images_dir is None:
+            raise FileNotFoundError(
+                f"No flattened image directory under {root}. Looked for "
+                f"{', '.join(candidates)}, each expected to hold "
+                "{dicom_id}.jpg."
+            )
+        images_subdir = os.path.basename(images_dir)
+
+        metadata = pd.read_csv(metadata_path, dtype=str)
+
+        dicom_col = self._resolve_column_name(metadata.columns.tolist(), "dicom_id")
+        study_time_col = self._resolve_column_name(
+            metadata.columns.tolist(), "studytime"
+        )
+
+        # Normalize StudyTime so timestamps parse with %Y%m%d%H%M%S in config.
+        def normalize_studytime(value: Optional[str]) -> str:
+            if value is None:
+                return "000000"
+            value_str = str(value).strip()
+            if value_str == "" or value_str.lower() == "nan":
+                return "000000"
+            try:
+                return f"{int(float(value_str)):06d}"
+            except Exception:
+                digits = "".join(ch for ch in value_str if ch.isdigit())
+                if digits == "":
+                    return "000000"
+                return digits[:6].zfill(6)
+
+        metadata[study_time_col] = metadata[study_time_col].apply(normalize_studytime)
+
+        metadata["image_path"] = metadata[dicom_col].apply(
+            lambda dicom_id: os.path.join(root, images_subdir, f"{dicom_id}.jpg")
+        )
+
+        # Align with existing config conventions by using lowercase headers.
+        metadata.columns = [col.lower() for col in metadata.columns]
+
+        filename = "mimic-cxr-2.0.0-metadata-pyhealth-sunlab.csv"
+        dest_dirs = []
+        if cache_dir:
+            dest_dirs.append(str(cache_dir))
+        dest_dirs.append(root)
+
+        for d in dest_dirs:
+            existing = os.path.join(d, filename)
+            if os.path.isfile(existing):
+                return existing
+
+        last_err: Optional[OSError] = None
+        for d in dest_dirs:
+            os.makedirs(d, exist_ok=True)
+            dest = os.path.join(d, filename)
+            try:
+                metadata.to_csv(dest, index=False)
+                return dest
+            except OSError as exc:
+                last_err = exc
+                continue
+        raise PermissionError(
+            f"Could not write {filename} under {dest_dirs}: {last_err}"
+        )
+
+
 class MIMIC4Dataset(BaseDataset):
     """
     Unified MIMIC-IV dataset with support for EHR, clinical notes, and X-rays.
@@ -242,6 +394,7 @@ class MIMIC4Dataset(BaseDataset):
         ehr_config_path: Path to the EHR config file
         note_config_path: Path to the note config file
         cxr_config_path: Path to the CXR config file
+        cxr_variant: Which CXR variant to load ("default" or "sunlab")
         dataset_name: Name of the dataset
         dev: Whether to enable dev mode (limit to 1000 patients)
 
@@ -279,8 +432,9 @@ class MIMIC4Dataset(BaseDataset):
         ehr_config_path: Optional[str] = None,
         note_config_path: Optional[str] = None,
         cxr_config_path: Optional[str] = None,
+        cxr_variant: str = "default",
         dataset_name: str = "mimic4",
-        dev: bool = False,
+        dev: Union[bool, int] = False,
         cache_dir: Optional[str] = None,
         num_workers: int = 1,
     ):
@@ -340,17 +494,33 @@ class MIMIC4Dataset(BaseDataset):
 
         # Initialize CXR dataset if root is provided
         if cxr_root is not None:
+            if cxr_variant not in {"default", "sunlab"}:
+                raise ValueError(
+                    f"Unknown cxr_variant '{cxr_variant}'. "
+                    "Expected one of {'default', 'sunlab'}."
+                )
+
             logger.info(
-                f"Initializing MIMIC4CXRDataset with tables: {cxr_tables} (dev mode: {dev})"
+                f"Initializing MIMIC4 CXR variant '{cxr_variant}' with tables: {cxr_tables} (dev mode: {dev})"
             )
-            self.sub_datasets["cxr"] = MIMIC4CXRDataset(
-                root=cxr_root,
-                tables=cxr_tables,
-                config_path=cxr_config_path,
-                cache_dir=str(self.cache_dir),
-                dev=dev,
-                num_workers=num_workers,
-            )
+            if cxr_variant == "sunlab":
+                self.sub_datasets["cxr"] = MIMIC4CXRSunlabDataset(
+                    root=cxr_root,
+                    tables=cxr_tables,
+                    config_path=cxr_config_path,
+                    cache_dir=str(self.cache_dir),
+                    dev=dev,
+                    num_workers=num_workers,
+                )
+            else:
+                self.sub_datasets["cxr"] = MIMIC4CXRDataset(
+                    root=cxr_root,
+                    tables=cxr_tables,
+                    config_path=cxr_config_path,
+                    cache_dir=str(self.cache_dir),
+                    dev=dev,
+                    num_workers=num_workers,
+                )
             log_memory_usage("After CXR dataset initialization")
 
         log_memory_usage("Completed MIMIC4Dataset init")

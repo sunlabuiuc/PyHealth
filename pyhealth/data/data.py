@@ -155,7 +155,7 @@ class Patient:
             start_idx = np.searchsorted(ts_col, np.datetime64(start, "ms"), side="left")
         if end is not None:
             end_idx = np.searchsorted(ts_col, np.datetime64(end, "ms"), side="right")
-        return df.slice(start_idx, end_idx - start_idx)
+        return df.slice(start_idx, max(0, end_idx - start_idx))
 
     def _filter_by_event_type_regular(self, df: pl.DataFrame, event_type: Optional[str]) -> pl.DataFrame:
         """Regular filtering by event type. Time complexity: O(n)."""
