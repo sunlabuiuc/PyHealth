@@ -4,18 +4,18 @@ from typing import Optional, Tuple, Union, List
 import numpy as np
 import torch
 
-from pyhealth.datasets import SampleBaseDataset
+from pyhealth.datasets import SampleDataset
 
 
 def split(
-    dataset: SampleBaseDataset,
+    dataset: SampleDataset,
     ratios: Union[Tuple[float, float, float], List[float]],
     seed: Optional[int] = None,
 ):
     """Splits the dataset by its outermost indexed items
 
     Args:
-        dataset: a `SampleBaseDataset` object
+        dataset: a `SampleDataset` object
         ratios: a list/tuple of ratios for train / val / test
         seed: random seed for shuffling the dataset
 

@@ -1,10 +1,10 @@
-from pyhealth.datasets import SampleBaseDataset
+from pyhealth.datasets import SampleDataset
 
 
-class SampleKGDataset(SampleBaseDataset):
+class SampleKGDataset(SampleDataset):
     """Sample KG dataset class.
 
-    This class inherits from `SampleBaseDataset` and is specifically designed
+    This class inherits from `SampleDataset` and is specifically designed
         for KG datasets.
 
     Args:
