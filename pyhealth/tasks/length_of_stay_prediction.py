@@ -462,6 +462,349 @@ class LengthOfStayPredictionOMOP(BaseTask):
         return samples
 
 
+class LengthOfStayRegressionMIMIC3(BaseTask):
+    """Predict ICU/hospital length of stay as a continuous value (days) using MIMIC-III.
+
+    Unlike :class:`LengthOfStayPredictionMIMIC3` which bins LOS into 10
+    categories, this task returns the raw float number of days so the model
+    can be trained and evaluated as a regression problem.
+
+    Attributes:
+        task_name (str): The name of the task.
+        input_schema (Dict[str, str]): conditions, procedures, drugs sequences.
+        output_schema (Dict[str, str]): ``{"los": "regression"}`` — a float
+            number of days.
+
+    Examples:
+        >>> from pyhealth.datasets import MIMIC3Dataset
+        >>> from pyhealth.tasks import LengthOfStayRegressionMIMIC3
+        >>> mimic3_base = MIMIC3Dataset(
+        ...     root="/srv/local/data/physionet.org/files/mimiciii/1.4",
+        ...     tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
+        ...     code_mapping={"ICD9CM": "CCSCM"},
+        ... )
+        >>> task = LengthOfStayRegressionMIMIC3()
+        >>> mimic3_sample = mimic3_base.set_task(task)
+    """
+
+    task_name: str = "LengthOfStayRegressionMIMIC3"
+    input_schema: Dict[str, str] = {
+        "conditions": "sequence",
+        "procedures": "sequence",
+        "drugs": "sequence",
+    }
+    output_schema: Dict[str, str] = {"los": "regression"}
+
+    def __call__(self, patient: Patient) -> List[Dict]:
+        samples = []
+
+        admissions = patient.get_events(event_type="admissions")
+        if len(admissions) == 0:
+            return []
+
+        for admission in admissions:
+            diagnoses_events = patient.get_events(
+                event_type="diagnoses_icd",
+                filters=[("hadm_id", "==", admission.hadm_id)],
+            )
+            conditions = [event.icd9_code for event in diagnoses_events]
+
+            procedures_events = patient.get_events(
+                event_type="procedures_icd",
+                filters=[("hadm_id", "==", admission.hadm_id)],
+            )
+            procedures = [event.icd9_code for event in procedures_events]
+
+            prescriptions_events = patient.get_events(
+                event_type="prescriptions",
+                filters=[("hadm_id", "==", admission.hadm_id)],
+            )
+            drugs = [event.ndc for event in prescriptions_events]
+
+            if len(conditions) * len(procedures) * len(drugs) == 0:
+                continue
+
+            admit_time = admission.timestamp
+            discharge_time = datetime.strptime(admission.dischtime, "%Y-%m-%d %H:%M:%S")
+            los_days = float((discharge_time - admit_time).days)
+
+            samples.append(
+                {
+                    "visit_id": admission.hadm_id,
+                    "patient_id": patient.patient_id,
+                    "conditions": conditions,
+                    "procedures": procedures,
+                    "drugs": drugs,
+                    "los": los_days,
+                }
+            )
+        return samples
+
+
+class LengthOfStayRegressionMIMIC4(BaseTask):
+    """Predict ICU/hospital length of stay as a continuous value (days) using MIMIC-IV.
+
+    Unlike :class:`LengthOfStayPredictionMIMIC4` which bins LOS into 10
+    categories, this task returns the raw float number of days.
+
+    Attributes:
+        task_name (str): The name of the task.
+        input_schema (Dict[str, str]): conditions, procedures, drugs sequences.
+        output_schema (Dict[str, str]): ``{"los": "regression"}`` — a float
+            number of days.
+
+    Examples:
+        >>> from pyhealth.datasets import MIMIC4Dataset
+        >>> from pyhealth.tasks import LengthOfStayRegressionMIMIC4
+        >>> mimic4_base = MIMIC4Dataset(
+        ...     root="/srv/local/data/physionet.org/files/mimiciv/2.0/hosp",
+        ...     tables=["diagnoses_icd", "procedures_icd", "prescriptions"],
+        ...     code_mapping={"ICD10PROC": "CCSPROC"},
+        ... )
+        >>> task = LengthOfStayRegressionMIMIC4()
+        >>> mimic4_sample = mimic4_base.set_task(task)
+    """
+
+    task_name: str = "LengthOfStayRegressionMIMIC4"
+    input_schema: Dict[str, str] = {
+        "conditions": "sequence",
+        "procedures": "sequence",
+        "drugs": "sequence",
+    }
+    output_schema: Dict[str, str] = {"los": "regression"}
+
+    def __call__(self, patient: Patient) -> List[Dict]:
+        samples = []
+
+        admissions = patient.get_events(event_type="admissions")
+        if len(admissions) == 0:
+            return []
+
+        for admission in admissions:
+            diagnoses_events = patient.get_events(
+                event_type="diagnoses_icd",
+                filters=[("hadm_id", "==", admission.hadm_id)],
+            )
+            conditions = [
+                f"{event.icd_version}_{event.icd_code}" for event in diagnoses_events
+            ]
+
+            procedures_events = patient.get_events(
+                event_type="procedures_icd",
+                filters=[("hadm_id", "==", admission.hadm_id)],
+            )
+            procedures = [
+                f"{event.icd_version}_{event.icd_code}" for event in procedures_events
+            ]
+
+            prescriptions_events = patient.get_events(
+                event_type="prescriptions",
+                filters=[("hadm_id", "==", admission.hadm_id)],
+            )
+            drugs = [event.ndc for event in prescriptions_events]
+
+            if len(conditions) * len(procedures) * len(drugs) == 0:
+                continue
+
+            admit_time = admission.timestamp
+            discharge_time = datetime.strptime(admission.dischtime, "%Y-%m-%d %H:%M:%S")
+            los_days = float((discharge_time - admit_time).days)
+
+            samples.append(
+                {
+                    "visit_id": admission.hadm_id,
+                    "patient_id": patient.patient_id,
+                    "conditions": conditions,
+                    "procedures": procedures,
+                    "drugs": drugs,
+                    "los": los_days,
+                }
+            )
+        return samples
+
+
+class LengthOfStayRegressioneICU(BaseTask):
+    """Predict ICU length of stay as a continuous value (days) using eICU.
+
+    Unlike :class:`LengthOfStayPredictioneICU` which bins LOS into 10
+    categories, this task returns the raw float number of days.
+
+    Attributes:
+        task_name (str): The name of the task.
+        input_schema (Dict[str, str]): conditions, procedures, drugs sequences.
+        output_schema (Dict[str, str]): ``{"los": "regression"}`` — a float
+            number of days.
+
+    Examples:
+        >>> from pyhealth.datasets import eICUDataset
+        >>> from pyhealth.tasks import LengthOfStayRegressioneICU
+        >>> dataset = eICUDataset(
+        ...     root="/path/to/eicu-crd/2.0",
+        ...     tables=["diagnosis", "medication", "physicalexam"],
+        ... )
+        >>> task = LengthOfStayRegressioneICU()
+        >>> sample_dataset = dataset.set_task(task)
+    """
+
+    task_name: str = "LengthOfStayRegressioneICU"
+    input_schema: Dict[str, str] = {
+        "conditions": "sequence",
+        "procedures": "sequence",
+        "drugs": "sequence",
+    }
+    output_schema: Dict[str, str] = {"los": "regression"}
+
+    def __call__(self, patient: Patient) -> List[Dict]:
+        samples = []
+
+        patient_stays = patient.get_events(event_type="patient")
+        if len(patient_stays) == 0:
+            return []
+
+        for stay in patient_stays:
+            stay_id = str(getattr(stay, "patientunitstayid", ""))
+            if not stay_id:
+                continue
+
+            diagnosis_events = patient.get_events(
+                event_type="diagnosis",
+                filters=[("patientunitstayid", "==", stay_id)],
+            )
+            conditions = [
+                getattr(event, "diagnosisstring", "")
+                for event in diagnosis_events
+                if getattr(event, "diagnosisstring", None)
+            ]
+
+            physicalexam_events = patient.get_events(
+                event_type="physicalexam",
+                filters=[("patientunitstayid", "==", stay_id)],
+            )
+            procedures = [
+                getattr(event, "physicalexamvalue", "")
+                for event in physicalexam_events
+                if getattr(event, "physicalexamvalue", None)
+            ]
+
+            medication_events = patient.get_events(
+                event_type="medication",
+                filters=[("patientunitstayid", "==", stay_id)],
+            )
+            drugs = [
+                getattr(event, "drugname", "")
+                for event in medication_events
+                if getattr(event, "drugname", None)
+            ]
+
+            if len(conditions) * len(procedures) * len(drugs) == 0:
+                continue
+
+            unit_discharge_offset = getattr(stay, "unitdischargeoffset", None)
+            if unit_discharge_offset is None:
+                continue
+
+            try:
+                los_minutes = int(unit_discharge_offset)
+            except (ValueError, TypeError):
+                continue
+
+            los_days = float(los_minutes) / (60.0 * 24.0)
+
+            samples.append(
+                {
+                    "visit_id": stay_id,
+                    "patient_id": patient.patient_id,
+                    "conditions": conditions,
+                    "procedures": procedures,
+                    "drugs": drugs,
+                    "los": los_days,
+                }
+            )
+        return samples
+
+
+class LengthOfStayRegressionOMOP(BaseTask):
+    """Predict hospital length of stay as a continuous value (days) using OMOP CDM.
+
+    Unlike :class:`LengthOfStayPredictionOMOP` which bins LOS into 10
+    categories, this task returns the raw float number of days.
+
+    Attributes:
+        task_name (str): The name of the task.
+        input_schema (Dict[str, str]): conditions, procedures, drugs sequences.
+        output_schema (Dict[str, str]): ``{"los": "regression"}`` — a float
+            number of days.
+
+    Examples:
+        >>> from pyhealth.datasets import OMOPDataset
+        >>> from pyhealth.tasks import LengthOfStayRegressionOMOP
+        >>> omop_base = OMOPDataset(
+        ...     root="https://storage.googleapis.com/pyhealth/synpuf1k_omop_cdm_5.2.2",
+        ...     tables=["condition_occurrence", "procedure_occurrence", "drug_exposure"],
+        ...     code_mapping={},
+        ... )
+        >>> task = LengthOfStayRegressionOMOP()
+        >>> omop_sample = omop_base.set_task(task)
+    """
+
+    task_name: str = "LengthOfStayRegressionOMOP"
+    input_schema: Dict[str, str] = {
+        "conditions": "sequence",
+        "procedures": "sequence",
+        "drugs": "sequence",
+    }
+    output_schema: Dict[str, str] = {"los": "regression"}
+
+    def __call__(self, patient: Patient) -> List[Dict]:
+        samples = []
+
+        visit_occurrences = patient.get_events(event_type="visit_occurrence")
+        if len(visit_occurrences) == 0:
+            return []
+
+        for visit in visit_occurrences:
+            condition_events = patient.get_events(
+                event_type="condition_occurrence",
+                filters=[("visit_occurrence_id", "==", visit.visit_occurrence_id)],
+            )
+            conditions = [event.condition_concept_id for event in condition_events]
+
+            procedure_events = patient.get_events(
+                event_type="procedure_occurrence",
+                filters=[("visit_occurrence_id", "==", visit.visit_occurrence_id)],
+            )
+            procedures = [event.procedure_concept_id for event in procedure_events]
+
+            drug_events = patient.get_events(
+                event_type="drug_exposure",
+                filters=[("visit_occurrence_id", "==", visit.visit_occurrence_id)],
+            )
+            drugs = [event.drug_concept_id for event in drug_events]
+
+            if len(conditions) * len(procedures) * len(drugs) == 0:
+                continue
+
+            admit_time = datetime.strptime(
+                visit.visit_start_datetime, "%Y-%m-%d %H:%M:%S"
+            )
+            discharge_time = datetime.strptime(
+                visit.visit_end_datetime, "%Y-%m-%d %H:%M:%S"
+            )
+            los_days = float((discharge_time - admit_time).days)
+
+            samples.append(
+                {
+                    "visit_id": visit.visit_occurrence_id,
+                    "patient_id": patient.patient_id,
+                    "conditions": conditions,
+                    "procedures": procedures,
+                    "drugs": drugs,
+                    "los": los_days,
+                }
+            )
+        return samples
+
+
 if __name__ == "__main__":
     from pyhealth.datasets import MIMIC3Dataset
 
