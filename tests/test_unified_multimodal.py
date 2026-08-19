@@ -170,7 +170,7 @@ def test_collate_temporal_variable_length():
 
 def test_sinusoidal_time_embedding_shape():
     from pyhealth.models.unified_embedding import SinusoidalTimeEmbedding
-    emb = SinusoidalTimeEmbedding(dim=64, max_hours=720.0)
+    emb = SinusoidalTimeEmbedding(dim=64)
     t   = torch.tensor([[0.0, 12.0, 24.0], [0.0, 6.0, 48.0]])  # (2, 3)
     out = emb(t)
     assert out.shape == (2, 3, 64)
@@ -182,6 +182,14 @@ def test_sinusoidal_different_times_differ():
     t0  = emb(torch.tensor([0.0]))
     t1  = emb(torch.tensor([24.0]))
     assert not torch.allclose(t0, t1)
+
+
+def test_sinusoidal_does_not_alias_every_720h():
+    from pyhealth.models.unified_embedding import SinusoidalTimeEmbedding
+    emb = SinusoidalTimeEmbedding(dim=32)
+    t6 = emb(torch.tensor([6.0]))
+    t726 = emb(torch.tensor([726.0]))
+    assert not torch.allclose(t6, t726, atol=1e-5)
 
 
 # ── 6. UnifiedMultimodalEmbeddingModel — code-only smoke test ─────────────────

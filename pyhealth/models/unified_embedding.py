@@ -35,37 +35,51 @@ from pyhealth.processors.base_processor import ModalityType, TemporalFeatureProc
 
 
 class SinusoidalTimeEmbedding(nn.Module):
-    """Continuous sinusoidal embedding for scalar time values (in hours).
+    """Multi-scale sinusoidal embedding for times in hours.
 
-    Identical in spirit to the positional encoding in "Attention is All You
-    Need" but operating on real-valued timestamps rather than integer positions.
+    Wavelengths are spaced geometrically from ``min_hours`` to ``max_hours``.
+    The previous encoding wrapped every 720 hours.
 
     Args:
         dim: Output embedding dimension (must be even).
-        max_hours: Maximum expected time value in hours.  Values are normalised
-            to ``[0, 2π]`` before the sin/cos projection.  Default 720 (30 days).
+        max_hours: Longest wavelength in hours. Default 87600 (10 years).
+        min_hours: Shortest wavelength in hours. Default 1.0.
 
     Shape:
         Input:  ``(*, )``  float tensor of times in hours
         Output: ``(*, dim)``
     """
 
-    def __init__(self, dim: int, max_hours: float = 720.0):
+    def __init__(
+        self,
+        dim: int,
+        max_hours: float = 87600.0,
+        min_hours: float = 1.0,
+    ):
         super().__init__()
         assert dim % 2 == 0, f"dim must be even, got {dim}"
+        if min_hours <= 0 or max_hours <= min_hours:
+            raise ValueError(
+                f"need 0 < min_hours < max_hours, got min={min_hours}, max={max_hours}"
+            )
         self.dim = dim
-        self.max_hours = max_hours
+        self.max_hours = float(max_hours)
+        self.min_hours = float(min_hours)
         half = dim // 2
-        freqs = torch.exp(
-            -math.log(10000.0) * torch.arange(half, dtype=torch.float32) / (half - 1)
+        periods = torch.exp(
+            torch.linspace(
+                math.log(self.min_hours),
+                math.log(self.max_hours),
+                half,
+                dtype=torch.float32,
+            )
         )
-        self.register_buffer("freqs", freqs)  # (dim//2,)
+        self.register_buffer("freqs", 2 * math.pi / periods)
 
     def forward(self, t: torch.Tensor) -> torch.Tensor:
         """:param t: ``(...,)`` float, times in hours."""
-        t_norm = t / self.max_hours * 2 * math.pi           # (...,)
-        args = t_norm.unsqueeze(-1) * self.freqs             # (..., dim//2)
-        return torch.cat([args.sin(), args.cos()], dim=-1)   # (..., dim)
+        args = t.unsqueeze(-1).to(dtype=self.freqs.dtype) * self.freqs
+        return torch.cat([args.sin(), args.cos()], dim=-1)
 
 
 def _build_image_encoder(embedding_dim: int) -> nn.Module:
@@ -128,8 +142,8 @@ class UnifiedMultimodalEmbeddingModel(nn.Module):
             ``dataset.input_processors`` directly.
         embedding_dim: Shared embedding dimension ``E'``.
         time_embedding: ``"sinusoidal"`` (default) or ``"learned"``.
-        max_time_hours: Normalisation constant for the time embedding.
-            Defaults to 720 h (30 days).
+        max_time_hours: Longest wavelength of the time embedding, in hours.
+            Defaults to 87600 (10 years).
 
     Example::
 
@@ -148,7 +162,7 @@ class UnifiedMultimodalEmbeddingModel(nn.Module):
         processors: dict[str, Any],
         embedding_dim: int = 128,
         time_embedding: str = "sinusoidal",
-        max_time_hours: float = 720.0,
+        max_time_hours: float = 87600.0,
     ):
         super().__init__()
         self.embedding_dim = embedding_dim

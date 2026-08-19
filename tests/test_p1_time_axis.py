@@ -5,9 +5,9 @@ sequence. Event times were hours from *that stay's* admit, then concatenated,
 so stay 2 at +6h sorted with stay 1 at +6h. Collection is still per stay
 (admit, admit+window]. Times are hours from the first stay in the sample.
 
-Single-stay patients are unchanged. The sinusoid still wraps at
-``max_time_hours=720``; that affects the embedding of multi-year gaps, not
-the sort order.
+Single-stay patients are unchanged. Time embeddings use geometric
+wavelengths from 1 hour to 10 years so a later stay at +9606h does not
+alias with +6h.
 
 Repro::
 
@@ -20,6 +20,8 @@ from __future__ import annotations
 import inspect
 import unittest
 from datetime import datetime, timedelta
+
+import torch
 
 
 class TestP1TimeAxis(unittest.TestCase):
@@ -69,3 +71,13 @@ class TestP1TimeAxis(unittest.TestCase):
         self.assertIn("time_origin", labs_src)
         self.assertIn("_hours_since", labs_src)
         self.assertNotIn("lab_ts - admission_time", labs_src)
+
+    def test_sinusoid_does_not_wrap_every_thirty_days(self):
+        from pyhealth.models.embedding.unified import SinusoidalTimeEmbedding
+
+        emb = SinusoidalTimeEmbedding(dim=32)
+        t6 = emb(torch.tensor([6.0]))
+        t726 = emb(torch.tensor([6.0 + 720.0]))
+        t9606 = emb(torch.tensor([9606.0]))
+        self.assertFalse(torch.allclose(t6, t726, atol=1e-5))
+        self.assertFalse(torch.allclose(t6, t9606, atol=1e-5))

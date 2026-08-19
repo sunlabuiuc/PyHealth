@@ -33,7 +33,6 @@ from datetime import datetime, timedelta
 
 LAB_TASKS = [
     "LabsMIMIC4",
-    "ICDLabsMIMIC4",
     "NotesLabsMIMIC4",
     "NotesLabsCXRMIMIC4",
     "CXRMIMIC4",
@@ -130,3 +129,10 @@ class TestP1ObservationWindow(unittest.TestCase):
         self.assertEqual(NotesLabsMIMIC4().window_hours, 24)
         self.assertEqual(NotesLabsCXRMIMIC4().window_hours, 24)
         self.assertEqual(LabsMIMIC4().window_hours, 24)
+
+    def test_discharge_coded_icd_is_not_a_mortality_task(self):
+        from pyhealth.tasks import multimodal_mimic4 as m
+        from pyhealth.tasks.multimodal_mimic4 import NotesLabsMIMIC4
+
+        self.assertFalse(hasattr(m, "ICDLabsMIMIC4"))
+        self.assertFalse(NotesLabsMIMIC4().include_icd)
