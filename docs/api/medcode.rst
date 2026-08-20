@@ -29,6 +29,14 @@ Quick Examples
    print(icd9cm.lookup("428.0"))
    print(icd9cm.get_ancestors("428.0"))
 
+   # Translating between ICD versions
+   icd9_to_icd10 = CrossMap.load("ICD9CM", "ICD10CM")
+   print(icd9_to_icd10.map("428.0"))          # ['I50.9']
+
+   # Grouping ICD-10 into CCSR categories
+   icd10_to_ccsr = CrossMap.load("ICD10CM", "CCSR")
+   print(icd10_to_ccsr.map("I50.9"))          # ['CIR019']
+
 We provide medical code mapping tools for (i) ontology mapping within one coding system and 
 (ii) mapping the same concept cross different coding systems. 
 
@@ -101,3 +109,93 @@ Medication codes:
 
 
     
+
+ICD translation and grouper vocabularies
+-----------------------------------------
+
+PyHealth hosts its own mapping tables and always prefers them. Pairs it has no
+table for are served by the `icd-mappings <https://pypi.org/project/icd-mappings/>`_
+package, whose data ships inside its wheel and therefore needs no network
+access. ``CrossMap.backend`` reports which source was used, and the choice can
+be forced with ``CrossMap.load(..., backend="pyhealth")`` or
+``backend="icdmappings"``.
+
+``ICD9CM->CCSCM`` is the one pair both sources can serve. It stays on PyHealth's
+hosted table under ``backend="auto"`` so that existing pipelines are unaffected;
+pass ``backend="icdmappings"`` explicitly to get the same mapping offline.
+
+Supported pairs, by source:
+
+================================  ==========================================
+Pair                              Notes
+================================  ==========================================
+``ICD9CM``   -> ``ICD10CM``       NBER General Equivalence Mappings
+``ICD10CM``  -> ``ICD9CM``        NBER General Equivalence Mappings
+``ICD10CM``  -> ``CCSR``          530 refined categories, ICD-10 only
+``ICD9CM``   -> ``CCI``           chronic condition indicator, ``"1"``/``"0"``
+``ICD10CM``  -> ``CCIR``          refined chronic condition indicator
+``ICD9CM``   -> ``ICD9CHAPTER``   19 chapters
+``ICD10CM``  -> ``ICD10CHAPTER``  22 chapters, keyed by code range
+``ICD10CM``  -> ``ICD10BLOCK``    226 blocks, keyed by code range
+``ICD9CM``/``ICD10CM`` -> ``CCC``     pediatric complex chronic condition
+``ICD9CM``/``ICD10CM`` -> ``CCCSUB``  its subcategory
+================================  ==========================================
+
+.. warning::
+
+   ICD-9 <-> ICD-10 translation is a **primary-mapping approximation**, not the
+   full many-to-many GEM relation. ``map()`` returns at most one target code,
+   some codes have no mapping at all, and the translation does not round-trip
+   (``428.0`` maps to ``I50.9``, which maps back to ``428.9``). Measured on the
+   581 distinct ICD-9 codes in the MIMIC-III demo, 561 mapped and 17 distinct
+   ICD-9 codes collapsed onto a shared ICD-10 code. Inspect
+   ``CrossMap.unmapped_codes`` after a pass over a dataset to quantify the loss.
+
+   For grouping mixed ICD-9/ICD-10 data into one feature space, prefer mapping
+   both versions into a shared grouper (CCS or CCSR) rather than translating
+   one version into the other.
+
+.. autoclass:: pyhealth.medcode.FlatMap
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+.. autoclass:: pyhealth.medcode.CCSR
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+.. autoclass:: pyhealth.medcode.CCI
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+.. autoclass:: pyhealth.medcode.CCIR
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+.. autoclass:: pyhealth.medcode.ICD9CHAPTER
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+.. autoclass:: pyhealth.medcode.ICD10CHAPTER
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+.. autoclass:: pyhealth.medcode.ICD10BLOCK
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+.. autoclass:: pyhealth.medcode.CCC
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+.. autoclass:: pyhealth.medcode.CCCSUB
+    :members:
+    :undoc-members:
+    :show-inheritance:

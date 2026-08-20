@@ -134,7 +134,8 @@ against `RandomBaseline`.
 
 ### `map-medical-codes`
 **Purpose.** Work with clinical vocabularies. `InnerMap` for lookups and hierarchy walking
-across ten vocabularies; `CrossMap` for translation (ICD→CCS, NDC→ATC, NDC→RxNorm). Includes
+across ten vocabularies; `CrossMap` for translation (ICD→CCS, NDC→ATC, NDC→RxNorm, and
+ICD9↔ICD10 plus the grouper vocabularies via `icd-mappings`). Includes
 the MIMIC-IV mixed ICD-9/ICD-10 routing trap and the rule that mapping changes the samples, so
 it needs a new `task_name`.
 **Prerequisites.** Codes to map. First load downloads.

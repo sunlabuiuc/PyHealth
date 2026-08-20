@@ -38,8 +38,13 @@ icd9cm.available_attributes()     # what lookup() can ask for
 icd9cm.stat()                     # size of the vocabulary
 ```
 
-Ten vocabularies, each a subclass in `pyhealth/medcode/codes/`: `ICD9CM`, `ICD10CM`,
-`ICD9PROC`, `ICD10PROC`, `CCSCM`, `CCSPROC`, `ATC`, `NDC`, `RxNorm`, `UMLS`.
+Ten graph-backed vocabularies, each a subclass in `pyhealth/medcode/codes/`: `ICD9CM`,
+`ICD10CM`, `ICD9PROC`, `ICD10PROC`, `CCSCM`, `CCSPROC`, `ATC`, `NDC`, `RxNorm`, `UMLS`.
+
+Eight further grouper vocabularies — `CCSR`, `CCI`, `CCIR`, `ICD9CHAPTER`, `ICD10CHAPTER`,
+`ICD10BLOCK`, `CCC`, `CCCSUB` — are `FlatMap` subclasses in
+`pyhealth/medcode/codes/icd_groupers.py`. They are label systems with no ontology, so they
+support `CrossMap` but not `lookup`/`get_ancestors`.
 
 Codes absent from the graph raise `KeyError` — wrap every lookup:
 
@@ -67,8 +72,19 @@ ndc_atc.map("50090539100", target_kwargs={"level": 3})   # → ['A10A']
 `.map()` always returns a **list** — a code may map to several targets, or to none. Handle the
 empty case explicitly; do not index `[0]` blind.
 
-Available conversions: `ICD9CM→CCSCM`, `ICD10CM→CCSCM`, `ICD9PROC→CCSPROC`,
-`ICD10PROC→CCSPROC`, `NDC→ATC`, `NDC→RxNorm`.
+Served from PyHealth's own tables, and always preferred: `ICD9CM→CCSCM`,
+`ICD10CM→CCSCM`, `ICD9PROC→CCSPROC`, `ICD10PROC→CCSPROC`, `NDC→ATC`, `NDC→RxNorm` — each also
+usable in reverse.
+
+Served by the `icd-mappings` package, offline, for pairs PyHealth has no table for:
+`ICD9CM↔ICD10CM`, `ICD10CM→CCSR`, `ICD9CM→CCI`, `ICD10CM→CCIR`, `ICD9CM→ICD9CHAPTER`,
+`ICD10CM→ICD10CHAPTER`, `ICD10CM→ICD10BLOCK`, and `ICD9CM`/`ICD10CM→CCC`/`CCCSUB`.
+`CrossMap.backend` reports which source was used.
+
+**ICD9↔ICD10 is a primary-mapping approximation, not the full GEM relation.** It returns at
+most one target, drops some codes entirely, and does not round-trip (`428.0`→`I50.9`→`428.9`).
+Check `CrossMap.unmapped_codes` after a pass over a dataset. To unify mixed-vintage data,
+prefer mapping *both* versions into a shared grouper over translating one into the other.
 
 ---
 
