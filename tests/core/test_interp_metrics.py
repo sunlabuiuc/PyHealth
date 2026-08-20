@@ -16,6 +16,7 @@ from pyhealth.interpret.methods import IntegratedGradients
 from pyhealth.metrics.interpretability import (
     ComprehensivenessMetric,
     Evaluator,
+    SampleClass,
     SufficiencyMetric,
     threshold_sample_filter,
 )
@@ -448,6 +449,32 @@ class TestInterpretabilityMetrics(unittest.TestCase):
         self.assertTrue(torch.isfinite(torch.tensor(score_1)))
         self.assertTrue(torch.isfinite(torch.tensor(score_10)))
         self.assertTrue(torch.isfinite(torch.tensor(score_50)))
+
+    def test_negative_class_scores_independent_of_percentage_order(self):
+        """Test that a negative-class sample's score at a percentage is order-independent."""
+        attributions = self._create_attributions(self.batch)
+
+        def negative_filter(y_probs, classifier_type):
+            return torch.full(
+                (y_probs.shape[0],),
+                SampleClass.NEGATIVE,
+                dtype=torch.long,
+                device=y_probs.device,
+            )
+
+        def score_at_20(percentages):
+            comp = ComprehensivenessMetric(
+                self.model,
+                percentages=percentages,
+                ablation_strategy="zero",
+                sample_filter=negative_filter,
+            )
+            detailed = comp.compute(
+                self.batch, attributions, return_per_percentage=True
+            )
+            return detailed[20]
+
+        torch.testing.assert_close(score_at_20([20]), score_at_20([10, 20]))
 
     def test_attribution_shape_mismatch(self):
         """Test that mismatched attribution shapes are handled gracefully."""
