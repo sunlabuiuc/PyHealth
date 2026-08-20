@@ -749,7 +749,13 @@ class BaseDataset(ABC):
             df: dd.DataFrame = df.assign(patient_id=df[patient_id_col].astype("string"))
         else:
             df: dd.DataFrame = df.reset_index(drop=True)
-            df: dd.DataFrame = df.assign(patient_id=df.index.astype("string"))
+
+            # Dask applies reset_index independently across frames,
+            # meaning partitions share indexes, and therefore merge patients.
+            # The trick is to use a cumsum which acts globally across partitions.
+            df: dd.DataFrame = df.assign(_one=1)
+            df: dd.DataFrame = df.assign(patient_id=(df["_one"].cumsum() - 1).astype("string"))
+            df: dd.DataFrame = df.drop(columns="_one")
 
         df: dd.DataFrame = df.assign(event_type=table_name)
 

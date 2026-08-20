@@ -383,7 +383,13 @@ class FHIRDataset(BaseDataset):
             df = df.assign(patient_id=df[table_cfg.patient_id].astype("string"))
         else:
             df = df.reset_index(drop=True)
-            df = df.assign(patient_id=df.index.astype("string"))
+
+            # Dask applies reset_index independently across frames,
+            # meaning partitions share indexes, and therefore merge patients.
+            # The trick is to use a cumsum which acts globally across partitions.
+            df = df.assign(_one=1)
+            df = df.assign(patient_id=(df["_one"].cumsum() - 1).astype("string"))
+            df = df.drop(columns="_one")
 
         df = df.dropna(subset=["patient_id"])
         df = df.assign(event_type=table_name)
