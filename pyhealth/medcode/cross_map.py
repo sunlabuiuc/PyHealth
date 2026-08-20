@@ -53,10 +53,26 @@ class CrossMap:
             )
             save_pickle(self.mapping, pickle_filepath)
 
-        # load source and target vocabulary classes
-        self.s_class = getattr(medcode, source_vocabulary)()
-        self.t_class = getattr(medcode, target_vocabulary)()
+        # Vocabulary classes are resolved lazily: map() needs only their
+        # standardize()/convert() staticmethods, while instantiating one
+        # downloads an ontology file we would never read.
+        self._s_class = None
+        self._t_class = None
         return
+
+    @property
+    def s_class(self):
+        """The source vocabulary instance, resolved on first use."""
+        if self._s_class is None:
+            self._s_class = getattr(medcode, self.s_vocab)()
+        return self._s_class
+
+    @property
+    def t_class(self):
+        """The target vocabulary instance, resolved on first use."""
+        if self._t_class is None:
+            self._t_class = getattr(medcode, self.t_vocab)()
+        return self._t_class
 
     def __repr__(self):
         return f"CrossMap(source_vocabulary={self.s_vocab}, source_class={self.s_class} target_vocabulary={self.t_vocab}, target_class={self.t_class})"
