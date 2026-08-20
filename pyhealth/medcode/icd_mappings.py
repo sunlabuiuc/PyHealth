@@ -91,8 +91,15 @@ def available_icd_mapping_pairs() -> list[tuple[str, str]]:
         >>> from pyhealth.medcode.icd_mappings import (
         ...     available_icd_mapping_pairs,
         ... )
-        >>> ("ICD9CM", "ICD10CM") in available_icd_mapping_pairs()
+        >>> pairs = available_icd_mapping_pairs()
+        >>> len(pairs)
+        12
+        >>> ("ICD9CM", "ICD10CM") in pairs
         True
+        >>> ("ICD10CM", "CCSR") in pairs
+        True
+        >>> [t for s, t in pairs if s == "ICD10CM"]
+        ['CCC', 'CCCSUB', 'CCIR', 'CCSR', 'ICD10BLOCK', 'ICD10CHAPTER', 'ICD9CM']
     """
     return sorted(ICD_MAPPINGS_PAIRS)
 

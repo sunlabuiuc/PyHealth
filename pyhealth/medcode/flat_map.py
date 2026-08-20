@@ -32,6 +32,16 @@ class FlatMap(ABC):
         'CCSR'
         >>> ccsr.standardize("CIR019")
         'CIR019'
+
+        Each grouper normalizes its own codespace, so upstream quirks do not
+        leak into the returned codes:
+
+        >>> FlatMap.load("ICD10BLOCK").standardize(
+        ...     "I30-I5A | Other forms of heart disease"
+        ... )
+        'I30-I5A'
+        >>> FlatMap.load("CCI").standardize(True)
+        '1'
     """
 
     @abstractmethod
