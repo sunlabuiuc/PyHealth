@@ -33,8 +33,15 @@ class CCSR(FlatMap):
 
     Examples:
         >>> from pyhealth.medcode import CrossMap
-        >>> CrossMap.load("ICD10CM", "CCSR").map("I50.9")
+        >>> ccsr = CrossMap.load("ICD10CM", "CCSR")
+        >>> ccsr.map("I50.9")          # heart failure
         ['CIR019']
+        >>> ccsr.map("E11.9")          # type 2 diabetes
+        ['END002']
+        >>> ccsr.map("J18.9")          # pneumonia
+        ['RSP002']
+        >>> ccsr.map("N17.9")          # acute kidney failure
+        ['GEN002']
     """
 
     def __init__(self, **kwargs):
@@ -50,8 +57,13 @@ class CCI(FlatMap):
 
     Examples:
         >>> from pyhealth.medcode import CrossMap
-        >>> CrossMap.load("ICD9CM", "CCI").map("428.0")
+        >>> cci = CrossMap.load("ICD9CM", "CCI")
+        >>> cci.map("428.0")           # heart failure is chronic
         ['1']
+        >>> cci.map("250.00")          # so is diabetes
+        ['1']
+        >>> cci.map("486")             # pneumonia is not
+        ['0']
     """
 
     def __init__(self, **kwargs):
@@ -70,8 +82,11 @@ class CCIR(FlatMap):
 
     Examples:
         >>> from pyhealth.medcode import CrossMap
-        >>> CrossMap.load("ICD10CM", "CCIR").map("I50.9")
+        >>> ccir = CrossMap.load("ICD10CM", "CCIR")
+        >>> ccir.map("I50.9")          # heart failure is chronic
         ['1']
+        >>> ccir.map("S72.001A")       # a femur fracture is acute
+        ['0']
     """
 
     def __init__(self, **kwargs):
@@ -91,8 +106,13 @@ class ICD9CHAPTER(FlatMap):
 
     Examples:
         >>> from pyhealth.medcode import CrossMap
-        >>> CrossMap.load("ICD9CM", "ICD9CHAPTER").map("428.0")
+        >>> chapters = CrossMap.load("ICD9CM", "ICD9CHAPTER")
+        >>> chapters.map("428.0")      # 7 = circulatory system
         ['7']
+        >>> chapters.map("038.9")      # 1 = infectious and parasitic
+        ['1']
+        >>> chapters.map("800.0")      # 17 = injury and poisoning
+        ['17']
     """
 
     def __init__(self, **kwargs):
@@ -108,8 +128,13 @@ class ICD10CHAPTER(FlatMap):
 
     Examples:
         >>> from pyhealth.medcode import CrossMap
-        >>> CrossMap.load("ICD10CM", "ICD10CHAPTER").map("I50.9")
+        >>> chapters = CrossMap.load("ICD10CM", "ICD10CHAPTER")
+        >>> chapters.map("I50.9")      # circulatory system
         ['I00-I99']
+        >>> chapters.map("E11.9")      # endocrine, nutritional, metabolic
+        ['E00-E89']
+        >>> chapters.map("A41.9")      # infectious and parasitic
+        ['A00-B99']
     """
 
     def __init__(self, **kwargs):
@@ -128,8 +153,13 @@ class ICD10BLOCK(FlatMap):
 
     Examples:
         >>> from pyhealth.medcode import CrossMap
-        >>> CrossMap.load("ICD10CM", "ICD10BLOCK").map("I50.9")
+        >>> blocks = CrossMap.load("ICD10CM", "ICD10BLOCK")
+        >>> blocks.map("I50.9")        # other forms of heart disease
         ['I30-I5A']
+        >>> blocks.map("E11.9")        # diabetes mellitus
+        ['E08-E13']
+        >>> blocks.map("A41.9")        # other bacterial diseases
+        ['A30-A49']
     """
 
     def __init__(self, **kwargs):
@@ -149,8 +179,11 @@ class CCC(FlatMap):
 
     Examples:
         >>> from pyhealth.medcode import CrossMap
-        >>> CrossMap.load("ICD10CM", "CCC").map("I50.9")
+        >>> ccc = CrossMap.load("ICD10CM", "CCC")
+        >>> ccc.map("I50.9")           # cardiovascular
         ['cvd']
+        >>> ccc.map("J18.9")           # pneumonia: not a complex chronic
+        []
     """
 
     def __init__(self, **kwargs):
@@ -170,8 +203,11 @@ class CCCSUB(FlatMap):
 
     Examples:
         >>> from pyhealth.medcode import CrossMap
-        >>> CrossMap.load("ICD10CM", "CCCSUB").map("I50.9")
+        >>> sub_map = CrossMap.load("ICD10CM", "CCCSUB")
+        >>> sub_map.map("I50.9")
         ['Other Cardiovascular']
+        >>> sub_map.map("J18.9")
+        []
     """
 
     def __init__(self, **kwargs):

@@ -37,6 +37,18 @@ Quick Examples
    icd10_to_ccsr = CrossMap.load("ICD10CM", "CCSR")
    print(icd10_to_ccsr.map("I50.9"))          # ['CIR019']
 
+   # Coarser groupings, useful when a cohort is small
+   print(CrossMap.load("ICD9CM", "ICD9CHAPTER").map("428.0"))       # ['7']
+   print(CrossMap.load("ICD10CM", "ICD10CHAPTER").map("E11.9"))     # ['E00-E89']
+   print(CrossMap.load("ICD10CM", "ICD10BLOCK").map("A41.9"))       # ['A30-A49']
+
+   # Binary chronic-condition flags
+   print(CrossMap.load("ICD9CM", "CCI").map("428.0"))               # ['1']
+   print(CrossMap.load("ICD9CM", "CCI").map("486"))                 # ['0']
+
+   # Which source served the mapping
+   print(icd10_to_ccsr.backend)                                     # 'icdmappings'
+
 We provide medical code mapping tools for (i) ontology mapping within one coding system and 
 (ii) mapping the same concept cross different coding systems. 
 

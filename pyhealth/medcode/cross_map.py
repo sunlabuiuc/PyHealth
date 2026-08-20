@@ -39,11 +39,27 @@ class CrossMap:
 
     Examples:
         >>> from pyhealth.medcode import CrossMap
+        >>> # PyHealth's own table, selected automatically
         >>> mapping = CrossMap.load("ICD9CM", "CCSCM")
         >>> mapping.backend
         'pyhealth'
         >>> mapping.map("428.0")
         ['108']
+        >>> # translating between ICD versions
+        >>> CrossMap.load("ICD9CM", "ICD10CM").map("250.00")
+        ['E11.9']
+        >>> CrossMap.load("ICD10CM", "ICD9CM").map("N17.9")
+        ['584.9']
+        >>> # grouping into a coarser vocabulary
+        >>> CrossMap.load("ICD10CM", "CCSR").map("J18.9")
+        ['RSP002']
+        >>> CrossMap.load("ICD10CM", "ICD10CHAPTER").map("E11.9")
+        ['E00-E89']
+        >>> # translation is not symmetric: mapping back lands elsewhere
+        >>> CrossMap.load("ICD9CM", "ICD10CM").map("038.9")
+        ['A41.9']
+        >>> CrossMap.load("ICD10CM", "ICD9CM").map("A41.9")
+        ['995.91']
     """
 
     def __init__(
@@ -196,6 +212,17 @@ class CrossMap:
             >>> mapping = CrossMap.load("NDC", "ATC")
             >>> mapping.map("00527051210", target_kwargs={"level": 3})
             ['A11C']
+
+            >>> mapping = CrossMap.load("ICD10CM", "CCSR")
+            >>> mapping.map("I50.9")
+            ['CIR019']
+
+            Forcing a backend. ICD9CM->CCSCM is servable by both sources; it
+            stays on PyHealth's table by default, and the same mapping can be
+            had offline on request:
+
+            >>> CrossMap.load("ICD9CM", "CCSCM", backend="icdmappings").backend
+            'icdmappings'
         """
         return cls(
             source_vocabulary, target_vocabulary, refresh_cache, backend
