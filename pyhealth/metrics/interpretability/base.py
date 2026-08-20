@@ -453,10 +453,10 @@ class RemovalBasedMetric(ABC):
             )
 
             # Compute probability drop
-            original_class_probs = y_probs
+            original_class_probs = y_probs.clone()
             original_class_probs[neg_mask] = -original_class_probs[neg_mask]
             
-            ablated_class_probs = ablated_probs
+            ablated_class_probs = ablated_probs.clone()
             ablated_class_probs[neg_mask] = -ablated_class_probs[neg_mask]
             
             prob_drop = torch.zeros(batch_size, device=y_probs.device)
