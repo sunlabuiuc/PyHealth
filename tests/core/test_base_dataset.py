@@ -296,6 +296,37 @@ class TestBaseDataset(unittest.TestCase):
             self.assertTrue(pd.isna(pdf.iloc[2]["timestamp"]))
             self.assertEqual(pdf.iloc[2]["table1/val"], "v3")
 
+    def test_null_patient_id_unique_across_partitions(self):
+        """Regression test for the Dask per-partition reset_index bug.
+
+        A table config with ``patient_id: null`` must give every row a
+        globally unique ``patient_id``, even when the frame spans multiple
+        Dask partitions. The old code used ``df.reset_index(drop=True)`` +
+        ``df.index``, which Dask resets per partition, so rows from different
+        partitions collided onto the same id and were silently merged into
+        one "patient".
+        """
+        from pyhealth.datasets.configs.config import DatasetConfig
+
+        class _NullPatientDataset(BaseDataset):
+            def __init__(self, config, root="/tmp/x"):
+                self.config = config
+                self.root = root
+
+        ds = _NullPatientDataset(
+            DatasetConfig(
+                version="1.0",
+                tables={"t": {"file_path": "t.csv", "attributes": ["value"]}},
+            )
+        )
+        # 6 rows across 3 partitions; the buggy code produced ids [0,1,0,1,0,1].
+        frame = dd.from_pandas(pd.DataFrame({"value": list(range(6))}), npartitions=3)
+        with patch.object(ds, "_scan_table", return_value=frame):
+            out = ds.load_table("t").compute()
+        self.assertEqual(len(out), 6)
+        self.assertEqual(out["patient_id"].nunique(), 6)
+        self.assertEqual(sorted(out["patient_id"].tolist()), [str(i) for i in range(6)])
+
 
 if __name__ == "__main__":
     unittest.main()
