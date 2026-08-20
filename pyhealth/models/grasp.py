@@ -254,8 +254,6 @@ class GRASPLayer(nn.Module):
         self.GCN.initialize_parameters()
         self.GCN_2 = GraphConvolution(self.hidden_dim, self.hidden_dim, bias=True)
         self.GCN_2.initialize_parameters()
-        self.A_mat = None
-
         self.bn = nn.BatchNorm1d(self.hidden_dim)
 
     def sample_gumbel(self, shape, eps=1e-20):
@@ -310,12 +308,16 @@ class GRASPLayer(nn.Module):
 
         centers, codes = cluster(hidden_t, self.cluster_num, input.device)
 
-        if self.A_mat is None:
+        # Build the similar-cluster kNN graph (the point of GRASP).
+        # k must be < number of nodes (cluster_num); fall back to 
+        # identity only when there are too few clusters to form a neighbor graph.
+        k = min(20, self.cluster_num - 1)
+        if k < 1:
             A_mat = np.eye(self.cluster_num)
         else:
             A_mat = kneighbors_graph(
                 np.array(centers.detach().cpu().numpy()),
-                20,
+                k,
                 mode="connectivity",
                 include_self=False,
             ).toarray()
