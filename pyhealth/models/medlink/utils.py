@@ -127,6 +127,15 @@ def get_bm25_hard_negatives(bm25_model, corpus, queries, qrels):
 
     Returns:
         qrels_w_neg: Updated qrels dictionary containing both positives (1) and negatives (-1).
+
+    Examples:
+        >>> # bm25_model.get_scores(query) -> {doc_id: score}
+        >>> corpus = {"d0": ["fever", "cough"], "d1": ["fever", "rash"]}
+        >>> queries = {"q0": ["fever", "cough"]}
+        >>> qrels = {"q0": {"d0": 1}}  # d0 is q0's positive match
+        >>> qrels_w_neg = get_bm25_hard_negatives(bm25_model, corpus, queries, qrels)
+        >>> qrels_w_neg["q0"]  # positive kept; top query-ranked non-positive labeled -1
+        {'d0': 1, 'd1': -1}
     """
     qrels_w_neg = {}
     for q_id, q in tqdm.tqdm(queries.items()):
