@@ -127,17 +127,25 @@ def get_bm25_hard_negatives(bm25_model, corpus, queries, qrels):
 
     Returns:
         qrels_w_neg: Updated qrels dictionary containing both positives (1) and negatives (-1).
+
+    Examples:
+        >>> # bm25_model.get_scores(query) -> {doc_id: score}
+        >>> corpus = {"d0": ["fever", "cough"], "d1": ["fever", "rash"]}
+        >>> queries = {"q0": ["fever", "cough"]}
+        >>> qrels = {"q0": {"d0": 1}}  # d0 is q0's positive match
+        >>> qrels_w_neg = get_bm25_hard_negatives(bm25_model, corpus, queries, qrels)
+        >>> qrels_w_neg["q0"]  # positive kept; top query-ranked non-positive labeled -1
+        {'d0': 1, 'd1': -1}
     """
     qrels_w_neg = {}
     for q_id, q in tqdm.tqdm(queries.items()):
         d_ids = [d_id for d_id in qrels[q_id] if qrels[q_id][d_id] > 0]
-        ds = [corpus[d_id] for d_id in d_ids]
-        for d_id, d in zip(d_ids, ds):
-            scores = bm25_model.get_scores(d)
-            for (ned_d_id, neg_s) in sorted(scores.items(), key=lambda x: x[1],
-                                            reverse=True):
-                if ned_d_id != d_id:
-                    qrels_w_neg[q_id] = {d_id: 1, ned_d_id: -1}
+        scores = bm25_model.get_scores(q)
+        ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+        for d_id in d_ids:
+            for (neg_d_id, neg_s) in ranked:
+                if neg_d_id not in d_ids: # exclude every positive, not just d_id
+                    qrels_w_neg[q_id] = {d_id: 1, neg_d_id: -1}
                     break
     return qrels_w_neg
 
