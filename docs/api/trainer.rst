@@ -77,6 +77,23 @@ Controlling the Training Loop
   restores the best checkpoint at the end of training rather than keeping the
   weights from the final epoch.
 
+Evaluation Semantics
+--------------------
+
+``trainer.evaluate()`` accumulates predictions and labels across all batches
+and computes every metric **exactly once on the pooled arrays** — metrics are
+never computed per batch and then averaged. The reported ``loss`` is the
+example-weighted mean over all samples (each batch's mean loss is weighted by
+its batch size), so a smaller final batch does not skew it.
+
+As a result, evaluation scores are invariant to the evaluation batch size and
+to the order in which batches arrive: running the same model on the same data
+at ``batch_size=16`` or ``batch_size=64``, shuffled or not, yields the same
+numbers. This matters for reproducible benchmarking — batch-averaged metrics
+such as AUROC or AUPRC are not decomposable over batches, and averaging them
+per batch silently produces batch-size-dependent (and thus non-reproducible)
+results.
+
 Getting the Test Scores
 ------------------------
 
