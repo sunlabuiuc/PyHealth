@@ -1,15 +1,19 @@
-from abc import ABC
-from pyhealth.datasets import SampleBaseDataset
+from __future__ import annotations
 
-import torch
-import time
+from abc import ABC
+from typing import TYPE_CHECKING
+
 import numpy as np
-import torch.nn as nn
+import torch
 import torch.nn.functional as F
+from torch import nn
+
+if TYPE_CHECKING:
+    from ..datasets.protocols import KGDatasetProtocol
 
 
 class KGEBaseModel(ABC, nn.Module):
-    """ Abstract class for Knowledge Graph Embedding models.
+    """Abstract class for Knowledge Graph Embedding models.
 
     Args:
         e_num: the number of entities in the dataset.
@@ -22,6 +26,14 @@ class KGEBaseModel(ABC, nn.Module):
         use_regularization: whether to apply regularization or not, False by default.
         mode: evaluation metric type, one of "binary", "multiclass", or "multilabel", "multiclass" by default
 
+    Examples:
+        >>> class _Toy:
+        ...     entity_num = 2
+        ...     relation_num = 1
+        ...     task_spec_param = None
+        >>> model = KGEBaseModel(_Toy(), e_dim=4, r_dim=4, ns="uniform")
+        >>> model.e_num, tuple(model.E_emb.shape)
+        (2, (2, 4))
     """
 
     @property
@@ -32,16 +44,16 @@ class KGEBaseModel(ABC, nn.Module):
 
     def __init__(
         self, 
-        dataset: SampleBaseDataset,
+        dataset: KGDatasetProtocol,
         e_dim: int = 500,
         r_dim: int = 500,
         ns: str = "uniform",
-        gamma: float = None,
+        gamma: float | None = None,
         use_subsampling_weight: bool = False,
-        use_regularization: str = None,
+        use_regularization: str | None = None,
         mode: str = "multiclass"
     ):
-        super(KGEBaseModel, self).__init__()
+        super().__init__()
         self.e_num = dataset.entity_num
         self.r_num = dataset.relation_num
         self.e_dim = e_dim
@@ -392,7 +404,6 @@ class KGEBaseModel(ABC, nn.Module):
         state_dict = torch.load(path, map_location=self.device, weights_only=True)
         self.update_embedding_size(state_dict)
         self.load_state_dict(state_dict)
-        return
 
     def update_embedding_size(self, state_dict):
         e_emb_key = 'E_emb'
@@ -408,7 +419,6 @@ class KGEBaseModel(ABC, nn.Module):
                 
                 self.E_emb = nn.Parameter(torch.zeros(self.e_num, self.e_dim))
                 self.R_emb = nn.Parameter(torch.zeros(self.r_num, self.r_dim))
-        return
 
 
             

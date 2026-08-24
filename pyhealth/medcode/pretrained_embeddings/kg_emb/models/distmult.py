@@ -1,18 +1,33 @@
-from.kg_base import KGEBaseModel
-from pyhealth.datasets import SampleBaseDataset
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 import torch
+
+from .kg_base import KGEBaseModel
+
+if TYPE_CHECKING:
+    from ..datasets.protocols import KGDatasetProtocol
 
 
 class DistMult(KGEBaseModel):
-    """ DistMult
+    """DistMult
 
-    Paper: Yang, B., Yih, W.T., He, X., Gao, J. and Deng, L. Embedding entities and 
+    Paper: Yang, B., Yih, W.T., He, X., Gao, J. and Deng, L. Embedding entities and
     relations for learning and inference in knowledge bases. ICLR 2015.
 
+    Examples:
+        >>> class _Toy:
+        ...     entity_num = 2
+        ...     relation_num = 1
+        ...     task_spec_param = None
+        >>> model = DistMult(_Toy(), e_dim=4, r_dim=4, ns="uniform")
+        >>> tuple(model.E_emb.shape)
+        (2, 4)
     """
     def __init__(
         self, 
-        dataset: SampleBaseDataset, 
+        dataset: KGDatasetProtocol, 
         e_dim: int = 300, 
         r_dim: int = 300, 
         ns: str = "adv", 

@@ -1,19 +1,34 @@
-from.kg_base import KGEBaseModel
-from pyhealth.datasets import SampleBaseDataset
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 import torch
+
+from .kg_base import KGEBaseModel
+
+if TYPE_CHECKING:
+    from ..datasets.protocols import KGDatasetProtocol
 
 
 class ComplEx(KGEBaseModel):
-    """ ComplEx
+    """ComplEx
 
-    Paper: Trouillon, T., Welbl, J., Riedel, S., Gaussier, É. and Bouchard, G., 2016, June. 
+    Paper: Trouillon, T., Welbl, J., Riedel, S., Gaussier, É. and Bouchard, G., 2016, June.
     Complex embeddings for simple link prediction. In International conference on machine learning (pp. 2071-2080). PMLR
 
+    Examples:
+        >>> class _Toy:
+        ...     entity_num = 2
+        ...     relation_num = 1
+        ...     task_spec_param = None
+        >>> model = ComplEx(_Toy(), e_dim=4, r_dim=4, ns="uniform")
+        >>> tuple(model.E_emb.shape)
+        (2, 4)
     """
 
     def __init__(
         self, 
-        dataset: SampleBaseDataset, 
+        dataset: KGDatasetProtocol, 
         e_dim: int = 600, 
         r_dim: int = 600, 
         ns: str = "adv", 

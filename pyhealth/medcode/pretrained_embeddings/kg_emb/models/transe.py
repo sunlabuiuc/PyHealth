@@ -1,25 +1,40 @@
-from.kg_base import KGEBaseModel
-from pyhealth.datasets import SampleBaseDataset
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 import torch
+
+from .kg_base import KGEBaseModel
+
+if TYPE_CHECKING:
+    from ..datasets.protocols import KGDatasetProtocol
 
 
 class TransE(KGEBaseModel):
-    """ TransE
+    """TransE
 
     Paper: Bordes, A., Usunier, N., Garcia-Duran, A., Weston, J. and Yakhnenko,
     Translating embeddings for modeling multi-relational data. NIPS 2013.
 
+    Examples:
+        >>> class _Toy:
+        ...     entity_num = 2
+        ...     relation_num = 1
+        ...     task_spec_param = None
+        >>> model = TransE(_Toy(), e_dim=4, r_dim=4, ns="uniform")
+        >>> tuple(model.E_emb.shape)
+        (2, 4)
     """
 
     def __init__(
         self, 
-        dataset: SampleBaseDataset, 
+        dataset: KGDatasetProtocol, 
         e_dim: int = 300, 
         r_dim: int = 300, 
         ns: str = "adv", 
         gamma: float = 24.0, 
         use_subsampling_weight: bool = False, 
-        use_regularization: str = None,
+        use_regularization: str | None = None,
         mode: str = "multiclass",
         p_norm: int = 1.0
         ):
