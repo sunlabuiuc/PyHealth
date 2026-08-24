@@ -1,6 +1,7 @@
 from pyhealth.medcode.pretrained_embeddings.kg_emb.datasets import UMLSDataset, split
 from pyhealth.medcode.pretrained_embeddings.kg_emb.tasks import link_prediction_fn
-from pyhealth.datasets import get_dataloader
+from torch.utils.data import DataLoader
+from pyhealth.datasets import collate_fn_dict_with_padding
 from pyhealth.medcode.pretrained_embeddings.kg_emb.models import TransE, RotatE, ComplEx, DistMult
 from pyhealth.trainer import Trainer
 from pyhealth.medcode import InnerMap
@@ -41,9 +42,15 @@ print(umls_ds.stat())
 
 # split the dataset and get the dataloaders
 train_dataset, val_dataset, test_dataset = split(umls_ds, [0.9, 0.05, 0.05])
-train_loader = get_dataloader(train_dataset, batch_size=8, shuffle=True)
-# val_loader = get_dataloader(val_dataset, batch_size=2, shuffle=False)
-# test_loader = get_dataloader(test_dataset, batch_size=2, shuffle=False)
+train_loader = DataLoader(
+    train_dataset, batch_size=8, shuffle=True, collate_fn=collate_fn_dict_with_padding
+)
+# val_loader = DataLoader(
+#     val_dataset, batch_size=2, shuffle=False, collate_fn=collate_fn_dict_with_padding
+# )
+# test_loader = DataLoader(
+#     test_dataset, batch_size=2, shuffle=False, collate_fn=collate_fn_dict_with_padding
+# )
 
 
 # initialize a KGE model

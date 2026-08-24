@@ -80,7 +80,12 @@ class ComplEx(KGEBaseModel):
         
 
 if __name__ == "__main__":
-    from pyhealth.datasets import SampleKGDataset
+    from torch.utils.data import DataLoader
+
+    from pyhealth.datasets import collate_fn_dict_with_padding
+    from pyhealth.medcode.pretrained_embeddings.kg_emb.datasets import (
+        SampleKGDataset,
+    )
 
     samples = [
         {
@@ -97,13 +102,22 @@ if __name__ == "__main__":
         },
     ]
 
-    # dataset
-    dataset = SampleKGDataset(samples=samples, dataset_name="test")
+    for sample in samples:
+        sample["train"] = True
+        sample["hyperparameters"] = {"negative_sampling": 8}
 
-    # data loader
-    from pyhealth.datasets import get_dataloader
-
-    train_loader = get_dataloader(dataset, batch_size=2, shuffle=True)
+    dataset = SampleKGDataset(
+        samples=samples,
+        dataset_name="test",
+        entity_num=8000,
+        relation_num=8,
+    )
+    train_loader = DataLoader(
+        dataset,
+        batch_size=2,
+        shuffle=True,
+        collate_fn=collate_fn_dict_with_padding,
+    )
 
     # model
     model = ComplEx(
