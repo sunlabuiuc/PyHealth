@@ -22,6 +22,26 @@ class KGEBaseModel(ABC, nn.Module):
         use_regularization: whether to apply regularization or not, False by default.
         mode: evaluation metric type, one of "binary", "multiclass", or "multilabel", "multiclass" by default
 
+    Examples:
+        >>> from pyhealth.medcode.pretrained_embeddings.kg_emb.datasets import SampleKGDataset
+        >>> from pyhealth.medcode.pretrained_embeddings.kg_emb.models import KGEBaseModel
+        >>> entity2id = {"aspirin": 0, "headache": 1, "ibuprofen": 2}
+        >>> relation2id = {"treats": 0}
+        >>> samples = [
+        ...     {
+        ...         "triple": (0, 0, 1),
+        ...         "ground_truth_head": [0, 2],
+        ...         "ground_truth_tail": [1],
+        ...         "subsampling_weight": 1.0,
+        ...     },
+        ... ]
+        >>> dataset = SampleKGDataset(
+        ...     samples=samples, entity_num=len(entity2id), relation_num=len(relation2id),
+        ...     entity2id=entity2id, relation2id=relation2id,
+        ... )
+        >>> model = KGEBaseModel(dataset, e_dim=32, r_dim=32)
+        >>> model.E_emb.shape
+        torch.Size([3, 32])
     """
 
     @property
