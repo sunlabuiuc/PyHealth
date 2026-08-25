@@ -44,7 +44,7 @@ def split(
             raised rather than asserted, because ``assert`` statements are
             stripped under ``python -O`` and this check must survive
             optimised runs. The tolerance comparison guards the rare
-            triplets -- about 0.9% of two-decimal ratios -- for which
+            triplets, about 0.9% of two-decimal ratios, for which
             floating-point summation does not land exactly on 1.
 
     Examples:

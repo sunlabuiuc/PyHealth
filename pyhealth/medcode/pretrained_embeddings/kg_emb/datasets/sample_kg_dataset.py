@@ -148,7 +148,7 @@ class SampleKGDataset(Dataset):
         return self.samples[index]
 
     def stat(self) -> str:
-        """Return -- and print -- a human-readable summary of the dataset."""
+        """Print a human-readable summary and return it."""
         lines = [
             "",
             f"Statistics of sample KG dataset (dev={self.dev}):",

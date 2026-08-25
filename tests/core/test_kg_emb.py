@@ -51,7 +51,7 @@ def make_dataset(n: int = 8, **kwargs: Any) -> SampleKGDataset:
 
 
 class TestKGEmbImports(unittest.TestCase):
-    """The module must import cleanly -- the original symptom of issue #952."""
+    """The module must import cleanly. This was the original symptom of issue #952."""
 
     def test_package_imports(self) -> None:
         import pyhealth.medcode.pretrained_embeddings  # noqa: F401
@@ -70,7 +70,7 @@ class TestKGEmbImports(unittest.TestCase):
 
 
 class TestSampleKGDataset(unittest.TestCase):
-    """Construction and indexing -- the failure the rename alone does not fix."""
+    """Construction and indexing: the failure a rename alone does not fix."""
 
     def test_construction_and_length(self) -> None:
         dataset = make_dataset(n=8)
