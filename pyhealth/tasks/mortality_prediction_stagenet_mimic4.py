@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, ClassVar, Dict, List, Tuple
 
 import polars as pl
@@ -23,6 +23,19 @@ class MortalityPredictionStageNetMIMIC4(BaseTask):
         - 10-dimensional vectors (one per lab category)
         - Multiple itemids per category → take first observed value
         - Missing categories → None/NaN in vector
+
+    Data Leakage Prevention:
+        - ``diagnoses_icd``/``procedures_icd`` events are timestamped at
+          ``dischtime`` (per the MIMIC-IV config), so codes recorded for the
+          admission that ends in death are only known at-or-after the
+          outcome. Those codes are excluded for the terminal (mortality)
+          admission; codes from earlier, already-resolved admissions are
+          unaffected.
+        - Labs for the terminal admission are restricted to the first
+          ``TERMINAL_ADMISSION_INPUT_WINDOW_HOURS`` hours after admission,
+          rather than through discharge, so death-adjacent labs drawn near
+          the moment of death are not used as predictive features. Labs for
+          earlier admissions are unaffected.
 
     Args:
         padding: Additional padding for StageNet processor to handle
@@ -49,6 +62,12 @@ class MortalityPredictionStageNetMIMIC4(BaseTask):
     """
 
     task_name: str = "MortalityPredictionStageNetMIMIC4"
+
+    # For the admission that ends in death, only labs drawn within this many
+    # hours of admission are used as features (mirrors the fixed prediction
+    # window used by InHospitalMortalityMIMIC4), rather than the full window
+    # through discharge/death.
+    TERMINAL_ADMISSION_INPUT_WINDOW_HOURS: ClassVar[int] = 48
 
     def __init__(self, padding: int = 0):
         """Initialize task with optional padding parameter.
@@ -171,47 +190,65 @@ class MortalityPredictionStageNetMIMIC4(BaseTask):
             # Update previous admission time for next iteration
             previous_admission_time = admission_time
 
-            # Update mortality label if this admission had mortality
+            # Determine if this admission is the terminal (mortality) one.
+            # diagnoses_icd/procedures_icd are timestamped at dischtime, so
+            # codes for this admission are only known at-or-after the
+            # outcome and must be excluded; labs are capped to an early
+            # fixed window instead of through discharge/death.
+            is_terminal_admission = False
             try:
                 if int(admission.hospital_expire_flag) == 1:
                     final_mortality = 1
+                    is_terminal_admission = True
             except (ValueError, TypeError, AttributeError):
                 pass
 
-            # Get diagnosis codes for this admission using hadm_id
-            diagnoses_icd = patient.get_events(
-                event_type="diagnoses_icd",
-                filters=[("hadm_id", "==", admission.hadm_id)],
-            )
-            visit_diagnoses = [
-                event.icd_code
-                for event in diagnoses_icd
-                if hasattr(event, "icd_code") and event.icd_code
-            ]
+            if not is_terminal_admission:
+                # Get diagnosis codes for this admission using hadm_id
+                diagnoses_icd = patient.get_events(
+                    event_type="diagnoses_icd",
+                    filters=[("hadm_id", "==", admission.hadm_id)],
+                )
+                visit_diagnoses = [
+                    event.icd_code
+                    for event in diagnoses_icd
+                    if hasattr(event, "icd_code") and event.icd_code
+                ]
 
-            # Get procedure codes for this admission using hadm_id
-            procedures_icd = patient.get_events(
-                event_type="procedures_icd",
-                filters=[("hadm_id", "==", admission.hadm_id)],
-            )
-            visit_procedures = [
-                event.icd_code
-                for event in procedures_icd
-                if hasattr(event, "icd_code") and event.icd_code
-            ]
+                # Get procedure codes for this admission using hadm_id
+                procedures_icd = patient.get_events(
+                    event_type="procedures_icd",
+                    filters=[("hadm_id", "==", admission.hadm_id)],
+                )
+                visit_procedures = [
+                    event.icd_code
+                    for event in procedures_icd
+                    if hasattr(event, "icd_code") and event.icd_code
+                ]
 
-            # Combine diagnoses and procedures into single ICD code list
-            visit_icd_codes = visit_diagnoses + visit_procedures
+                # Combine diagnoses and procedures into single ICD code list
+                visit_icd_codes = visit_diagnoses + visit_procedures
 
-            if visit_icd_codes:
-                all_icd_codes.append(visit_icd_codes)
-                all_icd_times.append(time_from_previous)
+                if visit_icd_codes:
+                    all_icd_codes.append(visit_icd_codes)
+                    all_icd_times.append(time_from_previous)
 
-            # Get lab events for this admission
+            # Get lab events for this admission. For the terminal admission,
+            # cap the window to the first TERMINAL_ADMISSION_INPUT_WINDOW_HOURS
+            # hours after admission instead of through discharge/death.
+            if is_terminal_admission:
+                lab_window_end = min(
+                    admission_dischtime,
+                    admission_time
+                    + timedelta(hours=self.TERMINAL_ADMISSION_INPUT_WINDOW_HOURS),
+                )
+            else:
+                lab_window_end = admission_dischtime
+
             labevents_df = patient.get_events(
                 event_type="labevents",
                 start=admission_time,
-                end=admission_dischtime,
+                end=lab_window_end,
                 return_df=True,
             )
 
@@ -228,7 +265,7 @@ class MortalityPredictionStageNetMIMIC4(BaseTask):
                     )
                 )
                 labevents_df = labevents_df.filter(
-                    pl.col("labevents/storetime") <= admission_dischtime
+                    pl.col("labevents/storetime") <= lab_window_end
                 )
 
                 if labevents_df.height > 0:
@@ -273,6 +310,13 @@ class MortalityPredictionStageNetMIMIC4(BaseTask):
 
                         all_lab_values.append(lab_vector)
                         all_lab_times.append(time_from_admission)
+
+            # Stop after the terminal admission: any further admissions
+            # would be chronologically impossible for this patient, but we
+            # guard against including their data in case of a data-quality
+            # inconsistency.
+            if is_terminal_admission:
+                break
 
         # Skip if no lab events (required for this task)
         if len(all_lab_values) == 0:

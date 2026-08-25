@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, ClassVar, Dict, List, Tuple
 
 import polars as pl
@@ -26,6 +26,20 @@ class LengthOfStayStageNetMIMIC4(BaseTask):
     - 10D vectors, one value per lab category (first observed per category per
       timestamp, missing -> None)
 
+    Data Leakage Prevention
+    ------------------------
+    - The prediction target is the LOS of the most recent (target)
+      admission. ``diagnoses_icd``/``procedures_icd`` events are timestamped
+      at ``dischtime`` (per the MIMIC-IV config) -- i.e. at-or-after that
+      admission's own discharge, which is what determines its LOS label.
+      Those codes are excluded for the target admission; codes from earlier,
+      already-resolved admissions are unaffected.
+    - Labs for the target admission are restricted to the first
+      ``TARGET_ADMISSION_INPUT_WINDOW_HOURS`` hours after admission, rather
+      than through discharge, so labs that are only available because the
+      stay ran long are not used to predict its own length. Labs for
+      earlier admissions are unaffected.
+
     Args:
         padding: Optional padding forwarded to the StageNet processor for nested
             sequences. Default is 0.
@@ -42,6 +56,11 @@ class LengthOfStayStageNetMIMIC4(BaseTask):
     """
 
     task_name: str = "LengthOfStayStageNetMIMIC4"
+
+    # For the target admission (whose LOS is the label), only labs drawn
+    # within this many hours of admission are used as features, rather than
+    # the full window through discharge.
+    TARGET_ADMISSION_INPUT_WINDOW_HOURS: ClassVar[int] = 48
 
     def __init__(self, padding: int = 0):
         self.padding = padding
@@ -100,14 +119,11 @@ class LengthOfStayStageNetMIMIC4(BaseTask):
         if len(admissions) < 1:
             return []
 
-        all_icd_codes: List[List[str]] = []
-        all_icd_times: List[float] = []
-        all_lab_values: List[List[Any]] = []
-        all_lab_times: List[float] = []
-
-        previous_admission_time = None
-        target_los_category = None
-
+        # Parse and validate admission times once. This also lets us
+        # identify the target admission (the most recent valid one, whose
+        # LOS is the label) as the last entry, so its data can be
+        # restricted below without a second parsing pass.
+        valid_admissions = []
         for admission in admissions:
             try:
                 admission_time = admission.timestamp
@@ -116,13 +132,28 @@ class LengthOfStayStageNetMIMIC4(BaseTask):
                 )
             except (ValueError, AttributeError):
                 continue
-
             if discharge_time < admission_time:
                 continue
+            valid_admissions.append((admission, admission_time, discharge_time))
 
+        if not valid_admissions:
+            return []
+
+        target_hadm_id = valid_admissions[-1][0].hadm_id
+
+        all_icd_codes: list[list[str]] = []
+        all_icd_times: list[float] = []
+        all_lab_values: list[list[Any]] = []
+        all_lab_times: list[float] = []
+
+        previous_admission_time = None
+        target_los_category = None
+
+        for admission, admission_time, discharge_time in valid_admissions:
             # Label from the most recent valid admission encountered
             los_days = (discharge_time - admission_time).days
             target_los_category = categorize_los(los_days)
+            is_target_admission = admission.hadm_id == target_hadm_id
 
             if previous_admission_time is None:
                 time_from_previous = 0.0
@@ -133,36 +164,52 @@ class LengthOfStayStageNetMIMIC4(BaseTask):
 
             previous_admission_time = admission_time
 
-            diagnoses_icd = patient.get_events(
-                event_type="diagnoses_icd",
-                filters=[("hadm_id", "==", admission.hadm_id)],
-            )
-            visit_diagnoses = [
-                event.icd_code
-                for event in diagnoses_icd
-                if hasattr(event, "icd_code") and event.icd_code
-            ]
+            # Diagnoses/procedures are timestamped at dischtime, so for the
+            # target admission they're only known at-or-after its own LOS
+            # outcome -- exclude them. Earlier admissions are unaffected.
+            if not is_target_admission:
+                diagnoses_icd = patient.get_events(
+                    event_type="diagnoses_icd",
+                    filters=[("hadm_id", "==", admission.hadm_id)],
+                )
+                visit_diagnoses = [
+                    event.icd_code
+                    for event in diagnoses_icd
+                    if hasattr(event, "icd_code") and event.icd_code
+                ]
 
-            procedures_icd = patient.get_events(
-                event_type="procedures_icd",
-                filters=[("hadm_id", "==", admission.hadm_id)],
-            )
-            visit_procedures = [
-                event.icd_code
-                for event in procedures_icd
-                if hasattr(event, "icd_code") and event.icd_code
-            ]
+                procedures_icd = patient.get_events(
+                    event_type="procedures_icd",
+                    filters=[("hadm_id", "==", admission.hadm_id)],
+                )
+                visit_procedures = [
+                    event.icd_code
+                    for event in procedures_icd
+                    if hasattr(event, "icd_code") and event.icd_code
+                ]
 
-            visit_icd_codes = visit_diagnoses + visit_procedures
+                visit_icd_codes = visit_diagnoses + visit_procedures
 
-            if visit_icd_codes:
-                all_icd_codes.append(visit_icd_codes)
-                all_icd_times.append(time_from_previous)
+                if visit_icd_codes:
+                    all_icd_codes.append(visit_icd_codes)
+                    all_icd_times.append(time_from_previous)
+
+            # For the target admission, cap the lab window to the first
+            # TARGET_ADMISSION_INPUT_WINDOW_HOURS hours after admission
+            # instead of through discharge.
+            if is_target_admission:
+                lab_window_end = min(
+                    discharge_time,
+                    admission_time
+                    + timedelta(hours=self.TARGET_ADMISSION_INPUT_WINDOW_HOURS),
+                )
+            else:
+                lab_window_end = discharge_time
 
             labevents_df = patient.get_events(
                 event_type="labevents",
                 start=admission_time,
-                end=discharge_time,
+                end=lab_window_end,
                 return_df=True,
             )
 
@@ -177,7 +224,7 @@ class LengthOfStayStageNetMIMIC4(BaseTask):
                     )
                 )
                 labevents_df = labevents_df.filter(
-                    pl.col("labevents/storetime") <= discharge_time
+                    pl.col("labevents/storetime") <= lab_window_end
                 )
 
                 if labevents_df.height > 0:
