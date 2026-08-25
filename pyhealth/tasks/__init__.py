@@ -18,6 +18,7 @@ from .drug_recommendation import (
     DrugRecommendationEICU,
     DrugRecommendationMIMIC3,
     DrugRecommendationMIMIC4,
+    DrugRecommendationOMOP as DrugRecommendationOMOP,
     drug_recommendation_mimic3_fn,
     drug_recommendation_mimic4_fn,
     drug_recommendation_omop_fn,

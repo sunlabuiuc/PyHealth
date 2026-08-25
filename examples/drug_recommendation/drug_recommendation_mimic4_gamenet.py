@@ -32,6 +32,10 @@ def prepare_drug_task_data():
     print("info")
     mimicvi.info()
 
+    # NOTE: drug_recommendation_mimic4_fn is a legacy, pre-2.0 task function
+    # (expects an indexable Patient with Visit.get_code_list()) and is not
+    # compatible with the current BaseDataset.set_task(), which requires a
+    # BaseTask instance. Use DrugRecommendationMIMIC4() instead.
     mimic4_sample = mimicvi.set_task(drug_recommendation_mimic4_fn)
     print(mimic4_sample[0])
 

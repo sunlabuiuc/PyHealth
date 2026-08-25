@@ -1,4 +1,5 @@
 from typing import Any, Dict, Iterable, List, Optional
+from typing import ClassVar
 
 import polars as pl
 
@@ -644,6 +645,143 @@ class DrugRecommendationEICU(BaseTask):
         return samples
 
 
+class DrugRecommendationOMOP(BaseTask):
+    """Task for drug recommendation using an OMOP CDM dataset.
+
+    Drug recommendation aims at recommending a set of drugs given the patient health
+    history (e.g., conditions and procedures). This task creates samples with
+    cumulative history, where each visit includes all previous visit information.
+
+    Features key-value pairs:
+    - using condition_occurrence table as condition codes
+    - using procedure_occurrence table as procedure codes
+    - using drug_exposure table as drug codes
+
+    Attributes:
+        task_name (str): The name of the task.
+        input_schema (Dict[str, str]): The schema for input data:
+            - conditions: Nested list of condition concept ids (history + current)
+            - procedures: Nested list of procedure concept ids (history + current)
+            - drugs_hist: Nested list of drug concept ids from history (current
+              visit excluded)
+        output_schema (Dict[str, str]): The schema for output data:
+            - drugs: List of drug concept ids to predict for current visit
+
+    Examples:
+        >>> from pyhealth.datasets import OMOPDataset
+        >>> from pyhealth.tasks import DrugRecommendationOMOP
+        >>> dataset = OMOPDataset(
+        ...     root="/path/to/omop",
+        ...     tables=["condition_occurrence", "procedure_occurrence", "drug_exposure"],
+        ... )
+        >>> task = DrugRecommendationOMOP()
+        >>> sample_dataset = dataset.set_task(task)
+    """
+
+    task_name: str = "DrugRecommendationOMOP"
+    input_schema: ClassVar[dict[str, str]] = {
+        "conditions": "nested_sequence",
+        "procedures": "nested_sequence",
+        "drugs_hist": "nested_sequence",
+    }
+    output_schema: ClassVar[dict[str, str]] = {"drugs": "multilabel"}
+
+    def __call__(self, patient: Any) -> list[dict[str, Any]]:
+        """Process a patient to create drug recommendation samples.
+
+        Creates one sample per visit (after first visit) with cumulative history.
+        Each sample includes all previous visits' conditions, procedures, and drugs.
+
+        Args:
+            patient: Patient object with get_events method
+
+        Returns:
+            List of samples, each with patient_id, visit_id, conditions history,
+            procedures history, drugs history, and target drugs
+        """
+        samples = []
+
+        # Get all visit occurrences
+        visit_occurrences = patient.get_events(event_type="visit_occurrence")
+        if len(visit_occurrences) < 2:
+            # Need at least 2 visits for history-based prediction
+            return []
+
+        # Process each visit
+        for visit in visit_occurrences:
+            condition_events = patient.get_events(
+                event_type="condition_occurrence",
+                filters=[("visit_occurrence_id", "==", visit.visit_occurrence_id)],
+            )
+            conditions = [
+                str(event.condition_concept_id)
+                for event in condition_events
+                if getattr(event, "condition_concept_id", None) is not None
+            ]
+
+            procedure_events = patient.get_events(
+                event_type="procedure_occurrence",
+                filters=[("visit_occurrence_id", "==", visit.visit_occurrence_id)],
+            )
+            procedures = [
+                str(event.procedure_concept_id)
+                for event in procedure_events
+                if getattr(event, "procedure_concept_id", None) is not None
+            ]
+
+            drug_events = patient.get_events(
+                event_type="drug_exposure",
+                filters=[("visit_occurrence_id", "==", visit.visit_occurrence_id)],
+            )
+            drugs = [
+                str(event.drug_concept_id)
+                for event in drug_events
+                if getattr(event, "drug_concept_id", None) is not None
+            ]
+
+            # Exclude visits without condition, procedure, or drug code
+            if len(conditions) * len(procedures) * len(drugs) == 0:
+                continue
+
+            samples.append(
+                {
+                    "visit_id": visit.visit_occurrence_id,
+                    "patient_id": patient.patient_id,
+                    "conditions": conditions,
+                    "procedures": procedures,
+                    "drugs": drugs,
+                    "drugs_hist": drugs,
+                }
+            )
+
+        # Exclude patients with less than 2 valid visits
+        if len(samples) < 2:
+            return []
+
+        # Add cumulative history for first sample
+        samples[0]["conditions"] = [samples[0]["conditions"]]
+        samples[0]["procedures"] = [samples[0]["procedures"]]
+        samples[0]["drugs_hist"] = [samples[0]["drugs_hist"]]
+
+        # Add cumulative history for subsequent samples
+        for i in range(1, len(samples)):
+            samples[i]["conditions"] = samples[i - 1]["conditions"] + [
+                samples[i]["conditions"]
+            ]
+            samples[i]["procedures"] = samples[i - 1]["procedures"] + [
+                samples[i]["procedures"]
+            ]
+            samples[i]["drugs_hist"] = samples[i - 1]["drugs_hist"] + [
+                samples[i]["drugs_hist"]
+            ]
+
+        # Remove target drug from history (set current visit drugs_hist to empty)
+        for i in range(len(samples)):
+            samples[i]["drugs_hist"][i] = []
+
+        return samples
+
+
 def drug_recommendation_omop_fn(patient: Patient):
     """Processes a single patient for the drug recommendation task.
 
@@ -708,6 +846,11 @@ def drug_recommendation_omop_fn(patient: Patient):
         samples[i]["drugs_all"] = samples[i - 1]["drugs_all"] + [
             samples[i]["drugs_all"]
         ]
+
+    # remove the target drug from the history (mirrors drugs_hist handling
+    # in the other drug_recommendation_*_fn / DrugRecommendation* tasks)
+    for i in range(len(samples)):
+        samples[i]["drugs_all"][i] = []
 
     return samples
 
