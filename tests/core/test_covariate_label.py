@@ -1,10 +1,15 @@
 import unittest
+import warnings
 import numpy as np
 import torch
 
 from pyhealth.datasets import create_sample_dataset, get_dataloader
 from pyhealth.models import MLP
 from pyhealth.calib.predictionset.covariate import CovariateLabel, fit_kde
+from pyhealth.calib.predictionset.covariate.covariate_label import (
+    _compute_likelihood_ratio,
+    _query_weighted_quantile,
+)
 from pyhealth.calib.utils import extract_embeddings
 
 
@@ -340,6 +345,135 @@ class TestCovariateLabel(unittest.TestCase):
                 self.assertEqual(output["y_predset"].dtype, torch.bool)
                 self.assertEqual(output["y_predset"].shape, output["y_prob"].shape)
 
+    def _build_pointwise_setup(self, alpha=0.4):
+        """Build a larger dataset + a deliberately bimodal (non-uniform)
+        KDE pair, so per-test-point likelihood ratios genuinely differ --
+        needed to test forward()'s pointwise-thresholding path, which the
+        class's default dummy_kde_cal/dummy_kde_test (both ~uniform) can't
+        exercise meaningfully.
+        """
+        samples = []
+        for i in range(60):
+            samples.append(
+                {
+                    "patient_id": f"p{i}",
+                    "visit_id": f"v{i}",
+                    "conditions": [f"cond-{i % 10}", f"cond-{(i + 1) % 10}"],
+                    "procedures": [float(i % 5), float((i * 2) % 7), 1.0, 2.0],
+                    "label": i % 3,
+                }
+            )
+        dataset = create_sample_dataset(
+            samples=samples,
+            input_schema={"conditions": "sequence", "procedures": "tensor"},
+            output_schema={"label": "multiclass"},
+            dataset_name="test_pointwise",
+        )
+        model = MLP(
+            dataset=dataset,
+            feature_keys=["conditions", "procedures"],
+            label_key="label",
+            mode="multiclass",
+        )
+        model.eval()
+
+        cal_dataset = dataset.subset(list(range(0, 30)))
+        test_dataset = dataset.subset(list(range(30, 60)))
+        cal_embeddings = extract_embeddings(model, cal_dataset, batch_size=32, device="cpu")
+        test_embeddings = extract_embeddings(model, test_dataset, batch_size=32, device="cpu")
+
+        def kde_cal(data):
+            return np.ones(len(np.asarray(data)))
+
+        def kde_test(data):
+            data = np.asarray(data)
+            row_signal = np.abs(data).sum(axis=1)
+            median = np.median(row_signal)
+            # Two clearly separated weight regimes, split deterministically
+            # by an arbitrary per-row criterion, so weights genuinely
+            # differ by test point.
+            return np.where(row_signal > median, 10.0, 0.05)
+
+        cal_model = CovariateLabel(
+            model=model, alpha=alpha, kde_test=kde_test, kde_cal=kde_cal, random_state=0
+        )
+        cal_model.calibrate(
+            cal_dataset=cal_dataset,
+            cal_embeddings=cal_embeddings,
+            test_embeddings=test_embeddings,
+        )
+        return cal_model, test_dataset, test_embeddings, kde_test, kde_cal
+
+    def test_forward_without_embeddings_warns_and_uses_fixed_threshold(self):
+        """forward() without test_embeddings must warn that it's only
+        approximating Corollary 1 (mean calibration weight standing in for
+        each test point's own w(x)), and must use the single fixed
+        threshold computed at calibrate() time."""
+        cal_model, test_dataset, _, _, _ = self._build_pointwise_setup()
+        test_loader = get_dataloader(test_dataset, batch_size=30, shuffle=False)
+        batch = next(iter(test_loader))
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            with torch.no_grad():
+                cal_model(**batch)
+        self.assertTrue(
+            any("approximation of Corollary 1" in str(w.message) for w in caught)
+        )
+
+    def test_forward_with_embeddings_uses_per_point_weight(self):
+        """forward(test_embeddings=...) must recompute the threshold per
+        test point using that point's own likelihood ratio w(x) (Corollary
+        1 of Tibshirani et al. 2019), not the calibrate()-time mean-weight
+        approximation. Verified by checking the threshold implied for
+        specific points matches directly calling _query_weighted_quantile
+        with that exact point's own weight, and that points in the two
+        weight regimes get different thresholds.
+        """
+        cal_model, test_dataset, test_embeddings, kde_test, kde_cal = (
+            self._build_pointwise_setup()
+        )
+        weights = _compute_likelihood_ratio(kde_test, kde_cal, test_embeddings)
+        self.assertGreater(
+            len(set(np.round(weights, 3))), 1, "test setup must have varying weights"
+        )
+
+        low_idx = int(np.argmin(weights))
+        high_idx = int(np.argmax(weights))
+
+        t_low = _query_weighted_quantile(
+            cal_model._cal_conformity_scores,
+            cal_model.alpha,
+            cal_model._cal_likelihood_ratios,
+            float(weights[low_idx]),
+        )
+        t_high = _query_weighted_quantile(
+            cal_model._cal_conformity_scores,
+            cal_model.alpha,
+            cal_model._cal_likelihood_ratios,
+            float(weights[high_idx]),
+        )
+        # The two weight regimes are far enough apart that they must not
+        # collapse to the calibrate()-time fixed threshold's approximation
+        # in exactly the same way -- this is the actual regression check:
+        # before the forward()-level fix, there was no way to get anything
+        # other than cal_model.t regardless of test_embeddings.
+        self.assertNotEqual(t_low, t_high)
+
+    def test_forward_raises_without_kde_for_pointwise(self):
+        """test_embeddings requires KDEs (to score a new point's w(x));
+        calibrate() with custom cal_weights has no way to do that, so
+        forward() must raise rather than silently ignore test_embeddings."""
+        cal_model, test_dataset, test_embeddings, _, _ = self._build_pointwise_setup()
+        cal_model.kde_test = None
+        cal_model.kde_cal = None
+
+        test_loader = get_dataloader(test_dataset, batch_size=30, shuffle=False)
+        batch = next(iter(test_loader))
+        with self.assertRaises(ValueError):
+            with torch.no_grad():
+                cal_model(test_embeddings=test_embeddings, **batch)
+
     def test_weighted_quantile_function(self):
         """Test the weighted quantile helper function."""
         from pyhealth.calib.predictionset.covariate.covariate_label import (
@@ -402,6 +536,35 @@ class TestCovariateLabel(unittest.TestCase):
             scores_large, 0.3, weights_large, test_weight_large
         )
         self.assertTrue(np.isfinite(result_large))
+
+    def test_weighted_quantile_matches_corollary_1(self):
+        """The finite-sample correction must match Corollary 1 of Tibshirani,
+        Barber, Candes, and Ramdas, "Conformal Prediction Under Covariate
+        Shift" (NeurIPS 2019): the reserved test-point mass is an actual
+        point in the weighted empirical distribution (at -inf, under this
+        codebase's higher-is-better conformity convention), not merely a
+        term folded into the normalizing denominator.
+
+        With scores=[0.1,0.3,0.5,0.7,0.9], uniform weights=1, test_weight=1,
+        alpha=0.3: total_weight=6, p_test=1/6 (< alpha, so not the -inf
+        fallback). Correctly inserting the reserved mass as the first point
+        of the augmented (n+1)-point distribution gives cumulative
+        fractions [2/6, 3/6, 4/6, 5/6, 6/6] = [.333,.5,.667,.833,1.0], so the
+        alpha=0.3 quantile lands at the first real point: 0.1.
+
+        Before this fix, the reserved mass was only added to the
+        denominator (cumulative fractions [1/6,2/6,3/6,4/6,5/6]), which
+        incorrectly returned 0.3 instead -- a stricter, LESS permissive
+        threshold that under-covers relative to the target.
+        """
+        from pyhealth.calib.predictionset.covariate.covariate_label import (
+            _query_weighted_quantile,
+        )
+
+        scores = np.array([0.1, 0.3, 0.5, 0.7, 0.9])
+        weights = np.ones(5)
+        result = _query_weighted_quantile(scores, 0.3, weights, test_weight=1.0)
+        self.assertAlmostEqual(result, 0.1, places=10)
 
     def test_likelihood_ratio_function(self):
         """Test the likelihood ratio computation."""

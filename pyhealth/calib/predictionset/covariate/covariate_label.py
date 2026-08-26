@@ -22,6 +22,7 @@ Papers:
     https://arxiv.org/abs/2310.12033
 """
 
+import warnings
 from typing import Callable, Dict, Optional, Union
 
 import numpy as np
@@ -200,6 +201,23 @@ def _query_weighted_quantile(
         reserved test-point mass alone already meets or exceeds ``alpha``,
         since there isn't enough calibration mass to justify a stricter,
         finite threshold without risking under-coverage.
+
+    Note:
+        This implements Corollary 1 of Tibshirani, Barber, Candes, and
+        Ramdas, "Conformal Prediction Under Covariate Shift" (NeurIPS 2019,
+        https://arxiv.org/abs/1904.06019): the (1-alpha)-quantile of
+        sum_i p_i^w(x) * delta_{V_i} + p_{n+1}^w(x) * delta_infinity, where
+        p_i^w(x) = w(X_i) / (sum_j w(X_j) + w(x)) and p_{n+1}^w(x) is the
+        reserved test-point mass. The paper's V is a nonconformity score
+        (higher = worse) with the reserved mass placed at +infinity; this
+        codebase uses the opposite convention (conformity, higher = better),
+        so the reserved mass is placed at -infinity here instead. Crucially,
+        that reserved mass must be inserted as an actual point in the
+        weighted empirical distribution, not merely folded into the
+        normalizing denominator -- otherwise it dilutes every real
+        calibration weight without ever contributing to the cumulative sum
+        used to pick the threshold, which produces under-coverage instead of
+        the intended finite-sample guarantee.
     """
     sorted_indices = np.argsort(scores)
     sorted_scores = scores[sorted_indices]
@@ -213,11 +231,17 @@ def _query_weighted_quantile(
     if p_test >= alpha:
         # Not enough calibration mass to reach the target coverage without
         # dipping into the mass reserved for the test point itself: fall
-        # back to the maximally permissive (safe) threshold.
+        # back to the maximally permissive (safe) threshold. This is the
+        # case where the reserved point (sitting first, at -inf, in the
+        # augmented distribution) already accounts for the full quantile
+        # by itself.
         return -np.inf
 
-    # Compute cumulative weights over the reserved-mass-inclusive total.
-    cum_weights = np.cumsum(sorted_weights) / total_weight
+    # Cumulative weights over the reserved-mass-inclusive total, with the
+    # test point's reserved mass prepended as an actual point at -inf
+    # (equivalent to inserting it at the head of the sorted array before
+    # taking the cumulative sum).
+    cum_weights = (test_weight + np.cumsum(sorted_weights)) / total_weight
 
     # Find the index where cumulative weight exceeds alpha
     idx = np.searchsorted(cum_weights, alpha, side="left")
@@ -400,6 +424,15 @@ class CovariateLabel(SetPredictor):
         # Will be set during calibration
         self.t = None
         self._sum_cal_weights = None
+        # Calibration conformity scores/weights, kept so forward() can
+        # recompute a threshold per-test-point using that point's own
+        # likelihood ratio w(x), as Corollary 1 of Tibshirani et al. (2019)
+        # requires, when test_embeddings are provided.
+        self._cal_conformity_scores = None
+        self._cal_likelihood_ratios = None
+        self._cal_class_scores = None
+        self._cal_class_weights = None
+        self._warned_fixed_threshold = False
 
     def calibrate(
         self,
@@ -516,7 +549,26 @@ class CovariateLabel(SetPredictor):
             y_prob, y_true, score_type=self.score_type, rng=self.rng
         )
 
-        # Compute weighted quantile thresholds
+        # Keep the raw calibration scores/weights so forward() can, when
+        # given test_embeddings, recompute a threshold per-test-point using
+        # that point's own likelihood ratio w(x) -- the construction
+        # Corollary 1 actually specifies -- rather than only the
+        # mean-weight approximation computed below.
+        self._cal_conformity_scores = conformity_scores
+        self._cal_likelihood_ratios = likelihood_ratios
+        if not isinstance(self.alpha, float):
+            self._cal_class_scores = [
+                conformity_scores[y_true == k] for k in range(K)
+            ]
+            self._cal_class_weights = [
+                likelihood_ratios[y_true == k] for k in range(K)
+            ]
+
+        # Compute weighted quantile thresholds using the mean calibration
+        # weight as a stand-in for a "typical" test point's weight. This is
+        # the fallback used when forward() isn't given test_embeddings (see
+        # forward()'s docstring for why that's only an approximation of
+        # Corollary 1, not an exact instance of it).
         if isinstance(self.alpha, float):
             test_weight = float(np.mean(likelihood_ratios))
             t = _query_weighted_quantile(
@@ -541,8 +593,31 @@ class CovariateLabel(SetPredictor):
 
         self.t = torch.tensor(t, device=self.device)
 
-    def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
+    def forward(
+        self, test_embeddings: np.ndarray | None = None, **kwargs
+    ) -> dict[str, torch.Tensor]:
         """Forward propagation with prediction set construction.
+
+        Args:
+            test_embeddings: Optional embeddings for this batch's test
+                points, shape ``(batch_size, embedding_dim)``, aligned with
+                the batch order. When provided (and KDEs are available from
+                :meth:`calibrate`), the threshold is recomputed per test
+                point using that point's own likelihood ratio w(x) via
+                :func:`_query_weighted_quantile` -- exactly the construction
+                in Corollary 1 of Tibshirani, Barber, Candes, and Ramdas,
+                "Conformal Prediction Under Covariate Shift" (NeurIPS 2019,
+                https://arxiv.org/abs/1904.06019).
+
+                When omitted, falls back to the single threshold computed
+                during :meth:`calibrate` using the *mean* calibration
+                likelihood ratio as a stand-in for w(x). That fallback is
+                only an approximation of Corollary 1 -- the paper's formula
+                is defined per test point via that point's actual w(x), not
+                an aggregate over the calibration set -- so results from the
+                fallback do not carry the same finite-sample coverage
+                guarantee as the paper's construction. A warning is emitted
+                (once) the first time this fallback is used.
 
         Returns:
             Dictionary with all results from base model, plus:
@@ -556,10 +631,72 @@ class CovariateLabel(SetPredictor):
         conformity_scores = all_class_conformity_scores(
             y_prob, score_type=self.score_type, rng=self.rng
         )
+        N, K = conformity_scores.shape
+
+        if test_embeddings is not None:
+            if self.kde_test is None or self.kde_cal is None:
+                raise ValueError(
+                    "test_embeddings was provided but no KDEs are available "
+                    "(calibrate() was called with custom cal_weights, which "
+                    "has no way to score a new test point's likelihood "
+                    "ratio). Per-test-point thresholding requires calibrate() "
+                    "to have been called with cal_embeddings/test_embeddings "
+                    "or pre-fitted kde_test/kde_cal."
+                )
+            if self._cal_conformity_scores is None:
+                raise RuntimeError("Must call calibrate() before forward().")
+
+            test_weights = _compute_likelihood_ratio(
+                self.kde_test, self.kde_cal, test_embeddings
+            )
+            thresholds = np.empty((N, K), dtype=np.float64)
+            if isinstance(self.alpha, float):
+                for i in range(N):
+                    t_i = _query_weighted_quantile(
+                        self._cal_conformity_scores,
+                        self.alpha,
+                        self._cal_likelihood_ratios,
+                        float(test_weights[i]),
+                    )
+                    thresholds[i, :] = t_i
+            else:
+                for i in range(N):
+                    for k in range(K):
+                        if len(self._cal_class_scores[k]) > 0:
+                            thresholds[i, k] = _query_weighted_quantile(
+                                self._cal_class_scores[k],
+                                self.alpha[k],
+                                self._cal_class_weights[k],
+                                float(test_weights[i]),
+                            )
+                        else:
+                            thresholds[i, k] = -np.inf
+            threshold_tensor = torch.as_tensor(
+                thresholds,
+                device=pred["y_prob"].device,
+                dtype=pred["y_prob"].dtype,
+            )
+        else:
+            if not self._warned_fixed_threshold:
+                warnings.warn(
+                    "CovariateLabel.forward() was called without "
+                    "test_embeddings: falling back to a single fixed "
+                    "threshold computed from the mean calibration "
+                    "likelihood ratio. This is only an approximation of "
+                    "Corollary 1 of Tibshirani et al. (2019), which defines "
+                    "the threshold per test point using that point's own "
+                    "likelihood ratio w(x); pass test_embeddings to get the "
+                    "paper's exact finite-sample coverage guarantee.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+                self._warned_fixed_threshold = True
+            threshold_tensor = self.t
+
         conformity_scores = torch.as_tensor(
             conformity_scores, device=pred["y_prob"].device, dtype=pred["y_prob"].dtype
         )
-        pred["y_predset"] = conformity_scores > self.t
+        pred["y_predset"] = conformity_scores > threshold_tensor
 
         return pred
 

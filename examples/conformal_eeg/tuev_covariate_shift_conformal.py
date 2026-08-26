@@ -19,6 +19,9 @@ Multi-seed usage (recommended for papers):
 Notes:
 - CovariateLabel requires access to test embeddings to estimate density ratios.
 - Test embeddings are recomputed each seed since the model changes.
+- CovariateLabel's finite-sample correction implements Corollary 1 of
+  Tibshirani, Barber, Candes, and Ramdas (NeurIPS 2019, arXiv:1904.06019);
+  see docs/api/calib.rst for details.
 """
 
 from __future__ import annotations
