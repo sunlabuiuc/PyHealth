@@ -77,6 +77,8 @@ class MICRONLayer(nn.Module):
         Returns:
             torch.tensor: Mean squared reconstruction loss value.
         """
+        if logits.size(1) < 2:
+            return logits.new_zeros(())
         rec_loss = torch.mean(
             torch.square(
                 torch.sigmoid(logits[:, 1:, :])
@@ -246,21 +248,20 @@ class MICRON(BaseModel):
             return torch.tensor(value, dtype=torch.long)
         return torch.tensor(value, dtype=torch.float)
 
-    def _pool_embedding(self, x: torch.Tensor) -> torch.Tensor:
-        if x.dim() == 4:
+    def _pool_embedding(self, feature_key: str, x: torch.Tensor) -> torch.Tensor:
+        if isinstance(self.feature_processors[feature_key], SequenceProcessor):
+            # Flat code lists describe one visit, not successive visits.
+            x = x.sum(dim=1, keepdim=True)
+        elif x.dim() == 4:
             x = x.sum(dim=2)
         if x.dim() == 2:
             x = x.unsqueeze(1)
-        # Make sure temporal dimension (dim=1) matches the longest sequence
-        if x.size(1) == 1:
-            # Repeat to handle shorter sequences
-            x = x.repeat(1, 2, 1)
         return x
 
     def _create_mask(self, feature_key: str, value: torch.Tensor) -> torch.Tensor:
         processor = self.feature_processors[feature_key]
         if isinstance(processor, SequenceProcessor):
-            mask = value != 0
+            mask = (value != 0).any(dim=1, keepdim=True)
         elif isinstance(processor, StageNetProcessor):
             if value.dim() >= 3:
                 mask = torch.any(value != 0, dim=-1)
@@ -332,7 +333,7 @@ class MICRON(BaseModel):
         for feature_key in self.feature_keys:
             x = embedded[feature_key]
             mask = masks[feature_key]
-            x = self._pool_embedding(x)
+            x = self._pool_embedding(feature_key, x)
             patient_emb.append(x)
 
         # Concatenate along last dim: [batch, seq_len, embedding_dim * n_features]
