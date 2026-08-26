@@ -14,6 +14,8 @@ from .chestxray14_multilabel_classification import ChestXray14MultilabelClassifi
 from .covid19_cxr_classification import COVID19CXRClassification
 from .deid_ner import DeIDNERTask
 from .dka import DKAPredictionMIMIC4, T1DDKAPredictionMIMIC4
+# New exports must use the redundant `X as X` form: this module has no
+# __all__, and the PR lint gate flags F401 on newly added import lines.
 from .drug_recommendation import (
     DrugRecommendationEICU,
     DrugRecommendationMIMIC3,

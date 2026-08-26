@@ -1,4 +1,5 @@
 import csv
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -134,8 +135,16 @@ class _OMOPFixtureCase(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls._root_dir = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
-        cls._cache_dir = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        # litdata keeps its chunk files memory-mapped; on Windows the handles
+        # are still open when the directory is removed. Elsewhere a cleanup
+        # failure is a real defect and must surface.
+        windows = sys.platform == "win32"
+        cls._root_dir = tempfile.TemporaryDirectory(
+            ignore_cleanup_errors=windows
+        )
+        cls._cache_dir = tempfile.TemporaryDirectory(
+            ignore_cleanup_errors=windows
+        )
         write_omop_fixture(Path(cls._root_dir.name))
         cls.dataset = OMOPDataset(
             root=cls._root_dir.name,
@@ -267,12 +276,11 @@ class TestDrugRecommendationOMOPIntegration(_OMOPFixtureCase):
 
     @classmethod
     def tearDownClass(cls):
-        # close() unlinks litdata chunks; on Windows those files can still
-        # be memory-mapped, so ignore the resulting lock error.
         try:
             cls.sample_dataset.close()
         except OSError:
-            pass
+            if sys.platform != "win32":
+                raise
         super().tearDownClass()
 
     def test_set_task_produces_the_expected_number_of_samples(self):
