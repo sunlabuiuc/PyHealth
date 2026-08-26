@@ -147,7 +147,16 @@ def ece_confidence_binary(prob:np.ndarray, label:np.ndarray, bins=20, adaptive=F
             of points. Defaults to False.
     """
 
-    df = pd.DataFrame({'acc': label[:,0], 'conf': prob[:,0]})
+    prob = np.asarray(prob)
+    label = np.asarray(label)
+    # Confidence in the positive class (class 1). Accept either a 1D array of
+    # positive-class probabilities (as binary_metrics_fn passes) or a 2D
+    # (N, C) probability matrix.
+    conf = prob[:, 1] if prob.ndim > 1 else prob
+    # Whether each sample truly belongs to the positive class. Accept either a
+    # 1D 0/1 label array or a 2D one-hot label matrix.
+    acc = label[:, 1] if label.ndim > 1 else label
+    df = pd.DataFrame({'acc': acc, 'conf': conf})
     return _ECE_confidence(df, bins, adaptive)[1]
 
 def ece_classwise(prob, label, bins=20, threshold=0., adaptive=False):
