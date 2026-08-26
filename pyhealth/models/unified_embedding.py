@@ -57,7 +57,9 @@ class SinusoidalTimeEmbedding(nn.Module):
         self.max_hours = max_hours
         half = dim // 2
         freqs = torch.exp(
-            -math.log(10000.0) * torch.arange(half, dtype=torch.float32) / (half - 1)
+            -math.log(10000.0)
+            * torch.arange(half, dtype=torch.float32)
+            / max(half - 1, 1)
         )
         self.register_buffer("freqs", freqs)  # (dim//2,)
 
