@@ -13,7 +13,6 @@ from .jamba_ehr import JambaEHR, JambaLayer
 from .logistic_regression import LogisticRegression
 from .gan import GAN
 from .gnn import GAT, GCN
-from .graph_torchvision_model import Graph_TorchvisionModel
 from .graphcare import GraphCare
 from .grasp import GRASP, GRASPLayer
 from .medfuse import MedFuse, MedFuseLayer
@@ -41,7 +40,6 @@ from .transformer import Transformer, TransformerLayer
 from .transformers_model import TransformersModel
 from .ehrmamba import EHRMamba, MambaBlock
 from .ehrmamba_cehr import EHRMambaCEHR
-from .vae import VAE
 from .vision_embedding import VisionEmbeddingModel
 from .text_embedding import TextEmbedding
 from .sdoh import SdohClassifier
