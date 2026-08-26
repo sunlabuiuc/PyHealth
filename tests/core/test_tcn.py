@@ -163,6 +163,46 @@ class TestTCN(unittest.TestCase):
         self.assertIn("loss", ret)
         self.assertIn("y_prob", ret)
 
+    def test_model_with_stagenet_tuple_feature(self):
+        """TCN must handle tuple-schema features (StageNetProcessor).
+
+        Regression test: StageNetProcessor emits a (time, value) tuple per
+        feature. TCN previously passed the raw tuple to the embedding model
+        and crashed; it must unwrap the "value" tensor like the sibling
+        sequence models do.
+        """
+        samples = [
+            {
+                "patient_id": "patient-0",
+                "visit_id": "visit-0",
+                "codes": ([0.0, 2.0, 1.3], ["c1", "c2", "c3"]),
+                "conditions": ["cond-33", "cond-86"],
+                "label": 0,
+            },
+            {
+                "patient_id": "patient-0",
+                "visit_id": "visit-1",
+                "codes": ([0.0, 2.0], ["c1", "c4"]),
+                "conditions": ["cond-33"],
+                "label": 1,
+            },
+        ]
+        dataset = create_sample_dataset(
+            samples=samples,
+            input_schema={"codes": "stagenet", "conditions": "sequence"},
+            output_schema={"label": "binary"},
+            dataset_name="test_stagenet",
+        )
+        model = TCN(dataset=dataset)
+        data_batch = next(iter(get_dataloader(dataset, batch_size=2, shuffle=False)))
+
+        ret = model(**data_batch)
+        ret["loss"].backward()
+
+        self.assertEqual(ret["y_prob"].shape[0], 2)
+        self.assertEqual(ret["logit"].shape[0], 2)
+        self.assertEqual(ret["loss"].dim(), 0)
+
 
 if __name__ == "__main__":
     unittest.main()
