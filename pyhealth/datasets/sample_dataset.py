@@ -15,6 +15,22 @@ from ..processors import get_processor, IgnoreProcessor
 from ..processors.base_processor import FeatureProcessor
 
 
+def _remap_index_mapping(
+    mapping: Dict[str, List[int]], indices: Sequence[int]
+) -> Dict[str, List[int]]:
+    key_by_index = {
+        index: key
+        for key, mapped_indices in mapping.items()
+        for index in mapped_indices
+    }
+    remapped: Dict[str, List[int]] = {}
+    for new_index, old_index in enumerate(indices):
+        key = key_by_index.get(old_index)
+        if key is not None:
+            remapped.setdefault(key, []).append(new_index)
+    return remapped
+
+
 class SampleBuilder:
     """Fit feature processors and transform pickled samples without materializing a dataset.
 
@@ -355,6 +371,8 @@ class SampleDataset(litdata.StreamingDataset):
         if isinstance(indices, slice):
             indices = range(*indices.indices(dataset_length))
 
+        indices = list(indices)
+
         if any(idx < 0 or idx >= dataset_length for idx in indices):
             raise ValueError(
                 f"Subset indices must be in [0, {dataset_length - 1}] for the provided dataset."
@@ -403,6 +421,12 @@ class SampleDataset(litdata.StreamingDataset):
 
         new_dataset.subsampled_files = new_subsampled_files
         new_dataset.region_of_interest = new_roi
+        new_dataset.patient_to_index = _remap_index_mapping(
+            self.patient_to_index, indices
+        )
+        new_dataset.record_to_index = _remap_index_mapping(
+            self.record_to_index, indices
+        )
         new_dataset.reset()
 
         return new_dataset
@@ -522,12 +546,23 @@ class InMemorySampleDataset(SampleDataset):
 
     def subset(self, indices: Union[Sequence[int], slice]) -> SampleDataset:
         if isinstance(indices, slice):
+            subset_indices = list(range(*indices.indices(len(self))))
             samples = self._data[indices]
         else:
-            samples = [self._data[i] for i in indices]
+            raw_indices = list(indices)
+            samples = [self._data[i] for i in raw_indices]
+            subset_indices = [
+                index if index >= 0 else len(self) + index for index in raw_indices
+            ]
 
         new_dataset = copy.deepcopy(self)
         new_dataset._data = samples
+        new_dataset.patient_to_index = _remap_index_mapping(
+            self.patient_to_index, subset_indices
+        )
+        new_dataset.record_to_index = _remap_index_mapping(
+            self.record_to_index, subset_indices
+        )
         return new_dataset
 
     def close(self) -> None:
