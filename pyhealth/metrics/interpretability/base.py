@@ -493,9 +493,9 @@ class RemovalBasedMetric(ABC):
 
                 # Check for unexpected negative values
                 evaluated_drops = prob_drop[val_mask]
-                neg_mask = evaluated_drops < 0
-                if neg_mask.any():
-                    neg_count = neg_mask.sum().item()
+                negative_drop_mask = evaluated_drops < 0
+                if negative_drop_mask.any():
+                    neg_count = negative_drop_mask.sum().item()
                     print(f"\n⚠ WARNING: {neg_count} negative detected!")
                     print("  Negative values mean ablation INCREASED " "confidence,")
                     print("  which suggests:")

@@ -476,6 +476,38 @@ class TestInterpretabilityMetrics(unittest.TestCase):
 
         torch.testing.assert_close(score_at_20([20]), score_at_20([10, 20]))
 
+    def test_debug_output_does_not_change_negative_class_scores(self):
+        """Test that debug output does not change negative-class scores."""
+        attributions = self._create_attributions(self.batch)
+
+        def negative_filter(y_probs, classifier_type):
+            return torch.full(
+                (y_probs.shape[0],),
+                SampleClass.NEGATIVE,
+                dtype=torch.long,
+                device=y_probs.device,
+            )
+
+        def compute_scores(debug):
+            comp = ComprehensivenessMetric(
+                self.model,
+                percentages=[10, 20, 50],
+                ablation_strategy="zero",
+                sample_filter=negative_filter,
+            )
+            return comp.compute(
+                self.batch,
+                attributions,
+                return_per_percentage=True,
+                debug=debug,
+            )
+
+        scores = compute_scores(debug=False)
+        debug_scores = compute_scores(debug=True)
+
+        for percentage in [10, 20, 50]:
+            torch.testing.assert_close(scores[percentage], debug_scores[percentage])
+
     def test_attribution_shape_mismatch(self):
         """Test that mismatched attribution shapes are handled gracefully."""
         # Skip this test - shape mismatches may not always raise errors
