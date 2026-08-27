@@ -40,6 +40,14 @@ class SinusoidalTimeEmbedding(nn.Module):
     Identical in spirit to the positional encoding in "Attention is All You
     Need" but operating on real-valued timestamps rather than integer positions.
 
+    Examples:
+        >>> embedding = SinusoidalTimeEmbedding(dim=2, max_hours=24.0)
+        >>> output = embedding(torch.tensor([0.0, 6.0]))
+        >>> output.shape
+        torch.Size([2, 2])
+        >>> torch.isfinite(output).all().item()
+        True
+
     Args:
         dim: Output embedding dimension (must be even).
         max_hours: Maximum expected time value in hours.  Values are normalised
@@ -57,9 +65,7 @@ class SinusoidalTimeEmbedding(nn.Module):
         self.max_hours = max_hours
         half = dim // 2
         freqs = torch.exp(
-            -math.log(10000.0)
-            * torch.arange(half, dtype=torch.float32)
-            / max(half - 1, 1)
+            -math.log(10000.0) * torch.arange(half, dtype=torch.float32) / max(half - 1, 1)
         )
         self.register_buffer("freqs", freqs)  # (dim//2,)
 
