@@ -137,6 +137,12 @@ def ece_confidence_binary(prob:np.ndarray, label:np.ndarray, bins=20, adaptive=F
 
     Similar to :func:`ece_confidence_multiclass`, but on class 1 instead of the top-prediction.
 
+    Examples:
+        >>> prob = np.array([0.1, 0.8])
+        >>> label = np.array([0, 1])
+        >>> ece = ece_confidence_binary(prob, label, bins=2)
+        >>> 0.0 <= ece <= 1.0
+        True
 
     Args:
         prob (np.ndarray): (N, C)
