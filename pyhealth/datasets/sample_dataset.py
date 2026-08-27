@@ -16,14 +16,14 @@ from ..processors.base_processor import FeatureProcessor
 
 
 def _remap_index_mapping(
-    mapping: Dict[str, List[int]], indices: Sequence[int]
-) -> Dict[str, List[int]]:
+    mapping: dict[str, list[int]], indices: Sequence[int]
+) -> dict[str, list[int]]:
     key_by_index = {
         index: key
         for key, mapped_indices in mapping.items()
         for index in mapped_indices
     }
-    remapped: Dict[str, List[int]] = {}
+    remapped: dict[str, list[int]] = {}
     for new_index, old_index in enumerate(indices):
         key = key_by_index.get(old_index)
         if key is not None:
@@ -291,6 +291,21 @@ class SampleDataset(litdata.StreamingDataset):
             sample indices associated with that record.
         dataset_name: Optional human friendly dataset name.
         task_name: Optional human friendly task name.
+
+    Examples:
+        >>> from pyhealth.datasets import create_sample_dataset
+        >>> dataset = create_sample_dataset(  # doctest: +SKIP
+        ...     samples=[
+        ...         {"patient_id": "p1", "feature": 1, "label": 0},
+        ...         {"patient_id": "p2", "feature": 2, "label": 1},
+        ...     ],
+        ...     input_schema={"feature": "raw"},
+        ...     output_schema={"label": "raw"},
+        ...     in_memory=False,
+        ... )
+        >>> dataset.subset([1]).patient_to_index  # doctest: +SKIP
+        {'p2': [0]}
+        >>> dataset.close()  # doctest: +SKIP
     """
 
     def __init__(
@@ -453,6 +468,16 @@ class InMemorySampleDataset(SampleDataset):
     transforming all samples into memory during initialization. This allows
     for fast, repeated access to samples without disk I/O, at the cost of
     higher memory usage.
+
+    Examples:
+        >>> from pyhealth.datasets import create_sample_dataset
+        >>> dataset = create_sample_dataset(
+        ...     samples=[{"patient_id": "p1", "feature": 1, "label": 0}],
+        ...     input_schema={"feature": "raw"},
+        ...     output_schema={"label": "raw"},
+        ... )
+        >>> dataset[0]["patient_id"]
+        'p1'
 
     Note:
         This class is intended for testing and debugging purposes where
