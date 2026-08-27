@@ -69,7 +69,7 @@ class SdohClassifier(BaseModel):
 
     def __init__(
         self,
-        api_key: str = None,
+        api_key: str | None = None,
         base_model_id: str = 'meta-llama/Llama-3.1-8B-Instruct',
         adapter_model_id: str = 'plandes/sdoh-llama-3-1-8b',
     ):
@@ -82,9 +82,6 @@ class SdohClassifier(BaseModel):
             adapter_model_id: the LoRA adapter model ID, which probably should
                 not be modified.
         """
-        # This is an LLM-based classifier and is not trained against a
-        # SampleDataset, but BaseModel is an nn.Module subclass whose
-        # __init__ must run to initialize the module state.
         super().__init__(dataset=None)
         self.api_key = api_key
         self.base_model_id = base_model_id
