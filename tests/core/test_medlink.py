@@ -128,7 +128,6 @@ class TestMedLink(unittest.TestCase):
         )
         self.assertEqual(model.feature_key, "conditions")
 
-
     def test_hard_negatives_score_query_not_positive_doc(self):
         """Regression: hard negatives must be mined by scoring the QUERY, not
         the positive document. The old code called get_scores(d) on the
@@ -168,6 +167,27 @@ class TestMedLink(unittest.TestCase):
         self.assertNotIn("pos1", neg_ids)
         self.assertNotIn("pos2", neg_ids)
         self.assertEqual(neg_ids, ["neg"])
+
+    def test_hard_negatives_preserves_all_positives(self):
+        """Regression: with multiple positives, all positives must remain in the
+        output when a hard negative is added.
+        """
+        from pyhealth.models.medlink.utils import get_bm25_hard_negatives
+
+        class FakeBM25:
+            def get_scores(self, text):
+                return {"pos1": 10.0, "pos2": 9.0, "neg": 8.0}
+
+        corpus = {"pos1": "P1", "pos2": "P2", "neg": "N"}
+        queries = {"q1": "QUERY"}
+        qrels = {"q1": {"pos1": 1, "pos2": 1}}
+
+        out = get_bm25_hard_negatives(FakeBM25(), corpus, queries, qrels)
+
+        self.assertEqual(
+            out["q1"],
+            {"pos1": 1, "pos2": 1, "neg": -1},
+        )
 
 
 if __name__ == "__main__":
