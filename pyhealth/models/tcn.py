@@ -309,7 +309,7 @@ class TCN(BaseModel):
 
         # Tuple-schema features (e.g. StageNetProcessor emits (time, value))
         # arrive as a tuple; extract the "value" (and optional "mask") tensor
-        # for the embedding model, mirroring the sibling sequence models.
+        # for the embedding model.
         inputs = {}
         masks = {}
         for feature_key in self.feature_keys:

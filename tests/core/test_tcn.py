@@ -168,8 +168,7 @@ class TestTCN(unittest.TestCase):
 
         Regression test: StageNetProcessor emits a (time, value) tuple per
         feature. TCN previously passed the raw tuple to the embedding model
-        and crashed; it must unwrap the "value" tensor like the sibling
-        sequence models do.
+        and crashed; it must unwrap the "value" tensor.
         """
         samples = [
             {
