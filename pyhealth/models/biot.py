@@ -132,6 +132,7 @@ class BIOTEncoder(nn.Module):
     """Encoder for multichannel biosignals.
 
     Examples:
+        >>> _ = _get_linear_attention_transformer()
         >>> encoder = BIOTEncoder(
         ...     emb_size=128, heads=8, depth=2, n_channels=18
         ... )
