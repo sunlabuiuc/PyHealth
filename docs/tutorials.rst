@@ -214,8 +214,6 @@ These examples are located in ``examples/cxr/``.
      - Multi-label classification on ChestX-ray14 dataset (notebook)
    * - ``cxr/ChestXrayClassificationWithSaliency.ipynb``
      - Chest X-ray classification with saliency maps (notebook)
-   * - ``cxr/chextXray_image_generation_VAE.py``
-     - VAE for chest X-ray image generation
    * - ``cxr/ChestXray-image-generation-GAN.ipynb``
      - GAN for chest X-ray image generation (notebook)
 
@@ -328,8 +326,6 @@ Notebooks (Interactive)
      - Language model embeddings with OpenAI
    * - ``prepare_mapping.ipynb``
      - Data preprocessing and mapping utilities
-   * - ``graph_torchvision_model.ipynb``
-     - Using Torchvision models with graph data
 
 
 ----------
