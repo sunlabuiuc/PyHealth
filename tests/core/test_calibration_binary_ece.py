@@ -31,3 +31,17 @@ class TestBinaryECE(unittest.TestCase):
         frame = ece.call_args.args[0]
         np.testing.assert_array_equal(frame["conf"].to_numpy(), prob[:, 1])
         np.testing.assert_array_equal(frame["acc"].to_numpy(), label[:, 1])
+
+    def test_single_column_inputs_use_only_column(self):
+        prob = np.array([[0.2], [0.7]])
+        label = np.array([[0], [1]])
+
+        with patch(
+            "pyhealth.metrics.calibration._ECE_confidence",
+            return_value=(None, 0.0),
+        ) as ece:
+            ece_confidence_binary(prob, label)
+
+        frame = ece.call_args.args[0]
+        np.testing.assert_array_equal(frame["conf"].to_numpy(), prob[:, 0])
+        np.testing.assert_array_equal(frame["acc"].to_numpy(), label[:, 0])

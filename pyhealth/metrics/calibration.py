@@ -156,8 +156,8 @@ def ece_confidence_binary(prob:np.ndarray, label:np.ndarray, bins=20, adaptive=F
     prob = np.asarray(prob)
     label = np.asarray(label)
 
-    conf = prob[:, 1] if prob.ndim > 1 else prob
-    acc = label[:, 1] if label.ndim > 1 else label
+    conf = prob[:, 0 if prob.shape[1] == 1 else 1] if prob.ndim > 1 else prob
+    acc = label[:, 0 if label.shape[1] == 1 else 1] if label.ndim > 1 else label
     
     df = pd.DataFrame({'acc': acc, 'conf': conf})
     return _ECE_confidence(df, bins, adaptive)[1]
