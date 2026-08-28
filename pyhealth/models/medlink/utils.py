@@ -184,33 +184,22 @@ def get_train_dataloader(
     train_samples = []
     for query_id in query_ids:
         s_q = queries[query_id]
-        id_p, s_p, s_n = None, None, None
-        assert len(qrels[query_id]) <= 2
+        positive_ids, s_n = [], None
         for corpus_id, score in qrels[query_id].items():
             if score == 1:
-                id_p = corpus_id
-                s_p = corpus[corpus_id]
+                positive_ids.append(corpus_id)
             if score == -1:
                 s_n = corpus[corpus_id]
-        if s_n is not None:
-            train_samples.append(
-                {
-                    "query_id": query_id,
-                    "id_p": id_p,
-                    "s_q": s_q,
-                    "s_p": s_p,
-                    "s_n": s_n,
-                }
-            )
-        else:
-            train_samples.append(
-                {
-                    "query_id": query_id,
-                    "id_p": id_p,
-                    "s_q": s_q,
-                    "s_p": s_p,
-                }
-            )
+        for id_p in positive_ids:
+            sample = {
+                "query_id": query_id,
+                "id_p": id_p,
+                "s_q": s_q,
+                "s_p": corpus[id_p],
+            }
+            if s_n is not None:
+                sample["s_n"] = s_n
+            train_samples.append(sample)
     print("Loaded {} training pairs.".format(len(train_samples)))
     train_dataloader = DataLoader(
         train_samples, shuffle=shuffle, batch_size=batch_size, collate_fn=collate_fn

@@ -172,7 +172,10 @@ class TestMedLink(unittest.TestCase):
         """Regression: with multiple positives, all positives must remain in the
         output when a hard negative is added.
         """
-        from pyhealth.models.medlink.utils import get_bm25_hard_negatives
+        from pyhealth.models.medlink.utils import (
+            get_bm25_hard_negatives,
+            get_train_dataloader,
+        )
 
         class FakeBM25:
             def get_scores(self, text):
@@ -188,6 +191,13 @@ class TestMedLink(unittest.TestCase):
             out["q1"],
             {"pos1": 1, "pos2": 1, "neg": -1},
         )
+
+        dataloader = get_train_dataloader(
+            corpus, queries, out, batch_size=2, shuffle=False
+        )
+        batch = next(iter(dataloader))
+        self.assertEqual(batch["id_p"], ["pos1", "pos2"])
+        self.assertEqual(batch["s_n"], ["N", "N"])
 
 
 if __name__ == "__main__":
