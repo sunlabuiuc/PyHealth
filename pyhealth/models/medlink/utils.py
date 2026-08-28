@@ -178,6 +178,15 @@ def get_train_dataloader(
 
     Returns:
         DataLoader returning batches of dicts.
+
+    Examples:
+        >>> corpus = {"p1": "positive one", "p2": "positive two", "n": "negative"}
+        >>> queries = {"q1": "query"}
+        >>> qrels = {"q1": {"p1": 1, "p2": 1, "n": -1}}
+        >>> loader = get_train_dataloader(corpus, queries, qrels, batch_size=2, shuffle=False)
+        Loaded 2 training pairs.
+        >>> next(iter(loader))["id_p"]
+        ['p1', 'p2']
     """
 
     query_ids = list(queries.keys())
