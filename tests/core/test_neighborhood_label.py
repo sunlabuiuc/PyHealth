@@ -162,7 +162,14 @@ class TestNeighborhoodLabel(unittest.TestCase):
         self.assertIsNotNone(ncp.cal_conformity_scores_)
 
     def test_calibration_empirical_coverage_at_least_1_minus_alpha(self):
-        """After calibrate(), empirical coverage on calibration set >= 1-alpha."""
+        """After calibrate(), empirical coverage on calibration set >= 1-alpha,
+        recomputed the same leave-one-out way calibrate() itself does (a
+        calibration point's own score must never appear in its own
+        neighbor set -- see test_calibrate_excludes_self_from_neighbors for
+        why: querying kneighbors() with an explicit X equal to the fitted
+        set makes each point its own nearest neighbor at distance 0, which
+        would leak a point's own score into its own threshold and trivially
+        inflate this exact coverage check if not excluded)."""
         from pyhealth.calib.predictionset.base_conformal import _query_weighted_quantile
 
         ncp = NeighborhoodLabel(model=self.model, alpha=0.2, k_neighbors=3, lambda_L=50.0)
@@ -178,9 +185,17 @@ class TestNeighborhoodLabel(unittest.TestCase):
         # Recompute per-sample thresholds using alpha_tilde (Q^NCP definition: alpha_tilde-quantile of conformity)
         N = ncp.cal_conformity_scores_.shape[0]
         k = min(ncp.k_neighbors, N)
-        distances_cal, indices_cal = ncp._nn.kneighbors(
-            ncp.cal_embeddings_, n_neighbors=k
+        k_query = min(k + 1, N)
+        distances_all, indices_all = ncp._nn.kneighbors(
+            ncp.cal_embeddings_, n_neighbors=k_query
         )
+        n_loo = k_query - 1
+        distances_cal = np.zeros((N, n_loo))
+        indices_cal = np.zeros((N, n_loo), dtype=int)
+        for i in range(N):
+            mask = indices_all[i] != i
+            distances_cal[i] = distances_all[i][mask][:n_loo]
+            indices_cal[i] = indices_all[i][mask][:n_loo]
         cal_weights = np.exp(-distances_cal / ncp.lambda_L)
         cal_weights = cal_weights / cal_weights.sum(axis=1, keepdims=True)
 
@@ -200,6 +215,42 @@ class TestNeighborhoodLabel(unittest.TestCase):
             1.0 - ncp.alpha - 1e-6,
             msg=f"Calibration empirical coverage {empirical_coverage:.4f} should be >= 1-alpha={1 - ncp.alpha}",
         )
+
+    def test_calibrate_excludes_self_from_neighbors(self):
+        """Regression test: calibrate()'s alpha_tilde search must not let a
+        calibration point be its own nearest neighbor.
+
+        Querying sklearn's NearestNeighbors.kneighbors() with an explicit X
+        argument equal to the fitted set returns each point as its own
+        nearest neighbor at distance 0 (unlike the implicit no-argument
+        form, which sklearn special-cases to exclude self-matches). Without
+        excluding this self-match, a calibration point's own score leaks
+        into its own threshold computation during calibration -- something
+        a genuine test point (never part of the calibration set) can't
+        benefit from -- which biases the alpha_tilde search toward an
+        overly permissive threshold and causes real under-coverage at test
+        time (empirically ~0.82-0.83 actual vs. 0.90 target in isolated
+        simulation, before this fix).
+        """
+        ncp = NeighborhoodLabel(model=self.model, alpha=0.2, k_neighbors=3, lambda_L=50.0)
+        cal_dataset = self.dataset.subset([0, 1, 2, 3, 4, 5])
+        cal_emb = self._get_embeddings(cal_dataset)
+        ncp.calibrate(cal_dataset=cal_dataset, cal_embeddings=cal_emb)
+
+        N = ncp.cal_conformity_scores_.shape[0]
+        k = min(ncp.k_neighbors, N)
+        k_query = min(k + 1, N)
+        _, indices_all = ncp._nn.kneighbors(ncp.cal_embeddings_, n_neighbors=k_query)
+
+        for i in range(N):
+            with self.subTest(point=i):
+                mask = indices_all[i] != i
+                kept = indices_all[i][mask][: k_query - 1]
+                self.assertNotIn(
+                    i,
+                    kept,
+                    f"calibration point {i} leaked into its own neighbor set",
+                )
 
 
 if __name__ == "__main__":
