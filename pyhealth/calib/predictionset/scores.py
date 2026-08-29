@@ -2,10 +2,11 @@
 
 This module separates the *score* used by a conformal-prediction-set method
 from the *calibration/thresholding procedure* it's plugged into. These are
-two independent axes: the choice of score ("threshold"/LAC vs "aps") does
-not depend on how the resulting scores get turned into a threshold (marginal
-quantile, per-class quantile, per-cluster quantile, weighted quantile for
-covariate shift, or localized weighted quantile for neighborhood methods).
+two independent axes: the choice of score ("threshold"/LAC vs "aps" vs
+"margin") does not depend on how the resulting scores get turned into a
+threshold (marginal quantile, per-class quantile, per-cluster quantile,
+weighted quantile for covariate shift, or localized weighted quantile for
+neighborhood methods).
 
 Supported score types:
 
@@ -31,9 +32,26 @@ Supported score types:
       to the model's confidence for each individual input, which the
       "threshold" score does not.
 
-Both scores are computed here in *nonconformity* convention (higher = less
-conforming, i.e. 1 minus a probability-like quantity) since that's the
-convention BaseConformal/LABEL/ClusterLabel use internally. A *conformity*
+    - "margin" (Papadopoulos, Vovk, and Gammerman, "Conformal Prediction
+      with Neural Networks," 19th IEEE ICTAI 2007, vol. 2, pp. 388-395;
+      restated in Section 4.2 of Papadopoulos, "Inductive Conformal
+      Prediction: Theory and Application to Neural Networks," Tools in
+      Artificial Intelligence, InTech, 2008, as the "natural nonconformity
+      measure" for neural-network classifiers): the score for class k is
+      how much the best *other* class beats k::
+
+          alpha(x, k) = max_{j != k} pi(x, j) - pi(x, k)
+
+      Unlike "threshold" (which only looks at k's own probability), this
+      measure the margin between k and its strongest competitor, so it is
+      more nonconforming for an example whose true class is only narrowly
+      ahead of a rival than for one that's ahead by a landslide, even at
+      the same raw probability for k.
+
+Both "threshold" and "aps" scores are computed here in *nonconformity*
+convention (higher = less conforming, i.e. 1 minus a probability-like
+quantity) since that's the convention BaseConformal/LABEL/ClusterLabel use
+internally; "margin" is nonconformity-signed by construction. A *conformity*
 (higher = more conforming) variant is also provided for CovariateLabel/
 NeighborhoodLabel, which use the opposite sign convention internally; it is
 simply `1 - nonconformity`, preserving the same ranking of examples either
@@ -50,7 +68,7 @@ __all__ = [
     "true_class_nc_scores",
 ]
 
-SUPPORTED_SCORE_TYPES = ("threshold", "aps")
+SUPPORTED_SCORE_TYPES = ("threshold", "aps", "margin")
 
 
 def _validate_score_type(score_type: str) -> None:
@@ -112,6 +130,38 @@ def _aps_all_class_nc_scores(
     return scores
 
 
+def _margin_all_class_nc_scores(y_prob: np.ndarray) -> np.ndarray:
+    """Computes the margin nonconformity score for every class, every row.
+
+    alpha(x, k) = max_{j != k} pi(x, j) - pi(x, k)
+
+    (Papadopoulos, Vovk, and Gammerman 2007, Eq. for the "natural
+    nonconformity measure"; see module docstring.) Vectorized via each
+    row's top-2 probabilities, with ties at the row max handled so that a
+    class tied for the top spot still has another class achieving that same
+    max value as its "best other class."
+
+    Args:
+        y_prob: Predicted probabilities, shape (N, K).
+
+    Returns:
+        Nonconformity scores of shape (N, K); higher means less conforming.
+    """
+    n, k = y_prob.shape
+    order = np.argsort(-y_prob, axis=1)
+    sorted_probs = np.take_along_axis(y_prob, order, axis=1)
+    top1 = sorted_probs[:, 0]
+    top2 = sorted_probs[:, 1] if k >= 2 else np.full(n, -np.inf)
+    is_top = y_prob == top1[:, None]
+    num_top = is_top.sum(axis=1, keepdims=True)
+    max_others = np.where(
+        is_top,
+        np.where(num_top > 1, top1[:, None], top2[:, None]),
+        top1[:, None],
+    )
+    return max_others - y_prob
+
+
 def all_class_nc_scores(
     y_prob: np.ndarray,
     score_type: str = "threshold",
@@ -122,12 +172,13 @@ def all_class_nc_scores(
 
     Args:
         y_prob: Predicted probabilities, shape (N, K).
-        score_type: "threshold" (Sadinle, Lei, and Wasserman 2019) or "aps"
-            (Romano, Sesia, and Candes 2020). Default "threshold".
+        score_type: "threshold" (Sadinle, Lei, and Wasserman 2019), "aps"
+            (Romano, Sesia, and Candes 2020), or "margin" (Papadopoulos,
+            Vovk, and Gammerman 2007). Default "threshold".
         rng: Random generator, required (and only used) if score_type="aps"
             and randomize=True.
         randomize: Whether to use the randomized ("exact coverage") variant
-            of APS. Ignored for score_type="threshold".
+            of APS. Ignored for score_type="threshold" and "margin".
 
     Returns:
         Nonconformity scores of shape (N, K).
@@ -144,10 +195,15 @@ def all_class_nc_scores(
         >>> np.round(scores, 2)
         array([[0.42, 0.82, 0.96],
                [0.72, 0.36, 0.95]])
+        >>> all_class_nc_scores(y_prob, score_type="margin")
+        array([[-0.5,  0.5,  0.6],
+               [ 0.2, -0.2,  0.3]])
     """
     _validate_score_type(score_type)
     if score_type == "threshold":
         return 1.0 - y_prob
+    if score_type == "margin":
+        return _margin_all_class_nc_scores(y_prob)
     # score_type == "aps"
     if rng is None:
         rng = np.random.default_rng()
