@@ -6,6 +6,13 @@ This example demonstrates:
 2. Conventional conformal prediction using LABEL
 3. Covariate shift adaptive conformal prediction using CovariateLabel
 4. Comparison of coverage and efficiency between the two methods
+
+Note: LABEL's (and SCRIB's) coverage guarantee assumes exchangeability
+between the calibration and test distributions; it does not correct for
+covariate shift. CovariateLabel is the method here designed to handle
+that case explicitly -- under real distribution shift, expect LABEL to
+under-cover even with a fully correct implementation, since that is an
+assumption violation, not a bug.
 """
 
 import numpy as np

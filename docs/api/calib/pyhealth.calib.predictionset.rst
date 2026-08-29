@@ -49,6 +49,17 @@ LABEL (Least Ambiguous Set-valued Classifier)
 SCRIB (Set-classifier with Class-specific Risk Bounds)
 -------------------------------------------------------
 
+.. note::
+
+   SCRIB's Chance-Ambiguity and per-class risk are both defined by the
+   paper relative to singleton (``|H(X)|=1``) and multi-label
+   (``|H(X)|>1``) prediction sets; the paper does not specify how an
+   *empty* set (``|H(X)|=0``) should be scored. This implementation
+   treats any non-singleton set -- empty or multi-label alike -- as
+   "not sure," consistently in both the optimized loss and the
+   ``rejection_rate``/``error_ps`` metrics used to evaluate it. See the
+   class docstring's ``Note`` for why.
+
 .. autoclass:: pyhealth.calib.predictionset.SCRIB
    :members:
    :undoc-members:
