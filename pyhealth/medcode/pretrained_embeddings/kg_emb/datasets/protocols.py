@@ -29,4 +29,6 @@ class KGDatasetProtocol(Protocol):
 
     entity_num: int
     relation_num: int
-    task_spec_param: Mapping[str, Any] | None
+
+    @property
+    def task_spec_param(self) -> Mapping[str, Any] | None: ...
