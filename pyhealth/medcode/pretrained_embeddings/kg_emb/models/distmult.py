@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import torch
 
@@ -69,7 +69,7 @@ if __name__ == "__main__":
         SampleKGDataset,
     )
 
-    samples = [
+    samples: list[dict[str, Any]] = [
         {
             'triple': (0, 0, 2835),
             'ground_truth_head': [1027, 1293, 5264, 1564, 7416, 6434, 2610, 4094, 2717, 5007, 5277, 5949, 0, 6870, 6029],
