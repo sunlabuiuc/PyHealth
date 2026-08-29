@@ -1,5 +1,5 @@
 from abc import ABC
-from pyhealth.datasets import SampleDataset
+from pyhealth.medcode.pretrained_embeddings.kg_emb.datasets import SampleKGDataset
 
 import torch
 import time
@@ -52,7 +52,7 @@ class KGEBaseModel(ABC, nn.Module):
 
     def __init__(
         self, 
-        dataset: SampleDataset,
+        dataset: SampleKGDataset,
         e_dim: int = 500,
         r_dim: int = 500,
         ns: str = "uniform",

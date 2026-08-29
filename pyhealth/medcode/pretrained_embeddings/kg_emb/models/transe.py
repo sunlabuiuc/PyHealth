@@ -1,5 +1,5 @@
 from.kg_base import KGEBaseModel
-from pyhealth.datasets import SampleDataset
+from pyhealth.medcode.pretrained_embeddings.kg_emb.datasets import SampleKGDataset
 import torch
 
 
@@ -33,7 +33,7 @@ class TransE(KGEBaseModel):
 
     def __init__(
         self, 
-        dataset: SampleDataset, 
+        dataset: SampleKGDataset, 
         e_dim: int = 300, 
         r_dim: int = 300, 
         ns: str = "adv", 
