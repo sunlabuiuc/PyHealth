@@ -57,6 +57,17 @@ SCRIB (Set-classifier with Class-specific Risk Bounds)
 FavMac (Fast Value-Maximizing Prediction Sets)
 -----------------------------------------------
 
+.. note::
+
+   FavMac's threshold formulas are verified directly against the paper's
+   Eq. 18 (expected cost control) and Eq. 21 (violation control,
+   Appendix B.3 Algorithm 5 / Theorem 4.6). Like standard split-conformal
+   prediction, both guarantees assume exchangeability between the
+   calibration data and the point being predicted -- FavMac does not
+   correct for covariate shift; see
+   :class:`~pyhealth.calib.predictionset.CovariateLabel` for a method
+   that does.
+
 .. autoclass:: pyhealth.calib.predictionset.FavMac
    :members:
    :undoc-members:

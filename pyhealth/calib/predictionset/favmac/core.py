@@ -11,6 +11,41 @@ from pyhealth.calib.predictionset.favmac import quantiletree
 
 
 class FavMac:
+    """Online value-maximizing prediction sets with conformal cost control.
+
+    This is the internal calibration/inference engine backing the
+    user-facing :class:`pyhealth.calib.predictionset.FavMac`. It is
+    abstract: ``_greedy_sequence`` must be supplied by a subclass (see
+    :class:`FavMac_GreedyRatio`, the concrete class the public wrapper
+    actually uses). Costs, values, and their proxies must be normalized
+    so cost lies in ``[0, C_max]`` before being passed in here.
+
+    Paper:
+        Lin, Zhen, Shubhendu Trivedi, Cao Xiao, and Jimeng Sun. "Fast
+        Online Value-Maximizing Prediction Sets with Conformal Cost
+        Control." ICML 2023.
+
+    Examples:
+        >>> import numpy as np
+        >>> from pyhealth.calib.predictionset.favmac import AdditiveSetFunction
+        >>> from pyhealth.calib.predictionset.favmac.core import FavMac_GreedyRatio
+        >>> K = 3
+        >>> C_max = float(K)
+        >>> cost_fn = AdditiveSetFunction(np.ones(K) / C_max, mode="cost")
+        >>> util_fn = AdditiveSetFunction(np.ones(K), mode="util")
+        >>> proxy_fn = AdditiveSetFunction(np.ones(K) / C_max, mode="proxy")
+        >>> fm = FavMac_GreedyRatio(
+        ...     cost_fn, util_fn, proxy_fn, target_cost=1.0 / C_max, C_max=1.0)
+        >>> rng = np.random.default_rng(0)
+        >>> for _ in range(30):
+        ...     logit = rng.normal(size=K)
+        ...     y = (rng.uniform(size=K) < 0.4).astype(int)
+        ...     _ = fm.update(logit, y)
+        >>> predset, _ = fm(np.array([1.0, -0.5, 0.2]), update=False)
+        >>> predset
+        array([1, 0, 0])
+    """
+
     def __init__(self, cost_fn, util_fn, proxy_fn, target_cost, delta=None, C_max=1.) -> None:
         self.target_cost = target_cost
         self.delta = delta
@@ -53,6 +88,13 @@ class FavMac:
     def _query_threshold(self):
         n = len(self._queue)
         if self.delta is None:
+            # Matches the paper's Eq. 18 (expected cost control):
+            #   T_c = sup{t : (C_max + sum_i C+(t, Z_i)) / (n+1) <= target_cost}
+            # which rearranges to sum_i C+(t, Z_i) <= target_cost*(n+1) - C_max,
+            # i.e. exactly this cutoff. _add_sample() decomposes each
+            # example's (proxy, cost) step function into weight increments
+            # at each proxy score, so the tree's cumulative weight at a
+            # given threshold t equals sum_i C+(t, Z_i) directly.
             cutoff = self.target_cost * (n+1) - self.C_max
             return self.quantiletree.query_cumu_weight(cutoff, prev=False)
         else:
