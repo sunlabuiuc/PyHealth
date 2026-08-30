@@ -41,6 +41,7 @@ dependencies = [
   "dask[complete]~=2025.11.0",
   "litdata~=0.2.59",
   "pyarrow~=22.0.0",
+  "orjson~=3.10",
   "narwhals~=2.13.0",
   "more-itertools~=10.8.0",
   "einops>=0.8.0",
@@ -64,9 +65,12 @@ graph = [
   "torch-geometric>=2.6.0",
 ]
 nlp = [
-  "editdistance~=0.8.1",
+  "rapidfuzz>=3.0.0",
   "rouge_score~=0.1.2",
   "nltk~=3.9.1",
+]
+lint = [
+  "ruff~=0.15",
 ]
 
 [project.urls]
@@ -79,6 +83,13 @@ Changelog = "https://github.com/sunlabuiuc/PyHealth/blob/master/CHANGELOG.md"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+
+### Ruff
+#
+[tool.ruff]
+line-length = 88
+target-version = "py313"
 
 
 ### Hatchling

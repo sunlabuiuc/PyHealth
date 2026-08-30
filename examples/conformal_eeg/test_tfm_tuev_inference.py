@@ -5,6 +5,8 @@ Mirrors the PI's benchmark script but uses the weightfiles/ paths already
 present in this repo.  No training — pure inference to verify weights and
 normalization are correct.
 
+Model: TFMTokenizer, see pyhealth.models.tfm_tokenizer for the paper citation.
+
 Usage:
     python examples/conformal_eeg/test_tfm_tuev_inference.py
     python examples/conformal_eeg/test_tfm_tuev_inference.py --gpu_id 1
@@ -25,7 +27,7 @@ from pyhealth.trainer import Trainer
 TUEV_ROOT = "/srv/local/data/TUH/tuh_eeg_events/v2.0.0/edf/"
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-TOKENIZER_WEIGHTS  = os.path.join(REPO_ROOT, "weightfiles", "tfm_tokenizer_last.pth")
+TOKENIZER_WEIGHTS = os.path.join(REPO_ROOT, "weightfiles", "tfm_tokenizer_last.pth")
 CLASSIFIER_WEIGHTS_DIR = os.path.join(
     REPO_ROOT, "weightfiles", "TFM_Tokenizer_multiple_finetuned_on_TUEV"
 )

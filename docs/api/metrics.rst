@@ -7,6 +7,8 @@ For applicable tasks, we provide the relevant metrics for model calibration, as 
 Among these we also provide metrics related to uncertainty quantification, for model calibration, as well as metrics that measure the quality of prediction sets
 We also provide other metrics specically for healthcare
 tasks, such as drug drug interaction (DDI) rate.
+For synthetic (generative) EHR data, we provide privacy, utility, and statistical
+fidelity metrics.
 
 
 .. toctree::
@@ -19,3 +21,4 @@ tasks, such as drug drug interaction (DDI) rate.
     metrics/pyhealth.metrics.prediction_set
     metrics/pyhealth.metrics.fairness
     metrics/pyhealth.metrics.interpretability
+    metrics/pyhealth.metrics.generative

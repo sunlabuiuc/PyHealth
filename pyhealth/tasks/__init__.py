@@ -22,6 +22,9 @@ from .drug_recommendation import (
     drug_recommendation_mimic4_fn,
     drug_recommendation_omop_fn,
 )
+from .in_hospital_mortality_meds import (
+    InHospitalMortalityMEDS as InHospitalMortalityMEDS,
+)
 from .in_hospital_mortality_mimic4 import InHospitalMortalityMIMIC4
 from .length_of_stay_prediction import (
     LengthOfStayPredictioneICU,
@@ -45,6 +48,13 @@ from .survival_preprocess_support2 import SurvivalPreprocessSupport2
 from .mortality_prediction_stagenet_mimic4 import (
     MortalityPredictionStageNetMIMIC4,
 )
+from .generate_ehr import (
+    EHRGeneration,
+    EHRGenerationMIMIC3,
+    EHRGenerationMIMIC4,
+    decode_dataset,
+    to_evaluation_dataframe,
+)
 from .patient_linkage import patient_linkage_mimic3_fn
 from .readmission_prediction import (
     ReadmissionPredictionEICU,
@@ -62,6 +72,10 @@ from .temple_university_EEG_tasks import (
     EEGEventsTUEV,
     EEGAbnormalTUAB
 )
+from .eegbci import (
+    EEGBCIPatternDiscovery as EEGBCIPatternDiscovery,
+    EEGMotorImageryEEGBCI as EEGMotorImageryEEGBCI,
+)
 from .variant_classification import (
     MutationPathogenicityPrediction,
     VariantClassificationClinVar,
@@ -72,3 +86,11 @@ from .mvcl_training_sleepedf_task import (
     pt_dict_to_pyhealth_samples,
     pt_file_to_sample_dataset,
 )
+
+
+def __getattr__(name: str):
+    if name == "MPFClinicalPredictionTask":
+        from .mpf_clinical_prediction import MPFClinicalPredictionTask
+
+        return MPFClinicalPredictionTask
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

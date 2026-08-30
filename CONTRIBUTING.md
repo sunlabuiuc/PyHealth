@@ -57,6 +57,24 @@ is set to 88 characters. We follow
 the [Google style](https://google.github.io/styleguide/pyguide.html#38-comments-and-docstrings)
 for docstrings.
 
+## PR Contribution Rules (enforced in CI)
+
+Any pull request that modifies a file under `pyhealth/` must also:
+
+- Update at least one file under `docs/` and one file under `examples/`.
+- Keep newly added/modified lines free of [ruff](https://docs.astral.sh/ruff/)
+  lint violations (`ruff check`, 88-char line length). Pre-existing lint
+  issues elsewhere in a touched file are not blocked.
+- Give every new or modified top-level public class/function a `>>>` usage
+  example in its docstring, so it renders as example code in the API docs.
+
+These rules are checked by `.github/workflows/pr_contribution_rules.yml`,
+which runs `tools/check_pr_rules.py`. You can run the same check locally:
+
+```bash
+python tools/check_pr_rules.py --base <base_sha> --head HEAD
+```
+
 ## Community
 
 We welcome you to join our community

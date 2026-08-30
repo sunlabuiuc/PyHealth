@@ -1,0 +1,22 @@
+version: "1.0"
+# Stay-aware MEDS config: identical to the default configs/meds.yaml but
+# additionally exposes `hadm_id`, which stay-based tasks (e.g.
+# InHospitalMortalityMEDS) need to reconstruct admissions/discharges.
+# The default config keeps `attributes` minimal; opt into this one when a
+# task consumes hadm_id.
+tables:
+  meds:
+    file_path: "data"
+    patient_id: "subject_id"
+    timestamp: "time"
+    attributes:
+      - "code"
+      - "numeric_value"
+      - "hadm_id"
+
+  subject_splits:
+    file_path: "metadata/subject_splits.parquet"
+    patient_id: "subject_id"
+    timestamp: null
+    attributes:
+      - "split"
