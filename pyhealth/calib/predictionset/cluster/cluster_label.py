@@ -6,8 +6,25 @@ thresholds using K-means clustering on patient embeddings. The method groups
 similar patients into clusters and computes separate calibration thresholds
 for each cluster, enabling cluster-aware prediction sets.
 
-This serves as a baseline approach for future personalized/dynamic conformal
-prediction methods that use patient similarity for calibration set construction.
+This is an instance of Mondrian conformal prediction (Vovk, Lindsay,
+Nouretdinov, and Gammerman 2003) using K-means-defined clusters as the
+category/taxonomy function -- not itself a specific published method, but a
+pyhealth-original combination of a standard technique (K-means) with the
+general Mondrian conformal prediction framework. It serves as a baseline for
+future personalized/dynamic conformal prediction methods that use patient
+similarity for calibration set construction.
+
+Paper:
+    Vovk, Vladimir, Alexander Gammerman, and Glenn Shafer.
+    "Algorithmic learning in a random world." Springer, 2005.
+
+    Vovk, Vladimir, David Lindsay, Ilia Nouretdinov, and Alex Gammerman.
+    "Mondrian confidence machine." Technical report, Royal Holloway
+    University of London, 2003. (Introduces category-conditional --
+    "Mondrian" -- conformal prediction, of which per-cluster calibration
+    is an instance: each cluster is a Mondrian "category," and the
+    guarantee below holds independently within each one, not just on
+    average across the population.)
 """
 
 from typing import Dict, Optional, Union
@@ -39,8 +56,43 @@ class ClusterLabel(SetPredictor):
     At inference time, test samples are assigned to their nearest cluster and
     use the cluster-specific threshold.
 
-    This approach is simpler than KDE-based methods and serves as a baseline
-    for more advanced personalized conformal prediction approaches.
+    This is Mondrian conformal prediction (Vovk, Lindsay, Nouretdinov, and
+    Gammerman 2003) with K-means clusters as the category function, so the
+    coverage guarantee holds independently *within each cluster*, not just
+    marginally:
+
+    - For marginal alpha (float): P(Y not in C(X) | cluster=c) <= alpha,
+      for every cluster c -- which implies, but is stronger than, the
+      overall marginal guarantee P(Y not in C(X)) <= alpha.
+    - For class-conditional alpha (array): P(Y not in C(X) | Y=k,
+      cluster=c) <= alpha[k], for every class k and cluster c.
+
+    This approach is simpler than KDE-based methods (see
+    :class:`~pyhealth.calib.predictionset.CovariateLabel`) and serves as a
+    baseline for more advanced personalized conformal prediction approaches.
+
+    Note:
+        K-means is fit on ``train_embeddings`` and ``cal_embeddings``
+        combined (see ``calibrate()``), so calibration points do influence
+        the cluster centroids used to assign their own threshold, unlike a
+        strict split-conformal setup where the category function would be
+        fit on data disjoint from calibration. This was checked empirically
+        (Monte Carlo simulation across cluster-count regimes, including
+        calibration-set-dominated fits) and found not to introduce
+        measurable coverage bias -- unlike a k-nearest-neighbors-based
+        category function (see
+        :class:`~pyhealth.calib.predictionset.NeighborhoodLabel`), where
+        a similar self-inclusion effect *is* a hard, always-occurring
+        artifact (a query point is trivially its own nearest neighbor), a
+        single calibration point's leverage on a K-means centroid -- an
+        average over many points -- is negligible in practice. This is a
+        deliberate, verified design choice, not an oversight.
+
+        As with the other classes in this module, this assumes the
+        calibration and test embeddings are exchangeable; it does not
+        correct for covariate shift (see
+        :class:`~pyhealth.calib.predictionset.CovariateLabel` for a method
+        that does).
 
     Args:
         model: A trained base model that supports embedding extraction

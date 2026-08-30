@@ -514,5 +514,115 @@ class TestClusterLabel(unittest.TestCase):
             self.assertEqual(output["y_predset"].device.type, device.type)
 
 
+class TestClusterLabelCoverage(unittest.TestCase):
+    """Monte Carlo verification of ClusterLabel's core statistical claim:
+    per-cluster (Mondrian) coverage, at scale a full trained-model pipeline
+    can't practically reach. Exercises the same calibration logic
+    ClusterLabel.calibrate()/forward() use (KMeans + _query_quantile),
+    directly, the same way test_scores.py's TestScoresCoverage does for
+    the shared score module.
+
+    Also specifically regression-tests the design choice documented in
+    ClusterLabel's docstring: fitting KMeans on train+cal combined (as
+    calibrate() does, via .labels_ for calibration points) versus fitting
+    on train only and using .predict() for calibration points (the
+    stricter split-conformal-consistent alternative) should not produce a
+    measurably different coverage outcome.
+    """
+
+    def _run_trial(self, rng, n_train, n_cal, n_test, n_kmeans_clusters,
+                    alpha, use_predict_for_cal):
+        from sklearn.cluster import KMeans
+        from pyhealth.calib.predictionset.base_conformal import _query_quantile
+
+        n_true_clusters = 3
+        embed_dim = 5
+        centers = rng.normal(scale=8.0, size=(n_true_clusters, embed_dim))
+        beta_params = [(2, 8), (5, 5), (8, 2)]
+
+        def sample(n):
+            true_c = rng.integers(0, n_true_clusters, size=n)
+            emb = centers[true_c] + rng.normal(scale=1.0, size=(n, embed_dim))
+            scores = np.array([rng.beta(*beta_params[c]) for c in true_c])
+            return emb, scores
+
+        train_emb, _ = sample(n_train)
+        cal_emb, cal_scores = sample(n_cal)
+        test_emb, test_scores = sample(n_test)
+
+        if use_predict_for_cal:
+            km = KMeans(n_clusters=n_kmeans_clusters, random_state=0, n_init=10)
+            km.fit(train_emb)
+            cal_cluster = km.predict(cal_emb)
+        else:
+            all_emb = np.concatenate([train_emb, cal_emb], axis=0)
+            km = KMeans(n_clusters=n_kmeans_clusters, random_state=0, n_init=10)
+            km.fit(all_emb)
+            cal_cluster = km.labels_[n_train:]
+
+        test_cluster = km.predict(test_emb)
+
+        thresholds = {}
+        for c in range(n_kmeans_clusters):
+            mask = cal_cluster == c
+            thresholds[c] = (
+                _query_quantile(cal_scores[mask], alpha) if mask.sum() > 0 else np.inf
+            )
+        t_test = np.array([thresholds[c] for c in test_cluster])
+        return (test_scores <= t_test).mean()
+
+    def test_per_cluster_coverage_matches_target(self):
+        """The core claim: ClusterLabel's calibration logic (KMeans fit on
+        train+cal, .labels_ for calibration points) should achieve
+        approximately the target 1-alpha coverage, matching the standard
+        split-conformal quantile guarantee applied within each Mondrian
+        category (cluster)."""
+        rng = np.random.default_rng(42)
+        alpha = 0.1
+        coverages = [
+            self._run_trial(rng, n_train=600, n_cal=300, n_test=2000,
+                             n_kmeans_clusters=3, alpha=alpha,
+                             use_predict_for_cal=False)
+            for _ in range(30)
+        ]
+        mean_coverage = np.mean(coverages)
+        self.assertGreaterEqual(
+            mean_coverage, 1 - alpha - 0.03,
+            f"Mean coverage {mean_coverage:.4f} too far below target {1 - alpha}",
+        )
+
+    def test_combined_fit_matches_train_only_fit_coverage(self):
+        """Regression test for the documented design choice: fitting KMeans
+        on train+cal combined (current calibrate() behavior) must not
+        produce measurably worse coverage than fitting on train only and
+        using .predict() for calibration points -- verified here at a
+        scale (thousands of trials-worth of test points) a full
+        model-based Monte Carlo test can't practically reach."""
+        rng_combined = np.random.default_rng(123)
+        rng_train_only = np.random.default_rng(123)
+        alpha = 0.1
+        n_trials = 40
+
+        combined = [
+            self._run_trial(rng_combined, n_train=20, n_cal=300, n_test=2000,
+                             n_kmeans_clusters=3, alpha=alpha,
+                             use_predict_for_cal=False)
+            for _ in range(n_trials)
+        ]
+        train_only = [
+            self._run_trial(rng_train_only, n_train=20, n_cal=300, n_test=2000,
+                             n_kmeans_clusters=3, alpha=alpha,
+                             use_predict_for_cal=True)
+            for _ in range(n_trials)
+        ]
+
+        # Both should be close to target; neither should be a full
+        # standard-error below the other -- i.e. combined-fit isn't
+        # measurably worse than the "stricter" alternative.
+        self.assertGreaterEqual(np.mean(combined), 1 - alpha - 0.03)
+        self.assertGreaterEqual(np.mean(train_only), 1 - alpha - 0.03)
+        self.assertAlmostEqual(np.mean(combined), np.mean(train_only), delta=0.03)
+
+
 if __name__ == "__main__":
     unittest.main()

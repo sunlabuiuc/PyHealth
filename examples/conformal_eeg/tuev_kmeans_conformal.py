@@ -18,6 +18,12 @@ Multi-seed usage (recommended for papers):
 Notes:
 - ClusterLabel uses K-means clustering on embeddings to compute cluster-specific thresholds.
 - Different K values can be tested to find the optimal cluster count.
+- This is Mondrian conformal prediction (Vovk, Lindsay, Nouretdinov, and
+  Gammerman 2003) with K-means clusters as the category function: coverage
+  holds independently within each cluster, not just marginally across the
+  whole population. As with the other classes in this module, this assumes
+  exchangeability between calibration and test embeddings and does not
+  correct for covariate shift.
 """
 
 from __future__ import annotations
