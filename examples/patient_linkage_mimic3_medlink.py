@@ -17,10 +17,16 @@ from pyhealth.trainer import Trainer, logger
 """
 IMPORTANT: This implementation differs from the original paper in order to
 make it work with the PyHealth framework. Specifically, we do not use the
-pre-trained GloVe embeddings. And we only monitor the loss on the validation 
+pre-trained GloVe embeddings. And we only monitor the loss on the validation
 set instead of the ranking metrics. As a result, the performance of this model
 is different from the original paper. To reproduce the results in the paper,
 please use the official GitHub repo: https://github.com/zzachw/MedLink.
+
+Note: get_train_dataloader emits one training sample per (query, positive)
+pair, so a query with multiple positives can end up in the same batch as a
+query with none (or vice versa). collate_fn handles this by dropping the
+hard-negative field (s_n) for the whole batch if it isn't present on every
+sample, rather than producing a misaligned batch.
 """
 
 USE_BM25_HARDNEGS = False

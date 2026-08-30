@@ -143,11 +143,36 @@ def get_bm25_hard_negatives(bm25_model, corpus, queries, qrels):
 
 
 def collate_fn(samples):
-    outputs = {k: [] for k in samples[0].keys()}
-    for sample in samples:
-        for k, v in sample.items():
-            outputs[k].append(v)
-    return outputs
+    """Batches a list of per-sample dicts into a dict of lists.
+
+    Note:
+        Initializing output keys from only ``samples[0]`` breaks when
+        samples have heterogeneous keys -- e.g. ``get_train_dataloader``'s
+        ``s_n`` key, present only for samples where a hard negative was
+        mined. Depending on sample order this either raised a KeyError (the
+        first sample lacked a key a later one had) or silently produced a
+        shorter, misaligned list for that key (the first sample had it, a
+        later one didn't). ``MedLink.forward`` consumes ``s_n`` as a
+        whole-batch field (``corpus = s_p + s_n``), so a partially-present
+        ``s_n`` would corrupt that concatenation rather than just misalign
+        cleanly -- if any sample in the batch is missing it, drop it for
+        the whole batch instead (equivalent to training that batch without
+        hard negatives, a mode the model already supports via s_n=None).
+
+    Examples:
+        >>> samples = [
+        ...     {"query_id": "q1", "id_p": "p1", "s_q": "Q1", "s_p": "P1", "s_n": "N1"},
+        ...     {"query_id": "q2", "id_p": "p2", "s_q": "Q2", "s_p": "P2"},
+        ... ]
+        >>> collate_fn(samples)  # s_n dropped for the whole batch: not every sample has one
+        {'query_id': ['q1', 'q2'], 'id_p': ['p1', 'p2'], 's_q': ['Q1', 'Q2'], 's_p': ['P1', 'P2']}
+    """
+    # dict.fromkeys preserves first-seen order (deterministic, unlike a
+    # set) while still deduplicating across samples.
+    keys = dict.fromkeys(k for sample in samples for k in sample)
+    if "s_n" in keys and not all("s_n" in sample for sample in samples):
+        del keys["s_n"]
+    return {k: [sample[k] for sample in samples] for k in keys}
 
 
 def get_train_dataloader(
