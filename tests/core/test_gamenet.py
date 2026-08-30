@@ -2,7 +2,7 @@ import unittest
 import torch
 
 from pyhealth.datasets import create_sample_dataset, get_dataloader
-from pyhealth.models import GAMENet
+from pyhealth.models import GAMENet, GAMENetLayer
 
 
 class TestGAMENet(unittest.TestCase):
@@ -183,6 +183,118 @@ class TestGAMENet(unittest.TestCase):
         # The current (target) visit's history was zeroed out by the task
         # convention, so its row must be all zeros.
         self.assertEqual(prev_drugs[0, 1].sum().item(), 0.0)
+
+
+class TestGAMENetLayerDynamicMemoryMasking(unittest.TestCase):
+    """Regression tests for GAMENetLayer.forward()'s dynamic-memory
+    attention over variable-length (padded) batches.
+
+    Naively slicing DM_keys/DM_values as queries[:, :-1, :] and
+    prev_drugs[:, :-1, :] only drops the batch's last column. For a
+    patient shorter than the batch's longest sequence, that leaves the
+    patient's own current-visit position -- and any padding beyond it --
+    inside the attention pool, stealing softmax weight from that
+    patient's genuine previous visits. Fixed by masking those positions
+    to -inf before the softmax.
+    """
+
+    def _make_layer(self, hidden_size, num_drugs, seed=0):
+        torch.manual_seed(seed)
+        ehr_adj = torch.randint(0, 2, (num_drugs, num_drugs)).float()
+        ddi_adj = torch.randint(0, 2, (num_drugs, num_drugs)).float()
+        layer = GAMENetLayer(hidden_size, ehr_adj, ddi_adj)
+        layer.eval()
+        return layer
+
+    def test_dynamic_memory_ignores_own_current_visit_and_padding(self):
+        """Perturbing prev_drugs at a shorter patient's own current-visit
+        slot and at padding positions -- both of which fall inside the
+        naively-sliced DM_values range -- must not change that patient's
+        output at all: those positions must receive exactly zero dynamic-
+        memory attention weight. This would fail under the pre-fix
+        behavior, where nothing masks those positions out of the softmax.
+        """
+        hidden_size, num_drugs, num_visits = 8, 5, 4
+        layer = self._make_layer(hidden_size, num_drugs)
+
+        torch.manual_seed(42)
+        queries = torch.randn(2, num_visits, hidden_size)
+        prev_drugs = torch.zeros(2, num_visits, num_drugs)
+        # Patient 0: 4 valid visits (mask all-ones), real history at 0,1,2.
+        prev_drugs[0, 0] = torch.tensor([1.0, 0, 0, 0, 0])
+        prev_drugs[0, 1] = torch.tensor([0.0, 1, 0, 0, 0])
+        prev_drugs[0, 2] = torch.tensor([0.0, 0, 1, 0, 0])
+        # Patient 1: only 2 valid visits (current visit = index 1); one
+        # genuine prior visit at index 0.
+        prev_drugs[1, 0] = torch.tensor([0.0, 0, 0, 1, 0])
+
+        curr_drugs = torch.randint(0, 2, (2, num_drugs)).float()
+        mask = torch.tensor([[1.0, 1, 1, 1], [1.0, 1, 0, 0]])
+
+        with torch.no_grad():
+            loss_base, y_prob_base = layer(queries, prev_drugs, curr_drugs, mask)
+
+        prev_drugs_perturbed = prev_drugs.clone()
+        # Patient 1's own current-visit slot (index 1) and both padding
+        # slots (2, 3) -- all of which should be masked out.
+        prev_drugs_perturbed[1, 1] = torch.tensor([1.0, 1, 1, 1, 1])
+        prev_drugs_perturbed[1, 2] = torch.tensor([1.0, 1, 1, 1, 1])
+        prev_drugs_perturbed[1, 3] = torch.tensor([1.0, 1, 1, 1, 1])
+
+        with torch.no_grad():
+            loss_pert, y_prob_pert = layer(queries, prev_drugs_perturbed, curr_drugs, mask)
+
+        torch.testing.assert_close(y_prob_base[1], y_prob_pert[1])
+        # Patient 0 (unaffected batch row, full-length sequence) must also
+        # be exactly unchanged.
+        torch.testing.assert_close(y_prob_base[0], y_prob_pert[0])
+        torch.testing.assert_close(loss_base, loss_pert)
+
+    def test_dynamic_memory_zero_for_first_visit_patient(self):
+        """A patient whose current visit is their very first visit has
+        zero valid previous visits -- the attention row is all -inf
+        pre-softmax. This must resolve to a zero dynamic-memory
+        contribution, not NaN propagating into the output."""
+        hidden_size, num_drugs, num_visits = 8, 5, 3
+        layer = self._make_layer(hidden_size, num_drugs, seed=1)
+
+        torch.manual_seed(2)
+        queries = torch.randn(1, num_visits, hidden_size)
+        prev_drugs = torch.zeros(1, num_visits, num_drugs)
+        curr_drugs = torch.randint(0, 2, (1, num_drugs)).float()
+        # Single valid visit (the patient's first-ever visit); the rest is
+        # padding.
+        mask = torch.tensor([[1.0, 0, 0]])
+
+        with torch.no_grad():
+            loss, y_prob = layer(queries, prev_drugs, curr_drugs, mask)
+
+        self.assertFalse(torch.isnan(y_prob).any())
+        self.assertFalse(torch.isnan(loss).any())
+
+    def test_full_length_patient_unaffected_by_masking_fix(self):
+        """Sanity check: for a patient whose sequence spans the batch's
+        full padded length (no padding, current visit is the batch's last
+        column), the mask covers exactly the same previous-visit positions
+        as the original unmasked slice -- output must be identical to a
+        run with mask=None (the pre-fix default)."""
+        hidden_size, num_drugs, num_visits = 8, 5, 4
+        layer = self._make_layer(hidden_size, num_drugs, seed=3)
+
+        torch.manual_seed(4)
+        queries = torch.randn(2, num_visits, hidden_size)
+        prev_drugs = torch.randint(0, 2, (2, num_visits, num_drugs)).float()
+        curr_drugs = torch.randint(0, 2, (2, num_drugs)).float()
+        mask_all_ones = torch.ones(2, num_visits)
+
+        with torch.no_grad():
+            loss_default, y_prob_default = layer(queries, prev_drugs, curr_drugs, mask=None)
+            loss_explicit, y_prob_explicit = layer(
+                queries, prev_drugs, curr_drugs, mask=mask_all_ones
+            )
+
+        torch.testing.assert_close(y_prob_default, y_prob_explicit)
+        torch.testing.assert_close(loss_default, loss_explicit)
 
 
 if __name__ == "__main__":

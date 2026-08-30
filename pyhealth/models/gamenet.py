@@ -129,7 +129,7 @@ class GAMENetLayer(nn.Module):
     Examples:
         >>> from pyhealth.models import GAMENetLayer
         >>> queries = torch.randn(3, 5, 32) # [patient, visit, hidden_size]
-        >>> prev_drugs = torch.randint(0, 2, (3, 4, 50)).float()
+        >>> prev_drugs = torch.randint(0, 2, (3, 5, 50)).float()
         >>> curr_drugs = torch.randint(0, 2, (3, 50)).float()
         >>> ehr_adj = torch.randint(0, 2, (50, 50)).float()
         >>> ddi_adj = torch.randint(0, 2, (50, 50)).float()
@@ -172,12 +172,17 @@ class GAMENetLayer(nn.Module):
 
         Args:
             queries: query tensor of shape [patient, visit, hidden_size].
-            prev_drugs: multihot tensor indicating drug usage in all previous
-                visits of shape [patient, visit - 1, num_drugs].
+            prev_drugs: multihot tensor indicating drug usage in all
+                visits (including the current one, whose row should
+                already be zeroed out by the caller) of shape
+                [patient, visit, num_drugs]. This method itself drops the
+                current visit via [:, :-1, :] to derive DM_keys/DM_values.
             curr_drugs: multihot tensor indicating drug usage in the current
                 visit of shape [patient, num_drugs].
             mask: an optional mask tensor of shape [patient, visit] where 1
-                indicates valid visits and 0 indicates invalid visits.
+                indicates valid visits and 0 indicates invalid visits. Also
+                used to exclude each patient's own current visit and any
+                padding beyond it from the dynamic-memory attention below.
 
         Returns:
             loss: a scalar tensor representing the loss.
@@ -198,11 +203,30 @@ class GAMENetLayer(nn.Module):
         DM_keys = queries[:, :-1, :]
         DM_values = prev_drugs[:, :-1, :]
 
+        # For batches with variable-length patient histories, dropping only
+        # the batch's last (padded) column is not enough: a patient shorter
+        # than the batch's longest sequence still has their own current
+        # visit -- and pure padding beyond it -- sitting inside DM_keys/
+        # DM_values. Build a per-patient mask over these positions so the
+        # attention below only ever sees genuine previous visits: valid iff
+        # the position is a real (non-padded) visit AND strictly before
+        # this patient's own current/last valid visit.
+        num_prev_positions = DM_keys.size(1)
+        position_idx = torch.arange(num_prev_positions, device=queries.device).unsqueeze(0)
+        last_visit_idx = (mask.long().sum(dim=1) - 1).clamp(min=0).unsqueeze(1)
+        prev_mask = (mask[:, :-1] > 0) & (position_idx < last_visit_idx)
+
         """O: Output memory representation"""
         a_c = torch.softmax(torch.mm(query, MB.t()), dim=-1)
         o_b = torch.mm(a_c, MB)
 
-        a_s = torch.softmax(torch.einsum("bd,bvd->bv", query, DM_keys), dim=1)
+        attn_logits = torch.einsum("bd,bvd->bv", query, DM_keys)
+        attn_logits = attn_logits.masked_fill(~prev_mask, float("-inf"))
+        a_s = torch.softmax(attn_logits, dim=1)
+        # Patients with no valid previous visit (e.g. their very first
+        # visit) have an all -inf row, so softmax produces NaN; their
+        # dynamic-memory contribution should just be zero.
+        a_s = torch.nan_to_num(a_s, nan=0.0)
         a_m = torch.einsum("bv,bvz->bz", a_s, DM_values.float())
         o_d = torch.mm(a_m, MB)
 
