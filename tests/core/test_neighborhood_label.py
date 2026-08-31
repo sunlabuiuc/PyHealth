@@ -169,13 +169,90 @@ class TestNeighborhoodLabel(unittest.TestCase):
         why: querying kneighbors() with an explicit X equal to the fitted
         set makes each point its own nearest neighbor at distance 0, which
         would leak a point's own score into its own threshold and trivially
-        inflate this exact coverage check if not excluded)."""
+        inflate this exact coverage check if not excluded).
+
+        Uses its own seeded, larger (N=30), *trained* calibration set rather
+        than the shared 6-sample untrained fixture. Two independent issues
+        made the original version flaky/wrong, not just one:
+
+        1. With only 6 points, achievable coverage values are exactly
+           {0, 1/6, ..., 1}, so the target 1-alpha=0.8 sits squarely between
+           4/6=0.667 and 5/6=0.833 -- a single point tipping either way
+           (driven only by the model's unseeded random init, since setUp()
+           never seeds torch) flips the assertion.
+        2. More fundamentally: the shared fixture's model is never trained,
+           so its predicted probabilities -- and therefore the conformity
+           scores NCP calibrates on -- are just noise from a random init,
+           uncorrelated with embedding-space locality. NCP's per-point
+           threshold comes from each point's k-nearest *neighbors only*
+           (itself excluded), not a global quantile over all N points the
+           way plain split conformal's is, so it has no automatic "any
+           alpha_tilde >= 0 must reach 1-alpha coverage" guarantee the way
+           a global quantile would -- that guarantee is a property of the
+           *underlying scores actually correlating with locality*, which an
+           untrained model doesn't provide. Confirmed directly: with the
+           untrained model, alpha_tilde_ converges to its floor of 0.0 (the
+           search's most permissive setting) and still only covers 23/30,
+           because roughly 1/(k+1) of points have a lower score than all k
+           of their neighbors purely by chance when scores are pure noise.
+           Training the model so scores genuinely reflect how "easy" each
+           point is relative to its neighborhood removes this floor issue.
+
+        N=30 gives a 3.3%-wide step size (fine enough not to sit on a knife
+        edge), a fixed seed makes the outcome reproducible, and training
+        makes the target coverage actually achievable by the method's own
+        theory rather than accidentally testing an unmet precondition.
+        """
         from pyhealth.calib.predictionset.base_conformal import _query_weighted_quantile
 
-        ncp = NeighborhoodLabel(model=self.model, alpha=0.2, k_neighbors=3, lambda_L=50.0)
-        cal_indices = [0, 1, 2, 3, 4, 5]
-        cal_dataset = self.dataset.subset(cal_indices)
-        cal_emb = self._get_embeddings(cal_dataset)
+        torch.manual_seed(0)
+        np.random.seed(0)
+
+        n_per_class = 10
+        samples = []
+        for label in range(3):
+            for j in range(n_per_class):
+                idx = label * n_per_class + j
+                samples.append(
+                    {
+                        "patient_id": f"p{idx}",
+                        "visit_id": f"v{idx}",
+                        "conditions": [f"c{idx}"],
+                        "procedures": [float(label) + 0.01 * j],
+                        "label": label,
+                    }
+                )
+        dataset = create_sample_dataset(
+            samples=samples,
+            input_schema=self.input_schema,
+            output_schema=self.output_schema,
+            dataset_name="test_coverage",
+        )
+        model = MLP(
+            dataset=dataset,
+            feature_keys=["conditions", "procedures"],
+            label_key="label",
+            mode="multiclass",
+        )
+
+        # Brief training: this trivially class-separable fixture (procedures
+        # cleanly bucketed by label) only needs a handful of epochs for
+        # predicted probabilities -- and thus conformity scores -- to
+        # reflect real structure instead of random-init noise.
+        model.train()
+        optimizer = torch.optim.Adam(model.parameters(), lr=0.05)
+        train_loader = get_dataloader(dataset, batch_size=len(samples), shuffle=True)
+        for _ in range(50):
+            for batch in train_loader:
+                optimizer.zero_grad()
+                ret = model(**batch)
+                ret["loss"].backward()
+                optimizer.step()
+        model.eval()
+
+        ncp = NeighborhoodLabel(model=model, alpha=0.2, k_neighbors=3, lambda_L=50.0)
+        cal_dataset = dataset.subset(list(range(len(samples))))
+        cal_emb = extract_embeddings(model, cal_dataset, batch_size=32, device="cpu")
         ncp.calibrate(cal_dataset=cal_dataset, cal_embeddings=cal_emb)
 
         self.assertIsNotNone(ncp.alpha_tilde_)
