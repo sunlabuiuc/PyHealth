@@ -1,5 +1,7 @@
 import unittest
 import warnings
+from unittest.mock import patch
+
 import numpy as np
 import torch
 
@@ -350,8 +352,12 @@ class TestCovariateLabel(unittest.TestCase):
         KDE pair, so per-test-point likelihood ratios genuinely differ --
         needed to test forward()'s pointwise-thresholding path, which the
         class's default dummy_kde_cal/dummy_kde_test (both ~uniform) can't
-        exercise meaningfully.
+        exercise meaningfully. Seeded for reproducibility across runs; the
+        model's own random init would otherwise depend on however much of
+        the global RNG stream setUp() and any prior tests already consumed.
         """
+        torch.manual_seed(0)
+        np.random.seed(0)
         samples = []
         for i in range(60):
             samples.append(
@@ -425,10 +431,27 @@ class TestCovariateLabel(unittest.TestCase):
         """forward(test_embeddings=...) must recompute the threshold per
         test point using that point's own likelihood ratio w(x) (Corollary
         1 of Tibshirani et al. 2019), not the calibrate()-time mean-weight
-        approximation. Verified by checking the threshold implied for
-        specific points matches directly calling _query_weighted_quantile
-        with that exact point's own weight, and that points in the two
-        weight regimes get different thresholds.
+        approximation.
+
+        Verified by spying on _query_weighted_quantile during a real
+        forward() call and checking it is invoked once per test point with
+        that exact point's own weight -- directly verifying the claim
+        ("forward uses per-point weight") rather than asserting the
+        resulting *threshold values* differ between two points.
+
+        The latter was tried first and is not a reliable test: a test
+        point's likelihood-ratio weight is drawn from the same KDE-derived
+        distribution as the calibration weights, so it can never be more
+        than a small fraction of the total calibration weight mass by
+        construction -- whether prepending it shifts _query_weighted_
+        quantile's selected order-statistic index depends on exactly where
+        the alpha-quantile boundary falls relative to the (data-dependent,
+        effectively random given the model's unseeded init) distribution
+        of calibration weights along the sorted-score axis. That made the
+        old assertion fail whenever the boundary happened to fall in a
+        region insensitive to a perturbation of that size -- confirmed
+        directly: it failed deterministically for several concrete seeds,
+        not just intermittently, so it wasn't simply "rare bad luck."
         """
         cal_model, test_dataset, test_embeddings, kde_test, kde_cal = (
             self._build_pointwise_setup()
@@ -438,26 +461,44 @@ class TestCovariateLabel(unittest.TestCase):
             len(set(np.round(weights, 3))), 1, "test setup must have varying weights"
         )
 
-        low_idx = int(np.argmin(weights))
-        high_idx = int(np.argmax(weights))
+        test_loader = get_dataloader(test_dataset, batch_size=30, shuffle=False)
+        batch = next(iter(test_loader))
 
-        t_low = _query_weighted_quantile(
-            cal_model._cal_conformity_scores,
-            cal_model.alpha,
-            cal_model._cal_likelihood_ratios,
-            float(weights[low_idx]),
+        module = "pyhealth.calib.predictionset.covariate.covariate_label"
+        with patch(
+            f"{module}._query_weighted_quantile",
+            wraps=_query_weighted_quantile,
+        ) as spy:
+            with torch.no_grad():
+                cal_model(test_embeddings=test_embeddings, **batch)
+
+        self.assertEqual(spy.call_count, len(weights))
+        called_test_weights = [call.args[3] for call in spy.call_args_list]
+        np.testing.assert_allclose(
+            sorted(called_test_weights), sorted(float(w) for w in weights)
         )
-        t_high = _query_weighted_quantile(
-            cal_model._cal_conformity_scores,
-            cal_model.alpha,
-            cal_model._cal_likelihood_ratios,
-            float(weights[high_idx]),
-        )
-        # The two weight regimes are far enough apart that they must not
-        # collapse to the calibrate()-time fixed threshold's approximation
-        # in exactly the same way -- this is the actual regression check:
-        # before the forward()-level fix, there was no way to get anything
-        # other than cal_model.t regardless of test_embeddings.
+
+    def test_query_weighted_quantile_test_weight_changes_result(self):
+        """Direct, hand-computed check that test_weight actually changes
+        _query_weighted_quantile's output -- the algorithmic property the
+        forward()-level test above relies on, isolated from any KDE/model
+        randomness. A large enough test_weight must push p_test >= alpha,
+        forcing the documented -inf fallback (not enough calibration mass
+        to reach the target coverage without dipping into the test point's
+        own reserved mass); test_weight=0 must not.
+        """
+        scores = np.array([0.1, 0.2, 0.3, 0.4, 0.5])
+        weights = np.full(5, 2.0)  # total calibration weight = 10.0
+        alpha = 0.4
+
+        t_low = _query_weighted_quantile(scores, alpha, weights, test_weight=0.0)
+        self.assertNotEqual(t_low, -np.inf)
+
+        # p_test = test_weight / (10 + test_weight) >= 0.4 requires
+        # test_weight >= 10 * 0.4 / 0.6 ≈ 6.67; 100 clears it by a wide,
+        # seed-independent margin.
+        t_high = _query_weighted_quantile(scores, alpha, weights, test_weight=100.0)
+        self.assertEqual(t_high, -np.inf)
         self.assertNotEqual(t_low, t_high)
 
     def test_forward_raises_without_kde_for_pointwise(self):
