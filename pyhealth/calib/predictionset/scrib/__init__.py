@@ -189,7 +189,24 @@ class SCRIB(SetPredictor):
 
         Lin, Zhen, Lucas Glass, M. Brandon Westover, Cao Xiao, and Jimeng Sun.
         "SCRIB: Set-classifier with Class-specific Risk Bounds for Blackbox Models."
-        AAAI 2022.
+        AAAI 2022. https://arxiv.org/abs/2103.03945
+
+    Note:
+        The paper defines Chance-Ambiguity as :math:`\\hat{P}\\{|H(X)|>1\\}`
+        and risk as :math:`\\hat{r}_k(H) := \\hat{P}_k\\{k \\notin H(X) \\mid
+        |H(X)|=1\\}` -- both conditioned specifically on singleton (exactly
+        one label) or multi-label sets, and the paper does not discuss how
+        an *empty* set (:math:`|H(X)|=0`) should be scored. This
+        implementation (and the ``rejection_rate``/``error_ps`` metrics
+        used to evaluate it) instead treats any non-singleton set --
+        empty or multi-label alike -- as "not sure"/rejected, consistent
+        throughout both the optimized loss and the reported metrics. This
+        is a deliberate choice, not an oversight: under the paper's
+        literal definition, a degenerate classifier that always predicts
+        an empty set would show zero ambiguity loss (0 is not >1) and zero
+        risk loss (no singleton predictions to be wrong on), making it
+        appear loss-free despite being useless; scoring empty sets as
+        "not sure" closes that gap.
 
     Args:
         model (BaseModel): A trained model.
