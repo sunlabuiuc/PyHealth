@@ -88,4 +88,8 @@ def __getattr__(name: str):
         from .mpf_clinical_prediction import MPFClinicalPredictionTask
 
         return MPFClinicalPredictionTask
+    if name == "PTBXLSuperclassClassification":
+        from .ptbxl import PTBXLSuperclassClassification
+
+        return PTBXLSuperclassClassification
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

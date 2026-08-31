@@ -1,0 +1,22 @@
+version: "1.0.3"  # PhysioNet PTB-XL v1.0.3 only; earlier releases are not supported.
+tables:
+  records:
+    # Template only: PTBXLDataset writes a resolved config whose file_path
+    # is the derived cache CSV (rate + data-root hash) before BaseDataset init.
+    file_path: "ptbxl-pyhealth-100hz.csv"
+    patient_id: "patient_id"
+    # recording_date from ptbxl_database.csv (e.g. 1984-11-09 09:17:34)
+    timestamp: "recording_date"
+    timestamp_format: "%Y-%m-%d %H:%M:%S"
+    attributes:
+    - "record_id"
+    - "signal_file"
+    - "sampling_rate"
+    - "strat_fold"
+    - "age"
+    - "age_is_censored"
+    - "age_is_missing"
+    - "sex"  # 0 = female, 1 = male
+    - "site"
+    - "device"
+    - "scp_codes"

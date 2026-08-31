@@ -80,10 +80,12 @@ from .splitter import (
     split_by_sample_conformal,
     split_by_sample_conformal_tuh,
     split_by_sample_tuh,
+    split_by_strat_fold as split_by_strat_fold,
     split_by_visit,
     split_by_visit_conformal,
 )
 from .eegbci import EEGBCIDataset as EEGBCIDataset  # noqa: E402
+from .ptbxl import PTBXLDataset as PTBXLDataset
 from .tuab import TUABDataset
 from .tuev import TUEVDataset
 from .utils import (
