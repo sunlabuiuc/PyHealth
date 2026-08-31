@@ -3,7 +3,6 @@
 """
 __author__ = 'Paul Landes'
 from typing import Dict, Any, Set, ClassVar
-from dataclasses import dataclass, field
 import re
 import torch
 import transformers
@@ -39,7 +38,6 @@ Classify sentences for social determinants of health (SDOH) as a list labels in 
 ### SDOH labels:"""
 
 
-@dataclass
 class SdohClassifier(BaseModel):
     """This predicts sentence level social determinants of health (SDoH) as a
     multi-label classification from clinical text.  The model was trained from
@@ -69,16 +67,25 @@ class SdohClassifier(BaseModel):
     _ROLE: ClassVar[str] = 'You are a social determinants of health (SDOH) classifier.'
     _LABELS: ClassVar[str] = 'transportation housing relationship employment support parent'.split()
 
-    api_key: str = field(default=None)
-    """The API token that starts with ``tf_`` needed to download the Llama
-    model.
-
-    """
-    base_model_id: str = field(default='meta-llama/Llama-3.1-8B-Instruct')
-    """The base model ID, which probably should not be modified."""
-
-    adapter_model_id: str = field(default='plandes/sdoh-llama-3-1-8b')
-    """The LoRA adapter model ID, which probably should not be modified."""
+    def __init__(
+        self,
+        api_key: str | None = None,
+        base_model_id: str = 'meta-llama/Llama-3.1-8B-Instruct',
+        adapter_model_id: str = 'plandes/sdoh-llama-3-1-8b',
+    ):
+        """
+        Args:
+            api_key: the API token that starts with ``tf_`` needed to download
+                the Llama model.
+            base_model_id: the base model ID, which probably should not be
+                modified.
+            adapter_model_id: the LoRA adapter model ID, which probably should
+                not be modified.
+        """
+        super().__init__(dataset=None)
+        self.api_key = api_key
+        self.base_model_id = base_model_id
+        self.adapter_model_id = adapter_model_id
 
     def _parse_response(self, text: str) -> Set[str]:
         """Parse the LLM response (also used in the unit test case).."""
