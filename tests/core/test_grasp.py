@@ -267,7 +267,7 @@ class TestGRASP(unittest.TestCase):
         # cluster_num >= 2: a real kNN graph, not identity.
         adj = adj_fed_to_gcn(GRASPLayer(input_dim=6, hidden_dim=8, cluster_num=3, block="GRU"))
         self.assertFalse(np.allclose(adj, np.eye(3)), "GCN got identity; graph is dead")
-        self.assertEqual(float(np.diag(adj).sum()), 0.0)   # include_self=False, no self loops
+        self.assertTrue(np.allclose(np.diag(adj), np.ones(3)))
         self.assertGreater(float(adj.sum()), 0.0)          # has edges
 
         # cluster_num == 1: genuine identity fallback (too few clusters for a graph).

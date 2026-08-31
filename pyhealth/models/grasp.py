@@ -321,6 +321,7 @@ class GRASPLayer(nn.Module):
                 mode="connectivity",
                 include_self=False,
             ).toarray()
+            A_mat += np.eye(self.cluster_num)
 
         adj_mat = torch.tensor(A_mat).to(device=input.device)
 
