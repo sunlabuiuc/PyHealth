@@ -9,7 +9,7 @@ from pyhealth.tasks.mortality_prediction_stagenet_mimic4 import (
 
 
 class TestStageNetTaskLeakagePrevention(unittest.TestCase):
-    """Regression tests for the terminal/target-admission leakage fix.
+    """Regression tests for the target-admission leakage fix.
 
     ``diagnoses_icd``/``procedures_icd`` events are timestamped at
     ``dischtime`` (see pyhealth/datasets/configs/mimic4_ehr.yaml), so codes
@@ -17,7 +17,12 @@ class TestStageNetTaskLeakagePrevention(unittest.TestCase):
     predicted are only known at-or-after that outcome. These tests verify
     that MortalityPredictionStageNetMIMIC4 and LengthOfStayStageNetMIMIC4
     exclude that admission's codes while leaving earlier, already-resolved
-    admissions unaffected.
+    admissions unaffected -- and, for mortality specifically, that this
+    restriction applies identically to death and survivor cases. An
+    earlier version of the fix restricted only the death class, which let
+    a model learn "richer features -> survived" as a shortcut from the
+    asymmetric amount of information available per class, rather than any
+    real clinical signal.
     """
 
     @classmethod
@@ -77,12 +82,18 @@ class TestStageNetTaskLeakagePrevention(unittest.TestCase):
                 f"target-admission code {code} leaked into LOS features",
             )
 
-    def test_mortality_survivor_unaffected(self):
-        """A patient with no terminal admission keeps full historical data.
+    def test_mortality_survivor_target_admission_also_excluded(self):
+        """Regression test for the class-asymmetry leak: a survivor's most
+        recent admission must be windowed the same way a death case's
+        terminal admission is, not left fully unrestricted.
 
-        This is a regression check: the leakage fix must only change
-        behavior for the terminal/target admission, not for patients who
-        never trigger it.
+        Patient 10001 has three admissions (19999, 20001, then 20002), all
+        survived -- the same fixture used by the LOS test above, which
+        already (correctly) excludes 20002 as its target admission. Before
+        this fix, MortalityPredictionStageNetMIMIC4 only restricted the
+        death class, so this same patient's 20002 codes would leak in here
+        while being correctly excluded for LOS -- an inconsistency that is
+        itself evidence of the asymmetry.
         """
         patient = self.dataset.get_patient("10001")
         samples = MortalityPredictionStageNetMIMIC4()(patient)
@@ -91,8 +102,34 @@ class TestStageNetTaskLeakagePrevention(unittest.TestCase):
         self.assertEqual(sample["mortality"], 0)
 
         _, icd_codes = sample["icd_codes"]
-        # All three admissions should contribute, none excluded.
-        self.assertEqual(len(icd_codes), 3)
+        # Only the two non-target (19999, 20001) admissions should
+        # contribute code lists; the target (20002) must not.
+        self.assertEqual(len(icd_codes), 2)
+
+        flat_codes = [code for visit in icd_codes for code in visit]
+        for code in ["E1010", "E1165", "I10", "5A1955Z", "3E0G76Z"]:
+            self.assertIn(code, flat_codes)
+        for code in ["E1011", "N179", "5A1D70Z"]:
+            self.assertNotIn(
+                code,
+                flat_codes,
+                f"target-admission code {code} leaked into survivor features",
+            )
+
+    def test_mortality_and_los_treat_same_survivor_identically(self):
+        """Direct symmetry check: for the same survivor, mortality and LOS
+        must agree on which admission is the target and exclude the exact
+        same code set from it -- confirming the mortality task no longer
+        gives survivors a privileged, unrestricted view of their own most
+        recent admission relative to what LOS already does correctly.
+        """
+        patient = self.dataset.get_patient("10001")
+        mortality_codes = MortalityPredictionStageNetMIMIC4()(patient)[0]["icd_codes"][1]
+        los_codes = LengthOfStayStageNetMIMIC4()(patient)[0]["icd_codes"][1]
+
+        mortality_flat = sorted(code for visit in mortality_codes for code in visit)
+        los_flat = sorted(code for visit in los_codes for code in visit)
+        self.assertEqual(mortality_flat, los_flat)
 
 
 if __name__ == "__main__":
