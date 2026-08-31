@@ -24,6 +24,14 @@ class RemovalBasedMetric(ABC):
     This class provides common functionality for computing faithfulness metrics
     by removing or retaining features based on their importance scores.
 
+    Examples:
+        >>> from pyhealth.metrics.interpretability import (
+        ...     ComprehensivenessMetric,
+        ...     RemovalBasedMetric,
+        ... )
+        >>> issubclass(ComprehensivenessMetric, RemovalBasedMetric)
+        True
+
     Args:
         model: PyHealth BaseModel that accepts **kwargs and returns dict with
             'y_prob' or 'logit'.
@@ -373,8 +381,8 @@ class RemovalBasedMetric(ABC):
 
             If return_per_percentage=True:
                 Dict[float, torch.Tensor]: Maps percentage -> scores
-                (batch_size,). For binary classifiers, negative class
-                samples have value 0.
+                (batch_size,). For binary classifiers, negative-class samples
+                are scored from the class-0 perspective.
 
         Note:
             For binary classifiers, all samples are evaluated
