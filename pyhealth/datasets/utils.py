@@ -260,6 +260,22 @@ def collate_fn_dict_with_padding(batch: List[dict]) -> dict:
         A dictionary where each key corresponds to a list of values from the batch.
         Tensor values are padded to the same shape.
         Tuples of (time, values) from temporal processors are collated separately.
+        A nested dict of tensors (e.g. ``{"value": ..., "mask": ...}`` from a
+        processor like ``KGProcessor``) is collated sub-key by sub-key.
+
+    Examples:
+        >>> import torch
+        >>> batch = [
+        ...     {"triple": torch.tensor([0, 0, 1]),
+        ...      "ground_truth_head": {"value": torch.tensor([0, 4]), "mask": torch.tensor([1, 1])}},
+        ...     {"triple": torch.tensor([2, 0, 3]),
+        ...      "ground_truth_head": {"value": torch.tensor([2, 0]), "mask": torch.tensor([1, 0])}},
+        ... ]
+        >>> collated = collate_fn_dict_with_padding(batch)
+        >>> collated["triple"].shape
+        torch.Size([2, 3])
+        >>> collated["ground_truth_head"]["value"].shape
+        torch.Size([2, 2])
     """
     collated = {}
     keys = batch[0].keys()

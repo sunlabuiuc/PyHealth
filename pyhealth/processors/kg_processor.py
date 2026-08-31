@@ -1,4 +1,5 @@
-from typing import Any, Dict, Iterable, List
+from collections.abc import Iterable
+from typing import Any
 
 import torch
 
@@ -44,7 +45,7 @@ class KGProcessor(FeatureProcessor):
         self.pad_token_id = pad_token_id
         self.max_length = 1
 
-    def fit(self, samples: Iterable[Dict[str, Any]], field: str) -> None:
+    def fit(self, samples: Iterable[dict[str, Any]], field: str) -> None:
         """Determine the maximum list length observed for ``field``.
 
         Args:
@@ -58,7 +59,7 @@ class KGProcessor(FeatureProcessor):
                 max_len = max(max_len, len(value))
         self.max_length = max(1, max_len)
 
-    def process(self, value: List[int]) -> Dict[str, torch.Tensor]:
+    def process(self, value: list[int]) -> dict[str, torch.Tensor]:
         """Pad a list of entity ids to ``max_length`` and build its attention mask.
 
         Lists longer than ``max_length`` (e.g. seen only at inference time,
