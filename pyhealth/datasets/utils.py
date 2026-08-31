@@ -304,6 +304,30 @@ def collate_fn_dict_with_padding(batch: List[dict]) -> dict:
         elif HAS_PYG and isinstance(values[0], PyGData):
             collated[key] = PyGBatch.from_data_list(values)
 
+        elif isinstance(values[0], dict) and all(
+            isinstance(v, torch.Tensor) for v in values[0].values()
+        ):
+            # Nested all-tensor feature dict, e.g. {"value": Tensor, "mask": Tensor}
+            # from KGProcessor. Stack each sub-key independently; sub-values
+            # share shape across samples when the processor pads to a fixed
+            # field-wide length (KGProcessor.fit), so this is typically a
+            # plain stack rather than dynamic padding.
+            #
+            # Restricted to all-tensor dicts so heterogeneous per-sample
+            # dicts (e.g. a "hyperparameters" field of plain Python values)
+            # keep falling through to the generic list passthrough below,
+            # preserving their existing list-of-dicts collation shape.
+            sub_collated: dict = {}
+            for sub_key in values[0]:
+                sub_values = [v[sub_key] for v in values]
+                if all(v.shape == sub_values[0].shape for v in sub_values):
+                    sub_collated[sub_key] = torch.stack(sub_values)
+                else:
+                    sub_collated[sub_key] = pad_sequence(
+                        sub_values, batch_first=True, padding_value=0
+                    )
+            collated[key] = sub_collated
+
         elif isinstance(values[0], torch.Tensor):
             # Check if shapes are the same
             shapes = [v.shape for v in values]

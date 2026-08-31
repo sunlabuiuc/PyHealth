@@ -46,6 +46,7 @@ from .text_processor import TextProcessor
 from .timeseries_processor import TimeseriesProcessor
 from .time_image_processor import TimeImageProcessor
 from .graph_processor import GraphProcessor
+from .kg_processor import KGProcessor
 from .audio_processor import AudioProcessor
 from .ignore_processor import IgnoreProcessor
 from .temporal_timeseries_processor import TemporalTimeseriesProcessor
@@ -78,6 +79,7 @@ __all__ = [
     "TimeseriesProcessor",
     "TimeImageProcessor",
     "GraphProcessor",
+    "KGProcessor",
     "AudioProcessor",
     "TupleTimeTextProcessor",
     "CehrProcessor",

@@ -1,12 +1,19 @@
 """Task-specific sample dataset for knowledge-graph embedding models.
 
-This module deliberately does **not** build on
-:class:`pyhealth.datasets.SampleDataset`. Since PyHealth 2.0,
-``SampleDataset`` is a ``litdata.StreamingDataset`` whose contract is "a
-directory containing ``schema.pkl`` plus optimized chunks". A knowledge
-graph task produces an in-memory list of triple-level records and has no
-feature schema, no processors and no patient/visit index: the two
-abstractions are unrelated.
+``SampleKGDataset`` builds on :class:`pyhealth.datasets.InMemorySampleDataset`
+so that KG triples and the variable-length ``ground_truth_head`` /
+``ground_truth_tail`` filter sets are converted to pure PyTorch tensors ahead
+of ``litdata``'s pickle-based caching (the "Tensor Trick"), instead of being
+serialized as raw Python lists on every access.
+
+``ground_truth_head`` and ``ground_truth_tail`` are padded independently, each
+to its own field's observed maximum length, by the registered
+``"kg_entity_list"`` processor
+(:class:`~pyhealth.processors.kg_processor.KGProcessor`), which returns a
+``{"value": Tensor, "mask": Tensor}`` pair. Because the padding value is not
+a valid entity id on its own, any code that filters on these fields (see
+:class:`~pyhealth.medcode.pretrained_embeddings.kg_emb.models.kg_base.KGEBaseModel`)
+must use the mask to recover the true, unpadded entity list first.
 """
 
 from __future__ import annotations
@@ -14,14 +21,16 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from torch.utils.data import Dataset
+import torch
+
+from pyhealth.datasets.sample_dataset import InMemorySampleDataset
 
 KGSample = Mapping[str, Any]
 
 __all__ = ["SampleKGDataset"]
 
 
-class SampleKGDataset(Dataset):
+class SampleKGDataset(InMemorySampleDataset):
     r"""In-memory dataset of knowledge-graph link-prediction samples.
 
     Each sample is a mapping with the following keys:
@@ -54,6 +63,8 @@ class SampleKGDataset(Dataset):
             index.
         relation2id: Mapping from surface relation identifier to integer
             index.
+        pad_token_id: Entity id used to pad ``ground_truth_head`` /
+            ``ground_truth_tail`` to their fitted per-field max length.
         **task_spec_param: Task hyper-parameters forwarded to the model
             at training time (e.g. ``negative_sampling=128``).
 
@@ -82,8 +93,6 @@ class SampleKGDataset(Dataset):
         ... )
         >>> len(dataset)
         10
-        >>> dataset[0]["triple"]
-        (0, 0, 1)
         >>> dataset.entity_num, dataset.relation_num
         (5, 2)
         >>> dataset.id2entity[2]
@@ -102,11 +111,22 @@ class SampleKGDataset(Dataset):
         relation_num: int = 0,
         entity2id: Mapping[Any, int] | None = None,
         relation2id: Mapping[Any, int] | None = None,
+        pad_token_id: int = 0,
         **task_spec_param: Any,
     ) -> None:
-        self.samples: list[KGSample] = list(samples)
-        self.dataset_name = dataset_name
-        self.task_name = task_name
+        input_schema = {
+            "triple": ("tensor", {"dtype": torch.long}),
+            "ground_truth_head": ("kg_entity_list", {"pad_token_id": pad_token_id}),
+            "ground_truth_tail": ("kg_entity_list", {"pad_token_id": pad_token_id}),
+        }
+        super().__init__(
+            samples=list(samples),
+            input_schema=input_schema,
+            output_schema={},
+            dataset_name=dataset_name,
+            task_name=task_name,
+        )
+
         self.dev = dev
 
         self.entity2id: dict[Any, int] = dict(entity2id or {})
@@ -139,13 +159,7 @@ class SampleKGDataset(Dataset):
     @property
     def sample_size(self) -> int:
         """Number of samples. Kept as a property for backward compatibility."""
-        return len(self.samples)
-
-    def __len__(self) -> int:
-        return len(self.samples)
-
-    def __getitem__(self, index: int) -> KGSample:
-        return self.samples[index]
+        return len(self)
 
     def stat(self) -> str:
         """Print a human-readable summary and return it."""
@@ -154,7 +168,7 @@ class SampleKGDataset(Dataset):
             f"Statistics of sample KG dataset (dev={self.dev}):",
             f"\t- Dataset: {self.dataset_name}",
             f"\t- Task name: {self.task_name}",
-            f"\t- Number of triples: {len(self.samples)}",
+            f"\t- Number of triples: {len(self)}",
             f"\t- Number of entities: {self.entity_num}",
             f"\t- Number of relations: {self.relation_num}",
             f"\t- Task-specific hyperparameters: {self.task_spec_param}",

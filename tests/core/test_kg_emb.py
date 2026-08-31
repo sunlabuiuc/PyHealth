@@ -80,7 +80,9 @@ class TestSampleKGDataset(unittest.TestCase):
 
     def test_getitem_returns_the_sample(self) -> None:
         dataset = make_dataset(n=3)
-        self.assertEqual(dataset[0]["triple"], (0, 0, 4))
+        # "triple" is now a pure LongTensor (the Tensor Trick), not the raw
+        # tuple, so this is a torch.equal check rather than a tuple ==.
+        self.assertTrue(torch.equal(dataset[0]["triple"], torch.tensor([0, 0, 4])))
         self.assertIn("ground_truth_head", dataset[1])
 
     def test_inverse_vocabularies(self) -> None:
@@ -112,9 +114,16 @@ class TestSampleKGDataset(unittest.TestCase):
         self.assertIn("Number of triples: 2", report)
 
     def test_is_a_map_style_dataset(self) -> None:
+        """SampleKGDataset is deliberately back under the InMemorySampleDataset
+        umbrella (see PR discussion), so `set_shuffle` is now expected to be
+        present rather than absent — this supersedes the old standalone-Dataset
+        isolation check."""
+        from pyhealth.datasets.sample_dataset import InMemorySampleDataset
+
         dataset = make_dataset(n=2)
         self.assertIsInstance(dataset, torch.utils.data.Dataset)
-        self.assertFalse(hasattr(dataset, "set_shuffle"))
+        self.assertIsInstance(dataset, InMemorySampleDataset)
+        self.assertTrue(hasattr(dataset, "set_shuffle"))
 
 
 class TestSplit(unittest.TestCase):
@@ -126,14 +135,19 @@ class TestSplit(unittest.TestCase):
 
     def test_folds_are_disjoint_and_exhaustive(self) -> None:
         train, val, test = split(make_dataset(n=10), [0.6, 0.2, 0.2], seed=0)
-        triples = [s["triple"] for s in train + val + test]
+        # "triple" is now a Tensor, which is neither hashable-by-value nor
+        # comparable the way a tuple is; compare/hash via .tolist() instead.
+        triples = [tuple(s["triple"].tolist()) for s in train + val + test]
         self.assertEqual(len(triples), 10)
         self.assertEqual(len(set(triples)), 10)
 
     def test_is_reproducible_under_a_fixed_seed(self) -> None:
         first = split(make_dataset(n=10), [0.6, 0.2, 0.2], seed=7)[0]
         second = split(make_dataset(n=10), [0.6, 0.2, 0.2], seed=7)[0]
-        self.assertEqual([s["triple"] for s in first], [s["triple"] for s in second])
+        self.assertEqual(
+            [s["triple"].tolist() for s in first],
+            [s["triple"].tolist() for s in second],
+        )
 
     def test_global_numpy_state_is_untouched(self) -> None:
         import numpy as np
@@ -162,20 +176,30 @@ class TestSplit(unittest.TestCase):
 
 
 class TestCollateAndForward(unittest.TestCase):
-    """Generic padding collation leaves KG lists intact; one train step runs."""
+    """Tensor Trick collation: KG fields arrive pre-padded, with masks; one train step runs."""
 
-    def test_variable_length_ground_truth_stays_a_python_list(self) -> None:
+    def test_ground_truth_collates_to_padded_tensor_with_mask(self) -> None:
+        """Supersedes the old "stays a python list" expectation: since the
+        Tensor Trick (KGProcessor), triple/ground_truth_* are pre-padded
+        pure tensors by the time they leave SampleKGDataset, not raw Python
+        lists collated dynamically per batch."""
         dataset = make_dataset(n=4)
         train, _, _ = split(dataset, [1.0, 0.0, 0.0], seed=0)
         loader = DataLoader(
             train, batch_size=2, shuffle=False, collate_fn=collate_fn_dict_with_padding
         )
         batch = next(iter(loader))
-        self.assertIsInstance(batch["triple"], list)
-        self.assertIsInstance(batch["ground_truth_head"], list)
-        self.assertIsInstance(batch["ground_truth_head"][0], list)
-        lengths = [len(h) for h in batch["ground_truth_head"]]
-        self.assertTrue(all(length >= 1 for length in lengths))
+
+        self.assertIsInstance(batch["triple"], torch.Tensor)
+        self.assertEqual(tuple(batch["triple"].shape), (2, 3))
+
+        for field in ("ground_truth_head", "ground_truth_tail"):
+            gt = batch[field]
+            self.assertIsInstance(gt, dict)
+            self.assertEqual(gt["value"].shape, gt["mask"].shape)
+            self.assertEqual(gt["value"].shape[0], 2)  # batch size
+            # Every sample has at least one real (unmasked) entity.
+            self.assertTrue(gt["mask"].bool().any(dim=1).all())
 
     def test_transe_train_step(self) -> None:
         from pyhealth.medcode.pretrained_embeddings.kg_emb.models import TransE
@@ -242,3 +266,30 @@ class TestScoringInvariants(unittest.TestCase):
                 model.calc(head, relation, tail), torch.tensor(24.0), atol=1e-6
             )
         )
+
+
+class TestGroundTruthUnpadding(unittest.TestCase):
+    """Regression test for the padding-sentinel collision the Tensor Trick
+    introduces: pad_token_id (0) is not a reserved value, so a real entity id
+    of 0 must survive unpadding while an actual padding slot does not."""
+
+    def test_unpad_ground_truth_keeps_real_entity_zero_and_drops_padding(self) -> None:
+        from pyhealth.medcode.pretrained_embeddings.kg_emb.models import TransE
+
+        model = TransE(dataset=make_dataset(n=4), e_dim=8, r_dim=8)
+
+        # Row 0: entities {0, 5} are real (mask=1), trailing slot is padding.
+        # Row 1: entity {3} is real, two trailing slots are padding.
+        value = torch.tensor([[0, 5, 0], [3, 0, 0]])
+        mask = torch.tensor([[1, 1, 0], [1, 0, 0]])
+
+        unpadded = model._unpad_ground_truth({"value": value, "mask": mask})
+
+        self.assertEqual(unpadded, [[0, 5], [3]])
+
+    def test_unpad_ground_truth_passes_through_plain_lists_unchanged(self) -> None:
+        from pyhealth.medcode.pretrained_embeddings.kg_emb.models import TransE
+
+        model = TransE(dataset=make_dataset(n=4), e_dim=8, r_dim=8)
+        raw = [[0, 5], [3]]
+        self.assertEqual(model._unpad_ground_truth(raw), raw)
