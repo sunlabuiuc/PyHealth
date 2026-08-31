@@ -53,6 +53,10 @@ class RemovalBasedMetric(ABC):
             - SampleClass.IGNORE: exclude from evaluation
     """
 
+    # Integer dtypes treated as discrete (categorical code indices), which are
+    # always zero-ablated to the padding index rather than mean/noise-ablated.
+    _DISCRETE_DTYPES = (torch.long, torch.int, torch.int32, torch.int64)
+
     def __init__(
         self,
         model: BaseModel,
@@ -233,6 +237,89 @@ class RemovalBasedMetric(ABC):
 
         return masks
 
+    def _empty_row_safety_repair(
+        self,
+        x_values: torch.Tensor,
+        ablated_values: torch.Tensor,
+    ) -> torch.Tensor:
+        """Restore one original element in any fully ablated sequence.
+
+        Complete ablation (an all-zero row) breaks downstream models like
+        StageNet and Transformer: every embedding collapses to the padding
+        vector (``padding_idx=0``), the padding/attention mask becomes all
+        zeros, and ``get_last_visit()`` indexes with ``-1`` on an empty
+        sequence. To avoid this, each sequence that was fully ablated has
+        its first originally non-zero element restored.
+
+        Args:
+            x_values: The original (un-ablated) values tensor.
+            ablated_values: The ablated values tensor to repair.
+
+        Returns:
+            A copy of ``ablated_values`` with at least one non-zero element
+            preserved per sequence (where the original had one).
+        """
+        repaired = ablated_values.clone()
+        for b in range(repaired.shape[0]):
+            if repaired[b].sum() == 0:
+                non_zero_mask = x_values[b] != 0
+                if non_zero_mask.any():
+                    # Keep first non-zero element
+                    first_idx = non_zero_mask.nonzero()[0]
+                    repaired[b][tuple(first_idx)] = x_values[b][
+                        tuple(first_idx)
+                    ]
+        return repaired
+
+    def _apply_ablation_to_values(
+        self,
+        x_values: torch.Tensor,
+        mask: torch.Tensor,
+    ) -> torch.Tensor:
+        """Ablate a single values tensor according to its dtype and strategy.
+
+        Discrete (integer code) features are always zero-ablated regardless
+        of ``self.ablation_strategy``: masked positions are set to the
+        padding index 0, since "mean"/"noise" are meaningless for
+        categorical code indices. Continuous features honor
+        ``self.ablation_strategy`` ("zero", "mean", or "noise").
+
+        Args:
+            x_values: The values tensor to ablate.
+            mask: Binary mask where 1 marks positions to ablate.
+
+        Returns:
+            The ablated values tensor (same shape and dtype as
+            ``x_values``).
+        """
+        if x_values.dtype in self._DISCRETE_DTYPES:
+            # Discrete features (codes) are always zero-ablated regardless of
+            # self.ablation_strategy: multiply by (1-mask) so that
+            # mask=1 (ablate) -> 0 (padding index) and mask=0 (keep) ->
+            # original value. "mean"/"noise" don't apply to code indices.
+            ablated_values = x_values * (1 - mask).long()
+
+            ablated_values = self._empty_row_safety_repair(
+                x_values, ablated_values
+            )
+        else:
+            # For continuous features, apply standard ablation
+            if self.ablation_strategy == "zero":
+                ablated_values = x_values * (1 - mask)
+            elif self.ablation_strategy == "mean":
+                x_mean = x_values.mean(dim=0, keepdim=True)
+                ablated_values = x_values * (1 - mask) + x_mean * mask
+            elif self.ablation_strategy == "noise":
+                noise = torch.randn_like(x_values) * x_values.std()
+                ablated_values = x_values * (1 - mask) + noise * mask
+            else:
+                raise ValueError(
+                    f"Unknown ablation strategy: "
+                    f"{self.ablation_strategy}"
+                )
+
+        return ablated_values
+
     def _apply_ablation(
         self,
         inputs: Dict[str, torch.Tensor],
@@ -247,6 +334,7 @@ class RemovalBasedMetric(ABC):
         Returns:
             Modified inputs with ablation applied
         """
+
         ablated_inputs = {}
 
         for key in inputs.keys():
@@ -266,52 +354,7 @@ class RemovalBasedMetric(ABC):
 
                     mask = masks[key]
 
-                    # Check if values are integers (discrete features)
-                    is_discrete = x_values.dtype in [
-                        torch.long,
-                        torch.int,
-                        torch.int32,
-                        torch.int64,
-                    ]
-
-                    # Apply ablation to values part
-                    if is_discrete:
-                        # For discrete features (codes), multiply by (1-mask)
-                        # Where mask=1 (ablate): set to 0 (padding index)
-                        # Where mask=0 (keep): preserve original value
-                        ablated_values = x_values * (1 - mask).long()
-
-                        # Safety: prevent complete ablation of sequences
-                        # Complete ablation (all zeros) causes issues in
-                        # StageNet:
-                        # - All embeddings become zero (padding_idx=0)
-                        # - Mask becomes all zeros
-                        # - get_last_visit() tries to index with -1
-                        # Solution: keep at least one non-zero element
-                        for b in range(ablated_values.shape[0]):
-                            if ablated_values[b].sum() == 0:
-                                non_zero_mask = x_values[b] != 0
-                                if non_zero_mask.any():
-                                    # Keep first non-zero element
-                                    first_idx = non_zero_mask.nonzero()[0]
-                                    ablated_values[b][tuple(first_idx)] = x_values[b][
-                                        tuple(first_idx)
-                                    ]
-                    else:
-                        # For continuous features, apply standard ablation
-                        if self.ablation_strategy == "zero":
-                            ablated_values = x_values * (1 - mask)
-                        elif self.ablation_strategy == "mean":
-                            x_mean = x_values.mean(dim=0, keepdim=True)
-                            ablated_values = x_values * (1 - mask) + x_mean * mask
-                        elif self.ablation_strategy == "noise":
-                            noise = torch.randn_like(x_values) * x_values.std()
-                            ablated_values = x_values * (1 - mask) + noise * mask
-                        else:
-                            raise ValueError(
-                                f"Unknown ablation strategy: "
-                                f"{self.ablation_strategy}"
-                            )
+                    ablated_values = self._apply_ablation_to_values(x_values, mask)
 
                     # Reconstruct tuple with ablated values
                     ablated_inputs[key] = (time_info, ablated_values) + x[2:]
@@ -332,23 +375,7 @@ class RemovalBasedMetric(ABC):
 
             mask = masks[key]
 
-            # Apply ablation strategy
-            if self.ablation_strategy == "zero":
-                # Set ablated features to 0
-                ablated_inputs[key] = x * (1 - mask)
-
-            elif self.ablation_strategy == "mean":
-                # Set ablated features to mean across batch
-                x_mean = x.mean(dim=0, keepdim=True)
-                ablated_inputs[key] = x * (1 - mask) + x_mean * mask
-
-            elif self.ablation_strategy == "noise":
-                # Replace ablated features with Gaussian noise
-                noise = torch.randn_like(x) * x.std()
-                ablated_inputs[key] = x * (1 - mask) + noise * mask
-
-            else:
-                raise ValueError(f"Unknown ablation strategy: {self.ablation_strategy}")
+            ablated_inputs[key] = self._apply_ablation_to_values(x, mask)
 
         return ablated_inputs
 
