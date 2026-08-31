@@ -2,6 +2,7 @@ import unittest
 from pathlib import Path
 
 from pyhealth.datasets import MIMIC3Dataset
+from pyhealth.models.medlink import convert_to_ir_format
 from pyhealth.tasks import PatientLinkageMIMIC3Task
 
 
@@ -54,6 +55,23 @@ class TestPatientLinkageMIMIC3Task(unittest.TestCase):
 
         self.assertEqual(sample["d_visit_ids"], "168074")
         self.assertNotIn("[SEP]", sample["d_conditions"])
+
+    def test_convert_to_ir_format_accepts_sample_dataset_directly(self):
+        # Regression check for the patient_linkage_mimic3_medlink.py example:
+        # it used to call convert_to_ir_format(sample_dataset.samples), but
+        # SampleDataset has no .samples attribute (only __iter__/__getitem__/
+        # __len__), so that line raised AttributeError even after the
+        # processor-name fix above. convert_to_ir_format only iterates its
+        # argument, so the SampleDataset itself must work directly.
+        sample_dataset = self.dataset.set_task(PatientLinkageMIMIC3Task())
+        corpus, queries, qrels, corpus_meta, queries_meta = convert_to_ir_format(
+            sample_dataset
+        )
+        self.assertEqual(len(queries), len(sample_dataset))
+        self.assertEqual(set(queries.keys()), set(qrels.keys()))
+        self.assertEqual(set(queries.keys()), set(queries_meta.keys()))
+        self.assertTrue(corpus)
+        self.assertEqual(set(corpus.keys()), set(corpus_meta.keys()))
 
 
 if __name__ == "__main__":
