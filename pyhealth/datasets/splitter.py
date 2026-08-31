@@ -1,5 +1,5 @@
 from itertools import chain
-from typing import List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import numpy as np
 import torch
@@ -8,6 +8,121 @@ from .sample_dataset import SampleDataset
 
 # TODO: train_dataset.dataset still access the whole dataset which may leak information
 # TODO: add more splitting methods
+
+
+def _patient_id_error(index: int, patient_id_key: str, reason: str) -> ValueError:
+    return ValueError(f"Sample {index} {reason} '{patient_id_key}'.")
+
+
+def get_patient_ids(dataset_or_samples, patient_id_key: str = "patient_id") -> Set[str]:
+    """Returns patient IDs from a split, sample collection, or ID collection.
+
+    This function inspects the actual samples in ``dataset_or_samples`` instead
+    of relying on ``patient_to_index``, which may describe the source dataset
+    rather than a derived split.
+
+    Args:
+        dataset_or_samples: A ``SampleDataset``/subset, a list or tuple of sample
+            dictionaries, or a list/set/tuple of patient ID strings.
+        patient_id_key: Key used to read patient IDs from sample dictionaries.
+
+    Returns:
+        A set of patient IDs.
+
+    Raises:
+        ValueError: If any sample is missing ``patient_id_key`` or stores ``None``.
+    """
+
+    if isinstance(dataset_or_samples, str):
+        return {dataset_or_samples}
+
+    if isinstance(dataset_or_samples, (list, tuple, set, frozenset)):
+        if all(not isinstance(item, dict) for item in dataset_or_samples):
+            patient_ids = set()
+            for index, patient_id in enumerate(dataset_or_samples):
+                if patient_id is None:
+                    raise _patient_id_error(index, patient_id_key, "has None for")
+                patient_ids.add(str(patient_id))
+            return patient_ids
+
+    if hasattr(dataset_or_samples, "unique_patient_ids") and not hasattr(
+        dataset_or_samples, "__getitem__"
+    ):
+        return {str(patient_id) for patient_id in dataset_or_samples.unique_patient_ids}
+
+    patient_ids = set()
+    if hasattr(dataset_or_samples, "__len__") and hasattr(dataset_or_samples, "__getitem__"):
+        samples = (dataset_or_samples[index] for index in range(len(dataset_or_samples)))
+    else:
+        samples = iter(dataset_or_samples)
+
+    for index, sample in enumerate(samples):
+        if not isinstance(sample, dict) or patient_id_key not in sample:
+            raise _patient_id_error(index, patient_id_key, "is missing")
+        patient_id = sample[patient_id_key]
+        if patient_id is None:
+            raise _patient_id_error(index, patient_id_key, "has None for")
+        patient_ids.add(str(patient_id))
+    return patient_ids
+
+
+def check_patient_disjoint(
+    *datasets,
+    names: Optional[List[str]] = None,
+    patient_id_key: str = "patient_id",
+) -> Dict[str, Any]:
+    """Checks whether patient IDs are disjoint across two or more splits."""
+
+    if len(datasets) < 2:
+        raise ValueError("At least two datasets or sample collections are required.")
+    if names is None:
+        names = [f"split_{index}" for index in range(len(datasets))]
+    if len(names) != len(datasets):
+        raise ValueError("names must have the same length as datasets.")
+
+    patient_id_sets = [
+        get_patient_ids(dataset, patient_id_key=patient_id_key) for dataset in datasets
+    ]
+    counts = {
+        name: len(patient_ids) for name, patient_ids in zip(names, patient_id_sets)
+    }
+    overlaps: Dict[str, Set[str]] = {}
+
+    for i in range(len(patient_id_sets)):
+        for j in range(i + 1, len(patient_id_sets)):
+            overlap = patient_id_sets[i] & patient_id_sets[j]
+            if overlap:
+                overlaps[f"{names[i]}/{names[j]}"] = overlap
+
+    return {
+        "is_disjoint": len(overlaps) == 0,
+        "counts": counts,
+        "overlaps": overlaps,
+    }
+
+
+def assert_patient_disjoint(
+    *datasets,
+    names: Optional[List[str]] = None,
+    patient_id_key: str = "patient_id",
+) -> Dict[str, Any]:
+    """Asserts that patient IDs are disjoint across two or more splits."""
+
+    report = check_patient_disjoint(
+        *datasets, names=names, patient_id_key=patient_id_key
+    )
+    if report["is_disjoint"]:
+        return report
+
+    parts = []
+    for split_pair, overlap in report["overlaps"].items():
+        examples = ", ".join(sorted(overlap)[:5])
+        parts.append(
+            f"{split_pair}: {len(overlap)} overlapping "
+            f"{patient_id_key} values"
+            + (f" (examples: {examples})" if examples else "")
+        )
+    raise AssertionError("Patient overlap detected between " + "; ".join(parts))
 
 
 def _label_to_int(label) -> int:
