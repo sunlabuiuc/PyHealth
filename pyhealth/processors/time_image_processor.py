@@ -75,6 +75,11 @@ class TimeImageProcessor(TemporalFeatureProcessor):
             patient has more images, the most recent (by timestamp)
             are kept. If None, all images are kept. Defaults to
             None.
+        padding: Sentinel string that marks a missing image. When
+            a path equals this value, a zero tensor of shape
+            (C, H, W) is returned instead of loading from disk.
+            If None, all paths are treated as real file paths.
+            Defaults to None.
 
     Raises:
         ValueError: If normalize is True but mean or std is missing.
@@ -107,6 +112,7 @@ class TimeImageProcessor(TemporalFeatureProcessor):
         std: Optional[List[float]] = None,
         mode: Optional[str] = None,
         max_images: Optional[int] = None,
+        padding: Optional[str] = None,
     ) -> None:
         self.image_size = image_size
         self.to_tensor = to_tensor
@@ -115,18 +121,14 @@ class TimeImageProcessor(TemporalFeatureProcessor):
         self.std = std
         self.mode = mode
         self.max_images = max_images
+        self.padding = padding
         self.n_channels = None
 
-        if self.normalize and (
-            self.mean is None or self.std is None
-        ):
+        if self.normalize and (self.mean is None or self.std is None):
             raise ValueError(
-                "Normalization requires both mean and std to be "
-                "provided."
+                "Normalization requires both mean and std to be " "provided."
             )
-        if not self.normalize and (
-            self.mean is not None or self.std is not None
-        ):
+        if not self.normalize and (self.mean is not None or self.std is not None):
             raise ValueError(
                 "Mean and std are provided but normalize is set "
                 "to False. Either provide normalize=True, or "
@@ -146,36 +148,49 @@ class TimeImageProcessor(TemporalFeatureProcessor):
         transform_list = []
         if self.mode is not None:
             transform_list.append(
-                transforms.Lambda(
-                    partial(_convert_mode, mode=self.mode)
-                )
+                transforms.Lambda(partial(_convert_mode, mode=self.mode))
             )
         if self.image_size is not None:
-            transform_list.append(
-                transforms.Resize(
-                    (self.image_size, self.image_size)
-                )
-            )
+            transform_list.append(transforms.Resize((self.image_size, self.image_size)))
         if self.to_tensor:
             transform_list.append(transforms.ToTensor())
         if self.normalize:
-            transform_list.append(
-                transforms.Normalize(
-                    mean=self.mean, std=self.std
-                )
-            )
+            transform_list.append(transforms.Normalize(mean=self.mean, std=self.std))
         return transforms.Compose(transform_list)
 
-    def _load_single_image(
-        self, path: Union[str, Path]
-    ) -> torch.Tensor:
+    def _zero_image_tensor(self) -> torch.Tensor:
+        """Return a zero tensor matching the expected image shape (C, H, W).
+
+        Used as a placeholder when an image path is an empty string.
+        Channel count is inferred from self.n_channels if available,
+        otherwise derived from self.mode ("L"→1, "RGBA"→4, else 3).
+
+        Returns:
+            Zero tensor of shape (C, image_size, image_size).
+        """
+        if self.n_channels is not None:
+            c = self.n_channels
+        elif self.mode == "L":
+            c = 1
+        elif self.mode == "RGBA":
+            c = 4
+        else:
+            c = 3
+        return torch.zeros(c, self.image_size, self.image_size)
+
+    def _load_single_image(self, path: Union[str, Path]) -> torch.Tensor:
         """Load and transform a single image from disk.
+
+        If path equals missing_path_token, returns a zero tensor of
+        the same shape as a normal image (C, H, W) via _zero_image_tensor.
 
         Called internally by process() for each image path in
         the input list.
 
         Args:
-            path: Path to the image file.
+            path: Path to the image file. If this equals
+                missing_path_token, a zero-filled placeholder tensor
+                is returned instead.
 
         Returns:
             Transformed image tensor of shape (C, H, W).
@@ -183,18 +198,16 @@ class TimeImageProcessor(TemporalFeatureProcessor):
         Raises:
             FileNotFoundError: If the image file does not exist.
         """
+        if self.padding is not None and str(path) == self.padding:
+            return self._zero_image_tensor()
         image_path = Path(path)
         if not image_path.exists():
-            raise FileNotFoundError(
-                f"Image file not found: {image_path}"
-            )
+            raise FileNotFoundError(f"Image file not found: {image_path}")
         with Image.open(image_path) as img:
             img.load()
             return self.transform(img)
 
-    def fit(
-        self, samples: Iterable[Dict[str, Any]], field: str
-    ) -> None:
+    def fit(self, samples: Iterable[Dict[str, Any]], field: str) -> None:
         """Fit the processor by inferring n_channels from data.
 
         Scans samples to find the first valid entry for the given
@@ -214,8 +227,10 @@ class TimeImageProcessor(TemporalFeatureProcessor):
             for sample in samples:
                 if field in sample and sample[field] is not None:
                     image_paths, _ = sample[field]
-                    if len(image_paths) > 0:
-                        path = Path(image_paths[0])
+                    for raw_path in image_paths:
+                        if self.padding is not None and str(raw_path) == self.padding:
+                            continue
+                        path = Path(raw_path)
                         if path.exists():
                             with Image.open(path) as img:
                                 if img.mode == "L":
@@ -225,14 +240,14 @@ class TimeImageProcessor(TemporalFeatureProcessor):
                                 else:
                                     self.n_channels = 3
                             break
+                if self.n_channels is not None:
+                    break
             if self.n_channels is None:
                 self.n_channels = 3
 
     def process(
         self,
-        value: Tuple[
-            List[Union[str, Path]], List[float]
-        ],
+        value: Tuple[List[Union[str, Path]], List[float]],
     ) -> Tuple[torch.Tensor, torch.Tensor, str]:
         """Process paired image paths and timestamps.
 
@@ -264,7 +279,6 @@ class TimeImageProcessor(TemporalFeatureProcessor):
         Raises:
             ValueError: If image_paths and time_diffs have
                 different lengths.
-            ValueError: If image_paths is empty.
             FileNotFoundError: If any image file does not exist.
         """
         image_paths, time_diffs = value
@@ -276,17 +290,24 @@ class TimeImageProcessor(TemporalFeatureProcessor):
                 f"match."
             )
         if len(image_paths) == 0:
-            raise ValueError("image_paths must be non-empty.")
+            if self.n_channels is not None:
+                c = self.n_channels
+            elif self.mode == "L":
+                c = 1
+            elif self.mode == "RGBA":
+                c = 4
+            else:
+                c = 3
+            images = torch.zeros(
+                (0, c, self.image_size, self.image_size), dtype=torch.float32
+            )
+            timestamps = torch.zeros((0,), dtype=torch.float32)
+            return images, timestamps, "image"
 
-        paired = sorted(
-            zip(time_diffs, image_paths), key=lambda x: x[0]
-        )
+        paired = sorted(zip(time_diffs, image_paths), key=lambda x: x[0])
 
-        if (
-            self.max_images is not None
-            and len(paired) > self.max_images
-        ):
-            paired = paired[-self.max_images:]
+        if self.max_images is not None and len(paired) > self.max_images:
+            paired = paired[-self.max_images :]
 
         timestamps = []
         image_tensors = []
@@ -295,9 +316,7 @@ class TimeImageProcessor(TemporalFeatureProcessor):
             timestamps.append(t)
 
         images = torch.stack(image_tensors, dim=0)
-        timestamps = torch.tensor(
-            timestamps, dtype=torch.float32
-        )
+        timestamps = torch.tensor(timestamps, dtype=torch.float32)
 
         if self.n_channels is None:
             self.n_channels = images.shape[1]
@@ -344,5 +363,6 @@ class TimeImageProcessor(TemporalFeatureProcessor):
             f"mean={self.mean}, "
             f"std={self.std}, "
             f"mode={self.mode}, "
-            f"max_images={self.max_images})"
+            f"max_images={self.max_images}, "
+            f"padding={self.padding!r})"
         )

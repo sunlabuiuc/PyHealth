@@ -1,0 +1,61 @@
+# HTCondor submission — labs+notes+CXR RNN mortality run
+#
+# Condor equivalent of
+# scripts/will/lambda-labs/labs_notes_cxr/tmux_run_labs_notes_cxr_rnn_variant.py:
+# same task (notes_labs_cxr), same model (rnn), same hyperparameters. Runs
+# unattended instead of in a tmux session; Condor assigns the GPU (no manual
+# nvidia-smi / CUDA_VISIBLE_DEVICES step needed).
+#
+# To submit (from the project root):
+#   mkdir -p /home/wp14/logs/condor
+#   condor_submit scripts/will/condor/labs_notes_cxr/labs_notes_cxr_rnn.sub
+#
+# Monitor:
+#   condor_q
+#   tail -f /home/wp14/logs/condor/labs_notes_cxr_rnn_<ClusterId>_0.out
+
+initialdir          = /home/wp14/PyHealth
+executable          = /home/wp14/PyHealth/scripts/will/condor/labs_notes_cxr/run_labs_notes_cxr_rnn.sh
+transfer_executable  = False
+arguments            = $(seed)
+getenv               = True
+
+environment = "EHR_ROOT=/shared/rsaas/physionet.org/files/mimiciv/2.2 \
+               NOTE_ROOT=/shared/rsaas/physionet.org/files/mimic-note \
+               CXR_ROOT=/shared/rsaas/physionet.org/files/MIMIC-CXR \
+               CXR_VARIANT=sunlab \
+               CACHE_DIR=/shared/rsaas/wp14/pyhealth_cache_labs_notes_cxr \
+               OUTPUT_DIR=/home/wp14/output \
+               USE_WANDB=1 \
+               WANDB_PROJECT=pyhealth-multimodal-labs-notes-cxr \
+               WANDB_RUN_NAME=labs_notes_cxr_rnn_seed$(seed) \
+               FREEZE_ENCODER=1"
+
+output = /home/wp14/logs/condor/labs_notes_cxr_rnn_$(ClusterId)_$(Process).out
+error  = /home/wp14/logs/condor/labs_notes_cxr_rnn_$(ClusterId)_$(Process).err
+log    = /home/wp14/logs/condor/labs_notes_cxr_rnn_$(ClusterId)_$(Process).log
+
+stream_output = False
+stream_error  = False
+
+request_gpus   = 1
+request_cpus   = 8
+# Starting point copied from labs_notes_rnn.sub (400000MB was sized for the
+# full-scale patient_id sort/shuffle there). Untested for this variant: the
+# added CXR branch means more dataloader workers decoding JPEGs plus an
+# image-metadata join during caching, so this may need to be raised further
+# if the job gets cgroup-killed.
+request_memory = 400000MB
+request_disk   = 20GB
+
+# Same reasoning as labs_notes_rnn.sub: FREEZE_ENCODER=1 (frozen
+# Bio_ClinicalBERT text encoder) keeps VRAM down for the text branch, but the
+# CXR image encoder is unfrozen here and adds its own footprint on top, so
+# the GPU memory floor is a conservative starting guess pending a real OOM
+# data point on this variant.
+Requirements = (TARGET.GPUs_GlobalMemoryMb >= 40000)
+Rank = TARGET.GPUs_GlobalMemoryMb
+
+queue seed from (
+    12
+)

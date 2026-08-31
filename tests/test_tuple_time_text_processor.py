@@ -25,6 +25,12 @@ def test_tuple_time_text_processor():
     assert torch.equal(time_tensor, torch.tensor([0.0, 24.0, 72.0]))
     assert tag == "clinical_note"
     
+    # Empty input is zero events, not a fake "[MISSING_TEXT]" token.
+    empty_texts, empty_time, empty_tag = processor.process(([], []))
+    assert empty_texts == []
+    assert empty_time.shape == (0,)
+    assert empty_tag == "clinical_note"
+
     # Test registration
     from pyhealth.processors import get_processor
     ProcessorClass = get_processor("tuple_time_text")

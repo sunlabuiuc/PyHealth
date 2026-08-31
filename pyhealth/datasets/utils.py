@@ -7,17 +7,18 @@ from typing import Any, Dict, List, Optional, Tuple
 import torch
 import litdata
 from dateutil.parser import parse as dateutil_parse
-from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader
 
 from pyhealth import BASE_CACHE_PATH
 from pyhealth.utils import create_directory
+from pyhealth.datasets.collate import _pad_stack
 
 MODULE_CACHE_PATH = os.path.join(BASE_CACHE_PATH, "datasets")
 create_directory(MODULE_CACHE_PATH)
-#PyG import for graph-based models
+# PyG import for graph-based models
 try:
     from torch_geometric.data import Data as PyGData, Batch as PyGBatch
+
     HAS_PYG = True
 except ImportError:
     HAS_PYG = False
@@ -250,6 +251,9 @@ def collate_fn_dict(batch: List[dict]) -> dict:
     return {key: [d[key] for d in batch] for key in batch[0]}
 
 
+PAD_MASK_SUFFIX = "__pad_mask"
+
+
 def collate_fn_dict_with_padding(batch: List[dict]) -> dict:
     """Collates a batch of data into a dictionary with padding for tensor values.
 
@@ -267,40 +271,40 @@ def collate_fn_dict_with_padding(batch: List[dict]) -> dict:
     for key in keys:
         values = [sample[key] for sample in batch]
 
-        # Check if this is a temporal feature tuple (time, values)
-        if isinstance(values[0], tuple) and len(values[0]) == 2:
-            # Handle (time, values) tuples from processors
-            time_tensors = [v[0] for v in values]
-            value_tensors = [v[1] for v in values]
+        if isinstance(values[0], tuple):
+            # Generic tuple collation for processor outputs, e.g.
+            # - (time, value) from StageNet processors
+            # - (value, mask, token_type_ids, time, type_tag)
+            #   from TupleTimeTextProcessor with tokenizer.
+            transposed = list(zip(*values))
+            collated_elems = []
 
-            # Collate values
-            if value_tensors[0].dim() == 0:
-                # Scalars
-                collated_values = torch.stack(value_tensors)
-            elif all(v.shape == value_tensors[0].shape for v in value_tensors):
-                # All same shape
-                collated_values = torch.stack(value_tensors)
-            else:
-                # Variable shapes, use pad_sequence
-                collated_values = pad_sequence(
-                    value_tensors, batch_first=True, padding_value=0
+            event_lengths: Optional[List[int]] = None
+            for elem_vals in transposed:
+                first = elem_vals[0]
+
+                if first is None and all(v is None for v in elem_vals):
+                    collated_elems.append(None)
+                elif isinstance(first, torch.Tensor):
+                    tensor_vals = list(elem_vals)
+                    if all(v.shape == tensor_vals[0].shape for v in tensor_vals):
+                        collated_elems.append(torch.stack(tensor_vals))
+                    else:
+                        if event_lengths is None:
+                            event_lengths = [v.shape[0] for v in tensor_vals]
+                        collated_elems.append(_pad_stack(tensor_vals))
+                else:
+                    collated_elems.append(list(elem_vals))
+
+            collated[key] = tuple(collated_elems)
+            if event_lengths is not None:
+                lengths = torch.tensor(event_lengths)
+                width = int(lengths.max())
+                collated[f"{key}{PAD_MASK_SUFFIX}"] = (
+                    torch.arange(width)[None, :] < lengths[:, None]
                 )
 
-            # Collate times (if present)
-            collated_times = None
-            # Check if ALL samples have time (not just some)
-            if all(t is not None for t in time_tensors):
-                time_tensors_all = [t for t in time_tensors if t is not None]
-                if all(t.shape == time_tensors_all[0].shape for t in time_tensors_all):
-                    collated_times = torch.stack(time_tensors_all)
-                else:
-                    collated_times = pad_sequence(
-                        time_tensors_all, batch_first=True, padding_value=0
-                    )
-
-            # Return as tuple (time, values)
-            collated[key] = (collated_times, collated_values)
-            # PyG Data objects (graph processor output)
+        # PyG Data objects (graph processor output)
         elif HAS_PYG and isinstance(values[0], PyGData):
             collated[key] = PyGBatch.from_data_list(values)
 
@@ -316,9 +320,7 @@ def collate_fn_dict_with_padding(batch: List[dict]) -> dict:
                     # Scalars, treat as stackable
                     collated[key] = torch.stack(values)
                 elif values[0].dim() >= 1:
-                    collated[key] = pad_sequence(
-                        values, batch_first=True, padding_value=0
-                    )
+                    collated[key] = _pad_stack(values)
                 else:
                     raise ValueError(f"Unsupported tensor shape: {values[0].shape}")
         else:
@@ -329,7 +331,13 @@ def collate_fn_dict_with_padding(batch: List[dict]) -> dict:
 
 
 def get_dataloader(
-    dataset: litdata.StreamingDataset, batch_size: int, shuffle: bool = False
+    dataset: litdata.StreamingDataset,
+    batch_size: int,
+    shuffle: bool = False,
+    num_workers: int = 0,
+    pin_memory: bool = False,
+    persistent_workers: bool = False,
+    prefetch_factor: Optional[int] = None,
 ) -> DataLoader:
     """Creates a DataLoader for a given dataset.
 
@@ -337,18 +345,47 @@ def get_dataloader(
         dataset: The dataset to load data from.
         batch_size: The number of samples per batch.
         shuffle: Whether to shuffle the data at every epoch.
+        num_workers: Number of worker processes that load and collate batches.
+        pin_memory: Copy CPU tensors into page-locked memory before return.
+        persistent_workers: Keep the loader workers between epochs. This is valid
+            only when ``num_workers`` is more than 0.
+        prefetch_factor: Batches that each worker loads in advance. This is valid
+            only when ``num_workers`` is more than 0. ``None`` keeps the default
+            of PyTorch.
 
     Returns:
         A DataLoader instance for the dataset.
     """
     dataset.set_shuffle(shuffle)
-    dataloader = DataLoader(
-        dataset,
-        batch_size=batch_size,
-        collate_fn=collate_fn_dict_with_padding,
-    )
+    if num_workers < 0:
+        raise ValueError(f"num_workers must be non-negative, got {num_workers}.")
+    if persistent_workers and num_workers == 0:
+        raise ValueError("persistent_workers requires num_workers > 0.")
+    if prefetch_factor is not None and (num_workers == 0 or prefetch_factor <= 0):
+        raise ValueError(
+            "prefetch_factor must be positive and requires num_workers > 0."
+        )
 
-    return dataloader
+    loader_kwargs = {
+        "dataset": dataset,
+        "batch_size": batch_size,
+        "collate_fn": collate_fn_dict_with_padding,
+        "num_workers": num_workers,
+        "pin_memory": pin_memory,
+    }
+    if num_workers > 0:
+        loader_kwargs["persistent_workers"] = persistent_workers
+        if prefetch_factor is not None:
+            loader_kwargs["prefetch_factor"] = prefetch_factor
+
+    # StreamingDataLoader coordinates shard reads across workers. With a single
+    # process it adds no advantage, so keep the plain DataLoader there.
+    loader_class = (
+        litdata.StreamingDataLoader
+        if isinstance(dataset, litdata.StreamingDataset) and num_workers > 0
+        else DataLoader
+    )
+    return loader_class(**loader_kwargs)
 
 
 def save_processors(sample_dataset, output_dir: str) -> Dict[str, str]:

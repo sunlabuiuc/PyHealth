@@ -199,9 +199,8 @@ class TestStageNetProcessor(unittest.TestCase):
 
         time, values = processor.process((None, []))
 
-        # Should return single padding token
-        self.assertEqual(values.shape, (1,))
-        self.assertEqual(values[0].item(), processor.code_vocab["<pad>"])
+        # Should return zero events, not a fake pad token
+        self.assertEqual(values.shape, (0,))
 
     def test_empty_codes_nested(self):
         """Test processing empty nested codes."""
@@ -211,10 +210,8 @@ class TestStageNetProcessor(unittest.TestCase):
 
         time, values = processor.process((None, []))
 
-        # Should return single row of padding tokens
-        self.assertEqual(values.shape, (1, 2))
-        self.assertEqual(values[0, 0].item(), processor.code_vocab["<pad>"])
-        self.assertEqual(values[0, 1].item(), processor.code_vocab["<pad>"])
+        # Should return zero events, not a fake pad row
+        self.assertEqual(values.shape, (0, 2))
 
     def test_vocab_size_method(self):
         """Test vocab_size() returns correct size."""

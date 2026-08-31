@@ -86,7 +86,7 @@ class StageNetProcessor(TemporalFeatureProcessor, TokenProcessorInterface):
                         if len(first_elem) > 0 and isinstance(first_elem[0], str):
                             # Case 2: [["A", "B"], ["C"], ...]
                             self._is_nested = True
-                break
+                    break
 
         # Build vocabulary for codes and find max nested length
         max_inner_len = 0
@@ -178,9 +178,9 @@ class StageNetProcessor(TemporalFeatureProcessor, TokenProcessorInterface):
 
     def _encode_codes(self, codes: List[str]) -> torch.Tensor:
         """Encode flat code list to indices."""
-        # Handle empty code list - return single padding token
+        # Handle empty code list — zero events, not a fake pad token.
         if len(codes) == 0:
-            return torch.tensor([self.code_vocab["<pad>"]], dtype=torch.long)
+            return torch.zeros((0,), dtype=torch.long)
 
         indices = []
         for code in codes:
@@ -198,10 +198,9 @@ class StageNetProcessor(TemporalFeatureProcessor, TokenProcessorInterface):
         assert self._max_nested_len is not None, "Max nested length must be set during fit()"
         
         # Handle empty nested codes (no visits/events)
-        # Return single padding token with shape (1, max_len)
         if len(nested_codes) == 0:
-            pad_token = self.code_vocab["<pad>"]
-            return torch.tensor([[pad_token] * self._max_nested_len], dtype=torch.long)
+            max_len = self._max_nested_len if self._max_nested_len is not None else 1
+            return torch.zeros((0, max_len), dtype=torch.long)
 
         encoded_sequences = []
         # Use global max length determined during fit
@@ -345,9 +344,10 @@ class StageNetTensorProcessor(TemporalFeatureProcessor):
         >>> time.shape    # (3,)
     """
 
-    def __init__(self):
+    def __init__(self, forward_fill: bool = True):
         self._size = None  # Feature dimension (set during fit)
         self._is_nested = None
+        self.forward_fill = forward_fill
 
     def fit(self, samples: Iterable[Dict[str, Any]], field: str) -> None:
         """Determine input structure.
@@ -370,13 +370,14 @@ class StageNetTensorProcessor(TemporalFeatureProcessor):
                         # Flat numeric: [1.5, 2.0, ...]
                         self._is_nested = False
                         self._size = 1
+                        break
                     elif isinstance(first_elem, list):
                         if len(first_elem) > 0:
                             if isinstance(first_elem[0], (int, float)):
                                 # Nested numerics: [[1.0, 2.0], [3.0, 4.0]]
                                 self._is_nested = True
                                 self._size = len(first_elem)
-                break
+                                break
 
     def process(
         self, value: Tuple[Optional[List], List]
@@ -395,14 +396,31 @@ class StageNetTensorProcessor(TemporalFeatureProcessor):
         """
         # Unpack tuple: (time, values)
         time_data, value_data = value
+        value_data = list(value_data or [])
 
-        # Convert to numpy for easier imputation handling
         import numpy as np
 
+        if len(value_data) == 0:
+            n_feat = self._size if self._size is not None else 1
+            nested = True if self._is_nested is None else self._is_nested
+            if nested:
+                value_tensor = torch.zeros((0, n_feat), dtype=torch.float)
+            else:
+                value_tensor = torch.zeros((0,), dtype=torch.float)
+            time_tensor = (
+                torch.zeros((0,), dtype=torch.float) if time_data is not None else None
+            )
+            return time_tensor, value_tensor
+
+        # Convert to numpy for easier imputation handling
         value_array = np.array(value_data, dtype=float)
 
-        # Apply forward-fill imputation
-        if value_array.ndim == 1:
+        # Observation-mask fields must preserve false after a true observation;
+        # forward-filling a 0/1 mask would turn later missing labs into observed
+        # values. Ordinary numeric time-series retain the historical behaviour.
+        if not self.forward_fill:
+            value_array = np.nan_to_num(value_array, nan=0.0, posinf=0.0, neginf=0.0)
+        elif value_array.ndim == 1:
             # Flat numeric: [1.5, 2.0, nan, 3.0, ...]
             last_value = 0.0
             for i in range(len(value_array)):

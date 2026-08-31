@@ -6,8 +6,8 @@ import os
 import torch
 import torch.nn as nn
 
-from ..datasets import SampleDataset
-from ..processors import (
+from ...datasets import SampleDataset
+from ...processors import (
     MultiHotProcessor,
     NestedFloatsProcessor,
     NestedSequenceProcessor,
@@ -19,7 +19,8 @@ from ..processors import (
     DeepNestedSequenceProcessor,
     DeepNestedFloatsProcessor,
 )
-from .base_model import BaseModel
+from ..base_model import BaseModel
+from .base import BaseEmbeddingModel
 
 
 def _iter_text_vectors(
@@ -147,7 +148,10 @@ class EmbeddingModel(BaseModel):
         normalize_pretrained: bool = False,
     ):
         super().__init__(dataset)
-        self.embedding_dim = embedding_dim
+        # BaseEmbeddingModel declares `embedding_dim` as an abstract property,
+        # so we can't set self.embedding_dim directly (no setter).  Use a
+        # private backing attribute and expose it through the property below.
+        self._embedding_dim = embedding_dim
         self.embedding_layers = nn.ModuleDict()
 
         for field_name, processor in self.dataset.input_processors.items():
@@ -164,21 +168,12 @@ class EmbeddingModel(BaseModel):
                 ),
             ):
                 vocab_size = len(processor.code_vocab)
-
-                if isinstance(
-                    processor, (NestedSequenceProcessor, DeepNestedSequenceProcessor)
-                ):
-                    self.embedding_layers[field_name] = nn.Embedding(
-                        num_embeddings=vocab_size,
-                        embedding_dim=embedding_dim,
-                        padding_idx=0,
-                    )
-                else:
-                    self.embedding_layers[field_name] = nn.Embedding(
-                        num_embeddings=vocab_size,
-                        embedding_dim=embedding_dim,
-                        padding_idx=0,
-                    )
+                # Keep padding_idx=0 so the pad row receives no gradients.
+                self.embedding_layers[field_name] = nn.Embedding(
+                    num_embeddings=vocab_size,
+                    embedding_dim=embedding_dim,
+                    padding_idx=0,
+                )
 
                 # Optional pretrained initialization (e.g., GloVe).
                 if pretrained_emb_path is not None:
@@ -338,7 +333,6 @@ class EmbeddingModel(BaseModel):
 
             if output_mask:
                 # Generate a mask for this field
-                # For transformers, we might already have a mask, or use pad token
                 if masks is not None and field_name in masks:
                     out_masks[field_name] = masks[field_name].to(self.device)
                 elif hasattr(processor, "code_vocab"):
