@@ -45,7 +45,7 @@ dependencies = [
   "narwhals~=2.13.0",
   "more-itertools~=10.8.0",
   "einops>=0.8.0",
-    "linear-attention-transformer>=0.19.1",
+  "linear-attention-transformer>=0.19.1",
   "pandarallel>=1.6.5",
 ]
 license = "BSD-3-Clause"
