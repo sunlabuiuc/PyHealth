@@ -20,7 +20,7 @@ def _thresholding_py(ts, output):
     return pred
 
 def __loss_overall_helper(total_err, total_sure, alpha, N, la, lc, lcs):
-    ambiguity_loss = (1. - total_sure / float(N)) ** 2
+    ambiguity_loss = 1. - total_sure / float(N)
     risk = total_err / float(max(total_sure, 1))
     tempf = risk - alpha
     coverage_loss = np.power(max(tempf, 0), 2)

@@ -200,10 +200,15 @@ class SCRIB(SetPredictor):
                     The higher the lk, the more penalty on risk violation (likely higher ambiguity).
                 fill_max: Whether to fill the class with max predicted score
                     when no class exceeds the threshold. In other words, if fill_max,
-                    the null region will be filled with max-prediction class.
-            Defaults to {'lk': 1e4, 'fill_max': False}
+                    the null region will be filled with max-prediction class. This is
+                    applied consistently during both threshold search and inference
+                    (``forward()``). If you pass ``loss_kwargs`` explicitly without a
+                    ``fill_max`` key, it defaults to False here (regardless of the
+                    ``fill_max`` argument below), matching the underlying search
+                    routines' own default.
+            Defaults to {'lk': 1e4, 'fill_max': fill_max} (see the ``fill_max`` argument below).
         fill_max (bool, optional): Whether to fill the empty prediction set with the max-predicted class.
-            Defaults to True.
+            Only takes effect when ``loss_kwargs`` is left as None. Defaults to True.
 
 
     Examples:
@@ -264,6 +269,10 @@ class SCRIB(SetPredictor):
         if loss_kwargs is None:
             loss_kwargs = {"lk": 1e4, "fill_max": fill_max}
         self.loss_kwargs = loss_kwargs
+        # The value actually used by the threshold search (loss_kwargs may
+        # silently override the fill_max argument above); forward() must
+        # apply the same fill-max behavior it was calibrated under.
+        self.fill_max = loss_kwargs.get("fill_max", False)
 
         self.t = None
 
@@ -297,7 +306,16 @@ class SCRIB(SetPredictor):
         :rtype: Dict[str, torch.Tensor]
         """
         ret = self.model(**kwargs)
-        ret["y_predset"] = ret["y_prob"] > self.t
+        y_predset = ret["y_prob"] > self.t
+        if self.fill_max:
+            # Match the calibration-time assumption: when no class clears
+            # its threshold, fall back to the max-predicted class instead
+            # of returning an empty set.
+            empty = y_predset.sum(dim=1) == 0
+            if empty.any():
+                argmax_idx = ret["y_prob"].argmax(dim=1)
+                y_predset[empty, argmax_idx[empty]] = True
+        ret["y_predset"] = y_predset
         return ret
 
 
