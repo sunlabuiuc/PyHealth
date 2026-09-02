@@ -30,14 +30,14 @@ base_dataset = MIMIC3Dataset(
     root="/srv/local/data/physionet.org/files/mimiciii/1.4",
     tables=["DIAGNOSES_ICD"],
 )
-base_dataset.stat()
+base_dataset.stats()
 
 """ STEP 2: set task """
 task = PatientLinkageMIMIC3Task()
 sample_dataset = base_dataset.set_task(task)
-sample_dataset.stat()
+print(f"Number of samples: {len(sample_dataset)}")
 corpus, queries, qrels, corpus_meta, queries_meta = convert_to_ir_format(
-    sample_dataset.samples
+    sample_dataset
 )
 tr_queries, va_queries, te_queries, tr_qrels, va_qrels, te_qrels = tvt_split(
     queries, qrels
