@@ -15,10 +15,9 @@ from .interpretability import (
     SufficiencyMetric,
     evaluate_attribution,
 )
+from .fairness import fairness_metrics_fn
 from .multiclass import multiclass_metrics_fn
 from .multilabel import multilabel_metrics_fn
-
-# from .fairness import fairness_metrics_fn
 from .ranking import ranking_metrics_fn
 from .regression import regression_metrics_fn
 
@@ -36,6 +35,7 @@ __all__ = [
     "RemovalBasedMetric",
     "Evaluator",
     "evaluate_attribution",
+    "fairness_metrics_fn",
     "multiclass_metrics_fn",
     "multilabel_metrics_fn",
     "ranking_metrics_fn",
