@@ -38,6 +38,7 @@ except ImportError:
 
 ROOT = os.path.dirname(os.path.dirname(__file__))
 PYPROJECT = os.path.join(ROOT, "pyproject.toml")
+INIT_PY = os.path.join(ROOT, "pyhealth", "__init__.py")
 
 
 VERSION_RE = re.compile(
@@ -60,12 +61,37 @@ def extract_version(text: str) -> str:
 
 
 def replace_version(text: str, new_version: str) -> str:
+    # count=1: only the [project] version (the first ``version = "..."`` line in
+    # the file) is the package version. Later sections carry unrelated pins --
+    # e.g. [tool.pixi.package.build.backend] version -- which must not be
+    # rewritten.
     return re.sub(
         r"^(version\s*=\s*\")[^\"]+(\")",
         rf"\g<1>{new_version}\2",
         text,
+        count=1,
         flags=re.M,
     )
+
+
+def sync_dunder_version(new_version: str) -> None:
+    """Rewrite ``__version__`` in pyhealth/__init__.py to match pyproject.toml."""
+    with open(INIT_PY, "r", encoding="utf-8") as f:
+        text = f.read()
+    new_text, n = re.subn(
+        r"^(__version__\s*=\s*\")[^\"]+(\")",
+        rf"\g<1>{new_version}\2",
+        text,
+        flags=re.M,
+    )
+    if n == 0:
+        print(
+            f"Warning: __version__ not found in {INIT_PY}; not synced.",
+            file=sys.stderr,
+        )
+        return
+    with open(INIT_PY, "w", encoding="utf-8") as f:
+        f.write(new_text)
 
 
 def parse_version(v: str):
@@ -182,6 +208,16 @@ def _find_minimum_available_version(cur_version: str, existing: set[str]) -> str
     """
     major, minor, patch, pre_l, pre_n = parse_version(cur_version)
 
+    # Normal (non-pre-release) versions have no pre-release number to search
+    # over; walk the patch number instead, otherwise every candidate would
+    # render identically to cur_version and the search below never terminates.
+    if pre_l is None:
+        while True:
+            candidate = fmt_version(major, minor, patch, None, None, force_patch=True)
+            if not _version_exists_on_pypi(candidate, existing):
+                return candidate
+            patch += 1
+
     # Find the highest version on PyPI with same major.minor[.patch] and type
     max_pre_n = -1
     for pypi_ver in existing:
@@ -238,6 +274,12 @@ def _find_next_available_version(
         Next available version string
     """
     major, minor, patch, pre_l, pre_n = parse_version(cur_version)
+    # Converting a normal release into a pre-release: start the search at a0,
+    # matching bump_alpha_minor/bump_alpha_major.
+    if pre_l is None:
+        pre_l = "a"
+    if pre_n is None:
+        pre_n = 0
 
     # Find the highest matching version on PyPI
     max_pre_n = -1
@@ -382,11 +424,13 @@ def main():
 
     if args.dry_run:
         print(f"Would bump version: {cur} -> {new}")
+        print(f"Would sync __version__ in {INIT_PY} to {new}")
         return 0
 
     new_text = replace_version(text, new)
     with open(PYPROJECT, "w", encoding="utf-8") as f:
         f.write(new_text)
+    sync_dunder_version(new)
     print(f"Bumped version: {cur} -> {new}")
     return 0
 

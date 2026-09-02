@@ -62,6 +62,8 @@ for docstrings.
 Any pull request that modifies a file under `pyhealth/` must also:
 
 - Update at least one file under `docs/` and one file under `examples/`.
+  Release bumps are exempt: a file whose only change is the `__version__`
+  assignment does not count as a source change.
 - Keep newly added/modified lines free of [ruff](https://docs.astral.sh/ruff/)
   lint violations (`ruff check`, 88-char line length). Pre-existing lint
   issues elsewhere in a touched file are not blocked.

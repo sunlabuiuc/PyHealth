@@ -5,7 +5,9 @@ CI gate enforcing PyHealth's PR contribution rules.
 Rules enforced whenever a PR touches pyhealth/**/*.py:
 
     1. Docs/examples: the PR must also modify at least one file under
-       docs/** and one file under examples/**.
+       docs/** and one file under examples/**. A file whose only change is
+       the __version__ assignment (i.e. a release bump) does not count as a
+       source change and does not trigger this rule.
     2. Lint: lines added or modified in touched pyhealth/**/*.py files must
        be free of ruff violations. Pre-existing violations elsewhere in a
        touched file are not flagged.
@@ -19,6 +21,7 @@ Usage:
 import argparse
 import ast
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -53,8 +56,34 @@ def added_lines(base, head, path):
     return lines
 
 
-def check_docs_examples(files):
-    if not any(f.startswith("pyhealth/") and f.endswith(".py") for f in files):
+VERSION_LINE = re.compile(r"^[+-]__version__\s*=")
+
+
+def is_version_only_change(base, head, path):
+    """True if the only edit to `path` is the ``__version__`` assignment.
+
+    A release commit bumps ``pyhealth/__init__.py`` and nothing else under
+    ``pyhealth/``. That is neither new code nor new behaviour, so it should not
+    trigger the docs/examples requirement.
+    """
+    out = sh("git", "diff", "--unified=0", f"{base}..{head}", "--", path)
+    changed = [
+        line
+        for line in out.splitlines()
+        if line[:1] in "+-" and not line.startswith(("+++", "---"))
+    ]
+    return bool(changed) and all(VERSION_LINE.match(line) for line in changed)
+
+
+def check_docs_examples(files, base, head):
+    sources = [
+        f
+        for f in files
+        if f.startswith("pyhealth/")
+        and f.endswith(".py")
+        and not is_version_only_change(base, head, f)
+    ]
+    if not sources:
         return []
     problems = []
     if not any(f.startswith("docs/") for f in files):
@@ -136,7 +165,7 @@ def main():
 
     files = changed_files(args.base, args.head)
     problems = (
-        check_docs_examples(files)
+        check_docs_examples(files, args.base, args.head)
         + check_lint(files, args.base, args.head)
         + check_docstring_examples(files, args.base, args.head)
     )
