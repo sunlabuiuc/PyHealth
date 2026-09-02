@@ -3,7 +3,7 @@ import pyhealth
 
 # import mimic4 dataset and drug recommendaton task
 from pyhealth.datasets import MIMIC4Dataset
-from pyhealth.tasks import drug_recommendation_mimic4_fn
+from pyhealth.tasks import DrugRecommendationMIMIC4
 
 # import dataloader related functions
 from pyhealth.datasets.splitter import split_by_patient
@@ -32,7 +32,10 @@ def prepare_drug_task_data():
     print("info")
     mimicvi.info()
 
-    mimic4_sample = mimicvi.set_task(drug_recommendation_mimic4_fn)
+    # drug_recommendation_mimic4_fn is a pre-2.0 task function (it expects an
+    # indexable Patient with Visit.get_code_list) and cannot be passed to
+    # BaseDataset.set_task(), which requires a BaseTask instance.
+    mimic4_sample = mimicvi.set_task(DrugRecommendationMIMIC4())
     print(mimic4_sample[0])
 
     return mimic4_sample
