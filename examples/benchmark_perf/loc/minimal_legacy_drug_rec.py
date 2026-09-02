@@ -1,3 +1,4 @@
+# Requires pyhealth==1.1.6 (legacy 1.x task_fn/Visit API) -- not runnable against pyhealth 2.0
 from pyhealth.data import Patient,Visit; from pyhealth.datasets import MIMIC4Dataset
 
 def drug_recommendation_mimic4_fn(patient):
