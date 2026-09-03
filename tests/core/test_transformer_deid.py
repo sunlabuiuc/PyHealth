@@ -195,5 +195,31 @@ class TestTransformerDeIDForward(unittest.TestCase):
             )
 
 
+class TestTransformerDeIDCustomFieldNames(unittest.TestCase):
+    class StubModel(TransformerDeID):
+        def __init__(self):
+            torch.nn.Module.__init__(self)
+            self.feature_key = "clinical_note"
+            self.label_key = "bio_tags"
+
+        def forward(self, **kwargs):
+            texts = kwargs[self.feature_key]
+            labels = kwargs[self.label_key]
+            word_count = len(texts[0].split())
+            self.received_labels = labels
+            return {
+                "logit": torch.zeros(1, word_count, len(LABEL_VOCAB)),
+                "y_true": torch.zeros(1, word_count, dtype=torch.long),
+            }
+
+    def test_deidentify_uses_configured_field_names(self):
+        model = self.StubModel()
+
+        result = model.deidentify("Patient Jane Doe")
+
+        self.assertEqual(result, "Patient Jane Doe")
+        self.assertEqual(model.received_labels, ["O O O"])
+
+
 if __name__ == "__main__":
     unittest.main()
