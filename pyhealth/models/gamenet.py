@@ -183,6 +183,12 @@ class GAMENetLayer(nn.Module):
                 indicates valid visits and 0 indicates invalid visits. Also
                 used to exclude each patient's own current visit and any
                 padding beyond it from the dynamic-memory attention below.
+                A patient with no valid previous visit (e.g. their very
+                first visit) has no dynamic memory to attend over; matching
+                the reference implementation (sjy1203/GAMENet, models.py:
+                `fact2 = fact1` when `len(input) == 1`), the dynamic-memory
+                output o_d falls back to the static memory-bank output o_b
+                for that patient rather than being zeroed out.
 
         Returns:
             loss: a scalar tensor representing the loss.
@@ -224,11 +230,17 @@ class GAMENetLayer(nn.Module):
         attn_logits = attn_logits.masked_fill(~prev_mask, float("-inf"))
         a_s = torch.softmax(attn_logits, dim=1)
         # Patients with no valid previous visit (e.g. their very first
-        # visit) have an all -inf row, so softmax produces NaN; their
-        # dynamic-memory contribution should just be zero.
+        # visit) have an all -inf row, so softmax produces NaN. nan_to_num
+        # keeps the backward pass finite; the actual output value for
+        # these patients is overridden below to match the reference
+        # implementation (sjy1203/GAMENet, models.py: `fact2 = fact1` when
+        # `len(input) == 1`) -- reusing the static memory-bank output o_b
+        # rather than zeroing out the dynamic-memory term entirely.
         a_s = torch.nan_to_num(a_s, nan=0.0)
         a_m = torch.einsum("bv,bvz->bz", a_s, DM_values.float())
         o_d = torch.mm(a_m, MB)
+        has_prev_visit = prev_mask.any(dim=1, keepdim=True)
+        o_d = torch.where(has_prev_visit, o_d, o_b)
 
         """R: Response"""
         memory_output = torch.cat([query, o_b, o_d], dim=-1)

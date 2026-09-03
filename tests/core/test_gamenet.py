@@ -250,11 +250,17 @@ class TestGAMENetLayerDynamicMemoryMasking(unittest.TestCase):
         torch.testing.assert_close(y_prob_base[0], y_prob_pert[0])
         torch.testing.assert_close(loss_base, loss_pert)
 
-    def test_dynamic_memory_zero_for_first_visit_patient(self):
-        """A patient whose current visit is their very first visit has
-        zero valid previous visits -- the attention row is all -inf
-        pre-softmax. This must resolve to a zero dynamic-memory
-        contribution, not NaN propagating into the output."""
+    def test_dynamic_memory_reuses_static_memory_for_first_visit_patient(self):
+        """A patient whose current visit is their very first visit has zero
+        valid previous visits -- the attention row is all -inf pre-softmax,
+        which must not let NaN propagate into the output. Beyond that, the
+        reference implementation (sjy1203/GAMENet, models.py: `fact2 =
+        fact1` when `len(input) == 1`) reuses the static memory-bank output
+        o_b as the dynamic-memory output o_d for these patients, rather than
+        zeroing the dynamic-memory term out. Verified directly by
+        reconstructing o_b from the layer's own submodules and comparing
+        the full output against manually computing it with o_d == o_b.
+        """
         hidden_size, num_drugs, num_visits = 8, 5, 3
         layer = self._make_layer(hidden_size, num_drugs, seed=1)
 
@@ -271,6 +277,21 @@ class TestGAMENetLayerDynamicMemoryMasking(unittest.TestCase):
 
         self.assertFalse(torch.isnan(y_prob).any())
         self.assertFalse(torch.isnan(loss).any())
+
+        # Reconstruct query and o_b exactly as forward() does, then verify
+        # the actual output matches manually computing memory_output with
+        # o_d == o_b (the reference behavior), not o_d == 0.
+        from pyhealth.models.utils import get_last_visit
+
+        with torch.no_grad():
+            query = get_last_visit(queries, mask)
+            MB = layer.ehr_gcn() - layer.ddi_gcn() * torch.sigmoid(layer.beta)
+            a_c = torch.softmax(torch.mm(query, MB.t()), dim=-1)
+            o_b = torch.mm(a_c, MB)
+            expected_logits = layer.fc(torch.cat([query, o_b, o_b], dim=-1))
+            expected_y_prob = torch.sigmoid(expected_logits)
+
+        torch.testing.assert_close(y_prob, expected_y_prob)
 
     def test_full_length_patient_unaffected_by_masking_fix(self):
         """Sanity check: for a patient whose sequence spans the batch's
