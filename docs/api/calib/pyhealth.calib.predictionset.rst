@@ -87,6 +87,19 @@ ClusterLabel (K-means Cluster-based Conformal)
 NeighborhoodLabel (Neighborhood Conformal Prediction)
 -----------------------------------------------------
 
+.. note::
+
+   ``NeighborhoodLabel.calibrate()`` excludes each calibration point from
+   its own k-nearest-neighbor set during the alpha_tilde search.
+   ``sklearn``'s ``NearestNeighbors.kneighbors()`` returns each point as
+   its own nearest neighbor (distance 0) when queried with an explicit
+   ``X`` equal to the fitted set -- unlike the implicit no-argument form,
+   which excludes self-matches. Without excluding this self-match, a
+   calibration point's own score leaks into its own threshold during
+   calibration (something a genuine test point never benefits from),
+   biasing the search toward an overly permissive threshold and causing
+   real under-coverage at test time.
+
 .. autoclass:: pyhealth.calib.predictionset.NeighborhoodLabel
    :members:
    :undoc-members:
