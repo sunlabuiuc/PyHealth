@@ -521,17 +521,9 @@ class TestClusterLabelCoverage(unittest.TestCase):
     ClusterLabel.calibrate()/forward() use (KMeans + _query_quantile),
     directly, the same way test_scores.py's TestScoresCoverage does for
     the shared score module.
-
-    Also specifically regression-tests the design choice documented in
-    ClusterLabel's docstring: fitting KMeans on train+cal combined (as
-    calibrate() does, via .labels_ for calibration points) versus fitting
-    on train only and using .predict() for calibration points (the
-    stricter split-conformal-consistent alternative) should not produce a
-    measurably different coverage outcome.
     """
 
-    def _run_trial(self, rng, n_train, n_cal, n_test, n_kmeans_clusters,
-                    alpha, use_predict_for_cal):
+    def _run_trial(self, rng, n_train, n_cal, n_test, n_kmeans_clusters, alpha):
         from sklearn.cluster import KMeans
         from pyhealth.calib.predictionset.base_conformal import _query_quantile
 
@@ -550,16 +542,11 @@ class TestClusterLabelCoverage(unittest.TestCase):
         cal_emb, cal_scores = sample(n_cal)
         test_emb, test_scores = sample(n_test)
 
-        if use_predict_for_cal:
-            km = KMeans(n_clusters=n_kmeans_clusters, random_state=0, n_init=10)
-            km.fit(train_emb)
-            cal_cluster = km.predict(cal_emb)
-        else:
-            all_emb = np.concatenate([train_emb, cal_emb], axis=0)
-            km = KMeans(n_clusters=n_kmeans_clusters, random_state=0, n_init=10)
-            km.fit(all_emb)
-            cal_cluster = km.labels_[n_train:]
-
+        # Mirrors ClusterLabel.calibrate(): fit K-means on training
+        # embeddings only, assign calibration/test points out-of-sample.
+        km = KMeans(n_clusters=n_kmeans_clusters, random_state=0, n_init=10)
+        km.fit(train_emb)
+        cal_cluster = km.predict(cal_emb)
         test_cluster = km.predict(test_emb)
 
         thresholds = {}
@@ -572,17 +559,16 @@ class TestClusterLabelCoverage(unittest.TestCase):
         return (test_scores <= t_test).mean()
 
     def test_per_cluster_coverage_matches_target(self):
-        """The core claim: ClusterLabel's calibration logic (KMeans fit on
-        train+cal, .labels_ for calibration points) should achieve
-        approximately the target 1-alpha coverage, matching the standard
-        split-conformal quantile guarantee applied within each Mondrian
-        category (cluster)."""
+        """The core claim: ClusterLabel's calibration logic (K-means fit on
+        training embeddings only, calibration points assigned via
+        .predict()) should achieve approximately the target 1-alpha
+        coverage, matching the standard split-conformal quantile guarantee
+        applied within each Mondrian category (cluster)."""
         rng = np.random.default_rng(42)
         alpha = 0.1
         coverages = [
             self._run_trial(rng, n_train=600, n_cal=300, n_test=2000,
-                             n_kmeans_clusters=3, alpha=alpha,
-                             use_predict_for_cal=False)
+                             n_kmeans_clusters=3, alpha=alpha)
             for _ in range(30)
         ]
         mean_coverage = np.mean(coverages)
@@ -591,37 +577,72 @@ class TestClusterLabelCoverage(unittest.TestCase):
             f"Mean coverage {mean_coverage:.4f} too far below target {1 - alpha}",
         )
 
-    def test_combined_fit_matches_train_only_fit_coverage(self):
-        """Regression test for the documented design choice: fitting KMeans
-        on train+cal combined (current calibrate() behavior) must not
-        produce measurably worse coverage than fitting on train only and
-        using .predict() for calibration points -- verified here at a
-        scale (thousands of trials-worth of test points) a full
-        model-based Monte Carlo test can't practically reach."""
-        rng_combined = np.random.default_rng(123)
-        rng_train_only = np.random.default_rng(123)
-        alpha = 0.1
-        n_trials = 40
 
-        combined = [
-            self._run_trial(rng_combined, n_train=20, n_cal=300, n_test=2000,
-                             n_kmeans_clusters=3, alpha=alpha,
-                             use_predict_for_cal=False)
-            for _ in range(n_trials)
-        ]
-        train_only = [
-            self._run_trial(rng_train_only, n_train=20, n_cal=300, n_test=2000,
-                             n_kmeans_clusters=3, alpha=alpha,
-                             use_predict_for_cal=True)
-            for _ in range(n_trials)
-        ]
+class TestClusterLabelKMeansFitIsOutOfSample(unittest.TestCase):
+    """Regression test: calibrate() must not let calibration data influence
+    the K-means cluster boundaries used to assign calibration points' own
+    thresholds. K-means must be fit on train_embeddings only, and
+    calibration points assigned via out-of-sample .predict() -- the
+    Mondrian conformal guarantee (Vovk, Lindsay, Nouretdinov, and Gammerman
+    2003) requires the category function to be independent of the
+    calibration data it's later evaluated against.
+    """
 
-        # Both should be close to target; neither should be a full
-        # standard-error below the other -- i.e. combined-fit isn't
-        # measurably worse than the "stricter" alternative.
-        self.assertGreaterEqual(np.mean(combined), 1 - alpha - 0.03)
-        self.assertGreaterEqual(np.mean(train_only), 1 - alpha - 0.03)
-        self.assertAlmostEqual(np.mean(combined), np.mean(train_only), delta=0.03)
+    def setUp(self):
+        np.random.seed(0)
+        torch.manual_seed(0)
+        self.samples = [
+            {
+                "patient_id": f"p{i}",
+                "visit_id": f"v{i}",
+                "conditions": [f"c{i}"],
+                "procedures": [float(i % 3)],
+                "label": i % 3,
+            }
+            for i in range(12)
+        ]
+        self.dataset = create_sample_dataset(
+            samples=self.samples,
+            input_schema={"conditions": "sequence", "procedures": "sequence"},
+            output_schema={"label": "multiclass"},
+            dataset_name="test_cluster_out_of_sample",
+        )
+        self.model = MLP(
+            dataset=self.dataset,
+            feature_keys=["conditions", "procedures"],
+            label_key="label",
+            mode="multiclass",
+        )
+
+    def test_kmeans_fit_receives_only_train_embeddings(self):
+        from unittest.mock import patch
+        from sklearn.cluster import KMeans
+
+        train_ds = self.dataset.subset(list(range(6)))
+        cal_ds = self.dataset.subset(list(range(6, 12)))
+        train_embeddings = extract_embeddings(self.model, train_ds, batch_size=32)
+        cal_embeddings = extract_embeddings(self.model, cal_ds, batch_size=32)
+
+        cluster_predictor = ClusterLabel(model=self.model, alpha=0.2, n_clusters=2)
+
+        with patch.object(KMeans, "fit", autospec=True) as mock_fit, \
+             patch.object(KMeans, "predict", autospec=True, return_value=np.zeros(6, dtype=int)) as mock_predict:
+            mock_fit.side_effect = lambda self, X, *a, **kw: setattr(
+                self, "cluster_centers_", np.zeros((2, X.shape[1]))
+            )
+            cluster_predictor.calibrate(
+                cal_dataset=cal_ds,
+                train_embeddings=train_embeddings,
+                cal_embeddings=cal_embeddings,
+            )
+
+        fit_X = mock_fit.call_args.args[1]
+        self.assertEqual(fit_X.shape[0], len(train_embeddings))
+        np.testing.assert_array_equal(fit_X, train_embeddings)
+
+        predict_X = mock_predict.call_args.args[1]
+        self.assertEqual(predict_X.shape[0], len(cal_embeddings))
+        np.testing.assert_array_equal(predict_X, cal_embeddings)
 
 
 if __name__ == "__main__":

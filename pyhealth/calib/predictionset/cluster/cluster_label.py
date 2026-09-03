@@ -72,21 +72,17 @@ class ClusterLabel(SetPredictor):
     baseline for more advanced personalized conformal prediction approaches.
 
     Note:
-        K-means is fit on ``train_embeddings`` and ``cal_embeddings``
-        combined (see ``calibrate()``), so calibration points do influence
-        the cluster centroids used to assign their own threshold, unlike a
-        strict split-conformal setup where the category function would be
-        fit on data disjoint from calibration. This was checked empirically
-        (Monte Carlo simulation across cluster-count regimes, including
-        calibration-set-dominated fits) and found not to introduce
-        measurable coverage bias -- unlike a k-nearest-neighbors-based
-        category function (see
-        :class:`~pyhealth.calib.predictionset.NeighborhoodLabel`), where
-        a similar self-inclusion effect *is* a hard, always-occurring
-        artifact (a query point is trivially its own nearest neighbor), a
-        single calibration point's leverage on a K-means centroid -- an
-        average over many points -- is negligible in practice. This is a
-        deliberate, verified design choice, not an oversight.
+        K-means is fit on ``train_embeddings`` only (see ``calibrate()``);
+        calibration and test points are then assigned to clusters
+        out-of-sample via ``.predict()``. This is required by the Mondrian
+        guarantee above: the category function (cluster membership) must be
+        independent of the calibration data used to compute each category's
+        threshold. Fitting on calibration data too (even combined with
+        training data) would let a calibration point influence the cluster
+        boundary used to assign its own threshold -- the same kind of
+        self-inclusion leak that :class:`~pyhealth.calib.predictionset.NeighborhoodLabel`
+        avoids via leave-one-out for its k-nearest-neighbor category
+        function.
 
         As with the other classes in this module, this assumes the
         calibration and test embeddings are exchangeable; it does not
@@ -224,10 +220,10 @@ class ClusterLabel(SetPredictor):
         """Calibrate cluster-specific thresholds.
 
         This method:
-        1. Combines train and calibration embeddings for clustering
-        2. Fits K-means on the combined embeddings
-        3. Assigns calibration samples to clusters
-        4. Computes cluster-specific calibration thresholds
+        1. Fits K-means on the training embeddings only
+        2. Assigns calibration samples to clusters out-of-sample via
+           ``.predict()``
+        3. Computes cluster-specific calibration thresholds
 
         Args:
             cal_dataset: Calibration set
@@ -273,26 +269,26 @@ class ClusterLabel(SetPredictor):
         else:
             train_embeddings = np.asarray(train_embeddings)
 
-        # Combine embeddings for clustering
-        print(f"Combining embeddings: train={train_embeddings.shape}, cal={cal_embeddings.shape}")
-        all_embeddings = np.concatenate([train_embeddings, cal_embeddings], axis=0)
-        print(f"Total embeddings for clustering: {all_embeddings.shape}")
-
-        # Fit K-means on combined embeddings
-        print(f"Fitting K-means with {self.n_clusters} clusters...")
+        # Fit K-means on training embeddings only. Calibration points must
+        # not influence the cluster boundaries used to assign their own
+        # threshold -- the Mondrian conformal guarantee (Vovk, Lindsay,
+        # Nouretdinov, and Gammerman 2003) requires the category function
+        # (here, K-means cluster membership) to be independent of the
+        # calibration data. Calibration (and test) points are then assigned
+        # out-of-sample via .predict(), exactly mirroring how a real test
+        # point is assigned at inference time.
+        print(f"Fitting K-means with {self.n_clusters} clusters on training embeddings...")
         self.kmeans_model = KMeans(
             n_clusters=self.n_clusters,
             random_state=self.random_state,
             n_init=10,
         )
-        self.kmeans_model.fit(all_embeddings)
+        self.kmeans_model.fit(train_embeddings)
 
-        # Assign calibration samples to clusters
-        # Note: cal_embeddings start at index len(train_embeddings) in all_embeddings
-        cal_start_idx = len(train_embeddings)
-        cal_cluster_labels = self.kmeans_model.labels_[cal_start_idx:]
+        # Assign calibration samples to clusters out-of-sample
+        cal_cluster_labels = self.kmeans_model.predict(cal_embeddings)
 
-        print(f"Cluster assignments: {np.bincount(cal_cluster_labels)}")
+        print(f"Cluster assignments: {np.bincount(cal_cluster_labels, minlength=self.n_clusters)}")
 
         # Compute non-conformity scores (higher = less conforming)
         conformity_scores = true_class_nc_scores(
