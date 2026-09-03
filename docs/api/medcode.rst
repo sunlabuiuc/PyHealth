@@ -97,6 +97,43 @@ Medication codes:
     :undoc-members:
     :show-inheritance:
 
+    
+Pretrained Knowledge Graph Embeddings:
+---------------------------------------
+Utilities for training knowledge graph embedding (KGE) models over medical
+code knowledge graphs, so entity/relation embeddings can be reused as
+pretrained inputs for downstream tasks.
+
+.. autoclass:: pyhealth.medcode.pretrained_embeddings.kg_emb.datasets.SampleKGDataset
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+.. autoclass:: pyhealth.medcode.pretrained_embeddings.kg_emb.models.KGEBaseModel
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+.. autoclass:: pyhealth.medcode.pretrained_embeddings.kg_emb.models.TransE
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+.. autoclass:: pyhealth.medcode.pretrained_embeddings.kg_emb.models.RotatE
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+.. autoclass:: pyhealth.medcode.pretrained_embeddings.kg_emb.models.DistMult
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+.. autoclass:: pyhealth.medcode.pretrained_embeddings.kg_emb.models.ComplEx
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
 
 
 
