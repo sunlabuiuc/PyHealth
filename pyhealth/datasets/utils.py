@@ -260,6 +260,22 @@ def collate_fn_dict_with_padding(batch: List[dict]) -> dict:
         A dictionary where each key corresponds to a list of values from the batch.
         Tensor values are padded to the same shape.
         Tuples of (time, values) from temporal processors are collated separately.
+        A nested dict of tensors (e.g. ``{"value": ..., "mask": ...}`` from a
+        processor like ``KGProcessor``) is collated sub-key by sub-key.
+
+    Examples:
+        >>> import torch
+        >>> batch = [
+        ...     {"triple": torch.tensor([0, 0, 1]),
+        ...      "ground_truth_head": {"value": torch.tensor([0, 4]), "mask": torch.tensor([1, 1])}},
+        ...     {"triple": torch.tensor([2, 0, 3]),
+        ...      "ground_truth_head": {"value": torch.tensor([2, 0]), "mask": torch.tensor([1, 0])}},
+        ... ]
+        >>> collated = collate_fn_dict_with_padding(batch)
+        >>> collated["triple"].shape
+        torch.Size([2, 3])
+        >>> collated["ground_truth_head"]["value"].shape
+        torch.Size([2, 2])
     """
     collated = {}
     keys = batch[0].keys()
@@ -303,6 +319,30 @@ def collate_fn_dict_with_padding(batch: List[dict]) -> dict:
             # PyG Data objects (graph processor output)
         elif HAS_PYG and isinstance(values[0], PyGData):
             collated[key] = PyGBatch.from_data_list(values)
+
+        elif isinstance(values[0], dict) and all(
+            isinstance(v, torch.Tensor) for v in values[0].values()
+        ):
+            # Nested all-tensor feature dict, e.g. {"value": Tensor, "mask": Tensor}
+            # from KGProcessor. Stack each sub-key independently; sub-values
+            # share shape across samples when the processor pads to a fixed
+            # field-wide length (KGProcessor.fit), so this is typically a
+            # plain stack rather than dynamic padding.
+            #
+            # Restricted to all-tensor dicts so heterogeneous per-sample
+            # dicts (e.g. a "hyperparameters" field of plain Python values)
+            # keep falling through to the generic list passthrough below,
+            # preserving their existing list-of-dicts collation shape.
+            sub_collated: dict = {}
+            for sub_key in values[0]:
+                sub_values = [v[sub_key] for v in values]
+                if all(v.shape == sub_values[0].shape for v in sub_values):
+                    sub_collated[sub_key] = torch.stack(sub_values)
+                else:
+                    sub_collated[sub_key] = pad_sequence(
+                        sub_values, batch_first=True, padding_value=0
+                    )
+            collated[key] = sub_collated
 
         elif isinstance(values[0], torch.Tensor):
             # Check if shapes are the same

@@ -1,15 +1,12 @@
 import logging
 import os
 from abc import ABC
+from collections.abc import Callable
 
-from tqdm import tqdm
-import pandas as pd
-from pandarallel import pandarallel
-from typing import Callable, Optional
 from pyhealth.datasets.utils import MODULE_CACHE_PATH, hash_str
-from pyhealth.medcode.pretrained_embeddings.kg_emb.datasets import SampleKGDataset
 from pyhealth.utils import load_pickle, save_pickle
 
+from .sample_kg_dataset import SampleKGDataset
 
 logger = logging.getLogger(__name__)
 
@@ -34,13 +31,23 @@ class BaseKGDataset(ABC):
             Default is False.
         refresh_cache: whether to refresh the cache; if true, the dataset will
             be processed from scratch and the cache will be updated. Default is False.
-    
+
+    Examples:
+        >>> import tempfile
+        >>> class _ToyKG(BaseKGDataset):
+        ...     def raw_graph_process(self):
+        ...         self.triples = [(0, 0, 1)]
+        ...         self.entity_num = 2
+        ...         self.relation_num = 1
+        >>> ds = _ToyKG(root=tempfile.mkdtemp(), dataset_name="toy")
+        >>> len(ds)
+        1
     """
 
     def __init__(
         self,
         root: str,
-        dataset_name: Optional[str] = None,
+        dataset_name: str | None = None,
         dev: bool = False,
         refresh_cache: bool = False
     ):
@@ -86,7 +93,7 @@ class BaseKGDataset(ABC):
 
     def stat(self):
         """Returns some statistics of the base dataset."""
-        lines = list()
+        lines = []
         lines.append("")
         lines.append(f"Statistics of base dataset (dev={self.dev}):")
         lines.append(f"\t- Dataset: {self.dataset_name}")
@@ -97,13 +104,12 @@ class BaseKGDataset(ABC):
         lines.append(f"\t- Number of samples: {len(self.samples)}")
         lines.append("")
         print("\n".join(lines))
-        return 
 
     
     def set_task(
         self,
         task_fn: Callable,
-        task_name: Optional[str] = None,
+        task_name: str | None = None,
         save: bool = True,
         **kwargs
     ) -> SampleKGDataset:
