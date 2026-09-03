@@ -79,6 +79,21 @@ CovariateLabel (Covariate Shift Adaptive)
 ClusterLabel (K-means Cluster-based Conformal)
 ----------------------------------------------
 
+.. note::
+
+   ClusterLabel is an instance of Mondrian conformal prediction (Vovk,
+   Lindsay, Nouretdinov, and Gammerman, "Mondrian confidence machine,"
+   Technical report, Royal Holloway University of London, 2003) using
+   K-means clusters as the category function -- not itself a specific
+   published method, but a pyhealth-original combination of a standard
+   technique with the Mondrian framework. Coverage holds independently
+   *within each cluster* (a strictly stronger guarantee than plain
+   marginal coverage). K-means is fit on training embeddings only, and
+   calibration/test points are assigned to clusters out-of-sample via
+   ``.predict()`` -- the category function must be independent of the
+   calibration data for the Mondrian guarantee to hold; see the class
+   docstring's ``Note`` for details.
+
 .. autoclass:: pyhealth.calib.predictionset.ClusterLabel
    :members:
    :undoc-members:
