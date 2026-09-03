@@ -60,6 +60,7 @@ class MIMIC3Dataset(BaseDataset):
                 "Events from prescriptions table only have date timestamp (no specific time). "
                 "This may affect temporal ordering of events.",
                 UserWarning,
+                stacklevel=2,
             )
         super().__init__(
             root=root,
