@@ -645,6 +645,12 @@ class CovariateLabel(SetPredictor):
                 )
             if self._cal_conformity_scores is None:
                 raise RuntimeError("Must call calibrate() before forward().")
+            if len(test_embeddings) != N:
+                raise ValueError(
+                    f"test_embeddings has {len(test_embeddings)} rows but "
+                    f"the batch has {N} examples; they must be aligned "
+                    "one-to-one in the same order."
+                )
 
             test_weights = _compute_likelihood_ratio(
                 self.kde_test, self.kde_cal, test_embeddings
@@ -696,7 +702,13 @@ class CovariateLabel(SetPredictor):
         conformity_scores = torch.as_tensor(
             conformity_scores, device=pred["y_prob"].device, dtype=pred["y_prob"].dtype
         )
-        pred["y_predset"] = conformity_scores > threshold_tensor
+        # Corollary 1 (Tibshirani et al. 2019) includes a class whose score
+        # is *exactly* at the threshold: the weighted quantile is defined as
+        # the smallest score whose cumulative weight reaches alpha, so that
+        # score's own mass is part of what clears the target -- excluding it
+        # with a strict ">" would count it against coverage it was actually
+        # counted toward, under-covering whenever ties land on the threshold.
+        pred["y_predset"] = conformity_scores >= threshold_tensor
 
         return pred
 

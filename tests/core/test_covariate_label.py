@@ -277,6 +277,48 @@ class TestCovariateLabel(unittest.TestCase):
         # Check prediction set shape matches probability shape
         self.assertEqual(output["y_predset"].shape, output["y_prob"].shape)
 
+    def test_forward_includes_class_tied_exactly_at_threshold(self):
+        """Regression test: a class whose conformity score is exactly equal
+        to the threshold must be included in the prediction set.
+
+        _query_weighted_quantile defines the threshold as the smallest
+        score whose cumulative weight reaches alpha -- that score's own
+        mass is part of what clears the target coverage. A strict '>'
+        comparison in forward() would exclude that exact score, silently
+        under-covering whenever a real conformity score lands on a
+        calibration tie. This also matches the convention already
+        documented in scores.py's all_class_conformity_scores docstring
+        ("threshold with score >= t rather than nc_score <= t").
+        """
+        cal_model = CovariateLabel(
+            model=self.model,
+            alpha=0.2,
+            kde_test=self.kde_test,
+            kde_cal=self.kde_cal,
+        )
+        cal_indices = [0, 1, 2, 3]
+        cal_dataset = self.dataset.subset(cal_indices)
+        cal_embeddings = self._get_embeddings(cal_dataset)
+        test_embeddings = self._get_embeddings(self.dataset)
+        cal_model.calibrate(
+            cal_dataset=cal_dataset,
+            cal_embeddings=cal_embeddings,
+            test_embeddings=test_embeddings,
+        )
+
+        threshold_value = float(cal_model.t.item())
+        fake_y_prob = torch.tensor([[threshold_value, 0.0, 0.0]])
+        with patch.object(
+            cal_model.model, "forward", return_value={"y_prob": fake_y_prob}
+        ):
+            output = cal_model()
+
+        self.assertTrue(
+            bool(output["y_predset"][0, 0]),
+            "a class whose conformity score exactly equals the threshold "
+            "must be included in the prediction set",
+        )
+
     def test_prediction_sets_nonempty(self):
         """Test that prediction sets are non-empty for most examples."""
         cal_model = CovariateLabel(
