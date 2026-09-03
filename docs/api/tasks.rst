@@ -184,6 +184,49 @@ PyHealth detects the existing cache and skips reprocessing. During
 development it is useful to set ``dev=True`` on the dataset, which limits
 processing to 1 000 patients so iterations are fast.
 
+What counts as the same configuration?
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Each task configuration gets its own cache directory, named after a
+fingerprint of everything that determines the generated samples:
+
+- the ``__init__`` arguments of your task, with defaults applied --
+  ``MyTask()`` and ``MyTask(window=timedelta(days=15))`` share a cache when
+  15 days is the default;
+- class-level attributes, the input schema and the output schema;
+- ``BaseTask.version`` (see below).
+
+Arguments that do not affect the output are ignored, so changing
+``num_workers`` reuses the cache. Add your own via ``fingerprint_exclude``::
+
+    class MyTask(BaseTask):
+        fingerprint_exclude = frozenset({"debug_dir"})
+
+The fingerprint is a digest, so the directory name alone does not tell you
+which parameter changed. Each cache directory therefore contains a
+``task_meta.json`` recording the full configuration in readable form, and
+``set_task()`` logs its path at INFO level.
+
+.. warning::
+
+   **Editing** ``__call__`` **does not invalidate the cache.** The fingerprint
+   covers configuration, not code, so changing your labelling logic without
+   changing any argument will silently reuse the samples built by the previous
+   version. Bump ``version`` on the task when its logic changes::
+
+       class MyTask(BaseTask):
+           version = "2"   # was "1"; excluded ICU stays under 24h
+
+   Alternatively, set ``PYHEALTH_FINGERPRINT_SOURCE=1`` to fold a structural
+   hash of ``__call__`` and ``pre_filter`` into the fingerprint. This is off by
+   default because it invalidates the cache on cosmetic edits too.
+
+If a task argument cannot be fingerprinted deterministically -- an object
+whose ``repr()`` embeds a memory address, for instance -- ``set_task()``
+raises ``UnfingerprintableError`` rather than risk a colliding or unstable
+cache key. Give the class a ``__pyhealth_fingerprint__()`` method returning a
+plain description of its configuration, or exclude the argument.
+
 .. note::
 
    **A note on multiprocessing.** ``set_task()`` can spawn worker processes
@@ -206,6 +249,7 @@ Available Tasks
     :maxdepth: 3
 
     Base Task <tasks/pyhealth.tasks.BaseTask>
+    Task Fingerprint <tasks/pyhealth.tasks.fingerprint>
     In-Hospital Mortality (MIMIC-IV) <tasks/pyhealth.tasks.InHospitalMortalityMIMIC4>
     In-Hospital Mortality (MEDS) <tasks/pyhealth.tasks.InHospitalMortalityMEDS>
     MIMIC-III ICD-9 Coding <tasks/pyhealth.tasks.MIMIC3ICD9Coding>
