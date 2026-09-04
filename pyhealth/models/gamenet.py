@@ -129,7 +129,7 @@ class GAMENetLayer(nn.Module):
     Examples:
         >>> from pyhealth.models import GAMENetLayer
         >>> queries = torch.randn(3, 5, 32) # [patient, visit, hidden_size]
-        >>> prev_drugs = torch.randint(0, 2, (3, 4, 50)).float()
+        >>> prev_drugs = torch.randint(0, 2, (3, 5, 50)).float()
         >>> curr_drugs = torch.randint(0, 2, (3, 50)).float()
         >>> ehr_adj = torch.randint(0, 2, (50, 50)).float()
         >>> ddi_adj = torch.randint(0, 2, (50, 50)).float()
@@ -172,12 +172,23 @@ class GAMENetLayer(nn.Module):
 
         Args:
             queries: query tensor of shape [patient, visit, hidden_size].
-            prev_drugs: multihot tensor indicating drug usage in all previous
-                visits of shape [patient, visit - 1, num_drugs].
+            prev_drugs: multihot tensor indicating drug usage in all
+                visits (including the current one, whose row should
+                already be zeroed out by the caller) of shape
+                [patient, visit, num_drugs]. This method itself drops the
+                current visit via [:, :-1, :] to derive DM_keys/DM_values.
             curr_drugs: multihot tensor indicating drug usage in the current
                 visit of shape [patient, num_drugs].
             mask: an optional mask tensor of shape [patient, visit] where 1
-                indicates valid visits and 0 indicates invalid visits.
+                indicates valid visits and 0 indicates invalid visits. Also
+                used to exclude each patient's own current visit and any
+                padding beyond it from the dynamic-memory attention below.
+                A patient with no valid previous visit (e.g. their very
+                first visit) has no dynamic memory to attend over; matching
+                the reference implementation (sjy1203/GAMENet, models.py:
+                `fact2 = fact1` when `len(input) == 1`), the dynamic-memory
+                output o_d falls back to the static memory-bank output o_b
+                for that patient rather than being zeroed out.
 
         Returns:
             loss: a scalar tensor representing the loss.
@@ -198,13 +209,38 @@ class GAMENetLayer(nn.Module):
         DM_keys = queries[:, :-1, :]
         DM_values = prev_drugs[:, :-1, :]
 
+        # For batches with variable-length patient histories, dropping only
+        # the batch's last (padded) column is not enough: a patient shorter
+        # than the batch's longest sequence still has their own current
+        # visit -- and pure padding beyond it -- sitting inside DM_keys/
+        # DM_values. Build a per-patient mask over these positions so the
+        # attention below only ever sees genuine previous visits: valid iff
+        # the position is a real (non-padded) visit AND strictly before
+        # this patient's own current/last valid visit.
+        num_prev_positions = DM_keys.size(1)
+        position_idx = torch.arange(num_prev_positions, device=queries.device).unsqueeze(0)
+        last_visit_idx = (mask.long().sum(dim=1) - 1).clamp(min=0).unsqueeze(1)
+        prev_mask = (mask[:, :-1] > 0) & (position_idx < last_visit_idx)
+
         """O: Output memory representation"""
         a_c = torch.softmax(torch.mm(query, MB.t()), dim=-1)
         o_b = torch.mm(a_c, MB)
 
-        a_s = torch.softmax(torch.einsum("bd,bvd->bv", query, DM_keys), dim=1)
+        attn_logits = torch.einsum("bd,bvd->bv", query, DM_keys)
+        attn_logits = attn_logits.masked_fill(~prev_mask, float("-inf"))
+        a_s = torch.softmax(attn_logits, dim=1)
+        # Patients with no valid previous visit (e.g. their very first
+        # visit) have an all -inf row, so softmax produces NaN. nan_to_num
+        # keeps the backward pass finite; the actual output value for
+        # these patients is overridden below to match the reference
+        # implementation (sjy1203/GAMENet, models.py: `fact2 = fact1` when
+        # `len(input) == 1`) -- reusing the static memory-bank output o_b
+        # rather than zeroing out the dynamic-memory term entirely.
+        a_s = torch.nan_to_num(a_s, nan=0.0)
         a_m = torch.einsum("bv,bvz->bz", a_s, DM_values.float())
         o_d = torch.mm(a_m, MB)
+        has_prev_visit = prev_mask.any(dim=1, keepdim=True)
+        o_d = torch.where(has_prev_visit, o_d, o_b)
 
         """R: Response"""
         memory_output = torch.cat([query, o_b, o_d], dim=-1)
@@ -225,11 +261,21 @@ class GAMENet(BaseModel):
     Note:
         This model is only for medication prediction which takes conditions
         and procedures as feature_keys, and drugs as label_key.
-        It only operates on the visit level. Thus, we have disable the 
+        It only operates on the visit level. Thus, we have disable the
         feature_keys, label_key, and mode arguments.
 
     Note:
         This model only accepts ATC level 3 as medication codes.
+
+    Note:
+        Requires ``drugs_hist`` (nested per-visit drug history, current
+        visit excluded, e.g. as produced by
+        :mod:`pyhealth.tasks.drug_recommendation`) in the dataset's
+        input_schema. This populates the paper's Dynamic Memory (Eq. 6):
+        each previous visit's key-value pair of (patient query, actual
+        administered drugs), retrieved via temporal attention at inference
+        time (Eq. 7) to condition the recommendation on the patient's own
+        medication history.
 
     Args:
         dataset: the dataset to train the model. It is used to query certain
@@ -252,15 +298,19 @@ class GAMENet(BaseModel):
         ...     samples=[
         ...         {
         ...             "patient_id": "patient-0",
-        ...             "visit_id": "visit-0",
-        ...             "conditions": [["cond-33", "cond-86"], ["cond-80"]],
-        ...             "procedures": [["proc-12", "proc-45"], ["proc-23"]],
-        ...             "drugs": ["drug-1", "drug-2", "drug-3"],
+        ...             "visit_id": "visit-2",
+        ...             "conditions": [["cond-33", "cond-86"], ["cond-80"], ["cond-91"]],
+        ...             "procedures": [["proc-12", "proc-45"], ["proc-23"], ["proc-67"]],
+        ...             # drugs_hist: per-visit drugs administered so far,
+        ...             # with the current (target) visit zeroed out.
+        ...             "drugs_hist": [[], ["drug-1"], []],
+        ...             "drugs": ["drug-2", "drug-3"],
         ...         }
         ...     ],
         ...     input_schema={
         ...         "conditions": "nested_sequence",
         ...         "procedures": "nested_sequence",
+        ...         "drugs_hist": "nested_sequence",
         ...     },
         ...     output_schema={"drugs": "multilabel"},
         ...     dataset_name="test",
@@ -303,6 +353,11 @@ class GAMENet(BaseModel):
 
         assert "conditions" in self.dataset.input_schema, "conditions must be in input_schema"
         assert "procedures" in self.dataset.input_schema, "procedures must be in input_schema"
+        assert "drugs_hist" in self.dataset.input_schema, (
+            "drugs_hist must be in input_schema (nested per-visit drug history, "
+            "current visit excluded) -- required to populate the paper's Dynamic "
+            "Memory (Eq. 6); see e.g. pyhealth.tasks.drug_recommendation."
+        )
         assert "drugs" in self.dataset.output_schema, "drugs must be in output_schema"
 
         # feature_keys and label_key for GAMENet
@@ -313,6 +368,19 @@ class GAMENet(BaseModel):
 
         self.embedding_model = EmbeddingModel(dataset, embedding_dim)
         self.label_size = len(self.dataset.output_processors[self.label_key].label_vocab)
+
+        # drugs_hist is tokenized against its own input vocabulary (built by
+        # NestedSequenceProcessor), which is generally NOT the same indexing
+        # as the drugs label_vocab used by ehr_adj/ddi_adj/the Memory Bank.
+        # Precompute a remap table (drugs_hist vocab index -> drugs label_vocab
+        # index) so historical drug codes can be converted into the same
+        # multi-hot space as the drug label, as required to build the Dynamic
+        # Memory's values in Eq. 6. Codes with no match (<pad>, <unk>, or a
+        # history code absent from the output label_vocab) map to
+        # self.label_size, a sentinel "trash" bin sliced away after scatter.
+        self.register_buffer(
+            "_drug_hist_to_label", self._build_drug_hist_vocab_map()
+        )
 
         # adj matrix
         ehr_adj = self.generate_ehr_adj()
@@ -392,6 +460,52 @@ class GAMENet(BaseModel):
                 ddi_adj[label_vocab[atc_j], label_vocab[atc_i]] = 1
         return ddi_adj
 
+    def _build_drug_hist_vocab_map(self) -> torch.Tensor:
+        """Maps drugs_hist input-vocabulary indices to drugs label_vocab
+        indices, so historical drug codes align with the same multi-hot
+        space as the drug label / EHR & DDI graphs.
+
+        Returns:
+            LongTensor of shape [drugs_hist_vocab_size]. Entry i is the
+            label_vocab index of the drugs_hist-vocab code at index i, or
+            self.label_size (a sentinel "trash" index, sliced away after
+            scatter) if that code has no corresponding drug label (this
+            covers the drugs_hist processor's own <pad>/<unk> tokens, plus
+            any history code absent from the output label_vocab).
+        """
+        hist_vocab = self.dataset.input_processors["drugs_hist"].code_vocab
+        label_vocab = self.dataset.output_processors[self.label_key].label_vocab
+
+        mapping = torch.full((len(hist_vocab),), self.label_size, dtype=torch.long)
+        for code, hist_idx in hist_vocab.items():
+            if code in label_vocab:
+                mapping[hist_idx] = label_vocab[code]
+        return mapping
+
+    def _build_prev_drugs(self, drugs_hist: torch.Tensor) -> torch.Tensor:
+        """Converts the raw drugs_hist tensor into the multi-hot Dynamic
+        Memory values Eq. 6 of the paper requires: [c_m^1; ...; c_m^{t-1}].
+
+        Args:
+            drugs_hist: LongTensor of shape [batch, visits, codes_per_visit],
+                indices into the drugs_hist input processor's vocabulary
+                (current visit already zeroed out by the task, per
+                pyhealth.tasks.drug_recommendation).
+
+        Returns:
+            Multi-hot tensor of shape [batch, visits, label_size] aligned
+            with the drugs label_vocab / ehr_adj / ddi_adj / Memory Bank.
+        """
+        batch_size, num_visits, _ = drugs_hist.shape
+        mapped = self._drug_hist_to_label[drugs_hist.clamp(min=0)]
+        # mapped values are in [0, label_size]; label_size is the sentinel
+        # trash bin absorbing <pad>/<unk>/unmatched codes.
+        multihot = torch.zeros(
+            batch_size, num_visits, self.label_size + 1, device=drugs_hist.device
+        )
+        multihot.scatter_(2, mapped, 1.0)
+        return multihot[:, :, : self.label_size]
+
     def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
         """Forward propagation.
 
@@ -401,6 +515,9 @@ class GAMENet(BaseModel):
                 Expected keys:
                 - conditions: tensor of shape [batch, visits, codes_per_visit]
                 - procedures: tensor of shape [batch, visits, codes_per_visit]
+                - drugs_hist: tensor of shape [batch, visits, codes_per_visit],
+                    nested per-visit drug history with the current visit
+                    zeroed out (see pyhealth.tasks.drug_recommendation)
                 - drugs: tensor of shape [batch, num_drugs] (multilabel)
 
         Returns:
@@ -437,7 +554,24 @@ class GAMENet(BaseModel):
         batch_size = queries.size(0)
         num_visits = queries.size(1)
 
-        prev_drugs = torch.zeros(batch_size, num_visits, self.label_size, device=self.device)
+        # Dynamic Memory values (Eq. 6): each previous visit's actual
+        # administered drugs, multi-hot encoded in the drugs label_vocab
+        # space. drugs_hist already has the current visit zeroed out by the
+        # task (see pyhealth.tasks.drug_recommendation); GAMENetLayer drops
+        # the last (current) visit itself when slicing DM_keys/DM_values.
+        drugs_hist = kwargs["drugs_hist"].to(self.device)
+        if drugs_hist.size(1) != num_visits:
+            # conditions/procedures/drugs_hist are built in lockstep per
+            # visit by the task, but the default collate function pads
+            # each field independently -- align defensively just in case.
+            if drugs_hist.size(1) < num_visits:
+                pad = drugs_hist.new_zeros(
+                    batch_size, num_visits - drugs_hist.size(1), drugs_hist.size(2)
+                )
+                drugs_hist = torch.cat([drugs_hist, pad], dim=1)
+            else:
+                drugs_hist = drugs_hist[:, :num_visits, :]
+        prev_drugs = self._build_prev_drugs(drugs_hist)
 
         # [batch, visits]
         mask = (embedded["conditions"].sum(dim=-1) != 0).any(dim=-1)
