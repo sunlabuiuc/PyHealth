@@ -9,7 +9,7 @@ This example demonstrates:
 
 Target Population:
     - Patients with Type 1 Diabetes Mellitus (T1DM) ONLY
-    - Predicts DKA occurrence within 90 days of T1DM diagnosis
+    - Predicts DKA from the T1DM diagnosis through the next 90 days
     - Smaller, focused patient cohort
 """
 
@@ -178,5 +178,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-
 
