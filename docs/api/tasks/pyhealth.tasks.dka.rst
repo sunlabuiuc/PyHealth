@@ -6,3 +6,7 @@ pyhealth.tasks.dka
     :undoc-members:
     :show-inheritance:
 
+.. autoclass:: pyhealth.tasks.dka.T1DDKAPredictionMIMIC4
+    :members:
+    :undoc-members:
+    :show-inheritance:
