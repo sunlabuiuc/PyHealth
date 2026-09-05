@@ -24,12 +24,11 @@ if __name__ == "__main__":
         num_workers=8
     )
 
-    # Apply multimodal task
+    # Apply multimodal task with X-rays available by prediction time
     task = MultimodalMortalityPredictionMIMIC4()
     samples = dataset.set_task(task, num_workers=8)
 
     # Get and print sample
     sample = samples[0]
     print(sample)
-
 
