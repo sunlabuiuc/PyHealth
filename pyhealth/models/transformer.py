@@ -12,7 +12,7 @@ from torch import nn
 from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
 from pyhealth.models.embedding import EmbeddingModel
-from pyhealth.interpret.api import CheferInterpretable
+from pyhealth.interpret.api import GradientInterpretable
 
 # VALID_OPERATION_LEVEL = ["visit", "event"]
 
@@ -64,7 +64,16 @@ class Attention(nn.Module):
 
 
 class MultiHeadedAttention(nn.Module):
-    """Multi-head attention wrapper used by the Transformer block."""
+    """Multi-head attention wrapper used by the Transformer block.
+
+    Examples:
+        >>> attention = MultiHeadedAttention(h=2, d_model=8)
+        >>> x = torch.randn(1, 3, 8)
+        >>> with torch.no_grad():
+        ...     output = attention(x, x, x, capture_attention=True)
+        >>> attention.get_attn_map().shape
+        torch.Size([1, 2, 3, 3])
+    """
 
     def __init__(self, h: int, d_model: int, dropout: float = 0.1):
         """Initialize the attention module.
@@ -126,6 +135,8 @@ class MultiHeadedAttention(nn.Module):
         value: torch.Tensor,
         mask: Optional[torch.Tensor] = None,
         register_hook: bool = False,
+        *,
+        capture_attention: bool = False,
     ) -> torch.Tensor:
         """Run multi-head attention with optional gradient capture.
 
@@ -134,12 +145,15 @@ class MultiHeadedAttention(nn.Module):
             key: Key tensor aligned with ``query``.
             value: Value tensor aligned with ``query``.
             mask: Optional boolean mask ``[batch, len_q, len_k]``.
-            register_hook: True to attach a backward hook saving gradients.
+            register_hook: True to capture maps and attach a gradient hook.
+            capture_attention: Capture maps without requiring gradients.
 
         Returns:
             torch.Tensor: Attention mixed representation ``[batch, len_q, hidden]``.
         """
 
+        self.attn_map = None
+        self.attn_gradients = None
         batch_size = query.size(0)
 
         # 1) Do all the linear projections in batch from d_model => h x d_k
@@ -153,15 +167,11 @@ class MultiHeadedAttention(nn.Module):
             mask = mask.unsqueeze(1)
         x, attn = self.attention(query, key, value, mask=mask, dropout=self.dropout)
 
-        if register_hook:
-            # Only store attn_map and hook during interpretability passes.
-            # Using .detach() gives an independent copy whose storage
-            # is NOT shared with the live graph, so the graph can be freed
-            # normally after .backward() without leaking GPU memory.
+        if capture_attention or register_hook:
+            # Detach captured maps so the cache does not retain the live graph.
             self.attn_map = attn.detach()
+        if register_hook:
             attn.register_hook(self.save_attn_grad)
-        else:
-            self.attn_map = None
         # 3) "Concat" using a view and apply a final linear.
         x = x.transpose(1, 2).contiguous().view(batch_size, -1, self.h * self.d_k)
   
@@ -230,6 +240,13 @@ class TransformerBlock(nn.Module):
         hidden: hidden size of transformer.
         attn_heads: head sizes of multi-head attention.
         dropout: dropout rate.
+
+    Examples:
+        >>> block = TransformerBlock(hidden=8, attn_heads=2, dropout=0.0)
+        >>> with torch.no_grad():
+        ...     output = block(torch.randn(1, 3, 8), capture_attention=True)
+        >>> output.shape
+        torch.Size([1, 3, 8])
     """
 
     def __init__(self, hidden, attn_heads, dropout):
@@ -246,7 +263,7 @@ class TransformerBlock(nn.Module):
         """Deprecated compatibility stub; no-op."""
         return None
 
-    def forward(self, x, mask=None, register_hook = False):
+    def forward(self, x, mask=None, register_hook=False, *, capture_attention=False):
         """Forward propagation.
 
         Args:
@@ -256,7 +273,13 @@ class TransformerBlock(nn.Module):
         Returns:
             A tensor of shape [batch_size, seq_len, hidden]
         """
-        x = self.input_sublayer(x, lambda _x: self.attention(_x, _x, _x, mask=mask, register_hook=register_hook))
+        x = self.input_sublayer(
+            x,
+            lambda _x: self.attention(
+                _x, _x, _x, mask=mask, register_hook=register_hook,
+                capture_attention=capture_attention,
+            ),
+        )
         x = self.output_sublayer(x, lambda _x: self.feed_forward(_x, mask=mask))
         return self.dropout(x)
 
@@ -297,7 +320,8 @@ class TransformerLayer(nn.Module):
         return None
 
     def forward(
-        self, x: torch.Tensor, mask: Optional[torch.Tensor] = None, register_hook: bool = False
+        self, x: torch.Tensor, mask: Optional[torch.Tensor] = None,
+        register_hook: bool = False, *, capture_attention: bool = False,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Forward propagation.
 
@@ -315,13 +339,13 @@ class TransformerLayer(nn.Module):
         if mask is not None:
             mask = torch.einsum("ab,ac->abc", mask, mask)
         for transformer in self.transformer:
-            x = transformer(x, mask, register_hook)
+            x = transformer(x, mask, register_hook, capture_attention=capture_attention)
         emb = x
         cls_emb = x[:, 0, :]
         return emb, cls_emb
 
 
-class Transformer(BaseModel, CheferInterpretable):
+class Transformer(BaseModel, GradientInterpretable):
     """Transformer model for PyHealth 2.0 datasets.
 
     Each feature stream is embedded with :class:`EmbeddingModel` and encoded by
@@ -385,6 +409,7 @@ class Transformer(BaseModel, CheferInterpretable):
         self.num_layers = num_layers
         self.max_seq_len = max_seq_len
         self._attention_hooks_enabled = False
+        self._attention_gradients_enabled = False
 
         assert (
             len(self.label_keys) == 1
@@ -481,7 +506,7 @@ class Transformer(BaseModel, CheferInterpretable):
                 embed: (if embed=True in kwargs) the patient embedding.
         """
         # Support both the flag-based API and legacy kwarg-based API
-        register_hook = self._attention_hooks_enabled
+        register_hook = self._attention_gradients_enabled
         patient_emb = []
 
         for feature_key in self.feature_keys:
@@ -516,7 +541,8 @@ class Transformer(BaseModel, CheferInterpretable):
                 mask = self._mask_from_embeddings(value).to(self.device)
 
             _, cls_emb = self.transformer[feature_key](
-                value, mask, register_hook
+                value, mask, register_hook,
+                capture_attention=self._attention_hooks_enabled,
             )
             patient_emb.append(cls_emb)
 
@@ -606,16 +632,20 @@ class Transformer(BaseModel, CheferInterpretable):
         return self.embedding_model
 
     # ------------------------------------------------------------------
-    # CheferInterpretable interface
+    # GradientInterpretable interface
     # ------------------------------------------------------------------
 
-    def set_attention_hooks(self, enabled: bool) -> None:
+    def set_attention_hooks(
+        self, enabled: bool, *, capture_gradients: bool = True
+    ) -> None:
+        """Configure future capture; disabling preserves the latest results."""
         self._attention_hooks_enabled = enabled
+        self._attention_gradients_enabled = enabled and capture_gradients
 
     def get_attention_layers(
         self,
-    ) -> dict[str, list[tuple[torch.Tensor, torch.Tensor]]]:
-        return {  # type: ignore[return-value]
+    ) -> dict[str, list[tuple[torch.Tensor | None, torch.Tensor | None]]]:
+        return {
             key: [
                 (
                     cast(TransformerBlock, blk).attention.get_attn_map(),

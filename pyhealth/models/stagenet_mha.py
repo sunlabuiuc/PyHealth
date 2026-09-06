@@ -8,7 +8,7 @@ from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
 from pyhealth.models.utils import get_last_visit
 from .transformer import MultiHeadedAttention
-from pyhealth.interpret.api import CheferInterpretable
+from pyhealth.interpret.api import GradientInterpretable
 
 from .embedding import EmbeddingModel
 
@@ -193,6 +193,8 @@ class StageNetAttentionLayer(nn.Module):
         time: Optional[torch.Tensor] = None,
         mask: Optional[torch.Tensor] = None,
         register_hook: bool = False,
+        *,
+        capture_attention: bool = False,
     ) -> Tuple[torch.Tensor, ...]:
         """Forward propagation.
 
@@ -201,8 +203,8 @@ class StageNetAttentionLayer(nn.Module):
             static: a tensor of shape [batch size, static_dim].
             mask: an optional tensor of shape [batch size, sequence len], where
                 1 indicates valid and 0 indicates invalid.
-            register_hook: whether to register a backward hook on attention
-                weights for gradient inspection.
+            register_hook: whether to capture maps and register a backward hook.
+            capture_attention: whether to capture maps without gradients.
 
         Returns:
             last_output: a tensor of shape [batch size, chunk_size*levels] representing the
@@ -245,7 +247,8 @@ class StageNetAttentionLayer(nn.Module):
 
         seq_for_mha = hidden_seq.permute(1, 0, 2)  # [batch, time, hidden]
         attn_output = self.mha(
-            seq_for_mha, seq_for_mha, seq_for_mha, mask=attn_mask, register_hook=register_hook
+            seq_for_mha, seq_for_mha, seq_for_mha, mask=attn_mask, register_hook=register_hook,
+            capture_attention=capture_attention,
         )
         self.attn_map = self.get_attn_map()
         self.attn_gradients = None  # will be populated after backward if hooked
@@ -298,7 +301,7 @@ class StageNetAttentionLayer(nn.Module):
         return last_output, output, distance
 
 
-class StageAttentionNet(BaseModel, CheferInterpretable):
+class StageAttentionNet(BaseModel, GradientInterpretable):
     """StageAttentionNet model.
 
     Paper: Junyi Gao et al. Stagenet: Stage-aware neural networks for health
@@ -407,6 +410,7 @@ class StageAttentionNet(BaseModel, CheferInterpretable):
         self.chunk_size = chunk_size
         self.levels = levels
         self._attention_hooks_enabled = False
+        self._attention_gradients_enabled = False
 
         # validate kwargs for StageNet layer
         if "input_dim" in kwargs:
@@ -477,7 +481,7 @@ class StageAttentionNet(BaseModel, CheferInterpretable):
                 embed: (if embed=True in kwargs) the patient embedding.
         """
         # Support both the flag-based API and legacy kwarg-based API
-        register_attn_hook = self._attention_hooks_enabled
+        register_attn_hook = self._attention_gradients_enabled
         patient_emb = []
         distance = []
 
@@ -544,7 +548,8 @@ class StageAttentionNet(BaseModel, CheferInterpretable):
 
             # Pass through StageNet layer with embedded features
             last_output, _, cur_dis = self.stagenet[feature_key](
-                value, time=time, mask=mask, register_hook=register_attn_hook
+                value, time=time, mask=mask, register_hook=register_attn_hook,
+                capture_attention=self._attention_hooks_enabled,
             )
 
             patient_emb.append(last_output)
@@ -633,16 +638,20 @@ class StageAttentionNet(BaseModel, CheferInterpretable):
         return self.embedding_model
 
     # ------------------------------------------------------------------
-    # CheferInterpretable interface
+    # GradientInterpretable interface
     # ------------------------------------------------------------------
 
-    def set_attention_hooks(self, enabled: bool) -> None:
+    def set_attention_hooks(
+        self, enabled: bool, *, capture_gradients: bool = True
+    ) -> None:
+        """Configure future capture; disabling preserves the latest results."""
         self._attention_hooks_enabled = enabled
+        self._attention_gradients_enabled = enabled and capture_gradients
 
     def get_attention_layers(
         self,
-    ) -> dict[str, list[tuple[torch.Tensor, torch.Tensor]]]:
-        return {  # type: ignore[return-value]
+    ) -> dict[str, list[tuple[torch.Tensor | None, torch.Tensor | None]]]:
+        return {
             key: [
                 (
                     cast(StageNetAttentionLayer, self.stagenet[key]).get_attn_map(),
