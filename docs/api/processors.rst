@@ -299,6 +299,64 @@ Common string keys for automatic processor selection:
 - ``"raw"``: For raw/unprocessed data
 - ``"graph"``: For knowledge graph subgraphs
 
+Training-only time-series normalization
+--------------------------------------
+
+``TimeseriesProcessor`` and ``TemporalTimeseriesProcessor`` accept
+``normalize_strategy="standard"`` for per-feature z-score normalization.
+The default, ``None``, keeps existing behavior. Min–max scaling is not supported.
+
+``fit()`` computes the training mean and population standard deviation
+(``ddof=0``) **after resampling and imputation**. Every resampled time step has
+equal weight, including filled gaps; longer sequences therefore contribute
+more observations. Constant features use a scale of 1. ``process()`` applies
+these fixed statistics without updating them. The temporal processor normalizes
+only ``"value"``; its ``"time"`` tensor remains in elapsed hours.
+
+.. important::
+
+   Split raw samples by patient before fitting normalization. Calling
+   ``set_task()`` with normalization enabled on the full dataset and then
+   splitting the resulting samples leaks validation/test statistics into training.
+
+Create the training dataset first, then explicitly transfer its fitted processors:
+
+.. code-block:: python
+
+    from pyhealth.datasets import create_sample_dataset
+
+    schema = {"vitals": ("timeseries", {"normalize_strategy": "standard"})}
+    train = create_sample_dataset(
+        samples=train_samples, input_schema=schema, output_schema={}
+    )
+    validation = create_sample_dataset(
+        samples=validation_samples,
+        input_schema=schema,
+        output_schema={},
+        input_processors=train.input_processors,
+    )
+
+Use the same transfer for the test split. For temporal data, replace
+``"timeseries"`` with ``"temporal_timeseries"``. Passing a pre-fitted processor
+instance in ``input_schema`` alone does **not** prevent refitting; use the
+``input_processors`` argument instead. The processor cannot infer which samples
+are training data, so the caller must supply the intended training partition.
+
+Normalization requires a successful ``fit()``; otherwise processing raises
+``RuntimeError``. Refitting replaces all previous statistics, and failed fitting
+leaves normalization unfitted. Missing or ``None`` training fields are skipped;
+no usable training samples, malformed present samples, and infinite values raise
+``ValueError``. NaNs are handled by the existing imputation step, including its
+zero initialization for leading or entirely missing features. Resampled and
+imputed values must be finite. Existing input shapes and imputation behavior
+are preserved: the ordinary processor expects ``(T, F)`` values, while the
+temporal processor also accepts ``(T,)``.
+
+Fitted statistics are saved with the existing processor metadata and reused by
+cached datasets; no separate statistics file is necessary. See
+``examples/timeseries_normalization.py`` for a complete synthetic example that
+can be run with ``pixi run -e test python examples/timeseries_normalization.py``.
+
 Writing Custom FeatureProcessors
 ---------------------------------
 
