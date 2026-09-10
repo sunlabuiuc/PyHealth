@@ -31,6 +31,13 @@ class CNNBlock(nn.Module):
     Args:
         in_channels: number of input channels.
         out_channels: number of output channels.
+
+    Example:
+        >>> import torch
+        >>> from pyhealth.models.cnn import CNNBlock
+        >>> block = CNNBlock(4, 8, spatial_dim=1)
+        >>> block(torch.randn(1, 4, 1)).shape
+        torch.Size([1, 8, 1])
     """
 
     def __init__(self, in_channels: int, out_channels: int, spatial_dim: int):
