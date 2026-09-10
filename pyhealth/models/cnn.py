@@ -61,6 +61,23 @@ class CNNBlock(nn.Module):
             )
         self.relu = nn.ReLU()
 
+    @staticmethod
+    def _apply_layers(layers: nn.Sequential, x: torch.Tensor) -> torch.Tensor:
+        for layer in layers:
+            if (
+                isinstance(layer, nn.BatchNorm1d)
+                and layer.training
+                and x.size(0) * x.size(2) == 1
+            ):
+                # Use running statistics without changing the layer's mode.
+                x = nn.functional.batch_norm(
+                    x, layer.running_mean, layer.running_var,
+                    layer.weight, layer.bias, training=False, eps=layer.eps,
+                )
+            else:
+                x = layer(x)
+        return x
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward propagation.
 
@@ -71,10 +88,10 @@ class CNNBlock(nn.Module):
             output tensor of shape [batch size, out_channels, *].
         """
         residual = x
-        out = self.conv1(x)
-        out = self.conv2(out)
+        out = self._apply_layers(self.conv1, x)
+        out = self._apply_layers(self.conv2, out)
         if self.downsample is not None:
-            residual = self.downsample(x)
+            residual = self._apply_layers(self.downsample, x)
         out += residual
         out = self.relu(out)
         return out
