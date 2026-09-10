@@ -74,6 +74,15 @@ varies by task type:
 The ``forward()`` method is expected to return a dictionary with four keys:
 ``loss``, ``y_prob``, ``y_true``, and ``logit``. The Trainer reads all four.
 
+Graph Image Models
+------------------
+
+``Graph_TorchvisionModel`` takes a ``SampleDataset``, ``model_name``,
+``model_config``, and ``gnn_config``. Its single image field, label field, and
+classification mode come from the dataset schemas. Pass processed image and
+label tensors from ``get_dataloader`` to ``forward``, together with two
+``EdgeIndex`` adjacencies under ``adjacencies``, aligned with the image batch.
+
 EmbeddingModel
 --------------
 

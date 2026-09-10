@@ -7,7 +7,6 @@ Recommended:
 
 import math
 import sys
-from typing import Dict, List
 
 import torch
 import torch.nn as nn
@@ -112,6 +111,13 @@ class GraphConvolution(nn.Module):
 
 
 class GCN(nn.Module):
+    """Two-layer graph network returning unnormalized class logits.
+
+    Example:
+        >>> gcn = GCN(8, 4, 2, dropout=0.5, init="xavier")
+        >>> logits = gcn(node_features, adjacencies)
+    """
+
     def __init__(self, nfeat, nhid, nclass, dropout, init):
         super(GCN, self).__init__()
 
@@ -132,7 +138,7 @@ class GCN(nn.Module):
         temp = self.to_sparse_adj(adjs[1], size = (adjs[0].size[0], adjs[0].size[0]))
         x = self.gc2(x, temp)
 
-        return F.log_softmax(x, dim=1)
+        return x
 
 
 class Graph_TorchvisionModel(BaseModel):
@@ -168,42 +174,42 @@ class Graph_TorchvisionModel(BaseModel):
     -----------------------------------------------------------------------------------
 
     Args:
-        dataset: the dataset to train the model. It is used to query certain
-            information such as the set of all tokens.
-        feature_keys:  list of keys in samples to use as features, e.g., ["image"].
-            Only one feature is supported.
-        label_key: key in samples to use as label, e.g., "drugs".
-        mode: one of "binary", "multiclass", or "multilabel".
+        dataset: dataset with one image input and one binary, multiclass, or
+            multilabel output. Field names and mode are derived from its schema.
         model_name: str, name of the model to use, e.g., "resnet18".
             See SUPPORTED_MODELS in the source code for the full list.
         model_config: dict, kwargs to pass to the model constructor,
             e.g., {"weights": "DEFAULT"}. See the torchvision documentation for the
             set of supported kwargs for each model.
+        gnn_config: graph network dimensions, with keys "input_dim" and "hidden_dim".
+
+    Example:
+        >>> model = Graph_TorchvisionModel(
+        ...     dataset, model_name="resnet18", model_config={"weights": None},
+        ...     gnn_config={"input_dim": 256, "hidden_dim": 128},
+        ... )
+        >>> result = model(**batch, adjacencies=adjacencies)
+        >>> result["loss"].backward()
     -----------------------------------------------------------------------------------
     """
 
     def __init__(
         self,
         dataset: SampleDataset,
-        feature_keys: List[str],
-        label_key: str,
-        mode: str,
         model_name: str,
         model_config: dict,
         gnn_config: dict,
     ):
-        super(Graph_TorchvisionModel, self).__init__(
-            dataset=dataset,
-            feature_keys=feature_keys,
-            label_key=label_key,
-            mode=mode,
-        )
+        super().__init__(dataset=dataset)
 
         self.model_name = model_name
         self.model_config = model_config
         self.gnn_config = gnn_config
 
-        assert len(feature_keys) == 1, "Only one feature is supported!"
+        assert len(self.feature_keys) == 1, "Only one image feature is supported!"
+        assert len(self.label_keys) == 1, "Only one label is supported!"
+        self.feature_key = self.feature_keys[0]
+        self.label_key = self.label_keys[0]
         assert model_name in SUPPORTED_MODELS_FINAL_LAYER.keys(), \
             f"PyHealth does not currently include {model_name} model!"
 
@@ -219,14 +225,13 @@ class Graph_TorchvisionModel(BaseModel):
         gnn_input_dim = gnn_config["input_dim"]
         gnn_hidden_dim = gnn_config["hidden_dim"]
 
-        self.label_tokenizer = self.get_label_tokenizer()
-        output_size = self.get_output_size(self.label_tokenizer)
+        output_size = self.get_output_size()
         self.gnn = GCN(nfeat=gnn_input_dim, nhid=gnn_hidden_dim, nclass=output_size, dropout=0.5, init='uniform')
         
         setattr(self.model, final_layer_name.split(".")[0], nn.Linear(hidden_dim, gnn_input_dim))
 
 
-    def build_graph(self, data, random = False) -> Dict[str, torch.Tensor]:
+    def build_graph(self, data, random = False) -> dict[str, torch.Tensor]:
         """This module generate edge index of graph structure based on given data.
         Currently, we do not have multi-modal data, so this module randomly generate edge index"""
         
@@ -238,20 +243,19 @@ class Graph_TorchvisionModel(BaseModel):
         }
 
 
-    def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
+    def forward(self, **kwargs) -> dict[str, torch.Tensor]:
         """Forward propagation."""
-        # concat the info within one batch (batch, channel, length)
-        x = kwargs["image"]
-        x = torch.stack(x, dim=0).to(self.device)
+        x = kwargs[self.feature_key].to(self.device)
         if x.shape[1] == 1:
             x = x.repeat((1, 3, 1, 1))
         img_embs = self.model(x)
         logits = self.gnn(img_embs, kwargs["adjacencies"])
-        y_true = self.prepare_labels(kwargs[self.label_key], self.label_tokenizer)
+        y_true = kwargs[self.label_key].to(self.device)
         loss = self.get_loss_function()(logits, y_true)
         y_prob = self.prepare_y_prob(logits)
         return {
             "loss": loss,
+            "logit": logits,
             "y_prob": y_prob,
             "y_true": y_true,
         }
@@ -293,9 +297,6 @@ if __name__ == "__main__":
 
     model = Graph_TorchvisionModel(
         dataset=sample_dataset,
-        feature_keys=["path"],
-        label_key="label",
-        mode="multiclass",
         model_name="resnet18",
         # model_config={"weights": "DEFAULT"},
         model_config={},
