@@ -97,6 +97,50 @@ Medication codes:
     :undoc-members:
     :show-inheritance:
 
+Knowledge graph embeddings
+--------------------------
+
+``pyhealth.medcode.pretrained_embeddings.kg_emb`` trains TransE, RotatE,
+DistMult and ComplEx on an in-memory list of triples. Since PyHealth 2.0
+the sample dataset is a map-style :class:`torch.utils.data.Dataset`. Build
+the loader with :class:`torch.utils.data.DataLoader` and
+:func:`pyhealth.datasets.collate_fn_dict_with_padding` --
+:func:`pyhealth.datasets.get_dataloader` is streaming-only and calls
+``set_shuffle()``.
+
+See ``examples/kg_emb_sample_dataset.py`` for a self-contained walk-through.
+
+.. autoclass:: pyhealth.medcode.pretrained_embeddings.kg_emb.datasets.SampleKGDataset
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+.. autofunction:: pyhealth.medcode.pretrained_embeddings.kg_emb.datasets.split
+
+.. autoclass:: pyhealth.medcode.pretrained_embeddings.kg_emb.models.KGEBaseModel
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+.. autoclass:: pyhealth.medcode.pretrained_embeddings.kg_emb.models.TransE
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+.. autoclass:: pyhealth.medcode.pretrained_embeddings.kg_emb.models.RotatE
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+.. autoclass:: pyhealth.medcode.pretrained_embeddings.kg_emb.models.DistMult
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+.. autoclass:: pyhealth.medcode.pretrained_embeddings.kg_emb.models.ComplEx
+    :members:
+    :undoc-members:
+    :show-inheritance:
 
 
 

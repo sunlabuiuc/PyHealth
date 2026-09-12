@@ -1,10 +1,10 @@
 import logging
 import os
-from tqdm import tqdm
-import numpy as np
+
 import pandas as pd
-from pandarallel import pandarallel
-from pyhealth.medcode.pretrained_embeddings.kg_emb.datasets import BaseKGDataset
+from tqdm import tqdm
+
+from .base_kg_dataset import BaseKGDataset
 
 logger = logging.getLogger(__name__)
 
@@ -20,11 +20,17 @@ class UMLSDataset(BaseKGDataset):
             Default is False.
         refresh_cache: whether to refresh the cache; if true, the dataset will
             be processed from scratch and the cache will be updated. Default is False.
-    
+
+    Examples:
+        >>> from pyhealth.medcode.pretrained_embeddings.kg_emb.datasets import (
+        ...     BaseKGDataset,
+        ...     UMLSDataset,
+        ... )
+        >>> issubclass(UMLSDataset, BaseKGDataset)
+        True
     """
 
     def raw_graph_process(self):
-        pandarallel.initialize(progress_bar=False)
         if self.dev == False:
             self.graph_path = os.path.join(self.root, "graph.txt")
         else:
@@ -56,7 +62,6 @@ class UMLSDataset(BaseKGDataset):
                         for e1, r, e2 in tqdm(zip(graph_df['e1'], graph_df['r'], graph_df['e2']), total=graph_df.shape[0])]
 
 
-        return
 
 
 if __name__ == "__main__":
