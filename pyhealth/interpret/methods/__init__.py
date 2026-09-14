@@ -12,20 +12,28 @@ from pyhealth.interpret.methods.lime import LimeExplainer
 from pyhealth.interpret.methods.ensemble_crh import CrhEnsemble
 from pyhealth.interpret.methods.ensemble_avg import AvgEnsemble
 from pyhealth.interpret.methods.ensemble_var import VarEnsemble
+from pyhealth.interpret.methods.lrp import LayerwiseRelevancePropagation
+from pyhealth.interpret.methods.saliency_visualization import (
+    SaliencyVisualizer,
+    visualize_attribution,
+)
 
 __all__ = [
     "BaseInterpreter",
+    "BasicGradientSaliencyMaps",
     "CheferRelevance",
     "AttentionRollout",
     "DeepLift",
     "GIM",
     "IntegratedGradientGIM",
     "IntegratedGradients",
-    "BasicGradientSaliencyMaps",
     "RandomBaseline",
+    "LayerwiseRelevancePropagation",
+    "SaliencyVisualizer",
+    "visualize_attribution",
     "ShapExplainer",
     "LimeExplainer",
     "CrhEnsemble",
     "AvgEnsemble",
-    "VarEnsemble"
+    "VarEnsemble",
 ]
