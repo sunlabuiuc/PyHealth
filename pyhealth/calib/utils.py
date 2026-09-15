@@ -24,9 +24,11 @@ def one_hot_np(labels, K):
 
 
 def binary_to_2col(y_prob):
-    """Turn binary ``P(y=1)`` of shape ``(N,)`` or ``(N, 1)`` into a 2-column
-    ``[P(y=0), P(y=1)]`` of shape ``(N, 2)``, so a binary task can reuse the
-    multiclass split-conformal machinery (one column per class).
+    """Expand binary ``P(y=1)`` to two columns ``[P(y=0), P(y=1)]``.
+
+    A prediction set ranges over both labels ``{0, 1}``, so it needs one
+    probability column per class. Turns shape ``(N,)`` or ``(N, 1)`` into
+    ``(N, 2)`` (numpy).
 
     Examples:
         >>> from pyhealth.calib.utils import binary_to_2col
@@ -36,6 +38,49 @@ def binary_to_2col(y_prob):
     """
     p = np.asarray(y_prob, dtype=float).reshape(-1, 1)
     return np.hstack([1.0 - p, p])
+
+
+def expand_binary_cal(y_prob, y_true):
+    """Reshape a binary model's calibration outputs as a 2-class problem (numpy).
+
+    Returns ``y_prob`` as ``(N, 2)`` and ``y_true`` as an ``(N,)`` integer class
+    index, so the split-conformal scoring runs unchanged with ``K == 2``. The
+    forward-side counterpart is :func:`expand_binary_pred`. Call only when the
+    base model is binary.
+
+    Examples:
+        >>> import numpy as np
+        >>> from pyhealth.calib.utils import expand_binary_cal
+        >>> yp, yt = expand_binary_cal(np.array([0.2, 0.9]), np.array([[0], [1]]))
+        >>> yp.shape, yt.tolist()
+        ((2, 2), [0, 1])
+    """
+    return binary_to_2col(y_prob), np.asarray(y_true).reshape(-1).astype(int)
+
+
+def expand_binary_pred(pred):
+    """Reshape a binary model's forward output as a 2-class problem (torch).
+
+    Returns the ``(N, 2)`` probability to build the prediction set from, and
+    normalizes ``pred["y_true"]`` in place to a 1-D class index (as the set
+    metrics expect). ``pred["y_prob"]`` is left as the model's native
+    positive-class probability, so the binary scalar metrics are unaffected. The
+    calibrate-side counterpart is :func:`expand_binary_cal`. Call only when the
+    base model is binary.
+
+    Examples:
+        >>> import torch
+        >>> from pyhealth.calib.utils import expand_binary_pred
+        >>> pred = {"y_prob": torch.tensor([[0.2], [0.9]]), "y_true": torch.tensor([[0], [1]])}
+        >>> expand_binary_pred(pred).shape
+        torch.Size([2, 2])
+    """
+    p = pred["y_prob"]
+    if p.dim() == 1:
+        p = p.unsqueeze(1)
+    if pred.get("y_true") is not None:
+        pred["y_true"] = pred["y_true"].reshape(-1).long()
+    return torch.cat([1.0 - p, p], dim=1)
 
 
 class LogLoss(torch.nn.Module):

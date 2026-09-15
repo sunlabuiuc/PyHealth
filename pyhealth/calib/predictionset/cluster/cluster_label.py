@@ -19,7 +19,12 @@ from torch.utils.data import IterableDataset
 
 from pyhealth.calib.base_classes import SetPredictor
 from pyhealth.calib.predictionset.base_conformal import _query_quantile
-from pyhealth.calib.utils import extract_embeddings, prepare_numpy_dataset
+from pyhealth.calib.utils import (
+    expand_binary_cal,
+    expand_binary_pred,
+    extract_embeddings,
+    prepare_numpy_dataset,
+)
 from pyhealth.models import BaseModel
 
 __all__ = ["ClusterLabel"]
@@ -102,9 +107,9 @@ class ClusterLabel(SetPredictor):
     ) -> None:
         super().__init__(model, **kwargs)
 
-        if model.mode != "multiclass":
+        if model.mode not in ("multiclass", "binary"):
             raise NotImplementedError(
-                "ClusterLabel only supports multiclass classification"
+                "ClusterLabel only supports multiclass and binary classification"
             )
 
         self.mode = self.model.mode
@@ -174,6 +179,8 @@ class ClusterLabel(SetPredictor):
 
         y_prob = cal_dataset_dict["y_prob"]
         y_true = cal_dataset_dict["y_true"]
+        if self.mode == "binary":
+            y_prob, y_true = expand_binary_cal(y_prob, y_true)
         N, K = y_prob.shape
 
         # Extract embeddings if not provided
@@ -300,21 +307,25 @@ class ClusterLabel(SetPredictor):
         cluster_thresholds = np.array(
             [self.cluster_thresholds[cid] for cid in cluster_ids]
         )
+        # Binary: build a 2-column probability for the set (y_prob stays native).
+        prob = pred["y_prob"]
+        if self.mode == "binary":
+            prob = expand_binary_pred(pred)
         cluster_thresholds = torch.as_tensor(
-            cluster_thresholds, device=self.device, dtype=pred["y_prob"].dtype
+            cluster_thresholds, device=self.device, dtype=prob.dtype
         )
 
-        # Broadcast thresholds to match y_prob shape (batch_size, n_classes).
+        # Broadcast thresholds to match prob shape (batch_size, n_classes).
         # Marginal: thresholds are (batch_size,) -> view to (batch_size, 1, ...).
         # Class-conditional: thresholds are already (batch_size, K), no view.
-        if pred["y_prob"].ndim > 1 and cluster_thresholds.ndim == 1:
+        if prob.ndim > 1 and cluster_thresholds.ndim == 1:
             view_shape = (cluster_thresholds.shape[0],) + (1,) * (
-                pred["y_prob"].ndim - 1
+                prob.ndim - 1
             )
             cluster_thresholds = cluster_thresholds.view(view_shape)
 
         # Include class y if its NC score (1 - p(y)) <= NC threshold
-        pred["y_predset"] = (1.0 - pred["y_prob"]) <= cluster_thresholds
+        pred["y_predset"] = (1.0 - prob) <= cluster_thresholds
         pred.pop("embed", None)  # do not expose internal embedding to caller
         return pred
 

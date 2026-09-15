@@ -13,7 +13,11 @@ import pandas as pd
 import torch
 
 from pyhealth.calib.base_classes import SetPredictor
-from pyhealth.calib.utils import prepare_numpy_dataset
+from pyhealth.calib.utils import (
+    expand_binary_cal,
+    expand_binary_pred,
+    prepare_numpy_dataset,
+)
 from pyhealth.models import BaseModel
 
 from . import quicksearch as qs
@@ -246,9 +250,9 @@ class SCRIB(SetPredictor):
         **kwargs,
     ) -> None:
         super().__init__(model, **kwargs)
-        if model.mode != "multiclass":
+        if model.mode not in ("multiclass", "binary"):
             raise NotImplementedError()
-        self.mode = self.model.mode  # multiclass
+        self.mode = self.model.mode  # multiclass or binary
         for param in model.parameters():
             param.requires_grad = False
         self.model.eval()
@@ -276,11 +280,17 @@ class SCRIB(SetPredictor):
         cal_dataset = prepare_numpy_dataset(
             self.model, cal_dataset, ["y_prob", "y_true"], debug=self.debug
         )
+        # Binary: re-present as a 2-class problem so the coordinate-descent
+        # threshold search runs over one threshold per class, as for multiclass.
+        y_prob = cal_dataset["y_prob"]
+        y_true = cal_dataset["y_true"]
+        if self.mode == "binary":
+            y_prob, y_true = expand_binary_cal(y_prob, y_true)
         if self.loss_name == CLASSPECIFIC_LOSSFUNC:
-            assert len(self.risk) == cal_dataset["y_prob"].shape[1]
+            assert len(self.risk) == y_prob.shape[1]
         best_ts, _ = _CoordDescent.search(
-            cal_dataset["y_prob"],
-            cal_dataset["y_true"],
+            y_prob,
+            y_true,
             self.risk,
             self.loss_name,
             loss_kwargs=self.loss_kwargs,
@@ -297,7 +307,11 @@ class SCRIB(SetPredictor):
         :rtype: Dict[str, torch.Tensor]
         """
         ret = self.model(**kwargs)
-        ret["y_predset"] = ret["y_prob"] > self.t
+        # Binary: build a 2-column probability for the set (y_prob stays native).
+        prob = ret["y_prob"]
+        if self.mode == "binary":
+            prob = expand_binary_pred(ret)
+        ret["y_predset"] = prob > self.t
         return ret
 
 

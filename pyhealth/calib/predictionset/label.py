@@ -17,7 +17,11 @@ from torch.utils.data import Subset
 
 from pyhealth.calib.base_classes import SetPredictor
 from pyhealth.calib.predictionset.base_conformal import _query_quantile
-from pyhealth.calib.utils import prepare_numpy_dataset
+from pyhealth.calib.utils import (
+    expand_binary_cal,
+    expand_binary_pred,
+    prepare_numpy_dataset,
+)
 from pyhealth.models import BaseModel
 
 __all__ = ["LABEL"]
@@ -76,9 +80,9 @@ class LABEL(SetPredictor):
         self, model: BaseModel, alpha: Union[float, np.ndarray], debug=False, **kwargs
     ) -> None:
         super().__init__(model, **kwargs)
-        if model.mode != "multiclass":
+        if model.mode not in ("multiclass", "binary"):
             raise NotImplementedError()
-        self.mode = self.model.mode  # multiclass
+        self.mode = self.model.mode  # multiclass or binary
         for param in model.parameters():
             param.requires_grad = False
         self.model.eval()
@@ -102,8 +106,9 @@ class LABEL(SetPredictor):
         )
         y_prob = cal_dataset["y_prob"]
         y_true = cal_dataset["y_true"]
-
-        N, K = cal_dataset["y_prob"].shape
+        if self.mode == "binary":
+            y_prob, y_true = expand_binary_cal(y_prob, y_true)
+        N, K = y_prob.shape
         # NC scores: 1 - p(true class); higher = less conforming
         if isinstance(self.alpha, float):
             t = _query_quantile(
@@ -127,8 +132,13 @@ class LABEL(SetPredictor):
         :rtype: Dict[str, torch.Tensor]
         """
         pred = self.model(**kwargs)
+        # For a binary model the set ranges over both classes: build a 2-column
+        # probability for the set (y_prob itself stays native).
+        prob = pred["y_prob"]
+        if self.mode == "binary":
+            prob = expand_binary_pred(pred)
         # Include class y if its NC score (1 - p(y)) <= NC threshold
-        pred["y_predset"] = (1.0 - pred["y_prob"]) <= self.t
+        pred["y_predset"] = (1.0 - prob) <= self.t
         return pred
 
 if __name__ == "__main__":

@@ -30,7 +30,11 @@ from torch.utils.data import IterableDataset
 
 from pyhealth.calib.base_classes import SetPredictor
 from pyhealth.calib.calibration.kcal.kde import RBFKernelMean
-from pyhealth.calib.utils import prepare_numpy_dataset
+from pyhealth.calib.utils import (
+    expand_binary_cal,
+    expand_binary_pred,
+    prepare_numpy_dataset,
+)
 from pyhealth.datasets import get_dataloader
 from pyhealth.models import BaseModel
 
@@ -343,9 +347,9 @@ class CovariateLabel(SetPredictor):
     ) -> None:
         super().__init__(model, **kwargs)
 
-        if model.mode != "multiclass":
+        if model.mode not in ("multiclass", "binary"):
             raise NotImplementedError(
-                "CovariateLabel only supports multiclass classification"
+                "CovariateLabel only supports multiclass and binary classification"
             )
 
         self.mode = self.model.mode
@@ -436,6 +440,8 @@ class CovariateLabel(SetPredictor):
 
         y_prob = cal_dataset_dict["y_prob"]
         y_true = cal_dataset_dict["y_true"]
+        if self.mode == "binary":
+            y_prob, y_true = expand_binary_cal(y_prob, y_true)
         N, K = y_prob.shape
 
         # Determine weights: either custom or KDE-based
@@ -523,8 +529,12 @@ class CovariateLabel(SetPredictor):
         """
         pred = self.model(**kwargs)
 
+        # Binary: build a 2-column probability for the set (y_prob stays native).
+        prob = pred["y_prob"]
+        if self.mode == "binary":
+            prob = expand_binary_pred(pred)
         # Construct prediction set by thresholding probabilities
-        pred["y_predset"] = pred["y_prob"] > self.t
+        pred["y_predset"] = prob > self.t
 
         return pred
 

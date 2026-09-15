@@ -12,7 +12,12 @@ from torch.utils.data import IterableDataset
 
 from pyhealth.calib.base_classes import SetPredictor
 from pyhealth.calib.predictionset.base_conformal import _query_weighted_quantile
-from pyhealth.calib.utils import extract_embeddings, prepare_numpy_dataset
+from pyhealth.calib.utils import (
+    expand_binary_cal,
+    expand_binary_pred,
+    extract_embeddings,
+    prepare_numpy_dataset,
+)
 from pyhealth.models import BaseModel
 
 __all__ = ["NeighborhoodLabel"]
@@ -74,9 +79,9 @@ class NeighborhoodLabel(SetPredictor):
     ) -> None:
         super().__init__(model, **kwargs)
 
-        if model.mode != "multiclass":
+        if model.mode not in ("multiclass", "binary"):
             raise NotImplementedError(
-                "NeighborhoodLabel only supports multiclass classification"
+                "NeighborhoodLabel only supports multiclass and binary classification"
             )
 
         self.mode = self.model.mode
@@ -133,6 +138,8 @@ class NeighborhoodLabel(SetPredictor):
         )
         y_prob = cal_dict["y_prob"]
         y_true = cal_dict["y_true"]
+        if self.mode == "binary":
+            y_prob, y_true = expand_binary_cal(y_prob, y_true)
         N = y_prob.shape[0]
 
         if cal_embeddings is None:
@@ -218,16 +225,20 @@ class NeighborhoodLabel(SetPredictor):
                 scores_i, self.alpha_tilde_, w
             )
 
+        # Binary: build a 2-column probability for the set (y_prob stays native).
+        prob = pred["y_prob"]
+        if self.mode == "binary":
+            prob = expand_binary_pred(pred)
         th = torch.as_tensor(
-            thresholds, device=self.device, dtype=pred["y_prob"].dtype
+            thresholds, device=self.device, dtype=prob.dtype
         )
-        if pred["y_prob"].ndim > 1:
-            th = th.view(-1, *([1] * (pred["y_prob"].ndim - 1)))
-        y_predset = pred["y_prob"] >= th
+        if prob.ndim > 1:
+            th = th.view(-1, *([1] * (prob.ndim - 1)))
+        y_predset = prob >= th
         # if threshold is high, include at least argmax
         empty = y_predset.sum(dim=1) == 0
         if empty.any():
-            argmax_idx = pred["y_prob"].argmax(dim=1)
+            argmax_idx = prob.argmax(dim=1)
             y_predset[empty, argmax_idx[empty]] = True
         pred["y_predset"] = y_predset
         pred.pop("embed", None)
