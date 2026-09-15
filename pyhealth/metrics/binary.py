@@ -71,6 +71,11 @@ def binary_metrics_fn(
     y_pred[y_pred >= threshold] = 1
     y_pred[y_pred < threshold] = 0
 
+    if y_predset is not None:
+        # Set metrics index class columns; binary model labels can be float
+        # tensors with shape (N, 1). Keep scalar metrics' inputs unchanged.
+        y_true_set = np.asarray(y_true).reshape(-1).astype(int)
+
     output = {}
     for metric in metrics:
         if metric == "pr_auc":
@@ -108,7 +113,7 @@ def binary_metrics_fn(
             if y_predset is None:
                 continue
             output[metric] = pset.compute_prediction_set_metric(
-                metric, y_predset, y_true
+                metric, y_predset, y_true_set
             )
         else:
             raise ValueError(f"Unknown metric for binary classification: {metric}")

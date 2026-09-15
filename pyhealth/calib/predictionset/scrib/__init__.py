@@ -318,6 +318,9 @@ class SCRIB(SetPredictor):
         prob = ret["y_prob"]
         if self.mode == "binary":
             p = prob if prob.dim() == 2 else prob.unsqueeze(1)
+            # Match binary_to_2col's calibration arithmetic before subtracting:
+            # float32 rounding can otherwise include a class at its threshold.
+            p = p.to(dtype=torch.float64)
             prob = torch.cat([1.0 - p, p], dim=1)
             if ret.get("y_true") is not None:
                 ret["y_true"] = ret["y_true"].reshape(-1).long()
