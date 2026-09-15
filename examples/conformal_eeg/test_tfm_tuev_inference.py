@@ -27,7 +27,7 @@ from pyhealth.trainer import Trainer
 TUEV_ROOT = "/srv/local/data/TUH/tuh_eeg_events/v2.0.0/edf/"
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-TOKENIZER_WEIGHTS  = os.path.join(REPO_ROOT, "weightfiles", "tfm_tokenizer_last.pth")
+TOKENIZER_WEIGHTS = os.path.join(REPO_ROOT, "weightfiles", "tfm_tokenizer_last.pth")
 CLASSIFIER_WEIGHTS_DIR = os.path.join(
     REPO_ROOT, "weightfiles", "TFM_Tokenizer_multiple_finetuned_on_TUEV"
 )

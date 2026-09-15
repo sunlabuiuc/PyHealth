@@ -58,29 +58,27 @@ def expand_binary_cal(y_prob, y_true):
     return binary_to_2col(y_prob), np.asarray(y_true).reshape(-1).astype(int)
 
 
-def expand_binary_pred(pred):
-    """Reshape a binary model's forward output as a 2-class problem (torch).
+def expand_binary_pred(y_prob, pred):
+    """Reshape a binary model's forward output as a 2-class problem (numpy).
 
-    Returns the ``(N, 2)`` probability to build the prediction set from, and
-    normalizes ``pred["y_true"]`` in place to a 1-D class index (as the set
-    metrics expect). ``pred["y_prob"]`` is left as the model's native
-    positive-class probability, so the binary scalar metrics are unaffected. The
-    calibrate-side counterpart is :func:`expand_binary_cal`. Call only when the
-    base model is binary.
+    ``y_prob`` is the model's native positive-class probability, already detached
+    to a numpy array of shape ``(N,)`` or ``(N, 1)``. Returns it as ``(N, 2)`` for
+    the non-conformity scoring, and normalizes ``pred["y_true"]`` in place to a
+    1-D class index (as the set metrics expect). ``pred["y_prob"]`` is left
+    untouched, so the binary scalar metrics are unaffected. The calibrate-side
+    counterpart is :func:`expand_binary_cal`. Call only when the base model is
+    binary.
 
     Examples:
-        >>> import torch
+        >>> import numpy as np, torch
         >>> from pyhealth.calib.utils import expand_binary_pred
-        >>> pred = {"y_prob": torch.tensor([[0.2], [0.9]]), "y_true": torch.tensor([[0], [1]])}
-        >>> expand_binary_pred(pred).shape
-        torch.Size([2, 2])
+        >>> pred = {"y_true": torch.tensor([[0], [1]])}
+        >>> expand_binary_pred(np.array([0.2, 0.9]), pred).shape
+        (2, 2)
     """
-    p = pred["y_prob"]
-    if p.dim() == 1:
-        p = p.unsqueeze(1)
     if pred.get("y_true") is not None:
         pred["y_true"] = pred["y_true"].reshape(-1).long()
-    return torch.cat([1.0 - p, p], dim=1)
+    return binary_to_2col(y_prob)
 
 
 class LogLoss(torch.nn.Module):

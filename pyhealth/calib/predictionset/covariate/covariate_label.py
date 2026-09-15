@@ -30,6 +30,11 @@ from torch.utils.data import IterableDataset
 
 from pyhealth.calib.base_classes import SetPredictor
 from pyhealth.calib.calibration.kcal.kde import RBFKernelMean
+from pyhealth.calib.predictionset.scores import (
+    SUPPORTED_SCORE_TYPES,
+    all_class_conformity_scores,
+    true_class_conformity_scores,
+)
 from pyhealth.calib.utils import (
     expand_binary_cal,
     expand_binary_pred,
@@ -267,6 +272,12 @@ class CovariateLabel(SetPredictor):
             distribution. Should be a callable that takes embeddings
             (numpy array) and returns density estimates.
             Used for KDE-based likelihood ratio weighting (CoDrug approach).
+        score_type: Conformity score to use: "threshold" (default,
+            conformity score = p(true class), Sadinle, Lei, and Wasserman
+            2019) or "aps" (Adaptive Prediction Sets, Romano, Sesia, and
+            Candes 2020). See :mod:`pyhealth.calib.predictionset.scores`.
+        random_state: Optional int seed for the RNG used by
+            score_type="aps". Ignored for score_type="threshold".
         debug: Whether to use debug mode (processes fewer samples for
             faster iteration)
 
@@ -334,6 +345,12 @@ class CovariateLabel(SetPredictor):
         >>> custom_weights = compute_custom_weights(val_data, test_data)
         >>> cal_model = CovariateLabel(model, alpha=0.1)
         >>> cal_model.calibrate(cal_dataset=val_data, cal_weights=custom_weights)
+
+        **Example 3: APS instead of the default threshold score**
+
+        >>> cal_model_aps = CovariateLabel(model, alpha=0.1, score_type="aps")
+        >>> cal_model_aps.calibrate(cal_dataset=val_data,
+        ...     cal_embeddings=cal_embs, test_embeddings=test_embs)
     """
 
     def __init__(
@@ -342,6 +359,8 @@ class CovariateLabel(SetPredictor):
         alpha: Union[float, np.ndarray],
         kde_test: Optional[Callable] = None,
         kde_cal: Optional[Callable] = None,
+        score_type: str = "threshold",
+        random_state: int | None = None,
         debug: bool = False,
         **kwargs,
     ) -> None:
@@ -350,6 +369,11 @@ class CovariateLabel(SetPredictor):
         if model.mode not in ("multiclass", "binary"):
             raise NotImplementedError(
                 "CovariateLabel only supports multiclass and binary classification"
+            )
+        if score_type not in SUPPORTED_SCORE_TYPES:
+            raise ValueError(
+                f"Unknown score_type: {score_type!r}. Supported: "
+                f"{SUPPORTED_SCORE_TYPES}."
             )
 
         self.mode = self.model.mode
@@ -361,6 +385,8 @@ class CovariateLabel(SetPredictor):
 
         self.device = model.device
         self.debug = debug
+        self.score_type = score_type
+        self.rng = np.random.default_rng(random_state)
 
         # Store alpha
         if not isinstance(alpha, float):
@@ -491,8 +517,10 @@ class CovariateLabel(SetPredictor):
         # Keep weights un-normalized here
         self._sum_cal_weights = np.sum(likelihood_ratios)
 
-        # Extract conformity scores (probabilities of true class)
-        conformity_scores = y_prob[np.arange(N), y_true]
+        # Extract conformity scores (higher = more conforming)
+        conformity_scores = true_class_conformity_scores(
+            y_prob, y_true, score_type=self.score_type, rng=self.rng
+        )
 
         # Compute weighted quantile thresholds
         if isinstance(self.alpha, float):
@@ -529,12 +557,18 @@ class CovariateLabel(SetPredictor):
         """
         pred = self.model(**kwargs)
 
-        # Binary: build a 2-column probability for the set (y_prob stays native).
-        prob = pred["y_prob"]
+        # Construct prediction set by thresholding conformity scores; binary:
+        # expand y_prob to 2 columns first (y_prob itself stays native).
+        y_prob = pred["y_prob"].detach().cpu().numpy()
         if self.mode == "binary":
-            prob = expand_binary_pred(pred)
-        # Construct prediction set by thresholding probabilities
-        pred["y_predset"] = prob > self.t
+            y_prob = expand_binary_pred(y_prob, pred)
+        conformity_scores = all_class_conformity_scores(
+            y_prob, score_type=self.score_type, rng=self.rng
+        )
+        conformity_scores = torch.as_tensor(
+            conformity_scores, device=pred["y_prob"].device, dtype=pred["y_prob"].dtype
+        )
+        pred["y_predset"] = conformity_scores > self.t
 
         return pred
 

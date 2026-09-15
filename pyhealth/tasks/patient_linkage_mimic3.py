@@ -16,29 +16,13 @@ class PatientLinkageMIMIC3Task(BaseTask):
 
     Example:
         >>> from pyhealth.datasets import MIMIC3Dataset
-        >>> from pyhealth.tasks import patient_linkage_mimic3
+        >>> from pyhealth.tasks import PatientLinkageMIMIC3Task
         >>> dataset = MIMIC3Dataset(
         ...     root="/srv/local/data/physionet.org/files/mimiciii/1.4",
-        ...     tables=["DIAGNOSES_ICD", "ADMISSIONS", "PATIENTS"],
-        ...     code_mapping={"ICD9CM": ("CCSCM", {"target": "dx"})},
+        ...     tables=["diagnoses_icd", "admissions", "patients"],
         ... )
-        >>> sample_dataset = dataset.set_task(patient_linkage_mimic3)
-        >>> sample_dataset.samples[0]
-        {
-            'patient_id': '109',
-            'visit_id': '173633',
-            'conditions': ['', '989'],
-            'age': 25,
-            'identifiers': 'F+Government+English+NOT SPECIFIED+SINGLE+BLACK/AFRICAN AMERICAN',
-            'timestamp': datetime.datetime(2141, 9, 18, 11, 23),
-            'd_visit_id': '172335',
-            'd_conditions': ['', '989', '[SEP]', '989'],
-            'd_age': 25,
-            'd_identifiers': 'F+Government+English+NOT SPECIFIED+SINGLE+BLACK/AFRICAN AMERICAN',
-            'd_timestamp': datetime.datetime(2141, 9, 18, 11, 23),
-            'time_gap_days': 0,
-            'd_visit_ids': '172335|170258'
-        }
+        >>> task = PatientLinkageMIMIC3Task()
+        >>> sample_dataset = dataset.set_task(task)
     """
 
     task_name = "patient_linkage_mimic3"
@@ -46,22 +30,22 @@ class PatientLinkageMIMIC3Task(BaseTask):
     input_schema = {
         # Query side (last admission)
         "conditions": "sequence",
-        "age": "integer",
-        "identifiers": "string",
-        "visit_id": "string",
-        "timestamp": "datetime",
-        
+        "age": "raw",
+        "identifiers": "raw",
+        "visit_id": "raw",
+        "timestamp": "raw",
+
         # Positive database side (all previous admissions concatenated)
         "d_conditions": "sequence",  # concatenated with [SEP] tokens
-        "d_age": "integer",
-        "d_identifiers": "string",
-        "d_visit_id": "string",      # hadm_id of the most recent prior admission
-        "d_timestamp": "datetime",   # timestamp of most recent prior admission
-        
+        "d_age": "raw",
+        "d_identifiers": "raw",
+        "d_visit_id": "raw",      # hadm_id of the most recent prior admission
+        "d_timestamp": "raw",   # timestamp of most recent prior admission
+
         # Metadata
-        "patient_id": "string",      # ground truth for evaluation
-        "time_gap_days": "integer",  # for analysis by time interval
-        "d_visit_ids": "string",     # pipe-separated list of all prior hadm_ids
+        "patient_id": "raw",      # ground truth for evaluation
+        "time_gap_days": "raw",  # for analysis by time interval
+        "d_visit_ids": "raw",     # pipe-separated list of all prior hadm_ids
     }
     
     output_schema = {}  # Task just creates pairs; model outputs matching scores

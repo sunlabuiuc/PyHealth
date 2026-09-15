@@ -365,14 +365,15 @@ class HALO(BaseModel):
 
     The model infers its code vocabulary from the fitted ``SampleDataset``:
     ``code_vocab_size = dataset.input_processors["visits"].vocab_size()``
-    (the ``NestedSequenceProcessor`` vocab, which already reserves index 0 for
+    (the ``NestedMultiHotProcessor`` vocab, which already reserves index 0 for
     ``<pad>`` and index 1 for ``<unk>``). Three special tokens are appended for
     start-of-sequence, end-of-sequence, and pad-visit.
 
     Args:
         dataset: A fitted ``SampleDataset`` whose ``input_schema`` contains
-            ``{"visits": NestedSequenceProcessor}`` and whose ``output_schema``
-            is empty.
+            ``{"visits": NestedMultiHotProcessor}`` -- use the
+            :class:`~pyhealth.tasks.EHRGenerationMIMIC3` task -- and whose
+            ``output_schema`` is empty.
         embed_dim: Transformer embedding dimension (``n_embd``). Default: 768.
         n_heads: Number of attention heads. Must divide ``embed_dim``.
             Default: 12.
@@ -420,7 +421,7 @@ class HALO(BaseModel):
         if "visits" not in dataset.input_processors:
             raise ValueError(
                 "HALO expects an input feature named 'visits' backed by a "
-                "NestedSequenceProcessor."
+                "NestedMultiHotProcessor (see EHRGenerationMIMIC3)."
             )
 
         self.save_dir = save_dir
@@ -428,7 +429,7 @@ class HALO(BaseModel):
         self._epochs = epochs
         self._lr = lr
 
-        # Code vocab from the NestedSequenceProcessor (includes <pad>, <unk>).
+        # Code vocab from the NestedMultiHotProcessor (includes <pad>, <unk>).
         self.visits_processor = dataset.input_processors["visits"]
         code_vocab_size = self.visits_processor.vocab_size()
         label_vocab_size = 0  # unconditional generation -- no output labels
@@ -458,17 +459,25 @@ class HALO(BaseModel):
     # Multi-hot encoding helper
     # ------------------------------------------------------------------
     def _encode_visits(self, visits: torch.Tensor):
-        """Convert a padded index tensor to HALO multi-hot format.
+        """Place per-visit multi-hot vectors into HALO's context window.
 
-        ``NestedSequenceProcessor`` returns code indices; the transformer
-        expects multi-hot vectors of shape ``(batch, n_ctx, total_vocab_size)``
-        with special tokens. Layout (mirrors the reference): position 0 is the
-        start token, visits occupy positions 2+, the end token is placed on the
-        last visit's row, and the pad token fills the remaining positions.
+        Takes what :class:`~pyhealth.processors.NestedMultiHotProcessor` emits
+        -- one multi-hot row per visit -- and lays it out the way the
+        transformer expects: position 0 is the start token, visits occupy
+        positions 2+, the end token sits just past the last real visit, and the
+        pad token fills the rest.
+
+        Fully vectorised, deliberately. This ran as a triple-nested Python loop
+        over (patient, visit, code slot) and cost ~108 ms per patient on an
+        A100 -- 99.8% of a training step, against ~0.03 s for the transformer's
+        own forward and backward. Two things made it that expensive: an
+        ``.item()`` per patient, each forcing a CUDA sync, and a separate
+        single-element kernel launch per code. Neither survives here.
 
         Args:
-            visits: LongTensor ``(batch, max_visits, max_codes_per_visit)``.
-                Index 0 is ``<pad>`` and is skipped.
+            visits: FloatTensor ``(batch, max_visits, code_vocab_size)``,
+                1.0 where a code is present in that visit. A visit with no
+                codes is an all-zero row.
 
         Returns:
             batch_ehr: FloatTensor ``(batch, n_ctx, total_vocab_size)``.
@@ -476,7 +485,8 @@ class HALO(BaseModel):
                 with the autoregressive prediction targets.
         """
         cfg = self.config
-        batch_size = visits.shape[0]
+        visits = visits.to(self.device)
+        batch_size, max_visits = visits.shape[0], visits.shape[1]
 
         batch_ehr = torch.zeros(
             batch_size, cfg.n_ctx, cfg.total_vocab_size, device=self.device
@@ -487,19 +497,40 @@ class HALO(BaseModel):
         end_idx = start_idx + 1
         pad_idx = start_idx + 2
 
-        for i in range(batch_size):
-            # Count actual (non-padding) visits for this patient.
-            n_visits = int((visits[i].sum(dim=-1) > 0).sum().item())
-            n_visits = min(n_visits, cfg.n_ctx - 2)
-            for j in range(n_visits):
-                for code_idx in visits[i, j]:
-                    if code_idx > 0:  # skip <pad> (index 0)
-                        batch_ehr[i, j + 2, code_idx] = 1
-                batch_mask[i, j + 2] = 1
+        # Real visits per patient, for the whole batch at once. An all-zero row
+        # is an empty visit, exactly as a row of <pad> indices was before.
+        #
+        # TODO: this counts non-empty rows and then treats the *first* n_visits
+        # rows as the real ones, so a patient like [codes, empty, codes] would
+        # silently lose its last visit. The pre-vectorisation loop had the same
+        # behaviour, and EHRGenerationMIMIC3 cannot produce an interior
+        # empty visit (its __call__ skips codeless admissions), so nothing hits
+        # today -- but NestedMultiHotProcessor does emit all-zero rows for empty
+        # visits, so a hand-built SampleDataset can. Fix by masking on row
+        # position rather than row count.
+        n_visits = (visits.sum(dim=-1) > 0).sum(dim=1)
+        n_visits = n_visits.clamp(max=cfg.n_ctx - 2)             # (batch,)
 
-            batch_ehr[i, 0, start_idx] = 1            # start token
-            batch_ehr[i, n_visits + 1, end_idx] = 1   # end token (on last visit)
-            batch_ehr[i, n_visits + 2:, pad_idx] = 1  # pad visits
+        # Two positions are reserved (start, end), so only this many visits fit.
+        keep = min(max_visits, cfg.n_ctx - 2)
+        if keep > 0:
+            pos = torch.arange(keep, device=self.device)          # (keep,)
+            valid = (pos.unsqueeze(0) < n_visits.unsqueeze(1))    # (batch, keep)
+            # Codes occupy the first code_vocab_size columns; the three special
+            # tokens live above them and are set separately below.
+            batch_ehr[:, 2:2 + keep, :cfg.code_vocab_size] = (
+                visits[:, :keep, :] * valid.unsqueeze(-1)
+            )
+            batch_mask[:, 2:2 + keep, 0] = valid.to(batch_mask.dtype)
+
+        batch_ehr[:, 0, start_idx] = 1                            # start token
+        rows = torch.arange(batch_size, device=self.device)
+        batch_ehr[rows, n_visits + 1, end_idx] = 1                # end token
+
+        # Everything past the end token is padding.
+        ctx = torch.arange(cfg.n_ctx, device=self.device)
+        is_pad = ctx.unsqueeze(0) >= (n_visits + 2).unsqueeze(1)  # (batch, n_ctx)
+        batch_ehr[:, :, pad_idx] = is_pad.to(batch_ehr.dtype)
 
         batch_mask = batch_mask[:, 1:, :]  # shift to align with shifted targets
         return batch_ehr, batch_mask
@@ -511,8 +542,8 @@ class HALO(BaseModel):
         """Forward pass.
 
         Args:
-            visits: LongTensor ``(batch, max_visits, max_codes_per_visit)`` from
-                the ``NestedSequenceProcessor``.
+            visits: FloatTensor ``(batch, max_visits, code_vocab_size)`` from
+                the ``NestedMultiHotProcessor``, 1.0 where a code is present.
             **kwargs: Any other batch keys are ignored.
 
         Returns:

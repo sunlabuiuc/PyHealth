@@ -7,7 +7,8 @@ wrapped as a PyHealth ``BaseModel`` so it consumes the standard
 ``dataset -> SampleDataset -> model`` pipeline.
 
 CorGAN treats each patient as a flat bag-of-codes (no visit structure), so it
-expects an input feature named ``visits`` backed by a ``MultiHotProcessor``.
+expects an input feature named ``visits`` backed by a ``MultiHotProcessor``,
+which the :class:`~pyhealth.tasks.EHRCodeSetGenerationMIMIC3` task provides.
 Training has two phases (mirroring the reference):
 
 * a **convolutional autoencoder** is pre-trained with a sparse-friendly BCE
@@ -350,7 +351,7 @@ class CorGAN(BaseModel):
         if "visits" not in dataset.input_processors:
             raise ValueError(
                 "CorGAN expects an input feature named 'visits' backed by a "
-                "MultiHotProcessor."
+                "MultiHotProcessor (see EHRCodeSetGenerationMIMIC3)."
             )
 
         self._batch_size = batch_size

@@ -377,6 +377,40 @@ class TestClusterLabel(unittest.TestCase):
                     torch.all(set_sizes > 0), "Some prediction sets are empty"
                 )
 
+    def test_score_type_aps_runs_end_to_end(self):
+        """score_type='aps' should calibrate and produce non-empty,
+        correctly-typed prediction sets, just like the default 'threshold'."""
+        cluster_model = ClusterLabel(
+            model=self.model,
+            alpha=0.3,
+            n_clusters=2,
+            random_state=42,
+            score_type="aps",
+        )
+
+        train_indices = [0, 1, 2, 3, 4, 5]
+        cal_indices = [6, 7, 8, 9, 10, 11]
+        train_dataset = self.dataset.subset(train_indices)
+        cal_dataset = self.dataset.subset(cal_indices)
+
+        train_embeddings = self._get_embeddings(train_dataset)
+        cal_embeddings = self._get_embeddings(cal_dataset)
+
+        cluster_model.calibrate(
+            cal_dataset=cal_dataset,
+            train_embeddings=train_embeddings,
+            cal_embeddings=cal_embeddings,
+        )
+
+        test_loader = get_dataloader(self.dataset, batch_size=2, shuffle=False)
+        with torch.no_grad():
+            for data_batch in test_loader:
+                output = cluster_model(**data_batch)
+                self.assertEqual(output["y_predset"].dtype, torch.bool)
+                self.assertEqual(output["y_predset"].shape, output["y_prob"].shape)
+                set_sizes = output["y_predset"].sum(dim=1)
+                self.assertTrue(torch.all(set_sizes > 0))
+
     def test_calibrate_requires_train_embeddings(self):
         """Test that calibrate requires train_embeddings."""
         cluster_model = ClusterLabel(

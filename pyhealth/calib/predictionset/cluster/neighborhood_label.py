@@ -12,6 +12,11 @@ from torch.utils.data import IterableDataset
 
 from pyhealth.calib.base_classes import SetPredictor
 from pyhealth.calib.predictionset.base_conformal import _query_weighted_quantile
+from pyhealth.calib.predictionset.scores import (
+    SUPPORTED_SCORE_TYPES,
+    all_class_conformity_scores,
+    true_class_conformity_scores,
+)
 from pyhealth.calib.utils import (
     expand_binary_cal,
     expand_binary_pred,
@@ -38,6 +43,12 @@ class NeighborhoodLabel(SetPredictor):
         k_neighbors: Number of nearest calibration neighbors. Default 50.
         lambda_L: Temperature for exponential weights; smaller => more localization.
             Default 100.0.
+        score_type: Conformity score to use: "threshold" (default,
+            conformity score = p(true class), Sadinle, Lei, and Wasserman
+            2019) or "aps" (Adaptive Prediction Sets, Romano, Sesia, and
+            Candes 2020). See :mod:`pyhealth.calib.predictionset.scores`.
+        random_state: Optional int seed for the RNG used by
+            score_type="aps". Ignored for score_type="threshold".
         debug: If True, process fewer samples for faster iteration.
 
     Examples:
@@ -66,6 +77,11 @@ class NeighborhoodLabel(SetPredictor):
         ...     y_true, y_prob, metrics=["accuracy", "miscoverage_ps"],
         ...     y_predset=extra["y_predset"]
         ... )
+        >>>
+        >>> # Use APS instead of the default threshold score
+        >>> ncp_aps = NeighborhoodLabel(
+        ...     model=model, alpha=0.1, k_neighbors=50, score_type="aps")
+        >>> ncp_aps.calibrate(cal_dataset=cal_ds, cal_embeddings=cal_embeddings)
     """
 
     def __init__(
@@ -74,6 +90,8 @@ class NeighborhoodLabel(SetPredictor):
         alpha: float,
         k_neighbors: int = 50,
         lambda_L: float = 100.0,
+        score_type: str = "threshold",
+        random_state: int | None = None,
         debug: bool = False,
         **kwargs,
     ) -> None:
@@ -82,6 +100,11 @@ class NeighborhoodLabel(SetPredictor):
         if model.mode not in ("multiclass", "binary"):
             raise NotImplementedError(
                 "NeighborhoodLabel only supports multiclass and binary classification"
+            )
+        if score_type not in SUPPORTED_SCORE_TYPES:
+            raise ValueError(
+                f"Unknown score_type: {score_type!r}. Supported: "
+                f"{SUPPORTED_SCORE_TYPES}."
             )
 
         self.mode = self.model.mode
@@ -92,6 +115,8 @@ class NeighborhoodLabel(SetPredictor):
 
         self.device = model.device
         self.debug = debug
+        self.score_type = score_type
+        self.rng = np.random.default_rng(random_state)
 
         if not (0.0 < alpha < 1.0):
             raise ValueError(f"alpha must be in (0, 1), got {alpha!r}")
@@ -155,7 +180,9 @@ class NeighborhoodLabel(SetPredictor):
                 f"cal_dataset size {N}"
             )
 
-        conformity_scores = y_prob[np.arange(N), y_true]
+        conformity_scores = true_class_conformity_scores(
+            y_prob, y_true, score_type=self.score_type, rng=self.rng
+        )
 
         k = min(self.k_neighbors, N)
         self._nn = NearestNeighbors(n_neighbors=k, metric="euclidean").fit(
@@ -225,20 +252,30 @@ class NeighborhoodLabel(SetPredictor):
                 scores_i, self.alpha_tilde_, w
             )
 
-        # Binary: build a 2-column probability for the set (y_prob stays native).
-        prob = pred["y_prob"]
-        if self.mode == "binary":
-            prob = expand_binary_pred(pred)
         th = torch.as_tensor(
-            thresholds, device=self.device, dtype=prob.dtype
+            thresholds, device=self.device, dtype=pred["y_prob"].dtype
         )
-        if prob.ndim > 1:
-            th = th.view(-1, *([1] * (prob.ndim - 1)))
-        y_predset = prob >= th
-        # if threshold is high, include at least argmax
+
+        # Compute conformity scores; binary: expand y_prob to 2 columns first so
+        # the set ranges over both classes (y_prob itself stays native).
+        y_prob_np = pred["y_prob"].detach().cpu().numpy()
+        if self.mode == "binary":
+            y_prob_np = expand_binary_pred(y_prob_np, pred)
+        conformity_scores = all_class_conformity_scores(
+            y_prob_np, score_type=self.score_type, rng=self.rng
+        )
+        conformity_scores = torch.as_tensor(
+            conformity_scores, device=pred["y_prob"].device, dtype=pred["y_prob"].dtype
+        )
+        if conformity_scores.ndim > 1:
+            th = th.view(-1, *([1] * (conformity_scores.ndim - 1)))
+        y_predset = conformity_scores >= th
+        # if threshold is high, include at least the highest-probability class
         empty = y_predset.sum(dim=1) == 0
         if empty.any():
-            argmax_idx = prob.argmax(dim=1)
+            argmax_idx = torch.as_tensor(
+                y_prob_np.argmax(axis=1), device=pred["y_prob"].device
+            )
             y_predset[empty, argmax_idx[empty]] = True
         pred["y_predset"] = y_predset
         pred.pop("embed", None)

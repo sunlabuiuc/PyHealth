@@ -7,6 +7,17 @@ This example demonstrates:
 3. Creating a SampleDataset with StageNet processors
 4. Training a StageNet model
 5. Testing with synthetic hold-out set (unseen codes, varying lengths)
+
+Note: to prevent leakage, MortalityPredictionStageNetMIMIC4 excludes the
+diagnosis/procedure codes of the target admission -- the one flagged as
+the outcome if the patient died, otherwise the chronologically last
+admission -- since discharge-timestamped codes are only known at-or-after
+that admission's own outcome. That admission's labs are also capped to
+the first TARGET_ADMISSION_INPUT_WINDOW_HOURS (default 48) hours after
+admission instead of through discharge. This applies identically to both
+death and survivor cases, so neither class gets a systematically richer
+feature set than the other; earlier, already-resolved admissions are
+unaffected.
 """
 
 import os

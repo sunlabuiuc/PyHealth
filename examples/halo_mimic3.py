@@ -2,19 +2,23 @@
 
 This example demonstrates:
 1. Loading MIMIC-III data
-2. Applying the EHRGenerationMIMIC3 task (per-visit ICD-9 code sequences)
-3. Creating a SampleDataset with a NestedSequenceProcessor
+2. Applying the EHRGenerationMIMIC3 task (per-visit ICD-9 code sets, multi-hot
+   -- the encoding HALO consumes). See gpt2_mimic3.py for the sequence form
+   GPT2/PromptEHR need, and medgan_mimic3.py for the bag-of-codes form.
+3. Creating a SampleDataset with a NestedMultiHotProcessor
 4. Training the HALO generator with its custom training loop
 5. Generating synthetic patients
 6. Evaluating the synthetic data with the generative metrics suite
 """
 
-import pandas as pd
-
 from pyhealth.datasets import MIMIC3Dataset, split_by_patient
 from pyhealth.metrics.generative import evaluate_synthetic_ehr
 from pyhealth.models import HALO
-from pyhealth.tasks import EHRGenerationMIMIC3
+from pyhealth.tasks import (
+    EHRGenerationMIMIC3,
+    decode_dataset,
+    to_evaluation_dataframe,
+)
 
 if __name__ == "__main__":
     # STEP 1: Load MIMIC-III base dataset
@@ -25,7 +29,8 @@ if __name__ == "__main__":
     )
 
     # STEP 2: Apply the EHR generation task (unconditional, no labels).
-    # This task is shared by all generators in pyhealth.models.generators.
+    # Extraction is shared across the generators; the encoding is not, so this
+    # is the multi-hot variant that HALO reads directly.
     sample_dataset = base_dataset.set_task(EHRGenerationMIMIC3())
     print(f"Total samples: {len(sample_dataset)}")
     print(f"Input schema: {sample_dataset.input_schema}")
@@ -34,6 +39,7 @@ if __name__ == "__main__":
     sample = sample_dataset[0]
     print("\nSample structure:")
     print(f"  Patient ID: {sample['patient_id']}")
+    # (num_visits, vocab_size) multi-hot -- there is no padded inner axis.
     print(f"  Visits tensor shape: {tuple(sample['visits'].shape)}")
 
     # STEP 3: Split dataset by patient
@@ -80,32 +86,16 @@ if __name__ == "__main__":
     # train_df, test_df and syn_df below all share this exact schema. `labels`
     # is a placeholder here: privacy metrics ignore it and the utility metric
     # overwrites it with the next-visit prediction target.
-    index_to_code = {
-        v: k for k, v in sample_dataset.input_processors["visits"].code_vocab.items()
-    }
-
-    def real_subset_to_records(subset):
-        for sample in subset:
-            pid = str(sample["patient_id"])
-            visits_tensor = sample["visits"]
-            for t, visit in enumerate(visits_tensor.tolist()):
-                for idx in visit:
-                    code = index_to_code.get(int(idx))
-                    if code in (None, "<pad>", "<unk>"):
-                        continue
-                    yield {"id": pid, "time": t, "visit_codes": code, "labels": 0}
-
-    def synthetic_to_records(patients):
-        for p in patients:
-            pid = str(p["patient_id"])
-            for t, visit in enumerate(p["visits"]):
-                for code in visit:
-                    yield {"id": pid, "time": t, "visit_codes": code, "labels": 0}
-
+    # Both conversions already live in the task module, so use them rather
+    # than re-deriving the encoding here:
+    #   decode_dataset       processed (or split) SampleDataset -> code records
+    #   to_evaluation_dataframe  records (real or synthetic) -> the long form
+    # Patients are renumbered 0, 1, 2, ... because synthetic patients do not
+    # correspond to real ones; the metrics only need a grouping key.
     schema = {"visit_codes": str, "labels": int, "time": int, "id": str}
-    train_df = pd.DataFrame(real_subset_to_records(train_dataset)).astype(schema)
-    test_df = pd.DataFrame(real_subset_to_records(test_dataset)).astype(schema)
-    syn_df = pd.DataFrame(synthetic_to_records(synthetic)).astype(schema)
+    train_df = to_evaluation_dataframe(decode_dataset(train_dataset)).astype(schema)
+    test_df = to_evaluation_dataframe(decode_dataset(test_dataset)).astype(schema)
+    syn_df = to_evaluation_dataframe(synthetic).astype(schema)
     print(
         f"\nEval rows -- train: {len(train_df)}, test: {len(test_df)}, "
         f"synthetic: {len(syn_df)}"

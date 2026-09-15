@@ -14,10 +14,13 @@ from .chestxray14_multilabel_classification import ChestXray14MultilabelClassifi
 from .covid19_cxr_classification import COVID19CXRClassification
 from .deid_ner import DeIDNERTask
 from .dka import DKAPredictionMIMIC4, T1DDKAPredictionMIMIC4
+# New exports must use the redundant `X as X` form: this module has no
+# __all__, and the PR lint gate flags F401 on newly added import lines.
 from .drug_recommendation import (
     DrugRecommendationEICU,
     DrugRecommendationMIMIC3,
     DrugRecommendationMIMIC4,
+    DrugRecommendationOMOP as DrugRecommendationOMOP,
     drug_recommendation_mimic3_fn,
     drug_recommendation_mimic4_fn,
     drug_recommendation_omop_fn,
@@ -49,9 +52,12 @@ from .mortality_prediction_stagenet_mimic4 import (
     MortalityPredictionStageNetMIMIC4,
 )
 from .generate_ehr import (
-    EHRGeneration,
+    EHRCodeSetGenerationMIMIC3 as EHRCodeSetGenerationMIMIC3,
+    EHRCodeSetGenerationMIMIC4 as EHRCodeSetGenerationMIMIC4,
     EHRGenerationMIMIC3,
     EHRGenerationMIMIC4,
+    EHRSequenceGenerationMIMIC3 as EHRSequenceGenerationMIMIC3,
+    EHRSequenceGenerationMIMIC4 as EHRSequenceGenerationMIMIC4,
     decode_dataset,
     to_evaluation_dataframe,
 )

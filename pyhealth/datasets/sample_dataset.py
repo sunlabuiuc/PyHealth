@@ -15,6 +15,22 @@ from ..processors import get_processor, IgnoreProcessor
 from ..processors.base_processor import FeatureProcessor
 
 
+def _remap_index_mapping(
+    mapping: dict[str, list[int]], indices: Sequence[int]
+) -> dict[str, list[int]]:
+    key_by_index = {
+        index: key
+        for key, mapped_indices in mapping.items()
+        for index in mapped_indices
+    }
+    remapped: dict[str, list[int]] = {}
+    for new_index, old_index in enumerate(indices):
+        key = key_by_index.get(old_index)
+        if key is not None:
+            remapped.setdefault(key, []).append(new_index)
+    return remapped
+
+
 class SampleBuilder:
     """Fit feature processors and transform pickled samples without materializing a dataset.
 
@@ -275,6 +291,21 @@ class SampleDataset(litdata.StreamingDataset):
             sample indices associated with that record.
         dataset_name: Optional human friendly dataset name.
         task_name: Optional human friendly task name.
+
+    Examples:
+        >>> from pyhealth.datasets import create_sample_dataset
+        >>> dataset = create_sample_dataset(  # doctest: +SKIP
+        ...     samples=[
+        ...         {"patient_id": "p1", "feature": 1, "label": 0},
+        ...         {"patient_id": "p2", "feature": 2, "label": 1},
+        ...     ],
+        ...     input_schema={"feature": "raw"},
+        ...     output_schema={"label": "raw"},
+        ...     in_memory=False,
+        ... )
+        >>> dataset.subset([1]).patient_to_index  # doctest: +SKIP
+        {'p2': [0]}
+        >>> dataset.close()  # doctest: +SKIP
     """
 
     def __init__(
@@ -355,6 +386,8 @@ class SampleDataset(litdata.StreamingDataset):
         if isinstance(indices, slice):
             indices = range(*indices.indices(dataset_length))
 
+        indices = list(indices)
+
         if any(idx < 0 or idx >= dataset_length for idx in indices):
             raise ValueError(
                 f"Subset indices must be in [0, {dataset_length - 1}] for the provided dataset."
@@ -403,6 +436,12 @@ class SampleDataset(litdata.StreamingDataset):
 
         new_dataset.subsampled_files = new_subsampled_files
         new_dataset.region_of_interest = new_roi
+        new_dataset.patient_to_index = _remap_index_mapping(
+            self.patient_to_index, indices
+        )
+        new_dataset.record_to_index = _remap_index_mapping(
+            self.record_to_index, indices
+        )
         new_dataset.reset()
 
         return new_dataset
@@ -429,6 +468,16 @@ class InMemorySampleDataset(SampleDataset):
     transforming all samples into memory during initialization. This allows
     for fast, repeated access to samples without disk I/O, at the cost of
     higher memory usage.
+
+    Examples:
+        >>> from pyhealth.datasets import create_sample_dataset
+        >>> dataset = create_sample_dataset(
+        ...     samples=[{"patient_id": "p1", "feature": 1, "label": 0}],
+        ...     input_schema={"feature": "raw"},
+        ...     output_schema={"label": "raw"},
+        ... )
+        >>> dataset[0]["patient_id"]
+        'p1'
 
     Note:
         This class is intended for testing and debugging purposes where
@@ -522,12 +571,23 @@ class InMemorySampleDataset(SampleDataset):
 
     def subset(self, indices: Union[Sequence[int], slice]) -> SampleDataset:
         if isinstance(indices, slice):
+            subset_indices = list(range(*indices.indices(len(self))))
             samples = self._data[indices]
         else:
-            samples = [self._data[i] for i in indices]
+            raw_indices = list(indices)
+            samples = [self._data[i] for i in raw_indices]
+            subset_indices = [
+                index if index >= 0 else len(self) + index for index in raw_indices
+            ]
 
         new_dataset = copy.deepcopy(self)
         new_dataset._data = samples
+        new_dataset.patient_to_index = _remap_index_mapping(
+            self.patient_to_index, subset_indices
+        )
+        new_dataset.record_to_index = _remap_index_mapping(
+            self.record_to_index, subset_indices
+        )
         return new_dataset
 
     def close(self) -> None:

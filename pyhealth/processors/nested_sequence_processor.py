@@ -154,6 +154,29 @@ class NestedSequenceProcessor(FeatureProcessor, TokenProcessorInterface):
         """Return the size of the processor's vocabulary."""
         return len(self.code_vocab)
 
+    def visit_code_ids(self, row: torch.Tensor) -> list[int]:
+        """Code indices present in one processed visit row.
+
+        The inverse of what :meth:`process` writes, for consumers that need a
+        code *list* rather than the tensor -- the sequence generators GPT2 and
+        PromptEHR, and :func:`pyhealth.tasks.decode_dataset`. Each nested
+        processor implements this for its own encoding, so a consumer never has
+        to guess how to read a row.
+
+        Here the row already holds indices, right-padded with ``<pad>`` (0).
+
+        Args:
+            row: 1D tensor, one processed visit.
+
+        Returns:
+            Code indices in charted order, ``<pad>`` dropped.
+
+        Examples:
+            >>> processor.visit_code_ids(torch.tensor([2, 4, 0]))
+            [2, 4]
+        """
+        return [int(c) for c in row.tolist() if c > 0]
+
     def size(self) -> int:
         """Return max inner length (embedding dimension) for unified API."""
         return self._max_inner_len
