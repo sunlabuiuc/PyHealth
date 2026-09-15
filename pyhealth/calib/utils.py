@@ -23,6 +23,21 @@ def one_hot_np(labels, K):
     return new_labels
 
 
+def binary_to_2col(y_prob):
+    """Turn binary ``P(y=1)`` of shape ``(N,)`` or ``(N, 1)`` into a 2-column
+    ``[P(y=0), P(y=1)]`` of shape ``(N, 2)``, so a binary task can reuse the
+    multiclass split-conformal machinery (one column per class).
+
+    Examples:
+        >>> from pyhealth.calib.utils import binary_to_2col
+        >>> binary_to_2col([0.2, 0.9])
+        array([[0.8, 0.2],
+               [0.1, 0.9]])
+    """
+    p = np.asarray(y_prob, dtype=float).reshape(-1, 1)
+    return np.hstack([1.0 - p, p])
+
+
 class LogLoss(torch.nn.Module):
     """Cross entropy, but takes in the probability instead of the logits"""
 
