@@ -15,6 +15,16 @@ adapts the prediction set size to the model's per-input confidence. See
 ``SCRIB`` and ``FavMac`` are not included since their calibration
 procedures aren't a score-then-quantile pattern.
 
+All of these methods (``SCRIB`` included) also accept **binary** base models in
+addition to multiclass. A binary model emits a single positive-class
+probability, which is expanded internally to a two-class layout
+(:func:`pyhealth.calib.utils.binary_to_2col`) so the prediction set ranges over
+both classes. Score binary results with
+:func:`pyhealth.metrics.binary_metrics_fn`, which accepts ``y_predset`` and
+computes the conformal set metrics (``set_size``, ``rejection_rate``,
+``miscoverage_ps``, ...). See ``examples/conformal_label_binary.py``. ``FavMac``
+remains multilabel-only.
+
 Available Methods
 -----------------
 
