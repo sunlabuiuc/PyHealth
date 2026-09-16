@@ -329,6 +329,10 @@ class CNN(BaseModel):
                 x = x.to(self.device)
 
             spatial_dim = self.feature_conv_dims[feature_key]
+            # Treat spatial_dim==1 features (which embed to [batch, embedding_dim]
+            # with no sequence axis) as a length-1 sequence so the 1D CNN can run on them.
+            if spatial_dim == 1 and x.dim() == 2:
+                x = x.unsqueeze(1)
             expected_dims = {1: 3, 2: 4, 3: 5}[spatial_dim]
             if x.dim() != expected_dims:
                 raise ValueError(

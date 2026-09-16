@@ -4,7 +4,7 @@ and sufficiency metrics.
 This example demonstrates:
 1. Loading a pre-trained StageNet model with processors and MIMIC-IV dataset
 2. Computing attributions with various interpretability methods
-3. Evaluating attribution faithfulness with Comprehensiveness & Sufficiency for each method
+3. Evaluating class-0 and class-1 predictions with a custom sample filter
 4. Presenting results in a summary table
 """
 

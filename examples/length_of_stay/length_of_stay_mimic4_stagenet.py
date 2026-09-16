@@ -1,12 +1,19 @@
 """
-Example of using StageNet for mortality prediction on MIMIC-IV.
+Example of using StageNet for length of stay prediction on MIMIC-IV.
 
 This example demonstrates:
 1. Loading MIMIC-IV data
-2. Applying the MortalityPredictionStageNetMIMIC4 task
+2. Applying the LengthOfStayStageNetMIMIC4 task
 3. Creating a SampleDataset with StageNet processors
 4. Training a StageNet model
 5. Testing with synthetic hold-out set (unseen codes, varying lengths)
+
+Note: to prevent leakage, LengthOfStayStageNetMIMIC4 excludes the
+diagnosis/procedure codes of the target admission (the one whose LOS is
+the label) since they're only known at-or-after its own discharge, and
+caps that admission's labs to the first TARGET_ADMISSION_INPUT_WINDOW_HOURS
+(default 48) hours after admission instead of through discharge. Earlier,
+already-resolved admissions are unaffected.
 """
 
 import os

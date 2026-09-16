@@ -24,6 +24,11 @@ Functional API
 Removal-Based Metrics
 ---------------------
 
+For binary classifiers, a sample filter can mark class-0 predictions as
+``SampleClass.NEGATIVE``. Removal-based metrics then score probability changes
+from the class-0 perspective. Each percentage is evaluated independently, so a
+percentage's score does not depend on the other requested percentages.
+
 Base Class
 ^^^^^^^^^^
 

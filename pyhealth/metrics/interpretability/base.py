@@ -24,6 +24,14 @@ class RemovalBasedMetric(ABC):
     This class provides common functionality for computing faithfulness metrics
     by removing or retaining features based on their importance scores.
 
+    Examples:
+        >>> from pyhealth.metrics.interpretability import (
+        ...     ComprehensivenessMetric,
+        ...     RemovalBasedMetric,
+        ... )
+        >>> issubclass(ComprehensivenessMetric, RemovalBasedMetric)
+        True
+
     Args:
         model: PyHealth BaseModel that accepts **kwargs and returns dict with
             'y_prob' or 'logit'.
@@ -373,8 +381,8 @@ class RemovalBasedMetric(ABC):
 
             If return_per_percentage=True:
                 Dict[float, torch.Tensor]: Maps percentage -> scores
-                (batch_size,). For binary classifiers, negative class
-                samples have value 0.
+                (batch_size,). For binary classifiers, negative-class samples
+                are scored from the class-0 perspective.
 
         Note:
             For binary classifiers, all samples are evaluated
@@ -453,10 +461,10 @@ class RemovalBasedMetric(ABC):
             )
 
             # Compute probability drop
-            original_class_probs = y_probs
+            original_class_probs = y_probs.clone()
             original_class_probs[neg_mask] = -original_class_probs[neg_mask]
             
-            ablated_class_probs = ablated_probs
+            ablated_class_probs = ablated_probs.clone()
             ablated_class_probs[neg_mask] = -ablated_class_probs[neg_mask]
             
             prob_drop = torch.zeros(batch_size, device=y_probs.device)
@@ -493,9 +501,9 @@ class RemovalBasedMetric(ABC):
 
                 # Check for unexpected negative values
                 evaluated_drops = prob_drop[val_mask]
-                neg_mask = evaluated_drops < 0
-                if neg_mask.any():
-                    neg_count = neg_mask.sum().item()
+                negative_drop_mask = evaluated_drops < 0
+                if negative_drop_mask.any():
+                    neg_count = negative_drop_mask.sum().item()
                     print(f"\n⚠ WARNING: {neg_count} negative detected!")
                     print("  Negative values mean ablation INCREASED " "confidence,")
                     print("  which suggests:")

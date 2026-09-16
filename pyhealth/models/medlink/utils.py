@@ -127,27 +127,63 @@ def get_bm25_hard_negatives(bm25_model, corpus, queries, qrels):
 
     Returns:
         qrels_w_neg: Updated qrels dictionary containing both positives (1) and negatives (-1).
+
+    Examples:
+        >>> # bm25_model.get_scores(query) -> {doc_id: score}
+        >>> corpus = {"d0": ["fever", "cough"], "d1": ["fever", "rash"]}
+        >>> queries = {"q0": ["fever", "cough"]}
+        >>> qrels = {"q0": {"d0": 1}}  # d0 is q0's positive match
+        >>> qrels_w_neg = get_bm25_hard_negatives(bm25_model, corpus, queries, qrels)
+        >>> qrels_w_neg["q0"]  # positive kept; top query-ranked non-positive labeled -1
+        {'d0': 1, 'd1': -1}
     """
     qrels_w_neg = {}
     for q_id, q in tqdm.tqdm(queries.items()):
         d_ids = [d_id for d_id in qrels[q_id] if qrels[q_id][d_id] > 0]
-        ds = [corpus[d_id] for d_id in d_ids]
-        for d_id, d in zip(d_ids, ds):
-            scores = bm25_model.get_scores(d)
-            for (ned_d_id, neg_s) in sorted(scores.items(), key=lambda x: x[1],
-                                            reverse=True):
-                if ned_d_id != d_id:
-                    qrels_w_neg[q_id] = {d_id: 1, ned_d_id: -1}
-                    break
+
+        qrels_w_neg[q_id] = {d_id: 1 for d_id in d_ids}
+
+        scores = bm25_model.get_scores(q)
+        ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+        for neg_d_id, neg_s in ranked:
+            if neg_d_id not in d_ids: # exclude every positive, not just d_id
+                qrels_w_neg[q_id][neg_d_id] = -1
+                break
+            
     return qrels_w_neg
 
 
 def collate_fn(samples):
-    outputs = {k: [] for k in samples[0].keys()}
-    for sample in samples:
-        for k, v in sample.items():
-            outputs[k].append(v)
-    return outputs
+    """Batches a list of per-sample dicts into a dict of lists.
+
+    Note:
+        Initializing output keys from only ``samples[0]`` breaks when
+        samples have heterogeneous keys -- e.g. ``get_train_dataloader``'s
+        ``s_n`` key, present only for samples where a hard negative was
+        mined. Depending on sample order this either raised a KeyError (the
+        first sample lacked a key a later one had) or silently produced a
+        shorter, misaligned list for that key (the first sample had it, a
+        later one didn't). ``MedLink.forward`` consumes ``s_n`` as a
+        whole-batch field (``corpus = s_p + s_n``), so a partially-present
+        ``s_n`` would corrupt that concatenation rather than just misalign
+        cleanly -- if any sample in the batch is missing it, drop it for
+        the whole batch instead (equivalent to training that batch without
+        hard negatives, a mode the model already supports via s_n=None).
+
+    Examples:
+        >>> samples = [
+        ...     {"query_id": "q1", "id_p": "p1", "s_q": "Q1", "s_p": "P1", "s_n": "N1"},
+        ...     {"query_id": "q2", "id_p": "p2", "s_q": "Q2", "s_p": "P2"},
+        ... ]
+        >>> collate_fn(samples)  # s_n dropped for the whole batch: not every sample has one
+        {'query_id': ['q1', 'q2'], 'id_p': ['p1', 'p2'], 's_q': ['Q1', 'Q2'], 's_p': ['P1', 'P2']}
+    """
+    # dict.fromkeys preserves first-seen order (deterministic, unlike a
+    # set) while still deduplicating across samples.
+    keys = dict.fromkeys(k for sample in samples for k in sample)
+    if "s_n" in keys and not all("s_n" in sample for sample in samples):
+        del keys["s_n"]
+    return {k: [sample[k] for sample in samples] for k in keys}
 
 
 def get_train_dataloader(
@@ -167,39 +203,37 @@ def get_train_dataloader(
 
     Returns:
         DataLoader returning batches of dicts.
+
+    Examples:
+        >>> corpus = {"p1": "positive one", "p2": "positive two", "n": "negative"}
+        >>> queries = {"q1": "query"}
+        >>> qrels = {"q1": {"p1": 1, "p2": 1, "n": -1}}
+        >>> loader = get_train_dataloader(corpus, queries, qrels, batch_size=2, shuffle=False)
+        Loaded 2 training pairs.
+        >>> next(iter(loader))["id_p"]
+        ['p1', 'p2']
     """
 
     query_ids = list(queries.keys())
     train_samples = []
     for query_id in query_ids:
         s_q = queries[query_id]
-        id_p, s_p, s_n = None, None, None
-        assert len(qrels[query_id]) <= 2
+        positive_ids, s_n = [], None
         for corpus_id, score in qrels[query_id].items():
             if score == 1:
-                id_p = corpus_id
-                s_p = corpus[corpus_id]
+                positive_ids.append(corpus_id)
             if score == -1:
                 s_n = corpus[corpus_id]
-        if s_n is not None:
-            train_samples.append(
-                {
-                    "query_id": query_id,
-                    "id_p": id_p,
-                    "s_q": s_q,
-                    "s_p": s_p,
-                    "s_n": s_n,
-                }
-            )
-        else:
-            train_samples.append(
-                {
-                    "query_id": query_id,
-                    "id_p": id_p,
-                    "s_q": s_q,
-                    "s_p": s_p,
-                }
-            )
+        for id_p in positive_ids:
+            sample = {
+                "query_id": query_id,
+                "id_p": id_p,
+                "s_q": s_q,
+                "s_p": corpus[id_p],
+            }
+            if s_n is not None:
+                sample["s_n"] = s_n
+            train_samples.append(sample)
     print("Loaded {} training pairs.".format(len(train_samples)))
     train_dataloader = DataLoader(
         train_samples, shuffle=shuffle, batch_size=batch_size, collate_fn=collate_fn

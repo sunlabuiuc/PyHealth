@@ -1,6 +1,33 @@
 Development logs
 ======================
-We track the new development here:
+We track the new development here. Starting with 2.0.2, per-release changes are
+recorded by version in
+`CHANGELOG.md <https://github.com/sunlabuiuc/PyHealth/blob/master/CHANGELOG.md>`_;
+the dated entries below cover earlier development.
+
+Releases
+--------
+
+**2.0.2** (Sep 02, 2026) --
+`full changelog <https://github.com/sunlabuiuc/PyHealth/blob/master/CHANGELOG.md#202--2026-09-02>`_
+
+.. code-block:: rst
+
+    1. new datasets: MEDS (#1179), FHIR (#1155), EEGBCI (#1177), PhysioNet
+       De-Identification (#981).
+    2. new models: MedFuse (#1003), synthetic-EHR generators HALO/MedGAN/CorGAN/
+       PromptEHR/GPT-2 (#1148), CaliForest (#999), GRASP on the 2.0 API (#905).
+    3. new tasks and metrics: DrugRecommendationOMOP (#1203), generative
+       evaluation metrics (#1148), attention rollout interpretability (#1158),
+       real Adaptive Prediction Sets for conformal prediction (#1189).
+    4. restored code_mapping from 1.x on SequenceProcessor and BaseTask (#905).
+    5. data leakage fixes that change benchmark numbers: StageNet MIMIC-IV
+       mortality/LOS (#1205) and drug_recommendation_omop_fn (#1203).
+    6. correctness fixes across CNN, TCN, BIOT, MoleRec, SDOH, AdaCare, GRASP,
+       MedLink, ECE, fairness metrics, SCRIB, and interpretability metrics.
+
+Development history
+-------------------
 
 **Dec 29, 2023**
 

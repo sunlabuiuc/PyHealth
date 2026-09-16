@@ -243,7 +243,12 @@ class TransformerDeID(BaseModel):
         dummy_labels = " ".join(["O"] * len(words))
         self.eval()
         with torch.no_grad():
-            result = self(text=[text], labels=[dummy_labels])
+            result = self(
+                **{
+                    self.feature_key: [text],
+                    self.label_key: [dummy_labels],
+                }
+            )
 
         preds = result["logit"][0].argmax(dim=-1)
         y_true = result["y_true"][0]

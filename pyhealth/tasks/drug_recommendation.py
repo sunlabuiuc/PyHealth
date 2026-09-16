@@ -1,4 +1,6 @@
 from typing import Any, Dict, Iterable, List, Optional
+from typing import ClassVar  # keep off line 1: merging would re-flag pre-existing UP035/I001
+from collections import defaultdict
 
 import polars as pl
 
@@ -644,6 +646,170 @@ class DrugRecommendationEICU(BaseTask):
         return samples
 
 
+class DrugRecommendationOMOP(BaseTask):
+    """Task for drug recommendation using an OMOP CDM dataset.
+
+    Drug recommendation aims at recommending a set of drugs given the patient
+    health history (e.g., conditions and procedures). This task creates one
+    sample per qualifying visit with cumulative history: ``conditions`` and
+    ``procedures`` include the current visit, while ``drugs_hist`` excludes it
+    so the prediction target never appears in its own history.
+
+    Features key-value pairs:
+    - using condition_occurrence table as condition codes
+    - using procedure_occurrence table as procedure codes
+    - using drug_exposure table as drug codes
+
+    Concept ids equal to ``0`` are dropped: in OMOP, ``0`` is the
+    "no matching concept" sentinel, not a real code.
+
+    Attributes:
+        task_name (str): The name of the task.
+        input_schema (dict[str, str]): The schema for input data:
+            - conditions: Nested list of condition concept ids (history +
+              current visit)
+            - procedures: Nested list of procedure concept ids (history +
+              current visit)
+            - drugs_hist: Nested list of drug concept ids from history; the
+              current visit's slot is always empty
+        output_schema (dict[str, str]): The schema for output data:
+            - drugs: List of drug concept ids to predict for current visit
+
+    Examples:
+        >>> from pyhealth.datasets import OMOPDataset
+        >>> from pyhealth.tasks import DrugRecommendationOMOP
+        >>> dataset = OMOPDataset(
+        ...     root="/path/to/omop",
+        ...     tables=[
+        ...         "condition_occurrence",
+        ...         "procedure_occurrence",
+        ...         "drug_exposure",
+        ...     ],
+        ... )
+        >>> sample_dataset = dataset.set_task(DrugRecommendationOMOP())
+    """
+
+    task_name: str = "DrugRecommendationOMOP"
+    # ClassVar is required here: ruff's RUF012 flags mutable class attributes,
+    # and the PR lint gate checks added lines. The sibling tasks predate that
+    # gate, hence the local inconsistency.
+    input_schema: ClassVar[dict[str, str]] = {
+        "conditions": "nested_sequence",
+        "procedures": "nested_sequence",
+        "drugs_hist": "nested_sequence",
+    }
+    output_schema: ClassVar[dict[str, str]] = {"drugs": "multilabel"}
+
+    # (sample key, event type, concept id column)
+    _SOURCES: ClassVar[tuple[tuple[str, str, str], ...]] = (
+        ("conditions", "condition_occurrence", "condition_concept_id"),
+        ("procedures", "procedure_occurrence", "procedure_concept_id"),
+        ("drugs", "drug_exposure", "drug_concept_id"),
+    )
+    _NULLISH: ClassVar[frozenset[str]] = frozenset({"", "nan", "none", "<na>"})
+
+    @classmethod
+    def _norm(cls, value: Any) -> str | None:
+        """Normalizes a raw column value to a stable string, or None.
+
+        CSV sources are loaded as all-string with pyarrow
+        (``strings_can_be_null=False``), so a blank cell arrives as ``""``
+        rather than ``None``; Parquet sources keep their native dtype. This
+        collapses both cases.
+        """
+        if value is None:
+            return None
+        text = str(value).strip()
+        return None if text.lower() in cls._NULLISH else text
+
+    @classmethod
+    def _concept_id(cls, value: Any) -> str | None:
+        """Normalizes a concept id, dropping OMOP's 0 = 'no matching concept'."""
+        code = cls._norm(value)
+        return None if code == "0" else code
+
+    def _codes_by_visit(
+        self, patient: Any, event_type: str, field: str
+    ) -> dict[str, list[str]]:
+        """Groups one table's concept ids by visit in a single pass.
+
+        Avoids one ``get_events`` call per (visit, table), which is O(V*N).
+        """
+        grouped: dict[str, list[str]] = defaultdict(list)
+        for event in patient.get_events(event_type=event_type):
+            visit_id = self._norm(getattr(event, "visit_occurrence_id", None))
+            code = self._concept_id(getattr(event, field, None))
+            if visit_id is None or code is None:
+                continue
+            grouped[visit_id].append(code)
+        return grouped
+
+    def __call__(self, patient: Any) -> list[dict[str, Any]]:
+        """Processes a patient into drug recommendation samples.
+
+        Emits one sample per visit that has at least one condition, one
+        procedure and one drug. Patients with fewer than two such visits are
+        dropped. Visits are consumed in chronological order (``Patient``
+        sorts its event source by timestamp).
+
+        Args:
+            patient: Patient object exposing ``get_events``.
+
+        Returns:
+            List of samples with patient_id, visit_id, cumulative conditions
+            and procedures, leak-free drugs history, and the target drugs.
+        """
+        visits = patient.get_events(event_type="visit_occurrence")
+        if len(visits) < 2:
+            return []
+
+        grouped = {
+            key: self._codes_by_visit(patient, event_type, field)
+            for key, event_type, field in self._SOURCES
+        }
+
+        samples: list[dict[str, Any]] = []
+        for visit in visits:
+            visit_id = self._norm(getattr(visit, "visit_occurrence_id", None))
+            if visit_id is None:
+                continue
+            conditions = grouped["conditions"].get(visit_id, [])
+            procedures = grouped["procedures"].get(visit_id, [])
+            drugs = grouped["drugs"].get(visit_id, [])
+            # Exclude visits without condition, procedure, or drug code
+            if not (conditions and procedures and drugs):
+                continue
+            samples.append(
+                {
+                    "visit_id": visit_id,
+                    "patient_id": patient.patient_id,
+                    "conditions": conditions,
+                    "procedures": procedures,
+                    "drugs": drugs,
+                }
+            )
+
+        # Exclude patients with less than 2 valid visits
+        if len(samples) < 2:
+            return []
+
+        # Snapshot before rewriting, then rebuild each sample from fresh lists
+        # so that no two samples ever share a list object.
+        per_visit = [
+            (list(s["conditions"]), list(s["procedures"]), list(s["drugs"]))
+            for s in samples
+        ]
+        for index, sample in enumerate(samples):
+            window = per_visit[: index + 1]
+            sample["conditions"] = [list(codes) for codes, _, _ in window]
+            sample["procedures"] = [list(codes) for _, codes, _ in window]
+            sample["drugs_hist"] = [list(codes) for _, _, codes in window]
+            # The target visit's own drugs must not appear in its own history.
+            sample["drugs_hist"][index] = []
+
+        return samples
+
+
 def drug_recommendation_omop_fn(patient: Patient):
     """Processes a single patient for the drug recommendation task.
 
@@ -708,6 +874,11 @@ def drug_recommendation_omop_fn(patient: Patient):
         samples[i]["drugs_all"] = samples[i - 1]["drugs_all"] + [
             samples[i]["drugs_all"]
         ]
+
+    # remove the target drug from the history (mirrors drugs_hist handling
+    # in the other drug_recommendation_*_fn / DrugRecommendation* tasks)
+    for i in range(len(samples)):
+        samples[i]["drugs_all"][i] = []
 
     return samples
 

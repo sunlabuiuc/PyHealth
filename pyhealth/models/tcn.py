@@ -306,7 +306,28 @@ class TCN(BaseModel):
                 - embed (optional): a tensor representing the patient embeddings if requested.
         """
         patient_emb = []
-        embedded = self.embedding_model(kwargs)
+
+        # Tuple-schema features (e.g. StageNetProcessor emits (time, value))
+        # arrive as a tuple; extract the "value" (and optional "mask") tensor
+        # for the embedding model.
+        inputs = {}
+        masks = {}
+        for feature_key in self.feature_keys:
+            feature = kwargs[feature_key]
+            if isinstance(feature, torch.Tensor):
+                feature = (feature,)
+            schema = self.dataset.input_processors[feature_key].schema()
+            value = feature[schema.index("value")] if "value" in schema else None
+            mask = feature[schema.index("mask")] if "mask" in schema else None
+            if value is None:
+                raise ValueError(
+                    f"Feature '{feature_key}' must contain 'value' in the schema."
+                )
+            inputs[feature_key] = value
+            if mask is not None:
+                masks[feature_key] = mask
+
+        embedded = self.embedding_model(inputs, masks=masks)
         for feature_key in self.feature_keys:
             x = embedded[feature_key]
             mask = (x.sum(dim=-1) != 0).int()
