@@ -313,6 +313,7 @@ class SampleDataset(litdata.StreamingDataset):
         path: str,
         dataset_name: Optional[str] = None,
         task_name: Optional[str] = None,
+        delete_on_close: bool = False,
         **kwargs,
     ) -> None:
         """Initialize a SampleDataset pointing at a directory created by SampleBuilder.
@@ -322,6 +323,8 @@ class SampleDataset(litdata.StreamingDataset):
                 `SampleBuilder.save` and associated pickled sample files.
             dataset_name: Optional human-friendly dataset name.
             task_name: Optional human-friendly task name.
+            delete_on_close: Whether ``close()`` should delete ``path``. This is
+                reserved for temporary datasets owned by PyHealth.
             **kwargs: Extra keyword arguments forwarded to
                 `litdata.StreamingDataset` (such as streaming options).
         """
@@ -330,6 +333,7 @@ class SampleDataset(litdata.StreamingDataset):
         self.path = path
         self.dataset_name = "" if dataset_name is None else dataset_name
         self.task_name = "" if task_name is None else task_name
+        self._delete_on_close = delete_on_close
 
         with open(f"{path}/schema.pkl", "rb") as f:
             metadata = pickle.load(f)
@@ -442,13 +446,18 @@ class SampleDataset(litdata.StreamingDataset):
         new_dataset.record_to_index = _remap_index_mapping(
             self.record_to_index, indices
         )
+        new_dataset._delete_on_close = False
         new_dataset.reset()
 
         return new_dataset
 
     def close(self) -> None:
         """Cleans up any temporary directories used by the dataset."""
-        if self.input_dir.path is not None and Path(self.input_dir.path).exists():
+        if (
+            self._delete_on_close
+            and self.input_dir.path is not None
+            and Path(self.input_dir.path).exists()
+        ):
             shutil.rmtree(self.input_dir.path)
 
     # --------------------------------------------------------------
@@ -632,6 +641,15 @@ def create_sample_dataset(
     Returns:
         An instance of `SampleDataset` loaded from the temporary directory
         containing the optimized, chunked samples and `schema.pkl` metadata.
+
+    Examples:
+        >>> dataset = create_sample_dataset(
+        ...     samples=[{"patient_id": "p1", "feature": 1, "label": 0}],
+        ...     input_schema={"feature": "raw"},
+        ...     output_schema={"label": "raw"},
+        ... )
+        >>> len(dataset)
+        1
     """
     if in_memory:
         return InMemorySampleDataset(
@@ -666,4 +684,5 @@ def create_sample_dataset(
             path=str(path),
             dataset_name=dataset_name,
             task_name=task_name,
+            delete_on_close=True,
         )
