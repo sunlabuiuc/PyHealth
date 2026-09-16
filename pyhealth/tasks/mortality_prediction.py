@@ -351,7 +351,7 @@ class MultimodalMortalityPredictionMIMIC4(BaseTask):
 
     Image Processing:
         - Uses image_path from MIMIC-CXR metadata directly
-        - Returns first available X-ray image path across all X-rays
+        - Uses X-rays available by the last included admission's discharge
     """
 
     task_name: str = "MultimodalMortalityPredictionMIMIC4"
@@ -575,6 +575,21 @@ class MultimodalMortalityPredictionMIMIC4(BaseTask):
         if len(admissions_to_process) == 0:
             return []
 
+        prediction_time = None
+        for admission in reversed(admissions_to_process):
+            try:
+                admission_dischtime = datetime.strptime(  # noqa: DTZ007
+                    admission.dischtime, "%Y-%m-%d %H:%M:%S"
+                )
+            except (ValueError, AttributeError):
+                continue
+            if admission_dischtime >= admission.timestamp:
+                prediction_time = admission_dischtime
+                break
+
+        if prediction_time is None:
+            return []
+
         # Get first admission time as reference for lab time calculations
         first_admission_time = admissions_to_process[0].timestamp
 
@@ -591,8 +606,8 @@ class MultimodalMortalityPredictionMIMIC4(BaseTask):
 
         # Get X-ray data (patient-level, not admission-specific)
         # Note: event types match table names in mimic4_cxr.yaml (negbio, metadata)
-        negbio_events = patient.get_events(event_type="negbio")
-        metadata_events = patient.get_events(event_type="metadata")
+        negbio_events = patient.get_events(event_type="negbio", end=prediction_time)
+        metadata_events = patient.get_events(event_type="metadata", end=prediction_time)
 
         # Process X-ray findings (aggregate across all X-rays)
         # NegBio findings attributes (from mimic4_cxr.yaml negbio table)
