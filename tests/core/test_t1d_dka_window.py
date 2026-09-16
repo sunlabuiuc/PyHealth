@@ -49,7 +49,7 @@ class DummyPatient:
 
 def _build_patient(t0: datetime, admission_days: list[int], diag_specs: list[tuple[str, int | str, int, str]]) -> DummyPatient:
     admissions = [DummyAdmission(f"a{i+1}", t0 + timedelta(days=day)) for i, day in enumerate(admission_days)]
-    base_diag = DummyDiagnosis("E10.10", 10, t0, "t1dm")
+    base_diag = DummyDiagnosis("E10.9", 10, t0, "t1dm")
     diagnoses = [base_diag] + [
         DummyDiagnosis(code, version, t0 + timedelta(days=day), hadm_id)
         for code, version, day, hadm_id in diag_specs
@@ -100,6 +100,60 @@ class TestT1DDKAPredictionWindow(unittest.TestCase):
         sample_long = samples_long[0]
         self._assert_within_window(sample_long, expected_visits=2)
         self.assertEqual(sample_long["label"], 0)
+
+    def test_dka_before_t1dm_diagnosis_is_excluded(self):
+        patient = _build_patient(
+            self.t0,
+            admission_days=[-60, -30],
+            diag_specs=[
+                ("I10", 10, -60, "a1"),
+                ("E1011", 10, -30, "a2"),
+            ],
+        )
+
+        self.assertEqual(self.task(patient), [])
+
+    def test_dka_at_t1dm_diagnosis_is_positive(self):
+        patient = _build_patient(
+            self.t0,
+            admission_days=[-10, 0],
+            diag_specs=[
+                ("I10", 10, -10, "a1"),
+                ("E1011", 10, 0, "a2"),
+            ],
+        )
+
+        samples = self.task(patient)
+        self.assertEqual(len(samples), 1)
+        self.assertEqual(samples[0]["label"], 1)
+
+    def test_dka_inside_window_is_positive(self):
+        patient = _build_patient(
+            self.t0,
+            admission_days=[10, 30],
+            diag_specs=[
+                ("I10", 10, 10, "a1"),
+                ("E1011", 10, 30, "a2"),
+            ],
+        )
+
+        samples = self.task(patient)
+        self.assertEqual(len(samples), 1)
+        self.assertEqual(samples[0]["label"], 1)
+
+    def test_dka_at_end_of_window_is_positive(self):
+        patient = _build_patient(
+            self.t0,
+            admission_days=[30, 90],
+            diag_specs=[
+                ("I10", 10, 30, "a1"),
+                ("E1011", 10, 90, "a2"),
+            ],
+        )
+
+        samples = self.task(patient)
+        self.assertEqual(len(samples), 1)
+        self.assertEqual(samples[0]["label"], 1)
 
 
 if __name__ == "__main__":

@@ -282,6 +282,7 @@ class T1DDKAPredictionMIMIC4(BaseTask):
     Target Population:
         - Patients with Type 1 Diabetes (ICD-9 or ICD-10 codes)
         - Excludes patients without any T1DM diagnosis codes
+        - Excludes DKA events recorded before a separate T1DM diagnosis
 
     Label Definition:
         - Positive (1): Patient has DKA code within 90 days of T1DM diagnosis
@@ -459,18 +460,32 @@ class T1DDKAPredictionMIMIC4(BaseTask):
 
         has_t1dm = False
         t1dm_times: List[datetime] = []
+        t1dm_diagnosis_times: list[datetime] = []
+        dka_times: list[datetime] = []
 
         for diag in all_diagnoses:
             code = getattr(diag, "icd_code", None)
             version = getattr(diag, "icd_version", None)
+            diag_time = getattr(diag, "timestamp", None)
+            is_dka = self._is_dka_code(code, version)
             if self._is_t1dm_code(code, version):
                 has_t1dm = True
-                diag_time = getattr(diag, "timestamp", None)
                 if diag_time:
                     t1dm_times.append(diag_time)
+                    if not is_dka:
+                        t1dm_diagnosis_times.append(diag_time)
+            if is_dka and diag_time:
+                dka_times.append(diag_time)
 
         # Skip patients without T1DM diagnosis (early exit before sorting)
         if not has_t1dm:
+            return []
+
+        if (
+            t1dm_diagnosis_times
+            and dka_times
+            and min(dka_times) < min(t1dm_diagnosis_times)
+        ):
             return []
 
         # Get admissions and sort by timestamp
@@ -609,9 +624,11 @@ class T1DDKAPredictionMIMIC4(BaseTask):
         # Determine label based on temporal relationship
         has_dka_within_window = False
         if has_dka and t1dm_times and dka_time:
-            for t1dm_time in t1dm_times:
-                delta = abs((dka_time - t1dm_time).days)
-                if delta <= self.dka_window_days:
+            diagnosis_times = t1dm_diagnosis_times or t1dm_times
+            for t1dm_time in diagnosis_times:
+                if t1dm_time <= dka_time <= t1dm_time + timedelta(
+                    days=self.dka_window_days
+                ):
                     has_dka_within_window = True
                     break
         elif has_dka and not t1dm_times:
