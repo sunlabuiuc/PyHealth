@@ -17,6 +17,16 @@ Multi-seed usage (recommended for papers):
   python examples/conformal_eeg/tuev_conventional_conformal.py \\
       --root downloads/tuev/v2.0.1/edf --model tfm --n-seeds 5 --seed 42 --alpha 0.1 \\
       --log-file tuev_conventional_tfm_alpha0.1_5seeds.log
+
+Note: this example specifically demonstrates LABEL (Sadinle, Lei, and
+Wasserman 2019's least-ambiguous-set score, "1 - p(true class)"), which is
+also pyhealth.calib.predictionset.BaseConformal's default score_type
+(both classes default to "threshold" for consistency). BaseConformal
+additionally supports score_type="margin", the nonconformity measure from
+Papadopoulos, Vovk, and Gammerman's "Conformal prediction with neural
+networks" (ICTAI 2007) -- pass BaseConformal(model, alpha,
+score_type="margin") if you specifically want that paper's own method.
+Coverage validity does not depend on which score_type is used.
 """
 
 from __future__ import annotations

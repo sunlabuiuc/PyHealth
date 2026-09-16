@@ -1,6 +1,7 @@
 """Tests for pyhealth.calib.predictionset.scores: the shared score module
-implementing both the "threshold" (LAC) and "aps" (Adaptive Prediction
-Sets, Romano/Sesia/Candes 2020) nonconformity/conformity scores.
+implementing the "threshold" (LAC), "aps" (Adaptive Prediction Sets,
+Romano/Sesia/Candes 2020), and "margin" (Papadopoulos/Vovk/Gammerman 2007)
+nonconformity/conformity scores.
 """
 
 import unittest
@@ -110,6 +111,78 @@ class TestScoresAPS(unittest.TestCase):
         all_scores = all_class_nc_scores(y_prob, score_type="aps", rng=np.random.default_rng(4))
         true_scores = true_class_nc_scores(y_prob, y_true, score_type="aps", rng=np.random.default_rng(4))
         np.testing.assert_allclose(true_scores, all_scores[np.arange(2), y_true])
+
+
+class TestScoresMargin(unittest.TestCase):
+    """"margin" is Papadopoulos, Vovk, and Gammerman (2007)'s nonconformity
+    measure for neural-network classifiers: alpha(x, k) = max_{j!=k} p(j)
+    - p(k). Verified against the ICTAI 2007 paper's Section 4.2 formula
+    (also restated verbatim in Papadopoulos's 2008 InTech chapter as "the
+    natural nonconformity measure")."""
+
+    def test_hand_computed_no_ties(self):
+        y_prob = np.array([[0.7, 0.2, 0.1], [0.3, 0.5, 0.2]])
+        # Row 0: top1=0.7 (class 0), top2=0.2.
+        #   class0 (is top): 0.2 - 0.7 = -0.5
+        #   class1: 0.7 - 0.2 = 0.5
+        #   class2: 0.7 - 0.1 = 0.6
+        # Row 1: top1=0.5 (class 1), top2=0.3.
+        #   class0: 0.5 - 0.3 = 0.2
+        #   class1 (is top): 0.3 - 0.5 = -0.2
+        #   class2: 0.5 - 0.2 = 0.3
+        scores = all_class_nc_scores(y_prob, score_type="margin")
+        np.testing.assert_allclose(scores, [[-0.5, 0.5, 0.6], [0.2, -0.2, 0.3]])
+
+    def test_true_class_matches_all_class_indexing(self):
+        y_prob = np.array([[0.7, 0.2, 0.1], [0.3, 0.5, 0.2]])
+        y_true = np.array([0, 1])
+        np.testing.assert_allclose(
+            true_class_nc_scores(y_prob, y_true, score_type="margin"),
+            [-0.5, -0.2],
+        )
+
+    def test_conformity_is_one_minus_nonconformity(self):
+        y_prob = np.array([[0.7, 0.2, 0.1], [0.3, 0.5, 0.2]])
+        nc = all_class_nc_scores(y_prob, score_type="margin")
+        conf = all_class_conformity_scores(y_prob, score_type="margin")
+        np.testing.assert_allclose(conf, 1.0 - nc)
+
+    def test_tie_at_max_uses_max_as_max_others_for_both_tied_classes(self):
+        """When two classes tie for the top probability, each tied class's
+        "best other class" is still the max value (the other tied class),
+        not the third-place value -- a naive "drop my own rank-1 slot"
+        implementation would get this wrong."""
+        y_prob = np.array([[0.45, 0.45, 0.1]])
+        scores = all_class_nc_scores(y_prob, score_type="margin")[0]
+        # Both tied classes: max_{j!=k} p_j = 0.45 (the other tied class).
+        np.testing.assert_allclose(scores[0], 0.45 - 0.45)
+        np.testing.assert_allclose(scores[1], 0.45 - 0.45)
+        # Untied third class: max_{j!=k} p_j = 0.45 (either tied class).
+        np.testing.assert_allclose(scores[2], 0.45 - 0.1)
+
+    def test_true_class_with_highest_probability_has_lowest_score(self):
+        """The true class being far ahead of its best competitor should
+        yield a strongly negative (very conforming) margin score."""
+        y_prob = np.array([[0.9, 0.06, 0.04]])
+        y_true = np.array([0])
+        score = true_class_nc_scores(y_prob, y_true, score_type="margin")[0]
+        self.assertLess(score, 0)
+        np.testing.assert_allclose(score, 0.06 - 0.9)
+
+    def test_binary_classification_two_classes(self):
+        """With K=2, each class's only "other" is the remaining class."""
+        y_prob = np.array([[0.8, 0.2], [0.35, 0.65]])
+        scores = all_class_nc_scores(y_prob, score_type="margin")
+        np.testing.assert_allclose(
+            scores, [[0.2 - 0.8, 0.8 - 0.2], [0.65 - 0.35, 0.35 - 0.65]]
+        )
+
+    def test_scores_sum_to_zero_within_row_for_binary(self):
+        """For K=2 specifically, alpha(x,0) = -alpha(x,1) by construction."""
+        rng = np.random.default_rng(8)
+        y_prob = rng.dirichlet([1, 1], size=20)
+        scores = all_class_nc_scores(y_prob, score_type="margin")
+        np.testing.assert_allclose(scores[:, 0], -scores[:, 1], atol=1e-12)
 
 
 class TestScoresCoverage(unittest.TestCase):
