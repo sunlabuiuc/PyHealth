@@ -85,8 +85,9 @@ class TestBinaryLabel(unittest.TestCase):
         self.assertEqual(out["y_predset"].shape[1], 2)
         # y_prob stays the model's native positive-class probability.
         self.assertEqual(out["y_prob"].shape[1], 1)
-        # y_true is a 1-D class index, as the set metrics expect.
-        self.assertEqual(out["y_true"].dim(), 1)
+        # Labels retain the base model's native binary shape and dtype.
+        self.assertEqual(out["y_true"].shape, out["y_prob"].shape)
+        self.assertEqual(out["y_true"].dtype, torch.float32)
 
     def test_binary_metrics_accepts_predset(self):
         cal_model = LABEL(self.model, alpha=0.3)

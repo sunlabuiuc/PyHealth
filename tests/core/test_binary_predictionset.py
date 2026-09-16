@@ -61,12 +61,13 @@ class TestBinaryPredictionSet(unittest.TestCase):
 
     def _assert_binary_set(self, out):
         """Every method must yield an (N, 2) bool set, native (N, 1) y_prob,
-        a 1-D y_true, and metrics that compute through binary_metrics_fn."""
+        native binary labels, and metrics that compute through binary_metrics_fn."""
         self.assertEqual(out["y_predset"].dtype, torch.bool)
         self.assertEqual(out["y_predset"].dim(), 2)
         self.assertEqual(out["y_predset"].shape[1], 2)
         self.assertEqual(out["y_prob"].shape[1], 1)
-        self.assertEqual(out["y_true"].dim(), 1)
+        self.assertEqual(out["y_true"].shape, out["y_prob"].shape)
+        self.assertEqual(out["y_true"].dtype, torch.float32)
 
         res = binary_metrics_fn(
             out["y_true"].numpy(),

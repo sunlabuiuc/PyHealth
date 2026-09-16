@@ -35,11 +35,7 @@ from pyhealth.calib.predictionset.scores import (
     all_class_conformity_scores,
     true_class_conformity_scores,
 )
-from pyhealth.calib.utils import (
-    expand_binary_cal,
-    expand_binary_pred,
-    prepare_numpy_dataset,
-)
+from pyhealth.calib.utils import binary_to_2col, prepare_numpy_dataset
 from pyhealth.datasets import get_dataloader
 from pyhealth.models import BaseModel
 
@@ -467,7 +463,8 @@ class CovariateLabel(SetPredictor):
         y_prob = cal_dataset_dict["y_prob"]
         y_true = cal_dataset_dict["y_true"]
         if self.mode == "binary":
-            y_prob, y_true = expand_binary_cal(y_prob, y_true)
+            y_prob = binary_to_2col(y_prob)
+            y_true = np.asarray(y_true).reshape(-1).astype(int)
         N, K = y_prob.shape
 
         # Determine weights: either custom or KDE-based
@@ -561,7 +558,7 @@ class CovariateLabel(SetPredictor):
         # expand y_prob to 2 columns first (y_prob itself stays native).
         y_prob = pred["y_prob"].detach().cpu().numpy()
         if self.mode == "binary":
-            y_prob = expand_binary_pred(y_prob, pred)
+            y_prob = binary_to_2col(y_prob)
         conformity_scores = all_class_conformity_scores(
             y_prob, score_type=self.score_type, rng=self.rng
         )

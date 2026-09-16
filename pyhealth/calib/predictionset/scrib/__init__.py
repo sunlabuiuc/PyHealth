@@ -13,7 +13,7 @@ import pandas as pd
 import torch
 
 from pyhealth.calib.base_classes import SetPredictor
-from pyhealth.calib.utils import expand_binary_cal, prepare_numpy_dataset
+from pyhealth.calib.utils import binary_to_2col, prepare_numpy_dataset
 from pyhealth.models import BaseModel
 
 from . import quicksearch as qs
@@ -290,7 +290,8 @@ class SCRIB(SetPredictor):
         y_prob = cal_dataset["y_prob"]
         y_true = cal_dataset["y_true"]
         if self.mode == "binary":
-            y_prob, y_true = expand_binary_cal(y_prob, y_true)
+            y_prob = binary_to_2col(y_prob)
+            y_true = np.asarray(y_true).reshape(-1).astype(int)
         if self.loss_name == CLASSPECIFIC_LOSSFUNC:
             assert len(self.risk) == y_prob.shape[1]
         best_ts, _ = _CoordDescent.search(
@@ -313,17 +314,13 @@ class SCRIB(SetPredictor):
         """
         ret = self.model(**kwargs)
         # Binary: build a 2-column probability [P(0), P(1)] for the set so it
-        # ranges over both classes; y_prob itself stays native. (SCRIB thresholds
-        # the probability directly, so this stays in torch.)
+        # ranges over both classes; y_prob itself stays native. Use the same
+        # expansion precision as calibration when comparing with thresholds.
         prob = ret["y_prob"]
         if self.mode == "binary":
-            p = prob if prob.dim() == 2 else prob.unsqueeze(1)
-            # Match binary_to_2col's calibration arithmetic before subtracting:
-            # float32 rounding can otherwise include a class at its threshold.
-            p = p.to(dtype=torch.float64)
-            prob = torch.cat([1.0 - p, p], dim=1)
-            if ret.get("y_true") is not None:
-                ret["y_true"] = ret["y_true"].reshape(-1).long()
+            prob = torch.as_tensor(
+                binary_to_2col(prob.detach().cpu().numpy()), device=prob.device
+            )
         y_predset = prob > self.t
         if self.fill_max:
             # Match the calibration-time assumption: when no class clears

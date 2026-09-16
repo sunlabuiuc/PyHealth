@@ -34,11 +34,7 @@ from pyhealth.calib.predictionset.scores import (
     all_class_nc_scores,
     true_class_nc_scores,
 )
-from pyhealth.calib.utils import (
-    expand_binary_cal,
-    expand_binary_pred,
-    prepare_numpy_dataset,
-)
+from pyhealth.calib.utils import binary_to_2col, prepare_numpy_dataset
 from pyhealth.models import BaseModel
 
 __all__ = ["BaseConformal"]
@@ -261,7 +257,8 @@ class BaseConformal(SetPredictor):
         y_prob = cal_dataset_dict["y_prob"]
         y_true = cal_dataset_dict["y_true"]
         if self.mode == "binary":
-            y_prob, y_true = expand_binary_cal(y_prob, y_true)
+            y_prob = binary_to_2col(y_prob)
+            y_true = np.asarray(y_true).reshape(-1).astype(int)
         N, K = y_prob.shape
 
         # Compute non-conformity scores (higher = less conforming)
@@ -318,7 +315,7 @@ class BaseConformal(SetPredictor):
         # Binary: expand to 2 columns so the set ranges over both classes
         # (y_prob itself stays native).
         if self.mode == "binary":
-            y_prob = expand_binary_pred(y_prob, pred)
+            y_prob = binary_to_2col(y_prob)
         nc_scores = all_class_nc_scores(
             y_prob, score_type=self.score_type, rng=self.rng
         )

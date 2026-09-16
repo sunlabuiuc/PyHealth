@@ -25,8 +25,7 @@ from pyhealth.calib.predictionset.scores import (
     true_class_nc_scores,
 )
 from pyhealth.calib.utils import (
-    expand_binary_cal,
-    expand_binary_pred,
+    binary_to_2col,
     extract_embeddings,
     prepare_numpy_dataset,
 )
@@ -208,7 +207,8 @@ class ClusterLabel(SetPredictor):
         y_prob = cal_dataset_dict["y_prob"]
         y_true = cal_dataset_dict["y_true"]
         if self.mode == "binary":
-            y_prob, y_true = expand_binary_cal(y_prob, y_true)
+            y_prob = binary_to_2col(y_prob)
+            y_true = np.asarray(y_true).reshape(-1).astype(int)
         N, K = y_prob.shape
 
         # Extract embeddings if not provided
@@ -345,7 +345,7 @@ class ClusterLabel(SetPredictor):
         # set ranges over both classes (y_prob itself stays native).
         y_prob_np = pred["y_prob"].detach().cpu().numpy()
         if self.mode == "binary":
-            y_prob_np = expand_binary_pred(y_prob_np, pred)
+            y_prob_np = binary_to_2col(y_prob_np)
         nc_scores = all_class_nc_scores(
             y_prob_np, score_type=self.score_type, rng=self.rng
         )
