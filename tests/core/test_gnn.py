@@ -1,5 +1,7 @@
 """Unit tests for GNN models (GCN and GAT)."""
 
+import subprocess
+import sys
 import unittest
 import torch
 
@@ -451,6 +453,53 @@ class TestGAT(unittest.TestCase):
 
         self.assertIn("loss", ret)
         self.assertIn("y_prob", ret)
+
+
+class TestImportingModelsDoesNotResetGlobalRNG(unittest.TestCase):
+    """Regression test: pyhealth/models/gnn.py used to call
+    torch.manual_seed(3) / np.random.seed(1) at module level. Since
+    pyhealth/models/__init__.py does `from .gnn import GAT, GCN`, this ran
+    as a side effect of `import pyhealth.models` -- silently overwriting
+    any seed the user had already set for their own script, regardless of
+    whether they ever used GCN/GAT. This must run in a fresh subprocess:
+    by the time any in-process test executes, pyhealth.models is already
+    imported (and cached), so the side effect already happened once for
+    the whole test session and can't be observed from within it.
+    """
+
+    def test_import_does_not_consume_or_reset_rng_state(self):
+        script = (
+            "import torch, numpy as np\n"
+            "torch.manual_seed(12345)\n"
+            "np.random.seed(54321)\n"
+            "expected_torch = torch.rand(3).tolist()\n"
+            "expected_np = np.random.rand(3).tolist()\n"
+            "torch.manual_seed(12345)\n"
+            "np.random.seed(54321)\n"
+            "import pyhealth.models\n"  # the import under test
+            "actual_torch = torch.rand(3).tolist()\n"
+            "actual_np = np.random.rand(3).tolist()\n"
+            "assert actual_torch == expected_torch, (\n"
+            "    f'importing pyhealth.models changed the torch RNG stream: '\n"
+            "    f'{actual_torch} != {expected_torch}'\n"
+            ")\n"
+            "assert actual_np == expected_np, (\n"
+            "    f'importing pyhealth.models changed the numpy RNG stream: '\n"
+            "    f'{actual_np} != {expected_np}'\n"
+            ")\n"
+            "print('RNG_UNCHANGED')\n"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", script],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        self.assertEqual(
+            result.returncode, 0,
+            f"subprocess failed:\nstdout={result.stdout}\nstderr={result.stderr}",
+        )
+        self.assertIn("RNG_UNCHANGED", result.stdout)
 
 
 if __name__ == "__main__":
