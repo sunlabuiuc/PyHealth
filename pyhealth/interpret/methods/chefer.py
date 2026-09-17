@@ -2,7 +2,7 @@
 
 This module implements the Chefer et al. relevance propagation method for
 explaining transformer-family model predictions.  It relies on the
-:class:`~pyhealth.interpret.api.CheferInterpretable` interface — any model
+:class:`~pyhealth.interpret.api.GradientInterpretable` interface — any model
 that implements that interface is automatically supported.
 
 Paper:
@@ -18,9 +18,8 @@ from typing import Dict, Optional, cast
 import torch
 import torch.nn.functional as F
 
-from pyhealth.interpret.api import CheferInterpretable
+from pyhealth.interpret.api import GradientInterpretable
 from pyhealth.models.base_model import BaseModel
-from pyhealth.interpret.api import CheferInterpretable
 from .base_interpreter import BaseInterpreter
 
 
@@ -66,7 +65,7 @@ class CheferRelevance(BaseInterpreter):
     """Chefer's gradient-weighted attention method for transformer interpretability.
 
     This interpreter works with **any** model that implements the
-    :class:`~pyhealth.interpret.api.CheferInterpretable` interface, which
+    :class:`~pyhealth.interpret.api.GradientInterpretable` interface, which
     currently includes:
 
     * :class:`~pyhealth.models.Transformer`
@@ -74,7 +73,7 @@ class CheferRelevance(BaseInterpreter):
 
     The algorithm:
 
-    1. Enable attention hooks via ``model.set_attention_hooks(True)``.
+    1. Enable attention hooks with ``capture_gradients=True``.
     2. Forward pass → capture attention maps and register gradient hooks.
     3. Backward pass from a one-hot target class.
     4. Retrieve ``(attn_map, attn_grad)`` pairs via ``model.get_attention_layers()``.
@@ -82,12 +81,12 @@ class CheferRelevance(BaseInterpreter):
     6. Reduce ``R`` to per-token vectors via ``model.get_relevance_tensor()``.
 
     Steps 1, 4 and 6 are delegated to the model through the
-    ``CheferInterpretable`` interface, making this class fully
+    ``GradientInterpretable`` interface, making this class fully
     model-agnostic.
 
     Args:
         model (BaseModel): A trained PyHealth model that implements
-            :class:`~pyhealth.interpret.api.CheferInterpretable`.
+            :class:`~pyhealth.interpret.api.GradientInterpretable`.
 
     Example:
         >>> from pyhealth.datasets import create_sample_dataset, get_dataloader
@@ -133,8 +132,8 @@ class CheferRelevance(BaseInterpreter):
 
     def __init__(self, model: BaseModel):
         super().__init__(model)
-        if not isinstance(model, CheferInterpretable):
-            raise ValueError("Model must implement CheferInterpretable interface")
+        if not isinstance(model, GradientInterpretable):
+            raise TypeError("Model must implement GradientInterpretable interface")
         self.model = model
 
     def attribute(
@@ -158,7 +157,7 @@ class CheferRelevance(BaseInterpreter):
                 per-token attribution scores.
         """
         # --- 1. Forward with attention hooks enabled ---
-        self.model.set_attention_hooks(True)
+        self.model.set_attention_hooks(True, capture_gradients=True)
         try:
             logits = self.model(**data)["logit"]
         finally:
@@ -184,6 +183,17 @@ class CheferRelevance(BaseInterpreter):
         # --- 4. Relevance propagation per feature key ---
         R_dict: dict[str, torch.Tensor] = {}
         for key, layers in attention_layers.items():
+            if not layers:
+                raise RuntimeError(f"No attention layers captured for feature '{key}'.")
+            for cam, grad in layers:
+                if cam is None or grad is None:
+                    raise RuntimeError(
+                        f"Missing attention map or gradient for feature '{key}'."
+                    )
+                if cam.shape != grad.shape:
+                    raise RuntimeError(
+                        f"Attention map and gradient shapes differ for feature '{key}'."
+                    )
             num_tokens = layers[0][0].shape[-1]
             R = (
                 torch.eye(num_tokens, device=device)
