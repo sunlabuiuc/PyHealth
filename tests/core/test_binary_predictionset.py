@@ -12,16 +12,29 @@ import torch
 
 from pyhealth.calib.predictionset import (
     LABEL,
+    SCRIB,
     BaseConformal,
     ClusterLabel,
     CovariateLabel,
     NeighborhoodLabel,
-    SCRIB,
 )
-from pyhealth.calib.utils import extract_embeddings
+from pyhealth.calib.utils import binary_to_2col, extract_embeddings
 from pyhealth.datasets import create_sample_dataset, get_dataloader
 from pyhealth.metrics import binary_metrics_fn
 from pyhealth.models import MLP
+
+
+class TestBinaryToCol(unittest.TestCase):
+    """The (N,) / (N,1) -> (N,2) probability expansion."""
+
+    def test_shapes_and_values(self):
+        out = binary_to_2col([0.2, 0.9, 0.5])
+        self.assertEqual(out.shape, (3, 2))
+        np.testing.assert_allclose(out, [[0.8, 0.2], [0.1, 0.9], [0.5, 0.5]])
+        # (N, 1) input is accepted and gives the same result.
+        np.testing.assert_allclose(
+            binary_to_2col(np.array([[0.2], [0.9], [0.5]])), out
+        )
 
 
 class TestBinaryPredictionSet(unittest.TestCase):
@@ -75,17 +88,20 @@ class TestBinaryPredictionSet(unittest.TestCase):
             metrics=["set_size", "rejection_rate", "miscoverage_ps"],
             y_predset=out["y_predset"].numpy(),
         )
+        self.assertIn("rejection_rate", res)
         self.assertLessEqual(res["set_size"], 2.0)
         self.assertEqual(len(res["miscoverage_ps"]), 2)
 
-    def _forward(self, cal_model, embed=False):
+    def _forward(self, cal_model):
         loader = get_dataloader(self.dataset, batch_size=12, shuffle=False)
         with torch.no_grad():
             return cal_model(**next(iter(loader)))
 
     def test_label(self):
         m = LABEL(self.model, alpha=0.3)
+        self.assertEqual(m.mode, "binary")
         m.calibrate(cal_dataset=self.cal_ds)
+        self.assertIsInstance(m.t, torch.Tensor)
         self._assert_binary_set(self._forward(m))
 
     def test_base_conformal(self):
