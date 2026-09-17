@@ -133,7 +133,7 @@ class CheferRelevance(BaseInterpreter):
     def __init__(self, model: BaseModel):
         super().__init__(model)
         if not isinstance(model, GradientInterpretable):
-            raise ValueError("Model must implement GradientInterpretable interface")
+            raise TypeError("Model must implement GradientInterpretable interface")
         self.model = model
 
     def attribute(

@@ -160,7 +160,7 @@ class TestAttentionCapture(unittest.TestCase):
         with torch.no_grad():
             result = AttentionRollout(model).attribute(codes=torch.ones(1, 2))
         torch.testing.assert_close(result["codes"], torch.tensor([[1.0, 0.0]]))
-        with self.assertRaises(ValueError):
+        with self.assertRaises(TypeError):
             CheferRelevance(model)
 
         class MethodOnly(torch.nn.Module):

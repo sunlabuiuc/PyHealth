@@ -320,7 +320,7 @@ class TransformerLayer(nn.Module):
         return None
 
     def forward(
-        self, x: torch.Tensor, mask: Optional[torch.Tensor] = None,
+        self, x: torch.Tensor, mask: torch.Tensor | None = None,
         register_hook: bool = False, *, capture_attention: bool = False,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Forward propagation.
