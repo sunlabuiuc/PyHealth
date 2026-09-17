@@ -81,16 +81,6 @@ def multiclass_metrics_fn(
     """
     if metrics is None:
         metrics = ["accuracy", "f1_macro", "f1_micro"]
-    prediction_set_metrics = [
-        "rejection_rate",
-        "set_size",
-        "miscoverage_mean_ps",
-        "miscoverage_ps",
-        "miscoverage_overall_ps",
-        "error_mean_ps",
-        "error_ps",
-        "error_overall_ps",
-    ]
     y_pred = np.argmax(y_prob, axis=-1)
 
     output = {}
@@ -167,26 +157,13 @@ def multiclass_metrics_fn(
                 adaptive=metric.endswith("_adapt"),
                 threshold=thres,
             )
-        elif metric in prediction_set_metrics:
+        elif metric in pset.PREDICTION_SET_METRICS:
             if y_predset is None:
                 continue
-            if metric == "rejection_rate":
-                output[metric] = pset.rejection_rate(y_predset)
-            elif metric == "set_size":
-                output[metric] = pset.size(y_predset)
-            elif metric == "miscoverage_mean_ps":
-                output[metric] = pset.miscoverage_ps(y_predset, y_true).mean()
-            elif metric == "miscoverage_ps":
-                output[metric] = pset.miscoverage_ps(y_predset, y_true)
-            elif metric == "miscoverage_overall_ps":
-                output[metric] = pset.miscoverage_overall_ps(y_predset, y_true)
-            elif metric == "error_mean_ps":
-                output[metric] = pset.error_ps(y_predset, y_true).mean()
-            elif metric == "error_ps":
-                output[metric] = pset.error_ps(y_predset, y_true)
-            elif metric == "error_overall_ps":
-                output[metric] = pset.error_overall_ps(y_predset, y_true)
-        
+            output[metric] = pset.compute_prediction_set_metric(
+                metric, y_predset, y_true
+            )
+
         elif metric == "hits@n":
             argsort = np.argsort(-y_prob, axis=1)
             ranking = np.array([np.where(argsort[i] == y_true[i])[0][0] for i in range(len(y_true))]) + 1

@@ -17,7 +17,11 @@ from pyhealth.calib.predictionset.scores import (
     all_class_conformity_scores,
     true_class_conformity_scores,
 )
-from pyhealth.calib.utils import extract_embeddings, prepare_numpy_dataset
+from pyhealth.calib.utils import (
+    binary_to_2col,
+    extract_embeddings,
+    prepare_numpy_dataset,
+)
 from pyhealth.models import BaseModel
 
 __all__ = ["NeighborhoodLabel"]
@@ -92,9 +96,9 @@ class NeighborhoodLabel(SetPredictor):
     ) -> None:
         super().__init__(model, **kwargs)
 
-        if model.mode != "multiclass":
+        if model.mode not in ("multiclass", "binary"):
             raise NotImplementedError(
-                "NeighborhoodLabel only supports multiclass classification"
+                "NeighborhoodLabel only supports multiclass and binary classification"
             )
         if score_type not in SUPPORTED_SCORE_TYPES:
             raise ValueError(
@@ -158,6 +162,9 @@ class NeighborhoodLabel(SetPredictor):
         )
         y_prob = cal_dict["y_prob"]
         y_true = cal_dict["y_true"]
+        if self.mode == "binary":
+            y_prob = binary_to_2col(y_prob)
+            y_true = np.asarray(y_true).reshape(-1).astype(int)
         N = y_prob.shape[0]
 
         if cal_embeddings is None:
@@ -248,21 +255,27 @@ class NeighborhoodLabel(SetPredictor):
         th = torch.as_tensor(
             thresholds, device=self.device, dtype=pred["y_prob"].dtype
         )
-        if pred["y_prob"].ndim > 1:
-            th = th.view(-1, *([1] * (pred["y_prob"].ndim - 1)))
 
+        # Compute conformity scores; binary: expand y_prob to 2 columns first so
+        # the set ranges over both classes (y_prob itself stays native).
         y_prob_np = pred["y_prob"].detach().cpu().numpy()
+        if self.mode == "binary":
+            y_prob_np = binary_to_2col(y_prob_np)
         conformity_scores = all_class_conformity_scores(
             y_prob_np, score_type=self.score_type, rng=self.rng
         )
         conformity_scores = torch.as_tensor(
             conformity_scores, device=pred["y_prob"].device, dtype=pred["y_prob"].dtype
         )
+        if conformity_scores.ndim > 1:
+            th = th.view(-1, *([1] * (conformity_scores.ndim - 1)))
         y_predset = conformity_scores >= th
-        # if threshold is high, include at least argmax
+        # if threshold is high, include at least the highest-probability class
         empty = y_predset.sum(dim=1) == 0
         if empty.any():
-            argmax_idx = pred["y_prob"].argmax(dim=1)
+            argmax_idx = torch.as_tensor(
+                y_prob_np.argmax(axis=1), device=pred["y_prob"].device
+            )
             y_predset[empty, argmax_idx[empty]] = True
         pred["y_predset"] = y_predset
         pred.pop("embed", None)

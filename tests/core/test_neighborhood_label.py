@@ -73,7 +73,8 @@ class TestNeighborhoodLabel(unittest.TestCase):
         with self.assertRaises(ValueError):
             NeighborhoodLabel(model=self.model, alpha=0.1, k_neighbors=2.5)
 
-    def test_initialization_non_multiclass_raises(self):
+    def test_binary_mode_supported(self):
+        """Binary base models are supported (re-presented as 2-class)."""
         binary_samples = [
             {"patient_id": "a", "visit_id": "a", "conditions": ["c"], "procedures": [1.0], "label": 0},
             {"patient_id": "b", "visit_id": "b", "conditions": ["d"], "procedures": [2.0], "label": 1},
@@ -87,6 +88,11 @@ class TestNeighborhoodLabel(unittest.TestCase):
         binary_model = MLP(
             dataset=binary_ds, feature_keys=["conditions"], label_key="label", mode="binary"
         )
+        ncp = NeighborhoodLabel(model=binary_model, alpha=0.1, k_neighbors=2)
+        self.assertEqual(ncp.mode, "binary")
+
+        # A genuinely unsupported mode still raises.
+        binary_model.mode = "regression"
         with self.assertRaises(NotImplementedError):
             NeighborhoodLabel(model=binary_model, alpha=0.1, k_neighbors=2)
 

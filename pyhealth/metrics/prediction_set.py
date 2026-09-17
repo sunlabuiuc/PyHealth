@@ -1,5 +1,52 @@
 import numpy as np
 
+#: Names of the conformal prediction-set metrics. Any classification
+#: metrics_fn that receives a ``y_predset`` dispatches these through
+#: :func:`compute_prediction_set_metric`.
+PREDICTION_SET_METRICS = [
+    "rejection_rate",
+    "set_size",
+    "miscoverage_mean_ps",
+    "miscoverage_ps",
+    "miscoverage_overall_ps",
+    "error_mean_ps",
+    "error_ps",
+    "error_overall_ps",
+]
+
+
+def compute_prediction_set_metric(metric: str, y_predset: np.ndarray, y_true: np.ndarray):
+    """Compute a single prediction-set metric by name.
+
+    Shared by the binary and multiclass metrics functions so the dispatch
+    lives in one place. ``metric`` must be one of :data:`PREDICTION_SET_METRICS`.
+
+    Examples:
+        >>> import numpy as np
+        >>> from pyhealth.metrics.prediction_set import compute_prediction_set_metric
+        >>> y_predset = np.asarray([[1, 0], [1, 1], [0, 1]])
+        >>> y_true = np.asarray([0, 1, 1])
+        >>> float(compute_prediction_set_metric("set_size", y_predset, y_true))
+        1.3333333333333333
+    """
+    if metric == "rejection_rate":
+        return rejection_rate(y_predset)
+    if metric == "set_size":
+        return size(y_predset)
+    if metric == "miscoverage_mean_ps":
+        return miscoverage_ps(y_predset, y_true).mean()
+    if metric == "miscoverage_ps":
+        return miscoverage_ps(y_predset, y_true)
+    if metric == "miscoverage_overall_ps":
+        return miscoverage_overall_ps(y_predset, y_true)
+    if metric == "error_mean_ps":
+        return error_ps(y_predset, y_true).mean()
+    if metric == "error_ps":
+        return error_ps(y_predset, y_true)
+    if metric == "error_overall_ps":
+        return error_overall_ps(y_predset, y_true)
+    raise ValueError(f"Unknown prediction-set metric: {metric}")
+
 
 def size(y_pred:np.ndarray):
     """Average size of the prediction set.
