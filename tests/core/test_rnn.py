@@ -271,5 +271,96 @@ class TestMultimodalRNN(unittest.TestCase):
         self.assertEqual(ret["embed"].shape[1], expected_embed_dim)
 
 
+class TestRNNNestedCodePooling(unittest.TestCase):
+    """Tests for RNN with nested_sequence input and different code_pooling modes."""
+
+    def setUp(self):
+        self.samples = [
+            {
+                "patient_id": "patient-0",
+                "visit_id": "visit-0",
+                # Three visits; each contains a variable number of ICD-like codes.
+                "conditions": [
+                    ["cond-33", "cond-86", "cond-80"],
+                    ["cond-12", "cond-52"],
+                ],
+                "label": 1,
+            },
+            {
+                "patient_id": "patient-1",
+                "visit_id": "visit-1",
+                "conditions": [
+                    ["cond-33"],
+                    ["cond-86", "cond-80"],
+                    ["cond-12"],
+                ],
+                "label": 0,
+            },
+        ]
+        self.dataset = create_sample_dataset(
+            samples=self.samples,
+            input_schema={"conditions": "nested_sequence"},
+            output_schema={"label": "binary"},
+            dataset_name="test_nested",
+        )
+
+    def _forward(self, model):
+        loader = get_dataloader(self.dataset, batch_size=2, shuffle=False)
+        batch = next(iter(loader))
+        with torch.no_grad():
+            return model(**batch)
+
+    def test_sum_pooling(self):
+        ret = self._forward(RNN(dataset=self.dataset, code_pooling="sum"))
+        self.assertIn("loss", ret)
+        self.assertEqual(ret["y_prob"].shape[0], 2)
+
+    def test_mean_pooling(self):
+        ret = self._forward(RNN(dataset=self.dataset, code_pooling="mean"))
+        self.assertIn("loss", ret)
+        self.assertEqual(ret["y_prob"].shape[0], 2)
+
+    def test_max_pooling(self):
+        ret = self._forward(RNN(dataset=self.dataset, code_pooling="max"))
+        self.assertIn("loss", ret)
+        self.assertEqual(ret["y_prob"].shape[0], 2)
+
+    def test_attention_pooling(self):
+        ret = self._forward(RNN(dataset=self.dataset, code_pooling="attention"))
+        self.assertIn("loss", ret)
+        self.assertEqual(ret["y_prob"].shape[0], 2)
+
+    def test_attention_pooling_backward(self):
+        model = RNN(dataset=self.dataset, code_pooling="attention")
+        loader = get_dataloader(self.dataset, batch_size=2, shuffle=False)
+        batch = next(iter(loader))
+        ret = model(**batch)
+        ret["loss"].backward()
+        has_gradient = any(
+            p.requires_grad and p.grad is not None for p in model.parameters()
+        )
+        self.assertTrue(has_gradient, "No gradients after backward with attention pooling")
+
+    def test_invalid_pooling_raises(self):
+        with self.assertRaises(ValueError):
+            RNN(dataset=self.dataset, code_pooling="unknown_mode")
+
+    def test_attention_pooling_has_trainable_params(self):
+        model = RNN(dataset=self.dataset, code_pooling="attention")
+        attn_params = [
+            p for name, p in model.named_parameters()
+            if "code_pooling_layers" in name
+        ]
+        self.assertTrue(len(attn_params) > 0, "Attention pooling should have trainable parameters")
+
+    def test_sum_pooling_no_trainable_params(self):
+        model = RNN(dataset=self.dataset, code_pooling="sum")
+        pooling_params = [
+            p for name, p in model.named_parameters()
+            if "code_pooling_layers" in name
+        ]
+        self.assertEqual(len(pooling_params), 0, "Sum pooling should have no extra parameters")
+
+
 if __name__ == "__main__":
     unittest.main()

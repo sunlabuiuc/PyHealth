@@ -22,6 +22,91 @@ from pyhealth.processors import (
 from .embedding import EmbeddingModel
 
 
+class CodePoolingLayer(nn.Module):
+    """Aggregates per-visit code embeddings into a single visit vector.
+
+    Operates on tensors of shape (B, num_visits, num_codes, D) and returns
+    (B, num_visits, D).  Replaces the fixed ``x.sum(dim=2)`` baseline.
+
+    Args:
+        embedding_dim: dimensionality of the code embeddings.
+        mode: aggregation strategy.  One of:
+
+            - ``"sum"``       — sum over codes (original baseline).
+            - ``"mean"``      — mask-aware mean; avoids scale inflation from
+                               visits with many codes.
+            - ``"max"``       — element-wise max; captures the strongest
+                               signal per dimension.
+            - ``"attention"`` — learns a scalar importance score per code
+                               so the model can up-weight clinically relevant
+                               codes (e.g. primary diagnosis) over incidental
+                               ones.
+
+    Examples:
+        >>> layer = CodePoolingLayer(embedding_dim=64, mode="attention")
+        >>> x = torch.randn(2, 5, 10, 64)   # (B, visits, codes, D)
+        >>> mask = torch.ones(2, 5, 10)
+        >>> out = layer(x, mask)
+        >>> out.shape
+        torch.Size([2, 5, 64])
+    """
+
+    MODES = ("sum", "mean", "max", "attention")
+
+    def __init__(self, embedding_dim: int, mode: str = "sum"):
+        super().__init__()
+        if mode not in self.MODES:
+            raise ValueError(
+                f"code_pooling must be one of {self.MODES}, got '{mode}'"
+            )
+        self.mode = mode
+        # Only attention mode has trainable parameters.
+        self.attn_proj = (
+            nn.Linear(embedding_dim, 1, bias=False) if mode == "attention" else None
+        )
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        mask: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """Pool codes within each visit.
+
+        Args:
+            x: tensor of shape (B, V, C, D).
+            mask: optional boolean/int tensor of shape (B, V, C) where 1
+                indicates a real code and 0 indicates padding.
+
+        Returns:
+            Tensor of shape (B, V, D).
+        """
+        if self.mode == "sum":
+            return x.sum(dim=2)
+
+        if self.mode == "mean":
+            if mask is not None:
+                m = mask.float().unsqueeze(-1)          # (B, V, C, 1)
+                count = m.sum(dim=2).clamp(min=1)       # (B, V, 1)
+                return (x * m).sum(dim=2) / count
+            return x.mean(dim=2)
+
+        if self.mode == "max":
+            if mask is not None:
+                x = x.masked_fill(mask.unsqueeze(-1) == 0, float("-inf"))
+            result = x.max(dim=2).values                # (B, V, D)
+            # All-padding visits produce -inf → replace with 0.
+            return torch.nan_to_num(result, nan=0.0, posinf=0.0, neginf=0.0)
+
+        # mode == "attention"
+        scores = self.attn_proj(x).squeeze(-1)          # (B, V, C)
+        if mask is not None:
+            scores = scores.masked_fill(mask == 0, float("-inf"))
+        weights = torch.softmax(scores, dim=-1)         # (B, V, C)
+        # All-padding visits produce NaN after softmax(-inf) → replace with 0.
+        weights = torch.nan_to_num(weights)
+        return (weights.unsqueeze(-1) * x).sum(dim=2)  # (B, V, D)
+
+
 class RNNLayer(nn.Module):
     """Recurrent neural network layer.
 
@@ -211,6 +296,7 @@ class RNN(BaseModel):
         dataset: SampleDataset,
         embedding_dim: int = 128,
         hidden_dim: int = 128,
+        code_pooling: str = "sum",
         **kwargs
     ):
         super(RNN, self).__init__(
@@ -230,10 +316,16 @@ class RNN(BaseModel):
         self.embedding_model = EmbeddingModel(dataset, embedding_dim)
 
         self.rnn = nn.ModuleDict()
+        self.code_pooling_layers = nn.ModuleDict()
         for feature_key in self.dataset.input_processors.keys():
             self.rnn[feature_key] = RNNLayer(
                 input_size=embedding_dim, hidden_size=hidden_dim, **kwargs
             )
+            processor = self.dataset.input_processors[feature_key]
+            if isinstance(processor, (NestedSequenceProcessor, DeepNestedSequenceProcessor)):
+                self.code_pooling_layers[feature_key] = CodePoolingLayer(
+                    embedding_dim, code_pooling
+                )
         output_size = self.get_output_size()
         self.fc = nn.Linear(len(self.feature_keys) * self.hidden_dim, output_size)
 
@@ -285,8 +377,12 @@ class RNN(BaseModel):
             x_dim_orig = x.dim()
             if x_dim_orig == 4:
                 # nested_sequence: (B, num_visits, num_codes, D)
-                # @TODO: sum-pooling across codes is a simple baseline. May need to investigate better embeddings for nested codes.
-                x = x.sum(dim=2)  # (B, num_visits, D)
+                # Pool codes within each visit using the configured strategy.
+                code_mask = masks[feature_key].to(self.device) if feature_key in masks else None
+                if feature_key in self.code_pooling_layers:
+                    x = self.code_pooling_layers[feature_key](x, code_mask)
+                else:
+                    x = x.sum(dim=2)
                 if feature_key in masks:
                     mask = (masks[feature_key].to(self.device).sum(dim=-1) > 0).int()  # (B, V)
                 else:
@@ -407,6 +503,7 @@ class MultimodalRNN(BaseModel):
         dataset: SampleDataset,
         embedding_dim: int = 128,
         hidden_dim: int = 128,
+        code_pooling: str = "sum",
         **kwargs
     ):
         super(MultimodalRNN, self).__init__(dataset=dataset)
@@ -430,16 +527,20 @@ class MultimodalRNN(BaseModel):
         self.non_sequential_features = []
 
         self.rnn = nn.ModuleDict()
+        self.code_pooling_layers = nn.ModuleDict()
         for feature_key in self.feature_keys:
             processor = dataset.input_processors[feature_key]
             if self._is_sequential_processor(processor):
                 self.sequential_features.append(feature_key)
-                # Create RNN for this feature
                 self.rnn[feature_key] = RNNLayer(
                     input_size=embedding_dim,
                     hidden_size=hidden_dim,
                     **kwargs
                 )
+                if isinstance(processor, (NestedSequenceProcessor, DeepNestedSequenceProcessor)):
+                    self.code_pooling_layers[feature_key] = CodePoolingLayer(
+                        embedding_dim, code_pooling
+                    )
             else:
                 self.non_sequential_features.append(feature_key)
 
@@ -523,9 +624,12 @@ class MultimodalRNN(BaseModel):
             x_dim_orig = x.dim()
             if x_dim_orig == 4:
                 # nested_sequence: (B, num_visits, num_codes, D)
-                # Pool codes within each visit, then run RNN over visits.
-                # Flattening visits*codes would produce length=0 when inner lists are empty.
-                x = x.sum(dim=2)  # (B, num_visits, D)
+                # Pool codes within each visit using the configured strategy.
+                code_mask = masks[feature_key].to(self.device) if feature_key in masks else None
+                if feature_key in self.code_pooling_layers:
+                    x = self.code_pooling_layers[feature_key](x, code_mask)
+                else:
+                    x = x.sum(dim=2)
                 if feature_key in masks:
                     m = (masks[feature_key].to(self.device).sum(dim=-1) > 0).int()  # (B, V)
                 else:
