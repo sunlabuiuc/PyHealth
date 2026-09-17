@@ -23,7 +23,7 @@ both classes. Score binary results with
 :func:`pyhealth.metrics.binary_metrics_fn`, which accepts ``y_predset`` and
 computes the conformal set metrics (``set_size``, ``rejection_rate``,
 ``miscoverage_ps``, ...). See
-``examples/readmission/readmission_mimic3_rnn.py`` for training, calibration,
+``examples/conformal_label_binary.py`` for training, calibration,
 and evaluation with both score types on synthetic MIMIC-III. ``FavMac`` remains
 multilabel-only.
 
