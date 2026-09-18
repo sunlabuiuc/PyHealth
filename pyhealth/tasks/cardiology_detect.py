@@ -86,10 +86,16 @@ def cardiology_isAR_fn(record, epoch_sec=10, shift=5):
             for index in range((X.shape[1] - 500 * epoch_sec) // (500 * shift) + 1):
                 save_file_path = os.path.join(save_path, f"{pid}-AR-{index}.pkl")
             
-                pickle.dump(
-                    {"signal": X[:, (500 * shift) * index : (500 * shift) * index + 5000], "label": y},
-                    open(save_file_path, "wb"),
-                )
+                with open(save_file_path, "wb") as epoch_file:
+                    pickle.dump(
+                        {
+                            "signal": X[
+                                :, (500 * shift) * index : (500 * shift) * index + 5000
+                            ],
+                            "label": y,
+                        },
+                        epoch_file,
+                    )
                 
                 samples.append(
                     {   
@@ -180,10 +186,16 @@ def cardiology_isBBBFB_fn(record, epoch_sec=10, shift=5):
             for index in range((X.shape[1] - 500 * epoch_sec) // (500 * shift) + 1):
                 save_file_path = os.path.join(save_path, f"{pid}-BBBFB-{index}.pkl")
             
-                pickle.dump(
-                    {"signal": X[:, (500 * shift) * index : (500 * shift) * index + 5000], "label": y},
-                    open(save_file_path, "wb"),
-                )
+                with open(save_file_path, "wb") as epoch_file:
+                    pickle.dump(
+                        {
+                            "signal": X[
+                                :, (500 * shift) * index : (500 * shift) * index + 5000
+                            ],
+                            "label": y,
+                        },
+                        epoch_file,
+                    )
                 
                 samples.append(
                     {   
@@ -274,10 +286,16 @@ def cardiology_isAD_fn(record, epoch_sec=10, shift=5):
             for index in range((X.shape[1] - 500 * epoch_sec) // (500 * shift) + 1):
                 save_file_path = os.path.join(save_path, f"{pid}-AD-{index}.pkl")
             
-                pickle.dump(
-                    {"signal": X[:, (500 * shift) * index : (500 * shift) * index + 5000], "label": y},
-                    open(save_file_path, "wb"),
-                )
+                with open(save_file_path, "wb") as epoch_file:
+                    pickle.dump(
+                        {
+                            "signal": X[
+                                :, (500 * shift) * index : (500 * shift) * index + 5000
+                            ],
+                            "label": y,
+                        },
+                        epoch_file,
+                    )
                 
                 samples.append(
                     {   
@@ -368,10 +386,16 @@ def cardiology_isCD_fn(record, epoch_sec=10, shift=5):
             for index in range((X.shape[1] - 500 * epoch_sec) // (500 * shift) + 1):
                 save_file_path = os.path.join(save_path, f"{pid}-CD-{index}.pkl")
             
-                pickle.dump(
-                    {"signal": X[:, (500 * shift) * index : (500 * shift) * index + 5000], "label": y},
-                    open(save_file_path, "wb"),
-                )
+                with open(save_file_path, "wb") as epoch_file:
+                    pickle.dump(
+                        {
+                            "signal": X[
+                                :, (500 * shift) * index : (500 * shift) * index + 5000
+                            ],
+                            "label": y,
+                        },
+                        epoch_file,
+                    )
                 
                 samples.append(
                     {   
@@ -463,10 +487,16 @@ def cardiology_isWA_fn(record, epoch_sec=10, shift=5):
             for index in range((X.shape[1] - 500 * epoch_sec) // (500 * shift) + 1):
                 save_file_path = os.path.join(save_path, f"{pid}-WA-{index}.pkl")
             
-                pickle.dump(
-                    {"signal": X[:, (500 * shift) * index : (500 * shift) * index + 5000], "label": y},
-                    open(save_file_path, "wb"),
-                )
+                with open(save_file_path, "wb") as epoch_file:
+                    pickle.dump(
+                        {
+                            "signal": X[
+                                :, (500 * shift) * index : (500 * shift) * index + 5000
+                            ],
+                            "label": y,
+                        },
+                        epoch_file,
+                    )
                 
                 samples.append(
                     {   
