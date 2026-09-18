@@ -73,7 +73,7 @@ def cardiology_isAR_fn(record, epoch_sec=10, shift=5):
         
         # X load
         X = loadmat(os.path.join(root, signal))["val"]
-        label_content =  open(os.path.join(root, label), "r").readlines()
+        with open(os.path.join(root, label), "r") as label_file:\n            label_content = label_file.readlines()
         Dx, Sex, Age = label_content[-4].split(" ")[-1][:-1].split(","), \
                 label_content[-5].split(" ")[-1][:-1].split(","), \
                 label_content[-6].split(" ")[-1][:-1].split(",")
@@ -86,10 +86,16 @@ def cardiology_isAR_fn(record, epoch_sec=10, shift=5):
             for index in range((X.shape[1] - 500 * epoch_sec) // (500 * shift) + 1):
                 save_file_path = os.path.join(save_path, f"{pid}-AR-{index}.pkl")
             
-                pickle.dump(
-                    {"signal": X[:, (500 * shift) * index : (500 * shift) * index + 5000], "label": y},
-                    open(save_file_path, "wb"),
-                )
+                with open(save_file_path, "wb") as epoch_file:
+                    pickle.dump(
+                        {
+                            "signal": X[
+                                :, (500 * shift) * index : (500 * shift) * index + 5000
+                            ],
+                            "label": y,
+                        },
+                        epoch_file,
+                    )
                 
                 samples.append(
                     {   
@@ -169,7 +175,7 @@ def cardiology_isBBBFB_fn(record, epoch_sec=10, shift=5):
         
         # X load
         X = loadmat(os.path.join(root, signal))["val"]
-        label_content =  open(os.path.join(root, label), "r").readlines()
+        with open(os.path.join(root, label), "r") as label_file:\n            label_content = label_file.readlines()
         Dx, Sex, Age = label_content[-4].split(" ")[-1][:-1].split(","), label_content[-5].split(" ")[-1][:-1].split(","), label_content[-6].split(" ")[-1][:-1].split(",")
 
         y = 1 if set(Dx).intersection(BBBFB_space) else 0
@@ -180,10 +186,16 @@ def cardiology_isBBBFB_fn(record, epoch_sec=10, shift=5):
             for index in range((X.shape[1] - 500 * epoch_sec) // (500 * shift) + 1):
                 save_file_path = os.path.join(save_path, f"{pid}-BBBFB-{index}.pkl")
             
-                pickle.dump(
-                    {"signal": X[:, (500 * shift) * index : (500 * shift) * index + 5000], "label": y},
-                    open(save_file_path, "wb"),
-                )
+                with open(save_file_path, "wb") as epoch_file:
+                    pickle.dump(
+                        {
+                            "signal": X[
+                                :, (500 * shift) * index : (500 * shift) * index + 5000
+                            ],
+                            "label": y,
+                        },
+                        epoch_file,
+                    )
                 
                 samples.append(
                     {   
@@ -263,7 +275,7 @@ def cardiology_isAD_fn(record, epoch_sec=10, shift=5):
         
         # X load
         X = loadmat(os.path.join(root, signal))["val"]
-        label_content =  open(os.path.join(root, label), "r").readlines()
+        with open(os.path.join(root, label), "r") as label_file:\n            label_content = label_file.readlines()
         Dx, Sex, Age = label_content[-4].split(" ")[-1][:-1].split(","), label_content[-5].split(" ")[-1][:-1].split(","), label_content[-6].split(" ")[-1][:-1].split(",")
 
         y = 1 if set(Dx).intersection(AD_space) else 0
@@ -274,10 +286,16 @@ def cardiology_isAD_fn(record, epoch_sec=10, shift=5):
             for index in range((X.shape[1] - 500 * epoch_sec) // (500 * shift) + 1):
                 save_file_path = os.path.join(save_path, f"{pid}-AD-{index}.pkl")
             
-                pickle.dump(
-                    {"signal": X[:, (500 * shift) * index : (500 * shift) * index + 5000], "label": y},
-                    open(save_file_path, "wb"),
-                )
+                with open(save_file_path, "wb") as epoch_file:
+                    pickle.dump(
+                        {
+                            "signal": X[
+                                :, (500 * shift) * index : (500 * shift) * index + 5000
+                            ],
+                            "label": y,
+                        },
+                        epoch_file,
+                    )
                 
                 samples.append(
                     {   
@@ -357,7 +375,7 @@ def cardiology_isCD_fn(record, epoch_sec=10, shift=5):
         
         # X load
         X = loadmat(os.path.join(root, signal))["val"]
-        label_content =  open(os.path.join(root, label), "r").readlines()
+        with open(os.path.join(root, label), "r") as label_file:\n            label_content = label_file.readlines()
         Dx, Sex, Age = label_content[-4].split(" ")[-1][:-1].split(","), label_content[-5].split(" ")[-1][:-1].split(","), label_content[-6].split(" ")[-1][:-1].split(",")
 
         y = 1 if set(Dx).intersection(CD_space) else 0
@@ -368,10 +386,16 @@ def cardiology_isCD_fn(record, epoch_sec=10, shift=5):
             for index in range((X.shape[1] - 500 * epoch_sec) // (500 * shift) + 1):
                 save_file_path = os.path.join(save_path, f"{pid}-CD-{index}.pkl")
             
-                pickle.dump(
-                    {"signal": X[:, (500 * shift) * index : (500 * shift) * index + 5000], "label": y},
-                    open(save_file_path, "wb"),
-                )
+                with open(save_file_path, "wb") as epoch_file:
+                    pickle.dump(
+                        {
+                            "signal": X[
+                                :, (500 * shift) * index : (500 * shift) * index + 5000
+                            ],
+                            "label": y,
+                        },
+                        epoch_file,
+                    )
                 
                 samples.append(
                     {   
@@ -451,7 +475,7 @@ def cardiology_isWA_fn(record, epoch_sec=10, shift=5):
         
         # X load
         X = loadmat(os.path.join(root, signal))["val"]
-        label_content =  open(os.path.join(root, label), "r").readlines()
+        with open(os.path.join(root, label), "r") as label_file:\n            label_content = label_file.readlines()
         Dx, Sex, Age = label_content[-4].split(" ")[-1][:-1].split(","), label_content[-5].split(" ")[-1][:-1].split(","), label_content[-6].split(" ")[-1][:-1].split(",")
 
 
@@ -463,10 +487,16 @@ def cardiology_isWA_fn(record, epoch_sec=10, shift=5):
             for index in range((X.shape[1] - 500 * epoch_sec) // (500 * shift) + 1):
                 save_file_path = os.path.join(save_path, f"{pid}-WA-{index}.pkl")
             
-                pickle.dump(
-                    {"signal": X[:, (500 * shift) * index : (500 * shift) * index + 5000], "label": y},
-                    open(save_file_path, "wb"),
-                )
+                with open(save_file_path, "wb") as epoch_file:
+                    pickle.dump(
+                        {
+                            "signal": X[
+                                :, (500 * shift) * index : (500 * shift) * index + 5000
+                            ],
+                            "label": y,
+                        },
+                        epoch_file,
+                    )
                 
                 samples.append(
                     {   
