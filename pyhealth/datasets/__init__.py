@@ -60,7 +60,7 @@ from .medical_transcriptions import MedicalTranscriptionsDataset
 from .meds import MEDSDataset as MEDSDataset
 from .mimic3 import MIMIC3Dataset
 from .mimic4 import MIMIC4CXRDataset, MIMIC4Dataset, MIMIC4EHRDataset, MIMIC4NoteDataset
-from .fhir import FHIRDataset, MIMIC4FHIR
+from .fhir import FHIRDataset, MIMIC4FHIR, SyntheaFHIRDataset
 from .mimicextract import MIMICExtractDataset
 from .omop import OMOPDataset
 from .physionet_deid import PhysioNetDeIDDataset
@@ -69,6 +69,8 @@ from .shhs import SHHSDataset
 from .sleepedf import SleepEDFDataset
 from .bmd_hs import BMDHSDataset
 from .support2 import Support2Dataset
+from .synthea_csv import SyntheaCSVDataset, SyntheaDataset
+from .synthea_generator import SyntheaGenerator
 from .tcga_prad import TCGAPRADDataset
 from .splitter import (
     sample_balanced,

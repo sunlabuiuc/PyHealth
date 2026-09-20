@@ -321,6 +321,17 @@ def _first_coding(obj: Optional[Dict[str, Any]]) -> Optional[str]:
     return _coding_key(codings[0]) if codings else None
 
 
+def _first_coding_from_list(obj: Any) -> Optional[str]:
+    """List of CodeableConcept values -> first available ``"system|code"``."""
+    if not isinstance(obj, list):
+        return None
+    for item in obj:
+        key = _first_coding(item)
+        if key is not None:
+            return key
+    return None
+
+
 def _ref_id(ref: Optional[Any]) -> Optional[str]:
     """``{"reference": "Patient/p1"}`` or ``"Patient/p1"`` -> ``"p1"``."""
     if isinstance(ref, dict):
@@ -387,6 +398,7 @@ TRANSFORMS = {
     "identity": _identity,
     "ref_id": _ref_id,
     "coding_key": _first_coding,
+    "coding_key_list": _first_coding_from_list,
     "bool_norm": _normalize_deceased_boolean_for_storage,
     "med_concept": _medication_concept_key,
 }
