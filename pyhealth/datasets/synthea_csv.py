@@ -25,7 +25,18 @@ DEFAULT_TABLES = [
 
 
 class SyntheaCSVDataset(BaseDataset):
-    """Loads CSV output from a :class:`SyntheaGenerator`."""
+    """Loads generated Synthea CSV files through the PyHealth dataset API.
+
+    Generation remains lazy: constructing the dataset does not run Synthea.
+    The first data load asks the associated generator to create any missing CSV
+    files before delegating parsing and normalization to :class:`BaseDataset`.
+
+    Examples:
+        >>> from pyhealth.datasets import SyntheaCSVDataset, SyntheaGenerator
+        >>> generator = SyntheaGenerator("./synthea-output", population=10)
+        >>> dataset = SyntheaCSVDataset(generator, tables=["patients"])
+        >>> events = dataset.load_data()
+    """
 
     def __init__(
         self,
@@ -35,6 +46,17 @@ class SyntheaCSVDataset(BaseDataset):
         config_path: str | None = None,
         **kwargs,
     ) -> None:
+        """Initializes a Synthea CSV dataset.
+
+        Args:
+            generator (SyntheaGenerator): Generator that owns the CSV output.
+            tables (list[str], optional): CSV tables to load. The supported
+                defaults are used when omitted or empty.
+            dataset_name (str, optional): Dataset name used by PyHealth.
+            config_path (str, optional): Dataset schema configuration. The
+                bundled Synthea CSV schema is used when omitted.
+            **kwargs: Additional arguments passed to :class:`BaseDataset`.
+        """
         self.generator = generator
         self._explicit_tables = bool(tables)
         selected = list(dict.fromkeys(DEFAULT_TABLES if not tables else tables))
@@ -49,7 +71,19 @@ class SyntheaCSVDataset(BaseDataset):
         )
 
     def load_data(self):
-        """Generates missing CSV output before loading selected tables."""
+        """Generates missing CSV files and loads the selected tables.
+
+        Default tables that Synthea did not emit are skipped. A missing table
+        requested explicitly is treated as an error.
+
+        Returns:
+            dd.DataFrame: Concatenated lazy Dask DataFrame for the selected
+            tables.
+
+        Raises:
+            RuntimeError: If Synthea fails or an explicitly selected table is
+                not generated.
+        """
         self.generator.ensure_generated()
         root = self.generator.resolved_output_path()
         self.root = str(root)
@@ -63,7 +97,17 @@ class SyntheaCSVDataset(BaseDataset):
         return super().load_data()
 
     def preprocess_procedures(self, frame: nw.LazyFrame) -> nw.LazyFrame:
-        """Normalizes legacy Synthea procedure timestamps."""
+        """Normalizes legacy Synthea procedure timestamps.
+
+        Older exports use ``date`` where the current schema uses ``start``.
+        Existing ``start`` columns are preserved.
+
+        Args:
+            frame (nw.LazyFrame): Procedure table before schema normalization.
+
+        Returns:
+            nw.LazyFrame: Procedure table containing a ``start`` column.
+        """
         if "start" not in frame.columns:
             frame = frame.with_columns(nw.col("date").alias("start"))
         return frame

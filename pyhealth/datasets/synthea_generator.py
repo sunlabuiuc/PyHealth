@@ -48,33 +48,6 @@ class SyntheaGenerator:
     from ``synthea.properties`` belong in ``synthea_config``. CSV output is
     enabled automatically. An omitted command-line option is not emitted, so
     Synthea supplies its native default.
-
-    Args:
-        output_dir (str or Path): Parent directory for fingerprinted generations.
-        population (int, optional): ``-p`` population size.
-        seed (int, optional): ``-s`` random seed.
-        state (str, optional): State positional argument.
-        city (str, optional): City positional argument; requires ``state``.
-        clinician_seed (int, optional): ``-cs`` clinician random seed.
-        single_person_seed (int, optional): ``-ps`` single-person seed.
-        reference_date (str, optional): ``-r`` date in YYYYMMDD form.
-        end_date (str, optional): ``-e`` date in YYYYMMDD form.
-        gender (str, optional): ``-g`` gender, either ``M`` or ``F``.
-        age_range (str, optional): ``-a`` range in ``min-max`` form.
-        overflow_population (bool, optional): ``-o`` population overflow switch.
-        local_config_path (str or Path, optional): ``-c`` properties file.
-        local_modules_dir (str or Path, optional): ``-d`` local module directory.
-        initial_population_snapshot_path (str or Path, optional): ``-i`` snapshot.
-        updated_population_snapshot_path (str or Path, optional): ``-u`` snapshot.
-        update_time_period (int, optional): ``-t`` update period in days.
-        fixed_record_path (str or Path, optional): ``-f`` fixed-demographics file.
-        keep_matching_patients_path (str or Path, optional): ``-k`` keep module.
-        java_path (str or Path, optional): Java executable override.
-        jar_path (str or Path, optional): Synthea jar override.
-        auto_download (bool): Whether to download the pinned jar when absent.
-        synthea_config (Mapping, optional): ``synthea.properties`` overrides.
-        timeout (float, optional): Subprocess timeout in seconds.
-        regenerate (bool): Whether the first access replaces existing output.
     """
 
     def __init__(
@@ -105,6 +78,51 @@ class SyntheaGenerator:
         timeout: float | None = None,
         regenerate: bool = False,
     ) -> None:
+        """Initializes a CSV population generator.
+
+        Args:
+            output_dir (str or Path): Parent directory for fingerprinted
+                generations.
+            population (int, optional): ``-p`` population size.
+            seed (int, optional): ``-s`` random seed.
+            state (str, optional): State positional argument.
+            city (str, optional): City positional argument; requires ``state``.
+            clinician_seed (int, optional): ``-cs`` clinician random seed.
+            single_person_seed (int, optional): ``-ps`` single-person seed.
+            reference_date (str, optional): ``-r`` date in YYYYMMDD form.
+            end_date (str, optional): ``-e`` date in YYYYMMDD form.
+            gender (str, optional): ``-g`` gender, either ``M`` or ``F``.
+            age_range (str, optional): ``-a`` range in ``min-max`` form.
+            overflow_population (bool, optional): ``-o`` population overflow
+                switch.
+            local_config_path (str or Path, optional): ``-c`` properties file.
+            local_modules_dir (str or Path, optional): ``-d`` local module
+                directory.
+            initial_population_snapshot_path (str or Path, optional): ``-i``
+                snapshot to load.
+            updated_population_snapshot_path (str or Path, optional): ``-u``
+                destination for the updated snapshot.
+            update_time_period (int, optional): ``-t`` update period in days.
+            fixed_record_path (str or Path, optional): ``-f`` fixed-demographics
+                file.
+            keep_matching_patients_path (str or Path, optional): ``-k`` keep
+                module.
+            java_path (str or Path, optional): Java executable override.
+            jar_path (str or Path, optional): Synthea JAR override.
+            auto_download (bool): Whether to download the pinned JAR when absent.
+            synthea_config (Mapping, optional): ``synthea.properties`` overrides.
+            timeout (float, optional): Subprocess timeout in seconds.
+            regenerate (bool): Whether the first lazy access replaces existing
+                output.
+
+        Raises:
+            TypeError: If a constructor value or configuration property has an
+                invalid type.
+            ValueError: If a value is outside its accepted range, ``city`` is
+                provided without ``state``, or configuration attempts to select
+                an exporter.
+            FileNotFoundError: If ``local_config_path`` cannot be read.
+        """
         if population is not None and (
             not isinstance(population, int) or isinstance(population, bool)
         ):
@@ -243,16 +261,44 @@ class SyntheaGenerator:
 
     @staticmethod
     def _optional_path(value: str | Path | None) -> Path | None:
+        """Converts an optional path-like value to an expanded path.
+
+        Args:
+            value (str or Path, optional): Path-like value to convert.
+
+        Returns:
+            Path | None: The expanded path, or ``None`` when omitted.
+        """
         return Path(value).expanduser() if value is not None else None
 
     @staticmethod
     def _path_string(value: Path | None) -> str | None:
+        """Converts an optional path to its string representation.
+
+        Args:
+            value (Path, optional): Path to convert.
+
+        Returns:
+            str | None: The path string, or ``None`` when omitted.
+        """
         return str(value) if value is not None else None
 
     @staticmethod
     def _normalize_config(
         config: Mapping[str, str | int | float | bool],
     ) -> dict[str, str]:
+        """Validates and serializes Synthea property overrides.
+
+        Args:
+            config (Mapping): Property names mapped to scalar Python values.
+
+        Returns:
+            dict[str, str]: Configuration values serialized for Synthea's CLI.
+
+        Raises:
+            TypeError: If a property name is invalid or a value is not a
+                supported scalar.
+        """
         normalized = {}
         for key, value in config.items():
             if not isinstance(key, str) or not _PROPERTY_KEY.fullmatch(key):
@@ -266,11 +312,22 @@ class SyntheaGenerator:
         return normalized
 
     def output_path(self) -> Path:
-        """Returns the CSV output directory."""
+        """Returns the configured CSV output directory.
+
+        Returns:
+            Path: The CSV directory beneath the fingerprinted generation path.
+        """
         return self.generation_dir / "csv"
 
     def resolved_output_path(self) -> Path:
-        """Returns the CSV directory, including a nested folder-per-run directory."""
+        """Resolves the directory containing generated CSV files.
+
+        When Synthea's folder-per-run option is enabled, this method selects the
+        most recently modified directory containing ``patients.csv``.
+
+        Returns:
+            Path: The direct or nested CSV output directory.
+        """
         root = self.output_path()
         if (root / "patients.csv").is_file():
             return root
@@ -281,6 +338,12 @@ class SyntheaGenerator:
         return latest.parent
 
     def _effective_overrides(self) -> dict[str, str]:
+        """Builds the property overrides required for a CSV-only run.
+
+        Returns:
+            dict[str, str]: User properties plus the output directory and
+            wrapper-managed exporter settings.
+        """
         config = dict(self.synthea_config)
         config[_BASE_DIRECTORY_KEY] = str(self.generation_dir)
         config[_CSV_EXPORT_KEY] = "true"
@@ -292,7 +355,21 @@ class SyntheaGenerator:
         self,
         config: Mapping[str, str | int | float | bool],
     ) -> SyntheaGenerator:
-        """Returns a new generator with additional Synthea property overrides."""
+        """Returns a new generator with merged Synthea property overrides.
+
+        The current generator is not modified. The new generator repeats normal
+        constructor validation and receives a freshly computed output fingerprint.
+
+        Args:
+            config (Mapping): Properties to add or replace.
+
+        Returns:
+            SyntheaGenerator: A new generator containing the merged properties.
+
+        Raises:
+            TypeError: If ``config`` is not a mapping or contains invalid values.
+            ValueError: If ``config`` attempts to select an exporter.
+        """
         if not isinstance(config, Mapping):
             raise TypeError("config must be a mapping")
         merged = dict(self.synthea_config)
@@ -326,6 +403,17 @@ class SyntheaGenerator:
         )
 
     def _resolve_java(self) -> Path:
+        """Finds the Java executable used to run Synthea.
+
+        Resolution checks ``java_path``, ``JAVA_HOME``, and then the executable
+        available on ``PATH``.
+
+        Returns:
+            Path: The resolved Java executable.
+
+        Raises:
+            RuntimeError: If no Java executable can be found.
+        """
         candidates = []
         if self.java_path:
             candidates.append(self.java_path)
@@ -344,6 +432,21 @@ class SyntheaGenerator:
     def _resolve_jar_path(
         cls, jar_path: str | Path | None, auto_download: bool
     ) -> Path:
+        """Resolves or downloads the pinned Synthea JAR.
+
+        Args:
+            jar_path (str or Path, optional): Explicit Synthea JAR path.
+            auto_download (bool): Whether to download the pinned JAR when it is
+                absent from the PyHealth cache.
+
+        Returns:
+            Path: The resolved Synthea JAR.
+
+        Raises:
+            FileNotFoundError: If an explicit JAR is missing or downloading is
+                disabled and no cached JAR exists.
+            RuntimeError: If a downloaded JAR fails checksum verification.
+        """
         if jar_path:
             jar_path = Path(jar_path).expanduser()
             if not jar_path.is_file():
@@ -372,10 +475,27 @@ class SyntheaGenerator:
         return jar
 
     def _resolve_jar(self) -> Path:
+        """Resolves the JAR using this generator's configured options.
+
+        Returns:
+            Path: The resolved Synthea JAR.
+
+        Raises:
+            FileNotFoundError: If the JAR is unavailable and cannot be downloaded.
+            RuntimeError: If a downloaded JAR fails checksum verification.
+        """
         return self._resolve_jar_path(self.jar_path, self.auto_download)
 
     @staticmethod
     def _sha256(path: Path) -> str:
+        """Computes the SHA-256 digest of a file.
+
+        Args:
+            path (Path): File to hash.
+
+        Returns:
+            str: Lowercase hexadecimal SHA-256 digest.
+        """
         digest = hashlib.sha256()
         with path.open("rb") as file:
             for chunk in iter(lambda: file.read(1024 * 1024), b""):
@@ -384,6 +504,17 @@ class SyntheaGenerator:
 
     @staticmethod
     def _parse_config(text: str) -> dict[str, str | None]:
+        """Parses Java properties text into a Python mapping.
+
+        Commented properties are retained with a value of ``None`` so callers
+        can discover properties that Synthea supports but leaves unset.
+
+        Args:
+            text (str): Contents of a Synthea properties file.
+
+        Returns:
+            dict[str, str | None]: Parsed property names and values.
+        """
         config = {}
         for raw_line in text.splitlines():
             line = raw_line.strip()
@@ -402,6 +533,17 @@ class SyntheaGenerator:
 
     @classmethod
     def _read_jar_config(cls, jar: Path) -> dict[str, str | None]:
+        """Reads ``synthea.properties`` from a Synthea JAR.
+
+        Args:
+            jar (Path): Synthea JAR to inspect.
+
+        Returns:
+            dict[str, str | None]: Properties supported by the JAR.
+
+        Raises:
+            RuntimeError: If the JAR or its properties resource cannot be read.
+        """
         try:
             with zipfile.ZipFile(jar) as archive:
                 text = archive.read("synthea.properties").decode("utf-8")
@@ -411,6 +553,17 @@ class SyntheaGenerator:
 
     @classmethod
     def _read_config_file(cls, path: Path) -> dict[str, str | None]:
+        """Reads a local Synthea properties file.
+
+        Args:
+            path (Path): Properties file to read.
+
+        Returns:
+            dict[str, str | None]: Parsed local properties.
+
+        Raises:
+            FileNotFoundError: If the properties file cannot be read.
+        """
         try:
             text = path.read_text(encoding="utf-8")
         except OSError as error:
@@ -424,13 +577,36 @@ class SyntheaGenerator:
         auto_download: bool = True,
         pattern: str = "*",
     ) -> dict[str, str | None]:
-        """Returns matching properties supported by a Synthea jar."""
+        """Returns properties supported by a Synthea JAR.
+
+        Args:
+            jar_path (str or Path, optional): Explicit Synthea JAR to inspect.
+            auto_download (bool): Whether to download the pinned JAR when absent.
+            pattern (str): Shell-style pattern used to filter property names.
+
+        Returns:
+            dict[str, str | None]: Matching properties and their defaults.
+            Properties present only as comments have a value of ``None``.
+
+        Raises:
+            FileNotFoundError: If the JAR is unavailable and cannot be downloaded.
+            RuntimeError: If the JAR or its properties resource cannot be read.
+        """
         config = cls._read_jar_config(cls._resolve_jar_path(jar_path, auto_download))
         return {
             key: value for key, value in config.items() if fnmatchcase(key, pattern)
         }
 
     def _validate_config_keys(self, jar: Path) -> None:
+        """Checks configured property names against the active JAR.
+
+        Args:
+            jar (Path): Synthea JAR whose properties define the accepted keys.
+
+        Raises:
+            ValueError: If a configured property is not supported by the JAR.
+            RuntimeError: If the JAR properties cannot be read.
+        """
         config = self._read_jar_config(jar)
         supplied_keys = self.synthea_config.keys() | self._local_config.keys()
         unknown = supplied_keys - config.keys()
@@ -439,7 +615,15 @@ class SyntheaGenerator:
             raise ValueError(f"properties not supported by this Synthea jar: {names}")
 
     def build_argv(self, java: Path, jar: Path) -> list[str]:
-        """Builds the Synthea subprocess argument vector."""
+        """Builds the Synthea subprocess argument vector.
+
+        Args:
+            java (Path): Java executable to invoke.
+            jar (Path): Synthea JAR to execute.
+
+        Returns:
+            list[str]: Complete subprocess argument vector.
+        """
         config = self._effective_overrides()
         argv = [str(java), "-jar", str(jar)]
         if self.local_config_path is not None:
@@ -483,17 +667,44 @@ class SyntheaGenerator:
         return argv
 
     def _has_output(self) -> bool:
+        """Checks whether the generated patient CSV exists.
+
+        Returns:
+            bool: ``True`` when ``patients.csv`` is available.
+        """
         return (self.resolved_output_path() / "patients.csv").is_file()
 
     def ensure_generated(self) -> Path:
-        """Generates once when CSV output is absent, then returns its path."""
+        """Ensures that CSV output exists and returns its directory.
+
+        Existing output is reused unless ``regenerate`` requests replacement on
+        the first access through this generator.
+
+        Returns:
+            Path: Directory containing the generated CSV files.
+
+        Raises:
+            RuntimeError: If Java is unavailable, Synthea fails, or expected CSV
+                output is not produced.
+        """
         if not self._generated and (self.regenerate or not self._has_output()):
             self.run()
             self._generated = True
         return self.resolved_output_path()
 
     def run(self) -> Path:
-        """Runs Synthea and returns the CSV output directory."""
+        """Runs Synthea and returns the generated CSV directory.
+
+        Returns:
+            Path: Directory containing the generated CSV files.
+
+        Raises:
+            FileNotFoundError: If the configured JAR is unavailable.
+            ValueError: If a configured property is unsupported by the active JAR.
+            RuntimeError: If Java cannot be resolved, Synthea exits unsuccessfully,
+                or ``patients.csv`` is not produced.
+            subprocess.TimeoutExpired: If generation exceeds ``timeout``.
+        """
         self.generation_dir.mkdir(parents=True, exist_ok=True)
         java = self._resolve_java()
         jar = self._resolve_jar()
