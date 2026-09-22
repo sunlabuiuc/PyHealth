@@ -1,0 +1,28 @@
+Id,START,STOP,PATIENT,ENCOUNTER,CODE,DESCRIPTION,REASONCODE,REASONDESCRIPTION
+ba419d35-0dfe-8af7-a201-e9296f5de51a,2014-08-02,,ba419d35-0dfe-8af7-347c-eebf02485a56,ba419d35-0dfe-8af7-fb95-59a777b0c930,735985000,Diabetes self management plan (record artifact),714628002,Prediabetes (finding)
+ba419d35-0dfe-8af7-6e91-5234aac8e7b2,2021-12-04,2022-07-02,ba419d35-0dfe-8af7-347c-eebf02485a56,ba419d35-0dfe-8af7-b9a8-0965ff7f4d47,134435003,Routine antenatal care (regime/therapy),,
+ba419d35-0dfe-8af7-1ce9-16a1fe709f29,2022-08-30,2022-10-05,ba419d35-0dfe-8af7-347c-eebf02485a56,ba419d35-0dfe-8af7-3915-31cfed73c495,773513001,Physiotherapy care plan (record artifact),44465007,Sprain of ankle (disorder)
+4f083ce3-f12b-bb4b-1eba-dc684ad7df98,2024-02-25,2024-04-08,4f083ce3-f12b-bb4b-7353-e17f0cd55b0a,4f083ce3-f12b-bb4b-89be-ed7252565ba0,385691007,Fracture care (regime/therapy),263102004,Fracture subluxation of wrist (disorder)
+4f083ce3-f12b-bb4b-2390-ae5ee03ae968,2024-10-05,2025-08-21,4f083ce3-f12b-bb4b-7353-e17f0cd55b0a,4f083ce3-f12b-bb4b-cfbc-d2899f10e9aa,711282006,Skin condition care (regime/therapy),40275004,Contact dermatitis (disorder)
+4f083ce3-f12b-bb4b-ec5f-4be8126736ed,2024-10-26,,4f083ce3-f12b-bb4b-7353-e17f0cd55b0a,4f083ce3-f12b-bb4b-d64b-564e0ae2a445,384758001,Self-care interventions (procedure),,
+46ee9d82-b52c-856d-0c1a-2a8fbe6bbd14,1995-04-06,,46ee9d82-b52c-856d-069b-5064ff052225,46ee9d82-b52c-856d-d471-e6c5ed440d0d,384758001,Self-care interventions (procedure),,
+46ee9d82-b52c-856d-0f64-a6f88c844bf8,2013-02-07,,46ee9d82-b52c-856d-069b-5064ff052225,46ee9d82-b52c-856d-9c1e-16942ab6cfbe,735985000,Diabetes self management plan (record artifact),714628002,Prediabetes (finding)
+46ee9d82-b52c-856d-7e26-cec7d153b72c,2025-05-22,2026-01-01,46ee9d82-b52c-856d-069b-5064ff052225,46ee9d82-b52c-856d-43ca-65a0b86a26b8,134435003,Routine antenatal care (regime/therapy),,
+aa616abe-1761-0c9a-e121-9368a92df48d,1991-11-14,,aa616abe-1761-0c9a-7959-07544679dafd,aa616abe-1761-0c9a-ba57-3511d5e53017,384758001,Self-care interventions (procedure),,
+aa616abe-1761-0c9a-2462-dec91592a772,2009-01-04,,aa616abe-1761-0c9a-7959-07544679dafd,aa616abe-1761-0c9a-4507-3fc64df25ab0,735985000,Diabetes self management plan (record artifact),714628002,Prediabetes (finding)
+aa616abe-1761-0c9a-47e7-b5391d2afec2,2021-12-05,2022-07-10,aa616abe-1761-0c9a-7959-07544679dafd,aa616abe-1761-0c9a-5a17-6f698d0b47c6,134435003,Routine antenatal care (regime/therapy),,
+aa616abe-1761-0c9a-47bc-0eeef6918131,2022-11-20,2023-07-09,aa616abe-1761-0c9a-7959-07544679dafd,aa616abe-1761-0c9a-3928-08f08aef84ef,134435003,Routine antenatal care (regime/therapy),,
+aa616abe-1761-0c9a-1d4c-db30001bb384,2023-12-07,,aa616abe-1761-0c9a-7959-07544679dafd,aa616abe-1761-0c9a-ad37-cf134d4f97d7,734163000,Care plan (record artifact),,
+aa616abe-1761-0c9a-8679-99a69211862f,2025-10-19,,aa616abe-1761-0c9a-7959-07544679dafd,aa616abe-1761-0c9a-539b-e7a2de18bb89,408869004,Musculoskeletal care (regime/therapy),201834006,Localized  primary osteoarthritis of the hand (disorder)
+e74367bd-7385-97dc-a4a9-b001f764c4f9,1999-12-18,,e74367bd-7385-97dc-2c7f-251b4cd9fe29,e74367bd-7385-97dc-1f9b-b65e80e71352,718361005,Weight management program (regime/therapy),,
+e74367bd-7385-97dc-2798-05f5eb5de4cc,2018-02-17,,e74367bd-7385-97dc-2c7f-251b4cd9fe29,e74367bd-7385-97dc-f7f4-68e528e98c2f,735985000,Diabetes self management plan (record artifact),714628002,Prediabetes (finding)
+5e688e99-61b3-5c88-5747-b861dff09625,1989-06-11,,5e688e99-61b3-5c88-3f60-21df8aaced27,5e688e99-61b3-5c88-cf1e-a5c4e3a7357d,384758001,Self-care interventions (procedure),,
+5e688e99-61b3-5c88-830b-93f03e88f231,2022-05-25,2022-06-13,5e688e99-61b3-5c88-3f60-21df8aaced27,5e688e99-61b3-5c88-b160-3d7c1d47bcde,773513001,Physiotherapy care plan (record artifact),44465007,Sprain of ankle (disorder)
+5e688e99-61b3-5c88-3526-0ccacfde8af4,2024-11-30,2025-06-28,5e688e99-61b3-5c88-3f60-21df8aaced27,5e688e99-61b3-5c88-0fab-dcb0a33824a6,134435003,Routine antenatal care (regime/therapy),,
+5e688e99-61b3-5c88-ae73-16eb76616ae1,2025-08-12,2025-12-07,5e688e99-61b3-5c88-3f60-21df8aaced27,5e688e99-61b3-5c88-45ff-582735929a8c,385691007,Fracture care (regime/therapy),58150001,Fracture of clavicle (disorder)
+5e688e99-61b3-5c88-4965-dd921c2cb5d8,2026-06-13,2026-06-24,5e688e99-61b3-5c88-3f60-21df8aaced27,5e688e99-61b3-5c88-5744-899590ad2fe5,53950000,Respiratory therapy (procedure),,
+46976cf7-b0bf-be20-8e8d-339f5944c94c,2020-11-01,2022-07-24,46976cf7-b0bf-be20-39a5-9f425a52886d,46976cf7-b0bf-be20-16e1-179032ff8d04,53950000,Respiratory therapy (procedure),,
+76b20010-c318-5754-33ff-77cd130bdb08,2022-01-07,2023-12-01,76b20010-c318-5754-8c85-983aa538522f,76b20010-c318-5754-61cf-80b62b3ca222,53950000,Respiratory therapy (procedure),,
+76b20010-c318-5754-d2a1-ad768b5d781e,2022-02-11,2022-09-16,76b20010-c318-5754-8c85-983aa538522f,76b20010-c318-5754-6a3d-2788944f8da1,134435003,Routine antenatal care (regime/therapy),,
+76b20010-c318-5754-f9f3-17ceb22b1015,2026-02-27,,76b20010-c318-5754-8c85-983aa538522f,76b20010-c318-5754-aea6-fc460533a030,134435003,Routine antenatal care (regime/therapy),,
+c86c400e-ff88-a1e3-16da-34733c8abf84,2011-02-26,,c86c400e-ff88-a1e3-2e23-caa4d8311f47,c86c400e-ff88-a1e3-e930-9dc8f9395da0,443402002,Lifestyle education regarding hypertension (procedure),59621000,Essential hypertension (disorder)

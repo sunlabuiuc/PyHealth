@@ -24,7 +24,7 @@ DEFAULT_TABLES = [
 ]
 
 
-class SyntheaDataset(BaseDataset):
+class SyntheaCSVDataset(BaseDataset):
     """Loads CSV output from a :class:`SyntheaGenerator`."""
 
     def __init__(
@@ -35,15 +35,13 @@ class SyntheaDataset(BaseDataset):
         config_path: str | None = None,
         **kwargs,
     ) -> None:
-        if not generator.csv_enabled:
-            raise ValueError("SyntheaDataset requires CSV output to be enabled")
         self.generator = generator
         self._explicit_tables = bool(tables)
         selected = list(dict.fromkeys(DEFAULT_TABLES if not tables else tables))
         if config_path is None:
             config_path = str(Path(__file__).parent / "configs" / "synthea_csv.yaml")
         super().__init__(
-            root=str(generator.output_path("csv")),
+            root=str(generator.output_path()),
             tables=selected,
             dataset_name=dataset_name or "synthea",
             config_path=config_path,
@@ -53,7 +51,7 @@ class SyntheaDataset(BaseDataset):
     def load_data(self):
         """Generates missing CSV output before loading selected tables."""
         self.generator.ensure_generated()
-        root = self.generator.resolved_output_path("csv")
+        root = self.generator.resolved_output_path()
         self.root = str(root)
         missing = [
             table for table in self.tables if not (root / f"{table}.csv").is_file()
@@ -69,6 +67,3 @@ class SyntheaDataset(BaseDataset):
         if "start" not in frame.columns:
             frame = frame.with_columns(nw.col("date").alias("start"))
         return frame
-
-
-SyntheaCSVDataset = SyntheaDataset

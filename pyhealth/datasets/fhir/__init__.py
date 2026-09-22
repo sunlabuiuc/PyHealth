@@ -11,13 +11,6 @@ Authors:
 
 from .base import FHIRDataset
 from .mimic4 import MIMIC4FHIR
-from .synthea_fhir import SyntheaFHIRDataset
 from .utils import Col, ResourceSpec
 
-__all__ = [
-    "MIMIC4FHIR",
-    "Col",
-    "FHIRDataset",
-    "ResourceSpec",
-    "SyntheaFHIRDataset",
-]
+__all__ = ["FHIRDataset", "MIMIC4FHIR", "Col", "ResourceSpec"]

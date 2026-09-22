@@ -1,0 +1,8 @@
+START,STOP,PATIENT,ENCOUNTER,CODE,SYSTEM,DESCRIPTION,TYPE,CATEGORY,REACTION1,DESCRIPTION1,SEVERITY1,REACTION2,DESCRIPTION2,SEVERITY2
+1994-03-22,,46ee9d82-b52c-856d-069b-5064ff052225,46ee9d82-b52c-856d-aa6e-388351cdf22e,609328004,SNOMED-CT,Allergic disposition (finding),allergy,environment,,,,,,
+1994-03-22,,46ee9d82-b52c-856d-069b-5064ff052225,46ee9d82-b52c-856d-aa6e-388351cdf22e,84489001,SNOMED-CT,Mold (organism),allergy,environment,21626009,Cutaneous hypersensitivity (disorder),MILD,267101005,Nasal discharge present (situation),MILD
+1994-03-22,,46ee9d82-b52c-856d-069b-5064ff052225,46ee9d82-b52c-856d-aa6e-388351cdf22e,260147004,SNOMED-CT,House dust mite (organism),allergy,environment,,,,,,
+1994-03-22,,46ee9d82-b52c-856d-069b-5064ff052225,46ee9d82-b52c-856d-aa6e-388351cdf22e,264287008,SNOMED-CT,Animal dander (substance),allergy,environment,878820003,Rhinoconjunctivitis (disorder),MODERATE,,,
+1994-03-22,,46ee9d82-b52c-856d-069b-5064ff052225,46ee9d82-b52c-856d-aa6e-388351cdf22e,256277009,SNOMED-CT,Grass pollen (substance),allergy,environment,,,,,,
+1994-03-22,,46ee9d82-b52c-856d-069b-5064ff052225,46ee9d82-b52c-856d-aa6e-388351cdf22e,7984,RxNorm,Penicillin V,allergy,medication,267036007,Dyspnea (finding),MILD,,,
+1994-03-22,,46ee9d82-b52c-856d-069b-5064ff052225,46ee9d82-b52c-856d-aa6e-388351cdf22e,735971005,SNOMED-CT,Fish (substance),allergy,food,267036007,Dyspnea (finding),MODERATE,271807003,Eruption of skin (disorder),MILD

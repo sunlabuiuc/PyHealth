@@ -1,0 +1,16 @@
+Id,START,STOP,PATIENT,ENCOUNTER,CODE,DESCRIPTION,REASONCODE,REASONDESCRIPTION
+aee7bbe1-0c45-c028-8a29-2bcc47a1a618,2019-10-23,,aee7bbe1-0c45-c028-1e62-1f4cdb30c273,aee7bbe1-0c45-c028-89bd-8ccc03fdf712,718361005,Weight management program (regime/therapy),,
+c86c400e-ff88-a1e3-7763-a3134a563c19,2010-04-11,,c86c400e-ff88-a1e3-2e23-caa4d8311f47,c86c400e-ff88-a1e3-fd10-a2c73070b8fb,718361005,Weight management program (regime/therapy),,
+e74367bd-7385-97dc-afb4-1181a0969b40,2019-04-19,,e74367bd-7385-97dc-2c7f-251b4cd9fe29,e74367bd-7385-97dc-1977-29046e5ef32b,735985000,Diabetes self management plan (record artifact),714628002,Prediabetes (finding)
+46ee9d82-b52c-856d-021b-29d55220498a,1994-03-09,,46ee9d82-b52c-856d-069b-5064ff052225,46ee9d82-b52c-856d-3302-77f2ca864c04,384758001,Self-care interventions (procedure),,
+aee7bbe1-0c45-c028-2e07-613be87e4160,2024-10-16,2024-11-20,aee7bbe1-0c45-c028-1e62-1f4cdb30c273,aee7bbe1-0c45-c028-769e-b79c8b01ffc1,53950000,Respiratory therapy (procedure),,
+46976cf7-b0bf-be20-b47d-cb2fd00e2479,2009-02-22,,46976cf7-b0bf-be20-39a5-9f425a52886d,46976cf7-b0bf-be20-10ec-fcf1b9984180,735985000,Diabetes self management plan (record artifact),714628002,Prediabetes (finding)
+46976cf7-b0bf-be20-1816-6a5de23a1fa4,2014-06-19,,46976cf7-b0bf-be20-39a5-9f425a52886d,46976cf7-b0bf-be20-ac88-c5c5b13db1f7,276239002,Therapy (regime/therapy),,
+76b20010-c318-5754-5752-f6409f2f5320,2026-07-25,,76b20010-c318-5754-8c85-983aa538522f,76b20010-c318-5754-284e-ec46603e304f,735985000,Diabetes self management plan (record artifact),714628002,Prediabetes (finding)
+ba419d35-0dfe-8af7-e974-54d2b94c8aca,2001-11-23,,ba419d35-0dfe-8af7-347c-eebf02485a56,ba419d35-0dfe-8af7-6554-0aaa18ba648d,408869004,Musculoskeletal care (regime/therapy),,
+ba419d35-0dfe-8af7-848f-1c0dffa1c7b5,2004-07-26,,ba419d35-0dfe-8af7-347c-eebf02485a56,ba419d35-0dfe-8af7-3045-41e79d71a376,735985000,Diabetes self management plan (record artifact),714628002,Prediabetes (finding)
+ba419d35-0dfe-8af7-0410-97ed3f6d8c2a,2014-06-15,,ba419d35-0dfe-8af7-347c-eebf02485a56,ba419d35-0dfe-8af7-9414-75a3685f0ab4,276239002,Therapy (regime/therapy),,
+aa616abe-1761-0c9a-b10b-292e2dc22b56,1978-10-04,,aa616abe-1761-0c9a-7959-07544679dafd,aa616abe-1761-0c9a-3d95-61da2c9b62e4,735985000,Diabetes self management plan (record artifact),714628002,Prediabetes (finding)
+aa616abe-1761-0c9a-f184-316321437caf,2010-07-28,,aa616abe-1761-0c9a-7959-07544679dafd,aa616abe-1761-0c9a-7069-d9f3f312f510,736285004,Hyperlipidemia clinical management plan (record artifact),55822004,Hyperlipidemia (disorder)
+aa616abe-1761-0c9a-7d1f-ddbb8c3bbcf2,2014-04-30,,aa616abe-1761-0c9a-7959-07544679dafd,aa616abe-1761-0c9a-e89b-a6af7b9c9b06,276239002,Therapy (regime/therapy),,
+aa616abe-1761-0c9a-a10a-0502de1863c6,2025-09-03,2025-12-03,aa616abe-1761-0c9a-7959-07544679dafd,aa616abe-1761-0c9a-f7a3-57106e7b56c5,773513001,Physiotherapy care plan (record artifact),30832001,Rupture of patellar tendon (disorder)

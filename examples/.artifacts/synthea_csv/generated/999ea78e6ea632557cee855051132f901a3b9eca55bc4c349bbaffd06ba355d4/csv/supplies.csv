@@ -1,0 +1,29 @@
+DATE,PATIENT,ENCOUNTER,CODE,DESCRIPTION,QUANTITY
+2020-08-08,ba419d35-0dfe-8af7-347c-eebf02485a56,ba419d35-0dfe-8af7-c7ba-f19fa4a16a6d,337388004,Blood glucose testing strips (physical object),50
+2020-08-08,ba419d35-0dfe-8af7-347c-eebf02485a56,ba419d35-0dfe-8af7-c7ba-f19fa4a16a6d,8537005,Solution (substance),100
+2023-08-12,ba419d35-0dfe-8af7-347c-eebf02485a56,ba419d35-0dfe-8af7-e129-b4779d5cf14b,337388004,Blood glucose testing strips (physical object),50
+2026-05-30,ba419d35-0dfe-8af7-347c-eebf02485a56,ba419d35-0dfe-8af7-73d2-ce2e98dbc9fe,337388004,Blood glucose testing strips (physical object),50
+2026-05-30,ba419d35-0dfe-8af7-347c-eebf02485a56,ba419d35-0dfe-8af7-73d2-ce2e98dbc9fe,1137596000,Blood lancet (physical object),100
+2013-02-07,46ee9d82-b52c-856d-069b-5064ff052225,46ee9d82-b52c-856d-9c1e-16942ab6cfbe,337388004,Blood glucose testing strips (physical object),50
+2016-05-19,46ee9d82-b52c-856d-069b-5064ff052225,46ee9d82-b52c-856d-6745-49feb416f16a,337388004,Blood glucose testing strips (physical object),50
+2016-05-19,46ee9d82-b52c-856d-069b-5064ff052225,46ee9d82-b52c-856d-6745-49feb416f16a,1137596000,Blood lancet (physical object),100
+2019-02-14,46ee9d82-b52c-856d-069b-5064ff052225,46ee9d82-b52c-856d-13af-841a91086d6a,337388004,Blood glucose testing strips (physical object),50
+2022-02-17,46ee9d82-b52c-856d-069b-5064ff052225,46ee9d82-b52c-856d-8097-ee5bf9287fe1,337388004,Blood glucose testing strips (physical object),50
+2022-02-17,46ee9d82-b52c-856d-069b-5064ff052225,46ee9d82-b52c-856d-8097-ee5bf9287fe1,1137596000,Blood lancet (physical object),100
+2023-05-04,46ee9d82-b52c-856d-069b-5064ff052225,46ee9d82-b52c-856d-c791-7f2f560764af,337388004,Blood glucose testing strips (physical object),50
+2025-02-20,46ee9d82-b52c-856d-069b-5064ff052225,46ee9d82-b52c-856d-67b6-5e9bae39137c,337388004,Blood glucose testing strips (physical object),50
+2009-01-04,aa616abe-1761-0c9a-7959-07544679dafd,aa616abe-1761-0c9a-4507-3fc64df25ab0,337388004,Blood glucose testing strips (physical object),50
+2009-01-04,aa616abe-1761-0c9a-7959-07544679dafd,aa616abe-1761-0c9a-4507-3fc64df25ab0,1137596000,Blood lancet (physical object),100
+2015-02-15,aa616abe-1761-0c9a-7959-07544679dafd,aa616abe-1761-0c9a-de70-52a14e113469,337388004,Blood glucose testing strips (physical object),50
+2020-03-22,aa616abe-1761-0c9a-7959-07544679dafd,aa616abe-1761-0c9a-23d5-9bcd4866cff8,337388004,Blood glucose testing strips (physical object),50
+2020-03-22,aa616abe-1761-0c9a-7959-07544679dafd,aa616abe-1761-0c9a-23d5-9bcd4866cff8,1137596000,Blood lancet (physical object),100
+2023-04-09,aa616abe-1761-0c9a-7959-07544679dafd,aa616abe-1761-0c9a-86e3-9cba3596c2e1,337388004,Blood glucose testing strips (physical object),50
+2024-04-14,aa616abe-1761-0c9a-7959-07544679dafd,aa616abe-1761-0c9a-67b1-b016671467cc,8537005,Solution (substance),100
+2025-04-20,aa616abe-1761-0c9a-7959-07544679dafd,aa616abe-1761-0c9a-5959-7a6a20b510c5,337388004,Blood glucose testing strips (physical object),50
+2025-04-20,aa616abe-1761-0c9a-7959-07544679dafd,aa616abe-1761-0c9a-5959-7a6a20b510c5,1137596000,Blood lancet (physical object),100
+2026-04-26,aa616abe-1761-0c9a-7959-07544679dafd,aa616abe-1761-0c9a-fc1e-715174e6b6f9,1137596000,Blood lancet (physical object),100
+2018-02-17,e74367bd-7385-97dc-2c7f-251b4cd9fe29,e74367bd-7385-97dc-f7f4-68e528e98c2f,337388004,Blood glucose testing strips (physical object),50
+2018-02-17,e74367bd-7385-97dc-2c7f-251b4cd9fe29,e74367bd-7385-97dc-f7f4-68e528e98c2f,1137596000,Blood lancet (physical object),100
+2021-02-20,e74367bd-7385-97dc-2c7f-251b4cd9fe29,e74367bd-7385-97dc-2e42-0430cddefc7c,337388004,Blood glucose testing strips (physical object),50
+2024-02-24,e74367bd-7385-97dc-2c7f-251b4cd9fe29,e74367bd-7385-97dc-de6b-6ffd4c0fa454,337388004,Blood glucose testing strips (physical object),50
+2024-02-24,e74367bd-7385-97dc-2c7f-251b4cd9fe29,e74367bd-7385-97dc-de6b-6ffd4c0fa454,1137596000,Blood lancet (physical object),100

@@ -23,7 +23,7 @@ The code itself is close to the house style. Almost everything below is a
 ### 1. No test in `tests/core/`
 
 Every dataset in the folder has one — `test_tuab.py`, `test_eicu.py`,
-`test_meds.py`, `test_fhir_dataset.py`, `test_support2.py`, and ~120 more, all
+`test_meds.py`, `test_support2.py`, and ~120 more, all
 `unittest.TestCase`. Synthea has none.
 
 What exists instead is an untracked `scripts/` directory containing three
@@ -33,7 +33,7 @@ hand-rolled harnesses, with module-global `PASS`/`FAIL` counters, custom
 | File | What it does |
 |---|---|
 | `scripts/synthea_generator_test.py` | offline + `--live` checks for `SyntheaGenerator` |
-| `scripts/synthea_test.py` | loads real Synthea CSV through `SyntheaDataset` |
+| `scripts/synthea_test.py` | loads real Synthea CSV through `SyntheaCSVDataset` |
 | `scripts/synthea_sample.py` | downloads/generates a CSV sample; prototypes argv building |
 
 **To do:**
@@ -72,19 +72,19 @@ hand-rolled harnesses, with module-global `PASS`/`FAIL` counters, custom
 `docs/api/datasets/` has an `.rst` for all 28 exported datasets — including the
 deprecated `CardiologyDataset` and `MIMICExtractDataset`. Synthea has none.
 
-- [ ] **Add `docs/api/datasets/pyhealth.datasets.SyntheaDataset.rst`.** Minimum
+- [ ] **Add `docs/api/datasets/pyhealth.datasets.SyntheaCSVDataset.rst`.** Minimum
       viable form is `pyhealth.datasets.Support2Dataset.rst`: title with `=====`
       underline, short `Overview` section, then
-      `.. autoclass:: pyhealth.datasets.SyntheaDataset` with `:members:`,
+      `.. autoclass:: pyhealth.datasets.SyntheaCSVDataset` with `:members:`,
       `:undoc-members:`, `:show-inheritance:`.
 - [ ] **Add `docs/api/datasets/pyhealth.datasets.SyntheaGenerator.rst`.** This one
-      warrants the fuller `pyhealth.datasets.FHIRDataset.rst` treatment —
-      `.. contents:: On this page`, a `Quick start` `code-block:: python`, and
+      warrants full documentation: `.. contents:: On this page`, a `Quick
+      start` `code-block:: python`, and
       sections for the Java/jar acquisition order and the `PYHEALTH_NO_*` env-var
       switches. None of that is guessable from the signature.
 - [ ] **Add both to the `toctree`** in `docs/api/datasets.rst` under
       `Available Datasets`. That list is grouped loosely by family rather than
-      alphabetically — put `SyntheaDataset` near the EHR loaders (after
+      alphabetically — put `SyntheaCSVDataset` near the EHR loaders (after
       `OMOPDataset`) and `SyntheaGenerator` immediately after it.
 
 ### 3. `pyhealth[synthea]` extra doesn't exist
@@ -168,7 +168,7 @@ hung. `stats()` in `base_dataset.py` also uses bare `print`.
 
 ## Tier 3 — Looks like a gap, isn't. Don't spend time here.
 
-- **No `default_task` on `SyntheaDataset`.** Only 11 of the loaders define one;
+- **No `default_task` on `SyntheaCSVDataset`.** Only 11 of the loaders define one;
   `MIMIC3Dataset`, `eICUDataset`, `EHRShotDataset`, `Support2Dataset`, and
   `OMOPDataset` all omit it. Synthea has no canonical task, so omitting is
   correct — `set_task()` still works with an explicit task argument.
@@ -180,9 +180,9 @@ hung. `stats()` in `base_dataset.py` also uses bare `print`.
   `BaseSignalDataset` stub). Not having one is right.
 - **`SyntheaGenerator` not subclassing anything** — appropriate *for that class*.
   It's a generator, not a dataset; `run() -> Path` feeding
-  `SyntheaDataset(root=...)` is the correct seam, and that seam stays.
+  `SyntheaCSVDataset(root=...)` is the correct seam, and that seam stays.
   **Superseded in part (2026-09-19):** a *third* class,
-  `SyntheaGeneratorDataset`, will subclass `SyntheaDataset` to offer a
+  `SyntheaGeneratorDataset`, will subclass `SyntheaCSVDataset` to offer a
   generate-then-load object. `SyntheaGenerator` itself remains standalone and
   unchanged. See Part II.
 - **Both symbols already exported** in `pyhealth/datasets/__init__.py`, using the
@@ -244,7 +244,7 @@ against `test-resources/core/mimic3demo` (100 patients / 12,894 events) and a
 
 ```
 SyntheaGeneratorDataset          new
-  └─ SyntheaDataset              synthea.yaml + preprocess_procedures
+  └─ SyntheaCSVDataset           synthea.yaml + preprocess_procedures
       └─ BaseDataset             20 members, zero @abstractmethod
 ```
 
@@ -268,11 +268,10 @@ its data lives in 3 sub-datasets. It *replaces* `super()`; Synthea *calls* it.
 fingerprint:
 
 ```
-1. reject export_fhir=True              # synthea.yaml is CSV-only
-2. self._generator = SyntheaGenerator(..., export_csv=True)
-3. self._gen_fingerprint = ...          # must precede step 5
-4. root = Path(output_dir).resolve() / "csv"
-5. super().__init__(root=str(root), ...)
+1. self._generator = SyntheaGenerator(...)
+2. self._gen_fingerprint = ...          # must precede step 4
+3. root = Path(output_dir).resolve() / "csv"
+4. super().__init__(root=str(root), ...)
 ```
 
 Same shape as `MIMIC4CXRDataset.prepare_metadata` (`mimic4.py:204`), which also
@@ -286,8 +285,8 @@ is where the data *is*. Synthea isn't: `root` is where output *goes*.
 *Measured* — these two could be `seed=1` and `seed=2`:
 
 ```
-SyntheaDataset(root=".../out/csv")  ->  d3918a78-3720-5f72-a48a-c29fc01d5b83
-SyntheaDataset(root=".../out/csv")  ->  d3918a78-3720-5f72-a48a-c29fc01d5b83   IDENTICAL
+SyntheaCSVDataset(root=".../out/csv")  ->  d3918a78-3720-5f72-a48a-c29fc01d5b83
+SyntheaCSVDataset(root=".../out/csv")  ->  d3918a78-3720-5f72-a48a-c29fc01d5b83   IDENTICAL
 ```
 
 The second silently reads the first's parquet. No warning at any layer.
@@ -349,7 +348,7 @@ files on disk      →   declared in YAML   →   selected by tables=
 Unselected files are never opened. *Measured:*
 
 ```
-SyntheaDataset(root=..., tables=["conditions"]).tables
+SyntheaCSVDataset(root=..., tables=["conditions"]).tables
   -> ['patients', 'encounters', 'conditions']
 ```
 
@@ -506,7 +505,7 @@ Unchanged from MIMIC except where noted.
 |---|---|---|
 | Cache key uses raw `str(self.root)` before `clean_path` | 400 | resolve `output_dir` in `__init__` |
 | Dedupe + cache key case-sensitive; only 656 lowercases | 356/401/656 | keep tables lowercase |
-| `list(set(tables))` loses order nondeterministically | 358 | `SyntheaDataset` already avoids it — don't regress |
+| `list(set(tables))` loses order nondeterministically | 358 | `SyntheaCSVDataset` already avoids it — don't regress |
 | `patients` in defaults is for demographics, not ids | — | dropping it still gives the right patient count, but tasks reading `gender`/`birthdate` silently yield nothing |
 
 ## II.11 Work items
@@ -515,6 +514,6 @@ Unchanged from MIMIC except where noted.
 - [ ] `configs/synthea.yaml` — 5 new event tables, 2 claims, `reference_tables:` block
 - [ ] `synthea.py` — extend `DEFAULT_TABLES` (13, claims excluded), 3 lazy properties
 - [ ] new `synthea_generator_dataset.py` — the 4 overrides
-- [ ] `tests/core/test_synthea_generator_dataset.py` — **cache-key discrimination first**; fingerprint stability/coverage; inert construction; FHIR rejection; regenerate guard; live `population=5` gated on `PYHEALTH_SYNTHEA_LIVE`
+- [ ] `tests/core/test_synthea_generator_dataset.py` — **cache-key discrimination first**; fingerprint stability/coverage; inert construction; CSV exporter enforcement; regenerate guard; live `population=5` gated on `PYHEALTH_SYNTHEA_LIVE`
 - [ ] test that `ds.payers` does not appear in `unique_patient_ids`
 - [ ] docs `.rst` + toctree, `__init__.py` export, CHANGELOG — per Part I Tier 1

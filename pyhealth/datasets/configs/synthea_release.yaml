@@ -5,8 +5,6 @@ sha256: "ed43c20ad40ba5c3bc724503a5af032715fe3c491620b766148e7c2361e6ecc1"
 config_keys:
   base_directory: "exporter.baseDirectory"
   csv_export: "exporter.csv.export"
-  fhir_export: "exporter.fhir.export"
-  fhir_bulk_data: "exporter.fhir.bulk_data"
 
 unsupported_export_flags:
   - "exporter.bfd.export"
@@ -14,6 +12,7 @@ unsupported_export_flags:
   - "exporter.cdw.export"
   - "exporter.clinical_note.export"
   - "exporter.cpcds.export"
+  - "exporter.fhir.export"
   - "exporter.fhir_dstu2.export"
   - "exporter.fhir_stu3.export"
   - "exporter.json.export"
