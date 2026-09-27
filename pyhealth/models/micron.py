@@ -191,7 +191,6 @@ class MICRON(BaseModel):
 
         assert len(self.label_keys) == 1, "Only one label key is supported."
         self.label_key = self.label_keys[0]
-        self.mode = self.dataset.output_schema[self.label_key]
 
         self.embedding_model = EmbeddingModel(dataset, embedding_dim)
         self.feature_processors = {
