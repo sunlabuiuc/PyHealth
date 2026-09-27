@@ -577,6 +577,9 @@ class BaseDataset(ABC):
                 processes=not in_notebook(),
                 # Use cache_dir for Dask's scratch space to avoid filling up /tmp or home directory
                 local_directory=str(self.create_tmpdir()),
+                # No dashboard: its bokeh server fails to stop on cluster close and
+                # leaks sockets, hitting "Too many open files" after repeated builds.
+                dashboard_address=None,
             ) as cluster:
                 with DaskClient(cluster) as client:
                     if self.dev:
