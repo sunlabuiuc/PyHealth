@@ -1,0 +1,9 @@
+,description,diagnostic,form,rhythm,diagnostic_class,diagnostic_subclass,Statement Category,SCP-ECG Statement Description,AHA code,aECG REFID,CDISC Code,DICOM Code
+NORM,normal ECG,1.0,,,NORM,NORM,Normal/abnormal,normal ECG,1,,,F-000B7
+IMI,inferior myocardial infarction,1.0,,,MI,IMI,Myocardial Infarction,inferior myocardial infarction,161,,,
+LVH,left ventricular hypertrophy,1.0,,,HYP,LVH,Ventricular Hypertrophy,left ventricular hypertrophy,142,,C71076,
+SR,sinus rhythm,,,1.0,,,Statements related to impulse formation (abnormalities),sinus rhythm,20,MDC_ECG_RHY_SINUS_RHY,,
+PACE,normal functioning artificial pacemaker,,,1.0,,,Pacemaker types and pacemaker function,normal functioning artificial pacemaker,,,,
+STTC,non-specific ST-T changes,1.0,,,STTC,STTC,other ST-T descriptive statements,non-specific ST-T changes,,,,
+CD,conduction disturbance,1.0,,,CD,CD,Intraventricular and intra-atrial Conduction disturbances,conduction disturbance,,,,
+HYP,hypertrophy,1.0,,,HYP,HYP,Ventricular Hypertrophy,hypertrophy,,,,
