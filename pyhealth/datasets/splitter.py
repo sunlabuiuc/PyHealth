@@ -1,4 +1,6 @@
+import math
 from itertools import chain
+from numbers import Real
 from typing import List, Optional, Tuple, Union
 
 import numpy as np
@@ -8,6 +10,36 @@ from .sample_dataset import SampleDataset
 
 # TODO: train_dataset.dataset still access the whole dataset which may leak information
 # TODO: add more splitting methods
+
+
+def _validate_ratios(ratios: object, expected_length: int) -> None:
+    """Validate split proportions without changing the caller's values."""
+    if not isinstance(ratios, (list, tuple, np.ndarray)):
+        raise TypeError("ratios must be a list, tuple, or 1-D NumPy array")
+    if isinstance(ratios, np.ndarray) and ratios.ndim != 1:
+        raise ValueError("ratios must be one-dimensional")
+    if len(ratios) != expected_length:
+        raise ValueError(f"ratios must contain exactly {expected_length} values")
+
+    values = []
+    for index, value in enumerate(ratios):
+        if isinstance(value, (bool, np.bool_)) or not isinstance(value, Real):
+            raise TypeError(f"ratios[{index}] must be a real number, not a boolean")
+        try:
+            numeric_value = float(value)
+        except (OverflowError, ValueError) as exc:
+            raise ValueError(
+                f"ratios[{index}] must be finite and between 0 and 1"
+            ) from exc
+        if not math.isfinite(numeric_value):
+            raise ValueError(f"ratios[{index}] must be finite")
+        if not 0 <= value <= 1:
+            raise ValueError(f"ratios[{index}] must be between 0 and 1")
+        values.append(numeric_value)
+
+    total = math.fsum(values)
+    if not math.isclose(total, 1.0, rel_tol=0.0, abs_tol=1e-6):
+        raise ValueError(f"ratios must sum to 1.0 within 1e-6; got {total!r}")
 
 
 def _label_to_int(label) -> int:
@@ -113,19 +145,28 @@ def split_by_visit(
 
     Args:
         dataset: a `SampleDataset` object
-        ratios: a list/tuple of ratios for train / val / test
+        ratios: three finite proportions for train / val / test. The values
+            must be in [0, 1] and sum to 1 within 1e-6.
         seed: random seed for shuffling the dataset
 
     Returns:
-        train_dataset, val_dataset, test_dataset: three subsets of the dataset of
-            type `torch.utils.data.Subset`.
+        train_dataset, val_dataset, test_dataset: three ``SampleDataset`` subsets.
 
-    Note:
-        The original dataset can be accessed by `train_dataset.dataset`,
-            `val_dataset.dataset`, and `test_dataset.dataset`.
+    Raises:
+        TypeError: If ``ratios`` has an unsupported container or element type.
+        ValueError: If its length, components, or total is invalid.
+
+    Example:
+        >>> from pyhealth.datasets import create_sample_dataset
+        >>> samples = [{"patient_id": f"p{i}", "record_id": f"r{i}", "feature": i,
+        ...             "label": i % 2} for i in range(8)]
+        >>> dataset = create_sample_dataset(samples, {"feature": "raw"}, {"label": "raw"})
+        >>> train, val, test = split_by_visit(dataset, [0.5, 0.25, 0.25], seed=42)
+        >>> [len(part) for part in (train, val, test)]
+        [4, 2, 2]
     """
+    _validate_ratios(ratios, expected_length=3)
     rng = np.random.default_rng(seed)
-    assert sum(ratios) == 1.0, "ratios must sum to 1.0"
     index = np.arange(len(dataset))
     rng.shuffle(index)
     train_index = index[: int(len(dataset) * ratios[0])]
@@ -148,19 +189,28 @@ def split_by_patient(
 
     Args:
         dataset: a `SampleDataset` object
-        ratios: a list/tuple of ratios for train / val / test
+        ratios: three finite proportions for train / val / test. The values
+            must be in [0, 1] and sum to 1 within 1e-6.
         seed: random seed for shuffling the dataset
 
     Returns:
-        train_dataset, val_dataset, test_dataset: three subsets of the dataset of
-            type `torch.utils.data.Subset`.
+        train_dataset, val_dataset, test_dataset: three ``SampleDataset`` subsets.
 
-    Note:
-        The original dataset can be accessed by `train_dataset.dataset`,
-            `val_dataset.dataset`, and `test_dataset.dataset`.
+    Raises:
+        TypeError: If ``ratios`` has an unsupported container or element type.
+        ValueError: If its length, components, or total is invalid.
+
+    Example:
+        >>> from pyhealth.datasets import create_sample_dataset
+        >>> samples = [{"patient_id": f"p{i}", "record_id": f"r{i}", "feature": i,
+        ...             "label": i % 2} for i in range(8)]
+        >>> dataset = create_sample_dataset(samples, {"feature": "raw"}, {"label": "raw"})
+        >>> train, val, test = split_by_patient(dataset, [0.5, 0.25, 0.25], seed=42)
+        >>> [len(part) for part in (train, val, test)]
+        [4, 2, 2]
     """
+    _validate_ratios(ratios, expected_length=3)
     rng = np.random.default_rng(seed)
-    assert sum(ratios) == 1.0, "ratios must sum to 1.0"
     patient_indx = list(dataset.patient_to_index.keys())
     num_patients = len(patient_indx)
     rng.shuffle(patient_indx)
@@ -190,19 +240,30 @@ def split_by_sample(
 
     Args:
         dataset: a `SampleDataset` object
-        ratios: a list/tuple of ratios for train / val / test
+        ratios: three finite proportions for train / val / test. The values
+            must be in [0, 1] and sum to 1 within 1e-6.
         seed: random seed for shuffling the dataset
+        get_index: if True, return three index tensors instead of subsets.
 
     Returns:
-        train_dataset, val_dataset, test_dataset: three subsets of the dataset of
-            type `torch.utils.data.Subset`.
+        train_dataset, val_dataset, test_dataset: three ``SampleDataset``
+            subsets, or three index tensors if ``get_index=True``.
 
-    Note:
-        The original dataset can be accessed by `train_dataset.dataset`,
-            `val_dataset.dataset`, and `test_dataset.dataset`.
+    Raises:
+        TypeError: If ``ratios`` has an unsupported container or element type.
+        ValueError: If its length, components, or total is invalid.
+
+    Example:
+        >>> from pyhealth.datasets import create_sample_dataset
+        >>> samples = [{"patient_id": f"p{i}", "record_id": f"r{i}", "feature": i,
+        ...             "label": i % 2} for i in range(8)]
+        >>> dataset = create_sample_dataset(samples, {"feature": "raw"}, {"label": "raw"})
+        >>> train, val, test = split_by_sample(dataset, [0.5, 0.25, 0.25], seed=42)
+        >>> [len(part) for part in (train, val, test)]
+        [4, 2, 2]
     """
+    _validate_ratios(ratios, expected_length=3)
     rng = np.random.default_rng(seed)
-    assert sum(ratios) == 1.0, "ratios must sum to 1.0"
     index = np.arange(len(dataset))
     rng.shuffle(index)
     train_index = index[: int(len(dataset) * ratios[0])]
@@ -233,21 +294,30 @@ def split_by_visit_conformal(
 
     Args:
         dataset: a `SampleDataset` object
-        ratios: a list/tuple of ratios for train / val / cal / test
+        ratios: four finite proportions for train / val / cal / test. The
+            values must be in [0, 1] and sum to 1 within 1e-6.
         seed: random seed for shuffling the dataset
 
     Returns:
-        train_dataset, val_dataset, cal_dataset, test_dataset: four subsets
-            of the dataset of type `torch.utils.data.Subset`.
+        train_dataset, val_dataset, cal_dataset, test_dataset: four
+            ``SampleDataset`` subsets.
 
-    Note:
-        The original dataset can be accessed by `train_dataset.dataset`,
-            `val_dataset.dataset`, `cal_dataset.dataset`, and
-            `test_dataset.dataset`.
+    Raises:
+        TypeError: If ``ratios`` has an unsupported container or element type.
+        ValueError: If its length, components, or total is invalid.
+
+    Example:
+        >>> from pyhealth.datasets import create_sample_dataset
+        >>> samples = [{"patient_id": f"p{i}", "record_id": f"r{i}", "feature": i,
+        ...             "label": i % 2} for i in range(8)]
+        >>> dataset = create_sample_dataset(samples, {"feature": "raw"}, {"label": "raw"})
+        >>> train, val, cal, test = split_by_visit_conformal(
+        ...     dataset, [0.5, 0.25, 0.125, 0.125], seed=42)
+        >>> [len(part) for part in (train, val, cal, test)]
+        [4, 2, 1, 1]
     """
+    _validate_ratios(ratios, expected_length=4)
     rng = np.random.default_rng(seed)
-    assert len(ratios) == 4, "ratios must have 4 elements for train/val/cal/test"
-    assert sum(ratios) == 1.0, "ratios must sum to 1.0"
 
     index = np.arange(len(dataset))
     rng.shuffle(index)
@@ -279,21 +349,30 @@ def split_by_patient_conformal(
 
     Args:
         dataset: a `SampleDataset` object
-        ratios: a list/tuple of ratios for train / val / cal / test
+        ratios: four finite proportions for train / val / cal / test. The
+            values must be in [0, 1] and sum to 1 within 1e-6.
         seed: random seed for shuffling the dataset
 
     Returns:
-        train_dataset, val_dataset, cal_dataset, test_dataset: four subsets
-            of the dataset of type `torch.utils.data.Subset`.
+        train_dataset, val_dataset, cal_dataset, test_dataset: four
+            ``SampleDataset`` subsets.
 
-    Note:
-        The original dataset can be accessed by `train_dataset.dataset`,
-            `val_dataset.dataset`, `cal_dataset.dataset`, and
-            `test_dataset.dataset`.
+    Raises:
+        TypeError: If ``ratios`` has an unsupported container or element type.
+        ValueError: If its length, components, or total is invalid.
+
+    Example:
+        >>> from pyhealth.datasets import create_sample_dataset
+        >>> samples = [{"patient_id": f"p{i}", "record_id": f"r{i}", "feature": i,
+        ...             "label": i % 2} for i in range(8)]
+        >>> dataset = create_sample_dataset(samples, {"feature": "raw"}, {"label": "raw"})
+        >>> train, val, cal, test = split_by_patient_conformal(
+        ...     dataset, [0.5, 0.25, 0.125, 0.125], seed=42)
+        >>> [len(part) for part in (train, val, cal, test)]
+        [4, 2, 1, 1]
     """
+    _validate_ratios(ratios, expected_length=4)
     rng = np.random.default_rng(seed)
-    assert len(ratios) == 4, "ratios must have 4 elements for train/val/cal/test"
-    assert sum(ratios) == 1.0, "ratios must sum to 1.0"
 
     patient_indx = list(dataset.patient_to_index.keys())
     num_patients = len(patient_indx)
@@ -350,20 +429,31 @@ def split_by_patient_conformal_tuh(
             (``"train"`` or ``"eval"``) and the dataset must have a
             ``patient_to_index`` mapping.
         ratios: fraction of *patients* in the TUH train partition to assign to
-            train / val / cal respectively.  Must be a length-3 sequence summing
-            to 1.0.
+            train / val / cal respectively. Three finite values in [0, 1]
+            must sum to 1 within 1e-6.
         seed: random seed used to shuffle the patient list.
         get_index: if ``True``, return four :class:`torch.Tensor` index vectors
-            instead of :class:`~torch.utils.data.Subset` objects.
+            instead of ``SampleDataset`` subsets.
 
     Returns:
         ``(train_dataset, val_dataset, cal_dataset, test_dataset)``
+
+    Raises:
+        TypeError: If ``ratios`` has an unsupported container or element type.
+        ValueError: If its length, components, or total is invalid.
+
+    Example:
+        >>> from pyhealth.datasets import create_sample_dataset
+        >>> samples = [{"patient_id": f"p{i}", "record_id": f"r{i}", "feature": i,
+        ...             "label": i % 2, "split": "train" if i < 6 else "eval"}
+        ...            for i in range(8)]
+        >>> dataset = create_sample_dataset(samples, {"feature": "raw"}, {"label": "raw"})
+        >>> train, val, cal, test = split_by_patient_conformal_tuh(
+        ...     dataset, [0.5, 0.25, 0.25], seed=42)
+        >>> [len(part) for part in (train, val, cal, test)]
+        [3, 1, 2, 2]
     """
-    assert len(ratios) == 3, (
-        "ratios must have exactly 3 elements (train/val/cal). "
-        "The test set is determined by the TUH eval partition."
-    )
-    assert abs(sum(ratios) - 1.0) < 1e-6, "ratios must sum to 1.0"
+    _validate_ratios(ratios, expected_length=3)
 
     # Bucket patients by partition using dataset.patient_to_index (fast path).
     # TUH guarantees each patient is in exactly one partition, so inspecting the
@@ -426,19 +516,31 @@ def split_by_sample_conformal_tuh(
 
     Args:
         dataset: a ``SampleDataset`` object produced by ``EEGEventsTUEV`` or ``EEGAbnormalTUAB``
-        ratios: the fraction of the train pool assigned to train / val / cal respectively
+        ratios: three finite proportions in [0, 1] for train / val / cal
+            within the TUH training pool, summing to 1 within 1e-6.
         seed: random seed for shuffling the train pool
         get_index: if True, return four ``torch.Tensor`` index vectors instead
-            of ``Subset`` objects
+            of ``SampleDataset`` subsets
 
     Returns:
         train_dataset, val_dataset, cal_dataset, test_dataset
+
+    Raises:
+        TypeError: If ``ratios`` has an unsupported container or element type.
+        ValueError: If its length, components, or total is invalid.
+
+    Example:
+        >>> from pyhealth.datasets import create_sample_dataset
+        >>> samples = [{"patient_id": f"p{i}", "record_id": f"r{i}", "feature": i,
+        ...             "label": i % 2, "split": "train" if i < 6 else "eval"}
+        ...            for i in range(8)]
+        >>> dataset = create_sample_dataset(samples, {"feature": "raw"}, {"label": "raw"})
+        >>> train, val, cal, test = split_by_sample_conformal_tuh(
+        ...     dataset, [0.5, 0.25, 0.25], seed=42)
+        >>> [len(part) for part in (train, val, cal, test)]
+        [3, 1, 2, 2]
     """
-    assert len(ratios) == 3, (
-        "ratios must have exactly 3 elements (train/val/cal). "
-        "The test set is determined by the dataset's own eval partition."
-    )
-    assert abs(sum(ratios) - 1.0) < 1e-6, "ratios must sum to 1.0"
+    _validate_ratios(ratios, expected_length=3)
 
     # verify every sample has the required "split" field
     for i in range(len(dataset)):
@@ -507,20 +609,30 @@ def split_by_patient_tuh(
             (``"train"`` or ``"eval"``) and the dataset must have a
             ``patient_to_index`` mapping.
         ratios: fraction of *patients* in the TUH train partition to assign to
-            train / val respectively.  Must be a length-2 sequence summing
-            to 1.0.
+            train / val respectively. Two finite values in [0, 1] must sum
+            to 1 within 1e-6.
         seed: random seed used to shuffle the patient list.
         get_index: if ``True``, return three :class:`torch.Tensor` index
-            vectors instead of :class:`~torch.utils.data.Subset` objects.
+            vectors instead of ``SampleDataset`` subsets.
 
     Returns:
         ``(train_dataset, val_dataset, test_dataset)``
+
+    Raises:
+        TypeError: If ``ratios`` has an unsupported container or element type.
+        ValueError: If its length, components, or total is invalid.
+
+    Example:
+        >>> from pyhealth.datasets import create_sample_dataset
+        >>> samples = [{"patient_id": f"p{i}", "record_id": f"r{i}", "feature": i,
+        ...             "label": i % 2, "split": "train" if i < 6 else "eval"}
+        ...            for i in range(8)]
+        >>> dataset = create_sample_dataset(samples, {"feature": "raw"}, {"label": "raw"})
+        >>> train, val, test = split_by_patient_tuh(dataset, [0.5, 0.5], seed=42)
+        >>> [len(part) for part in (train, val, test)]
+        [3, 3, 2]
     """
-    assert len(ratios) == 2, (
-        "ratios must have exactly 2 elements (train/val). "
-        "The test set is determined by the TUH eval partition."
-    )
-    assert abs(sum(ratios) - 1.0) < 1e-6, "ratios must sum to 1.0"
+    _validate_ratios(ratios, expected_length=2)
 
     train_patient_to_indices: dict = {}
     test_list: List[int] = []
@@ -583,20 +695,30 @@ def split_by_sample_tuh(
     Args:
         dataset: a ``SampleDataset`` object produced by ``EEGEventsTUEV`` or
             ``EEGAbnormalTUAB``
-        ratios: the fraction of the train pool assigned to train / val
-            respectively.  Must be a length-2 sequence summing to 1.0.
+        ratios: two finite proportions in [0, 1] for train / val within
+            the TUH training pool, summing to 1 within 1e-6.
         seed: random seed for shuffling the train pool
         get_index: if True, return three ``torch.Tensor`` index vectors instead
-            of ``Subset`` objects
+            of ``SampleDataset`` subsets
 
     Returns:
         train_dataset, val_dataset, test_dataset
+
+    Raises:
+        TypeError: If ``ratios`` has an unsupported container or element type.
+        ValueError: If its length, components, or total is invalid.
+
+    Example:
+        >>> from pyhealth.datasets import create_sample_dataset
+        >>> samples = [{"patient_id": f"p{i}", "record_id": f"r{i}", "feature": i,
+        ...             "label": i % 2, "split": "train" if i < 6 else "eval"}
+        ...            for i in range(8)]
+        >>> dataset = create_sample_dataset(samples, {"feature": "raw"}, {"label": "raw"})
+        >>> train, val, test = split_by_sample_tuh(dataset, [0.5, 0.5], seed=42)
+        >>> [len(part) for part in (train, val, test)]
+        [3, 3, 2]
     """
-    assert len(ratios) == 2, (
-        "ratios must have exactly 2 elements (train/val). "
-        "The test set is determined by the dataset's own eval partition."
-    )
-    assert abs(sum(ratios) - 1.0) < 1e-6, "ratios must sum to 1.0"
+    _validate_ratios(ratios, expected_length=2)
 
     for i in range(len(dataset)):
         assert "split" in dataset[i], (
@@ -647,23 +769,32 @@ def split_by_sample_conformal(
 
     Args:
         dataset: a `SampleDataset` object
-        ratios: a list/tuple of ratios for train / val / cal / test
+        ratios: four finite proportions for train / val / cal / test. The
+            values must be in [0, 1] and sum to 1 within 1e-6.
         seed: random seed for shuffling the dataset
         get_index: if True, return indices instead of Subset objects
 
     Returns:
-        train_dataset, val_dataset, cal_dataset, test_dataset: four subsets
-            of the dataset of type `torch.utils.data.Subset`, or four tensors
-            of indices if get_index=True.
+        train_dataset, val_dataset, cal_dataset, test_dataset: four
+            ``SampleDataset`` subsets, or four index tensors if
+            ``get_index=True``.
 
-    Note:
-        The original dataset can be accessed by `train_dataset.dataset`,
-            `val_dataset.dataset`, `cal_dataset.dataset`, and
-            `test_dataset.dataset`.
+    Raises:
+        TypeError: If ``ratios`` has an unsupported container or element type.
+        ValueError: If its length, components, or total is invalid.
+
+    Example:
+        >>> from pyhealth.datasets import create_sample_dataset
+        >>> samples = [{"patient_id": f"p{i}", "record_id": f"r{i}", "feature": i,
+        ...             "label": i % 2} for i in range(8)]
+        >>> dataset = create_sample_dataset(samples, {"feature": "raw"}, {"label": "raw"})
+        >>> train, val, cal, test = split_by_sample_conformal(
+        ...     dataset, [0.5, 0.25, 0.125, 0.125], seed=42)
+        >>> [len(part) for part in (train, val, cal, test)]
+        [4, 2, 1, 1]
     """
+    _validate_ratios(ratios, expected_length=4)
     rng = np.random.default_rng(seed)
-    assert len(ratios) == 4, "ratios must have 4 elements for train/val/cal/test"
-    assert sum(ratios) == 1.0, "ratios must sum to 1.0"
 
     index = np.arange(len(dataset))
     rng.shuffle(index)
