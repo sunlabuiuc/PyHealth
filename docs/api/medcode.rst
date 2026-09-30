@@ -29,6 +29,22 @@ Quick Examples
    print(icd9cm.lookup("428.0"))
    print(icd9cm.get_ancestors("428.0"))
 
+Downloads and cache
+^^^^^^^^^^^^^^^^^^^
+
+The first ``load()`` of a vocabulary downloads its mapping files over HTTPS from
+PyHealth's resource bucket and caches them under ``~/.cache/pyhealth/medcode/``.
+Later loads read the cache and need no network access.
+
+Downloads are written to a temporary ``.part`` file and only moved into place when
+complete, and they time out instead of hanging. An interrupted download therefore
+never leaves a truncated file behind, and you can simply retry. To re-download a
+vocabulary, pass ``refresh_cache=True``:
+
+.. code-block:: python
+
+   icd9cm = InnerMap.load("ICD9CM", refresh_cache=True)
+
 We provide medical code mapping tools for (i) ontology mapping within one coding system and 
 (ii) mapping the same concept cross different coding systems. 
 
