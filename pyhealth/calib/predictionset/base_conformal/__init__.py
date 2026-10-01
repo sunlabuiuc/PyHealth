@@ -34,7 +34,7 @@ from pyhealth.calib.predictionset.scores import (
     all_class_nc_scores,
     true_class_nc_scores,
 )
-from pyhealth.calib.utils import prepare_numpy_dataset
+from pyhealth.calib.utils import binary_to_2col, prepare_numpy_dataset
 from pyhealth.models import BaseModel
 
 __all__ = ["BaseConformal"]
@@ -194,9 +194,9 @@ class BaseConformal(SetPredictor):
     ) -> None:
         super().__init__(model, **kwargs)
 
-        if model.mode != "multiclass":
+        if model.mode not in ("multiclass", "binary"):
             raise NotImplementedError(
-                "BaseConformal only supports multiclass classification"
+                "BaseConformal only supports multiclass and binary classification"
             )
         if score_type not in SUPPORTED_SCORE_TYPES:
             raise ValueError(
@@ -256,6 +256,9 @@ class BaseConformal(SetPredictor):
 
         y_prob = cal_dataset_dict["y_prob"]
         y_true = cal_dataset_dict["y_true"]
+        if self.mode == "binary":
+            y_prob = binary_to_2col(y_prob)
+            y_true = np.asarray(y_true).reshape(-1).astype(int)
         N, K = y_prob.shape
 
         # Compute non-conformity scores (higher = less conforming)
@@ -309,6 +312,10 @@ class BaseConformal(SetPredictor):
         pred = self.model(**kwargs)
 
         y_prob = pred["y_prob"].detach().cpu().numpy()
+        # Binary: expand to 2 columns so the set ranges over both classes
+        # (y_prob itself stays native).
+        if self.mode == "binary":
+            y_prob = binary_to_2col(y_prob)
         nc_scores = all_class_nc_scores(
             y_prob, score_type=self.score_type, rng=self.rng
         )

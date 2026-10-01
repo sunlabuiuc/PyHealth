@@ -13,7 +13,7 @@ import pandas as pd
 import torch
 
 from pyhealth.calib.base_classes import SetPredictor
-from pyhealth.calib.utils import prepare_numpy_dataset
+from pyhealth.calib.utils import binary_to_2col, prepare_numpy_dataset
 from pyhealth.models import BaseModel
 
 from . import quicksearch as qs
@@ -251,9 +251,9 @@ class SCRIB(SetPredictor):
         **kwargs,
     ) -> None:
         super().__init__(model, **kwargs)
-        if model.mode != "multiclass":
+        if model.mode not in ("multiclass", "binary"):
             raise NotImplementedError()
-        self.mode = self.model.mode  # multiclass
+        self.mode = self.model.mode  # multiclass or binary
         for param in model.parameters():
             param.requires_grad = False
         self.model.eval()
@@ -285,11 +285,18 @@ class SCRIB(SetPredictor):
         cal_dataset = prepare_numpy_dataset(
             self.model, cal_dataset, ["y_prob", "y_true"], debug=self.debug
         )
+        # Binary: re-present as a 2-class problem so the coordinate-descent
+        # threshold search runs over one threshold per class, as for multiclass.
+        y_prob = cal_dataset["y_prob"]
+        y_true = cal_dataset["y_true"]
+        if self.mode == "binary":
+            y_prob = binary_to_2col(y_prob)
+            y_true = np.asarray(y_true).reshape(-1).astype(int)
         if self.loss_name == CLASSPECIFIC_LOSSFUNC:
-            assert len(self.risk) == cal_dataset["y_prob"].shape[1]
+            assert len(self.risk) == y_prob.shape[1]
         best_ts, _ = _CoordDescent.search(
-            cal_dataset["y_prob"],
-            cal_dataset["y_true"],
+            y_prob,
+            y_true,
             self.risk,
             self.loss_name,
             loss_kwargs=self.loss_kwargs,
@@ -306,14 +313,22 @@ class SCRIB(SetPredictor):
         :rtype: Dict[str, torch.Tensor]
         """
         ret = self.model(**kwargs)
-        y_predset = ret["y_prob"] > self.t
+        # Binary: build a 2-column probability [P(0), P(1)] for the set so it
+        # ranges over both classes; y_prob itself stays native. Use the same
+        # expansion precision as calibration when comparing with thresholds.
+        prob = ret["y_prob"]
+        if self.mode == "binary":
+            prob = torch.as_tensor(
+                binary_to_2col(prob.detach().cpu().numpy()), device=prob.device
+            )
+        y_predset = prob > self.t
         if self.fill_max:
             # Match the calibration-time assumption: when no class clears
             # its threshold, fall back to the max-predicted class instead
             # of returning an empty set.
             empty = y_predset.sum(dim=1) == 0
             if empty.any():
-                argmax_idx = ret["y_prob"].argmax(dim=1)
+                argmax_idx = prob.argmax(dim=1)
                 y_predset[empty, argmax_idx[empty]] = True
         ret["y_predset"] = y_predset
         return ret

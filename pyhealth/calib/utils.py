@@ -23,6 +23,23 @@ def one_hot_np(labels, K):
     return new_labels
 
 
+def binary_to_2col(y_prob):
+    """Expand binary ``P(y=1)`` to two columns ``[P(y=0), P(y=1)]``.
+
+    A prediction set ranges over both labels ``{0, 1}``, so it needs one
+    probability column per class. Turns shape ``(N,)`` or ``(N, 1)`` into
+    ``(N, 2)`` (numpy).
+
+    Examples:
+        >>> from pyhealth.calib.utils import binary_to_2col
+        >>> binary_to_2col([0.2, 0.9])
+        array([[0.8, 0.2],
+               [0.1, 0.9]])
+    """
+    p = np.asarray(y_prob, dtype=float).reshape(-1, 1)
+    return np.hstack([1.0 - p, p])
+
+
 class LogLoss(torch.nn.Module):
     """Cross entropy, but takes in the probability instead of the logits"""
 
