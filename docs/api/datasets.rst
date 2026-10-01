@@ -82,6 +82,9 @@ future runs without re-fitting.
 Calling ``samples.subset(...)`` rebuilds both lookups with indices local to the
 new dataset, so they remain valid after repeated splitting.
 
+Calling ``close()`` preserves reusable task caches. Disk-backed datasets created
+by ``create_sample_dataset()`` own a temporary directory and remove it on close.
+
 For testing or small cohorts you can skip the disk step entirely using
 ``InMemorySampleDataset``, which holds all processed samples in RAM and is
 returned by default from ``create_sample_dataset()``.
