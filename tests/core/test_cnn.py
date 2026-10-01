@@ -277,15 +277,22 @@ class TestCNN(unittest.TestCase):
         self.assertEqual(model.feature_conv_dims["demographics"], 1)
         self.assertEqual(model.feature_conv_dims["vitals"], 1)
 
-        train_loader = get_dataloader(dataset, batch_size=2, shuffle=False)
+        train_loader = get_dataloader(dataset, batch_size=1, shuffle=False)
         data_batch = next(iter(train_loader))
 
         ret = model(**data_batch)
         ret["loss"].backward()
 
-        self.assertEqual(ret["y_prob"].shape[0], 2)
-        self.assertEqual(ret["logit"].shape[0], 2)
+        self.assertEqual(ret["y_prob"].shape[0], 1)
+        self.assertEqual(ret["logit"].shape[0], 1)
         self.assertEqual(ret["loss"].dim(), 0)
+        self.assertTrue(torch.isfinite(ret["loss"]))
+        for module in model.modules():
+            if isinstance(module, torch.nn.BatchNorm1d):
+                self.assertTrue(module.training)
+                self.assertEqual(module.num_batches_tracked.item(), 0)
+                self.assertIsNotNone(module.weight.grad)
+                self.assertTrue(torch.isfinite(module.weight.grad).all())
 
 
 if __name__ == "__main__":
