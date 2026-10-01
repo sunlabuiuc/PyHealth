@@ -12,7 +12,7 @@ from pyhealth.medcode.icd_mappings import (
     PYHEALTH_NATIVE_PAIRS,
     _ICDMappingsBackend,
 )
-from pyhealth.medcode.utils import MODULE_CACHE_PATH, download_and_read_csv
+from pyhealth.medcode.utils import BASE_URL, MODULE_CACHE_PATH, download_and_read_csv
 from pyhealth.utils import load_pickle, save_pickle
 
 logger = logging.getLogger(__name__)
@@ -114,7 +114,16 @@ class CrossMap:
                 df = download_and_read_csv(local_filename, refresh_cache)
             except HTTPError:
                 local_filename = f"{self.t_vocab}_to_{self.s_vocab}.csv"
-                df = download_and_read_csv(local_filename, refresh_cache)
+                try:
+                    df = download_and_read_csv(local_filename, refresh_cache)
+                except HTTPError as e:
+                    raise ValueError(
+                        f"No mapping between {self.s_vocab} and {self.t_vocab} "
+                        f"is available: neither "
+                        f"{self.s_vocab}_to_{self.t_vocab}.csv nor "
+                        f"{local_filename} exists at {BASE_URL}, and "
+                        f"icd-mappings serves {sorted(ICD_MAPPINGS_PAIRS)}."
+                    ) from e
             self.mapping = defaultdict(list)
             for _, row in df.iterrows():
                 self.mapping[row[self.s_vocab]].append(row[self.t_vocab])
@@ -141,12 +150,9 @@ class CrossMap:
                 return BACKEND_PYHEALTH
             if pair in ICD_MAPPINGS_PAIRS:
                 return BACKEND_ICDMAPPINGS
-            raise ValueError(
-                f"No mapping available for {source_vocabulary}->"
-                f"{target_vocabulary}. PyHealth serves "
-                f"{sorted(PYHEALTH_NATIVE_PAIRS)} and icd-mappings serves "
-                f"{sorted(ICD_MAPPINGS_PAIRS)}."
-            )
+            # Anything else is looked up on PyHealth's resource server, as it
+            # was before icd-mappings existed; a missing table raises there.
+            return BACKEND_PYHEALTH
         if backend == BACKEND_ICDMAPPINGS:
             if pair not in ALL_ICD_MAPPINGS_PAIRS:
                 raise ValueError(

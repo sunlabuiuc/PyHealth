@@ -17,10 +17,12 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-#: Vocabulary pairs PyHealth serves from its own resource server. Listed in
-#: both orderings because ``CrossMap`` derives the reverse direction from the
-#: same CSV via its reverse-filename fallback. These always win over the
-#: ``icd-mappings`` backend under ``backend="auto"``.
+#: Vocabulary pairs PyHealth serves from its own resource server that must
+#: never be routed to ``icd-mappings`` under ``backend="auto"``. Listed in both
+#: orderings because ``CrossMap`` derives the reverse direction from the same
+#: CSV via its reverse-filename fallback. Not exhaustive: ``auto`` sends every
+#: pair outside ``ICD_MAPPINGS_PAIRS`` to the resource server too (e.g.
+#: RxNorm->ATC, ICD9CM->UMLS).
 PYHEALTH_NATIVE_PAIRS: frozenset = frozenset(
     {
         ("ICD9CM", "CCSCM"),

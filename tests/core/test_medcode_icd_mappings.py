@@ -9,7 +9,10 @@ Author: John Wu (johnwu3)
 """
 
 import logging
+import tempfile
 import unittest
+from unittest import mock
+from urllib.error import HTTPError
 
 from pyhealth.medcode import ICD9CM, ICD10CM, CrossMap, FlatMap, InnerMap
 from pyhealth.medcode.cross_map import (
@@ -74,9 +77,32 @@ class TestBackendResolution(unittest.TestCase):
                 msg=f"{pair} should fall back to icd-mappings",
             )
 
-    def test_unsupported_pair_raises_value_error(self):
-        with self.assertRaises(ValueError):
-            CrossMap._resolve_backend("ICD9CM", "RxNorm", "auto")
+    def test_other_hosted_pairs_stay_on_pyhealth(self):
+        # Pairs icd-mappings does not own must keep reaching PyHealth's
+        # resource server, including hosted tables not listed in
+        # PYHEALTH_NATIVE_PAIRS. These all load on master.
+        for pair in [("RxNorm", "ATC"), ("ATC", "ICD9CM"), ("ICD9CM", "UMLS"),
+                     ("ICD9PROC", "UMLS"), ("RxNorm", "UMLS"), ("ATC", "UMLS")]:
+            self.assertEqual(
+                CrossMap._resolve_backend(pair[0], pair[1], "auto"),
+                BACKEND_PYHEALTH,
+                msg=f"{pair} should resolve to PyHealth's own tables",
+            )
+
+    def test_unhosted_pair_raises_value_error(self):
+        # Neither direction exists on the resource server: the 404s must
+        # surface as a ValueError that names the files, not a bare HTTPError.
+        def not_found(filename, refresh_cache=False):
+            raise HTTPError(filename, 404, "Not Found", None, None)
+
+        with tempfile.TemporaryDirectory() as cache, \
+                mock.patch("pyhealth.medcode.cross_map.MODULE_CACHE_PATH", cache), \
+                mock.patch("pyhealth.medcode.cross_map.download_and_read_csv",
+                           side_effect=not_found):
+            with self.assertRaisesRegex(
+                ValueError, "ICD9CM_to_RxNorm.csv nor RxNorm_to_ICD9CM.csv"
+            ):
+                CrossMap.load("ICD9CM", "RxNorm")
 
     def test_forcing_icd_mappings_on_unsupported_pair_raises(self):
         with self.assertRaises(ValueError):
