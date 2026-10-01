@@ -1,18 +1,33 @@
-from.kg_base import KGEBaseModel
-from pyhealth.datasets import SampleBaseDataset
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
 import torch
+
+from .kg_base import KGEBaseModel
+
+if TYPE_CHECKING:
+    from ..datasets.protocols import KGDatasetProtocol
 
 
 class DistMult(KGEBaseModel):
-    """ DistMult
+    """DistMult
 
-    Paper: Yang, B., Yih, W.T., He, X., Gao, J. and Deng, L. Embedding entities and 
+    Paper: Yang, B., Yih, W.T., He, X., Gao, J. and Deng, L. Embedding entities and
     relations for learning and inference in knowledge bases. ICLR 2015.
 
+    Examples:
+        >>> class _Toy:
+        ...     entity_num = 2
+        ...     relation_num = 1
+        ...     task_spec_param = None
+        >>> model = DistMult(_Toy(), e_dim=4, r_dim=4, ns="uniform")
+        >>> tuple(model.E_emb.shape)
+        (2, 4)
     """
     def __init__(
         self, 
-        dataset: SampleBaseDataset, 
+        dataset: KGDatasetProtocol, 
         e_dim: int = 300, 
         r_dim: int = 300, 
         ns: str = "adv", 
@@ -47,9 +62,14 @@ class DistMult(KGEBaseModel):
 
 
 if __name__ == "__main__":
-    from pyhealth.datasets import SampleKGDataset
+    from torch.utils.data import DataLoader
 
-    samples = [
+    from pyhealth.datasets import collate_fn_dict_with_padding
+    from pyhealth.medcode.pretrained_embeddings.kg_emb.datasets import (
+        SampleKGDataset,
+    )
+
+    samples: list[dict[str, Any]] = [
         {
             'triple': (0, 0, 2835),
             'ground_truth_head': [1027, 1293, 5264, 1564, 7416, 6434, 2610, 4094, 2717, 5007, 5277, 5949, 0, 6870, 6029],
@@ -64,13 +84,22 @@ if __name__ == "__main__":
         },
     ]
 
-    # dataset
-    dataset = SampleKGDataset(samples=samples, dataset_name="test")
+    for sample in samples:
+        sample["train"] = True
+        sample["hyperparameters"] = {"negative_sampling": 8}
 
-    # data loader
-    from pyhealth.datasets import get_dataloader
-
-    train_loader = get_dataloader(dataset, batch_size=2, shuffle=True)
+    dataset = SampleKGDataset(
+        samples=samples,
+        dataset_name="test",
+        entity_num=8000,
+        relation_num=8,
+    )
+    train_loader = DataLoader(
+        dataset,
+        batch_size=2,
+        shuffle=True,
+        collate_fn=collate_fn_dict_with_padding,
+    )
 
     # model
     model = DistMult(
