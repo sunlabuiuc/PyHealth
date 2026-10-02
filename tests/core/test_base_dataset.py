@@ -1,4 +1,5 @@
 import os
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -159,6 +160,32 @@ class TestBaseDataset(unittest.TestCase):
         self.assertLess(
             leaked, 4, f"{leaked} file descriptors leaked across 4 dataset builds"
         )
+
+    def test_event_df_builds_in_notebook_without_ipywidgets(self):
+        # In a Jupyter kernel dask's progress() draws an ipywidgets bar, but
+        # ipywidgets is not a PyHealth dependency. Simulate a kernel without it;
+        # in_notebook() also switches dask to threaded workers, as in Jupyter.
+        with tempfile.TemporaryDirectory() as cache_root, patch(
+            "pyhealth.datasets.base_dataset.platformdirs.user_cache_dir",
+            return_value=cache_root,
+        ), patch(
+            "pyhealth.datasets.base_dataset.in_notebook", return_value=True
+        ), patch(
+            "distributed.diagnostics.progressbar.is_kernel", return_value=True
+        ), patch.dict(sys.modules, {"ipywidgets": None}), self.assertNoLogs(
+            "distributed.scheduler", level="ERROR"
+        ):
+            dataset = MockDataset(
+                data=self._single_row_data(),
+                root="/data/root_no_ipywidgets",
+                tables=["table_a"],
+                dataset_name="NoIpywidgetsDataset",
+                dev=False,
+            )
+            _ = dataset.global_event_df
+            self.assertTrue(
+                (dataset.cache_dir / "global_event_df.parquet").exists()
+            )
 
     def test_empty_string_handling(self):
         import os
