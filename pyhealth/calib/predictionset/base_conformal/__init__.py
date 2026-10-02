@@ -1,8 +1,19 @@
 """
 Base Conformal Prediction (Split Conformal)
 
-Standard split conformal prediction for multiclass classification without
-covariate shift correction. 
+Standard "naive" split conformal prediction for multiclass classification
+without covariate shift correction. Like every other score-then-quantile
+class in this package (LABEL, ClusterLabel, CovariateLabel,
+NeighborhoodLabel), the default nonconformity score is "threshold"
+(Sadinle, Lei, and Wasserman 2019's least-ambiguous-set score), for
+consistency across the module. BaseConformal additionally supports
+score_type="margin", the nonconformity measure Papadopoulos, Vovk, and
+Gammerman defined specifically for neural-network classifiers -- pass this
+if you want that paper's own method rather than LABEL's score. Coverage
+validity does not depend on which score_type is chosen (Vovk, Gammerman,
+and Shafer 2005): all of them share the same split-conformal calibration
+machinery and guarantee, and differ only in prediction-set composition
+and average set size.
 
 This method constructs prediction sets with coverage guarantees by calibrating
 score thresholds on a held-out calibration set.
@@ -11,12 +22,15 @@ Paper:
     Vovk, Vladimir, Alexander Gammerman, and Glenn Shafer.
     "Algorithmic learning in a random world." Springer, 2005.
 
-    Papadopoulos, Harris, Kostas Proedrou, Volodya Vovk, and Alex Gammerman.
-    "Inductive confidence machines for regression." ECML 2002.
-
     Sadinle, Mauricio, Jing Lei, and Larry Wasserman. "Least ambiguous
     set-valued classifiers with bounded error levels." Journal of the
-    American Statistical Association (2019). [score_type="threshold"]
+    American Statistical Association (2019). [score_type="threshold",
+    the default]
+
+    Papadopoulos, Harris, Vladimir Vovk, and Alexander Gammerman.
+    "Conformal prediction with neural networks." 19th IEEE International
+    Conference on Tools with Artificial Intelligence (ICTAI 2007), vol. 2,
+    pp. 388-395. IEEE, 2007. [score_type="margin"]
 
     Romano, Yaniv, Matteo Sesia, and Emmanuel Candes. "Classification with
     valid and adaptive coverage." NeurIPS 2020. [score_type="aps"]
@@ -95,26 +109,45 @@ def _query_weighted_quantile(
 
 
 class BaseConformal(SetPredictor):
-    """Base Conformal Prediction for multiclass classification.
+    """Base ("naive") Conformal Prediction for multiclass classification.
 
     This implements standard split conformal prediction, which constructs
     prediction sets with distribution-free coverage guarantees. The method
     calibrates thresholds on a calibration set and uses them to construct
     prediction sets on test data.
 
+    By default this uses the same "threshold" nonconformity score as every
+    other class in this package (LABEL, ClusterLabel, CovariateLabel,
+    NeighborhoodLabel): Sadinle, Lei, and Wasserman's (2019) ``1 - p(k)``
+    score. BaseConformal additionally supports score_type="margin", the
+    nonconformity measure Papadopoulos, Vovk, and Gammerman (2007) defined
+    for neural-network classifiers: ``alpha(x, k) = max_{j != k} p(j) -
+    p(k)``, i.e. how much the strongest competing class beats k. Coverage
+    validity does not depend on this choice (Vovk, Gammerman, and Shafer
+    2005): any nonconformity score, under the same rank-based calibration
+    procedure, gives the same coverage guarantee -- score_type only changes
+    prediction-set composition and average set size, not validity.
+
     The method guarantees that:
     - For marginal coverage (alpha is float): P(Y not in C(X)) <= alpha
     - For class-conditional coverage (alpha is array): P(Y not in C(X) | Y=k) <= alpha[k]
 
-    where C(X) denotes the prediction set for input X.
+    where C(X) denotes the prediction set for input X. This holds regardless
+    of score_type, since validity of split conformal prediction does not
+    depend on which nonconformity measure is used (only the usefulness /
+    average set size does).
 
     Papers:
         Vovk, Vladimir, Alexander Gammerman, and Glenn Shafer.
         "Algorithmic learning in a random world." Springer, 2005.
 
-        Lei, Jing, Max G'Sell, Alessandro Rinaldo, Ryan J. Tibshirani,
-        and Larry Wasserman. "Distribution-free predictive inference for
-        regression." Journal of the American Statistical Association (2018).
+        Sadinle, Mauricio, Jing Lei, and Larry Wasserman. "Least ambiguous
+        set-valued classifiers with bounded error levels." Journal of the
+        American Statistical Association (2019).
+
+        Papadopoulos, Harris, Vladimir Vovk, and Alexander Gammerman.
+        "Conformal prediction with neural networks." 19th IEEE ICTAI 2007,
+        vol. 2, pp. 388-395.
 
     Args:
         model: A trained base model that outputs predicted probabilities
@@ -122,8 +155,13 @@ class BaseConformal(SetPredictor):
             - float: marginal coverage P(Y not in C(X)) <= alpha
             - array: class-conditional P(Y not in C(X) | Y=k) <= alpha[k]
         score_type: Type of nonconformity score to use:
-            - "threshold" (default): NC score = 1 - p(true class), the score
-              from Sadinle, Lei, and Wasserman (2019) ("LABEL").
+            - "threshold" (default): NC score = 1 - p(true class), the
+              score from Sadinle, Lei, and Wasserman (2019) ("LABEL") --
+              matches :class:`~pyhealth.calib.predictionset.LABEL`'s
+              behavior, and every other class in this package's default.
+            - "margin": NC score = max_{j!=k} p(j) - p(k), the score from
+              Papadopoulos, Vovk, and Gammerman (2007) ("naive" split
+              conformal prediction for neural networks).
             - "aps": Adaptive Prediction Sets (Romano, Sesia, and Candes
               2020). NC score for class k is the cumulative sum of predicted
               probabilities for classes ranked above k, plus a randomized
@@ -134,7 +172,8 @@ class BaseConformal(SetPredictor):
               individual input. See :mod:`pyhealth.calib.predictionset.scores`
               for the exact formula.
         random_state: Optional int seed for the RNG used by score_type="aps"
-            (the U ~ Uniform(0,1) draws). Ignored for score_type="threshold".
+            (the U ~ Uniform(0,1) draws). Ignored for score_type="threshold"
+            and score_type="margin".
         debug: Whether to use debug mode (processes fewer samples)
 
     Examples:
@@ -181,6 +220,12 @@ class BaseConformal(SetPredictor):
         >>> conformal_model_aps = BaseConformal(
         ...     model, alpha=0.1, score_type="aps", random_state=0)
         >>> conformal_model_aps.calibrate(cal_dataset=val_data)
+        >>>
+        >>> # Use Papadopoulos, Vovk, and Gammerman (2007)'s own margin
+        >>> # score instead of the default threshold (LABEL) score
+        >>> conformal_model_margin = BaseConformal(
+        ...     model, alpha=0.1, score_type="margin")
+        >>> conformal_model_margin.calibrate(cal_dataset=val_data)
     """
 
     def __init__(

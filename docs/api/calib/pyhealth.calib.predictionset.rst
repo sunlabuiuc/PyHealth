@@ -8,10 +8,14 @@ techniques for uncertainty quantification.
 ``BaseConformal``, ``LABEL``, ``ClusterLabel``, ``CovariateLabel``, and
 ``NeighborhoodLabel`` all accept a ``score_type`` argument selecting the
 nonconformity/conformity score used for calibration and set construction:
-either ``"threshold"`` (the default, unchanged from prior releases) or
-``"aps"`` (Adaptive Prediction Sets, Romano, Sesia, and Candes 2020), which
-adapts the prediction set size to the model's per-input confidence. See
-:mod:`pyhealth.calib.predictionset.scores` for the exact score formulas.
+``"threshold"`` (LAC, Sadinle, Lei, and Wasserman 2019 -- the default for
+every one of these classes) or ``"aps"`` (Adaptive Prediction Sets, Romano,
+Sesia, and Candes 2020, which adapts the prediction set size to the
+model's per-input confidence). ``BaseConformal`` additionally supports
+``"margin"`` (Papadopoulos, Vovk, and Gammerman 2007's own score for
+neural-network classifiers). Coverage validity does not depend on this
+choice -- see :mod:`pyhealth.calib.predictionset.scores` for the exact
+score formulas.
 ``SCRIB`` and ``FavMac`` are not included since their calibration
 procedures aren't a score-then-quantile pattern.
 
@@ -30,8 +34,26 @@ Available Methods
    pyhealth.calib.predictionset.ClusterLabel
    pyhealth.calib.predictionset.NeighborhoodLabel
 
-BaseConformal (Standard Split Conformal Prediction)
-----------------------------------------------------
+BaseConformal (Standard "Naive" Split Conformal Prediction)
+--------------------------------------------------------------
+
+.. note::
+
+   ``BaseConformal`` and ``LABEL`` both build on the same generic
+   split-conformal calibration machinery (Vovk, Gammerman, and Shafer
+   2005): sort calibration nonconformity scores and take the
+   ``ceil((1-alpha)*(n+1))``-th one as the threshold. By default they use
+   the identical score too -- ``"threshold"``, i.e. ``1 - p(true class)``,
+   from Sadinle, Lei, and Wasserman (2019) -- for consistency with every
+   other class in this module. ``BaseConformal`` additionally supports
+   ``score_type="margin"``, i.e. ``max_{j!=k} p(j) - p(k)``, the
+   nonconformity measure from Papadopoulos, Vovk, and Gammerman,
+   "Conformal prediction with neural networks," 19th IEEE ICTAI 2007,
+   vol. 2, pp. 388-395 (verified directly against Section 4.2 of
+   Papadopoulos's 2008 InTech chapter restating that paper, which calls
+   this "the natural nonconformity measure" for neural-network
+   classifiers). Coverage validity does not depend on this choice; it
+   only changes prediction-set composition and average set size.
 
 .. autoclass:: pyhealth.calib.predictionset.BaseConformal
    :members:
