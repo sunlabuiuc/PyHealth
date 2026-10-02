@@ -9,6 +9,8 @@ import operator
 from urllib.parse import urlparse, urlunparse
 from urllib.request import urlretrieve
 import json
+import glob
+import hashlib
 import uuid
 import platformdirs
 import multiprocessing
@@ -85,6 +87,41 @@ def path_exists(path: str) -> bool:
             return False
     else:
         return Path(path).exists()
+
+
+def _source_fingerprint(path: str) -> list:
+    """Identifies the current version of a table source for the cache key.
+
+    Returns ``[file, size, mtime_ns]`` for every local file behind ``path``:
+    the file itself and its ``.csv``/``.csv.gz`` (or ``.tsv``) twin, the files
+    matching a glob, or every file under a directory. A rewrite of any of them
+    therefore changes the dataset's cache key, like ``make``. Contents are not
+    hashed, so large sources stay cheap to check. URLs are identified by the
+    URL alone.
+
+    Args:
+        path (str): The table source path, as resolved from the config.
+
+    Returns:
+        list: ``[[file, size, mtime_ns], ...]``, or ``[path]`` for a URL.
+    """
+    if is_url(path):
+        return [path]
+    candidates = [path, path[:-3] if path.endswith(".gz") else f"{path}.gz"]
+    files: list[str] = []
+    for candidate in candidates:
+        source = Path(candidate)
+        if glob.has_magic(candidate):
+            files += sorted(glob.glob(candidate, recursive=True))
+        elif source.is_dir():
+            files += sorted(str(f) for f in source.rglob("*") if f.is_file())
+        elif source.is_file():
+            files.append(candidate)
+    fingerprint = []
+    for file in files:
+        stat = os.stat(file)
+        fingerprint.append([file, stat.st_size, stat.st_mtime_ns])
+    return fingerprint
 
 
 def _csv_tsv_gz_path(path: str) -> str:
@@ -375,6 +412,11 @@ class BaseDataset(ABC):
     def _init_cache_dir(self, cache_dir: str | Path | None) -> Path:
         """Returns the cache directory path.
 
+        The cache key covers the dataset's root, tables, name and dev flag and,
+        for config-based datasets, a hash of the YAML config plus the size and
+        modification time of every source file the requested tables read. Editing
+        the config or rewriting a source file therefore builds a fresh cache.
+
         The cache directory is determined by the type of ``cache_dir`` passed
         to ``__init__``:
 
@@ -395,15 +437,26 @@ class BaseDataset(ABC):
         Returns:
             Path: The resolved cache directory path.
         """
-        id_str = json.dumps(
-            {
-                "root": str(self.root),
-                "tables": sorted(self.tables),
-                "dataset_name": self.dataset_name,
-                "dev": self.dev,
-            },
-            sort_keys=True,
-        )
+        key = {
+            "root": str(self.root),
+            "tables": sorted(self.tables),
+            "dataset_name": self.dataset_name,
+            "dev": self.dev,
+        }
+        if self.config is not None:
+            # Editing the YAML or rewriting a source file must not reuse a stale
+            # cache, so the key also covers the config and the source files.
+            config_json = json.dumps(self.config.model_dump(mode="json"), sort_keys=True)
+            key["config"] = hashlib.sha256(config_json.encode()).hexdigest()
+            key["sources"] = {
+                table: [
+                    _source_fingerprint(clean_path(f"{self.root}/{file_path}"))
+                    for file_path in [cfg.file_path, *(j.file_path for j in cfg.join)]
+                ]
+                for table in sorted(self.tables)
+                if (cfg := self.config.tables.get(table)) is not None
+            }
+        id_str = json.dumps(key, sort_keys=True)
 
         id = str(uuid.uuid5(uuid.NAMESPACE_DNS, id_str))
 
