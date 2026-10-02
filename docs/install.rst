@@ -117,6 +117,20 @@ the shell before running:
 
     ulimit -n 8192
 
+**Jupyter notebooks (including VS Code and Cursor)**
+
+When a dataset builds its event cache inside a notebook, PyHealth shows a Dask
+progress bar. With ``ipywidgets`` installed it is an interactive widget; without
+it, PyHealth falls back to a plain text bar. ``ipywidgets`` is optional:
+
+.. code-block:: bash
+
+    pip install ipywidgets
+
+In PyHealth 2.0.2 and earlier, building a dataset in a notebook without
+``ipywidgets`` failed with ``ModuleNotFoundError: No module named 'ipywidgets'``.
+Installing ``ipywidgets`` works around it on those versions.
+
 **Other Platforms**
 
 PyHealth should work without additional configuration on:

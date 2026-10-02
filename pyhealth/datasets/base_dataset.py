@@ -16,6 +16,7 @@ import platformdirs
 import multiprocessing
 import multiprocessing.queues
 import shutil
+import time
 
 from filelock import FileLock
 import litdata
@@ -227,6 +228,24 @@ def _litdata_merge(cache_dir: Path) -> None:
     BinaryWriter(cache_dir=str(cache_dir), chunk_bytes="64MB").merge(
         num_workers=len(index_files)
     )
+
+
+def _dask_progress_notebook() -> bool | None:
+    """
+    Chooses the ``notebook`` argument for dask's ``progress()``.
+
+    In a Jupyter kernel dask draws an ipywidgets progress bar, but ipywidgets is
+    not a PyHealth dependency. Without it, fall back to dask's text bar.
+
+    Returns:
+        bool | None: None to let dask detect the environment, or False to force
+            the text progress bar when ipywidgets is not installed.
+    """
+    try:
+        import ipywidgets  # noqa: F401
+    except ImportError:
+        return False
+    return None
 
 
 class _ProgressContext:
@@ -691,9 +710,14 @@ class BaseDataset(ABC):
                         compute=False,
                     )
                     handle = client.compute(collection)
-                    dask_progress(handle)
+                    dask_progress(handle, notebook=_dask_progress_notebook())
                     handle.result()  # type: ignore
                     compute_ok = True  # Data is fully written to disk
+                    if in_notebook():
+                        # With threaded workers, closing the cluster while the
+                        # scheduler's 100ms progress feed is asleep logs a spurious
+                        # CancelledError traceback. Let the feed see the bar close.
+                        time.sleep(0.3)
         except TimeoutError:
             if compute_ok:
                 # Cluster shutdown timed out after successful compute — data is intact
