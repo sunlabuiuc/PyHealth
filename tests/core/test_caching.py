@@ -6,12 +6,12 @@ from unittest.mock import patch
 import dask.dataframe as dd
 import torch
 import json
-import uuid
 
 from tests.base import BaseTestCase
 from pyhealth.datasets.base_dataset import BaseDataset
 from pyhealth.tasks.base_task import BaseTask
 from pyhealth.datasets.sample_dataset import SampleDataset
+from pyhealth.tasks.fingerprint import task_cache_name, task_fingerprint
 
 
 class MockTask(BaseTask):
@@ -140,14 +140,18 @@ class TestCachingFunctionality(BaseTestCase):
             self.assertEqual(sample_dataset.task_name, self.task.task_name)
             self.assertEqual(len(sample_dataset), 4)
 
-            # Ensure intermediate cache files are created in default location
-            task_params = json.dumps(
-                {"input_schema": {"test_attribute": "raw"}, "output_schema": {"test_label": "binary"}, "param": 0},
-                sort_keys=True,
-                default=str
-            )
-            task_cache_dir = self.dataset.cache_dir / "tasks" / f"{self.task.task_name}_{uuid.uuid5(uuid.NAMESPACE_DNS, task_params)}"
+            # Ensure intermediate cache files are created in default location.
+            # Ask the public helper for the directory name instead of
+            # re-implementing the hashing expression here: an inlined copy only
+            # asserts that the implementation equals itself.
+            task_cache_dir = self.dataset.cache_dir / "tasks" / task_cache_name(self.task)
             self.assertTrue((task_cache_dir / "task_df.ld" / "index.json").exists())
+
+            # The sidecar must explain the cache directory in plain text.
+            meta = json.loads((task_cache_dir / "task_meta.json").read_text())
+            self.assertEqual(meta["spec"]["task_name"], self.task.task_name)
+            self.assertEqual(meta["fingerprint"], task_fingerprint(self.task))
+            self.assertIn("param", json.dumps(meta["spec"]["init_args"]))
 
             # Cache artifacts should be present for StreamingDataset
             assert sample_dataset.input_dir.path is not None
@@ -177,13 +181,7 @@ class TestCachingFunctionality(BaseTestCase):
 
     def test_default_cache_dir_is_used(self):
         """When cache_dir is omitted, default cache dir should be used."""
-        task_params = json.dumps(
-            {"input_schema": {"test_attribute": "raw"}, "output_schema": {"test_label": "binary"}, "param": 0},
-            sort_keys=True,
-            default=str
-        )
-
-        task_cache = self.dataset.cache_dir / "tasks" / f"{self.task.task_name}_{uuid.uuid5(uuid.NAMESPACE_DNS, task_params)}"
+        task_cache = self.dataset.cache_dir / "tasks" / task_cache_name(self.task)
         sample_dataset = self.dataset.set_task(self.task)
 
         self.assertTrue(task_cache.exists())
@@ -213,20 +211,9 @@ class TestCachingFunctionality(BaseTestCase):
 
         self.assertNotEqual(sample_dataset1.path, sample_dataset2.path)
 
-        task_params1 = json.dumps(
-            {"input_schema": {"test_attribute": "raw"}, "output_schema": {"test_label": "binary"}, "param": 1},
-            sort_keys=True,
-            default=str
-        )
-
-        task_params2 = json.dumps(
-            {"input_schema": {"test_attribute": "raw"}, "output_schema": {"test_label": "binary"}, "param": 2},
-            sort_keys=True,
-            default=str
-        )
-
-        task_cache1 = self.dataset.cache_dir / "tasks" / f"{self.task.task_name}_{uuid.uuid5(uuid.NAMESPACE_DNS, task_params1)}"
-        task_cache2 = self.dataset.cache_dir / "tasks" / f"{self.task.task_name}_{uuid.uuid5(uuid.NAMESPACE_DNS, task_params2)}"
+        task_cache1 = self.dataset.cache_dir / "tasks" / task_cache_name(MockTask(param=1))
+        task_cache2 = self.dataset.cache_dir / "tasks" / task_cache_name(MockTask(param=2))
+        self.assertNotEqual(task_cache1, task_cache2)
 
         self.assertTrue(task_cache1.exists())
         self.assertTrue(task_cache2.exists())
@@ -245,20 +232,9 @@ class TestCachingFunctionality(BaseTestCase):
 
         self.assertNotEqual(sample_dataset1.path, sample_dataset2.path)
 
-        task_params1 = json.dumps(
-            {"input_schema": {"test_attribute": "raw"}, "output_schema": {"test_label": "binary"}, "param": 0},
-            sort_keys=True,
-            default=str
-        )
-
-        task_params2 = json.dumps(
-            {"input_schema": {"test_attribute": "raw"}, "output_schema": {"test_label": "multiclass"}, "param": 0},
-            sort_keys=True,
-            default=str
-        )
-
-        task_cache1 = self.dataset.cache_dir / "tasks" / f"{self.task.task_name}_{uuid.uuid5(uuid.NAMESPACE_DNS, task_params1)}"
-        task_cache2 = self.dataset.cache_dir / "tasks" / f"{self.task.task_name}_{uuid.uuid5(uuid.NAMESPACE_DNS, task_params2)}"
+        task_cache1 = self.dataset.cache_dir / "tasks" / task_cache_name(MockTask())
+        task_cache2 = self.dataset.cache_dir / "tasks" / task_cache_name(MockTask2())
+        self.assertNotEqual(task_cache1, task_cache2)
 
         self.assertTrue(task_cache1.exists())
         self.assertTrue(task_cache2.exists())
