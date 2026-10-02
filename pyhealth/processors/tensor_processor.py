@@ -19,6 +19,15 @@ class TensorProcessor(FeatureProcessor):
 
     Output:
         - torch.Tensor with appropriate shape and dtype
+
+    Examples:
+        >>> from pyhealth.processors import TensorProcessor
+        >>> processor = TensorProcessor()
+        >>> processor.fit([{"x": [1.0, 2.0, 3.0]}], "x")
+        >>> processor.size()
+        3
+        >>> processor.process([4.0, 5.0, 6.0])
+        tensor([4., 5., 6.])
     """
 
     def __init__(
@@ -37,10 +46,11 @@ class TensorProcessor(FeatureProcessor):
         """
         self.dtype = dtype
         self._n_dim = None
+        self._feature_dim = None
         self._spatial_dims = spatial_dims
 
     def fit(self, samples: Iterable[Dict[str, Any]], field: str) -> None:
-        """Infer n_dim from the first valid sample.
+        """Infer n_dim and the feature width from the first valid sample.
 
         Args:
             samples: Iterable of sample dictionaries.
@@ -55,6 +65,7 @@ class TensorProcessor(FeatureProcessor):
                     else torch.tensor(value, dtype=self.dtype)
                 )
                 self._n_dim = tensor.dim()
+                self._feature_dim = tensor.shape[-1] if tensor.dim() > 0 else 1
                 break
 
     def process(self, value: Any) -> torch.Tensor:
@@ -74,14 +85,15 @@ class TensorProcessor(FeatureProcessor):
             return value.detach().clone().to(dtype=self.dtype)
         return torch.tensor(value, dtype=self.dtype)
 
-    def size(self) -> None:
+    def size(self) -> int | None:
         """
         Get the feature size of the processor.
 
         Returns:
-            None: Size is not predetermined for tensor processor
+            The width of the last dimension (1 for scalars) seen in ``fit()``,
+            or None before fitting.
         """
-        return None
+        return getattr(self, "_feature_dim", None)
 
     def is_token(self) -> bool:
         """Whether the output tensor represents discrete token indices, inferred from dtype.
