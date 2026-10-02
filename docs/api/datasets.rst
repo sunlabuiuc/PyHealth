@@ -134,13 +134,44 @@ Initialization Parameters
   Native datasets have this built in and ignore the parameter.
 - **cache_dir** — where to store the cached Parquet and LitData files. PyHealth
   appends a UUID derived from your configuration, so different setups never
-  overwrite each other.
+  overwrite each other. If you leave it out, PyHealth uses your user cache
+  folder (e.g. ``~/Library/Caches/pyhealth`` on macOS, ``~/.cache/pyhealth`` on
+  Linux) and logs a warning naming it — see *Working with identified data* below.
 - **num_workers** — parallel processes for data loading. Increasing this can
   speed up ``set_task()`` on large datasets.
 - **dev** — when ``True``, PyHealth caps the dataset at 1 000 patients. This
   is very useful during development because it makes each iteration complete in
   seconds rather than minutes. Switch to ``dev=False`` for your final training
   run.
+
+Working with identified data
+----------------------------
+
+The dataset cache holds **processed copies of your source data**: the event
+table every patient's events are read from, and the samples each ``set_task()``
+produces. For identified clinical data (PHI), that cache must live in storage
+approved for the data, not in a personal cache folder.
+
+- Always pass ``cache_dir`` pointing inside your project's controlled storage:
+
+  .. code-block:: python
+
+      dataset = MIMIC4Dataset(ehr_root=..., ehr_tables=[...],
+                              cache_dir="/secure/project/pyhealth_cache")
+
+- To make a forgotten ``cache_dir`` an error instead of a warning, set an
+  environment variable for the project (in your job script, ``.env`` or shell):
+
+  .. code-block:: bash
+
+      export PYHEALTH_REQUIRE_CACHE_DIR=1
+
+  Any dataset created without ``cache_dir`` then raises ``ValueError`` before
+  writing anything.
+
+- ``create_sample_dataset(..., in_memory=False)`` writes samples to the system
+  temporary folder; keep the default ``in_memory=True`` for identified data, or
+  build the ``SampleDataset`` at a path you control.
 
 config.yaml for Custom Datasets
 ---------------------------------

@@ -36,10 +36,9 @@ import dask.dataframe as dd
 import narwhals as nw
 import orjson
 import pandas as pd
-import platformdirs
 from yaml import safe_load
 
-from ..base_dataset import BaseDataset
+from ..base_dataset import BaseDataset, _default_cache_dir
 from .utils import (
     FHIR_SCHEMA_VERSION,
     SUPPORTED_OUTPUT_FORMATS,
@@ -237,7 +236,7 @@ class FHIRDataset(BaseDataset):
         ).decode("utf-8")
         cache_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, identity))
         out = (
-            Path(platformdirs.user_cache_dir(appname="pyhealth")) / cache_id
+            _default_cache_dir(cache_id)
             if cache_dir is None
             else Path(cache_dir) / cache_id
         )
