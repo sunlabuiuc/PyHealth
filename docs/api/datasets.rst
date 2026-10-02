@@ -31,6 +31,13 @@ compact ``global_event_df.parquet`` cache to disk. On subsequent runs with
 the same configuration it reads from cache rather than re-parsing the source
 files, so startup is fast.
 
+"The same configuration" means the same root, tables, dataset name and dev flag,
+the same YAML config, and unchanged source files: the cache key includes a hash of
+the config and the size and modification time of every source file the requested
+tables read. Editing the YAML or rewriting a source file (even at the same path)
+therefore builds a fresh cache instead of silently reusing a stale one. Old cache
+folders are left in place; delete them to reclaim disk space.
+
 The result is a :class:`~pyhealth.datasets.BaseDataset` — a structured
 patient→event tree. It is different from a PyTorch Dataset: it has no integer
 length and you cannot index into it with ``dataset[i]``. Think of it as a
