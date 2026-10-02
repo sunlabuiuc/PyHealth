@@ -48,6 +48,48 @@ from ..utils import set_env
 # Set logging level for distributed to ERROR to reduce verbosity
 logging.getLogger("distributed").setLevel(logging.ERROR)
 logger = logging.getLogger(__name__)
+
+# Set to 1/true/yes to make datasets refuse to fall back to the default cache.
+REQUIRE_CACHE_DIR_ENV = "PYHEALTH_REQUIRE_CACHE_DIR"
+_warned_default_cache_dirs: set[str] = set()
+
+
+def _default_cache_dir(cache_id: str) -> Path:
+    """Returns the default cache directory for a dataset, after warning about it.
+
+    Datasets write processed copies of their source data (the event table and
+    task samples) to their cache. Without an explicit ``cache_dir`` that is the
+    user cache folder, which for identified clinical data is usually outside the
+    project's controlled storage. So this logs a warning naming the path (once
+    per path), and raises if ``PYHEALTH_REQUIRE_CACHE_DIR`` is set.
+
+    Args:
+        cache_id: The dataset's cache identifier (a UUID string).
+
+    Returns:
+        Path: ``<user cache dir>/pyhealth/<cache_id>``.
+
+    Raises:
+        ValueError: If ``PYHEALTH_REQUIRE_CACHE_DIR`` is set to 1, true or yes.
+    """
+    if os.environ.get(REQUIRE_CACHE_DIR_ENV, "").strip().lower() in {"1", "true", "yes"}:
+        raise ValueError(
+            f"No cache_dir was given and {REQUIRE_CACHE_DIR_ENV} is set. Pass "
+            "cache_dir=... pointing to storage approved for this data; PyHealth "
+            "writes processed copies of the source data there."
+        )
+    path = Path(platformdirs.user_cache_dir(appname="pyhealth")) / cache_id
+    if str(path) not in _warned_default_cache_dirs:
+        _warned_default_cache_dirs.add(str(path))
+        logger.warning(
+            "No cache_dir given: PyHealth will write processed copies of this "
+            "dataset (event table, task samples) to %s. For identified or "
+            "sensitive data, pass cache_dir=... inside your project's controlled "
+            "storage, or set %s=1 to make a missing cache_dir an error.",
+            path,
+            REQUIRE_CACHE_DIR_ENV,
+        )
+    return path
 # Remove LitData version check to avoid unnecessary warnings
 os.environ["LITDATA_DISABLE_VERSION_CHECK"] = "1"
 
@@ -378,7 +420,9 @@ class BaseDataset(ABC):
         The cache directory is determined by the type of ``cache_dir`` passed
         to ``__init__``:
 
-        - **None**: Auto-generated under default pyhealth cache directory.
+        - **None**: Auto-generated under the default pyhealth cache directory,
+          with a warning naming it; an error if ``PYHEALTH_REQUIRE_CACHE_DIR``
+          is set.
         - **str** or **Path: Used as the root cache directory path. A UUID
           is appended to the provided path to capture dataset configuration.
 
@@ -408,9 +452,8 @@ class BaseDataset(ABC):
         id = str(uuid.uuid5(uuid.NAMESPACE_DNS, id_str))
 
         if cache_dir is None:
-            cache_dir = Path(platformdirs.user_cache_dir(appname="pyhealth")) / id
+            cache_dir = _default_cache_dir(id)
             cache_dir.mkdir(parents=True, exist_ok=True)
-            logger.info(f"No cache_dir provided. Using default cache dir: {cache_dir}")
         else:
             # Ensure separate cache directories for different table configurations by appending a UUID suffix
             cache_dir = Path(cache_dir) / id
