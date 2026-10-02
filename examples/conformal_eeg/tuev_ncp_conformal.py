@@ -15,6 +15,11 @@ Example (from repo root):
   python examples/conformal_eeg/tuev_ncp_conformal.py --root /srv/local/data/TUH/tuh_eeg_events/v2.0.0/edf
   python examples/conformal_eeg/tuev_ncp_conformal.py --quick-test --log-file quicktest_ncp.log
   python examples/conformal_eeg/tuev_ncp_conformal.py --alpha 0.1 --n-seeds 5 --split-seed 0 --log-file ncp_seeds5.log
+
+Note: NeighborhoodLabel.calibrate() excludes each calibration point from
+its own k-nearest-neighbor set during the alpha_tilde search, to avoid a
+calibration point's own score leaking into its own threshold; see
+docs/api/calib/pyhealth.calib.predictionset.rst for details.
 """
 
 from __future__ import annotations
