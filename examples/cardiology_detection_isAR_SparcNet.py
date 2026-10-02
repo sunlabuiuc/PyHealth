@@ -11,6 +11,8 @@ dataset = CardiologyDataset(root="/srv/local/data/physionet.org/files/challenge-
                             dev=True)
 
 # step 2: set task
+# Each saved epoch is closed before its path is returned in cardiology_ds.
+# Write failures propagate; any partial output from a failed run needs cleanup.
 cardiology_ds = dataset.set_task(cardiology_isAR_fn)
 cardiology_ds.stat()
 
