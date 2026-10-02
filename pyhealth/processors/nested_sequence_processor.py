@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Iterable
 import torch
 
 from . import register_processor
-from .base_processor import FeatureProcessor, TokenProcessorInterface
+from .base_processor import FeatureProcessor, TokenProcessorInterface, _warn_truncated
 
 
 @register_processor("nested_sequence")
@@ -18,7 +18,8 @@ class NestedSequenceProcessor(FeatureProcessor, TokenProcessorInterface):
     The processor:
     1. Builds a vocabulary from all codes across all samples
     2. Encodes codes to indices
-    3. Pads inner sequences to the maximum sequence length found during fit
+    3. Pads inner sequences to the maximum sequence length found during fit,
+       and truncates longer ones (keeping the first codes)
     4. Returns a 2D tensor of shape (num_visits, max_codes_per_visit)
 
     Special tokens:
@@ -28,8 +29,9 @@ class NestedSequenceProcessor(FeatureProcessor, TokenProcessorInterface):
     Args:
         padding: Additional padding to add on top of the observed maximum inner
             sequence length. The actual padding length will be observed_max + padding.
-            This ensures the processor can handle sequences longer than those in the
-            training data. Default: 0 (no extra padding).
+            Inner sequences longer than this are truncated to it (keeping the first
+            elements, with a one-time warning) so every sample has the same width;
+            raise padding to keep longer sequences. Default: 0 (no extra padding).
 
     Examples:
         >>> processor = NestedSequenceProcessor()
@@ -142,7 +144,10 @@ class NestedSequenceProcessor(FeatureProcessor, TokenProcessorInterface):
                 else:
                     indices.append(self.code_vocab[code])
 
-            # Pad to maximum inner length
+            # Truncate to, or pad to, the maximum inner length from fit()
+            if len(indices) > self._max_inner_len:
+                _warn_truncated(self, "codes in a visit", len(indices), self._max_inner_len)
+                indices = indices[: self._max_inner_len]
             while len(indices) < self._max_inner_len:
                 indices.append(pad_token)
 
@@ -229,8 +234,9 @@ class NestedFloatsProcessor(FeatureProcessor):
             Default is True.
         padding: Additional padding to add on top of the observed maximum inner
             sequence length. The actual padding length will be observed_max + padding.
-            This ensures the processor can handle sequences longer than those in the
-            training data. Default: 0 (no extra padding).
+            Inner sequences longer than this are truncated to it (keeping the first
+            elements, with a one-time warning) so every sample has the same width;
+            raise padding to keep longer sequences. Default: 0 (no extra padding).
 
     Examples:
         >>> processor = NestedFloatsProcessor()
@@ -331,7 +337,10 @@ class NestedFloatsProcessor(FeatureProcessor):
                         else:
                             values.append(0.0)
 
-            # Pad to maximum inner length
+            # Truncate to, or pad to, the maximum inner length from fit()
+            if len(values) > self._max_inner_len:
+                _warn_truncated(self, "values in a visit", len(values), self._max_inner_len)
+                values = values[: self._max_inner_len]
             while len(values) < self._max_inner_len:
                 if self.forward_fill:
                     values.append(float("nan"))
