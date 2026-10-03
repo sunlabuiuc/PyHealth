@@ -257,185 +257,54 @@ class Interpretable(ABC):
         raise NotImplementedError
 
 
-class CheferInterpretable(Interpretable):
-    """Abstract interface for models supporting Chefer relevance attribution.
+class AttentionInterpretable(Interpretable):
+    """Interface for models exposing attention maps without requiring autograd.
 
-    This is a subclass of :class:`Interpretable` and therefore
-    inherits the embedding-level interface (``forward_from_embedding``,
-    ``get_embedding_model``).  Models that implement this interface
-    automatically satisfy the general interpretability contract **and** the
-    Chefer-specific contract, so they work with both embedding-perturbation
-    methods (DeepLIFT, LIME, …) and gradient-weighted attention methods
-    (Chefer).
+    Implementations must capture detached maps under ``torch.no_grad()`` when
+    ``capture_gradients=False``. Layers are ordered from input to output and
+    grouped by feature key. ``get_relevance_tensor`` reduces the resulting
+    relevance matrices to model-specific token scores.
 
-    The Chefer algorithm works as follows:
+    Capture is sequential: overlapping captured forwards/backwards on the same
+    model are unsupported. Finish a backward pass before starting another
+    forward, otherwise a previous graph's hook may overwrite newer results.
 
-    1. **Forward + hook registration** — run the model while capturing
-       attention weight tensors and registering backward hooks so their
-       gradients are stored.
-    2. **Backward** — back-propagate from a one-hot target class through
-       the logits.
-    3. **Relevance propagation** — for every feature key, iterate over
-       attention layers, compute gradient-weighted attention
-       (``clamp(attn * grad, min=0)``), and accumulate into a relevance
-       matrix ``R`` via ``R += cam @ R``.
-    4. **Attribution extraction** — extract the final per-token
-       attribution from ``R`` (e.g. read the CLS row, or the
-       last-valid-timestep row, possibly with reshaping).
-
-    Steps 1, 3-b and 4 are model-specific; the rest is generic.  This
-    interface captures exactly those model-specific pieces.
-
-    Inherited from ``InterpretableModelInterface``
-    -----------------------------------------------
-    forward_from_embedding(**kwargs) -> dict[str, Tensor]
-        Forward pass starting from pre-computed embeddings.
-    get_embedding_model() -> nn.Module | None
-        Access the embedding / feature-extraction stage.
-
-    Additional (Chefer-specific) methods
-    -------------------------------------
-    set_attention_hooks(enabled) -> None
-        Toggle attention map capture and gradient hook registration.
-    get_attention_layers() -> dict[str, list[tuple[Tensor, Tensor]]]
-        Paired (attn_map, attn_grad) for each attention layer, keyed by
-        feature key.
-    get_relevance_vector(R, **data) -> dict[str, Tensor]
-        Reduce relevance matrices to per-token attribution vectors.
-
-    Attributes
-    ----------
-    feature_keys : list[str]
-        The feature keys from the task's ``input_schema`` (e.g.
-        ``["conditions", "procedures"]``).  Already provided by
-        :class:`~pyhealth.models.base_model.BaseModel`.
-
-    Notes
-    -----
-    *  ``set_attention_hooks(True)`` must be called **before** the forward
-       pass, and ``get_attention_layers`` must be called **after** the
-       forward + backward passes, because attention maps are populated
-       during forward and gradients during backward.
-    *  The interface intentionally does **not** prescribe how hooks are
-       registered internally — ``nn.MultiheadAttention`` with
-       ``register_hook``, manual ``save_attn_grad`` callbacks, or explicit
-       QKV computation all work as long as the getter methods return the
-       right tensors.
-
-    Examples
-    --------
-    Minimal skeleton for a new model:
-
-    >>> class MyAttentionModel(BaseModel, CheferInterpretableModelInterface):
-    ...     # feature_keys is inherited from BaseModel
-    ...
-    ...     def forward_from_embedding(self, **kwargs):
-    ...         # ... prediction head from pre-computed embeddings ...
-    ...
-    ...     def get_embedding_model(self):
-    ...         return self.embedding_layer
-    ...
-    ...     def set_attention_hooks(self, enabled):
-    ...         self._register_hooks = enabled
-    ...
-    ...     def get_attention_layers(self):
-    ...         result = {}
-    ...         for key in self.feature_keys:
-    ...             result[key] = [
-    ...                 (blk.attention.get_attn_map(),
-    ...                  blk.attention.get_attn_grad())
-    ...                 for blk in self.encoder[key].blocks
-    ...             ]
-    ...         return result
-    ...
-    ...     def get_relevance_vector(self, R, **data):
-    ...         return {key: r[:, 0] for key, r in R.items()}
+    Examples:
+        >>> from pyhealth.interpret.api import AttentionInterpretable
+        >>> issubclass(AttentionInterpretable, Interpretable)
+        True
     """
 
     @abstractmethod
-    def set_attention_hooks(self, enabled: bool) -> None:
-        """Toggle attention hook registration for subsequent forward passes.
+    def set_attention_hooks(
+        self, enabled: bool, *, capture_gradients: bool = False
+    ) -> None:
+        """Configure capture for subsequent forwards.
 
-        When ``enabled=True``, the next call to ``forward()`` (or
-        ``forward_from_embedding()``) must:
+        ``enabled=False`` disables both map and gradient capture regardless of
+        ``capture_gradients``, without immediately erasing the last result or
+        removing hooks needed by an outstanding backward pass. The next
+        uncaptured attention forward clears both cached tensors.
 
-        1. Store attention weight tensors so they are retrievable via
-           :meth:`get_attention_layers`.
-        2. Register backward hooks on those tensors so that after
-           ``.backward()`` the corresponding gradients are also stored.
-
-        When ``enabled=False``, subsequent forward passes should **not**
-        capture attention maps or register gradient hooks, restoring the
-        model to its normal (faster) execution mode.
-
-        Parameters
-        ----------
-        enabled : bool
-            ``True`` to start capturing attention maps and registering
-            gradient hooks; ``False`` to stop.
-
-        Typical implementations set an internal flag that the model's
-        forward method checks::
-
-            def set_attention_hooks(self, enabled):
-                self._attention_hooks_enabled = enabled
-
-        And inside the forward / encoder logic::
-
-            if self._attention_hooks_enabled:
-                attn.register_hook(self.save_attn_grad)
+        With capture enabled, each forward replaces the map and clears the old
+        gradient. Gradient capture always implies map capture. Attention-only
+        implementations must support ``capture_gradients=False`` without
+        registering backward hooks or requiring autograd.
         """
         ...
 
     @abstractmethod
     def get_attention_layers(
         self,
-    ) -> dict[str, list[tuple[torch.Tensor, torch.Tensor]]]:
-        """Return (attention_map, attention_gradient) pairs for all feature keys.
+    ) -> dict[str, list[tuple[torch.Tensor | None, torch.Tensor | None]]]:
+        """Return ordered (map, gradient) pairs, keyed by feature.
 
-        Must be called **after** ``set_attention_hooks(True)``,
-        a ``forward()`` call, and a subsequent ``backward()`` call so
-        that both attention maps and their gradients are populated.
-
-        Returns
-        -------
-        dict[str, list[tuple[torch.Tensor, torch.Tensor]]]
-            A dictionary keyed by ``feature_keys``.  Each value is a list
-            with one ``(attn_map, attn_grad)`` tuple per attention layer,
-            ordered from the first (closest to input) to the last
-            (closest to output).
-
-            Each tensor may have shape:
-
-            * ``[batch, heads, seq, seq]`` — multi-head (will be
-              gradient-weighted-averaged across heads by Chefer).
-            * ``[batch, seq, seq]`` — already head-averaged.
-
-            ``attn_map`` and ``attn_grad`` in the same tuple must have
-            the same shape.
-
-        Examples
-        --------
-        A model with stacked ``TransformerBlock`` layers per feature key:
-
-        >>> def get_attention_layers(self):
-        ...     return {
-        ...         key: [
-        ...             (blk.attention.get_attn_map(),
-        ...              blk.attention.get_attn_grad())
-        ...             for blk in self.transformer[key].transformer
-        ...         ]
-        ...         for key in self.feature_keys
-        ...     }
-
-        A model with a single MHA layer per feature key:
-
-        >>> def get_attention_layers(self):
-        ...     return {
-        ...         key: [(self.stagenet[key].get_attn_map(),
-        ...                self.stagenet[key].get_attn_grad())]
-        ...         for key in self.feature_keys
-        ...     }
+        Maps are available after a captured forward; gradients only after a
+        gradient-captured forward and backward. Either element can be ``None``.
+        Available pairs have matching shapes: ``[batch, heads, seq, seq]``.
+        Chefer also accepts head-averaged ``[batch, seq, seq]`` pairs; Rollout
+        requires the head dimension. Disabling capture preserves these results
+        until the next forward.
         """
         ...
 
@@ -447,7 +316,7 @@ class CheferInterpretable(Interpretable):
     ) -> dict[str, torch.Tensor]:
         """Reduce relevance matrices to per-token attribution vectors.
 
-        The Chefer algorithm builds a relevance matrix of shape
+        Attention attribution builds a relevance matrix of shape
         ``[batch, seq_len, seq_len]`` for each feature key.  This method
         reduces each matrix to a ``[batch, seq_len]`` vector by selecting
         the row corresponding to the classification position — giving the
@@ -475,12 +344,12 @@ class CheferInterpretable(Interpretable):
         --------
         CLS-token model (e.g. Transformer) — row 0 for all keys:
 
-        >>> def get_relevance_vector(self, R, **data):
+        >>> def get_relevance_tensor(self, R, **data):
         ...     return {key: r[:, 0] for key, r in R.items()}
 
         Last-valid-timestep model (e.g. StageAttentionNet):
 
-        >>> def get_relevance_vector(self, R, **data):
+        >>> def get_relevance_tensor(self, R, **data):
         ...     result = {}
         ...     for key, r in R.items():
         ...         mask = self._get_mask(key, **data)
@@ -491,9 +360,39 @@ class CheferInterpretable(Interpretable):
         """
         ...
 
-    # TODO: Add postprocess_attribution() when ViT support is ready.
-    # ViT models need to strip the CLS column, reshape the patch vector
-    # into a spatial [batch, 1, H, W] map, and optionally interpolate to
-    # the original image size.  For EHR models this is a no-op.  We can
-    # either fold this into extract_attribution() or add it as a separate
-    # optional method.
+
+class GradientInterpretable(AttentionInterpretable):
+    """Extend attention capture with gradients for Chefer relevance.
+
+    After a gradient-enabled forward and backward, each captured attention map
+    must have a corresponding gradient of the same shape. Interpreters select
+    the gradient mode explicitly. Existing models keep the one-argument default
+    enabled for compatibility.
+
+    ``CheferInterpretable`` is an alias of this class. Custom implementations
+    must accept the ``capture_gradients`` keyword; the alias does not adapt old
+    ``set_attention_hooks(enabled)`` implementations. Both interpreters pass
+    this keyword, so obsolete signatures raise ``TypeError``.
+
+    Examples:
+        >>> CheferInterpretable is GradientInterpretable
+        True
+        >>> issubclass(GradientInterpretable, AttentionInterpretable)
+        True
+    """
+
+    @abstractmethod
+    def set_attention_hooks(
+        self, enabled: bool, *, capture_gradients: bool = True
+    ) -> None:
+        """Configure maps and optional gradients using the parent lifecycle.
+
+        ``set_attention_hooks(True)`` preserves historical gradient capture;
+        ``set_attention_hooks(True, capture_gradients=False)`` captures only
+        maps, including under ``torch.no_grad()``. Disabling always stops both.
+        """
+        ...
+
+
+# Preserve historical imports, inheritance, and isinstance checks.
+CheferInterpretable = GradientInterpretable
