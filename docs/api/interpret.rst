@@ -1,5 +1,5 @@
 Interpretability
-===============
+================
 
 We implement the following interpretability techniques to help you understand model predictions and identify important features in healthcare data.
 
@@ -13,11 +13,23 @@ New to interpretability in PyHealth? Check out these complete examples:
 
 **Basic Gradient Example:**
 
-- ``examples/ChestXrayClassificationWithSaliency.ipynb`` - Interactive notebook demonstrating gradient-based saliency mapping for medical image classification. Shows how to:
+- ``examples/cxr/ChestXrayClassificationWithSaliency.ipynb`` - Interactive notebook demonstrating gradient-based saliency mapping for medical image classification. Shows how to:
 
   - Load and classify chest X-ray images using PyHealth's TorchvisionModel
   - Generate gradient saliency maps to visualize model attention
   - Interpret which regions of X-ray images influence COVID-19 predictions by the model
+
+**Layer-wise Relevance Propagation Examples:**
+
+- ``examples/interpretability/lrp_stagenet_synthetic.py`` - Self-contained LRP run on synthetic data (no external dataset needed). Shows how to:
+
+  - Propagate relevance through StageNet with the epsilon and alpha-beta rules
+  - Compare per-feature relevance totals against the model logit
+
+- ``examples/interpretability/lrp_stagenet_mimic4.py`` - LRP on StageNet for mortality prediction with MIMIC-IV data. Shows how to:
+
+  - Decode relevance back to ICD codes and lab categories
+  - Contrast epsilon-rule and alpha-beta-rule attributions on the same sample
 
 **DeepLift Example:**
 
@@ -81,6 +93,7 @@ Attribution Methods
     interpret/pyhealth.interpret.methods.chefer
     interpret/pyhealth.interpret.methods.attention_rollout
     interpret/pyhealth.interpret.methods.deeplift
+    interpret/pyhealth.interpret.methods.lrp
     interpret/pyhealth.interpret.methods.integrated_gradients
     interpret/pyhealth.interpret.methods.shap
     interpret/pyhealth.interpret.methods.lime

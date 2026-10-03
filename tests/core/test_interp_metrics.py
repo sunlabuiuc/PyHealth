@@ -8,6 +8,7 @@ This test suite demonstrates:
 """
 
 import unittest
+import warnings
 
 import torch
 
@@ -537,3 +538,44 @@ class TestMetricProperties(unittest.TestCase):
 if __name__ == "__main__":
     # Run tests
     unittest.main()
+
+
+class TestMeanAblationBaseline(unittest.TestCase):
+    """The 'mean' ablation strategy must actually modify the input.
+
+    Regression test: ``x.mean(dim=0)`` over a batch of one *is* that sample, so
+    ``x * (1 - mask) + x_mean * mask`` used to reduce to ``x``. Ablation became a
+    silent no-op and every score came back exactly 0.0 -- which for sufficiency
+    (lower is better) reads as a perfect result rather than a broken one.
+    """
+
+    def _metric(self):
+        return ComprehensivenessMetric.__new__(ComprehensivenessMetric)
+
+    def test_mean_ablation_changes_input_at_batch_size_one(self):
+        metric = self._metric()
+        x = torch.randn(1, 3, 8, 8)
+        mask = torch.zeros_like(x)
+        mask[..., :4, :] = 1
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            baseline = metric._mean_baseline(x)
+            caught_msgs = [str(c.message) for c in caught]
+
+        ablated = x * (1 - mask) + baseline * mask
+        self.assertFalse(
+            torch.equal(ablated, x),
+            "mean ablation must not be a no-op at batch_size=1",
+        )
+        self.assertTrue(
+            any("batch_size=1" in m for m in caught_msgs),
+            "falling back to a per-sample mean should warn",
+        )
+
+    def test_mean_ablation_keeps_batch_mean_for_real_batches(self):
+        metric = self._metric()
+        x = torch.randn(4, 3, 8, 8)
+        baseline = metric._mean_baseline(x)
+        self.assertTrue(torch.allclose(baseline, x.mean(dim=0, keepdim=True)))
+        self.assertEqual(tuple(baseline.shape), (1, 3, 8, 8))

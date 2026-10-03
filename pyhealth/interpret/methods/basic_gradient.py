@@ -1,7 +1,7 @@
 import torch
-import numpy as np
-from typing import Dict
+
 from pyhealth.interpret.methods.base_interpreter import BaseInterpreter
+
 
 class BasicGradientSaliencyMaps(BaseInterpreter):
     """Compute gradient-based saliency maps for image classification models.
@@ -28,47 +28,43 @@ class BasicGradientSaliencyMaps(BaseInterpreter):
         where c iterates over color channels (RGB or grayscale)
     
     Examples:
-        Basic usage with a batch::
-        
-            from pyhealth.interpret.methods.basic_gradient import BasicGradientSaliencyMaps
-            import matplotlib.pyplot as plt
-            
-            # Create batch
-            batch = {
-                'image': torch.randn(2, 3, 224, 224),
-                'disease': torch.tensor([0, 1])
-            }
-            
-            # Compute saliency maps
-            saliency = BasicGradientSaliencyMaps(model, input_batch=batch)
-            
-            # Visualize
-            saliency.visualize_saliency_map(
-                plt, 
-                image_index=0,
-                title="Saliency Map",
-                id2label={0: "Normal", 1: "COVID"}
-            )
-        
-        Using the attribute() interface::
-        
-            # Initialize without batch
-            saliency = BasicGradientSaliencyMaps(model)
-            
-            # Compute attributions for new data
-            attributions = saliency.attribute(**batch)
-            # Returns: {'image': tensor with saliency maps}
-            
-            # Save to batch history
-            attributions = saliency.attribute(save_to_batch=True, **batch)
-    
+        >>> import torch
+        >>> import matplotlib.pyplot as plt
+        >>> from pyhealth.interpret.methods.basic_gradient import (
+        ...     BasicGradientSaliencyMaps,
+        ... )
+        >>>
+        >>> batch = {
+        ...     "image": torch.randn(2, 3, 224, 224),
+        ...     "disease": torch.tensor([0, 1]),
+        ... }
+        >>> # ... train an image classification model ...
+        >>>
+        >>> # Compute saliency maps up front for a batch
+        >>> saliency = BasicGradientSaliencyMaps(model, input_batch=batch)
+        >>> saliency.visualize_saliency_map(
+        ...     plt,
+        ...     image_index=0,
+        ...     title="Saliency Map",
+        ...     id2label={0: "Normal", 1: "COVID"},
+        ... )
+        >>>
+        >>> # Or use the attribute() interface on new data
+        >>> saliency = BasicGradientSaliencyMaps(model)
+        >>> attributions = saliency.attribute(**batch)
+        >>> # Returns dict: {"image": tensor of saliency maps}
+        >>> attributions["image"].shape  # [batch, H, W]
+        >>>
+        >>> # Append the result to the interpreter's batch history
+        >>> attributions = saliency.attribute(save_to_batch=True, **batch)
+
     Note:
         - Do not use within ``torch.no_grad()`` context as gradients are required
         - Works with any PyHealth image classification model
         - For best results, normalize input images consistently with training
     
     See Also:
-        - ``examples/ChestXrayClassificationWithSaliency.ipynb``: Complete tutorial
+        - ``examples/cxr/ChestXrayClassificationWithSaliency.ipynb``: Complete tutorial
         - :class:`~pyhealth.interpret.methods.IntegratedGradients`: Alternative attribution method
     """
     def __init__(self, model, input_batch=None, image_key='image', label_key='disease'):
@@ -99,7 +95,7 @@ class BasicGradientSaliencyMaps(BaseInterpreter):
         if input_batch is not None:
             self._compute_saliency_maps()
     
-    def attribute(self, save_to_batch=False, **data) -> Dict[str, torch.Tensor]:
+    def attribute(self, save_to_batch=False, **data) -> dict[str, torch.Tensor]:
         """Compute attribution scores for input features.
         
         This method implements the BaseInterpreter interface by computing
@@ -210,6 +206,9 @@ class BasicGradientSaliencyMaps(BaseInterpreter):
     def visualize_saliency_map(self, plt, *, image_index, title=None, id2label=None, alpha=0.3):
         """Display an image with its saliency map overlay.
         
+        This method uses the SaliencyVisualizer for rendering and adds model
+        prediction information to the visualization.
+        
         Args:
             plt: matplotlib.pyplot instance
             image_index: Index of image within batch
@@ -217,6 +216,8 @@ class BasicGradientSaliencyMaps(BaseInterpreter):
             id2label: Optional dictionary mapping class indices to labels
             alpha: Transparency of saliency overlay (default: 0.3)
         """
+        from pyhealth.interpret.methods.saliency_visualization import SaliencyVisualizer
+        
         if plt is None:
             import matplotlib.pyplot as plt
 
@@ -258,26 +259,13 @@ class BasicGradientSaliencyMaps(BaseInterpreter):
                 title = f"True: {true_label_str}, Predicted: {pred_label_str}"
             else:
                 title = f"{title} - True: {true_label_str}, Predicted: {pred_label_str}"
-
-        # Convert image to numpy for display
-        if img_tensor.dim() == 4:
-            img_tensor = img_tensor[0]
-        img_np = img_tensor.detach().cpu().numpy()
-        if img_np.shape[0] in [1, 3]:  # CHW to HWC
-            img_np = np.transpose(img_np, (1, 2, 0))
-        if img_np.shape[-1] == 1:
-            img_np = img_np.squeeze(-1)
-            
-        # Convert saliency to numpy
-        if saliency.dim() > 2:
-            saliency = saliency[0]
-        saliency_np = saliency.detach().cpu().numpy()
         
-        # Create visualization
-        plt.figure(figsize=(15, 7))
-        plt.axis('off')
-        plt.imshow(img_np, cmap='gray')
-        plt.imshow(saliency_np, cmap='hot', alpha=alpha)
-        if title:
-            plt.title(title)
-        plt.show()
+        # Use SaliencyVisualizer for rendering
+        visualizer = SaliencyVisualizer(default_alpha=alpha)
+        visualizer.plot_saliency_overlay(
+            plt,
+            image=img_tensor[0],
+            saliency=saliency,
+            title=title,
+            alpha=alpha
+        )

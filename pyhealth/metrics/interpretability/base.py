@@ -4,6 +4,7 @@ This module provides the abstract base class for removal-based faithfulness
 metrics like Comprehensiveness and Sufficiency.
 """
 
+import warnings
 from abc import ABC, abstractmethod
 from typing import Dict, List, Optional
 
@@ -161,6 +162,39 @@ class RemovalBasedMetric(ABC):
             print("[RemovalBasedMetric] WARNING: Unknown classifier")
             print(f"  - Mode detected: {mode}")
 
+    def _mean_baseline(self, x: torch.Tensor) -> torch.Tensor:
+        """Replacement values for the ``"mean"`` ablation strategy.
+
+        The across-batch mean is only a meaningful baseline when there is more
+        than one sample. With ``batch_size == 1``, ``x.mean(dim=0)`` *is* ``x``,
+        so ``x * (1 - mask) + x_mean * mask`` reduces to ``x`` and the ablation
+        silently does nothing -- every score comes back exactly 0.0, which for
+        sufficiency (lower is better) looks like a perfect result rather than a
+        no-op. Since ``batch_size=1`` is the usual setting for per-sample
+        interpretability, fall back to each sample's mean over its own feature
+        dimensions, which is a genuine uninformative baseline.
+
+        Args:
+            x: Input tensor with the batch on dimension 0.
+
+        Returns:
+            Tensor broadcastable to ``x`` holding the replacement values.
+        """
+        if x.shape[0] > 1:
+            return x.mean(dim=0, keepdim=True)
+
+        warnings.warn(
+            "ablation_strategy='mean' with batch_size=1: the across-batch mean "
+            "equals the sample itself, which would make ablation a no-op. "
+            "Falling back to the sample's mean over its feature dimensions. "
+            "Pass more than one sample to get a per-feature batch mean.",
+            RuntimeWarning,
+            stacklevel=3,
+        )
+        if x.dim() == 1:
+            return x.mean().expand_as(x)
+        return x.mean(dim=tuple(range(1, x.dim())), keepdim=True)
+
     @abstractmethod
     def _create_ablated_inputs(
         self,
@@ -302,7 +336,7 @@ class RemovalBasedMetric(ABC):
                         if self.ablation_strategy == "zero":
                             ablated_values = x_values * (1 - mask)
                         elif self.ablation_strategy == "mean":
-                            x_mean = x_values.mean(dim=0, keepdim=True)
+                            x_mean = self._mean_baseline(x_values)
                             ablated_values = x_values * (1 - mask) + x_mean * mask
                         elif self.ablation_strategy == "noise":
                             noise = torch.randn_like(x_values) * x_values.std()
@@ -338,8 +372,8 @@ class RemovalBasedMetric(ABC):
                 ablated_inputs[key] = x * (1 - mask)
 
             elif self.ablation_strategy == "mean":
-                # Set ablated features to mean across batch
-                x_mean = x.mean(dim=0, keepdim=True)
+                # Set ablated features to a mean baseline (see _mean_baseline)
+                x_mean = self._mean_baseline(x)
                 ablated_inputs[key] = x * (1 - mask) + x_mean * mask
 
             elif self.ablation_strategy == "noise":
