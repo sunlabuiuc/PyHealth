@@ -49,6 +49,29 @@ class SampleBuilder:
     After saving the schema, `litdata.optimize` can be used with `builder.transform`
     to serialize and chunk pickled sample items into a directory that can be
     loaded via SampleDataset.
+
+    Pre-fitted processors passed as `input_processors` / `output_processors` are
+    used as they are; every schema field without one gets a fitted processor.
+
+    Examples:
+        >>> from pyhealth.datasets.sample_dataset import SampleBuilder
+        >>> from pyhealth.processors import SequenceProcessor
+        >>> samples = [
+        ...     {"patient_id": "p1", "codes": ["a", "b"], "age": [40.0], "label": 1},
+        ...     {"patient_id": "p2", "codes": ["c"], "age": [55.0], "label": 0},
+        ... ]
+        >>> codes = SequenceProcessor()
+        >>> codes.fit(samples, "codes")
+        >>> builder = SampleBuilder(
+        ...     input_schema={"codes": "sequence", "age": "tensor"},
+        ...     output_schema={"label": "binary"},
+        ...     input_processors={"codes": codes},
+        ... )
+        >>> builder.fit(samples)
+        >>> builder.input_processors["codes"] is codes
+        True
+        >>> type(builder.input_processors["age"]).__name__
+        'TensorProcessor'
     """
 
     def __init__(
@@ -61,10 +84,10 @@ class SampleBuilder:
         self.input_schema = input_schema
         self.output_schema = output_schema
         self._input_processors = (
-            input_processors if input_processors is not None else {}
+            dict(input_processors) if input_processors is not None else {}
         )
         self._output_processors = (
-            output_processors if output_processors is not None else {}
+            dict(output_processors) if output_processors is not None else {}
         )
         self._patient_to_index: Dict[str, List[int]] = {}
         self._record_to_index: Dict[str, List[int]] = {}
@@ -145,9 +168,9 @@ class SampleBuilder:
             - Builds `patient_to_index` and `record_to_index` mappings by
               recording the sample indices associated with `patient_id` and
               `record_id`/`visit_id` fields.
-            - Instantiates and fits input/output processors from the provided
-              schemas (unless pre-fitted processors were supplied to the
-              constructor).
+            - Instantiates and fits a processor for every schema field that
+              has none. Pre-fitted processors supplied to the constructor are
+              used as they are; any remaining fields still get fitted ones.
         """
         # Validate the samples
         input_keys = set(self.input_schema.keys())
@@ -171,17 +194,17 @@ class SampleBuilder:
             if record_id is not None:
                 self._record_to_index.setdefault(record_id, []).append(i)
 
-        # Fit processors if they were not provided
-        if not self._input_processors:
-            for key, spec in self.input_schema.items():
-                processor = self._get_processor_instance(spec)
-                processor.fit(samples, key)
-                self._input_processors[key] = processor
-        if not self._output_processors:
-            for key, spec in self.output_schema.items():
-                processor = self._get_processor_instance(spec)
-                processor.fit(samples, key)
-                self._output_processors[key] = processor
+        # Fit a processor for every schema field that has none. Supplied
+        # (pre-fitted) processors are used as they are, never refitted.
+        for schema, processors in (
+            (self.input_schema, self._input_processors),
+            (self.output_schema, self._output_processors),
+        ):
+            for key, spec in schema.items():
+                if key not in processors:
+                    processor = self._get_processor_instance(spec)
+                    processor.fit(samples, key)
+                    processors[key] = processor
 
         self._fitted = True
 

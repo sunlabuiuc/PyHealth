@@ -276,6 +276,31 @@ For maximum control, you can pass pre-configured processor instances directly in
             return samples
 
 
+Reusing Fitted Processors
+-------------------------
+
+``set_task()`` and ``create_sample_dataset()`` accept already-fitted processors
+through ``input_processors`` and ``output_processors``. A supplied processor is
+used as it is and never refitted; every schema field you do not supply gets a
+processor fitted on the samples as usual. A common use is fitting on training
+samples only and reusing those processors for validation and test data, so test
+patients do not shape preprocessing:
+
+.. code-block:: python
+
+    from pyhealth.datasets import create_sample_dataset
+
+    train = create_sample_dataset(train_samples, input_schema, output_schema)
+    test = create_sample_dataset(
+        test_samples, input_schema, output_schema,
+        input_processors=train.input_processors,
+        output_processors=train.output_processors,
+    )
+
+In PyHealth 2.0.2 and earlier, supplying a processor for some fields fitted
+none for the rest of that schema: those fields reached the model as raw Python
+values, without an error. See ``examples/reuse_train_processors.py``.
+
 Processor String Keys
 ---------------------
 
