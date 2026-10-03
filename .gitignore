@@ -155,3 +155,5 @@ test-resources/meds_demo/
 
 # Tool caches
 .ruff_cache/
+# Locally generated Synthea output and PyHealth caches
+.artifacts/

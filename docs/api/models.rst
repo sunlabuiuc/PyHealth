@@ -207,6 +207,7 @@ API Reference
     models/pyhealth.models.PromptEHR
     models/pyhealth.models.MedGAN
     models/pyhealth.models.CorGAN
+    models/pyhealth.models.Synthea
     models/pyhealth.models.SDOH
     models/pyhealth.models.VisionEmbeddingModel
     models/pyhealth.models.TextEmbedding

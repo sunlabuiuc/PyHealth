@@ -12,42 +12,103 @@ import subprocess
 import urllib.request
 import zipfile
 from collections.abc import Mapping
+from dataclasses import dataclass
 from fnmatch import fnmatchcase
 from pathlib import Path
 from types import MappingProxyType
 
 import platformdirs
-import yaml
+
+from ..base_model import BaseModel
 
 logger = logging.getLogger(__name__)
 
-_RELEASE_CONFIG_PATH = Path(__file__).parent / "configs" / "synthea_release.yaml"
-with _RELEASE_CONFIG_PATH.open(encoding="utf-8") as _release_file:
-    _release = yaml.safe_load(_release_file)
 
-SYNTHEA_VERSION = str(_release["version"])
-SYNTHEA_JAR_URL = str(_release["url"])
-SYNTHEA_JAR_SHA256 = str(_release["sha256"])
-if not re.fullmatch(r"[0-9a-f]{64}", SYNTHEA_JAR_SHA256):
-    raise RuntimeError(f"invalid Synthea SHA-256 in {_RELEASE_CONFIG_PATH}")
+@dataclass(frozen=True)
+class _SyntheaRelease:
+    """Pinned Synthea release and the exporter keys this wrapper manages.
 
-_config_keys = _release["config_keys"]
-_BASE_DIRECTORY_KEY = str(_config_keys["base_directory"])
-_CSV_EXPORT_KEY = str(_config_keys["csv_export"])
-UNSUPPORTED_EXPORT_FLAGS = tuple(
-    str(flag) for flag in _release["unsupported_export_flags"]
-)
+    Bumping Synthea means updating ``version``, ``url``, and ``sha256``
+    together, then re-checking the exporter keys against the new release's
+    ``synthea.properties``.
 
+    Attributes:
+        version (str): Synthea release tag.
+        url (str): Download URL of the release's all-in-one JAR.
+        sha256 (str): Expected SHA-256 digest of the JAR.
+        base_directory_key (str): Property that sets the output root.
+        csv_export_key (str): Property that enables CSV export.
+        unsupported_export_flags (tuple[str, ...]): Exporter switches forced
+            off so that only CSV output is produced.
+        min_java_version (int): Oldest Java major version the JAR runs on.
+    """
+
+    version: str = "v4.0.0"
+    url: str = (
+        "https://github.com/synthetichealth/synthea/releases/download/"
+        "v4.0.0/synthea-with-dependencies.jar"
+    )
+    sha256: str = "ed43c20ad40ba5c3bc724503a5af032715fe3c491620b766148e7c2361e6ecc1"
+    base_directory_key: str = "exporter.baseDirectory"
+    csv_export_key: str = "exporter.csv.export"
+    unsupported_export_flags: tuple[str, ...] = (
+        "exporter.bfd.export",
+        "exporter.ccda.export",
+        "exporter.cdw.export",
+        "exporter.clinical_note.export",
+        "exporter.cpcds.export",
+        "exporter.fhir.export",
+        "exporter.fhir_dstu2.export",
+        "exporter.fhir_stu3.export",
+        "exporter.json.export",
+        "exporter.symptoms.csv.export",
+        "exporter.symptoms.text.export",
+        "exporter.text.export",
+    )
+    min_java_version: int = 17
+
+    def __post_init__(self) -> None:
+        """Rejects a malformed pinned digest.
+
+        Raises:
+            ValueError: If ``sha256`` is not 64 lowercase hex characters.
+        """
+        if not re.fullmatch(r"[0-9a-f]{64}", self.sha256):
+            raise ValueError(f"invalid Synthea SHA-256: {self.sha256!r}")
+
+
+_RELEASE = _SyntheaRelease()
+
+_JAVA_VERSION = re.compile(r'version "(\d+)(?:\.(\d+))?')
 _PROPERTY_KEY = re.compile(r"^[A-Za-z0-9_.-]+$")
 
 
-class SyntheaGenerator:
+class Synthea(BaseModel):
     """Generates a Synthea population in CSV format.
 
     Synthea command-line options are exposed as constructor parameters. Settings
     from ``synthea.properties`` belong in ``synthea_config``. CSV output is
     enabled automatically. An omitted command-line option is not emitted, so
     Synthea supplies its native default.
+
+    Synthea is a rule-based simulator run as a Java subprocess, not a trained
+    network. It subclasses :class:`~pyhealth.models.BaseModel` for API
+    consistency but has no trainable parameters and no forward pass. Unlike the
+    other generators it writes CSV files to disk rather than returning records;
+    load them with :class:`~pyhealth.datasets.SyntheaCSVDataset`.
+
+    Note:
+        Java 17 or newer must be installed; PyHealth does not install it.
+        The executable is taken from ``java_path``, then ``JAVA_HOME``, then
+        ``java`` on ``PATH``, and its version is checked before running. Only :meth:`run` and :meth:`ensure_generated`
+        need Java; construction and :meth:`build_argv` do not.
+
+    Examples:
+        >>> from pyhealth.datasets import SyntheaCSVDataset
+        >>> from pyhealth.models import Synthea
+        >>> synthea = Synthea("./synthea-output", population=10, seed=42)
+        >>> root = synthea.ensure_generated()
+        >>> dataset = SyntheaCSVDataset(root, tables=["patients"])
     """
 
     def __init__(
@@ -112,8 +173,8 @@ class SyntheaGenerator:
             auto_download (bool): Whether to download the pinned JAR when absent.
             synthea_config (Mapping, optional): ``synthea.properties`` overrides.
             timeout (float, optional): Subprocess timeout in seconds.
-            regenerate (bool): Whether the first lazy access replaces existing
-                output.
+            regenerate (bool): Whether the first ``ensure_generated`` call
+                replaces existing output.
 
         Raises:
             TypeError: If a constructor value or configuration property has an
@@ -123,6 +184,7 @@ class SyntheaGenerator:
                 an exporter.
             FileNotFoundError: If ``local_config_path`` cannot be read.
         """
+        super().__init__(dataset=None)
         if population is not None and (
             not isinstance(population, int) or isinstance(population, bool)
         ):
@@ -191,14 +253,12 @@ class SyntheaGenerator:
         self.auto_download = auto_download
         normalized_config = self._normalize_config(synthea_config or {})
         managed_export_keys = normalized_config.keys() & {
-            _CSV_EXPORT_KEY,
-            *UNSUPPORTED_EXPORT_FLAGS,
+            _RELEASE.csv_export_key,
+            *_RELEASE.unsupported_export_flags,
         }
         if managed_export_keys:
             names = ", ".join(sorted(managed_export_keys))
-            raise ValueError(
-                "SyntheaGenerator manages CSV exporter selection; remove: " + names
-            )
+            raise ValueError("Synthea manages CSV exporter selection; remove: " + names)
         self.synthea_config = MappingProxyType(normalized_config)
         local_config = (
             self._read_config_file(self.local_config_path)
@@ -215,11 +275,11 @@ class SyntheaGenerator:
         fingerprint_config = {
             key: value
             for key, value in self.synthea_config.items()
-            if key != _BASE_DIRECTORY_KEY
+            if key != _RELEASE.base_directory_key
         }
         fingerprint_payload = json.dumps(
             {
-                "version": SYNTHEA_VERSION,
+                "version": _RELEASE.version,
                 "population": self.population,
                 "seed": self.seed,
                 "clinician_seed": self.clinician_seed,
@@ -252,11 +312,39 @@ class SyntheaGenerator:
         )
         fingerprint = hashlib.sha256(fingerprint_payload.encode()).hexdigest()
 
-        configured_base = effective_config.get(_BASE_DIRECTORY_KEY)
+        configured_base = effective_config.get(_RELEASE.base_directory_key)
         self.generation_dir = (
             Path(configured_base).expanduser().resolve()
             if configured_base
             else self.output_dir / fingerprint
+        )
+
+    def forward(self, **kwargs) -> dict:
+        """Rejects forward calls; Synthea has no forward pass.
+
+        Args:
+            **kwargs: Ignored.
+
+        Raises:
+            NotImplementedError: Always. Use :meth:`run` or
+                :meth:`ensure_generated` to produce data.
+        """
+        raise NotImplementedError(
+            "Synthea is a simulator with no forward pass; "
+            "call run() or ensure_generated() instead."
+        )
+
+    def extra_repr(self) -> str:
+        """Summarizes the population settings shown by ``repr``.
+
+        Returns:
+            str: Comma-separated non-default population settings.
+        """
+        fields = ("population", "seed", "state", "city", "gender", "age_range")
+        return ", ".join(
+            f"{name}={getattr(self, name)!r}"
+            for name in fields
+            if getattr(self, name) is not None
         )
 
     @staticmethod
@@ -345,26 +433,26 @@ class SyntheaGenerator:
             wrapper-managed exporter settings.
         """
         config = dict(self.synthea_config)
-        config[_BASE_DIRECTORY_KEY] = str(self.generation_dir)
-        config[_CSV_EXPORT_KEY] = "true"
-        for key in UNSUPPORTED_EXPORT_FLAGS:
+        config[_RELEASE.base_directory_key] = str(self.generation_dir)
+        config[_RELEASE.csv_export_key] = "true"
+        for key in _RELEASE.unsupported_export_flags:
             config[key] = "false"
         return config
 
     def with_config(
         self,
         config: Mapping[str, str | int | float | bool],
-    ) -> SyntheaGenerator:
-        """Returns a new generator with merged Synthea property overrides.
+    ) -> Synthea:
+        """Returns a new instance with merged Synthea property overrides.
 
-        The current generator is not modified. The new generator repeats normal
+        The current instance is not modified. The new instance repeats normal
         constructor validation and receives a freshly computed output fingerprint.
 
         Args:
             config (Mapping): Properties to add or replace.
 
         Returns:
-            SyntheaGenerator: A new generator containing the merged properties.
+            Synthea: A new instance containing the merged properties.
 
         Raises:
             TypeError: If ``config`` is not a mapping or contains invalid values.
@@ -405,14 +493,17 @@ class SyntheaGenerator:
     def _resolve_java(self) -> Path:
         """Finds the Java executable used to run Synthea.
 
-        Resolution checks ``java_path``, ``JAVA_HOME``, and then the executable
-        available on ``PATH``.
+        The first executable found among ``java_path``, ``JAVA_HOME``, and
+        ``PATH`` is used, and must be at least the pinned release's minimum
+        Java version. An older Java is reported rather than skipped, so a stale
+        ``JAVA_HOME`` is not silently bypassed.
 
         Returns:
             Path: The resolved Java executable.
 
         Raises:
-            RuntimeError: If no Java executable can be found.
+            RuntimeError: If no Java executable can be found, it cannot be run,
+                or its version is too old.
         """
         candidates = []
         if self.java_path:
@@ -421,12 +512,59 @@ class SyntheaGenerator:
             candidates.append(Path(java_home) / "bin" / "java")
         if java := shutil.which("java"):
             candidates.append(Path(java))
+        minimum = _RELEASE.min_java_version
         for candidate in candidates:
             if candidate.is_file():
-                return candidate.resolve()
+                java = candidate.resolve()
+                version = self._java_major_version(java)
+                if version is not None and version < minimum:
+                    raise RuntimeError(
+                        f"Synthea requires Java {minimum}+, but {java} is Java "
+                        f"{version}. Install a JDK {minimum}+ (for example from "
+                        "https://adoptium.net) or pass java_path=."
+                    )
+                return java
         raise RuntimeError(
-            "Synthea requires Java 17+. Install Java or pass java_path=."
+            f"Synthea requires Java {minimum}+, but none was found via "
+            "java_path, JAVA_HOME, or PATH. Install a JDK "
+            f"{minimum}+ (for example from https://adoptium.net) or pass "
+            "java_path=."
         )
+
+    @staticmethod
+    def _java_major_version(java: Path) -> int | None:
+        """Reads the major version reported by ``java -version``.
+
+        Handles both the modern scheme (``"17.0.2"`` -> 17) and the legacy one
+        (``"1.8.0_392"`` -> 8).
+
+        Args:
+            java (Path): Java executable to query.
+
+        Returns:
+            int | None: The major version, or ``None`` if the output could not
+            be parsed. Unparseable output is logged and tolerated rather than
+            treated as a failure.
+
+        Raises:
+            RuntimeError: If the executable cannot be run.
+        """
+        try:
+            result = subprocess.run(
+                [str(java), "-version"],
+                capture_output=True,
+                text=True,
+                timeout=60,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired) as error:
+            raise RuntimeError(f"cannot run Java at {java}: {error}") from error
+        match = _JAVA_VERSION.search(result.stderr + result.stdout)
+        if not match:
+            logger.warning("Could not determine the version of Java at %s", java)
+            return None
+        major, minor = match.groups()
+        return int(minor) if major == "1" and minor else int(major)
 
     @classmethod
     def _resolve_jar_path(
@@ -454,7 +592,7 @@ class SyntheaGenerator:
             return jar_path.resolve()
 
         cache = Path(platformdirs.user_cache_dir("pyhealth")) / "synthea"
-        jar = cache / f"synthea-with-dependencies-{SYNTHEA_VERSION}.jar"
+        jar = cache / f"synthea-with-dependencies-{_RELEASE.version}.jar"
         if jar.is_file():
             return jar
         if not auto_download:
@@ -462,12 +600,12 @@ class SyntheaGenerator:
                 f"Synthea jar not found at {jar}; pass jar_path= or enable download"
             )
 
-        logger.warning("Downloading Synthea %s to %s", SYNTHEA_VERSION, jar)
+        logger.warning("Downloading Synthea %s to %s", _RELEASE.version, jar)
         cache.mkdir(parents=True, exist_ok=True)
         partial = jar.with_suffix(".jar.part")
         try:
-            urllib.request.urlretrieve(SYNTHEA_JAR_URL, partial)
-            if cls._sha256(partial) != SYNTHEA_JAR_SHA256:
+            urllib.request.urlretrieve(_RELEASE.url, partial)
+            if cls._sha256(partial) != _RELEASE.sha256:
                 raise RuntimeError("downloaded Synthea jar failed SHA256 verification")
             partial.replace(jar)
         finally:
@@ -475,7 +613,7 @@ class SyntheaGenerator:
         return jar
 
     def _resolve_jar(self) -> Path:
-        """Resolves the JAR using this generator's configured options.
+        """Resolves the JAR using this instance's configured options.
 
         Returns:
             Path: The resolved Synthea JAR.
@@ -678,7 +816,7 @@ class SyntheaGenerator:
         """Ensures that CSV output exists and returns its directory.
 
         Existing output is reused unless ``regenerate`` requests replacement on
-        the first access through this generator.
+        the first call on this instance.
 
         Returns:
             Path: Directory containing the generated CSV files.

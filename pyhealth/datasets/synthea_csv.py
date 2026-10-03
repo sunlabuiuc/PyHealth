@@ -5,7 +5,6 @@ from pathlib import Path
 import narwhals as nw
 
 from .base_dataset import BaseDataset
-from .synthea_generator import SyntheaGenerator
 
 DEFAULT_TABLES = [
     "patients",
@@ -25,22 +24,23 @@ DEFAULT_TABLES = [
 
 
 class SyntheaCSVDataset(BaseDataset):
-    """Loads generated Synthea CSV files through the PyHealth dataset API.
+    """Loads Synthea CSV files through the PyHealth dataset API.
 
-    Generation remains lazy: constructing the dataset does not run Synthea.
-    The first data load asks the associated generator to create any missing CSV
-    files before delegating parsing and normalization to :class:`BaseDataset`.
+    The dataset only reads files; it does not run Synthea. Produce the CSV
+    directory with :class:`~pyhealth.models.Synthea` first, or point ``root``
+    at any existing Synthea CSV export.
 
     Examples:
-        >>> from pyhealth.datasets import SyntheaCSVDataset, SyntheaGenerator
-        >>> generator = SyntheaGenerator("./synthea-output", population=10)
-        >>> dataset = SyntheaCSVDataset(generator, tables=["patients"])
+        >>> from pyhealth.datasets import SyntheaCSVDataset
+        >>> from pyhealth.models import Synthea
+        >>> root = Synthea("./synthea-output", population=10).ensure_generated()
+        >>> dataset = SyntheaCSVDataset(root, tables=["patients"])
         >>> events = dataset.load_data()
     """
 
     def __init__(
         self,
-        generator: SyntheaGenerator,
+        root: str | Path,
         tables: list[str] | None = None,
         dataset_name: str | None = None,
         config_path: str | None = None,
@@ -49,7 +49,7 @@ class SyntheaCSVDataset(BaseDataset):
         """Initializes a Synthea CSV dataset.
 
         Args:
-            generator (SyntheaGenerator): Generator that owns the CSV output.
+            root (str or Path): Directory containing the Synthea CSV files.
             tables (list[str], optional): CSV tables to load. The supported
                 defaults are used when omitted or empty.
             dataset_name (str, optional): Dataset name used by PyHealth.
@@ -57,13 +57,12 @@ class SyntheaCSVDataset(BaseDataset):
                 bundled Synthea CSV schema is used when omitted.
             **kwargs: Additional arguments passed to :class:`BaseDataset`.
         """
-        self.generator = generator
         self._explicit_tables = bool(tables)
         selected = list(dict.fromkeys(DEFAULT_TABLES if not tables else tables))
         if config_path is None:
             config_path = str(Path(__file__).parent / "configs" / "synthea_csv.yaml")
         super().__init__(
-            root=str(generator.output_path()),
+            root=str(root),
             tables=selected,
             dataset_name=dataset_name or "synthea",
             config_path=config_path,
@@ -71,27 +70,25 @@ class SyntheaCSVDataset(BaseDataset):
         )
 
     def load_data(self):
-        """Generates missing CSV files and loads the selected tables.
+        """Loads the selected tables, skipping default tables not emitted.
 
-        Default tables that Synthea did not emit are skipped. A missing table
-        requested explicitly is treated as an error.
+        Synthea omits CSV files for record types with no rows. A missing
+        default table is skipped; a missing table requested explicitly is
+        treated as an error.
 
         Returns:
             dd.DataFrame: Concatenated lazy Dask DataFrame for the selected
             tables.
 
         Raises:
-            RuntimeError: If Synthea fails or an explicitly selected table is
-                not generated.
+            RuntimeError: If an explicitly selected table is missing.
         """
-        self.generator.ensure_generated()
-        root = self.generator.resolved_output_path()
-        self.root = str(root)
+        root = Path(self.root)
         missing = [
             table for table in self.tables if not (root / f"{table}.csv").is_file()
         ]
         if missing and self._explicit_tables:
-            raise RuntimeError(f"Synthea did not generate tables: {', '.join(missing)}")
+            raise RuntimeError(f"Synthea CSV tables not found: {', '.join(missing)}")
         if missing:
             self.tables = [table for table in self.tables if table not in missing]
         return super().load_data()

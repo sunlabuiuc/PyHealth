@@ -1,4 +1,5 @@
 import os
+import shutil
 import tempfile
 import unittest
 import zipfile
@@ -8,12 +9,13 @@ from unittest import mock
 import narwhals as nw
 import polars as pl
 
-from pyhealth.datasets import SyntheaCSVDataset, SyntheaGenerator
+from pyhealth.datasets import SyntheaCSVDataset
 from pyhealth.datasets.base_dataset import BaseDataset
 from pyhealth.datasets.synthea_csv import DEFAULT_TABLES
+from pyhealth.models import BaseModel, Synthea
 
 
-class TestSyntheaGenerator(unittest.TestCase):
+class TestSynthea(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory(prefix="synthea_")
         self.tmp = Path(self._tmp.name)
@@ -24,7 +26,7 @@ class TestSyntheaGenerator(unittest.TestCase):
         self._tmp.cleanup()
 
     def generator(self, **kwargs):
-        return SyntheaGenerator(
+        return Synthea(
             output_dir=self.output,
             auto_download=False,
             **kwargs,
@@ -54,6 +56,17 @@ exporter.ccda.export = false
 
         self.assertNotIsInstance(generator, BaseDataset)
         self.assertEqual(generator.output_path(), generator.generation_dir / "csv")
+
+    def test_is_base_model_without_forward_pass(self):
+        generator = self.generator(population=5, seed=1)
+
+        self.assertIsInstance(generator, BaseModel)
+        self.assertEqual(
+            [name for name, _ in generator.named_parameters()], ["_dummy_param"]
+        )
+        self.assertIn("population=5, seed=1", repr(generator))
+        with self.assertRaisesRegex(NotImplementedError, "run\\(\\)"):
+            generator()
 
     def test_generation_configuration_partitions_output(self):
         first = self.generator(seed=1)
@@ -242,12 +255,12 @@ exporter.ccda.export = false
     def test_config_can_be_discovered_before_construction(self):
         jar = self.properties_jar()
 
-        config = SyntheaGenerator.get_available_config(
+        config = Synthea.get_available_config(
             jar_path=jar,
             auto_download=False,
             pattern="generate.*",
         )
-        csv_config = SyntheaGenerator.get_available_config(
+        csv_config = Synthea.get_available_config(
             jar_path=jar,
             auto_download=False,
             pattern="exporter.csv.*",
@@ -257,7 +270,7 @@ exporter.ccda.export = false
         self.assertNotIn("exporter.csv.export", config)
         self.assertEqual(csv_config["exporter.csv.export"], "false")
 
-        all_config = SyntheaGenerator.get_available_config(
+        all_config = Synthea.get_available_config(
             jar_path=jar,
             auto_download=False,
         )
@@ -319,9 +332,10 @@ exporter.ccda.export = false
         with (
             mock.patch.dict(os.environ, {"JAVA_HOME": str(home)}),
             mock.patch(
-                "pyhealth.datasets.synthea_generator.shutil.which",
+                "pyhealth.models.generators.synthea.shutil.which",
                 return_value="/path/java",
             ),
+            mock.patch.object(Synthea, "_java_major_version", return_value=17),
         ):
             self.assertEqual(
                 self.generator(java_path=explicit)._resolve_java(),
@@ -336,12 +350,65 @@ exporter.ccda.export = false
         with (
             mock.patch.dict(os.environ, {}, clear=True),
             mock.patch(
-                "pyhealth.datasets.synthea_generator.shutil.which",
+                "pyhealth.models.generators.synthea.shutil.which",
                 return_value=None,
             ),
             self.assertRaisesRegex(RuntimeError, "Java"),
         ):
             self.generator()._resolve_java()
+
+    def test_java_version_parsing(self):
+        outputs = (
+            ('openjdk version "17.0.20.1" 2026-08-18\n', 17),
+            ('openjdk version "21" 2023-09-19\n', 21),
+            ('openjdk version "25-ea" 2025-09-16\n', 25),
+            ('java version "1.8.0_392"\n', 8),
+            ("Error: could not find libjava.so\n", None),
+        )
+        for stderr, expected in outputs:
+            with (
+                self.subTest(stderr=stderr),
+                mock.patch(
+                    "pyhealth.models.generators.synthea.subprocess.run",
+                    return_value=mock.Mock(stderr=stderr, stdout=""),
+                ),
+            ):
+                self.assertEqual(Synthea._java_major_version(Path("java")), expected)
+
+    def test_old_java_raises_with_its_version(self):
+        old_java = self.tmp / "java"
+        old_java.write_text("")
+
+        with (
+            mock.patch.object(Synthea, "_java_major_version", return_value=11),
+            self.assertRaisesRegex(RuntimeError, "is Java 11"),
+        ):
+            self.generator(java_path=old_java)._resolve_java()
+
+    def test_unknown_java_version_is_tolerated(self):
+        java = self.tmp / "java"
+        java.write_text("")
+
+        with mock.patch.object(Synthea, "_java_major_version", return_value=None):
+            self.assertEqual(
+                self.generator(java_path=java)._resolve_java(), java.resolve()
+            )
+
+    def test_unrunnable_java_raises(self):
+        with (
+            mock.patch(
+                "pyhealth.models.generators.synthea.subprocess.run",
+                side_effect=PermissionError("not executable"),
+            ),
+            self.assertRaisesRegex(RuntimeError, "cannot run Java"),
+        ):
+            Synthea._java_major_version(Path("java"))
+
+    @unittest.skipUnless(shutil.which("java"), "requires Java on PATH")
+    def test_real_java_version_is_detected(self):
+        version = Synthea._java_major_version(Path(shutil.which("java")))
+
+        self.assertIsInstance(version, int)
 
     def test_jar_resolution(self):
         jar = self.tmp / "synthea.jar"
@@ -373,7 +440,7 @@ exporter.ccda.export = false
             mock.patch.object(generator, "_resolve_jar", return_value=Path("jar")),
             mock.patch.object(generator, "_validate_config_keys"),
             mock.patch(
-                "pyhealth.datasets.synthea_generator.subprocess.run",
+                "pyhealth.models.generators.synthea.subprocess.run",
                 return_value=mock.Mock(returncode=0),
             ) as subprocess_run,
         ):
@@ -391,23 +458,18 @@ class TestSyntheaDatasets(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory(prefix="synthea_dataset_")
         self.tmp = Path(self._tmp.name)
+        self.root = self.tmp / "csv"
+        self.root.mkdir()
         self.cache = self.tmp / "cache"
 
     def tearDown(self):
         self._tmp.cleanup()
 
-    def generator(self):
-        return SyntheaGenerator(
-            output_dir=self.tmp / "output",
-            auto_download=False,
-        )
-
     def test_csv_dataset_uses_defaults_or_exact_explicit_tables(self):
-        generator = self.generator()
-        default = SyntheaCSVDataset(generator, cache_dir=self.cache)
-        empty = SyntheaCSVDataset(generator, tables=[], cache_dir=self.cache)
+        default = SyntheaCSVDataset(self.root, cache_dir=self.cache)
+        empty = SyntheaCSVDataset(self.root, tables=[], cache_dir=self.cache)
         explicit = SyntheaCSVDataset(
-            generator,
+            self.root,
             tables=["conditions", "patients", "conditions"],
             cache_dir=self.cache,
         )
@@ -415,70 +477,40 @@ class TestSyntheaDatasets(unittest.TestCase):
         self.assertEqual(default.tables, DEFAULT_TABLES)
         self.assertEqual(empty.tables, DEFAULT_TABLES)
         self.assertEqual(explicit.tables, ["conditions", "patients"])
-        self.assertEqual(Path(default.root), generator.output_path())
+        self.assertEqual(Path(default.root), self.root)
 
     @mock.patch.object(BaseDataset, "load_data", return_value="events")
-    def test_csv_dataset_generates_lazily(self, base_load):
-        generator = self.generator()
+    def test_csv_dataset_loads_existing_tables(self, base_load):
+        (self.root / "patients.csv").write_text("Id\npatient-1\n")
         dataset = SyntheaCSVDataset(
-            generator, tables=["patients"], cache_dir=self.cache
+            self.root, tables=["patients"], cache_dir=self.cache
         )
-        root = Path(dataset.root)
-        root.mkdir(parents=True)
-        (root / "patients.csv").write_text("Id\npatient-1\n")
 
-        with mock.patch.object(generator, "ensure_generated") as ensure:
-            self.assertEqual(dataset.load_data(), "events")
-
-        ensure.assert_called_once_with()
-        base_load.assert_called_once_with()
-
-    @mock.patch.object(BaseDataset, "load_data", return_value="events")
-    def test_csv_dataset_uses_nested_folder_per_run_output(self, base_load):
-        generator = self.generator()
-        dataset = SyntheaCSVDataset(
-            generator, tables=["patients"], cache_dir=self.cache
-        )
-        nested = generator.output_path() / "2026_09_20"
-        nested.mkdir(parents=True)
-        (nested / "patients.csv").write_text("Id\npatient-1\n")
-
-        with mock.patch.object(generator, "ensure_generated"):
-            self.assertEqual(dataset.load_data(), "events")
-
-        self.assertEqual(Path(dataset.root), nested)
+        self.assertEqual(dataset.load_data(), "events")
         base_load.assert_called_once_with()
 
     @mock.patch.object(BaseDataset, "load_data", return_value="events")
     def test_csv_default_tables_skip_files_not_emitted_for_empty_types(self, base_load):
-        generator = self.generator()
-        dataset = SyntheaCSVDataset(generator, cache_dir=self.cache)
-        root = Path(dataset.root)
-        root.mkdir(parents=True)
         for table in set(DEFAULT_TABLES) - {"allergies", "imaging_studies"}:
-            (root / f"{table}.csv").write_text("PATIENT\npatient-1\n")
+            (self.root / f"{table}.csv").write_text("PATIENT\npatient-1\n")
+        dataset = SyntheaCSVDataset(self.root, cache_dir=self.cache)
 
-        with mock.patch.object(generator, "ensure_generated"):
-            self.assertEqual(dataset.load_data(), "events")
+        self.assertEqual(dataset.load_data(), "events")
 
         self.assertNotIn("allergies", dataset.tables)
         self.assertNotIn("imaging_studies", dataset.tables)
         base_load.assert_called_once_with()
 
     def test_csv_explicit_missing_table_raises(self):
-        generator = self.generator()
         dataset = SyntheaCSVDataset(
-            generator, tables=["allergies"], cache_dir=self.cache
+            self.root, tables=["allergies"], cache_dir=self.cache
         )
 
-        with (
-            mock.patch.object(generator, "ensure_generated"),
-            self.assertRaisesRegex(RuntimeError, "allergies"),
-        ):
+        with self.assertRaisesRegex(RuntimeError, "allergies"):
             dataset.load_data()
 
     def test_preprocess_procedures_supports_legacy_date(self):
-        dataset = SyntheaCSVDataset(self.generator(), cache_dir=self.cache)
+        dataset = SyntheaCSVDataset(self.root, cache_dir=self.cache)
         frame = nw.from_native(pl.DataFrame({"date": ["2020-01-01T00:00:00Z"]}).lazy())
 
         result = dataset.preprocess_procedures(frame).collect().to_native()
@@ -490,13 +522,15 @@ class TestSyntheaDatasets(unittest.TestCase):
         "requires Java and the Synthea jar",
     )
     def test_live_generate_and_load_csv(self):
-        generator = SyntheaGenerator(
+        synthea = Synthea(
             output_dir=self.tmp / "live",
             population=1,
             seed=42,
             timeout=900,
         )
-        csv_dataset = SyntheaCSVDataset(generator, cache_dir=self.cache / "csv")
+        csv_dataset = SyntheaCSVDataset(
+            synthea.ensure_generated(), cache_dir=self.cache / "csv"
+        )
 
         self.assertEqual(len(csv_dataset.unique_patient_ids), 1)
 
