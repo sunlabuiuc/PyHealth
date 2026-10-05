@@ -88,6 +88,13 @@ class FavMac:
     def _query_threshold(self):
         n = len(self._queue)
         if self.delta is None:
+            # Matches the paper's Eq. 18 (expected cost control):
+            #   T_c = sup{t : (C_max + sum_i C+(t, Z_i)) / (n+1) <= target_cost}
+            # which rearranges to sum_i C+(t, Z_i) <= target_cost*(n+1) - C_max,
+            # i.e. exactly this cutoff. _add_sample() decomposes each
+            # example's (proxy, cost) step function into weight increments
+            # at each proxy score, so the tree's cumulative weight at a
+            # given threshold t equals sum_i C+(t, Z_i) directly.
             cutoff = self.target_cost * (n+1) - self.C_max
             return self.quantiletree.query_cumu_weight(cutoff, prev=False)
         else:
