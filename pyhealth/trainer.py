@@ -64,6 +64,22 @@ class Trainer:
         enable_logging: Whether to enable logging. Default is True.
         output_path: Path to save the output. Default is "./output".
         exp_name: Name of the experiment. Default is current datetime.
+
+    Examples:
+        >>> from pyhealth.trainer import Trainer
+        >>> trainer = Trainer(model=model, metrics=["roc_auc", "pr_auc"])
+        >>> trainer.train(
+        ...     train_dataloader=train_loader,
+        ...     val_dataloader=val_loader,
+        ...     epochs=5,
+        ...     monitor="roc_auc",
+        ... )
+        >>> scores = trainer.evaluate(test_loader)
+
+        ``evaluate`` pools predictions and labels across all batches and
+        computes each metric exactly once on the pooled arrays, and the
+        reported loss is the example-weighted mean, so the scores do not
+        depend on the batch size or on the order in which batches arrive.
     """
 
     def __init__(
@@ -268,6 +284,12 @@ class Trainer:
                   return_patient_ids=False) -> Dict[str, float]:
         """Model inference.
 
+        Predictions and labels are accumulated across all batches and
+        returned as pooled arrays. The loss is pooled as an
+        example-weighted mean (each batch's mean loss is weighted by its
+        batch size), so the returned value does not depend on the batch
+        size or on the order in which batches arrive.
+
         Args:
             dataloader: Dataloader for evaluation.
             additional_outputs: List of additional output to collect.
@@ -276,11 +298,13 @@ class Trainer:
         Returns:
             y_true_all: List of true labels.
             y_prob_all: List of predicted probabilities.
-            loss_mean: Mean loss over batches.
+            loss_mean: Example-weighted mean loss over all samples.
             additional_outputs (only if requested): Dict of additional results.
-            patient_ids (only if requested): List of patient ids in the same order as y_true_all/y_prob_all.
+            patient_ids (only if requested): List of patient ids in the same
+                order as y_true_all/y_prob_all.
         """
-        loss_all = []
+        loss_sum = 0.0
+        sample_count = 0
         y_true_all = []
         y_prob_all = []
         patient_ids = []
@@ -293,7 +317,9 @@ class Trainer:
                 loss = output["loss"]
                 y_true = output["y_true"].cpu().numpy()
                 y_prob = output["y_prob"].cpu().numpy()
-                loss_all.append(loss.item())
+                batch_size = y_true.shape[0] if y_true.ndim > 0 else 1
+                loss_sum += loss.item() * batch_size
+                sample_count += batch_size
                 y_true_all.append(y_true)
                 y_prob_all.append(y_prob)
                 if additional_outputs is not None:
@@ -301,7 +327,7 @@ class Trainer:
                         additional_outputs[key].append(output[key].cpu().numpy())
             if return_patient_ids:
                 patient_ids.extend(data["patient_id"])
-        loss_mean = sum(loss_all) / len(loss_all)
+        loss_mean = loss_sum / sample_count
         y_true_all = np.concatenate(y_true_all, axis=0)
         y_prob_all = np.concatenate(y_prob_all, axis=0)
         outputs = [y_true_all, y_prob_all, loss_mean]
@@ -316,6 +342,13 @@ class Trainer:
     def evaluate(self, dataloader) -> Dict[str, float]:
         """Evaluates the model.
 
+        Predictions and labels are first pooled across all batches via
+        :meth:`inference`, and each metric is computed exactly once on the
+        pooled arrays (never computed per batch and averaged). The reported
+        loss is the example-weighted mean over all samples. As a result, the
+        scores are invariant to the evaluation batch size and to the order
+        in which batches arrive.
+
         Args:
             dataloader: Dataloader for evaluation.
 
@@ -329,16 +362,33 @@ class Trainer:
             scores = metrics_fn(y_true_all, y_prob_all, metrics=self.metrics)
             scores["loss"] = loss_mean
         else:
-            loss_all = []
+            loss_sum = 0.0
+            sample_count = 0
+            self.model.eval()
             for data in tqdm(dataloader, desc="Evaluation"):
-                self.model.eval()
                 with torch.no_grad():
                     output = self.model(**data)
                     loss = output["loss"]
-                    loss_all.append(loss.item())
-            loss_mean = sum(loss_all) / len(loss_all)
+                    batch_size = self._get_batch_size(output, data)
+                    loss_sum += loss.item() * batch_size
+                    sample_count += batch_size
+            loss_mean = loss_sum / sample_count
             scores = {"loss": loss_mean}
         return scores
+
+    @staticmethod
+    def _get_batch_size(output: dict, data: dict) -> int:
+        """Infers the number of samples in a batch for loss pooling."""
+        for key in ("y_true", "y_prob"):
+            value = output.get(key)
+            if value is not None and hasattr(value, "shape") and len(value.shape):
+                return value.shape[0]
+        for value in data.values():
+            if isinstance(value, torch.Tensor) and value.ndim > 0:
+                return value.shape[0]
+            if isinstance(value, (list, tuple)):
+                return len(value)
+        return 1
 
     def save_ckpt(self, ckpt_path: str) -> None:
         """Saves the model checkpoint."""
