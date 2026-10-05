@@ -131,9 +131,8 @@ class TestCovariateLabel(unittest.TestCase):
         self.assertIsInstance(cal_model.alpha, np.ndarray)
         np.testing.assert_array_equal(cal_model.alpha, alpha_per_class)
 
-    def test_initialization_non_multiclass_raises_error(self):
-        """Test that non-multiclass models raise an error."""
-        # Create a binary classification dataset with both labels
+    def test_binary_mode_supported(self):
+        """Binary base models are supported (re-presented as 2-class)."""
         binary_samples = [
             {
                 "patient_id": "patient-0",
@@ -163,6 +162,16 @@ class TestCovariateLabel(unittest.TestCase):
             mode="binary",
         )
 
+        cal_model = CovariateLabel(
+            model=binary_model,
+            alpha=0.1,
+            kde_test=self.kde_test,
+            kde_cal=self.kde_cal,
+        )
+        self.assertEqual(cal_model.mode, "binary")
+
+        # A genuinely unsupported mode still raises.
+        binary_model.mode = "regression"
         with self.assertRaises(NotImplementedError):
             CovariateLabel(
                 model=binary_model,

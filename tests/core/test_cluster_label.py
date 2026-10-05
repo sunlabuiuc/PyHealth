@@ -166,9 +166,8 @@ class TestClusterLabel(unittest.TestCase):
         self.assertIsInstance(cluster_model.alpha, np.ndarray)
         np.testing.assert_array_equal(cluster_model.alpha, alpha_per_class)
 
-    def test_initialization_non_multiclass_raises_error(self):
-        """Test that non-multiclass models raise an error."""
-        # Create a binary classification dataset
+    def test_binary_mode_supported(self):
+        """Binary base models are supported (re-presented as 2-class)."""
         binary_samples = [
             {
                 "patient_id": "patient-0",
@@ -198,12 +197,13 @@ class TestClusterLabel(unittest.TestCase):
             mode="binary",
         )
 
+        cluster_model = ClusterLabel(model=binary_model, alpha=0.1, n_clusters=2)
+        self.assertEqual(cluster_model.mode, "binary")
+
+        # A genuinely unsupported mode still raises.
+        binary_model.mode = "regression"
         with self.assertRaises(NotImplementedError):
-            ClusterLabel(
-                model=binary_model,
-                alpha=0.1,
-                n_clusters=2,
-            )
+            ClusterLabel(model=binary_model, alpha=0.1, n_clusters=2)
 
     def test_initialization_invalid_n_clusters_raises_error(self):
         """Test that invalid n_clusters (non-positive or non-int) raises ValueError."""
