@@ -91,6 +91,9 @@ build-backend = "hatchling.build"
 line-length = 88
 target-version = "py313"
 
+[tool.ruff.lint.per-file-ignores]
+"pyhealth/**/__init__.py" = ["F401"]
+
 
 ### Hatchling
 #
