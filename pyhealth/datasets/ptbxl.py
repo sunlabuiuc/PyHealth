@@ -398,9 +398,14 @@ class PTBXLDataset(BaseDataset):
         # config must already be correct when that first happens.
         resolved_config_path = self._write_resolved_config(package_config)
 
-        # BaseDataset._init_cache_dir keys on {root, tables, dataset_name, dev}.
-        # root is the user data path (see load_table). dataset_name still
-        # includes a content hash of the derived CSV so replacing
+        # BaseDataset._init_cache_dir keys on root, tables, dataset_name, dev,
+        # a hash of the resolved config and a size/mtime fingerprint of each
+        # table source. The fingerprint resolves file_path against root (the
+        # user data path, see load_table), where the derived CSV does not
+        # live, so it is empty here (key["sources"] == {"records": [[]]}).
+        # Cache identity therefore rests on the config hash (file_path
+        # encodes the root and ptbxl_database.csv hashes) and on dataset_name,
+        # which adds a content hash of the derived CSV so replacing
         # ptbxl_database.csv in-place does not reuse a stale global_event_df.
         base_name = dataset_name or f"ptbxl_{self.sampling_rate}hz"
         dataset_name = (
