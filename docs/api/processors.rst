@@ -301,6 +301,9 @@ In PyHealth 2.0.2 and earlier, supplying a processor for some fields fitted
 none for the rest of that schema: those fields reached the model as raw Python
 values, without an error. See ``examples/reuse_train_processors.py``.
 
+For datasets built with ``set_task``, ``set_task(task, split=PatientSplit(...))``
+does this in one step and streams the samples; see :doc:`datasets/pyhealth.datasets.splitter`.
+
 Processor String Keys
 ---------------------
 

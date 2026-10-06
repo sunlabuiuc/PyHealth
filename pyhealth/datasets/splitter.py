@@ -1,3 +1,6 @@
+import math
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from itertools import chain
 from typing import List, Optional, Tuple, Union
 
@@ -8,6 +11,75 @@ from .sample_dataset import SampleDataset
 
 # TODO: train_dataset.dataset still access the whole dataset which may leak information
 # TODO: add more splitting methods
+
+
+@dataclass(frozen=True)
+class PatientSplit:
+    """A patient-level split for ``BaseDataset.set_task(task, split=...)``.
+
+    With a split, ``set_task`` fits every processor on the training patients
+    only and returns one dataset per part, so validation and test patients
+    never shape preprocessing (vocabularies, learned statistics).
+
+    Patients are sorted by ID before shuffling with ``seed``, so the same
+    ``PatientSplit`` gives the same patients on every run and machine,
+    whatever order the samples are stored in.
+
+    Args:
+        ratios: Two or three fractions summing to 1: (train, test) or
+            (train, val, test).
+        seed: Seed for the shuffle.
+
+    Examples:
+        >>> from pyhealth.datasets import PatientSplit
+        >>> split = PatientSplit(ratios=(0.7, 0.1, 0.2), seed=42)
+        >>> parts = split.split_indices({"p1": [0, 1], "p2": [2], "p3": [3, 4]})
+        >>> sorted(int(i) for part in parts for i in part)
+        [0, 1, 2, 3, 4]
+    """
+
+    ratios: Sequence[float]
+    seed: int = 0
+
+    def __post_init__(self):
+        ratios = tuple(float(r) for r in self.ratios)
+        if len(ratios) not in (2, 3):
+            raise ValueError("PatientSplit needs 2 or 3 ratios: (train, test) or (train, val, test).")
+        if any(r < 0 for r in ratios) or not math.isclose(sum(ratios), 1.0, abs_tol=1e-6):
+            raise ValueError(f"PatientSplit ratios must be non-negative and sum to 1, got {ratios}.")
+        object.__setattr__(self, "ratios", ratios)
+
+    def to_dict(self) -> dict:
+        """JSON-serialisable description, used in cache keys and metadata."""
+        return {"kind": "patient", "ratios": list(self.ratios), "seed": int(self.seed)}
+
+    def split_indices(
+        self, patient_to_index: Mapping[str, Sequence[int]]
+    ) -> list[np.ndarray]:
+        """Splits sample indices by patient.
+
+        Args:
+            patient_to_index: Patient ID to the indices of its samples.
+
+        Returns:
+            One sorted ``int64`` array of sample indices per ratio, in order
+            (train first). Each patient's samples land in exactly one part.
+        """
+        patients = sorted(patient_to_index, key=str)
+        order = np.random.default_rng(self.seed).permutation(len(patients))
+        cuts = [
+            int(len(patients) * sum(self.ratios[: k + 1]))
+            for k in range(len(self.ratios) - 1)
+        ]
+        parts = []
+        for part in np.split(order, cuts):
+            indices = np.fromiter(
+                chain.from_iterable(patient_to_index[patients[p]] for p in part),
+                dtype=np.int64,
+            )
+            indices.sort()
+            parts.append(indices)
+        return parts
 
 
 def _label_to_int(label) -> int:
