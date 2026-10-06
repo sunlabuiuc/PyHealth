@@ -117,6 +117,22 @@ on the label processor in your task's ``output_schema``:
      - MSE
      - identity → (batch, 1)
 
+The schema value can be written as a string, a label processor class, a
+processor instance, or a ``(name, kwargs)`` tuple. These are equivalent:
+
+.. code-block:: python
+
+    output_schema = {"icd_codes": "multilabel"}
+    output_schema = {"icd_codes": MultiLabelProcessor}
+    output_schema = {"icd_codes": ("multilabel", {})}
+
+Whichever form a task uses, ``model.mode`` is always the plain string
+(``"binary"``, ``"multiclass"``, ``"multilabel"`` or ``"regression"``), or
+``None`` when the label is not one of these kinds. ``Trainer.evaluate()`` and
+the calibration methods use it to pick metrics. ``BaseModel`` sets it for you,
+so custom models don't need to assign ``self.mode``; if they do, the value is
+resolved the same way.
+
 Building a Custom Model
 -----------------------
 

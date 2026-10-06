@@ -164,7 +164,6 @@ class GraphCare(BaseModel):
         self.use_edge_attn = use_edge_attn
 
         self.label_key = self.label_keys[0]
-        self.mode = self.dataset.output_schema[self.label_key]
 
         # --- Determine entity/relation counts ---
         if knowledge_graph is not None:

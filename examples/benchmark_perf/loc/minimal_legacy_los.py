@@ -1,3 +1,4 @@
+# Requires pyhealth==1.1.6 (legacy 1.x task_fn/Visit API) -- not runnable against pyhealth 2.0
 from pyhealth.datasets import MIMIC4Dataset
 
 def categorize_los(d): return 0 if d<1 else (d if d<=7 else (8 if d<=14 else 9))
