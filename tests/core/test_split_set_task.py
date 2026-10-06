@@ -15,7 +15,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from pyhealth.datasets import BaseDataset, PatientSplit
+from pyhealth.datasets import BaseDataset, PatientSplit, Split
 from pyhealth.datasets.sample_dataset import SampleBuilder
 from pyhealth.processors import SequenceProcessor
 from pyhealth.processors.base_processor import FeatureProcessor
@@ -70,6 +70,34 @@ class EventTask(BaseTask):
                 }
             )
         return samples
+
+
+class HoldoutSplit(Split):
+    """Custom split: the given patients form part 1, everyone else part 0."""
+
+    def __init__(self, test_patients):
+        self.test_patients = sorted(test_patients)
+
+    def split_indices(self, patient_to_index):
+        test = set(self.test_patients)
+        parts = ([], [])
+        for pid, indices in patient_to_index.items():
+            parts[pid in test].extend(indices)
+        return [np.array(sorted(p), dtype=np.int64) for p in parts]
+
+    def to_dict(self):
+        return {"kind": "holdout", "test_patients": self.test_patients}
+
+
+class OverlapSplit(Split):
+    """Custom split whose part 1 repeats part 0: set_task must accept it as given."""
+
+    def split_indices(self, patient_to_index):
+        everything = np.array(sorted(i for ix in patient_to_index.values() for i in ix), dtype=np.int64)
+        return [everything, everything[:5]]
+
+    def to_dict(self):
+        return {"kind": "overlap"}
 
 
 def _patient_ids():
@@ -165,6 +193,38 @@ class TestSplitSetTask(unittest.TestCase):
         parts = self.dataset.set_task(EventTask(), split=PatientSplit(ratios=(0.8, 0.2)))
         self.assertEqual(len(parts), 2)
 
+    def test_four_part_split(self):
+        split = PatientSplit(ratios=(0.5, 0.1, 0.1, 0.3), seed=3)
+        parts = self.dataset.set_task(EventTask(), split=split)
+        self.assertEqual(len(parts), 4)
+        patients = [self._patients(d) for d in parts]
+        self.assertEqual(patients, _parts(split))
+        for i in range(4):
+            for j in range(i + 1, 4):
+                self.assertFalse(patients[i] & patients[j])
+        self.assertEqual(set().union(*patients), set(_patient_ids()))
+        self.assertEqual(sum(len(d) for d in parts), len(self.dataset.set_task(EventTask())))
+        self.assertEqual(parts[3].fit_split["ratios"], [0.5, 0.1, 0.1, 0.3])
+
+    def test_custom_split(self):
+        split = HoldoutSplit(self.parts[2])
+        train, held = self.dataset.set_task(EventTask(), split=split)
+        self.assertEqual(self._patients(held), self.parts[2])
+        self.assertEqual(self._patients(train), set(_patient_ids()) - self.parts[2])
+        self.assertEqual(held.fit_split, split.to_dict())
+        codes = train.input_processors["codes"]
+        self.assertNotIn("TESTONLY", codes.code_vocab)
+        self.assertIn(codes.code_vocab["<unk>"], held[0]["codes"].tolist())
+
+    def test_custom_split_parts_are_used_as_given(self):
+        everything, first = self.dataset.set_task(EventTask(), split=OverlapSplit())
+        self.assertEqual(len(everything), len(self.dataset.set_task(EventTask())))
+        self.assertEqual(len(first), 5)
+        self.assertEqual(
+            [first[i]["visit_id"] for i in range(5)],
+            [everything[i]["visit_id"] for i in range(5)],
+        )
+
     def test_unsplit_path_and_cache_key_are_unchanged(self):
         samples = self.dataset.set_task(EventTask())
         proc_key = json.dumps(
@@ -246,7 +306,7 @@ class TestSplitBuilder(unittest.TestCase):
         self.assertAlmostEqual(builder.input_processors["value"].mean, expected)
 
     def test_invalid_ratios(self):
-        for ratios in ((0.5, 0.6), (1.0,), (0.5, -0.1, 0.6), (0.2, 0.2, 0.2, 0.4)):
+        for ratios in ((0.5, 0.6), (1.0,), (0.5, -0.1, 0.6), (0.2, 0.2, 0.2, 0.3)):
             with self.subTest(ratios=ratios), self.assertRaises(ValueError):
                 PatientSplit(ratios=ratios)
 

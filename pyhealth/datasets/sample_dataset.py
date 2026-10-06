@@ -4,6 +4,7 @@ import pickle
 import shutil
 import tempfile
 from typing import Any, Dict, Iterable, List, Optional, Tuple, Union, Type
+from typing import TYPE_CHECKING
 import inspect
 import random
 from bisect import bisect_right
@@ -16,6 +17,9 @@ import numpy as np
 
 from ..processors import get_processor, IgnoreProcessor
 from ..processors.base_processor import FeatureProcessor
+
+if TYPE_CHECKING:  # splitter imports this module
+    from .splitter import Split
 
 logger = logging.getLogger(__name__)
 
@@ -187,7 +191,7 @@ class SampleBuilder:
     def fit(
         self,
         samples: Iterable[Dict[str, Any]],
-        split: Any | None = None,
+        split: "Split | None" = None,
     ) -> None:
         """Fit processors and build mapping indices from an iterator of samples.
 
@@ -198,9 +202,10 @@ class SampleBuilder:
                 required to be pickled; `fit` operates on in-memory dicts.
                 It is iterated several times and never collected, so a
                 streaming dataset works without loading it into memory.
-            split: Optional :class:`~pyhealth.datasets.PatientSplit`. When
-                given, processors are fitted on the first (training) part only,
-                and the sample indices of every part are kept in
+            split: Optional :class:`~pyhealth.datasets.Split`, such as
+                :class:`~pyhealth.datasets.PatientSplit`. When given,
+                processors are fitted on the first (training) part only, and
+                the sample indices of every part are kept in
                 ``split_indices``.
 
         Behavior:

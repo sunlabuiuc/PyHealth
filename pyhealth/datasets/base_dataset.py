@@ -45,7 +45,7 @@ from ..tasks import BaseTask
 from ..processors.base_processor import FeatureProcessor
 from .configs import load_yaml_config
 from .sample_dataset import SampleDataset, SampleBuilder
-from .splitter import PatientSplit
+from .splitter import Split
 from ..utils import set_env
 
 # Set logging level for distributed to ERROR to reduce verbosity
@@ -1115,7 +1115,7 @@ class BaseDataset(ABC):
         num_workers: Optional[int] = None,
         input_processors: Optional[Dict[str, FeatureProcessor]] = None,
         output_processors: Optional[Dict[str, FeatureProcessor]] = None,
-        split: PatientSplit | None = None,
+        split: Split | None = None,
     ) -> SampleDataset | tuple[SampleDataset, ...]:
         """Processes the base dataset to generate the task-specific sample dataset.
         The cache structure is as follows::
@@ -1136,16 +1136,18 @@ class BaseDataset(ABC):
             output_processors (Optional[Dict[str, FeatureProcessor]]):
                 Pre-fitted output processors. If provided, these will be used
                 instead of creating new ones from task's output_schema. Defaults to None.
-            split (Optional[PatientSplit]): Split the samples by patient and fit
-                every processor on the training patients only, so validation and
-                test patients never shape preprocessing. Samples are streamed;
+            split (Optional[Split]): Split the samples, e.g. by patient with
+                ``PatientSplit``, and fit every processor on the first
+                (training) part only, so the other parts never shape
+                preprocessing. The parts are used as the split returns them.
+                Samples are streamed;
                 nothing is loaded into memory beyond the per-sample index that
                 processing already keeps. Defaults to None: fit on all samples
                 and return one dataset, as before.
 
         Returns:
             SampleDataset: The generated sample dataset, or, with ``split``, a
-            tuple of datasets (train, test) or (train, val, test) whose
+            tuple with one dataset per part, training part first, whose
             processors were fitted on the training part.
 
         Examples:

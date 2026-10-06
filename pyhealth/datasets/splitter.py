@@ -1,4 +1,5 @@
 import math
+from abc import ABC, abstractmethod
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from itertools import chain
@@ -13,8 +14,57 @@ from .sample_dataset import SampleDataset
 # TODO: add more splitting methods
 
 
+class Split(ABC):
+    """Interface for ``BaseDataset.set_task(task, split=...)``.
+
+    ``set_task`` fits every processor on the samples of part 0 and returns one
+    ``SampleDataset`` per part, in order, as views over one processed cache.
+    It uses the parts exactly as returned: they may overlap or leave samples
+    out. :class:`PatientSplit` is the reference implementation.
+
+    Examples:
+        >>> import numpy as np
+        >>> from pyhealth.datasets import Split
+        >>> class HoldoutSplit(Split):
+        ...     def __init__(self, test_patients):
+        ...         self.test_patients = sorted(test_patients)
+        ...     def split_indices(self, patient_to_index):
+        ...         test = set(self.test_patients)
+        ...         parts = ([], [])
+        ...         for pid, indices in patient_to_index.items():
+        ...             parts[pid in test].extend(indices)
+        ...         return [np.array(sorted(p), dtype=np.int64) for p in parts]
+        ...     def to_dict(self):
+        ...         return {"kind": "holdout", "test_patients": self.test_patients}
+        >>> HoldoutSplit(["p2"]).split_indices({"p1": [0, 1], "p2": [2]})
+        [array([0, 1]), array([2])]
+    """
+
+    @abstractmethod
+    def split_indices(
+        self, patient_to_index: Mapping[str, Sequence[int]]
+    ) -> list[np.ndarray]:
+        """Returns the sample indices of each part.
+
+        Args:
+            patient_to_index: Patient ID to the indices of its samples.
+
+        Returns:
+            One ``int64`` array of sample indices per part, training part
+            first. Sorted indices keep reads from the cache sequential.
+        """
+
+    @abstractmethod
+    def to_dict(self) -> dict:
+        """Returns a JSON-serialisable description of the split.
+
+        It goes into the processed-cache key, so it must change whenever the
+        parts would, and is saved as ``SampleDataset.fit_split``.
+        """
+
+
 @dataclass(frozen=True)
-class PatientSplit:
+class PatientSplit(Split):
     """A patient-level split for ``BaseDataset.set_task(task, split=...)``.
 
     With a split, ``set_task`` fits every processor on the training patients
@@ -26,8 +76,9 @@ class PatientSplit:
     whatever order the samples are stored in.
 
     Args:
-        ratios: Two or three fractions summing to 1: (train, test) or
-            (train, val, test).
+        ratios: Two or more non-negative fractions summing to 1. The first
+            part is the training part, e.g. (train, test), (train, val, test)
+            or (train, val, cal, test).
         seed: Seed for the shuffle.
 
     Examples:
@@ -43,10 +94,12 @@ class PatientSplit:
 
     def __post_init__(self):
         ratios = tuple(float(r) for r in self.ratios)
-        if len(ratios) not in (2, 3):
-            raise ValueError("PatientSplit needs 2 or 3 ratios: (train, test) or (train, val, test).")
-        if any(r < 0 for r in ratios) or not math.isclose(sum(ratios), 1.0, abs_tol=1e-6):
-            raise ValueError(f"PatientSplit ratios must be non-negative and sum to 1, got {ratios}.")
+        if len(ratios) < 2:
+            raise ValueError(f"PatientSplit needs at least 2 ratios, training part first; got {ratios}.")
+        if any(r < 0 for r in ratios):
+            raise ValueError(f"PatientSplit ratios must be non-negative, got {ratios}.")
+        if not math.isclose(sum(ratios), 1.0, abs_tol=1e-6):
+            raise ValueError(f"PatientSplit ratios must sum to 1, got {ratios} (sum {sum(ratios)}).")
         object.__setattr__(self, "ratios", ratios)
 
     def to_dict(self) -> dict:
@@ -57,6 +110,8 @@ class PatientSplit:
         self, patient_to_index: Mapping[str, Sequence[int]]
     ) -> list[np.ndarray]:
         """Splits sample indices by patient.
+
+        Patients are sorted, shuffled with ``seed`` and cut by ``ratios``.
 
         Args:
             patient_to_index: Patient ID to the indices of its samples.

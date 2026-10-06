@@ -72,6 +72,7 @@ from .support2 import Support2Dataset
 from .tcga_prad import TCGAPRADDataset
 from .splitter import (
     PatientSplit as PatientSplit,
+    Split as Split,
     sample_balanced,
     split_by_patient,
     split_by_patient_conformal,
