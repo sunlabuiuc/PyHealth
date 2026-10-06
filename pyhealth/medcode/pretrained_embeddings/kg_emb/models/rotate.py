@@ -72,12 +72,7 @@ class RotatE(KGEBaseModel):
 
 
 if __name__ == "__main__":
-    from torch.utils.data import DataLoader
-
-    from pyhealth.datasets import collate_fn_dict_with_padding
-    from pyhealth.medcode.pretrained_embeddings.kg_emb.datasets import (
-        SampleKGDataset,
-    )
+    from pyhealth.datasets import get_dataloader
 
     samples: list[dict[str, Any]] = [
         {
@@ -104,12 +99,7 @@ if __name__ == "__main__":
         entity_num=8000,
         relation_num=8,
     )
-    train_loader = DataLoader(
-        dataset,
-        batch_size=2,
-        shuffle=True,
-        collate_fn=collate_fn_dict_with_padding,
-    )
+    train_loader = get_dataloader(dataset, batch_size=2, shuffle=True)
 
     # model
     model = RotatE(
