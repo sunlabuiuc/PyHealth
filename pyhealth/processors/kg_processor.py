@@ -38,7 +38,7 @@ class KGProcessor(FeatureProcessor):
         ... ]
         >>> processor.fit(samples, "ground_truth_tail")
         >>> processor.process([16])
-        {'value': tensor([16, 0, 0]), 'mask': tensor([1, 0, 0])}
+        {'value': tensor([16,  0,  0]), 'mask': tensor([1, 0, 0])}
     """
 
     def __init__(self, pad_token_id: int = 0):
