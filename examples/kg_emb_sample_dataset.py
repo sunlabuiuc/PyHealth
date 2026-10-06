@@ -1,12 +1,16 @@
 """Train a TransE model on a synthetic knowledge-graph sample dataset.
 
-This example does not download UMLS. It shows the 2.0-safe path:
+This example does not download UMLS. It shows the 2.0 path:
 
-1. Build an in-memory :class:`SampleKGDataset` (not ``SampleDataset``).
-2. Split into train/val/test folds with :func:`split`.
+1. Build a :class:`SampleKGDataset`, an ``InMemorySampleDataset`` whose
+   ``ground_truth_head`` / ``ground_truth_tail`` fields are padded by
+   ``KGProcessor`` and returned with a mask.
+2. Split into train/val/test folds with :func:`split`. The folds are plain
+   lists of sample dicts carrying the ``train`` and ``hyperparameters``
+   fields the model reads.
 3. Wrap the train fold in ``torch.utils.data.DataLoader`` using
-   :func:`collate_fn_dict_with_padding`. Do not call ``get_dataloader``:
-   that helper requires ``litdata.StreamingDataset.set_shuffle()``.
+   :func:`collate_fn_dict_with_padding`. ``get_dataloader`` calls
+   ``set_shuffle()``, which a list does not have.
 """
 
 import torch

@@ -148,8 +148,8 @@ class KGEBaseModel(ABC, nn.Module):
         """Recover the exact, unpadded per-sample entity-id lists.
 
         ``KGProcessor`` pads ``ground_truth_head``/``ground_truth_tail`` to a
-        fixed length with ``pad_token_id`` (0 by default) so they can be
-        tensorized ahead of serialization. That padding value is not
+        fixed length with ``pad_token_id`` (0 by default) so that they collate
+        into fixed-shape tensors. That padding value is not
         necessarily an invalid entity id, so it must be stripped via the
         accompanying mask before doing any set-membership filtering here;
         otherwise a real entity 0 would be spuriously treated as always

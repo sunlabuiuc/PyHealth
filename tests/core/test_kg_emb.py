@@ -113,7 +113,7 @@ class TestSampleKGDataset(unittest.TestCase):
         report = make_dataset(n=2).stat()
         self.assertIn("Number of triples: 2", report)
 
-    def test_is_a_map_style_dataset(self) -> None:
+    def test_is_an_in_memory_sample_dataset(self) -> None:
         """SampleKGDataset is deliberately back under the InMemorySampleDataset
         umbrella (see PR discussion), so `set_shuffle` is now expected to be
         present rather than absent — this supersedes the old standalone-Dataset

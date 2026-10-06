@@ -101,12 +101,21 @@ Knowledge graph embeddings
 --------------------------
 
 ``pyhealth.medcode.pretrained_embeddings.kg_emb`` trains TransE, RotatE,
-DistMult and ComplEx on an in-memory list of triples. Since PyHealth 2.0
-the sample dataset is a map-style :class:`torch.utils.data.Dataset`. Build
-the loader with :class:`torch.utils.data.DataLoader` and
-:func:`pyhealth.datasets.collate_fn_dict_with_padding` --
-:func:`pyhealth.datasets.get_dataloader` is streaming-only and calls
-``set_shuffle()``.
+DistMult and ComplEx on an in-memory list of triples.
+:class:`~pyhealth.medcode.pretrained_embeddings.kg_emb.datasets.SampleKGDataset`
+is an :class:`~pyhealth.datasets.InMemorySampleDataset`: samples are processed
+once, at construction, and kept in memory.
+:func:`pyhealth.datasets.get_dataloader` accepts it. Its ``ground_truth_head``
+and ``ground_truth_tail`` fields are padded by
+:class:`~pyhealth.processors.kg_processor.KGProcessor` and returned with a
+mask.
+
+:func:`~pyhealth.medcode.pretrained_embeddings.kg_emb.datasets.split` returns
+plain lists of sample dictionaries that carry the ``train`` and
+``hyperparameters`` fields the models read. Wrap a fold in
+:class:`torch.utils.data.DataLoader` with
+:func:`pyhealth.datasets.collate_fn_dict_with_padding`: ``get_dataloader``
+calls ``set_shuffle()``, which a list does not have.
 
 See ``examples/kg_emb_sample_dataset.py`` for a self-contained walk-through.
 

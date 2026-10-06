@@ -1,17 +1,17 @@
 """Task-specific sample dataset for knowledge-graph embedding models.
 
-``SampleKGDataset`` builds on :class:`pyhealth.datasets.InMemorySampleDataset`
-so that KG triples and the variable-length ``ground_truth_head`` /
-``ground_truth_tail`` filter sets are converted to pure PyTorch tensors ahead
-of ``litdata``'s pickle-based caching (the "Tensor Trick"), instead of being
-serialized as raw Python lists on every access.
+``SampleKGDataset`` builds on :class:`pyhealth.datasets.InMemorySampleDataset`,
+which fits the processors and transforms every sample once, at construction,
+and keeps the result in memory. It does not write or read ``litdata`` chunks.
 
-``ground_truth_head`` and ``ground_truth_tail`` are padded independently, each
-to its own field's observed maximum length, by the registered
-``"kg_entity_list"`` processor
-(:class:`~pyhealth.processors.kg_processor.KGProcessor`), which returns a
-``{"value": Tensor, "mask": Tensor}`` pair. Because the padding value is not
-a valid entity id on its own, any code that filters on these fields (see
+``ground_truth_head`` and ``ground_truth_tail`` are variable-length lists of
+entity ids. The registered ``"kg_entity_list"`` processor
+(:class:`~pyhealth.processors.kg_processor.KGProcessor`) pads each field
+independently, to its own observed maximum length, and returns a
+``{"value": Tensor, "mask": Tensor}`` pair, so that
+:func:`~pyhealth.datasets.collate_fn_dict_with_padding` stacks these fields
+into batch tensors. Because the padding value is not a valid entity id on
+its own, any code that filters on these fields (see
 :class:`~pyhealth.medcode.pretrained_embeddings.kg_emb.models.kg_base.KGEBaseModel`)
 must use the mask to recover the true, unpadded entity list first.
 """
