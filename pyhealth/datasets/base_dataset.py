@@ -16,6 +16,7 @@ import platformdirs
 import multiprocessing
 import multiprocessing.queues
 import shutil
+import time
 
 from filelock import FileLock
 import litdata
@@ -206,6 +207,13 @@ def _litdata_merge(cache_dir: Path) -> None:
     """
     Merges LitData binary writer index files in the given cache directory.
 
+    Workers write contiguous sample ranges, each with its own
+    ``{rank}.index.json``. The chunks are concatenated in numeric rank order so
+    that merged sample ``i`` is still input sample ``i``; ``patient_to_index``
+    and ``record_to_index`` are built before processing and rely on this.
+    litdata's ``BinaryWriter.merge`` sorts the file names as strings
+    (0, 1, 10, 11, ..., 2), which reorders samples with more than 10 workers.
+
     Args:
         cache_dir (Path): The cache directory containing LitData binary writer files.
     """
@@ -217,7 +225,10 @@ def _litdata_merge(cache_dir: Path) -> None:
     if _INDEX_FILENAME in files:
         return
 
-    index_files = [f for f in files if f.endswith(_INDEX_FILENAME)]
+    index_files = sorted(
+        (f for f in files if f.endswith(f".{_INDEX_FILENAME}")),
+        key=lambda f: int(f.split(".", 1)[0]),
+    )
 
     # Return if there are no index files to merge
     if len(index_files) == 0:
@@ -225,9 +236,26 @@ def _litdata_merge(cache_dir: Path) -> None:
             "There are zero samples in the dataset, please check the task and processors."
         )
 
-    BinaryWriter(cache_dir=str(cache_dir), chunk_bytes="64MB").merge(
-        num_workers=len(index_files)
-    )
+    chunks, config = [], None
+    for name in index_files:
+        with open(Path(cache_dir) / name) as f:
+            data = json.load(f)
+        if config is not None and data["config"] != config:
+            raise ValueError(
+                f"Inconsistent LitData config across worker index files in {cache_dir}."
+            )
+        config = data["config"]
+        chunks.extend(data["chunks"])
+
+    # index.json marks the cache complete, so write it before removing the parts.
+    with open(Path(cache_dir) / _INDEX_FILENAME, "w") as f:
+        json.dump(
+            {"chunks": chunks, "config": config, "updated_at": str(time.time())},
+            f,
+            sort_keys=True,
+        )
+    for name in index_files:
+        os.remove(Path(cache_dir) / name)
 
 
 class _ProgressContext:

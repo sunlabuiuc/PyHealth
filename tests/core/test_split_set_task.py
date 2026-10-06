@@ -251,5 +251,47 @@ class TestSplitBuilder(unittest.TestCase):
                 PatientSplit(ratios=ratios)
 
 
+class TestSplitSetTaskManyWorkers(unittest.TestCase):
+    """More than 10 workers: merged samples must stay in task order.
+
+    patient_to_index is built before processing, so a merge that reorders the
+    worker blocks (10.index.json before 2.index.json) hands every part the wrong samples.
+    """
+
+    N_WORKERS = 12
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        root = Path(cls.tmp.name) / "data"
+        root.mkdir()
+        cls.parts = _parts(SPLIT)
+        _write_dataset(root, test_patients=cls.parts[2])
+        cls.dataset = BaseDataset(
+            root=str(root),
+            tables=["events"],
+            dataset_name="SplitDatasetManyWorkers",
+            config_path=str(root / "config.yaml"),
+            cache_dir=str(Path(cls.tmp.name) / "cache"),
+            num_workers=1,
+        )
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def test_split_parts_hold_their_patients(self):
+        parts = self.dataset.set_task(EventTask(), num_workers=self.N_WORKERS, split=SPLIT)
+        got = [{d[i]["patient_id"] for i in range(len(d))} for d in parts]
+        self.assertEqual(got, self.parts)
+
+    def test_patient_to_index_points_at_own_samples(self):
+        samples = self.dataset.set_task(EventTask(), num_workers=self.N_WORKERS)
+        self.assertGreater(len(samples), self.N_WORKERS * 2)
+        for pid, indices in samples.patient_to_index.items():
+            for i in indices:
+                self.assertEqual(samples[i]["patient_id"], pid)
+
+
 if __name__ == "__main__":
     unittest.main()
