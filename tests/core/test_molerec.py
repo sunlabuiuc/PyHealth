@@ -133,6 +133,35 @@ class TestMoleRec(unittest.TestCase):
         self.assertEqual(ret["y_prob"].shape, (batch_size, num_labels))
         self.assertEqual(ret["y_true"].shape, (batch_size, num_labels))
 
+    def test_fallback_predictor_registered_and_trains(self):
+        """The fallback predictor must be registered before the optimizer.
+
+        Regression test: on the no-valid-SMILES fallback path, simple_predictor
+        was created lazily inside forward(). An optimizer built from
+        model.parameters() beforehand (the standard training pattern) therefore
+        never saw its parameters and never trained it.
+        """
+        self.assertFalse(self.model.has_valid_smiles)
+
+        # simple_predictor exists (and is in named_parameters) before any forward
+        param_names = [n for n, _ in self.model.named_parameters()]
+        self.assertTrue(any("simple_predictor" in n for n in param_names))
+
+        optimizer = torch.optim.Adam(self.model.parameters(), lr=0.1)
+        before = self.model.simple_predictor.weight.detach().clone()
+
+        train_loader = get_dataloader(self.dataset, batch_size=2, shuffle=False)
+        data_batch = next(iter(train_loader))
+        ret = self.model(**data_batch)
+        optimizer.zero_grad()
+        ret["loss"].backward()
+        optimizer.step()
+
+        self.assertFalse(
+            torch.equal(before, self.model.simple_predictor.weight.detach()),
+            "fallback predictor was not updated by the optimizer step",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

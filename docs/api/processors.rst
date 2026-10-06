@@ -26,6 +26,7 @@ Available Processors
 
 - ``SequenceProcessor``: For categorical sequences (e.g., medical codes like diagnoses, procedures)
 - ``NestedSequenceProcessor``: For nested categorical sequences (e.g., drug recommendation with visit history)
+- ``NestedMultiHotProcessor``: For nested categorical sequences as per-visit multi-hot vectors (e.g., generative EHR models)
 - ``NestedFloatsProcessor``: For nested numerical sequences with optional forward-fill
 
 **Label Processors:**
@@ -283,6 +284,7 @@ Common string keys for automatic processor selection:
 - ``"temporal_timeseries"``: For time-series data with preserved timestamps (use in place of ``"timeseries"`` when building ``UnifiedMultimodalEmbeddingModel``)
 - ``"sequence"``: For categorical sequences (medical codes)
 - ``"nested_sequence"``: For nested categorical sequences (visit history)
+- ``"nested_multihot"``: For nested categorical sequences as per-visit multi-hot vectors (set membership, not order)
 - ``"nested_sequence_floats"``: For nested numerical sequences
 - ``"binary"``: For binary labels
 - ``"multiclass"``: For multi-class labels  
@@ -477,6 +479,7 @@ API Reference
     processors/pyhealth.processors.DatasetProcessor
     processors/pyhealth.processors.SequenceProcessor
     processors/pyhealth.processors.NestedSequenceProcessor
+    processors/pyhealth.processors.NestedMultiHotProcessor
     processors/pyhealth.processors.NestedFloatsProcessor
     processors/pyhealth.processors.BinaryLabelProcessor
     processors/pyhealth.processors.MultiClassLabelProcessor

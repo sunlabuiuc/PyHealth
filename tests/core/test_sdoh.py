@@ -7,6 +7,21 @@ class TestSdoh(BaseTestCase):
     def setUp(self):
         self.set_random_seed()
 
+    def test_is_initialized_nn_module(self):
+        """SdohClassifier must initialize its nn.Module state.
+
+        Regression test: when the class was a @dataclass, the generated
+        __init__ skipped nn.Module.__init__, so the module had no _parameters
+        or _modules and could not be used as a torch model.
+        """
+        sdoh = SdohClassifier()
+        # These all require nn.Module.__init__ to have run.
+        self.assertEqual(len(list(sdoh.parameters())), 1)
+        sdoh.eval()
+        sdoh.to("cpu")
+        self.assertIsNone(sdoh.api_key)
+        self.assertEqual(sdoh.base_model_id, "meta-llama/Llama-3.1-8B-Instruct")
+
     def test_parse_reponse(self):
         """Test the parsing of the SDOH output."""
         import pandas as pd

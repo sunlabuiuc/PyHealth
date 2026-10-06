@@ -1,8 +1,24 @@
 from abc import ABC, abstractmethod
 from enum import Enum
+import logging
 from typing import Any, Dict, List, Iterable
 
 import torch
+
+logger = logging.getLogger(__name__)
+
+
+def _warn_truncated(processor: Any, what: str, got: int, limit: int) -> None:
+    """Logs once per processor that an input was cut to the fitted width."""
+    if getattr(processor, "_warned_truncation", False):
+        return
+    processor._warned_truncation = True
+    logger.warning(
+        "%s: an input has %d %s, more than the %d seen in fit(); keeping the "
+        "first %d. Inputs longer than the fitted data are truncated so every "
+        "sample has the same shape. Pass a larger `padding` to keep more.",
+        type(processor).__name__, got, what, limit, limit,
+    )
 
 
 class ModalityType(str, Enum):
