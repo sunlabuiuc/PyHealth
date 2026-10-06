@@ -175,7 +175,11 @@ class ReadmissionPredictionMIMIC4(BaseTask):
     output_schema: Dict[str, str] = {"readmission": "binary"}
 
     def __init__(
-        self, window: timedelta = timedelta(days=15), exclude_minors: bool = True, **kwargs
+        self,
+        window: timedelta = timedelta(days=15),
+        exclude_minors: bool = True,
+        min_gap: timedelta | None = None,
+        **kwargs,
     ) -> None:
         """Initializes the task object.
 
@@ -184,11 +188,16 @@ class ReadmissionPredictionMIMIC4(BaseTask):
                 considered a readmission. Defaults to 15 days.
             exclude_minors: Whether to exclude patients whose
                 ``anchor_age`` is less than 18. Defaults to True.
+            min_gap: Minimum time between discharge and the next admission
+                for it to be considered a readmission. Admissions at or below
+                this gap are excluded. Defaults to None, which applies no
+                minimum gap.
             **kwargs: Passed to :class:`~pyhealth.tasks.BaseTask`, e.g.
                 ``code_mapping``.
         """
         super().__init__(**kwargs)
         self.window = window
+        self.min_gap = min_gap
         self.exclude_minors = exclude_minors
 
     def __call__(self, patient: Patient) -> List[Dict]:
@@ -260,8 +269,11 @@ class ReadmissionPredictionMIMIC4(BaseTask):
             except ValueError:
                 discharge_time = datetime.strptime(admissions[i].dischtime, "%Y-%m-%d")
 
+            gap = admissions[i + 1].timestamp - discharge_time
+
             readmission = int(
-                (admissions[i + 1].timestamp - discharge_time) < self.window
+                gap < self.window
+                and (self.min_gap is None or gap > self.min_gap)
             )
 
             samples.append(
