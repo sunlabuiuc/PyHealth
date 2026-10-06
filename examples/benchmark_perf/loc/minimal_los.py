@@ -1,5 +1,6 @@
 from datetime import datetime; from pyhealth.datasets import MIMIC4Dataset; from pyhealth.tasks.base_task import BaseTask
-def categorize_los(d): return 0 if d<1 else (d if d<=7 else (8 if d<=14 else 9))class LengthOfStayPredictionMIMIC4(BaseTask):
+def categorize_los(d): return 0 if d<1 else (d if d<=7 else (8 if d<=14 else 9))
+class LengthOfStayPredictionMIMIC4(BaseTask):
     task_name="LengthOfStayPredictionMIMIC4"
     input_schema={"conditions":"sequence","procedures":"sequence","drugs":"sequence"}
     output_schema={"los":"multiclass"}

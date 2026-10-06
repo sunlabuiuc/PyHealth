@@ -20,7 +20,7 @@ class TestHALO(unittest.TestCase):
         ]
 
         # Generative task: one nested-sequence input feature, no output labels.
-        self.input_schema = {"visits": "nested_sequence"}
+        self.input_schema = {"visits": "nested_multihot"}
         self.output_schema = {}
 
         self.dataset = create_sample_dataset(
@@ -57,7 +57,30 @@ class TestHALO(unittest.TestCase):
         loader = get_dataloader(self.dataset, batch_size=2, shuffle=False)
         batch = next(iter(loader))
         self.assertIsInstance(batch["visits"], torch.Tensor)
-        self.assertEqual(batch["visits"].dim(), 3)  # (B, max_visits, max_codes)
+        self.assertEqual(batch["visits"].dim(), 3)  # (B, max_visits, vocab_size)
+
+    def test_encode_truncates_past_context(self):
+        """A patient with more visits than n_ctx-2 is cut, not wrapped."""
+        many = [{"patient_id": "long", "visits": [["A05B"]] * 20}]
+        dataset = create_sample_dataset(
+            samples=many + self.samples,
+            input_schema=self.input_schema,
+            output_schema=self.output_schema,
+            dataset_name="test_halo_long",
+        )
+        model = HALO(
+            dataset=dataset,
+            embed_dim=16,
+            n_heads=2,
+            n_layers=2,
+            n_ctx=8,
+            batch_size=2,
+            epochs=1,
+        )
+        batch = next(iter(get_dataloader(dataset, batch_size=2)))
+        ehr, mask = model._encode_visits(batch["visits"])
+        self.assertEqual(ehr.shape[1], 8)
+        self.assertEqual(mask.shape[1], 7)
 
     def test_model_forward(self):
         """Forward returns a finite scalar loss and a probability tensor."""

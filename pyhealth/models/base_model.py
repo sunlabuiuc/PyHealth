@@ -1,6 +1,7 @@
 from abc import ABC
 from typing import Callable, Any, Optional
 import inspect
+import logging
 
 import torch
 import torch.nn as nn
@@ -8,6 +9,11 @@ import torch.nn.functional as F
 
 from ..datasets import SampleDataset
 from ..processors import PROCESSOR_REGISTRY
+
+logger = logging.getLogger(__name__)
+
+# Label kinds understood by the loss helpers, Trainer and the calibration methods.
+VALID_MODES = ("binary", "multiclass", "multilabel", "regression")
 
 
 class BaseModel(ABC, nn.Module):
@@ -27,6 +33,30 @@ class BaseModel(ABC, nn.Module):
         For certain gradient-based interpretability methods (e.g., DeepLIFT), the model must also
         ensure all non-linearity (e.g. ReLU, Sigmoid, Softmax) are using nn.Module versions instead of
         functional versions (e.g., F.relu, F.sigmoid, F.softmax) so that hooks can be registered properly.
+
+    Mode
+    --------
+        ``mode`` is always one of ``"binary"``, ``"multiclass"``, ``"multilabel"``,
+        ``"regression"`` or ``None``. It is resolved from the single label's
+        ``output_schema`` entry, which may be a string, a processor class, a
+        processor instance or a ``(name, kwargs)`` tuple. Assigning ``self.mode``
+        in a subclass resolves the value the same way.
+
+    Examples:
+        >>> from pyhealth.datasets import create_sample_dataset
+        >>> from pyhealth.models import RNN
+        >>> from pyhealth.processors import MultiLabelProcessor
+        >>> samples = [
+        ...     {"patient_id": "p0", "codes": ["a", "b"], "labels": ["x"]},
+        ...     {"patient_id": "p1", "codes": ["b"], "labels": ["x", "y"]},
+        ... ]
+        >>> dataset = create_sample_dataset(
+        ...     samples=samples,
+        ...     input_schema={"codes": "sequence"},
+        ...     output_schema={"labels": MultiLabelProcessor},
+        ... )
+        >>> RNN(dataset=dataset).mode
+        'multilabel'
     """
 
     def __init__(self, dataset: SampleDataset):
@@ -40,21 +70,47 @@ class BaseModel(ABC, nn.Module):
         self.dataset = dataset
         self.feature_keys = []
         self.label_keys = []
+        # Keep a mode a subclass may have set before calling this __init__.
+        self._mode: str | None = self.__dict__.get("_mode")
         if dataset:
             self.feature_keys = list(dataset.input_schema.keys())
             self.label_keys = list(dataset.output_schema.keys())
-            # if single label, try to resolve mode for legacy trainer usage
+            # if single label, resolve mode for Trainer and calibration usage
             if len(self.label_keys) == 1:
                 try:
                     m = self._resolve_mode(dataset.output_schema[self.label_keys[0]])
-                    if m in {"binary", "multiclass", "multilabel", "regression"}:
-                        self.mode = m
-                except Exception:
-                    pass
+                except ValueError:
+                    m = None
+                if m in VALID_MODES:
+                    self._mode = m
         # used to query the device of the model
         self._dummy_param = nn.Parameter(torch.empty(0))
 
-        self.mode = getattr(self, "mode", None)  # legacy API
+    @property
+    def mode(self) -> str | None:
+        """The label kind: one of ``VALID_MODES``, or ``None`` if not applicable."""
+        return self.__dict__.get("_mode")
+
+    @mode.setter
+    def mode(self, value: Any) -> None:
+        # Subclasses often assign the raw output_schema entry (e.g. a processor
+        # class); resolve it so consumers can always compare against strings.
+        if value is None:
+            self._mode = None
+            return
+        try:
+            resolved = self._resolve_mode(value)
+        except ValueError:
+            resolved = None
+        if resolved not in VALID_MODES:
+            logger.warning(
+                "Cannot use %r as a model mode (expected one of %s); "
+                "setting mode to None.",
+                value,
+                ", ".join(VALID_MODES),
+            )
+            resolved = None
+        self._mode = resolved
         
     def forward(self, 
             **kwargs: torch.Tensor | tuple[torch.Tensor, ...]
@@ -84,8 +140,11 @@ class BaseModel(ABC, nn.Module):
           - direct string ("binary", ...)
           - processor class
           - processor instance
+          - (string or processor class, kwargs) tuple
         Returns the registered processor name if found.
         """
+        if isinstance(schema_entry, tuple):
+            schema_entry = schema_entry[0]
         if isinstance(schema_entry, str):
             return schema_entry.lower()
 

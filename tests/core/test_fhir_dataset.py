@@ -813,5 +813,45 @@ class TestFHIRSharedWorkflow(unittest.TestCase):
         self.assertIn("http://loinc.org|789-0", vocab.token_to_id)
 
 
+
+class TestFHIRNullPatientIdUniqueAcrossPartitions(unittest.TestCase):
+    """Regression test: FHIRDataset.load_table must give every row a globally
+    unique patient_id for a ``patient_id: null`` table across multiple Dask
+    partitions (same per-partition reset_index bug as BaseDataset)."""
+
+    def test_patient_ids_unique_across_partitions(self):
+        import tempfile
+        import pandas as pd
+        import dask.dataframe as dd
+        from unittest.mock import patch
+        from pyhealth.datasets.fhir.base import FHIRDataset
+        from pyhealth.datasets.configs.config import DatasetConfig
+
+        class _NullPatientFHIR(FHIRDataset):
+            def __init__(self, config, prepared_dir):
+                self.config = config
+                self._prepared = Path(prepared_dir)
+                self.output_format = "csv"
+
+            @property
+            def prepared_tables_dir(self):
+                return self._prepared
+
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "t.csv").write_text("")  # satisfy the path.exists() guard
+            config = DatasetConfig(
+                version="1.0",
+                tables={"t": {"file_path": "t.csv", "attributes": ["value"]}},
+            )
+            ds = _NullPatientFHIR(config, d)
+            frame = dd.from_pandas(pd.DataFrame({"value": list(range(6))}), npartitions=3)
+            with patch.object(ds, "_read_flat_table", return_value=frame):
+                out = ds.load_table("t").compute()
+            self.assertEqual(len(out), 6)
+            self.assertEqual(out["patient_id"].nunique(), 6)
+            self.assertEqual(sorted(out["patient_id"].tolist()), [str(i) for i in range(6)])
+
+
+
 if __name__ == "__main__":
     unittest.main()
