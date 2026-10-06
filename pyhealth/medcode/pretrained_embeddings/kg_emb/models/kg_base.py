@@ -1,15 +1,11 @@
-from __future__ import annotations
-
 from abc import ABC
-from typing import TYPE_CHECKING
 
 import numpy as np
 import torch
 import torch.nn.functional as F
 from torch import nn
 
-if TYPE_CHECKING:
-    from ..datasets.protocols import KGDatasetProtocol
+from ..datasets.sample_kg_dataset import SampleKGDataset
 
 
 class KGEBaseModel(ABC, nn.Module):
@@ -44,7 +40,7 @@ class KGEBaseModel(ABC, nn.Module):
 
     def __init__(
         self, 
-        dataset: KGDatasetProtocol,
+        dataset: SampleKGDataset,
         e_dim: int = 500,
         r_dim: int = 500,
         ns: str = "uniform",

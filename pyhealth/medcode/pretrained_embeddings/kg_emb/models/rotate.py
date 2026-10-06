@@ -1,13 +1,9 @@
-from __future__ import annotations
-
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import torch
 
+from ..datasets.sample_kg_dataset import SampleKGDataset
 from .kg_base import KGEBaseModel
-
-if TYPE_CHECKING:
-    from ..datasets.protocols import KGDatasetProtocol
 
 
 class RotatE(KGEBaseModel):
@@ -28,7 +24,7 @@ class RotatE(KGEBaseModel):
 
     def __init__(
         self, 
-        dataset: KGDatasetProtocol, 
+        dataset: SampleKGDataset, 
         e_dim: int = 600, 
         r_dim: int = 300, 
         ns='adv', 
