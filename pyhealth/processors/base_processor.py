@@ -63,7 +63,30 @@ class FeatureProcessor(Processor):
     Processor for individual fields (features).
 
     Example: Tokenization, image loading, normalization.
+
+    Set ``learns_statistics = True`` on processors whose ``fit()`` learns values
+    from the data (means, standard deviations, medians, bins). Fitting such a
+    processor on all samples leaks validation/test information, so PyHealth
+    warns unless it is fitted on a training split
+    (``set_task(task, split=PatientSplit(...))``).
+
+    Examples:
+        >>> import torch
+        >>> from pyhealth.processors.base_processor import FeatureProcessor
+        >>> class MeanCenter(FeatureProcessor):
+        ...     learns_statistics = True
+        ...     def fit(self, samples, field):
+        ...         values = [s[field] for s in samples]
+        ...         self.mean = sum(values) / len(values)
+        ...     def process(self, value):
+        ...         return torch.tensor(value - self.mean)
+        >>> p = MeanCenter()
+        >>> p.fit([{"x": 1.0}, {"x": 3.0}], "x")
+        >>> p.process(5.0)
+        tensor(3.)
     """
+
+    learns_statistics: bool = False
 
     def fit(self, samples: Iterable[Dict[str, Any]], field: str) -> None:
         """Fit the processor to the samples.
