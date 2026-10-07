@@ -39,7 +39,9 @@ dependencies = [
   "pandas~=2.3.1",
   "pydantic~=2.11.7",
   "dask[complete]>=2026.1.0",
-  "litdata~=0.2.59",
+  # >=0.2.64: worker indexes merge in numeric rank order (patient_to_index relies
+  # on it). <0.2.68: 0.2.68+ reads SampleDataset.subset() parts ~10-35x slower.
+  "litdata>=0.2.64,<0.2.68",
   "pyarrow>=23.0.1",
   "orjson~=3.10",
   "narwhals~=2.13.0",
