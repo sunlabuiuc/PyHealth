@@ -7,8 +7,11 @@ contract.
 
 from __future__ import annotations
 
+import hashlib
 import tempfile
 import unittest
+import warnings
+from pathlib import Path
 from typing import Any
 
 import torch
@@ -18,6 +21,7 @@ from pyhealth.datasets import collate_fn_dict_with_padding
 from pyhealth.medcode.pretrained_embeddings.kg_emb.datasets import (
     BaseKGDataset,
     SampleKGDataset,
+    UMLSDataset,
     split,
 )
 from pyhealth.medcode.pretrained_embeddings.kg_emb.tasks import link_prediction_fn
@@ -34,6 +38,41 @@ def make_samples(n: int = 8) -> list[dict[str, Any]]:
         }
         for i in range(n)
     ]
+
+
+# A small graph: entities a..d, relations r1, r2. Names first appear out of
+# order (c before a, r2 before r1), so numbering by first appearance would
+# differ from the sorted ids a=0, b=1, c=2, d=3 and r1=0, r2=1.
+TOY_TRIPLES = [
+    ("c", "r2", "a"),
+    ("a", "r1", "b"),
+    ("a", "r1", "c"),
+    ("b", "r2", "c"),
+    ("d", "r1", "a"),
+]
+
+# Twelve triples: the loader stores rows sorted on the string row number
+# ("0", "1", "10", "11", "2", ...), so file order is only recovered by a
+# numeric sort once there are more than ten rows.
+ORDER_TRIPLES = [(f"e{i}", "r", f"e{i + 1}") for i in range(12)]
+
+TOY_CONFIG = """version: "1.0"
+tables:
+  triples:
+    file_path: "kg.tsv"
+    patient_id: null
+    timestamp: null
+    attributes: [head, relation, tail]
+"""
+
+
+def write_kg(root: Path, triples: list[tuple[str, str, str]]) -> Path:
+    """Write ``triples`` as ``kg.tsv`` with its config; return the config path."""
+    lines = ["head\trelation\ttail"] + ["\t".join(t) for t in triples]
+    (root / "kg.tsv").write_text("\n".join(lines) + "\n")
+    config = root / "kg.yaml"
+    config.write_text(TOY_CONFIG)
+    return config
 
 
 def make_dataset(n: int = 8, **kwargs: Any) -> SampleKGDataset:
@@ -215,27 +254,147 @@ class TestCollateAndForward(unittest.TestCase):
         out["loss"].backward()
 
 
-class TestSetTask(unittest.TestCase):
-    """Production path: BaseKGDataset.set_task must return a usable SampleKGDataset."""
+class TestBaseKGDataset(unittest.TestCase):
+    """BaseKGDataset loads one triples table through the BaseDataset backend."""
 
-    def test_set_task_on_a_synthetic_graph(self) -> None:
-        class _ToyKG(BaseKGDataset):
-            def raw_graph_process(self):
-                self.entity2id = {"a": 0, "b": 1, "c": 2}
-                self.relation2id = {"r": 0}
-                self.entity_num = 3
-                self.relation_num = 1
-                self.triples = [(0, 0, 1), (1, 0, 2), (2, 0, 0)]
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls._tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        cls.root = Path(cls._tmp.name)
+        config = write_kg(cls.root, TOY_TRIPLES)
+        cls.dataset = BaseKGDataset(
+            root=str(cls.root), config_path=config, cache_dir=cls.root / "cache"
+        )
 
-        with tempfile.TemporaryDirectory() as root:
-            base = _ToyKG(root=root, dataset_name="toy", refresh_cache=True)
-            sample_ds = base.set_task(
-                link_prediction_fn, negative_sampling=4, save=False
-            )
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls._tmp.cleanup()
+
+    def test_each_triple_is_one_record(self) -> None:
+        self.assertEqual(len(self.dataset.unique_patient_ids), len(TOY_TRIPLES))
+
+    def test_vocabularies_are_global_and_sorted(self) -> None:
+        self.assertEqual(self.dataset.entity2id, {"a": 0, "b": 1, "c": 2, "d": 3})
+        self.assertEqual(self.dataset.relation2id, {"r1": 0, "r2": 1})
+        self.assertEqual(self.dataset.id2entity[3], "d")
+        self.assertEqual(self.dataset.id2relation[1], "r2")
+        self.assertEqual((self.dataset.num_entities, self.dataset.num_relations), (4, 2))
+        # Pre-2.0 names, still read by older code.
+        self.assertEqual((self.dataset.entity_num, self.dataset.relation_num), (4, 2))
+
+    def test_legacy_function_task_still_works_with_a_warning(self) -> None:
+        with self.assertWarns(DeprecationWarning):
+            sample_ds = self.dataset.set_task(link_prediction_fn, negative_sampling=4)
         self.assertIsInstance(sample_ds, SampleKGDataset)
-        self.assertEqual(len(sample_ds), 3)
+        self.assertEqual(len(sample_ds), len(TOY_TRIPLES))
         self.assertEqual(sample_ds.task_spec_param, {"negative_sampling": 4})
-        self.assertIn("triple", sample_ds[0])
+        self.assertEqual(sample_ds.entity_num, 4)
+
+    def test_legacy_task_fn_keyword_is_accepted(self) -> None:
+        with self.assertWarns(DeprecationWarning):
+            sample_ds = self.dataset.set_task(task_fn=link_prediction_fn)
+        self.assertEqual(len(sample_ds), len(TOY_TRIPLES))
+
+    def test_legacy_path_rejects_2_0_arguments(self) -> None:
+        from pyhealth.datasets import PatientSplit
+
+        with self.assertRaisesRegex(TypeError, "split"), warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            self.dataset.set_task(link_prediction_fn, split=PatientSplit((0.5, 0.5)))
+
+    def test_legacy_members_warn(self) -> None:
+        with self.assertWarns(DeprecationWarning):
+            report = self.dataset.stat()
+        self.assertIn("Number of triples: 5", report)
+        with self.assertWarns(DeprecationWarning):
+            BaseKGDataset.info()
+        with self.assertWarns(DeprecationWarning):
+            self.assertEqual(len(self.dataset.triples), len(TOY_TRIPLES))
+
+
+class TestLegacyTripleOrder(unittest.TestCase):
+    """The legacy path hands task functions the triples in file order."""
+
+    def test_more_than_ten_triples_keep_file_order(self) -> None:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            root = Path(tmp)
+            config = write_kg(root, ORDER_TRIPLES)
+            dataset = BaseKGDataset(root=tmp, config_path=config, cache_dir=root / "cache")
+            e, r = dataset.entity2id, dataset.relation2id
+            expected = [(e[h], r[rel], e[t]) for h, rel, t in ORDER_TRIPLES]
+            with self.assertWarns(DeprecationWarning):
+                self.assertEqual(dataset.triples, expected)
+
+
+class TestBaseKGDatasetValidation(unittest.TestCase):
+    """Malformed configs and triples are reported, never silently dropped."""
+
+    def test_config_without_the_triple_attributes_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            root = Path(tmp)
+            config = write_kg(root, TOY_TRIPLES)
+            config.write_text(TOY_CONFIG.replace("[head, relation, tail]", "[head, tail]"))
+            with self.assertRaisesRegex(ValueError, r"missing \['relation'\]"):
+                BaseKGDataset(root=tmp, config_path=config, cache_dir=root / "cache")
+
+    def test_a_triple_with_a_missing_field_raises(self) -> None:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            root = Path(tmp)
+            config = write_kg(root, TOY_TRIPLES + [("a", "r1", "")])
+            dataset = BaseKGDataset(root=tmp, config_path=config, cache_dir=root / "cache")
+            with self.assertRaisesRegex(ValueError, r"1 triple\(s\) have a missing"):
+                dataset.entity2id
+
+    def test_refresh_cache_is_deprecated(self) -> None:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            root = Path(tmp)
+            config = write_kg(root, TOY_TRIPLES)
+            with self.assertWarns(DeprecationWarning):
+                BaseKGDataset(
+                    root=tmp, config_path=config, cache_dir=root / "cache",
+                    refresh_cache=True,
+                )
+
+
+class TestUMLSDataset(unittest.TestCase):
+    """UMLSDataset reads the headerless graph.txt through a prepared copy."""
+
+    def test_prepared_copy_leaves_graph_txt_untouched(self) -> None:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            root = Path(tmp)
+            raw = root / "graph.txt"
+            raw.write_text("".join(f"{h}\t{r}\t{t}\n" for h, r, t in TOY_TRIPLES))
+            digest = hashlib.sha256(raw.read_bytes()).hexdigest()
+
+            dataset = UMLSDataset(root=tmp, cache_dir=root / "cache")
+
+            self.assertEqual(hashlib.sha256(raw.read_bytes()).hexdigest(), digest)
+            prepared = (root / "umls-pyhealth.tsv").read_text().splitlines()
+            self.assertEqual(prepared[0], "head\trelation\ttail")
+            self.assertEqual(prepared[1:], raw.read_text().splitlines())
+            self.assertEqual(dataset.dataset_name, "umls")
+            self.assertEqual(dataset.entity2id, {"a": 0, "b": 1, "c": 2, "d": 3})
+
+    def test_a_replaced_graph_txt_is_prepared_again(self) -> None:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            root = Path(tmp)
+            raw = root / "graph.txt"
+            raw.write_text("A\tPAR\tB\nB\tCHD\tA\n")
+            first = UMLSDataset(root=tmp, cache_dir=root / "cache")
+            self.assertEqual(first.num_entities, 2)
+
+            raw.write_text("A\tPAR\tB\nB\tCHD\tA\nC\tRO\tA\n")
+            second = UMLSDataset(root=tmp, cache_dir=root / "cache")
+            self.assertEqual((second.num_entities, second.num_relations), (3, 3))
+
+    def test_url_root_is_rejected_with_a_hint(self) -> None:
+        with self.assertRaisesRegex(ValueError, "graph.txt"):
+            UMLSDataset(root="https://storage.googleapis.com/pyhealth/umls/")
+
+    def test_missing_graph_is_reported(self) -> None:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            with self.assertRaises(FileNotFoundError):
+                UMLSDataset(root=tmp, cache_dir=Path(tmp) / "cache")
 
 
 class TestScoringInvariants(unittest.TestCase):
