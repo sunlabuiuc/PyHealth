@@ -9,6 +9,8 @@ try:
     pyximport.install()
     from . import quicksearch_cython as cdc
     _CYTHON_ENABLED = True
+# pyximport re-raises build failures (CompileError, OSError, ...) as ImportError,
+# so this also covers "no C compiler available".
 except ImportError:
     print("This is a warning of potentially slow compute. You could uncomment this line and use the Python implementation instead of Cython.")
 

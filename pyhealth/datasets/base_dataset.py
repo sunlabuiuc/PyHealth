@@ -13,6 +13,7 @@ import uuid
 import platformdirs
 import multiprocessing
 import multiprocessing.queues
+from queue import Empty
 import shutil
 
 from filelock import FileLock
@@ -832,7 +833,7 @@ class BaseDataset(ABC):
                         while not result.ready():
                             try:
                                 progress.update(queue.get(timeout=1))
-                            except Exception:
+                            except Empty:
                                 pass
 
                         # remaining items
@@ -897,7 +898,7 @@ class BaseDataset(ABC):
                         while not result.ready():
                             try:
                                 progress.update(queue.get(timeout=1))
-                            except Exception:
+                            except Empty:
                                 pass
 
                         # remaining items
