@@ -1,0 +1,12 @@
+version: "1.0"
+tables:
+  tcga_crck:
+    file_path: "tcga_crck_metadata-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+    - "slide_id"
+    - "tile_path"
+    - "tile_index"
+    - "data_split"
+    - "label"

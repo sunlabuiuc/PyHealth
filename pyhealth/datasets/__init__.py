@@ -70,6 +70,7 @@ from .sleepedf import SleepEDFDataset
 from .bmd_hs import BMDHSDataset
 from .support2 import Support2Dataset
 from .tcga_prad import TCGAPRADDataset
+from .tcga_crck import TCGACRCkDataset
 from .splitter import (
     PatientSplit as PatientSplit,
     Split as Split,
