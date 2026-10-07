@@ -14,9 +14,13 @@ class KGProcessor(FeatureProcessor):
     Intended for fields holding lists of entity ids, such as the known-true
     ``ground_truth_head`` / ``ground_truth_tail`` filter sets used for
     filtered link-prediction ranking evaluation (e.g. TransE, RotatE style
-    KG embedding models). The target length is the maximum list length
-    observed for that field during ``fit``, following the same per-field
-    convention as :class:`~pyhealth.processors.nested_sequence_processor.NestedSequenceProcessor`.
+    KG embedding models). Lists are padded to the maximum list length
+    observed for that field during ``fit``. A longer list, which can occur
+    when the processor is fitted on a training split and the list belongs to
+    a validation or test sample, keeps all its entities: truncating a filter
+    set would leave known positives among the ranked candidates and bias
+    filtered metrics. :func:`~pyhealth.datasets.collate_fn_dict_with_padding`
+    pads such a batch to its longest list, with mask 0 on the padding.
 
     Note:
         The padded ``pad_token_id`` is not a valid entity id on its own: any
@@ -39,6 +43,8 @@ class KGProcessor(FeatureProcessor):
         >>> processor.fit(samples, "ground_truth_tail")
         >>> processor.process([16])
         {'value': tensor([16,  0,  0]), 'mask': tensor([1, 0, 0])}
+        >>> processor.process([1, 2, 3, 4])
+        {'value': tensor([1, 2, 3, 4]), 'mask': tensor([1, 1, 1, 1])}
     """
 
     def __init__(self, pad_token_id: int = 0):
@@ -62,28 +68,25 @@ class KGProcessor(FeatureProcessor):
     def process(self, value: list[int]) -> dict[str, torch.Tensor]:
         """Pad a list of entity ids to ``max_length`` and build its attention mask.
 
-        Lists longer than ``max_length`` (e.g. seen only at inference time,
-        after ``fit`` was called on a different split) are truncated.
+        A list longer than ``max_length`` (e.g. a validation or test filter
+        set, after ``fit`` on the training split) is kept whole, never
+        truncated.
 
         Args:
             value: List of entity ids.
 
         Returns:
             Dict with:
-                - ``"value"``: LongTensor of shape ``(max_length,)``, padded with
+                - ``"value"``: LongTensor of shape
+                  ``(max(max_length, len(value)),)``, padded with
                   ``pad_token_id``.
-                - ``"mask"``: LongTensor of shape ``(max_length,)``, 1 for real
+                - ``"mask"``: LongTensor of the same shape, 1 for real
                   entities and 0 for padding.
         """
         entities = list(value) if value is not None else []
-        seq_len = len(entities)
-
-        if seq_len >= self.max_length:
-            padded = entities[: self.max_length]
-            mask = [1] * self.max_length
-        else:
-            padded = entities + [self.pad_token_id] * (self.max_length - seq_len)
-            mask = [1] * seq_len + [0] * (self.max_length - seq_len)
+        n_pad = max(0, self.max_length - len(entities))
+        padded = entities + [self.pad_token_id] * n_pad
+        mask = [1] * len(entities) + [0] * n_pad
 
         return {
             "value": torch.tensor(padded, dtype=torch.long),
@@ -91,7 +94,7 @@ class KGProcessor(FeatureProcessor):
         }
 
     def size(self) -> int:
-        """Return the fitted padding length."""
+        """Return the fitted padding length, the minimum output length."""
         return self.max_length
 
     def is_token(self) -> bool:

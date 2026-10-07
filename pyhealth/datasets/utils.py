@@ -324,10 +324,11 @@ def collate_fn_dict_with_padding(batch: List[dict]) -> dict:
             isinstance(v, torch.Tensor) for v in values[0].values()
         ):
             # Nested all-tensor feature dict, e.g. {"value": Tensor, "mask": Tensor}
-            # from KGProcessor. Stack each sub-key independently; sub-values
-            # share shape across samples when the processor pads to a fixed
-            # field-wide length (KGProcessor.fit), so this is typically a
-            # plain stack rather than dynamic padding.
+            # from KGProcessor. Stack each sub-key independently. KGProcessor
+            # pads to its fitted length, so this is usually a plain stack; a
+            # list longer than that length (e.g. a test filter set after
+            # fitting on the training split) is kept whole, and the batch is
+            # then padded here with 0, which gives mask 0 on the padding.
             #
             # Restricted to all-tensor dicts so heterogeneous per-sample
             # dicts (e.g. a "hyperparameters" field of plain Python values)

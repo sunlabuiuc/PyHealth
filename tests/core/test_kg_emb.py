@@ -452,3 +452,162 @@ class TestGroundTruthUnpadding(unittest.TestCase):
         model = TransE(dataset=make_dataset(n=4), e_dim=8, r_dim=8)
         raw = [[0, 5], [3]]
         self.assertEqual(model._unpad_ground_truth(raw), raw)
+
+
+def fit_through_builder(samples, split=None):
+    """Fit a kg_triple processor the way set_task does, via SampleBuilder."""
+    from pyhealth.datasets.sample_dataset import SampleBuilder
+
+    builder = SampleBuilder(
+        input_schema={"triple": ("kg_triple", {"num_entities": 6, "num_relations": 2})},
+        output_schema={},
+    )
+    builder.fit(samples, split=split)
+    return builder
+
+
+class TestKGTripleProcessor(unittest.TestCase):
+    """The kg_triple processor encodes triples and keeps training-graph dicts."""
+
+    def setUp(self) -> None:
+        from pyhealth.processors import KGTripleProcessor
+
+        self.triples = [(0, 0, 1), (0, 0, 2), (3, 1, 1), (4, 0, 2), (5, 1, 0)]
+        self.processor = KGTripleProcessor(num_entities=6, num_relations=2)
+        self.processor.fit([{"triple": t} for t in self.triples], "triple")
+
+    def test_process_returns_a_long_triple(self) -> None:
+        out = self.processor.process((3, 1, 1))
+        self.assertEqual(out.dtype, torch.long)
+        self.assertEqual(out.tolist(), [3, 1, 1])
+
+    def test_size_is_the_given_entity_count(self) -> None:
+        self.assertEqual(self.processor.size(), 6)
+        self.assertEqual(self.processor.num_relations, 2)
+
+    def test_dicts_match_the_fitted_triples(self) -> None:
+        self.assertEqual(self.processor.true_tail[(0, 0)], [1, 2])
+        self.assertEqual(self.processor.true_head[(0, 2)], [0, 4])
+        self.assertEqual(self.processor.true_head[(1, 1)], [3])
+        self.assertNotIn((1, 0), self.processor.true_tail)
+
+    def test_counts_and_weights_match_link_prediction_fn(self) -> None:
+        """Same frequencies and weights as the 1.x task on the same triples."""
+        from pyhealth.medcode.pretrained_embeddings.kg_emb.tasks.link_prediction import (
+            count_frequency,
+        )
+
+        self.assertEqual(self.processor.count, count_frequency(self.triples))
+        legacy = [s["subsampling_weight"].item() for s in link_prediction_fn(self.triples)]
+        weights = self.processor.subsampling_weight(torch.tensor(self.triples))
+        self.assertTrue(torch.allclose(weights, torch.tensor(legacy)))
+
+    def test_weight_of_a_triple_with_an_unseen_pair_raises(self) -> None:
+        # (1, 1) never occurs as (head, relation) in the fitted triples.
+        with self.assertRaisesRegex(KeyError, "not seen in fit"):
+            self.processor.subsampling_weight(torch.tensor([[1, 1, 5]]))
+
+    def test_malformed_and_out_of_range_triples_raise(self) -> None:
+        from pyhealth.processors import KGTripleProcessor
+
+        processor = KGTripleProcessor(num_entities=3, num_relations=1)
+        for bad in [(0, 0, 3), (0, 1, 1), (-1, 0, 1), (0, 0)]:
+            with self.subTest(triple=bad), self.assertRaises(ValueError):
+                processor.fit([{"triple": bad}], "triple")
+        with self.assertRaises(ValueError):
+            KGTripleProcessor(num_entities=0, num_relations=1)
+
+    def test_refit_replaces_the_dicts(self) -> None:
+        self.processor.fit([{"triple": (5, 1, 0)}], "triple")
+        self.assertEqual(self.processor.true_tail, {(5, 1): [0]})
+        self.assertEqual(self.processor.true_head, {(1, 0): [5]})
+        self.assertEqual(self.processor.count, {(5, 1): 4, (0, -2): 4})
+
+    def test_a_fitted_processor_can_be_passed_back_to_set_task(self) -> None:
+        """set_task puts vars() of pre-fitted processors in a JSON cache key."""
+        import json
+
+        from pyhealth.processors import KGTripleProcessor
+
+        def key(processor):
+            return json.dumps({"p": vars(processor)}, sort_keys=True, default=str)
+
+        same = KGTripleProcessor(num_entities=6, num_relations=2)
+        same.fit([{"triple": t} for t in reversed(self.triples)], "triple")
+        other = KGTripleProcessor(num_entities=6, num_relations=2)
+        other.fit([{"triple": t} for t in self.triples[:3]], "triple")
+
+        self.assertEqual(key(self.processor), key(same))
+        self.assertNotEqual(key(self.processor), key(other))
+
+    def test_survives_pickling(self) -> None:
+        import pickle
+
+        clone = pickle.loads(pickle.dumps(self.processor))
+        self.assertEqual(clone.true_tail, self.processor.true_tail)
+        self.assertEqual(clone.count, self.processor.count)
+
+    def test_split_fits_on_the_training_part_only(self) -> None:
+        """No validation or test triple reaches the dicts or the counts."""
+        from pyhealth.datasets import PatientSplit
+
+        samples = [
+            {"patient_id": str(i), "triple": t} for i, t in enumerate(self.triples)
+        ]
+        split = PatientSplit(ratios=(0.6, 0.4), seed=0)
+        builder = fit_through_builder(samples, split=split)
+        processor = builder.input_processors["triple"]
+        train_idx, held_out_idx = builder.split_indices
+
+        train = {self.triples[i] for i in train_idx}
+        held_out = {self.triples[i] for i in held_out_idx}
+        fitted = {(h, r, t) for (h, r), ts in processor.true_tail.items() for t in ts}
+        self.assertEqual(fitted, train)
+        self.assertTrue(held_out)
+        self.assertFalse(fitted & held_out)
+        from pyhealth.medcode.pretrained_embeddings.kg_emb.tasks.link_prediction import (
+            count_frequency,
+        )
+
+        self.assertEqual(processor.count, count_frequency(sorted(train)))
+
+    def test_fitting_without_split_warns(self) -> None:
+        samples = [{"patient_id": str(i), "triple": t} for i, t in enumerate(self.triples)]
+        with self.assertLogs("pyhealth.datasets.sample_dataset", level="WARNING") as logs:
+            fit_through_builder(samples)
+        self.assertTrue(any("triple" in line for line in logs.output))
+
+
+class TestKGProcessorKeepsLongLists(unittest.TestCase):
+    """Filter sets longer than the training maximum are kept whole (no truncation)."""
+
+    def setUp(self) -> None:
+        from pyhealth.processors import KGProcessor
+
+        self.processor = KGProcessor(pad_token_id=0)
+        # Fitted on "training" lists of at most 2 entities.
+        self.processor.fit([{"gt": [1, 2]}, {"gt": [3]}], "gt")
+
+    def test_a_longer_list_keeps_all_entities(self) -> None:
+        out = self.processor.process([5, 0, 7, 9])
+        self.assertEqual(out["value"].tolist(), [5, 0, 7, 9])
+        self.assertEqual(out["mask"].tolist(), [1, 1, 1, 1])
+
+    def test_shorter_lists_are_still_padded_to_the_fitted_length(self) -> None:
+        out = self.processor.process([4])
+        self.assertEqual(out["value"].tolist(), [4, 0])
+        self.assertEqual(out["mask"].tolist(), [1, 0])
+
+    def test_collation_pads_the_batch_with_mask_zero(self) -> None:
+        batch = [
+            {"gt": self.processor.process([5, 0, 7, 9])},
+            {"gt": self.processor.process([4])},
+        ]
+        gt = collate_fn_dict_with_padding(batch)["gt"]
+        self.assertEqual(gt["value"].tolist(), [[5, 0, 7, 9], [4, 0, 0, 0]])
+        self.assertEqual(gt["mask"].tolist(), [[1, 1, 1, 1], [1, 0, 0, 0]])
+        # The model's unpadding recovers the exact lists, entity 0 included.
+        from pyhealth.medcode.pretrained_embeddings.kg_emb.models import TransE
+
+        model = TransE(dataset=make_dataset(n=4), e_dim=8, r_dim=8)
+        self.assertEqual(model._unpad_ground_truth(gt), [[5, 0, 7, 9], [4]])
