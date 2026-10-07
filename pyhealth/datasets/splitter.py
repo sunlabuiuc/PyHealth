@@ -75,6 +75,12 @@ class PatientSplit(Split):
     ``PatientSplit`` gives the same patients on every run and machine,
     whatever order the samples are stored in.
 
+    Unlike :func:`split_by_patient`, which splits an already-processed
+    ``SampleDataset`` whose processors were fitted on all samples, the parts
+    are chosen before fitting. ``split_by_patient`` shuffles patients in the
+    order they appear in the dataset, so for the same ratios and seed it
+    generally picks different patients.
+
     Args:
         ratios: Two or more non-negative fractions summing to 1. The first
             part is the training part, e.g. (train, test), (train, val, test)
@@ -244,12 +250,21 @@ def split_by_visit(
         seed: random seed for shuffling the dataset
 
     Returns:
-        train_dataset, val_dataset, test_dataset: three subsets of the dataset of
-            type `torch.utils.data.Subset`.
+        train_dataset, val_dataset, test_dataset: ``SampleDataset`` views
+            (``dataset.subset``) over the same processed samples.
+
+    Examples:
+        >>> from pyhealth.datasets import split_by_visit
+        >>> train, val, test = split_by_visit(  # doctest: +SKIP
+        ...     samples, [0.8, 0.1, 0.1], seed=42
+        ... )
 
     Note:
-        The original dataset can be accessed by `train_dataset.dataset`,
-            `val_dataset.dataset`, and `test_dataset.dataset`.
+        The processors of ``dataset`` (vocabularies, learned statistics) were
+        fitted on all of its samples, so every part shaped them. To fit them on
+        the training part only, split inside ``set_task`` instead:
+        ``base_dataset.set_task(task, split=...)`` with :class:`PatientSplit`
+        or a custom :class:`Split`.
     """
     rng = np.random.default_rng(seed)
     assert sum(ratios) == 1.0, "ratios must sum to 1.0"
@@ -279,12 +294,21 @@ def split_by_patient(
         seed: random seed for shuffling the dataset
 
     Returns:
-        train_dataset, val_dataset, test_dataset: three subsets of the dataset of
-            type `torch.utils.data.Subset`.
+        train_dataset, val_dataset, test_dataset: ``SampleDataset`` views
+            (``dataset.subset``) over the same processed samples.
+
+    Examples:
+        >>> from pyhealth.datasets import split_by_patient
+        >>> train, val, test = split_by_patient(  # doctest: +SKIP
+        ...     samples, [0.8, 0.1, 0.1], seed=42
+        ... )
 
     Note:
-        The original dataset can be accessed by `train_dataset.dataset`,
-            `val_dataset.dataset`, and `test_dataset.dataset`.
+        The processors of ``dataset`` (vocabularies, learned statistics) were
+        fitted on all of its samples, so every part shaped them. To fit them on
+        the training part only, split inside ``set_task`` instead:
+        ``base_dataset.set_task(task, split=...)`` with :class:`PatientSplit`
+        or a custom :class:`Split`.
     """
     rng = np.random.default_rng(seed)
     assert sum(ratios) == 1.0, "ratios must sum to 1.0"
@@ -319,14 +343,26 @@ def split_by_sample(
         dataset: a `SampleDataset` object
         ratios: a list/tuple of ratios for train / val / test
         seed: random seed for shuffling the dataset
+        get_index: if True, return three ``torch.Tensor`` index vectors
+            instead of datasets
 
     Returns:
-        train_dataset, val_dataset, test_dataset: three subsets of the dataset of
-            type `torch.utils.data.Subset`.
+        train_dataset, val_dataset, test_dataset: ``SampleDataset`` views
+            (``dataset.subset``) over the same processed samples, or index
+            tensors if ``get_index`` is True.
+
+    Examples:
+        >>> from pyhealth.datasets import split_by_sample
+        >>> train, val, test = split_by_sample(  # doctest: +SKIP
+        ...     samples, [0.8, 0.1, 0.1], seed=42
+        ... )
 
     Note:
-        The original dataset can be accessed by `train_dataset.dataset`,
-            `val_dataset.dataset`, and `test_dataset.dataset`.
+        The processors of ``dataset`` (vocabularies, learned statistics) were
+        fitted on all of its samples, so every part shaped them. To fit them on
+        the training part only, split inside ``set_task`` instead:
+        ``base_dataset.set_task(task, split=...)`` with :class:`PatientSplit`
+        or a custom :class:`Split`.
     """
     rng = np.random.default_rng(seed)
     assert sum(ratios) == 1.0, "ratios must sum to 1.0"
@@ -364,13 +400,22 @@ def split_by_visit_conformal(
         seed: random seed for shuffling the dataset
 
     Returns:
-        train_dataset, val_dataset, cal_dataset, test_dataset: four subsets
-            of the dataset of type `torch.utils.data.Subset`.
+        train_dataset, val_dataset, cal_dataset, test_dataset:
+            ``SampleDataset`` views (``dataset.subset``) over the same
+            processed samples.
+
+    Examples:
+        >>> from pyhealth.datasets import split_by_visit_conformal
+        >>> train, val, cal, test = split_by_visit_conformal(  # doctest: +SKIP
+        ...     samples, [0.6, 0.1, 0.1, 0.2], seed=42
+        ... )
 
     Note:
-        The original dataset can be accessed by `train_dataset.dataset`,
-            `val_dataset.dataset`, `cal_dataset.dataset`, and
-            `test_dataset.dataset`.
+        The processors of ``dataset`` (vocabularies, learned statistics) were
+        fitted on all of its samples, so every part shaped them. To fit them on
+        the training part only, split inside ``set_task`` instead:
+        ``base_dataset.set_task(task, split=...)`` with :class:`PatientSplit`
+        or a custom :class:`Split`.
     """
     rng = np.random.default_rng(seed)
     assert len(ratios) == 4, "ratios must have 4 elements for train/val/cal/test"
@@ -410,13 +455,22 @@ def split_by_patient_conformal(
         seed: random seed for shuffling the dataset
 
     Returns:
-        train_dataset, val_dataset, cal_dataset, test_dataset: four subsets
-            of the dataset of type `torch.utils.data.Subset`.
+        train_dataset, val_dataset, cal_dataset, test_dataset:
+            ``SampleDataset`` views (``dataset.subset``) over the same
+            processed samples.
+
+    Examples:
+        >>> from pyhealth.datasets import split_by_patient_conformal
+        >>> train, val, cal, test = split_by_patient_conformal(  # doctest: +SKIP
+        ...     samples, [0.6, 0.1, 0.1, 0.2], seed=42
+        ... )
 
     Note:
-        The original dataset can be accessed by `train_dataset.dataset`,
-            `val_dataset.dataset`, `cal_dataset.dataset`, and
-            `test_dataset.dataset`.
+        The processors of ``dataset`` (vocabularies, learned statistics) were
+        fitted on all of its samples, so every part shaped them. To fit them on
+        the training part only, split inside ``set_task`` instead:
+        ``base_dataset.set_task(task, split=...)`` with :class:`PatientSplit`
+        or a custom :class:`Split`.
     """
     rng = np.random.default_rng(seed)
     assert len(ratios) == 4, "ratios must have 4 elements for train/val/cal/test"
@@ -481,10 +535,23 @@ def split_by_patient_conformal_tuh(
             to 1.0.
         seed: random seed used to shuffle the patient list.
         get_index: if ``True``, return four :class:`torch.Tensor` index vectors
-            instead of :class:`~torch.utils.data.Subset` objects.
+            instead of datasets.
 
     Returns:
         ``(train_dataset, val_dataset, cal_dataset, test_dataset)``
+
+    Examples:
+        >>> from pyhealth.datasets import split_by_patient_conformal_tuh
+        >>> train, val, cal, test = split_by_patient_conformal_tuh(  # doctest: +SKIP
+        ...     samples, [0.6, 0.2, 0.2], seed=42
+        ... )
+
+    Note:
+        The processors of ``dataset`` (vocabularies, learned statistics) were
+        fitted on all of its samples, so every part shaped them. To fit them on
+        the training part only, split inside ``set_task`` instead:
+        ``base_dataset.set_task(task, split=...)`` with :class:`PatientSplit`
+        or a custom :class:`Split`.
     """
     assert len(ratios) == 3, (
         "ratios must have exactly 3 elements (train/val/cal). "
@@ -556,10 +623,23 @@ def split_by_sample_conformal_tuh(
         ratios: the fraction of the train pool assigned to train / val / cal respectively
         seed: random seed for shuffling the train pool
         get_index: if True, return four ``torch.Tensor`` index vectors instead
-            of ``Subset`` objects
+            of datasets
 
     Returns:
         train_dataset, val_dataset, cal_dataset, test_dataset
+
+    Examples:
+        >>> from pyhealth.datasets import split_by_sample_conformal_tuh
+        >>> train, val, cal, test = split_by_sample_conformal_tuh(  # doctest: +SKIP
+        ...     samples, [0.6, 0.2, 0.2], seed=42
+        ... )
+
+    Note:
+        The processors of ``dataset`` (vocabularies, learned statistics) were
+        fitted on all of its samples, so every part shaped them. To fit them on
+        the training part only, split inside ``set_task`` instead:
+        ``base_dataset.set_task(task, split=...)`` with :class:`PatientSplit`
+        or a custom :class:`Split`.
     """
     assert len(ratios) == 3, (
         "ratios must have exactly 3 elements (train/val/cal). "
@@ -638,10 +718,23 @@ def split_by_patient_tuh(
             to 1.0.
         seed: random seed used to shuffle the patient list.
         get_index: if ``True``, return three :class:`torch.Tensor` index
-            vectors instead of :class:`~torch.utils.data.Subset` objects.
+            vectors instead of datasets.
 
     Returns:
         ``(train_dataset, val_dataset, test_dataset)``
+
+    Examples:
+        >>> from pyhealth.datasets import split_by_patient_tuh
+        >>> train, val, test = split_by_patient_tuh(  # doctest: +SKIP
+        ...     samples, [0.8, 0.2], seed=42
+        ... )
+
+    Note:
+        The processors of ``dataset`` (vocabularies, learned statistics) were
+        fitted on all of its samples, so every part shaped them. To fit them on
+        the training part only, split inside ``set_task`` instead:
+        ``base_dataset.set_task(task, split=...)`` with :class:`PatientSplit`
+        or a custom :class:`Split`.
     """
     assert len(ratios) == 2, (
         "ratios must have exactly 2 elements (train/val). "
@@ -714,10 +807,23 @@ def split_by_sample_tuh(
             respectively.  Must be a length-2 sequence summing to 1.0.
         seed: random seed for shuffling the train pool
         get_index: if True, return three ``torch.Tensor`` index vectors instead
-            of ``Subset`` objects
+            of datasets
 
     Returns:
         train_dataset, val_dataset, test_dataset
+
+    Examples:
+        >>> from pyhealth.datasets import split_by_sample_tuh
+        >>> train, val, test = split_by_sample_tuh(  # doctest: +SKIP
+        ...     samples, [0.8, 0.2], seed=42
+        ... )
+
+    Note:
+        The processors of ``dataset`` (vocabularies, learned statistics) were
+        fitted on all of its samples, so every part shaped them. To fit them on
+        the training part only, split inside ``set_task`` instead:
+        ``base_dataset.set_task(task, split=...)`` with :class:`PatientSplit`
+        or a custom :class:`Split`.
     """
     assert len(ratios) == 2, (
         "ratios must have exactly 2 elements (train/val). "
@@ -776,17 +882,25 @@ def split_by_sample_conformal(
         dataset: a `SampleDataset` object
         ratios: a list/tuple of ratios for train / val / cal / test
         seed: random seed for shuffling the dataset
-        get_index: if True, return indices instead of Subset objects
+        get_index: if True, return indices instead of datasets
 
     Returns:
-        train_dataset, val_dataset, cal_dataset, test_dataset: four subsets
-            of the dataset of type `torch.utils.data.Subset`, or four tensors
-            of indices if get_index=True.
+        train_dataset, val_dataset, cal_dataset, test_dataset:
+            ``SampleDataset`` views (``dataset.subset``) over the same
+            processed samples, or four index tensors if ``get_index`` is True.
+
+    Examples:
+        >>> from pyhealth.datasets import split_by_sample_conformal
+        >>> train, val, cal, test = split_by_sample_conformal(  # doctest: +SKIP
+        ...     samples, [0.6, 0.1, 0.1, 0.2], seed=42
+        ... )
 
     Note:
-        The original dataset can be accessed by `train_dataset.dataset`,
-            `val_dataset.dataset`, `cal_dataset.dataset`, and
-            `test_dataset.dataset`.
+        The processors of ``dataset`` (vocabularies, learned statistics) were
+        fitted on all of its samples, so every part shaped them. To fit them on
+        the training part only, split inside ``set_task`` instead:
+        ``base_dataset.set_task(task, split=...)`` with :class:`PatientSplit`
+        or a custom :class:`Split`.
     """
     rng = np.random.default_rng(seed)
     assert len(ratios) == 4, "ratios must have 4 elements for train/val/cal/test"
