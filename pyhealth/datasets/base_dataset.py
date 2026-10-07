@@ -45,6 +45,7 @@ from ..tasks import BaseTask
 from ..processors.base_processor import FeatureProcessor
 from .configs import load_yaml_config
 from .sample_dataset import SampleDataset, SampleBuilder
+from .splitter import Split
 from ..utils import set_env
 
 # Set logging level for distributed to ERROR to reduce verbosity
@@ -204,6 +205,14 @@ def _csv_tsv_gz_path(path: str) -> str:
 def _litdata_merge(cache_dir: Path) -> None:
     """
     Merges LitData binary writer index files in the given cache directory.
+
+    Workers write contiguous sample ranges, each with its own
+    ``{rank}.index.json``. ``patient_to_index`` and ``record_to_index`` are
+    built before processing and assume merged sample ``i`` is input sample
+    ``i``, so the per-worker indexes must be joined in numeric rank order.
+    ``BinaryWriter.merge`` does this from litdata 0.2.64 on; earlier versions
+    sort the file names as strings (0, 1, 10, 11, ..., 2), which reorders
+    samples with more than 10 workers.
 
     Args:
         cache_dir (Path): The cache directory containing LitData binary writer files.
@@ -1106,7 +1115,8 @@ class BaseDataset(ABC):
         num_workers: Optional[int] = None,
         input_processors: Optional[Dict[str, FeatureProcessor]] = None,
         output_processors: Optional[Dict[str, FeatureProcessor]] = None,
-    ) -> SampleDataset:
+        split: Split | None = None,
+    ) -> SampleDataset | tuple[SampleDataset, ...]:
         """Processes the base dataset to generate the task-specific sample dataset.
         The cache structure is as follows::
 
@@ -1114,6 +1124,7 @@ class BaseDataset(ABC):
                 task_df.ld/                 # Intermediate task dataframe based on schema
                 samples_{proc_uuid}.ld/     # Final processed samples after applying processors
                     schema.pkl              # Saved SampleBuilder schema
+                    split.npz               # Sample indices per split part (with split= only)
                     *.bin                   # Processed sample files
 
         Args:
@@ -1125,9 +1136,25 @@ class BaseDataset(ABC):
             output_processors (Optional[Dict[str, FeatureProcessor]]):
                 Pre-fitted output processors. If provided, these will be used
                 instead of creating new ones from task's output_schema. Defaults to None.
+            split (Optional[Split]): Split the samples, e.g. by patient with
+                ``PatientSplit``, and fit every processor on the first
+                (training) part only, so the other parts never shape
+                preprocessing. The parts are used as the split returns them.
+                Samples are streamed;
+                nothing is loaded into memory beyond the per-sample index that
+                processing already keeps. Defaults to None: fit on all samples
+                and return one dataset, as before.
 
         Returns:
-            SampleDataset: The generated sample dataset.
+            SampleDataset: The generated sample dataset, or, with ``split``, a
+            tuple with one dataset per part, training part first, whose
+            processors were fitted on the training part.
+
+        Examples:
+            >>> from pyhealth.datasets import PatientSplit
+            >>> train, val, test = dataset.set_task(  # doctest: +SKIP
+            ...     task, split=PatientSplit(ratios=(0.7, 0.1, 0.2), seed=42)
+            ... )
 
         Raises:
             AssertionError: If no default task is found and task is None.
@@ -1180,6 +1207,8 @@ class BaseDataset(ABC):
                     if output_processors
                     else None
                 ),
+                # Only present with a split, so existing unsplit caches keep their key.
+                **({"split": split.to_dict()} if split is not None else {}),
             },
             sort_keys=True,
             default=str,
@@ -1240,8 +1269,12 @@ class BaseDataset(ABC):
                         input_processors=input_processors,
                         output_processors=output_processors,
                     )
-                    builder.fit(dataset)
+                    builder.fit(dataset, split=split)
                     builder.save(str(samples_path / "schema.pkl"))
+                    if split is not None:
+                        # Written before the samples, whose index.json marks the
+                        # cache complete, so a valid cache always has its split.
+                        np.savez(samples_path / "split.npz", *builder.split_indices)
 
                     # Apply processors and save final samples to cache_dir
                     logger.info(f"Processing samples and saving to {samples_path}...")
@@ -1256,11 +1289,17 @@ class BaseDataset(ABC):
                 f"Found cached processed samples at {samples_path}, skipping processing."
             )
 
-        return SampleDataset(
+        samples = SampleDataset(
             path=str(samples_path),
             dataset_name=self.dataset_name,
             task_name=task.task_name,
         )
+        if split is None:
+            return samples
+        with np.load(samples_path / "split.npz") as parts:
+            return tuple(
+                samples.subset(parts[f"arr_{k}"]) for k in range(len(parts.files))
+            )
 
     def _main_guard(self, func_name: str):
         """Warn if method is accessed from a non-main process."""

@@ -4,15 +4,42 @@ import pickle
 import shutil
 import tempfile
 from typing import Any, Dict, Iterable, List, Optional, Tuple, Union, Type
+from typing import TYPE_CHECKING
 import inspect
 import random
 from bisect import bisect_right
 import litdata
 from litdata.utilities.train_test_split import deepcopy_dataset
 import copy
+import logging
+
+import numpy as np
 
 from ..processors import get_processor, IgnoreProcessor
 from ..processors.base_processor import FeatureProcessor
+
+if TYPE_CHECKING:  # splitter imports this module
+    from .splitter import Split
+
+logger = logging.getLogger(__name__)
+
+
+class _MaskedSamples:
+    """A re-iterable view of a sample stream that keeps only masked positions.
+
+    Each iteration walks the underlying stream in order and yields the samples
+    whose position is True in ``mask``. Nothing is collected, so fitting on a
+    split costs no more memory than fitting on all samples.
+    """
+
+    def __init__(self, samples: Iterable[dict[str, Any]], mask: np.ndarray):
+        self._samples = samples
+        self._mask = mask
+
+    def __iter__(self):
+        for keep, sample in zip(self._mask, self._samples):
+            if keep:
+                yield sample
 
 
 def _remap_index_mapping(
@@ -49,6 +76,29 @@ class SampleBuilder:
     After saving the schema, `litdata.optimize` can be used with `builder.transform`
     to serialize and chunk pickled sample items into a directory that can be
     loaded via SampleDataset.
+
+    Pre-fitted processors passed as `input_processors` / `output_processors` are
+    used as they are; every schema field without one gets a fitted processor.
+
+    Examples:
+        >>> from pyhealth.datasets.sample_dataset import SampleBuilder
+        >>> from pyhealth.processors import SequenceProcessor
+        >>> samples = [
+        ...     {"patient_id": "p1", "codes": ["a", "b"], "age": [40.0], "label": 1},
+        ...     {"patient_id": "p2", "codes": ["c"], "age": [55.0], "label": 0},
+        ... ]
+        >>> codes = SequenceProcessor()
+        >>> codes.fit(samples, "codes")
+        >>> builder = SampleBuilder(
+        ...     input_schema={"codes": "sequence", "age": "tensor"},
+        ...     output_schema={"label": "binary"},
+        ...     input_processors={"codes": codes},
+        ... )
+        >>> builder.fit(samples)
+        >>> builder.input_processors["codes"] is codes
+        True
+        >>> type(builder.input_processors["age"]).__name__
+        'TensorProcessor'
     """
 
     def __init__(
@@ -61,14 +111,16 @@ class SampleBuilder:
         self.input_schema = input_schema
         self.output_schema = output_schema
         self._input_processors = (
-            input_processors if input_processors is not None else {}
+            dict(input_processors) if input_processors is not None else {}
         )
         self._output_processors = (
-            output_processors if output_processors is not None else {}
+            dict(output_processors) if output_processors is not None else {}
         )
         self._patient_to_index: Dict[str, List[int]] = {}
         self._record_to_index: Dict[str, List[int]] = {}
         self._fitted = False
+        self._split = None
+        self._split_indices: list[np.ndarray] | None = None
 
     @property
     def input_processors(self) -> Dict[str, FeatureProcessor]:
@@ -85,6 +137,15 @@ class SampleBuilder:
                 "SampleBuilder.fit must be called before accessing output_processors."
             )
         return self._output_processors
+
+    @property
+    def split_indices(self) -> list[np.ndarray] | None:
+        """Sample indices of each split part (train first), or None without a split."""
+        if not self._fitted:
+            raise RuntimeError(
+                "SampleBuilder.fit must be called before accessing split_indices."
+            )
+        return self._split_indices
 
     @property
     def patient_to_index(self) -> Dict[str, List[int]]:
@@ -130,6 +191,7 @@ class SampleBuilder:
     def fit(
         self,
         samples: Iterable[Dict[str, Any]],
+        split: "Split | None" = None,
     ) -> None:
         """Fit processors and build mapping indices from an iterator of samples.
 
@@ -138,6 +200,13 @@ class SampleBuilder:
                 sample should contain keys covering both the configured
                 `input_schema` and `output_schema`. These samples are not
                 required to be pickled; `fit` operates on in-memory dicts.
+                It is iterated several times and never collected, so a
+                streaming dataset works without loading it into memory.
+            split: Optional :class:`~pyhealth.datasets.Split`, such as
+                :class:`~pyhealth.datasets.PatientSplit`. When given,
+                processors are fitted on the first (training) part only, and
+                the sample indices of every part are kept in
+                ``split_indices``.
 
         Behavior:
             - Validates the samples contain all keys specified by the input
@@ -145,9 +214,9 @@ class SampleBuilder:
             - Builds `patient_to_index` and `record_to_index` mappings by
               recording the sample indices associated with `patient_id` and
               `record_id`/`visit_id` fields.
-            - Instantiates and fits input/output processors from the provided
-              schemas (unless pre-fitted processors were supplied to the
-              constructor).
+            - Instantiates and fits a processor for every schema field that
+              has none. Pre-fitted processors supplied to the constructor are
+              used as they are; any remaining fields still get fitted ones.
         """
         # Validate the samples
         input_keys = set(self.input_schema.keys())
@@ -163,7 +232,9 @@ class SampleBuilder:
         # Build index mappings
         self._patient_to_index = {}
         self._record_to_index = {}
+        n_samples = 0
         for i, sample in enumerate(samples):
+            n_samples = i + 1
             patient_id = sample.get("patient_id")
             if patient_id is not None:
                 self._patient_to_index.setdefault(patient_id, []).append(i)
@@ -171,17 +242,38 @@ class SampleBuilder:
             if record_id is not None:
                 self._record_to_index.setdefault(record_id, []).append(i)
 
-        # Fit processors if they were not provided
-        if not self._input_processors:
-            for key, spec in self.input_schema.items():
-                processor = self._get_processor_instance(spec)
-                processor.fit(samples, key)
-                self._input_processors[key] = processor
-        if not self._output_processors:
-            for key, spec in self.output_schema.items():
-                processor = self._get_processor_instance(spec)
-                processor.fit(samples, key)
-                self._output_processors[key] = processor
+        # With a split, fit on the training patients only: a masked view of
+        # the same stream, so nothing is loaded into memory.
+        self._split = split
+        self._split_indices = None
+        fit_samples = samples
+        if split is not None:
+            self._split_indices = split.split_indices(self._patient_to_index)
+            train_mask = np.zeros(n_samples, dtype=bool)
+            train_mask[self._split_indices[0]] = True
+            fit_samples = _MaskedSamples(samples, train_mask)
+
+        # Fit a processor for every schema field that has none. Supplied
+        # (pre-fitted) processors are used as they are, never refitted.
+        learned_on_all = []
+        for schema, processors in (
+            (self.input_schema, self._input_processors),
+            (self.output_schema, self._output_processors),
+        ):
+            for key, spec in schema.items():
+                if key not in processors:
+                    processor = self._get_processor_instance(spec)
+                    processor.fit(fit_samples, key)
+                    processors[key] = processor
+                    if split is None and getattr(processor, "learns_statistics", False):
+                        learned_on_all.append(key)
+        if learned_on_all:
+            logger.warning(
+                "Processors for %s learn statistics from the data and were fitted "
+                "on all samples, so validation/test patients shaped them. Fit on "
+                "the training patients with set_task(task, split=PatientSplit(...)).",
+                ", ".join(learned_on_all),
+            )
 
         self._fitted = True
 
@@ -239,6 +331,7 @@ class SampleBuilder:
             "output_processors": self._output_processors,
             "patient_to_index": self._patient_to_index,
             "record_to_index": self._record_to_index,
+            "fit_split": self._split.to_dict() if self._split is not None else None,
         }
         with open(path, "wb") as f:
             pickle.dump(metadata, f)
@@ -342,6 +435,9 @@ class SampleDataset(litdata.StreamingDataset):
 
         self.patient_to_index = metadata["patient_to_index"]
         self.record_to_index = metadata["record_to_index"]
+        # The split the processors were fitted on, or None if fitted on all
+        # samples (also None for caches written before this was recorded).
+        self.fit_split: dict | None = metadata.get("fit_split")
 
     def _remove_ignored_processors(self):
         """Remove any processors that are IgnoreProcessor instances."""
