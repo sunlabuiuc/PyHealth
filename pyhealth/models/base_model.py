@@ -1,4 +1,5 @@
 from abc import ABC
+from collections.abc import Iterable, Sequence
 from typing import Callable, Any, Optional
 import inspect
 import logging
@@ -185,6 +186,80 @@ class BaseModel(ABC, nn.Module):
         output_size = self.dataset.output_processors[self.label_keys[0]].size()
         return output_size
 
+    @property
+    def pos_weight(self) -> torch.Tensor | None:
+        """Weight of positive examples in the binary/multilabel loss, or None."""
+        return self.__dict__.get("_pos_weight")
+
+    def set_pos_weight(
+        self,
+        pos_weight: float | Sequence[float] | torch.Tensor | str | None,
+        dataset: Iterable[dict] | None = None,
+    ) -> None:
+        """Weights positive examples in the default loss, for rare outcomes.
+
+        Applies to binary and multilabel labels, through
+        :meth:`get_loss_function` (``pos_weight`` of
+        ``F.binary_cross_entropy_with_logits``). Models that compute their own
+        loss (e.g. the drug-recommendation models) are not affected. Weighting
+        changes the scale of the predicted probabilities, so check calibration
+        when you use it.
+
+        Args:
+            pos_weight: A number (binary), one number per label (multilabel),
+                ``"balanced"`` for negatives / positives in ``dataset``, or
+                None to remove the weight.
+            dataset: The training samples, required for ``"balanced"``. Pass
+                the training split, not the full dataset, so validation and
+                test labels do not set the weight.
+
+        Raises:
+            ValueError: If the label is not binary or multilabel, or
+                ``"balanced"`` is given without a dataset.
+
+        Examples:
+            >>> model.set_pos_weight(4.0)  # doctest: +SKIP
+            >>> model.set_pos_weight("balanced", train_dataset)  # doctest: +SKIP
+        """
+        if pos_weight is None:
+            self._pos_weight = None
+            return
+        if self.mode not in ("binary", "multilabel"):
+            raise ValueError(
+                "pos_weight applies to binary or multilabel labels; this "
+                f"model's mode is {self.mode!r}."
+            )
+        if isinstance(pos_weight, str):
+            if pos_weight != "balanced":
+                raise ValueError(
+                    "pos_weight must be a number, a sequence, a tensor, "
+                    f"'balanced' or None, not {pos_weight!r}."
+                )
+            if dataset is None:
+                raise ValueError(
+                    "pos_weight='balanced' needs the training dataset: "
+                    "set_pos_weight('balanced', train_dataset)."
+                )
+            label_key = self.label_keys[0]
+            positives, count = None, 0
+            for sample in dataset:
+                y = torch.as_tensor(sample[label_key], dtype=torch.float32).reshape(-1)
+                positives = y.clone() if positives is None else positives + y
+                count += 1
+            if count == 0:
+                raise ValueError("pos_weight='balanced' got an empty dataset.")
+            if bool((positives == 0).any()):
+                logger.warning(
+                    "pos_weight='balanced': some labels have no positive "
+                    "examples in the dataset; their weight is set to 1."
+                )
+            weight = torch.where(
+                positives > 0, (count - positives) / positives.clamp(min=1), 1.0
+            )
+        else:
+            weight = torch.as_tensor(pos_weight, dtype=torch.float32).reshape(-1)
+        self._pos_weight = weight
+
     def get_loss_function(self) -> Callable:
         """
         Gets the default loss function using `self.mode`.
@@ -195,6 +270,9 @@ class BaseModel(ABC, nn.Module):
             - multilabel: `F.binary_cross_entropy_with_logits`
             - regression: `F.mse_loss`
 
+        For binary and multilabel labels, a weight set with
+        :meth:`set_pos_weight` is passed as ``pos_weight``.
+
         Returns:
             Callable: The default loss function.
         """
@@ -203,6 +281,15 @@ class BaseModel(ABC, nn.Module):
         ), "Only one label key is supported if get_loss_function is called"
         label_key = self.label_keys[0]
         mode = self._resolve_mode(self.dataset.output_schema[label_key])
+        pos_weight = self.pos_weight
+        if mode in ("binary", "multilabel") and pos_weight is not None:
+
+            def weighted_bce(input, target, **kwargs):
+                return F.binary_cross_entropy_with_logits(
+                    input, target, pos_weight=pos_weight.to(input.device), **kwargs
+                )
+
+            return weighted_bce
         if mode == "binary":
             return F.binary_cross_entropy_with_logits
         elif mode == "multiclass":

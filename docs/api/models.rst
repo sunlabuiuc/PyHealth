@@ -136,6 +136,25 @@ the calibration methods use it to pick metrics. ``BaseModel`` sets it for you,
 so custom models don't need to assign ``self.mode``; if they do, the value is
 resolved the same way.
 
+Imbalanced outcomes
+^^^^^^^^^^^^^^^^^^^
+
+For rare binary or multilabel outcomes, weight the positive examples in the
+default loss with ``set_pos_weight``:
+
+.. code-block:: python
+
+    model = RNN(dataset=samples)
+    model.set_pos_weight("balanced", train_dataset)   # negatives / positives
+    # or a fixed weight: model.set_pos_weight(9.0); remove it: set_pos_weight(None)
+
+``"balanced"`` is computed from the dataset you pass, so pass the training split,
+not the full dataset. The weight applies to models that use the default loss
+(``BaseModel.get_loss_function``); the drug-recommendation models (GAMENet,
+SafeDrug, MoleRec, MICRON) compute their own loss and ignore it. Weighting
+shifts the predicted probabilities upward, so check calibration before
+interpreting them as risks. See ``examples/imbalanced_outcome_pos_weight.py``.
+
 Building a Custom Model
 -----------------------
 
