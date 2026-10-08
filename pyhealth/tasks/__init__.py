@@ -14,8 +14,10 @@ from .chestxray14_multilabel_classification import ChestXray14MultilabelClassifi
 from .catheter_infection import (
     CatheterAssociatedInfectionPredictionMIMIC4,
     CatheterAssociatedInfectionPredictionMIMIC4DualContext,
+    CatheterAssociatedInfectionPredictionMIMIC4Temporal,
     CatheterAssociatedInfectionPredictionStageNetMIMIC4,
     CatheterAssociatedInfectionPredictionStageNetMIMIC4DualContext,
+    CatheterAssociatedInfectionPredictionStageNetMIMIC4Temporal,
 )
 from .covid19_cxr_classification import COVID19CXRClassification
 from .dka import DKAPredictionMIMIC4, T1DDKAPredictionMIMIC4

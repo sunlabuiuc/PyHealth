@@ -117,3 +117,41 @@ tables:
       - "hcpcs_cd"
       - "seq_num"
       - "short_description"
+
+  microbiologyevents:
+    file_path: "hosp/microbiologyevents.csv.gz"
+    patient_id: "subject_id"
+    timestamp: "chartdate"
+    attributes:
+      - "hadm_id"
+      - "micro_specimen_id"
+      - "charttime"
+      - "spec_type_desc"
+      - "test_itemid"
+      - "test_name"
+      - "org_name"
+      - "quantity"
+      - "comments"
+      - "ab_name"
+
+  procedureevents:
+    file_path: "icu/procedureevents.csv.gz"
+    patient_id: "subject_id"
+    timestamp: "starttime"
+    attributes:
+      - "hadm_id"
+      - "stay_id"
+      - "itemid"
+      - "endtime"
+      - "value"
+      - "statusdescription"
+
+  outputevents:
+    file_path: "icu/outputevents.csv.gz"
+    patient_id: "subject_id"
+    timestamp: "charttime"
+    attributes:
+      - "hadm_id"
+      - "stay_id"
+      - "itemid"
+      - "value"
