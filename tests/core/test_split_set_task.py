@@ -16,7 +16,7 @@ import numpy as np
 import torch
 
 from pyhealth.datasets import BaseDataset, PatientSplit, Split
-from pyhealth.datasets.sample_dataset import SampleBuilder
+from pyhealth.datasets.sample_dataset import STORAGE_FORMAT, SampleBuilder
 from pyhealth.processors import SequenceProcessor
 from pyhealth.processors.base_processor import FeatureProcessor
 from pyhealth.tasks import BaseTask
@@ -225,12 +225,18 @@ class TestSplitSetTask(unittest.TestCase):
             [everything[i]["visit_id"] for i in range(5)],
         )
 
-    def test_unsplit_path_and_cache_key_are_unchanged(self):
+    def test_unsplit_cache_key_has_no_split_entry(self):
         samples = self.dataset.set_task(EventTask())
-        proc_key = json.dumps(
-            {"input_processors": None, "output_processors": None}, sort_keys=True, default=str
-        )
+        key = {"input_processors": None, "output_processors": None,
+               "storage_format": STORAGE_FORMAT}
+        proc_key = json.dumps(key, sort_keys=True, default=str)
         self.assertTrue(samples.path.endswith(f"samples_{uuid.uuid5(uuid.NAMESPACE_DNS, proc_key)}.ld"))
+
+    def test_caches_from_the_old_storage_layout_are_not_reused(self):
+        samples = self.dataset.set_task(EventTask())
+        old_key = json.dumps({"input_processors": None, "output_processors": None},
+                             sort_keys=True, default=str)
+        self.assertFalse(samples.path.endswith(f"samples_{uuid.uuid5(uuid.NAMESPACE_DNS, old_key)}.ld"))
 
     def test_supplied_processor_is_kept_with_split(self):
         codes = SequenceProcessor()
