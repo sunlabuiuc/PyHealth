@@ -1,7 +1,9 @@
+import csv
+import math
+import tempfile
 import unittest
 from datetime import date, datetime, timedelta
 from pathlib import Path
-import math
 
 import polars as pl
 
@@ -21,25 +23,182 @@ from pyhealth.tasks.catheter_infection import (
 )
 
 
+# ---------------------------------------------------------------------------
+# Synthetic four-patient MIMIC-IV fixture (plain CSVs in a temp directory)
+# ---------------------------------------------------------------------------
+#   P1 10000001  adm 20000011: ICD catheter code (Z46.6), no infection
+#                adm 20000012: CPT 51702 + ICU Foley 03-01..03-07, T83.511A +
+#                N39.0, E. coli urine culture 03-05 (catheter/hospital day 5)
+#   P2 10000002  adm 20000021: Z46.6, ICU Foley 05-01..05-06, urine culture
+#                with no growth
+#   P3 10000003  adm 20000031: N39.0 only, no catheter evidence at all
+#   P4 10000004  adm 20000041: T83.511A, ICU Foley for only 2 days
+
+FAKE_MIMIC4 = {
+    "hosp/patients.csv": [
+        ["subject_id", "gender", "anchor_age", "anchor_year",
+         "anchor_year_group", "dod"],
+        ["10000001", "F", "70", "2150", "2014 - 2016", ""],
+        ["10000002", "M", "65", "2150", "2014 - 2016", ""],
+        ["10000003", "F", "40", "2150", "2014 - 2016", ""],
+        ["10000004", "M", "80", "2150", "2014 - 2016", ""],
+    ],
+    "hosp/admissions.csv": [
+        ["subject_id", "hadm_id", "admittime", "dischtime", "admission_type",
+         "admission_location", "discharge_location", "insurance", "language",
+         "marital_status", "race", "hospital_expire_flag"],
+        ["10000001", "20000011", "2150-01-01 08:00:00", "2150-01-06 12:00:00",
+         "URGENT", "ER", "HOME", "Medicare", "ENGLISH", "MARRIED", "WHITE", "0"],
+        ["10000001", "20000012", "2150-03-01 08:00:00", "2150-03-10 12:00:00",
+         "URGENT", "ER", "HOME", "Medicare", "ENGLISH", "MARRIED", "WHITE", "0"],
+        ["10000002", "20000021", "2150-05-01 08:00:00", "2150-05-09 12:00:00",
+         "URGENT", "ER", "HOME", "Medicare", "ENGLISH", "SINGLE", "WHITE", "0"],
+        ["10000003", "20000031", "2150-07-01 08:00:00", "2150-07-05 12:00:00",
+         "URGENT", "ER", "HOME", "Other", "ENGLISH", "SINGLE", "ASIAN", "0"],
+        ["10000004", "20000041", "2150-09-01 08:00:00", "2150-09-08 12:00:00",
+         "URGENT", "ER", "HOME", "Medicare", "ENGLISH", "WIDOWED", "BLACK", "0"],
+    ],
+    "icu/icustays.csv": [
+        ["subject_id", "hadm_id", "stay_id", "first_careunit", "last_careunit",
+         "intime", "outtime"],
+        ["10000001", "20000012", "30000012", "MICU", "MICU",
+         "2150-03-01 09:00:00", "2150-03-08 09:00:00"],
+        ["10000002", "20000021", "30000021", "MICU", "MICU",
+         "2150-05-01 09:00:00", "2150-05-07 09:00:00"],
+        ["10000004", "20000041", "30000041", "SICU", "SICU",
+         "2150-09-02 09:00:00", "2150-09-04 09:00:00"],
+    ],
+    "hosp/diagnoses_icd.csv": [
+        ["subject_id", "hadm_id", "seq_num", "icd_code", "icd_version"],
+        ["10000001", "20000011", "1", "I10", "10"],
+        ["10000001", "20000011", "2", "Z466", "10"],
+        ["10000001", "20000012", "1", "T83511A", "10"],
+        ["10000001", "20000012", "2", "N390", "10"],
+        ["10000001", "20000012", "3", "I10", "10"],
+        ["10000002", "20000021", "1", "I10", "10"],
+        ["10000002", "20000021", "2", "Z466", "10"],
+        ["10000003", "20000031", "1", "N390", "10"],
+        ["10000004", "20000041", "1", "T83511A", "10"],
+    ],
+    "hosp/procedures_icd.csv": [
+        ["subject_id", "hadm_id", "seq_num", "chartdate", "icd_code",
+         "icd_version"],
+        ["10000001", "20000012", "1", "2150-03-01", "0T9B70Z", "10"],
+    ],
+    "hosp/prescriptions.csv": [
+        ["subject_id", "hadm_id", "starttime", "stoptime", "drug", "ndc",
+         "prod_strength", "dose_val_rx", "dose_unit_rx", "route"],
+        ["10000001", "20000012", "2150-03-02 10:00:00", "2150-03-04 10:00:00",
+         "Heparin", "", "5000 units", "5000", "UNIT", "SC"],
+        ["10000002", "20000021", "2150-05-02 10:00:00", "2150-05-04 10:00:00",
+         "Heparin", "", "5000 units", "5000", "UNIT", "SC"],
+    ],
+    "hosp/d_labitems.csv": [
+        ["itemid", "label", "fluid", "category"],
+        ["50983", "Sodium", "Blood", "Chemistry"],
+        ["50971", "Potassium", "Blood", "Chemistry"],
+    ],
+    "hosp/labevents.csv": [
+        ["labevent_id", "subject_id", "hadm_id", "specimen_id", "itemid",
+         "charttime", "storetime", "value", "valuenum", "valueuom", "flag"],
+        # P1 adm 2: sodium before the index day (kept) and after it (dropped).
+        ["1", "10000001", "20000012", "1", "50983", "2150-03-02 06:00:00",
+         "2150-03-02 07:00:00", "140", "140", "mEq/L", ""],
+        ["2", "10000001", "20000012", "2", "50983", "2150-03-08 06:00:00",
+         "2150-03-08 07:00:00", "120", "120", "mEq/L", "abnormal"],
+        ["3", "10000002", "20000021", "3", "50971", "2150-05-02 06:00:00",
+         "2150-05-02 07:00:00", "4.0", "4.0", "mEq/L", ""],
+    ],
+    "hosp/hcpcsevents.csv": [
+        ["subject_id", "hadm_id", "chartdate", "hcpcs_cd", "seq_num",
+         "short_description"],
+        ["10000001", "20000012", "2150-03-01", "51702", "1",
+         "Insert temp bladder cath"],
+    ],
+    "hosp/microbiologyevents.csv": [
+        ["microevent_id", "subject_id", "hadm_id", "micro_specimen_id",
+         "chartdate", "charttime", "spec_itemid", "spec_type_desc",
+         "test_itemid", "test_name", "org_name", "quantity", "comments",
+         "ab_name"],
+        ["1", "10000001", "20000012", "40000001", "2150-03-05 00:00:00",
+         "2150-03-05 09:00:00", "70079", "URINE", "90039", "URINE CULTURE",
+         "ESCHERICHIA COLI", "", "", "AMPICILLIN"],
+        ["2", "10000002", "20000021", "40000002", "2150-05-04 00:00:00",
+         "2150-05-04 09:00:00", "70079", "URINE", "90039", "URINE CULTURE",
+         "", "", "NO GROWTH.", ""],
+    ],
+    "icu/procedureevents.csv": [
+        ["subject_id", "hadm_id", "stay_id", "starttime", "endtime", "itemid",
+         "value", "statusdescription"],
+        ["10000001", "20000012", "30000012", "2150-03-01 10:00:00",
+         "2150-03-07 10:00:00", "229351", "1", "FinishedRunning"],
+        ["10000002", "20000021", "30000021", "2150-05-01 10:00:00",
+         "2150-05-06 10:00:00", "229351", "1", "FinishedRunning"],
+        ["10000004", "20000041", "30000041", "2150-09-02 10:00:00",
+         "2150-09-03 09:00:00", "229351", "1", "FinishedRunning"],
+    ],
+    "icu/outputevents.csv": [
+        ["subject_id", "hadm_id", "stay_id", "charttime", "itemid", "value"],
+        ["10000001", "20000012", "30000012", "2150-03-03 12:00:00", "226559",
+         "400"],
+        ["10000002", "20000021", "30000021", "2150-05-03 12:00:00", "226559",
+         "350"],
+    ],
+}
+
+ICD_TABLES = ["diagnoses_icd", "procedures_icd", "prescriptions", "labevents"]
+TEMPORAL_TABLES = ICD_TABLES + [
+    "hcpcsevents",
+    "microbiologyevents",
+    "procedureevents",
+    "outputevents",
+]
+
+
+def _write_fake_mimic4(root):
+    for rel_path, rows in FAKE_MIMIC4.items():
+        path = Path(root) / rel_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w", newline="") as f:
+            csv.writer(f).writerows(rows)
+
+
+def _to_int(value):
+    if hasattr(value, "item"):
+        return int(value.item())
+    return int(value)
+
+
 class TestMIMIC4CatheterInfectionPrediction(unittest.TestCase):
-    """Dataset-backed tests using synthetic rows in mimic4demo CSV files."""
+    """End-to-end set_task tests on the synthetic four-patient fixture."""
 
-    def setUp(self):
-        test_dir = Path(__file__).parent.parent.parent
-        self.demo_dataset_path = str(
-            test_dir / "test-resources" / "core" / "mimic4demo"
+    NUM_WORKERS = 2
+
+    @classmethod
+    def setUpClass(cls):
+        cls._tmp = tempfile.TemporaryDirectory()
+        root = Path(cls._tmp.name)
+        _write_fake_mimic4(root / "mimiciv")
+        cls.icd_dataset = MIMIC4Dataset(
+            ehr_root=str(root / "mimiciv"),
+            ehr_tables=ICD_TABLES,
+            cache_dir=str(root / "cache_icd"),
         )
-        tables = ["diagnoses_icd", "procedures_icd", "labevents"]
-        self.dataset = MIMIC4Dataset(
-            ehr_root=self.demo_dataset_path,
-            ehr_tables=tables,
+        cls.temporal_dataset = MIMIC4Dataset(
+            ehr_root=str(root / "mimiciv"),
+            ehr_tables=TEMPORAL_TABLES,
+            cache_dir=str(root / "cache_temporal"),
         )
 
-    @staticmethod
-    def _to_int(value):
-        if hasattr(value, "item"):
-            return int(value.item())
-        return int(value)
+    @classmethod
+    def tearDownClass(cls):
+        cls._tmp.cleanup()
+
+    def _samples(self, dataset, task):
+        return {
+            s["record_id"]: s
+            for s in dataset.set_task(task, num_workers=self.NUM_WORKERS)
+        }
 
     def test_helper_code_matching(self):
         task = CatheterAssociatedInfectionPredictionMIMIC4()
@@ -54,44 +213,69 @@ class TestMIMIC4CatheterInfectionPrediction(unittest.TestCase):
         self.assertTrue(task._is_infection_code("T83518D", "10"))
         self.assertTrue(task._is_infection_code("996.64", 9))
         self.assertFalse(task._is_infection_code("T83.511A", 9))
-        self.assertFalse(task._is_infection_code("N39.0", 10))
+        # N39.0 is a conditional infection code: positive only with a catheter.
+        self.assertTrue(task._is_conditional_infection_code("N39.0", 10))
+        self.assertFalse(task._is_unconditional_infection_code("N39.0", 10))
 
-    def test_synthetic_patient_outcomes(self):
-        task = CatheterAssociatedInfectionPredictionMIMIC4()
-        sample_dataset = self.dataset.set_task(task)
+    def test_icd_task_labels(self):
+        for task in (
+            CatheterAssociatedInfectionPredictionMIMIC4(map_ccscm=False),
+            CatheterAssociatedInfectionPredictionStageNetMIMIC4(map_ccscm=False),
+        ):
+            with self.subTest(task=task.task_name):
+                labels = {
+                    rid: _to_int(s["label"])
+                    for rid, s in self._samples(self.icd_dataset, task).items()
+                }
+                self.assertEqual(
+                    labels,
+                    {
+                        "10000001_cauti1": 1,
+                        "10000001_cauti1_aug1": 1,  # suffix augmentation
+                        "10000001_neg1": 0,
+                        "10000002_neg1": 0,
+                        "10000004_cauti1": 1,  # unconditional T83.511A
+                    },
+                )
 
-        labels_by_patient = {
-            self._to_int(sample["patient_id"]): self._to_int(sample["label"])
-            for sample in sample_dataset
+    def test_temporal_task_labels(self):
+        task = CatheterAssociatedInfectionPredictionMIMIC4Temporal(map_ccscm=False)
+        samples = self._samples(self.temporal_dataset, task)
+        # P1 admission 1 (ICD-only catheter), P3 (no catheter) and P4 (2-day
+        # Foley) fail the hard catheter > 2 days gate and emit no sample.
+        self.assertEqual(set(samples), {"10000001_20000012", "10000002_20000021"})
+
+        pos = samples["10000001_20000012"]
+        self.assertEqual(_to_int(pos["label"]), 1)
+        self.assertEqual(pos["positive_markers"], "M1|M2|M3")
+        # 0T9B70Z (Foley placement, ICD-10-PCS) is recorded as "icd" evidence.
+        self.assertEqual(pos["catheter_sources"], "cpt|icd|icu_output|icu_proc")
+        self.assertEqual(pos["index_time"], "2150-03-03T00:00:00")
+        self.assertEqual(pos["onset_time"], "2150-03-05T09:00:00")
+        self.assertEqual(_to_int(pos["nhsn_strict"]), 1)
+
+        neg = samples["10000002_20000021"]
+        self.assertEqual(_to_int(neg["label"]), 0)
+        self.assertEqual(neg["positive_markers"], "")
+
+    def test_temporal_labs_stop_at_index_time(self):
+        task = CatheterAssociatedInfectionPredictionMIMIC4Temporal(map_ccscm=False)
+        pos = self._samples(self.temporal_dataset, task)["10000001_20000012"]
+        sodium = task.LAB_CATEGORY_ORDER.index("Sodium")
+        # Visits: prior admission, then the current admission before index.
+        # Only the 03-02 sodium (140) precedes the 03-03 index; 03-08 (120)
+        # would leak post-index information.
+        self.assertEqual(float(pos["labs"][-1][sodium]), 140.0)
+
+    def test_temporal_stagenet_variant(self):
+        task = CatheterAssociatedInfectionPredictionStageNetMIMIC4Temporal(
+            map_ccscm=False
+        )
+        labels = {
+            rid: _to_int(s["label"])
+            for rid, s in self._samples(self.temporal_dataset, task).items()
         }
-
-        # Positive case: catheter first, later infection admission.
-        self.assertIn(91001, labels_by_patient)
-        self.assertEqual(labels_by_patient[91001], 1)
-
-        # Negative case: catheter first, no later infection.
-        self.assertIn(91002, labels_by_patient)
-        self.assertEqual(labels_by_patient[91002], 0)
-
-        # Excluded case: infection before catheter evidence.
-        self.assertNotIn(91003, labels_by_patient)
-
-    def test_synthetic_patient_outcomes_stagenet_variant(self):
-        task = CatheterAssociatedInfectionPredictionStageNetMIMIC4()
-        sample_dataset = self.dataset.set_task(task)
-
-        labels_by_patient = {
-            self._to_int(sample["patient_id"]): self._to_int(sample["label"])
-            for sample in sample_dataset
-        }
-
-        self.assertIn(91001, labels_by_patient)
-        self.assertEqual(labels_by_patient[91001], 1)
-
-        self.assertIn(91002, labels_by_patient)
-        self.assertEqual(labels_by_patient[91002], 0)
-
-        self.assertNotIn(91003, labels_by_patient)
+        self.assertEqual(labels, {"10000001_20000012": 1, "10000002_20000021": 0})
 
     def test_missing_defaults(self):
         task = CatheterAssociatedInfectionPredictionMIMIC4()
@@ -104,12 +288,16 @@ class TestMIMIC4CatheterInfectionPrediction(unittest.TestCase):
         self.assertTrue(all(v == 0.0 for v in lab_vector))
 
     def test_no_nan_labs_in_nested_outputs(self):
-        task = CatheterAssociatedInfectionPredictionMIMIC4()
-        sample_dataset = self.dataset.set_task(task)
-
-        for sample in sample_dataset:
-            for visit_labs in sample["labs"]:
-                self.assertFalse(any(math.isnan(v) for v in visit_labs))
+        for dataset, task in (
+            (self.icd_dataset, CatheterAssociatedInfectionPredictionMIMIC4(map_ccscm=False)),
+            (
+                self.temporal_dataset,
+                CatheterAssociatedInfectionPredictionMIMIC4Temporal(map_ccscm=False),
+            ),
+        ):
+            for sample in self._samples(dataset, task).values():
+                for visit_labs in sample["labs"]:
+                    self.assertFalse(any(math.isnan(float(v)) for v in visit_labs))
 
 
 def _make_patient(patient_id, events):
