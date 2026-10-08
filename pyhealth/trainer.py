@@ -64,6 +64,13 @@ class Trainer:
         enable_logging: Whether to enable logging. Default is True.
         output_path: Path to save the output. Default is "./output".
         exp_name: Name of the experiment. Default is current datetime.
+
+    Examples:
+        >>> from pyhealth.trainer import Trainer
+        >>> trainer = Trainer(model=model, metrics=["pr_auc", "roc_auc"])  # doctest: +SKIP
+        >>> trainer.train(train_loader, val_loader, epochs=5)  # doctest: +SKIP
+        >>> trainer.evaluate(test_loader)  # doctest: +SKIP
+        {'pr_auc': ..., 'roc_auc': ..., 'loss': ...}
     """
 
     def __init__(
@@ -145,7 +152,19 @@ class Trainer:
                 Default is True.
             patience: Number of epochs to wait for improvement before early stopping.
                 Default is None, which means no early stopping.
+
+        Raises:
+            TypeError: If the model is fit outside the trainer (it sets
+                ``fit_outside_trainer``, e.g. ``XGBoostModel``); call
+                ``model.fit(...)`` instead.
         """
+        if getattr(self.model, "fit_outside_trainer", False):
+            name = type(self.model).__name__
+            raise TypeError(
+                f"{name} has no parameters for Trainer.train to optimize. Fit it "
+                f"with model.fit(train_dataloader, val_dataloader), then use "
+                f"Trainer.evaluate / inference / save_ckpt as usual."
+            )
         if optimizer_params is None:
             optimizer_params = {"lr": 1e-3}
 

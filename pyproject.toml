@@ -71,6 +71,9 @@ nlp = [
   "rouge_score~=0.1.2",
   "nltk~=3.9.1",
 ]
+xgboost = [
+  "xgboost>=2.0",
+]
 lint = [
   "ruff~=0.15",
 ]
