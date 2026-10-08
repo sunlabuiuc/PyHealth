@@ -48,6 +48,9 @@ routes each feature type automatically.
    * - :doc:`models/pyhealth.models.GraphCare`
      - You want to augment EHR codes with a medical knowledge graph
      - Combines code sequences with a :class:`~pyhealth.graph.KnowledgeGraph`
+   * - :doc:`models/pyhealth.models.XGBoostModel`
+     - Features are tabular (engineered labs, demographics) or bags of codes; you want the standard strong baseline
+     - Gradient-boosted trees; fit with ``model.fit`` (not ``Trainer.train``); exact TreeSHAP; needs ``pip install "pyhealth[xgboost]"``
 
 How BaseModel Works
 --------------------
@@ -229,3 +232,4 @@ API Reference
     models/pyhealth.models.BIOT
     models/pyhealth.models.unified_multimodal_embedding_docs
     models/pyhealth.models.califorest
+    models/pyhealth.models.XGBoostModel
