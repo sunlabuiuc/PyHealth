@@ -12,6 +12,11 @@ from torch.utils.data import IterableDataset
 
 from pyhealth.calib.base_classes import SetPredictor
 from pyhealth.calib.predictionset.base_conformal import _query_weighted_quantile
+from pyhealth.calib.predictionset.scores import (
+    SUPPORTED_SCORE_TYPES,
+    all_class_conformity_scores,
+    true_class_conformity_scores,
+)
 from pyhealth.calib.utils import extract_embeddings, prepare_numpy_dataset
 from pyhealth.models import BaseModel
 
@@ -33,6 +38,12 @@ class NeighborhoodLabel(SetPredictor):
         k_neighbors: Number of nearest calibration neighbors. Default 50.
         lambda_L: Temperature for exponential weights; smaller => more localization.
             Default 100.0.
+        score_type: Conformity score to use: "threshold" (default,
+            conformity score = p(true class), Sadinle, Lei, and Wasserman
+            2019) or "aps" (Adaptive Prediction Sets, Romano, Sesia, and
+            Candes 2020). See :mod:`pyhealth.calib.predictionset.scores`.
+        random_state: Optional int seed for the RNG used by
+            score_type="aps". Ignored for score_type="threshold".
         debug: If True, process fewer samples for faster iteration.
 
     Examples:
@@ -61,6 +72,11 @@ class NeighborhoodLabel(SetPredictor):
         ...     y_true, y_prob, metrics=["accuracy", "miscoverage_ps"],
         ...     y_predset=extra["y_predset"]
         ... )
+        >>>
+        >>> # Use APS instead of the default threshold score
+        >>> ncp_aps = NeighborhoodLabel(
+        ...     model=model, alpha=0.1, k_neighbors=50, score_type="aps")
+        >>> ncp_aps.calibrate(cal_dataset=cal_ds, cal_embeddings=cal_embeddings)
     """
 
     def __init__(
@@ -69,6 +85,8 @@ class NeighborhoodLabel(SetPredictor):
         alpha: float,
         k_neighbors: int = 50,
         lambda_L: float = 100.0,
+        score_type: str = "threshold",
+        random_state: int | None = None,
         debug: bool = False,
         **kwargs,
     ) -> None:
@@ -77,6 +95,11 @@ class NeighborhoodLabel(SetPredictor):
         if model.mode != "multiclass":
             raise NotImplementedError(
                 "NeighborhoodLabel only supports multiclass classification"
+            )
+        if score_type not in SUPPORTED_SCORE_TYPES:
+            raise ValueError(
+                f"Unknown score_type: {score_type!r}. Supported: "
+                f"{SUPPORTED_SCORE_TYPES}."
             )
 
         self.mode = self.model.mode
@@ -87,6 +110,8 @@ class NeighborhoodLabel(SetPredictor):
 
         self.device = model.device
         self.debug = debug
+        self.score_type = score_type
+        self.rng = np.random.default_rng(random_state)
 
         if not (0.0 < alpha < 1.0):
             raise ValueError(f"alpha must be in (0, 1), got {alpha!r}")
@@ -148,7 +173,9 @@ class NeighborhoodLabel(SetPredictor):
                 f"cal_dataset size {N}"
             )
 
-        conformity_scores = y_prob[np.arange(N), y_true]
+        conformity_scores = true_class_conformity_scores(
+            y_prob, y_true, score_type=self.score_type, rng=self.rng
+        )
 
         k = min(self.k_neighbors, N)
         self._nn = NearestNeighbors(n_neighbors=k, metric="euclidean").fit(
@@ -223,7 +250,15 @@ class NeighborhoodLabel(SetPredictor):
         )
         if pred["y_prob"].ndim > 1:
             th = th.view(-1, *([1] * (pred["y_prob"].ndim - 1)))
-        y_predset = pred["y_prob"] >= th
+
+        y_prob_np = pred["y_prob"].detach().cpu().numpy()
+        conformity_scores = all_class_conformity_scores(
+            y_prob_np, score_type=self.score_type, rng=self.rng
+        )
+        conformity_scores = torch.as_tensor(
+            conformity_scores, device=pred["y_prob"].device, dtype=pred["y_prob"].dtype
+        )
+        y_predset = conformity_scores >= th
         # if threshold is high, include at least argmax
         empty = y_predset.sum(dim=1) == 0
         if empty.any():

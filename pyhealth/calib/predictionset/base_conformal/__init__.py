@@ -10,39 +10,62 @@ score thresholds on a held-out calibration set.
 Paper:
     Vovk, Vladimir, Alexander Gammerman, and Glenn Shafer.
     "Algorithmic learning in a random world." Springer, 2005.
-    
+
     Papadopoulos, Harris, Kostas Proedrou, Volodya Vovk, and Alex Gammerman.
     "Inductive confidence machines for regression." ECML 2002.
+
+    Sadinle, Mauricio, Jing Lei, and Larry Wasserman. "Least ambiguous
+    set-valued classifiers with bounded error levels." Journal of the
+    American Statistical Association (2019). [score_type="threshold"]
+
+    Romano, Yaniv, Matteo Sesia, and Emmanuel Candes. "Classification with
+    valid and adaptive coverage." NeurIPS 2020. [score_type="aps"]
 """
 
-from typing import Dict, Union
+from typing import Union
 
 import numpy as np
 import torch
 from torch.utils.data import IterableDataset
 
 from pyhealth.calib.base_classes import SetPredictor
+from pyhealth.calib.predictionset.scores import (
+    SUPPORTED_SCORE_TYPES,
+    all_class_nc_scores,
+    true_class_nc_scores,
+)
 from pyhealth.calib.utils import prepare_numpy_dataset
 from pyhealth.models import BaseModel
 
 __all__ = ["BaseConformal"]
 
 
-def _query_quantile(scores: np.ndarray, alpha: float) -> float:
-    """Compute the alpha-quantile of scores for conformal prediction.
+def _query_quantile(nc_scores: np.ndarray, alpha: float) -> float:
+    """Compute the conformal quantile threshold on non-conformity scores.
+
+    Implements the standard split conformal quantile:
+        q = ceil((1-alpha)*(N+1))-th smallest non-conformity score.
+
+    The (N+1) term accounts for the test sample being conceptually added to
+    the calibration set: the threshold from N calibration NC scores using this
+    formula is equivalent to augmenting with the test NC score (N+1 total) and
+    checking whether it falls within the top (1-alpha) fraction.
 
     Args:
-        scores: Array of conformity scores
-        alpha: Quantile level (between 0 and 1), typically the miscoverage rate
+        nc_scores: Non-conformity scores (higher = less conforming)
+        alpha: Miscoverage rate (between 0 and 1)
 
     Returns:
-        The alpha-quantile of scores
+        NC threshold q. Include class y if nc_score(X, y) <= q.
+        Returns +inf when calibration set is too small (N < 1/alpha - 1),
+        meaning all classes are included to preserve coverage.
     """
-    scores = np.sort(scores)
-    N = len(scores)
-    # Use ceiling to get conservative coverage
-    loc = int(np.ceil(alpha * (N + 1))) - 1
-    return -np.inf if loc == -1 else scores[loc]
+    nc_scores = np.sort(nc_scores)
+    N = len(nc_scores)
+    loc = int(np.ceil((1 - alpha) * (N + 1))) - 1  # 0-indexed
+    if loc >= N:
+        return np.inf  # calibration set too small: include everything
+    return float(nc_scores[loc])
 
 
 def _query_weighted_quantile(
@@ -98,9 +121,20 @@ class BaseConformal(SetPredictor):
         alpha: Target miscoverage rate(s). Can be:
             - float: marginal coverage P(Y not in C(X)) <= alpha
             - array: class-conditional P(Y not in C(X) | Y=k) <= alpha[k]
-        score_type: Type of conformity score to use. Options:
-            - "aps": Adaptive Prediction Sets (default, uses probability scores)
-            - "threshold": Simple threshold on probabilities
+        score_type: Type of nonconformity score to use:
+            - "threshold" (default): NC score = 1 - p(true class), the score
+              from Sadinle, Lei, and Wasserman (2019) ("LABEL").
+            - "aps": Adaptive Prediction Sets (Romano, Sesia, and Candes
+              2020). NC score for class k is the cumulative sum of predicted
+              probabilities for classes ranked above k, plus a randomized
+              U * p(k) term (U ~ Uniform(0,1), one draw per example, shared
+              across all candidate classes for that example). Unlike
+              "threshold", this adapts the prediction set size to how
+              peaked or flat the model's predicted distribution is for each
+              individual input. See :mod:`pyhealth.calib.predictionset.scores`
+              for the exact formula.
+        random_state: Optional int seed for the RNG used by score_type="aps"
+            (the U ~ Uniform(0,1) draws). Ignored for score_type="threshold".
         debug: Whether to use debug mode (processes fewer samples)
 
     Examples:
@@ -141,13 +175,20 @@ class BaseConformal(SetPredictor):
         >>> conformal_model_cc = BaseConformal(
         ...     model, alpha=[0.1, 0.15, 0.1, 0.1, 0.1])
         >>> conformal_model_cc.calibrate(cal_dataset=val_data)
+        >>>
+        >>> # Use APS instead of the default threshold score (adapts set
+        >>> # size to how confident the model is on each individual input)
+        >>> conformal_model_aps = BaseConformal(
+        ...     model, alpha=0.1, score_type="aps", random_state=0)
+        >>> conformal_model_aps.calibrate(cal_dataset=val_data)
     """
 
     def __init__(
         self,
         model: BaseModel,
         alpha: Union[float, np.ndarray],
-        score_type: str = "aps",
+        score_type: str = "threshold",
+        random_state: int | None = None,
         debug: bool = False,
         **kwargs,
     ) -> None:
@@ -156,6 +197,11 @@ class BaseConformal(SetPredictor):
         if model.mode != "multiclass":
             raise NotImplementedError(
                 "BaseConformal only supports multiclass classification"
+            )
+        if score_type not in SUPPORTED_SCORE_TYPES:
+            raise ValueError(
+                f"Unknown score_type: {score_type!r}. Supported: "
+                f"{SUPPORTED_SCORE_TYPES}."
             )
 
         self.mode = self.model.mode
@@ -168,6 +214,7 @@ class BaseConformal(SetPredictor):
         self.device = model.device
         self.debug = debug
         self.score_type = score_type
+        self.rng = np.random.default_rng(random_state)
 
         # Store alpha
         if not isinstance(alpha, float):
@@ -177,27 +224,21 @@ class BaseConformal(SetPredictor):
         # Will be set during calibration
         self.t = None
 
-    def _compute_conformity_scores(
+    def _compute_nc_scores(
         self, y_prob: np.ndarray, y_true: np.ndarray
     ) -> np.ndarray:
-        """Compute conformity scores from predictions and true labels.
+        """Compute non-conformity scores from predictions and true labels.
 
         Args:
             y_prob: Predicted probabilities of shape (N, K)
             y_true: True class labels of shape (N,)
 
         Returns:
-            Conformity scores of shape (N,)
+            Non-conformity scores of shape (N,) — higher means less conforming.
         """
-        N = len(y_true)
-        if self.score_type == "aps" or self.score_type == "threshold":
-            # Use probability of true class as conformity score
-            # Higher score = more conforming (better prediction)
-            scores = y_prob[np.arange(N), y_true]
-        else:
-            raise ValueError(f"Unknown score_type: {self.score_type}")
-
-        return scores
+        return true_class_nc_scores(
+            y_prob, y_true, score_type=self.score_type, rng=self.rng
+        )
 
     def calibrate(self, cal_dataset: IterableDataset):
         """Calibrate the thresholds for prediction set construction.
@@ -217,13 +258,13 @@ class BaseConformal(SetPredictor):
         y_true = cal_dataset_dict["y_true"]
         N, K = y_prob.shape
 
-        # Compute conformity scores
-        conformity_scores = self._compute_conformity_scores(y_prob, y_true)
+        # Compute non-conformity scores (higher = less conforming)
+        nc_scores = self._compute_nc_scores(y_prob, y_true)
 
-        # Compute quantile thresholds
+        # Compute quantile thresholds (NC threshold: include y if nc <= t)
         if isinstance(self.alpha, float):
             # Marginal coverage: single threshold
-            t = _query_quantile(conformity_scores, self.alpha)
+            t = _query_quantile(nc_scores, self.alpha)
         else:
             # Class-conditional coverage: one threshold per class
             if len(self.alpha) != K:
@@ -235,15 +276,15 @@ class BaseConformal(SetPredictor):
             for k in range(K):
                 mask = y_true == k
                 if np.sum(mask) > 0:
-                    class_scores = conformity_scores[mask]
+                    class_scores = nc_scores[mask]
                     t_k = _query_quantile(class_scores, self.alpha[k])
                 else:
-                    # If no calibration examples, use -inf (include all)
+                    # No calibration examples for this class: include always
                     print(
                         f"Warning: No calibration examples for class {k}, "
-                        "using -inf threshold"
+                        "using +inf threshold"
                     )
-                    t_k = -np.inf
+                    t_k = np.inf
                 t.append(t_k)
 
         self.t = torch.tensor(t, device=self.device)
@@ -251,7 +292,7 @@ class BaseConformal(SetPredictor):
         if self.debug:
             print(f"Calibrated thresholds: {self.t}")
 
-    def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
+    def forward(self, **kwargs) -> dict[str, torch.Tensor]:
         """Forward propagation with prediction set construction.
 
         Returns:
@@ -267,9 +308,15 @@ class BaseConformal(SetPredictor):
 
         pred = self.model(**kwargs)
 
-        # Construct prediction set by thresholding probabilities
-        # Include classes with probability >= threshold
-        pred["y_predset"] = pred["y_prob"] >= self.t
+        y_prob = pred["y_prob"].detach().cpu().numpy()
+        nc_scores = all_class_nc_scores(
+            y_prob, score_type=self.score_type, rng=self.rng
+        )
+        nc_scores = torch.as_tensor(
+            nc_scores, device=pred["y_prob"].device, dtype=pred["y_prob"].dtype
+        )
+        # Include class y if its NC score <= NC threshold self.t
+        pred["y_predset"] = nc_scores <= self.t
 
         return pred
 

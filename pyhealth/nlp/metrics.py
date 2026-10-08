@@ -353,13 +353,13 @@ class LevenshteinDistanceScoreMethod(ScoreMethod):
     """
     @classmethod
     def _get_external_modules(cls: Type) -> Tuple[str, ...]:
-        return ('editdistance~=0.8.1',)
+        return ('rapidfuzz>=3.0.0',)
 
     def _score(self, meth: str, context: ScoreContext) -> Iterable[FloatScore]:
-        import editdistance
+        from rapidfuzz.distance import Levenshtein
 
         for s1, s2 in context.pairs:
-            val: int = editdistance.eval(s1, s2)
+            val: int = Levenshtein.distance(s1, s2)
             if self.normalize:
                 text_len: int = max(len(s1), len(s2))
                 val = 1. - (val / text_len)

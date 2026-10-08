@@ -250,25 +250,7 @@ class Lime(BaseInterpreter):
         # Extract and prepare inputs
         base_logits = self.model.forward(**inputs)["logit"]
         
-        # Enforce target class selection for multi-class models to avoid class flipping
-        if self._prediction_mode() == "binary":
-            if target_class_idx is not None:
-                target = torch.tensor([target_class_idx], device=device)
-            else:
-                target = (torch.sigmoid(base_logits) > 0.5).long()
-        elif self._prediction_mode() == "multiclass":
-            if target_class_idx is not None:
-                target = torch.nn.functional.one_hot(torch.tensor(target_class_idx, device=device), num_classes=base_logits.shape[-1])
-            else:
-                target = torch.argmax(base_logits, dim=-1)
-                target = torch.nn.functional.one_hot(target, num_classes=base_logits.shape[-1])
-        elif self._prediction_mode() == "multilabel":
-            if target_class_idx is not None:
-                target = torch.nn.functional.one_hot(torch.tensor(target_class_idx, device=device), num_classes=base_logits.shape[-1])
-            else:
-                target = torch.sigmoid(base_logits) > 0.5
-        else:
-            raise ValueError("Unsupported prediction mode for LIME attribution.")
+        target_indices = self._resolve_target_indices(base_logits, target_class_idx)
         
         if baseline is None:
             baselines = self._generate_baseline(values, use_embeddings=self.use_embeddings)
@@ -309,7 +291,7 @@ class Lime(BaseInterpreter):
             xs=values,
             bs=baselines,
             n_features=n_features,
-            target=target,
+            target_indices=target_indices,
         )
         
         return self._map_to_input_shapes(out, shapes)
@@ -323,7 +305,7 @@ class Lime(BaseInterpreter):
         xs: Dict[str, torch.Tensor],
         bs: Dict[str, torch.Tensor],
         n_features: dict[str, int],
-        target: torch.Tensor,
+        target_indices: torch.Tensor,
     ) -> Dict[str, torch.Tensor]:
         """Compute LIME coefficients using interpretable linear model.
 
@@ -376,7 +358,7 @@ class Lime(BaseInterpreter):
             pred = self._evaluate_sample(
                 inputs,
                 perturb,
-                target,
+                target_indices,
             )
         
             # Create perturbed sample for each batch item
@@ -475,15 +457,19 @@ class Lime(BaseInterpreter):
         self,
         inputs: dict[str, tuple[torch.Tensor, ...]],
         perturb: dict[str, torch.Tensor],
-        target: torch.Tensor,
+        target_indices: torch.Tensor,
     ) -> torch.Tensor:
         """Evaluate model prediction for a perturbed sample.
+
+        Returns the model's prediction for the target class, so the
+        weighted linear regression approximates the model's actual
+        output (not a distance to a label).
 
         Args:
             inputs: Original input tuples (used for non-value fields like time/mask).
             perturb: Perturbed sample tensors. Token features are already
                 embedded; continuous features are still in raw space.
-            target: Target class tensor.
+            target_indices: [batch] tensor of target class indices.
 
         Returns:
             Model prediction for the perturbed sample, shape (batch_size, ).
@@ -523,8 +509,10 @@ class Lime(BaseInterpreter):
             # model's regular forward pass handle embedding internally.
             logits = self.model.forward(**inputs)["logit"]
         
-        # Reduce to [batch_size, ] by taking absolute difference from target class logit
-        return (target - logits).abs().mean(dim=tuple(range(1, logits.ndim)))
+        # Extract the target class prediction (logits, not label distances)
+        return logits.gather(
+            1, target_indices.unsqueeze(1)
+        ).squeeze(1)
 
     def _compute_similarity(
         self,

@@ -6,7 +6,7 @@
 [project]
 name = "pyhealth"
 # must be kept in sync with git tags; is not updated by any automation tools
-version = "2.0.0"
+version = "2.0.2"
 authors = [
   {name = "John Wu", email = "johnwu3@illinois.edu"},
   {name = "Chaoqi Yang"},
@@ -22,25 +22,26 @@ description = "A Python library for healthcare AI"
 readme = "README.rst"
 requires-python = ">=3.12,<3.14"
 dependencies = [
-  "torch~=2.7.1",
+  "torch>=2.10",
   "torchvision",
-  "transformers~=4.53.2",
+  "transformers>=4.53.2",
   "peft",
   "accelerate",
   "rdkit",
   "ogb>=1.3.5",
+  "icd-mappings~=0.6.2",
   "scikit-learn~=1.7.0",
   "networkx",
   "mne~=1.10.0",
-  "urllib3~=2.5.0",
   "numpy~=2.2.0",
   "tqdm",
   "polars~=1.35.2",
   "pandas~=2.3.1",
   "pydantic~=2.11.7",
-  "dask[complete]~=2025.11.0",
+  "dask[complete]>=2026.1.0",
   "litdata~=0.2.59",
-  "pyarrow~=22.0.0",
+  "pyarrow>=23.0.1",
+  "orjson~=3.10",
   "narwhals~=2.13.0",
   "more-itertools~=10.8.0",
   "einops>=0.8.0",
@@ -64,9 +65,12 @@ graph = [
   "torch-geometric>=2.6.0",
 ]
 nlp = [
-  "editdistance~=0.8.1",
+  "rapidfuzz>=3.0.0",
   "rouge_score~=0.1.2",
   "nltk~=3.9.1",
+]
+lint = [
+  "ruff~=0.15",
 ]
 
 [project.urls]
@@ -79,6 +83,13 @@ Changelog = "https://github.com/sunlabuiuc/PyHealth/blob/master/CHANGELOG.md"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+
+### Ruff
+#
+[tool.ruff]
+line-length = 88
+target-version = "py313"
 
 
 ### Hatchling
@@ -107,7 +118,7 @@ build-env = { features = ["pyverbase", "build-env"], solve-group = "default" }
 # specify where to download the build backend that builds conda files
 [tool.pixi.package.build.backend]
 name = "pixi-build-python"
-version = "==2.0.0"
+version = "==2.0.1"
 channels = [
   "https://prefix.dev/pixi-build-backends",
   "https://prefix.dev/conda-forge", 

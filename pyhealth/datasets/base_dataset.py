@@ -9,6 +9,8 @@ import operator
 from urllib.parse import urlparse, urlunparse
 from urllib.request import urlretrieve
 import json
+import glob
+import hashlib
 import uuid
 import platformdirs
 import multiprocessing
@@ -48,6 +50,48 @@ from ..utils import set_env
 # Set logging level for distributed to ERROR to reduce verbosity
 logging.getLogger("distributed").setLevel(logging.ERROR)
 logger = logging.getLogger(__name__)
+
+# Set to 1/true/yes to make datasets refuse to fall back to the default cache.
+REQUIRE_CACHE_DIR_ENV = "PYHEALTH_REQUIRE_CACHE_DIR"
+_warned_default_cache_dirs: set[str] = set()
+
+
+def _default_cache_dir(cache_id: str) -> Path:
+    """Returns the default cache directory for a dataset, after warning about it.
+
+    Datasets write processed copies of their source data (the event table and
+    task samples) to their cache. Without an explicit ``cache_dir`` that is the
+    user cache folder, which for identified clinical data is usually outside the
+    project's controlled storage. So this logs a warning naming the path (once
+    per path), and raises if ``PYHEALTH_REQUIRE_CACHE_DIR`` is set.
+
+    Args:
+        cache_id: The dataset's cache identifier (a UUID string).
+
+    Returns:
+        Path: ``<user cache dir>/pyhealth/<cache_id>``.
+
+    Raises:
+        ValueError: If ``PYHEALTH_REQUIRE_CACHE_DIR`` is set to 1, true or yes.
+    """
+    if os.environ.get(REQUIRE_CACHE_DIR_ENV, "").strip().lower() in {"1", "true", "yes"}:
+        raise ValueError(
+            f"No cache_dir was given and {REQUIRE_CACHE_DIR_ENV} is set. Pass "
+            "cache_dir=... pointing to storage approved for this data; PyHealth "
+            "writes processed copies of the source data there."
+        )
+    path = Path(platformdirs.user_cache_dir(appname="pyhealth")) / cache_id
+    if str(path) not in _warned_default_cache_dirs:
+        _warned_default_cache_dirs.add(str(path))
+        logger.warning(
+            "No cache_dir given: PyHealth will write processed copies of this "
+            "dataset (event table, task samples) to %s. For identified or "
+            "sensitive data, pass cache_dir=... inside your project's controlled "
+            "storage, or set %s=1 to make a missing cache_dir an error.",
+            path,
+            REQUIRE_CACHE_DIR_ENV,
+        )
+    return path
 # Remove LitData version check to avoid unnecessary warnings
 os.environ["LITDATA_DISABLE_VERSION_CHECK"] = "1"
 
@@ -85,6 +129,41 @@ def path_exists(path: str) -> bool:
             return False
     else:
         return Path(path).exists()
+
+
+def _source_fingerprint(path: str) -> list:
+    """Identifies the current version of a table source for the cache key.
+
+    Returns ``[file, size, mtime_ns]`` for every local file behind ``path``:
+    the file itself and its ``.csv``/``.csv.gz`` (or ``.tsv``) twin, the files
+    matching a glob, or every file under a directory. A rewrite of any of them
+    therefore changes the dataset's cache key, like ``make``. Contents are not
+    hashed, so large sources stay cheap to check. URLs are identified by the
+    URL alone.
+
+    Args:
+        path (str): The table source path, as resolved from the config.
+
+    Returns:
+        list: ``[[file, size, mtime_ns], ...]``, or ``[path]`` for a URL.
+    """
+    if is_url(path):
+        return [path]
+    candidates = [path, path[:-3] if path.endswith(".gz") else f"{path}.gz"]
+    files: list[str] = []
+    for candidate in candidates:
+        source = Path(candidate)
+        if glob.has_magic(candidate):
+            files += sorted(glob.glob(candidate, recursive=True))
+        elif source.is_dir():
+            files += sorted(str(f) for f in source.rglob("*") if f.is_file())
+        elif source.is_file():
+            files.append(candidate)
+    fingerprint = []
+    for file in files:
+        stat = os.stat(file)
+        fingerprint.append([file, stat.st_size, stat.st_mtime_ns])
+    return fingerprint
 
 
 def _csv_tsv_gz_path(path: str) -> str:
@@ -315,6 +394,15 @@ class BaseDataset(ABC):
         config (dict): Configuration loaded from a YAML file.
         global_event_df (pl.LazyFrame): The global event data frame.
         dev (bool): Whether to enable dev mode (limit to 1000 patients).
+
+    Examples:
+        >>> from pyhealth.datasets import BaseDataset
+        >>> dataset = BaseDataset(
+        ...     root="/path/to/source",
+        ...     tables=["patients", "diagnoses"],
+        ...     config_path="/path/to/config.yaml",
+        ... )
+        >>> dataset.stats()
     """
 
     def __init__(
@@ -366,10 +454,17 @@ class BaseDataset(ABC):
     def _init_cache_dir(self, cache_dir: str | Path | None) -> Path:
         """Returns the cache directory path.
 
+        The cache key covers the dataset's root, tables, name and dev flag and,
+        for config-based datasets, a hash of the YAML config plus the size and
+        modification time of every source file the requested tables read. Editing
+        the config or rewriting a source file therefore builds a fresh cache.
+
         The cache directory is determined by the type of ``cache_dir`` passed
         to ``__init__``:
 
-        - **None**: Auto-generated under default pyhealth cache directory.
+        - **None**: Auto-generated under the default pyhealth cache directory,
+          with a warning naming it; an error if ``PYHEALTH_REQUIRE_CACHE_DIR``
+          is set.
         - **str** or **Path: Used as the root cache directory path. A UUID
           is appended to the provided path to capture dataset configuration.
 
@@ -386,22 +481,32 @@ class BaseDataset(ABC):
         Returns:
             Path: The resolved cache directory path.
         """
-        id_str = json.dumps(
-            {
-                "root": str(self.root),
-                "tables": sorted(self.tables),
-                "dataset_name": self.dataset_name,
-                "dev": self.dev,
-            },
-            sort_keys=True,
-        )
+        key = {
+            "root": str(self.root),
+            "tables": sorted(self.tables),
+            "dataset_name": self.dataset_name,
+            "dev": self.dev,
+        }
+        if self.config is not None:
+            # Editing the YAML or rewriting a source file must not reuse a stale
+            # cache, so the key also covers the config and the source files.
+            config_json = json.dumps(self.config.model_dump(mode="json"), sort_keys=True)
+            key["config"] = hashlib.sha256(config_json.encode()).hexdigest()
+            key["sources"] = {
+                table: [
+                    _source_fingerprint(clean_path(f"{self.root}/{file_path}"))
+                    for file_path in [cfg.file_path, *(j.file_path for j in cfg.join)]
+                ]
+                for table in sorted(self.tables)
+                if (cfg := self.config.tables.get(table)) is not None
+            }
+        id_str = json.dumps(key, sort_keys=True)
 
         id = str(uuid.uuid5(uuid.NAMESPACE_DNS, id_str))
 
         if cache_dir is None:
-            cache_dir = Path(platformdirs.user_cache_dir(appname="pyhealth")) / id
+            cache_dir = _default_cache_dir(id)
             cache_dir.mkdir(parents=True, exist_ok=True)
-            logger.info(f"No cache_dir provided. Using default cache dir: {cache_dir}")
         else:
             # Ensure separate cache directories for different table configurations by appending a UUID suffix
             cache_dir = Path(cache_dir) / id
@@ -424,6 +529,68 @@ class BaseDataset(ABC):
         tmp_dir = self.cache_dir / "tmp"
         if tmp_dir.exists():
             shutil.rmtree(tmp_dir)
+
+    def _scan_table(self, source_path: str) -> dd.DataFrame:
+        """Routes a table source to the appropriate scanner based on its format.
+
+        Parquet sources (``.parquet``/``.pq`` files, glob patterns targeting
+        such files, or directories of Parquet shards) are handled by
+        :meth:`_scan_parquet`. Any other source falls back to the existing
+        CSV/TSV(.gz) scanner, preserving prior behavior for all datasets.
+
+        Args:
+            source_path (str): Path to the table source.
+
+        Returns:
+            dd.DataFrame: The Dask DataFrame for the table source.
+        """
+        stripped = source_path.rstrip("/")
+        if stripped.endswith((".parquet", ".pq")) or (
+            not is_url(source_path) and Path(source_path).is_dir()
+        ):
+            return self._scan_parquet(source_path)
+        return self._scan_csv_tsv_gz(source_path)
+
+    def _scan_parquet(self, source_path: str) -> dd.DataFrame:
+        """Scans a Parquet source and returns a Dask DataFrame.
+
+        The source may be a single ``.parquet``/``.pq`` file, a glob pattern,
+        or a directory that is scanned recursively — which supports sharded
+        datasets such as MEDS, laid out as ``data/<split>/<shard>.parquet``.
+
+        Unlike :meth:`_scan_csv_tsv_gz`, no all-string schema coercion is
+        applied: Parquet files embed their schema, so source dtypes (native
+        timestamps, numeric columns, nullable strings) are preserved and
+        handled downstream by :meth:`load_table`.
+
+        Args:
+            source_path (str): Path to a Parquet file, directory, or glob.
+
+        Returns:
+            dd.DataFrame: The Dask DataFrame backed by the Parquet source.
+
+        Raises:
+            FileNotFoundError: If the source path does not exist, or if a
+                directory source contains no Parquet files.
+        """
+        path = Path(source_path)
+        is_glob = any(ch in source_path for ch in "*?[")
+        if not is_glob:
+            if not path.exists():
+                raise FileNotFoundError(
+                    f"Parquet source does not exist: {source_path}"
+                )
+            if path.is_dir() and not any(
+                itertools.chain(path.rglob("*.parquet"), path.rglob("*.pq"))
+            ):
+                raise FileNotFoundError(
+                    f"Directory contains no Parquet files: {source_path}"
+                )
+        return dd.read_parquet(
+            source_path,
+            split_row_groups=True,  # type: ignore
+            blocksize="64MB",
+        )
 
     def _scan_csv_tsv_gz(self, source_path: str) -> dd.DataFrame:
         """Scans a CSV/TSV file (possibly gzipped) and returns a Dask DataFrame.
@@ -506,6 +673,9 @@ class BaseDataset(ABC):
                 processes=not in_notebook(),
                 # Use cache_dir for Dask's scratch space to avoid filling up /tmp or home directory
                 local_directory=str(self.create_tmpdir()),
+                # No dashboard: its bokeh server fails to stop on cluster close and
+                # leaks sockets, hitting "Too many open files" after repeated builds.
+                dashboard_address=None,
             ) as cluster:
                 with DaskClient(cluster) as client:
                     if self.dev:
@@ -596,7 +766,8 @@ class BaseDataset(ABC):
 
         Raises:
             ValueError: If the table is not found in the config.
-            FileNotFoundError: If the CSV file for the table or join is not found.
+            FileNotFoundError: If the source file (CSV/TSV or Parquet) for the
+                table or join is not found.
         """
         assert self.config is not None, "Config must be provided to load tables"
 
@@ -608,7 +779,7 @@ class BaseDataset(ABC):
         csv_path = clean_path(csv_path)
 
         logger.info(f"Scanning table: {table_name} from {csv_path}")
-        df = self._scan_csv_tsv_gz(csv_path)
+        df = self._scan_table(csv_path)
 
         # Convert column names to lowercase before calling preprocess_func
         df = df.rename(columns=str.lower)
@@ -627,7 +798,7 @@ class BaseDataset(ABC):
             other_csv_path = f"{self.root}/{join_cfg.file_path}"
             other_csv_path = clean_path(other_csv_path)
             logger.info(f"Joining with table: {other_csv_path}")
-            join_df = self._scan_csv_tsv_gz(other_csv_path)
+            join_df = self._scan_table(other_csv_path)
             join_df = join_df.rename(columns=str.lower)
             join_key = join_cfg.on
             columns = join_cfg.columns
@@ -651,14 +822,21 @@ class BaseDataset(ABC):
                 timestamp_series: dd.Series = functools.reduce(
                     operator.add, (df[col].astype("string") for col in timestamp_col)
                 )
+                timestamp_series = dd.to_datetime(
+                    timestamp_series,
+                    format=timestamp_format,
+                    errors="raise",
+                )
+            elif pd.api.types.is_datetime64_any_dtype(df[timestamp_col].dtype):
+                # Typed sources (e.g. Parquet) already carry native timestamps:
+                # skip the string round-trip and only normalize the unit below.
+                timestamp_series: dd.Series = df[timestamp_col]
             else:
-                timestamp_series: dd.Series = df[timestamp_col].astype("string")
-
-            timestamp_series: dd.Series = dd.to_datetime(
-                timestamp_series,
-                format=timestamp_format,
-                errors="raise",
-            )
+                timestamp_series = dd.to_datetime(
+                    df[timestamp_col].astype("string"),
+                    format=timestamp_format,
+                    errors="raise",
+                )
             df: dd.DataFrame = df.assign(
                 timestamp=timestamp_series.astype("datetime64[ms]")
             )
@@ -670,7 +848,13 @@ class BaseDataset(ABC):
             df: dd.DataFrame = df.assign(patient_id=df[patient_id_col].astype("string"))
         else:
             df: dd.DataFrame = df.reset_index(drop=True)
-            df: dd.DataFrame = df.assign(patient_id=df.index.astype("string"))
+
+            # Dask applies reset_index independently across frames,
+            # meaning partitions share indexes, and therefore merge patients.
+            # The trick is to use a cumsum which acts globally across partitions.
+            df: dd.DataFrame = df.assign(_one=1)
+            df: dd.DataFrame = df.assign(patient_id=(df["_one"].cumsum() - 1).astype("string"))
+            df: dd.DataFrame = df.drop(columns="_one")
 
         df: dd.DataFrame = df.assign(event_type=table_name)
 

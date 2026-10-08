@@ -63,7 +63,7 @@ class MortalityPredictionMIMIC3(BaseTask):
 
             conditions = [event.icd9_code for event in diagnoses]
             procedures_list = [event.icd9_code for event in procedures]
-            drugs = [event.drug for event in prescriptions]
+            drugs = [event.ndc for event in prescriptions if event.ndc]
 
             # Exclude visits without condition, procedure, or drug code
             if len(conditions) * len(procedures_list) * len(drugs) == 0:
@@ -147,7 +147,7 @@ class MultimodalMortalityPredictionMIMIC3(BaseTask):
             )
             conditions = [event.icd9_code for event in diagnoses]
             procedures_list = [event.icd9_code for event in procedures]
-            drugs = [event.drug for event in prescriptions]
+            drugs = [event.ndc for event in prescriptions if event.ndc]
             # Extract note text - concatenate if multiple exist
             text = ""
             for note in notes:
@@ -279,7 +279,7 @@ class MortalityPredictionMIMIC4(BaseTask):
                 [getattr(event, "icd_code", None) for event in procedures_icd]
             )
             drugs = self._clean_sequence(
-                [getattr(event, "drug", None) for event in prescriptions]
+                [getattr(event, "ndc", None) for event in prescriptions]
             )
 
             # Exclude visits without condition, procedure, or drug code
@@ -351,7 +351,7 @@ class MultimodalMortalityPredictionMIMIC4(BaseTask):
 
     Image Processing:
         - Uses image_path from MIMIC-CXR metadata directly
-        - Returns first available X-ray image path across all X-rays
+        - Uses X-rays available by the last included admission's discharge
     """
 
     task_name: str = "MultimodalMortalityPredictionMIMIC4"
@@ -387,8 +387,13 @@ class MultimodalMortalityPredictionMIMIC4(BaseTask):
         item for itemids in LAB_CATEGORIES.values() for item in itemids
     ]
 
-    def __init__(self):
-        """Initialize the multimodal mortality prediction task."""
+    def __init__(self, **kwargs):
+        """Initialize the multimodal mortality prediction task.
+
+        Args:
+            **kwargs: Passed to :class:`~pyhealth.tasks.BaseTask`, e.g.
+                ``code_mapping``.
+        """
         self.input_schema: Dict[str, str] = {
             "conditions": "nested_sequence",  # Nested by visit
             "procedures": "nested_sequence",  # Nested by visit
@@ -401,6 +406,7 @@ class MultimodalMortalityPredictionMIMIC4(BaseTask):
             "image_path": "text",  # Image path as text string
         }
         self.output_schema: Dict[str, str] = {"mortality": "binary"}
+        super().__init__(**kwargs)
 
     def _clean_sequence(self, sequence: Optional[List[Any]]) -> List[str]:
         """Clean a sequence by removing None values and converting to strings."""
@@ -569,6 +575,21 @@ class MultimodalMortalityPredictionMIMIC4(BaseTask):
         if len(admissions_to_process) == 0:
             return []
 
+        prediction_time = None
+        for admission in reversed(admissions_to_process):
+            try:
+                admission_dischtime = datetime.strptime(  # noqa: DTZ007
+                    admission.dischtime, "%Y-%m-%d %H:%M:%S"
+                )
+            except (ValueError, AttributeError):
+                continue
+            if admission_dischtime >= admission.timestamp:
+                prediction_time = admission_dischtime
+                break
+
+        if prediction_time is None:
+            return []
+
         # Get first admission time as reference for lab time calculations
         first_admission_time = admissions_to_process[0].timestamp
 
@@ -585,8 +606,8 @@ class MultimodalMortalityPredictionMIMIC4(BaseTask):
 
         # Get X-ray data (patient-level, not admission-specific)
         # Note: event types match table names in mimic4_cxr.yaml (negbio, metadata)
-        negbio_events = patient.get_events(event_type="negbio")
-        metadata_events = patient.get_events(event_type="metadata")
+        negbio_events = patient.get_events(event_type="negbio", end=prediction_time)
+        metadata_events = patient.get_events(event_type="metadata", end=prediction_time)
 
         # Process X-ray findings (aggregate across all X-rays)
         # NegBio findings attributes (from mimic4_cxr.yaml negbio table)

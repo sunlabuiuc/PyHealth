@@ -117,6 +117,22 @@ on the label processor in your task's ``output_schema``:
      - MSE
      - identity → (batch, 1)
 
+The schema value can be written as a string, a label processor class, a
+processor instance, or a ``(name, kwargs)`` tuple. These are equivalent:
+
+.. code-block:: python
+
+    output_schema = {"icd_codes": "multilabel"}
+    output_schema = {"icd_codes": MultiLabelProcessor}
+    output_schema = {"icd_codes": ("multilabel", {})}
+
+Whichever form a task uses, ``model.mode`` is always the plain string
+(``"binary"``, ``"multiclass"``, ``"multilabel"`` or ``"regression"``), or
+``None`` when the label is not one of these kinds. ``Trainer.evaluate()`` and
+the calibration methods use it to pick metrics. ``BaseModel`` sets it for you,
+so custom models don't need to assign ``self.mode``; if they do, the value is
+resolved the same way.
+
 Building a Custom Model
 -----------------------
 
@@ -177,6 +193,7 @@ API Reference
     models/pyhealth.models.GNN
     models/pyhealth.models.Transformer
     models/pyhealth.models.TransformersModel
+    models/pyhealth.models.TransformerDeID
     models/pyhealth.models.RETAIN
     models/pyhealth.models.GAMENet
     models/pyhealth.models.GraphCare
@@ -185,6 +202,7 @@ API Reference
     models/pyhealth.models.MoleRec
     models/pyhealth.models.Deepr
     models/pyhealth.models.EHRMamba
+    models/pyhealth.models.EHRMambaCEHR
     models/pyhealth.models.JambaEHR
     models/pyhealth.models.ContraWR
     models/pyhealth.models.SparcNet
@@ -194,13 +212,20 @@ API Reference
     models/pyhealth.models.ConCare
     models/pyhealth.models.Agent
     models/pyhealth.models.GRASP
+    models/pyhealth.models.MedFuse
     models/pyhealth.models.MedLink
     models/pyhealth.models.TCN
     models/pyhealth.models.TFMTokenizer
     models/pyhealth.models.GAN
     models/pyhealth.models.VAE
+    models/pyhealth.models.HALO
+    models/pyhealth.models.GPT2
+    models/pyhealth.models.PromptEHR
+    models/pyhealth.models.MedGAN
+    models/pyhealth.models.CorGAN
     models/pyhealth.models.SDOH
     models/pyhealth.models.VisionEmbeddingModel
     models/pyhealth.models.TextEmbedding
     models/pyhealth.models.BIOT
     models/pyhealth.models.unified_multimodal_embedding_docs
+    models/pyhealth.models.califorest

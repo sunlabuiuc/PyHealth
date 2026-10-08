@@ -1,0 +1,33 @@
+START_OF_RECORD=10||||1||||
+Patient Jane Doe was admitted on 03/12/2098 to Springfield General Hospital. She is 72 years old. Contact phone 555-867-5309. MRN 00112233.
+||||END_OF_RECORD
+START_OF_RECORD=10||||2||||
+Seen by Dr. Robert Wells in radiology. No acute findings.
+||||END_OF_RECORD
+START_OF_RECORD=20||||1||||
+Assessment unchanged. Vitals stable overnight. Continue current plan.
+||||END_OF_RECORD
+START_OF_RECORD=60||||1||||
+Tom Garcia presented to Lakewood Clinic on 11/05/2097 for follow-up. He works as a plumber. Patient ID 99887766.
+||||END_OF_RECORD
+START_OF_RECORD=70||||1||||
+Susan Park was seen on 06/15/2098 at Valley Medical Center. Age 58. No complaints.
+||||END_OF_RECORD
+START_OF_RECORD=80||||1||||
+Labs reviewed. WBC normal. Continue antibiotics. Follow-up in 3 days.
+||||END_OF_RECORD
+START_OF_RECORD=90||||1||||
+Dr. Linda Chen evaluated patient Henry Adams on 01/22/2097 at Riverside Hospital for chest pain.
+||||END_OF_RECORD
+START_OF_RECORD=100||||1||||
+Maria Santos age 65 admitted to Cedar Grove Medical for shortness of breath. Contact email msantos@example.com.
+||||END_OF_RECORD
+START_OF_RECORD=110||||1||||
+Stable vitals. Patient resting comfortably. Plan to discharge tomorrow.
+||||END_OF_RECORD
+START_OF_RECORD=120||||1||||
+James Wilson presented to Oakdale Clinic on 09/03/2098. He is a retired teacher from Portland Oregon.
+||||END_OF_RECORD
+START_OF_RECORD=130||||1||||
+Dr. Paul Kim discharged patient on 12/01/2097. Follow-up at Greenfield Hospital in 2 weeks.
+||||END_OF_RECORD

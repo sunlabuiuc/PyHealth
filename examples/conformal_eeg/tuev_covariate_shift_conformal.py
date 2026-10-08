@@ -296,7 +296,7 @@ def _print_multi_seed_summary(
     n_runs = len(all_metrics)
 
     print("\n" + "=" * 80)
-    print("Per-run CovariateLabel results (fixed test set = TUH eval partition)")
+    print(f"Per-run results — alpha={alpha} (CovariateLabel, fixed test set = TUH eval partition)")
     print("=" * 80)
     print(f"  {'Run':<4} {'Seed':<6} {'Accuracy':<10} {'F1-Wt':<10} "
           f"{'Coverage':<10} {'Miscoverage':<12} {'Avg set size':<12}")
@@ -308,7 +308,8 @@ def _print_multi_seed_summary(
               f"{m['miscoverage']:<12.4f} {m['avg_set_size']:<12.2f}")
 
     print("\n" + "=" * 80)
-    print(f"CovariateLabel summary (mean \u00b1 std over {n_runs} runs, fixed test set)")
+    print(f"Summary — alpha={alpha} (mean \u00b1 std over {n_runs} runs, fixed test set)")
+    print("  Method: CovariateLabel")
     print("=" * 80)
     print(f"  Accuracy:              {accs.mean():.4f} \u00b1 {accs.std():.4f}")
     print(f"  F1 (weighted):         {f1s.mean():.4f} \u00b1 {f1s.std():.4f}")
@@ -345,7 +346,7 @@ def _main(args: argparse.Namespace) -> None:
     print("STEP 1: Load TUEV + build task dataset (shared across all seeds)")
     print("=" * 80)
     dataset = TUEVDataset(root=str(root), subset=args.subset, dev=args.quick_test)
-    sample_dataset = dataset.set_task(EEGEventsTUEV())
+    sample_dataset = dataset.set_task(EEGEventsTUEV(normalization="95th_percentile"), num_workers=16)
     if args.quick_test and len(sample_dataset) > quick_test_max_samples:
         sample_dataset = sample_dataset.subset(range(quick_test_max_samples))
         print(f"Capped to {quick_test_max_samples} samples for quick-test.")

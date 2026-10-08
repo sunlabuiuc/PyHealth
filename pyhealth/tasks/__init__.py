@@ -12,22 +12,29 @@ from .cardiology_detect import (
 from .chestxray14_binary_classification import ChestXray14BinaryClassification
 from .chestxray14_multilabel_classification import ChestXray14MultilabelClassification
 from .catheter_infection import (
-    CatheterAssociatedInfectionPredictionMIMIC4,
-    CatheterAssociatedInfectionPredictionMIMIC4DualContext,
-    CatheterAssociatedInfectionPredictionMIMIC4Temporal,
-    CatheterAssociatedInfectionPredictionStageNetMIMIC4,
-    CatheterAssociatedInfectionPredictionStageNetMIMIC4DualContext,
-    CatheterAssociatedInfectionPredictionStageNetMIMIC4Temporal,
+    CatheterAssociatedInfectionPredictionMIMIC4 as CatheterAssociatedInfectionPredictionMIMIC4,
+    CatheterAssociatedInfectionPredictionMIMIC4DualContext as CatheterAssociatedInfectionPredictionMIMIC4DualContext,
+    CatheterAssociatedInfectionPredictionMIMIC4Temporal as CatheterAssociatedInfectionPredictionMIMIC4Temporal,
+    CatheterAssociatedInfectionPredictionStageNetMIMIC4 as CatheterAssociatedInfectionPredictionStageNetMIMIC4,
+    CatheterAssociatedInfectionPredictionStageNetMIMIC4DualContext as CatheterAssociatedInfectionPredictionStageNetMIMIC4DualContext,
+    CatheterAssociatedInfectionPredictionStageNetMIMIC4Temporal as CatheterAssociatedInfectionPredictionStageNetMIMIC4Temporal,
 )
 from .covid19_cxr_classification import COVID19CXRClassification
+from .deid_ner import DeIDNERTask
 from .dka import DKAPredictionMIMIC4, T1DDKAPredictionMIMIC4
+# New exports must use the redundant `X as X` form: this module has no
+# __all__, and the PR lint gate flags F401 on newly added import lines.
 from .drug_recommendation import (
     DrugRecommendationEICU,
     DrugRecommendationMIMIC3,
     DrugRecommendationMIMIC4,
+    DrugRecommendationOMOP as DrugRecommendationOMOP,
     drug_recommendation_mimic3_fn,
     drug_recommendation_mimic4_fn,
     drug_recommendation_omop_fn,
+)
+from .in_hospital_mortality_meds import (
+    InHospitalMortalityMEDS as InHospitalMortalityMEDS,
 )
 from .in_hospital_mortality_mimic4 import InHospitalMortalityMIMIC4
 from .length_of_stay_prediction import (
@@ -52,6 +59,16 @@ from .survival_preprocess_support2 import SurvivalPreprocessSupport2
 from .mortality_prediction_stagenet_mimic4 import (
     MortalityPredictionStageNetMIMIC4,
 )
+from .generate_ehr import (
+    EHRCodeSetGenerationMIMIC3 as EHRCodeSetGenerationMIMIC3,
+    EHRCodeSetGenerationMIMIC4 as EHRCodeSetGenerationMIMIC4,
+    EHRGenerationMIMIC3,
+    EHRGenerationMIMIC4,
+    EHRSequenceGenerationMIMIC3 as EHRSequenceGenerationMIMIC3,
+    EHRSequenceGenerationMIMIC4 as EHRSequenceGenerationMIMIC4,
+    decode_dataset,
+    to_evaluation_dataframe,
+)
 from .patient_linkage import patient_linkage_mimic3_fn
 from .readmission_prediction import (
     ReadmissionPredictionEICU,
@@ -65,9 +82,24 @@ from .sleep_staging import (
     sleep_staging_sleepedf_fn,
 )
 from .sleep_staging_v2 import SleepStagingSleepEDF
-from .temple_university_EEG_tasks import EEGEventsTUEV, EEGAbnormalTUAB
+from .temple_university_EEG_tasks import (
+    EEGEventsTUEV,
+    EEGAbnormalTUAB
+)
+from .eegbci import (
+    EEGBCIPatternDiscovery as EEGBCIPatternDiscovery,
+    EEGMotorImageryEEGBCI as EEGMotorImageryEEGBCI,
+)
 from .variant_classification import (
     MutationPathogenicityPrediction,
     VariantClassificationClinVar,
 )
 from .patient_linkage_mimic3 import PatientLinkageMIMIC3Task
+
+
+def __getattr__(name: str):
+    if name == "MPFClinicalPredictionTask":
+        from .mpf_clinical_prediction import MPFClinicalPredictionTask
+
+        return MPFClinicalPredictionTask
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

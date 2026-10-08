@@ -165,15 +165,13 @@ class EmbeddingModel(BaseModel):
             ):
                 vocab_size = len(processor.code_vocab)
 
-                # For NestedSequenceProcessor and DeepNestedSequenceProcessor, don't use padding_idx
-                # because empty visits/groups need non-zero embeddings.
                 if isinstance(
                     processor, (NestedSequenceProcessor, DeepNestedSequenceProcessor)
                 ):
                     self.embedding_layers[field_name] = nn.Embedding(
                         num_embeddings=vocab_size,
                         embedding_dim=embedding_dim,
-                        padding_idx=None,
+                        padding_idx=0,
                     )
                 else:
                     self.embedding_layers[field_name] = nn.Embedding(

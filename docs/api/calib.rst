@@ -21,7 +21,7 @@ confidence levels:
 - :class:`~pyhealth.calib.predictionset.LABEL`: Conformal prediction with bounded error
 - :class:`~pyhealth.calib.predictionset.SCRIB`: Class-specific risk control
 - :class:`~pyhealth.calib.predictionset.FavMac`: Value-maximizing sets with cost control
-- :class:`~pyhealth.calib.predictionset.CovariateLabel`: Covariate shift adaptive conformal
+- :class:`~pyhealth.calib.predictionset.CovariateLabel`: Covariate shift adaptive conformal prediction with a finite-sample correction for the calibration/test weighting
 - :class:`~pyhealth.calib.predictionset.ClusterLabel`: K-means cluster-based conformal prediction
 - :class:`~pyhealth.calib.predictionset.NeighborhoodLabel`: Neighborhood Conformal Prediction (NCP)
 

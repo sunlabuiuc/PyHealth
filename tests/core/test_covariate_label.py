@@ -307,6 +307,39 @@ class TestCovariateLabel(unittest.TestCase):
                     torch.all(set_sizes > 0), "Some prediction sets are empty"
                 )
 
+    def test_score_type_aps_runs_end_to_end(self):
+        """score_type='aps' should calibrate and produce non-empty,
+        correctly-typed prediction sets, just like the default 'threshold'."""
+        cal_model = CovariateLabel(
+            model=self.model,
+            alpha=0.3,
+            kde_test=self.kde_test,
+            kde_cal=self.kde_cal,
+            score_type="aps",
+            random_state=42,
+        )
+
+        cal_indices = [0, 1, 2, 3]
+        cal_dataset = self.dataset.subset(cal_indices)
+        cal_embeddings = self._get_embeddings(cal_dataset)
+        test_embeddings = self._get_embeddings(self.dataset)
+
+        cal_model.calibrate(
+            cal_dataset=cal_dataset,
+            cal_embeddings=cal_embeddings,
+            test_embeddings=test_embeddings,
+        )
+
+        test_indices = [4, 5]
+        test_dataset = self.dataset.subset(test_indices)
+        test_loader = get_dataloader(test_dataset, batch_size=2, shuffle=False)
+
+        with torch.no_grad():
+            for data_batch in test_loader:
+                output = cal_model(**data_batch)
+                self.assertEqual(output["y_predset"].dtype, torch.bool)
+                self.assertEqual(output["y_predset"].shape, output["y_prob"].shape)
+
     def test_weighted_quantile_function(self):
         """Test the weighted quantile helper function."""
         from pyhealth.calib.predictionset.covariate.covariate_label import (
@@ -317,11 +350,58 @@ class TestCovariateLabel(unittest.TestCase):
         weights = np.array([0.1, 0.2, 0.3, 0.2, 0.2])
         alpha = 0.5
 
+        # Default test_weight=0.0 preserves the old (uncorrected) behavior
+        # for any direct caller that doesn't opt into the finite-sample
+        # correction.
         quantile = _query_weighted_quantile(scores, alpha, weights)
 
         self.assertIsInstance(quantile, (float, np.floating))
         self.assertGreaterEqual(quantile, scores.min())
         self.assertLessEqual(quantile, scores.max())
+
+    def test_weighted_quantile_reserves_test_point_mass(self):
+        """The finite-sample correction should recover the standard (N+1)
+        reserved-mass fraction in the no-shift limit (uniform weights,
+        test_weight = mean of calibration weights)."""
+        from pyhealth.calib.predictionset.covariate.covariate_label import (
+            _query_weighted_quantile,
+        )
+
+        N = 6
+        weights = np.ones(N)
+        test_weight = float(np.mean(weights))
+        p_test = test_weight / (np.sum(weights) + test_weight)
+
+        self.assertAlmostEqual(p_test, 1.0 / (N + 1), places=10)
+
+    def test_weighted_quantile_small_calibration_set_is_conservative(self):
+        """With very few calibration examples relative to the requested
+        alpha, the corrected quantile should fall back to -inf (maximally
+        permissive / safe) rather than returning an overconfident finite
+        threshold, since there isn't enough calibration mass to support the
+        target coverage without dipping into the reserved test-point mass."""
+        from pyhealth.calib.predictionset.covariate.covariate_label import (
+            _query_weighted_quantile,
+        )
+
+        scores = np.array([0.4, 0.6])  # N=2
+        weights = np.array([1.1, 1.1])
+        test_weight = float(np.mean(weights))
+
+        # 1/(N+1) = 1/3 ~= 0.333 > alpha=0.3, so there isn't enough
+        # calibration mass to safely support this target.
+        result = _query_weighted_quantile(scores, 0.3, weights, test_weight)
+        self.assertEqual(result, -np.inf)
+
+        # A larger, adequately-sized calibration set at the same alpha
+        # should NOT hit the same fallback.
+        scores_large = np.linspace(0.0, 1.0, 50)
+        weights_large = np.ones(50)
+        test_weight_large = float(np.mean(weights_large))
+        result_large = _query_weighted_quantile(
+            scores_large, 0.3, weights_large, test_weight_large
+        )
+        self.assertTrue(np.isfinite(result_large))
 
     def test_likelihood_ratio_function(self):
         """Test the likelihood ratio computation."""

@@ -137,6 +137,21 @@ data/physionet.org/
 
 # VSCode settings
 .vscode/
+.codex
 
 # Model weight files (large binaries, distributed separately)
 weightfiles/
+
+# Local / personal (never commit)
+CLAUDE.local.md
+.claude/settings.local.json
+
+# Local test fixtures (download separately; not part of the repo)
+test-resources/core/chestxray14/
+test-resources/meds_demo/
+
+# Local Python environments (not .venv — that pattern is already ignored)
+.venv312/
+
+# Tool caches
+.ruff_cache/

@@ -229,7 +229,16 @@ class EEGAbnormalTUAB(BaseTask):
 
     task_name: str = "EEG_abnormal"
     input_schema: Dict[str, str] = {"signal": "tensor", "stft": "tensor"}
-    output_schema: Dict[str, str] = {"label": "binary"}
+    # NOTE: TUAB is a binary classification task (normal=0 vs abnormal=1), but the
+    # output schema is intentionally set to "multiclass" rather than "binary".
+    # Reason: PyHealth's conformal prediction methods (LABEL, ClusterLabel,
+    # NeighborhoodLabel, CovariateLabel) require multiclass mode — they calibrate
+    # prediction sets by thresholding a full (n, K) probability matrix, which is
+    # only produced by a softmax output (multiclass). Binary mode uses sigmoid and
+    # outputs (n, 1), which is incompatible with the CP calibration math.
+    # For a 2-class problem, 2-class softmax is mathematically equivalent to
+    # sigmoid, so there is no loss of correctness, just a different representation.
+    output_schema: Dict[str, str] = {"label": "multiclass"}
 
     def __init__(self,
                  resample_rate: float = 200,

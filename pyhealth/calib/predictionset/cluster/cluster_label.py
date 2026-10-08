@@ -19,6 +19,11 @@ from torch.utils.data import IterableDataset
 
 from pyhealth.calib.base_classes import SetPredictor
 from pyhealth.calib.predictionset.base_conformal import _query_quantile
+from pyhealth.calib.predictionset.scores import (
+    SUPPORTED_SCORE_TYPES,
+    all_class_nc_scores,
+    true_class_nc_scores,
+)
 from pyhealth.calib.utils import extract_embeddings, prepare_numpy_dataset
 from pyhealth.models import BaseModel
 
@@ -44,7 +49,13 @@ class ClusterLabel(SetPredictor):
             - float: marginal coverage P(Y not in C(X)) <= alpha
             - array: class-conditional P(Y not in C(X) | Y=k) <= alpha[k]
         n_clusters: Number of K-means clusters. Default is 5.
-        random_state: Random seed for K-means clustering. Default is 42.
+        random_state: Random seed for K-means clustering, and (if
+            score_type="aps") for the score's U ~ Uniform(0,1) draws.
+            Default is 42.
+        score_type: Nonconformity score to use: "threshold" (default,
+            NC score = 1 - p(true class), Sadinle, Lei, and Wasserman 2019)
+            or "aps" (Adaptive Prediction Sets, Romano, Sesia, and Candes
+            2020). See :mod:`pyhealth.calib.predictionset.scores`.
         debug: Whether to use debug mode (processes fewer samples for
             faster iteration)
 
@@ -89,6 +100,15 @@ class ClusterLabel(SetPredictor):
         ...     y_true, y_prob, metrics=["accuracy", "miscoverage_ps"],
         ...     y_predset=extra["y_predset"]
         ... )
+        >>>
+        >>> # Use APS instead of the default threshold score
+        >>> cluster_predictor_aps = ClusterLabel(
+        ...     model=model, alpha=0.1, n_clusters=5, score_type="aps")
+        >>> cluster_predictor_aps.calibrate(
+        ...     cal_dataset=cal_ds,
+        ...     train_embeddings=train_embeddings,
+        ...     cal_embeddings=cal_embeddings,
+        ... )
     """
 
     def __init__(
@@ -97,6 +117,7 @@ class ClusterLabel(SetPredictor):
         alpha: Union[float, np.ndarray],
         n_clusters: int = 5,
         random_state: int = 42,
+        score_type: str = "threshold",
         debug: bool = False,
         **kwargs,
     ) -> None:
@@ -105,6 +126,11 @@ class ClusterLabel(SetPredictor):
         if model.mode != "multiclass":
             raise NotImplementedError(
                 "ClusterLabel only supports multiclass classification"
+            )
+        if score_type not in SUPPORTED_SCORE_TYPES:
+            raise ValueError(
+                f"Unknown score_type: {score_type!r}. Supported: "
+                f"{SUPPORTED_SCORE_TYPES}."
             )
 
         self.mode = self.model.mode
@@ -116,6 +142,7 @@ class ClusterLabel(SetPredictor):
 
         self.device = model.device
         self.debug = debug
+        self.score_type = score_type
 
         # Store alpha
         if not isinstance(alpha, float):
@@ -129,6 +156,7 @@ class ClusterLabel(SetPredictor):
             )
         self.n_clusters = n_clusters
         self.random_state = random_state
+        self.rng = np.random.default_rng(random_state)
 
         # Will be set during calibration
         self.kmeans_model = None
@@ -214,8 +242,10 @@ class ClusterLabel(SetPredictor):
 
         print(f"Cluster assignments: {np.bincount(cal_cluster_labels)}")
 
-        # Compute conformity scores (probabilities of true class)
-        conformity_scores = y_prob[np.arange(N), y_true]
+        # Compute non-conformity scores (higher = less conforming)
+        conformity_scores = true_class_nc_scores(
+            y_prob, y_true, score_type=self.score_type, rng=self.rng
+        )
 
         # Compute cluster-specific thresholds
         self.cluster_thresholds = {}
@@ -226,13 +256,13 @@ class ClusterLabel(SetPredictor):
             if len(cluster_scores) == 0:
                 print(
                     f"Warning: No calibration samples in cluster {cluster_id}, "
-                    "using -inf threshold (include all classes)"
+                    "using +inf NC threshold (include all classes)"
                 )
                 if isinstance(self.alpha, float):
-                    self.cluster_thresholds[cluster_id] = -np.inf
+                    self.cluster_thresholds[cluster_id] = np.inf
                 else:
                     self.cluster_thresholds[cluster_id] = np.array(
-                        [-np.inf] * K
+                        [np.inf] * K
                     )
             else:
                 if isinstance(self.alpha, float):
@@ -240,7 +270,7 @@ class ClusterLabel(SetPredictor):
                     t = _query_quantile(cluster_scores, self.alpha)
                     self.cluster_thresholds[cluster_id] = t
                 else:
-                    # Class-conditional coverage: one threshold per class per cluster
+                    # Class-conditional: one threshold per class per cluster
                     if len(self.alpha) != K:
                         raise ValueError(
                             f"alpha must have length {K} for class-conditional "
@@ -253,12 +283,12 @@ class ClusterLabel(SetPredictor):
                             class_scores = cluster_scores[class_mask]
                             t_k = _query_quantile(class_scores, self.alpha[k])
                         else:
-                            # If no calibration examples for this class in this cluster
+                            # No examples for this class in cluster: include always
                             print(
                                 f"Warning: No calibration examples for class {k} "
-                                f"in cluster {cluster_id}, using -inf threshold"
+                                f"in cluster {cluster_id}, using +inf threshold"
                             )
-                            t_k = -np.inf
+                            t_k = np.inf
                         t.append(t_k)
                     self.cluster_thresholds[cluster_id] = np.array(t)
 
@@ -313,7 +343,15 @@ class ClusterLabel(SetPredictor):
             )
             cluster_thresholds = cluster_thresholds.view(view_shape)
 
-        pred["y_predset"] = pred["y_prob"] >= cluster_thresholds
+        # Include class y if its NC score <= NC threshold
+        y_prob_np = pred["y_prob"].detach().cpu().numpy()
+        nc_scores = all_class_nc_scores(
+            y_prob_np, score_type=self.score_type, rng=self.rng
+        )
+        nc_scores = torch.as_tensor(
+            nc_scores, device=pred["y_prob"].device, dtype=pred["y_prob"].dtype
+        )
+        pred["y_predset"] = nc_scores <= cluster_thresholds
         pred.pop("embed", None)  # do not expose internal embedding to caller
         return pred
 

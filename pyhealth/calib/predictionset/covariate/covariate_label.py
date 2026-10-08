@@ -30,6 +30,11 @@ from torch.utils.data import IterableDataset
 
 from pyhealth.calib.base_classes import SetPredictor
 from pyhealth.calib.calibration.kcal.kde import RBFKernelMean
+from pyhealth.calib.predictionset.scores import (
+    SUPPORTED_SCORE_TYPES,
+    all_class_conformity_scores,
+    true_class_conformity_scores,
+)
 from pyhealth.calib.utils import prepare_numpy_dataset
 from pyhealth.datasets import get_dataloader
 from pyhealth.models import BaseModel
@@ -170,25 +175,49 @@ def _compute_likelihood_ratio(
 
 
 def _query_weighted_quantile(
-    scores: np.ndarray, alpha: float, weights: np.ndarray
+    scores: np.ndarray,
+    alpha: float,
+    weights: np.ndarray,
+    test_weight: float = 0.0,
 ) -> float:
-    """Compute weighted quantile of scores.
+    """Compute the weighted conformal quantile of scores.
+
+    Implements the finite-sample correction for weighted conformal prediction
+    under covariate shift (Tibshirani et al. 2019).
 
     Args:
-        scores: Array of conformity scores
-        alpha: Quantile level (between 0 and 1)
-        weights: Weights for each score
+        scores: Array of conformity scores (higher = more conforming).
+        alpha: Quantile level (between 0 and 1).
+        weights: Un-normalized weights (likelihood ratios) for each score.
+        test_weight: Un-normalized weight representing the test point.
+            Reserves ``test_weight / (sum(weights) + test_weight)`` of
+            probability mass at conformity ``-inf``. Default 0.0 recovers the
+            old, uncorrected behavior (kept for backward compatibility with
+            direct callers of this helper).
 
     Returns:
-        The weighted alpha-quantile of scores
+        The weighted alpha-quantile of scores. Returns ``-inf`` if the
+        reserved test-point mass alone already meets or exceeds ``alpha``,
+        since there isn't enough calibration mass to justify a stricter,
+        finite threshold without risking under-coverage.
     """
-    # Sort scores and corresponding weights
     sorted_indices = np.argsort(scores)
     sorted_scores = scores[sorted_indices]
     sorted_weights = weights[sorted_indices]
 
-    # Compute cumulative weights
-    cum_weights = np.cumsum(sorted_weights) / np.sum(sorted_weights)
+    total_weight = np.sum(sorted_weights) + test_weight
+    if total_weight <= 0:
+        return -np.inf
+
+    p_test = test_weight / total_weight
+    if p_test >= alpha:
+        # Not enough calibration mass to reach the target coverage without
+        # dipping into the mass reserved for the test point itself: fall
+        # back to the maximally permissive (safe) threshold.
+        return -np.inf
+
+    # Compute cumulative weights over the reserved-mass-inclusive total.
+    cum_weights = np.cumsum(sorted_weights) / total_weight
 
     # Find the index where cumulative weight exceeds alpha
     idx = np.searchsorted(cum_weights, alpha, side="left")
@@ -197,7 +226,7 @@ def _query_weighted_quantile(
     if idx >= len(sorted_scores):
         idx = len(sorted_scores) - 1
 
-    return sorted_scores[idx]
+    return float(sorted_scores[idx])
 
 
 class CovariateLabel(SetPredictor):
@@ -239,6 +268,12 @@ class CovariateLabel(SetPredictor):
             distribution. Should be a callable that takes embeddings
             (numpy array) and returns density estimates.
             Used for KDE-based likelihood ratio weighting (CoDrug approach).
+        score_type: Conformity score to use: "threshold" (default,
+            conformity score = p(true class), Sadinle, Lei, and Wasserman
+            2019) or "aps" (Adaptive Prediction Sets, Romano, Sesia, and
+            Candes 2020). See :mod:`pyhealth.calib.predictionset.scores`.
+        random_state: Optional int seed for the RNG used by
+            score_type="aps". Ignored for score_type="threshold".
         debug: Whether to use debug mode (processes fewer samples for
             faster iteration)
 
@@ -306,6 +341,12 @@ class CovariateLabel(SetPredictor):
         >>> custom_weights = compute_custom_weights(val_data, test_data)
         >>> cal_model = CovariateLabel(model, alpha=0.1)
         >>> cal_model.calibrate(cal_dataset=val_data, cal_weights=custom_weights)
+
+        **Example 3: APS instead of the default threshold score**
+
+        >>> cal_model_aps = CovariateLabel(model, alpha=0.1, score_type="aps")
+        >>> cal_model_aps.calibrate(cal_dataset=val_data,
+        ...     cal_embeddings=cal_embs, test_embeddings=test_embs)
     """
 
     def __init__(
@@ -314,6 +355,8 @@ class CovariateLabel(SetPredictor):
         alpha: Union[float, np.ndarray],
         kde_test: Optional[Callable] = None,
         kde_cal: Optional[Callable] = None,
+        score_type: str = "threshold",
+        random_state: int | None = None,
         debug: bool = False,
         **kwargs,
     ) -> None:
@@ -322,6 +365,11 @@ class CovariateLabel(SetPredictor):
         if model.mode != "multiclass":
             raise NotImplementedError(
                 "CovariateLabel only supports multiclass classification"
+            )
+        if score_type not in SUPPORTED_SCORE_TYPES:
+            raise ValueError(
+                f"Unknown score_type: {score_type!r}. Supported: "
+                f"{SUPPORTED_SCORE_TYPES}."
             )
 
         self.mode = self.model.mode
@@ -333,6 +381,8 @@ class CovariateLabel(SetPredictor):
 
         self.device = model.device
         self.debug = debug
+        self.score_type = score_type
+        self.rng = np.random.default_rng(random_state)
 
         # Store alpha
         if not isinstance(alpha, float):
@@ -458,17 +508,20 @@ class CovariateLabel(SetPredictor):
                 self.kde_test, self.kde_cal, X
             )
 
-        # Normalize weights
-        weights = likelihood_ratios / np.sum(likelihood_ratios)
+        # Keep weights un-normalized here
         self._sum_cal_weights = np.sum(likelihood_ratios)
 
-        # Extract conformity scores (probabilities of true class)
-        conformity_scores = y_prob[np.arange(N), y_true]
+        # Extract conformity scores (higher = more conforming)
+        conformity_scores = true_class_conformity_scores(
+            y_prob, y_true, score_type=self.score_type, rng=self.rng
+        )
 
         # Compute weighted quantile thresholds
         if isinstance(self.alpha, float):
-            # Marginal coverage: single threshold
-            t = _query_weighted_quantile(conformity_scores, self.alpha, weights)
+            test_weight = float(np.mean(likelihood_ratios))
+            t = _query_weighted_quantile(
+                conformity_scores, self.alpha, likelihood_ratios, test_weight
+            )
         else:
             # Class-conditional coverage: one threshold per class
             t = []
@@ -476,11 +529,10 @@ class CovariateLabel(SetPredictor):
                 mask = y_true == k
                 if np.sum(mask) > 0:
                     class_scores = conformity_scores[mask]
-                    class_weights = weights[mask]
-                    # Renormalize class weights
-                    class_weights = class_weights / np.sum(class_weights)
+                    class_weights = likelihood_ratios[mask]
+                    class_test_weight = float(np.mean(class_weights))
                     t_k = _query_weighted_quantile(
-                        class_scores, self.alpha[k], class_weights
+                        class_scores, self.alpha[k], class_weights, class_test_weight
                     )
                 else:
                     # If no calibration examples, use -inf (include all)
@@ -499,8 +551,15 @@ class CovariateLabel(SetPredictor):
         """
         pred = self.model(**kwargs)
 
-        # Construct prediction set by thresholding probabilities
-        pred["y_predset"] = pred["y_prob"] > self.t
+        # Construct prediction set by thresholding conformity scores
+        y_prob = pred["y_prob"].detach().cpu().numpy()
+        conformity_scores = all_class_conformity_scores(
+            y_prob, score_type=self.score_type, rng=self.rng
+        )
+        conformity_scores = torch.as_tensor(
+            conformity_scores, device=pred["y_prob"].device, dtype=pred["y_prob"].dtype
+        )
+        pred["y_predset"] = conformity_scores > self.t
 
         return pred
 

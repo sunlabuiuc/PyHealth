@@ -567,7 +567,7 @@ class TestIntegratedGradientGIM(unittest.TestCase):
         self.assertEqual(attrs["codes"].shape, self.tokens.shape)
 
     def test_different_target_classes(self):
-        """Attributions for different target classes should differ."""
+        """For binary (single logit), target_class_idx is a no-op."""
         model = _ToyModel()
         ig_gim = IntegratedGradientGIM(model, temperature=1.0, steps=10)
 
@@ -578,9 +578,10 @@ class TestIntegratedGradientGIM(unittest.TestCase):
             codes=self.tokens, label=self.labels, target_class_idx=1,
         )["codes"]
 
-        self.assertFalse(
+        # Single-logit binary: target_class_idx is a no-op, both should match
+        self.assertTrue(
             torch.allclose(attrs_0, attrs_1),
-            "Different target classes should give different attributions",
+            "Single-logit binary: target_class_idx is a no-op",
         )
 
     # ----- Temporal tuple inputs -----

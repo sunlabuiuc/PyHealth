@@ -1,3 +1,4 @@
+# Requires pyhealth==1.1.6 (legacy 1.x task_fn/Visit API) -- not runnable against pyhealth 2.0
 from collections import defaultdict; from pyhealth.data import Patient; from pyhealth.datasets import MIMIC4Dataset
 from typing import Dict,List
 

@@ -16,7 +16,9 @@ from pyhealth.interpret.methods import IntegratedGradients
 from pyhealth.metrics.interpretability import (
     ComprehensivenessMetric,
     Evaluator,
+    SampleClass,
     SufficiencyMetric,
+    threshold_sample_filter,
 )
 from pyhealth.models import StageNet
 
@@ -122,6 +124,7 @@ class TestInterpretabilityMetrics(unittest.TestCase):
 
         # Initialize Integrated Gradients for attribution computation
         self.ig = IntegratedGradients(self.model, use_embeddings=True)
+        self.sample_filter = threshold_sample_filter()
 
     # Helper method to create attributions for a batch using IG
     def _create_attributions(self, batch, target_class_idx=1):
@@ -227,7 +230,10 @@ class TestInterpretabilityMetrics(unittest.TestCase):
 
         # Initialize metric
         comp = ComprehensivenessMetric(
-            self.model, percentages=[10, 20, 50], ablation_strategy="zero"
+            self.model,
+            percentages=[10, 20, 50],
+            ablation_strategy="zero",
+            sample_filter=self.sample_filter,
         )
 
         # Compute scores - now returns (scores, valid_mask) tuple
@@ -257,7 +263,10 @@ class TestInterpretabilityMetrics(unittest.TestCase):
 
         # Initialize metric
         suff = SufficiencyMetric(
-            self.model, percentages=[10, 20, 50], ablation_strategy="zero"
+            self.model,
+            percentages=[10, 20, 50],
+            ablation_strategy="zero",
+            sample_filter=self.sample_filter,
         )
 
         # Compute scores - now returns (scores, valid_mask) tuple
@@ -282,7 +291,11 @@ class TestInterpretabilityMetrics(unittest.TestCase):
         """Test that detailed scores return per-percentage results."""
         attributions = self._create_attributions(self.batch)
 
-        comp = ComprehensivenessMetric(self.model, percentages=[10, 20, 50])
+        comp = ComprehensivenessMetric(
+            self.model,
+            percentages=[10, 20, 50],
+            sample_filter=self.sample_filter,
+        )
 
         # Get detailed scores using return_per_percentage=True
         detailed = comp.compute(self.batch, attributions, return_per_percentage=True)
@@ -305,7 +318,10 @@ class TestInterpretabilityMetrics(unittest.TestCase):
 
         for strategy in strategies:
             comp = ComprehensivenessMetric(
-                self.model, percentages=[10, 20], ablation_strategy=strategy
+                self.model,
+                percentages=[10, 20],
+                ablation_strategy=strategy,
+                sample_filter=self.sample_filter,
             )
             # Compute returns (scores, valid_mask) tuple
             scores, valid_mask = comp.compute(self.batch, attributions)
@@ -414,7 +430,10 @@ class TestInterpretabilityMetrics(unittest.TestCase):
         attributions = self._create_attributions(self.batch)
 
         comp = ComprehensivenessMetric(
-            self.model, percentages=[1, 10, 50], ablation_strategy="zero"
+            self.model,
+            percentages=[1, 10, 50],
+            ablation_strategy="zero",
+            sample_filter=self.sample_filter,
         )
 
         detailed = comp.compute(self.batch, attributions, return_per_percentage=True)
@@ -430,6 +449,64 @@ class TestInterpretabilityMetrics(unittest.TestCase):
         self.assertTrue(torch.isfinite(torch.tensor(score_1)))
         self.assertTrue(torch.isfinite(torch.tensor(score_10)))
         self.assertTrue(torch.isfinite(torch.tensor(score_50)))
+
+    def test_negative_class_scores_independent_of_percentage_order(self):
+        """Test that a negative-class sample's score at a percentage is order-independent."""
+        attributions = self._create_attributions(self.batch)
+
+        def negative_filter(y_probs, classifier_type):
+            return torch.full(
+                (y_probs.shape[0],),
+                SampleClass.NEGATIVE,
+                dtype=torch.long,
+                device=y_probs.device,
+            )
+
+        def score_at_20(percentages):
+            comp = ComprehensivenessMetric(
+                self.model,
+                percentages=percentages,
+                ablation_strategy="zero",
+                sample_filter=negative_filter,
+            )
+            detailed = comp.compute(
+                self.batch, attributions, return_per_percentage=True
+            )
+            return detailed[20]
+
+        torch.testing.assert_close(score_at_20([20]), score_at_20([10, 20]))
+
+    def test_debug_output_does_not_change_negative_class_scores(self):
+        """Test that debug output does not change negative-class scores."""
+        attributions = self._create_attributions(self.batch)
+
+        def negative_filter(y_probs, classifier_type):
+            return torch.full(
+                (y_probs.shape[0],),
+                SampleClass.NEGATIVE,
+                dtype=torch.long,
+                device=y_probs.device,
+            )
+
+        def compute_scores(debug):
+            comp = ComprehensivenessMetric(
+                self.model,
+                percentages=[10, 20, 50],
+                ablation_strategy="zero",
+                sample_filter=negative_filter,
+            )
+            return comp.compute(
+                self.batch,
+                attributions,
+                return_per_percentage=True,
+                debug=debug,
+            )
+
+        scores = compute_scores(debug=False)
+        debug_scores = compute_scores(debug=True)
+
+        for percentage in [10, 20, 50]:
+            torch.testing.assert_close(scores[percentage], debug_scores[percentage])
 
     def test_attribution_shape_mismatch(self):
         """Test that mismatched attribution shapes are handled gracefully."""

@@ -6,7 +6,7 @@ Getting Started
 
 New to PyHealth datasets? Start here:
 
-- **Tutorial**: `Introduction to pyhealth.datasets <https://colab.research.google.com/drive/1voSx7wEfzXfEf2sIfW6b-8p1KqMyuWxK?usp=sharing>`_ | `Video (PyHealth 1.6) <https://www.youtube.com/watch?v=c1InKqFJbsI&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=3>`_
+- **Tutorial**: `Introduction to pyhealth.datasets <https://colab.research.google.com/drive/1vI_oljc7rU5ocsC26ITM7HUgD5SGZkFE?usp=sharing>`_ | `Video (PyHealth 1.6) <https://www.youtube.com/watch?v=c1InKqFJbsI&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=3>`_
 
 This tutorial covers:
 
@@ -30,6 +30,13 @@ using Polars, joins the tables according to a YAML schema, and writes a
 compact ``global_event_df.parquet`` cache to disk. On subsequent runs with
 the same configuration it reads from cache rather than re-parsing the source
 files, so startup is fast.
+
+"The same configuration" means the same root, tables, dataset name and dev flag,
+the same YAML config, and unchanged source files: the cache key includes a hash of
+the config and the size and modification time of every source file the requested
+tables read. Editing the YAML or rewriting a source file (even at the same path)
+therefore builds a fresh cache instead of silently reusing a stale one. Old cache
+folders are left in place; delete them to reclaim disk space.
 
 The result is a :class:`~pyhealth.datasets.BaseDataset` — a structured
 patient→event tree. It is different from a PyTorch Dataset: it has no integer
@@ -79,6 +86,9 @@ future runs without re-fitting.
 - ``samples.record_to_index`` — maps a visit/record ID to the sample indices
   for that visit.
 
+Calling ``samples.subset(...)`` rebuilds both lookups with indices local to the
+new dataset, so they remain valid after repeated splitting.
+
 For testing or small cohorts you can skip the disk step entirely using
 ``InMemorySampleDataset``, which holds all processed samples in RAM and is
 returned by default from ``create_sample_dataset()``.
@@ -124,13 +134,44 @@ Initialization Parameters
   Native datasets have this built in and ignore the parameter.
 - **cache_dir** — where to store the cached Parquet and LitData files. PyHealth
   appends a UUID derived from your configuration, so different setups never
-  overwrite each other.
+  overwrite each other. If you leave it out, PyHealth uses your user cache
+  folder (e.g. ``~/Library/Caches/pyhealth`` on macOS, ``~/.cache/pyhealth`` on
+  Linux) and logs a warning naming it — see *Working with identified data* below.
 - **num_workers** — parallel processes for data loading. Increasing this can
   speed up ``set_task()`` on large datasets.
 - **dev** — when ``True``, PyHealth caps the dataset at 1 000 patients. This
   is very useful during development because it makes each iteration complete in
   seconds rather than minutes. Switch to ``dev=False`` for your final training
   run.
+
+Working with identified data
+----------------------------
+
+The dataset cache holds **processed copies of your source data**: the event
+table every patient's events are read from, and the samples each ``set_task()``
+produces. For identified clinical data (PHI), that cache must live in storage
+approved for the data, not in a personal cache folder.
+
+- Always pass ``cache_dir`` pointing inside your project's controlled storage:
+
+  .. code-block:: python
+
+      dataset = MIMIC4Dataset(ehr_root=..., ehr_tables=[...],
+                              cache_dir="/secure/project/pyhealth_cache")
+
+- To make a forgotten ``cache_dir`` an error instead of a warning, set an
+  environment variable for the project (in your job script, ``.env`` or shell):
+
+  .. code-block:: bash
+
+      export PYHEALTH_REQUIRE_CACHE_DIR=1
+
+  Any dataset created without ``cache_dir`` then raises ``ValueError`` before
+  writing anything.
+
+- ``create_sample_dataset(..., in_memory=False)`` writes samples to the system
+  temporary folder; keep the default ``in_memory=True`` for identified data, or
+  build the ``SampleDataset`` at a path you control.
 
 config.yaml for Custom Datasets
 ---------------------------------
@@ -224,6 +265,9 @@ Available Datasets
     datasets/pyhealth.datasets.SampleDataset
     datasets/pyhealth.datasets.MIMIC3Dataset
     datasets/pyhealth.datasets.MIMIC4Dataset
+    datasets/pyhealth.datasets.FHIRDataset
+    datasets/pyhealth.datasets.MEDSDataset
+    datasets/pyhealth.datasets.MIMIC4FHIR
     datasets/pyhealth.datasets.MedicalTranscriptionsDataset
     datasets/pyhealth.datasets.CardiologyDataset
     datasets/pyhealth.datasets.eICUDataset
@@ -238,6 +282,8 @@ Available Datasets
     datasets/pyhealth.datasets.BMDHSDataset
     datasets/pyhealth.datasets.COVID19CXRDataset
     datasets/pyhealth.datasets.ChestXray14Dataset
+    datasets/pyhealth.datasets.PhysioNetDeIDDataset
+    datasets/pyhealth.datasets.EEGBCIDataset
     datasets/pyhealth.datasets.TUABDataset
     datasets/pyhealth.datasets.TUEVDataset
     datasets/pyhealth.datasets.ClinVarDataset
