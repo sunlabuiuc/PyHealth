@@ -18,6 +18,7 @@ fidelity metrics.
     metrics/pyhealth.metrics.multilabel
     metrics/pyhealth.metrics.binary
     metrics/pyhealth.metrics.calibration
+    metrics/pyhealth.metrics.bootstrap
     metrics/pyhealth.metrics.prediction_set
     metrics/pyhealth.metrics.fairness
     metrics/pyhealth.metrics.interpretability

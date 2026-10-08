@@ -6,6 +6,42 @@ import sklearn.metrics as sklearn_metrics
 import pyhealth.metrics.calibration as calib
 
 
+def _logit(y_prob: np.ndarray) -> np.ndarray:
+    p = np.clip(np.asarray(y_prob, dtype=float), 1e-12, 1 - 1e-12)
+    return np.log(p / (1 - p))
+
+
+def _fit_logistic(x: np.ndarray, y: np.ndarray, offset: np.ndarray, iters: int = 100):
+    """Unpenalised logistic regression of y on columns x, plus an offset (Newton)."""
+    beta = np.zeros(x.shape[1])
+    for _ in range(iters):
+        mu = 1 / (1 + np.exp(-(x @ beta + offset)))
+        grad = x.T @ (y - mu)
+        hess = (x * (mu * (1 - mu))[:, None]).T @ x
+        try:
+            step = np.linalg.solve(hess, grad)
+        except np.linalg.LinAlgError:
+            return np.full(x.shape[1], np.nan)
+        beta = beta + step
+        if np.max(np.abs(step)) < 1e-10:
+            break
+    return beta
+
+
+def _calibration_slope(y_true: np.ndarray, y_prob: np.ndarray) -> float:
+    """Slope of logistic recalibration: y ~ a + b * logit(p). Ideal: 1."""
+    lp = _logit(y_prob)
+    x = np.column_stack([np.ones_like(lp), lp])
+    return float(_fit_logistic(x, np.asarray(y_true, dtype=float), np.zeros_like(lp))[1])
+
+
+def _calibration_intercept(y_true: np.ndarray, y_prob: np.ndarray) -> float:
+    """Calibration-in-the-large: a in y ~ a + offset(logit(p)). Ideal: 0."""
+    lp = _logit(y_prob)
+    x = np.ones((lp.size, 1))
+    return float(_fit_logistic(x, np.asarray(y_true, dtype=float), lp)[0])
+
+
 def binary_metrics_fn(
     y_true: np.ndarray,
     y_prob: np.ndarray,
@@ -28,6 +64,13 @@ def binary_metrics_fn(
         - jaccard: Jaccard similarity coefficient score
         - ECE: Expected Calibration Error (with 20 equal-width bins). Check :func:`pyhealth.metrics.calibration.ece_confidence_binary`.
         - ECE_adapt: adaptive ECE (with 20 equal-size bins). Check :func:`pyhealth.metrics.calibration.ece_confidence_binary`.
+        - brier: Brier score (mean squared error of the probabilities)
+        - oe_ratio: observed / expected events, sum(y_true) / sum(y_prob); ideal 1
+        - calibration_slope: slope b of the logistic recalibration
+          y ~ a + b * logit(y_prob); ideal 1, below 1 means overconfident
+        - calibration_intercept: calibration-in-the-large, a in
+          y ~ a + offset(logit(y_prob)); ideal 0, above 0 means risks are
+          underestimated
     If no metrics are specified, pr_auc, roc_auc and f1 are computed by default.
 
     This function calls sklearn.metrics functions to compute the metrics. For
@@ -87,6 +130,14 @@ def binary_metrics_fn(
         elif metric == "jaccard":
             jaccard = sklearn_metrics.jaccard_score(y_true, y_pred)
             output["jaccard"] = jaccard
+        elif metric == "brier":
+            output["brier"] = sklearn_metrics.brier_score_loss(y_true, y_prob)
+        elif metric == "oe_ratio":
+            output["oe_ratio"] = float(np.sum(y_true) / np.sum(y_prob))
+        elif metric == "calibration_slope":
+            output["calibration_slope"] = _calibration_slope(y_true, y_prob)
+        elif metric == "calibration_intercept":
+            output["calibration_intercept"] = _calibration_intercept(y_true, y_prob)
         elif metric in {"ECE", "ECE_adapt"}:
             output[metric] = calib.ece_confidence_binary(
                 y_prob, y_true, bins=20, adaptive=metric.endswith("_adapt")
