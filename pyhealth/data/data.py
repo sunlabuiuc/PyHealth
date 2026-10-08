@@ -134,6 +134,23 @@ class Patient:
         patient_id (str): Unique patient identifier.
         data_source (pl.DataFrame): DataFrame containing all events, sorted by timestamp.
         event_type_partitions (Dict[str, pl.DataFrame]): Dictionary mapping event types to their respective DataFrame partitions.
+
+    Examples:
+        >>> from datetime import datetime
+        >>> import polars as pl
+        >>> from pyhealth.data import Patient
+        >>> df = pl.DataFrame({
+        ...     "patient_id": ["p1", "p1"],
+        ...     "event_type": ["admissions", "labevents"],
+        ...     "timestamp": [datetime(2150, 1, 1), datetime(2150, 1, 2)],
+        ...     "admissions/hadm_id": ["10", None],
+        ...     "labevents/itemid": [None, "50912"],
+        ... })
+        >>> patient = Patient(patient_id="p1", data_source=df)
+        >>> [e.hadm_id for e in patient.get_events(event_type="admissions")]
+        ['10']
+        >>> len(patient.get_events(start=datetime(2150, 1, 3)))
+        0
     """
 
     def __init__(self, patient_id: str, data_source: pl.DataFrame) -> None:

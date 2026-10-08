@@ -1,23 +1,16 @@
 # Description: Catheter-associated urinary infection prediction task for MIMIC-IV dataset
 
 import re
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from typing import (
     Any,
     ClassVar,
-    Dict,
-    FrozenSet,
-    Iterable,
-    List,
-    Mapping,
-    Optional,
-    Sequence,
-    Set,
-    Tuple,
 )
 
 import polars as pl
+
 from pyhealth.medcode import CrossMap
 
 from .base_task import BaseTask
@@ -26,7 +19,7 @@ from .base_task import BaseTask
 class _CatheterInfectionBase(BaseTask):
     """Shared helpers for catheter-associated infection prediction tasks."""
 
-    _MAPPER_CACHE: ClassVar[Dict[Tuple[str, str], Optional[CrossMap]]] = {}
+    _MAPPER_CACHE: ClassVar[dict[tuple[str, str], CrossMap | None]] = {}
     MISSING_TOKEN: ClassVar[str] = "<missing>"
 
     @staticmethod
@@ -38,7 +31,7 @@ class _CatheterInfectionBase(BaseTask):
         return f"{base_name}_mapccscm_{str(map_ccscm).lower()}"
 
     # ICD-10 diagnosis/procedure codes indicating catheter use
-    CATHETER_CODES_ICD10: ClassVar[Set[str]] = {
+    CATHETER_CODES_ICD10: ClassVar[set[str]] = {
         "Y846",  # Y84.6  — urinary catheterization as cause of abnormal reaction
         "Z466",  # Z46.6  — encounter for fitting/adjustment of urinary device
         "Z4682",  # Z46.82 — encounter for fitting/adjustment of non-vascular catheter
@@ -50,7 +43,7 @@ class _CatheterInfectionBase(BaseTask):
     }
 
     # ICD-10 urinary-catheter complication families (prefix matching)
-    CATHETER_PREFIXES_ICD10: ClassVar[Tuple[str, ...]] = (
+    CATHETER_PREFIXES_ICD10: ClassVar[tuple[str, ...]] = (
         "T8301",  # T83.010-T83.018 breakdown
         "T8302",  # T83.020-T83.028 displacement
         "T8303",  # T83.030-T83.038 leakage
@@ -58,7 +51,7 @@ class _CatheterInfectionBase(BaseTask):
     )
 
     # ICD-9 diagnosis/procedure/external cause subset indicating catheter use
-    CATHETER_CODES_ICD9: ClassVar[Set[str]] = {
+    CATHETER_CODES_ICD9: ClassVar[set[str]] = {
         "99631",  # Mechanical complication of urethral catheter
         "99632",  # Mechanical complication of intrauterine contraceptive device
         "E8705",  # Misadventure in catheterization
@@ -66,7 +59,7 @@ class _CatheterInfectionBase(BaseTask):
     }
 
     # ICD-9 cardiac catheterization procedure range 37.21-37.23
-    CATHETER_PREFIXES_ICD9: ClassVar[Tuple[str, ...]] = (
+    CATHETER_PREFIXES_ICD9: ClassVar[tuple[str, ...]] = (
         "3721",
         "3722",
         "3723",
@@ -77,7 +70,7 @@ class _CatheterInfectionBase(BaseTask):
     # Any admission containing these codes is a positive CAUTI event,
     # regardless of whether a catheter code is present in the same admission.
     # -----------------------------------------------------------------------
-    INFECTION_CODES_UNCONDITIONAL_ICD10: ClassVar[Set[str]] = {
+    INFECTION_CODES_UNCONDITIONAL_ICD10: ClassVar[set[str]] = {
         "T83511A",  # T83.511A — CAUTI, initial encounter
         "T83518A",
         "T83518D",
@@ -92,7 +85,7 @@ class _CatheterInfectionBase(BaseTask):
     # labels could introduce temporal confusion.  They remain in the feature
     # vocabulary as regular diagnosis tokens.
 
-    INFECTION_CODES_UNCONDITIONAL_ICD9: ClassVar[Set[str]] = {
+    INFECTION_CODES_UNCONDITIONAL_ICD9: ClassVar[set[str]] = {
         "99664",  # Infection due to indwelling urinary catheter
     }
 
@@ -102,12 +95,12 @@ class _CatheterInfectionBase(BaseTask):
     # Without catheter co-occurrence these are too non-specific to attribute
     # to CAUTI (e.g., community-acquired UTI).
     # -----------------------------------------------------------------------
-    INFECTION_CODES_CONDITIONAL_ICD10: ClassVar[Set[str]] = {
+    INFECTION_CODES_CONDITIONAL_ICD10: ClassVar[set[str]] = {
         "N390",  # N39.0 — UTI, site unspecified
         "N10",  # N10   — acute pyelonephritis
         "R8271",  # R82.71 — bacteriuria
     }
-    INFECTION_PREFIXES_CONDITIONAL_ICD10: ClassVar[Tuple[str, ...]] = (
+    INFECTION_PREFIXES_CONDITIONAL_ICD10: ClassVar[tuple[str, ...]] = (
         "N30",  # N30.x — cystitis
         "N34",  # N34.x — urethritis
     )
@@ -115,7 +108,7 @@ class _CatheterInfectionBase(BaseTask):
     # (996.64) is already catheter-specific and unconditional.
 
     # Lab categories from mortality_prediction_stagenet_mimic4.py (verified item IDs)
-    LAB_CATEGORIES: ClassVar[Dict[str, List[str]]] = {
+    LAB_CATEGORIES: ClassVar[dict[str, list[str]]] = {
         "Sodium": ["50824", "52455", "50983", "52623"],
         "Potassium": ["50822", "52452", "50971", "52610"],
         "Chloride": ["50806", "52434", "50902", "52535"],
@@ -128,7 +121,7 @@ class _CatheterInfectionBase(BaseTask):
         "Phosphate": ["50970"],
     }
 
-    LAB_CATEGORY_ORDER: ClassVar[List[str]] = [
+    LAB_CATEGORY_ORDER: ClassVar[list[str]] = [
         "Sodium",
         "Potassium",
         "Chloride",
@@ -141,28 +134,28 @@ class _CatheterInfectionBase(BaseTask):
         "Phosphate",
     ]
 
-    LABITEMS: ClassVar[List[str]] = [
+    LABITEMS: ClassVar[list[str]] = [
         item for items in LAB_CATEGORIES.values() for item in items
     ]
 
-    def _zero_lab_vector(self) -> List[float]:
+    def _zero_lab_vector(self) -> list[float]:
         return [0.0] * len(self.LAB_CATEGORY_ORDER)
 
-    def _ensure_nonempty_sequence(self, values: List[str]) -> List[str]:
+    def _ensure_nonempty_sequence(self, values: list[str]) -> list[str]:
         cleaned = [v for v in values if v]
         if cleaned:
             return cleaned
         return [self.MISSING_TOKEN]
 
     @classmethod
-    def _get_mapper(cls, source_vocab: str, target_vocab: str) -> Optional[CrossMap]:
+    def _get_mapper(cls, source_vocab: str, target_vocab: str) -> CrossMap | None:
         key = (source_vocab, target_vocab)
         if key in cls._MAPPER_CACHE:
             return cls._MAPPER_CACHE[key]
 
         try:
             mapper = CrossMap.load(source_vocab, target_vocab)
-        except Exception:
+        except Exception:  # noqa: BLE001 - vocab unavailable: fall back to raw codes
             mapper = None
         cls._MAPPER_CACHE[key] = mapper
         return mapper
@@ -173,7 +166,7 @@ class _CatheterInfectionBase(BaseTask):
 
     def _map_condition_to_tokens(
         self, code: str, version: Any, map_ccscm: bool = True
-    ) -> List[str]:
+    ) -> list[str]:
         normalized = self._normalize_code(code)
         if not map_ccscm:
             return [f"ICD_{normalized}"]
@@ -190,7 +183,7 @@ class _CatheterInfectionBase(BaseTask):
         if mapper is not None:
             try:
                 mapped = [v.strip().upper() for v in mapper.map(code) if v]
-            except Exception:
+            except Exception:  # noqa: BLE001 - unmapped code: fall back to raw code
                 mapped = []
             if mapped:
                 return [f"CCSCM_{v}" for v in sorted(set(mapped))]
@@ -199,7 +192,7 @@ class _CatheterInfectionBase(BaseTask):
 
     def _map_procedure_to_tokens(
         self, code: str, version: Any, map_ccscm: bool = True
-    ) -> List[str]:
+    ) -> list[str]:
         normalized = self._normalize_code(code)
         if not map_ccscm:
             return [f"ICDPROC_{normalized}"]
@@ -216,14 +209,14 @@ class _CatheterInfectionBase(BaseTask):
         if mapper is not None:
             try:
                 mapped = [v.strip().upper() for v in mapper.map(code) if v]
-            except Exception:
+            except Exception:  # noqa: BLE001 - unmapped code: fall back to raw code
                 mapped = []
             if mapped:
                 return [f"CCSPROC_{v}" for v in sorted(set(mapped))]
 
         return [f"ICDPROC_{normalized}"]
 
-    def _map_ndc_to_atc3_tokens(self, ndc_code: str | None) -> List[str]:
+    def _map_ndc_to_atc3_tokens(self, ndc_code: str | None) -> list[str]:
         if not ndc_code:
             return []
 
@@ -233,7 +226,7 @@ class _CatheterInfectionBase(BaseTask):
 
         try:
             mapped = mapper.map(ndc_code, target_kwargs={"level": 3})
-        except Exception:
+        except Exception:  # noqa: BLE001 - unmapped NDC: no drug token
             return []
 
         cleaned = [v.strip().upper() for v in mapped if v]
@@ -299,7 +292,7 @@ class _CatheterInfectionBase(BaseTask):
             code, version
         ) or self._is_conditional_infection_code(code, version)
 
-    def _build_lab_vector(self, lab_df: pl.DataFrame) -> List[float]:
+    def _build_lab_vector(self, lab_df: pl.DataFrame) -> list[float]:
         """Build a 10D lab feature vector from lab events DataFrame."""
         if lab_df.height == 0:
             return self._zero_lab_vector()
@@ -318,7 +311,7 @@ class _CatheterInfectionBase(BaseTask):
         if filtered.height == 0:
             return self._zero_lab_vector()
 
-        vector: List[float] = []
+        vector: list[float] = []
         for category in self.LAB_CATEGORY_ORDER:
             itemids = self.LAB_CATEGORIES[category]
             cat_df = filtered.filter(pl.col("labevents/itemid").is_in(itemids))
@@ -332,9 +325,9 @@ class _CatheterInfectionBase(BaseTask):
 
     def _determine_positive_label(
         self,
-        diagnoses: List[Any],
-        procedures: List[Any],
-    ) -> Tuple[bool, bool, bool, bool]:
+        diagnoses: list[Any],
+        procedures: list[Any],
+    ) -> tuple[bool, bool, bool, bool]:
         """Scan diagnoses and procedures to determine CAUTI label flags.
 
         Returns:
@@ -427,6 +420,15 @@ class CatheterAssociatedInfectionPredictionStageNetMIMIC4(_CatheterInfectionBase
     -----------------------------------------------
     - icd_codes: StageNet tuple (time deltas in hours + ICD code token sequences)
     - labs: StageNet tensor tuple (time deltas + 10D mean lab vectors)
+
+    Examples:
+        >>> from pyhealth.datasets import MIMIC4Dataset
+        >>> from pyhealth.tasks import CatheterAssociatedInfectionPredictionStageNetMIMIC4
+        >>> dataset = MIMIC4Dataset(
+        ...     ehr_root="/path/to/mimiciv/2.2",
+        ...     ehr_tables=["diagnoses_icd", "procedures_icd", "labevents"],
+        ... )
+        >>> samples = dataset.set_task(CatheterAssociatedInfectionPredictionStageNetMIMIC4(padding=10))
     """
 
     task_name: str = "CatheterAssociatedInfectionPredictionStageNetMIMIC4"
@@ -453,13 +455,13 @@ class CatheterAssociatedInfectionPredictionStageNetMIMIC4(_CatheterInfectionBase
             self._task_name_with_same_visit(type(self).task_name, self.same_visit),
             self.map_ccscm,
         )
-        self.input_schema: Dict[str, Tuple[str, Dict[str, Any]]] = {  # type: ignore
+        self.input_schema: dict[str, tuple[str, dict[str, Any]]] = {  # type: ignore
             "icd_codes": ("stagenet", {"padding": padding}),
             "labs": ("stagenet_tensor", {}),
         }
-        self.output_schema: Dict[str, str] = {"label": "binary"}  # type: ignore
+        self.output_schema: dict[str, str] = {"label": "binary"}  # type: ignore
 
-    def __call__(self, patient: Any) -> List[Dict[str, Any]]:
+    def __call__(self, patient: Any) -> list[dict[str, Any]]:
         """Create StageNet samples for one patient."""
         admissions = patient.get_events(event_type="admissions")
         if not admissions:
@@ -469,14 +471,14 @@ class CatheterAssociatedInfectionPredictionStageNetMIMIC4(_CatheterInfectionBase
 
         # Running feature lists — accumulate across all admissions (including masked
         # infection admissions so future events can see prior CAUTI history).
-        all_icd_codes: List[List[str]] = []
-        all_icd_times: List[float] = []
-        all_lab_values: List[List[float]] = []
-        all_lab_times: List[float] = []
+        all_icd_codes: list[list[str]] = []
+        all_icd_times: list[float] = []
+        all_lab_values: list[list[float]] = []
+        all_lab_times: list[float] = []
 
-        all_samples: List[Dict[str, Any]] = []
-        pending_negatives: List[Dict[str, Any]] = []
-        previous_admission_time: Optional[datetime] = None
+        all_samples: list[dict[str, Any]] = []
+        pending_negatives: list[dict[str, Any]] = []
+        previous_admission_time: datetime | None = None
         infection_event_count: int = 0
         has_catheter_or_cauti: bool = False
 
@@ -487,8 +489,8 @@ class CatheterAssociatedInfectionPredictionStageNetMIMIC4(_CatheterInfectionBase
 
             dischtime_str = getattr(admission, "dischtime", None)
             try:
-                admission_dischtime: Optional[datetime] = (
-                    datetime.strptime(dischtime_str, "%Y-%m-%d %H:%M:%S")
+                admission_dischtime: datetime | None = (
+                    datetime.fromisoformat(dischtime_str)
                     if dischtime_str else None
                 )
             except (ValueError, AttributeError):
@@ -509,14 +511,14 @@ class CatheterAssociatedInfectionPredictionStageNetMIMIC4(_CatheterInfectionBase
                 filters=[("hadm_id", "==", admission.hadm_id)],
             )
 
-            is_infection_event, has_catheter, has_unconditional, has_conditional = (
+            is_infection_event, has_catheter, _has_uncond, _has_cond = (
                 self._determine_positive_label(diagnoses, procedures)
             )
 
-            visit_codes: List[str] = []
-            visit_codes_masked: List[str] = []  # infection codes stripped
-            seen: Set[str] = set()
-            seen_masked: Set[str] = set()
+            visit_codes: list[str] = []
+            visit_codes_masked: list[str] = []  # infection codes stripped
+            seen: set[str] = set()
+            seen_masked: set[str] = set()
 
             for diag in diagnoses:
                 code = getattr(diag, "icd_code", None)
@@ -599,7 +601,7 @@ class CatheterAssociatedInfectionPredictionStageNetMIMIC4(_CatheterInfectionBase
                     feat_lab_times = [0.0]
 
                 base_id = f"{patient.patient_id}_cauti{infection_event_count}"
-                new_samples: List[Dict[str, Any]] = [
+                new_samples: list[dict[str, Any]] = [
                     {
                         "patient_id": patient.patient_id,
                         "record_id": base_id,
@@ -760,17 +762,26 @@ class CatheterAssociatedInfectionPredictionMIMIC4(_CatheterInfectionBase):
     - procedures: nested_sequence of CCS-PCS procedure tokens
     - drugs: nested_sequence of ATC Level-3 drug tokens
     - labs: nested_sequence_floats of 10D mean lab vectors
+
+    Examples:
+        >>> from pyhealth.datasets import MIMIC4Dataset
+        >>> from pyhealth.tasks import CatheterAssociatedInfectionPredictionMIMIC4
+        >>> dataset = MIMIC4Dataset(
+        ...     ehr_root="/path/to/mimiciv/2.2",
+        ...     ehr_tables=["diagnoses_icd", "procedures_icd", "prescriptions", "labevents"],
+        ... )
+        >>> samples = dataset.set_task(CatheterAssociatedInfectionPredictionMIMIC4())
     """
 
     task_name: str = "CatheterAssociatedInfectionPredictionMIMIC4"
 
-    input_schema: Dict[str, str] = {
+    input_schema: ClassVar[dict[str, str]] = {
         "conditions": "nested_sequence",
         "procedures": "nested_sequence",
         "drugs": "nested_sequence",
         "labs": "nested_sequence_floats",
     }
-    output_schema: Dict[str, str] = {"label": "binary"}
+    output_schema: ClassVar[dict[str, str]] = {"label": "binary"}
 
     def __init__(self, same_visit: bool = True, map_ccscm: bool = True):
         """Initialize task.
@@ -789,10 +800,10 @@ class CatheterAssociatedInfectionPredictionMIMIC4(_CatheterInfectionBase):
         )
 
     @staticmethod
-    def _clean_sequence(values: List[Any]) -> List[str]:
+    def _clean_sequence(values: list[Any]) -> list[str]:
         return [str(v).strip() for v in values if v is not None and str(v).strip()]
 
-    def __call__(self, patient: Any) -> List[Dict[str, Any]]:
+    def __call__(self, patient: Any) -> list[dict[str, Any]]:
         """Create nested-sequence samples for one patient."""
         admissions = patient.get_events(event_type="admissions")
         if not admissions:
@@ -802,13 +813,13 @@ class CatheterAssociatedInfectionPredictionMIMIC4(_CatheterInfectionBase):
 
         # Running feature lists — accumulate across all admissions (including masked
         # infection admissions so future events can see prior CAUTI history).
-        all_conditions: List[List[str]] = []
-        all_procedures: List[List[str]] = []
-        all_drugs: List[List[str]] = []
-        all_labs: List[List[float]] = []
+        all_conditions: list[list[str]] = []
+        all_procedures: list[list[str]] = []
+        all_drugs: list[list[str]] = []
+        all_labs: list[list[float]] = []
 
-        all_samples: List[Dict[str, Any]] = []
-        pending_negatives: List[Dict[str, Any]] = []
+        all_samples: list[dict[str, Any]] = []
+        pending_negatives: list[dict[str, Any]] = []
         infection_event_count: int = 0
         has_catheter_or_cauti: bool = False
 
@@ -819,8 +830,8 @@ class CatheterAssociatedInfectionPredictionMIMIC4(_CatheterInfectionBase):
 
             dischtime_str = getattr(admission, "dischtime", None)
             try:
-                admission_dischtime: Optional[datetime] = (
-                    datetime.strptime(dischtime_str, "%Y-%m-%d %H:%M:%S")
+                admission_dischtime: datetime | None = (
+                    datetime.fromisoformat(dischtime_str)
                     if dischtime_str else None
                 )
             except (ValueError, AttributeError):
@@ -841,13 +852,13 @@ class CatheterAssociatedInfectionPredictionMIMIC4(_CatheterInfectionBase):
                 filters=[("hadm_id", "==", admission.hadm_id)],
             )
 
-            is_infection_event, has_catheter, has_unconditional, has_conditional = (
+            is_infection_event, has_catheter, _has_uncond, _has_cond = (
                 self._determine_positive_label(diagnoses, procedures)
             )
 
-            condition_codes: List[str] = []
-            condition_codes_masked: List[str] = []  # infection codes stripped
-            procedure_codes: List[str] = []
+            condition_codes: list[str] = []
+            condition_codes_masked: list[str] = []  # infection codes stripped
+            procedure_codes: list[str] = []
 
             for diag in diagnoses:
                 code = getattr(diag, "icd_code", None)
@@ -879,7 +890,7 @@ class CatheterAssociatedInfectionPredictionMIMIC4(_CatheterInfectionBase):
                 )
 
             # Drug tokens (used for both infection and non-infection admissions)
-            visit_drugs: List[str] = []
+            visit_drugs: list[str] = []
             for event in prescriptions:
                 visit_drugs.extend(
                     self._map_ndc_to_atc3_tokens(getattr(event, "ndc", None))
@@ -932,7 +943,7 @@ class CatheterAssociatedInfectionPredictionMIMIC4(_CatheterInfectionBase):
                     feat_labs = [self._zero_lab_vector()]
 
                 base_id = f"{patient.patient_id}_cauti{infection_event_count}"
-                new_samples: List[Dict[str, Any]] = [
+                new_samples: list[dict[str, Any]] = [
                     {
                         "patient_id": patient.patient_id,
                         "record_id": base_id,
@@ -1053,6 +1064,15 @@ class CatheterAssociatedInfectionPredictionStageNetMIMIC4DualContext(
 
     Sample scope and negative-sampling logic are identical to the base class.
     See ``CatheterAssociatedInfectionPredictionStageNetMIMIC4`` for full details.
+
+    Examples:
+        >>> from pyhealth.datasets import MIMIC4Dataset
+        >>> from pyhealth.tasks import CatheterAssociatedInfectionPredictionStageNetMIMIC4DualContext
+        >>> dataset = MIMIC4Dataset(
+        ...     ehr_root="/path/to/mimiciv/2.2",
+        ...     ehr_tables=["diagnoses_icd", "procedures_icd", "labevents"],
+        ... )
+        >>> samples = dataset.set_task(CatheterAssociatedInfectionPredictionStageNetMIMIC4DualContext(padding=10))
     """
 
     task_name: str = "CatheterAssociatedInfectionPredictionStageNetMIMIC4DualContext"
@@ -1064,17 +1084,17 @@ class CatheterAssociatedInfectionPredictionStageNetMIMIC4DualContext(
             type(self).task_name,
             self.map_ccscm,
         )
-        self.input_schema: Dict[str, Tuple[str, Dict[str, Any]]] = {  # type: ignore
+        self.input_schema: dict[str, tuple[str, dict[str, Any]]] = {  # type: ignore
             "icd_codes": ("stagenet", {"padding": padding}),
             "labs": ("stagenet_tensor", {}),
         }
-        self.output_schema: Dict[str, str] = {"label": "binary"}  # type: ignore
+        self.output_schema: dict[str, str] = {"label": "binary"}  # type: ignore
 
     @staticmethod
     def _tag_samples(
-        samples: List[Dict[str, Any]], visit_mode: str
-    ) -> List[Dict[str, Any]]:
-        tagged: List[Dict[str, Any]] = []
+        samples: list[dict[str, Any]], visit_mode: str
+    ) -> list[dict[str, Any]]:
+        tagged: list[dict[str, Any]] = []
         suffix = "current" if visit_mode == "current" else "next"
         for sample in samples:
             updated = dict(sample)
@@ -1083,7 +1103,7 @@ class CatheterAssociatedInfectionPredictionStageNetMIMIC4DualContext(
             tagged.append(updated)
         return tagged
 
-    def __call__(self, patient: Any) -> List[Dict[str, Any]]:
+    def __call__(self, patient: Any) -> list[dict[str, Any]]:
         current_task = CatheterAssociatedInfectionPredictionStageNetMIMIC4(
             padding=self.padding,
             same_visit=True,
@@ -1115,17 +1135,26 @@ class CatheterAssociatedInfectionPredictionMIMIC4DualContext(_CatheterInfectionB
 
     Sample scope and negative-sampling logic are identical to the base class.
     See ``CatheterAssociatedInfectionPredictionMIMIC4`` for full details.
+
+    Examples:
+        >>> from pyhealth.datasets import MIMIC4Dataset
+        >>> from pyhealth.tasks import CatheterAssociatedInfectionPredictionMIMIC4DualContext
+        >>> dataset = MIMIC4Dataset(
+        ...     ehr_root="/path/to/mimiciv/2.2",
+        ...     ehr_tables=["diagnoses_icd", "procedures_icd", "prescriptions", "labevents"],
+        ... )
+        >>> samples = dataset.set_task(CatheterAssociatedInfectionPredictionMIMIC4DualContext())
     """
 
     task_name: str = "CatheterAssociatedInfectionPredictionMIMIC4DualContext"
 
-    input_schema: Dict[str, str] = {
+    input_schema: ClassVar[dict[str, str]] = {
         "conditions": "nested_sequence",
         "procedures": "nested_sequence",
         "drugs": "nested_sequence",
         "labs": "nested_sequence_floats",
     }
-    output_schema: Dict[str, str] = {"label": "binary"}
+    output_schema: ClassVar[dict[str, str]] = {"label": "binary"}
 
     def __init__(self, map_ccscm: bool = True):
         self.map_ccscm = map_ccscm
@@ -1136,9 +1165,9 @@ class CatheterAssociatedInfectionPredictionMIMIC4DualContext(_CatheterInfectionB
 
     @staticmethod
     def _tag_samples(
-        samples: List[Dict[str, Any]], visit_mode: str
-    ) -> List[Dict[str, Any]]:
-        tagged: List[Dict[str, Any]] = []
+        samples: list[dict[str, Any]], visit_mode: str
+    ) -> list[dict[str, Any]]:
+        tagged: list[dict[str, Any]] = []
         suffix = "current" if visit_mode == "current" else "next"
         for sample in samples:
             updated = dict(sample)
@@ -1147,7 +1176,7 @@ class CatheterAssociatedInfectionPredictionMIMIC4DualContext(_CatheterInfectionB
             tagged.append(updated)
         return tagged
 
-    def __call__(self, patient: Any) -> List[Dict[str, Any]]:
+    def __call__(self, patient: Any) -> list[dict[str, Any]]:
         current_task = CatheterAssociatedInfectionPredictionMIMIC4(
             same_visit=True,
             map_ccscm=self.map_ccscm,
@@ -1183,24 +1212,24 @@ class CatheterAssociatedInfectionPredictionMIMIC4DualContext(_CatheterInfectionB
 # rule emit no sample. Among eligible admissions, the infection markers
 # (M1/M2/M3) are combined by union (OR) to tolerate missing documentation.
 
-CATHETER_CPT_INDWELLING: FrozenSet[str] = frozenset({"51702", "51703"})
-CATHETER_CPT_NONINDWELLING: FrozenSet[str] = frozenset({"51701"})
-FOLEY_PROCEDURE_ITEMIDS: FrozenSet[str] = frozenset({"229351"})
-FOLEY_OUTPUT_ITEMIDS: FrozenSet[str] = frozenset({"226559", "226563"})
-URINE_SPEC_TYPES: FrozenSet[str] = frozenset(
+CATHETER_CPT_INDWELLING: frozenset[str] = frozenset({"51702", "51703"})
+CATHETER_CPT_NONINDWELLING: frozenset[str] = frozenset({"51701"})
+FOLEY_PROCEDURE_ITEMIDS: frozenset[str] = frozenset({"229351"})
+FOLEY_OUTPUT_ITEMIDS: frozenset[str] = frozenset({"226559", "226563"})
+URINE_SPEC_TYPES: frozenset[str] = frozenset(
     {"URINE", "URINE,KIDNEY", "URINE,SUPRAPUBIC ASPIRATE"}
 )
 # Only culture tests count; urine NAATs (chlamydia, gonorrhea), Legionella
 # antigen, fungal/viral/AFB cultures on the same specimen are ignored.
-URINE_CULTURE_TEST_ITEMIDS: FrozenSet[str] = frozenset({"90039", "90235"})
-URINE_CULTURE_TEST_NAMES: FrozenSet[str] = frozenset(
+URINE_CULTURE_TEST_ITEMIDS: frozenset[str] = frozenset({"90039", "90235"})
+URINE_CULTURE_TEST_NAMES: frozenset[str] = frozenset(
     {"URINE CULTURE", "REFLEX URINE CULTURE"}
 )
-BLOOD_SPEC_TYPES: FrozenSet[str] = frozenset({"BLOOD CULTURE"})
+BLOOD_SPEC_TYPES: frozenset[str] = frozenset({"BLOOD CULTURE"})
 
 # NHSN excluded organisms (Candida/yeast, mold, dimorphic fungi, parasites) and
 # mixed-flora results, matched as substrings of the upper-cased org_name.
-EXCLUDED_ORGANISM_SUBSTRINGS: Tuple[str, ...] = (
+EXCLUDED_ORGANISM_SUBSTRINGS: tuple[str, ...] = (
     "YEAST",
     "CANDIDA",
     "FUNG",
@@ -1215,7 +1244,7 @@ EXCLUDED_ORGANISM_SUBSTRINGS: Tuple[str, ...] = (
     "MIXED",
 )
 # Comments indicating a contaminated / polymicrobial (>2 species) specimen.
-MIXED_FLORA_COMMENT_SUBSTRINGS: Tuple[str, ...] = (
+MIXED_FLORA_COMMENT_SUBSTRINGS: tuple[str, ...] = (
     "MIXED BACTERIAL",
     "COLONY TYPES",
 )
@@ -1241,7 +1270,7 @@ def _attr(event: Any, key: str) -> str:
     return _clean_str(getattr(event, key, None))
 
 
-def _parse_datetime(value: Any) -> Optional[datetime]:
+def _parse_datetime(value: Any) -> datetime | None:
     """Parse a MIMIC timestamp (datetime, date, or string); None if missing."""
     if value is None:
         return None
@@ -1252,21 +1281,19 @@ def _parse_datetime(value: Any) -> Optional[datetime]:
     text = _clean_str(value)
     if not text:
         return None
-    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"):
-        try:
-            return datetime.strptime(text, fmt)
-        except ValueError:
-            continue
-    return None
+    try:
+        return datetime.fromisoformat(text)
+    except ValueError:
+        return None
 
 
 def _collect_catheter_days(
     admit_date: date,
-    disch_date: Optional[date],
+    disch_date: date | None,
     hcpcs_events: Iterable[Any] = (),
     procedure_events: Iterable[Any] = (),
     output_events: Iterable[Any] = (),
-) -> Tuple[Set[date], Set[str]]:
+) -> tuple[set[date], set[str]]:
     """Return (indwelling catheter calendar days, evidence sources) for one admission.
 
     Takes the admission's ``hcpcsevents``, ``procedureevents`` and
@@ -1275,8 +1302,8 @@ def _collect_catheter_days(
     and Foley/suprapubic outputevents ``charttime``, clipped to the admission.
     CPT 51701 (non-indwelling) adds the ``cpt_nonindwelling`` source but no days.
     """
-    days: Set[date] = set()
-    sources: Set[str] = set()
+    days: set[date] = set()
+    sources: set[str] = set()
 
     def in_stay(day: date) -> bool:
         if day < admit_date:
@@ -1313,12 +1340,12 @@ def _collect_catheter_days(
     return days, sources
 
 
-def _catheter_episodes(days: Iterable[date]) -> List[Tuple[date, date]]:
+def _catheter_episodes(days: Iterable[date]) -> list[tuple[date, date]]:
     """Group catheter days into consecutive-day episodes.
 
     A full calendar day without a catheter splits an episode (NHSN interruption).
     """
-    episodes: List[Tuple[date, date]] = []
+    episodes: list[tuple[date, date]] = []
     for day in sorted(set(days)):
         if episodes and day - episodes[-1][1] == timedelta(days=1):
             episodes[-1] = (episodes[-1][0], day)
@@ -1328,12 +1355,12 @@ def _catheter_episodes(days: Iterable[date]) -> List[Tuple[date, date]]:
 
 
 def _episode_index_date(
-    episode: Tuple[date, date],
+    episode: tuple[date, date],
     admit_date: date,
     min_catheter_days: int = 3,
     min_hospital_day: int = 3,
-    disch_date: Optional[date] = None,
-) -> Optional[date]:
+    disch_date: date | None = None,
+) -> date | None:
     """First date the episode is CAUTI-eligible, or None if it never is.
 
     Eligible dates d satisfy: the catheter was in place for at least
@@ -1358,7 +1385,7 @@ def _episode_index_date(
 
 def _onset_eligible(
     onset_date: date,
-    episodes: Sequence[Tuple[date, date]],
+    episodes: Sequence[tuple[date, date]],
     admit_date: date,
     min_catheter_days: int = 3,
     min_hospital_day: int = 3,
@@ -1384,7 +1411,7 @@ def _onset_eligible(
     return False
 
 
-def _parse_colony_count(text: Any) -> Optional[int]:
+def _parse_colony_count(text: Any) -> int | None:
     """Best-effort CFU/mL estimate from a quantity/comment string.
 
     ``>100,000`` → 100001, ``<10,000`` → 9999, ranges ``a-b`` → b - 1.
@@ -1436,8 +1463,8 @@ def _micro_onset(event: Any) -> datetime:
 class _UrineSpecimen:
     specimen_id: str
     onset: datetime
-    organisms: Tuple[str, ...]
-    bacteria: Tuple[str, ...]
+    organisms: tuple[str, ...]
+    bacteria: tuple[str, ...]
     qualifies: bool
     reason: str
 
@@ -1445,7 +1472,7 @@ class _UrineSpecimen:
 def _summarize_urine_specimens(
     micro_events: Iterable[Any],
     cfu_threshold: int = 100_000,
-) -> List[_UrineSpecimen]:
+) -> list[_UrineSpecimen]:
     """Group urine-culture Events by specimen and apply the NHSN culture criterion.
 
     Only urine culture tests count (see ``_is_urine_culture``). A specimen
@@ -1455,7 +1482,7 @@ def _summarize_urine_specimens(
     records counts on organism rows, so absence does not veto. Onset is the
     earliest collection time (``charttime``, falling back to ``chartdate``).
     """
-    grouped: Dict[str, List[Any]] = {}
+    grouped: dict[str, list[Any]] = {}
     for event in micro_events:
         if not _is_urine_culture(event):
             continue
@@ -1464,7 +1491,7 @@ def _summarize_urine_specimens(
         )
         grouped.setdefault(specimen_id, []).append(event)
 
-    specimens: List[_UrineSpecimen] = []
+    specimens: list[_UrineSpecimen] = []
     for specimen_id, events in grouped.items():
         organisms = tuple(
             sorted({_attr(e, "org_name").upper() for e in events if _attr(e, "org_name")})
@@ -1560,7 +1587,7 @@ class _CatheterTemporalBase(_CatheterInfectionBase):
     NHSN — stratify by ``positive_markers`` or ``nhsn_strict`` (M3 fired).
     """
 
-    ALL_MARKERS: ClassVar[Tuple[str, ...]] = ("M1", "M2", "M3")
+    ALL_MARKERS: ClassVar[tuple[str, ...]] = ("M1", "M2", "M3")
     # Bump when cohort or label logic changes: instance attributes form the
     # PyHealth task cache key, so a new version forces samples to be rebuilt.
     COHORT_VERSION: ClassVar[int] = 2
@@ -1604,8 +1631,8 @@ class _CatheterTemporalBase(_CatheterInfectionBase):
         patient: Any,
         table: str,
         hadm_id: Any = None,
-        start: Optional[datetime] = None,
-        end: Optional[datetime] = None,
+        start: datetime | None = None,
+        end: datetime | None = None,
         return_df: bool = False,
     ) -> Any:
         """``patient.get_events`` for one table, optionally one admission.
@@ -1624,13 +1651,13 @@ class _CatheterTemporalBase(_CatheterInfectionBase):
     def _hcpcs_token(code: str) -> str:
         return f"HCPCS_{code}"
 
-    def _admission_records(self, patient: Any) -> List[Dict[str, Any]]:
+    def _admission_records(self, patient: Any) -> list[dict[str, Any]]:
         """Build per-admission feature blocks, inclusion flag, label and metadata."""
         admissions = sorted(
             patient.get_events(event_type="admissions"), key=lambda e: e.timestamp
         )
-        records: List[Dict[str, Any]] = []
-        last_m3_date: Optional[date] = None
+        records: list[dict[str, Any]] = []
+        last_m3_date: date | None = None
 
         for admission in admissions:
             admission_time = admission.timestamp
@@ -1697,13 +1724,13 @@ class _CatheterTemporalBase(_CatheterInfectionBase):
                 index_time = admission_time
 
             # ---- positive markers --------------------------------------------
-            fired: Set[str] = set()
+            fired: set[str] = set()
             if has_unconditional:
                 fired.add("M1")
             if has_conditional:  # catheter co-occurrence implied by the gate
                 fired.add("M2")
 
-            m3_specimens: List[_UrineSpecimen] = []
+            m3_specimens: list[_UrineSpecimen] = []
             if eligible:
                 for specimen in _summarize_urine_specimens(
                     micro_events, self.cfu_threshold
@@ -1732,7 +1759,7 @@ class _CatheterTemporalBase(_CatheterInfectionBase):
             label = int(any(m in fired for m in self.positive_markers))
 
             # ---- features ----------------------------------------------------
-            condition_codes: List[str] = []
+            condition_codes: list[str] = []
             for diag in diagnoses:
                 code = getattr(diag, "icd_code", None)
                 if code:
@@ -1741,7 +1768,7 @@ class _CatheterTemporalBase(_CatheterInfectionBase):
                             code, getattr(diag, "icd_version", None), self.map_ccscm
                         )
                     )
-            procedure_codes: List[str] = []
+            procedure_codes: list[str] = []
             for proc in procedures:
                 code = getattr(proc, "icd_code", None)
                 if code:
@@ -1761,8 +1788,8 @@ class _CatheterTemporalBase(_CatheterInfectionBase):
                 if _attr(e, "hcpcs_cd") and e.timestamp < index_time
             ]
 
-            drugs_all: List[str] = []
-            drugs_before_index: List[str] = []
+            drugs_all: list[str] = []
+            drugs_before_index: list[str] = []
             for event in prescriptions:
                 tokens = self._map_ndc_to_atc3_tokens(getattr(event, "ndc", None))
                 drugs_all.extend(tokens)
@@ -1794,7 +1821,7 @@ class _CatheterTemporalBase(_CatheterInfectionBase):
             else:
                 labs_before_index = self._zero_lab_vector()
 
-            def dedup(values: List[str]) -> List[str]:
+            def dedup(values: list[str]) -> list[str]:
                 return self._ensure_nonempty_sequence(list(dict.fromkeys(values)))
 
             full_block = {
@@ -1852,29 +1879,42 @@ class CatheterAssociatedInfectionPredictionMIMIC4Temporal(_CatheterTemporalBase)
     - procedures: nested_sequence of CCS-PCS procedure + ``HCPCS_<cpt>`` tokens
     - drugs: nested_sequence of ATC Level-3 drug tokens
     - labs: nested_sequence_floats of 10D mean lab vectors
+
+    Examples:
+        >>> from pyhealth.datasets import MIMIC4Dataset
+        >>> from pyhealth.tasks import CatheterAssociatedInfectionPredictionMIMIC4Temporal
+        >>> dataset = MIMIC4Dataset(
+        ...     ehr_root="/path/to/mimiciv/2.2",
+        ...     ehr_tables=[
+        ...         "diagnoses_icd", "procedures_icd", "prescriptions", "labevents",
+        ...         "hcpcsevents", "microbiologyevents", "procedureevents",
+        ...         "outputevents",
+        ...     ],
+        ... )
+        >>> samples = dataset.set_task(CatheterAssociatedInfectionPredictionMIMIC4Temporal())
     """
 
     task_name: str = "CatheterAssociatedInfectionPredictionMIMIC4Temporal"
 
-    input_schema: Dict[str, str] = {
+    input_schema: ClassVar[dict[str, str]] = {
         "conditions": "nested_sequence",
         "procedures": "nested_sequence",
         "drugs": "nested_sequence",
         "labs": "nested_sequence_floats",
     }
-    output_schema: Dict[str, str] = {"label": "binary"}
+    output_schema: ClassVar[dict[str, str]] = {"label": "binary"}
 
-    def __call__(self, patient: Any) -> List[Dict[str, Any]]:
+    def __call__(self, patient: Any) -> list[dict[str, Any]]:
         """Create temporal nested-sequence samples for one patient."""
-        history: Dict[str, List[Any]] = {k: [] for k in self.input_schema}
-        samples: List[Dict[str, Any]] = []
+        history: dict[str, list[Any]] = {k: [] for k in self.input_schema}
+        samples: list[dict[str, Any]] = []
 
         for record in self._admission_records(patient):
             if record["include"]:
                 window = {k: list(v) for k, v in history.items()}
                 if record["partial"] is not None:
-                    for key in window:
-                        window[key].append(record["partial"][key])
+                    for key, visits in window.items():
+                        visits.append(record["partial"][key])
                 if not window["conditions"]:
                     window = {
                         "conditions": [[self.MISSING_TOKEN]],
@@ -1891,8 +1931,8 @@ class CatheterAssociatedInfectionPredictionMIMIC4Temporal(_CatheterTemporalBase)
                         **record["meta"],
                     }
                 )
-            for key in history:
-                history[key].append(record["full"][key])
+            for key, visits in history.items():
+                visits.append(record["full"][key])
 
         return samples
 
@@ -1905,6 +1945,19 @@ class CatheterAssociatedInfectionPredictionStageNetMIMIC4Temporal(_CatheterTempo
     - icd_codes: StageNet tuple (hours since previous admission, ``D_``-prefixed
       diagnosis and ``P_``-prefixed procedure/HCPCS tokens)
     - labs: StageNet tensor tuple (same time deltas, 10D mean lab vectors)
+
+    Examples:
+        >>> from pyhealth.datasets import MIMIC4Dataset
+        >>> from pyhealth.tasks import CatheterAssociatedInfectionPredictionStageNetMIMIC4Temporal
+        >>> dataset = MIMIC4Dataset(
+        ...     ehr_root="/path/to/mimiciv/2.2",
+        ...     ehr_tables=[
+        ...         "diagnoses_icd", "procedures_icd", "prescriptions", "labevents",
+        ...         "hcpcsevents", "microbiologyevents", "procedureevents",
+        ...         "outputevents",
+        ...     ],
+        ... )
+        >>> samples = dataset.set_task(CatheterAssociatedInfectionPredictionStageNetMIMIC4Temporal(padding=10))
     """
 
     task_name: str = "CatheterAssociatedInfectionPredictionStageNetMIMIC4Temporal"
@@ -1912,24 +1965,24 @@ class CatheterAssociatedInfectionPredictionStageNetMIMIC4Temporal(_CatheterTempo
     def __init__(self, padding: int = 0, **kwargs: Any):
         super().__init__(**kwargs)
         self.padding = padding
-        self.input_schema: Dict[str, Tuple[str, Dict[str, Any]]] = {  # type: ignore
+        self.input_schema: dict[str, tuple[str, dict[str, Any]]] = {  # type: ignore
             "icd_codes": ("stagenet", {"padding": padding}),
             "labs": ("stagenet_tensor", {}),
         }
-        self.output_schema: Dict[str, str] = {"label": "binary"}  # type: ignore
+        self.output_schema: dict[str, str] = {"label": "binary"}  # type: ignore
 
-    def _stagenet_codes(self, block: Dict[str, Any]) -> List[str]:
+    def _stagenet_codes(self, block: dict[str, Any]) -> list[str]:
         codes = [f"D_{c}" for c in block["conditions"] if c != self.MISSING_TOKEN]
         codes += [f"P_{c}" for c in block["procedures"] if c != self.MISSING_TOKEN]
         return codes or [f"D_{self.MISSING_TOKEN}"]
 
-    def __call__(self, patient: Any) -> List[Dict[str, Any]]:
+    def __call__(self, patient: Any) -> list[dict[str, Any]]:
         """Create temporal StageNet samples for one patient."""
-        icd_codes: List[List[str]] = []
-        icd_times: List[float] = []
-        lab_values: List[List[float]] = []
-        samples: List[Dict[str, Any]] = []
-        previous_time: Optional[datetime] = None
+        icd_codes: list[list[str]] = []
+        icd_times: list[float] = []
+        lab_values: list[list[float]] = []
+        samples: list[dict[str, Any]] = []
+        previous_time: datetime | None = None
 
         for record in self._admission_records(patient):
             admission_time = record["admission_time"]
