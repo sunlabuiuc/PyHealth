@@ -859,3 +859,103 @@ class TestUnseenInTrainingLog(unittest.TestCase):
                 "triples, 2 a relation absent from them.",
             ],
         )
+
+
+class TestModelsOnSampleDatasets(unittest.TestCase):
+    """The KGE models consume the SampleDatasets returned by set_task."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        from pyhealth.datasets import PatientSplit
+        from pyhealth.medcode.pretrained_embeddings.kg_emb.tasks import KGLinkPrediction
+
+        cls._tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        root = Path(cls._tmp.name)
+        config = write_kg(root, TASK_TRIPLES)
+        cls.dataset = BaseKGDataset(root=str(root), config_path=config, cache_dir=root / "cache")
+        task = KGLinkPrediction(
+            num_entities=cls.dataset.num_entities, num_relations=cls.dataset.num_relations
+        )
+        cls.train, cls.val, cls.test = cls.dataset.set_task(
+            task, split=PatientSplit(ratios=TASK_SPLIT_RATIOS, seed=3)
+        )
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls._tmp.cleanup()
+
+    def batch(self, part, size=4):
+        from pyhealth.datasets import get_dataloader
+
+        return next(iter(get_dataloader(part, batch_size=size)))
+
+    def test_counts_come_from_the_fitted_processor(self) -> None:
+        from pyhealth.medcode.pretrained_embeddings.kg_emb.models import (
+            ComplEx,
+            DistMult,
+            RotatE,
+            TransE,
+        )
+
+        for cls in (TransE, RotatE, DistMult, ComplEx):
+            with self.subTest(model=cls.__name__):
+                model = cls(dataset=self.train, e_dim=8, r_dim=4 if cls is RotatE else 8)
+                self.assertEqual(model.e_num, self.dataset.num_entities)
+                self.assertEqual(model.r_num, self.dataset.num_relations)
+                self.assertIs(model.triple_processor, self.train.input_processors["triple"])
+
+    def test_negative_sampling_is_a_model_argument(self) -> None:
+        from pyhealth.medcode.pretrained_embeddings.kg_emb.models import TransE
+
+        self.assertEqual(TransE(dataset=self.train, e_dim=8, r_dim=8).negative_sampling, 128)
+        model = TransE(dataset=self.train, e_dim=8, r_dim=8, negative_sampling=5)
+        self.assertEqual(model.negative_sampling, 5)
+        # A 1.x SampleKGDataset still provides its own value.
+        self.assertEqual(TransE(dataset=make_dataset(n=4), e_dim=8, r_dim=8).negative_sampling, 4)
+        with self.assertRaises(ValueError):
+            TransE(dataset=self.train, e_dim=8, r_dim=8, negative_sampling=0)
+
+    def test_train_mode_returns_a_loss_and_draws_negatives(self) -> None:
+        from pyhealth.medcode.pretrained_embeddings.kg_emb.models import TransE
+
+        torch.manual_seed(0)
+        model = TransE(dataset=self.train, e_dim=8, r_dim=8, negative_sampling=5)
+        model.train()
+        out = model(**self.batch(self.train))
+        self.assertEqual(set(out), {"loss"})
+        out["loss"].backward()
+        self.assertIsNotNone(model.E_emb.grad)
+
+    def test_subsampling_weights_come_from_the_processor(self) -> None:
+        from pyhealth.medcode.pretrained_embeddings.kg_emb.models import TransE
+
+        model = TransE(dataset=self.train, e_dim=8, r_dim=8, use_subsampling_weight=True)
+        batch = self.batch(self.train)
+        weights = model._subsampling_weight(batch, batch["triple"])
+        expected = self.train.input_processors["triple"].subsampling_weight(batch["triple"])
+        self.assertTrue(torch.equal(weights, expected))
+        model.train()
+        model(**batch)["loss"].backward()
+
+    def test_eval_mode_ranks_every_entity(self) -> None:
+        from pyhealth.medcode.pretrained_embeddings.kg_emb.models import TransE
+
+        model = TransE(dataset=self.train, e_dim=8, r_dim=8)
+        model.eval()
+        batch = self.batch(self.test, size=len(self.test))
+        with torch.no_grad():
+            out = model(**batch)
+        n = len(self.test)
+        self.assertEqual(tuple(out["y_prob"].shape), (2 * n, self.dataset.num_entities))
+        self.assertEqual(out["y_true"].tolist(), batch["triple"][:, 0].tolist() + batch["triple"][:, 2].tolist())
+
+    def test_a_disagreeing_1x_train_flag_warns(self) -> None:
+        from pyhealth.medcode.pretrained_embeddings.kg_emb.models import TransE
+
+        train, _, _ = split(make_dataset(n=4), [1.0, 0.0, 0.0], seed=0)
+        batch = collate_fn_dict_with_padding(train[:2])
+        model = TransE(dataset=make_dataset(n=4), e_dim=8, r_dim=8)
+        model.eval()
+        with self.assertWarnsRegex(UserWarning, "'train' flag is ignored"), torch.no_grad():
+            out = model(**batch)
+        self.assertIn("y_prob", out)  # model.eval() decides, not the flag

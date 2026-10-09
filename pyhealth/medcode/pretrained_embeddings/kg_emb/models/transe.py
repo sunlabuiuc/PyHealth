@@ -2,6 +2,8 @@ from typing import Any
 
 import torch
 
+from pyhealth.datasets import SampleDataset
+
 from ..datasets.sample_kg_dataset import SampleKGDataset
 from .kg_base import KGEBaseModel
 
@@ -13,10 +15,11 @@ class TransE(KGEBaseModel):
     Translating embeddings for modeling multi-relational data. NIPS 2013.
 
     Examples:
+        >>> from pyhealth.processors import KGTripleProcessor
         >>> class _Toy:
-        ...     entity_num = 2
-        ...     relation_num = 1
-        ...     task_spec_param = None
+        ...     input_processors = {
+        ...         "triple": KGTripleProcessor(num_entities=2, num_relations=1)
+        ...     }
         >>> model = TransE(_Toy(), e_dim=4, r_dim=4, ns="uniform")
         >>> tuple(model.E_emb.shape)
         (2, 4)
@@ -24,7 +27,7 @@ class TransE(KGEBaseModel):
 
     def __init__(
         self, 
-        dataset: SampleKGDataset, 
+        dataset: SampleDataset, 
         e_dim: int = 300, 
         r_dim: int = 300, 
         ns: str = "adv", 
@@ -32,9 +35,13 @@ class TransE(KGEBaseModel):
         use_subsampling_weight: bool = False, 
         use_regularization: str | None = None,
         mode: str = "multiclass",
-        p_norm: int = 1.0
+        p_norm: int = 1.0,
+        negative_sampling: int | None = None,
         ):
-        super().__init__(dataset, e_dim, r_dim, ns, gamma, use_subsampling_weight, use_regularization, mode)
+        super().__init__(
+            dataset, e_dim, r_dim, ns, gamma, use_subsampling_weight,
+            use_regularization, mode, negative_sampling=negative_sampling,
+        )
 
         self.p_norm = p_norm
 

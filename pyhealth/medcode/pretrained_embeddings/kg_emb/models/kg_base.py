@@ -1,3 +1,4 @@
+import warnings
 from abc import ABC
 
 import numpy as np
@@ -5,15 +6,28 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-from ..datasets.sample_kg_dataset import SampleKGDataset
+from pyhealth.datasets import SampleDataset
+from pyhealth.processors import KGTripleProcessor
+
+# Negatives per positive triple when the caller does not choose: the
+# default of the reference implementation of Sun et al. (2019).
+DEFAULT_NEGATIVE_SAMPLING = 128
 
 
 class KGEBaseModel(ABC, nn.Module):
     """Abstract class for Knowledge Graph Embedding models.
 
+    The numbers of entities and relations come from the dataset's fitted
+    ``kg_triple`` processor (``KGLinkPrediction`` with
+    ``set_task(..., split=PatientSplit(...))``). Training and evaluation
+    follow ``model.train()`` / ``model.eval()``, as the
+    :class:`~pyhealth.trainer.Trainer` sets them.
+
     Args:
-        e_num: the number of entities in the dataset.
-        r_num: the number of relations in the dataset.
+        dataset: A sample dataset whose ``triple`` field uses the
+            ``kg_triple`` processor, typically the training part returned
+            by ``set_task``. A PyHealth 1.x ``SampleKGDataset`` is still
+            accepted for one release.
         e_dim: the hidden embedding size for entity, 500 by default.
         r_dim: the hidden embedding size for relation, 500 by default.
         ns: negative sampling technique to use: can be "uniform", "normal" or "adv" (self-adversarial).
@@ -21,15 +35,21 @@ class KGEBaseModel(ABC, nn.Module):
         use_subsampling_weight: whether to use subsampling weight (like in word2vec) or not, False by default.
         use_regularization: whether to apply regularization or not, False by default.
         mode: evaluation metric type, one of "binary", "multiclass", or "multilabel", "multiclass" by default
+        negative_sampling: Number of negative heads and of negative tails drawn
+            per training triple. Defaults to the ``negative_sampling`` of a
+            1.x ``SampleKGDataset`` if it has one, else 128.
 
     Examples:
+        >>> from pyhealth.processors import KGTripleProcessor
         >>> class _Toy:
-        ...     entity_num = 2
-        ...     relation_num = 1
-        ...     task_spec_param = None
+        ...     input_processors = {
+        ...         "triple": KGTripleProcessor(num_entities=2, num_relations=1)
+        ...     }
         >>> model = KGEBaseModel(_Toy(), e_dim=4, r_dim=4, ns="uniform")
-        >>> model.e_num, tuple(model.E_emb.shape)
-        (2, (2, 4))
+        >>> model.e_num, model.r_num, tuple(model.E_emb.shape)
+        (2, 1, (2, 4))
+        >>> model.negative_sampling
+        128
     """
 
     @property
@@ -39,19 +59,36 @@ class KGEBaseModel(ABC, nn.Module):
 
 
     def __init__(
-        self, 
-        dataset: SampleKGDataset,
+        self,
+        dataset: SampleDataset,
         e_dim: int = 500,
         r_dim: int = 500,
         ns: str = "uniform",
         gamma: float | None = None,
         use_subsampling_weight: bool = False,
         use_regularization: str | None = None,
-        mode: str = "multiclass"
+        mode: str = "multiclass",
+        negative_sampling: int | None = None,
     ):
         super().__init__()
-        self.e_num = dataset.entity_num
-        self.r_num = dataset.relation_num
+        processor = getattr(dataset, "input_processors", {}).get("triple")
+        if isinstance(processor, KGTripleProcessor):
+            self.triple_processor: KGTripleProcessor | None = processor
+            self.e_num = processor.num_entities
+            self.r_num = processor.num_relations
+        else:
+            # A PyHealth 1.x SampleKGDataset carries the counts itself.
+            self.triple_processor = None
+            self.e_num = dataset.entity_num
+            self.r_num = dataset.relation_num
+        if negative_sampling is None:
+            legacy = getattr(dataset, "task_spec_param", None) or {}
+            negative_sampling = legacy.get("negative_sampling", DEFAULT_NEGATIVE_SAMPLING)
+        if not isinstance(negative_sampling, int) or negative_sampling < 1:
+            raise ValueError(
+                f"negative_sampling must be a positive integer, got {negative_sampling!r}."
+            )
+        self.negative_sampling = negative_sampling
         self.e_dim = e_dim
         self.r_dim = r_dim
         self.ns = ns
@@ -327,15 +364,36 @@ class KGEBaseModel(ABC, nn.Module):
         raise NotImplementedError
 
 
+    def _subsampling_weight(self, data, positive_sample):
+        if "subsampling_weight" in data:
+            # PyHealth 1.x samples carry their weight.
+            return torch.cat([d for d in data["subsampling_weight"]], dim=0)
+        if self.triple_processor is None:
+            raise ValueError("use_subsampling_weight needs a kg_triple processor.")
+        return self.triple_processor.subsampling_weight(positive_sample.cpu())
+
     def forward(self, **data):
 
-        positive_sample = torch.stack([torch.LongTensor(d) for d in data['triple']], dim=0).to(self.device)
+        triples = data["triple"]
+        if not isinstance(triples, torch.Tensor):
+            triples = torch.stack([torch.as_tensor(d) for d in triples], dim=0)
+        positive_sample = triples.long().to(self.device)
 
-        if data['train'][0]:
+        if "train" in data and bool(data["train"][0]) != self.training:
+            # PyHealth 1.x samples carry a per-sample train flag, which no
+            # longer decides the branch.
+            warnings.warn(
+                "The samples' 'train' flag is ignored: the model trains or "
+                "evaluates according to model.train() / model.eval().",
+                UserWarning,
+                stacklevel=2,
+            )
+
+        if self.training:
             negative_sample_head, negative_sample_tail = self.train_neg_sample_gen(
                 gt_head=data['ground_truth_head'],
                 gt_tail=data['ground_truth_tail'],
-                negative_sampling=data['hyperparameters'][0]['negative_sampling']
+                negative_sampling=self.negative_sampling,
             )
 
             negative_sample_head, negative_sample_tail = negative_sample_head.to(self.device), negative_sample_tail.to(self.device)
@@ -356,11 +414,13 @@ class KGEBaseModel(ABC, nn.Module):
             head, relation, tail = self.data_process((positive_sample), mode="pos")
             pos_score = F.logsigmoid(self.calc(head=head, relation=relation, tail=tail)).squeeze(dim=1)
 
-            subsampling_weight = torch.cat([d for d in data['subsampling_weight']], dim=0).to(self.device)
-            pos_sample_loss = \
-                - (subsampling_weight * pos_score).sum()/subsampling_weight.sum() if self.use_subsampling_weight else (- pos_score.mean())
-            neg_sample_loss = \
-                - (subsampling_weight * neg_score).sum()/subsampling_weight.sum() if self.use_subsampling_weight else (- neg_score.mean())
+            if self.use_subsampling_weight:
+                subsampling_weight = self._subsampling_weight(data, positive_sample).to(self.device)
+                pos_sample_loss = - (subsampling_weight * pos_score).sum() / subsampling_weight.sum()
+                neg_sample_loss = - (subsampling_weight * neg_score).sum() / subsampling_weight.sum()
+            else:
+                pos_sample_loss = - pos_score.mean()
+                neg_sample_loss = - neg_score.mean()
 
             loss = (pos_sample_loss + neg_sample_loss) / 2
 
@@ -373,7 +433,7 @@ class KGEBaseModel(ABC, nn.Module):
 
         else: # valid/test
             inputs = self.test_neg_sample_filter_bias_gen(
-                    triples=data['triple'],
+                    triples=positive_sample.tolist(),
                     gt_head=data['ground_truth_head'],
                     gt_tail=data['ground_truth_tail']
                 )
