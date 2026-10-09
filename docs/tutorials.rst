@@ -1,7 +1,45 @@
 Tutorials
 ========================
 
- We provide the following tutorials to help users get started with our pyhealth. Please bear with us as we update the documentation on how to use pyhealth 2.0.
+Tutorial series
+---------------
+
+A step-by-step series, from a first model to contributing to PyHealth. Each
+notebook opens in Google Colab, runs on a free CPU runtime, and uses public or
+synthetic data, so no credentials are needed. The sources are in
+`examples/tutorials/series <https://github.com/sunlabuiuc/PyHealth/tree/master/examples/tutorials/series>`_.
+
+.. list-table::
+   :widths: 40 60
+   :header-rows: 1
+
+   * - Notebook
+     - What you will learn
+   * - `00. Quickstart: your first clinical prediction model <https://colab.research.google.com/github/sunlabuiuc/PyHealth/blob/master/examples/tutorials/series/00_quickstart.ipynb>`_
+     - The five steps every project follows: dataset, task, split, model, evaluation.
+   * - `01. Datasets: patients, events and your own data <https://colab.research.google.com/github/sunlabuiuc/PyHealth/blob/master/examples/tutorials/series/01_datasets.ipynb>`_
+     - Exploring patients and events, YAML configs, caching, and loading your own CSV files.
+   * - `02. Tasks and processors <https://colab.research.google.com/github/sunlabuiuc/PyHealth/blob/master/examples/tutorials/series/02_tasks_and_processors.ipynb>`_
+     - Writing your own task and what each processor turns raw values into.
+   * - `03. Training and evaluating models properly <https://colab.research.google.com/github/sunlabuiuc/PyHealth/blob/master/examples/tutorials/series/03_training_and_evaluation.ipynb>`_
+     - Leakage-free patient splits, early stopping, class imbalance, calibration and bootstrap confidence intervals.
+   * - `04. Choosing a model <https://colab.research.google.com/github/sunlabuiuc/PyHealth/blob/master/examples/tutorials/series/04_choosing_a_model.ipynb>`_
+     - Logistic regression to Transformer, and an XGBoost baseline, compared on one split.
+   * - `05. Interpreting predictions <https://colab.research.google.com/github/sunlabuiuc/PyHealth/blob/master/examples/tutorials/series/05_interpreting_predictions.ipynb>`_
+     - Exact TreeSHAP, Integrated Gradients, and checking that explanations are faithful.
+   * - `06. Medical codes <https://colab.research.google.com/github/sunlabuiuc/PyHealth/blob/master/examples/tutorials/series/06_medical_codes.ipynb>`_
+     - Code lookups, ICD-9/ICD-10 translation, CCS and ATC groupers, and code mapping inside tasks.
+   * - `07. Clinical text <https://colab.research.google.com/github/sunlabuiuc/PyHealth/blob/master/examples/tutorials/series/07_clinical_text.ipynb>`_
+     - Fine-tuning language models for specialty classification and ICD coding, with a TF-IDF baseline.
+   * - `08. Contributing a dataset or task <https://colab.research.google.com/github/sunlabuiuc/PyHealth/blob/master/examples/tutorials/series/08_contributing.ipynb>`_
+     - Dataset classes, file-based data, tests and the pull request checklist.
+
+Earlier tutorials
+-----------------
+
+The notebooks below were written for earlier PyHealth versions; prefer the
+series above.
+
 
 
 `Tutorial 0: Introduction to pyhealth.data <https://colab.research.google.com/drive/17nOzjIjKiAbC8bsntZ3h9xy2Vq4bKpuv?usp=sharing>`_  `[Video] <https://www.youtube.com/watch?v=Nk1itBoLOX8&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=2>`_ 
