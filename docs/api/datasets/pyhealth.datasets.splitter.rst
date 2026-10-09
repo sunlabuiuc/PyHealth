@@ -3,6 +3,12 @@
 
 Several data splitting function for `pyhealth.datasets` module to obtain training / validation / test sets.
 
+The patient-level functions (``split_by_patient``, ``split_by_patient_conformal``
+and their TUH variants) sort patient IDs before the seeded shuffle, so a given
+seed selects the same patients however the samples are ordered. Releases before
+this change shuffled patients in sample order, so the same seed can now select
+different patients than it did in those releases.
+
 Fitting processors on the training split
 ----------------------------------------
 
