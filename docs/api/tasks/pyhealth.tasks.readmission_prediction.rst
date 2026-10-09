@@ -31,8 +31,7 @@ For example:
         min_gap=timedelta(hours=3),
     )
 
-By default, ``min_gap`` is ``None``, which preserves the existing behavior.
-
+To maintain backwards compatibility, ``min_gap`` defaults to ``None``, meaning that some 'readmissions' are in fact internal transfers.
 .. autoclass:: pyhealth.tasks.readmission_prediction.ReadmissionPredictionEICU
     :members:
     :undoc-members:
