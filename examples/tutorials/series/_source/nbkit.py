@@ -33,7 +33,9 @@ if importlib.util.find_spec("pyhealth") is None:
     print("Installed. Restarting the runtime now; then choose Runtime > Run all again.")
     os.kill(os.getpid(), 9)  # Colab restarts the runtime automatically
 else:
+    import logging
     import pyhealth
+    logging.getLogger("pyhealth").propagate = False  # print each log line once
     print("PyHealth is installed and ready.")'''
 INSTALL_NOTE = (
     "These tutorials use features from the upcoming PyHealth 2.1 release, so "
