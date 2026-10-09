@@ -30,12 +30,19 @@ class SyntheaCSVDataset(BaseDataset):
     directory with :class:`~pyhealth.models.Synthea` first, or point ``root``
     at any existing Synthea CSV export.
 
+    Each row becomes a standard PyHealth event (``patient_id``,
+    ``event_type``, ``timestamp`` plus the table's attributes), but Synthea's
+    codes are SNOMED-CT, RxNorm, LOINC, and CVX rather than ICD and NDC, so
+    MIMIC tasks and ICD code mappings do not apply directly.
+
     Examples:
         >>> from pyhealth.datasets import SyntheaCSVDataset
         >>> from pyhealth.models import Synthea
-        >>> root = Synthea("./synthea-output", population=10).ensure_generated()
-        >>> dataset = SyntheaCSVDataset(root, tables=["patients"])
-        >>> events = dataset.load_data()
+        >>> csv_dir = Synthea("./synthea-output").generate(population=10, seed=42)
+        >>> dataset = SyntheaCSVDataset(csv_dir, tables=["conditions"])
+        >>> patient = dataset.get_patient(dataset.unique_patient_ids[0])
+        >>> event = patient.get_events(event_type="conditions")[0]
+        >>> event.code, event.description  # SNOMED-CT code and its text
     """
 
     def __init__(

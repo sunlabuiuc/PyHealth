@@ -7,15 +7,15 @@ import json
 import logging
 import os
 import re
+import secrets
 import shutil
 import subprocess
 import urllib.request
 import zipfile
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, field
 from fnmatch import fnmatchcase
 from pathlib import Path
-from types import MappingProxyType
 
 import platformdirs
 
@@ -81,243 +81,237 @@ _RELEASE = _SyntheaRelease()
 
 _JAVA_VERSION = re.compile(r'version "(\d+)(?:\.(\d+))?')
 _PROPERTY_KEY = re.compile(r"^[A-Za-z0-9_.-]+$")
+_MANAGED_CONFIG_KEYS = frozenset(
+    {
+        _RELEASE.base_directory_key,
+        _RELEASE.csv_export_key,
+        *_RELEASE.unsupported_export_flags,
+    }
+)
+
+
+def _parse_properties(text: str) -> dict[str, str | None]:
+    """Parses Java properties text into a Python mapping.
+
+    Commented properties are retained with a value of ``None`` so callers can
+    discover properties that Synthea supports but leaves unset.
+
+    Args:
+        text (str): Contents of a Synthea properties file.
+
+    Returns:
+        dict[str, str | None]: Parsed property names and values.
+    """
+    config = {}
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        disabled = line.startswith(("#", "!"))
+        if disabled:
+            line = line[1:].strip()
+        match = re.match(r"([^=:\s]+)\s*(?:=|:)\s*(.*)", line)
+        if not match:
+            continue
+        key, value = match.groups()
+        if _PROPERTY_KEY.fullmatch(key):
+            config[key] = None if disabled else value.strip()
+    return config
+
+
+def _optional_path(value: str | Path | None) -> Path | None:
+    """Converts an optional path-like value to an expanded path.
+
+    Args:
+        value (str or Path, optional): Path-like value to convert.
+
+    Returns:
+        Path | None: The expanded path, or ``None`` when omitted.
+    """
+    return Path(value).expanduser() if value is not None else None
+
+
+@dataclass(frozen=True)
+class _GenerationSettings:
+    """Validated settings describing one Synthea population.
+
+    One instance is built per :meth:`Synthea.generate` call. Every field
+    changes which patients Synthea produces, so all of them are part of the
+    output fingerprint. Fields are documented on :meth:`Synthea.generate`.
+    """
+
+    population: int | None = None
+    seed: int | None = None
+    clinician_seed: int | None = None
+    single_person_seed: int | None = None
+    reference_date: str | None = None
+    end_date: str | None = None
+    gender: str | None = None
+    age_range: str | None = None
+    overflow_population: bool | None = None
+    state: str | None = None
+    city: str | None = None
+    local_config_path: Path | None = None
+    local_modules_dir: Path | None = None
+    initial_population_snapshot_path: Path | None = None
+    updated_population_snapshot_path: Path | None = None
+    update_time_period: int | None = None
+    fixed_record_path: Path | None = None
+    keep_matching_patients_path: Path | None = None
+    synthea_config: Mapping[str, str | int | float | bool] = field(default_factory=dict)
+    local_config: dict[str, str | None] = field(init=False, default_factory=dict)
+
+    def __post_init__(self) -> None:
+        """Validates the settings and normalizes paths and properties.
+
+        Raises:
+            TypeError: If a value or configuration property has an invalid
+                type.
+            ValueError: If a value is outside its accepted range, ``city`` is
+                provided without ``state``, or configuration attempts to set
+                the output directory or select an exporter.
+            FileNotFoundError: If ``local_config_path`` cannot be read.
+        """
+        for name in ("population", "seed", "clinician_seed", "single_person_seed"):
+            value = getattr(self, name)
+            if value is not None and (
+                not isinstance(value, int) or isinstance(value, bool)
+            ):
+                raise TypeError(f"{name} must be an int or None")
+        if self.population is not None and self.population < 1:
+            raise ValueError("population must be at least 1")
+        for name in ("reference_date", "end_date", "age_range"):
+            value = getattr(self, name)
+            if value is not None and not isinstance(value, str):
+                raise TypeError(f"{name} must be a str or None")
+        if self.city and not self.state:
+            raise ValueError("city requires state")
+        if self.gender is not None and self.gender not in {"M", "F"}:
+            raise ValueError("gender must be 'M', 'F', or None")
+        if self.overflow_population is not None and not isinstance(
+            self.overflow_population, bool
+        ):
+            raise TypeError("overflow_population must be a bool or None")
+        if self.update_time_period is not None and (
+            not isinstance(self.update_time_period, int)
+            or isinstance(self.update_time_period, bool)
+        ):
+            raise TypeError("update_time_period must be an int or None")
+        if self.update_time_period is not None and self.update_time_period < 1:
+            raise ValueError("update_time_period must be at least 1")
+
+        for name in (
+            "local_config_path",
+            "local_modules_dir",
+            "initial_population_snapshot_path",
+            "updated_population_snapshot_path",
+            "fixed_record_path",
+            "keep_matching_patients_path",
+        ):
+            object.__setattr__(self, name, _optional_path(getattr(self, name)))
+
+        if not isinstance(self.synthea_config, Mapping):
+            raise TypeError("synthea_config must be a mapping")
+        config = {}
+        for key, value in self.synthea_config.items():
+            if not isinstance(key, str) or not _PROPERTY_KEY.fullmatch(key):
+                raise TypeError(f"invalid Synthea property name: {key!r}")
+            if isinstance(value, bool):
+                config[key] = "true" if value else "false"
+            elif isinstance(value, (str, int, float)):
+                config[key] = str(value)
+            else:
+                raise TypeError(f"Synthea property {key!r} must have a scalar value")
+        managed = config.keys() & _MANAGED_CONFIG_KEYS
+        if managed:
+            raise ValueError(
+                "Synthea manages the output directory and exporter selection; "
+                "remove: " + ", ".join(sorted(managed))
+            )
+        object.__setattr__(self, "synthea_config", config)
+
+        if self.local_config_path is not None:
+            try:
+                text = self.local_config_path.read_text(encoding="utf-8")
+            except OSError as error:
+                raise FileNotFoundError(
+                    f"Synthea config file not found: {self.local_config_path}"
+                ) from error
+            object.__setattr__(self, "local_config", _parse_properties(text))
+
+    def fingerprint(self) -> str:
+        """Hashes the settings into a stable output directory name.
+
+        Returns:
+            str: SHA-256 hex digest of the release version and all settings.
+        """
+        payload = json.dumps(
+            {"version": _RELEASE.version, **asdict(self)},
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        )
+        return hashlib.sha256(payload.encode()).hexdigest()
 
 
 class Synthea(BaseModel):
-    """Generates a Synthea population in CSV format.
+    """Generates Synthea populations in CSV format.
 
-    Synthea command-line options are exposed as constructor parameters. Settings
-    from ``synthea.properties`` belong in ``synthea_config``. CSV output is
-    enabled automatically. An omitted command-line option is not emitted, so
-    Synthea supplies its native default.
+    The constructor only configures the generator: where output goes and how
+    to find Java and the Synthea JAR. Nothing runs until :meth:`generate`,
+    which takes the population settings, so one instance can produce many
+    populations. Each call returns a directory of CSV files for
+    :class:`~pyhealth.datasets.SyntheaCSVDataset`.
 
     Synthea is a rule-based simulator run as a Java subprocess, not a trained
     network. It subclasses :class:`~pyhealth.models.BaseModel` for API
     consistency but has no trainable parameters and no forward pass. Unlike the
-    other generators it writes CSV files to disk rather than returning records;
-    load them with :class:`~pyhealth.datasets.SyntheaCSVDataset`.
+    other generators, :meth:`generate` writes CSV files to disk and returns
+    their directory rather than records.
 
     Note:
         Java 17 or newer must be installed; PyHealth does not install it.
         The executable is taken from ``java_path``, then ``JAVA_HOME``, then
-        ``java`` on ``PATH``, and its version is checked before running. Only :meth:`run` and :meth:`ensure_generated`
-        need Java; construction and :meth:`build_argv` do not.
+        ``java`` on ``PATH``, and its version is checked before running.
+        Only :meth:`generate` needs Java; construction and :meth:`build_argv`
+        do not. The Synthea JAR itself is downloaded and cached on first run.
+        See the Setup section of the API docs.
 
     Examples:
         >>> from pyhealth.datasets import SyntheaCSVDataset
         >>> from pyhealth.models import Synthea
-        >>> synthea = Synthea("./synthea-output", population=10, seed=42)
-        >>> root = synthea.ensure_generated()
-        >>> dataset = SyntheaCSVDataset(root, tables=["patients"])
+        >>> synthea = Synthea("./synthea-output")  # nothing is generated yet
+        >>> small = synthea.generate(population=10, seed=42)
+        >>> large = synthea.generate(population=100, seed=7, state="Ohio")
+        >>> dataset = SyntheaCSVDataset(small, tables=["patients"])
     """
 
     def __init__(
         self,
         output_dir: str | Path,
-        population: int | None = None,
-        seed: int | None = None,
-        state: str | None = None,
-        city: str | None = None,
-        clinician_seed: int | None = None,
-        single_person_seed: int | None = None,
-        reference_date: str | None = None,
-        end_date: str | None = None,
-        gender: str | None = None,
-        age_range: str | None = None,
-        overflow_population: bool | None = None,
-        local_config_path: str | Path | None = None,
-        local_modules_dir: str | Path | None = None,
-        initial_population_snapshot_path: str | Path | None = None,
-        updated_population_snapshot_path: str | Path | None = None,
-        update_time_period: int | None = None,
-        fixed_record_path: str | Path | None = None,
-        keep_matching_patients_path: str | Path | None = None,
         java_path: str | Path | None = None,
         jar_path: str | Path | None = None,
         auto_download: bool = True,
-        synthea_config: Mapping[str, str | int | float | bool] | None = None,
         timeout: float | None = None,
-        regenerate: bool = False,
     ) -> None:
-        """Initializes a CSV population generator.
+        """Initializes a Synthea generator.
 
         Args:
-            output_dir (str or Path): Parent directory for fingerprinted
-                generations.
-            population (int, optional): ``-p`` population size.
-            seed (int, optional): ``-s`` random seed.
-            state (str, optional): State positional argument.
-            city (str, optional): City positional argument; requires ``state``.
-            clinician_seed (int, optional): ``-cs`` clinician random seed.
-            single_person_seed (int, optional): ``-ps`` single-person seed.
-            reference_date (str, optional): ``-r`` date in YYYYMMDD form.
-            end_date (str, optional): ``-e`` date in YYYYMMDD form.
-            gender (str, optional): ``-g`` gender, either ``M`` or ``F``.
-            age_range (str, optional): ``-a`` range in ``min-max`` form.
-            overflow_population (bool, optional): ``-o`` population overflow
-                switch.
-            local_config_path (str or Path, optional): ``-c`` properties file.
-            local_modules_dir (str or Path, optional): ``-d`` local module
-                directory.
-            initial_population_snapshot_path (str or Path, optional): ``-i``
-                snapshot to load.
-            updated_population_snapshot_path (str or Path, optional): ``-u``
-                destination for the updated snapshot.
-            update_time_period (int, optional): ``-t`` update period in days.
-            fixed_record_path (str or Path, optional): ``-f`` fixed-demographics
-                file.
-            keep_matching_patients_path (str or Path, optional): ``-k`` keep
-                module.
+            output_dir (str or Path): Parent directory for generated
+                populations. Each population is written to a subdirectory
+                named by a hash of its settings.
             java_path (str or Path, optional): Java executable override.
             jar_path (str or Path, optional): Synthea JAR override.
             auto_download (bool): Whether to download the pinned JAR when absent.
-            synthea_config (Mapping, optional): ``synthea.properties`` overrides.
-            timeout (float, optional): Subprocess timeout in seconds.
-            regenerate (bool): Whether the first ``ensure_generated`` call
-                replaces existing output.
-
-        Raises:
-            TypeError: If a constructor value or configuration property has an
-                invalid type.
-            ValueError: If a value is outside its accepted range, ``city`` is
-                provided without ``state``, or configuration attempts to select
-                an exporter.
-            FileNotFoundError: If ``local_config_path`` cannot be read.
+            timeout (float, optional): Subprocess timeout in seconds for each
+                :meth:`generate` call.
         """
         super().__init__(dataset=None)
-        if population is not None and (
-            not isinstance(population, int) or isinstance(population, bool)
-        ):
-            raise TypeError("population must be an int or None")
-        if population is not None and population < 1:
-            raise ValueError("population must be at least 1")
-        for name, value in (
-            ("seed", seed),
-            ("clinician_seed", clinician_seed),
-            ("single_person_seed", single_person_seed),
-        ):
-            if value is not None and (
-                not isinstance(value, int) or isinstance(value, bool)
-            ):
-                raise TypeError(f"{name} must be an int or None")
-        for name, value in (
-            ("reference_date", reference_date),
-            ("end_date", end_date),
-            ("age_range", age_range),
-        ):
-            if value is not None and not isinstance(value, str):
-                raise TypeError(f"{name} must be a str or None")
-        if city and not state:
-            raise ValueError("city requires state")
-        if gender is not None and gender not in {"M", "F"}:
-            raise ValueError("gender must be 'M', 'F', or None")
-        if overflow_population is not None and not isinstance(
-            overflow_population, bool
-        ):
-            raise TypeError("overflow_population must be a bool or None")
-        if update_time_period is not None and (
-            not isinstance(update_time_period, int)
-            or isinstance(update_time_period, bool)
-        ):
-            raise TypeError("update_time_period must be an int or None")
-        if update_time_period is not None and update_time_period < 1:
-            raise ValueError("update_time_period must be at least 1")
-
         self.output_dir = Path(output_dir).expanduser().resolve()
-        self.population = population
-        self.seed = seed
-        self.state = state
-        self.city = city
-        self.clinician_seed = clinician_seed
-        self.single_person_seed = single_person_seed
-        self.reference_date = reference_date
-        self.end_date = end_date
-        self.gender = gender
-        self.age_range = age_range
-        self.overflow_population = overflow_population
-        self.local_config_path = self._optional_path(local_config_path)
-        self.local_modules_dir = self._optional_path(local_modules_dir)
-        self.initial_population_snapshot_path = self._optional_path(
-            initial_population_snapshot_path
-        )
-        self.updated_population_snapshot_path = self._optional_path(
-            updated_population_snapshot_path
-        )
-        self.update_time_period = update_time_period
-        self.fixed_record_path = self._optional_path(fixed_record_path)
-        self.keep_matching_patients_path = self._optional_path(
-            keep_matching_patients_path
-        )
-        self.java_path = Path(java_path).expanduser() if java_path else None
-        self.jar_path = Path(jar_path).expanduser() if jar_path else None
+        self.java_path = _optional_path(java_path)
+        self.jar_path = _optional_path(jar_path)
         self.auto_download = auto_download
-        normalized_config = self._normalize_config(synthea_config or {})
-        managed_export_keys = normalized_config.keys() & {
-            _RELEASE.csv_export_key,
-            *_RELEASE.unsupported_export_flags,
-        }
-        if managed_export_keys:
-            names = ", ".join(sorted(managed_export_keys))
-            raise ValueError("Synthea manages CSV exporter selection; remove: " + names)
-        self.synthea_config = MappingProxyType(normalized_config)
-        local_config = (
-            self._read_config_file(self.local_config_path)
-            if self.local_config_path
-            else {}
-        )
-        self._local_config = MappingProxyType(local_config)
-        effective_config = dict(local_config)
-        effective_config.update(normalized_config)
         self.timeout = timeout
-        self.regenerate = regenerate
-        self._generated = False
-
-        fingerprint_config = {
-            key: value
-            for key, value in self.synthea_config.items()
-            if key != _RELEASE.base_directory_key
-        }
-        fingerprint_payload = json.dumps(
-            {
-                "version": _RELEASE.version,
-                "population": self.population,
-                "seed": self.seed,
-                "clinician_seed": self.clinician_seed,
-                "single_person_seed": self.single_person_seed,
-                "reference_date": self.reference_date,
-                "end_date": self.end_date,
-                "gender": self.gender,
-                "age_range": self.age_range,
-                "overflow_population": self.overflow_population,
-                "local_config_path": self._path_string(self.local_config_path),
-                "local_modules_dir": self._path_string(self.local_modules_dir),
-                "initial_population_snapshot_path": self._path_string(
-                    self.initial_population_snapshot_path
-                ),
-                "updated_population_snapshot_path": self._path_string(
-                    self.updated_population_snapshot_path
-                ),
-                "update_time_period": self.update_time_period,
-                "fixed_record_path": self._path_string(self.fixed_record_path),
-                "keep_matching_patients_path": self._path_string(
-                    self.keep_matching_patients_path
-                ),
-                "state": self.state,
-                "city": self.city,
-                "local_config": local_config,
-                "config": fingerprint_config,
-            },
-            sort_keys=True,
-            separators=(",", ":"),
-        )
-        fingerprint = hashlib.sha256(fingerprint_payload.encode()).hexdigest()
-
-        configured_base = effective_config.get(_RELEASE.base_directory_key)
-        self.generation_dir = (
-            Path(configured_base).expanduser().resolve()
-            if configured_base
-            else self.output_dir / fingerprint
-        )
 
     def forward(self, **kwargs) -> dict:
         """Rejects forward calls; Synthea has no forward pass.
@@ -326,169 +320,19 @@ class Synthea(BaseModel):
             **kwargs: Ignored.
 
         Raises:
-            NotImplementedError: Always. Use :meth:`run` or
-                :meth:`ensure_generated` to produce data.
+            NotImplementedError: Always. Use :meth:`generate` to produce data.
         """
         raise NotImplementedError(
-            "Synthea is a simulator with no forward pass; "
-            "call run() or ensure_generated() instead."
+            "Synthea is a simulator with no forward pass; call generate() instead."
         )
 
     def extra_repr(self) -> str:
-        """Summarizes the population settings shown by ``repr``.
+        """Summarizes the generator configuration shown by ``repr``.
 
         Returns:
-            str: Comma-separated non-default population settings.
+            str: The output directory.
         """
-        fields = ("population", "seed", "state", "city", "gender", "age_range")
-        return ", ".join(
-            f"{name}={getattr(self, name)!r}"
-            for name in fields
-            if getattr(self, name) is not None
-        )
-
-    @staticmethod
-    def _optional_path(value: str | Path | None) -> Path | None:
-        """Converts an optional path-like value to an expanded path.
-
-        Args:
-            value (str or Path, optional): Path-like value to convert.
-
-        Returns:
-            Path | None: The expanded path, or ``None`` when omitted.
-        """
-        return Path(value).expanduser() if value is not None else None
-
-    @staticmethod
-    def _path_string(value: Path | None) -> str | None:
-        """Converts an optional path to its string representation.
-
-        Args:
-            value (Path, optional): Path to convert.
-
-        Returns:
-            str | None: The path string, or ``None`` when omitted.
-        """
-        return str(value) if value is not None else None
-
-    @staticmethod
-    def _normalize_config(
-        config: Mapping[str, str | int | float | bool],
-    ) -> dict[str, str]:
-        """Validates and serializes Synthea property overrides.
-
-        Args:
-            config (Mapping): Property names mapped to scalar Python values.
-
-        Returns:
-            dict[str, str]: Configuration values serialized for Synthea's CLI.
-
-        Raises:
-            TypeError: If a property name is invalid or a value is not a
-                supported scalar.
-        """
-        normalized = {}
-        for key, value in config.items():
-            if not isinstance(key, str) or not _PROPERTY_KEY.fullmatch(key):
-                raise TypeError(f"invalid Synthea property name: {key!r}")
-            if isinstance(value, bool):
-                normalized[key] = "true" if value else "false"
-            elif isinstance(value, (str, int, float)):
-                normalized[key] = str(value)
-            else:
-                raise TypeError(f"Synthea property {key!r} must have a scalar value")
-        return normalized
-
-    def output_path(self) -> Path:
-        """Returns the configured CSV output directory.
-
-        Returns:
-            Path: The CSV directory beneath the fingerprinted generation path.
-        """
-        return self.generation_dir / "csv"
-
-    def resolved_output_path(self) -> Path:
-        """Resolves the directory containing generated CSV files.
-
-        When Synthea's folder-per-run option is enabled, this method selects the
-        most recently modified directory containing ``patients.csv``.
-
-        Returns:
-            Path: The direct or nested CSV output directory.
-        """
-        root = self.output_path()
-        if (root / "patients.csv").is_file():
-            return root
-        candidates = list(root.rglob("patients.csv")) if root.is_dir() else []
-        if not candidates:
-            return root
-        latest = max(candidates, key=lambda path: path.stat().st_mtime_ns)
-        return latest.parent
-
-    def _effective_overrides(self) -> dict[str, str]:
-        """Builds the property overrides required for a CSV-only run.
-
-        Returns:
-            dict[str, str]: User properties plus the output directory and
-            wrapper-managed exporter settings.
-        """
-        config = dict(self.synthea_config)
-        config[_RELEASE.base_directory_key] = str(self.generation_dir)
-        config[_RELEASE.csv_export_key] = "true"
-        for key in _RELEASE.unsupported_export_flags:
-            config[key] = "false"
-        return config
-
-    def with_config(
-        self,
-        config: Mapping[str, str | int | float | bool],
-    ) -> Synthea:
-        """Returns a new instance with merged Synthea property overrides.
-
-        The current instance is not modified. The new instance repeats normal
-        constructor validation and receives a freshly computed output fingerprint.
-
-        Args:
-            config (Mapping): Properties to add or replace.
-
-        Returns:
-            Synthea: A new instance containing the merged properties.
-
-        Raises:
-            TypeError: If ``config`` is not a mapping or contains invalid values.
-            ValueError: If ``config`` attempts to select an exporter.
-        """
-        if not isinstance(config, Mapping):
-            raise TypeError("config must be a mapping")
-        merged = dict(self.synthea_config)
-        merged.update(config)
-        return type(self)(
-            output_dir=self.output_dir,
-            population=self.population,
-            seed=self.seed,
-            state=self.state,
-            city=self.city,
-            clinician_seed=self.clinician_seed,
-            single_person_seed=self.single_person_seed,
-            reference_date=self.reference_date,
-            end_date=self.end_date,
-            gender=self.gender,
-            age_range=self.age_range,
-            overflow_population=self.overflow_population,
-            local_config_path=self.local_config_path,
-            local_modules_dir=self.local_modules_dir,
-            initial_population_snapshot_path=self.initial_population_snapshot_path,
-            updated_population_snapshot_path=self.updated_population_snapshot_path,
-            update_time_period=self.update_time_period,
-            fixed_record_path=self.fixed_record_path,
-            keep_matching_patients_path=self.keep_matching_patients_path,
-            java_path=self.java_path,
-            jar_path=self.jar_path,
-            auto_download=self.auto_download,
-            synthea_config=merged,
-            timeout=self.timeout,
-            regenerate=self.regenerate,
-        )
+        return f"output_dir={str(self.output_dir)!r}"
 
     def _resolve_java(self) -> Path:
         """Finds the Java executable used to run Synthea.
@@ -641,36 +485,7 @@ class Synthea(BaseModel):
         return digest.hexdigest()
 
     @staticmethod
-    def _parse_config(text: str) -> dict[str, str | None]:
-        """Parses Java properties text into a Python mapping.
-
-        Commented properties are retained with a value of ``None`` so callers
-        can discover properties that Synthea supports but leaves unset.
-
-        Args:
-            text (str): Contents of a Synthea properties file.
-
-        Returns:
-            dict[str, str | None]: Parsed property names and values.
-        """
-        config = {}
-        for raw_line in text.splitlines():
-            line = raw_line.strip()
-            if not line:
-                continue
-            disabled = line.startswith(("#", "!"))
-            if disabled:
-                line = line[1:].strip()
-            match = re.match(r"([^=:\s]+)\s*(?:=|:)\s*(.*)", line)
-            if not match:
-                continue
-            key, value = match.groups()
-            if _PROPERTY_KEY.fullmatch(key):
-                config[key] = None if disabled else value.strip()
-        return config
-
-    @classmethod
-    def _read_jar_config(cls, jar: Path) -> dict[str, str | None]:
+    def _read_jar_config(jar: Path) -> dict[str, str | None]:
         """Reads ``synthea.properties`` from a Synthea JAR.
 
         Args:
@@ -687,26 +502,7 @@ class Synthea(BaseModel):
                 text = archive.read("synthea.properties").decode("utf-8")
         except (KeyError, OSError, zipfile.BadZipFile) as error:
             raise RuntimeError(f"cannot read synthea.properties from {jar}") from error
-        return cls._parse_config(text)
-
-    @classmethod
-    def _read_config_file(cls, path: Path) -> dict[str, str | None]:
-        """Reads a local Synthea properties file.
-
-        Args:
-            path (Path): Properties file to read.
-
-        Returns:
-            dict[str, str | None]: Parsed local properties.
-
-        Raises:
-            FileNotFoundError: If the properties file cannot be read.
-        """
-        try:
-            text = path.read_text(encoding="utf-8")
-        except OSError as error:
-            raise FileNotFoundError(f"Synthea config file not found: {path}") from error
-        return cls._parse_config(text)
+        return _parse_properties(text)
 
     @classmethod
     def get_available_config(
@@ -735,125 +531,254 @@ class Synthea(BaseModel):
             key: value for key, value in config.items() if fnmatchcase(key, pattern)
         }
 
-    def _validate_config_keys(self, jar: Path) -> None:
+    @classmethod
+    def _validate_config_keys(cls, jar: Path, settings: _GenerationSettings) -> None:
         """Checks configured property names against the active JAR.
 
         Args:
             jar (Path): Synthea JAR whose properties define the accepted keys.
+            settings (_GenerationSettings): Settings whose properties to check.
 
         Raises:
             ValueError: If a configured property is not supported by the JAR.
             RuntimeError: If the JAR properties cannot be read.
         """
-        config = self._read_jar_config(jar)
-        supplied_keys = self.synthea_config.keys() | self._local_config.keys()
-        unknown = supplied_keys - config.keys()
+        supported = cls._read_jar_config(jar)
+        supplied = settings.synthea_config.keys() | settings.local_config.keys()
+        unknown = supplied - supported.keys()
         if unknown:
             names = ", ".join(sorted(unknown))
             raise ValueError(f"properties not supported by this Synthea jar: {names}")
 
-    def build_argv(self, java: Path, jar: Path) -> list[str]:
-        """Builds the Synthea subprocess argument vector.
+    def _generation_dir(self, settings: _GenerationSettings) -> Path:
+        """Returns the directory Synthea writes a population to.
+
+        Args:
+            settings (_GenerationSettings): Settings of the population.
+
+        Returns:
+            Path: ``output_dir`` joined with the settings fingerprint.
+        """
+        return self.output_dir / settings.fingerprint()
+
+    @staticmethod
+    def _find_csv_dir(generation_dir: Path) -> Path | None:
+        """Finds the directory holding a population's CSV files.
+
+        With Synthea's folder-per-run option enabled, the most recently
+        modified directory containing ``patients.csv`` is selected.
+
+        Args:
+            generation_dir (Path): Directory Synthea wrote the population to.
+
+        Returns:
+            Path | None: The direct or nested CSV directory, or ``None`` if no
+            ``patients.csv`` exists yet.
+        """
+        root = generation_dir / "csv"
+        if (root / "patients.csv").is_file():
+            return root
+        candidates = list(root.rglob("patients.csv")) if root.is_dir() else []
+        if not candidates:
+            return None
+        return max(candidates, key=lambda path: path.stat().st_mtime_ns).parent
+
+    def _build_argv(
+        self, java: Path, jar: Path, settings: _GenerationSettings
+    ) -> list[str]:
+        """Builds the Synthea subprocess argument vector for given settings.
 
         Args:
             java (Path): Java executable to invoke.
             jar (Path): Synthea JAR to execute.
+            settings (_GenerationSettings): Settings of the population.
 
         Returns:
             list[str]: Complete subprocess argument vector.
         """
-        config = self._effective_overrides()
+        config = dict(settings.synthea_config)
+        config[_RELEASE.base_directory_key] = str(self._generation_dir(settings))
+        config[_RELEASE.csv_export_key] = "true"
+        for key in _RELEASE.unsupported_export_flags:
+            config[key] = "false"
+
         argv = [str(java), "-jar", str(jar)]
-        if self.local_config_path is not None:
-            argv += ["-c", str(self.local_config_path)]
+        if settings.local_config_path is not None:
+            argv += ["-c", str(settings.local_config_path)]
         argv += [f"--{key}={value}" for key, value in sorted(config.items())]
-        if self.seed is not None:
-            argv += ["-s", str(self.seed)]
-        if self.clinician_seed is not None:
-            argv += ["-cs", str(self.clinician_seed)]
-        if self.single_person_seed is not None:
-            argv += ["-ps", str(self.single_person_seed)]
-        if self.population is not None:
-            argv += ["-p", str(self.population)]
-        if self.reference_date is not None:
-            argv += ["-r", self.reference_date]
-        if self.end_date is not None:
-            argv += ["-e", self.end_date]
-        if self.gender is not None:
-            argv += ["-g", self.gender]
-        if self.age_range is not None:
-            argv += ["-a", self.age_range]
-        if self.overflow_population is not None:
-            overflow = "true" if self.overflow_population else "false"
-            argv += ["-o", overflow]
-        if self.local_modules_dir is not None:
-            argv += ["-d", str(self.local_modules_dir)]
-        if self.initial_population_snapshot_path is not None:
-            argv += ["-i", str(self.initial_population_snapshot_path)]
-        if self.updated_population_snapshot_path is not None:
-            argv += ["-u", str(self.updated_population_snapshot_path)]
-        if self.update_time_period is not None:
-            argv += ["-t", str(self.update_time_period)]
-        if self.fixed_record_path is not None:
-            argv += ["-f", str(self.fixed_record_path)]
-        if self.keep_matching_patients_path is not None:
-            argv += ["-k", str(self.keep_matching_patients_path)]
-        if self.state:
-            argv.append(self.state)
-        if self.city:
-            argv.append(self.city)
+        options = (
+            ("-s", settings.seed),
+            ("-cs", settings.clinician_seed),
+            ("-ps", settings.single_person_seed),
+            ("-p", settings.population),
+            ("-r", settings.reference_date),
+            ("-e", settings.end_date),
+            ("-g", settings.gender),
+            ("-a", settings.age_range),
+            ("-o", settings.overflow_population),
+            ("-d", settings.local_modules_dir),
+            ("-i", settings.initial_population_snapshot_path),
+            ("-u", settings.updated_population_snapshot_path),
+            ("-t", settings.update_time_period),
+            ("-f", settings.fixed_record_path),
+            ("-k", settings.keep_matching_patients_path),
+        )
+        for flag, value in options:
+            if isinstance(value, bool):
+                argv += [flag, "true" if value else "false"]
+            elif value is not None:
+                argv += [flag, str(value)]
+        if settings.state:
+            argv.append(settings.state)
+        if settings.city:
+            argv.append(settings.city)
         return argv
 
-    def _has_output(self) -> bool:
-        """Checks whether the generated patient CSV exists.
+    def build_argv(self, java: Path, jar: Path, **settings) -> list[str]:
+        """Builds the Synthea command line without running it.
+
+        Useful for checking what :meth:`generate` would execute. Unlike
+        :meth:`generate`, an omitted ``seed`` is left out of the command
+        rather than chosen at random.
+
+        Args:
+            java (Path): Java executable to invoke.
+            jar (Path): Synthea JAR to execute.
+            **settings: Population settings, accepting the same keyword
+                arguments as :meth:`generate` except ``overwrite``.
 
         Returns:
-            bool: ``True`` when ``patients.csv`` is available.
+            list[str]: Complete subprocess argument vector.
+
+        Raises:
+            TypeError: If a setting is unknown or has an invalid type.
+            ValueError: If a setting is outside its accepted range.
         """
-        return (self.resolved_output_path() / "patients.csv").is_file()
+        return self._build_argv(java, jar, _GenerationSettings(**settings))
 
-    def ensure_generated(self) -> Path:
-        """Ensures that CSV output exists and returns its directory.
+    def generate(
+        self,
+        population: int | None = None,
+        seed: int | None = None,
+        state: str | None = None,
+        city: str | None = None,
+        clinician_seed: int | None = None,
+        single_person_seed: int | None = None,
+        reference_date: str | None = None,
+        end_date: str | None = None,
+        gender: str | None = None,
+        age_range: str | None = None,
+        overflow_population: bool | None = None,
+        local_config_path: str | Path | None = None,
+        local_modules_dir: str | Path | None = None,
+        initial_population_snapshot_path: str | Path | None = None,
+        updated_population_snapshot_path: str | Path | None = None,
+        update_time_period: int | None = None,
+        fixed_record_path: str | Path | None = None,
+        keep_matching_patients_path: str | Path | None = None,
+        synthea_config: Mapping[str, str | int | float | bool] | None = None,
+        overwrite: bool = False,
+    ) -> Path:
+        """Generates a population and returns the directory of its CSV files.
 
-        Existing output is reused unless ``regenerate`` requests replacement on
-        the first call on this instance.
+        Each distinct combination of settings is written to its own
+        subdirectory of ``output_dir``. If that subdirectory already holds
+        output, it is returned without running Synthea again, unless
+        ``overwrite`` is set. An omitted command-line option is not passed
+        to Synthea, so Synthea's own default applies.
+
+        Args:
+            population (int, optional): ``-p`` population size.
+            seed (int, optional): ``-s`` random seed. When omitted, a random
+                seed is chosen and logged, so each call produces a new
+                population. Pass a seed for reproducible output.
+            state (str, optional): State positional argument.
+            city (str, optional): City positional argument; requires ``state``.
+            clinician_seed (int, optional): ``-cs`` clinician random seed.
+            single_person_seed (int, optional): ``-ps`` single-person seed.
+            reference_date (str, optional): ``-r`` date in YYYYMMDD form.
+            end_date (str, optional): ``-e`` date in YYYYMMDD form.
+            gender (str, optional): ``-g`` gender, either ``M`` or ``F``.
+            age_range (str, optional): ``-a`` range in ``min-max`` form.
+            overflow_population (bool, optional): ``-o`` population overflow
+                switch.
+            local_config_path (str or Path, optional): ``-c`` properties file.
+            local_modules_dir (str or Path, optional): ``-d`` local module
+                directory.
+            initial_population_snapshot_path (str or Path, optional): ``-i``
+                snapshot to load.
+            updated_population_snapshot_path (str or Path, optional): ``-u``
+                destination for the updated snapshot.
+            update_time_period (int, optional): ``-t`` update period in days.
+            fixed_record_path (str or Path, optional): ``-f`` fixed-demographics
+                file.
+            keep_matching_patients_path (str or Path, optional): ``-k`` keep
+                module.
+            synthea_config (Mapping, optional): ``synthea.properties``
+                overrides. CSV export and the output directory are managed by
+                this class and cannot be set here.
+            overwrite (bool): Whether to run Synthea even if output for these
+                settings already exists.
 
         Returns:
             Path: Directory containing the generated CSV files.
 
         Raises:
-            RuntimeError: If Java is unavailable, Synthea fails, or expected CSV
-                output is not produced.
-        """
-        if not self._generated and (self.regenerate or not self._has_output()):
-            self.run()
-            self._generated = True
-        return self.resolved_output_path()
-
-    def run(self) -> Path:
-        """Runs Synthea and returns the generated CSV directory.
-
-        Returns:
-            Path: Directory containing the generated CSV files.
-
-        Raises:
-            FileNotFoundError: If the configured JAR is unavailable.
-            ValueError: If a configured property is unsupported by the active JAR.
-            RuntimeError: If Java cannot be resolved, Synthea exits unsuccessfully,
-                or ``patients.csv`` is not produced.
+            TypeError: If a setting or configuration property has an invalid
+                type.
+            ValueError: If a setting is outside its accepted range, ``city`` is
+                provided without ``state``, configuration sets the output
+                directory or an exporter, or a property is unsupported by the
+                active JAR.
+            FileNotFoundError: If ``local_config_path`` cannot be read or the
+                JAR is unavailable.
+            RuntimeError: If Java cannot be resolved, Synthea exits
+                unsuccessfully, or ``patients.csv`` is not produced.
             subprocess.TimeoutExpired: If generation exceeds ``timeout``.
         """
-        self.generation_dir.mkdir(parents=True, exist_ok=True)
+        chosen_seed = secrets.randbits(63) if seed is None else seed
+        settings = _GenerationSettings(
+            population=population,
+            seed=chosen_seed,
+            state=state,
+            city=city,
+            clinician_seed=clinician_seed,
+            single_person_seed=single_person_seed,
+            reference_date=reference_date,
+            end_date=end_date,
+            gender=gender,
+            age_range=age_range,
+            overflow_population=overflow_population,
+            local_config_path=local_config_path,
+            local_modules_dir=local_modules_dir,
+            initial_population_snapshot_path=initial_population_snapshot_path,
+            updated_population_snapshot_path=updated_population_snapshot_path,
+            update_time_period=update_time_period,
+            fixed_record_path=fixed_record_path,
+            keep_matching_patients_path=keep_matching_patients_path,
+            synthea_config=synthea_config or {},
+        )
+        if seed is None:
+            logger.info("No seed given; using seed=%d", chosen_seed)
+
+        generation_dir = self._generation_dir(settings)
+        existing = self._find_csv_dir(generation_dir)
+        if existing is not None and not overwrite:
+            logger.info("Reusing existing Synthea output at %s", existing)
+            return existing
+
         java = self._resolve_java()
         jar = self._resolve_jar()
-        if self.synthea_config or self.local_config_path:
-            self._validate_config_keys(jar)
-        argv = self.build_argv(java, jar)
+        if settings.synthea_config or settings.local_config_path:
+            self._validate_config_keys(jar, settings)
+        generation_dir.mkdir(parents=True, exist_ok=True)
+        argv = self._build_argv(java, jar, settings)
         logger.info("Running Synthea: %s", " ".join(argv))
         result = subprocess.run(argv, timeout=self.timeout, check=False)
         if result.returncode:
             raise RuntimeError(f"Synthea exited with status {result.returncode}")
 
-        if not self._has_output():
+        csv_dir = self._find_csv_dir(generation_dir)
+        if csv_dir is None:
             raise RuntimeError("Synthea did not generate CSV output")
-        return self.resolved_output_path()
+        return csv_dir
