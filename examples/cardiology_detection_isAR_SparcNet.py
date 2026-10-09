@@ -1,3 +1,5 @@
+"""Cardiology arrhythmia detection using SparcNet."""
+
 from pyhealth.datasets import split_by_visit, get_dataloader
 from pyhealth.trainer import Trainer
 from pyhealth.datasets import CardiologyDataset
