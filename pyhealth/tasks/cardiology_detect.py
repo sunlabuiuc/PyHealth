@@ -73,23 +73,25 @@ def cardiology_isAR_fn(record, epoch_sec=10, shift=5):
         
         # X load
         X = loadmat(os.path.join(root, signal))["val"]
-        label_content =  open(os.path.join(root, label), "r").readlines()
-        Dx, Sex, Age = label_content[-4].split(" ")[-1][:-1].split(","), \
-                label_content[-5].split(" ")[-1][:-1].split(","), \
-                label_content[-6].split(" ")[-1][:-1].split(",")
+        with open(os.path.join(root, label), "r") as f:
+            label_content = f.readlines()
+        
+        Dx = label_content[-4].split(" ")[-1][:-1].split(",")
+        Sex = label_content[-5].split(" ")[-1][:-1].split(",")
+        Age = label_content[-6].split(" ")[-1][:-1].split(",")
 
         y = 1 if set(Dx).intersection(AR_space) else 0
-       
         
         # frequency * seconds (500 * 10)
         if X.shape[1] >= 500 * epoch_sec:
             for index in range((X.shape[1] - 500 * epoch_sec) // (500 * shift) + 1):
                 save_file_path = os.path.join(save_path, f"{pid}-AR-{index}.pkl")
             
-                pickle.dump(
-                    {"signal": X[:, (500 * shift) * index : (500 * shift) * index + 5000], "label": y},
-                    open(save_file_path, "wb"),
-                )
+                with open(save_file_path, "wb") as f:
+                    pickle.dump(
+                        {"signal": X[:, (500 * shift) * index : (500 * shift) * index + 5000], "label": y},
+                        f,
+                    )
                 
                 samples.append(
                     {   
@@ -103,6 +105,7 @@ def cardiology_isAR_fn(record, epoch_sec=10, shift=5):
                     }
                 )
     return samples
+
 
 def cardiology_isBBBFB_fn(record, epoch_sec=10, shift=5):
     """Processes a single patient for the Bundle branch blocks and fascicular blocks symptom in cardiology on the CardiologyDataset
@@ -169,21 +172,25 @@ def cardiology_isBBBFB_fn(record, epoch_sec=10, shift=5):
         
         # X load
         X = loadmat(os.path.join(root, signal))["val"]
-        label_content =  open(os.path.join(root, label), "r").readlines()
-        Dx, Sex, Age = label_content[-4].split(" ")[-1][:-1].split(","), label_content[-5].split(" ")[-1][:-1].split(","), label_content[-6].split(" ")[-1][:-1].split(",")
+        with open(os.path.join(root, label), "r") as f:
+            label_content = f.readlines()
+            
+        Dx = label_content[-4].split(" ")[-1][:-1].split(",")
+        Sex = label_content[-5].split(" ")[-1][:-1].split(",")
+        Age = label_content[-6].split(" ")[-1][:-1].split(",")
 
         y = 1 if set(Dx).intersection(BBBFB_space) else 0
-       
         
         # frequency * seconds (500 * 10)
         if X.shape[1] >= 500 * epoch_sec:
             for index in range((X.shape[1] - 500 * epoch_sec) // (500 * shift) + 1):
                 save_file_path = os.path.join(save_path, f"{pid}-BBBFB-{index}.pkl")
             
-                pickle.dump(
-                    {"signal": X[:, (500 * shift) * index : (500 * shift) * index + 5000], "label": y},
-                    open(save_file_path, "wb"),
-                )
+                with open(save_file_path, "wb") as f:
+                    pickle.dump(
+                        {"signal": X[:, (500 * shift) * index : (500 * shift) * index + 5000], "label": y},
+                        f,
+                    )
                 
                 samples.append(
                     {   
@@ -239,7 +246,6 @@ def cardiology_isAD_fn(record, epoch_sec=10, shift=5):
         }
     """
     
-    
     # these are the diseases codes for Axis deviations symptom 
     AD_space = list(
         map(
@@ -263,21 +269,25 @@ def cardiology_isAD_fn(record, epoch_sec=10, shift=5):
         
         # X load
         X = loadmat(os.path.join(root, signal))["val"]
-        label_content =  open(os.path.join(root, label), "r").readlines()
-        Dx, Sex, Age = label_content[-4].split(" ")[-1][:-1].split(","), label_content[-5].split(" ")[-1][:-1].split(","), label_content[-6].split(" ")[-1][:-1].split(",")
+        with open(os.path.join(root, label), "r") as f:
+            label_content = f.readlines()
+            
+        Dx = label_content[-4].split(" ")[-1][:-1].split(",")
+        Sex = label_content[-5].split(" ")[-1][:-1].split(",")
+        Age = label_content[-6].split(" ")[-1][:-1].split(",")
 
         y = 1 if set(Dx).intersection(AD_space) else 0
-       
         
         # frequency * seconds (500 * 10)
         if X.shape[1] >= 500 * epoch_sec:
             for index in range((X.shape[1] - 500 * epoch_sec) // (500 * shift) + 1):
                 save_file_path = os.path.join(save_path, f"{pid}-AD-{index}.pkl")
             
-                pickle.dump(
-                    {"signal": X[:, (500 * shift) * index : (500 * shift) * index + 5000], "label": y},
-                    open(save_file_path, "wb"),
-                )
+                with open(save_file_path, "wb") as f:
+                    pickle.dump(
+                        {"signal": X[:, (500 * shift) * index : (500 * shift) * index + 5000], "label": y},
+                        f,
+                    )
                 
                 samples.append(
                     {   
@@ -292,6 +302,7 @@ def cardiology_isAD_fn(record, epoch_sec=10, shift=5):
                 )
 
     return samples
+
 
 def cardiology_isCD_fn(record, epoch_sec=10, shift=5):
     """Processes a single patient for the Conduction delays symptom in cardiology on the CardiologyDataset
@@ -357,21 +368,25 @@ def cardiology_isCD_fn(record, epoch_sec=10, shift=5):
         
         # X load
         X = loadmat(os.path.join(root, signal))["val"]
-        label_content =  open(os.path.join(root, label), "r").readlines()
-        Dx, Sex, Age = label_content[-4].split(" ")[-1][:-1].split(","), label_content[-5].split(" ")[-1][:-1].split(","), label_content[-6].split(" ")[-1][:-1].split(",")
+        with open(os.path.join(root, label), "r") as f:
+            label_content = f.readlines()
+            
+        Dx = label_content[-4].split(" ")[-1][:-1].split(",")
+        Sex = label_content[-5].split(" ")[-1][:-1].split(",")
+        Age = label_content[-6].split(" ")[-1][:-1].split(",")
 
         y = 1 if set(Dx).intersection(CD_space) else 0
-       
         
         # frequency * seconds (500 * 10)
         if X.shape[1] >= 500 * epoch_sec:
             for index in range((X.shape[1] - 500 * epoch_sec) // (500 * shift) + 1):
                 save_file_path = os.path.join(save_path, f"{pid}-CD-{index}.pkl")
             
-                pickle.dump(
-                    {"signal": X[:, (500 * shift) * index : (500 * shift) * index + 5000], "label": y},
-                    open(save_file_path, "wb"),
-                )
+                with open(save_file_path, "wb") as f:
+                    pickle.dump(
+                        {"signal": X[:, (500 * shift) * index : (500 * shift) * index + 5000], "label": y},
+                        f,
+                    )
                 
                 samples.append(
                     {   
@@ -451,22 +466,25 @@ def cardiology_isWA_fn(record, epoch_sec=10, shift=5):
         
         # X load
         X = loadmat(os.path.join(root, signal))["val"]
-        label_content =  open(os.path.join(root, label), "r").readlines()
-        Dx, Sex, Age = label_content[-4].split(" ")[-1][:-1].split(","), label_content[-5].split(" ")[-1][:-1].split(","), label_content[-6].split(" ")[-1][:-1].split(",")
-
+        with open(os.path.join(root, label), "r") as f:
+            label_content = f.readlines()
+            
+        Dx = label_content[-4].split(" ")[-1][:-1].split(",")
+        Sex = label_content[-5].split(" ")[-1][:-1].split(",")
+        Age = label_content[-6].split(" ")[-1][:-1].split(",")
 
         y = 1 if set(Dx).intersection(WA_space) else 0
-       
         
         # frequency * seconds (500 * 10)
         if X.shape[1] >= 500 * epoch_sec:
             for index in range((X.shape[1] - 500 * epoch_sec) // (500 * shift) + 1):
                 save_file_path = os.path.join(save_path, f"{pid}-WA-{index}.pkl")
             
-                pickle.dump(
-                    {"signal": X[:, (500 * shift) * index : (500 * shift) * index + 5000], "label": y},
-                    open(save_file_path, "wb"),
-                )
+                with open(save_file_path, "wb") as f:
+                    pickle.dump(
+                        {"signal": X[:, (500 * shift) * index : (500 * shift) * index + 5000], "label": y},
+                        f,
+                    )
                 
                 samples.append(
                     {   
@@ -483,19 +501,8 @@ def cardiology_isWA_fn(record, epoch_sec=10, shift=5):
     return samples
 
 
-
-
 if __name__ == "__main__":
     from pyhealth.datasets import CardiologyDataset
-
-    #index for cardiology symptoms
-    """
-    Arrhythmias
-    Bundle branch blocks and fascicular blocks
-    Axis deviations
-    Conduction delays
-    Wave abnormalities
-    """
 
     dataset = CardiologyDataset(
         root="/srv/local/data/physionet.org/files/challenge-2020/1.0.2/training",
@@ -504,10 +511,4 @@ if __name__ == "__main__":
     )
     sleep_staging_ds = dataset.set_task(cardiology_isAR_fn)
     print(sleep_staging_ds.samples[0])
-    # print(sleep_staging_ds.patient_to_index)
-    # print(sleep_staging_ds.record_to_index)
     print(sleep_staging_ds.input_info)
-    
-    
-    
-    
