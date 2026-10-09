@@ -1,3 +1,4 @@
+import logging
 from collections import deque
 from importlib import reload
 
@@ -8,6 +9,8 @@ import tqdm
 from scipy.special import expit
 
 from pyhealth.calib.predictionset.favmac import quantiletree
+
+logger = logging.getLogger(__name__)
 
 
 class FavMac:
@@ -159,8 +162,14 @@ class FavMac_GreedyRatio(FavMac):
             if self.proxy_fn.is_additive():
                 Ss, _ = self.util_fn.greedy_maximize_seq(pred=pred, d_proxy = self.proxy_fn.values * (1-pred))
                 return Ss, list(map(proxy_fn, Ss))
-        except:
-            pass
+        except Exception:
+            if not getattr(self, "_fallback_warned", False):
+                logger.warning(
+                    "greedy_maximize_seq failed; falling back to the O(K^2) path. "
+                    "If the predictions contain NaN, the fallback will not recover either.",
+                    exc_info=True,
+                )
+                self._fallback_warned = True
 
         Ss = [np.zeros(len(pred), dtype=int)]
         proxies = [proxy_fn(Ss[0])]
