@@ -3,12 +3,18 @@ import torch
 from tqdm import tqdm
 from typing import Tuple, List
 from collections import defaultdict
+import warnings
 
 def link_prediction_fn(
     triples: List[Tuple]
 ):
 
     """Process a triple list for the link prediction task
+
+    .. deprecated::
+        Use the :class:`KGLinkPrediction` task with
+        ``BaseKGDataset.set_task``. This function will be removed in the
+        next release.
 
     Link prediction is a task to either 
     Tail Prediction: predict tail entity t given a triple query (h, r, ?), or
@@ -19,7 +25,21 @@ def link_prediction_fn(
     
     Returns:
         samples: a list of samples
+
+    Examples:
+        >>> import warnings
+        >>> with warnings.catch_warnings():
+        ...     warnings.simplefilter("ignore", DeprecationWarning)
+        ...     samples = link_prediction_fn([(0, 0, 1), (0, 0, 2)])
+        >>> samples[0]["ground_truth_tail"]
+        [1, 2]
     """
+    warnings.warn(
+        "link_prediction_fn is deprecated and will be removed in the next "
+        "release; use the KGLinkPrediction task with BaseKGDataset.set_task.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     samples = []
     count = count_frequency(triples)
     triple_set = set(triples)

@@ -78,6 +78,14 @@ class KGEBaseModel(ABC, nn.Module):
             self.r_num = processor.num_relations
         else:
             # A PyHealth 1.x SampleKGDataset carries the counts itself.
+            warnings.warn(
+                "Building a KGE model from a dataset without a kg_triple "
+                "processor (e.g. a 1.x SampleKGDataset) is deprecated and will "
+                "be removed in the next release; pass the training part of "
+                "set_task(KGLinkPrediction(...), split=PatientSplit(...)).",
+                DeprecationWarning,
+                stacklevel=3,
+            )
             self.triple_processor = None
             self.e_num = dataset.entity_num
             self.r_num = dataset.relation_num

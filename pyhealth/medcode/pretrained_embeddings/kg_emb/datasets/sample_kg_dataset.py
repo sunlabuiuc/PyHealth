@@ -18,6 +18,7 @@ must use the mask to recover the true, unpadded entity list first.
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -32,6 +33,12 @@ __all__ = ["SampleKGDataset"]
 
 class SampleKGDataset(InMemorySampleDataset):
     r"""In-memory dataset of knowledge-graph link-prediction samples.
+
+    .. deprecated::
+        Use :class:`BaseKGDataset` with ``set_task(KGLinkPrediction(...),
+        split=PatientSplit(...))``, which returns streaming
+        :class:`~pyhealth.datasets.SampleDataset` parts. This class will be
+        removed in the next release.
 
     Each sample is a mapping with the following keys:
 
@@ -114,6 +121,13 @@ class SampleKGDataset(InMemorySampleDataset):
         pad_token_id: int = 0,
         **task_spec_param: Any,
     ) -> None:
+        warnings.warn(
+            "SampleKGDataset is deprecated and will be removed in the next "
+            "release; use BaseKGDataset.set_task(KGLinkPrediction(...), "
+            "split=PatientSplit(...)).",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         input_schema = {
             "triple": ("tensor", {"dtype": torch.long}),
             "ground_truth_head": ("kg_entity_list", {"pad_token_id": pad_token_id}),

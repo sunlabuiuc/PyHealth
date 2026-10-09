@@ -1036,3 +1036,39 @@ class TestTrainingNegativesOnARealSplit(unittest.TestCase):
         heads, _ = model.train_neg_sample_gen(gt_head, [[]], 256)
         self.assertIn(e["b"], heads.flatten().tolist())
         self.assertNotIn(e["a"], heads.flatten().tolist())
+
+
+class TestDeprecatedEntryPoints(unittest.TestCase):
+    """The 1.x entry points keep their import paths and work, with a warning."""
+
+    def test_old_import_paths_resolve(self) -> None:
+        from pyhealth.medcode.pretrained_embeddings.kg_emb import datasets, tasks
+
+        for name in ("BaseKGDataset", "SampleKGDataset", "UMLSDataset", "split"):
+            self.assertTrue(hasattr(datasets, name), name)
+        self.assertTrue(callable(tasks.link_prediction_fn))
+
+    def test_link_prediction_fn_warns(self) -> None:
+        with self.assertWarns(DeprecationWarning):
+            samples = link_prediction_fn([(0, 0, 1)])
+        self.assertEqual(len(samples), 1)
+
+    def test_sample_kg_dataset_warns(self) -> None:
+        with self.assertWarns(DeprecationWarning):
+            make_dataset(n=2)
+
+    def test_split_warns(self) -> None:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            dataset = make_dataset(n=10)
+        with self.assertWarns(DeprecationWarning):
+            split(dataset, [0.6, 0.2, 0.2], seed=0)
+
+    def test_a_model_on_a_1x_dataset_warns(self) -> None:
+        from pyhealth.medcode.pretrained_embeddings.kg_emb.models import TransE
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            dataset = make_dataset(n=4)
+        with self.assertWarnsRegex(DeprecationWarning, "kg_triple"):
+            TransE(dataset=dataset, e_dim=4, r_dim=4)

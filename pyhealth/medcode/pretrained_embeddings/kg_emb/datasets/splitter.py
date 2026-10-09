@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import warnings
 from typing import Any
 
 import numpy as np
@@ -20,6 +21,11 @@ def split(
     seed: int | None = None,
 ) -> tuple[Fold, Fold, Fold]:
     """Split a KG sample dataset into three disjoint folds.
+
+    .. deprecated::
+        Use ``set_task(KGLinkPrediction(...), split=PatientSplit(...))``,
+        which splits triples before fitting the processors. This function
+        will be removed in the next release.
 
     The split is uniform over triples: each sample is assigned to exactly one
     fold, so the three folds partition the dataset. Training samples carry the
@@ -76,6 +82,12 @@ def split(
             ...
         ValueError: ratios must sum to 1.0, got 0.9
     """
+    warnings.warn(
+        "kg_emb.datasets.split is deprecated and will be removed in the next "
+        "release; use set_task(KGLinkPrediction(...), split=PatientSplit(...)).",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     if len(ratios) != 3 or any(r < 0 for r in ratios):
         raise ValueError(f"ratios must be three non-negative floats, got {ratios!r}")
     total = sum(ratios)
