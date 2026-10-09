@@ -17,9 +17,6 @@ from pyhealth.models import BaseModel
 from pyhealth.processors import SequenceProcessor
 from pyhealth.models.embedding import EmbeddingModel
 
-torch.manual_seed(3) 
-np.random.seed(1)
-
 """Graph Neural Network models for PyHealth.
 
 This module provides implementations of Graph Convolutional Network (GCN) and
