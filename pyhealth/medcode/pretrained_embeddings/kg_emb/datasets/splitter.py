@@ -4,18 +4,18 @@ from typing import Optional, Tuple, Union, List
 import numpy as np
 import torch
 
-from pyhealth.datasets import SampleBaseDataset
+from .sample_kg_dataset import SampleKGDataset
 
 
 def split(
-    dataset: SampleBaseDataset,
+    dataset: SampleKGDataset,
     ratios: Union[Tuple[float, float, float], List[float]],
     seed: Optional[int] = None,
 ):
     """Splits the dataset by its outermost indexed items
 
     Args:
-        dataset: a `SampleBaseDataset` object
+        dataset: a `SampleKGDataset` object
         ratios: a list/tuple of ratios for train / val / test
         seed: random seed for shuffling the dataset
 
@@ -26,6 +26,21 @@ def split(
     Note:
         The original dataset can be accessed by `train_dataset.dataset`,
             `val_dataset.dataset`, and `test_dataset.dataset`.
+
+    Examples:
+        >>> from pyhealth.medcode.pretrained_embeddings.kg_emb.datasets import SampleKGDataset
+        >>> from pyhealth.medcode.pretrained_embeddings.kg_emb.datasets.splitter import split
+        >>> entity2id = {"aspirin": 0, "headache": 1, "ibuprofen": 2}
+        >>> relation2id = {"treats": 0}
+        >>> samples = [
+        ...     {"triple": (0, 0, 1), "ground_truth_head": [0], "ground_truth_tail": [1], "subsampling_weight": 1.0},
+        ...     {"triple": (2, 0, 1), "ground_truth_head": [2], "ground_truth_tail": [1], "subsampling_weight": 1.0},
+        ... ]
+        >>> dataset = SampleKGDataset(
+        ...     samples=samples, entity_num=len(entity2id), relation_num=len(relation2id),
+        ...     entity2id=entity2id, relation2id=relation2id,
+        ... )
+        >>> train_dataset, val_dataset, test_dataset = split(dataset, ratios=[0.5, 0.5, 0.0], seed=42)
     """
     
     if seed is not None:
