@@ -13,8 +13,8 @@ def cells():
                 "How to compare several models fairly on the same patients",
                 "How to add a gradient-boosted tree baseline (XGBoost) to a PyHealth benchmark",
             ],
-            20,
-            "Tutorial 03.",
+            15,
+            "Tutorial 03. A GPU runtime adds the sequence models.",
         ),
         md("""
         ## The models at a glance
@@ -116,9 +116,11 @@ def cells():
         maximum epochs, the best epoch picked on validation PR-AUC, and the
         same test set. Only the model changes.
 
-        Sequence models are slow on a CPU with 35,000 training admissions, so
-        on a CPU runtime we train the three fastest; on a GPU runtime
-        (Runtime > Change runtime type) all five run in a few minutes.
+        Sequence models read every drug of every admission in order, which is
+        slow on a free CPU runtime (more than 30 minutes each for 35,000
+        admissions). On a CPU runtime we therefore train the two pooled
+        models; on a GPU runtime (Runtime > Change runtime type > T4 GPU)
+        all five neural models run in a few minutes.
         """),
         code("""
         import time
@@ -150,12 +152,13 @@ def cells():
             return trainer
 
 
-        models = [("LogisticRegression", LogisticRegression), ("MLP", MLP), ("RNN", RNN)]
+        models = [("LogisticRegression", LogisticRegression), ("MLP", MLP)]
         if torch.cuda.is_available():
-            models += [("Transformer", Transformer), ("RETAIN", RETAIN)]
+            models += [("RNN", RNN), ("Transformer", Transformer), ("RETAIN", RETAIN)]
         else:
-            print("CPU runtime: skipping Transformer and RETAIN (about 10 minutes each on CPU). "
-                  "Switch to a GPU runtime to include them.")
+            print("CPU runtime: training LogisticRegression and MLP only. The sequence models "
+                  "(RNN, Transformer, RETAIN) take 30+ minutes each on a free CPU runtime; "
+                  "switch to a GPU runtime to include them.")
         for name, cls in models:
             fit_and_test(name, cls)
         """),
