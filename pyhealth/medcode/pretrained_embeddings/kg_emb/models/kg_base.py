@@ -364,6 +364,31 @@ class KGEBaseModel(ABC, nn.Module):
         raise NotImplementedError
 
 
+    def _training_filters(self, data, positive_sample):
+        """The entities kept out of each triple's training negatives.
+
+        With a ``kg_triple`` processor, these are its ``true_head`` /
+        ``true_tail`` dicts, fitted on the training triples only, as in the
+        reference implementation of Sun et al. (2019). The samples'
+        ``ground_truth_*`` lists cover the whole graph and serve filtered
+        evaluation; using them here would keep every validation and test
+        positive out of the training negatives, so training would depend on
+        the held-out triples. A 1.x ``SampleKGDataset`` has no processor and
+        keeps its former behaviour.
+
+        Returns:
+            Two lists of entity-id lists, for head and tail negatives.
+        """
+        if self.triple_processor is None:
+            return data["ground_truth_head"], data["ground_truth_tail"]
+        true_head = self.triple_processor.true_head
+        true_tail = self.triple_processor.true_tail
+        gt_head, gt_tail = [], []
+        for head, relation, tail in positive_sample.tolist():
+            gt_head.append(true_head.get((relation, tail), []))
+            gt_tail.append(true_tail.get((head, relation), []))
+        return gt_head, gt_tail
+
     def _subsampling_weight(self, data, positive_sample):
         if "subsampling_weight" in data:
             # PyHealth 1.x samples carry their weight.
@@ -390,9 +415,10 @@ class KGEBaseModel(ABC, nn.Module):
             )
 
         if self.training:
+            gt_head, gt_tail = self._training_filters(data, positive_sample)
             negative_sample_head, negative_sample_tail = self.train_neg_sample_gen(
-                gt_head=data['ground_truth_head'],
-                gt_tail=data['ground_truth_tail'],
+                gt_head=gt_head,
+                gt_tail=gt_tail,
                 negative_sampling=self.negative_sampling,
             )
 

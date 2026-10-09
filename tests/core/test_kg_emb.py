@@ -959,3 +959,80 @@ class TestModelsOnSampleDatasets(unittest.TestCase):
         with self.assertWarnsRegex(UserWarning, "'train' flag is ignored"), torch.no_grad():
             out = model(**batch)
         self.assertIn("y_prob", out)  # model.eval() decides, not the flag
+
+
+class TestTrainingNegativesUseTrainingTriplesOnly(unittest.TestCase):
+    """Regression test for the leak: training negatives were filtered with
+    ground truths of the whole graph, so held-out positives were never drawn."""
+
+    def test_a_tail_true_only_in_test_can_be_a_training_negative(self) -> None:
+        import numpy as np
+
+        from pyhealth.medcode.pretrained_embeddings.kg_emb.models import TransE
+        from pyhealth.processors import KGTripleProcessor
+
+        # Training triple (0, 0, 1); (0, 0, 2) is a test triple.
+        processor = KGTripleProcessor(num_entities=3, num_relations=1)
+        processor.fit([{"triple": (0, 0, 1)}], "triple")
+
+        class _Train:
+            input_processors = {"triple": processor}
+
+        model = TransE(dataset=_Train(), e_dim=4, r_dim=4, negative_sampling=64)
+        model.train()
+        # The sample's ground truth covers the whole graph, as KGLinkPrediction gives it.
+        batch = {
+            "triple": torch.tensor([[0, 0, 1]]),
+            "ground_truth_head": [[0]],
+            "ground_truth_tail": [[1, 2]],
+        }
+        drawn = {}
+        original = model.train_neg_sample_gen
+
+        def record(**kwargs):
+            drawn["head"], drawn["tail"] = original(**kwargs)
+            return drawn["head"], drawn["tail"]
+
+        model.train_neg_sample_gen = record
+        np.random.seed(0)
+        model(**batch)["loss"].backward()
+
+        tails = set(drawn["tail"].flatten().tolist())
+        self.assertNotIn(1, tails)  # the training positive stays filtered
+        self.assertIn(2, tails)  # the test positive is a legitimate negative
+        self.assertNotIn(0, set(drawn["head"].flatten().tolist()))
+
+
+class TestTrainingNegativesOnARealSplit(unittest.TestCase):
+    """The same property on set_task output: (b, r2, d) is a test triple and
+    (a, r2, d) a training one, so b must stay drawable as a head negative."""
+
+    # Same graph and split as TestModelsOnSampleDatasets, without its tests.
+    setUpClass = classmethod(TestModelsOnSampleDatasets.setUpClass.__func__)
+    tearDownClass = classmethod(TestModelsOnSampleDatasets.tearDownClass.__func__)
+
+    def test_held_out_heads_are_not_filtered(self) -> None:
+        import numpy as np
+
+        from pyhealth.datasets import get_dataloader
+        from pyhealth.medcode.pretrained_embeddings.kg_emb.models import TransE
+
+        e, r = self.dataset.entity2id, self.dataset.relation2id
+        target = [e["a"], r["r2"], e["d"]]
+        batch = next(
+            b for b in get_dataloader(self.train, batch_size=1)
+            if b["triple"][0].tolist() == target
+        )
+        test_triples = {tuple(self.test[i]["triple"].tolist()) for i in range(len(self.test))}
+        self.assertIn((e["b"], r["r2"], e["d"]), test_triples)
+        self.assertEqual(sorted(unpad({k: v[0] for k, v in batch["ground_truth_head"].items()})),
+                         [e["a"], e["b"]])
+
+        model = TransE(dataset=self.train, e_dim=4, r_dim=4, negative_sampling=256)
+        model.train()
+        gt_head, _ = model._training_filters(batch, batch["triple"])
+        self.assertEqual(gt_head, [[e["a"]]])
+        np.random.seed(0)
+        heads, _ = model.train_neg_sample_gen(gt_head, [[]], 256)
+        self.assertIn(e["b"], heads.flatten().tolist())
+        self.assertNotIn(e["a"], heads.flatten().tolist())
