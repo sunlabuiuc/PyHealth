@@ -27,8 +27,11 @@ def cells():
         multilabel, binary).
 
         Model size matters on a free runtime. We pick automatically: a
-        clinical BERT (110M parameters, trained on MIMIC notes) on a GPU, or a
-        small general BERT (11M parameters) on a CPU.
+        clinical BERT (110M parameters, trained on MIMIC notes) for 3 epochs on
+        a GPU, or a small general BERT (11M parameters) for 1 epoch on a CPU.
+        **Use a GPU runtime if you can** (Runtime > Change runtime type > T4
+        GPU): on a CPU even the small model needs about 10 minutes per epoch,
+        and scores after one epoch are lower.
         """),
         code("""
         import torch
@@ -36,7 +39,8 @@ def cells():
         if torch.cuda.is_available():
             MODEL_NAME, EPOCHS = "emilyalsentzer/Bio_ClinicalBERT", 3
         else:
-            MODEL_NAME, EPOCHS = "google/bert_uncased_L-4_H-256_A-4", 2
+            # About 10 minutes per epoch on a free CPU runtime; a GPU is much faster.
+            MODEL_NAME, EPOCHS = "google/bert_uncased_L-4_H-256_A-4", 1
         print("device:", "cuda" if torch.cuda.is_available() else "cpu", "| model:", MODEL_NAME)
         """),
         md("""

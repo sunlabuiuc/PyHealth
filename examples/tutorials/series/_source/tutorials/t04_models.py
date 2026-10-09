@@ -33,8 +33,8 @@ def cells():
         | `XGBoostModel` | Gradient-boosted trees on code counts or tabular features | Tabular or bag-of-codes data; the standard strong baseline |
 
         On tabular and bag-of-codes data, gradient-boosted trees are often as
-        good as neural models and much faster to train, so a benchmark without
-        them can overstate what a neural model adds.
+        good as neural models, and far cheaper than sequence models, so a
+        benchmark without them can overstate what a neural model adds.
 
         ## The task: spotting heart failure from the medication list
 
@@ -217,8 +217,8 @@ def cells():
 
         - Compare every model with the random-guess line first: PR-AUC is only
           meaningful relative to the prevalence.
-        - Look at cost as well as score: training time and model size differ
-          by orders of magnitude for similar accuracy.
+        - Look at cost as well as score: training time and model size vary a
+          lot between models with similar accuracy.
         - Small gaps can be noise. Before
           declaring a winner, compute bootstrap intervals of the paired
           difference (Tutorial 03, `paired_bootstrap_diff`).
