@@ -158,13 +158,31 @@ class TestCreateSampleDatasetRoundTrip(unittest.TestCase):
                 self.assertEqual(got, by_pid)
 
     def test_misdeclared_tensor_processor_raises_with_field_name(self):
-        with self.assertRaisesRegex(Exception, "codes"):
+        with self.assertRaisesRegex(ValueError, "codes"):
             create_sample_dataset(
                 _samples(CASES["scalar str"]),
                 {"raw_field": "raw", "codes": NotATensor},
                 OUTPUT,
                 in_memory=False,
             )
+
+    def test_disk_write_starts_no_processes(self):
+        # litdata.optimize left helper processes running when the transform
+        # raised; they deadlocked a later resource-tracker shutdown on Linux.
+        from unittest import mock
+
+        with mock.patch(
+            "multiprocessing.process.BaseProcess.start",
+            side_effect=AssertionError("create_sample_dataset started a process"),
+        ):
+            create_sample_dataset(_samples(CASES["scalar str"]), INPUT, OUTPUT, in_memory=False)
+            with self.assertRaisesRegex(ValueError, "codes"):
+                create_sample_dataset(
+                    _samples(CASES["scalar str"]),
+                    {"raw_field": "raw", "codes": NotATensor},
+                    OUTPUT,
+                    in_memory=False,
+                )
 
     def test_old_records_are_returned_unchanged(self):
         old = {"patient_id": "p1", "raw_field": "v"}

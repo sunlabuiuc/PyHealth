@@ -97,9 +97,10 @@ class SampleBuilder:
         builder.fit(samples)
         builder.save(path)  # writes a schema.pkl metadata file
 
-    After saving the schema, `litdata.optimize` can be used with `builder.transform`
-    to serialize and chunk pickled sample items into a directory that can be
-    loaded via SampleDataset.
+    After saving the schema, write ``builder.transform_for_storage`` of each
+    pickled sample item with a litdata ``BinaryWriter`` (as ``set_task`` and
+    ``create_sample_dataset`` do) to get a directory that can be loaded via
+    SampleDataset.
 
     Pre-fitted processors passed as `input_processors` / `output_processors` are
     used as they are; every schema field without one gets a fitted processor.
@@ -778,6 +779,27 @@ class InMemorySampleDataset(SampleDataset):
         pass  # No temporary directories to clean up for in-memory dataset
 
 
+def _write_samples(builder: "SampleBuilder", samples: list[dict], path: Path) -> None:
+    """Writes transformed samples to a litdata directory in this process.
+
+    ``litdata.optimize`` starts helper processes even with ``num_workers=0``,
+    and when the transform raises it leaves them running. They hold
+    multiprocessing's resource-tracker pipe open, so a later tracker shutdown
+    (another dataset build, or interpreter exit) waits forever on Linux.
+    Writing with ``BinaryWriter`` here, as ``set_task`` does, starts no
+    processes and lets errors propagate cleanly.
+    """
+    from litdata.streaming.writer import BinaryWriter
+
+    from .base_dataset import _litdata_merge
+
+    writer = BinaryWriter(cache_dir=str(path), chunk_bytes="64MB")
+    for i, sample in enumerate(samples):
+        writer.add_item(i, builder.transform_for_storage({"sample": pickle.dumps(sample)}))
+    writer.done()
+    _litdata_merge(path)
+
+
 def create_sample_dataset(
     samples: List[Dict[str, Any]],
     input_schema: Dict[str, Any],
@@ -794,8 +816,8 @@ def create_sample_dataset(
       - Create a temporary directory for the dataset output.
       - Fit a `SampleBuilder` with the provided schemas and samples.
       - Save the fitted `schema.pkl` to the temporary directory.
-      - Use `litdata.optimize` with `builder.transform` to write serialized
-        and chunked sample files into the directory.
+      - Write the transformed samples into the directory with a litdata
+        ``BinaryWriter``, in this process (no worker processes).
       - Return a `SampleDataset` instance pointed at the temporary directory.
 
     Args:
@@ -853,13 +875,7 @@ def create_sample_dataset(
         )
         builder.fit(samples)
         builder.save(str(path / "schema.pkl"))
-        litdata.optimize(
-            fn=builder.transform_for_storage,
-            inputs=[{"sample": pickle.dumps(x)} for x in samples],
-            output_dir=str(path),
-            chunk_bytes="64MB",
-            num_workers=0,
-        )
+        _write_samples(builder, samples, path)
 
         return SampleDataset(
             path=str(path),
