@@ -78,6 +78,7 @@ def cells():
             timestamp_format: "%Y-%m-%d %H:%M"
             attributes: ["diagnosis", "systolic_bp"]
         ''')
+        print(sorted(p.name for p in root.iterdir()))
         """),
         md("""
         Notice the raw data has inconsistent code case (`i10` vs `I10`). The
