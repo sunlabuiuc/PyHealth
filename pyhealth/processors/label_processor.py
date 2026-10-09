@@ -13,7 +13,16 @@ logger = logging.getLogger(__name__)
 class BinaryLabelProcessor(FeatureProcessor):
     """
     Processor for binary classification labels.
+
+    Examples:
+        >>> from pyhealth.processors import BinaryLabelProcessor
+        >>> p = BinaryLabelProcessor()
+        >>> p.fit([{"y": 0}, {"y": 1}], "y")
+        >>> p.process(1)
+        tensor([1.])
     """
+
+    stores_tensor = True
 
     def __init__(self):
         super().__init__()
@@ -62,7 +71,16 @@ class BinaryLabelProcessor(FeatureProcessor):
 class MultiClassLabelProcessor(FeatureProcessor):
     """
     Processor for multi-class classification labels.
+
+    Examples:
+        >>> from pyhealth.processors import MultiClassLabelProcessor
+        >>> p = MultiClassLabelProcessor()
+        >>> p.fit([{"y": "a"}, {"y": "b"}, {"y": "c"}], "y")
+        >>> p.process("b")
+        tensor(1)
     """
+
+    stores_tensor = True
 
     def __init__(self):
         super().__init__()
@@ -111,7 +129,16 @@ class MultiLabelProcessor(FeatureProcessor):
 
     Args:
         num_classes (int): Number of classes.
+
+    Examples:
+        >>> from pyhealth.processors import MultiLabelProcessor
+        >>> p = MultiLabelProcessor()
+        >>> p.fit([{"y": ["a"]}, {"y": ["a", "b"]}], "y")
+        >>> p.process(["b"])
+        tensor([0., 1.])
     """
+
+    stores_tensor = True
 
     def __init__(self):
         super().__init__()
@@ -165,7 +192,14 @@ class MultiLabelProcessor(FeatureProcessor):
 class RegressionLabelProcessor(FeatureProcessor):
     """
     Processor for regression labels.
+
+    Examples:
+        >>> from pyhealth.processors import RegressionLabelProcessor
+        >>> RegressionLabelProcessor().process(2.5)
+        tensor([2.5000])
     """
+
+    stores_tensor = True
 
     def process(self, value: Any) -> torch.Tensor:
         return torch.tensor([float(value)], dtype=torch.float32)

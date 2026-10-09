@@ -23,7 +23,19 @@ class TimeseriesProcessor(FeatureProcessor):
 
     Output:
         - torch.Tensor of shape (S, F), where S is the number of sampled time steps.
+
+    Examples:
+        >>> from datetime import datetime, timedelta
+        >>> from pyhealth.processors import TimeseriesProcessor
+        >>> t0 = datetime(2020, 1, 1)
+        >>> value = ([t0, t0 + timedelta(hours=2)], [[1.0], [3.0]])
+        >>> p = TimeseriesProcessor(sampling_rate=timedelta(hours=1))
+        >>> p.fit([{"x": value}], "x")
+        >>> p.process(value).shape
+        torch.Size([3, 1])
     """
+
+    stores_tensor = True
 
     def __init__(
         self,

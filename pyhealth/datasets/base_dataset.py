@@ -44,7 +44,7 @@ from ..data import Patient
 from ..tasks import BaseTask
 from ..processors.base_processor import FeatureProcessor
 from .configs import load_yaml_config
-from .sample_dataset import SampleDataset, SampleBuilder
+from .sample_dataset import STORAGE_FORMAT, SampleDataset, SampleBuilder
 from .splitter import Split
 from ..utils import set_env
 
@@ -292,13 +292,23 @@ def _task_transform_fn(
     Args:
         args (tuple): A tuple containing:
             worker_id (int): The ID of the worker.
-            task (BaseTask): The task to apply.
+            task (BaseTask | bytes): The task to apply, or the task pickled.
             patient_ids (Iterable[str]): The patient IDs to process.
             global_event_df (pl.LazyFrame): The global event dataframe.
             output_dir (Path): The output directory to save results.
     """
     BATCH_SIZE = 128  # Use a batch size 128 can reduce runtime by 30%.
     worker_id, task, patient_ids, global_event_df, output_dir = args
+    if isinstance(task, bytes):
+        try:
+            task = pickle.loads(task)
+        except Exception as e:
+            raise RuntimeError(
+                f"A set_task worker process could not load the task ({e}). Worker "
+                "processes import your script without running its "
+                "`if __name__ == '__main__':` block, so define the task class at "
+                "module level in an importable file, or use num_workers=1."
+            ) from e
     total_patients = len(list(patient_ids))
     logger.info(
         f"Worker {worker_id} started processing {total_patients} patients. (Polars threads: {pl.thread_pool_size()})"
@@ -377,7 +387,7 @@ def _proc_transform_fn(args: tuple[int, Path, int, int, Path]) -> None:
         complete = 0
         write_index = 0
         for i in range(start_idx, end_idx):
-            transformed: Dict[str, Any] = builder.transform(dataset[i])
+            transformed: dict[str, Any] = builder.transform_for_storage(dataset[i])
             writer.add_item(write_index, transformed)
             write_index += 1
             complete += 1
@@ -1001,10 +1011,15 @@ class BaseDataset(ABC):
                 # spwan is required for polars in multiprocessing, see https://docs.pola.rs/user-guide/misc/multiprocessing/#summary
                 ctx = multiprocessing.get_context("spawn")
                 queue = ctx.Queue()
+                # Send the task pickled: if a worker cannot unpickle it (e.g. the
+                # class is defined under `if __name__ == "__main__":`), the error
+                # is raised in _task_transform_fn and reaches the caller, instead
+                # of failing inside the pool's own argument handling, which hangs.
+                task_bytes = pickle.dumps(task)
                 args_list = [
                     (
                         worker_id,
-                        task,
+                        task_bytes,
                         pids,
                         global_event_df,
                         output_dir,
@@ -1207,6 +1222,8 @@ class BaseDataset(ABC):
                     if output_processors
                     else None
                 ),
+                # Layout of processed samples on disk; a new layout gets a new cache.
+                "storage_format": STORAGE_FORMAT,
                 # Only present with a split, so existing unsplit caches keep their key.
                 **({"split": split.to_dict()} if split is not None else {}),
             },

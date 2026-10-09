@@ -44,6 +44,8 @@ class DeepNestedSequenceProcessor(FeatureProcessor, TokenProcessorInterface):
         >>> result.shape  # (1, max_visits_per_group, max_codes_per_visit)
     """
 
+    stores_tensor = True
+
     def __init__(self):
         self.code_vocab: Dict[Any, int] = {"<pad>": self.PAD, "<unk>": self.UNK}
         self._next_index = 2
@@ -250,6 +252,8 @@ class DeepNestedFloatsProcessor(FeatureProcessor):
         >>> result = processor.process([[[1.0, 2.0], [3.0]]])
         >>> result.shape  # (1, max_visits_per_group, max_values_per_visit)
     """
+
+    stores_tensor = True
 
     def __init__(self, forward_fill: bool = True):
         self._max_middle_len = 1  # Maximum length of middle sequences (visits)
