@@ -1,3 +1,4 @@
+import copy
 import logging
 import os
 from datetime import datetime
@@ -11,11 +12,23 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 from tqdm.autonotebook import trange
 
-from pyhealth.metrics import (binary_metrics_fn, multiclass_metrics_fn,
-                              multilabel_metrics_fn, regression_metrics_fn)
+from pyhealth.metrics import (
+    binary_metrics_fn,
+    multiclass_metrics_fn,
+    multilabel_metrics_fn,
+    regression_metrics_fn,
+)
 from pyhealth.utils import create_directory
 
 logger = logging.getLogger(__name__)
+
+
+def _cpu_state_dict(model: nn.Module) -> dict:
+    """A detached CPU copy of the model's state, safe from later updates."""
+    return {
+        key: value.detach().to("cpu", copy=True) if torch.is_tensor(value) else copy.deepcopy(value)
+        for key, value in model.state_dict().items()
+    }
 
 
 def is_best(best_score: float, score: float, monitor_criterion: str) -> bool:
@@ -133,6 +146,7 @@ class Trainer:
         monitor_criterion: str = "max",
         load_best_model_at_last: bool = True,
         patience=None,
+        keep_best_in_memory: bool = True,
     ):
         """Trains the model.
 
@@ -152,6 +166,14 @@ class Trainer:
                 Default is True.
             patience: Number of epochs to wait for improvement before early stopping.
                 Default is None, which means no early stopping.
+            keep_best_in_memory: When ``monitor`` is set and the trainer has no
+                output directory (``enable_logging=False``), keep a CPU copy of
+                the best epoch's weights in memory so ``load_best_model_at_last``
+                can restore them. This costs one extra copy of the model's
+                weights in CPU memory; set False to save it, in which case the
+                last epoch's weights are kept (with a warning). With an output
+                directory the best weights are saved to ``best.ckpt`` instead.
+                Default is True.
 
         Raises:
             TypeError: If the model is fit outside the trainer (it sets
@@ -199,6 +221,19 @@ class Trainer:
         # initialize
         data_iterator = iter(train_dataloader)
         best_score = -1 * float("inf") if monitor_criterion == "max" else float("inf")
+        best_state = None
+        restore_from_memory = (
+            load_best_model_at_last
+            and monitor is not None
+            and val_dataloader is not None
+            and self.exp_path is None
+        )
+        if restore_from_memory and not keep_best_in_memory:
+            logger.warning(
+                "No output directory and keep_best_in_memory=False: the model "
+                "will keep the last epoch's weights, not the best epoch's."
+            )
+            restore_from_memory = False
         if steps_per_epoch is None:
             steps_per_epoch = len(train_dataloader)
         global_step = 0
@@ -259,6 +294,8 @@ class Trainer:
                         patience_counter = 0
                         if self.exp_path is not None:
                             self.save_ckpt(os.path.join(self.exp_path, "best.ckpt"))
+                        elif restore_from_memory:
+                            best_state = _cpu_state_dict(self.model)
                     else:
                         patience_counter += 1
                         # early stopping
@@ -273,6 +310,9 @@ class Trainer:
             os.path.join(self.exp_path, "best.ckpt")):
             logger.info("Loaded best model")
             self.load_ckpt(os.path.join(self.exp_path, "best.ckpt"))
+        elif restore_from_memory and best_state is not None:
+            logger.info("Loaded best model (kept in memory)")
+            self.model.load_state_dict(best_state)
 
         # test
         if test_dataloader is not None:

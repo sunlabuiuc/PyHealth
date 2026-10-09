@@ -4,6 +4,8 @@ import math
 from typing import Dict, Optional, Tuple, Callable, Union, cast
 
 import torch
+
+from pyhealth.utils import _seeded_by
 import torch.nn.functional as F
 from torch.nn import CosineSimilarity
 
@@ -162,6 +164,7 @@ class Lime(BaseInterpreter):
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
+    @_seeded_by("random_seed")
     def attribute(
         self,
         baseline: Optional[Dict[str, torch.Tensor]] = None,
@@ -204,10 +207,6 @@ class Lime(BaseInterpreter):
             ... )
             >>> print(lime_values['conditions'])  # Shape: (1, 3)
         """
-        # Set random seed for reproducibility if specified
-        if self.random_seed is not None:
-            torch.manual_seed(self.random_seed)
-
         device = next(self.model.parameters()).device
         
         # Filter kwargs to only include model feature keys and ensure they are tuples
