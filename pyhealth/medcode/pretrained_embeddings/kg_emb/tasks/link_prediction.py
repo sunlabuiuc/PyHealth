@@ -11,7 +11,8 @@ def link_prediction_fn(
 
     """Process a triple list for the link prediction task
 
-    .. deprecated::
+    .. warning::
+        Deprecated.
         Use the :class:`KGLinkPrediction` task with
         ``BaseKGDataset.set_task``. This function will be removed in the
         next release.

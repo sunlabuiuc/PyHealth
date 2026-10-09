@@ -155,9 +155,12 @@ See ``examples/kg_emb_link_prediction.py`` for a self-contained walk-through.
 The PyHealth 1.x entry points, ``link_prediction_fn``,
 :class:`~pyhealth.medcode.pretrained_embeddings.kg_emb.datasets.SampleKGDataset`
 and :func:`~pyhealth.medcode.pretrained_embeddings.kg_emb.datasets.split`,
-still work for one release with a ``DeprecationWarning``. Ids no longer
-follow the 1.x order of first appearance: map 1.x embeddings through the
-``id2entity`` saved with them.
+still work for one release with a ``DeprecationWarning``. They keep their
+1.x behaviour, including training negatives filtered with every triple of
+the graph, held-out ones included; only the 2.0 path above avoids that. A
+model must be built from a sample dataset part, not from the
+``BaseKGDataset`` itself. Ids no longer follow the 1.x order of first
+appearance: map 1.x embeddings through the ``id2entity`` saved with them.
 
 .. autoclass:: pyhealth.medcode.pretrained_embeddings.kg_emb.datasets.BaseKGDataset
     :members:

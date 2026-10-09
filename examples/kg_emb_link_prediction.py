@@ -120,7 +120,7 @@ def main() -> None:
         print("filtered test metrics:", scores)
 
         # Entity names from ids: the most likely tails of (e0, r1, ?), which
-        # should come from the second cluster, e10..e19.
+        # should mostly come from the second cluster, e10..e19.
         model.cpu()
         top = model.inference(
             head=dataset.entity2id["e0"], relation=dataset.relation2id["r1"], top_k=5

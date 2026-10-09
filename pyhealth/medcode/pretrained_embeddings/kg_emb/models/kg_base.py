@@ -7,7 +7,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-from pyhealth.datasets import SampleDataset
+from pyhealth.datasets import BaseDataset, SampleDataset
 from pyhealth.processors import KGTripleProcessor
 
 # Negatives per positive triple when the caller does not choose: the
@@ -73,6 +73,16 @@ class KGEBaseModel(ABC, nn.Module):
         negative_sampling: int | None = None,
     ):
         super().__init__()
+        if isinstance(dataset, BaseDataset):
+            # A BaseKGDataset has the 1.x count attributes but no fitted
+            # processor: accepting it would filter training negatives with
+            # the batches' full-graph ground truths, i.e. with held-out
+            # triples.
+            raise TypeError(
+                f"{type(dataset).__name__} is a base dataset; pass the training "
+                "part returned by set_task(KGLinkPrediction(...), "
+                "split=PatientSplit(...)) instead."
+            )
         processor = getattr(dataset, "input_processors", {}).get("triple")
         if isinstance(processor, KGTripleProcessor):
             self.triple_processor: KGTripleProcessor | None = processor

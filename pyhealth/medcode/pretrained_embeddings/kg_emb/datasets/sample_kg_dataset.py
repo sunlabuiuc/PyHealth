@@ -34,7 +34,8 @@ __all__ = ["SampleKGDataset"]
 class SampleKGDataset(InMemorySampleDataset):
     r"""In-memory dataset of knowledge-graph link-prediction samples.
 
-    .. deprecated::
+    .. warning::
+        Deprecated.
         Use :class:`BaseKGDataset` with ``set_task(KGLinkPrediction(...),
         split=PatientSplit(...))``, which returns streaming
         :class:`~pyhealth.datasets.SampleDataset` parts. This class will be

@@ -291,6 +291,13 @@ class TestBaseKGDataset(unittest.TestCase):
         self.assertEqual(sample_ds.task_spec_param, {"negative_sampling": 4})
         self.assertEqual(sample_ds.entity_num, 4)
 
+    def test_legacy_task_warns_once_per_call(self) -> None:
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            self.dataset.set_task(link_prediction_fn)
+        ours = [w for w in caught if "will be removed in the next release" in str(w.message)]
+        self.assertEqual(len(ours), 1, [str(w.message) for w in ours])
+
     def test_legacy_task_fn_keyword_is_accepted(self) -> None:
         with self.assertWarns(DeprecationWarning):
             sample_ds = self.dataset.set_task(task_fn=link_prediction_fn)
@@ -961,51 +968,60 @@ class TestModelsOnSampleDatasets(unittest.TestCase):
         self.assertIn("y_prob", out)  # model.eval() decides, not the flag
 
 
+def record_negatives(model) -> dict:
+    """Wraps train_neg_sample_gen to keep what forward draws."""
+    drawn = {}
+    original = model.train_neg_sample_gen
+
+    def record(**kwargs):
+        drawn["head"], drawn["tail"] = original(**kwargs)
+        return drawn["head"], drawn["tail"]
+
+    model.train_neg_sample_gen = record
+    return drawn
+
+
 class TestTrainingNegativesUseTrainingTriplesOnly(unittest.TestCase):
     """Regression test for the leak: training negatives were filtered with
     ground truths of the whole graph, so held-out positives were never drawn."""
 
-    def test_a_tail_true_only_in_test_can_be_a_training_negative(self) -> None:
+    def test_held_out_positives_are_drawable_and_training_ones_are_not(self) -> None:
         import numpy as np
 
         from pyhealth.medcode.pretrained_embeddings.kg_emb.models import TransE
         from pyhealth.processors import KGTripleProcessor
 
-        # Training triple (0, 0, 1); (0, 0, 2) is a test triple.
-        processor = KGTripleProcessor(num_entities=3, num_relations=1)
-        processor.fit([{"triple": (0, 0, 1)}], "triple")
+        # Training: (0, 0, 1), (0, 0, 3), (4, 0, 1). Test: (0, 0, 2), (5, 0, 1).
+        processor = KGTripleProcessor(num_entities=6, num_relations=1)
+        processor.fit(
+            [{"triple": t} for t in [(0, 0, 1), (0, 0, 3), (4, 0, 1)]], "triple"
+        )
 
         class _Train:
             input_processors = {"triple": processor}
 
-        model = TransE(dataset=_Train(), e_dim=4, r_dim=4, negative_sampling=64)
+        model = TransE(dataset=_Train(), e_dim=4, r_dim=4, negative_sampling=256)
         model.train()
-        # The sample's ground truth covers the whole graph, as KGLinkPrediction gives it.
+        # Ground truths of the whole graph, as KGLinkPrediction gives them.
         batch = {
             "triple": torch.tensor([[0, 0, 1]]),
-            "ground_truth_head": [[0]],
-            "ground_truth_tail": [[1, 2]],
+            "ground_truth_head": [[0, 4, 5]],
+            "ground_truth_tail": [[1, 2, 3]],
         }
-        drawn = {}
-        original = model.train_neg_sample_gen
-
-        def record(**kwargs):
-            drawn["head"], drawn["tail"] = original(**kwargs)
-            return drawn["head"], drawn["tail"]
-
-        model.train_neg_sample_gen = record
+        drawn = record_negatives(model)
         np.random.seed(0)
         model(**batch)["loss"].backward()
 
-        tails = set(drawn["tail"].flatten().tolist())
-        self.assertNotIn(1, tails)  # the training positive stays filtered
-        self.assertIn(2, tails)  # the test positive is a legitimate negative
-        self.assertNotIn(0, set(drawn["head"].flatten().tolist()))
+        # Every training positive of the pair stays out (reference
+        # semantics); the test-only positives 2 and 5 are drawable.
+        self.assertEqual(set(drawn["tail"].flatten().tolist()), {0, 2, 4, 5})
+        self.assertEqual(set(drawn["head"].flatten().tolist()), {1, 2, 3, 5})
 
 
 class TestTrainingNegativesOnARealSplit(unittest.TestCase):
-    """The same property on set_task output: (b, r2, d) is a test triple and
-    (a, r2, d) a training one, so b must stay drawable as a head negative."""
+    """The same property on set_task output, through forward: (b, r2, d) is a
+    test triple and (a, r2, d) a training one, so b must be drawable as a
+    head negative of (a, r2, d)."""
 
     # Same graph and split as TestModelsOnSampleDatasets, without its tests.
     setUpClass = classmethod(TestModelsOnSampleDatasets.setUpClass.__func__)
@@ -1025,17 +1041,26 @@ class TestTrainingNegativesOnARealSplit(unittest.TestCase):
         )
         test_triples = {tuple(self.test[i]["triple"].tolist()) for i in range(len(self.test))}
         self.assertIn((e["b"], r["r2"], e["d"]), test_triples)
-        self.assertEqual(sorted(unpad({k: v[0] for k, v in batch["ground_truth_head"].items()})),
-                         [e["a"], e["b"]])
+        self.assertEqual(
+            sorted(unpad({k: v[0] for k, v in batch["ground_truth_head"].items()})),
+            [e["a"], e["b"]],
+        )
 
         model = TransE(dataset=self.train, e_dim=4, r_dim=4, negative_sampling=256)
         model.train()
-        gt_head, _ = model._training_filters(batch, batch["triple"])
-        self.assertEqual(gt_head, [[e["a"]]])
+        drawn = record_negatives(model)
         np.random.seed(0)
-        heads, _ = model.train_neg_sample_gen(gt_head, [[]], 256)
-        self.assertIn(e["b"], heads.flatten().tolist())
-        self.assertNotIn(e["a"], heads.flatten().tolist())
+        model(**batch)["loss"].backward()
+        heads = set(drawn["head"].flatten().tolist())
+        self.assertIn(e["b"], heads)
+        self.assertNotIn(e["a"], heads)
+
+    def test_a_model_cannot_be_built_from_the_base_dataset(self) -> None:
+        from pyhealth.medcode.pretrained_embeddings.kg_emb.models import TransE
+
+        # It has the 1.x count attributes, but no processor fitted on training triples.
+        with self.assertRaisesRegex(TypeError, "training part"):
+            TransE(dataset=self.dataset, e_dim=4, r_dim=4)
 
 
 class TestDeprecatedEntryPoints(unittest.TestCase):

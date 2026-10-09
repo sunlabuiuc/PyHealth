@@ -22,7 +22,8 @@ def split(
 ) -> tuple[Fold, Fold, Fold]:
     """Split a KG sample dataset into three disjoint folds.
 
-    .. deprecated::
+    .. warning::
+        Deprecated.
         Use ``set_task(KGLinkPrediction(...), split=PatientSplit(...))``,
         which splits triples before fitting the processors. This function
         will be removed in the next release.

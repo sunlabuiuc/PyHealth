@@ -513,13 +513,17 @@ class BaseKGDataset(BaseDataset):
             )
         if save is not None:
             logger.info("set_task(save=...) is ignored: samples are not pickled.")
-        samples = task_fn(self._indexed_triples())
-        return SampleKGDataset(
-            samples=samples,
-            dataset_name=self.dataset_name,
-            task_name=task_name or task_fn.__name__,
-            dev=self.dev,
-            entity2id=self.entity2id,
-            relation2id=self.relation2id,
-            **task_spec_param,
-        )
+        # One deprecation warning per call, the one above: link_prediction_fn
+        # and SampleKGDataset would each add their own.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            samples = task_fn(self._indexed_triples())
+            return SampleKGDataset(
+                samples=samples,
+                dataset_name=self.dataset_name,
+                task_name=task_name or task_fn.__name__,
+                dev=self.dev,
+                entity2id=self.entity2id,
+                relation2id=self.relation2id,
+                **task_spec_param,
+            )
