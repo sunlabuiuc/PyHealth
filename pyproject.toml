@@ -30,21 +30,23 @@ dependencies = [
   "rdkit",
   "ogb>=1.3.5",
   "icd-mappings~=0.6.2",
-  "scikit-learn~=1.7.0",
+  # Lower bounds match or sit below Google Colab's preinstalled versions, so
+  # installing PyHealth there doesn't downgrade packages already imported.
+  "scikit-learn>=1.6,<2",
   "networkx",
   "mne~=1.10.0",
-  "numpy~=2.2.0",
+  "numpy>=2.1,<3",
   "tqdm",
   "polars~=1.35.2",
-  "pandas~=2.3.1",
-  "pydantic~=2.11.7",
+  "pandas>=2.2,<3",
+  "pydantic>=2.11,<3",
   "dask[complete]>=2026.1.0",
   # >=0.2.64: worker indexes merge in numeric rank order (patient_to_index relies
   # on it). <0.2.68: 0.2.68+ reads SampleDataset.subset() parts ~10-35x slower.
   "litdata>=0.2.64,<0.2.68",
   "pyarrow>=23.0.1",
   "orjson~=3.10",
-  "narwhals~=2.13.0",
+  "narwhals>=2.13,<3",
   "more-itertools~=10.8.0",
   "einops>=0.8.0",
   "linear-attention-transformer>=0.19.1",
