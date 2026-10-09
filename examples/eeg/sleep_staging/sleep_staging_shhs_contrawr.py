@@ -12,6 +12,7 @@ dataset = SHHSDataset(
 )
 
 # step 2: set task
+# epochs without a corresponding SleepStage annotation are skipped
 sleep_staging_ds = dataset.set_task(sleep_staging_shhs_fn)
 sleep_staging_ds.stat()
 
