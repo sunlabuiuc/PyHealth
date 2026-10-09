@@ -192,9 +192,10 @@ def cells():
         print(f"test PR-AUC  {scores['pr_auc']:.3f}  (no-skill baseline {prevalence:.3f})")
         """),
         md("""
-        On synthetic data the scores are close to chance: the generated
-        records have little real signal. On real MIMIC-III the same code learns
-        meaningful patterns.
+        On synthetic data the scores are modest and change noticeably from
+        run to run: the generated records carry little signal, and the test
+        set holds only a dozen or so positive cases. On real MIMIC-III the
+        same code learns meaningful patterns.
 
         ## What you did
 

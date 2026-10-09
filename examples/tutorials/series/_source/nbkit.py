@@ -9,13 +9,41 @@ import textwrap
 
 import nbformat
 
-INSTALL = (
-    '%pip install -q "pyhealth[xgboost] @ git+https://github.com/sunlabuiuc/PyHealth.git"'
-)
+PYHEALTH_SPEC = "pyhealth[xgboost] @ git+https://github.com/sunlabuiuc/PyHealth.git"
+
+INSTALL = f'''# First run: installs PyHealth, then restarts the runtime once so Python
+# loads the new package versions. Then choose Runtime > Run all again;
+# this cell will see PyHealth is installed and skip the install.
+import importlib.util
+import os
+import subprocess
+import sys
+
+PYHEALTH = "{PYHEALTH_SPEC}"
+
+if importlib.util.find_spec("pyhealth") is None:
+    print("Installing PyHealth (1-2 minutes)...")
+    result = subprocess.run(
+        [sys.executable, "-m", "pip", "install", "-q", PYHEALTH],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        print(result.stdout[-5000:], result.stderr[-5000:])
+        raise RuntimeError("Installing PyHealth failed; see the log above.")
+    print("Installed. Restarting the runtime now; then choose Runtime > Run all again.")
+    os.kill(os.getpid(), 9)  # Colab restarts the runtime automatically
+else:
+    import pyhealth
+    print("PyHealth is installed and ready.")'''
 INSTALL_NOTE = (
     "These tutorials use features from the upcoming PyHealth 2.1 release, so "
-    "for now we install the latest version straight from GitHub. Once 2.1 is "
-    'on PyPI this becomes `pip install "pyhealth>=2.1"`.'
+    "for now we install the latest version straight from GitHub.\n\n"
+    "**On Colab this takes two clicks of Runtime > Run all.** The first run "
+    "installs PyHealth and restarts the runtime, because Colab has already "
+    "loaded older versions of some packages (such as numpy). Colab then says "
+    '"Your session crashed": that is expected. Choose Run all again and the '
+    "tutorial runs through. On your own machine, install PyHealth once "
+    '(`pip install "pyhealth[xgboost]"`) and this cell does nothing.'
 )
 
 SERIES = [
