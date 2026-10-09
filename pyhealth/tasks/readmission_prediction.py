@@ -189,9 +189,10 @@ class ReadmissionPredictionMIMIC4(BaseTask):
             exclude_minors: Whether to exclude patients whose
                 ``anchor_age`` is less than 18. Defaults to True.
             min_gap: Minimum time between discharge and the next admission
-                for it to be considered a readmission. Admissions at or below
-                this gap are excluded. Defaults to None, which applies no
-                minimum gap.
+                for it to be considered a readmission. Admissions occuring within the window of discharge time + ``min_gap`` are considered as a single admission. Defaults to None, which applies no
+                minimum gap and treats some internal admissions as readmissions.
+                
+                Consider setting ``min_gap`` to avoid this behaviour.
             **kwargs: Passed to :class:`~pyhealth.tasks.BaseTask`, e.g.
                 ``code_mapping``.
         """
