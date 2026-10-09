@@ -15,6 +15,7 @@ that an entity exists does not reveal any of its edges.
 
 from __future__ import annotations
 
+import inspect
 import logging
 import warnings
 from collections.abc import Callable
@@ -175,6 +176,44 @@ def index_triples(
             entities.rename({"name": "tail", "id": "tail_id"}), on="tail", how="left"
         )
     )
+
+
+def _uses_kg_triple(task: BaseTask) -> bool:
+    spec = getattr(task, "input_schema", {}).get("triple")
+    name = spec[0] if isinstance(spec, tuple) else spec
+    return name == "kg_triple"
+
+
+def _log_unseen_in_training(parts: tuple) -> None:
+    """Logs, per held-out part, the triples whose entity or relation is not
+    in any training triple.
+
+    Ids are global, so such triples are kept and scored, but their embeddings
+    received no training signal for that entity or relation.
+    """
+    fitted = parts[0].input_processors["triple"]
+    entities = {h for h, _ in fitted.true_tail} | {
+        t for tails in fitted.true_tail.values() for t in tails
+    }
+    relations = {r for _, r in fitted.true_tail}
+    for k, part in enumerate(parts[1:], start=1):
+        n_entity = n_relation = 0
+        # Sequential iteration: on a subset, litdata's part[i] costs O(i),
+        # which made this pass quadratic in the size of the part.
+        for sample in part:
+            head, relation, tail = sample["triple"].tolist()
+            n_entity += head not in entities or tail not in entities
+            n_relation += relation not in relations
+        level = logging.WARNING if n_entity or n_relation else logging.INFO
+        logger.log(
+            level,
+            "Part %d: %d of %d triples involve an entity absent from the "
+            "training triples, %d a relation absent from them.",
+            k,
+            n_entity,
+            len(part),
+            n_relation,
+        )
 
 
 class BaseKGDataset(BaseDataset):
@@ -393,8 +432,14 @@ class BaseKGDataset(BaseDataset):
     def set_task(self, task: BaseTask | Callable | None = None, *args, **kwargs):
         """Builds the sample dataset(s) of ``task``.
 
-        With a :class:`~pyhealth.tasks.BaseTask`, this is
-        :meth:`pyhealth.datasets.BaseDataset.set_task`. A plain function,
+        With a :class:`~pyhealth.tasks.BaseTask` (by default
+        :class:`KGLinkPrediction`), this is
+        :meth:`pyhealth.datasets.BaseDataset.set_task`. For a task whose
+        ``triple`` field uses the ``kg_triple`` processor, it also warns when
+        ``split`` is missing, since that processor would then be fitted on
+        every triple, and with ``split`` it logs, for each held-out part, how
+        many triples involve an entity or a relation absent from the training
+        triples. A plain function,
         such as ``link_prediction_fn``, goes through the deprecated path of
         PyHealth 1.x: it receives the list of indexed triples, in file order,
         and its samples are wrapped in a :class:`SampleKGDataset`, with the
@@ -407,7 +452,39 @@ class BaseKGDataset(BaseDataset):
             task = kwargs.pop("task_fn")
         if task is not None and not isinstance(task, BaseTask) and callable(task):
             return self._set_legacy_task(task, *args, **kwargs)
-        return super().set_task(task, *args, **kwargs)
+        if task is None:
+            task = self.default_task
+
+        bound = inspect.signature(BaseDataset.set_task).bind(
+            self, task, *args, **kwargs
+        ).arguments
+        split = bound.get("split")
+        # A supplied processor is used as it is, never refitted.
+        fits_triples = _uses_kg_triple(task) and "triple" not in (
+            bound.get("input_processors") or {}
+        )
+        if fits_triples and split is None:
+            warnings.warn(
+                "set_task without split= fits the kg_triple processor on every "
+                "triple, so training negatives and subsampling weights depend on "
+                "validation and test triples. Pass split=PatientSplit(...) to fit "
+                "it on the training triples only.",
+                UserWarning,
+                stacklevel=2,
+            )
+        result = super().set_task(task, *args, **kwargs)
+        if _uses_kg_triple(task) and isinstance(result, tuple):
+            _log_unseen_in_training(result)
+        return result
+
+    @property
+    def default_task(self) -> BaseTask:
+        """:class:`KGLinkPrediction` on this graph."""
+        from ..tasks.kg_link_prediction import KGLinkPrediction
+
+        return KGLinkPrediction(
+            num_entities=self.num_entities, num_relations=self.num_relations
+        )
 
     def _set_legacy_task(
         self,

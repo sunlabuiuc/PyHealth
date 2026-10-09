@@ -8,6 +8,7 @@ contract.
 from __future__ import annotations
 
 import hashlib
+import logging
 import tempfile
 import unittest
 import warnings
@@ -611,3 +612,250 @@ class TestKGProcessorKeepsLongLists(unittest.TestCase):
 
         model = TransE(dataset=make_dataset(n=4), e_dim=8, r_dim=8)
         self.assertEqual(model._unpad_ground_truth(gt), [[5, 0, 7, 9], [4]])
+
+
+# Twelve rows, one of them a duplicate of the first: 11 distinct triples
+# over entities a..f (f appears once, so a split can leave it out of training).
+TASK_TRIPLES = [
+    ("a", "r1", "b"),
+    ("a", "r1", "c"),
+    ("b", "r1", "c"),
+    ("c", "r2", "a"),
+    ("d", "r2", "a"),
+    ("a", "r2", "d"),
+    ("b", "r2", "d"),
+    ("e", "r1", "a"),
+    ("a", "r1", "b"),
+    ("c", "r1", "e"),
+    ("d", "r1", "b"),
+    ("e", "r2", "f"),
+]
+TASK_SPLIT_RATIOS = (0.6, 0.2, 0.2)
+
+
+def unpad(field: dict[str, torch.Tensor]) -> list[int]:
+    """The real entities of one processed kg_entity_list field."""
+    return field["value"][field["mask"].bool()].tolist()
+
+
+class _ListHandler(logging.Handler):
+    def __init__(self) -> None:
+        super().__init__(level=logging.DEBUG)
+        self.messages: list[str] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.messages.append(record.getMessage())
+
+
+class TestKGLinkPrediction(unittest.TestCase):
+    """KGLinkPrediction through the real set_task, with a triple-level split."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        from pyhealth.datasets import PatientSplit
+        from pyhealth.medcode.pretrained_embeddings.kg_emb.tasks import KGLinkPrediction
+
+        cls._tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        cls.root = Path(cls._tmp.name)
+        config = write_kg(cls.root, TASK_TRIPLES)
+        cls.dataset = BaseKGDataset(
+            root=str(cls.root), config_path=config, cache_dir=cls.root / "cache"
+        )
+        cls.task = KGLinkPrediction(
+            num_entities=cls.dataset.num_entities,
+            num_relations=cls.dataset.num_relations,
+        )
+        cls.split = PatientSplit(ratios=TASK_SPLIT_RATIOS, seed=3)
+        handler = _ListHandler()
+        kg_logger = logging.getLogger("pyhealth.medcode.pretrained_embeddings.kg_emb")
+        kg_logger.addHandler(handler)
+        kg_logger.setLevel(logging.INFO)
+        try:
+            cls.parts = cls.dataset.set_task(cls.task, split=cls.split, num_workers=1)
+        finally:
+            kg_logger.removeHandler(handler)
+        cls.log = handler.messages
+
+        e, r = cls.dataset.entity2id, cls.dataset.relation2id
+        cls.distinct = sorted({(e[h], r[rel], e[t]) for h, rel, t in TASK_TRIPLES})
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls._tmp.cleanup()
+
+    def triples_of(self, part) -> list[tuple[int, int, int]]:
+        return [tuple(part[i]["triple"].tolist()) for i in range(len(part))]
+
+    def test_parts_are_streaming_sample_datasets(self) -> None:
+        from pyhealth.datasets import SampleDataset
+        from pyhealth.datasets.sample_dataset import InMemorySampleDataset
+
+        self.assertEqual(len(self.parts), 3)
+        for part in self.parts:
+            self.assertIsInstance(part, SampleDataset)
+            self.assertNotIsInstance(part, InMemorySampleDataset)
+
+    def test_parts_partition_the_distinct_triples(self) -> None:
+        triples = [t for part in self.parts for t in self.triples_of(part)]
+        self.assertEqual(sorted(triples), self.distinct)
+        self.assertEqual(len(triples), 11)
+
+    def test_duplicates_are_removed_and_logged(self) -> None:
+        self.assertTrue(any("Removed 1 duplicate" in m for m in self.log), self.log)
+
+    def test_the_first_duplicate_in_file_order_is_kept(self) -> None:
+        # (a, r1, b) is on rows 0 and 8; row 0 must be the record kept, since
+        # the record id decides which part the triple falls into.
+        e, r = self.dataset.entity2id, self.dataset.relation2id
+        duplicate = (e["a"], r["r1"], e["b"])
+        kept = [
+            part[i]["patient_id"]
+            for part in self.parts
+            for i in range(len(part))
+            if tuple(part[i]["triple"].tolist()) == duplicate
+        ]
+        self.assertEqual(kept, ["0"])
+
+    def test_ground_truth_covers_the_whole_graph(self) -> None:
+        for part in self.parts:
+            for i in range(len(part)):
+                sample = part[i]
+                h, r, t = sample["triple"].tolist()
+                with self.subTest(triple=(h, r, t)):
+                    self.assertEqual(
+                        unpad(sample["ground_truth_head"]),
+                        sorted(x for x, y, z in self.distinct if (y, z) == (r, t)),
+                    )
+                    self.assertEqual(
+                        unpad(sample["ground_truth_tail"]),
+                        sorted(z for x, y, z in self.distinct if (x, y) == (h, r)),
+                    )
+
+    def test_triple_processor_is_fitted_on_training_triples_only(self) -> None:
+        processor = self.parts[0].input_processors["triple"]
+        fitted = {(h, r, t) for (h, r), ts in processor.true_tail.items() for t in ts}
+        self.assertEqual(fitted, set(self.triples_of(self.parts[0])))
+        held_out = set(self.triples_of(self.parts[1]) + self.triples_of(self.parts[2]))
+        self.assertTrue(held_out)
+        self.assertFalse(fitted & held_out)
+        self.assertEqual(processor.size(), self.dataset.num_entities)
+        self.assertEqual(processor.num_relations, self.dataset.num_relations)
+
+    def test_unseen_entities_are_logged_per_held_out_part(self) -> None:
+        processor = self.parts[0].input_processors["triple"]
+        seen = {h for h, _ in processor.true_tail} | {
+            t for ts in processor.true_tail.values() for t in ts
+        }
+        for k in (1, 2):
+            expected = sum(
+                h not in seen or t not in seen for h, _, t in self.triples_of(self.parts[k])
+            )
+            prefix = f"Part {k}: {expected} of {len(self.parts[k])} triples"
+            self.assertTrue(any(m.startswith(prefix) for m in self.log), self.log)
+
+    def test_two_workers_give_the_same_samples(self) -> None:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            dataset = BaseKGDataset(
+                root=str(self.root),
+                config_path=self.root / "kg.yaml",
+                cache_dir=Path(tmp),
+                num_workers=2,
+            )
+            parts = dataset.set_task(self.task, split=self.split, num_workers=2)
+
+            def content(part):
+                return sorted(
+                    (
+                        tuple(s["triple"].tolist()),
+                        tuple(unpad(s["ground_truth_head"])),
+                        tuple(unpad(s["ground_truth_tail"])),
+                    )
+                    for s in (part[i] for i in range(len(part)))
+                )
+
+            for mine, theirs in zip(self.parts, parts):
+                self.assertEqual(content(mine), content(theirs))
+
+    def test_without_split_warns_at_every_call(self) -> None:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            dataset = BaseKGDataset(
+                root=str(self.root), config_path=self.root / "kg.yaml", cache_dir=Path(tmp)
+            )
+            with self.assertWarnsRegex(UserWarning, "split=PatientSplit"):
+                samples = dataset.set_task(self.task)
+            self.assertEqual(len(samples), 11)
+            # Second call: the processed cache exists, the warning still fires.
+            with self.assertWarnsRegex(UserWarning, "split=PatientSplit"):
+                dataset.set_task(self.task)
+            # Without a task, the default KGLinkPrediction is used, and warned about.
+            with self.assertWarnsRegex(UserWarning, "split=PatientSplit"):
+                dataset.set_task()
+
+    def test_default_task_matches_the_graph(self) -> None:
+        task = self.dataset.default_task
+        self.assertEqual(
+            (task.num_entities, task.num_relations),
+            (self.dataset.num_entities, self.dataset.num_relations),
+        )
+
+    def test_a_task_for_another_graph_is_rejected(self) -> None:
+        from pyhealth.medcode.pretrained_embeddings.kg_emb.tasks import KGLinkPrediction
+
+        task = KGLinkPrediction(num_entities=99, num_relations=2)
+        with self.assertRaisesRegex(ValueError, "expects 99 entities"):
+            self.dataset.set_task(task, split=self.split)
+
+    def test_supplied_processors_are_used_as_they_are(self) -> None:
+        """A supplied kg_triple processor is neither refitted nor warned about."""
+        from pyhealth.processors import KGTripleProcessor
+
+        everything = KGTripleProcessor(
+            num_entities=self.dataset.num_entities,
+            num_relations=self.dataset.num_relations,
+        )
+        everything.fit([{"triple": t} for t in self.distinct], "triple")
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", UserWarning)
+            parts = self.dataset.set_task(
+                self.task, split=self.split, input_processors={"triple": everything}
+            )
+            whole = self.dataset.set_task(
+                self.task, input_processors={"triple": everything}
+            )
+        # Fitted on the 11 triples, not refitted on the 6 training ones.
+        for result in (parts[0], whole):
+            self.assertEqual(result.input_processors["triple"].true_tail, everything.true_tail)
+
+
+class TestUnseenInTrainingLog(unittest.TestCase):
+    """The per-part count of triples whose entity or relation training never saw."""
+
+    def test_counts_heads_tails_and_relations(self) -> None:
+        from pyhealth.medcode.pretrained_embeddings.kg_emb.datasets import base_kg_dataset
+        from pyhealth.processors import KGTripleProcessor
+
+        processor = KGTripleProcessor(num_entities=6, num_relations=3)
+        processor.fit([{"triple": (0, 0, 1)}, {"triple": (1, 1, 2)}], "triple")
+
+        class _Train(list):
+            input_processors = {"triple": processor}
+
+        def part(*triples):
+            return [{"triple": torch.tensor(t)} for t in triples]
+
+        parts = (
+            _Train(),
+            part((0, 0, 2), (4, 0, 1)),  # seen; unseen head
+            part((0, 0, 5), (1, 2, 2), (3, 2, 4)),  # unseen tail; unseen relation; both
+        )
+        with self.assertLogs(base_kg_dataset.logger, level="INFO") as logs:
+            base_kg_dataset._log_unseen_in_training(parts)
+        self.assertEqual(
+            [line.split(":", 2)[2] for line in logs.output],
+            [
+                "Part 1: 1 of 2 triples involve an entity absent from the training "
+                "triples, 0 a relation absent from them.",
+                "Part 2: 2 of 3 triples involve an entity absent from the training "
+                "triples, 2 a relation absent from them.",
+            ],
+        )
