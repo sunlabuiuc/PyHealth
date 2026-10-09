@@ -1,3 +1,4 @@
+import numbers
 import warnings
 from abc import ABC
 
@@ -37,7 +38,8 @@ class KGEBaseModel(ABC, nn.Module):
         mode: evaluation metric type, one of "binary", "multiclass", or "multilabel", "multiclass" by default
         negative_sampling: Number of negative heads and of negative tails drawn
             per training triple. Defaults to the ``negative_sampling`` of a
-            1.x ``SampleKGDataset`` if it has one, else 128.
+            1.x ``SampleKGDataset`` if it has one, else to the value 1.x
+            samples carry in ``hyperparameters``, else 128.
 
     Examples:
         >>> from pyhealth.processors import KGTripleProcessor
@@ -89,14 +91,23 @@ class KGEBaseModel(ABC, nn.Module):
             self.triple_processor = None
             self.e_num = dataset.entity_num
             self.r_num = dataset.relation_num
+        # Whether the value was chosen (argument or 1.x dataset) rather than
+        # defaulted: a 1.x batch's own value only overrides a default.
+        legacy = getattr(dataset, "task_spec_param", None) or {}
         if negative_sampling is None:
-            legacy = getattr(dataset, "task_spec_param", None) or {}
-            negative_sampling = legacy.get("negative_sampling", DEFAULT_NEGATIVE_SAMPLING)
-        if not isinstance(negative_sampling, int) or negative_sampling < 1:
+            negative_sampling = legacy.get("negative_sampling")
+        self._negative_sampling_chosen = negative_sampling is not None
+        if negative_sampling is None:
+            negative_sampling = DEFAULT_NEGATIVE_SAMPLING
+        if (
+            not isinstance(negative_sampling, numbers.Integral)
+            or isinstance(negative_sampling, bool)
+            or negative_sampling < 1
+        ):
             raise ValueError(
                 f"negative_sampling must be a positive integer, got {negative_sampling!r}."
             )
-        self.negative_sampling = negative_sampling
+        self.negative_sampling = int(negative_sampling)
         self.e_dim = e_dim
         self.r_dim = r_dim
         self.ns = ns
@@ -372,6 +383,30 @@ class KGEBaseModel(ABC, nn.Module):
         raise NotImplementedError
 
 
+    def _batch_negative_sampling(self, data) -> int:
+        """Negatives per triple for this batch.
+
+        PyHealth 1.x samples may carry ``hyperparameters["negative_sampling"]``,
+        which the models used to read. It still applies when the model's
+        value was only the default, and is ignored, with a warning, when the
+        model's value was chosen.
+        """
+        hyperparameters = data.get("hyperparameters")
+        if not hyperparameters or not isinstance(hyperparameters[0], dict):
+            return self.negative_sampling
+        batch_value = hyperparameters[0].get("negative_sampling")
+        if batch_value is None or batch_value == self.negative_sampling:
+            return self.negative_sampling
+        if not self._negative_sampling_chosen:
+            return int(batch_value)
+        warnings.warn(
+            f"The samples' negative_sampling={batch_value} is ignored; the "
+            f"model's negative_sampling={self.negative_sampling} is used.",
+            UserWarning,
+            stacklevel=3,
+        )
+        return self.negative_sampling
+
     def _training_filters(self, data, positive_sample):
         """The entities kept out of each triple's training negatives.
 
@@ -427,7 +462,7 @@ class KGEBaseModel(ABC, nn.Module):
             negative_sample_head, negative_sample_tail = self.train_neg_sample_gen(
                 gt_head=gt_head,
                 gt_tail=gt_tail,
-                negative_sampling=self.negative_sampling,
+                negative_sampling=self._batch_negative_sampling(data),
             )
 
             negative_sample_head, negative_sample_tail = negative_sample_head.to(self.device), negative_sample_tail.to(self.device)

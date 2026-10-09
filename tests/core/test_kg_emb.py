@@ -1072,3 +1072,80 @@ class TestDeprecatedEntryPoints(unittest.TestCase):
             dataset = make_dataset(n=4)
         with self.assertWarnsRegex(DeprecationWarning, "kg_triple"):
             TransE(dataset=dataset, e_dim=4, r_dim=4)
+
+
+class TestNegativeSamplingReachesTheSampler(unittest.TestCase):
+    """The number of negatives drawn is the one the caller chose."""
+
+    def spy(self, model):
+        shapes = []
+        original = model.train_neg_sample_gen
+
+        def record(**kwargs):
+            out = original(**kwargs)
+            shapes.append(tuple(out[0].shape))
+            return out
+
+        model.train_neg_sample_gen = record
+        return shapes
+
+    def legacy_batch(self, per_sample=None, **dataset_kwargs):
+        samples = make_samples(4)
+        if per_sample is not None:
+            for s in samples:
+                s["hyperparameters"] = {"negative_sampling": per_sample}
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            dataset = SampleKGDataset(
+                samples=samples, entity_num=10, relation_num=3, **dataset_kwargs
+            )
+        loader = DataLoader(dataset, batch_size=2, collate_fn=collate_fn_dict_with_padding)
+        return dataset, next(iter(loader))
+
+    def build(self, dataset, **kwargs):
+        from pyhealth.medcode.pretrained_embeddings.kg_emb.models import TransE
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            model = TransE(dataset=dataset, e_dim=4, r_dim=4, **kwargs)
+        model.train()
+        return model
+
+    def test_the_model_argument_sets_the_sample_count(self) -> None:
+        from pyhealth.processors import KGTripleProcessor
+
+        processor = KGTripleProcessor(num_entities=10, num_relations=3)
+        processor.fit([{"triple": s["triple"]} for s in make_samples(4)], "triple")
+
+        class _Train:
+            input_processors = {"triple": processor}
+
+        model = self.build(_Train(), negative_sampling=7)
+        shapes = self.spy(model)
+        model(triple=torch.tensor([[0, 0, 4], [1, 1, 5]]))
+        self.assertEqual(shapes, [(2, 7)])
+
+    def test_numpy_integers_are_accepted(self) -> None:
+        import numpy as np
+
+        dataset, _ = self.legacy_batch()
+        self.assertEqual(self.build(dataset, negative_sampling=np.int64(6)).negative_sampling, 6)
+        dataset, _ = self.legacy_batch(negative_sampling=np.int32(5))
+        self.assertEqual(self.build(dataset).negative_sampling, 5)
+        with self.assertRaises(ValueError):
+            self.build(dataset, negative_sampling=True)
+
+    def test_a_1x_per_sample_value_applies_when_none_was_chosen(self) -> None:
+        dataset, batch = self.legacy_batch(per_sample=3)
+        model = self.build(dataset)
+        shapes = self.spy(model)
+        model(**batch)
+        self.assertEqual(shapes, [(2, 3)])
+
+    def test_a_chosen_value_wins_over_the_samples_with_a_warning(self) -> None:
+        dataset, batch = self.legacy_batch(per_sample=3)
+        model = self.build(dataset, negative_sampling=5)
+        shapes = self.spy(model)
+        with self.assertWarnsRegex(UserWarning, "negative_sampling=3 is ignored"):
+            model(**batch)
+        self.assertEqual(shapes, [(2, 5)])
