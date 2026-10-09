@@ -45,7 +45,7 @@ from ..processors.base_processor import FeatureProcessor
 from .configs import load_yaml_config
 from .sample_dataset import STORAGE_FORMAT, SampleDataset, SampleBuilder
 from .splitter import Split
-from ..utils import download_file, set_env
+from ..utils import download_file, preserve_rng_state, set_env
 
 # Set logging level for distributed to ERROR to reduce verbosity
 logging.getLogger("distributed").setLevel(logging.ERROR)
@@ -1123,6 +1123,7 @@ class BaseDataset(ABC):
         finally:
             self.clean_tmpdir()
 
+    @preserve_rng_state()
     def set_task(
         self,
         task: Optional[BaseTask] = None,

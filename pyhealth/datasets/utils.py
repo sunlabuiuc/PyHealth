@@ -8,7 +8,7 @@ import torch
 import litdata
 from dateutil.parser import parse as dateutil_parse
 from torch.nn.utils.rnn import pad_sequence
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, IterableDataset
 
 from pyhealth import BASE_CACHE_PATH
 from pyhealth.utils import create_directory
@@ -328,23 +328,89 @@ def collate_fn_dict_with_padding(batch: List[dict]) -> dict:
     return collated
 
 
+class _LoaderView(IterableDataset):
+    """One loader's view of a dataset: its own shuffle flag, seed and epoch.
+
+    Each pass over the loader is a new epoch with a new order derived from
+    ``(seed, epoch)``. The dataset itself is not modified, so a training and
+    an evaluation loader on the same dataset do not interfere.
+    """
+
+    def __init__(self, dataset, shuffle: bool, seed: int):
+        self.dataset = dataset
+        self.shuffle = shuffle
+        self.seed = seed
+        self.epoch = 0
+
+    def __len__(self) -> int:
+        return len(self.dataset)
+
+    def __iter__(self):
+        epoch = self.epoch
+        self.epoch += 1
+        return self.dataset._iter_for_loader(self.shuffle, self.seed, epoch)
+
+    def __getattr__(self, name):
+        # Expose the dataset's attributes (processors, schemas, ...).
+        if name == "dataset":
+            raise AttributeError(name)
+        return getattr(self.dataset, name)
+
+
 def get_dataloader(
-    dataset: litdata.StreamingDataset, batch_size: int, shuffle: bool = False
+    dataset: litdata.StreamingDataset,
+    batch_size: int,
+    shuffle: bool = False,
+    seed: int | None = None,
 ) -> DataLoader:
     """Creates a DataLoader for a given dataset.
+
+    Shuffling is reproducible and private to the loader: each pass (epoch)
+    gets a new order determined by ``seed`` and the epoch number, without
+    touching Python's, NumPy's or PyTorch's global random state, and without
+    changing the dataset (other loaders on it are unaffected). This holds for
+    in-memory and disk-backed datasets alike; the two backends give different
+    orders for the same seed.
 
     Args:
         dataset: The dataset to load data from.
         batch_size: The number of samples per batch.
         shuffle: Whether to shuffle the data at every epoch.
+        seed: Seed of the shuffle order. Default None draws one from torch's
+            random generator when the loader is created, so
+            ``torch.manual_seed(...)`` before this call makes runs
+            reproducible. Unshuffled loaders draw nothing.
 
     Returns:
         A DataLoader instance for the dataset.
+
+    Examples:
+        >>> from pyhealth.datasets import create_sample_dataset, get_dataloader
+        >>> samples = [{"patient_id": f"p{i}", "x": [float(i)], "y": i % 2} for i in range(8)]
+        >>> ds = create_sample_dataset(samples, {"x": "tensor"}, {"y": "binary"})
+        >>> order = lambda loader: [pid for b in loader for pid in b["patient_id"]]
+        >>> order(get_dataloader(ds, 4, shuffle=True, seed=1)) == order(
+        ...     get_dataloader(ds, 4, shuffle=True, seed=1))
+        True
     """
-    dataset.set_shuffle(shuffle)
+    if shuffle and seed is None:
+        seed = int(torch.randint(0, 2**31 - 1, ()).item())
+    seed = 0 if seed is None else int(seed)
+    # DataLoader draws a base seed from this generator on every pass; a
+    # private one keeps that draw off torch's global random state.
+    generator = torch.Generator().manual_seed(seed)
+    map_style_shuffle = False
+    if hasattr(dataset, "_iter_for_loader"):
+        dataset = _LoaderView(dataset, shuffle, seed)
+    elif hasattr(dataset, "set_shuffle"):
+        dataset.set_shuffle(shuffle)
+    else:
+        map_style_shuffle = shuffle  # e.g. a torch map-style Dataset
     dataloader = DataLoader(
         dataset,
         batch_size=batch_size,
+        shuffle=map_style_shuffle or None,
+        generator=generator,
         collate_fn=collate_fn_dict_with_padding,
     )
 
