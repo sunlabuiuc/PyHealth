@@ -121,23 +121,55 @@ Knowledge graph embeddings
 --------------------------
 
 ``pyhealth.medcode.pretrained_embeddings.kg_emb`` trains TransE, RotatE,
-DistMult and ComplEx on an in-memory list of triples.
+DistMult and ComplEx on a knowledge graph with the standard streaming
+pipeline:
+
+1. :class:`~pyhealth.medcode.pretrained_embeddings.kg_emb.datasets.BaseKGDataset`
+   is a :class:`~pyhealth.datasets.BaseDataset` with one ``triples`` table
+   (``head``, ``relation``, ``tail``) declared in YAML with
+   ``patient_id: null``, so each triple is one record.
+   :class:`~pyhealth.medcode.pretrained_embeddings.kg_emb.datasets.UMLSDataset`
+   is its bundled UMLS configuration. Entity and relation ids are assigned on
+   the full graph, by sorted name.
+2. ``set_task(KGLinkPrediction(...), split=PatientSplit(...))`` splits the
+   triples and fits the processors on the training part only, returning one
+   streaming :class:`~pyhealth.datasets.SampleDataset` per part. Each sample
+   holds a ``triple`` and its ``ground_truth_head`` / ``ground_truth_tail``
+   lists, which cover the whole graph and filter the ranking at evaluation
+   (filtered setting of Bordes et al., 2013). Duplicate triples are removed
+   and counted.
+3. The ``kg_triple`` processor
+   (:class:`~pyhealth.processors.KGTripleProcessor`), fitted on the training
+   triples, gives the models the numbers of entities and relations and the
+   dicts that keep known training positives out of the training negatives,
+   as in the reference implementation of Sun et al. (2019). Validation and
+   test triples therefore never shape training. ``set_task`` warns when
+   called without ``split``.
+4. The models take ``negative_sampling`` as an argument and follow
+   ``model.train()`` / ``model.eval()``, as set by
+   :class:`~pyhealth.trainer.Trainer`; use the ``hits@n`` and ``mean_rank``
+   metrics.
+
+See ``examples/kg_emb_link_prediction.py`` for a self-contained walk-through.
+
+The PyHealth 1.x entry points, ``link_prediction_fn``,
 :class:`~pyhealth.medcode.pretrained_embeddings.kg_emb.datasets.SampleKGDataset`
-is an :class:`~pyhealth.datasets.InMemorySampleDataset`: samples are processed
-once, at construction, and kept in memory.
-:func:`pyhealth.datasets.get_dataloader` accepts it. Its ``ground_truth_head``
-and ``ground_truth_tail`` fields are padded by
-:class:`~pyhealth.processors.kg_processor.KGProcessor` and returned with a
-mask.
+and :func:`~pyhealth.medcode.pretrained_embeddings.kg_emb.datasets.split`,
+still work for one release with a ``DeprecationWarning``. Ids no longer
+follow the 1.x order of first appearance: map 1.x embeddings through the
+``id2entity`` saved with them.
 
-:func:`~pyhealth.medcode.pretrained_embeddings.kg_emb.datasets.split` returns
-plain lists of sample dictionaries that carry the ``train`` and
-``hyperparameters`` fields the models read. Wrap a fold in
-:class:`torch.utils.data.DataLoader` with
-:func:`pyhealth.datasets.collate_fn_dict_with_padding`: ``get_dataloader``
-calls ``set_shuffle()``, which a list does not have.
+.. autoclass:: pyhealth.medcode.pretrained_embeddings.kg_emb.datasets.BaseKGDataset
+    :members:
+    :show-inheritance:
 
-See ``examples/kg_emb_sample_dataset.py`` for a self-contained walk-through.
+.. autoclass:: pyhealth.medcode.pretrained_embeddings.kg_emb.datasets.UMLSDataset
+    :members:
+    :show-inheritance:
+
+.. autoclass:: pyhealth.medcode.pretrained_embeddings.kg_emb.tasks.KGLinkPrediction
+    :members:
+    :show-inheritance:
 
 .. autoclass:: pyhealth.medcode.pretrained_embeddings.kg_emb.datasets.SampleKGDataset
     :members:

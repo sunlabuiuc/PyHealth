@@ -1,149 +1,114 @@
-from pyhealth.medcode.pretrained_embeddings.kg_emb.datasets import UMLSDataset, split
-from pyhealth.medcode.pretrained_embeddings.kg_emb.tasks import link_prediction_fn
-from torch.utils.data import DataLoader
-from pyhealth.datasets import collate_fn_dict_with_padding
-from pyhealth.medcode.pretrained_embeddings.kg_emb.models import TransE, RotatE, ComplEx, DistMult
-from pyhealth.trainer import Trainer
-from pyhealth.medcode import InnerMap
-import torch
+"""Train a KG embedding model on UMLS with the PyHealth 2.0 pipeline.
+
+``UMLS_ROOT`` must hold ``graph.txt`` (head, relation and tail separated by
+tabs, no header), e.g. downloaded from
+https://storage.googleapis.com/pyhealth/umls/graph.txt. Outputs go to
+``OUTPUT_DIR``. Ids follow sorted entity names, not the 1.x order, so
+checkpoints trained with PyHealth 1.x must not be loaded as they are.
+"""
+
 import json
 import pickle
+from pathlib import Path
 
-"""
-This is an example to show you how to train a KG embedding model using our package
+import numpy as np
+import torch
 
-"""
+from pyhealth.datasets import PatientSplit, get_dataloader
+from pyhealth.medcode import InnerMap
+from pyhealth.medcode.pretrained_embeddings.kg_emb.datasets import UMLSDataset
+from pyhealth.medcode.pretrained_embeddings.kg_emb.models import TransE
+from pyhealth.medcode.pretrained_embeddings.kg_emb.tasks import KGLinkPrediction
+from pyhealth.trainer import Trainer
 
-
-umls_ds = UMLSDataset(
-    root="/data/pj20/umls/",
-    # root="https://storage.googleapis.com/pyhealth/umls/",
-    dev=False,
-    refresh_cache=True
-)
-
-# check the dataset statistics before setting task
-print(umls_ds.stat()) 
-
-# check the relation numbers in the dataset
-print("Relations in KG:", umls_ds.relation2id)
-
-umls_ds = umls_ds.set_task(link_prediction_fn, negative_sampling=64, save=False)
-
-# save the id2entity, id2relation
-with open("/data/pj20/umls_kge/pretrained_model/umls_transe_new/id2entity.json", "w") as f:
-    json.dump(umls_ds.id2entity, f, indent=6)
-
-with open("/data/pj20/umls_kge/pretrained_model/umls_transe_new/id2relation.json", "w") as f:
-    json.dump(umls_ds.id2relation, f, indent=6)
-
-# check the dataset statistics after setting task
-print(umls_ds.stat())
-
-# split the dataset and get the dataloaders
-train_dataset, val_dataset, test_dataset = split(umls_ds, [0.9, 0.05, 0.05])
-train_loader = DataLoader(
-    train_dataset, batch_size=8, shuffle=True, collate_fn=collate_fn_dict_with_padding
-)
-# val_loader = DataLoader(
-#     val_dataset, batch_size=2, shuffle=False, collate_fn=collate_fn_dict_with_padding
-# )
-# test_loader = DataLoader(
-#     test_dataset, batch_size=2, shuffle=False, collate_fn=collate_fn_dict_with_padding
-# )
+UMLS_ROOT = "path/to/umls"
+OUTPUT_DIR = Path("output/umls_transe")
+SEED = 0
+SPLIT_RATIOS = (0.9, 0.05, 0.05)
+NUM_WORKERS = 4
 
 
-# initialize a KGE model
-model = TransE(
-    dataset=umls_ds,
-    e_dim=512, 
-    r_dim=512, 
-)
+def _main() -> None:
+    np.random.seed(SEED)  # training negatives use NumPy's global generator
+    torch.manual_seed(SEED)
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-print('Loaded model: ', model)
-state_dict = torch.load("/data/pj20/umls_kge/pretrained_model/umls_transe_new/1_250000_last.ckpt")
-model.load_state_dict(state_dict)
+    umls_ds = UMLSDataset(root=UMLS_ROOT, num_workers=NUM_WORKERS)
+    umls_ds.stats()
+    print("Relations in KG:", umls_ds.relation2id)
 
-# initialize a trainer and start training
-trainer = Trainer(
-    model=model, 
-    device='cuda:5', 
-    metrics=['hits@n', 'mean_rank'], 
-    output_path='/data/pj20/umls_kge/pretrained_model',
-    exp_name='umls_transe_new'
+    # Ids and names, to read the embeddings later.
+    with open(OUTPUT_DIR / "id2entity.json", "w") as f:
+        json.dump(umls_ds.id2entity, f, indent=2)
+    with open(OUTPUT_DIR / "id2relation.json", "w") as f:
+        json.dump(umls_ds.id2relation, f, indent=2)
+
+    # Triple-level split; the processors, including the training-graph dicts
+    # that filter training negatives, are fitted on the training part only.
+    task = KGLinkPrediction(
+        num_entities=umls_ds.num_entities, num_relations=umls_ds.num_relations
+    )
+    train, val, test = umls_ds.set_task(
+        task, split=PatientSplit(ratios=SPLIT_RATIOS, seed=SEED)
     )
 
-trainer.train(
-    train_dataloader=train_loader,
-    # val_dataloader=val_loader,
-    epochs=10,
-    # steps_per_epoch=100,
-    # evaluation_steps=1,
-    optimizer_params={'lr': 1e-3},
-    monitor='mean_rank',
-    monitor_criterion='min'
-)
-
-# save the entity embedding and relation embedding
-with open("/data/pj20/umls_kge/pretrained_model/umls_transe_new/entity_embedding.pkl", "wb") as f:
-    pickle.dump(model.E_emb, f)
-
-with open("/data/pj20/umls_kge/pretrained_model/umls_transe_new/relation_embedding.pkl", "wb") as f:
-    pickle.dump(model.R_emb, f)
-
-# evaluate the trained model
-# trainer.evaluate(test_loader)
-
-# use the trained model to handle head/tail entity prediction, and use the CodeMap to map the code to free text
-umls_code_map = InnerMap.load("UMLS", refresh_cache=True)
-
-head = 'C0000039'
-relation = "PAR"
-
-model.to('cpu')
-result_eid = model.inference(
-    head=umls_ds.entity2id[head], 
-    relation=umls_ds.relation2id[relation],
-    tail=None,
-    top_k=3
+    model = TransE(dataset=train, e_dim=512, r_dim=512, negative_sampling=64)
+    trainer = Trainer(
+        model=model,
+        metrics=["hits@n", "mean_rank"],
+        output_path=str(OUTPUT_DIR),
+        exp_name="umls_transe",
     )
-
-print(f"Input Head: {head} - {umls_code_map.lookup(head)}")
-print(f"Input Relation: {relation}")
-
-print("Tail Prediction:")
-for idx, eid in enumerate(result_eid):
-    tail = umls_ds.id2entity[eid]
-    print(f"{idx}: {tail} - {umls_code_map.lookup(tail)}")
-
-
-tail = 'C5162542'
-relation = "CHD"
-
-result_eid = model.inference(
-    head=None, 
-    relation=umls_ds.relation2id[relation],
-    tail=umls_ds.entity2id[tail],
-    top_k=3
+    trainer.train(
+        train_dataloader=get_dataloader(train, batch_size=8, shuffle=True),
+        val_dataloader=get_dataloader(val, batch_size=8),
+        epochs=10,
+        optimizer_params={"lr": 1e-3},
+        monitor="mean_rank",
+        monitor_criterion="min",
     )
+    print("filtered test metrics:", trainer.evaluate(get_dataloader(test, batch_size=8)))
 
-print(f"Input Tail: {tail} - {umls_code_map.lookup(tail)}")
-print(f"Input Relation: {relation}")
+    with open(OUTPUT_DIR / "entity_embedding.pkl", "wb") as f:
+        pickle.dump(model.E_emb, f)
+    with open(OUTPUT_DIR / "relation_embedding.pkl", "wb") as f:
+        pickle.dump(model.R_emb, f)
 
-print("Head Prediction:")
-for idx, eid in enumerate(result_eid):
-    head = umls_ds.id2entity[eid]
-    print(f"{idx}: {head} - {umls_code_map.lookup(head)}")
+    # Head/tail prediction, with the CodeMap mapping codes to free text.
+    umls_code_map = InnerMap.load("UMLS")
+    model.to("cpu")
 
-
-head = 'C0000039'
-tail = 'C0000039'
-relation = "SY"
-
-classification_score = model.inference(
-    head=umls_ds.entity2id[head], 
-    relation=umls_ds.relation2id[relation],
-    tail=umls_ds.entity2id[tail],
+    head, relation = "C0000039", "PAR"
+    result_eid = model.inference(
+        head=umls_ds.entity2id[head], relation=umls_ds.relation2id[relation], top_k=3
     )
+    print(f"Input Head: {head} - {umls_code_map.lookup(head)}")
+    print(f"Input Relation: {relation}")
+    print("Tail Prediction:")
+    for idx, eid in enumerate(result_eid):
+        tail = umls_ds.id2entity[eid]
+        print(f"{idx}: {tail} - {umls_code_map.lookup(tail)}")
 
-print(f"Classification Score: {classification_score}")
+    tail, relation = "C5162542", "CHD"
+    result_eid = model.inference(
+        relation=umls_ds.relation2id[relation], tail=umls_ds.entity2id[tail], top_k=3
+    )
+    print(f"Input Tail: {tail} - {umls_code_map.lookup(tail)}")
+    print(f"Input Relation: {relation}")
+    print("Head Prediction:")
+    for idx, eid in enumerate(result_eid):
+        head = umls_ds.id2entity[eid]
+        print(f"{idx}: {head} - {umls_code_map.lookup(head)}")
+
+    head = tail = "C0000039"
+    relation = "SY"
+    score = model.inference(
+        head=umls_ds.entity2id[head],
+        relation=umls_ds.relation2id[relation],
+        tail=umls_ds.entity2id[tail],
+    )
+    print(f"Classification Score: {score}")
+
+
+if __name__ == "__main__":
+    _main()
