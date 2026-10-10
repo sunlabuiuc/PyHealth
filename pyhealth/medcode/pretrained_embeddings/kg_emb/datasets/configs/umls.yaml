@@ -1,0 +1,13 @@
+version: "1.0"
+tables:
+  triples:
+    # Written by UMLSDataset.prepare_metadata from the headerless graph.txt.
+    file_path: "umls-pyhealth.tsv"
+    # No patient column: the loader numbers the rows, so each triple is its
+    # own record and PatientSplit splits triples.
+    patient_id: null
+    timestamp: null
+    attributes:
+    - "head"
+    - "relation"
+    - "tail"
