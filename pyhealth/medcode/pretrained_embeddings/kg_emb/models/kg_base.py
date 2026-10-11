@@ -1,19 +1,34 @@
+import numbers
+import warnings
 from abc import ABC
-from pyhealth.datasets import SampleBaseDataset
 
-import torch
-import time
 import numpy as np
-import torch.nn as nn
+import torch
 import torch.nn.functional as F
+from torch import nn
+
+from pyhealth.datasets import BaseDataset, SampleDataset
+from pyhealth.processors import KGTripleProcessor
+
+# Negatives per positive triple when the caller does not choose: the
+# default of the reference implementation of Sun et al. (2019).
+DEFAULT_NEGATIVE_SAMPLING = 128
 
 
 class KGEBaseModel(ABC, nn.Module):
-    """ Abstract class for Knowledge Graph Embedding models.
+    """Abstract class for Knowledge Graph Embedding models.
+
+    The numbers of entities and relations come from the dataset's fitted
+    ``kg_triple`` processor (``KGLinkPrediction`` with
+    ``set_task(..., split=PatientSplit(...))``). Training and evaluation
+    follow ``model.train()`` / ``model.eval()``, as the
+    :class:`~pyhealth.trainer.Trainer` sets them.
 
     Args:
-        e_num: the number of entities in the dataset.
-        r_num: the number of relations in the dataset.
+        dataset: A sample dataset whose ``triple`` field uses the
+            ``kg_triple`` processor, typically the training part returned
+            by ``set_task``. A PyHealth 1.x ``SampleKGDataset`` is still
+            accepted for one release.
         e_dim: the hidden embedding size for entity, 500 by default.
         r_dim: the hidden embedding size for relation, 500 by default.
         ns: negative sampling technique to use: can be "uniform", "normal" or "adv" (self-adversarial).
@@ -21,7 +36,22 @@ class KGEBaseModel(ABC, nn.Module):
         use_subsampling_weight: whether to use subsampling weight (like in word2vec) or not, False by default.
         use_regularization: whether to apply regularization or not, False by default.
         mode: evaluation metric type, one of "binary", "multiclass", or "multilabel", "multiclass" by default
+        negative_sampling: Number of negative heads and of negative tails drawn
+            per training triple. Defaults to the ``negative_sampling`` of a
+            1.x ``SampleKGDataset`` if it has one, else to the value 1.x
+            samples carry in ``hyperparameters``, else 128.
 
+    Examples:
+        >>> from pyhealth.processors import KGTripleProcessor
+        >>> class _Toy:
+        ...     input_processors = {
+        ...         "triple": KGTripleProcessor(num_entities=2, num_relations=1)
+        ...     }
+        >>> model = KGEBaseModel(_Toy(), e_dim=4, r_dim=4, ns="uniform")
+        >>> model.e_num, model.r_num, tuple(model.E_emb.shape)
+        (2, 1, (2, 4))
+        >>> model.negative_sampling
+        128
     """
 
     @property
@@ -31,19 +61,63 @@ class KGEBaseModel(ABC, nn.Module):
 
 
     def __init__(
-        self, 
-        dataset: SampleBaseDataset,
+        self,
+        dataset: SampleDataset,
         e_dim: int = 500,
         r_dim: int = 500,
         ns: str = "uniform",
-        gamma: float = None,
+        gamma: float | None = None,
         use_subsampling_weight: bool = False,
-        use_regularization: str = None,
-        mode: str = "multiclass"
+        use_regularization: str | None = None,
+        mode: str = "multiclass",
+        negative_sampling: int | None = None,
     ):
-        super(KGEBaseModel, self).__init__()
-        self.e_num = dataset.entity_num
-        self.r_num = dataset.relation_num
+        super().__init__()
+        if isinstance(dataset, BaseDataset):
+            # A BaseKGDataset has the 1.x count attributes but no fitted
+            # processor: accepting it would filter training negatives with
+            # the batches' full-graph ground truths, i.e. with held-out
+            # triples.
+            raise TypeError(
+                f"{type(dataset).__name__} is a base dataset; pass the training "
+                "part returned by set_task(KGLinkPrediction(...), "
+                "split=PatientSplit(...)) instead."
+            )
+        processor = getattr(dataset, "input_processors", {}).get("triple")
+        if isinstance(processor, KGTripleProcessor):
+            self.triple_processor: KGTripleProcessor | None = processor
+            self.e_num = processor.num_entities
+            self.r_num = processor.num_relations
+        else:
+            # A PyHealth 1.x SampleKGDataset carries the counts itself.
+            warnings.warn(
+                "Building a KGE model from a dataset without a kg_triple "
+                "processor (e.g. a 1.x SampleKGDataset) is deprecated and will "
+                "be removed in the next release; pass the training part of "
+                "set_task(KGLinkPrediction(...), split=PatientSplit(...)).",
+                DeprecationWarning,
+                stacklevel=3,
+            )
+            self.triple_processor = None
+            self.e_num = dataset.entity_num
+            self.r_num = dataset.relation_num
+        # Whether the value was chosen (argument or 1.x dataset) rather than
+        # defaulted: a 1.x batch's own value only overrides a default.
+        legacy = getattr(dataset, "task_spec_param", None) or {}
+        if negative_sampling is None:
+            negative_sampling = legacy.get("negative_sampling")
+        self._negative_sampling_chosen = negative_sampling is not None
+        if negative_sampling is None:
+            negative_sampling = DEFAULT_NEGATIVE_SAMPLING
+        if (
+            not isinstance(negative_sampling, numbers.Integral)
+            or isinstance(negative_sampling, bool)
+            or negative_sampling < 1
+        ):
+            raise ValueError(
+                f"negative_sampling must be a positive integer, got {negative_sampling!r}."
+            )
+        self.negative_sampling = int(negative_sampling)
         self.e_dim = e_dim
         self.r_dim = r_dim
         self.ns = ns
@@ -135,12 +209,54 @@ class KGEBaseModel(ABC, nn.Module):
         return head, relation, tail
 
     
+    @staticmethod
+    def _unpad_ground_truth(ground_truth):
+        """Recover the exact, unpadded per-sample entity-id lists.
+
+        ``KGProcessor`` pads ``ground_truth_head``/``ground_truth_tail`` to a
+        fixed length with ``pad_token_id`` (0 by default) so that they collate
+        into fixed-shape tensors. That padding value is not
+        necessarily an invalid entity id, so it must be stripped via the
+        accompanying mask before doing any set-membership filtering here;
+        otherwise a real entity 0 would be spuriously treated as always
+        "known true" (or, symmetrically, padding would be treated as a real
+        entity to exclude/replace).
+
+        Args:
+            ground_truth: Either a ``{"value": Tensor(B, L), "mask": Tensor(B, L)}``
+                pair (collated ``KGProcessor`` output), or already a list of
+                raw per-sample entity-id lists (e.g. when a caller bypasses
+                the processor and supplies unpadded lists directly).
+
+        Returns:
+            List of length ``B``, each entry the unpadded list of entity ids
+            for that sample.
+        """
+        if isinstance(ground_truth, dict):
+            value, mask = ground_truth["value"], ground_truth["mask"]
+            return [
+                value[i][mask[i].bool()].tolist() for i in range(value.size(0))
+            ]
+        return ground_truth
+
     def train_neg_sample_gen(self, gt_head, gt_tail, negative_sampling):
         """
-        (only run in train batch) 
+        (only run in train batch)
         This function creates negative triples for training (sampling size: negative_sampling)
              with ground truth masked.
+
+        Args:
+            gt_head: Either a list of raw (unpadded) entity-id lists, or a
+                ``{"value": Tensor(B, L), "mask": Tensor(B, L)}`` pair produced
+                by ``KGProcessor``. The padded ``value`` is not usable on its
+                own for membership filtering, since ``pad_token_id`` may
+                collide with a real entity id (e.g. 0); the ``mask`` recovers
+                the exact unpadded list first.
+            gt_tail: Same shape as ``gt_head``, for tail entities.
         """
+        gt_head = self._unpad_ground_truth(gt_head)
+        gt_tail = self._unpad_ground_truth(gt_tail)
+
         negative_sample_head = []
         negative_sample_tail = []
         for i in range(len(gt_head)):
@@ -191,9 +307,19 @@ class KGEBaseModel(ABC, nn.Module):
 
     def test_neg_sample_filter_bias_gen(self, triples, gt_head, gt_tail):
         """
-        (only run in val/test batch) 
+        (only run in val/test batch)
         This function creates negative triples for validation/testing with ground truth masked.
+
+        Args:
+            triples: Batch of ``(head, relation, tail)`` triples.
+            gt_head: Either a list of raw (unpadded) entity-id lists, or a
+                ``{"value": Tensor(B, L), "mask": Tensor(B, L)}`` pair produced
+                by ``KGProcessor``. See ``_unpad_ground_truth`` for why the
+                mask matters.
+            gt_tail: Same shape as ``gt_head``, for tail entities.
         """
+        gt_head = self._unpad_ground_truth(gt_head)
+        gt_tail = self._unpad_ground_truth(gt_tail)
 
         negative_sample_head = []
         negative_sample_tail = []
@@ -267,15 +393,86 @@ class KGEBaseModel(ABC, nn.Module):
         raise NotImplementedError
 
 
+    def _batch_negative_sampling(self, data) -> int:
+        """Negatives per triple for this batch.
+
+        PyHealth 1.x samples may carry ``hyperparameters["negative_sampling"]``,
+        which the models used to read. It still applies when the model's
+        value was only the default, and is ignored, with a warning, when the
+        model's value was chosen.
+        """
+        hyperparameters = data.get("hyperparameters")
+        if not hyperparameters or not isinstance(hyperparameters[0], dict):
+            return self.negative_sampling
+        batch_value = hyperparameters[0].get("negative_sampling")
+        if batch_value is None or batch_value == self.negative_sampling:
+            return self.negative_sampling
+        if not self._negative_sampling_chosen:
+            return int(batch_value)
+        warnings.warn(
+            f"The samples' negative_sampling={batch_value} is ignored; the "
+            f"model's negative_sampling={self.negative_sampling} is used.",
+            UserWarning,
+            stacklevel=3,
+        )
+        return self.negative_sampling
+
+    def _training_filters(self, data, positive_sample):
+        """The entities kept out of each triple's training negatives.
+
+        With a ``kg_triple`` processor, these are its ``true_head`` /
+        ``true_tail`` dicts, fitted on the training triples only, as in the
+        reference implementation of Sun et al. (2019). The samples'
+        ``ground_truth_*`` lists cover the whole graph and serve filtered
+        evaluation; using them here would keep every validation and test
+        positive out of the training negatives, so training would depend on
+        the held-out triples. A 1.x ``SampleKGDataset`` has no processor and
+        keeps its former behaviour.
+
+        Returns:
+            Two lists of entity-id lists, for head and tail negatives.
+        """
+        if self.triple_processor is None:
+            return data["ground_truth_head"], data["ground_truth_tail"]
+        true_head = self.triple_processor.true_head
+        true_tail = self.triple_processor.true_tail
+        gt_head, gt_tail = [], []
+        for head, relation, tail in positive_sample.tolist():
+            gt_head.append(true_head.get((relation, tail), []))
+            gt_tail.append(true_tail.get((head, relation), []))
+        return gt_head, gt_tail
+
+    def _subsampling_weight(self, data, positive_sample):
+        if "subsampling_weight" in data:
+            # PyHealth 1.x samples carry their weight.
+            return torch.cat([d for d in data["subsampling_weight"]], dim=0)
+        if self.triple_processor is None:
+            raise ValueError("use_subsampling_weight needs a kg_triple processor.")
+        return self.triple_processor.subsampling_weight(positive_sample.cpu())
+
     def forward(self, **data):
 
-        positive_sample = torch.stack([torch.LongTensor(d) for d in data['triple']], dim=0).to(self.device)
+        triples = data["triple"]
+        if not isinstance(triples, torch.Tensor):
+            triples = torch.stack([torch.as_tensor(d) for d in triples], dim=0)
+        positive_sample = triples.long().to(self.device)
 
-        if data['train'][0]:
+        if "train" in data and bool(data["train"][0]) != self.training:
+            # PyHealth 1.x samples carry a per-sample train flag, which no
+            # longer decides the branch.
+            warnings.warn(
+                "The samples' 'train' flag is ignored: the model trains or "
+                "evaluates according to model.train() / model.eval().",
+                UserWarning,
+                stacklevel=2,
+            )
+
+        if self.training:
+            gt_head, gt_tail = self._training_filters(data, positive_sample)
             negative_sample_head, negative_sample_tail = self.train_neg_sample_gen(
-                gt_head=data['ground_truth_head'],
-                gt_tail=data['ground_truth_tail'],
-                negative_sampling=data['hyperparameters'][0]['negative_sampling']
+                gt_head=gt_head,
+                gt_tail=gt_tail,
+                negative_sampling=self._batch_negative_sampling(data),
             )
 
             negative_sample_head, negative_sample_tail = negative_sample_head.to(self.device), negative_sample_tail.to(self.device)
@@ -296,11 +493,13 @@ class KGEBaseModel(ABC, nn.Module):
             head, relation, tail = self.data_process((positive_sample), mode="pos")
             pos_score = F.logsigmoid(self.calc(head=head, relation=relation, tail=tail)).squeeze(dim=1)
 
-            subsampling_weight = torch.cat([d for d in data['subsampling_weight']], dim=0).to(self.device)
-            pos_sample_loss = \
-                - (subsampling_weight * pos_score).sum()/subsampling_weight.sum() if self.use_subsampling_weight else (- pos_score.mean())
-            neg_sample_loss = \
-                - (subsampling_weight * neg_score).sum()/subsampling_weight.sum() if self.use_subsampling_weight else (- neg_score.mean())
+            if self.use_subsampling_weight:
+                subsampling_weight = self._subsampling_weight(data, positive_sample).to(self.device)
+                pos_sample_loss = - (subsampling_weight * pos_score).sum() / subsampling_weight.sum()
+                neg_sample_loss = - (subsampling_weight * neg_score).sum() / subsampling_weight.sum()
+            else:
+                pos_sample_loss = - pos_score.mean()
+                neg_sample_loss = - neg_score.mean()
 
             loss = (pos_sample_loss + neg_sample_loss) / 2
 
@@ -313,7 +512,7 @@ class KGEBaseModel(ABC, nn.Module):
 
         else: # valid/test
             inputs = self.test_neg_sample_filter_bias_gen(
-                    triples=data['triple'],
+                    triples=positive_sample.tolist(),
                     gt_head=data['ground_truth_head'],
                     gt_tail=data['ground_truth_tail']
                 )
@@ -392,7 +591,6 @@ class KGEBaseModel(ABC, nn.Module):
         state_dict = torch.load(path, map_location=self.device, weights_only=True)
         self.update_embedding_size(state_dict)
         self.load_state_dict(state_dict)
-        return
 
     def update_embedding_size(self, state_dict):
         e_emb_key = 'E_emb'
@@ -408,7 +606,6 @@ class KGEBaseModel(ABC, nn.Module):
                 
                 self.E_emb = nn.Parameter(torch.zeros(self.e_num, self.e_dim))
                 self.R_emb = nn.Parameter(torch.zeros(self.r_num, self.r_dim))
-        return
 
 
             
