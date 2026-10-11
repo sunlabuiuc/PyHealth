@@ -19,7 +19,14 @@ class TensorProcessor(FeatureProcessor):
 
     Output:
         - torch.Tensor with appropriate shape and dtype
+
+    Examples:
+        >>> from pyhealth.processors import TensorProcessor
+        >>> TensorProcessor().process([1.0, 2.0])
+        tensor([1., 2.])
     """
+
+    stores_tensor = True
 
     def __init__(
         self,
