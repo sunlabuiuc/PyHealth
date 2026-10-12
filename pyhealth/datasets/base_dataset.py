@@ -7,7 +7,6 @@ from typing import Dict, Iterator, Iterable, List, Optional, Any, Callable
 import functools
 import operator
 from urllib.parse import urlparse, urlunparse
-from urllib.request import urlretrieve
 import json
 import glob
 import hashlib
@@ -46,7 +45,7 @@ from ..processors.base_processor import FeatureProcessor
 from .configs import load_yaml_config
 from .sample_dataset import STORAGE_FORMAT, SampleDataset, SampleBuilder
 from .splitter import Split
-from ..utils import set_env
+from ..utils import download_file, set_env
 
 # Set logging level for distributed to ERROR to reduce verbosity
 logging.getLogger("distributed").setLevel(logging.ERROR)
@@ -639,7 +638,7 @@ class BaseDataset(ABC):
                 local_path = self.create_tmpdir() / local_filename
                 if not local_path.exists():
                     logger.info(f"Downloading {source_path} to {local_path}")
-                    urlretrieve(source_path, local_path)
+                    download_file(source_path, local_path)
                 source_path = str(local_path)
 
             # Determine delimiter based on file extension

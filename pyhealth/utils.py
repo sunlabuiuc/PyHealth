@@ -3,9 +3,56 @@ import os
 import pickle
 import random
 import contextlib
+import shutil
+import urllib.request
 
 import numpy as np
 import torch
+
+
+def download_file(url: str, path: str, timeout: float = 60.0) -> str:
+    """Downloads ``url`` to ``path`` without leaving a partial file behind.
+
+    The file is written to ``path + ".part"`` and moved into place only after
+    the whole response has been read, so an interrupted download never
+    produces a truncated file that later calls would mistake for a valid
+    cache. ``timeout`` (seconds) applies to connecting and to each read.
+
+    Args:
+        url: The URL to download.
+        path: Destination file path.
+        timeout: Socket timeout in seconds. Default is 60.
+
+    Returns:
+        ``path``.
+
+    Examples:
+        >>> from pyhealth.utils import download_file
+        >>> download_file(  # doctest: +SKIP
+        ...     "https://storage.googleapis.com/pyhealth/resource/ICD9CM.csv",
+        ...     "/tmp/ICD9CM.csv",
+        ... )
+        '/tmp/ICD9CM.csv'
+    """
+    path = str(path)
+    part = path + ".part"
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as response, open(
+            part, "wb"
+        ) as f:
+            shutil.copyfileobj(response, f)
+            expected = response.headers.get("Content-Length")
+            received = f.tell()
+        # A dropped connection ends the read early without raising.
+        if expected is not None and received != int(expected):
+            raise OSError(
+                f"Incomplete download of {url}: got {received} of {expected} bytes"
+            )
+        os.replace(part, path)
+    finally:
+        if os.path.exists(part):
+            os.remove(part)
+    return path
 
 
 def set_seed(seed):
