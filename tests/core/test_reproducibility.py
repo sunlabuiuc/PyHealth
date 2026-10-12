@@ -133,6 +133,28 @@ class TestSeededShuffle(unittest.TestCase):
                 self.assertEqual(_order(train), expected)
                 self.assertNotEqual(expected, natural)
 
+    def test_loader_dataset_is_the_dataset(self):
+        for name, ds in self.datasets.items():
+            with self.subTest(backend=name):
+                self.assertIs(get_dataloader(ds, 8, shuffle=True, seed=1).dataset, ds)
+
+    def test_worker_processes_get_new_order_each_epoch(self):
+        # With workers, iteration happens on copies of the dataset, so the
+        # epoch must advance in the main process.
+        natural = sorted(f"p{i}" for i in range(N))
+        for name, ds in self.datasets.items():
+            with self.subTest(backend=name):
+                runs = []
+                for _ in range(2):
+                    loader = get_dataloader(ds, 8, shuffle=True, seed=6)
+                    loader.num_workers, loader.prefetch_factor = 2, 2
+                    runs.append([_order(loader) for _ in range(3)])
+                epochs = runs[0]
+                self.assertEqual(runs[0], runs[1])
+                self.assertEqual(len(set(map(tuple, epochs))), 3)
+                for epoch in epochs:  # every sample exactly once
+                    self.assertEqual(sorted(epoch), natural)
+
     def test_set_shuffle_on_dataset_is_seeded_too(self):
         ds = _dataset(True)
         ds.set_shuffle(True, seed=9)

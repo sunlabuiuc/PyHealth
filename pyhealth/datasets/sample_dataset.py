@@ -538,37 +538,26 @@ class SampleDataset(litdata.StreamingDataset):
         return _decode_record(super().__getitem__(index))
 
     def set_shuffle(self, shuffle: bool, seed: int | None = None) -> None:
-        """Turns shuffling on or off when iterating the dataset directly.
+        """Sets whether iterating the dataset shuffles, and the shuffle seed.
 
-        Loaders from :func:`~pyhealth.datasets.get_dataloader` keep their own
-        shuffle setting and do not use this.
+        The order of each pass is determined by ``seed`` and the epoch (see
+        ``set_epoch``); litdata shuffles with its own generator, so the global
+        random state is not used. Loaders from
+        :func:`~pyhealth.datasets.get_dataloader` call this for you at the
+        start of every pass.
 
         Args:
             shuffle: Whether ``iter(dataset)`` shuffles.
-            seed: Seed of the shuffle order (litdata reshuffles each epoch
-                from it). Default: drawn from torch's random generator, so
-                ``torch.manual_seed`` controls it.
+            seed: Seed of the shuffle order. Default: drawn from torch's
+                random generator, so ``torch.manual_seed`` controls it.
+
+        Examples:
+            >>> dataset.set_shuffle(True, seed=0)  # doctest: +SKIP
         """
         super().set_shuffle(shuffle)
         if shuffle:
+            # litdata rebuilds its shuffler from ``seed`` on every iteration.
             self.seed = _draw_seed() if seed is None else int(seed)
-            self.shuffler = None
-
-    def _iter_for_loader(self, shuffle: bool, seed: int, epoch: int) -> Iterable[Any]:
-        """Iterates one epoch in the order a loader asked for.
-
-        Works on a shallow copy, so loaders on the same dataset do not change
-        each other's (or the dataset's) shuffle setting. litdata shuffles
-        chunk by chunk from ``(seed, epoch)`` with its own generator, so the
-        global random state is not used.
-        """
-        view = copy.copy(self)
-        view.shuffle = shuffle
-        view.seed = seed
-        view.shuffler = None
-        view._state_dict = None
-        view.current_epoch = epoch + 1  # litdata counts epochs from 1
-        return iter(view)
 
     def _remove_ignored_processors(self):
         """Remove any processors that are IgnoreProcessor instances."""
@@ -761,23 +750,43 @@ class InMemorySampleDataset(SampleDataset):
 
         self._shuffle = False
         self._shuffle_seed = 0
-        self._epoch = 0
+        self._epoch = 1  # counted from 1, as litdata does
 
     def set_shuffle(self, shuffle: bool, seed: int | None = None) -> None:
-        """Turns shuffling on or off when iterating the dataset directly.
+        """Sets whether iterating the dataset shuffles, and the shuffle seed.
 
-        Loaders from :func:`~pyhealth.datasets.get_dataloader` keep their own
-        shuffle setting and do not use this.
+        The order of each pass is determined by ``seed`` and the epoch (see
+        ``set_epoch``), using a private generator, so the global random state
+        is not used. Loaders from :func:`~pyhealth.datasets.get_dataloader`
+        call this for you at the start of every pass.
 
         Args:
             shuffle: Whether ``iter(dataset)`` shuffles.
-            seed: Seed of the shuffle order; each new iteration (epoch) gets
-                a different order derived from it. Default: drawn from
-                torch's random generator, so ``torch.manual_seed`` controls it.
+            seed: Seed of the shuffle order. Default: drawn from torch's
+                random generator, so ``torch.manual_seed`` controls it.
+
+        Examples:
+            >>> dataset.set_shuffle(True, seed=0)  # doctest: +SKIP
         """
         self._shuffle = shuffle
-        self._shuffle_seed = _draw_seed() if seed is None else int(seed)
-        self._epoch = 0
+        if shuffle:
+            self._shuffle_seed = _draw_seed() if seed is None else int(seed)
+        self._epoch = 1
+
+    def set_epoch(self, epoch: int) -> None:
+        """Sets the epoch whose shuffle order the next pass uses.
+
+        Iterating advances the epoch by one, so direct iteration gives a new
+        order each pass. With worker processes, iteration happens on copies of
+        the dataset, so the loader sets the epoch in the main process instead.
+
+        Args:
+            epoch: The epoch number (counted from 1, as litdata does).
+
+        Examples:
+            >>> dataset.set_epoch(2)  # doctest: +SKIP
+        """
+        self._epoch = int(epoch)
 
     def __len__(self) -> int:
         """Returns the number of samples in the dataset.
@@ -804,14 +813,19 @@ class InMemorySampleDataset(SampleDataset):
         Returns:
             An iterator yielding processed sample dictionaries.
         """
-        epoch = self._epoch
+        if self._shuffle:
+            rng = np.random.default_rng([self._shuffle_seed, self._epoch])
+            order = rng.permutation(len(self._data))
+        else:
+            order = np.arange(len(self._data))
         self._epoch += 1
-        return self._iter_for_loader(self._shuffle, self._shuffle_seed, epoch)
-
-    def _iter_for_loader(self, shuffle: bool, seed: int, epoch: int) -> Iterable[Any]:
-        if not shuffle:
-            return iter(self._data)
-        order = np.random.default_rng([seed, epoch]).permutation(len(self._data))
+        # With DataLoader worker processes, each worker iterates its own copy
+        # of the dataset; give each a disjoint share so no sample repeats.
+        worker = torch.utils.data.get_worker_info()
+        if worker is not None:
+            order = order[worker.id :: worker.num_workers]
+        # The order is fixed here, not lazily, so later changes to the
+        # dataset's settings don't affect a pass already started.
         return (self._data[i] for i in order)
 
     def subset(self, indices: Union[Sequence[int], slice]) -> SampleDataset:
