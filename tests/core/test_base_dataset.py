@@ -1,8 +1,10 @@
+import os
 import tempfile
 import unittest
 from unittest.mock import patch
 
 import polars as pl
+import psutil
 import pandas as pd
 import dask.dataframe as dd
 
@@ -128,6 +130,35 @@ class TestBaseDataset(unittest.TestCase):
                 sorted(cached_order),
                 "cached global_event_df parquet must be sorted by patient_id",
             )
+
+    @unittest.skipIf(os.name == "nt", "open file descriptor counts are POSIX-only")
+    def test_event_df_build_does_not_leak_file_descriptors(self):
+        # Each build starts and closes a dask LocalCluster. A leak here exhausts the
+        # macOS default `ulimit -n` (256) partway through the test suite.
+        proc = psutil.Process()
+
+        def build(i: int) -> None:
+            with tempfile.TemporaryDirectory() as cache_root, patch(
+                "pyhealth.datasets.base_dataset.platformdirs.user_cache_dir",
+                return_value=cache_root,
+            ):
+                dataset = MockDataset(
+                    data=self._single_row_data(),
+                    root=f"/data/root_fd_{i}",
+                    tables=["table_a"],
+                    dataset_name="FdLeakDataset",
+                    dev=False,
+                )
+                _ = dataset.global_event_df
+
+        build(0)  # warm up one-time imports and handles
+        before = proc.num_fds()
+        for i in range(1, 5):
+            build(i)
+        leaked = proc.num_fds() - before
+        self.assertLess(
+            leaked, 4, f"{leaked} file descriptors leaked across 4 dataset builds"
+        )
 
     def test_empty_string_handling(self):
         import os

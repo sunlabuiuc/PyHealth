@@ -390,7 +390,6 @@ class Transformer(BaseModel, CheferInterpretable):
             len(self.label_keys) == 1
         ), "Only one label key is supported if Transformer is initialized"
         self.label_key = self.label_keys[0]
-        self.mode = self.dataset.output_schema[self.label_key]
 
         self.embedding_model = EmbeddingModel(dataset, embedding_dim)
 

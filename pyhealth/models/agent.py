@@ -397,7 +397,6 @@ class Agent(BaseModel):
         # Single label key required
         assert len(self.label_keys) == 1, "Only one label key is supported"
         self.label_key = self.label_keys[0]
-        self.mode = self.dataset.output_schema[self.label_key]
 
         # Determine static dimension
         self.static_dim = 0
