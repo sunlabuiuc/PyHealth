@@ -35,15 +35,52 @@ Key Features
 - **Class-agnostic**: Independent of the predicted/target class (``target_class_idx`` is accepted but ignored)
 - **Layer-wise composition**: Composes per-layer attention as ``rollout = Â_L @ ... @ Â_1`` with the residual correction ``Â = 0.5 * (A + I)``
 - **Distribution over tokens**: Because each ``Â`` is row-stochastic, so is their product; per-token relevance sums to 1 (before the input-shape expansion)
-- **Model-agnostic by duck-typing**: Works with any model exposing the attention-readout methods ``set_attention_hooks``, ``get_attention_layers`` and ``get_relevance_tensor`` (currently :class:`~pyhealth.models.Transformer` and :class:`~pyhealth.models.StageAttentionNet`), not just one named model
+- **Model interface**: Works with models implementing :class:`~pyhealth.interpret.api.AttentionInterpretable`, including Transformer and StageAttentionNet.
 
 Usage Notes
 -----------
 
 1. **Batch size**: For interpretability, use ``batch_size=1`` to get per-sample explanations.
-2. **Do not wrap in** ``torch.no_grad()``: Although rollout is gradient-free in its math, the shared attention-readout plumbing registers a gradient hook on the attention tensors during the forward pass, so calling ``attribute(**batch)`` inside ``torch.no_grad()`` raises a ``RuntimeError``. Call it under the default (grad-enabled) context; no backward pass is performed.
-3. **Model compatibility**: Works with any model that exposes ``set_attention_hooks``, ``get_attention_layers`` and ``get_relevance_tensor`` — not restricted to the Transformer. Incompatible models raise ``TypeError`` at construction.
+2. **No gradients required**: Rollout runs under ``torch.no_grad()`` and can be called inside an existing no-grad context. It captures detached attention maps without registering backward hooks or changing parameter gradients.
+3. **Model compatibility**: Models must implement ``AttentionInterpretable``. Incompatible models raise ``TypeError`` at construction.
 4. **Class specification**: ``target_class_idx`` is accepted for API compatibility but ignored, since rollout is class-agnostic.
+
+Attention capture interfaces
+----------------------------
+
+``AttentionInterpretable`` provides forward-only capture; its implementations
+must capture detached maps under ``torch.no_grad()`` without requiring autograd.
+``GradientInterpretable`` extends it with backward capture for Chefer.
+Both interfaces live in ``pyhealth.interpret.api``.
+
+.. important::
+
+   Custom models must explicitly inherit the appropriate interface and accept
+   ``set_attention_hooks(enabled, *, capture_gradients=...)``. Rollout passes
+   ``capture_gradients=False`` and Chefer passes ``True``. The compatibility alias
+   ``CheferInterpretable = GradientInterpretable`` preserves imports and type
+   checks, but does not adapt obsolete one-argument implementations: these raise
+   ``TypeError`` identifying ``capture_gradients``. Method names alone no longer
+   establish Rollout compatibility.
+
+Transformer and StageAttentionNet retain ``capture_gradients=True`` as the
+one-argument default. ``enabled=False`` always disables both kinds of capture,
+regardless of the gradient argument. At the attention layer, map capture is
+``capture_attention or register_hook`` and gradient capture is ``register_hook``.
+The new low-level ``capture_attention`` argument is keyword-only; existing
+positional ``register_hook`` calls retain their meaning.
+
+``get_attention_layers()`` returns feature-keyed ordered pairs of optional
+``(attention_map, attention_gradient)`` tensors. Rollout requires maps shaped
+``[batch, heads, seq, seq]``; Chefer also accepts head-averaged maps. Gradients
+are available only after a gradient-enabled forward and backward.
+Disabling capture preserves the latest results and outstanding backward hooks.
+The next attention forward replaces the map and clears the gradient; an
+uncaptured forward clears both. Finish any backward pass before starting a new
+forward: overlapping captured forwards/backwards on one model are unsupported.
+
+See ``examples/interpretability/attention_capture.py`` for a synthetic example
+running Rollout under ``torch.no_grad()`` followed by Chefer on the same model.
 
 Quick Start
 -----------
