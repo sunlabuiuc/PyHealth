@@ -99,7 +99,7 @@ def _ECE_classwise(prob:np.ndarray, label_onehot:np.ndarray, bins=20, threshold=
     return summs, class_losses
 
 def ece_confidence_multiclass(prob:np.ndarray, label:np.ndarray, bins=20, adaptive=False):
-    """Expected Calibration Error (ECE).
+    r"""Expected Calibration Error (ECE).
 
     We group samples into 'bins' basing on the top-class prediction.
     Then, we compute the absolute difference between the average top-class prediction and
@@ -133,7 +133,7 @@ def ece_confidence_multiclass(prob:np.ndarray, label:np.ndarray, bins=20, adapti
     return _ECE_confidence(df, bins, adaptive)[1]
 
 def ece_confidence_binary(prob:np.ndarray, label:np.ndarray, bins=20, adaptive=False):
-    """Expected Calibration Error (ECE) for binary classification.
+    r"""Expected Calibration Error (ECE) for binary classification.
 
     Similar to :func:`ece_confidence_multiclass`, but on class 1 instead of the top-prediction.
 
