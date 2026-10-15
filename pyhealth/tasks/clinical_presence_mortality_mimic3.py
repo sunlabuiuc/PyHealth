@@ -29,6 +29,8 @@ Authors:
     John Nguyen (jnguyen461@gatech.edu)
 """
 
+import polars as pl
+
 # Copy mapping from Jeanselme's preprocessing.ipynb
 LAB_ITEMIDS: dict[str, tuple[int, ...]] = {
     "Alanine aminotransferase": (50861,),
@@ -109,3 +111,159 @@ LAB_NAMES: list[str] = sorted(LAB_ITEMIDS)
 
 # Group flags, where 1 marks the marginalised group
 GROUP_FLAGS: tuple[str, ...] = ("black", "female", "public_insurance")
+
+# global_event_df columns that _extract_cohort reads
+_REQUIRED_COLUMNS: tuple[str, ...] = (
+    "patient_id",
+    "event_type",
+    "timestamp",
+    "patients/gender",
+    "patients/dob",
+    "admissions/hadm_id",
+    "admissions/dischtime",
+    "admissions/hospital_expire_flag",
+    "admissions/ethnicity",
+    "admissions/insurance",
+    "labevents/itemid",
+    "labevents/valuenum",
+)
+
+_DATETIME_FORMAT = "%Y-%m-%d %H:%M:%S"
+
+
+def _check_columns(df: pl.LazyFrame) -> None:
+    """Raises ValueError if ``df`` lacks column that ``_extract_cohort`` reads."""
+    present = set(df.collect_schema().names())
+    missing = [col for col in _REQUIRED_COLUMNS if col not in present]
+    if missing:
+        raise ValueError(
+            f"global_event_df has no column(s) {missing}. This task needs MIMIC-III "
+            "lab events: load MIMIC3Dataset(..., tables=['labevents'])."
+        )
+
+
+def _to_datetime(col: str) -> pl.Expr:
+    # Milliseconds: patients over 89 are ~300 years old, which overflows ns
+    # This is done for patient anonymization
+    return pl.col(col).str.to_datetime(_DATETIME_FORMAT, time_unit="ms", strict=False)
+
+
+def _extract_cohort(
+    df: pl.LazyFrame,
+    window_hours: int = 24,
+    horizon_days: int = 8,
+    min_age: int = 18,
+) -> pl.DataFrame:
+    """Builds the paper's cohort, labels, group flags and raw labs.
+
+    Args:
+        df: The dataset's ``global_event_df``, loaded with
+            ``tables=["labevents"]``.
+        window_hours: Length of the observation window, and the minimum stay.
+        horizon_days: The label is in-hospital death within this many days of
+            admission.
+        min_age: Patients must be older than this at admission, in years.
+
+    Returns:
+        One row per patient, sorted by integer ``patient_id``, with columns
+        ``patient_id``, ``hadm_id``, ``mortality``, the ``GROUP_FLAGS``,
+        ``n_lab_orders`` (distinct lab charttimes) and the ``LAB_NAMES``
+        (null where not observed).
+
+    Raises:
+        ValueError: If ``df`` lacks a required column.
+    """
+    _check_columns(df)
+    window = pl.duration(hours=window_hours)
+    patients = df.filter(pl.col("event_type") == "patients").select(
+        "patient_id",
+        pl.col("patients/gender").alias("gender"),
+        _to_datetime("patients/dob").alias("dob"),
+    )
+    admissions = df.filter(pl.col("event_type") == "admissions").select(
+        "patient_id",
+        pl.col("timestamp").cast(pl.Datetime("ms")).alias("admittime"),
+        pl.col("admissions/hadm_id").alias("hadm_id"),
+        _to_datetime("admissions/dischtime").alias("dischtime"),
+        pl.col("admissions/hospital_expire_flag")
+        .cast(pl.Int8, strict=False)
+        .alias("expire"),
+        pl.col("admissions/ethnicity").alias("ethnicity"),
+        pl.col("admissions/insurance").alias("insurance"),
+    )
+    cohort = (
+        admissions.join(patients, on="patient_id", how="inner")
+        .filter((pl.col("admittime") - pl.col("dob")).dt.total_days() / 365 > min_age)
+        # Last adult admission; a short one drops the patient
+        .sort("patient_id", "admittime", "hadm_id")
+        .group_by("patient_id", maintain_order=True)
+        .last()
+        .filter(pl.col("dischtime") - pl.col("admittime") >= window)
+        .collect()
+    )
+    labs = (
+        df.filter(
+            (pl.col("event_type") == "labevents")
+            & pl.col("labevents/itemid").is_in(list(ITEM_TO_LAB))
+        )
+        .select(
+            "patient_id",
+            pl.col("timestamp").cast(pl.Datetime("ms")).alias("charttime"),
+            pl.col("labevents/itemid").replace_strict(ITEM_TO_LAB).alias("lab"),
+            pl.col("labevents/valuenum").cast(pl.Float64, strict=False).alias("value"),
+        )
+        .join(cohort.lazy().select("patient_id", "admittime"), on="patient_id")
+        .filter(
+            (pl.col("charttime") > pl.col("admittime"))
+            & (pl.col("charttime") < pl.col("admittime") + window)
+        )
+        # Drop every copy of a duplicate, null-valued copies included
+        .filter(pl.len().over("patient_id", "charttime", "lab") == 1)
+        .filter(pl.col("value").is_not_null())
+    )
+    latest, orders = pl.collect_all(
+        [
+            labs.group_by("patient_id", "lab").agg(
+                pl.col("value").sort_by("charttime").last()
+            ),
+            labs.group_by("patient_id").agg(
+                pl.col("charttime").n_unique().alias("n_lab_orders")
+            ),
+        ],
+        engine="streaming",
+    )
+    wide = latest.pivot(on="lab", index="patient_id", values="value")
+    wide = wide.with_columns(
+        [
+            pl.lit(None, dtype=pl.Float64).alias(lab)
+            for lab in LAB_NAMES
+            if lab not in wide.columns
+        ]
+    )
+    died_in_horizon = (pl.col("expire") == 1) & (
+        pl.col("dischtime") - pl.col("admittime") < pl.duration(days=horizon_days)
+    )
+    return (
+        cohort.join(wide, on="patient_id", how="inner")
+        .join(orders, on="patient_id", how="left")
+        .with_columns(
+            mortality=died_in_horizon.cast(pl.Int8),
+            black=pl.col("ethnicity")
+            .str.contains("BLACK", literal=True)
+            .fill_null(False)
+            .cast(pl.Int8),
+            female=(pl.col("gender") == "F").fill_null(False).cast(pl.Int8),
+            public_insurance=(pl.col("insurance") != "Private")
+            .fill_null(True)
+            .cast(pl.Int8),
+        )
+        .select(
+            "patient_id",
+            "hadm_id",
+            "mortality",
+            *GROUP_FLAGS,
+            "n_lab_orders",
+            *LAB_NAMES,
+        )
+        .sort(pl.col("patient_id").cast(pl.Int64))
+    )
