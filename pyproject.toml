@@ -140,6 +140,10 @@ python = "~=3.13"
 [tool.pixi.feature.base.pypi-dependencies]
 pyhealth = { path = ".", editable = true }
 
+[tool.pixi.feature.test.dependencies]
+pytest = "*"
+pytest-cov = "*"
+
 [tool.pixi.feature.test.pypi-dependencies]
 pyhealth = { path = ".", editable = true }
 
@@ -148,6 +152,8 @@ pyhealth = { path = ".", editable = true }
 
 [tool.pixi.feature.nlp.dependencies]
 pip = "*"
+pytest = "*"
+pytest-cov = "*"
 
 # dependencies for building the wheel
 [tool.pixi.feature.build-pypi.dependencies]
