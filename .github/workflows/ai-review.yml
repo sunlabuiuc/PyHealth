@@ -339,6 +339,26 @@ jobs:
             public APIs, missing or inadequate tests for new behavior, and
             security problems. Do not report style or formatting preferences.
 
+            Also check whether PyHealth already has what the pull request
+            adds. Search the repository with Grep and Glob for existing models,
+            datasets, tasks, processors, metrics, interpretability methods and
+            utilities that do the same thing, including under other names: the
+            same method or paper under a different class name, a loader for a
+            dataset PyHealth already supports, the same task definition, or a
+            helper that duplicates an existing one.
+            - Redundant: it reimplements an existing component without a
+              meaningful difference, copies code from an existing module
+              instead of reusing or subclassing it, or adds a helper that
+              duplicates an existing one.
+            - Not redundant: a different method, even from the same family
+              (two different transformer variants are both fine); a variant
+              whose difference is clearly explained, such as a different paper
+              or a new capability; or an extension of an existing component.
+            If it is redundant, report a finding that names the existing
+            component and its path, with medium severity, or high if it is a
+            near-copy. Say so in the summary as well, since the next reviewer
+            only sees the summary.
+
             Severity:
             - high: a likely bug, breakage, data corruption or security problem
             - medium: a real problem that should be fixed before merging
@@ -549,6 +569,8 @@ jobs:
               - The diff is correct and complete as far as you can tell.
               - The first reviewer's summary reports no real unresolved
                 problem.
+              - The first reviewer's summary raises no concern that the change
+                duplicates something PyHealth already has.
               - Test coverage meets the bar: generally at least 80% for each
                 added or modified file, and at least 60% for the whole
                 repository. This is a guideline, not a strict rule: a file with
