@@ -63,6 +63,7 @@ jobs:
             const BOT = 'github-actions[bot]';
             const MAX_FILES = 300;
             const MAX_DIFF_CHARS = 200000;
+            const MAX_DESCRIPTION_CHARS = 20000;
             const skip = (reason) => {
               core.info(`not reviewing: ${reason}`);
               core.setOutput('proceed', 'false');
@@ -195,7 +196,12 @@ jobs:
             // a PR that edits test.yml controls what the coverage step prints
             const testWorkflowModified = paths.includes('.github/workflows/test.yml');
             fs.writeFileSync(`${work}/context.json`, JSON.stringify({
-              number: pr.number, title: pr.title, body: pr.body ?? '',
+              number: pr.number, title: pr.title,
+              // limited once here, with a visible marker so the reviewers don't
+              // take the cut for a problem in the PR itself
+              body: (pr.body ?? '').length > MAX_DESCRIPTION_CHARS
+                ? pr.body.slice(0, MAX_DESCRIPTION_CHARS) + '\n\n[description truncated by the review workflow]'
+                : pr.body ?? '',
               head_sha: pr.head.sha, head_owner: pr.head.repo.owner.login, head_repo: pr.head.repo.name,
               mode, notes, test_workflow_modified: testWorkflowModified,
             }));
@@ -297,7 +303,7 @@ jobs:
 
             fs.writeFileSync(`${work}/haiku-input.md`, [
               `# Pull request #${ctx.number}: ${ctx.title}`, '',
-              '## Description', '', ctx.body.slice(0, 4000) || '(none)', '',
+              '## Description', '', ctx.body || '(none)', '',
               '## Changed files', '', ...files.map((f) => `- ${f.filename} (${f.status})`), '',
               ...(skipped.length ? ['## Changed files not in the working tree', '', ...skipped.map((s) => `- ${s}`), ''] : []),
               '## Diff', '', '````diff', fs.readFileSync(`${work}/pr.diff`, 'utf8'), '````', '',
@@ -516,7 +522,7 @@ jobs:
             };
 
             fs.writeFileSync(`${work}/sonnet-input.json`, JSON.stringify({
-              pull_request: { title: ctx.title, description: ctx.body.slice(0, 4000) },
+              pull_request: { title: ctx.title, description: ctx.body },
               diff: fs.readFileSync(`${work}/pr.diff`, 'utf8'),
               first_review: { summary: haiku.summary, manual: haiku.manual, manual_reason: haiku.manual_reason },
               coverage: coverageInput,
