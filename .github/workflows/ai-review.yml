@@ -236,14 +236,7 @@ jobs:
           fi
           printf '{"started_at":"%s","completed_at":"%s"}' "$started" "$completed" \
             > "$RUNNER_TEMP/ai-review/coverage-window.json"
-          # curl rather than gh api: test output contains terminal color codes,
-          # which recent gh versions refuse to pass through (the parser strips
-          # them). The endpoint redirects to a signed download URL, and curl
-          # doesn't send the token on that cross-host redirect.
-          curl -fsSL --max-time 120 \
-            -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/$REPO/actions/jobs/$job/logs" \
-            -o "$RUNNER_TEMP/ai-review/coverage.log"
+          gh api "repos/$REPO/actions/jobs/$job/logs" > "$RUNNER_TEMP/ai-review/coverage.log"
 
       - name: Check out base commit
         if: ${{ steps.gate.outputs.proceed == 'true' }}
