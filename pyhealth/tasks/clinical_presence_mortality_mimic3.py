@@ -39,6 +39,7 @@ from sklearn.base import BaseEstimator, RegressorMixin
 from sklearn.ensemble import ExtraTreesRegressor
 from sklearn.experimental import enable_iterative_imputer
 from sklearn.impute import IterativeImputer, SimpleImputer
+from sklearn.preprocessing import StandardScaler
 
 # Copy mapping from Jeanselme's preprocessing.ipynb
 LAB_ITEMIDS: dict[str, tuple[int, ...]] = {
@@ -452,3 +453,48 @@ def _impute_draws(
                 imputed[rows] = imputer.transform(Z[rows])
         out[draw] = imputed[:, : X.shape[1]]
     return out
+
+
+def _assemble(
+    imputed: np.ndarray,
+    X: np.ndarray,
+    split: np.ndarray,
+    add_missing_indicators: bool,
+    standardize: bool,
+) -> np.ndarray:
+    """Builds each draw's features from its imputed labs.
+
+    Missingness indicators are appended after imputation, so the imputers never
+    see them. Each draw is standardised with its own training-row statistics.
+
+    Args:
+        imputed: Imputed labs from ``_impute_draws``, shape (n_draws, n, n_labs).
+        X: Raw labs, shape (n, n_labs), NaN where not observed.
+        split: "train", "val" or "test" per row.
+        add_missing_indicators: Append one column per lab, 1 where missing.
+        standardize: Scale every column, indicators included, to mean 0 and
+            sd 1 over the training rows.
+
+    Returns:
+        Features, float32 of shape (n_draws, n, n_labs), or (n_draws, n,
+        2 * n_labs) with indicators, in ``_feature_names`` order.
+    """
+    n_draws, n, n_labs = imputed.shape
+    width = 2 * n_labs if add_missing_indicators else n_labs
+    out = np.empty((n_draws, n, width), dtype=np.float32)
+    out[:, :, :n_labs] = imputed
+    if add_missing_indicators:
+        out[:, :, n_labs:] = np.isnan(X)
+    if standardize:
+        train = split == "train"
+        for features in out:
+            features[:] = StandardScaler().fit(features[train]).transform(features)
+    return out
+
+
+def _feature_names(add_missing_indicators: bool) -> list[str]:
+    """Names of ``_assemble``'s columns: the labs, then "<lab> (missing)"."""
+    names = list(LAB_NAMES)
+    if add_missing_indicators:
+        names += [f"{lab} (missing)" for lab in LAB_NAMES]
+    return names
