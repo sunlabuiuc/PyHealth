@@ -211,9 +211,11 @@ jobs:
             core.setOutput('test_run_id', String(testRunId));
             core.setOutput('test_workflow_modified', String(testWorkflowModified));
 
-      # Coverage is read only from the "Report test coverage" step's own log,
-      # taken from the per-step files in the run's log archive, so output
-      # printed by other steps can't be mistaken for it.
+      # Fetches the test job's full log and the "Report test coverage" step's
+      # start and end times. The run's log archive only keeps per-step files
+      # for a few hours after a run, and a label may be added much later; the
+      # job log is kept for the repository's log retention period. The next
+      # step reads only the part of the log the report step printed.
       - name: Fetch test coverage
         if: ${{ steps.gate.outputs.proceed == 'true' && steps.gate.outputs.test_workflow_modified != 'true' }}
         continue-on-error: true
@@ -222,14 +224,19 @@ jobs:
           REPO: ${{ github.repository }}
           RUN_ID: ${{ steps.gate.outputs.test_run_id }}
         run: |
-          step=$(gh api --paginate "repos/$REPO/actions/runs/$RUN_ID/jobs" \
-            --jq '.jobs[] | select(.name == "build") | .steps[] | select(.name == "Report test coverage") | .number')
-          if [[ ! "$step" =~ ^[0-9]+$ ]]; then
-            echo "::error::expected exactly one 'Report test coverage' step in job 'build', got: ${step//$'\n'/ }"
+          found=$(gh api --paginate "repos/$REPO/actions/runs/$RUN_ID/jobs" \
+            --jq '.jobs[] | select(.name == "build") | . as $job | .steps[]
+                  | select(.name == "Report test coverage")
+                  | "\($job.id) \(.started_at) \(.completed_at)"')
+          time='^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?Z$'
+          read -r job started completed <<< "$found"
+          if [[ "$found" == *$'\n'* || ! "$job" =~ ^[0-9]+$ || ! "$started" =~ $time || ! "$completed" =~ $time ]]; then
+            echo "::error::expected exactly one finished 'Report test coverage' step in job 'build', got: ${found//$'\n'/ | }"
             exit 1
           fi
-          gh api "repos/$REPO/actions/runs/$RUN_ID/logs" > "$RUNNER_TEMP/run.zip"
-          unzip -p "$RUNNER_TEMP/run.zip" "build/${step}_Report test coverage.txt" > "$RUNNER_TEMP/ai-review/coverage.log"
+          printf '{"started_at":"%s","completed_at":"%s"}' "$started" "$completed" \
+            > "$RUNNER_TEMP/ai-review/coverage-window.json"
+          gh api "repos/$REPO/actions/jobs/$job/logs" > "$RUNNER_TEMP/ai-review/coverage.log"
 
       - name: Check out base commit
         if: ${{ steps.gate.outputs.proceed == 'true' }}
@@ -487,12 +494,26 @@ jobs:
             if (!haiku) return core.setFailed('the Haiku review is missing or invalid');
             fs.writeFileSync(`${work}/haiku-review.json`, JSON.stringify(haiku));
 
-            // Coverage, from the test log, which the PR controls: only a summary
-            // rebuilt from fields that pass strict checks is used.
-            const parseCoverage = (log) => {
-              const lines = log.replace(/^\uFEFF/, '').split(/\r?\n/)
-                .map((l) => l.replace(/^\S+Z /, '').replace(/\x1b\[[0-9;]*m/g, ''));
-              const output = lines.slice(lines.indexOf('##[endgroup]') + 1); // skip the step header
+            // Coverage, from the test job's log, which the PR controls. Only the
+            // lines timestamped within the "Report test coverage" step are used,
+            // and only what follows that step's own header, the last one in the
+            // window, so output from earlier steps can't stand in for it. Only a
+            // summary rebuilt from fields that pass strict checks is used.
+            const parseCoverage = (log, window) => {
+              // step times have whole-second precision; log lines are finer
+              const start = Date.parse(window?.started_at);
+              const end = Date.parse(window?.completed_at) + 1000;
+              if (!(start <= end)) return null;
+              const lines = [];
+              for (const raw of log.replace(/^\uFEFF/, '').split(/\r?\n/)) {
+                const m = /^(\S+Z) (.*)$/.exec(raw);
+                const t = m ? Date.parse(m[1]) : NaN;
+                if (t >= start && t < end) lines.push(m[2].replace(/\x1b\[[0-9;]*m/g, ''));
+              }
+              const header = lines.findLastIndex((l) => l.startsWith('##[group]Run pixi run -e test coverage json'));
+              const endgroup = header < 0 ? -1 : lines.indexOf('##[endgroup]', header);
+              if (endgroup < 0) return null;
+              const output = lines.slice(endgroup + 1); // skip the step header
               const open = output.lastIndexOf('{');
               const close = output.indexOf('}', open);
               if (open < 0 || close < 0) return null;
@@ -518,8 +539,13 @@ jobs:
               return { total, modified_files };
             };
             const log = `${work}/coverage.log`;
-            const coverage = !ctx.test_workflow_modified && fs.existsSync(log)
-              ? parseCoverage(fs.readFileSync(log, 'utf8')) : null;
+            const window = `${work}/coverage-window.json`;
+            let coverage = null;
+            if (!ctx.test_workflow_modified && fs.existsSync(log) && fs.existsSync(window)) {
+              try {
+                coverage = parseCoverage(fs.readFileSync(log, 'utf8'), JSON.parse(fs.readFileSync(window, 'utf8')));
+              } catch {}
+            }
             fs.writeFileSync(`${work}/coverage.json`, JSON.stringify(coverage));
 
             // a manual PR always needs a human, so there is nothing to decide
