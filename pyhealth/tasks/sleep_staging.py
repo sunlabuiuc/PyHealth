@@ -1,8 +1,10 @@
 import os
 import pickle
+import xml.etree.ElementTree as ET
+
 import mne
-import pandas as pd
 import numpy as np
+import pandas as pd
 
 
 def sleep_staging_isruc_fn(record, epoch_seconds=10, label_id=1):
@@ -254,20 +256,6 @@ def sleep_staging_shhs_fn(record, epoch_seconds=30):
             'label': '0'
         }
     """
-    
-    # test whether the ogb and torch_scatter packages are ready
-    dependencies = ["elementpath"]
-    try:
-        from importlib.metadata import version
-        version(dependencies)
-        import xml.etree.ElementTree as ET
-    except Exception as e:
-        print(e)
-        print ('-----------')
-        print(
-            "Please follow the error message and install the ['elementpath'] packages first."
-        )
-    
     SAMPLE_RATE = 125
 
     root, signal_file, label_file, save_path = (
