@@ -29,6 +29,9 @@ Authors:
     John Nguyen (jnguyen461@gatech.edu)
 """
 
+from collections.abc import Sequence
+
+import numpy as np
 import polars as pl
 
 # Copy mapping from Jeanselme's preprocessing.ipynb
@@ -267,3 +270,27 @@ def _extract_cohort(
         )
         .sort(pl.col("patient_id").cast(pl.Int64))
     )
+
+
+def _assign_split(
+    n: int, ratios: Sequence[float], seed_seq: np.random.SeedSequence
+) -> np.ndarray:
+    """Randomly assigns ``n`` cohort rows to "train", "val" or "test".
+
+    Args:
+        n: Number of cohort rows, in ``_extract_cohort``'s order.
+        ratios: Train, validation and test fractions, summing to 1.
+        seed_seq: Child 0 of ``SeedSequence(seed).spawn(1 + n_draws)``, so the
+            split depends only on the cohort and the seed.
+
+    Returns:
+        An array of ``n`` strings. Each split's size is within one row of
+        ``n * ratio``, and exact when that is an integer.
+    """
+    perm = np.random.default_rng(seed_seq).permutation(n)
+    n_train, n_train_val = np.rint(np.cumsum(ratios[:2]) * n).astype(int)
+    split = np.empty(n, dtype="<U5")
+    split[perm[:n_train]] = "train"
+    split[perm[n_train:n_train_val]] = "val"
+    split[perm[n_train_val:]] = "test"
+    return split
