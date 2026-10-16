@@ -339,6 +339,11 @@ jobs:
             public APIs, missing or inadequate tests for new behavior, and
             security problems. Do not report style or formatting preferences.
 
+            Judge test coverage against PyHealth's practice: compare with how
+            comparable existing components are tested, and don't ask for kinds
+            of tests the repository doesn't generally have, unless this change
+            makes them specifically necessary. In that case, say why.
+
             Also check whether PyHealth already has what the pull request
             adds. Search the repository with Grep and Glob for existing models,
             datasets, tasks, processors, metrics, interpretability methods and
