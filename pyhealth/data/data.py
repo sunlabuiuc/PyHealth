@@ -130,10 +130,32 @@ class Event:
 class Patient:
     """Patient class representing a sequence of events.
 
+    Events are ordered by timestamp. Events that share a timestamp (for
+    example all diagnoses of a MIMIC admission, which carry its discharge time)
+    keep the order of their rows in the source file, using the
+    ``_source_row`` column that dataset loading adds, so the order is the same
+    on every cache build.
+
     Attributes:
         patient_id (str): Unique patient identifier.
         data_source (pl.DataFrame): DataFrame containing all events, sorted by timestamp.
         event_type_partitions (Dict[str, pl.DataFrame]): Dictionary mapping event types to their respective DataFrame partitions.
+
+    Examples:
+        >>> from datetime import datetime
+        >>> import polars as pl
+        >>> from pyhealth.data import Patient
+        >>> t = datetime(2020, 1, 1)
+        >>> events = pl.DataFrame({
+        ...     "patient_id": ["p1"] * 3,
+        ...     "event_type": ["diagnoses"] * 3,
+        ...     "timestamp": [t, t, t],
+        ...     "_source_row": [2, 0, 1],
+        ...     "diagnoses/code": ["c", "a", "b"],
+        ... })
+        >>> patient = Patient(patient_id="p1", data_source=events)
+        >>> [e.code for e in patient.get_events(event_type="diagnoses")]
+        ['a', 'b', 'c']
     """
 
     def __init__(self, patient_id: str, data_source: pl.DataFrame) -> None:
@@ -145,7 +167,16 @@ class Patient:
             data_source (pl.DataFrame): DataFrame containing all events.
         """
         self.patient_id = patient_id
-        self.data_source = data_source.sort("timestamp")
+        # Events that share a timestamp are ordered by table and then by their
+        # row in the source file, so the order does not depend on how the cache
+        # was built. Older caches lack the source-row column; there the
+        # existing row order is kept (a stable sort).
+        if "_source_row" in data_source.columns:
+            self.data_source = data_source.sort(
+                ["timestamp", "event_type", "_source_row"], maintain_order=True
+            )
+        else:
+            self.data_source = data_source.sort("timestamp", maintain_order=True)
         self.event_type_partitions = self.data_source.partition_by("event_type", maintain_order=True, as_dict=True)
 
     def _filter_by_time_range_regular(self, df: pl.DataFrame, start: Optional[datetime], end: Optional[datetime]) -> pl.DataFrame:

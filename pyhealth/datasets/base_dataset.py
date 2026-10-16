@@ -131,6 +131,23 @@ def path_exists(path: str) -> bool:
         return Path(path).exists()
 
 
+# Column holding each event's row number in its source table (see load_table).
+SOURCE_ROW = "_source_row"
+# Layout of the cached event table; part of the dataset cache key, so caches
+# written with an older layout are rebuilt. 2: adds SOURCE_ROW.
+EVENT_FORMAT = 2
+
+
+def _with_source_row(df: dd.DataFrame) -> dd.DataFrame:
+    """Adds ``SOURCE_ROW``: 0, 1, 2, ... in the frame's current row order.
+
+    A cumulative sum runs across partitions in order, unlike a per-partition
+    ``reset_index``.
+    """
+    df = df.assign(**{SOURCE_ROW: 1})
+    return df.assign(**{SOURCE_ROW: (df[SOURCE_ROW].cumsum() - 1).astype("int64")})
+
+
 def _source_fingerprint(path: str) -> list:
     """Identifies the current version of a table source for the cache key.
 
@@ -504,6 +521,7 @@ class BaseDataset(ABC):
             "tables": sorted(self.tables),
             "dataset_name": self.dataset_name,
             "dev": self.dev,
+            "event_format": EVENT_FORMAT,
         }
         if self.config is not None:
             # Editing the YAML or rewriting a source file must not reuse a stale
@@ -801,6 +819,10 @@ class BaseDataset(ABC):
 
         # Convert column names to lowercase before calling preprocess_func
         df = df.rename(columns=str.lower)
+        # Number rows in source-file order. Patient uses this to order events
+        # that share a timestamp, so the order is the same on every cache build
+        # (the parallel build below does not preserve row order).
+        df = _with_source_row(df)
 
         # Check if there is a preprocessing function for this table
         preprocess_func: Optional[Callable[[nw.LazyFrame], nw.LazyFrame]]
@@ -810,6 +832,8 @@ class BaseDataset(ABC):
                 f"Preprocessing table: {table_name} with {preprocess_func.__name__}"
             )
             df = preprocess_func(nw.from_native(df)).to_native()  # type: ignore
+            if SOURCE_ROW not in df.columns:
+                df = _with_source_row(df)
 
         # Handle joins
         for join_cfg in table_cfg.join:
@@ -880,7 +904,7 @@ class BaseDataset(ABC):
         df: dd.DataFrame = df.rename(columns=rename_attr)
 
         attr_cols = [rename_attr[attr.lower()] for attr in attribute_cols]
-        final_cols = ["patient_id", "event_type", "timestamp"] + attr_cols
+        final_cols = ["patient_id", "event_type", "timestamp", SOURCE_ROW] + attr_cols
         event_frame = df[final_cols]
 
         return event_frame
