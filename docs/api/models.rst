@@ -252,4 +252,4 @@ API Reference
     models/pyhealth.models.unified_multimodal_embedding_docs
     models/pyhealth.models.califorest
     models/pyhealth.models.XGBoostModel
-   models/pyhealth.models.survival_mdn
+    models/pyhealth.models.survival_mdn

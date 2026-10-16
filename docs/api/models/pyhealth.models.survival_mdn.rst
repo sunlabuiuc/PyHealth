@@ -1,5 +1,5 @@
 pyhealth.models.SurvivalMDN
-==========================
+===========================
 
 Overview
 --------
@@ -28,9 +28,9 @@ raw weight logits, means and raw scale logits; it is not a classification score.
 Mixture parameters are also returned. Supply a time grid appropriate to your
 dataset rather than assuming the default SUPPORT-oriented grid is universal.
 
-Use ``model.eval()`` and ``torch.no_grad()`` for ``predict_survival``. The method
-preserves the caller's training/evaluation mode. BatchNorm requires at least two
-samples per training minibatch. ``mode=None`` is intentional: use the custom
+``predict_survival`` temporarily uses evaluation mode and disables gradients.
+It restores each module's previous training/evaluation mode, even on error.
+BatchNorm requires at least two samples per training minibatch. ``mode=None`` is intentional: use the custom
 survival loop and metrics, not PyHealth's classification metric dispatcher.
 
 Example and ablation

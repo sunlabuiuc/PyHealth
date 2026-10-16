@@ -1,8 +1,11 @@
-# Phase 9 — Final Experimental Results
+# Historical SUPPORT Experimental Results
+
+These recorded results come from the standalone model core, not from the native
+PyHealth model contributed here. Native-model checks are described in the README.
 
 ## 1. Reproduction of published SUPPORT results
 
-The Phase-4 reproduction uses the exact recovered SODEN patient memberships and the
+The historical standalone reproduction uses the exact recovered SODEN patient memberships and the
 reconstructed training-only preprocessing. The strongest agreement is in the
 distribution-sensitive metrics (IBLL and IBS). Across all nine published
 metric/horizon comparisons, the reproduction differs from the paper by no more than
@@ -90,7 +93,7 @@ censoring horizons:
 
 ## 6. Recommended final-result statement
 
-> The PyHealth Survival MDN reproduction closely matched the published SUPPORT
+> The standalone Survival MDN reproduction closely matched the published SUPPORT
 > results, particularly for integrated Brier score and integrated binomial
 > log-likelihood. In a controlled 100-run ablation, replacing the paper's softplus
 > positive-time transformation with an exponential transformation improved held-out

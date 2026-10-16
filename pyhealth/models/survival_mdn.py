@@ -3,8 +3,10 @@
 
 This module implements Survival MDN from Han, Goldstein, and Ranganath,
 "Survival Mixture Density Networks" (MLHC 2022). The implementation is
-written from the paper's equations and validated against the released
-SUPPORT benchmark behavior; it is not copied from the authors' repository.
+written from the paper's equations; it is not copied from the authors' repository.
+The native PyHealth model is covered by synthetic unit tests and has undergone
+short SUPPORT integration checks. Recorded SUPPORT reproduction and ablation
+results were generated with a separate standalone core, not this native model.
 
 Paper: https://proceedings.mlr.press/v182/han22a.html
 """
@@ -539,12 +541,17 @@ class SurvivalMDN(BaseModel):
         kwargs[self.feature_key] = embeddings
         return self.forward(**kwargs)
 
+    @torch.no_grad()
     def predict_survival(
         self,
         features: Tensor,
         times: Tensor,
     ) -> Tensor:
         """Predict survival probabilities on an arbitrary time grid.
+
+        Temporarily use evaluation mode without gradients so prediction does not
+        update BatchNorm statistics. Restore every module's previous mode even
+        if prediction raises an exception.
 
         Args:
             features: Dense input tensor with shape ``[batch, input_dim]``.
@@ -563,5 +570,11 @@ class SurvivalMDN(BaseModel):
             dtype=torch.float32,
             device=self.device,
         )
-        params = self.network.mixture_parameters(features)
-        return self.network.survival_at(params, times)
+        previous_modes = [(module, module.training) for module in self.modules()]
+        try:
+            self.eval()
+            params = self.network.mixture_parameters(features)
+            return self.network.survival_at(params, times)
+        finally:
+            for module, training in previous_modes:
+                module.training = training

@@ -224,3 +224,107 @@ def test_missing_and_mismatched_fields():
         model(features=torch.ones(2, 3), duration=torch.ones(2), event=torch.ones(2))
     with pytest.raises(ValueError, match="batch size"):
         model(features=torch.ones(2, 4), duration=torch.ones(3), event=torch.ones(2))
+
+
+@pytest.mark.parametrize("transform", ["softplus", "exp"])
+def test_multicomponent_distribution_against_scalar_reference(transform):
+    """Check weighted mixture math and grid broadcasting independently."""
+    import math
+
+    from pyhealth.models.survival_mdn import (
+        _MDNParameters,
+        _SurvivalMDNDistribution,
+    )
+
+    model = SurvivalMDN(
+        _make_dataset(), hidden_dim=4, num_components=3, time_transform=transform
+    )
+    weights = torch.tensor(
+        [[0.15, 0.25, 0.60], [0.55, 0.35, 0.10]], dtype=torch.float64
+    )
+    means = torch.tensor([[-1.2, 0.3, 1.8], [0.8, -0.4, 1.5]], dtype=torch.float64)
+    scales = torch.tensor([[0.7, 1.3, 0.9], [1.1, 0.6, 1.7]], dtype=torch.float64)
+    params = _MDNParameters(weights.log(), means, scales, weights.log(), scales)
+    distribution = _SurvivalMDNDistribution(params, model.network.time_transform)
+
+    def reference(row, time):
+        latent = (
+            math.log(math.expm1(time)) if transform == "softplus" else math.log(time)
+        )
+        jacobian = 1 / (-math.expm1(-time)) if transform == "softplus" else 1 / time
+        density, cdf, survival = 0.0, 0.0, 0.0
+        for weight, mean, scale in zip(weights[row], means[row], scales[row]):
+            weight, mean, scale = float(weight), float(mean), float(scale)
+            z = (latent - mean) / scale
+            density += weight * math.exp(-z * z / 2) / (scale * math.sqrt(2 * math.pi))
+            cdf += weight * math.erfc(-z / math.sqrt(2)) / 2
+            survival += weight * math.erfc(z / math.sqrt(2)) / 2
+        return density * jacobian, cdf, survival
+
+    durations = torch.tensor([0.45, 2.3], dtype=torch.float64)
+    expected = torch.tensor(
+        [reference(row, float(time)) for row, time in enumerate(durations)],
+        dtype=torch.float64,
+    )
+    torch.testing.assert_close(distribution.log_prob(durations), expected[:, 0].log())
+    torch.testing.assert_close(distribution.log_cdf(durations), expected[:, 1].log())
+    torch.testing.assert_close(
+        distribution.log_survival(durations), expected[:, 2].log()
+    )
+    for events in (torch.tensor([1.0, 0.0]), torch.tensor([0.0, 1.0])):
+        expected_nll = -torch.where(events.bool(), expected[:, 0], expected[:, 2]).log()
+        actual = model.network.censored_nll(params, durations, events, reduction="none")
+        torch.testing.assert_close(actual, expected_nll)
+
+    times = torch.tensor([0.05, 0.4, 1.5, 4.0, 9.0], dtype=torch.float64)
+    expected_grid = torch.tensor(
+        [[reference(row, float(time))[2] for time in times] for row in range(2)],
+        dtype=torch.float64,
+    )
+    torch.testing.assert_close(model.network.survival_at(params, times), expected_grid)
+
+
+@pytest.mark.parametrize("mode", ["train", "eval", "mixed"])
+def test_predict_survival_is_inference_only_and_restores_modes(mode):
+    model = SurvivalMDN(
+        _make_dataset(),
+        hidden_dim=4,
+        num_components=3,
+        reference_initialization=False,
+    )
+    model.train(mode != "eval")
+    batch_norm = next(m for m in model.modules() if isinstance(m, torch.nn.BatchNorm1d))
+    if mode == "mixed":
+        batch_norm.eval()
+    previous_modes = [module.training for module in model.modules()]
+    previous_state = {key: value.clone() for key, value in model.state_dict().items()}
+    features = torch.tensor(
+        [[0.0, 1.0, -0.5, 0.2], [4.0, -2.0, 3.0, 1.0]], requires_grad=True
+    )
+    prediction = model.predict_survival(features, model.time_grid)
+    assert not prediction.requires_grad
+    assert [module.training for module in model.modules()] == previous_modes
+    for key, value in model.state_dict().items():
+        assert torch.equal(value, previous_state[key]), key
+
+    # A single-patient call must work and agree with the same patient's batch result.
+    single = model.predict_survival(features[:1], model.time_grid)
+    torch.testing.assert_close(single[0], prediction[0])
+    assert [module.training for module in model.modules()] == previous_modes
+    assert torch.is_grad_enabled()
+
+
+@pytest.mark.parametrize("mode", ["train", "eval", "mixed"])
+def test_predict_survival_restores_modes_after_error(mode):
+    model = SurvivalMDN(_make_dataset(), hidden_dim=4, num_components=2)
+    model.train(mode != "eval")
+    if mode == "mixed":
+        next(m for m in model.modules() if isinstance(m, torch.nn.BatchNorm1d)).eval()
+    previous_modes = [module.training for module in model.modules()]
+    previous_state = {key: value.clone() for key, value in model.state_dict().items()}
+    with pytest.raises(ValueError, match="positive"):
+        model.predict_survival(torch.ones(2, 4), torch.tensor([0.0]))
+    assert [module.training for module in model.modules()] == previous_modes
+    for key, value in model.state_dict().items():
+        assert torch.equal(value, previous_state[key]), key
+    assert torch.is_grad_enabled()
