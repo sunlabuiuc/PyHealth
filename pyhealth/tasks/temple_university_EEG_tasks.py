@@ -20,6 +20,7 @@ class EEGEventsTUEV(BaseTask):
       - "signal": np.ndarray, shape (16, 256*5)
       - "offending_channel": int
       - "label": int
+      - "split": str, "train" or "eval", the dataset's official partition. Used by pyhealth.datasets.split_by_predefined.
 
     Examples:
         >>> from pyhealth.datasets import TUEVDataset

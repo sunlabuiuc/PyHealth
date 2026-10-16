@@ -77,6 +77,53 @@ which runs `tools/check_pr_rules.py`. You can run the same check locally:
 python tools/check_pr_rules.py --base <base_sha> --head HEAD
 ```
 
+## Porting a Dataset's Official Splits
+
+Many datasets ship with pre-defined splits, for example the train/eval partitions
+of the TUH EEG corpora (TUEV, TUAB). To keep `pyhealth/datasets/splitter.py` from
+growing one near-identical function per dataset, port official splits as follows.
+
+1. **Tag every sample in the task.** In the task's `__call__`, set a `"split"`
+   field on each sample to the dataset's own partition label. `EEGEventsTUEV` and
+   `EEGAbnormalTUAB` in `pyhealth/tasks/temple_university_EEG_tasks.py` are the
+   reference: they iterate over the `"train"` and `"eval"` partitions and write
+   the partition name into `sample["split"]`. Document the field in the task's
+   docstring.
+2. **Do not add a new splitter to `splitter.py`.** Call
+   `pyhealth.datasets.split_by_predefined`, which holds the logic for all
+   pre-defined splits:
+    - `ratios` has 2 values (train / val) or 3 values (train / val / cal) and is
+      applied to the train pool only. Samples whose `split_key` value is not
+      `train_value` form the held-out test set.
+    - `by_patient=True` keeps all of a patient's samples in the same split
+      (the dataset must have `patient_to_index`). Patients are sorted by ID before
+      shuffling, so the result does not depend on sample order.
+    - `split_key` (default `"split"`) and `train_value` (default `"train"`) adapt
+      the function to a different field name or partition label.
+    - `get_index=True` returns `torch.Tensor` index vectors instead of datasets.
+3. **Wrap it only if the arguments are fixed.** If a dataset always needs the same
+   arguments, add a thin wrapper next to that dataset (in its module under
+   `pyhealth/datasets/`), not in `splitter.py`. The existing `*_tuh` functions in
+   `splitter.py` are such wrappers, kept for backward compatibility.
+4. **Test it.** Add a unit test that checks the held-out set is exactly the
+   official eval partition, that no patient appears in more than one part when
+   `by_patient=True`, and that the same seed gives the same split.
+
+```python
+>>> from pyhealth.datasets import split_by_predefined
+>>> train, val, test = split_by_predefined(  # doctest: +SKIP
+...     sample_dataset, [0.8, 0.2], seed=42, by_patient=True
+... )
+>>> train, val, cal, test = split_by_predefined(  # doctest: +SKIP
+...     sample_dataset, [0.6, 0.2, 0.2], seed=42, by_patient=True
+... )
+```
+
+These functions split an already-processed `SampleDataset`, so its processors
+(vocabularies, learned statistics) were fitted on all samples. If preprocessing
+must be fitted on the training part only, split inside `set_task` instead, with
+`PatientSplit` or a custom `Split`.
+
 ## Community
 
 We welcome you to join our community
