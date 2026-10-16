@@ -742,25 +742,45 @@ jobs:
             const clean = (s, max = 6000) => String(s).slice(0, max)
               .replace(/@(?=[A-Za-z0-9_-])/g, '@​').replace(/<!--/g, '&lt;!--');
 
-            // mark earlier AI reviews as superseded and collapse their comments
+            // Earlier AI reviews: delete their inline comments and collapse each
+            // into a "Previous review". Submitted reviews can't be deleted, so the
+            // review itself stays. Only items carrying this workflow's markers are
+            // touched: never the coverage comment, other bots' or people's posts.
+            const MARK_PREVIOUS = '<!-- ai-review:previous -->';
+            const OUR_REVIEW = /<!-- ai-review:(haiku|decision|superseded|previous) -->/;
             const reviews = await github.paginate(github.rest.pulls.listReviews, {
               ...repo, pull_number: number, per_page: 100,
             });
             for (const r of reviews) {
-              if (r.user?.login !== BOT || !(r.body?.includes(MARK_HAIKU) || r.body?.includes(MARK_DECISION))) continue;
-              const old = r.body.replace(/<!-- ai-review:\w+ -->/g, '').trim();
-              await github.rest.pulls.updateReview({
-                ...repo, pull_number: number, review_id: r.id,
-                body: `<!-- ai-review:superseded -->\n_Superseded by a newer AI review._\n\n` +
-                  `<details><summary>Previous review</summary>\n\n${old}\n\n</details>`,
-              });
+              if (r.user?.login !== BOT || !OUR_REVIEW.test(r.body ?? '')) continue;
               const comments = await github.paginate(github.rest.pulls.listCommentsForReview, {
                 ...repo, pull_number: number, review_id: r.id, per_page: 100,
               });
               for (const c of comments) {
-                await github.graphql(
-                  'mutation($id: ID!) { minimizeComment(input: {subjectId: $id, classifier: OUTDATED}) { clientMutationId } }',
-                  { id: c.node_id });
+                if (c.user?.login !== BOT) continue;
+                await github.rest.pulls.deleteReviewComment({ ...repo, comment_id: c.id })
+                  .catch((e) => { if (e.status !== 404) throw e; });
+              }
+              if (r.body.includes(MARK_PREVIOUS)) continue;
+              // reviews collapsed by the earlier format are already wrapped in <details>
+              const old = r.body.includes('<!-- ai-review:superseded -->')
+                ? r.body.replace(/^[\s\S]*?<details><summary>Previous review<\/summary>\n\n/, '')
+                  .replace(/\n\n<\/details>\s*$/, '')
+                : r.body.replace(/<!-- ai-review:\w+ -->/g, '').trim();
+              await github.rest.pulls.updateReview({
+                ...repo, pull_number: number, review_id: r.id,
+                body: `${MARK_PREVIOUS}\n<details><summary>Previous review</summary>\n\n${old}\n\n</details>`,
+              });
+            }
+
+            // our "too large" notice from an earlier run, if any
+            const issueComments = await github.paginate(github.rest.issues.listComments, {
+              ...repo, issue_number: number, per_page: 100,
+            });
+            for (const c of issueComments) {
+              if (c.user?.login === BOT && c.body?.includes('<!-- ai-review:notice -->')) {
+                await github.rest.issues.deleteComment({ ...repo, comment_id: c.id })
+                  .catch((e) => { if (e.status !== 404) throw e; });
               }
             }
 
