@@ -30,9 +30,14 @@ Authors:
 """
 
 from collections.abc import Sequence
+from typing import Any
 
 import numpy as np
 import polars as pl
+from sklearn.base import BaseEstimator, RegressorMixin
+from sklearn.ensemble import ExtraTreesRegressor
+from sklearn.experimental import enable_iterative_imputer
+from sklearn.impute import IterativeImputer, SimpleImputer
 
 # Copy mapping from Jeanselme's preprocessing.ipynb
 LAB_ITEMIDS: dict[str, tuple[int, ...]] = {
@@ -294,3 +299,111 @@ def _assign_split(
     split[perm[n_train:n_train_val]] = "val"
     split[perm[n_train_val:]] = "test"
     return split
+
+
+class _OLSResidualNoise(RegressorMixin, BaseEstimator):
+    """OLS whose predictive sd is the sd of |residual|, as in the reference MICE.
+
+    Solves the normal equations, which is several times faster than
+    ``LinearRegression`` on a cohort-sized matrix.
+    """
+
+    def fit(self, X: np.ndarray, y: np.ndarray) -> "_OLSResidualNoise":
+        x_mean, y_mean = X.mean(axis=0), y.mean()
+        Xc = X - x_mean
+        self.coef_ = np.linalg.lstsq(Xc.T @ Xc, Xc.T @ (y - y_mean), rcond=None)[0]
+        self.intercept_ = y_mean - x_mean @ self.coef_
+        self.sigma_ = float(np.std(np.abs(y - self.predict(X))))
+        return self
+
+    def predict(
+        self, X: np.ndarray, return_std: bool = False
+    ) -> np.ndarray | tuple[np.ndarray, np.ndarray]:
+        mu = X @ self.coef_ + self.intercept_
+        if return_std:
+            return mu, np.full_like(mu, self.sigma_)
+        return mu
+
+
+def _make_imputer(
+    imputation: str,
+    random_state: int,
+    max_iter: int,
+    forest_params: dict[str, Any],
+) -> SimpleImputer | IterativeImputer:
+    """Builds one draw's imputer for an ``imputation`` strategy.
+
+    MICE draws each value from N(OLS prediction, sd of |residual|), starting
+    from the median and visiting labs from least to most missing. The
+    MissForest-style imputer predicts with extra trees and stops early on
+    scikit-learn's ``tol``. ``keep_empty_features`` keeps the column layout
+    when a lab is never observed in the training rows.
+    """
+    if imputation == "median":
+        return SimpleImputer(strategy="median", keep_empty_features=True)
+    common = {
+        "max_iter": max_iter,
+        "initial_strategy": "median",
+        "imputation_order": "ascending",
+        "keep_empty_features": True,
+        "random_state": random_state,
+    }
+    if imputation.endswith("mice"):
+        return IterativeImputer(
+            estimator=_OLSResidualNoise(), sample_posterior=True, **common
+        )
+    if imputation.endswith("missforest"):
+        params = {
+            "n_estimators": 50,
+            "max_features": "sqrt",
+            "min_samples_leaf": 5,
+            "n_jobs": -1,
+            **forest_params,
+            "random_state": random_state,
+        }
+        return IterativeImputer(estimator=ExtraTreesRegressor(**params), **common)
+    raise ValueError(f"Unknown imputation {imputation!r}")
+
+
+def _impute_draws(
+    X: np.ndarray,
+    G: np.ndarray,
+    split: np.ndarray,
+    imputation: str,
+    draw_seeds: Sequence[np.random.SeedSequence],
+    max_iter: int,
+    forest_params: dict[str, Any],
+) -> np.ndarray:
+    """Imputes the labs once per draw seed, fitting on the training rows only.
+
+    Validation and test rows are transformed in separate calls, so the
+    training rows' values never depend on them.
+
+    Args:
+        X: Raw labs, shape (n, n_labs), NaN where not observed.
+        G: Group flags, shape (n, n_flags). The ``group_*`` strategies use them
+            as extra predictors; they are never part of the output.
+        split: "train", "val" or "test" per row.
+        imputation: One of the task's imputation strategies.
+        draw_seeds: One seed sequence per draw.
+        max_iter: Imputation sweeps for the iterative strategies.
+        forest_params: Overrides for the MissForest-style extra trees.
+
+    Returns:
+        Imputed labs, float32 of shape (len(draw_seeds), n, n_labs).
+    """
+    Z = np.hstack([X, G]) if imputation.startswith("group_") else X
+    Z = Z.astype(np.float64)
+    train = split == "train"
+    out = np.empty((len(draw_seeds), *X.shape), dtype=np.float32)
+    for draw, seed_seq in enumerate(draw_seeds):
+        random_state = int(seed_seq.generate_state(1)[0])
+        imputer = _make_imputer(imputation, random_state, max_iter, forest_params)
+        imputed = np.empty_like(Z)
+        imputed[train] = imputer.fit_transform(Z[train])
+        for part in ("val", "test"):
+            rows = split == part
+            if rows.any():
+                imputed[rows] = imputer.transform(Z[rows])
+        out[draw] = imputed[:, : X.shape[1]]
+    return out
