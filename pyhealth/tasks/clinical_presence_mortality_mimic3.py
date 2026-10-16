@@ -6,7 +6,8 @@ patients interact with the healthcare system.
 The cohort is each adult's last hospital admission, kept if it lasts at least
 24 hours. Features are the latest value of each of 67 lab tests drawn in the
 first 24 hours, with missing values imputed at the cohort level (median, MICE,
-group MICE or MissForest-style, fit on training patients only). The label is
+group MICE, a corrected version of either, or MissForest-style; fit on training
+patients only). The label is
 death within 8 days of admission. Black, female and public-insurance flags
 travel with each sample for subgroup evaluation, but are never features.
 
@@ -302,18 +303,33 @@ def _assign_split(
 
 
 class _OLSResidualNoise(RegressorMixin, BaseEstimator):
-    """OLS whose predictive sd is the sd of |residual|, as in the reference MICE.
+    """OLS with a constant predictive sd; the defaults match the reference MICE.
 
     Solves the normal equations, which is several times faster than
-    ``LinearRegression`` on a cohort-sized matrix.
+    ``LinearRegression`` on a cohort-sized matrix. By default the sd is that of
+    |residual| and the full model is always fit, as in the reference.
+
+    Args:
+        min_rows_per_feature: Fit the intercept only when there are fewer than
+            this many rows per predictor. 0 always fits the full model.
+        proper_noise: Use the sd of the residuals, not of their absolute values.
     """
 
+    def __init__(self, min_rows_per_feature: int = 0, proper_noise: bool = False):
+        self.min_rows_per_feature = min_rows_per_feature
+        self.proper_noise = proper_noise
+
     def fit(self, X: np.ndarray, y: np.ndarray) -> "_OLSResidualNoise":
-        x_mean, y_mean = X.mean(axis=0), y.mean()
-        Xc = X - x_mean
-        self.coef_ = np.linalg.lstsq(Xc.T @ Xc, Xc.T @ (y - y_mean), rcond=None)[0]
-        self.intercept_ = y_mean - x_mean @ self.coef_
-        self.sigma_ = float(np.std(np.abs(y - self.predict(X))))
+        if len(y) < self.min_rows_per_feature * X.shape[1]:
+            self.coef_ = np.zeros(X.shape[1])
+            self.intercept_ = y.mean()
+        else:
+            x_mean, y_mean = X.mean(axis=0), y.mean()
+            Xc = X - x_mean
+            self.coef_ = np.linalg.lstsq(Xc.T @ Xc, Xc.T @ (y - y_mean), rcond=None)[0]
+            self.intercept_ = y_mean - x_mean @ self.coef_
+        resid = y - self.predict(X)
+        self.sigma_ = float(np.std(resid if self.proper_noise else np.abs(resid)))
         return self
 
     def predict(
@@ -325,19 +341,37 @@ class _OLSResidualNoise(RegressorMixin, BaseEstimator):
         return mu
 
 
+def _training_range(Z: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Per-column observed min and max; ∓inf for columns with < 2 distinct values.
+
+    scikit-learn's ``IterativeImputer`` needs min < max for every column.
+    """
+    observed = ~np.isnan(Z)
+    lo = np.min(Z, axis=0, where=observed, initial=np.inf)
+    hi = np.max(Z, axis=0, where=observed, initial=-np.inf)
+    unbounded = ~(lo < hi)
+    lo[unbounded], hi[unbounded] = -np.inf, np.inf
+    return lo, hi
+
+
 def _make_imputer(
     imputation: str,
     random_state: int,
     max_iter: int,
     forest_params: dict[str, Any],
+    min_value: float | np.ndarray = -np.inf,
+    max_value: float | np.ndarray = np.inf,
 ) -> SimpleImputer | IterativeImputer:
     """Builds one draw's imputer for an ``imputation`` strategy.
 
     MICE draws each value from N(OLS prediction, sd of |residual|), starting
-    from the median and visiting labs from least to most missing. The
-    MissForest-style imputer predicts with extra trees and stops early on
-    scikit-learn's ``tol``. ``keep_empty_features`` keeps the column layout
-    when a lab is never observed in the training rows.
+    from the median and visiting labs from least to most missing. Corrected
+    MICE fits the intercept only for labs with fewer than 10 observed rows per
+    predictor and uses the sd of the residuals. The MissForest-style imputer
+    predicts with extra trees and stops early on scikit-learn's ``tol``.
+    ``keep_empty_features`` keeps the column layout when a lab is never
+    observed in the training rows. ``min_value`` and ``max_value`` bound the
+    iterative imputers' values per column, as in ``IterativeImputer``.
     """
     if imputation == "median":
         return SimpleImputer(strategy="median", keep_empty_features=True)
@@ -346,8 +380,13 @@ def _make_imputer(
         "initial_strategy": "median",
         "imputation_order": "ascending",
         "keep_empty_features": True,
+        "min_value": min_value,
+        "max_value": max_value,
         "random_state": random_state,
     }
+    if imputation.endswith("corrected_mice"):
+        estimator = _OLSResidualNoise(min_rows_per_feature=10, proper_noise=True)
+        return IterativeImputer(estimator=estimator, sample_posterior=True, **common)
     if imputation.endswith("mice"):
         return IterativeImputer(
             estimator=_OLSResidualNoise(), sample_posterior=True, **common
@@ -377,7 +416,8 @@ def _impute_draws(
     """Imputes the labs once per draw seed, fitting on the training rows only.
 
     Validation and test rows are transformed in separate calls, so the
-    training rows' values never depend on them.
+    training rows' values never depend on them. The ``*corrected_mice``
+    strategies keep imputed values within the training rows' observed range.
 
     Args:
         X: Raw labs, shape (n, n_labs), NaN where not observed.
@@ -395,10 +435,15 @@ def _impute_draws(
     Z = np.hstack([X, G]) if imputation.startswith("group_") else X
     Z = Z.astype(np.float64)
     train = split == "train"
+    bounds = (-np.inf, np.inf)
+    if "corrected" in imputation:
+        bounds = _training_range(Z[train])
     out = np.empty((len(draw_seeds), *X.shape), dtype=np.float32)
     for draw, seed_seq in enumerate(draw_seeds):
         random_state = int(seed_seq.generate_state(1)[0])
-        imputer = _make_imputer(imputation, random_state, max_iter, forest_params)
+        imputer = _make_imputer(
+            imputation, random_state, max_iter, forest_params, *bounds
+        )
         imputed = np.empty_like(Z)
         imputed[train] = imputer.fit_transform(Z[train])
         for part in ("val", "test"):
