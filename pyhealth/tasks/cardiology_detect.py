@@ -73,7 +73,8 @@ def cardiology_isAR_fn(record, epoch_sec=10, shift=5):
         
         # X load
         X = loadmat(os.path.join(root, signal))["val"]
-        label_content =  open(os.path.join(root, label), "r").readlines()
+        with open(os.path.join(root, label), "r") as f:
+            label_content = f.readlines()
         Dx, Sex, Age = label_content[-4].split(" ")[-1][:-1].split(","), \
                 label_content[-5].split(" ")[-1][:-1].split(","), \
                 label_content[-6].split(" ")[-1][:-1].split(",")
@@ -169,7 +170,8 @@ def cardiology_isBBBFB_fn(record, epoch_sec=10, shift=5):
         
         # X load
         X = loadmat(os.path.join(root, signal))["val"]
-        label_content =  open(os.path.join(root, label), "r").readlines()
+        with open(os.path.join(root, label), "r") as f:
+            label_content = f.readlines()
         Dx, Sex, Age = label_content[-4].split(" ")[-1][:-1].split(","), label_content[-5].split(" ")[-1][:-1].split(","), label_content[-6].split(" ")[-1][:-1].split(",")
 
         y = 1 if set(Dx).intersection(BBBFB_space) else 0
@@ -263,7 +265,8 @@ def cardiology_isAD_fn(record, epoch_sec=10, shift=5):
         
         # X load
         X = loadmat(os.path.join(root, signal))["val"]
-        label_content =  open(os.path.join(root, label), "r").readlines()
+        with open(os.path.join(root, label), "r") as f:
+            label_content = f.readlines()
         Dx, Sex, Age = label_content[-4].split(" ")[-1][:-1].split(","), label_content[-5].split(" ")[-1][:-1].split(","), label_content[-6].split(" ")[-1][:-1].split(",")
 
         y = 1 if set(Dx).intersection(AD_space) else 0
@@ -357,7 +360,8 @@ def cardiology_isCD_fn(record, epoch_sec=10, shift=5):
         
         # X load
         X = loadmat(os.path.join(root, signal))["val"]
-        label_content =  open(os.path.join(root, label), "r").readlines()
+        with open(os.path.join(root, label), "r") as f:
+            label_content = f.readlines()
         Dx, Sex, Age = label_content[-4].split(" ")[-1][:-1].split(","), label_content[-5].split(" ")[-1][:-1].split(","), label_content[-6].split(" ")[-1][:-1].split(",")
 
         y = 1 if set(Dx).intersection(CD_space) else 0
@@ -451,7 +455,8 @@ def cardiology_isWA_fn(record, epoch_sec=10, shift=5):
         
         # X load
         X = loadmat(os.path.join(root, signal))["val"]
-        label_content =  open(os.path.join(root, label), "r").readlines()
+        with open(os.path.join(root, label), "r") as f:
+            label_content = f.readlines()
         Dx, Sex, Age = label_content[-4].split(" ")[-1][:-1].split(","), label_content[-5].split(" ")[-1][:-1].split(","), label_content[-6].split(" ")[-1][:-1].split(",")
 
 
