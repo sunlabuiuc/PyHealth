@@ -236,7 +236,10 @@ jobs:
           fi
           printf '{"started_at":"%s","completed_at":"%s"}' "$started" "$completed" \
             > "$RUNNER_TEMP/ai-review/coverage-window.json"
-          gh api "repos/$REPO/actions/jobs/$job/logs" > "$RUNNER_TEMP/ai-review/coverage.log"
+          # test output contains terminal color codes, which gh 2.97+ refuses to
+          # write unless allowed; the log goes to a file and the parser strips them
+          gh api --allow-escape-sequences "repos/$REPO/actions/jobs/$job/logs" \
+            > "$RUNNER_TEMP/ai-review/coverage.log"
 
       - name: Check out base commit
         if: ${{ steps.gate.outputs.proceed == 'true' }}
