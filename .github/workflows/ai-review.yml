@@ -4,7 +4,7 @@ name: AI Review
 # policy: "status: automatic" PRs can be approved by the AI, "status: manual"
 # PRs get an AI review but a maintainer decides. On manual PRs only people with
 # write access can request a review; on automatic PRs the PR's author can too.
-# Each "status: automatic" labeling allows 10 AI reviews, after which the PR
+# Each "status: automatic" labeling allows 5 AI reviews, after which the PR
 # switches to manual.
 #
 # Haiku reviews the change with read-only access to the PR's version of the
@@ -46,7 +46,7 @@ env:
   # changes outside these make a PR manual, and only these are given to Haiku
   ALLOWED_DIRS: 'docs/ examples/ pyhealth/ test-resources/ tests/'
   # AI reviews allowed per "status: automatic" labeling
-  REVIEW_QUOTA: '10'
+  REVIEW_QUOTA: '5'
 
 jobs:
   # Accepts a /review comment from someone allowed on a commit not yet reviewed:
