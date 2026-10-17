@@ -42,6 +42,25 @@ New to calibration and uncertainty quantification? Check out this complete examp
 
 This example shows the complete pipeline from model training to uncertainty-aware predictions with formal coverage guarantees.
 
+.. note::
+
+   ``CovariateLabel``'s finite-sample correction implements Corollary 1 of
+   Tibshirani, Barber, Candes, and Ramdas, "Conformal Prediction Under
+   Covariate Shift" (NeurIPS 2019, https://arxiv.org/abs/1904.06019): the
+   test point's reserved probability mass must be inserted as an actual
+   point in the weighted empirical distribution (at the conservative
+   extreme), not merely folded into the normalizing denominator -- doing
+   only the latter silently under-covers relative to the target coverage
+   level.
+
+   Corollary 1 also defines the threshold *per test point*, using that
+   point's own likelihood ratio w(x). Pass ``test_embeddings`` to
+   ``CovariateLabel.forward()`` to get this exact per-point threshold;
+   omitting it falls back to a single threshold computed from the *mean*
+   calibration likelihood ratio, which is only an approximation of the
+   paper's guarantee (a ``UserWarning`` is raised when this fallback is
+   used).
+
 Quick Links
 -----------
 

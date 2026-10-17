@@ -19,6 +19,9 @@ Multi-seed usage (recommended for papers):
 Notes:
 - CovariateLabel requires access to test embeddings to estimate density ratios.
 - Test embeddings are recomputed each seed since the model changes.
+- CovariateLabel's finite-sample correction implements Corollary 1 of
+  Tibshirani, Barber, Candes, and Ramdas (NeurIPS 2019, arXiv:1904.06019);
+  see docs/api/calib.rst for details.
 """
 
 from __future__ import annotations
@@ -176,6 +179,36 @@ def set_seed(seed: int) -> None:
         torch.cuda.manual_seed_all(seed)
 
 
+def _inference_with_pointwise_threshold(cov_predictor, test_loader, test_embeddings):
+    """Run CovariateLabel inference with each test point's own threshold.
+
+    Trainer.inference() calls model(**batch) with no way to also pass a
+    per-batch test_embeddings slice, so routing through it would silently
+    fall back to CovariateLabel's approximate mean-weight threshold for
+    every point (defeating the whole point of this example -- exercising
+    Corollary 1's exact per-test-point construction). This loop mirrors
+    Trainer.inference()'s logic directly, slicing test_embeddings in the
+    same fixed order test_loader yields batches in (shuffle=False).
+    """
+    y_true_all, y_prob_all, y_predset_all = [], [], []
+    cov_predictor.eval()
+    offset = 0
+    with torch.no_grad():
+        for batch in test_loader:
+            batch_size = len(batch["patient_id"])
+            batch_embeddings = test_embeddings[offset : offset + batch_size]
+            offset += batch_size
+            output = cov_predictor(test_embeddings=batch_embeddings, **batch)
+            y_true_all.append(output["y_true"].cpu().numpy())
+            y_prob_all.append(output["y_prob"].cpu().numpy())
+            y_predset_all.append(output["y_predset"].cpu().numpy())
+    return (
+        np.concatenate(y_true_all, axis=0),
+        np.concatenate(y_prob_all, axis=0),
+        {"y_predset": np.concatenate(y_predset_all, axis=0)},
+    )
+
+
 def _run_one_seed(
     args,
     sample_dataset,
@@ -246,8 +279,8 @@ def _run_one_seed(
             test_embeddings=test_embeddings,
         )
 
-        y_true, y_prob, _, extra = Trainer(model=cov_predictor).inference(
-            test_loader, additional_outputs=["y_predset"]
+        y_true, y_prob, extra = _inference_with_pointwise_threshold(
+            cov_predictor, test_loader, test_embeddings
         )
         conf_metrics = get_metrics_fn("multiclass")(
             y_true, y_prob,
