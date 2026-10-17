@@ -38,6 +38,11 @@ tables read. Editing the YAML or rewriting a source file (even at the same path)
 therefore builds a fresh cache instead of silently reusing a stale one. Old cache
 folders are left in place; delete them to reclaim disk space.
 
+Temporary files (converted source tables, Dask scratch space) go to folders
+under ``tmp/`` in the cache directory. Each dataset removes only the folders it
+created, so a job that finishes does not delete the temporary files of another
+job using the same ``cache_dir``.
+
 The result is a :class:`~pyhealth.datasets.BaseDataset` — a structured
 patient→event tree. It is different from a PyTorch Dataset: it has no integer
 length and you cannot index into it with ``dataset[i]``. Think of it as a

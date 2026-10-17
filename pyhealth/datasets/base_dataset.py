@@ -466,6 +466,7 @@ class BaseDataset(ABC):
 
         # Cached attributes
         self.cache_dir = self._init_cache_dir(cache_dir)
+        self._tmp_dirs: list[Path] = []  # created by create_tmpdir()
         self._global_event_df = None
         self._unique_patient_ids = None
 
@@ -540,13 +541,25 @@ class BaseDataset(ABC):
         """
         tmp_dir = self.cache_dir / "tmp" / str(uuid.uuid4())
         tmp_dir.mkdir(parents=True, exist_ok=True)
+        self._tmp_dirs.append(tmp_dir)
         return tmp_dir
 
     def clean_tmpdir(self) -> None:
-        """Cleans up the temporary directory within the cache."""
-        tmp_dir = self.cache_dir / "tmp"
-        if tmp_dir.exists():
-            shutil.rmtree(tmp_dir)
+        """Removes the temporary directories this dataset created.
+
+        Other jobs may share the same cache directory and still be using their
+        own directories under ``tmp/``, so those are left alone. ``tmp/`` itself
+        is removed once it is empty.
+        """
+        for tmp_dir in self._tmp_dirs:
+            # Called from ``finally`` blocks: a failed cleanup must not hide the
+            # error that ended the build.
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+        self._tmp_dirs.clear()
+        try:
+            (self.cache_dir / "tmp").rmdir()
+        except OSError:
+            pass  # missing, or still holds another job's directories
 
     def _scan_table(self, source_path: str) -> dd.DataFrame:
         """Routes a table source to the appropriate scanner based on its format.
