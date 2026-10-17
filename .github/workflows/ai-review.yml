@@ -1,35 +1,43 @@
 name: AI Review
 
-# Reviews PRs labeled "status: automatic" or "status: manual" once "Python
-# Test" and "PR Contribution Rules" have passed. Haiku reviews the change with
-# read-only access to the PR's version of the repository and decides whether
-# it needs a human ("manual"), e.g. because it touches the core part of the
-# codebase. Otherwise Sonnet makes the final decision from the diff, Haiku's
-# summary and verdict and the test coverage only: it checks the diff for prompt
-# injection (which also makes the PR manual), then decides whether to approve.
-# Each labeling gets one review: new commits don't start another, and a
-# maintainer re-adds the label to review again.
-# Only "status: automatic" PRs can be approved, and any change outside the
-# allowed directories makes a PR manual.
+# Reviews a pull request when someone comments "/review" on it. A label sets the
+# policy: "status: automatic" PRs can be approved by the AI, "status: manual"
+# PRs get an AI review but a maintainer decides. On manual PRs only people with
+# write access can request a review; on automatic PRs the PR's author can too.
+# Each "status: automatic" labeling allows 10 AI reviews, after which the PR
+# switches to manual.
+#
+# Haiku reviews the change with read-only access to the PR's version of the
+# repository and decides whether it needs a human ("manual"), e.g. because it
+# touches the core part of the codebase. Otherwise Sonnet makes the final
+# decision from the diff, Haiku's summary and verdict and the test coverage
+# only: it checks the diff for prompt injection (which also makes the PR
+# manual), then decides whether to approve. Any change outside the allowed
+# directories makes a PR manual.
+#
+# Three jobs: "request" accepts a /review comment (marking it with 👀) and
+# "resume" picks up waiting requests when the required checks finish; both only
+# dispatch "review" with the PR number. Every review run therefore joins one
+# queue per PR, so the same commit is never reviewed twice at once.
 #
 # Runs in the context of the base repository and never executes PR code: the
-# only checkout is of the base commit, and PR files are fetched as data.
-# Whichever finishes last (the tests, the contribution rules or the labeling)
-# starts the review. Every label change here uses GITHUB_TOKEN, and GitHub
-# never starts workflows from events caused by that token.
+# only checkout is of the base commit, and PR files are fetched as data. Label
+# changes use GITHUB_TOKEN, and GitHub never starts workflows from events
+# caused by that token, except the workflow dispatches used here on purpose.
 on:
+  issue_comment:
+    types: [created]
   workflow_run:
-    workflows: ['Python Test', 'PR Contribution Rules', 'AI Review Trigger']
+    workflows: ['Python Test', 'PR Contribution Rules']
     types: [completed]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: 'Pull request number to review'
+        required: true
+        type: string
 
-permissions:
-  actions: read
-  contents: read
-  pull-requests: write
-
-concurrency:
-  group: ai-review-${{ github.event.workflow_run.head_repository.full_name }}-${{ github.event.workflow_run.head_branch }}
-  cancel-in-progress: true
+permissions: {}
 
 env:
   CLAUDE_CODE_VERSION: '2.1.286'
@@ -37,27 +45,158 @@ env:
   LABEL_MANUAL: 'status: manual'
   # changes outside these make a PR manual, and only these are given to Haiku
   ALLOWED_DIRS: 'docs/ examples/ pyhealth/ test-resources/ tests/'
+  # AI reviews allowed per "status: automatic" labeling
+  REVIEW_QUOTA: '10'
 
 jobs:
-  review:
+  # Accepts a /review comment from someone allowed on a commit not yet reviewed:
+  # marks it with 👀 (queued), and dispatches the review if the required checks
+  # have already passed. Anything else is ignored silently.
+  request:
     if: >-
+      github.event_name == 'issue_comment' &&
+      github.event.issue.pull_request &&
+      github.event.comment.user.type != 'Bot' &&
+      startsWith(github.event.comment.body, '/review')
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Accept the request
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const repo = context.repo;
+            const { LABEL_AUTO, LABEL_MANUAL } = process.env;
+            const BOT = 'github-actions[bot]';
+            const comment = context.payload.comment;
+            const ignore = (reason) => core.info(`ignored: ${reason}`);
+            if (!/^\/review$/i.test((comment.body ?? '').split('\n')[0].trim())) return ignore('not a /review command');
+
+            const { data: pr } = await github.rest.pulls.get({ ...repo, pull_number: context.payload.issue.number });
+            if (pr.state !== 'open') return ignore('the PR is not open');
+            const labels = pr.labels.map((l) => l.name);
+            const mode = labels.includes(LABEL_MANUAL) ? LABEL_MANUAL : labels.includes(LABEL_AUTO) ? LABEL_AUTO : null;
+            if (!mode) return ignore('no status label');
+
+            const login = comment.user.login;
+            let writer = false;
+            try {
+              const { data } = await github.rest.repos.getCollaboratorPermissionLevel({ ...repo, username: login });
+              writer = ['admin', 'write'].includes(data.permission);
+            } catch {}
+            if (!writer && !(mode === LABEL_AUTO && login === pr.user.login)) return ignore(`${login} may not request a review`);
+
+            const reviews = await github.paginate(github.rest.pulls.listReviews, {
+              ...repo, pull_number: pr.number, per_page: 100,
+            });
+            const reviewed = reviews.some((r) => r.user?.login === BOT && r.commit_id === pr.head.sha &&
+              /<!-- ai-review:(decision|previous decision) -->/.test(r.body ?? ''));
+            if (reviewed) return ignore('the current commit has already been reviewed');
+
+            await github.rest.reactions.createForIssueComment({ ...repo, comment_id: comment.id, content: 'eyes' });
+
+            // while the checks run the request waits; "resume" picks it up
+            for (const workflow of ['test.yml', 'pr_contribution_rules.yml']) {
+              const { data } = await github.rest.actions.listWorkflowRuns({
+                ...repo, workflow_id: workflow, head_sha: pr.head.sha, event: 'pull_request', per_page: 50,
+              });
+              const latest = data.workflow_runs.sort((a, b) => b.run_number - a.run_number)[0];
+              if (latest?.status !== 'completed' || latest.conclusion !== 'success') {
+                return core.info(`queued: ${workflow} has not passed yet`);
+              }
+            }
+            await github.rest.actions.createWorkflowDispatch({
+              ...repo, workflow_id: 'ai-review.yml', ref: context.payload.repository.default_branch,
+              inputs: { pr: String(pr.number) },
+            });
+            core.info(`dispatched the review of PR #${pr.number}`);
+
+  # When a required check passes on a PR that has a waiting request (a /review
+  # comment still marked with 👀) and both checks have passed, dispatches the
+  # review. The review re-checks everything.
+  resume:
+    if: >-
+      github.event_name == 'workflow_run' &&
       github.event.workflow_run.event == 'pull_request' &&
-      github.event.workflow_run.conclusion != 'skipped' &&
-      github.event.workflow_run.conclusion != 'cancelled'
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Resume a waiting request
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const repo = context.repo;
+            const run = context.payload.workflow_run;
+            const BOT = 'github-actions[bot]';
+
+            // fork PRs are missing from workflow_run.pull_requests, so look the
+            // PR up by its head branch and require the run's commit be its head
+            if (!run.head_repository) return core.info('the head repository no longer exists');
+            const { data: prs } = await github.rest.pulls.list({
+              ...repo, state: 'open', head: `${run.head_repository.owner.login}:${run.head_branch}`,
+            });
+            const pr = prs.find((p) => p.head.sha === run.head_sha);
+            if (!pr) return core.info(`no open PR has head ${run.head_sha}`);
+
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              ...repo, issue_number: pr.number, per_page: 100,
+            });
+            let waiting = false;
+            for (const c of comments) {
+              if (!/^\/review$/i.test((c.body ?? '').split('\n')[0].trim())) continue;
+              const reactions = await github.paginate(github.rest.reactions.listForIssueComment, {
+                ...repo, comment_id: c.id, content: 'eyes', per_page: 100,
+              });
+              if (reactions.some((r) => r.user?.login === BOT)) { waiting = true; break; }
+            }
+            if (!waiting) return core.info('no waiting request');
+
+            for (const workflow of ['test.yml', 'pr_contribution_rules.yml']) {
+              const { data } = await github.rest.actions.listWorkflowRuns({
+                ...repo, workflow_id: workflow, head_sha: pr.head.sha, event: 'pull_request', per_page: 50,
+              });
+              const latest = data.workflow_runs.sort((a, b) => b.run_number - a.run_number)[0];
+              if (latest?.status !== 'completed' || latest.conclusion !== 'success') {
+                return core.info(`still waiting: ${workflow} has not passed`);
+              }
+            }
+            await github.rest.actions.createWorkflowDispatch({
+              ...repo, workflow_id: 'ai-review.yml', ref: context.payload.repository.default_branch,
+              inputs: { pr: String(pr.number) },
+            });
+            core.info(`dispatched the review of PR #${pr.number}`);
+
+  # Reviews one PR. Started by "request" or "resume", or by a maintainer from
+  # the Actions tab; all runs for a PR share one queue.
+  review:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: write
+    concurrency:
+      group: ai-review-pr-${{ github.event.inputs.pr }}
+      cancel-in-progress: false
     steps:
       # Decides whether to review, applies the path rule, and saves what later
-      # steps need. The triggering run may come from a PR-controlled workflow,
-      # so every condition is re-checked through the API.
-      - name: Check labels, required checks and changed paths
+      # steps need. Nothing about the dispatch is trusted: every condition is
+      # re-checked through the API.
+      - name: Check request, label, required checks and changed paths
         id: gate
         uses: actions/github-script@v7
         with:
           script: |
             const fs = require('fs');
             const repo = context.repo;
-            const run = context.payload.workflow_run;
             const { LABEL_AUTO, LABEL_MANUAL } = process.env;
             const ALLOWED = process.env.ALLOWED_DIRS.split(' ');
             const BOT = 'github-actions[bot]';
@@ -74,61 +213,79 @@ jobs:
               await github.rest.issues.addLabels({ ...repo, issue_number: number, labels: [LABEL_MANUAL] });
             };
 
-            // fork PRs are missing from workflow_run.pull_requests, so look the
-            // PR up by its head branch and require the run's commit be its head
-            if (!run.head_repository) return skip('the head repository no longer exists');
-            const { data: prs } = await github.rest.pulls.list({
-              ...repo, state: 'open', head: `${run.head_repository.owner.login}:${run.head_branch}`,
-            });
-            const pr = prs.find((p) => p.head.sha === run.head_sha);
-            if (!pr) return skip(`no open PR has head ${run.head_sha}`);
-
-            // a status label counts only if someone with write access, or this
-            // repo's own workflows, added it
-            const timeline = await github.paginate(github.rest.issues.listEventsForTimeline, {
-              ...repo, issue_number: pr.number, per_page: 100,
-            });
-            const addedByWriter = async (label) => {
-              const event = timeline.filter((e) => e.event === 'labeled' && e.label?.name === label).pop();
-              if (!event?.actor) return false;
-              if (event.actor.login === BOT) return true;
-              const { data } = await github.rest.repos.getCollaboratorPermissionLevel({
-                ...repo, username: event.actor.login,
-              });
-              return ['admin', 'write'].includes(data.permission);
-            };
+            const prNumber = String(context.payload.inputs?.pr ?? '');
+            if (!/^[0-9]+$/.test(prNumber)) return skip(`invalid pull request number: ${prNumber}`);
+            const { data: pr } = await github.rest.pulls.get({ ...repo, pull_number: Number(prNumber) });
+            if (pr.state !== 'open') return skip('the PR is not open');
             const labels = pr.labels.map((l) => l.name);
-            let mode = null;
-            for (const label of [LABEL_MANUAL, LABEL_AUTO]) {
-              if (labels.includes(label) && (await addedByWriter(label))) { mode = label; break; }
-            }
-            if (!mode) return skip('no status label added by someone with write access');
+            let mode = labels.includes(LABEL_MANUAL) ? LABEL_MANUAL : labels.includes(LABEL_AUTO) ? LABEL_AUTO : null;
 
-            // One review per labeling: a new commit alone doesn't start another
-            // review. To review again, a maintainer removes and re-adds the label.
-            // This workflow's own label switches happen just before it posts, so
-            // they never count as a new labeling.
-            const labeledAt = Math.max(0, ...timeline
-              .filter((e) => e.event === 'labeled' && [LABEL_AUTO, LABEL_MANUAL].includes(e.label?.name))
-              .map((e) => Date.parse(e.created_at) || 0));
-            const reviews = await github.paginate(github.rest.pulls.listReviews, {
-              ...repo, pull_number: pr.number, per_page: 100,
-            });
+            const isWriter = async (login) => {
+              try {
+                const { data } = await github.rest.repos.getCollaboratorPermissionLevel({ ...repo, username: login });
+                return ['admin', 'write'].includes(data.permission);
+              } catch {
+                return false;
+              }
+            };
+            const allowed = async (login) =>
+              login !== BOT && ((await isWriter(login)) || (mode === LABEL_AUTO && login === pr.user.login));
+
+            // waiting requests: /review comments still marked with our 👀
             const comments = await github.paginate(github.rest.issues.listComments, {
               ...repo, issue_number: pr.number, per_page: 100,
             });
-            const NOTICE = '<!-- ai-review:notice -->';
-            const lastReviewedAt = Math.max(0,
-              ...reviews.filter((r) => r.user?.login === BOT && r.body?.includes('<!-- ai-review:'))
-                .map((r) => Date.parse(r.submitted_at) || Infinity),
-              ...comments.filter((c) => c.user?.login === BOT && c.body?.includes(NOTICE))
-                .map((c) => Date.parse(c.updated_at) || Infinity));
-            if (lastReviewedAt > labeledAt) {
-              return skip('already reviewed since the status label was added; re-add the label to review again');
+            const eyes = new Map(); // comment id -> our reaction id
+            for (const c of comments) {
+              if (!/^\/review$/i.test((c.body ?? '').split('\n')[0].trim())) continue;
+              const reactions = await github.paginate(github.rest.reactions.listForIssueComment, {
+                ...repo, comment_id: c.id, content: 'eyes', per_page: 100,
+              });
+              const ours = reactions.find((r) => r.user?.login === BOT);
+              if (ours) eyes.set(c.id, ours.id);
             }
+            const drop = async (ids) => {
+              for (const id of ids) {
+                await github.rest.reactions.deleteForIssueComment({ ...repo, comment_id: id, reaction_id: eyes.get(id) })
+                  .catch((e) => { if (e.status !== 404) throw e; });
+              }
+            };
+            const waiting = comments.filter((c) => eyes.has(c.id));
+            if (!mode) {
+              await drop(waiting.map((c) => c.id));
+              return skip('no status label');
+            }
+            // requesters must still be allowed under the current label
+            const requests = [];
+            const disallowed = [];
+            for (const c of waiting) ((await allowed(c.user?.login)) ? requests : disallowed).push(c.id);
+            await drop(disallowed);
+            // a maintainer can also start a review from the Actions tab
+            const manualDispatch = context.actor !== BOT && (await isWriter(context.actor));
+            if (!requests.length && !manualDispatch) return skip('no waiting request from someone allowed');
 
-            // both required workflows must have passed on this commit; while one
-            // is still running, its completion starts this workflow again
+            const reviews = await github.paginate(github.rest.pulls.listReviews, {
+              ...repo, pull_number: pr.number, per_page: 100,
+            });
+            const isDecision = (r) => r.user?.login === BOT &&
+              /<!-- ai-review:(decision|previous decision) -->/.test(r.body ?? '');
+            if (reviews.some((r) => isDecision(r) && r.commit_id === pr.head.sha)) {
+              await drop(requests);
+              return skip('the current commit has already been reviewed');
+            }
+            // quota: AI decisions since "status: automatic" was last added
+            const timeline = await github.paginate(github.rest.issues.listEventsForTimeline, {
+              ...repo, issue_number: pr.number, per_page: 100,
+            });
+            const automaticSince = Math.max(0, ...timeline
+              .filter((e) => e.event === 'labeled' && e.label?.name === LABEL_AUTO)
+              .map((e) => Date.parse(e.created_at) || 0));
+            const decisionsSinceAutomatic = reviews
+              .filter((r) => isDecision(r) && (Date.parse(r.submitted_at) || Infinity) > automaticSince).length;
+            const NOTICE = '<!-- ai-review:notice -->';
+
+            // both required workflows must have passed on this commit; until they
+            // have, the request keeps waiting and "resume" dispatches it again
             let testRunId = null;
             for (const workflow of ['test.yml', 'pr_contribution_rules.yml']) {
               const { data } = await github.rest.actions.listWorkflowRuns({
@@ -175,6 +332,7 @@ jobs:
               const existing = comments.find((c) => c.user?.login === BOT && c.body?.includes(NOTICE));
               if (existing) await github.rest.issues.updateComment({ ...repo, comment_id: existing.id, body });
               else await github.rest.issues.createComment({ ...repo, issue_number: pr.number, body });
+              await drop(requests);
               return skip('PR too large');
             }
 
@@ -204,6 +362,9 @@ jobs:
                 : pr.body ?? '',
               head_sha: pr.head.sha, head_owner: pr.head.repo.owner.login, head_repo: pr.head.repo.name,
               mode, notes, test_workflow_modified: testWorkflowModified,
+              // the requests this review answers: comment id -> our 👀 reaction id
+              requests: requests.map((id) => [id, eyes.get(id)]),
+              decisions_since_automatic: decisionsSinceAutomatic,
             }));
 
             core.setOutput('proceed', 'true');
@@ -213,7 +374,7 @@ jobs:
 
       # Fetches the test job's full log and the "Report test coverage" step's
       # start and end times. The run's log archive only keeps per-step files
-      # for a few hours after a run, and a label may be added much later; the
+      # for a few hours after a run, and a review may be requested much later; the
       # job log is kept for the repository's log retention period. The next
       # step reads only the part of the log the report step printed.
       - name: Fetch test coverage
@@ -698,7 +859,8 @@ jobs:
 
       # Posts Haiku's review, applies Sonnet's decision, and approves only when
       # the workflow's own checks agree. Still posts Haiku's review if the Sonnet
-      # step failed. Earlier AI reviews are marked as superseded.
+      # step failed. Earlier AI reviews are collapsed and their inline comments
+      # deleted; answered requests lose their 👀; the quota is applied.
       - name: Post review and decision
         if: ${{ !cancelled() && steps.gate.outputs.proceed == 'true' && steps.haiku.outcome == 'success' }}
         uses: actions/github-script@v7
@@ -746,8 +908,10 @@ jobs:
             // into a "Previous review". Submitted reviews can't be deleted, so the
             // review itself stays. Only items carrying this workflow's markers are
             // touched: never the coverage comment, other bots' or people's posts.
-            const MARK_PREVIOUS = '<!-- ai-review:previous -->';
-            const OUR_REVIEW = /<!-- ai-review:(haiku|decision|superseded|previous) -->/;
+            // The collapsed marker keeps the review's type, so collapsed decisions
+            // still count toward the quota and "already reviewed".
+            const OUR_REVIEW = /<!-- ai-review:(haiku|decision|superseded|previous( haiku| decision)?) -->/;
+            const TYPED_PREVIOUS = /<!-- ai-review:previous (haiku|decision) -->/;
             const reviews = await github.paginate(github.rest.pulls.listReviews, {
               ...repo, pull_number: number, per_page: 100,
             });
@@ -761,15 +925,16 @@ jobs:
                 await github.rest.pulls.deleteReviewComment({ ...repo, comment_id: c.id })
                   .catch((e) => { if (e.status !== 404) throw e; });
               }
-              if (r.body.includes(MARK_PREVIOUS)) continue;
-              // reviews collapsed by the earlier format are already wrapped in <details>
-              const old = r.body.includes('<!-- ai-review:superseded -->')
+              if (TYPED_PREVIOUS.test(r.body)) continue;
+              // reviews collapsed by an earlier format are already wrapped in <details>
+              const old = /<!-- ai-review:(superseded|previous) -->/.test(r.body)
                 ? r.body.replace(/^[\s\S]*?<details><summary>Previous review<\/summary>\n\n/, '')
                   .replace(/\n\n<\/details>\s*$/, '')
                 : r.body.replace(/<!-- ai-review:\w+ -->/g, '').trim();
+              const type = r.body.includes(MARK_HAIKU) || old.includes('## AI review: findings') ? 'haiku' : 'decision';
               await github.rest.pulls.updateReview({
                 ...repo, pull_number: number, review_id: r.id,
-                body: `${MARK_PREVIOUS}\n<details><summary>Previous review</summary>\n\n${old}\n\n</details>`,
+                body: `<!-- ai-review:previous ${type} -->\n<details><summary>Previous review</summary>\n\n${old}\n\n</details>`,
               });
             }
 
@@ -865,8 +1030,16 @@ jobs:
             const decision = mode !== LABEL_AUTO || suggestion === 'human review' ? 'not available' : suggestion;
             const approve = decision === 'approve';
 
+            // quota: this is the last automatic review for this labeling
+            const quotaReached = decision !== 'not available' &&
+              (ctx.decisions_since_automatic ?? 0) + 1 >= Number(process.env.REVIEW_QUOTA);
+            const quotaNote = quotaReached
+              ? "\n\nThank you for all the effort you've put into this PR! Given its complexity, a maintainer " +
+                "will take over the review from here, and they can ask for more AI reviews whenever they'd be helpful."
+              : '';
+
             const body = `${MARK_DECISION}\n## AI Review\n\n**suggestion:** ${suggestion}  \n**decision:** ${decision}\n\n${reason}` +
-              (notes.length ? '\n\n' + notes.map((n) => `- ${n}`).join('\n') : '') + footer;
+              (notes.length ? '\n\n' + notes.map((n) => `- ${n}`).join('\n') : '') + quotaNote + footer;
             try {
               await github.rest.pulls.createReview({
                 ...repo, pull_number: number, commit_id: ctx.head_sha, event: approve ? 'APPROVE' : 'COMMENT', body,
@@ -876,4 +1049,11 @@ jobs:
                 return core.setFailed('approving failed; enable "Allow GitHub Actions to create and approve pull requests" in the repository settings');
               }
               throw e;
+            }
+            if (quotaReached) await switchToManual();
+
+            // the requests are answered: remove our 👀, so 👀 always means waiting
+            for (const [commentId, reactionId] of ctx.requests ?? []) {
+              await github.rest.reactions.deleteForIssueComment({ ...repo, comment_id: commentId, reaction_id: reactionId })
+                .catch((e) => { if (e.status !== 404) throw e; });
             }
