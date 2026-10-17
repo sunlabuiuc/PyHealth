@@ -30,16 +30,27 @@ Authors:
     John Nguyen (jnguyen461@gatech.edu)
 """
 
+import logging
+import math
+import time
+import warnings
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, ClassVar
 
 import numpy as np
 import polars as pl
 from sklearn.base import BaseEstimator, RegressorMixin
 from sklearn.ensemble import ExtraTreesRegressor
+from sklearn.exceptions import ConvergenceWarning
 from sklearn.experimental import enable_iterative_imputer
 from sklearn.impute import IterativeImputer, SimpleImputer
 from sklearn.preprocessing import StandardScaler
+
+from pyhealth.data import Patient
+
+from .base_task import BaseTask
+
+logger = logging.getLogger(__name__)
 
 # Copy mapping from Jeanselme's preprocessing.ipynb
 LAB_ITEMIDS: dict[str, tuple[int, ...]] = {
@@ -498,3 +509,320 @@ def _feature_names(add_missing_indicators: bool) -> list[str]:
     if add_missing_indicators:
         names += [f"{lab} (missing)" for lab in LAB_NAMES]
     return names
+
+
+def _extreme_imputations(
+    imputed: np.ndarray, X: np.ndarray, train: np.ndarray
+) -> np.ndarray:
+    """Counts each row's imputed labs beyond the training range ± 3 sd, per draw.
+
+    Linear MICE extrapolates for labs with few observed training rows; this
+    measures how often, for every strategy.
+
+    Args:
+        imputed: Imputed labs from ``_impute_draws``, shape (n_draws, n, n_labs).
+        X: Raw labs, shape (n, n_labs), NaN where not observed.
+        train: Boolean mask of the training rows.
+
+    Returns:
+        Integer counts of shape (n_draws, n).
+    """
+    seen = (~np.isnan(X[train])).any(axis=0)
+    observed = X[train][:, seen]
+    sd = np.nanstd(observed, axis=0)
+    lo = np.full(X.shape[1], -np.inf)
+    hi = np.full(X.shape[1], np.inf)
+    lo[seen] = np.nanmin(observed, axis=0) - 3 * sd
+    hi[seen] = np.nanmax(observed, axis=0) + 3 * sd
+    return (((imputed < lo) | (imputed > hi)) & np.isnan(X)).sum(axis=2)
+
+
+class _CohortState:
+    """Everything ``pre_filter`` fits; it travels to the workers with the task.
+
+    Its ``repr`` is constant, so the task's cache key is the same before and
+    after ``pre_filter``.
+    """
+
+    def __init__(self) -> None:
+        self.row: dict[str, int] = {}
+        self.fields: list[dict[str, Any]] = []
+        self.features: np.ndarray | None = None
+        self.n_extreme: np.ndarray | None = None
+
+    def __repr__(self) -> str:
+        return "_CohortState()"
+
+
+class ClinicalPresenceMortalityMIMIC3(BaseTask):
+    """Predicts 8-day mortality from first-day labs imputed at the cohort level.
+
+    Reproduces the MIMIC-III experiment of Jeanselme et al., "Imputation
+    Strategies Under Clinical Presence: Impact on Algorithmic Fairness" (ML4H
+    2022), following its reference code
+    (https://github.com/Jeanselme/ClinicalPresenceFairness). Imputation needs
+    the whole cohort, so ``pre_filter`` extracts the cohort, assigns a seeded
+    patient split, and imputes and standardises the labs, fitting on the
+    training patients only. Each patient then yields one sample per draw.
+
+    Strategies (``imputation``):
+        - ``"median"``: each lab's training median.
+        - ``"mice"``: the reference's chained linear regressions, with noise
+          N(0, sd of |residual|); 10 draws by default.
+        - ``"group_mice"``: MICE with the group flags as extra predictors.
+        - ``"missforest"``, ``"group_missforest"``: MissForest-style chained
+          extra trees, one draw. They run all ``max_iter`` sweeps on MIMIC-III.
+        - ``"corrected_mice"``, ``"group_corrected_mice"``: a sensitivity
+          variant, not in the paper. Rare labs are fit by their training mean,
+          the noise is N(0, sd of residual), and imputed values stay within the
+          training range.
+
+    ``add_missing_indicators=True`` gives the paper's "Missing" variants, such
+    as Group MICE Missing. The group flags are never features.
+
+    Differences from the reference code: the index admission is the latest by
+    admission time; the label uses ``hospital_expire_flag`` and the discharge
+    time; labs are linked to the admission by the time window only; the split
+    is 80/10/10, with the imputer, scaler and classifier all fit on the same
+    80%; indicators are appended after imputation; Group MICE drops all three
+    flags; the sex flag is real; MICE noise is seeded per draw.
+
+    Select samples by their ``split`` field and never re-split them: the
+    imputer and the scaler were fit on the training patients.
+
+    Each sample has ``patient_id``, ``hadm_id``, ``labs`` (float32, in
+    ``feature_names()`` order), ``mortality``, ``split``, ``draw``, the three
+    group flags, ``n_lab_orders``, ``n_observed_labs`` and
+    ``n_extreme_imputations`` (imputed labs beyond the training range ± 3 sd).
+
+    Args:
+        imputation: One of ``IMPUTATIONS``.
+        add_missing_indicators: Append one indicator per lab, 1 where missing.
+        n_draws: Imputation draws per patient. Defaults to 10 for the MICE
+            strategies and 1 otherwise.
+        seed: Seeds the split and the draws. The split depends only on the
+            cohort and the seed, so every strategy shares it.
+        max_iter: Sweeps of the iterative imputers.
+        split_ratios: Train, validation and test fractions.
+        standardize: Scale every feature to mean 0 and sd 1 over the training
+            patients.
+        forest_params: Overrides for the MissForest-style ``ExtraTreesRegressor``.
+
+    Raises:
+        ValueError: If an argument is invalid.
+
+    Examples:
+        >>> from pyhealth.datasets import MIMIC3Dataset
+        >>> from pyhealth.tasks import ClinicalPresenceMortalityMIMIC3
+        >>> base = MIMIC3Dataset(root="/path/to/mimic-iii/1.4", tables=["labevents"])
+        >>> task = ClinicalPresenceMortalityMIMIC3(
+        ...     imputation="group_mice", add_missing_indicators=True
+        ... )
+        >>> samples = base.set_task(task)
+        >>> samples[0]["labs"].shape
+        torch.Size([134])
+    """
+
+    task_name: str = "ClinicalPresenceMortalityMIMIC3"
+    input_schema: ClassVar[dict[str, str]] = {"labs": "tensor"}
+    output_schema: ClassVar[dict[str, str]] = {"mortality": "binary"}
+    IMPUTATIONS: ClassVar[tuple[str, ...]] = (
+        "median",
+        "mice",
+        "group_mice",
+        "missforest",
+        "group_missforest",
+        "corrected_mice",
+        "group_corrected_mice",
+    )
+    GROUP_FLAGS: ClassVar[tuple[str, ...]] = GROUP_FLAGS
+
+    def __init__(
+        self,
+        imputation: str = "median",
+        add_missing_indicators: bool = False,
+        n_draws: int | None = None,
+        seed: int = 0,
+        max_iter: int = 10,
+        split_ratios: Sequence[float] = (0.8, 0.1, 0.1),
+        standardize: bool = True,
+        forest_params: dict[str, Any] | None = None,
+    ) -> None:
+        if imputation not in self.IMPUTATIONS:
+            raise ValueError(
+                f"imputation must be one of {self.IMPUTATIONS}, got {imputation!r}."
+            )
+        if n_draws is None:
+            n_draws = 10 if imputation.endswith("mice") else 1
+        if n_draws < 1 or max_iter < 1:
+            raise ValueError(
+                f"n_draws and max_iter must be at least 1, got {n_draws} and "
+                f"{max_iter}."
+            )
+        if imputation == "median" and n_draws > 1:
+            raise ValueError("Median imputation is deterministic: use n_draws=1.")
+        ratios = [float(r) for r in split_ratios]
+        if len(ratios) != 3 or min(ratios) <= 0 or not math.isclose(sum(ratios), 1):
+            raise ValueError(
+                "split_ratios must be three positive numbers summing to 1, got "
+                f"{split_ratios}."
+            )
+        super().__init__()
+        self.imputation = imputation
+        self.add_missing_indicators = add_missing_indicators
+        self.n_draws = n_draws
+        self.seed = seed
+        self.max_iter = max_iter
+        self.split_ratios = ratios
+        self.standardize = standardize
+        self.forest_params = dict(forest_params or {})
+        self._state = _CohortState()
+
+    def feature_names(self) -> list[str]:
+        """Names of the ``labs`` columns, in order."""
+        return _feature_names(self.add_missing_indicators)
+
+    def pre_filter(self, df: pl.LazyFrame) -> pl.LazyFrame:
+        """Fits the cohort's split and features; keeps the cohort's patients.
+
+        Args:
+            df: The dataset's ``global_event_df``, loaded with
+                ``tables=["labevents"]``.
+
+        Returns:
+            The ``patients`` rows of the cohort, so ``__call__`` runs once per
+            cohort patient.
+
+        Raises:
+            ValueError: If ``df`` lacks a column the cohort needs.
+        """
+        cohort = _extract_cohort(df)
+        X = cohort.select(LAB_NAMES).to_numpy().astype(np.float64)
+        G = cohort.select(GROUP_FLAGS).to_numpy()
+        seeds = np.random.SeedSequence(self.seed).spawn(1 + self.n_draws)
+        split = _assign_split(len(cohort), self.split_ratios, seeds[0])
+        train = split == "train"
+
+        start = time.perf_counter()
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always", ConvergenceWarning)
+            imputed = _impute_draws(
+                X,
+                G,
+                split,
+                self.imputation,
+                seeds[1:],
+                self.max_iter,
+                self.forest_params,
+            )
+        elapsed = time.perf_counter() - start
+        unconverged = 0
+        for w in caught:
+            if issubclass(w.category, ConvergenceWarning):
+                unconverged += 1
+            else:
+                warnings.warn_explicit(w.message, w.category, w.filename, w.lineno)
+
+        state = self._state
+        state.features = _assemble(
+            imputed, X, split, self.add_missing_indicators, self.standardize
+        )
+        state.n_extreme = _extreme_imputations(imputed, X, train)
+        n_observed = (~np.isnan(X)).sum(axis=1)
+        state.fields = cohort.select(
+            "patient_id",
+            pl.col("hadm_id").cast(pl.String),
+            pl.col("mortality").cast(pl.Int64),
+            *[pl.col(flag).cast(pl.Int64) for flag in GROUP_FLAGS],
+            pl.col("n_lab_orders").fill_null(0).cast(pl.Int64),
+            pl.Series("n_observed_labs", n_observed, dtype=pl.Int64),
+            pl.Series("split", split, dtype=pl.String),
+        ).to_dicts()
+        ids = cohort["patient_id"].to_list()
+        state.row = {pid: row for row, pid in enumerate(ids)}
+
+        self._log_summary(cohort, G, X, split, elapsed, unconverged, state.n_extreme)
+        return df.filter(
+            (pl.col("event_type") == "patients") & pl.col("patient_id").is_in(ids)
+        )
+
+    def _log_summary(
+        self,
+        cohort: pl.DataFrame,
+        G: np.ndarray,
+        X: np.ndarray,
+        split: np.ndarray,
+        elapsed: float,
+        unconverged: int,
+        n_extreme: np.ndarray,
+    ) -> None:
+        """Logs aggregate statistics of the fitted cohort; never per-patient data."""
+        groups = ", ".join(f"{f} {int(n)}" for f, n in zip(GROUP_FLAGS, G.sum(0)))
+        logger.info(
+            f"Cohort: {len(cohort)} patients, "
+            f"{cohort['mortality'].mean():.1%} died within 8 days; {groups}; "
+            f"{np.isnan(X).sum(1).mean():.1f} of {X.shape[1]} labs missing on "
+            f"average."
+        )
+        sizes = " / ".join(
+            f"{(split == p).sum()} {p}" for p in ("train", "val", "test")
+        )
+        logger.info(f"Split (seed {self.seed}): {sizes}.")
+        logger.info(
+            f"Imputation {self.imputation!r}: {self.n_draws} draw(s) in "
+            f"{elapsed:.0f} s."
+        )
+        if unconverged:
+            logger.info(
+                f"The imputer ran all {self.max_iter} sweeps without meeting "
+                f"scikit-learn's tol in {unconverged} of {self.n_draws} draw(s)."
+            )
+
+        def share(mask: np.ndarray) -> str:
+            return f"{mask.mean():.2%}" if mask.size else "n/a"
+
+        affected = n_extreme > 0
+        by_group = ", ".join(
+            f"{flag} {share(affected[:, G[:, g] == 1])} vs. "
+            f"{share(affected[:, G[:, g] == 0])}"
+            for g, flag in enumerate(GROUP_FLAGS)
+        )
+        logger.info(
+            "Imputed labs beyond the training range ± 3 sd: "
+            f"{n_extreme.sum() / max(np.isnan(X).sum() * self.n_draws, 1):.3%} "
+            f"of imputed values; patients with any, per draw: {affected.mean():.2%} "
+            f"({by_group})."
+        )
+
+    def __call__(self, patient: Patient) -> list[dict[str, Any]]:
+        """Returns the patient's samples, one per draw; none outside the cohort.
+
+        Args:
+            patient: A patient of the dataset.
+
+        Returns:
+            ``n_draws`` samples that differ only in ``labs``, ``draw`` and
+            ``n_extreme_imputations``.
+
+        Raises:
+            RuntimeError: If ``pre_filter`` has not run, i.e. the task was called
+                outside ``dataset.set_task``.
+        """
+        state = self._state
+        if state.features is None:
+            raise RuntimeError(
+                "ClinicalPresenceMortalityMIMIC3 fits the cohort in pre_filter; "
+                "use it through dataset.set_task(task)."
+            )
+        row = state.row.get(patient.patient_id)
+        if row is None:
+            return []
+        return [
+            {
+                **state.fields[row],
+                "labs": state.features[draw, row].copy(),
+                "draw": draw,
+                "n_extreme_imputations": int(state.n_extreme[draw, row]),
+            }
+            for draw in range(self.n_draws)
+        ]
