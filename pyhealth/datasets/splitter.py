@@ -291,7 +291,9 @@ def split_by_patient(
     Args:
         dataset: a `SampleDataset` object
         ratios: a list/tuple of ratios for train / val / test
-        seed: random seed for shuffling the dataset
+        seed: random seed for shuffling the dataset. Patients are sorted by ID
+            before shuffling, so the split depends only on the seed and the
+            set of patients, not on the order of the samples.
 
     Returns:
         train_dataset, val_dataset, test_dataset: ``SampleDataset`` views
@@ -312,7 +314,8 @@ def split_by_patient(
     """
     rng = np.random.default_rng(seed)
     assert sum(ratios) == 1.0, "ratios must sum to 1.0"
-    patient_indx = list(dataset.patient_to_index.keys())
+    # Sort first: dict order follows sample order, which callers may change.
+    patient_indx = sorted(dataset.patient_to_index, key=str)
     num_patients = len(patient_indx)
     rng.shuffle(patient_indx)
     train_patient_indx = patient_indx[: int(num_patients * ratios[0])]
@@ -476,7 +479,8 @@ def split_by_patient_conformal(
     assert len(ratios) == 4, "ratios must have 4 elements for train/val/cal/test"
     assert sum(ratios) == 1.0, "ratios must sum to 1.0"
 
-    patient_indx = list(dataset.patient_to_index.keys())
+    # Sort first: dict order follows sample order, which callers may change.
+    patient_indx = sorted(dataset.patient_to_index, key=str)
     num_patients = len(patient_indx)
     rng.shuffle(patient_indx)
 
@@ -577,7 +581,7 @@ def split_by_patient_conformal_tuh(
             test_list.extend(list(indices))
 
     # Shuffle patients deterministically
-    patient_ids = list(train_patient_to_indices.keys())
+    patient_ids = sorted(train_patient_to_indices, key=str)
     rng = np.random.default_rng(seed)
     rng.shuffle(patient_ids)
 
@@ -756,7 +760,7 @@ def split_by_patient_tuh(
         else:
             test_list.extend(list(indices))
 
-    patient_ids = list(train_patient_to_indices.keys())
+    patient_ids = sorted(train_patient_to_indices, key=str)
     rng = np.random.default_rng(seed)
     rng.shuffle(patient_ids)
 
