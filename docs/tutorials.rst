@@ -7,8 +7,8 @@ Tutorial series
 A step-by-step series for PyHealth 2.1, from a first model to contributing to
 PyHealth. Each notebook opens in Google Colab, installs PyHealth 2.1.0, and
 uses public or synthetic data, so no credentials are needed. Most run on a free
-CPU runtime; Tutorials 04 and 07 open on a free T4 GPU runtime and fall back to
-smaller settings on a CPU. The same notebooks are listed on
+CPU runtime. Tutorials 00, 04 and 07 open on a free T4 GPU runtime and also run
+on a CPU (04 and 07 with smaller settings). The same notebooks are listed on
 `pyhealth.dev <https://pyhealth.dev/tutorials.html>`_.
 
 .. list-table::
@@ -17,8 +17,8 @@ smaller settings on a CPU. The same notebooks are listed on
 
    * - Notebook
      - What you will learn
-   * - `00. Quickstart: your first clinical prediction model <https://colab.research.google.com/drive/1KXloapcMeYubw4dT_fPJKTY1pepH2vvl>`_
-     - The five steps every project follows: dataset, task, split, model, evaluation.
+   * - `00. Quickstart: a complete clinical prediction study <https://colab.research.google.com/drive/1KXloapcMeYubw4dT_fPJKTY1pepH2vvl>`_
+     - In-hospital mortality from start to finish: data figures, a Table 1 of the cohort, logistic regression, RNN and XGBoost with confidence intervals and calibration, SHAP, subgroups, and every table and figure exported. Opens on a T4 GPU.
    * - `01. Datasets: patients, events and your own data <https://colab.research.google.com/drive/1azBqFS_vrJxoYMxP4M_dAIDcrU92uNDv>`_
      - Exploring patients and events, YAML configs, caching, and loading your own CSV files.
    * - `02. Tasks and processors <https://colab.research.google.com/drive/1ndi6HGnC_l_1s23LUmzcICPgfc-cJn2N>`_
