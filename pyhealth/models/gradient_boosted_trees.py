@@ -346,9 +346,14 @@ class GradientBoostedTreeModel(BaseModel):
                     f"{name} has drop_last=True; tree models must see every "
                     f"sample. Use a loader with drop_last=False."
                 )
-            if isinstance(loader.sampler, RandomSampler) or getattr(
-                loader.dataset, "shuffle", False
-            ):
+            # get_dataloader's loaders apply their own shuffle setting at each
+            # pass, so the dataset's flag may be left over from another loader.
+            shuffles = getattr(loader, "shuffle_samples", None)
+            if shuffles is None:
+                shuffles = isinstance(loader.sampler, RandomSampler) or getattr(
+                    loader.dataset, "shuffle", False
+                )
+            if shuffles:
                 logger.warning(
                     "%s shuffles; row order changes row subsampling, so fits "
                     "are only reproducible with an unshuffled loader "
