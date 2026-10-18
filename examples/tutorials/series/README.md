@@ -10,7 +10,7 @@ results here before running anything.
 
 | # | Notebook | Covers |
 |---|---|---|
-| 00 | [Quickstart](00_quickstart.ipynb) | The five steps: dataset, task, split, model, evaluation |
+| 00 | [Quickstart](00_quickstart.ipynb) | A complete in-hospital mortality study: data figures, Table 1, three models with CIs and calibration, SHAP, subgroups, exported results (T4 GPU) |
 | 01 | [Datasets](01_datasets.ipynb) | Patients and events, YAML configs, caching, loading your own CSVs |
 | 02 | [Tasks and processors](02_tasks_and_processors.ipynb) | Writing tasks, what each processor produces |
 | 03 | [Training and evaluation](03_training_and_evaluation.ipynb) | Leakage-free splits, early stopping, class imbalance, calibration, bootstrap CIs |
@@ -20,8 +20,8 @@ results here before running anything.
 | 07 | [Clinical text](07_clinical_text.ipynb) | Fine-tuning language models; specialty classification and ICD coding; label distributions and baselines (T4 GPU) |
 | 08 | [Contributing](08_contributing.ipynb) | Dataset classes, file-based data, tests, PR checklist |
 
-Most notebooks run on a free Colab CPU runtime. Tutorials 04 and 07 open on a
-free T4 GPU runtime; without a GPU they run with smaller settings.
+Most notebooks run on a free Colab CPU runtime. Tutorials 00, 04 and 07 open on
+a free T4 GPU runtime and also run on a CPU (04 and 07 with smaller settings).
 
 ## What's new in PyHealth 2.1
 
