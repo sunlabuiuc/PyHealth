@@ -7,8 +7,9 @@ from typing import Dict, Iterator, Iterable, List, Optional, Any, Callable
 import functools
 import operator
 from urllib.parse import urlparse, urlunparse
-from urllib.request import urlretrieve
 import json
+import glob
+import hashlib
 import uuid
 import platformdirs
 import multiprocessing
@@ -43,12 +44,55 @@ from ..data import Patient
 from ..tasks import BaseTask
 from ..processors.base_processor import FeatureProcessor
 from .configs import load_yaml_config
-from .sample_dataset import SampleDataset, SampleBuilder
-from ..utils import set_env
+from .sample_dataset import STORAGE_FORMAT, SampleDataset, SampleBuilder
+from .splitter import Split
+from ..utils import download_file, preserve_rng_state, set_env
 
 # Set logging level for distributed to ERROR to reduce verbosity
 logging.getLogger("distributed").setLevel(logging.ERROR)
 logger = logging.getLogger(__name__)
+
+# Set to 1/true/yes to make datasets refuse to fall back to the default cache.
+REQUIRE_CACHE_DIR_ENV = "PYHEALTH_REQUIRE_CACHE_DIR"
+_warned_default_cache_dirs: set[str] = set()
+
+
+def _default_cache_dir(cache_id: str) -> Path:
+    """Returns the default cache directory for a dataset, after warning about it.
+
+    Datasets write processed copies of their source data (the event table and
+    task samples) to their cache. Without an explicit ``cache_dir`` that is the
+    user cache folder, which for identified clinical data is usually outside the
+    project's controlled storage. So this logs a warning naming the path (once
+    per path), and raises if ``PYHEALTH_REQUIRE_CACHE_DIR`` is set.
+
+    Args:
+        cache_id: The dataset's cache identifier (a UUID string).
+
+    Returns:
+        Path: ``<user cache dir>/pyhealth/<cache_id>``.
+
+    Raises:
+        ValueError: If ``PYHEALTH_REQUIRE_CACHE_DIR`` is set to 1, true or yes.
+    """
+    if os.environ.get(REQUIRE_CACHE_DIR_ENV, "").strip().lower() in {"1", "true", "yes"}:
+        raise ValueError(
+            f"No cache_dir was given and {REQUIRE_CACHE_DIR_ENV} is set. Pass "
+            "cache_dir=... pointing to storage approved for this data; PyHealth "
+            "writes processed copies of the source data there."
+        )
+    path = Path(platformdirs.user_cache_dir(appname="pyhealth")) / cache_id
+    if str(path) not in _warned_default_cache_dirs:
+        _warned_default_cache_dirs.add(str(path))
+        logger.warning(
+            "No cache_dir given: PyHealth will write processed copies of this "
+            "dataset (event table, task samples) to %s. For identified or "
+            "sensitive data, pass cache_dir=... inside your project's controlled "
+            "storage, or set %s=1 to make a missing cache_dir an error.",
+            path,
+            REQUIRE_CACHE_DIR_ENV,
+        )
+    return path
 # Remove LitData version check to avoid unnecessary warnings
 os.environ["LITDATA_DISABLE_VERSION_CHECK"] = "1"
 
@@ -86,6 +130,41 @@ def path_exists(path: str) -> bool:
             return False
     else:
         return Path(path).exists()
+
+
+def _source_fingerprint(path: str) -> list:
+    """Identifies the current version of a table source for the cache key.
+
+    Returns ``[file, size, mtime_ns]`` for every local file behind ``path``:
+    the file itself and its ``.csv``/``.csv.gz`` (or ``.tsv``) twin, the files
+    matching a glob, or every file under a directory. A rewrite of any of them
+    therefore changes the dataset's cache key, like ``make``. Contents are not
+    hashed, so large sources stay cheap to check. URLs are identified by the
+    URL alone.
+
+    Args:
+        path (str): The table source path, as resolved from the config.
+
+    Returns:
+        list: ``[[file, size, mtime_ns], ...]``, or ``[path]`` for a URL.
+    """
+    if is_url(path):
+        return [path]
+    candidates = [path, path[:-3] if path.endswith(".gz") else f"{path}.gz"]
+    files: list[str] = []
+    for candidate in candidates:
+        source = Path(candidate)
+        if glob.has_magic(candidate):
+            files += sorted(glob.glob(candidate, recursive=True))
+        elif source.is_dir():
+            files += sorted(str(f) for f in source.rglob("*") if f.is_file())
+        elif source.is_file():
+            files.append(candidate)
+    fingerprint = []
+    for file in files:
+        stat = os.stat(file)
+        fingerprint.append([file, stat.st_size, stat.st_mtime_ns])
+    return fingerprint
 
 
 def _csv_tsv_gz_path(path: str) -> str:
@@ -126,6 +205,14 @@ def _csv_tsv_gz_path(path: str) -> str:
 def _litdata_merge(cache_dir: Path) -> None:
     """
     Merges LitData binary writer index files in the given cache directory.
+
+    Workers write contiguous sample ranges, each with its own
+    ``{rank}.index.json``. ``patient_to_index`` and ``record_to_index`` are
+    built before processing and assume merged sample ``i`` is input sample
+    ``i``, so the per-worker indexes must be joined in numeric rank order.
+    ``BinaryWriter.merge`` does this from litdata 0.2.64 on; earlier versions
+    sort the file names as strings (0, 1, 10, 11, ..., 2), which reorders
+    samples with more than 10 workers.
 
     Args:
         cache_dir (Path): The cache directory containing LitData binary writer files.
@@ -223,13 +310,23 @@ def _task_transform_fn(
     Args:
         args (tuple): A tuple containing:
             worker_id (int): The ID of the worker.
-            task (BaseTask): The task to apply.
+            task (BaseTask | bytes): The task to apply, or the task pickled.
             patient_ids (Iterable[str]): The patient IDs to process.
             global_event_df (pl.LazyFrame): The global event dataframe.
             output_dir (Path): The output directory to save results.
     """
     BATCH_SIZE = 128  # Use a batch size 128 can reduce runtime by 30%.
     worker_id, task, patient_ids, global_event_df, output_dir = args
+    if isinstance(task, bytes):
+        try:
+            task = pickle.loads(task)
+        except Exception as e:
+            raise RuntimeError(
+                f"A set_task worker process could not load the task ({e}). Worker "
+                "processes import your script without running its "
+                "`if __name__ == '__main__':` block, so define the task class at "
+                "module level in an importable file, or use num_workers=1."
+            ) from e
     total_patients = len(list(patient_ids))
     logger.info(
         f"Worker {worker_id} started processing {total_patients} patients. (Polars threads: {pl.thread_pool_size()})"
@@ -308,7 +405,7 @@ def _proc_transform_fn(args: tuple[int, Path, int, int, Path]) -> None:
         complete = 0
         write_index = 0
         for i in range(start_idx, end_idx):
-            transformed: Dict[str, Any] = builder.transform(dataset[i])
+            transformed: dict[str, Any] = builder.transform_for_storage(dataset[i])
             writer.add_item(write_index, transformed)
             write_index += 1
             complete += 1
@@ -394,10 +491,17 @@ class BaseDataset(ABC):
     def _init_cache_dir(self, cache_dir: str | Path | None) -> Path:
         """Returns the cache directory path.
 
+        The cache key covers the dataset's root, tables, name and dev flag and,
+        for config-based datasets, a hash of the YAML config plus the size and
+        modification time of every source file the requested tables read. Editing
+        the config or rewriting a source file therefore builds a fresh cache.
+
         The cache directory is determined by the type of ``cache_dir`` passed
         to ``__init__``:
 
-        - **None**: Auto-generated under default pyhealth cache directory.
+        - **None**: Auto-generated under the default pyhealth cache directory,
+          with a warning naming it; an error if ``PYHEALTH_REQUIRE_CACHE_DIR``
+          is set.
         - **str** or **Path: Used as the root cache directory path. A UUID
           is appended to the provided path to capture dataset configuration.
 
@@ -414,22 +518,32 @@ class BaseDataset(ABC):
         Returns:
             Path: The resolved cache directory path.
         """
-        id_str = json.dumps(
-            {
-                "root": str(self.root),
-                "tables": sorted(self.tables),
-                "dataset_name": self.dataset_name,
-                "dev": self.dev,
-            },
-            sort_keys=True,
-        )
+        key = {
+            "root": str(self.root),
+            "tables": sorted(self.tables),
+            "dataset_name": self.dataset_name,
+            "dev": self.dev,
+        }
+        if self.config is not None:
+            # Editing the YAML or rewriting a source file must not reuse a stale
+            # cache, so the key also covers the config and the source files.
+            config_json = json.dumps(self.config.model_dump(mode="json"), sort_keys=True)
+            key["config"] = hashlib.sha256(config_json.encode()).hexdigest()
+            key["sources"] = {
+                table: [
+                    _source_fingerprint(clean_path(f"{self.root}/{file_path}"))
+                    for file_path in [cfg.file_path, *(j.file_path for j in cfg.join)]
+                ]
+                for table in sorted(self.tables)
+                if (cfg := self.config.tables.get(table)) is not None
+            }
+        id_str = json.dumps(key, sort_keys=True)
 
         id = str(uuid.uuid5(uuid.NAMESPACE_DNS, id_str))
 
         if cache_dir is None:
-            cache_dir = Path(platformdirs.user_cache_dir(appname="pyhealth")) / id
+            cache_dir = _default_cache_dir(id)
             cache_dir.mkdir(parents=True, exist_ok=True)
-            logger.info(f"No cache_dir provided. Using default cache dir: {cache_dir}")
         else:
             # Ensure separate cache directories for different table configurations by appending a UUID suffix
             cache_dir = Path(cache_dir) / id
@@ -543,7 +657,7 @@ class BaseDataset(ABC):
                 local_path = self.create_tmpdir() / local_filename
                 if not local_path.exists():
                     logger.info(f"Downloading {source_path} to {local_path}")
-                    urlretrieve(source_path, local_path)
+                    download_file(source_path, local_path)
                 source_path = str(local_path)
 
             # Determine delimiter based on file extension
@@ -920,10 +1034,15 @@ class BaseDataset(ABC):
                 # spwan is required for polars in multiprocessing, see https://docs.pola.rs/user-guide/misc/multiprocessing/#summary
                 ctx = multiprocessing.get_context("spawn")
                 queue = ctx.Queue()
+                # Send the task pickled: if a worker cannot unpickle it (e.g. the
+                # class is defined under `if __name__ == "__main__":`), the error
+                # is raised in _task_transform_fn and reaches the caller, instead
+                # of failing inside the pool's own argument handling, which hangs.
+                task_bytes = pickle.dumps(task)
                 args_list = [
                     (
                         worker_id,
-                        task,
+                        task_bytes,
                         pids,
                         global_event_df,
                         output_dir,
@@ -1028,13 +1147,15 @@ class BaseDataset(ABC):
         finally:
             self.clean_tmpdir()
 
+    @preserve_rng_state()
     def set_task(
         self,
         task: Optional[BaseTask] = None,
         num_workers: Optional[int] = None,
         input_processors: Optional[Dict[str, FeatureProcessor]] = None,
         output_processors: Optional[Dict[str, FeatureProcessor]] = None,
-    ) -> SampleDataset:
+        split: Split | None = None,
+    ) -> SampleDataset | tuple[SampleDataset, ...]:
         """Processes the base dataset to generate the task-specific sample dataset.
         The cache structure is as follows::
 
@@ -1042,6 +1163,7 @@ class BaseDataset(ABC):
                 task_df.ld/                 # Intermediate task dataframe based on schema
                 samples_{proc_uuid}.ld/     # Final processed samples after applying processors
                     schema.pkl              # Saved SampleBuilder schema
+                    split.npz               # Sample indices per split part (with split= only)
                     *.bin                   # Processed sample files
 
         Args:
@@ -1053,9 +1175,25 @@ class BaseDataset(ABC):
             output_processors (Optional[Dict[str, FeatureProcessor]]):
                 Pre-fitted output processors. If provided, these will be used
                 instead of creating new ones from task's output_schema. Defaults to None.
+            split (Optional[Split]): Split the samples, e.g. by patient with
+                ``PatientSplit``, and fit every processor on the first
+                (training) part only, so the other parts never shape
+                preprocessing. The parts are used as the split returns them.
+                Samples are streamed;
+                nothing is loaded into memory beyond the per-sample index that
+                processing already keeps. Defaults to None: fit on all samples
+                and return one dataset, as before.
 
         Returns:
-            SampleDataset: The generated sample dataset.
+            SampleDataset: The generated sample dataset, or, with ``split``, a
+            tuple with one dataset per part, training part first, whose
+            processors were fitted on the training part.
+
+        Examples:
+            >>> from pyhealth.datasets import PatientSplit
+            >>> train, val, test = dataset.set_task(  # doctest: +SKIP
+            ...     task, split=PatientSplit(ratios=(0.7, 0.1, 0.2), seed=42)
+            ... )
 
         Raises:
             AssertionError: If no default task is found and task is None.
@@ -1108,6 +1246,10 @@ class BaseDataset(ABC):
                     if output_processors
                     else None
                 ),
+                # Layout of processed samples on disk; a new layout gets a new cache.
+                "storage_format": STORAGE_FORMAT,
+                # Only present with a split, so existing unsplit caches keep their key.
+                **({"split": split.to_dict()} if split is not None else {}),
             },
             sort_keys=True,
             default=str,
@@ -1168,8 +1310,12 @@ class BaseDataset(ABC):
                         input_processors=input_processors,
                         output_processors=output_processors,
                     )
-                    builder.fit(dataset)
+                    builder.fit(dataset, split=split)
                     builder.save(str(samples_path / "schema.pkl"))
+                    if split is not None:
+                        # Written before the samples, whose index.json marks the
+                        # cache complete, so a valid cache always has its split.
+                        np.savez(samples_path / "split.npz", *builder.split_indices)
 
                     # Apply processors and save final samples to cache_dir
                     logger.info(f"Processing samples and saving to {samples_path}...")
@@ -1184,11 +1330,17 @@ class BaseDataset(ABC):
                 f"Found cached processed samples at {samples_path}, skipping processing."
             )
 
-        return SampleDataset(
+        samples = SampleDataset(
             path=str(samples_path),
             dataset_name=self.dataset_name,
             task_name=task.task_name,
         )
+        if split is None:
+            return samples
+        with np.load(samples_path / "split.npz") as parts:
+            return tuple(
+                samples.subset(parts[f"arr_{k}"]) for k in range(len(parts.files))
+            )
 
     def _main_guard(self, func_name: str):
         """Warn if method is accessed from a non-main process."""
