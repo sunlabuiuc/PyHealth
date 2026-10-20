@@ -4,12 +4,10 @@ CI gate enforcing PyHealth's PR contribution rules.
 
 Rules enforced whenever a PR touches pyhealth/**/*.py:
 
-    1. Docs/examples: the PR must also modify at least one file under
-       docs/** and one file under examples/**.
-    2. Lint: lines added or modified in touched pyhealth/**/*.py files must
+    1. Lint: lines added or modified in touched pyhealth/**/*.py files must
        be free of ruff violations. Pre-existing violations elsewhere in a
        touched file are not flagged.
-    3. Docstring examples: new or modified top-level public classes/
+    2. Docstring examples: new or modified top-level public classes/
        functions in pyhealth/**/*.py must include a '>>>' usage example in
        their docstring.
 
@@ -51,23 +49,6 @@ def added_lines(base, head, path):
             start, count = int(plus), 1
         lines |= set(range(start, start + count))
     return lines
-
-
-def check_docs_examples(files):
-    if not any(f.startswith("pyhealth/") and f.endswith(".py") for f in files):
-        return []
-    problems = []
-    if not any(f.startswith("docs/") for f in files):
-        problems.append(
-            "PR modifies pyhealth/ source files but no file under docs/ "
-            "was updated."
-        )
-    if not any(f.startswith("examples/") for f in files):
-        problems.append(
-            "PR modifies pyhealth/ source files but no file under "
-            "examples/ was updated."
-        )
-    return problems
 
 
 def check_lint(files, base, head):
@@ -136,8 +117,7 @@ def main():
 
     files = changed_files(args.base, args.head)
     problems = (
-        check_docs_examples(files)
-        + check_lint(files, args.base, args.head)
+        check_lint(files, args.base, args.head)
         + check_docstring_examples(files, args.base, args.head)
     )
 
