@@ -1,0 +1,918 @@
+diff --git a/docs/api/models.rst b/docs/api/models.rst
+index e636b6c..a81f788 100644
+--- a/docs/api/models.rst
++++ b/docs/api/models.rst
+@@ -216,6 +216,7 @@ API Reference
+     models/pyhealth.models.Transformer
+     models/pyhealth.models.TransformersModel
+     models/pyhealth.models.TransformerDeID
++    models/pyhealth.models.PLMCA
+     models/pyhealth.models.RETAIN
+     models/pyhealth.models.GAMENet
+     models/pyhealth.models.GraphCare
+diff --git a/docs/api/models/pyhealth.models.PLMCA.rst b/docs/api/models/pyhealth.models.PLMCA.rst
+new file mode 100644
+index 0000000..a661f26
+--- /dev/null
++++ b/docs/api/models/pyhealth.models.PLMCA.rst
+@@ -0,0 +1,24 @@
++pyhealth.models.PLMCA
++===================================
++
++Pretrained language model with class-wise cross-attention (PLM-CA) for
++automated medical coding, reproduced from Edin et al., "An Unsupervised
++Approach to Achieve Supervised-Level Explainability in Healthcare Records"
++(EMNLP 2024, https://arxiv.org/abs/2406.08958).
++
++A pretrained transformer encodes the clinical note in chunks, and a
++cross-attention decoder gives each medical code its own query over all
++tokens. The per-code attention weights are returned with every prediction,
++so the model can be explained with attention-based methods such as
++AttInGrad. Use it with a task that has one text input and one multilabel
++output, for example :class:`~pyhealth.tasks.MIMIC3ICD9Coding`.
++
++.. autoclass:: pyhealth.models.PLMCA
++    :members:
++    :undoc-members:
++    :show-inheritance:
++
++.. autoclass:: pyhealth.models.ClassWiseCrossAttention
++    :members:
++    :undoc-members:
++    :show-inheritance:
+diff --git a/examples/mimic3_icd9_coding_plm_ca.py b/examples/mimic3_icd9_coding_plm_ca.py
+new file mode 100644
+index 0000000..a948569
+--- /dev/null
++++ b/examples/mimic3_icd9_coding_plm_ca.py
+@@ -0,0 +1,344 @@
++"""PLM-CA for ICD-9 coding on MIMIC-III, with an input-length ablation.
++
++Contributors: <Full Name> (<gt_username>), <Full Name> (<gt_username>)
++Paper: Edin et al., "An Unsupervised Approach to Achieve Supervised-Level
++    Explainability in Healthcare Records", EMNLP 2024.
++Paper link: https://arxiv.org/abs/2406.08958
++
++What this script does
++---------------------
++1. Builds the medical coding data. With ``--mimic3_root`` it follows the
++   paper: MIMIC-III discharge summaries labelled with the admission's ICD-9
++   diagnosis and procedure codes. With ``--synthetic`` it generates small
++   fake notes in which each code is signalled by a few keywords, so the whole
++   pipeline runs without credentials or downloads.
++2. Keeps the ``--top_k`` most frequent codes (default 50), splits by patient
++   and builds dataloaders.
++3. Trains :class:`pyhealth.models.PLMCA` with the paper's optimizer settings
++   (AdamW, learning rate 5e-5, dropout 0.2) via :class:`pyhealth.trainer.Trainer`.
++4. With ``--ablation``, repeats training for several configurations and prints
++   one results table.
++
++Ablation: what is varied and why
++--------------------------------
++The paper truncates every note to 6000 tokens and states this has a negligible
++cost because few notes are longer. ``max_length`` tests that claim: if the
++statement holds, cutting notes to 2048 tokens should cost little, while 512
++tokens should hurt because codes documented late in the note are lost.
++``chunk_size`` is the window each encoder pass sees (PLM-ICD style chunked
++encoding); larger chunks give tokens more context but use more memory.
++The explanation-method ablation (Attention vs InputXGrad vs AttInGrad) is
++added in a later step, once AttInGrad is merged.
++
++How to run
++----------
++Synthetic data, tiny local encoder, CPU, about a minute::
++
++    python examples/mimic3_icd9_coding_plm_ca.py --synthetic --ablation
++
++MIMIC-III (needs PhysioNet access and a GPU)::
++
++    python examples/mimic3_icd9_coding_plm_ca.py \\
++        --mimic3_root /path/to/mimic-iii/1.4 \\
++        --model_name <hugging-face-encoder> --top_k 50 --epochs 20 --ablation
++
++Results
++-------
++Fill in from the printed table after running.
++
++* Synthetic run: TODO
++* MIMIC-III top-50: TODO
++
++Deviations from the paper
++-------------------------
++* Random patient-level 80/10/10 split instead of the MIMIC-III full split of
++  Mullenbach et al. (2018).
++* Top-K codes instead of all ~8.9k codes, to keep the class-by-token
++  attention matrix within a single GPU's memory.
++* Fixed decision threshold of 0.3 (PyHealth's multilabel default) instead of
++  tuning it on the validation set.
++* No learning-rate warmup or linear decay, since ``Trainer`` has no scheduler.
++"""
++
++import argparse
++import random
++import tempfile
++from pathlib import Path
++
++import torch
++from transformers import BertConfig, BertModel, BertTokenizerFast
++
++from pyhealth.data import Patient
++from pyhealth.datasets import (
++    MIMIC3Dataset,
++    SampleDataset,
++    create_sample_dataset,
++    get_dataloader,
++    split_by_patient,
++)
++from pyhealth.models import PLMCA
++from pyhealth.tasks import MIMIC3ICD9Coding
++from pyhealth.trainer import Trainer
++
++TEXT_KEY = "text"
++LABEL_KEY = "icd_codes"
++METRICS = ["f1_micro", "f1_macro", "pr_auc_micro", "pr_auc_macro"]
++
++# Configurations compared in the ablation. "base" comes first and is the only
++# one run without --ablation.
++SYNTHETIC_CONFIGS = [
++    {"name": "base", "max_length": 128, "chunk_size": 32},
++    {"name": "truncate_32", "max_length": 32, "chunk_size": 32},
++    {"name": "chunk_16", "max_length": 128, "chunk_size": 16},
++]
++MIMIC_CONFIGS = [
++    {"name": "base_6000", "max_length": 6000, "chunk_size": 128},
++    {"name": "truncate_2048", "max_length": 2048, "chunk_size": 128},
++    {"name": "truncate_512", "max_length": 512, "chunk_size": 128},
++    {"name": "chunk_256", "max_length": 6000, "chunk_size": 256},
++]
++
++
++# ---------------------------------------------------------------------------
++# Data
++# ---------------------------------------------------------------------------
++class DischargeSummaryICD9Coding(MIMIC3ICD9Coding):
++    """MIMIC3ICD9Coding restricted to discharge summaries, as in the paper.
++
++    The parent task concatenates every note of an admission. The paper uses
++    discharge summaries only, so this subclass filters notes by category.
++    """
++
++    task_name: str = "mimic3_icd9_coding_discharge"
++
++    def __call__(self, patient: Patient) -> list[dict]:
++        samples = []
++        for admission in patient.get_events(event_type="admissions"):
++            notes = patient.get_events(
++                event_type="noteevents",
++                filters=[
++                    ("hadm_id", "==", admission.hadm_id),
++                    ("category", "==", "Discharge summary"),
++                ],
++            )
++            codes = set()
++            for table in ("diagnoses_icd", "procedures_icd"):
++                events = patient.get_events(
++                    event_type=table, filters=[("hadm_id", "==", admission.hadm_id)]
++                )
++                codes.update(e.icd9_code for e in events if e.icd9_code)
++            text = " ".join(note.text for note in notes)
++            if text and codes:
++                samples.append(
++                    {
++                        "patient_id": patient.patient_id,
++                        TEXT_KEY: text,
++                        LABEL_KEY: sorted(codes),
++                    }
++                )
++        return samples
++
++
++# Each synthetic code is "documented" by a few keywords placed at random
++# positions in the note, so truncating the note can remove the evidence.
++SYNTHETIC_CODES = {
++    "428.0": ["heart", "failure", "edema"],
++    "038.9": ["sepsis", "bacteremia"],
++    "584.9": ["acute", "kidney", "injury"],
++    "486": ["pneumonia", "infiltrate"],
++    "401.9": ["hypertension"],
++    "250.00": ["diabetes", "insulin"],
++}
++FILLER = [
++    "patient", "admitted", "with", "history", "of", "was", "given", "and",
++    "stable", "discharged", "home", "the", "on", "day", "pain", "noted",
++]  # fmt: skip
++
++
++def make_synthetic_samples(num_patients: int, seed: int) -> list[dict]:
++    """Generates fake notes whose codes are signalled by keywords."""
++    rng = random.Random(seed)
++    samples = []
++    for i in range(num_patients):
++        codes = rng.sample(sorted(SYNTHETIC_CODES), k=rng.randint(1, 3))
++        words = [rng.choice(FILLER) for _ in range(rng.randint(10, 90))]
++        for code in codes:
++            for keyword in SYNTHETIC_CODES[code]:
++                words.insert(rng.randrange(len(words) + 1), keyword)
++        samples.append(
++            {"patient_id": f"p{i}", TEXT_KEY: " ".join(words), LABEL_KEY: codes}
++        )
++    return samples
++
++
++def build_tiny_encoder(folder: Path) -> str:
++    """Saves a small randomly initialised BERT so the demo needs no download."""
++    vocab = ["[PAD]", "[UNK]", "[CLS]", "[SEP]", "[MASK]", *FILLER]
++    vocab += sorted({w for words in SYNTHETIC_CODES.values() for w in words})
++    (folder / "vocab.txt").write_text("\n".join(vocab))
++    BertTokenizerFast(vocab_file=str(folder / "vocab.txt")).save_pretrained(folder)
++    config = BertConfig(
++        vocab_size=len(vocab),
++        hidden_size=32,
++        num_hidden_layers=2,
++        num_attention_heads=2,
++        intermediate_size=64,
++        max_position_embeddings=128,
++    )
++    BertModel(config).save_pretrained(folder)
++    return str(folder)
++
++
++def keep_top_k_codes(dataset: SampleDataset, top_k: int) -> SampleDataset:
++    """Rebuilds the dataset with only the ``top_k`` most frequent codes.
++
++    Samples left with no code are dropped. The label processor is refitted,
++    so the model's output layer has exactly ``top_k`` units.
++    """
++    label_vocab = dataset.output_processors[LABEL_KEY].label_vocab
++    index_to_code = {index: code for code, index in label_vocab.items()}
++    rows = [(s["patient_id"], s[TEXT_KEY], s[LABEL_KEY]) for s in dataset]
++    counts = torch.stack([target for _, _, target in rows]).sum(dim=0)
++    kept = set(counts.topk(min(top_k, len(counts))).indices.tolist())
++
++    samples = []
++    for patient_id, text, target in rows:
++        codes = [index_to_code[i] for i in target.nonzero().flatten().tolist()]
++        codes = [c for c in codes if label_vocab[c] in kept]
++        if codes:
++            samples.append({"patient_id": patient_id, TEXT_KEY: text, LABEL_KEY: codes})
++    return create_sample_dataset(
++        samples=samples,
++        input_schema={TEXT_KEY: "text"},
++        output_schema={LABEL_KEY: "multilabel"},
++        dataset_name="mimic3_top_k",
++        task_name=f"icd9_coding_top{top_k}",
++    )
++
++
++def load_data(args: argparse.Namespace) -> SampleDataset:
++    """Returns the coding dataset, from MIMIC-III or synthetic notes."""
++    if args.synthetic:
++        samples = make_synthetic_samples(args.num_synthetic, args.seed)
++        dataset = create_sample_dataset(
++            samples=samples,
++            input_schema={TEXT_KEY: "text"},
++            output_schema={LABEL_KEY: "multilabel"},
++            dataset_name="synthetic_notes",
++        )
++    else:
++        base = MIMIC3Dataset(
++            root=args.mimic3_root,
++            tables=["diagnoses_icd", "procedures_icd", "noteevents"],
++            dev=args.dev,
++        )
++        dataset = base.set_task(DischargeSummaryICD9Coding())
++    return keep_top_k_codes(dataset, args.top_k)
++
++
++# ---------------------------------------------------------------------------
++# Training and evaluation
++# ---------------------------------------------------------------------------
++def run_config(
++    config: dict,
++    dataset: SampleDataset,
++    splits: tuple,
++    model_name: str,
++    args: argparse.Namespace,
++) -> dict[str, float]:
++    """Trains PLM-CA with one configuration and returns its test scores."""
++    train_ds, val_ds, test_ds = splits
++    torch.manual_seed(args.seed)  # same initial decoder for every config
++    model = PLMCA(
++        dataset,  # full dataset: its fitted processors define the label space
++        model_name=model_name,
++        chunk_size=config["chunk_size"],
++        max_length=config["max_length"],
++        dropout=0.2,
++    )
++    trainer = Trainer(
++        model=model,
++        metrics=METRICS,
++        output_path=args.output_dir,
++        exp_name=config["name"],
++    )
++    train_loader = get_dataloader(
++        train_ds, args.batch_size, shuffle=True, seed=args.seed
++    )
++    trainer.train(
++        train_dataloader=train_loader,
++        val_dataloader=get_dataloader(val_ds, args.batch_size),
++        epochs=args.epochs,
++        optimizer_class=torch.optim.AdamW,
++        optimizer_params={"lr": args.lr},
++        monitor="f1_micro",
++        monitor_criterion="max",
++    )
++    return trainer.evaluate(get_dataloader(test_ds, args.batch_size))
++
++
++def print_table(results: dict[str, dict[str, float]]) -> None:
++    """Prints one row per configuration with the test metrics."""
++    header = f"{'config':<16}" + "".join(f"{m:>14}" for m in METRICS)
++    print("\n" + header + "\n" + "-" * len(header))
++    for name, scores in results.items():
++        print(f"{name:<16}" + "".join(f"{scores[m]:>14.4f}" for m in METRICS))
++
++
++def parse_args() -> argparse.Namespace:
++    parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
++    data = parser.add_mutually_exclusive_group(required=True)
++    data.add_argument("--synthetic", action="store_true")
++    data.add_argument("--mimic3_root", type=str)
++    parser.add_argument("--model_name", type=str, default=None)
++    parser.add_argument("--top_k", type=int, default=50)
++    parser.add_argument("--epochs", type=int, default=None)
++    parser.add_argument("--batch_size", type=int, default=None)
++    parser.add_argument("--lr", type=float, default=None)
++    parser.add_argument("--ablation", action="store_true")
++    parser.add_argument("--dev", action="store_true", help="MIMIC-III dev subset")
++    parser.add_argument("--num_synthetic", type=int, default=80)
++    parser.add_argument("--seed", type=int, default=42)
++    parser.add_argument("--output_dir", type=str, default="output/plm_ca")
++    args = parser.parse_args()
++
++    # Synthetic defaults: a randomly initialised tiny encoder needs a larger
++    # learning rate and a few more epochs than fine-tuning a real one.
++    if args.epochs is None:
++        args.epochs = 15 if args.synthetic else 20
++    if args.batch_size is None:
++        args.batch_size = 8
++    if args.lr is None:
++        args.lr = 1e-3 if args.synthetic else 5e-5
++    if args.mimic3_root and args.model_name is None:
++        parser.error("--model_name is required with --mimic3_root")
++    return args
++
++
++def main() -> None:
++    args = parse_args()
++    random.seed(args.seed)
++    torch.manual_seed(args.seed)
++
++    dataset = load_data(args)
++    splits = split_by_patient(dataset, [0.8, 0.1, 0.1], seed=args.seed)
++    num_codes = dataset.output_processors[LABEL_KEY].size()
++    print(f"samples: {len(dataset)}, codes: {num_codes}")
++    print("train/val/test sizes:", [len(split) for split in splits])
++
++    configs = SYNTHETIC_CONFIGS if args.synthetic else MIMIC_CONFIGS
++    if not args.ablation:
++        configs = configs[:1]
++
++    with tempfile.TemporaryDirectory() as tmp:
++        model_name = args.model_name or build_tiny_encoder(Path(tmp))
++        results = {
++            config["name"]: run_config(config, dataset, splits, model_name, args)
++            for config in configs
++        }
++    print_table(results)
++
++
++if __name__ == "__main__":
++    # The guard is required: PyHealth uses multiprocessing internally.
++    main()
+diff --git a/pyhealth/models/__init__.py b/pyhealth/models/__init__.py
+index ddb7424..296e6b8 100644
+--- a/pyhealth/models/__init__.py
++++ b/pyhealth/models/__init__.py
+@@ -20,6 +20,8 @@ from .medfuse import MedFuse, MedFuseLayer
+ from .medlink import MedLink
+ from .micron import MICRON, MICRONLayer
+ from .mlp import MLP
++from .plm_ca import ClassWiseCrossAttention as ClassWiseCrossAttention
++from .plm_ca import PLMCA as PLMCA
+ from .molerec import MoleRec, MoleRecLayer
+ from .retain import MultimodalRETAIN, RETAIN, RETAINLayer
+ from .rnn import MultimodalRNN, RNN, RNNLayer
+diff --git a/pyhealth/models/plm_ca.py b/pyhealth/models/plm_ca.py
+new file mode 100644
+index 0000000..1ca38fe
+--- /dev/null
++++ b/pyhealth/models/plm_ca.py
+@@ -0,0 +1,304 @@
++"""PLM-CA: pretrained language model with class-wise cross-attention.
++
++Contributors: <Full Name> (<gt_username>), <Full Name> (<gt_username>)
++Paper: Edin et al., "An Unsupervised Approach to Achieve Supervised-Level
++    Explainability in Healthcare Records", EMNLP 2024.
++Paper link: https://arxiv.org/abs/2406.08958
++
++Description:
++    Automated medical coding model used in the paper (Appendix A). A pretrained
++    transformer encodes a clinical note in fixed-size chunks. A class-wise
++    cross-attention decoder then gives every medical code its own learnable
++    query, which attends over all token representations to produce one logit
++    per code. The decoder's attention matrix is returned by ``forward`` so that
++    attention-based explanations (Attention, AttInGrad) can be computed.
++"""
++
++import torch
++import torch.nn.functional as F
++from torch import nn
++from transformers import AutoModel, AutoTokenizer
++
++from ..datasets import SampleDataset
++from .base_model import BaseModel
++
++
++class ClassWiseCrossAttention(nn.Module):
++    """Class-wise cross-attention decoder from Edin et al. (2024), Appendix A.
++
++    Given token representations ``H`` of shape ``[batch, N, D]``, it computes::
++
++        K = H @ W_key
++        V = H @ W_value
++        A_j = softmax(C_j @ K^T)              # attention of code j over tokens
++        logit_j = layernorm(A_j @ V) @ w_out
++
++    where ``C`` holds one learnable query vector per code.
++
++    Args:
++        hidden_dim: Size ``D`` of the incoming token representations.
++        num_classes: Number of medical codes ``J``.
++        dropout: Dropout applied to the pooled class representations.
++
++    Example:
++        >>> import torch
++        >>> decoder = ClassWiseCrossAttention(hidden_dim=8, num_classes=3)
++        >>> hidden = torch.randn(2, 5, 8)
++        >>> mask = torch.ones(2, 5, dtype=torch.long)
++        >>> logits, attention = decoder(hidden, mask)
++        >>> logits.shape, attention.shape
++        (torch.Size([2, 3]), torch.Size([2, 3, 5]))
++    """
++
++    def __init__(self, hidden_dim: int, num_classes: int, dropout: float = 0.2):
++        super().__init__()
++        self.key = nn.Linear(hidden_dim, hidden_dim, bias=False)
++        self.value = nn.Linear(hidden_dim, hidden_dim)
++        self.class_queries = nn.Parameter(torch.empty(num_classes, hidden_dim))
++        nn.init.normal_(self.class_queries, std=hidden_dim**-0.5)
++        # nn.Softmax (not F.softmax) so interpretability hooks can attach.
++        self.softmax = nn.Softmax(dim=-1)
++        self.dropout = nn.Dropout(dropout)
++        self.layer_norm = nn.LayerNorm(hidden_dim)
++        self.output = nn.Linear(hidden_dim, 1)
++
++    def forward(
++        self, hidden_states: torch.Tensor, attention_mask: torch.Tensor
++    ) -> tuple[torch.Tensor, torch.Tensor]:
++        """Pools token representations into one logit per code.
++
++        Args:
++            hidden_states: Token representations of shape ``[batch, N, D]``.
++            attention_mask: ``[batch, N]`` tensor, 1 for real tokens and 0
++                for padding.
++
++        Returns:
++            A tuple ``(logits, attention)`` with shapes ``[batch, J]`` and
++            ``[batch, J, N]``. Padding positions get zero attention.
++        """
++        keys = self.key(hidden_states)
++        values = self.value(hidden_states)
++        scores = torch.einsum("jd,bnd->bjn", self.class_queries, keys)
++        padding = attention_mask[:, None, :] == 0
++        scores = scores.masked_fill(padding, torch.finfo(scores.dtype).min)
++        attention = self.softmax(scores)
++        pooled = torch.bmm(attention, values)
++        pooled = self.layer_norm(self.dropout(pooled))
++        logits = self.output(pooled).squeeze(-1)
++        return logits, attention
++
++
++class PLMCA(BaseModel):
++    """Pretrained language model with class-wise cross-attention (PLM-CA).
++
++    This is the medical coding model from Edin et al. (2024). It replaces the
++    label-wise attention of PLM-ICD (Huang et al., 2022) with standard
++    cross-attention, which the authors found more stable to train.
++
++    Long notes are tokenized once, truncated to ``max_length`` tokens, padded
++    to a multiple of ``chunk_size`` and encoded chunk by chunk. The chunk
++    outputs are concatenated before the decoder, so every code can attend to
++    every token in the note.
++
++    The model expects a task with exactly one text input (for example
++    ``{"text": "text"}``) and one multilabel output, such as
++    :class:`~pyhealth.tasks.MIMIC3ICD9Coding`.
++
++    Args:
++        dataset: Sample dataset used to read the input/output schemas and the
++            number of codes.
++        model_name: Hugging Face model id or local path of the encoder and
++            tokenizer, for example ``"emilyalsentzer/Bio_ClinicalBERT"``.
++        chunk_size: Number of tokens encoded together in one encoder pass.
++            Must not exceed the encoder's maximum position embeddings.
++        max_length: Maximum number of tokens kept per note. The paper uses
++            6000.
++        dropout: Dropout applied in the decoder. The paper uses 0.2.
++
++    Raises:
++        ValueError: If the task does not have exactly one input and one
++            multilabel output, or if ``chunk_size`` or ``max_length`` is
++            invalid for the encoder.
++
++    Example:
++        >>> from pyhealth.datasets import create_sample_dataset, get_dataloader
++        >>> samples = [
++        ...     {"patient_id": "p0", "text": "chest pain", "icd_codes": ["428.0"]},
++        ...     {"patient_id": "p1", "text": "sepsis", "icd_codes": ["038.9"]},
++        ... ]
++        >>> dataset = create_sample_dataset(
++        ...     samples=samples,
++        ...     input_schema={"text": "text"},
++        ...     output_schema={"icd_codes": "multilabel"},
++        ... )
++        >>> model = PLMCA(dataset, model_name="emilyalsentzer/Bio_ClinicalBERT")
++        >>> batch = next(iter(get_dataloader(dataset, batch_size=2)))
++        >>> out = model(**batch)
++        >>> sorted(out.keys())
++        ['attention', 'logit', 'loss', 'y_prob', 'y_true']
++    """
++
++    def __init__(
++        self,
++        dataset: SampleDataset,
++        model_name: str,
++        chunk_size: int = 128,
++        max_length: int = 6000,
++        dropout: float = 0.2,
++    ) -> None:
++        super().__init__(dataset=dataset)
++        if len(self.feature_keys) != 1:
++            raise ValueError(
++                "PLMCA expects exactly one text input feature, got "
++                f"{self.feature_keys}."
++            )
++        if len(self.label_keys) != 1:
++            raise ValueError(
++                f"PLMCA expects exactly one label key, got {self.label_keys}."
++            )
++        if self.mode != "multilabel":
++            raise ValueError(
++                f"PLMCA supports multilabel tasks only, got mode={self.mode!r}."
++            )
++        if chunk_size <= 0 or max_length <= 0:
++            raise ValueError("chunk_size and max_length must be positive.")
++
++        self.feature_key = self.feature_keys[0]
++        self.label_key = self.label_keys[0]
++        self.model_name = model_name
++        self.chunk_size = chunk_size
++        self.max_length = max_length
++
++        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
++        self.encoder = AutoModel.from_pretrained(model_name)
++        max_positions = getattr(self.encoder.config, "max_position_embeddings", None)
++        if max_positions is not None and chunk_size > max_positions:
++            raise ValueError(
++                f"chunk_size={chunk_size} exceeds the encoder's "
++                f"max_position_embeddings={max_positions}."
++            )
++
++        hidden_dim = self.encoder.config.hidden_size
++        self.decoder = ClassWiseCrossAttention(
++            hidden_dim=hidden_dim,
++            num_classes=self.get_output_size(),
++            dropout=dropout,
++        )
++
++    def get_input_embeddings(self) -> nn.Module:
++        """Returns the encoder's token embedding layer.
++
++        Interpretability methods use it to turn token ids into the embedding
++        matrix ``X`` that gradients are taken with respect to.
++        """
++        return self.encoder.get_input_embeddings()
++
++    def tokenize(self, texts: str | list[str]) -> tuple[torch.Tensor, torch.Tensor]:
++        """Tokenizes notes and pads them to a multiple of ``chunk_size``.
++
++        Args:
++            texts: One note or a batch of notes.
++
++        Returns:
++            ``(input_ids, attention_mask)``, both of shape ``[batch, N]`` on
++            the model's device, where ``N`` is a multiple of ``chunk_size``.
++        """
++        if isinstance(texts, str):
++            texts = [texts]
++        encoded = self.tokenizer(
++            list(texts),
++            truncation=True,
++            max_length=self.max_length,
++            padding=True,
++            return_tensors="pt",
++        )
++        input_ids = encoded["input_ids"]
++        attention_mask = encoded["attention_mask"]
++        remainder = (-input_ids.shape[1]) % self.chunk_size
++        if remainder:
++            pad_id = self.tokenizer.pad_token_id or 0
++            input_ids = F.pad(input_ids, (0, remainder), value=pad_id)
++            attention_mask = F.pad(attention_mask, (0, remainder), value=0)
++        return input_ids.to(self.device), attention_mask.to(self.device)
++
++    def _encode(
++        self, inputs_embeds: torch.Tensor, attention_mask: torch.Tensor
++    ) -> torch.Tensor:
++        """Encodes embeddings chunk by chunk and re-joins the chunks.
++
++        Args:
++            inputs_embeds: ``[batch, N, E]`` token embeddings, ``N`` a
++                multiple of ``chunk_size``.
++            attention_mask: ``[batch, N]`` padding mask.
++
++        Returns:
++            ``[batch, N, D]`` contextualized token representations.
++        """
++        batch_size, seq_len, embed_dim = inputs_embeds.shape
++        if seq_len % self.chunk_size != 0:
++            raise ValueError(
++                f"Sequence length {seq_len} is not a multiple of "
++                f"chunk_size={self.chunk_size}; use PLMCA.tokenize()."
++            )
++        num_chunks = seq_len // self.chunk_size
++        chunk_embeds = inputs_embeds.reshape(
++            batch_size * num_chunks, self.chunk_size, embed_dim
++        )
++        chunk_mask = attention_mask.reshape(batch_size * num_chunks, self.chunk_size)
++        # Short notes in a batch end in chunks that are pure padding. Letting
++        # each chunk attend to its first position avoids fully masked rows
++        # (a NaN risk in some attention kernels). Real chunks are unchanged
++        # because padding is on the right, and the decoder still ignores
++        # every padded position.
++        chunk_mask = chunk_mask.clone()
++        chunk_mask[:, 0] = 1
++        outputs = self.encoder(inputs_embeds=chunk_embeds, attention_mask=chunk_mask)
++        return outputs.last_hidden_state.reshape(batch_size, seq_len, -1)
++
++    def forward_from_embedding(
++        self,
++        inputs_embeds: torch.Tensor,
++        attention_mask: torch.Tensor,
++        **kwargs,
++    ) -> dict[str, torch.Tensor]:
++        """Runs the model from token embeddings instead of raw text.
++
++        Gradient-based explanations (InputXGrad, AttInGrad) and adversarial
++        training (IGR, PGD) need gradients with respect to these embeddings.
++
++        Args:
++            inputs_embeds: ``[batch, N, E]`` token embeddings.
++            attention_mask: ``[batch, N]`` padding mask.
++            **kwargs: May contain the label key with ``[batch, J]`` targets.
++
++        Returns:
++            A dict with ``logit`` ``[batch, J]``, ``y_prob`` ``[batch, J]``
++            and ``attention`` ``[batch, J, N]``. If labels are given, it also
++            has ``loss`` (scalar) and ``y_true`` ``[batch, J]``.
++        """
++        hidden_states = self._encode(inputs_embeds, attention_mask)
++        logits, attention = self.decoder(hidden_states, attention_mask)
++        results = {
++            "logit": logits,
++            "y_prob": self.prepare_y_prob(logits),
++            "attention": attention,
++        }
++        if self.label_key in kwargs:
++            y_true = kwargs[self.label_key].to(self.device)
++            results["loss"] = self.get_loss_function()(logits, y_true)
++            results["y_true"] = y_true
++        return results
++
++    def forward(self, **kwargs) -> dict[str, torch.Tensor]:
++        """Predicts medical codes for a batch of notes.
++
++        Args:
++            **kwargs: A dataloader batch. Must contain the text feature key
++                and may contain the label key.
++
++        Returns:
++            Same dict as :meth:`forward_from_embedding`.
++        """
++        input_ids, attention_mask = self.tokenize(kwargs[self.feature_key])
++        inputs_embeds = self.get_input_embeddings()(input_ids)
++        return self.forward_from_embedding(inputs_embeds, attention_mask, **kwargs)
+diff --git a/tests/core/test_plm_ca.py b/tests/core/test_plm_ca.py
+new file mode 100644
+index 0000000..296bdd5
+--- /dev/null
++++ b/tests/core/test_plm_ca.py
+@@ -0,0 +1,197 @@
++"""Unit tests for PLMCA and ClassWiseCrossAttention.
++
++Paper: Edin et al., "An Unsupervised Approach to Achieve Supervised-Level
++Explainability in Healthcare Records", EMNLP 2024.
++
++All tests use two synthetic notes and a tiny BERT written to a temporary
++directory, so nothing is downloaded and the suite runs in about a second.
++"""
++
++import shutil
++import tempfile
++import unittest
++from pathlib import Path
++
++import torch
++from transformers import BertConfig, BertModel, BertTokenizerFast
++
++from pyhealth.datasets import create_sample_dataset, get_dataloader
++from pyhealth.models import PLMCA, ClassWiseCrossAttention
++
++VOCAB = [
++    "[PAD]",
++    "[UNK]",
++    "[CLS]",
++    "[SEP]",
++    "[MASK]",
++    "chest",
++    "pain",
++    "sepsis",
++    "heart",
++    "failure",
++    "fever",
++    "acute",
++    "renal",
++]
++
++# Note p0 tokenizes to 22 tokens (3 chunks of 8); note p1 to 4 tokens, so in
++# a batch it ends in two chunks made only of padding.
++SAMPLES = [
++    {
++        "patient_id": "p0",
++        "text": "chest pain heart failure " * 5,
++        "icd_codes": ["428.0", "786.50"],
++    },
++    {"patient_id": "p1", "text": "sepsis fever", "icd_codes": ["038.9"]},
++]
++
++CHUNK_SIZE = 8
++MAX_LENGTH = 32
++HIDDEN_DIM = 16
++
++
++class TestClassWiseCrossAttention(unittest.TestCase):
++    """Tests for the decoder on its own."""
++
++    def test_shapes_and_padding(self):
++        torch.manual_seed(0)
++        decoder = ClassWiseCrossAttention(hidden_dim=8, num_classes=3, dropout=0.0)
++        hidden = torch.randn(2, 5, 8)
++        mask = torch.tensor([[1, 1, 1, 1, 1], [1, 1, 0, 0, 0]])
++
++        logits, attention = decoder(hidden, mask)
++
++        self.assertEqual(logits.shape, (2, 3))
++        self.assertEqual(attention.shape, (2, 3, 5))
++        self.assertTrue(torch.all(attention[1, :, 2:] == 0))
++        self.assertTrue(torch.allclose(attention.sum(-1), torch.ones(2, 3)))
++
++
++class TestPLMCA(unittest.TestCase):
++    """Tests for the full model with a tiny local encoder."""
++
++    @classmethod
++    def setUpClass(cls):
++        cls.tmp_dir = tempfile.mkdtemp()
++        root = Path(cls.tmp_dir)
++        (root / "vocab.txt").write_text("\n".join(VOCAB))
++        tokenizer = BertTokenizerFast(vocab_file=str(root / "vocab.txt"))
++        tokenizer.save_pretrained(cls.tmp_dir)
++        config = BertConfig(
++            vocab_size=len(VOCAB),
++            hidden_size=HIDDEN_DIM,
++            num_hidden_layers=1,
++            num_attention_heads=2,
++            intermediate_size=32,
++            max_position_embeddings=64,
++        )
++        torch.manual_seed(0)
++        BertModel(config).save_pretrained(cls.tmp_dir)
++        cls.dataset = create_sample_dataset(
++            samples=SAMPLES,
++            input_schema={"text": "text"},
++            output_schema={"icd_codes": "multilabel"},
++            dataset_name="test_plm_ca",
++        )
++
++    @classmethod
++    def tearDownClass(cls):
++        shutil.rmtree(cls.tmp_dir, ignore_errors=True)
++
++    def setUp(self):
++        torch.manual_seed(42)
++        self.model = PLMCA(
++            self.dataset,
++            model_name=self.tmp_dir,
++            chunk_size=CHUNK_SIZE,
++            max_length=MAX_LENGTH,
++        )
++        self.batch = next(iter(get_dataloader(self.dataset, batch_size=2)))
++
++    def test_initialization(self):
++        self.assertIsInstance(self.model, PLMCA)
++        self.assertEqual(self.model.feature_key, "text")
++        self.assertEqual(self.model.label_key, "icd_codes")
++        self.assertEqual(self.model.mode, "multilabel")
++        self.assertEqual(self.model.decoder.class_queries.shape, (3, HIDDEN_DIM))
++
++    def test_tokenize_pads_to_chunk_multiple(self):
++        input_ids, mask = self.model.tokenize(self.batch["text"])
++        self.assertEqual(input_ids.shape, mask.shape)
++        self.assertEqual(input_ids.shape[1] % CHUNK_SIZE, 0)
++        single_ids, _ = self.model.tokenize("sepsis fever")
++        self.assertEqual(single_ids.shape[0], 1)
++
++    def test_tokenize_truncates_long_notes(self):
++        input_ids, _ = self.model.tokenize(["fever " * 100])
++        self.assertEqual(input_ids.shape[1], MAX_LENGTH)
++
++    def test_forward_output_shapes(self):
++        out = self.model(**self.batch)
++        input_ids, _ = self.model.tokenize(self.batch["text"])
++
++        self.assertEqual(set(out), {"loss", "y_prob", "y_true", "logit", "attention"})
++        self.assertEqual(out["logit"].shape, (2, 3))
++        self.assertEqual(out["y_prob"].shape, (2, 3))
++        self.assertEqual(out["y_true"].shape, (2, 3))
++        self.assertEqual(out["attention"].shape, (2, 3, input_ids.shape[1]))
++        self.assertEqual(out["loss"].dim(), 0)
++        self.assertTrue(torch.all((out["y_prob"] >= 0) & (out["y_prob"] <= 1)))
++
++    def test_padding_gets_no_attention(self):
++        self.model.eval()
++        with torch.no_grad():
++            out = self.model(**self.batch)
++        _, mask = self.model.tokenize(self.batch["text"])
++
++        self.assertFalse(torch.isnan(out["logit"]).any())
++        padded = out["attention"].masked_select(mask[:, None, :] == 0)
++        self.assertTrue(torch.all(padded == 0))
++
++    def test_backward(self):
++        out = self.model(**self.batch)
++        out["loss"].backward()
++
++        self.assertIsNotNone(self.model.decoder.class_queries.grad)
++        self.assertIsNotNone(self.model.get_input_embeddings().weight.grad)
++
++    def test_forward_without_labels(self):
++        out = self.model(text=self.batch["text"])
++
++        self.assertNotIn("loss", out)
++        self.assertNotIn("y_true", out)
++        self.assertEqual(out["y_prob"].shape, (2, 3))
++
++    def test_forward_from_embedding_matches_forward(self):
++        self.model.eval()
++        out = self.model(**self.batch)
++        input_ids, mask = self.model.tokenize(self.batch["text"])
++        embeds = self.model.get_input_embeddings()(input_ids).detach()
++        embeds.requires_grad_()
++
++        out_embed = self.model.forward_from_embedding(embeds, mask)
++        out_embed["logit"][:, 0].sum().backward()
++
++        self.assertTrue(torch.allclose(out_embed["logit"], out["logit"], atol=1e-5))
++        self.assertIsNotNone(embeds.grad)
++        self.assertEqual(embeds.grad.shape, embeds.shape)
++
++    def test_rejects_non_multilabel_task(self):
++        binary_dataset = create_sample_dataset(
++            samples=[
++                {"patient_id": "p0", "text": "fever", "label": 0},
++                {"patient_id": "p1", "text": "sepsis", "label": 1},
++            ],
++            input_schema={"text": "text"},
++            output_schema={"label": "binary"},
++        )
++        with self.assertRaises(ValueError):
++            PLMCA(binary_dataset, model_name=self.tmp_dir, chunk_size=CHUNK_SIZE)
++
++    def test_rejects_chunk_longer_than_encoder(self):
++        with self.assertRaises(ValueError):
++            PLMCA(self.dataset, model_name=self.tmp_dir, chunk_size=128)
++
++
++if __name__ == "__main__":
++    unittest.main()

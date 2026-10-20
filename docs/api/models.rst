@@ -299,6 +299,7 @@ API Reference
     models/pyhealth.models.LLMEHREncoder
     models/pyhealth.models.MEME
     models/pyhealth.models.TransformerDeID
+    models/pyhealth.models.PLMCA
     models/pyhealth.models.RETAIN
     models/pyhealth.models.GAMENet
     models/pyhealth.models.GraphCare
