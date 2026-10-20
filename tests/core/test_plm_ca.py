@@ -10,10 +10,10 @@ directory, so nothing is downloaded and the suite runs in about a second.
 import shutil
 import tempfile
 import unittest
-from pathlib import Path
 
 import torch
-from transformers import BertConfig, BertModel, BertTokenizerFast
+from tokenizers import Tokenizer, models, normalizers, pre_tokenizers, processors
+from transformers import BertConfig, BertModel, PreTrainedTokenizerFast
 
 from pyhealth.datasets import create_sample_dataset, get_dataloader
 from pyhealth.models import PLMCA, ClassWiseCrossAttention
@@ -50,6 +50,31 @@ MAX_LENGTH = 32
 HIDDEN_DIM = 16
 
 
+def save_tiny_tokenizer(vocab: list[str], folder: str) -> None:
+    """Saves a BERT-style word-piece tokenizer for ``vocab`` to ``folder``.
+
+    Built with the ``tokenizers`` library because ``BertTokenizerFast``
+    silently ignores ``vocab_file`` in transformers 5.x, which would map
+    every word to ``[UNK]``.
+    """
+    ids = {token: index for index, token in enumerate(vocab)}
+    backend = Tokenizer(models.WordPiece(vocab=ids, unk_token="[UNK]"))
+    backend.normalizer = normalizers.BertNormalizer(lowercase=True)
+    backend.pre_tokenizer = pre_tokenizers.BertPreTokenizer()
+    backend.post_processor = processors.TemplateProcessing(
+        single="[CLS] $A [SEP]",
+        special_tokens=[("[CLS]", ids["[CLS]"]), ("[SEP]", ids["[SEP]"])],
+    )
+    PreTrainedTokenizerFast(
+        tokenizer_object=backend,
+        unk_token="[UNK]",
+        pad_token="[PAD]",
+        cls_token="[CLS]",
+        sep_token="[SEP]",
+        mask_token="[MASK]",
+    ).save_pretrained(folder)
+
+
 class TestClassWiseCrossAttention(unittest.TestCase):
     """Tests for the decoder on its own."""
 
@@ -73,10 +98,7 @@ class TestPLMCA(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmp_dir = tempfile.mkdtemp()
-        root = Path(cls.tmp_dir)
-        (root / "vocab.txt").write_text("\n".join(VOCAB))
-        tokenizer = BertTokenizerFast(vocab_file=str(root / "vocab.txt"))
-        tokenizer.save_pretrained(cls.tmp_dir)
+        save_tiny_tokenizer(VOCAB, cls.tmp_dir)
         config = BertConfig(
             vocab_size=len(VOCAB),
             hidden_size=HIDDEN_DIM,
@@ -114,6 +136,14 @@ class TestPLMCA(unittest.TestCase):
         self.assertEqual(self.model.label_key, "icd_codes")
         self.assertEqual(self.model.mode, "multilabel")
         self.assertEqual(self.model.decoder.class_queries.shape, (3, HIDDEN_DIM))
+
+    def test_tokenizer_keeps_known_words(self):
+        # Guards against a tokenizer that maps every word to [UNK]; the other
+        # tests would still pass on shapes alone.
+        self.assertEqual(
+            self.model.tokenizer.tokenize("Chest pain sepsis"),
+            ["chest", "pain", "sepsis"],
+        )
 
     def test_tokenize_pads_to_chunk_multiple(self):
         input_ids, mask = self.model.tokenize(self.batch["text"])
