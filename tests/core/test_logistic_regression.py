@@ -1,4 +1,5 @@
 import unittest
+from datetime import datetime, timedelta
 
 import torch
 
@@ -185,6 +186,33 @@ class TestLogisticRegression(unittest.TestCase):
         self.assertIn("y_prob", ret)  # For regression, this is just the raw output
         self.assertIn("y_true", ret)
         self.assertIn("logit", ret)
+
+    def test_timeseries_and_nested_codes(self):
+        """A (time, features) series is embedded per step, not flattened."""
+        t0 = datetime(2020, 1, 1)
+        samples = [
+            {
+                "patient_id": f"patient-{i}",
+                "vitals": (
+                    [t0 + timedelta(hours=h) for h in range(4)],
+                    [[float(i + h), 1.0, 2.0] for h in range(4)],
+                ),
+                "visits": [["a", "b"], ["c"]],
+                "label": i % 2,
+            }
+            for i in range(4)
+        ]
+        dataset = create_sample_dataset(
+            samples=samples,
+            input_schema={"vitals": "timeseries", "visits": "nested_sequence"},
+            output_schema={"label": "binary"},
+            dataset_name="test_timeseries",
+        )
+        model = LogisticRegression(dataset=dataset, embedding_dim=8)
+        batch = next(iter(get_dataloader(dataset, batch_size=4)))
+        ret = model(**batch)
+        ret["loss"].backward()
+        self.assertEqual(ret["y_prob"].shape, (4, 1))
 
 
 if __name__ == "__main__":

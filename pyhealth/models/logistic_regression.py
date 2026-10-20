@@ -145,8 +145,11 @@ class LogisticRegression(BaseModel):
             else:
                 x = x.to(self.device)
 
-            # Handle 3D input: (patient, event, # of codes) -> flatten to 2D
-            if x.dim() == 3:
+            # Handle 3D codes: (patient, event, # of codes) -> flatten to 2D.
+            # 3D numbers, e.g. a time series (patient, time, features), keep
+            # their shape: the embedding projects each step, then pooling.
+            processor = self.dataset.input_processors[feature_key]
+            if x.dim() == 3 and processor.is_token():
                 batch_size, seq_len, inner_len = x.shape
                 x = x.view(batch_size, seq_len * inner_len)
                 reshape_info[feature_key] = {
