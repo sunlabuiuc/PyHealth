@@ -814,6 +814,22 @@ class TestExplainedRuns(unittest.TestCase):
             self.assertEqual(verdicts[result.best.trial_id], "selected")
             self.assertEqual(len(verdicts), len(result.trials))
 
+    def test_baseline_kept_after_confirmation(self):
+        from pyhealth.autoimprove.report import build_report
+
+        folds = [0.40, 0.41, 0.42, 0.43, 0.44]
+        trials = [Trial(0, -1, "baseline", "baseline", PipelineConfig("MLP"),
+                        score=0.42, fold_scores=folds),
+                  Trial(1, 0, "a0", "explore",
+                        PipelineConfig("MLP", {}, {"weight_decay": 0.01}),
+                        score=0.45, fold_scores=[x + 0.03 for x in folds])]
+        confirmed = {0: folds, 1: [x + d for x, d in
+                                   zip(folds, [0.02, -0.01, 0.02, -0.01, 0.0])]}
+        text = build_report(trials, metric="pr_auc", confirmed=confirmed).to_markdown()
+        self.assertIn("**Selected: #0", text)
+        self.assertNotIn("beat the starting pipeline consistently", text)
+        self.assertIn("1 trial(s) beat the starting pipeline on the search folds", text)
+
     def test_number_checker(self):
         trials = [Trial(0, -1, "baseline", "baseline", PipelineConfig("MLP"),
                         score=0.2164),

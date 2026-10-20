@@ -331,6 +331,7 @@ def build_report(
         if (pruning or {}).get("pruned_trial") == selected.trial_id else None,
         "one_se": one_se, "done": done, "baseline": baseline,
         "start": "start" if baseline else "first trial",
+        "confirmed": bool(confirmed), "bound": bound,
     }
     flags = [{**f, "review": review.get(f["id"])}
              for f in flags_for(card, explanation, test)]
@@ -1022,7 +1023,13 @@ def _why(ctx) -> str:
         return (f"{lead} It is the most interpretable trial ({words}) whose score "
                 f"is within one standard error of the best, #{top.trial_id}: "
                 f"{_pm(gap, se, better, k)}. *(measured)*")
-    if sel is ref and len(ctx["candidates"]) == 1:
+    if sel is ref:
+        passed = len(ctx["candidates"]) - 1
+        if ctx["confirmed"] and passed:
+            return (f"{passed} trial(s) beat the starting pipeline on the search folds, "
+                    f"but none kept a gain of {ctx['bound']:g} standard errors on the "
+                    "confirmation folds (see *Confirmation*), so it stays selected. "
+                    "*(measured)*")
         return ("No trial beat the starting pipeline consistently across folds, so "
                 "it stays selected. *(measured)*")
     if not ctx["one_se"]:
