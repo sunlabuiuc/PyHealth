@@ -419,6 +419,60 @@ class FeatureSpace:
             }
         return self._allowed[key]
 
+    # ------------------------------------------------------------ proposing
+    def describe(self, max_values: int = 12) -> str:
+        """The space in plain text, for an LLM prompt: operators and data.
+
+        Lists event types with their attributes, vocabulary groups and named
+        columns. Attribute values are not listed (they are data); a ``where``
+        filter is checked when the spec is validated.
+
+        Examples:
+            >>> print(fs.describe())  # doctest: +SKIP
+        """
+        unit = "days" if self.unit == timedelta(days=1) else f"units of {self.unit}"
+        lines = _MENU.format(windows=list(self.windows), unit=unit, t=self.time_word,
+                             aggs=list(AGGS), blocks=list(BLOCKS)).splitlines()
+        for et in sorted(self._event_types()):
+            attrs = sorted(self._attributes(et))
+            shown = ", ".join(attrs[:max_values]) + (" ..." if len(attrs) > max_values else "")
+            lines.append(f"- {et}: {shown or 'no attributes'}")
+        if self.vocabulary:
+            lines.append("Groups:")
+            for name, entry in sorted(self.vocabulary.items()):
+                lines.append(f"- {name}: {entry.get('noun') or name} "
+                             f"({entry['event_type']})")
+        if self.columns:
+            cols = [c for v in self.columns.values() for c in v]
+            lines.append("Existing task features (for column): "
+                         + ", ".join(cols[:40]) + (" ..." if len(cols) > 40 else ""))
+        return "\n".join(lines)
+
+    def sample(self, rng: Any) -> dict[str, Any]:
+        """A random valid spec, for random search; it has no clinical rationale.
+
+        Examples:
+            >>> import random
+            >>> fs.sample(random.Random(0))["op"]  # doctest: +SKIP
+            'count'
+        """
+        choices = [("type", et) for et in sorted(self._event_types())]
+        choices += [("group", g) for g in sorted(self.vocabulary)]
+        kind, value = rng.choice(choices)
+        select = ({"event_type": value} if kind == "type" else
+                  {"event_type": self.vocabulary[value]["event_type"], "group": value})
+        op = rng.choice(["count", "exists", "days_since", "trend", "blocks_with"])
+        spec: dict[str, Any] = {"op": op, "select": select}
+        if op in ("count", "exists"):
+            spec["window"] = rng.choice(self.windows)
+        elif op == "trend":
+            short, long = sorted(rng.sample(list(self.windows), 2))
+            spec.update(short=short, long=long)
+        elif op == "blocks_with":
+            spec.update(block=rng.choice(BLOCKS), n=rng.randint(2, 4))
+        spec.update(rationale="none: proposed by random search", direction="")
+        return spec
+
     # ------------------------------------------------------------ definition
     def _define(self, node: dict[str, Any]) -> str:
         op, t = node["op"], self.time_word
@@ -683,6 +737,8 @@ class EngineeredDataset(InMemorySampleDataset):
         names: Column names.
         stats: ``{"median", "mean", "sd"}`` lists; fitted on all rows if
             ``None``.
+        base_samples: ``[base[i] for i in range(len(base))]``, if already
+            loaded, to avoid reading the base dataset again.
 
     Examples:
         >>> fe = EngineeredDataset(train_ds, raw, ["count_365d__ed_visits"])  # doctest: +SKIP
@@ -690,7 +746,7 @@ class EngineeredDataset(InMemorySampleDataset):
         tensor([0.42])
     """
 
-    def __init__(self, base, raw, names, stats=None):
+    def __init__(self, base, raw, names, stats=None, base_samples=None):
         self.dataset_name = getattr(base, "dataset_name", "")
         self.task_name = getattr(base, "task_name", "")
         self.input_schema = {**base.input_schema, "engineered": "tensor"}
@@ -700,7 +756,8 @@ class EngineeredDataset(InMemorySampleDataset):
         self.output_processors = dict(base.output_processors)
         self.patient_to_index = {k: list(v) for k, v in base.patient_to_index.items()}
         self.record_to_index = {k: list(v) for k, v in base.record_to_index.items()}
-        self._base = [base[i] for i in range(len(base))]
+        self._base = (list(base_samples) if base_samples is not None
+                      else [base[i] for i in range(len(base))])
         self.raw = np.asarray(raw, dtype=float).reshape(len(self._base), -1)
         self.names = list(names)
         self.stats = stats if stats is not None else _fit_stats(self.raw)
@@ -733,6 +790,25 @@ class EngineeredDataset(InMemorySampleDataset):
         out._base = [self._base[i] for i in indices]
         out.raw = self.raw[indices]
         return out
+
+
+_MENU = """\
+A feature is a JSON spec. Operators (w is a window in {windows} {unit}, ending \
+strictly before {t}):
+- count / exists: {{"op": "count", "window": w, "select": SEL}}
+- days_since: {{"op": "days_since", "select": SEL}}
+- stat: {{"op": "stat", "select": SEL, "attr": a, "agg": one of {aggs}, "window": w}}
+- n_distinct: {{"op": "n_distinct", "select": SEL, "attr": a, "window": w}}
+- trend: {{"op": "trend", "select": SEL, "short": w1, "long": w2}}
+- blocks_with: {{"op": "blocks_with", "select": SEL, "block": one of {blocks}, "n": 1-8}}
+- ratio / diff / any / cross: {{"op": ..., "a": SPEC, "b": SPEC}}
+- ge: {{"op": "ge", "x": number, "of": SPEC}}; band: {{"op": "band", "cuts": \
+[increasing numbers], "of": SPEC}}
+- column: {{"op": "column", "column": name}}
+SEL is {{"event_type": t, optional "group": g, optional "where": {{attr: [values]}}}}. \
+Every spec also needs "rationale" (the clinical reason) and "direction" (+, -, u \
+or ambiguous).
+Event types and their attributes:"""
 
 
 # --------------------------------------------------------------- event view

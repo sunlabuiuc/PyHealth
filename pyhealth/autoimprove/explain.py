@@ -126,6 +126,7 @@ def summarize(
     top_k: int = 10,
     min_cell: int = MIN_CELL,
     n_bins: int = 5,
+    extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Aggregates attributions into a clinical explanation.
 
@@ -138,6 +139,8 @@ def summarize(
         top_k: Features described in detail.
         min_cell: Smallest number of distinct patients in an effect bin.
         n_bins: Most bins per effect shape.
+        extra: Feature name to :class:`~pyhealth.tasks.FeatureInfo` for
+            columns the card doesn't describe, e.g. engineered features.
 
     Returns:
         ``{"method", "n_samples", "groups": [{"group", "share"}],
@@ -178,7 +181,8 @@ def summarize(
     total = importance.sum() or 1.0
 
     def info(name):
-        return card.feature(name) if card is not None else None
+        entry = card.feature(name) if card is not None else None
+        return entry if entry is not None else (extra or {}).get(name)
 
     groups: dict[str, float] = {}
     for name, imp in zip(names, importance):
@@ -197,6 +201,8 @@ def summarize(
             "meaning": entry.meaning if entry is not None else "",
             "group": entry.group if entry is not None else "",
             "in_card": entry is not None,
+            "engineered": name in (extra or {}),
+            "rationale": entry.rationale if entry is not None else "",
             "share": float(importance[j] / total),
             "learned": learned, "expected": expected,
             "check": _check(expected, learned),

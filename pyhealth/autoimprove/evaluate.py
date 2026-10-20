@@ -8,7 +8,7 @@ import logging
 import os
 import time
 import traceback
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from typing import Any
 
 import numpy as np
@@ -243,6 +243,7 @@ def run_config_cv(
     report_metrics: Sequence[str] = (),
     seed: int = 0,
     device: str | None = None,
+    stop_if: Callable[[list[float]], bool] | None = None,
 ) -> dict[str, Any]:
     """Scores a config by patient-grouped cross-validation on the training set.
 
@@ -259,9 +260,13 @@ def run_config_cv(
     engineered feature columns are imputed and scaled per fold
     (:func:`fold_parts`).
 
+    ``stop_if(fold_scores)`` is called after each fold; when it returns
+    True the remaining folds are skipped (early pruning of a trial that is
+    clearly worse) and ``stopped_early`` is set.
+
     Returns:
         ``{"metrics": {...}, "fold_scores": [...], "seconds": float,
-        "n_params": int}``.
+        "n_params": int, "stopped_early": bool}``.
 
     Examples:
         >>> folds = patient_folds(train_ds, 5)  # doctest: +SKIP
@@ -281,6 +286,10 @@ def run_config_cv(
         model = train_pipeline(config, space, fit_part, val_part, metric, seed, device)
         per_fold.append(score(model, held_part, names))
         n_params = sum(p.numel() for p in model.parameters())
+        if stop_if is not None and len(per_fold) < len(folds) and stop_if(
+            [float(m[metric]) for m in per_fold]
+        ):
+            break
     metrics = {}
     for name in names:
         values = np.array([m[name] for m in per_fold], dtype=float)
@@ -291,6 +300,7 @@ def run_config_cv(
         "fold_scores": [float(m[metric]) for m in per_fold],
         "seconds": time.perf_counter() - start,
         "n_params": n_params,
+        "stopped_early": len(per_fold) < len(folds),
     }
 
 
