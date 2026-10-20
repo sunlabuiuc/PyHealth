@@ -718,7 +718,7 @@ def _present(value: Any) -> bool:
 def _clean_id(value: Any) -> str:
     """An id from a table cell: ``33831622.0`` or an Excel ``=HYPERLINK(url, "id")``."""
     text = str(value).strip()
-    link = re.match(r'=HYPERLINK\(\s*"[^"]*"\s*[,;]\s*"([^"]*)"\s*\)$', text, re.I)
+    link = re.match(r'=HYPERLINK\(\s*"[^"]*"\s*[,;]\s*"([^"]*)"\s*\)$', text, re.IGNORECASE)
     if link:
         text = link.group(1).strip()
     return text.removesuffix(".0")
