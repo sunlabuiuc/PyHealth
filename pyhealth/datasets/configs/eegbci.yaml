@@ -1,0 +1,13 @@
+version: "1.0.0"
+tables:
+  records:
+    file_path: "eegbci-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+    - "record_id"
+    - "subject_id"
+    - "run"
+    - "run_type"
+    - "signal_file"
+    - "source"

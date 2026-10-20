@@ -1,0 +1,10 @@
+version: "1.0"
+tables:
+  physionet_deid:
+    file_path: "physionet_deid_metadata.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+    - "note_id"
+    - "text"
+    - "labels"

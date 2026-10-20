@@ -8,7 +8,7 @@ Getting Started
 
 New to PyHealth's data structures? Start here:
 
-- **Tutorial**: `Introduction to pyhealth.data <https://colab.research.google.com/drive/1y9PawgSbyMbSSMw1dpfwtooH7qzOEYdN?usp=sharing>`_ | `Video <https://www.youtube.com/watch?v=Nk1itBoLOX8&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=2>`_
+- **Tutorial**: `Introduction to pyhealth.data <https://colab.research.google.com/drive/17nOzjIjKiAbC8bsntZ3h9xy2Vq4bKpuv?usp=sharing>`_ | `Video <https://www.youtube.com/watch?v=Nk1itBoLOX8&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=2>`_
 
 This tutorial introduces the core data structures in PyHealth:
 

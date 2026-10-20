@@ -38,7 +38,10 @@ class Sparsemax(nn.Module):
 
         zs = torch.sort(input=input, dim=dim, descending=True)[0]
         range = torch.arange(
-            start=1, end=number_of_logits + 1, dtype=torch.float32
+            start=1,
+            end=number_of_logits + 1,
+            dtype=input.dtype,
+            device=input.device,
         ).view(1, -1)
         range = range.expand_as(zs)
 
