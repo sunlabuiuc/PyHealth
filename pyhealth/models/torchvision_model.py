@@ -146,7 +146,6 @@ class TorchvisionModel(BaseModel):
         assert (
             model_name in SUPPORTED_MODELS_FINAL_LAYER.keys()
         ), f"PyHealth does not currently include {model_name} model!"
-        self.mode = self.dataset.output_schema[self.label_key]
 
         self.model = torchvision.models.get_model(model_name, **model_config)
         final_layer_name = SUPPORTED_MODELS_FINAL_LAYER[model_name]
