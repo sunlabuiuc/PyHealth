@@ -669,8 +669,19 @@ def _check(e: Evidence, doc: Document | None) -> tuple[bool, str]:
 
 
 def _number_in(number: float, text: str) -> bool:
-    found = [float(x) for x in re.findall(r"\d+(?:\.\d+)?", text)]
-    return any(math.isclose(number, x, rel_tol=0, abs_tol=1e-9) for x in found)
+    """Whether the text states the number.
+
+    The sign is ignored, because a dash before a number may be a range
+    ("1.8-3.1") rather than a minus; a proportion may be written as a
+    percentage ("AUC 84%" for 0.84).
+    """
+    target = abs(number)
+    for digits, percent in re.findall(r"(\d+(?:\.\d+)?)\s*(%?)", text):
+        x = float(digits)
+        if math.isclose(target, x, rel_tol=0, abs_tol=1e-9) or (
+                percent and math.isclose(100 * target, x, rel_tol=0, abs_tol=1e-6)):
+            return True
+    return False
 
 
 def _norm(text: str, lower: bool = True) -> str:
