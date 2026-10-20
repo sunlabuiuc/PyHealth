@@ -239,6 +239,54 @@ class TestCNN(unittest.TestCase):
         self.assertEqual(ret["logit"].shape[0], 2)
         self.assertEqual(ret["loss"].dim(), 0)
 
+    def test_model_with_multihot_and_1d_tensor_inputs(self):
+        """Test CNN model with non-sequence spatial_dim=1 inputs.
+
+        MultiHotProcessor and a TensorProcessor whose per-sample value is a 1D
+        vector both embed to [batch, embedding_dim] with no sequence axis. These
+        are documented as supported input types and must not crash.
+        """
+        samples = [
+            {
+                "patient_id": "patient-0",
+                "visit_id": "visit-0",
+                "demographics": ["asian", "non_hispanic"],
+                "vitals": [1.0, 2.5, 3.0],
+                "label": 1,
+            },
+            {
+                "patient_id": "patient-1",
+                "visit_id": "visit-1",
+                "demographics": ["white"],
+                "vitals": [0.5, 1.0, 2.0],
+                "label": 0,
+            },
+        ]
+
+        input_schema = {"demographics": "multi_hot", "vitals": "tensor"}
+        output_schema = {"label": "binary"}
+
+        dataset = create_sample_dataset(
+            samples=samples,
+            input_schema=input_schema,
+            output_schema=output_schema,
+            dataset_name="test_multihot",
+        )
+
+        model = CNN(dataset=dataset)
+        self.assertEqual(model.feature_conv_dims["demographics"], 1)
+        self.assertEqual(model.feature_conv_dims["vitals"], 1)
+
+        train_loader = get_dataloader(dataset, batch_size=2, shuffle=False)
+        data_batch = next(iter(train_loader))
+
+        ret = model(**data_batch)
+        ret["loss"].backward()
+
+        self.assertEqual(ret["y_prob"].shape[0], 2)
+        self.assertEqual(ret["logit"].shape[0], 2)
+        self.assertEqual(ret["loss"].dim(), 0)
+
 
 if __name__ == "__main__":
     unittest.main()
