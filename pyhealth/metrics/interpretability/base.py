@@ -266,37 +266,9 @@ class RemovalBasedMetric(ABC):
 
                     mask = masks[key]
 
-                    # Check if values are integers (discrete features)
-                    is_discrete = x_values.dtype in [
-                        torch.long,
-                        torch.int,
-                        torch.int32,
-                        torch.int64,
-                    ]
-
                     # Apply ablation to values part
-                    if is_discrete:
-                        # For discrete features (codes), multiply by (1-mask)
-                        # Where mask=1 (ablate): set to 0 (padding index)
-                        # Where mask=0 (keep): preserve original value
-                        ablated_values = x_values * (1 - mask).long()
-
-                        # Safety: prevent complete ablation of sequences
-                        # Complete ablation (all zeros) causes issues in
-                        # StageNet:
-                        # - All embeddings become zero (padding_idx=0)
-                        # - Mask becomes all zeros
-                        # - get_last_visit() tries to index with -1
-                        # Solution: keep at least one non-zero element
-                        for b in range(ablated_values.shape[0]):
-                            if ablated_values[b].sum() == 0:
-                                non_zero_mask = x_values[b] != 0
-                                if non_zero_mask.any():
-                                    # Keep first non-zero element
-                                    first_idx = non_zero_mask.nonzero()[0]
-                                    ablated_values[b][tuple(first_idx)] = x_values[b][
-                                        tuple(first_idx)
-                                    ]
+                    if _is_discrete(x_values):
+                        ablated_values = _ablate_codes(x_values, mask)
                     else:
                         # For continuous features, apply standard ablation
                         if self.ablation_strategy == "zero":
@@ -332,8 +304,13 @@ class RemovalBasedMetric(ABC):
 
             mask = masks[key]
 
+            # Code ids can only be removed (set to padding), whatever the
+            # strategy; averaging or adding noise to ids is meaningless.
+            if _is_discrete(x):
+                ablated_inputs[key] = _ablate_codes(x, mask)
+
             # Apply ablation strategy
-            if self.ablation_strategy == "zero":
+            elif self.ablation_strategy == "zero":
                 # Set ablated features to 0
                 ablated_inputs[key] = x * (1 - mask)
 
@@ -527,3 +504,39 @@ class RemovalBasedMetric(ABC):
             # Average across percentages
             metric_scores = metric_scores / len(self.percentages) # type: ignore
             return metric_scores, val_mask
+
+
+def _is_discrete(x: torch.Tensor) -> bool:
+    """Whether ``x`` holds discrete values such as code ids."""
+    return not (x.is_floating_point() or x.is_complex() or x.dtype == torch.bool)
+
+
+def _ablate_codes(x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+    """Sets the masked code ids to padding (0), keeping the dtype.
+
+    A sample whose codes would all be removed keeps its first non-padding
+    code, because models such as StageNet and RNN need at least one
+    non-padding position per sequence.
+
+    Args:
+        x: Integer code ids, shape ``(batch, ...)``.
+        mask: Same shape as ``x``; 1 marks the codes to remove.
+
+    Returns:
+        A tensor like ``x`` with the masked codes set to 0.
+
+    Examples:
+        >>> import torch
+        >>> _ablate_codes(torch.tensor([[3, 4, 5]]), torch.tensor([[1.0, 0.0, 1.0]]))
+        tensor([[0, 4, 0]])
+        >>> _ablate_codes(torch.tensor([[3, 4, 0]]), torch.ones(1, 3))
+        tensor([[3, 0, 0]])
+    """
+    ablated = torch.where(mask.bool(), torch.zeros_like(x), x)
+    for b in range(ablated.shape[0]):
+        if not ablated[b].any():
+            nonzero = (x[b] != 0).nonzero()
+            if len(nonzero):
+                first = tuple(nonzero[0])
+                ablated[b][first] = x[b][first]
+    return ablated

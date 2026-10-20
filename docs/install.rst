@@ -62,6 +62,16 @@ implemented in PyTorch. However, PyHealth does **NOT** install these DL librarie
 This reduces the risk of interfering with your local copies.
 If you want to use neural-net based models, please make sure PyTorch is installed.
 Similarly, models depending on **xgboost** would **NOT** enforce xgboost installation by default.
+Install it with the optional extra:
+
+.. code-block:: bash
+
+   pip install "pyhealth[xgboost]"
+
+On macOS, XGBoost needs an OpenMP runtime (``brew install libomp``). PyTorch
+bundles its own ``libomp.dylib``, and two copies in one process can crash
+multithreaded XGBoost fits. See :doc:`api/models/pyhealth.models.XGBoostModel`
+for the fix.
 
 
 
