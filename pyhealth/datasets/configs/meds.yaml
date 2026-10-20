@@ -1,0 +1,34 @@
+# MEDS (Medical Event Data Standard) tables.
+#
+# MEDS is already flat (one row per measurement), so a single event table
+# covers the data shards. The canonical subject-to-split mapping is exposed
+# as a second, ordinary event table -- the same pattern as the `splits`
+# table in ehrshot.yaml. TableConfig has no format field: Parquet reading is
+# handled by BaseDataset._scan_table / _scan_parquet, so no config-schema
+# change is needed for the 21 existing datasets.
+#
+# Paths match mimic-iv-demo-meds: data/<split>/*.parquet +
+# metadata/subject_splits.parquet.
+version: "1.0"
+tables:
+  meds:
+    # Directory of shards; dd.read_parquet reads the nested tree whole.
+    file_path: "data"
+    patient_id: "subject_id"
+    # Native datetime64[us] in MEDS Parquet, narrowed to [ms] by the
+    # BaseDataset typed-timestamp fast-path. No timestamp_format: that
+    # would imply text parsing. MEDSDataset rejects non-timestamp /
+    # tz-aware columns at construction (footer schema guard).
+    timestamp: "time"
+    attributes:
+      - "code"
+      - "numeric_value"
+
+  # Canonical split map as events (attribute `subject_splits/split`).
+  # Opt-in: tables=["meds", "subject_splits"].
+  subject_splits:
+    file_path: "metadata/subject_splits.parquet"
+    patient_id: "subject_id"
+    timestamp: null
+    attributes:
+      - "split"

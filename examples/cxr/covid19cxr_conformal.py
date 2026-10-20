@@ -6,6 +6,11 @@ This example demonstrates:
 2. Conventional conformal prediction using LABEL
 3. Covariate shift adaptive conformal prediction using CovariateLabel
 4. Comparison of coverage and efficiency between the two methods
+
+For class-specific risk control instead of the marginal/class-conditional
+mis-coverage guarantees LABEL and CovariateLabel provide, see
+pyhealth.calib.predictionset.SCRIB, which minimizes ambiguity subject to
+per-class risk targets (see its docstring for usage).
 """
 
 import numpy as np
@@ -171,7 +176,8 @@ print(f"  Test embeddings shape: {test_embeddings.shape}")
 print("\nCreating CovariateLabel predictor...")
 covariate_predictor = CovariateLabel(model=resnet, alpha=alpha)
 
-# Calibrate with embeddings (KDEs will be fitted automatically)
+# Calibrate with embeddings (KDEs will be fitted automatically). The
+# calibration weights include a finite-sample correction for the test point.
 print("Calibrating CovariateLabel predictor...")
 print("  - Fitting KDEs for covariate shift correction...")
 covariate_predictor.calibrate(
