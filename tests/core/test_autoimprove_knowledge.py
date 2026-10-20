@@ -132,6 +132,18 @@ class TestTablesAndQueries(unittest.TestCase):
             self.assertEqual(records[1].effect["direction"], "-")
             self.assertEqual(kb.direction_of("prior exacerbation"), "+")
 
+    def test_table_ids_from_spreadsheet_links(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "refs.csv")
+            with open(path, "w") as f:
+                f.write('PMID,Abstract\n'
+                        '"=HYPERLINK(""https://pubmed.ncbi.nlm.nih.gov/27825189/"",'
+                        '""27825189"")",Text one.\n'
+                        '31014587.0,Text two.\n')
+            kb = KnowledgeBase()
+            kb.add_table_documents(path, ["Abstract"], "PMID")
+            self.assertEqual(sorted(kb.documents), ["PMID:27825189", "PMID:31014587"])
+
     def test_parse_effect(self):
         self.assertEqual(parse_effect("aHR 1.5 (1.1-2.0)")["type"], "aHR")
         self.assertEqual(parse_effect("AUROC 0.84")["type"], "AUC")
