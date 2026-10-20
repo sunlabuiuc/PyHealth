@@ -115,11 +115,11 @@ def capacity_fairness_metrics(
 
     Returns:
         Dictionary with ``threshold`` and, for each metric in ``auc``,
-            ``prioritization_rate``, ``fnr`` and ``fpr``, the keys
-            ``{metric}_{group}`` (mean over resamples) and
-            ``{metric}_{group}_std`` (standard deviation over resamples).
-            The groups are ``protected``, ``unprotected`` and ``difference``,
-            or only ``population`` if ``sensitive_attributes`` is None.
+        ``prioritization_rate``, ``fnr`` and ``fpr``, the keys
+        ``{metric}_{group}`` (mean over resamples) and
+        ``{metric}_{group}_std`` (standard deviation over resamples).
+        The groups are ``protected``, ``unprotected`` and ``difference``,
+        or only ``population`` if ``sensitive_attributes`` is None.
 
     Raises:
         ValueError: If the inputs differ in length; if ``y_true`` or
