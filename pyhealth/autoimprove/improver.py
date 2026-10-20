@@ -35,7 +35,14 @@ from .evaluate import (
     train_pipeline,
 )
 from .features import EngineeredDataset, FeatureSpace, FeatureSpec
-from .proposers import STRATEGIES, ProposalContext, Proposer, ProposerExhausted
+from .knowledge import KnowledgeBase
+from .proposers import (
+    FEATURE_STRATEGIES,
+    STRATEGIES,
+    ProposalContext,
+    Proposer,
+    ProposerExhausted,
+)
 from .space import PipelineConfig, SearchSpace, config_diff
 
 logger = logging.getLogger(__name__)
@@ -281,6 +288,10 @@ class AutoImprover:
         suspicion_auc: A new feature whose ROC-AUC alone exceeds this (or
             is below 1 minus it) is flagged as possible leakage and not
             accepted.
+        knowledge: A :class:`~pyhealth.autoimprove.KnowledgeBase`, already
+            built and mapped. Feature cycles then also follow the "evidence"
+            strategy, which shows the LLM the untried published predictors
+            with their citations, and the report gets a literature section.
 
     Examples:
         >>> from pyhealth.autoimprove import (AutoImprover, ClaudeLLM,
@@ -329,6 +340,7 @@ class AutoImprover:
         prune: bool = True,
         early_stop: float | None = None,
         suspicion_auc: float = 0.95,
+        knowledge: KnowledgeBase | None = None,
     ):
         if features is not None and not cv_folds:
             raise ValueError("feature search needs cv_folds")
@@ -379,6 +391,7 @@ class AutoImprover:
         self.prune_enabled = prune
         self.early_stop = early_stop
         self.suspicion_auc = suspicion_auc
+        self.knowledge = knowledge
         self.confirmed: dict[int, list[float]] = {}
         self.pruned_id: int | None = None
         self._raw_cache: dict[tuple[str, str], np.ndarray] = {}
@@ -418,13 +431,15 @@ class AutoImprover:
         first_cycle = max((t.cycle for t in self.trials), default=-1) + 1
         best, top = self._selected_id(), self._top_score()
         stale = 0
-        strategies = list(STRATEGIES)
         for cycle in range(first_cycle, self.n_cycles):
             kind = self._cycle_kind(cycle)
+            strategies = list(STRATEGIES) if kind == "model" else [
+                s for s in FEATURE_STRATEGIES if s != "evidence" or self.knowledge]
+            first = "evidence" if kind == "features" and self.knowledge else "explore"
             for i in range(self.n_agents):
                 if self._out_of_budget(start) or self._exhausted:
                     break
-                strategy = "explore" if cycle == 0 else strategies[
+                strategy = first if cycle == 0 else strategies[
                     (cycle + i) % len(strategies)
                 ]
                 if kind == "features":
@@ -1006,7 +1021,26 @@ class AutoImprover:
             accepted=self._accepted(),
             feature_trials=[t for t in self.trials if t.added][-12:],
             card=card,
+            evidence=self._evidence_lines() if kind == "features" else (),
         )
+
+    def _evidence_lines(self, k: int = 8) -> list[str]:
+        if self.knowledge is None:
+            return []
+        tried = {name for t in self.trials for name in t.added}
+        lines = []
+        for spec in self.knowledge.ranked_specs():
+            if spec["name"] in tried:
+                continue
+            cites = ", ".join(spec.get("citations", []))
+            lines.append(f"{spec['name']}: {spec['definition']} (direction "
+                         f"{spec.get('direction') or 'ambiguous'}; prior "
+                         f"{spec.get('prior', 0):.2f}; {cites}). Spec: "
+                         + json.dumps({k: v for k, v in spec.items() if k not in (
+                             "name", "definition", "prior")}))
+            if len(lines) >= k:
+                break
+        return lines
 
     def _best_score(self) -> float | None:
         best = self.result().best
@@ -1416,13 +1450,28 @@ class AutoImprover:
             card=self.task_card, explanation=self._read_json("explain.json"),
             review=self._read_json("review.json") or {},
             confirmed=self.confirmed, pruning=self._read_json("prune.json"),
-            confirm_se=self.confirm_se,
+            confirm_se=self.confirm_se, literature=self._literature(),
         )
         if path is None and self.run_dir:
             path = os.path.join(self.run_dir, "report.html")
         if path is not None:
             report.save(path)
         return report
+
+    def _literature(self) -> dict[str, Any] | None:
+        """The knowledge base's gap report and benchmark range (saved for load_run)."""
+        if self.knowledge is None:
+            return self._read_json("literature.json")
+        out = {"gap": self.knowledge.gap_report(),
+               "benchmark": self.knowledge.benchmark_range(),
+               "rejected": sum(1 for e in self.knowledge.evidence
+                               if e.verified is False),
+               "verified": len(self.knowledge.records())}
+        if self.run_dir:
+            os.makedirs(self.run_dir, exist_ok=True)
+            with open(os.path.join(self.run_dir, "literature.json"), "w") as f:
+                json.dump(out, f, indent=1, default=str)
+        return out
 
     def _read_json(self, name: str) -> Any:
         if not self.run_dir or not os.path.exists(os.path.join(self.run_dir, name)):

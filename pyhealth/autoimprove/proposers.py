@@ -51,8 +51,13 @@ FEATURE_STRATEGIES = {
         "Contrast: compare the accepted and the rejected feature groups, and "
         "propose features like the accepted ones and unlike the rejected ones."
     ),
+    "evidence": (
+        "Evidence: propose untried published predictors from the list below, "
+        "adapting windows or thresholds to this task if needed; keep their "
+        "citations in each spec's \"citations\"."
+    ),
 }
-"""Instructions for each strategy in a feature cycle."""
+"""Instructions for each strategy in a feature cycle; "evidence" needs a knowledge base."""
 
 
 class ProposerExhausted(ValueError):
@@ -90,6 +95,8 @@ class ProposalContext:
             ``definition``), which a feature turn adds to.
         feature_trials: Earlier feature trials, oldest first.
         card: A plain-text summary of the task card, if any.
+        evidence: Untried published predictors, one line each, with their
+            citations (from a :class:`~pyhealth.autoimprove.KnowledgeBase`).
 
     Examples:
         >>> from pyhealth.autoimprove import SearchSpace
@@ -118,6 +125,7 @@ class ProposalContext:
     accepted: Sequence[dict] = ()
     feature_trials: Sequence[Any] = ()
     card: str = ""
+    evidence: Sequence[str] = ()
 
 
 class Proposer(ABC):
@@ -416,6 +424,9 @@ def build_feature_prompt(context: ProposalContext) -> str:
             context.feature_trials))
     if context.lessons:
         parts.append("Lessons from earlier cycles:\n" + _bullets(context.lessons))
+    if context.evidence:
+        parts.append("Published predictors not tried yet (verified citations; the "
+                     "prior only orders them):\n" + _bullets(context.evidence))
     parts.append(f"Strategy for this turn: {FEATURE_STRATEGIES[context.strategy]}")
     parts.append(f"Propose at most {context.features.max_features} features.")
     if context.feedback:

@@ -29,6 +29,7 @@ from .improver import (
     select_simplest,
     select_trial,
 )
+from .knowledge import Document, Evidence, KnowledgeBase, parse_effect, pubmed_query
 from .llm import LLM, ClaudeLLM
 from .proposers import (
     STRATEGIES,
@@ -60,10 +61,13 @@ __all__ = [
     "TRAIN_PARAMS",
     "AutoImprover",
     "ClaudeLLM",
+    "Document",
     "EngineeredDataset",
+    "Evidence",
     "FeatureSpace",
     "FeatureSpec",
     "ImproveResult",
+    "KnowledgeBase",
     "LLMProposer",
     "ModelSpec",
     "Param",
@@ -82,8 +86,10 @@ __all__ = [
     "fold_parts",
     "load_run",
     "paired_gain",
+    "parse_effect",
     "patient_folds",
     "predict",
+    "pubmed_query",
     "run_config",
     "run_config_cv",
     "score",

@@ -288,6 +288,45 @@ Give the improver a FeatureSpace to search inputs as well as settings:
 - ``early_stop`` ends a trial after two folds when it is clearly worse than
   the starting pipeline.
 
+Literature knowledge
+--------------------
+
+A :class:`~pyhealth.autoimprove.KnowledgeBase` turns published evidence into
+ranked, justified candidate features. It reads two kinds of source:
+
+- **curated tables**, one row per predictor and effect, as a literature
+  review records them;
+- **documents** (abstracts, text files, or PubMed searches built from the
+  task card alone), from which an LLM extracts records.
+
+.. code-block:: python
+
+    kb = KnowledgeBase(llm=ClaudeLLM())
+    kb.add_table_evidence("risk_factors.csv", "Risk factor", "Effect estimate (95% CI)")
+    kb.add_table_documents("references.csv", ["Title", "Abstract"], id_column="PMID")
+    kb.extract(card)          # records from the documents
+    kb.verify()               # the citation check
+    kb.map(fs, card)          # have / build / not in data, with priors
+    print(kb.gap_report())    # the "not in data" list is a ready data request
+    improver = AutoImprover(..., features=fs, knowledge=kb)    # "evidence" strategy
+    improver = AutoImprover(..., proposer=QueueProposer(kb.ranked_specs()), features=fs)
+
+- **LLMs invent references, so every record is checked.** A record is kept
+  only if its source is a gathered document, its quoted sentence appears in
+  that document, and its effect size and confidence interval appear in the
+  quote. The source is set by the knowledge base, never by the LLM.
+- **Directions** come from the verified effects. When sources disagree, the
+  direction is ambiguous: controller use, for example, marks severity but is
+  protective.
+- **The literature only orders and justifies candidates.** The prior
+  (strength × population match × data support) decides the order in which
+  candidates are tried; the feature search decides what is kept. Features
+  carry their citations into the report, which adds a *Literature* section
+  with the gap report and the published performance range.
+- **Privacy.** The knowledge base never sees patient data. PubMed queries
+  use only the task card's text, and every query is kept in ``kb.queries``.
+  Mapping sees only the names of event types, groups and columns.
+
 Safety and data
 ---------------
 
@@ -325,3 +364,6 @@ API Reference
 
 .. automodule:: pyhealth.autoimprove.features
     :members: FeatureSpace, FeatureSpec, EngineeredDataset, WINDOWS, BLOCKS, AGGS
+
+.. automodule:: pyhealth.autoimprove.knowledge
+    :members: KnowledgeBase, Evidence, Document, parse_effect, pubmed_query
