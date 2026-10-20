@@ -1,8 +1,10 @@
+import os
 import tempfile
 import unittest
 from unittest.mock import patch
 
 import polars as pl
+import psutil
 import pandas as pd
 import dask.dataframe as dd
 
@@ -128,6 +130,35 @@ class TestBaseDataset(unittest.TestCase):
                 sorted(cached_order),
                 "cached global_event_df parquet must be sorted by patient_id",
             )
+
+    @unittest.skipIf(os.name == "nt", "open file descriptor counts are POSIX-only")
+    def test_event_df_build_does_not_leak_file_descriptors(self):
+        # Each build starts and closes a dask LocalCluster. A leak here exhausts the
+        # macOS default `ulimit -n` (256) partway through the test suite.
+        proc = psutil.Process()
+
+        def build(i: int) -> None:
+            with tempfile.TemporaryDirectory() as cache_root, patch(
+                "pyhealth.datasets.base_dataset.platformdirs.user_cache_dir",
+                return_value=cache_root,
+            ):
+                dataset = MockDataset(
+                    data=self._single_row_data(),
+                    root=f"/data/root_fd_{i}",
+                    tables=["table_a"],
+                    dataset_name="FdLeakDataset",
+                    dev=False,
+                )
+                _ = dataset.global_event_df
+
+        build(0)  # warm up one-time imports and handles
+        before = proc.num_fds()
+        for i in range(1, 5):
+            build(i)
+        leaked = proc.num_fds() - before
+        self.assertLess(
+            leaked, 4, f"{leaked} file descriptors leaked across 4 dataset builds"
+        )
 
     def test_empty_string_handling(self):
         import os
@@ -295,6 +326,37 @@ class TestBaseDataset(unittest.TestCase):
             self.assertEqual(pdf.iloc[2]["patient_id"], "p3")
             self.assertTrue(pd.isna(pdf.iloc[2]["timestamp"]))
             self.assertEqual(pdf.iloc[2]["table1/val"], "v3")
+
+    def test_null_patient_id_unique_across_partitions(self):
+        """Regression test for the Dask per-partition reset_index bug.
+
+        A table config with ``patient_id: null`` must give every row a
+        globally unique ``patient_id``, even when the frame spans multiple
+        Dask partitions. The old code used ``df.reset_index(drop=True)`` +
+        ``df.index``, which Dask resets per partition, so rows from different
+        partitions collided onto the same id and were silently merged into
+        one "patient".
+        """
+        from pyhealth.datasets.configs.config import DatasetConfig
+
+        class _NullPatientDataset(BaseDataset):
+            def __init__(self, config, root="/tmp/x"):
+                self.config = config
+                self.root = root
+
+        ds = _NullPatientDataset(
+            DatasetConfig(
+                version="1.0",
+                tables={"t": {"file_path": "t.csv", "attributes": ["value"]}},
+            )
+        )
+        # 6 rows across 3 partitions; the buggy code produced ids [0,1,0,1,0,1].
+        frame = dd.from_pandas(pd.DataFrame({"value": list(range(6))}), npartitions=3)
+        with patch.object(ds, "_scan_table", return_value=frame):
+            out = ds.load_table("t").compute()
+        self.assertEqual(len(out), 6)
+        self.assertEqual(out["patient_id"].nunique(), 6)
+        self.assertEqual(sorted(out["patient_id"].tolist()), [str(i) for i in range(6)])
 
 
 if __name__ == "__main__":

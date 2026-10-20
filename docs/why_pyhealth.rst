@@ -175,7 +175,7 @@ Go beyond standard metrics with comprehensive model assessment:
 
 - Gradient-based: Integrated Gradients, DeepLift, Saliency Maps, GIM
 - Perturbation-based: LIME, SHAP (with healthcare-optimized implementations)
-- Attention-based: Chefer relevance propagation for transformers
+- Attention-based: Chefer relevance propagation and attention rollout for transformers
 - Visualization tools for clinical decision support
 
 **Uncertainty quantification:**

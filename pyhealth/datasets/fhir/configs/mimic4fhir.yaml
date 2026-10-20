@@ -1,0 +1,210 @@
+# MIMIC-IV-on-FHIR (R4) ingest config — single source of truth
+# ============================================================
+#
+# Authors: John Wu and Evan Febrianto
+#
+# This YAML drives the entire ingest pipeline for one FHIR export:
+#
+#   1. ``glob_patterns:``    which NDJSON files on disk to read
+#   2. ``resource_specs:``   how to project each FHIR resource type into a row
+#   3. ``tables:``           how those rows are exposed as events downstream
+#
+# Use this file as a complete worked example when authoring a YAML for any
+# other FHIR export (BigQuery dumps, Synthea, etc.). To use it as-is, just
+# instantiate :class:`~pyhealth.datasets.MIMIC4FHIR` with no extra arguments.
+#
+# To customise for a different export:
+#   * subclass FHIRDataset and point ``DEFAULT_CONFIG_PATH`` at your YAML, or
+#   * pass ``config_path=`` directly to ``FHIRDataset(...)``.
+
+version: "fhir_r4_flattened"
+
+
+# ---------------------------------------------------------------------------
+# Section 1: glob patterns — which NDJSON files to open
+# ---------------------------------------------------------------------------
+#
+# Defaults to ``["**/*.ndjson.gz"]`` when omitted. Only useful when the export
+# has per-resource-type file naming (PhysioNet MIMIC-IV FHIR ships shards as
+# ``MimicPatient*.ndjson.gz``, ``MimicEncounter*.ndjson.gz``, etc.). Filtering
+# at the file level avoids decompressing ~10% of the export that contains only
+# unconfigured resource types (MedicationAdministration, Specimen, Organization).
+#
+# For a generic export where everything lives in ``bundles.ndjson.gz`` /
+# ``**/*.ndjson.gz``, leave this commented out and the streamer will filter
+# resources by ``resourceType`` after parsing — correct, just slower.
+#
+# Override at runtime via ``MIMIC4FHIR(glob_pattern=...)`` or
+# ``MIMIC4FHIR(glob_patterns=[...])``.
+
+glob_patterns:
+  - "**/MimicPatient*.ndjson.gz"
+  - "**/MimicEncounter*.ndjson.gz"
+  - "**/MimicCondition*.ndjson.gz"
+  - "**/MimicObservation*.ndjson.gz"
+  - "**/MimicMedicationRequest*.ndjson.gz"
+  - "**/MimicProcedure*.ndjson.gz"
+
+
+# ---------------------------------------------------------------------------
+# Section 2: resource_specs — how to turn one FHIR JSON document into a row
+# ---------------------------------------------------------------------------
+#
+# Keys are FHIR ``resourceType`` strings. For each resource type we declare:
+#
+#   table:    output table name (also the per-type Parquet filename stem).
+#   columns:  ordered mapping of output column name -> Col spec.
+#
+# Each Col spec lists ordered JSON paths (``locate``); the first path that
+# resolves to a non-null value wins (this is how FHIR choice-types like
+# ``onset[x]`` and ``effective[x]`` are handled). ``transform`` names a function
+# in the engine's TRANSFORMS registry that maps the located leaf to a flat
+# string; ``required: true`` drops the resource if the leaf can't be resolved.
+#
+# Available transforms (defined in pyhealth/datasets/fhir/utils.py):
+#
+#   identity       Pass through (default; stringifies non-string scalars).
+#   ref_id         "{ "reference": "Patient/p1" }" -> "p1".
+#   coding_key     CodeableConcept -> "system|code" of its first coding.
+#   bool_norm      JSON boolean / "true"/"false" string -> "true"/"false"/None.
+#   med_concept    MedicationRequest.medication[x] -> codeable-concept or
+#                  "MedicationRequest/reference|<id>" fallback.
+#
+# Adding a new transform: register it in TRANSFORMS in utils.py; reference it
+# by name here.
+
+resource_specs:
+
+  Patient:
+    table: patient
+    columns:
+      patient_id:        { locate: ["id"], required: true }
+      patient_fhir_id:   { locate: ["id"] }
+      birth_date:        { locate: ["birthDate"] }
+      gender:            { locate: ["gender"] }
+      deceased_boolean:  { locate: ["deceasedBoolean"], transform: bool_norm }
+      deceased_datetime: { locate: ["deceasedDateTime"] }
+
+  Encounter:
+    table: encounter
+    columns:
+      patient_id:      { locate: ["subject.reference"], transform: ref_id, required: true }
+      resource_id:     { locate: ["id"] }
+      encounter_id:    { locate: ["id"] }
+      event_time:      { locate: ["period.start"] }
+      encounter_class: { locate: ["class.code"] }
+      encounter_end:   { locate: ["period.end"] }
+
+  Condition:
+    table: condition
+    columns:
+      patient_id:    { locate: ["subject.reference"], transform: ref_id, required: true }
+      resource_id:   { locate: ["id"] }
+      encounter_id:  { locate: ["encounter.reference"], transform: ref_id }
+      event_time:    { locate: ["onsetDateTime", "onsetPeriod.start", "recordedDate"] }
+      concept_key:   { locate: ["code"], transform: coding_key }
+
+  Observation:
+    table: observation
+    columns:
+      patient_id:    { locate: ["subject.reference"], transform: ref_id, required: true }
+      resource_id:   { locate: ["id"] }
+      encounter_id:  { locate: ["encounter.reference"], transform: ref_id }
+      event_time:    { locate: ["effectiveDateTime", "effectivePeriod.start", "issued"] }
+      concept_key:   { locate: ["code"], transform: coding_key }
+
+  MedicationRequest:
+    table: medication_request
+    columns:
+      patient_id:    { locate: ["subject.reference"], transform: ref_id, required: true }
+      resource_id:   { locate: ["id"] }
+      encounter_id:  { locate: ["encounter.reference"], transform: ref_id }
+      event_time:    { locate: ["authoredOn"] }
+      concept_key:   { locate: ["medicationCodeableConcept", "medicationReference"], transform: med_concept }
+
+  Procedure:
+    table: procedure
+    columns:
+      patient_id:    { locate: ["subject.reference"], transform: ref_id, required: true }
+      resource_id:   { locate: ["id"] }
+      encounter_id:  { locate: ["encounter.reference"], transform: ref_id }
+      event_time:    { locate: ["performedDateTime", "performedPeriod.start", "recordedDate"] }
+      concept_key:   { locate: ["code"], transform: coding_key }
+
+
+# ---------------------------------------------------------------------------
+# Section 3: tables — how flat rows are exposed as events downstream
+# ---------------------------------------------------------------------------
+#
+# Keys here must match the ``table:`` values in section 2. Each entry declares
+# how BaseDataset.load_table reads the flat parquet:
+#
+#   file_path:   parquet filename (relative to the cached flattened_tables dir).
+#   patient_id:  column name that holds the patient id.
+#   timestamp:   column name to parse as the event timestamp.
+#   attributes:  list of columns to surface as event attributes; they are
+#                renamed to ``{table}/{attr}`` in the global event frame and
+#                later show up on ``Patient.get_events(...).attr_name``.
+
+tables:
+  patient:
+    file_path: "patient.parquet"
+    patient_id: "patient_id"
+    timestamp: "birth_date"
+    attributes:
+      - "patient_fhir_id"
+      - "birth_date"
+      - "gender"
+      - "deceased_boolean"
+      - "deceased_datetime"
+
+  encounter:
+    file_path: "encounter.parquet"
+    patient_id: "patient_id"
+    timestamp: "event_time"
+    attributes:
+      - "resource_id"
+      - "encounter_id"
+      - "event_time"
+      - "encounter_class"
+      - "encounter_end"
+
+  condition:
+    file_path: "condition.parquet"
+    patient_id: "patient_id"
+    timestamp: "event_time"
+    attributes:
+      - "resource_id"
+      - "encounter_id"
+      - "event_time"
+      - "concept_key"
+
+  observation:
+    file_path: "observation.parquet"
+    patient_id: "patient_id"
+    timestamp: "event_time"
+    attributes:
+      - "resource_id"
+      - "encounter_id"
+      - "event_time"
+      - "concept_key"
+
+  medication_request:
+    file_path: "medication_request.parquet"
+    patient_id: "patient_id"
+    timestamp: "event_time"
+    attributes:
+      - "resource_id"
+      - "encounter_id"
+      - "event_time"
+      - "concept_key"
+
+  procedure:
+    file_path: "procedure.parquet"
+    patient_id: "patient_id"
+    timestamp: "event_time"
+    attributes:
+      - "resource_id"
+      - "encounter_id"
+      - "event_time"
+      - "concept_key"
