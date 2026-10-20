@@ -62,6 +62,16 @@ implemented in PyTorch. However, PyHealth does **NOT** install these DL librarie
 This reduces the risk of interfering with your local copies.
 If you want to use neural-net based models, please make sure PyTorch is installed.
 Similarly, models depending on **xgboost** would **NOT** enforce xgboost installation by default.
+Install it with the optional extra:
+
+.. code-block:: bash
+
+   pip install "pyhealth[xgboost]"
+
+On macOS, XGBoost needs an OpenMP runtime (``brew install libomp``). PyTorch
+bundles its own ``libomp.dylib``, and two copies in one process can crash
+multithreaded XGBoost fits. See :doc:`api/models/pyhealth.models.XGBoostModel`
+for the fix.
 
 
 
@@ -103,6 +113,19 @@ When using PyHealth on WSL, you **may need to** disable swap memory due to a bug
     swap=0
 
 4. Restart WSL by running in PowerShell: ``wsl --shutdown``
+
+**macOS: "Too many open files"**
+
+PyHealth 2.0.2 and earlier leak a few file descriptors each time a dataset builds
+its ``global_event_df`` cache (the Dask dashboard is never shut down). Processes that
+build many datasets, such as the unit test suite or a benchmark sweep, can hit
+macOS's default limit of 256 open files and fail with ``OSError: [Errno 24] Too many
+open files``. This is fixed in later versions. On older versions, raise the limit in
+the shell before running:
+
+.. code-block:: bash
+
+    ulimit -n 8192
 
 **Other Platforms**
 

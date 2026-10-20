@@ -7,7 +7,8 @@ as a PyHealth ``BaseModel`` so it consumes the standard
 ``dataset -> SampleDataset -> model`` pipeline.
 
 MedGAN treats each patient as a flat bag-of-codes (no visit structure), so it
-expects an input feature named ``visits`` backed by a ``MultiHotProcessor``.
+expects an input feature named ``visits`` backed by a ``MultiHotProcessor``,
+which the :class:`~pyhealth.tasks.EHRCodeSetGenerationMIMIC3` task provides.
 The training procedure has two phases (mirroring the reference):
 
 * a **linear autoencoder** is pre-trained with binary cross-entropy
@@ -231,7 +232,7 @@ class MedGAN(BaseModel):
         if "visits" not in dataset.input_processors:
             raise ValueError(
                 "MedGAN expects an input feature named 'visits' backed by a "
-                "MultiHotProcessor."
+                "MultiHotProcessor (see EHRCodeSetGenerationMIMIC3)."
             )
 
         # The generator's residual connection (``out + residual`` with
