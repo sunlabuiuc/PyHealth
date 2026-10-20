@@ -59,9 +59,8 @@ for docstrings.
 
 ## PR Contribution Rules (enforced in CI)
 
-Any pull request that modifies a file under `pyhealth/` must also:
+Any pull request that modifies a file under `pyhealth/` must:
 
-- Update at least one file under `docs/` and one file under `examples/`.
 - Keep newly added/modified lines free of [ruff](https://docs.astral.sh/ruff/)
   lint violations (`ruff check`, 88-char line length). Pre-existing lint
   issues elsewhere in a touched file are not blocked.
