@@ -309,7 +309,6 @@ class GAMENet(BaseModel):
         self.feature_keys = ["conditions", "procedures"]
         assert len(self.label_keys) == 1, "Only one label key is supported for GAMENet"
         self.label_key = self.label_keys[0]
-        self.mode = self.dataset.output_schema[self.label_key]
 
         self.embedding_model = EmbeddingModel(dataset, embedding_dim)
         self.label_size = len(self.dataset.output_processors[self.label_key].label_vocab)
