@@ -271,7 +271,6 @@ class TCN(BaseModel):
             raise ValueError("input_dim is determined by embedding_dim")
         assert len(self.label_keys) == 1, "Only one label key is supported if TCN is initialized"
         self.label_key = self.label_keys[0]
-        self.mode = self.dataset.output_schema[self.label_key]
 
         self.embedding_model = EmbeddingModel(dataset, embedding_dim)
 
@@ -306,7 +305,28 @@ class TCN(BaseModel):
                 - embed (optional): a tensor representing the patient embeddings if requested.
         """
         patient_emb = []
-        embedded = self.embedding_model(kwargs)
+
+        # Tuple-schema features (e.g. StageNetProcessor emits (time, value))
+        # arrive as a tuple; extract the "value" (and optional "mask") tensor
+        # for the embedding model.
+        inputs = {}
+        masks = {}
+        for feature_key in self.feature_keys:
+            feature = kwargs[feature_key]
+            if isinstance(feature, torch.Tensor):
+                feature = (feature,)
+            schema = self.dataset.input_processors[feature_key].schema()
+            value = feature[schema.index("value")] if "value" in schema else None
+            mask = feature[schema.index("mask")] if "mask" in schema else None
+            if value is None:
+                raise ValueError(
+                    f"Feature '{feature_key}' must contain 'value' in the schema."
+                )
+            inputs[feature_key] = value
+            if mask is not None:
+                masks[feature_key] = mask
+
+        embedded = self.embedding_model(inputs, masks=masks)
         for feature_key in self.feature_keys:
             x = embedded[feature_key]
             mask = (x.sum(dim=-1) != 0).int()
