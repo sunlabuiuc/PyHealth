@@ -141,6 +141,18 @@ class TestTablesAndQueries(unittest.TestCase):
         self.assertEqual(kb.queries[0], pubmed_query(CARD))
         self.assertEqual(len(urls), 3)  # one search, two abstracts
 
+    def test_fetch_by_id_sends_only_the_ids(self):
+        urls = []
+
+        def fetch(url):
+            urls.append(url)
+            return "Title. Abstract text."
+
+        kb = KnowledgeBase(fetch=fetch)
+        docs = kb.fetch_pubmed([33831622.0, "PMID: 31014587", None])
+        self.assertEqual([d.id for d in docs], ["PMID:33831622", "PMID:31014587"])
+        self.assertTrue(all(re.search(r"id=(\d+)&", u) for u in urls))
+
 
 class TestMapping(unittest.TestCase):
     @classmethod

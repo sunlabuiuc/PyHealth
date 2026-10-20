@@ -18,7 +18,8 @@ Sources, in order of trust:
 - **curated tables** (:meth:`KnowledgeBase.add_table_evidence`): one row per
   predictor and effect, as a literature review records them;
 - **documents** (:meth:`KnowledgeBase.add_table_documents`, text files,
-  :meth:`KnowledgeBase.search_pubmed`): abstracts or full text, from which
+  :meth:`KnowledgeBase.fetch_pubmed`, :meth:`KnowledgeBase.search_pubmed`):
+  abstracts or full text, from which
   an LLM extracts records (:meth:`KnowledgeBase.extract`).
 
 **LLMs invent references.** A record is kept only if its source is one of the
@@ -307,8 +308,22 @@ class KnowledgeBase:
         search = self._get(f"{EUTILS}/esearch.fcgi?" + urllib.parse.urlencode(
             {"db": "pubmed", "term": query, "retmax": max_results, "retmode": "json"}))
         ids = json.loads(search).get("esearchresult", {}).get("idlist", [])
+        return self.fetch_pubmed(ids)
+
+    def fetch_pubmed(self, pmids: Sequence[Any]) -> list[Document]:
+        """Fetches the abstracts of given PubMed ids, e.g. a review's references.
+
+        Only the ids are sent. Abstracts are cached in ``cache_dir``.
+
+        Examples:
+            >>> kb.fetch_pubmed(["33831622", "31014587"])  # doctest: +SKIP
+        """
         docs = []
-        for pmid in ids:
+        for value in pmids:
+            found = re.search(r"\d+", _clean_id(value)) if _present(value) else None
+            if found is None:
+                continue
+            pmid = found.group()
             text = self._get(f"{EUTILS}/efetch.fcgi?" + urllib.parse.urlencode(
                 {"db": "pubmed", "id": pmid, "rettype": "abstract", "retmode": "text"}))
             docs.append(Document(f"PMID:{pmid}", text))
