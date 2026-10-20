@@ -1,2 +1,3 @@
+from .capacity import capacity_fairness_metrics as capacity_fairness_metrics
 from .group import disparate_impact, statistical_parity_difference
 from .utils import sensitive_attributes_from_patient_ids
