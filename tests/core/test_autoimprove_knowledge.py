@@ -60,6 +60,22 @@ class TestCitationCheck(unittest.TestCase):
         self.assertTrue(e.verified)
         self.assertEqual(e.effect["direction"], "+")  # corrected from the value
 
+    def test_negative_effects_and_percentages_are_found(self):
+        self.kb.add_documents([Document("PMID:2", (
+            "Exacerbation rates did not differ (MD -0.37, 95% CI -0.8 to 0.06). "
+            "Wheeze intensity discriminated best (AUC 84% [95% CI, 82%-85%])."))])
+        for effect, quote in [
+            ({"type": "MD", "value": -0.37, "ci": [-0.8, 0.06]},
+             "(MD -0.37, 95% CI -0.8 to 0.06)"),
+            ({"type": "AUC", "value": 0.84, "ci": [0.82, 0.85]},
+             "(AUC 84% [95% CI, 82%-85%])"),
+        ]:
+            e = self.verdicts(Evidence("x", effect, "PMID:2", quote))
+            self.assertTrue(e.verified, e.reason)
+        e = self.verdicts(Evidence("x", {"type": "AUC", "value": 0.86}, "PMID:2",
+                                   "(AUC 84% [95% CI, 82%-85%])"))
+        self.assertFalse(e.verified)
+
     def test_invented_citation_and_numbers_are_rejected(self):
         cases = [
             (Evidence("x", {"type": "OR", "value": 2.4}, "PMID:999",
