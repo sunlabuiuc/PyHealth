@@ -11,6 +11,7 @@ selects the most interpretable one within noise of the best, and its report
 from .evaluate import (
     check_models,
     describe_error,
+    fold_parts,
     patient_folds,
     predict,
     run_config,
@@ -18,6 +19,7 @@ from .evaluate import (
     score,
     train_pipeline,
 )
+from .features import EngineeredDataset, FeatureSpace, FeatureSpec
 from .improver import (
     DEFAULT_METRIC,
     AutoImprover,
@@ -51,6 +53,9 @@ __all__ = [
     "TRAIN_PARAMS",
     "AutoImprover",
     "ClaudeLLM",
+    "EngineeredDataset",
+    "FeatureSpace",
+    "FeatureSpec",
     "ImproveResult",
     "LLMProposer",
     "ModelSpec",
@@ -65,6 +70,7 @@ __all__ = [
     "check_models",
     "config_diff",
     "describe_error",
+    "fold_parts",
     "load_run",
     "paired_gain",
     "patient_folds",

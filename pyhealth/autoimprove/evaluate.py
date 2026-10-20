@@ -255,7 +255,9 @@ def run_config_cv(
 
     Scoring on every training patient gives a much less noisy estimate than
     one small validation split, at the cost of training ``len(folds)``
-    models per trial. Processors are not refitted per fold.
+    models per trial. The processors ``set_task`` fitted are reused;
+    engineered feature columns are imputed and scaled per fold
+    (:func:`fold_parts`).
 
     Returns:
         ``{"metrics": {...}, "fold_scores": [...], "seconds": float,
@@ -272,11 +274,12 @@ def run_config_cv(
     per_fold: list[dict[str, float]] = []
     n_params = 0
     for held_out in folds:
-        fit_part = train_dataset.subset(np.setdiff1d(all_indices, held_out).tolist())
-        model = train_pipeline(
-            config, space, fit_part, val_dataset, metric, seed, device
+        fit_idx = np.setdiff1d(all_indices, held_out).tolist()
+        fit_part, held_part, val_part = fold_parts(
+            train_dataset, val_dataset, fit_idx, held_out.tolist()
         )
-        per_fold.append(score(model, train_dataset.subset(held_out.tolist()), names))
+        model = train_pipeline(config, space, fit_part, val_part, metric, seed, device)
+        per_fold.append(score(model, held_part, names))
         n_params = sum(p.numel() for p in model.parameters())
     metrics = {}
     for name in names:
@@ -289,6 +292,34 @@ def run_config_cv(
         "seconds": time.perf_counter() - start,
         "n_params": n_params,
     }
+
+
+def fold_parts(
+    train_dataset: SampleDataset,
+    val_dataset: SampleDataset,
+    fit_idx: Sequence[int],
+    held_idx: Sequence[int],
+) -> tuple[SampleDataset, SampleDataset, SampleDataset]:
+    """The training part, held-out fold and validation set for one CV fold.
+
+    Engineered feature columns
+    (:class:`~pyhealth.autoimprove.features.EngineeredDataset`) are imputed
+    and scaled with statistics from the fold's training part only, so a
+    held-out fold never informs its own medians and scales. Other fields
+    keep the processors ``set_task`` fitted.
+
+    Examples:
+        >>> fit, held, val = fold_parts(train_ds, val_ds, [0, 1, 2], [3])  # doctest: +SKIP
+    """
+    from .features import EngineeredDataset
+
+    if isinstance(train_dataset, EngineeredDataset):
+        stats = train_dataset.fit_stats(fit_idx)
+        train_dataset = train_dataset.with_stats(stats)
+        if isinstance(val_dataset, EngineeredDataset):
+            val_dataset = val_dataset.with_stats(stats)
+    return (train_dataset.subset(list(fit_idx)), train_dataset.subset(list(held_idx)),
+            val_dataset)
 
 
 def check_models(
