@@ -140,10 +140,15 @@ split.
 
 Reply with a short analysis, then one JSON object in a ```json block:
 {"model": "<model name>", "model_params": {...}, "train_params": {...}, \
-"rationale": "<one sentence>"}
-Use only the models and arguments listed. Do not repeat a configuration that \
-was already tried. Keep the time budget in mind: prefer small changes that \
-are likely to help over expensive long shots."""
+"rationale": "<one sentence: why this should help>", \
+"expected": "<what you expect to change, e.g. score up, smaller spread \
+between folds>", "kind": "<clinical or technical>", \
+"based_on": <id of the trial you are changing, or null>}
+The rationale and expectation are recorded before the trial runs and \
+compared with its result in the run's report. Use only the models and \
+arguments listed. Do not repeat a configuration that was already tried. Keep \
+the time budget in mind: prefer small changes that are likely to help over \
+expensive long shots."""
 
 
 class LLMProposer(Proposer):
