@@ -69,8 +69,11 @@ from .shhs import SHHSDataset
 from .sleepedf import SleepEDFDataset
 from .bmd_hs import BMDHSDataset
 from .support2 import Support2Dataset
+from .synthea_csv import SyntheaCSVDataset as SyntheaCSVDataset
 from .tcga_prad import TCGAPRADDataset
 from .splitter import (
+    PatientSplit as PatientSplit,
+    Split as Split,
     sample_balanced,
     split_by_patient,
     split_by_patient_conformal,

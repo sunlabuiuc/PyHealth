@@ -61,18 +61,16 @@ Citing PyHealth :handshake:
 
 **PyHealth 2.0 (2026):**
 
-Wu, John, Yongda Fan, Zhenbang Wu, Paul Landes, Eric Schrock, Sayeed Sajjad Razin, Arjun Chatterjee, Naveen Baskaran, Joshua Steier, Andrea Fitzpatrick, Bilal Arif, Rian Atri, Jathurshan Pradeepkumar, Siddhartha Laghuvarapu, Junyi Gao, Adam R. Cross, and Jimeng Sun. 2026. "PyHealth 2.0: A Comprehensive Open-Source Toolkit for Accessible and Reproducible Clinical Deep Learning." arXiv preprint arXiv:2601.16414.
+Wu, John, Yongda Fan, Zhenbang Wu, Paul Landes, Eric Schrock, Sayeed Sajjad Razin, Arjun Chatterjee, Naveen Baskaran, Joshua Steier, Andrea Fitzpatrick, Bilal Arif, Rian Atri, Jathurshan Pradeepkumar, Siddhartha Laghuvarapu, Junyi Gao, Adam R. Cross, and Jimeng Sun. 2026. "PyHealth 2.0: A Comprehensive Open-Source Toolkit for Accessible and Reproducible Clinical Deep Learning." In Proceedings of the 43rd International Conference on Machine Learning (ICML 2026).
 
 .. code-block:: bibtex
 
-    @misc{wu2026pyhealth20comprehensiveopensource,
-        title={PyHealth 2.0: A Comprehensive Open-Source Toolkit for Accessible and Reproducible Clinical Deep Learning}, 
-        author={John Wu and Yongda Fan and Zhenbang Wu and Paul Landes and Eric Schrock and Sayeed Sajjad Razin and Arjun Chatterjee and Naveen Baskaran and Joshua Steier and Andrea Fitzpatrick and Bilal Arif and Rian Atri and Jathurshan Pradeepkumar and Siddhartha Laghuvarapu and Junyi Gao and Adam R. Cross and Jimeng Sun},
+    @inproceedings{wu2026pyhealth,
+        title={PyHealth 2.0: A Comprehensive Open-Source Toolkit for Accessible and Reproducible Clinical Deep Learning},
+        author={John Wu and Yongda Fan and Zhenbang Wu and Paul Landes and Eric Schrock and Sayeed Sajjad Razin and Arjun Chatterjee and Naveen Baskaran and Joshua Steier and Andrea Fitzpatrick and Bilal Arif and Rian Atri and Jathurshan Pradeepkumar and Siddhartha Laghuvarapu and Junyi Gao and Adam Richard Cross and Jimeng Sun},
+        booktitle={Forty-third International Conference on Machine Learning},
         year={2026},
-        eprint={2601.16414},
-        archivePrefix={arXiv},
-        primaryClass={cs.LG},
-        url={https://arxiv.org/abs/2601.16414}
+        url={https://openreview.net/forum?id=gMLVFN9hl8}
     }
 
 **PyHealth 1.0 (2023):**

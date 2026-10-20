@@ -1,12 +1,8 @@
-# import pyhealth
-import pyhealth
-
-# import mimic4 dataset and drug recommendaton task
+# import mimic4 dataset and drug recommendation task
 from pyhealth.datasets import MIMIC4Dataset
 from pyhealth.tasks import DrugRecommendationMIMIC4
 
 # import dataloader related functions
-from pyhealth.datasets.splitter import split_by_patient
 from pyhealth.datasets import split_by_patient, get_dataloader
 
 # import gamenet model
@@ -23,18 +19,13 @@ _DECAY_WEIGHT = 1e-5
 
 def prepare_drug_task_data():
     mimicvi = MIMIC4Dataset(
-        root="/srv/local/data/physionet.org/files/mimiciv/2.0/hosp",
-        tables=["diagnoses_icd", "procedures_icd", "prescriptions"],
+        ehr_root="/srv/local/data/physionet.org/files/mimiciv/2.0/hosp",
+        ehr_tables=["diagnoses_icd", "procedures_icd", "prescriptions"],
+        dev=_DEV,
     )
 
-    print("stat")
-    mimicvi.stat()
-    print("info")
-    mimicvi.info()
+    mimicvi.stats()
 
-    # drug_recommendation_mimic4_fn is a pre-2.0 task function (it expects an
-    # indexable Patient with Visit.get_code_list) and cannot be passed to
-    # BaseDataset.set_task(), which requires a BaseTask instance.
     mimic4_sample = mimicvi.set_task(DrugRecommendationMIMIC4())
     print(mimic4_sample[0])
 
@@ -53,14 +44,10 @@ def get_dataloaders(mimic4_sample):
 
 
 def train_gamenet(mimic4_sample, train_loader, val_loader):
-    # gamenet = GAMENet(mimicvi)
-    gamenet = GAMENet(mimic4_sample)
+    gamenet = GAMENet(dataset=mimic4_sample)
 
-    # print(gamenet.generate_ddi_adj())
     trainer = Trainer(
         model=gamenet,
-        # metrics = ["jaccard_weighted", "pr_auc_micro", "pr_auc_macro"],
-        # metrics = ["jaccard", "pr_auc_micro", "pr_auc_macro"],
         metrics=[
             "jaccard_samples",
             "accuracy",
@@ -70,7 +57,6 @@ def train_gamenet(mimic4_sample, train_loader, val_loader):
             "pr_auc_samples",
             "f1_samples",
         ],
-        device="cuda",
         exp_name="drug_recommendation",
     )
 

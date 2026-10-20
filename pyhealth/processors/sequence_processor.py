@@ -28,6 +28,8 @@ class SequenceProcessor(FeatureProcessor, TokenProcessorInterface):
         >>> proc = SequenceProcessor(code_mapping=("ICD9CM", "CCSCM"))
     """
 
+    stores_tensor = True
+
     def __init__(self, code_mapping: Optional[Tuple[str, str]] = None):
         self.code_vocab: Dict[Any, int] = {"<pad>": self.PAD, "<unk>": self.UNK}
         self._next_index = 2
