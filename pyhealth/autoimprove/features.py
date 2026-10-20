@@ -845,7 +845,7 @@ class _EventView:
         return df
 
     def _derived_rows(self, et) -> pl.DataFrame | None:
-        if self.space.derived_events is None:
+        if self.space.derived_events is None or et not in self.space.derived_types:
             return None
         if self._derived is None:
             rows = self.space.derived_events(self.patient, self.t) or []
