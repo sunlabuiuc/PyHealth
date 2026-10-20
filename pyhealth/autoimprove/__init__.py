@@ -30,7 +30,14 @@ from .improver import (
     select_trial,
 )
 from .llm import LLM, ClaudeLLM
-from .proposers import STRATEGIES, LLMProposer, Proposer, RandomProposer
+from .proposers import (
+    STRATEGIES,
+    LLMProposer,
+    Proposer,
+    ProposerExhausted,
+    QueueProposer,
+    RandomProposer,
+)
 from .report import Report, build_report, load_run, unverified_numbers
 from .space import (
     DEFAULT_MODELS,
@@ -62,6 +69,8 @@ __all__ = [
     "Param",
     "PipelineConfig",
     "Proposer",
+    "ProposerExhausted",
+    "QueueProposer",
     "RandomProposer",
     "Report",
     "SearchSpace",

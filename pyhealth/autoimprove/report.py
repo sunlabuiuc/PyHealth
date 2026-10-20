@@ -20,7 +20,7 @@ import json
 import os
 import re
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from itertools import combinations
 from typing import Any
 
@@ -187,6 +187,10 @@ def load_run(
         rule=settings.get("rule", ""), title=title,
         card=read("card.json"), explanation=read("explain.json"),
         review=read("review.json", {}),
+        confirmed={int(k): v for k, v in read("confirm.json", {}).get(
+            "scores", {}).items()},
+        pruning=read("prune.json"),
+        confirm_se=settings.get("confirm_se", 2.0),
     )
 
 
@@ -208,6 +212,9 @@ def build_report(
     card: Any = None,
     explanation: dict[str, Any] | None = None,
     review: dict[str, Any] | None = None,
+    confirmed: dict[int, list[float]] | None = None,
+    pruning: dict[str, Any] | None = None,
+    confirm_se: float = 2.0,
 ) -> Report:
     """Builds a report from a run's trials and, optionally, its test and attribution.
 
@@ -229,6 +236,10 @@ def build_report(
         card: The task's :class:`~pyhealth.tasks.TaskCard` (or its dict).
         explanation: The result of ``AutoImprover.explain``.
         review: Clinician decisions on flags, from ``AutoImprover.approve``.
+        confirmed: Confirmation fold scores by trial id, from
+            ``AutoImprover.confirm``; the selection is then made on them.
+        pruning: The result of ``AutoImprover.prune``.
+        confirm_se: The bound used on the confirmation scores.
 
     Examples:
         >>> from pyhealth.autoimprove import Trial
@@ -252,12 +263,25 @@ def build_report(
     # gains are shown against the baseline, or the first trial without one
     reference = baseline or done[0]
     cv = bool(reference.fold_scores) and promote_se is not None
+    pool = [t for t in done if t.accepted is not False]
+    bound = promote_se
+    if confirmed:
+        by_id = {t.trial_id: t for t in pool}
+        pool = [replace(by_id[i], fold_scores=list(v), score=float(sum(v) / len(v)))
+                for i, v in confirmed.items() if i in by_id]
+        bound = max(promote_se or 0.0, confirm_se)
     if cv and one_se:
-        selected, top = select_simplest(done, maximize, promote_se, space.rung)
+        selected, top = select_simplest(pool, maximize, bound, space.rung)
     elif cv:
-        selected = top = select_trial(done, maximize, promote_se)
+        selected = top = select_trial(pool, maximize, bound)
     else:
-        selected = top = max(done, key=lambda t: sign * t.score)
+        selected = top = max(pool, key=lambda t: sign * t.score)
+    if confirmed:
+        by_id = {t.trial_id: t for t in done}
+        selected, top = by_id[selected.trial_id], by_id[top.trial_id]
+        pruned = (pruning or {}).get("pruned_trial")
+        if pruned in by_id:
+            selected = by_id[pruned]
 
     def vs(a, b):
         """Gain of a over b: (mean, se, folds better, n folds)."""
@@ -293,6 +317,10 @@ def build_report(
         _task_section(task, dropped_models or {}, card),
         _model_section(ctx, rule, attribution, test),
     ]
+    if selected.features:
+        sections.append(_features_section(ctx, pruning, flags, test))
+    if confirmed:
+        sections.append(_confirm_section(ctx, confirmed, pruning))
     if explanation:
         sections.append(_decides_section(explanation))
     if test:
@@ -322,6 +350,8 @@ def build_report(
         "dropped_models": dropped_models or {},
         "card": card.to_dict() if card is not None else None,
         "explanation": explanation, "flags": flags,
+        "confirmed": {str(k): v for k, v in (confirmed or {}).items()},
+        "pruning": pruning,
         "trials": [t.to_dict() for t in trials],
     }
     return Report(title, sections, data)
@@ -472,6 +502,13 @@ def _trace_section(ctx, trials, lessons) -> Section:
                 parent, how = nearest.trial_id, " (inferred)"
                 diff = config_diff(nearest.config, t.config)
         change = ", ".join(f"{k} {v}" for k, v in diff.items()) or "-"
+        if t.added:
+            verdict = {True: "accepted", False: "not accepted"}.get(t.accepted, "")
+            change = (f"+ features {', '.join(t.added)} ({verdict})"
+                      + ("" if change == "-" else f"; {change}"))
+        elif t.agent in ("incumbent", "pruned"):
+            change = (f"{len(t.features)} accepted features" if t.agent == "incumbent"
+                      else f"pruned to {len(t.features)} features")
         if parent is not None:
             change = f"from #{parent}{how}: {change}"
         hyp = t.config.rationale or "-"
@@ -642,6 +679,85 @@ def _test_section(ctx, test) -> Section:
     return Section("Performance in clinical terms", blocks)
 
 
+def _features_section(ctx, pruning, flags, test) -> Section:
+    sel = ctx["selected"]
+    contribution = {}
+    for row in (pruning or {}).get("ablation", []):
+        for name in row["features"]:
+            contribution[name] = _pm(row["contribution"], row["se"])
+    open_flags = {f["id"].partition(":")[2] for f in flags
+                  if f["id"].partition(":")[0] in ("direction", "no_rationale",
+                                                   "suspicion")
+                  and (f.get("review") or {}).get("decision") != "approved"}
+    rows = []
+    for spec in sel.features:
+        name = spec["name"]
+        rows.append([name, spec.get("definition", "-"), spec.get("rationale", "-") or "-",
+                     _direction(spec.get("direction", "")),
+                     contribution.get(name, "-"),
+                     "held for review" if name in open_flags else "in the model"])
+    blocks = [
+        ("p", (f"The selected model uses {len(sel.features)} engineered feature(s) "
+               "beyond the task's own inputs. Each definition is generated from the "
+               "feature's spec, so it states exactly what was computed; the "
+               "rationale and expected direction were given when it was proposed "
+               "*(hypothesis)*; the contribution is what its group added on the "
+               "confirmation folds *(tested)*.")),
+        ("table", ["feature", "definition", "rationale", "expected", "contribution",
+                   "status"], rows),
+    ]
+    held = (test or {}).get("held_back")
+    if held and "without_flagged" in (test or {}):
+        blocks.append(("p", (f"Until a clinician approves {', '.join(held)}, the "
+                             "deployable model is the one without them: test "
+                             f"{test.get('metric', ctx['metric'])} "
+                             f"{_ci(test['without_flagged'])}.")))
+    return Section("Features", blocks)
+
+
+def _confirm_section(ctx, confirmed, pruning) -> Section:
+    sign, ref = ctx["sign"], ctx["reference"]
+    by_id = {t.trial_id: t for t in ctx["done"]}
+    ref_scores = confirmed.get(ref.trial_id)
+    rows = []
+    for trial_id, scores in sorted(confirmed.items(),
+                                   key=lambda kv: -sign * sum(kv[1]) / len(kv[1])):
+        t = by_id.get(trial_id)
+        if t is None:
+            continue
+        mean = sum(scores) / len(scores)
+        gain = "start"
+        if t is not ref and ref_scores:
+            from .improver import paired_gain
+
+            g, se = paired_gain(scores, ref_scores, sign > 0)
+            gain = _pm(g, se)
+        rows.append([f"#{trial_id}" + (" (selected)" if t is ctx["selected"] else ""),
+                     t.config.model, len(t.features), f"{t.score:.3f}",
+                     f"{mean:.3f}", gain])
+    blocks = [
+        ("p", ("**Confirmation.** The leading candidates were scored again on new "
+               "folds with several training seeds, and the selection was made on "
+               "these scores. Candidates picked among many on the same folds are "
+               "partly lucky; this removes part of that luck before the test. "
+               "*(tested)*")),
+        ("table", ["trial", "model", "features", "search CV", "confirmed CV",
+                   "confirmed gain vs start"], rows),
+    ]
+    if pruning and pruning.get("ablation"):
+        blocks.append(("p", ("**What each feature group added** to the selection "
+                             "(removed one at a time, confirmation folds) "
+                             "*(tested)*:")))
+        blocks.append(("table", ["features", "added by", "contribution"], [
+            [", ".join(r["features"]), f"#{r['trial_id']}" if r["trial_id"] >= 0 else "-",
+             _pm(r["contribution"], r["se"])] for r in pruning["ablation"]]))
+        if pruning.get("dropped"):
+            blocks.append(("p", "**Pruned:** " + "; ".join(
+                ", ".join(g) for g in pruning["dropped"])
+                + " cost less than one SE to remove, so they were dropped."))
+    return Section("Confirmation", blocks)
+
+
 def _decides_section(explanation) -> Section:
     blocks = [("p", (f"How the selected model (#{explanation.get('trial_id')}) "
                      f"weighs its inputs, from {explanation['method']} on "
@@ -750,8 +866,12 @@ def _checklist_section(ctx, card, explanation, test, attribution) -> Section:
     ])
 
 
-def flags_for(card, explanation, test) -> list[dict[str, str]]:
+def flags_for(card, explanation, test, suspicious=()) -> list[dict[str, str]]:
     """Items for clinician review, from the task card, explanation and test.
+
+    Engineered features are also flagged when they have no clinical
+    rationale (proposed by random search) or were ``suspicious``: alone they
+    predicted the outcome almost perfectly, which usually means leakage.
 
     Examples:
         >>> [f["id"] for f in flags_for(None, None, None)]
@@ -773,10 +893,19 @@ def flags_for(card, explanation, test) -> list[dict[str, str]]:
                            "value of one measure), a coding artifact, a data error "
                            "or leakage."),
             })
+        elif f.get("engineered") and str(f.get("rationale", "")).startswith("none"):
+            out.append({"id": f"no_rationale:{f['name']}", "kind": "rationale",
+                        "detail": f"{f['name']} was proposed without a clinical "
+                                  "rationale (random search); keep it only if a "
+                                  "clinician can justify it."})
         elif card is not None and not f["in_card"]:
             out.append({"id": f"no_rationale:{f['name']}", "kind": "rationale",
                         "detail": f"{f['name']} is a top feature with no entry in "
                                   "the task card's dictionary."})
+    for name in suspicious:
+        out.append({"id": f"suspicion:{name}", "kind": "leakage",
+                    "detail": f"{name} alone predicts the outcome almost perfectly: "
+                              "check that it cannot see the outcome."})
     clinical = (test or {}).get("best", {}).get("clinical")
     if clinical:
         cal = clinical["calibration"]

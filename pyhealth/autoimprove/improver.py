@@ -10,21 +10,23 @@ import math
 import os
 import time
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 import numpy as np
+from sklearn.metrics import roc_auc_score
 
 from pyhealth.datasets import SampleDataset
 from pyhealth.metrics import bootstrap_ci, clinical_summary, paired_bootstrap_diff
 from pyhealth.processors import PROCESSOR_REGISTRY
-from pyhealth.tasks.task_card import TaskCard
+from pyhealth.tasks.task_card import DIRECTIONS, FeatureInfo, TaskCard
 from pyhealth.trainer import get_metrics_fn
 
 from .evaluate import (
     MAX_LABEL_SCAN,
     check_models,
     describe_error,
+    fold_parts,
     greater_is_better,
     patient_folds,
     predict,
@@ -32,7 +34,8 @@ from .evaluate import (
     run_config_cv,
     train_pipeline,
 )
-from .proposers import STRATEGIES, ProposalContext, Proposer
+from .features import EngineeredDataset, FeatureSpace, FeatureSpec
+from .proposers import STRATEGIES, ProposalContext, Proposer, ProposerExhausted
 from .space import PipelineConfig, SearchSpace, config_diff
 
 logger = logging.getLogger(__name__)
@@ -59,7 +62,9 @@ class Trial:
     Together the trials are the run's decision log: the config with the
     proposer's rationale and hypothesis (written before the trial ran), the
     trial it was changed from (``parent``) and what changed (``change``),
-    and the scores.
+    and the scores. With feature search, a trial also records its feature
+    specs (``features``), the ones it added (``added``), whether the group
+    was accepted, and features that looked too good (``suspicious``).
 
     ``error`` holds the full error text and is kept in ``trials.jsonl``.
     ``error_brief`` leaves out the exception's message, which can quote a raw
@@ -88,6 +93,11 @@ class Trial:
     error_brief: str | None = None
     parent: int | None = None
     change: dict[str, str] = field(default_factory=dict)
+    features: list[dict[str, Any]] = field(default_factory=list)
+    added: list[str] = field(default_factory=list)
+    accepted: bool | None = None
+    suspicious: list[str] = field(default_factory=list)
+    stopped_early: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         """The trial as JSON-ready types."""
@@ -139,7 +149,7 @@ class ImproveResult:
 
     def leaderboard(self, k: int = 10) -> list[Trial]:
         """The ``k`` best finished trials, best first."""
-        done = [t for t in self.trials if t.error is None]
+        done = [t for t in self.trials if t.error is None and not t.stopped_early]
         return sorted(done, key=lambda t: t.score, reverse=self.maximize)[:k]
 
     def summary(self, k: int = 10) -> str:
@@ -246,6 +256,31 @@ class AutoImprover:
             ``task.task_card()``): the design choices with their rationale and
             the feature dictionary. Reports use it to explain the model in
             clinical terms and to check the directions of its effects.
+        features: A :class:`~pyhealth.autoimprove.FeatureSpace` to search
+            input features as well as settings (needs ``cv_folds``). Cycles
+            alternate: feature cycles hold the model at the current selection
+            and propose groups of specs, each accepted only if its paired gain
+            over the accepted set clears the lower bound (forward selection);
+            model cycles hold the accepted features and propose configs.
+        feature_cycles: Feature cycles and model cycles in each round,
+            e.g. ``(2, 1)``.
+        confirm: After the search, re-score the reference and the top
+            ``confirm_top`` candidates on new folds with ``confirm_seeds``
+            training seeds, and select on those scores (:meth:`confirm`).
+            This removes part of the winner's curse before the test.
+        confirm_top: Candidates confirmed.
+        confirm_seeds: Training seeds per confirmed config.
+        confirm_se: The bound candidates must clear on the confirmation
+            scores, in SEs. Stricter than ``promote_se`` by default, because
+            the confirmed candidates were already chosen as the best of many.
+        prune: After confirmation, drop each accepted feature group whose
+            removal costs less than one SE (:meth:`prune`).
+        early_stop: Stop a trial after 2 folds when every fold so far is
+            below the reference's by more than this margin. ``None`` runs all
+            folds.
+        suspicion_auc: A new feature whose ROC-AUC alone exceeds this (or
+            is below 1 minus it) is flagged as possible leakage and not
+            accepted.
 
     Examples:
         >>> from pyhealth.autoimprove import (AutoImprover, ClaudeLLM,
@@ -285,7 +320,18 @@ class AutoImprover:
         one_se: bool = True,
         check: bool = True,
         task_card: TaskCard | None = None,
+        features: FeatureSpace | None = None,
+        feature_cycles: tuple[int, int] = (2, 1),
+        confirm: bool = False,
+        confirm_top: int = 3,
+        confirm_seeds: int = 3,
+        confirm_se: float = 2.0,
+        prune: bool = True,
+        early_stop: float | None = None,
+        suspicion_auc: float = 0.95,
     ):
+        if features is not None and not cv_folds:
+            raise ValueError("feature search needs cv_folds")
         self.train_dataset = train_dataset
         self.val_dataset = val_dataset
         self.proposer = proposer
@@ -324,6 +370,20 @@ class AutoImprover:
         )
         self.check = check
         self.task_card = task_card
+        self.features = features
+        self.feature_cycles = tuple(feature_cycles)
+        self.confirm_enabled = confirm
+        self.confirm_top = confirm_top
+        self.confirm_seeds = confirm_seeds
+        self.confirm_se = confirm_se
+        self.prune_enabled = prune
+        self.early_stop = early_stop
+        self.suspicion_auc = suspicion_auc
+        self.confirmed: dict[int, list[float]] = {}
+        self.pruned_id: int | None = None
+        self._raw_cache: dict[tuple[str, str], np.ndarray] = {}
+        self._samples_cache: dict[str, list] = {}
+        self._exhausted = False
         self.dropped_models: dict[str, str] = {}
         self._checked = False
         self.trials: list[Trial] = []
@@ -336,6 +396,8 @@ class AutoImprover:
                 f"{self.metric}_sd is the spread between folds."
             )
         self._fingerprint = space_fingerprint(self.space, train_dataset)
+        if features is not None:
+            self._fingerprint += "-features"
         self._settings = self._run_settings()
         self._proposer_failures = 0
 
@@ -358,13 +420,17 @@ class AutoImprover:
         stale = 0
         strategies = list(STRATEGIES)
         for cycle in range(first_cycle, self.n_cycles):
+            kind = self._cycle_kind(cycle)
             for i in range(self.n_agents):
-                if self._out_of_budget(start):
+                if self._out_of_budget(start) or self._exhausted:
                     break
                 strategy = "explore" if cycle == 0 else strategies[
                     (cycle + i) % len(strategies)
                 ]
-                self._turn(cycle, f"agent{i}", strategy)
+                if kind == "features":
+                    self._feature_turn(cycle, f"agent{i}", strategy)
+                else:
+                    self._turn(cycle, f"agent{i}", strategy)
             try:
                 self.lessons = self.proposer.reflect(
                     self.trials, self.lessons, self.metric, space=self.space
@@ -385,9 +451,21 @@ class AutoImprover:
                 "cycle %d: selected #%s, %s=%s", cycle, best, self.metric,
                 self._best_score(),
             )
-            if stale >= self.patience or self._out_of_budget(start):
+            if stale >= self.patience or self._out_of_budget(start) or self._exhausted:
                 break
+        if self.confirm_enabled and self.folds is not None and not self.confirmed:
+            self.confirm()
+            if self.prune_enabled and self.features is not None:
+                self.prune()
         return self.result()
+
+    def _cycle_kind(self, cycle: int) -> str:
+        if self.features is None:
+            return "model"
+        if not self.proposer.proposes_models:
+            return "features"
+        n_features, n_models = self.feature_cycles
+        return "features" if cycle % (n_features + n_models) < n_features else "model"
 
     def _check_models(self) -> None:
         """Removes models that do not run on the training data from the space.
@@ -438,13 +516,32 @@ class AutoImprover:
             )
 
     def result(self) -> ImproveResult:
-        """The current state as an :class:`ImproveResult`."""
+        """The current state as an :class:`ImproveResult`.
+
+        After :meth:`confirm`, the selection is made among the confirmed
+        trials on their confirmation scores.
+        """
+        # a feature group rejected during the search never becomes the result
+        trials = [t for t in self.trials if t.accepted is not False]
+        bound = self.promote_se
+        if self.confirmed:
+            by_id = {t.trial_id: t for t in trials}
+            trials = [
+                replace(by_id[i], fold_scores=list(scores),
+                        score=float(np.mean(scores)))
+                for i, scores in self.confirmed.items() if i in by_id
+            ]
+            bound = max(self.promote_se or 0.0, self.confirm_se)
         if self.promote_se is not None and self.one_se:
-            best, top = select_simplest(
-                self.trials, self.maximize, self.promote_se, self.space.rung
-            )
+            best, top = select_simplest(trials, self.maximize, bound, self.space.rung)
         else:
-            best = top = select_trial(self.trials, self.maximize, self.promote_se)
+            best = top = select_trial(trials, self.maximize, bound)
+        if self.confirmed:
+            by_id = {t.trial_id: t for t in self.trials}
+            best = by_id.get(best.trial_id) if best is not None else None
+            top = by_id.get(top.trial_id) if top is not None else None
+            if self.pruned_id is not None and self.pruned_id in by_id:
+                best = by_id[self.pruned_id]  # parsimony: the pruned selection
         baseline = next((t for t in self.trials if t.agent == "baseline"), None)
         return ImproveResult(
             list(self.trials), best, baseline, list(self.lessons), self.maximize,
@@ -483,6 +580,7 @@ class AutoImprover:
 
     def _turn(self, cycle: int, agent: str, strategy: str) -> None:
         feedback = ""
+        accepted = self._accepted()
         for _ in range(2):  # one retry when the proposal is invalid or repeated
             context = self._context(agent, strategy, feedback)
             try:
@@ -499,7 +597,7 @@ class AutoImprover:
             except ValueError as e:
                 feedback = f"your last proposal was rejected: {e}"
                 continue
-            if config.key() in context.tried:
+            if _key(config, accepted) in context.tried:
                 feedback = "your last proposal repeated an earlier trial"
                 if notes:
                     feedback += (
@@ -508,7 +606,7 @@ class AutoImprover:
                         + "). Stay inside the ranges listed above"
                     )
                 continue
-            self._evaluate(config, cycle, agent, strategy, notes)
+            self._evaluate(config, cycle, agent, strategy, notes, features=accepted)
             return
         logger.warning(
             "%s made no usable proposal in cycle %d: %s", agent, cycle, feedback
@@ -532,31 +630,326 @@ class AutoImprover:
         logger.warning("%s's proposer failed in cycle %d, turn skipped: %s",
                        agent, cycle, text)
 
-    def _evaluate(self, config, cycle, agent, strategy, notes=None) -> Trial:
+    # --------------------------------------------------------- feature search
+    def _feature_turn(self, cycle: int, agent: str, strategy: str) -> None:
+        """One feature proposal: validate, test for leaks, score, accept or not."""
+        base = self._incumbent(cycle)
+        if base is None:
+            return
+        accepted = self._accepted()
+        tried = {name for t in self.trials for name in t.added}
+        have = {s["name"] for s in accepted}
+        feedback = ""
+        for _ in range(2):  # one retry when the proposal is invalid
+            context = self._context(agent, strategy, feedback, kind="features")
+            try:
+                proposal = self.proposer.propose_features(context)
+            except ProposerExhausted:
+                self._exhausted = True
+                return
+            except ValueError as e:
+                feedback = f"your last proposal was rejected: {e}"
+                continue
+            except Exception as e:  # noqa: BLE001 - an API error or refusal
+                self._skip_turn(agent, cycle, e)
+                return
+            self._proposer_failures = 0
+            try:
+                specs = self.features.validate_many(list(proposal.get("features") or []))
+            except ValueError as e:
+                feedback = f"your last proposal was rejected: {e}"
+                continue
+            new = [s for s in specs if s.name not in have and s.name not in tried]
+            if not new:
+                feedback = "every feature in your last proposal was already tried"
+                continue
+            leaks = {k: v for k, v in self.features.future_blind(
+                new, self.train_dataset).items() if v}
+            if leaks:
+                feedback = "the future-blind test rejected " + "; ".join(
+                    f"{k}: {v}" for k, v in leaks.items())
+                continue
+            hypothesis = {k: proposal[k] for k in ("expected", "kind") if proposal.get(k)}
+            config = PipelineConfig(
+                base.config.model, dict(base.config.model_params),
+                dict(base.config.train_params), str(proposal.get("rationale", "")),
+                hypothesis,
+            )
+            trial = self._evaluate(
+                config, cycle, agent, strategy, features=accepted + [
+                    s.to_dict() for s in new], added=[s.name for s in new],
+                parent=base, save=False,
+            )
+            self._judge(trial, base, new)
+            self._save_trial(trial)
+            return
+        logger.warning(
+            "%s made no usable feature proposal in cycle %d: %s", agent, cycle, feedback
+        )
+
+    def _judge(self, trial: Trial, base: Trial, new: Sequence[FeatureSpec]) -> None:
+        """Accepts a feature group if its paired gain over ``base`` clears the bound."""
+        if trial.error is not None or trial.stopped_early:
+            trial.accepted = False
+            return
+        labels = self._labels()
+        for spec in new:
+            column = self._raw(spec, "train")
+            filled = np.where(np.isnan(column), np.nanmedian(column)
+                              if np.isfinite(column).any() else 0.0, column)
+            if len(np.unique(labels)) > 1 and np.ptp(filled) > 0:
+                auc = roc_auc_score(labels, filled)
+                if max(auc, 1 - auc) > self.suspicion_auc:
+                    trial.suspicious.append(spec.name)
+                    trial.notes.append(
+                        f"{spec.name} alone has ROC-AUC {max(auc, 1 - auc):.3f}: "
+                        "possible leakage; held for review"
+                    )
+        gain, se = paired_gain(trial.fold_scores, base.fold_scores, self.maximize)
+        bound = gain - (self.promote_se or 1.0) * se
+        trial.accepted = bound > 0 and not trial.suspicious
+        trial.notes.append(
+            f"vs #{base.trial_id} without the new features: {gain:+.4f} ± {se:.4f}; "
+            + ("accepted" if trial.accepted else "not accepted")
+        )
+
+    def _accepted(self) -> list[dict[str, Any]]:
+        """The accepted feature specs: those of the last accepted feature trial."""
+        accepted = [t for t in self.trials if t.accepted]
+        return [dict(s) for s in accepted[-1].features] if accepted else []
+
+    def _incumbent(self, cycle: int) -> Trial | None:
+        """The trial with the selected config and the accepted features."""
+        selected = self.result().best or next(
+            (t for t in self.trials if t.agent == "baseline"), None)
+        if selected is None:
+            return None
+        accepted = self._accepted()
+        key = _key(selected.config, accepted)
+        for t in self.trials:
+            if (_key(t.config, t.features) == key and t.error is None
+                    and not t.stopped_early):
+                return t
+        trial = self._evaluate(
+            PipelineConfig(selected.config.model, dict(selected.config.model_params),
+                           dict(selected.config.train_params),
+                           "the selected config with the accepted features"),
+            cycle, "incumbent", "incumbent", features=accepted,
+        )
+        return trial if trial.error is None else None
+
+    def _labels(self) -> np.ndarray:
+        if "labels" not in self._samples_cache:
+            key = next(iter(self.train_dataset.output_schema))
+            self._samples_cache["labels"] = np.array([
+                float(np.ravel(self._samples("train")[i][key])[0])
+                for i in range(len(self.train_dataset))
+            ])
+        return self._samples_cache["labels"]
+
+    def _samples(self, split: str) -> list:
+        if split not in self._samples_cache:
+            dataset = self.train_dataset if split == "train" else self.val_dataset
+            self._samples_cache[split] = [dataset[i] for i in range(len(dataset))]
+        return self._samples_cache[split]
+
+    def _raw(self, spec: FeatureSpec, split: str,
+             dataset: SampleDataset | None = None) -> np.ndarray:
+        key = (spec.key(), split)
+        if key not in self._raw_cache:
+            if dataset is None:
+                dataset = self.train_dataset if split == "train" else self.val_dataset
+            self._raw_cache[key] = self.features.compute([spec], dataset)[:, 0]
+        return self._raw_cache[key]
+
+    def _datasets(self, specs: Sequence[dict[str, Any]]) -> tuple[Any, Any]:
+        """Training and validation sets with a trial's features added."""
+        if not specs:
+            return self.train_dataset, self.val_dataset
+        valid = [FeatureSpec.from_dict(s) for s in specs]
+        names = [v.name for v in valid]
+        train = EngineeredDataset(
+            self.train_dataset, np.column_stack([self._raw(v, "train") for v in valid]),
+            names, base_samples=self._samples("train"))
+        val = EngineeredDataset(
+            self.val_dataset, np.column_stack([self._raw(v, "val") for v in valid]),
+            names, stats=train.stats, base_samples=self._samples("val"))
+        return train, val
+
+    def _test_dataset(self, specs, test_dataset, train) -> Any:
+        if not specs:
+            return test_dataset
+        valid = [FeatureSpec.from_dict(s) for s in specs]
+        raw = np.column_stack([self._raw(v, f"test{id(test_dataset)}", test_dataset)
+                               for v in valid])
+        return EngineeredDataset(test_dataset, raw, [v.name for v in valid],
+                                 stats=train.stats)
+
+    def confirm(self) -> dict[str, Any]:
+        """Re-scores the leading candidates on new folds and several seeds.
+
+        The baseline (if any), the selection and the top ``confirm_top`` candidates
+        by mean are scored again on folds drawn with a new seed, each
+        averaged over ``confirm_seeds`` training seeds. The selection is then
+        made on these scores, with the stricter bound ``confirm_se``; after
+        :meth:`prune`, the pruned selection is the result.
+        Candidates chosen among many on the same folds are partly lucky (the
+        winner's curse); new folds and seeds remove part of that luck before
+        the one test evaluation. The same training
+        patients are reused, so only the test split is fully independent.
+
+        Returns:
+            ``{"seeds", "fold_seed", "scores": {trial_id: [fold scores]}}``,
+            also saved to ``confirm.json``.
+
+        Examples:
+            >>> improver.confirm()  # doctest: +SKIP
+        """
+        result = self.result()
+        baseline = result.baseline
+        reference = baseline if baseline is not None and baseline.error is None else None
+        scored = [t for t in self.trials if t.error is None and t.fold_scores]
+        if not scored or (reference is not None and not reference.fold_scores):
+            return {}
+        n = len((reference or scored[0]).fold_scores)
+        candidates = [t for t in scored if not t.stopped_early
+                      and len(t.fold_scores) == n and t is not reference
+                      and t.accepted is not False]
+        sign = 1 if self.maximize else -1
+
+        def clears(t: Trial) -> bool:
+            if reference is None:  # nothing to compare with: every trial
+                return True
+            gain, se = paired_gain(t.fold_scores, reference.fold_scores, self.maximize)
+            return gain - (self.promote_se or 1.0) * se > 0
+
+        bound = [t for t in candidates if clears(t)]
+        chosen = sorted(bound, key=lambda t: -sign * t.score)[: self.confirm_top]
+        if result.best is not None and result.best not in [*chosen, reference]:
+            chosen.append(result.best)
+        self._confirm_folds = patient_folds(self.train_dataset, n, self.seed + 1)
+        for t in [reference, *chosen] if reference is not None else chosen:
+            self.confirmed[t.trial_id] = self._confirm_scores(t.config, t.features)
+        out = {"seeds": [self.seed + k for k in range(self.confirm_seeds)],
+               "fold_seed": self.seed + 1,
+               "scores": {str(k): v for k, v in self.confirmed.items()}}
+        if self.run_dir:
+            with open(os.path.join(self.run_dir, "confirm.json"), "w") as f:
+                json.dump(out, f, indent=1)
+        return out
+
+    def _confirm_scores(self, config, specs) -> list[float]:
+        train, val = self._datasets(specs)
+        runs = [
+            run_config_cv(config, self.space, train, val, self.metric,
+                          self._confirm_folds, (), self.seed + k, self.device)["fold_scores"]
+            for k in range(self.confirm_seeds)
+        ]
+        return [float(v) for v in np.mean(np.array(runs), axis=0)]
+
+    def prune(self) -> dict[str, Any]:
+        """Drops accepted feature groups that the selected model doesn't need.
+
+        On the confirmation folds and seeds, each feature group of the
+        selected trial (the features one trial added together) is removed in
+        turn. Its contribution is the score lost without it, with a paired
+        SE: what the group bought (the ablation). The group whose removal
+        costs least is dropped if that cost is under one SE, and the rest are
+        checked again, until every remaining group pays for itself. A pruned
+        config becomes a new trial and the result: the shortest feature list
+        that keeps the selection's confirmed score within one SE per step.
+
+        Returns:
+            ``{"selected", "ablation": [{"features", "trial_id",
+            "contribution", "se"}], "dropped": [[names]], "final"}``, also
+            saved to ``prune.json``.
+
+        Examples:
+            >>> improver.prune()["dropped"]  # doctest: +SKIP
+            [['exists_90d__med_orders_SABA']]
+        """
+        best = self.result().best
+        if best is None or not best.features or best.trial_id not in self.confirmed:
+            return {}
+        groups = _feature_groups(best, self.trials)
+        current = list(best.features)
+        scores = self.confirmed[best.trial_id]
+        ablation, dropped = [], []
+        while groups:
+            rows = []
+            for trial_id, names in groups:
+                without = [s for s in current if s["name"] not in names]
+                lost = self._confirm_scores(best.config, without)
+                gain, se = paired_gain(scores, lost, self.maximize)
+                rows.append((gain - se, gain, se, trial_id, names, without, lost))
+            if not ablation:
+                ablation = [{"features": r[4], "trial_id": r[3], "contribution": r[1],
+                             "se": r[2]} for r in rows]
+            rows.sort(key=lambda r: r[0])
+            margin, _, _, trial_id, names, without, lost = rows[0]
+            if margin > 0:
+                break
+            dropped.append(names)
+            groups = [g for g in groups if g[0] != trial_id]
+            current, scores = without, lost
+        out = {"selected": best.trial_id, "ablation": ablation, "dropped": dropped,
+               "final": [s["name"] for s in current]}
+        if dropped:
+            pruned = self._evaluate(
+                PipelineConfig(best.config.model, dict(best.config.model_params),
+                               dict(best.config.train_params),
+                               "the selection without features it does not need"),
+                max((t.cycle for t in self.trials), default=0), "pruned", "prune",
+                features=current,
+            )
+            if pruned.error is None:
+                self.confirmed[pruned.trial_id] = scores
+                self.pruned_id = pruned.trial_id
+                out["pruned_trial"] = pruned.trial_id
+        if self.run_dir:
+            with open(os.path.join(self.run_dir, "prune.json"), "w") as f:
+                json.dump(out, f, indent=1)
+            with open(os.path.join(self.run_dir, "confirm.json")) as f:
+                saved = json.load(f)
+            saved["scores"] = {str(k): v for k, v in self.confirmed.items()}
+            with open(os.path.join(self.run_dir, "confirm.json"), "w") as f:
+                json.dump(saved, f, indent=1)
+        return out
+
+    def _evaluate(self, config, cycle, agent, strategy, notes=None, features=None,
+                  added=None, parent=None, save=True) -> Trial:
         trial = Trial(len(self.trials), cycle, agent, strategy, config,
-                      metric_name=self.metric, notes=list(notes or []))
-        parent = None if agent == "baseline" else _parent_of(config, self.trials)
+                      metric_name=self.metric, notes=list(notes or []),
+                      features=[dict(s) for s in features or []],
+                      added=list(added or []))
+        if parent is None and agent != "baseline":
+            parent = _parent_of(config, self.trials)
         if parent is not None:
             trial.parent, trial.change = parent.trial_id, config_diff(
                 parent.config, config
             )
         try:
+            train, val = self._datasets(trial.features)
             if self.folds is not None:
                 out = run_config_cv(
-                    config, self.space, self.train_dataset, self.val_dataset,
-                    self.metric, self.folds, self.report_metrics, self.seed,
-                    self.device,
+                    config, self.space, train, val, self.metric, self.folds,
+                    self.report_metrics, self.seed, self.device,
+                    stop_if=self._early_stop_rule(),
                 )
             else:
                 out = run_config(
-                    config, self.space, self.train_dataset, self.val_dataset,
-                    self.metric, self.report_metrics, self.seed, self.device,
+                    config, self.space, train, val, self.metric,
+                    self.report_metrics, self.seed, self.device,
                 )
             trial.metrics = out["metrics"]
             trial.score = out["metrics"][self.metric]
             trial.seconds = out["seconds"]
             trial.n_params = out["n_params"]
             trial.fold_scores = out.get("fold_scores", [])
+            trial.stopped_early = bool(out.get("stopped_early"))
+            if trial.stopped_early:
+                trial.notes.append("stopped after "
+                                   f"{len(trial.fold_scores)} folds: clearly worse")
             if trial.score is None or math.isnan(trial.score):
                 where = ("a cross-validation fold" if self.folds is not None
                          else "the validation split")
@@ -567,12 +960,32 @@ class AutoImprover:
             trial.error = describe_error(e)
             trial.error_brief = describe_error(e, message=False)
         self.trials.append(trial)
-        self._save_trial(trial)
+        if save:
+            self._save_trial(trial)
         return trial
 
-    def _context(self, agent, strategy, feedback) -> ProposalContext:
+    def _early_stop_rule(self):
+        reference = next((t for t in self.trials if t.agent == "baseline"
+                          and t.fold_scores), None)
+        if self.early_stop is None or reference is None:
+            return None
+        sign = 1 if self.maximize else -1
+
+        def stop(scores: list[float]) -> bool:
+            if len(scores) < 2:
+                return False
+            return all(sign * (r - x) > self.early_stop
+                       for r, x in zip(reference.fold_scores, scores))
+
+        return stop
+
+    def _context(self, agent, strategy, feedback, kind="model") -> ProposalContext:
         result = self.result()
         done = result.leaderboard(k=len(self.trials))
+        card = ""
+        if self.task_card is not None:
+            card = "\n".join(f"- {name}: {item['text']}"
+                              for name, item in self.task_card.design())
         return ProposalContext(
             agent=agent,
             strategy=strategy,
@@ -583,11 +996,16 @@ class AutoImprover:
             own_trials=[t for t in self.trials if t.agent == agent][-8:],
             leaderboard=done[:8],
             worst=list(reversed(done[8:]))[:3] if len(done) > 8 else [],
-            tried={t.config.key() for t in self.trials},
+            tried={_key(t.config, t.features) for t in self.trials},
             lessons=self.lessons,
             feedback=feedback,
             selected=result.best,
             selection_rule=self.selection_rule() if self.promote_se is not None else "",
+            kind=kind,
+            features=self.features,
+            accepted=self._accepted(),
+            feature_trials=[t for t in self.trials if t.added][-12:],
+            card=card,
         )
 
     def _best_score(self) -> float | None:
@@ -652,6 +1070,11 @@ class AutoImprover:
             ``"predictions"`` holds ``y_true``, ``patient_ids`` and each
             config's ``y_prob`` under its name.
 
+        Review gate: engineered features with an open flag (no clinical
+        rationale, an effect opposite to the expected direction, or a
+        suspicious score) are held back until :meth:`approve`; the selection
+        is then also scored without them (``without_flagged``).
+
         Examples:
             >>> improver.evaluate_on_test(test_ds)  # doctest: +SKIP
         """
@@ -664,14 +1087,21 @@ class AutoImprover:
             configs["baseline"] = result.baseline
         if result.top is not None and result.top is not result.best:
             configs["top"] = result.top
+        held = self._held_back(result.best)
+        if held:
+            configs["without_flagged"] = replace(result.best, features=[
+                s for s in result.best.features if s["name"] not in held])
         probs, out = {}, {"metric": self.metric}
+        if held:
+            out["held_back"] = sorted(held)
         for name, trial in configs.items():
             config = trial.config
+            train, val = self._datasets(trial.features)
             model = train_pipeline(
-                config, self.space, self.train_dataset, self.val_dataset,
-                self.metric, self.seed, self.device,
+                config, self.space, train, val, self.metric, self.seed, self.device,
             )
-            y_true, y_prob, patient_ids = predict(model, test_dataset)
+            test_ds = self._test_dataset(trial.features, test_dataset, train)
+            y_true, y_prob, patient_ids = predict(model, test_ds)
             probs[name] = y_prob
             groups = np.asarray(patient_ids) if patient_ids else None
             if self.mode == "binary":
@@ -753,7 +1183,7 @@ class AutoImprover:
                     dict(target.config.train_params),
                 )
                 getattr(reverted, group)[name] = ref_params[name]
-                scored = self._score(reverted)
+                scored = self._score(reverted, target.features)
                 row = {"setting": name, "from": ref_params[name], "to": value,
                        "score_without": scored["score"],
                        "fold_scores_without": scored["fold_scores"]}
@@ -778,17 +1208,18 @@ class AutoImprover:
                 json.dump(out, f, indent=1, default=str)
         return out
 
-    def _score(self, config: PipelineConfig) -> dict[str, Any]:
+    def _score(self, config: PipelineConfig, features=()) -> dict[str, Any]:
         config, _ = self.space.validate(config)
+        train, val = self._datasets(list(features))
         if self.folds is not None:
             out = run_config_cv(
-                config, self.space, self.train_dataset, self.val_dataset,
-                self.metric, self.folds, (), self.seed, self.device,
+                config, self.space, train, val, self.metric, self.folds, (),
+                self.seed, self.device,
             )
         else:
             out = run_config(
-                config, self.space, self.train_dataset, self.val_dataset,
-                self.metric, (), self.seed, self.device,
+                config, self.space, train, val, self.metric, (), self.seed,
+                self.device,
             )
         return {"score": out["metrics"][self.metric],
                 "fold_scores": out.get("fold_scores", [])}
@@ -828,34 +1259,45 @@ class AutoImprover:
         if result.best is None:
             raise ValueError("no successful trial to explain")
         config = result.best.config
+        train, val = self._datasets(result.best.features)
+        extra = {
+            s["name"]: FeatureInfo(
+                s.get("definition", s["name"]), "engineered",
+                s.get("direction", "") if s.get("direction", "") in DIRECTIONS else "",
+                rationale=s.get("rationale", ""))
+            for s in result.best.features
+        }
 
-        def ranked(model):
-            attrib = attributions(model, self.train_dataset, max_samples=max_samples)
+        def ranked(model, data):
+            attrib = attributions(model, data, max_samples=max_samples)
             names = getattr(model, "feature_names", None)
             fields = getattr(model, "feature_layout", None)
-            by_field = None
+            by_field = {"engineered": list(extra)} if extra else None
             if names and fields:
                 by_field, start = {}, 0
                 for entry in fields:
                     width = entry.get("width") or 0
                     by_field[entry["key"]] = list(names[start:start + width])
                     start += width
-            return summarize(attrib, self.task_card, by_field, top_k=top_k)
+                if "engineered" in by_field and extra:
+                    by_field["engineered"] = list(extra)
+            return summarize(attrib, self.task_card, by_field, top_k=top_k,
+                             extra=extra)
 
-        model = train_pipeline(config, self.space, self.train_dataset,
-                               self.val_dataset, self.metric, self.seed, self.device)
-        out = ranked(model)
+        model = train_pipeline(config, self.space, train, val, self.metric,
+                               self.seed, self.device)
+        out = ranked(model, train)
         out["trial_id"] = result.best.trial_id
         if stability and self.folds is not None and out["features"]:
             tops = []
-            everything = np.arange(len(self.train_dataset))
+            everything = np.arange(len(train))
             for held_out in self.folds:
-                part = self.train_dataset.subset(
-                    np.setdiff1d(everything, held_out).tolist()
-                )
-                fold_model = train_pipeline(config, self.space, part, self.val_dataset,
+                part, _, part_val = fold_parts(
+                    train, val, np.setdiff1d(everything, held_out).tolist(),
+                    held_out.tolist())
+                fold_model = train_pipeline(config, self.space, part, part_val,
                                             self.metric, self.seed, self.device)
-                tops.append([f["name"] for f in ranked(fold_model)["features"]])
+                tops.append([f["name"] for f in ranked(fold_model, part)["features"]])
             out["stability"] = top_overlap([f["name"] for f in out["features"]], tops)
         if self.run_dir:
             os.makedirs(self.run_dir, exist_ok=True)
@@ -881,11 +1323,28 @@ class AutoImprover:
         from .report import flags_for
 
         review = self._read_json("review.json") or {}
+        best = self.result().best
+        suspicious = sorted({name for t in self.trials for name in t.suspicious
+                             if best is not None and name in {
+                                 s["name"] for s in best.features}})
         return [
             {**flag, "review": review.get(flag["id"])}
             for flag in flags_for(self.task_card, self._read_json("explain.json"),
-                                  self._read_json("test.json"))
+                                  self._read_json("test.json"), suspicious)
         ]
+
+    def _held_back(self, best: Trial | None) -> set[str]:
+        """Engineered features of the selection with an open review flag."""
+        if best is None or not best.features:
+            return set()
+        names = {s["name"] for s in best.features}
+        held = set()
+        for flag in self.flags():
+            kind, _, name = flag["id"].partition(":")
+            if (kind in ("direction", "no_rationale", "suspicion") and name in names
+                    and (flag.get("review") or {}).get("decision") != "approved"):
+                held.add(name)
+        return held
 
     def approve(
         self,
@@ -956,6 +1415,8 @@ class AutoImprover:
             dropped_models=self.dropped_models, rule=self.selection_rule(),
             card=self.task_card, explanation=self._read_json("explain.json"),
             review=self._read_json("review.json") or {},
+            confirmed=self.confirmed, pruning=self._read_json("prune.json"),
+            confirm_se=self.confirm_se,
         )
         if path is None and self.run_dir:
             path = os.path.join(self.run_dir, "report.html")
@@ -985,6 +1446,10 @@ class AutoImprover:
         if os.path.exists(lessons_file):
             with open(lessons_file) as f:
                 self.lessons = list(json.load(f))
+        confirmed = self._read_json("confirm.json")
+        if confirmed and not self.confirmed:
+            self.confirmed = {int(k): v for k, v in confirmed["scores"].items()}
+            self.pruned_id = (self._read_json("prune.json") or {}).get("pruned_trial")
 
     def _run_settings(self) -> dict[str, Any]:
         """The settings a resumed run must share with the trials it continues."""
@@ -1043,7 +1508,7 @@ class AutoImprover:
             "cv_folds": self.cv_folds, "promote_se": self.promote_se,
             "one_se": self.one_se, "seed": self.seed,
             "models": sorted(self.space.models), "rule": self.selection_rule(),
-            "dropped_models": self.dropped_models,
+            "dropped_models": self.dropped_models, "confirm_se": self.confirm_se,
         }
         with open(os.path.join(self.run_dir, "run.json"), "w") as f:
             json.dump(settings, f, indent=1)
@@ -1191,7 +1656,8 @@ def select_simplest(
     2. The top candidate is the one with the best mean score.
     3. The selection is the candidate on the lowest ``rung`` whose score is
        at most one paired standard error below the top candidate's; among
-       those, the one with the best mean.
+       those, the one with the fewest engineered features, then the best
+       mean.
 
     Without fold scores, the best score is both selected and top.
 
@@ -1251,8 +1717,27 @@ def select_simplest(
         return gap <= se
 
     near = [t for t in candidates if within(t)]
-    selected = min(near, key=lambda t: (rung(t.config), -sign * t.score))
+    # simpler wins: the lower rung, then fewer engineered features
+    selected = min(near, key=lambda t: (rung(t.config), len(t.features),
+                                        -sign * t.score))
     return selected, top
+
+
+def _key(config: PipelineConfig, features: Sequence[dict[str, Any]]) -> str:
+    """A trial's identity: its config and the names of its features."""
+    names = sorted(str(s.get("name", "")) for s in features)
+    return config.key() + ("|" + ",".join(names) if names else "")
+
+
+def _feature_groups(best: Trial, trials: Sequence[Trial]) -> list[tuple[int, list[str]]]:
+    """The selected trial's features, grouped by the accepted trial that added them."""
+    groups: dict[int, list[str]] = {}
+    for spec in best.features:
+        name = spec["name"]
+        owner = next((t.trial_id for t in trials if name in t.added and t.accepted),
+                     -1 - len(groups))
+        groups.setdefault(owner, []).append(name)
+    return list(groups.items())
 
 
 def _parent_of(config: PipelineConfig, trials: Sequence[Trial]) -> Trial | None:
