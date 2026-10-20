@@ -129,6 +129,18 @@ class PositionalEncoding(nn.Module):
 
 
 class BIOTEncoder(nn.Module):
+    """Encoder for multichannel biosignals.
+
+    Examples:
+        >>> _ = _get_linear_attention_transformer()
+        >>> encoder = BIOTEncoder(
+        ...     emb_size=128, heads=8, depth=2, n_channels=18
+        ... )
+        >>> signal = torch.randn(2, 18, 2000)
+        >>> encoder(signal).shape
+        torch.Size([2, 128])
+    """
+
     def __init__(
         self,
         emb_size=256,
@@ -158,7 +170,7 @@ class BIOTEncoder(nn.Module):
         self.positional_encoding = PositionalEncoding(emb_size)
 
         # channel token, N_channels >= your actual channels
-        self.channel_tokens = nn.Embedding(n_channels, 256)
+        self.channel_tokens = nn.Embedding(n_channels, emb_size)
         self.index = nn.Parameter(
             torch.LongTensor(range(n_channels)), requires_grad=False
         )

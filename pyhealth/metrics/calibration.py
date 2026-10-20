@@ -137,6 +137,12 @@ def ece_confidence_binary(prob:np.ndarray, label:np.ndarray, bins=20, adaptive=F
 
     Similar to :func:`ece_confidence_multiclass`, but on class 1 instead of the top-prediction.
 
+    Examples:
+        >>> prob = np.array([0.1, 0.8])
+        >>> label = np.array([0, 1])
+        >>> ece = ece_confidence_binary(prob, label, bins=2)
+        >>> 0.0 <= ece <= 1.0
+        True
 
     Args:
         prob (np.ndarray): (N, C)
@@ -147,7 +153,13 @@ def ece_confidence_binary(prob:np.ndarray, label:np.ndarray, bins=20, adaptive=F
             of points. Defaults to False.
     """
 
-    df = pd.DataFrame({'acc': label[:,0], 'conf': prob[:,0]})
+    prob = np.asarray(prob)
+    label = np.asarray(label)
+
+    conf = prob[:, 0 if prob.shape[1] == 1 else 1] if prob.ndim > 1 else prob
+    acc = label[:, 0 if label.shape[1] == 1 else 1] if label.ndim > 1 else label
+    
+    df = pd.DataFrame({'acc': acc, 'conf': conf})
     return _ECE_confidence(df, bins, adaptive)[1]
 
 def ece_classwise(prob, label, bins=20, threshold=0., adaptive=False):
