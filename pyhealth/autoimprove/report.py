@@ -24,6 +24,8 @@ from dataclasses import dataclass, field
 from itertools import combinations
 from typing import Any
 
+from pyhealth.tasks.task_card import DIRECTIONS, TaskCard
+
 from .space import LADDER, PipelineConfig, SearchSpace, config_diff, with_xgboost
 
 EVIDENCE = {
@@ -143,7 +145,8 @@ def load_run(
     """Builds the report of a run from its directory alone.
 
     Reads ``trials.jsonl`` and, when present, ``run.json``, ``lessons.json``,
-    ``attribution.json`` and ``test.json``. Runs written before ``run.json``
+    ``card.json``, ``attribution.json``, ``explain.json``, ``test.json`` and
+    ``review.json``. Runs written before ``run.json``
     existed need ``metric`` (and ``maximize`` for a metric where lower is
     better).
 
@@ -182,6 +185,8 @@ def load_run(
         test=read("test.json"), attribution=read("attribution.json"),
         dropped_models=settings.get("dropped_models", {}),
         rule=settings.get("rule", ""), title=title,
+        card=read("card.json"), explanation=read("explain.json"),
+        review=read("review.json", {}),
     )
 
 
@@ -200,6 +205,9 @@ def build_report(
     dropped_models: dict[str, str] | None = None,
     rule: str = "",
     title: str = "AutoImprove report",
+    card: Any = None,
+    explanation: dict[str, Any] | None = None,
+    review: dict[str, Any] | None = None,
 ) -> Report:
     """Builds a report from a run's trials and, optionally, its test and attribution.
 
@@ -218,6 +226,9 @@ def build_report(
         dropped_models: Models removed before the search, with the error.
         rule: The selection rule in words.
         title: The report title.
+        card: The task's :class:`~pyhealth.tasks.TaskCard` (or its dict).
+        explanation: The result of ``AutoImprover.explain``.
+        review: Clinician decisions on flags, from ``AutoImprover.approve``.
 
     Examples:
         >>> from pyhealth.autoimprove import Trial
@@ -229,6 +240,9 @@ def build_report(
     from .improver import FOLD_TIE, paired_gain, select_simplest, select_trial
 
     space = space or with_xgboost(SearchSpace())
+    if isinstance(card, dict):
+        card = TaskCard.from_dict(card)
+    review = review or {}
     sign = 1 if maximize else -1
     done = [t for t in trials if t.error is None and t.score is not None]
     if not done:
@@ -263,7 +277,7 @@ def build_report(
     }
     near = {
         t.trial_id for t in done
-        if t.trial_id in candidates and (t is top or (cv and vs(top, t)[0] < vs(top, t)[1]))
+        if t.trial_id in candidates and (t is top or (cv and vs(top, t)[0] <= vs(top, t)[1]))
     }
     ctx = {
         "metric": metric, "sign": sign, "reference": reference, "selected": selected,
@@ -272,14 +286,20 @@ def build_report(
         "one_se": one_se, "done": done, "baseline": baseline,
         "start": "start" if baseline else "first trial",
     }
+    flags = [{**f, "review": review.get(f["id"])}
+             for f in flags_for(card, explanation, test)]
     sections = [
-        _summary(ctx, test),
-        _task_section(task, dropped_models or {}),
+        _summary(ctx, test, flags),
+        _task_section(task, dropped_models or {}, card),
         _model_section(ctx, rule, attribution, test),
-        _trace_section(ctx, trials, lessons),
     ]
+    if explanation:
+        sections.append(_decides_section(explanation))
     if test:
         sections.append(_test_section(ctx, test))
+    sections.append(_trace_section(ctx, trials, lessons))
+    sections.append(_review_section(flags))
+    sections.append(_checklist_section(ctx, card, explanation, test, attribution))
     sections.append(Section("How to read this report", [
         ("list", [f"**{k}**: {v}." for k, v in EVIDENCE.items()]),
         ("p", "Scores are cross-validation means over patient-grouped folds of "
@@ -300,13 +320,15 @@ def build_report(
                     for x in lessons],
         "attribution": attribution, "test": test, "task": task,
         "dropped_models": dropped_models or {},
+        "card": card.to_dict() if card is not None else None,
+        "explanation": explanation, "flags": flags,
         "trials": [t.to_dict() for t in trials],
     }
     return Report(title, sections, data)
 
 
 # ----------------------------------------------------------------- sections
-def _summary(ctx, test) -> Section:
+def _summary(ctx, test, flags) -> Section:
     sel, ref, metric = ctx["selected"], ctx["reference"], ctx["metric"]
     space = ctx["space"]
     blocks = [("p", (f"**Selected: #{sel.trial_id}, "
@@ -320,15 +342,44 @@ def _summary(ctx, test) -> Section:
             if "difference" in test:
                 line += f"; difference {_ci(test['difference'], signed=True)}"
         blocks.append(("p", line + ". *(measured)*"))
+        clinical = b.get("clinical")
+        if clinical:
+            blocks.append(("p", _clinical_line(clinical) + " *(measured)*"))
     blocks.append(("p", "**Why this model.** " + _why(ctx)))
+    open_flags = [f for f in flags if not f.get("review")]
+    if flags:
+        blocks.append(("p", (f"**Clinical review.** {len(flags)} item(s) flagged for a "
+                             f"clinician, {len(open_flags)} still open: see "
+                             "*Clinician review*.")))
     return Section("Summary", blocks)
 
 
-def _task_section(task: str, dropped: dict[str, str]) -> Section:
+def _task_section(task: str, dropped: dict[str, str], card) -> Section:
     blocks = []
+    if card is not None:
+        rows = [[name, item["text"], item["rationale"] or "-"]
+                for name, item in card.design()]
+        if rows:
+            blocks += [("p", "**The task's design**, from its task card:"),
+                       ("table", ["choice", "what", "why"], rows)]
+        if card.features:
+            by_group: dict[str, int] = {}
+            for info in card.features.values():
+                by_group[info.group or "no group"] = by_group.get(
+                    info.group or "no group", 0) + 1
+            with_direction = sum(1 for i in card.features.values() if i.direction)
+            blocks.append(("p", (
+                f"**Feature dictionary:** {len(card.features)} features ("
+                + ", ".join(f"{g} {n}" for g, n in sorted(by_group.items()))
+                + f"); {with_direction} with an expected direction of effect.")))
+        if card.notes:
+            blocks.append(("p", f"**Notes.** {card.notes}"))
+    else:
+        blocks.append(("p", ("No task card was given, so the cohort, outcome and "
+                             "features have no recorded rationale.")))
     lines = [x.strip().removeprefix("- ") for x in task.splitlines() if x.strip()]
     if lines:
-        blocks.append(("list", lines))
+        blocks += [("p", "**Data the search used:**"), ("list", lines)]
     else:
         blocks.append(("p", "No task description was recorded for this run."))
     if dropped:
@@ -482,18 +533,26 @@ def _trace_section(ctx, trials, lessons) -> Section:
 
 def _test_section(ctx, test) -> Section:
     metric = test.get("metric", ctx["metric"])
-    rows = []
     names = {"best": "selected", "baseline": "starting pipeline",
              "top": "highest-scoring candidate"}
-    for key, name in names.items():
-        if key in test:
-            r = test[key]
-            trial = f"#{r['trial_id']}" if "trial_id" in r else ""
-            rows.append([name, trial, r.get("config", {}).get("model", ""), _ci(r)])
+    present = [(k, n) for k, n in names.items() if k in test]
+    rows = []
+    for key, name in present:
+        r = test[key]
+        trial = f"#{r['trial_id']}" if "trial_id" in r else ""
+        row = [name, trial, r.get("config", {}).get("model", ""), _ci(r)]
+        clinical = r.get("clinical")
+        if clinical:
+            prev = clinical["prevalence"]
+            row.append(f"{r['estimate'] / prev:.1f}×" if prev else "-")
+        rows.append(row)
+    headers = ["config", "trial", "model", f"test {metric}"]
+    if any(test[k].get("clinical") for k, _ in present):
+        headers.append("lift over prevalence")
     blocks = [("p", ("Each config was retrained on all training patients and "
                      "scored once on the test patients; intervals are "
                      "patient-level bootstrap 95% CIs. *(measured)*")),
-              ("table", ["config", "trial", "model", f"test {metric}"], rows)]
+              ("table", headers, rows)]
     diffs = []
     if "difference" in test:
         diffs.append(f"selected − starting pipeline: "
@@ -504,7 +563,259 @@ def _test_section(ctx, test) -> Section:
     if diffs:
         blocks += [("p", "Paired differences on the same test patients:"),
                    ("list", diffs)]
-    return Section("Test comparison", blocks)
+    clinical = {k: test[k]["clinical"] for k, _ in present if test[k].get("clinical")}
+    if "best" not in clinical:
+        return Section("Performance in clinical terms", blocks)
+    sel = clinical["best"]
+    n_text = f"{sel['n']}" if sel["n"] is not None else "fewer than 11"
+    blocks.append(("p", (f"Test set: {n_text} patients, prevalence "
+                         f"{sel['prevalence']:.1%}.")))
+    cal_rows = []
+    for key, name in present:
+        if key in clinical:
+            c = clinical[key]["calibration"]
+            cal_rows.append([name, f"{c.get('oe_ratio', float('nan')):.2f}",
+                             f"{c.get('calibration_slope', float('nan')):.2f}",
+                             f"{c.get('calibration_intercept', float('nan')):+.2f}",
+                             f"{c.get('brier', float('nan')):.3f}"])
+    blocks += [("p", ("**Calibration**: observed / expected events (ideal 1), "
+                      "slope (ideal 1; below 1 means predictions are too "
+                      "extreme) and intercept (ideal 0). *(measured)*")),
+               ("table", ["config", "observed / expected", "slope", "intercept",
+                          "Brier"], cal_rows)]
+    if sel["calibration_bins"]:
+        blocks.append(("table", ["predicted risk (bin mean)", "observed rate",
+                                 "test samples"],
+                       [[f"{b['mean_predicted']:.1%}", f"{b['observed']:.1%}",
+                         b["n"]] for b in sel["calibration_bins"]]))
+    alert_rows = []
+    for label, a in sel["alerts"].items():
+        if a.get("suppressed"):
+            alert_rows.append([label, "fewer than 11", "-", "-", "-"])
+            continue
+        base = clinical.get("baseline", {}).get("alerts", {}).get(label, {})
+        tail = (f" (start: {base['sensitivity']:.0%})"
+                if base and not base.get("suppressed") else "")
+        alert_rows.append([label, a["n_flagged"], f"{a['sensitivity']:.0%}{tail}",
+                           f"{a['ppv']:.0%}", f"{a['nne']:.1f}"])
+    blocks += [("p", ("**Acting on the highest risks**: flag the top share of test "
+                      "samples by predicted risk. Sensitivity is the share of all "
+                      "events caught, PPV the share of flags that are events, and "
+                      "NNE the flags per event caught. *(measured)*")),
+               ("table", ["flag", "samples flagged", "sensitivity", "PPV", "NNE"],
+                alert_rows)]
+    nb_rows = []
+    base_nb = {r["threshold"]: r for r in clinical.get("baseline", {}).get(
+        "net_benefit", [])}
+    for r in sel["net_benefit"]:
+        b = base_nb.get(r["threshold"])
+        nb_rows.append([f"{r['threshold']:.1%}", f"{r['model']:+.4f}",
+                        f"{b['model']:+.4f}" if b else "-", f"{r['treat_all']:+.4f}"])
+    blocks += [("p", ("**Net benefit** at risk thresholds where one might act "
+                      "(decision curve): true positives per patient minus false "
+                      "positives weighted by the threshold odds. Acting on no one "
+                      "scores 0. It takes predicted risks at face value, so a model "
+                      "whose risks are inflated (observed / expected well below 1) "
+                      "acts on too many patients at each threshold; compare after "
+                      "recalibration. *(measured)*")),
+               ("table", ["threshold", "selected", "starting pipeline",
+                          "act on everyone"], nb_rows)]
+    sub_rows, gaps = [], []
+    for attribute, sub in sel["subgroups"].items():
+        for value, r in sub["groups"].items():
+            sub_rows.append([
+                attribute, value,
+                r["n"] if r["n"] is not None else "fewer than 11",
+                r["positives"] if r["positives"] is not None else "fewer than 11",
+                f"{r['roc_auc']:.3f}" if "roc_auc" in r else "too few events",
+                f"{r['pr_auc']:.3f}" if "pr_auc" in r else "-",
+                f"{r['oe_ratio']:.2f}" if "oe_ratio" in r else "-",
+            ])
+        for metric_name, gap in sub["max_gap"].items():
+            gaps.append(f"{attribute}: largest {metric_name} gap {gap:.3f}")
+    if sub_rows:
+        blocks += [("p", "**Subgroups** (counts are patients). *(measured)*"),
+                   ("table", ["attribute", "group", "n", "events", "ROC-AUC",
+                              "PR-AUC", "observed / expected"], sub_rows)]
+        if gaps:
+            blocks.append(("list", gaps))
+    return Section("Performance in clinical terms", blocks)
+
+
+def _decides_section(explanation) -> Section:
+    blocks = [("p", (f"How the selected model (#{explanation.get('trial_id')}) "
+                     f"weighs its inputs, from {explanation['method']} on "
+                     f"{explanation['n_samples']} training samples. Contributions "
+                     "are on the log-odds scale. *(measured)*"))]
+    if explanation["groups"]:
+        blocks.append(("table", ["clinical factor group", "share of importance"],
+                       [[g["group"], f"{g['share']:.0%}"]
+                        for g in explanation["groups"]]))
+    rows, shapes = [], []
+    for i, f in enumerate(explanation["features"], 1):
+        rows.append([i, f["name"], f["meaning"] or "-", f["group"] or "-",
+                     f"{f['share']:.1%}", _direction(f["learned"]),
+                     _direction(f["expected"]), f["check"]])
+        if f["bins"]:
+            shapes.append(f"{f['name']}: " + "; ".join(
+                f"{b['label']}: {b['effect']:+.2f}" for b in f["bins"]))
+    if rows:
+        blocks += [("p", ("**Top features**, with the direction the model learned "
+                          "and the direction the task card expects:")),
+                   ("table", ["#", "feature", "meaning", "group", "importance",
+                              "learned", "expected", "check"], rows)]
+    if shapes:
+        blocks += [("p", ("**Effect shapes**: mean contribution by value bin; every "
+                          "bin holds at least 11 patients and its cut points are "
+                          "midpoints, not patient values.")),
+                   ("list", shapes)]
+    stability = explanation.get("stability")
+    if stability and stability.get("mean_shared") is not None:
+        blocks.append(("p", (f"**Stability:** across {stability['models']} fold "
+                             f"models, on average {stability['mean_shared']:.1f} of "
+                             f"the top {stability['k']} features are shared (at "
+                             f"least {stability['min_shared']}). *(tested)*")))
+    if explanation.get("skipped"):
+        blocks.append(("p", "Not attributed per column: " + ", ".join(
+            f"{k} ({v})" for k, v in explanation["skipped"].items()) + "."))
+    return Section("How it decides", blocks)
+
+
+def _review_section(flags) -> Section:
+    if not flags:
+        return Section("Clinician review", [("p", "Nothing was flagged.")])
+    rows = []
+    for f in flags:
+        r = f.get("review")
+        status = (f"{r['decision']} by {r['reviewer']} on {r['date']}"
+                  + (f": {r['note']}" if r.get("note") else "")) if r else "open"
+        rows.append([f["id"], f["detail"], status])
+    return Section("Clinician review", [
+        ("p", ("Items a clinician should decide on before the model is used. "
+               "Record decisions with ``AutoImprover.approve``.")),
+        ("table", ["flag", "why", "decision"], rows),
+    ])
+
+
+def _checklist_section(ctx, card, explanation, test, attribution) -> Section:
+    clinical = (test or {}).get("best", {}).get("clinical")
+    subgroups = bool(clinical and clinical.get("subgroups"))
+    missing = "not covered"
+
+    def where(ok, text, hint):
+        return text if ok else f"{missing}: {hint}"
+
+    rows = [
+        ("Data source and setting", where(card is not None, "Task and data",
+                                          "give a task card")),
+        ("Eligibility of participants", where(
+            card is not None and bool(card.population["text"]),
+            "Task and data: population and exclusions", "give a task card")),
+        ("Outcome: definition and timing", where(
+            card is not None and bool(card.outcome["text"]),
+            "Task and data: outcome, prediction time, horizon", "give a task card")),
+        ("Predictors: definition and timing", where(
+            card is not None and bool(card.features),
+            "Task and data: feature dictionary", "add features to the task card")),
+        ("Sample size and number of events", "Task and data: data the search used"),
+        ("Handling of missing data", where(
+            card is not None and bool(card.notes), "Task and data: notes",
+            "describe it in the task card notes")),
+        ("Model type, predictor selection and tuning",
+         "The model and why; Reasoning trace"),
+        ("Internal validation", "patient-grouped cross-validation (The model and why)"
+         if ctx["cv"] else "validation split"),
+        ("Class imbalance", "The model and why: settings in plain words"),
+        ("Model specification", "The model and why" + (
+            ", with the attribution of each setting" if attribution else "")),
+        ("Discrimination and calibration, with uncertainty", where(
+            bool(clinical), "Performance in clinical terms",
+            "run evaluate_on_test")),
+        ("Clinical utility", where(bool(clinical), "Performance in clinical terms: "
+                                   "alerts and net benefit", "run evaluate_on_test")),
+        ("Fairness: performance in subgroups", where(
+            subgroups, "Performance in clinical terms: subgroups",
+            "pass subgroups to evaluate_on_test")),
+        ("Interpretability: what drives predictions", where(
+            bool(explanation), "How it decides", "run explain")),
+        ("Limitations, ethics, open science, patient and public involvement",
+         f"{missing}: for the authors"),
+    ]
+    return Section("Reporting checklist", [
+        ("p", ("Where this report covers the main items of the TRIPOD+AI "
+               "reporting guideline for prediction models (Collins et al., BMJ "
+               "2024). Item names are paraphrased; check the published checklist "
+               "for the full items.")),
+        ("table", ["item", "where"], [list(r) for r in rows]),
+    ])
+
+
+def flags_for(card, explanation, test) -> list[dict[str, str]]:
+    """Items for clinician review, from the task card, explanation and test.
+
+    Examples:
+        >>> [f["id"] for f in flags_for(None, None, None)]
+        ['no_task_card']
+    """
+    out = []
+    if card is None:
+        out.append({"id": "no_task_card", "kind": "task",
+                    "detail": "No task card: the cohort, outcome and features have "
+                              "no recorded clinical rationale."})
+    for f in (explanation or {}).get("features", []):
+        if f["check"] == "opposite":
+            out.append({
+                "id": f"direction:{f['name']}", "kind": "direction",
+                "detail": (f"{f['name']}: learned {_direction(f['learned'])}, "
+                           f"expected {_direction(f['expected'])}. Possible causes: "
+                           "a wrong expectation, confounding by indication, overlap "
+                           "with a related feature (e.g. the lowest and highest "
+                           "value of one measure), a coding artifact, a data error "
+                           "or leakage."),
+            })
+        elif card is not None and not f["in_card"]:
+            out.append({"id": f"no_rationale:{f['name']}", "kind": "rationale",
+                        "detail": f"{f['name']} is a top feature with no entry in "
+                                  "the task card's dictionary."})
+    clinical = (test or {}).get("best", {}).get("clinical")
+    if clinical:
+        cal = clinical["calibration"]
+        slope, oe = cal.get("calibration_slope"), cal.get("oe_ratio")
+        bad = [x for x in (slope, oe) if x is not None and not 0.8 <= x <= 1.25]
+        if bad:
+            out.append({"id": "calibration", "kind": "calibration",
+                        "detail": (f"Calibration slope {slope:.2f}, observed / "
+                                   f"expected {oe:.2f}: recalibrate before reading "
+                                   "predictions as risks.")})
+        for attribute, sub in clinical.get("subgroups", {}).items():
+            gap = sub["max_gap"].get("roc_auc")
+            if gap is not None and gap >= 0.1:
+                out.append({"id": f"subgroup_gap:{attribute}", "kind": "fairness",
+                            "detail": f"ROC-AUC differs by {gap:.2f} between "
+                                      f"{attribute} groups."})
+    return out
+
+
+def _clinical_line(clinical) -> str:
+    parts = []
+    alert = clinical["alerts"].get("top 10%")
+    if alert and not alert.get("suppressed"):
+        parts.append(f"Flagging the top 10% of test samples by risk would catch "
+                     f"{alert['sensitivity']:.0%} of events, with {alert['ppv']:.0%} "
+                     f"of flags being events")
+    cal = clinical["calibration"]
+    if "oe_ratio" in cal:
+        parts.append(f"observed / expected events {cal['oe_ratio']:.2f}, "
+                     f"calibration slope {cal.get('calibration_slope', float('nan')):.2f}")
+    return "; ".join(parts) + "." if parts else ""
+
+
+def _direction(code) -> str:
+    if code is None:
+        return "-"
+    words = {"+": "higher → more risk", "-": "higher → less risk",
+             "u": "U-shaped", "": "none", "flat": "flat"}
+    return words.get(code, DIRECTIONS.get(code, str(code)))
 
 
 # ------------------------------------------------------------------ helpers

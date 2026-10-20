@@ -2,13 +2,17 @@
 
 import importlib.util
 import json
+import math
 import os
 import random
+import re
 import sys
 import tempfile
 import unittest
 from types import SimpleNamespace
 from unittest import mock
+
+import numpy as np
 
 from pyhealth.autoimprove import (
     AutoImprover,
@@ -31,9 +35,12 @@ from pyhealth.autoimprove import (
     with_xgboost,
 )
 from pyhealth.autoimprove.evaluate import patient_folds
+from pyhealth.autoimprove.explain import attributions, summarize
 from pyhealth.autoimprove.proposers import ProposalContext, parse_json
 from pyhealth.datasets import create_sample_dataset
+from pyhealth.models import LogisticRegression
 from pyhealth.processors import BinaryLabelProcessor
+from pyhealth.tasks import FeatureInfo, TaskCard
 
 SPACE = SearchSpace(
     train_params={
@@ -795,9 +802,11 @@ class TestExplainedRuns(unittest.TestCase):
             self.assertEqual(test["metric"], "pr_auc")
             report = improver.report()
             titles = [s.title for s in report.sections]
-            self.assertEqual(titles[:4], ["Summary", "Task and data",
-                                          "The model and why", "Reasoning trace"])
-            self.assertIn("Test comparison", titles)
+            self.assertEqual(titles, [
+                "Summary", "Task and data", "The model and why",
+                "Performance in clinical terms", "Reasoning trace",
+                "Clinician review", "Reporting checklist", "How to read this report",
+            ])
             html_text = report.to_html()
             self.assertIn("<table>", html_text)
             self.assertIn("Why this model", html_text)
@@ -814,6 +823,125 @@ class TestExplainedRuns(unittest.TestCase):
         text = ("#1 scored 0.295 vs 0.216 (+0.079) with weight decay 0.01; "
                 "batch 32 dropped to 0.256")
         self.assertEqual(unverified_numbers(text, trials), ["0.256"])
+
+
+def _tabular(n, seed, offset=0):
+    """Three numeric columns: one raises risk, one lowers it, one is noise."""
+    rng = random.Random(seed)
+    out = []
+    for i in range(n):
+        x = [rng.gauss(0, 1) for _ in range(3)]
+        risk = 1 / (1 + math.exp(-(2.0 * x[0] - 1.5 * x[1])))
+        out.append({"patient_id": f"q{offset + i}", "tab": x,
+                    "label": int(rng.random() < risk)})
+    return out
+
+
+def _tabular_datasets():
+    schema = ({"tab": "tensor"}, {"label": "binary"})
+    train = create_sample_dataset(_tabular(300, 0), *schema)
+    kwargs = {"input_processors": train.input_processors,
+              "output_processors": train.output_processors}
+    val = create_sample_dataset(_tabular(80, 1, 1000), *schema, **kwargs)
+    test = create_sample_dataset(_tabular(200, 2, 2000), *schema, **kwargs)
+    return train, val, test
+
+
+# The card expects "protect" to raise risk; the data say it lowers it.
+CARD = TaskCard(
+    population=("synthetic patients", "a test of the explanation"),
+    outcome="a planted binary label",
+    features={
+        "risk_up": FeatureInfo("planted risk factor", "labs", "+"),
+        "protect": FeatureInfo("planted protective factor", "labs", "+"),
+        "noise": FeatureInfo("unrelated value", "other", ""),
+    },
+    columns={"tab": ["risk_up", "protect", "noise"]},
+    notes="No missing values.",
+)
+
+
+class TestClinicalReport(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.train, cls.val, cls.test = _tabular_datasets()
+
+    def test_explain_flags_review_and_privacy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            improver = AutoImprover(
+                self.train, self.val, RandomProposer(seed=0),
+                baseline=PipelineConfig("LogisticRegression", {"embedding_dim": 16},
+                                        {"epochs": 2}),
+                space=SPACE, n_agents=1, n_cycles=1, cv_folds=3, run_dir=tmp,
+                task_card=CARD,
+            )
+            improver.run()
+            explanation = improver.explain(top_k=3)
+            by_name = {f["name"]: f for f in explanation["features"]}
+            self.assertEqual(by_name["risk_up"]["learned"], "+")
+            self.assertEqual(by_name["risk_up"]["check"], "as expected")
+            self.assertEqual(by_name["protect"]["learned"], "-")
+            self.assertEqual(by_name["protect"]["check"], "opposite")
+            self.assertEqual(explanation["groups"][0]["group"], "labs")
+            self.assertEqual(explanation["stability"]["models"], 3)
+
+            ids = [f["id"] for f in improver.flags()]
+            self.assertIn("direction:protect", ids)
+            self.assertNotIn("direction:risk_up", ids)
+            improver.approve("direction:protect", "Dr. Test", "planted in the data")
+            flag = next(f for f in improver.flags() if f["id"] == "direction:protect")
+            self.assertEqual(flag["review"]["decision"], "approved")
+            with self.assertRaises(ValueError):
+                improver.approve("no_such_flag", "Dr. Test")
+
+            halves = ["early" if i < 100 else "late" for i in range(len(self.test))]
+            test = improver.evaluate_on_test(self.test, n_boot=50,
+                                             subgroups={"half": halves})
+            clinical = test["best"]["clinical"]
+            self.assertIn("calibration_slope", clinical["calibration"])
+            self.assertIn("half", clinical["subgroups"])
+
+            report = improver.report()
+            titles = [s.title for s in report.sections]
+            self.assertIn("How it decides", titles)
+            self.assertIn("Performance in clinical terms", titles)
+            text = report.to_markdown()
+            self.assertIn("approved by Dr. Test", text)
+            self.assertIn("planted protective factor", text)
+            self.assertIn("TRIPOD+AI", text)
+            self.assertEqual(load_run(tmp, space=SPACE).to_markdown(), text)
+
+            # Privacy: no patient ids, and every published cell has 11+ patients.
+            blob = report.to_json() + report.to_html()
+            self.assertIsNone(re.search(r"\bq\d+\b", blob))
+            for f in report.data["explanation"]["features"]:
+                self.assertTrue(all(b["n"] >= 11 for b in f["bins"]))
+            for sub in clinical["subgroups"].values():
+                for row in sub["groups"].values():
+                    self.assertTrue(row["n"] is None or row["n"] >= 11)
+            self.assertTrue(all(b["n"] >= 11 for b in clinical["calibration_bins"]))
+
+    def test_logistic_attributions_are_exact(self):
+        model = LogisticRegression(self.train, embedding_dim=8)
+        out = attributions(model, self.train, max_samples=100)
+        values = out["fields"]["tab"]["values"]
+        contribs = out["fields"]["tab"]["contributions"]
+        layer = model.embedding_model.embedding_layers["tab"]
+        weights = (model.fc.weight @ layer.weight).detach().numpy().ravel()
+        # integrated gradients start from the mean of the explained samples
+        expected = (values - values.mean(axis=0)) * weights
+        np.testing.assert_allclose(contribs, expected, atol=1e-4)
+
+    @unittest.skipUnless(importlib.util.find_spec("xgboost"), "needs xgboost")
+    def test_tree_attributions(self):
+        from pyhealth.models import XGBoostModel
+
+        model = XGBoostModel(self.train, n_estimators=50, max_depth=2).fit(self.train)
+        out = summarize(attributions(model, self.train), CARD, top_k=3)
+        self.assertTrue(out["method"].startswith("TreeSHAP"))
+        by_name = {f["name"]: f for f in out["features"]}
+        self.assertEqual(by_name["risk_up"]["learned"], "+")
+        self.assertEqual(by_name["protect"]["check"], "opposite")
 
 
 class TestClaudeLLM(unittest.TestCase):
