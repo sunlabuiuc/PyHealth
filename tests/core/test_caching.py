@@ -123,6 +123,7 @@ class TestCachingFunctionality(BaseTestCase):
             "num_workers",
             "input_processors",
             "output_processors",
+            "split",
         ]
         self.assertEqual(params, expected_params)
 
@@ -131,6 +132,7 @@ class TestCachingFunctionality(BaseTestCase):
         self.assertEqual(sig.parameters["num_workers"].default, None)
         self.assertEqual(sig.parameters["input_processors"].default, None)
         self.assertEqual(sig.parameters["output_processors"].default, None)
+        self.assertEqual(sig.parameters["split"].default, None)
 
     def test_set_task_writes_cache_and_metadata(self):
         """Ensure set_task materializes cache files and schema metadata."""

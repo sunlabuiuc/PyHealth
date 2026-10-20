@@ -176,6 +176,32 @@ class TestBIOT(unittest.TestCase):
 
         self.assertEqual(ret["logit"].shape[1], 1)
 
+    def test_model_non_default_emb_size(self):
+        """BIOT must honor a non-default emb_size.
+
+        Regression test: the channel-token embedding dimension was hardcoded
+        to 256, so it could not be added to the emb_size-dimensional spectral
+        embedding when emb_size != 256, crashing the forward pass.
+        """
+        model = BIOT(
+            dataset=self.dataset,
+            emb_size=128,
+            heads=8,
+            depth=2,
+            n_fft=200,
+            hop_length=100,
+            n_channels=18,
+        )
+        self.assertEqual(model.biot.biot.channel_tokens.weight.shape[1], 128)
+
+        train_loader = get_dataloader(self.dataset, batch_size=2, shuffle=False)
+        data_batch = next(iter(train_loader))
+        ret = model(**data_batch)
+        ret["loss"].backward()
+
+        expected_size = self.dataset.output_processors["label"].size()
+        self.assertEqual(ret["logit"].shape[1], expected_size)
+
     def test_model(self):
         """Test BIOT"""
         model_small = BIOT(

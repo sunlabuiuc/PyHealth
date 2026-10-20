@@ -18,6 +18,11 @@ class SufficiencyMetric(RemovalBasedMetric):
     features are KEPT (all others removed). Lower scores indicate more
     faithful interpretations.
 
+    Paper:
+        DeYoung, Jay, Sarthak Jain, Nazneen Fatema Rajani, Eric Lehman,
+        Caiming Xiong, Richard Socher, and Byron C. Wallace.
+        "ERASER: A Benchmark to Evaluate Rationalized NLP Models." ACL 2020.
+
     The metric is computed as:
         SUFF = (1/|B|) × Σ[p_c(x)(x) - p_c(x)(x:q%)]
                         q∈B
