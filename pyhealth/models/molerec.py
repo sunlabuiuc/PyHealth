@@ -628,7 +628,14 @@ class MoleRec(BaseModel):
         
         # check if we have valid molecular data (not just dummy data)
         self.has_valid_smiles = len(self.substructure_smiles) > 1
-        
+
+        # Fallback predictor used when there is no valid molecular data. It must
+        # be created here (not lazily in forward) so its parameters are
+        # registered before the optimizer is built; otherwise it never trains.
+        # patient_emb is [condition_emb | procedure_emb], i.e. hidden_dim * 2.
+        if not self.has_valid_smiles:
+            self.simple_predictor = torch.nn.Linear(hidden_dim * 2, self.label_size)
+
         self.substructure_graphs = StaticParaDict(
             **graph_batch_from_smiles(self.substructure_smiles)
         )
@@ -810,12 +817,9 @@ class MoleRec(BaseModel):
             batch_indices = torch.arange(patient_emb.size(0)).to(self.device)
             last_patient_emb = patient_emb[batch_indices, last_visit_mask]
             
-            # simple linear projection from patient embedding to drug predictions
-            if not hasattr(self, 'simple_predictor'):
-                self.simple_predictor = torch.nn.Linear(
-                    patient_emb.size(-1), self.label_size
-                ).to(self.device)
-            
+            # simple linear projection from patient embedding to drug
+            # predictions (self.simple_predictor is created in __init__ so its
+            # parameters are registered with the optimizer).
             logits = self.simple_predictor(last_patient_emb)
             y_prob = torch.sigmoid(logits)
             loss = binary_cross_entropy_with_logits(logits, y_true)

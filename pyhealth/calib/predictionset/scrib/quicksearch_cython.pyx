@@ -26,7 +26,7 @@ cdef int _update_counts(int pred, int truth, int* err, int* sure, int inc):
 cdef double loss_overall_helper__(int total_err, int total_sure, double alpha, int N,
                                  double la, double lc, double lcs):
     #if total_sure == 0: return np.inf
-    cdef double a_loss = (1. - total_sure / <double> N) ** 2
+    cdef double a_loss = (1. - total_sure / <double> N)
     cdef double tempf = total_err / <double> max(total_sure,1) - alpha
     cdef double c_loss = max(tempf, 0.) ** 2
     cdef double cs_loss = tempf ** 2

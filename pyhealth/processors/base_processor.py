@@ -1,8 +1,24 @@
 from abc import ABC, abstractmethod
 from enum import Enum
+import logging
 from typing import Any, Dict, List, Iterable
 
 import torch
+
+logger = logging.getLogger(__name__)
+
+
+def _warn_truncated(processor: Any, what: str, got: int, limit: int) -> None:
+    """Logs once per processor that an input was cut to the fitted width."""
+    if getattr(processor, "_warned_truncation", False):
+        return
+    processor._warned_truncation = True
+    logger.warning(
+        "%s: an input has %d %s, more than the %d seen in fit(); keeping the "
+        "first %d. Inputs longer than the fitted data are truncated so every "
+        "sample has the same shape. Pass a larger `padding` to keep more.",
+        type(processor).__name__, got, what, limit, limit,
+    )
 
 
 class ModalityType(str, Enum):
@@ -47,7 +63,37 @@ class FeatureProcessor(Processor):
     Processor for individual fields (features).
 
     Example: Tokenization, image loading, normalization.
+
+    Set ``learns_statistics = True`` on processors whose ``fit()`` learns values
+    from the data (means, standard deviations, medians, bins). Fitting such a
+    processor on all samples leaks validation/test information, so PyHealth
+    warns unless it is fitted on a training split
+    (``set_task(task, split=PatientSplit(...))``).
+
+    Set ``stores_tensor = True`` only if ``process()`` always returns a single
+    ``torch.Tensor``. Such fields are written to the disk cache as tensors;
+    every other output (lists, tuples, dicts, strings, None, objects) is
+    stored as one pickled value per sample, so it may vary freely in length
+    and shape between samples.
+
+    Examples:
+        >>> import torch
+        >>> from pyhealth.processors.base_processor import FeatureProcessor
+        >>> class MeanCenter(FeatureProcessor):
+        ...     learns_statistics = True
+        ...     def fit(self, samples, field):
+        ...         values = [s[field] for s in samples]
+        ...         self.mean = sum(values) / len(values)
+        ...     def process(self, value):
+        ...         return torch.tensor(value - self.mean)
+        >>> p = MeanCenter()
+        >>> p.fit([{"x": 1.0}, {"x": 3.0}], "x")
+        >>> p.process(5.0)
+        tensor(3.)
     """
+
+    learns_statistics: bool = False
+    stores_tensor: bool = False
 
     def fit(self, samples: Iterable[Dict[str, Any]], field: str) -> None:
         """Fit the processor to the samples.
