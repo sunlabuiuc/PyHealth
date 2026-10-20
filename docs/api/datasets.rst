@@ -230,6 +230,20 @@ Each event in the returned list has:
 - ``event.icd_code``, ``event["icd_code"]``, ``event.attr_dict`` — different
   ways to access the other attributes. All attribute names are lowercase.
 
+Shuffling and Reproducibility
+-----------------------------
+
+``get_dataloader(dataset, batch_size, shuffle=True, seed=None)`` gives each
+loader its own shuffle order: the same ``seed`` gives the same sequence of
+epoch orders, a different seed a different one, and each epoch is reshuffled.
+With ``seed=None`` the seed is drawn from torch's random generator when the
+loader is created, so ``torch.manual_seed(...)`` alone makes runs
+reproducible. This also holds with ``num_workers > 0``. Each loader applies
+its own settings to the dataset at the start of every pass, so an unshuffled
+evaluation loader on a training dataset leaves the training loader shuffling;
+just don't iterate two loaders over one dataset at the same time. See the
+Trainer docs for the full checklist.
+
 Things to Watch Out For
 ------------------------
 
@@ -274,6 +288,7 @@ Available Datasets
     datasets/pyhealth.datasets.ISRUCDataset
     datasets/pyhealth.datasets.MIMICExtractDataset
     datasets/pyhealth.datasets.OMOPDataset
+    datasets/pyhealth.datasets.SyntheaCSVDataset
     datasets/pyhealth.datasets.DREAMTDataset
     datasets/pyhealth.datasets.SHHSDataset
     datasets/pyhealth.datasets.SleepEDFDataset

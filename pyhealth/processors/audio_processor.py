@@ -27,7 +27,15 @@ class AudioProcessor(FeatureProcessor):
 
     Raises:
         ValueError: If normalization parameters are inconsistent.
+
+    Examples:
+        >>> from pyhealth.processors import AudioProcessor
+        >>> p = AudioProcessor(sample_rate=16000, duration=5.0)  # doctest: +SKIP
+        >>> p.process("recording.wav").shape  # doctest: +SKIP
+        torch.Size([1, 80000])
     """
+
+    stores_tensor = True
 
     def __init__(
         self,
