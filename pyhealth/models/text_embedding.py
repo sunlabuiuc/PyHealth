@@ -244,6 +244,7 @@ class TextEmbedding(nn.Module):
                 f"Text produced {original_chunks} chunks, truncated to {self.max_chunks}. "
                 f"Consider increasing max_chunks or summarizing input.",
                 UserWarning,
+                stacklevel=2,
             )
 
         # Step 4: Pad chunks to uniform length for batched encoding

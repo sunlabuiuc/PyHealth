@@ -7,6 +7,7 @@ class BaseEHRDataset:
         warnings.warn(
             "The BaseEHRDataset class is deprecated and will be removed in a future version.",
             DeprecationWarning,
+            stacklevel=2,
         )
 
 
@@ -19,6 +20,7 @@ class BaseSignalDataset:
         warnings.warn(
             "The BaseSignalDataset class is deprecated and will be removed in a future version.",
             DeprecationWarning,
+            stacklevel=2,
         )
 
 
@@ -31,6 +33,7 @@ class SampleEHRDataset:
         warnings.warn(
             "The SampleEHRDataset class is deprecated and will be removed in a future version.",
             DeprecationWarning,
+            stacklevel=2,
         )
 
 
@@ -43,6 +46,7 @@ class SampleSignalDataset:
         warnings.warn(
             "The SampleSignalDataset class is deprecated and will be removed in a future version.",
             DeprecationWarning,
+            stacklevel=2,
         )
 
 
