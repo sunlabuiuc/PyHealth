@@ -66,7 +66,8 @@ import tempfile
 from pathlib import Path
 
 import torch
-from transformers import BertConfig, BertModel, BertTokenizerFast
+from tokenizers import Tokenizer, models, normalizers, pre_tokenizers, processors
+from transformers import BertConfig, BertModel, PreTrainedTokenizerFast
 
 from pyhealth.data import Patient
 from pyhealth.datasets import (
@@ -171,12 +172,36 @@ def make_synthetic_samples(num_patients: int, seed: int) -> list[dict]:
     return samples
 
 
+def save_tiny_tokenizer(vocab: list[str], folder: Path) -> None:
+    """Saves a BERT-style word-piece tokenizer for ``vocab`` to ``folder``.
+
+    Built with the ``tokenizers`` library because ``BertTokenizerFast``
+    silently ignores ``vocab_file`` in transformers 5.x, which would map
+    every word to ``[UNK]``.
+    """
+    ids = {token: index for index, token in enumerate(vocab)}
+    backend = Tokenizer(models.WordPiece(vocab=ids, unk_token="[UNK]"))
+    backend.normalizer = normalizers.BertNormalizer(lowercase=True)
+    backend.pre_tokenizer = pre_tokenizers.BertPreTokenizer()
+    backend.post_processor = processors.TemplateProcessing(
+        single="[CLS] $A [SEP]",
+        special_tokens=[("[CLS]", ids["[CLS]"]), ("[SEP]", ids["[SEP]"])],
+    )
+    PreTrainedTokenizerFast(
+        tokenizer_object=backend,
+        unk_token="[UNK]",
+        pad_token="[PAD]",
+        cls_token="[CLS]",
+        sep_token="[SEP]",
+        mask_token="[MASK]",
+    ).save_pretrained(folder)
+
+
 def build_tiny_encoder(folder: Path) -> str:
     """Saves a small randomly initialised BERT so the demo needs no download."""
     vocab = ["[PAD]", "[UNK]", "[CLS]", "[SEP]", "[MASK]", *FILLER]
     vocab += sorted({w for words in SYNTHETIC_CODES.values() for w in words})
-    (folder / "vocab.txt").write_text("\n".join(vocab))
-    BertTokenizerFast(vocab_file=str(folder / "vocab.txt")).save_pretrained(folder)
+    save_tiny_tokenizer(vocab, folder)
     config = BertConfig(
         vocab_size=len(vocab),
         hidden_size=32,
@@ -297,7 +322,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--lr", type=float, default=None)
     parser.add_argument("--ablation", action="store_true")
     parser.add_argument("--dev", action="store_true", help="MIMIC-III dev subset")
-    parser.add_argument("--num_synthetic", type=int, default=80)
+    parser.add_argument("--num_synthetic", type=int, default=400)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--output_dir", type=str, default="output/plm_ca")
     args = parser.parse_args()
