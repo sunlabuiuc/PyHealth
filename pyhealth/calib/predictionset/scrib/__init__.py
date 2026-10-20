@@ -15,6 +15,7 @@ import torch
 from pyhealth.calib.base_classes import SetPredictor
 from pyhealth.calib.utils import prepare_numpy_dataset
 from pyhealth.models import BaseModel
+from pyhealth.utils import preserve_rng_state
 
 from . import quicksearch as qs
 
@@ -108,6 +109,7 @@ class _CoordDescent:
             new_p[k] = max(min(int(new_p[k] + diff[k] * self.N), self.N - 1), 0)
         return new_p
 
+    @preserve_rng_state()
     def search_once(self, seed=7):
         def print_(s):
             if self.verbose:
@@ -163,7 +165,6 @@ class _CoordDescent:
         best_loss, best_ts = np.inf, None
         searcher = cls(prob, label, rks, loss_func=loss_func, **kwargs)
         for seed in range(B):
-            np.random.seed(seed)
             ts, _l = searcher.search_once(seed + 1)
             print(f"{seed}: loss={_l}")
             if _l < best_loss:
