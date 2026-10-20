@@ -46,6 +46,8 @@ class NestedSequenceProcessor(FeatureProcessor, TokenProcessorInterface):
         >>> result.shape  # (2, 3) - 2 visits, padded to observed_max
     """
 
+    stores_tensor = True
+
     def __init__(self, padding: int = 0):
         self.code_vocab: Dict[Any, int] = {"<pad>": self.PAD, "<unk>": self.UNK}
         self._next_index = 2
@@ -250,6 +252,8 @@ class NestedFloatsProcessor(FeatureProcessor):
         >>> result = processor.process([[1.0, 2.0], [3.0]])
         >>> result.shape  # (2, 3) - 2 visits, padded to observed_max
     """
+
+    stores_tensor = True
 
     def __init__(self, forward_fill: bool = True, padding: int = 0):
         self._max_inner_len = 1  # Maximum length of inner sequences

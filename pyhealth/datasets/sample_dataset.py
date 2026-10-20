@@ -6,14 +6,15 @@ import tempfile
 from typing import Any, Dict, Iterable, List, Optional, Tuple, Union, Type
 from typing import TYPE_CHECKING
 import inspect
-import random
 from bisect import bisect_right
 import litdata
+from ..utils import preserve_rng_state
 from litdata.utilities.train_test_split import deepcopy_dataset
 import copy
 import logging
 
 import numpy as np
+import torch
 
 from ..processors import get_processor, IgnoreProcessor
 from ..processors.base_processor import FeatureProcessor
@@ -22,6 +23,38 @@ if TYPE_CHECKING:  # splitter imports this module
     from .splitter import Split
 
 logger = logging.getLogger(__name__)
+
+# How processed samples are laid out in the disk (litdata) cache. Bump when
+# the layout changes; it is part of the processed-cache key, so caches written
+# with an older layout are rebuilt instead of misread.
+STORAGE_FORMAT = 2
+# Record key holding one pickled payload with every non-tensor field.
+_OBJECTS_KEY = "_pyhealth_objects"
+_PICKLE_PROTOCOL = 5
+
+
+def _decode_record(item: Any) -> Any:
+    """Restores a sample written by :meth:`SampleBuilder.encode`.
+
+    Records without the objects payload (caches written before
+    ``STORAGE_FORMAT`` 2, or in-memory samples) are returned unchanged.
+    """
+    if isinstance(item, list):
+        return [_decode_record(x) for x in item]
+    if not isinstance(item, dict) or _OBJECTS_KEY not in item:
+        return item
+    payload = pickle.loads(item[_OBJECTS_KEY])
+    values = payload["values"]
+    return {k: values[k] if k in values else item[k] for k in payload["order"]}
+
+
+def _draw_seed() -> int:
+    """A shuffle seed drawn from torch's global generator.
+
+    So ``torch.manual_seed(...)``, which users already call, makes shuffling
+    reproducible, and different torch seeds give different orders.
+    """
+    return int(torch.randint(0, 2**31 - 1, ()).item())
 
 
 class _MaskedSamples:
@@ -73,9 +106,10 @@ class SampleBuilder:
         builder.fit(samples)
         builder.save(path)  # writes a schema.pkl metadata file
 
-    After saving the schema, `litdata.optimize` can be used with `builder.transform`
-    to serialize and chunk pickled sample items into a directory that can be
-    loaded via SampleDataset.
+    After saving the schema, write ``builder.transform_for_storage`` of each
+    pickled sample item with a litdata ``BinaryWriter`` (as ``set_task`` and
+    ``create_sample_dataset`` do) to get a directory that can be loaded via
+    SampleDataset.
 
     Pre-fitted processors passed as `input_processors` / `output_processors` are
     used as they are; every schema field without one gets a fitted processor.
@@ -312,6 +346,60 @@ class SampleBuilder:
                 transformed[key] = value
         return transformed
 
+    def encode(self, transformed: dict[str, Any]) -> dict[str, Any]:
+        """Lays out one processed sample for the disk (litdata) cache.
+
+        litdata infers one serializer per value from the first sample it
+        writes and expects every later sample to have the same structure, so a
+        list whose length varies between samples cannot be written as-is.
+        Fields whose processor declares ``stores_tensor`` stay tensors; every
+        other field (including keys not in the schema, such as ``patient_id``)
+        goes into one pickled payload, which has the same structure in every
+        sample whatever the values look like. :class:`SampleDataset` decodes it
+        on read, so callers get back the original Python objects.
+
+        Args:
+            transformed: Output of :meth:`transform`.
+
+        Returns:
+            A record with the tensor fields plus one bytes payload.
+
+        Raises:
+            ValueError: If a field declared ``stores_tensor`` is not a tensor.
+        """
+        tensor_fields = self._tensor_fields()
+        record: dict[str, Any] = {}
+        objects: dict[str, Any] = {}
+        for key, value in transformed.items():
+            if key in tensor_fields:
+                if not isinstance(value, torch.Tensor):
+                    processor = self._input_processors.get(key) or self._output_processors.get(key)
+                    raise ValueError(
+                        f"Field '{key}': {type(processor).__name__} declares "
+                        f"stores_tensor=True but process() returned "
+                        f"{type(value).__name__}. Set stores_tensor = False on the "
+                        "processor, or return a torch.Tensor."
+                    )
+                record[key] = value
+            else:
+                objects[key] = value
+        record[_OBJECTS_KEY] = pickle.dumps(
+            {"order": list(transformed), "values": objects}, protocol=_PICKLE_PROTOCOL
+        )
+        return record
+
+    def transform_for_storage(self, sample: dict[str, bytes]) -> dict[str, Any]:
+        """:meth:`transform` followed by :meth:`encode`, for writing to disk."""
+        return self.encode(self.transform(sample))
+
+    def _tensor_fields(self) -> set:
+        processors = {**self._input_processors, **self._output_processors}
+        return {
+            key
+            for key, processor in processors.items()
+            if getattr(processor, "stores_tensor", False)
+        }
+
     def save(self, path: str) -> None:
         """Save fitted metadata to the given path as a pickled file.
 
@@ -332,6 +420,7 @@ class SampleBuilder:
             "patient_to_index": self._patient_to_index,
             "record_to_index": self._record_to_index,
             "fit_split": self._split.to_dict() if self._split is not None else None,
+            "storage_format": STORAGE_FORMAT,
         }
         with open(path, "wb") as f:
             pickle.dump(metadata, f)
@@ -438,6 +527,37 @@ class SampleDataset(litdata.StreamingDataset):
         # The split the processors were fitted on, or None if fitted on all
         # samples (also None for caches written before this was recorded).
         self.fit_split: dict | None = metadata.get("fit_split")
+        self.storage_format: int = metadata.get("storage_format", 1)
+
+    def __getitem__(self, index: Any) -> Any:
+        """Returns the sample(s) at ``index`` as the original Python objects.
+
+        Index access, iteration, ``subset()`` views and ``set_task`` split parts
+        all read through here, so every path decodes the stored payload.
+        """
+        return _decode_record(super().__getitem__(index))
+
+    def set_shuffle(self, shuffle: bool, seed: int | None = None) -> None:
+        """Sets whether iterating the dataset shuffles, and the shuffle seed.
+
+        The order of each pass is determined by ``seed`` and the epoch (see
+        ``set_epoch``); litdata shuffles with its own generator, so the global
+        random state is not used. Loaders from
+        :func:`~pyhealth.datasets.get_dataloader` call this for you at the
+        start of every pass.
+
+        Args:
+            shuffle: Whether ``iter(dataset)`` shuffles.
+            seed: Seed of the shuffle order. Default: drawn from torch's
+                random generator, so ``torch.manual_seed`` controls it.
+
+        Examples:
+            >>> dataset.set_shuffle(True, seed=0)  # doctest: +SKIP
+        """
+        super().set_shuffle(shuffle)
+        if shuffle:
+            # litdata rebuilds its shuffler from ``seed`` on every iteration.
+            self.seed = _draw_seed() if seed is None else int(seed)
 
     def _remove_ignored_processors(self):
         """Remove any processors that are IgnoreProcessor instances."""
@@ -629,9 +749,44 @@ class InMemorySampleDataset(SampleDataset):
         self._data = [builder.transform({"sample": pickle.dumps(s)}) for s in samples]
 
         self._shuffle = False
+        self._shuffle_seed = 0
+        self._epoch = 1  # counted from 1, as litdata does
 
-    def set_shuffle(self, shuffle: bool) -> None:
+    def set_shuffle(self, shuffle: bool, seed: int | None = None) -> None:
+        """Sets whether iterating the dataset shuffles, and the shuffle seed.
+
+        The order of each pass is determined by ``seed`` and the epoch (see
+        ``set_epoch``), using a private generator, so the global random state
+        is not used. Loaders from :func:`~pyhealth.datasets.get_dataloader`
+        call this for you at the start of every pass.
+
+        Args:
+            shuffle: Whether ``iter(dataset)`` shuffles.
+            seed: Seed of the shuffle order. Default: drawn from torch's
+                random generator, so ``torch.manual_seed`` controls it.
+
+        Examples:
+            >>> dataset.set_shuffle(True, seed=0)  # doctest: +SKIP
+        """
         self._shuffle = shuffle
+        if shuffle:
+            self._shuffle_seed = _draw_seed() if seed is None else int(seed)
+        self._epoch = 1
+
+    def set_epoch(self, epoch: int) -> None:
+        """Sets the epoch whose shuffle order the next pass uses.
+
+        Iterating advances the epoch by one, so direct iteration gives a new
+        order each pass. With worker processes, iteration happens on copies of
+        the dataset, so the loader sets the epoch in the main process instead.
+
+        Args:
+            epoch: The epoch number (counted from 1, as litdata does).
+
+        Examples:
+            >>> dataset.set_epoch(2)  # doctest: +SKIP
+        """
+        self._epoch = int(epoch)
 
     def __len__(self) -> int:
         """Returns the number of samples in the dataset.
@@ -659,11 +814,19 @@ class InMemorySampleDataset(SampleDataset):
             An iterator yielding processed sample dictionaries.
         """
         if self._shuffle:
-            shuffled_data = self._data[:]
-            random.shuffle(shuffled_data)
-            return iter(shuffled_data)
+            rng = np.random.default_rng([self._shuffle_seed, self._epoch])
+            order = rng.permutation(len(self._data))
         else:
-            return iter(self._data)
+            order = np.arange(len(self._data))
+        self._epoch += 1
+        # With DataLoader worker processes, each worker iterates its own copy
+        # of the dataset; give each a disjoint share so no sample repeats.
+        worker = torch.utils.data.get_worker_info()
+        if worker is not None:
+            order = order[worker.id :: worker.num_workers]
+        # The order is fixed here, not lazily, so later changes to the
+        # dataset's settings don't affect a pass already started.
+        return (self._data[i] for i in order)
 
     def subset(self, indices: Union[Sequence[int], slice]) -> SampleDataset:
         if isinstance(indices, slice):
@@ -690,6 +853,28 @@ class InMemorySampleDataset(SampleDataset):
         pass  # No temporary directories to clean up for in-memory dataset
 
 
+def _write_samples(builder: "SampleBuilder", samples: list[dict], path: Path) -> None:
+    """Writes transformed samples to a litdata directory in this process.
+
+    ``litdata.optimize`` starts helper processes even with ``num_workers=0``,
+    and when the transform raises it leaves them running. They hold
+    multiprocessing's resource-tracker pipe open, so a later tracker shutdown
+    (another dataset build, or interpreter exit) waits forever on Linux.
+    Writing with ``BinaryWriter`` here, as ``set_task`` does, starts no
+    processes and lets errors propagate cleanly.
+    """
+    from litdata.streaming.writer import BinaryWriter
+
+    from .base_dataset import _litdata_merge
+
+    writer = BinaryWriter(cache_dir=str(path), chunk_bytes="64MB")
+    for i, sample in enumerate(samples):
+        writer.add_item(i, builder.transform_for_storage({"sample": pickle.dumps(sample)}))
+    writer.done()
+    _litdata_merge(path)
+
+
+@preserve_rng_state()
 def create_sample_dataset(
     samples: List[Dict[str, Any]],
     input_schema: Dict[str, Any],
@@ -706,8 +891,8 @@ def create_sample_dataset(
       - Create a temporary directory for the dataset output.
       - Fit a `SampleBuilder` with the provided schemas and samples.
       - Save the fitted `schema.pkl` to the temporary directory.
-      - Use `litdata.optimize` with `builder.transform` to write serialized
-        and chunked sample files into the directory.
+      - Write the transformed samples into the directory with a litdata
+        ``BinaryWriter``, in this process (no worker processes).
       - Return a `SampleDataset` instance pointed at the temporary directory.
 
     Args:
@@ -728,6 +913,21 @@ def create_sample_dataset(
     Returns:
         An instance of `SampleDataset` loaded from the temporary directory
         containing the optimized, chunked samples and `schema.pkl` metadata.
+
+    Non-tensor fields (raw values, keys outside the schema) may vary in length
+    and shape between samples; the disk-backed dataset returns them unchanged.
+
+    Examples:
+        >>> from pyhealth.datasets import create_sample_dataset
+        >>> samples = [
+        ...     {"patient_id": "p1", "codes": ["A", "B"], "times": [0.5, 1.0], "label": 1},
+        ...     {"patient_id": "p2", "codes": ["C"], "times": [0.2], "label": 0},
+        ... ]
+        >>> dataset = create_sample_dataset(
+        ...     samples, {"codes": "sequence", "times": "raw"}, {"label": "binary"}
+        ... )
+        >>> dataset[1]["times"]
+        [0.2]
     """
     if in_memory:
         return InMemorySampleDataset(
@@ -750,13 +950,7 @@ def create_sample_dataset(
         )
         builder.fit(samples)
         builder.save(str(path / "schema.pkl"))
-        litdata.optimize(
-            fn=builder.transform,
-            inputs=[{"sample": pickle.dumps(x)} for x in samples],
-            output_dir=str(path),
-            chunk_bytes="64MB",
-            num_workers=0,
-        )
+        _write_samples(builder, samples, path)
 
         return SampleDataset(
             path=str(path),
