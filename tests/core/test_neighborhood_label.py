@@ -132,6 +132,28 @@ class TestNeighborhoodLabel(unittest.TestCase):
                 set_sizes = out["y_predset"].sum(dim=1)
                 self.assertTrue(torch.all(set_sizes > 0), "Prediction sets should be non-empty")
 
+    def test_score_type_aps_runs_end_to_end(self):
+        """score_type='aps' should calibrate and produce non-empty,
+        correctly-typed prediction sets, just like the default 'threshold'
+        (NeighborhoodLabel always guarantees non-empty sets via its own
+        argmax fallback, independent of score_type)."""
+        ncp = NeighborhoodLabel(
+            model=self.model, alpha=0.3, k_neighbors=2, lambda_L=100.0,
+            score_type="aps", random_state=42,
+        )
+        cal_dataset = self.dataset.subset([2, 3, 4, 5])
+        cal_emb = self._get_embeddings(cal_dataset)
+        ncp.calibrate(cal_dataset=cal_dataset, cal_embeddings=cal_emb)
+
+        loader = get_dataloader(self.dataset, batch_size=2, shuffle=False)
+        with torch.no_grad():
+            for batch in loader:
+                out = ncp(**batch)
+                self.assertEqual(out["y_predset"].dtype, torch.bool)
+                self.assertEqual(out["y_predset"].shape, out["y_prob"].shape)
+                set_sizes = out["y_predset"].sum(dim=1)
+                self.assertTrue(torch.all(set_sizes > 0))
+
     def test_calibrate_without_embeddings_extracts(self):
         ncp = NeighborhoodLabel(model=self.model, alpha=0.1, k_neighbors=2)
         cal_dataset = self.dataset.subset([3, 4, 5])

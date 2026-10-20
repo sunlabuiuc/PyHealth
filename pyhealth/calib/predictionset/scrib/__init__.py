@@ -15,6 +15,7 @@ import torch
 from pyhealth.calib.base_classes import SetPredictor
 from pyhealth.calib.utils import prepare_numpy_dataset
 from pyhealth.models import BaseModel
+from pyhealth.utils import preserve_rng_state
 
 from . import quicksearch as qs
 
@@ -108,6 +109,7 @@ class _CoordDescent:
             new_p[k] = max(min(int(new_p[k] + diff[k] * self.N), self.N - 1), 0)
         return new_p
 
+    @preserve_rng_state()
     def search_once(self, seed=7):
         def print_(s):
             if self.verbose:
@@ -163,7 +165,6 @@ class _CoordDescent:
         best_loss, best_ts = np.inf, None
         searcher = cls(prob, label, rks, loss_func=loss_func, **kwargs)
         for seed in range(B):
-            np.random.seed(seed)
             ts, _l = searcher.search_once(seed + 1)
             print(f"{seed}: loss={_l}")
             if _l < best_loss:
@@ -200,10 +201,15 @@ class SCRIB(SetPredictor):
                     The higher the lk, the more penalty on risk violation (likely higher ambiguity).
                 fill_max: Whether to fill the class with max predicted score
                     when no class exceeds the threshold. In other words, if fill_max,
-                    the null region will be filled with max-prediction class.
-            Defaults to {'lk': 1e4, 'fill_max': False}
+                    the null region will be filled with max-prediction class. This is
+                    applied consistently during both threshold search and inference
+                    (``forward()``). If you pass ``loss_kwargs`` explicitly without a
+                    ``fill_max`` key, it defaults to False here (regardless of the
+                    ``fill_max`` argument below), matching the underlying search
+                    routines' own default.
+            Defaults to {'lk': 1e4, 'fill_max': fill_max} (see the ``fill_max`` argument below).
         fill_max (bool, optional): Whether to fill the empty prediction set with the max-predicted class.
-            Defaults to True.
+            Only takes effect when ``loss_kwargs`` is left as None. Defaults to True.
 
 
     Examples:
@@ -264,6 +270,10 @@ class SCRIB(SetPredictor):
         if loss_kwargs is None:
             loss_kwargs = {"lk": 1e4, "fill_max": fill_max}
         self.loss_kwargs = loss_kwargs
+        # The value actually used by the threshold search (loss_kwargs may
+        # silently override the fill_max argument above); forward() must
+        # apply the same fill-max behavior it was calibrated under.
+        self.fill_max = loss_kwargs.get("fill_max", False)
 
         self.t = None
 
@@ -297,7 +307,16 @@ class SCRIB(SetPredictor):
         :rtype: Dict[str, torch.Tensor]
         """
         ret = self.model(**kwargs)
-        ret["y_predset"] = ret["y_prob"] > self.t
+        y_predset = ret["y_prob"] > self.t
+        if self.fill_max:
+            # Match the calibration-time assumption: when no class clears
+            # its threshold, fall back to the max-predicted class instead
+            # of returning an empty set.
+            empty = y_predset.sum(dim=1) == 0
+            if empty.any():
+                argmax_idx = ret["y_prob"].argmax(dim=1)
+                y_predset[empty, argmax_idx[empty]] = True
+        ret["y_predset"] = y_predset
         return ret
 
 

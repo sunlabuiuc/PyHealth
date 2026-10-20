@@ -5,6 +5,7 @@ This benchmark measures:
 2. Time to process the task for each num_workers value (optionally repeated)
 3. Cache sizes for base dataset and each task run
 4. Peak memory usage (RSS, includes child processes)
+5. Open file descriptors after each run (should stay flat; growth means a leak)
 
 Typical usage:
   python benchmark_workers_n.py
@@ -54,6 +55,7 @@ class RunResult:
     base_cache_bytes: int
     task_cache_bytes: int
     peak_rss_bytes: int
+    open_fds: int  # after the run; should stay flat across runs (-1 if unsupported)
 
 
 def format_size(size_bytes: int) -> str:
@@ -319,6 +321,10 @@ def main() -> None:
             # Clean up to avoid disk growth across an overnight sweep.
             remove_dir(base_cache_dir)
 
+            # A count that grows run over run means handles are leaking.
+            proc = psutil.Process()
+            open_fds = proc.num_fds() if hasattr(proc, "num_fds") else -1
+
             results.append(
                 RunResult(
                     num_workers=w,
@@ -329,6 +335,7 @@ def main() -> None:
                     base_cache_bytes=base_cache_bytes,
                     task_cache_bytes=task_cache_bytes,
                     peak_rss_bytes=peak_rss_bytes,
+                    open_fds=open_fds,
                 )
             )
 
@@ -341,7 +348,8 @@ def main() -> None:
                 f"total={total_s:.2f}s "
                 f"peak_rss={format_size(peak_rss_bytes)} "
                 f"base_cache={format_size(base_cache_bytes)} "
-                f"task_cache={format_size(task_cache_bytes)}"
+                f"task_cache={format_size(task_cache_bytes)} "
+                f"open_fds={open_fds}"
             )
 
     total_sweep_s = time.time() - total_start

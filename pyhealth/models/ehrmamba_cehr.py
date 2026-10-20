@@ -77,7 +77,6 @@ class EHRMambaCEHR(BaseModel):
 
         assert len(self.label_keys) == 1, "EHRMambaCEHR supports single label key only"
         self.label_key = self.label_keys[0]
-        self.mode = self.dataset.output_schema[self.label_key]
 
         self.embeddings = MambaEmbeddingsForCEHR(
             vocab_size=vocab_size,
