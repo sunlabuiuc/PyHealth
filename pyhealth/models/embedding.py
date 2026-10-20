@@ -133,9 +133,26 @@ class EmbeddingModel(BaseModel):
         Input: (..., size)
         Output: (..., embedding_dim)
 
-    - TensorProcessor: nn.Linear (size inferred from first sample)
+    - TensorProcessor: nn.Linear, sized from the first already-processed
+        sample (or the processor's ``size()``); ``process()`` is not re-run
 
     - MultiHotProcessor: nn.Linear over multi-hot vector
+
+    Examples:
+        >>> from pyhealth.datasets import create_sample_dataset
+        >>> from pyhealth.models import EmbeddingModel
+        >>> samples = [
+        ...     {"patient_id": "p0", "x": [1.0, 2.0, 3.0], "label": 0},
+        ...     {"patient_id": "p1", "x": [4.0, 5.0, 6.0], "label": 1},
+        ... ]
+        >>> dataset = create_sample_dataset(
+        ...     samples=samples,
+        ...     input_schema={"x": "tensor"},
+        ...     output_schema={"label": "binary"},
+        ... )
+        >>> model = EmbeddingModel(dataset, embedding_dim=8)
+        >>> model.embedding_layers["x"]
+        Linear(in_features=3, out_features=8, bias=True)
     """
 
     def __init__(
@@ -213,16 +230,18 @@ class EmbeddingModel(BaseModel):
                 )
 
             elif isinstance(processor, TensorProcessor):
-                # Infer size from first sample
-                sample_tensor = None
+                # Dataset samples are already processed: read the width from the
+                # first one. Never call process() again, since processors that
+                # select columns, scale or impute are not idempotent.
+                input_size = None
                 for sample in dataset:
                     if field_name in sample:
-                        sample_tensor = processor.process(sample[field_name])
+                        value = torch.as_tensor(sample[field_name])
+                        input_size = value.shape[-1] if value.dim() > 0 else 1
                         break
-                if sample_tensor is not None:
-                    input_size = (
-                        sample_tensor.shape[-1] if sample_tensor.dim() > 0 else 1
-                    )
+                if input_size is None:
+                    input_size = processor.size()
+                if input_size is not None:
                     self.embedding_layers[field_name] = nn.Linear(
                         in_features=input_size, out_features=embedding_dim
                     )
