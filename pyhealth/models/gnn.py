@@ -17,9 +17,6 @@ from pyhealth.models import BaseModel
 from pyhealth.processors import SequenceProcessor
 from pyhealth.models.embedding import EmbeddingModel
 
-torch.manual_seed(3) 
-np.random.seed(1)
-
 """Graph Neural Network models for PyHealth.
 
 This module provides implementations of Graph Convolutional Network (GCN) and
@@ -371,7 +368,6 @@ class GCN(BaseModel):
 
         assert len(self.label_keys) == 1, "Only one label key is supported"
         self.label_key = self.label_keys[0]
-        self.mode = self.dataset.output_schema[self.label_key]
 
         self.embedding_model = EmbeddingModel(dataset, embedding_dim)
         self.feature_processors = {
@@ -570,7 +566,6 @@ class GAT(BaseModel):
 
         assert len(self.label_keys) == 1, "Only one label key is supported"
         self.label_key = self.label_keys[0]
-        self.mode = self.dataset.output_schema[self.label_key]
 
         self.embedding_model = EmbeddingModel(dataset, embedding_dim)
         self.feature_processors = {
