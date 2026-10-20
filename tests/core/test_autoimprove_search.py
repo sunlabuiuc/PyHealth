@@ -207,7 +207,7 @@ class TestFeatureSearch(unittest.TestCase):
                     return replies.pop(0)
                 return '```json\n{"features": [' + json.dumps(LABS_90) + "]}\n```"
 
-        improver = _improver(self.world, LLMProposer(LLM()), n_cycles=2,
+        improver = _improver(self.world, LLMProposer(LLM()), n_cycles=3,
                              feature_cycles=(1, 1))
         result = improver.run()
         planted = next(t for t in result.trials if t.added == ["count_90d__visits"])
@@ -215,6 +215,10 @@ class TestFeatureSearch(unittest.TestCase):
         self.assertEqual(planted.config.hypothesis["expected"], "score up")
         feature_prompt = next(p for p in LLM.prompts if "A feature is a JSON spec" in p)
         self.assertIn("No features have been accepted yet", feature_prompt)
+        later = [p for p in LLM.prompts if "Every feature tried so far" in p]
+        self.assertTrue(later)
+        self.assertIn("count_90d__visits", later[-1].split("Every feature tried so far")[1])
+        self.assertNotIn("changed to fit the search space", later[-1])
 
     def test_a_feature_that_reveals_the_outcome_is_held_as_suspicious(self):
         world = World(marker=True)

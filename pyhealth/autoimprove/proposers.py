@@ -93,7 +93,8 @@ class ProposalContext:
             feature turn.
         accepted: The accepted feature specs (dicts with ``name`` and
             ``definition``), which a feature turn adds to.
-        feature_trials: Earlier feature trials, oldest first.
+        feature_trials: The latest feature trials, oldest first.
+        tried_features: Names of every feature tried so far, in any trial.
         card: A plain-text summary of the task card, if any.
         evidence: Untried published predictors, one line each, with their
             citations (from a :class:`~pyhealth.autoimprove.KnowledgeBase`).
@@ -124,6 +125,7 @@ class ProposalContext:
     features: Any = None
     accepted: Sequence[dict] = ()
     feature_trials: Sequence[Any] = ()
+    tried_features: Sequence[str] = ()
     card: str = ""
     evidence: Sequence[str] = ()
 
@@ -420,8 +422,11 @@ def build_feature_prompt(context: ProposalContext) -> str:
     else:
         parts.append("No features have been accepted yet.")
     if context.feature_trials:
-        parts.append("Feature groups tried so far:\n" + format_trials(
+        parts.append("Latest feature groups tried:\n" + format_trials(
             context.feature_trials))
+    if context.tried_features:
+        parts.append("Every feature tried so far (do not propose these again): "
+                     + ", ".join(sorted(context.tried_features)))
     if context.lessons:
         parts.append("Lessons from earlier cycles:\n" + _bullets(context.lessons))
     if context.evidence:
@@ -465,7 +470,7 @@ def format_trials(trials: Sequence[Any]) -> str:
                 getattr(t, "accepted", None), "")
             line += f" + features {', '.join(added)} ({verdict})"
         if t.notes:
-            line += f" (changed to fit the search space: {'; '.join(t.notes)})"
+            line += f" (notes: {'; '.join(t.notes)})"
         lines.append(line)
     return "\n".join(lines)
 
