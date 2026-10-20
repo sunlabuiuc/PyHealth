@@ -135,7 +135,13 @@ class TestOperators(unittest.TestCase):
         saba = {"op": "count", "window": 365, "select": SABA}
         self.assertEqual(_one(self.fs, {"op": "ratio", "a": adm, "b": saba})[0], 0.75)
         self.assertEqual(_one(self.fs, {"op": "diff", "a": saba, "b": adm})[0], 1)
-        self.assertEqual(_one(self.fs, {"op": "any", "a": adm, "b": saba})[0], 1)
+        value, spec = _one(self.fs, {"op": "any", "a": adm, "b": {
+            "op": "ge", "x": 3, "of": saba}})
+        self.assertEqual(value, 1)
+        self.assertEqual(spec.definition, (
+            "1 if there was any admissions event in the 365 days before the prediction time "
+            "or there were 3 or more SABA orders in the 365 days before the prediction "
+            "time, else 0"))
         self.assertEqual(_one(self.fs, {"op": "cross", "a": adm, "b": saba})[0], 6)
         column = self.fs.validate({"op": "column", "column": "age", "rationale": "r"})
         self.assertEqual(self.fs.compute([column], _samples(4))[:, 0].tolist(),
