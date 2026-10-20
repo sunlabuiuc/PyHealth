@@ -244,14 +244,14 @@ TRAIN_PARAMS: dict[str, Param] = {
     "epochs": Param("int", 1, 50, default=10,
                     meaning="trained for up to {value} passes over the training data"),
     "lr": Param("float", 1e-5, 1e-1, log=True, default=1e-3,
-                meaning=lambda v: f"learning rate {v:.2g}: the size of each update"),
+                meaning="the size of each training update"),
     # Log scale up to 0.1: small datasets can need strong L2. 1e-6 is
     # effectively none.
     "weight_decay": Param(
         "float", 1e-6, 1e-1, log=True, default=1e-6,
         meaning=lambda v: (
             "no weight penalty" if v <= 1e-6 else
-            f"weight penalty {v:.2g}: larger values keep the model simpler"
+            "penalty on large weights; larger values keep the model simpler"
         ),
     ),
     "batch_size": Param("choice", choices=(16, 32, 64, 128, 256), default=64,
@@ -508,8 +508,8 @@ XGBOOST = ModelSpec(
      "max_depth": Param("int", 1, 10, default=4, meaning=_depth_meaning),
      "learning_rate": Param(
          "float", 0.01, 0.3, log=True, default=0.05,
-         meaning=lambda v: f"each tree's correction is scaled by {v:.2g}; "
-                           "smaller learns more slowly and steadily",
+         meaning="each tree's correction is scaled by this; smaller learns more "
+                 "slowly and steadily",
      ),
      "subsample": Param(
          "float", 0.5, 1.0, default=0.8,
