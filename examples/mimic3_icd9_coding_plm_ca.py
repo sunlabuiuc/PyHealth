@@ -42,6 +42,14 @@ MIMIC-III (needs PhysioNet access and a GPU)::
         --mimic3_root /path/to/mimic-iii/1.4 \\
         --model_name <hugging-face-encoder> --top_k 50 --epochs 20 --ablation
 
+On a single free GPU, train on a random subset and run one configuration per
+session. Each run saves ``<output_dir>/<config>/test_scores.json``, and
+``--summarize`` collects the saved runs into one table::
+
+    python examples/mimic3_icd9_coding_plm_ca.py --mimic3_root ... \\
+        --model_name ... --max_samples 4000 --epochs 3 --configs truncate_512
+    python examples/mimic3_icd9_coding_plm_ca.py --summarize
+
 Results
 -------
 Fill in from the printed table after running.
@@ -58,9 +66,12 @@ Deviations from the paper
 * Fixed decision threshold of 0.3 (PyHealth's multilabel default) instead of
   tuning it on the validation set.
 * No learning-rate warmup or linear decay, since ``Trainer`` has no scheduler.
+* With ``--max_samples``, a seeded random subset of notes instead of the full
+  training set, and fewer epochs, to fit a single free GPU.
 """
 
 import argparse
+import json
 import random
 import tempfile
 from pathlib import Path
@@ -214,15 +225,23 @@ def build_tiny_encoder(folder: Path) -> str:
     return str(folder)
 
 
-def keep_top_k_codes(dataset: SampleDataset, top_k: int) -> SampleDataset:
+def keep_top_k_codes(
+    dataset: SampleDataset,
+    top_k: int,
+    max_samples: int | None = None,
+    seed: int = 42,
+) -> SampleDataset:
     """Rebuilds the dataset with only the ``top_k`` most frequent codes.
 
-    Samples left with no code are dropped. The label processor is refitted,
-    so the model's output layer has exactly ``top_k`` units.
+    If ``max_samples`` is set, a seeded random subset of that many samples is
+    kept first. Samples left with no code are dropped. The label processor is
+    refitted, so the model's output layer has exactly ``top_k`` units.
     """
     label_vocab = dataset.output_processors[LABEL_KEY].label_vocab
     index_to_code = {index: code for code, index in label_vocab.items()}
     rows = [(s["patient_id"], s[TEXT_KEY], s[LABEL_KEY]) for s in dataset]
+    if max_samples is not None and max_samples < len(rows):
+        rows = random.Random(seed).sample(rows, max_samples)
     counts = torch.stack([target for _, _, target in rows]).sum(dim=0)
     kept = set(counts.topk(min(top_k, len(counts))).indices.tolist())
 
@@ -258,7 +277,7 @@ def load_data(args: argparse.Namespace) -> SampleDataset:
             dev=args.dev,
         )
         dataset = base.set_task(DischargeSummaryICD9Coding())
-    return keep_top_k_codes(dataset, args.top_k)
+    return keep_top_k_codes(dataset, args.top_k, args.max_samples, args.seed)
 
 
 # ---------------------------------------------------------------------------
@@ -299,7 +318,17 @@ def run_config(
         monitor="f1_micro",
         monitor_criterion="max",
     )
-    return trainer.evaluate(get_dataloader(test_ds, args.batch_size))
+    scores = trainer.evaluate(get_dataloader(test_ds, args.batch_size))
+    record = {
+        **config,
+        "num_samples": len(dataset),
+        "epochs": args.epochs,
+        **{key: float(value) for key, value in scores.items()},
+    }
+    out_dir = Path(args.output_dir) / config["name"]
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "test_scores.json").write_text(json.dumps(record, indent=2))
+    return scores
 
 
 def print_table(results: dict[str, dict[str, float]]) -> None:
@@ -310,17 +339,44 @@ def print_table(results: dict[str, dict[str, float]]) -> None:
         print(f"{name:<16}" + "".join(f"{scores[m]:>14.4f}" for m in METRICS))
 
 
+def load_saved_results(output_dir: str) -> dict[str, dict[str, float]]:
+    """Reads every ``<output_dir>/<config>/test_scores.json`` saved so far."""
+    results = {}
+    for path in sorted(Path(output_dir).glob("*/test_scores.json")):
+        record = json.loads(path.read_text())
+        results[record["name"]] = record
+    return results
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    data = parser.add_mutually_exclusive_group(required=True)
+    data = parser.add_mutually_exclusive_group()
     data.add_argument("--synthetic", action="store_true")
     data.add_argument("--mimic3_root", type=str)
+    data.add_argument(
+        "--summarize",
+        action="store_true",
+        help="print a table of the runs already saved in --output_dir",
+    )
     parser.add_argument("--model_name", type=str, default=None)
     parser.add_argument("--top_k", type=int, default=50)
     parser.add_argument("--epochs", type=int, default=None)
     parser.add_argument("--batch_size", type=int, default=None)
     parser.add_argument("--lr", type=float, default=None)
     parser.add_argument("--ablation", action="store_true")
+    parser.add_argument(
+        "--configs",
+        nargs="+",
+        default=None,
+        help="names of the configurations to run (default: base, or all "
+        "with --ablation)",
+    )
+    parser.add_argument(
+        "--max_samples",
+        type=int,
+        default=None,
+        help="train on a seeded random subset of this many notes",
+    )
     parser.add_argument("--dev", action="store_true", help="MIMIC-III dev subset")
     parser.add_argument("--num_synthetic", type=int, default=400)
     parser.add_argument("--seed", type=int, default=42)
@@ -335,13 +391,31 @@ def parse_args() -> argparse.Namespace:
         args.batch_size = 8
     if args.lr is None:
         args.lr = 1e-3 if args.synthetic else 5e-5
+    if not (args.synthetic or args.mimic3_root or args.summarize):
+        parser.error("one of --synthetic, --mimic3_root or --summarize is required")
     if args.mimic3_root and args.model_name is None:
         parser.error("--model_name is required with --mimic3_root")
+    if args.configs:
+        known = SYNTHETIC_CONFIGS if args.synthetic else MIMIC_CONFIGS
+        unknown = set(args.configs) - {config["name"] for config in known}
+        if unknown:
+            parser.error(
+                f"unknown config(s) {sorted(unknown)}; choose from "
+                f"{[config['name'] for config in known]}"
+            )
     return args
 
 
 def main() -> None:
     args = parse_args()
+    if args.summarize:
+        results = load_saved_results(args.output_dir)
+        if not results:
+            print(f"No saved runs found in {args.output_dir}")
+            return
+        print_table(results)
+        return
+
     random.seed(args.seed)
     torch.manual_seed(args.seed)
 
@@ -352,7 +426,9 @@ def main() -> None:
     print("train/val/test sizes:", [len(split) for split in splits])
 
     configs = SYNTHETIC_CONFIGS if args.synthetic else MIMIC_CONFIGS
-    if not args.ablation:
+    if args.configs:
+        configs = [config for config in configs if config["name"] in args.configs]
+    elif not args.ablation:
         configs = configs[:1]
 
     with tempfile.TemporaryDirectory() as tmp:
