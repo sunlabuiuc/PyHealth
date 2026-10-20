@@ -271,7 +271,6 @@ class TCN(BaseModel):
             raise ValueError("input_dim is determined by embedding_dim")
         assert len(self.label_keys) == 1, "Only one label key is supported if TCN is initialized"
         self.label_key = self.label_keys[0]
-        self.mode = self.dataset.output_schema[self.label_key]
 
         self.embedding_model = EmbeddingModel(dataset, embedding_dim)
 
