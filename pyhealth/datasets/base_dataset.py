@@ -7,7 +7,6 @@ from typing import Dict, Iterator, Iterable, List, Optional, Any, Callable
 import functools
 import operator
 from urllib.parse import urlparse, urlunparse
-from urllib.request import urlretrieve
 import json
 import glob
 import hashlib
@@ -44,8 +43,9 @@ from ..data import Patient
 from ..tasks import BaseTask
 from ..processors.base_processor import FeatureProcessor
 from .configs import load_yaml_config
-from .sample_dataset import SampleDataset, SampleBuilder
-from ..utils import set_env
+from .sample_dataset import STORAGE_FORMAT, SampleDataset, SampleBuilder
+from .splitter import Split
+from ..utils import download_file, preserve_rng_state, set_env
 
 # Set logging level for distributed to ERROR to reduce verbosity
 logging.getLogger("distributed").setLevel(logging.ERROR)
@@ -205,6 +205,14 @@ def _litdata_merge(cache_dir: Path) -> None:
     """
     Merges LitData binary writer index files in the given cache directory.
 
+    Workers write contiguous sample ranges, each with its own
+    ``{rank}.index.json``. ``patient_to_index`` and ``record_to_index`` are
+    built before processing and assume merged sample ``i`` is input sample
+    ``i``, so the per-worker indexes must be joined in numeric rank order.
+    ``BinaryWriter.merge`` does this from litdata 0.2.64 on; earlier versions
+    sort the file names as strings (0, 1, 10, 11, ..., 2), which reorders
+    samples with more than 10 workers.
+
     Args:
         cache_dir (Path): The cache directory containing LitData binary writer files.
     """
@@ -283,13 +291,23 @@ def _task_transform_fn(
     Args:
         args (tuple): A tuple containing:
             worker_id (int): The ID of the worker.
-            task (BaseTask): The task to apply.
+            task (BaseTask | bytes): The task to apply, or the task pickled.
             patient_ids (Iterable[str]): The patient IDs to process.
             global_event_df (pl.LazyFrame): The global event dataframe.
             output_dir (Path): The output directory to save results.
     """
     BATCH_SIZE = 128  # Use a batch size 128 can reduce runtime by 30%.
     worker_id, task, patient_ids, global_event_df, output_dir = args
+    if isinstance(task, bytes):
+        try:
+            task = pickle.loads(task)
+        except Exception as e:
+            raise RuntimeError(
+                f"A set_task worker process could not load the task ({e}). Worker "
+                "processes import your script without running its "
+                "`if __name__ == '__main__':` block, so define the task class at "
+                "module level in an importable file, or use num_workers=1."
+            ) from e
     total_patients = len(list(patient_ids))
     logger.info(
         f"Worker {worker_id} started processing {total_patients} patients. (Polars threads: {pl.thread_pool_size()})"
@@ -368,7 +386,7 @@ def _proc_transform_fn(args: tuple[int, Path, int, int, Path]) -> None:
         complete = 0
         write_index = 0
         for i in range(start_idx, end_idx):
-            transformed: Dict[str, Any] = builder.transform(dataset[i])
+            transformed: dict[str, Any] = builder.transform_for_storage(dataset[i])
             writer.add_item(write_index, transformed)
             write_index += 1
             complete += 1
@@ -620,7 +638,7 @@ class BaseDataset(ABC):
                 local_path = self.create_tmpdir() / local_filename
                 if not local_path.exists():
                     logger.info(f"Downloading {source_path} to {local_path}")
-                    urlretrieve(source_path, local_path)
+                    download_file(source_path, local_path)
                 source_path = str(local_path)
 
             # Determine delimiter based on file extension
@@ -992,10 +1010,15 @@ class BaseDataset(ABC):
                 # spwan is required for polars in multiprocessing, see https://docs.pola.rs/user-guide/misc/multiprocessing/#summary
                 ctx = multiprocessing.get_context("spawn")
                 queue = ctx.Queue()
+                # Send the task pickled: if a worker cannot unpickle it (e.g. the
+                # class is defined under `if __name__ == "__main__":`), the error
+                # is raised in _task_transform_fn and reaches the caller, instead
+                # of failing inside the pool's own argument handling, which hangs.
+                task_bytes = pickle.dumps(task)
                 args_list = [
                     (
                         worker_id,
-                        task,
+                        task_bytes,
                         pids,
                         global_event_df,
                         output_dir,
@@ -1100,13 +1123,15 @@ class BaseDataset(ABC):
         finally:
             self.clean_tmpdir()
 
+    @preserve_rng_state()
     def set_task(
         self,
         task: Optional[BaseTask] = None,
         num_workers: Optional[int] = None,
         input_processors: Optional[Dict[str, FeatureProcessor]] = None,
         output_processors: Optional[Dict[str, FeatureProcessor]] = None,
-    ) -> SampleDataset:
+        split: Split | None = None,
+    ) -> SampleDataset | tuple[SampleDataset, ...]:
         """Processes the base dataset to generate the task-specific sample dataset.
         The cache structure is as follows::
 
@@ -1114,6 +1139,7 @@ class BaseDataset(ABC):
                 task_df.ld/                 # Intermediate task dataframe based on schema
                 samples_{proc_uuid}.ld/     # Final processed samples after applying processors
                     schema.pkl              # Saved SampleBuilder schema
+                    split.npz               # Sample indices per split part (with split= only)
                     *.bin                   # Processed sample files
 
         Args:
@@ -1125,9 +1151,25 @@ class BaseDataset(ABC):
             output_processors (Optional[Dict[str, FeatureProcessor]]):
                 Pre-fitted output processors. If provided, these will be used
                 instead of creating new ones from task's output_schema. Defaults to None.
+            split (Optional[Split]): Split the samples, e.g. by patient with
+                ``PatientSplit``, and fit every processor on the first
+                (training) part only, so the other parts never shape
+                preprocessing. The parts are used as the split returns them.
+                Samples are streamed;
+                nothing is loaded into memory beyond the per-sample index that
+                processing already keeps. Defaults to None: fit on all samples
+                and return one dataset, as before.
 
         Returns:
-            SampleDataset: The generated sample dataset.
+            SampleDataset: The generated sample dataset, or, with ``split``, a
+            tuple with one dataset per part, training part first, whose
+            processors were fitted on the training part.
+
+        Examples:
+            >>> from pyhealth.datasets import PatientSplit
+            >>> train, val, test = dataset.set_task(  # doctest: +SKIP
+            ...     task, split=PatientSplit(ratios=(0.7, 0.1, 0.2), seed=42)
+            ... )
 
         Raises:
             AssertionError: If no default task is found and task is None.
@@ -1180,6 +1222,10 @@ class BaseDataset(ABC):
                     if output_processors
                     else None
                 ),
+                # Layout of processed samples on disk; a new layout gets a new cache.
+                "storage_format": STORAGE_FORMAT,
+                # Only present with a split, so existing unsplit caches keep their key.
+                **({"split": split.to_dict()} if split is not None else {}),
             },
             sort_keys=True,
             default=str,
@@ -1240,8 +1286,12 @@ class BaseDataset(ABC):
                         input_processors=input_processors,
                         output_processors=output_processors,
                     )
-                    builder.fit(dataset)
+                    builder.fit(dataset, split=split)
                     builder.save(str(samples_path / "schema.pkl"))
+                    if split is not None:
+                        # Written before the samples, whose index.json marks the
+                        # cache complete, so a valid cache always has its split.
+                        np.savez(samples_path / "split.npz", *builder.split_indices)
 
                     # Apply processors and save final samples to cache_dir
                     logger.info(f"Processing samples and saving to {samples_path}...")
@@ -1256,11 +1306,17 @@ class BaseDataset(ABC):
                 f"Found cached processed samples at {samples_path}, skipping processing."
             )
 
-        return SampleDataset(
+        samples = SampleDataset(
             path=str(samples_path),
             dataset_name=self.dataset_name,
             task_name=task.task_name,
         )
+        if split is None:
+            return samples
+        with np.load(samples_path / "split.npz") as parts:
+            return tuple(
+                samples.subset(parts[f"arr_{k}"]) for k in range(len(parts.files))
+            )
 
     def _main_guard(self, func_name: str):
         """Warn if method is accessed from a non-main process."""

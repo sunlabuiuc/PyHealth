@@ -276,6 +276,69 @@ For maximum control, you can pass pre-configured processor instances directly in
             return samples
 
 
+Reusing Fitted Processors
+-------------------------
+
+``set_task()`` and ``create_sample_dataset()`` accept already-fitted processors
+through ``input_processors`` and ``output_processors``. A supplied processor is
+used as it is and never refitted; every schema field you do not supply gets a
+processor fitted on the samples as usual. A common use is fitting on training
+samples only and reusing those processors for validation and test data, so test
+patients do not shape preprocessing:
+
+.. code-block:: python
+
+    from pyhealth.datasets import create_sample_dataset
+
+    train = create_sample_dataset(train_samples, input_schema, output_schema)
+    test = create_sample_dataset(
+        test_samples, input_schema, output_schema,
+        input_processors=train.input_processors,
+        output_processors=train.output_processors,
+    )
+
+In PyHealth 2.0.2 and earlier, supplying a processor for some fields fitted
+none for the rest of that schema: those fields reached the model as raw Python
+values, without an error. See ``examples/reuse_train_processors.py``.
+
+For datasets built with ``set_task``, ``set_task(task, split=PatientSplit(...))``
+does this in one step and streams the samples; see :doc:`datasets/pyhealth.datasets.splitter`.
+
+How Processed Samples Are Stored
+--------------------------------
+
+``set_task()`` and ``create_sample_dataset(..., in_memory=False)`` write processed
+samples to a disk cache (litdata). Each field is stored according to its processor:
+
+- Processors that always return one ``torch.Tensor`` declare ``stores_tensor = True``
+  (``sequence``, ``nested_sequence``, ``tensor``, ``timeseries``, the label
+  processors, ``image``, ``audio`` and others). Their outputs are stored as tensors.
+- Every other field — ``raw``, ``text``, ``stagenet``, ``tuple_time_text``,
+  ``graph``, ``temporal_timeseries``, ``time_image``, and keys that are not in the
+  schema at all, such as ``patient_id`` or extra keys a task adds — is stored in
+  one pickled value per sample. It may vary in length, shape and type between
+  samples (notes per admission, codes per visit, measurement times, ``None``).
+
+Reading a sample back (``dataset[i]``, iteration, ``subset()``, ``set_task``
+split parts, ``get_dataloader`` batches) returns the same Python objects that went
+in: lists stay lists, tuples stay tuples. The in-memory dataset returns identical
+objects. Pickled values are as trusted as the rest of the cache directory, which
+already holds pickled processors in ``schema.pkl``: only load caches you created or
+trust.
+
+A custom processor should set ``stores_tensor = True`` only if ``process()`` always
+returns a single tensor; if such a field ever returns something else, writing the
+cache fails with an error naming the field.
+
+In PyHealth 2.0.2 and earlier, non-tensor fields were handed to litdata as they
+were. litdata infers the layout of every sample from the first one it writes, so a
+value whose length, shape or type varied between samples failed to write, or was
+read back wrong. Caches written by those versions are rebuilt automatically (the
+storage layout is part of the cache key).
+
+The default collate function treats any 2-tuple as a ``(time, values)`` pair of
+tensors, so batch raw fields holding 2-tuples with your own ``collate_fn``.
+
 Processor String Keys
 ---------------------
 

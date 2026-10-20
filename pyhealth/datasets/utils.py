@@ -328,23 +328,97 @@ def collate_fn_dict_with_padding(batch: List[dict]) -> dict:
     return collated
 
 
+class _SeededDataLoader(DataLoader):
+    """A DataLoader that applies its own shuffle settings at every pass.
+
+    PyHealth datasets are iterable, so DataLoader cannot shuffle them; the
+    dataset shuffles itself from a seed and an epoch number. This loader keeps
+    its own ``(shuffle, seed, epoch)`` and applies them to the dataset at the
+    start of each pass, in the main process. That way:
+
+    - each epoch gets a new, reproducible order, also with ``num_workers > 0``
+      (workers receive a copy of the dataset after the settings are applied);
+    - a training and an evaluation loader on the same dataset do not change
+      each other's order.
+
+    ``loader.dataset`` is the dataset itself.
+    """
+
+    def __init__(self, dataset, *, shuffle_samples: bool, seed: int, **kwargs):
+        super().__init__(dataset, **kwargs)
+        self.shuffle_samples = shuffle_samples
+        self.seed = seed
+        self.epoch = 1  # counted from 1, as litdata does
+
+    def __iter__(self):
+        self.dataset.set_shuffle(self.shuffle_samples, self.seed)
+        self.dataset.set_epoch(self.epoch)
+        self.epoch += 1
+        return super().__iter__()
+
+
 def get_dataloader(
-    dataset: litdata.StreamingDataset, batch_size: int, shuffle: bool = False
+    dataset: litdata.StreamingDataset,
+    batch_size: int,
+    shuffle: bool = False,
+    seed: int | None = None,
 ) -> DataLoader:
     """Creates a DataLoader for a given dataset.
+
+    Shuffling is reproducible: each pass (epoch) gets a new order determined
+    by ``seed`` and the epoch number, without touching Python's, NumPy's or
+    PyTorch's global random state. The loader applies its settings to the
+    dataset at the start of each pass, so several loaders can share one
+    dataset as long as they are not iterated at the same time. This holds for
+    in-memory and disk-backed datasets alike; the two backends give different
+    orders for the same seed.
 
     Args:
         dataset: The dataset to load data from.
         batch_size: The number of samples per batch.
         shuffle: Whether to shuffle the data at every epoch.
+        seed: Seed of the shuffle order. Default None draws one from torch's
+            random generator when the loader is created, so
+            ``torch.manual_seed(...)`` before this call makes runs
+            reproducible. Unshuffled loaders draw nothing.
 
     Returns:
         A DataLoader instance for the dataset.
+
+    Examples:
+        >>> from pyhealth.datasets import create_sample_dataset, get_dataloader
+        >>> samples = [{"patient_id": f"p{i}", "x": [float(i)], "y": i % 2} for i in range(8)]
+        >>> ds = create_sample_dataset(samples, {"x": "tensor"}, {"y": "binary"})
+        >>> order = lambda loader: [pid for b in loader for pid in b["patient_id"]]
+        >>> order(get_dataloader(ds, 4, shuffle=True, seed=1)) == order(
+        ...     get_dataloader(ds, 4, shuffle=True, seed=1))
+        True
     """
-    dataset.set_shuffle(shuffle)
+    if shuffle and seed is None:
+        seed = int(torch.randint(0, 2**31 - 1, ()).item())
+    seed = 0 if seed is None else int(seed)
+    # DataLoader draws a base seed from this generator on every pass; a
+    # private one keeps that draw off torch's global random state.
+    generator = torch.Generator().manual_seed(seed)
+    from .sample_dataset import SampleDataset
+
+    if isinstance(dataset, SampleDataset):
+        return _SeededDataLoader(
+            dataset,
+            shuffle_samples=shuffle,
+            seed=seed,
+            batch_size=batch_size,
+            generator=generator,
+            collate_fn=collate_fn_dict_with_padding,
+        )
+    if hasattr(dataset, "set_shuffle"):  # another iterable dataset, e.g. litdata's
+        dataset.set_shuffle(shuffle)
+        shuffle = False  # DataLoader cannot shuffle an iterable dataset
     dataloader = DataLoader(
         dataset,
         batch_size=batch_size,
+        shuffle=shuffle or None,
+        generator=generator,
         collate_fn=collate_fn_dict_with_padding,
     )
 
