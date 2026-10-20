@@ -3,8 +3,10 @@
 A simple decoder-only baseline that mirrors the standalone reference script
 ``generate_synthetic_mimic3_gpt2.py`` (``--mode transformer_baseline``) but
 plugged into the standard PyHealth ``dataset -> set_task -> SampleDataset ->
-model`` pipeline. It consumes the same :class:`~pyhealth.tasks.EHRGeneration`
-task as :class:`~pyhealth.models.HALO`.
+model`` pipeline. It consumes the
+:class:`~pyhealth.tasks.EHRSequenceGenerationMIMIC3` task -- the same extraction
+:class:`~pyhealth.models.HALO` uses, but emitting code indices rather than
+multi-hot rows, since a causal LM reads token ids.
 
 Each patient's visits are flattened into a single token stream::
 
@@ -15,7 +17,7 @@ causal language modeling. Generation autoregressively samples a token stream
 (``do_sample`` + top-k/top-p) and decodes it back into per-visit code lists,
 splitting on the ``[VISIT_DELIM]`` token.
 
-The code vocabulary is taken from the dataset's ``NestedSequenceProcessor``
+The code vocabulary is taken from the dataset's ``visits`` processor
 (which already reserves index 0 for ``<pad>`` and index 1 for ``<unk>``); three
 special tokens (BOS, EOS, VISIT_DELIM) are appended, and ``<pad>`` (index 0) is
 reused as the padding token.
@@ -39,8 +41,9 @@ class GPT2(BaseModel):
 
     Args:
         dataset: A fitted ``SampleDataset`` whose ``input_schema`` contains
-            ``{"visits": NestedSequenceProcessor}`` and whose ``output_schema``
-            is empty.
+            ``{"visits": NestedSequenceProcessor}`` -- use the
+            :class:`~pyhealth.tasks.EHRSequenceGenerationMIMIC3` task -- and whose
+            ``output_schema`` is empty.
         embed_dim: GPT-2 embedding dimension (``n_embd``). Must be divisible by
             ``n_heads``. Default: 512.
         n_heads: Number of attention heads. Default: 8.
@@ -86,7 +89,17 @@ class GPT2(BaseModel):
         if "visits" not in dataset.input_processors:
             raise ValueError(
                 "GPT2 expects an input feature named 'visits' backed by a "
-                "NestedSequenceProcessor."
+                "NestedSequenceProcessor (see EHRSequenceGenerationMIMIC3)."
+            )
+        if not hasattr(dataset.input_processors["visits"], "visit_code_ids"):
+            # Without this the visit row would be read as raw values. Under a
+            # multi-hot encoding every value is 1.0, so every code would silently
+            # become <unk> and training would look fine while learning nothing.
+            raise ValueError(
+                f"GPT2 needs a 'visits' processor that can invert its own "
+                f"encoding (a visit_code_ids method); got "
+                f"{type(dataset.input_processors['visits']).__name__}. Use "
+                "NestedSequenceProcessor, via the EHRSequenceGenerationMIMIC3 task."
             )
 
         self.save_dir = save_dir
@@ -95,7 +108,7 @@ class GPT2(BaseModel):
         self._lr = lr
         self.max_len = max_len
 
-        # Code vocab from the NestedSequenceProcessor (includes <pad>=0, <unk>=1).
+        # Code vocab from the visits processor (includes <pad>=0, <unk>=1).
         self.visits_processor = dataset.input_processors["visits"]
         self.code_vocab_size = self.visits_processor.vocab_size()
         # Append three special tokens after the code vocab; reuse <pad>=0 as PAD.
@@ -132,9 +145,9 @@ class GPT2(BaseModel):
         """Flatten the padded visit-index tensor into causal-LM token streams.
 
         Args:
-            visits: LongTensor ``(batch, max_visits, max_codes_per_visit)`` from
-                the ``NestedSequenceProcessor``. Index 0 is ``<pad>`` and is
-                skipped.
+            visits: Processed visit tensor from either nested ``visits``
+                processor; the processor's ``visit_code_ids`` inverts a row.
+                Index 0 is ``<pad>`` and is skipped.
 
         Returns:
             input_ids: LongTensor ``(batch, L)`` token streams, right-padded.
@@ -147,7 +160,7 @@ class GPT2(BaseModel):
             n_visits = int((visits[i].sum(dim=-1) > 0).sum().item())
             seq: List[int] = [self.bos_id]
             for j in range(n_visits):
-                codes = [int(c) for c in visits[i, j].tolist() if c > 0]
+                codes = self.visits_processor.visit_code_ids(visits[i, j])
                 seq.extend(codes)
                 if j < n_visits - 1:
                     seq.append(self.delim_id)
@@ -176,8 +189,8 @@ class GPT2(BaseModel):
         """Forward pass.
 
         Args:
-            visits: LongTensor ``(batch, max_visits, max_codes_per_visit)`` from
-                the ``NestedSequenceProcessor``.
+            visits: Processed visit tensor from either nested ``visits``
+                processor; the processor's ``visit_code_ids`` inverts a row.
             **kwargs: Any other batch keys are ignored.
 
         Returns:

@@ -138,7 +138,6 @@ class EHRMamba(BaseModel):
 
         assert len(self.label_keys) == 1, "EHRMamba supports single label key only"
         self.label_key = self.label_keys[0]
-        self.mode = self.dataset.output_schema[self.label_key]
 
         self.embedding_model = EmbeddingModel(dataset, embedding_dim)
         self.feature_processors = {

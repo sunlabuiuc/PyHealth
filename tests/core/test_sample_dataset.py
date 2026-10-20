@@ -83,6 +83,30 @@ class TestSampleDatasetParity(unittest.TestCase):
         for d, m in zip(list_disk, list_mem):
             self.assertEqual(d["feature"], m["feature"])
 
+    def test_subset_rebuilds_index_mappings(self):
+        ds_disk, ds_mem = self._get_datasets()
+
+        for dataset in (ds_disk, ds_mem):
+            subset = dataset.subset([5, 2, 15])
+            self.assertEqual(
+                subset.patient_to_index,
+                {"p5": [0], "p2": [1], "p15": [2]},
+            )
+            self.assertEqual(
+                subset.record_to_index,
+                {"r5": [0], "r2": [1], "r15": [2]},
+            )
+
+            nested_subset = subset.subset([2, 0])
+            self.assertEqual(
+                nested_subset.patient_to_index,
+                {"p15": [0], "p5": [1]},
+            )
+            self.assertEqual(
+                nested_subset.record_to_index,
+                {"r15": [0], "r5": [1]},
+            )
+
     def test_set_shuffle(self):
         ds_disk, ds_mem = self._get_datasets()
         

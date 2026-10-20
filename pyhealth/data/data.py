@@ -14,21 +14,34 @@ class Event:
 
     Attributes:
         event_type (str): Type of the clinical event (e.g., 'medication', 'diagnosis')
-        timestamp (datetime): When the event occurred
+        timestamp (Optional[datetime]): When the event occurred, or ``None`` if
+            the event has no time (e.g. rows of a demographics table such as
+            MIMIC's ``patients``)
         attr_dict (Mapping[str, any]): Dictionary containing event-specific attributes
+
+    Examples:
+        >>> from datetime import datetime
+        >>> from pyhealth.data import Event
+        >>> event = Event("admissions", timestamp=datetime(2164, 10, 23), hadm_id="1")
+        >>> event.hadm_id
+        '1'
+        >>> Event("patients", gender="F").timestamp is None
+        True
     """
 
     event_type: str
-    timestamp: datetime
+    timestamp: datetime | None
     attr_dict: Mapping[str, any] = field(default_factory=dict)
 
-    def __init__(self, event_type: str, timestamp: datetime = None, **kwargs):
+    def __init__(
+        self, event_type: str, timestamp: datetime | None = None, **kwargs
+    ):
         """Initialize an Event instance.
 
         Args:
             event_type (str): Type of the clinical event
-            timestamp (datetime, optional): When the event occurred.
-                If not provided, current time will be used.
+            timestamp (datetime, optional): When the event occurred. Defaults to
+                ``None``, meaning the event has no time.
             **kwargs: Additional attributes to store in attr_dict
         """
         # Create a mutable copy of kwargs to manipulate
@@ -39,10 +52,6 @@ class Event:
             existing_attr_dict = attr_dict.pop("attr_dict")
             # Merge with remaining kwargs, with kwargs taking precedence
             attr_dict = {**existing_attr_dict, **attr_dict}
-
-        # Set timestamp to current time if not provided
-        if timestamp is None:
-            timestamp = datetime.now()
 
         # Use object.__setattr__ since the dataclass is frozen
         object.__setattr__(self, "event_type", event_type)
@@ -107,10 +116,14 @@ class Event:
         Raises:
             AttributeError: If the attribute does not exist.
         """
-        if key == "timestamp" or key == "event_type":
-            return getattr(self, key)
-        if key in self.attr_dict:
-            return self.attr_dict[key]
+        # Only called when normal lookup fails. copy and pickle build the object
+        # without __init__ and probe for dunder methods before attr_dict exists,
+        # so never touch self.attr_dict here (it would recurse forever).
+        if key.startswith("__") and key.endswith("__"):
+            raise AttributeError(key)
+        attr_dict = self.__dict__.get("attr_dict")
+        if attr_dict is not None and key in attr_dict:
+            return attr_dict[key]
         raise AttributeError(f"'Event' object has no attribute '{key}'")
 
 
