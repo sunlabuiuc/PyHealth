@@ -232,6 +232,7 @@ Available Tasks
     BMD-HS Disease Classification <tasks/pyhealth.tasks.bmd_hs_disease_classification>
     Cardiology Detection <tasks/pyhealth.tasks.cardiology_detect>
     CPSC 2018 HeartLang Classification <tasks/pyhealth.tasks.CPSC2018HeartLangClassification>
+    Clinical Presence Mortality (MIMIC-III) <tasks/pyhealth.tasks.ClinicalPresenceMortalityMIMIC3>
     COVID-19 CXR Classification <tasks/pyhealth.tasks.COVID19CXRClassification>
     COVID-19 CXR Image Generation <tasks/pyhealth.tasks.COVID19CXRImageGeneration>
     PTB-XL Multilabel Classification <tasks/pyhealth.tasks.PTBXLMultilabelClassification>
