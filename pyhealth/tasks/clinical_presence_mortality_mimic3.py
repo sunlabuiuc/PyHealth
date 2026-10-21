@@ -42,8 +42,8 @@ import polars as pl
 from sklearn.base import BaseEstimator, RegressorMixin
 from sklearn.ensemble import ExtraTreesRegressor
 from sklearn.exceptions import ConvergenceWarning
-from sklearn.experimental import enable_iterative_imputer
-from sklearn.impute import IterativeImputer, SimpleImputer # noqa: F401
+from sklearn.experimental import enable_iterative_imputer  # noqa: F401
+from sklearn.impute import IterativeImputer, SimpleImputer
 from sklearn.preprocessing import StandardScaler
 
 from pyhealth.data import Patient
