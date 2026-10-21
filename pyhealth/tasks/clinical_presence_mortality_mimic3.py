@@ -43,7 +43,7 @@ from sklearn.base import BaseEstimator, RegressorMixin
 from sklearn.ensemble import ExtraTreesRegressor
 from sklearn.exceptions import ConvergenceWarning
 from sklearn.experimental import enable_iterative_imputer
-from sklearn.impute import IterativeImputer, SimpleImputer
+from sklearn.impute import IterativeImputer, SimpleImputer # noqa: F401
 from sklearn.preprocessing import StandardScaler
 
 from pyhealth.data import Patient
@@ -568,7 +568,7 @@ class ClinicalPresenceMortalityMIMIC3(BaseTask):
     Strategies (``imputation``):
         - ``"median"``: each lab's training median.
         - ``"mice"``: the reference's chained linear regressions, with noise
-          N(0, sd of |residual|); 10 draws by default.
+          N(0, sd of the absolute residuals); 10 draws by default.
         - ``"group_mice"``: MICE with the group flags as extra predictors.
         - ``"missforest"``, ``"group_missforest"``: MissForest-style chained
           extra trees, one draw. They run all ``max_iter`` sweeps on MIMIC-III.
