@@ -19,6 +19,8 @@ from pyhealth.trainer import Trainer, get_metrics_fn
 
 from .space import PipelineConfig, SearchSpace
 
+logger = logging.getLogger(__name__)
+
 LOWER_IS_BETTER = frozenset(
     {"loss", "brier", "mse", "mae", "rmse", "kl_divergence", "ece", "ece_adapt",
      "hamming_loss"}
@@ -164,8 +166,11 @@ def patient_folds(
 
     Every sample of a patient lands in the same fold, so a patient with
     several samples never sits on both sides of a fold. Patients are shuffled
-    with ``seed`` and dealt to the currently smallest fold, which keeps fold
-    sizes close when patients have different numbers of samples.
+    with ``seed``. When the label is 0/1, the patients with a positive sample
+    are dealt first, each to the fold with the fewest of them, so every fold
+    has positives if at least ``n_folds`` patients do. The other patients go
+    to the currently smallest fold, which keeps fold sizes close when
+    patients have different numbers of samples.
 
     Raises:
         ValueError: If there are fewer patients than folds.
@@ -179,11 +184,41 @@ def patient_folds(
     if len(patients) < n_folds:
         raise ValueError(f"{len(patients)} patients cannot fill {n_folds} folds")
     rng = np.random.default_rng(seed)
+    order = [patients[i] for i in rng.permutation(len(patients))]
+    positive = _positive_patients(dataset) or set()
+    if 0 < len(positive) < n_folds:
+        logger.warning(
+            "only %d patients have a positive label, so some of the %d folds "
+            "have none and the metric may be undefined there",
+            len(positive), n_folds,
+        )
     folds: list[list[int]] = [[] for _ in range(n_folds)]
-    for i in rng.permutation(len(patients)):
-        smallest = min(range(n_folds), key=lambda k: len(folds[k]))
-        folds[smallest].extend(dataset.patient_to_index[patients[i]])
+    n_positive = [0] * n_folds
+    for patient in [p for p in order if p in positive]:
+        k = min(range(n_folds), key=lambda j: (n_positive[j], len(folds[j])))
+        folds[k].extend(dataset.patient_to_index[patient])
+        n_positive[k] += 1
+    for patient in [p for p in order if p not in positive]:
+        k = min(range(n_folds), key=lambda j: len(folds[j]))
+        folds[k].extend(dataset.patient_to_index[patient])
     return [np.array(sorted(f), dtype=np.int64) for f in folds]
+
+
+def _positive_patients(dataset: SampleDataset) -> set[str] | None:
+    """Patients with a positive sample, or ``None`` if the label is not 0/1."""
+    key = next(iter(dataset.output_schema))
+    positive = set()
+    for patient, indices in dataset.patient_to_index.items():
+        for i in indices:
+            try:
+                value = float(dataset[i][key])
+            except (TypeError, ValueError, RuntimeError):  # not a single number
+                return None
+            if value not in (0.0, 1.0):
+                return None
+            if value == 1.0:
+                positive.add(patient)
+    return positive
 
 
 def run_config_cv(
@@ -299,11 +334,13 @@ def check_models(
     return out
 
 
-def describe_error(error: BaseException) -> str:
+def describe_error(error: BaseException, message: bool = True) -> str:
     """An error as text, with the line that raised it.
 
     A bare ``assert`` has no message, so the failing line is the only clue a
-    proposer gets about what to change.
+    proposer gets about what to change. With ``message=False`` the message is
+    left out: an exception raised while reading a sample can quote a raw
+    value, so this is the form shown to a proposer.
 
     Examples:
         >>> try:
@@ -311,8 +348,17 @@ def describe_error(error: BaseException) -> str:
         ... except AssertionError as e:
         ...     print(describe_error(e))  # doctest: +ELLIPSIS
         AssertionError: (no message) at ...: assert 197 % 4 == 0
+        >>> def parse(value):
+        ...     return int(value)
+        >>> try:
+        ...     parse("a raw value")
+        ... except ValueError as e:
+        ...     print(describe_error(e, message=False))  # doctest: +ELLIPSIS
+        ValueError at ...: return int(value)
     """
-    text = f"{type(error).__name__}: {str(error)[:300] or '(no message)'}"
+    text = type(error).__name__
+    if message:
+        text += f": {str(error)[:300] or '(no message)'}"
     frames = traceback.extract_tb(error.__traceback__)
     if frames:
         last = frames[-1]

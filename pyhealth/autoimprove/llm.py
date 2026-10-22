@@ -2,16 +2,20 @@
 
 Any callable ``llm(system, prompt) -> str`` works as a backend. This module
 provides one for Claude through the official ``anthropic`` SDK
-(``pip install anthropic``).
+(``pip install "anthropic>=1.15"``).
 """
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from typing import Any
 
 LLM = Callable[[str, str], str]
 """A backend: takes a system prompt and a user prompt, returns the reply text."""
+
+MIN_ANTHROPIC = (1, 15)
+"""Oldest ``anthropic`` release tested with the request :class:`ClaudeLLM` sends."""
 
 
 class ClaudeLLM:
@@ -20,7 +24,12 @@ class ClaudeLLM:
     Credentials come from the environment (``ANTHROPIC_API_KEY`` or an
     ``ant auth login`` profile). Only the prompts built by the proposer are
     sent: the search space, dataset sizes and schema, aggregate label counts
-    and validation scores. No patient records are sent.
+    and validation scores. A failed trial is described by its exception type
+    and the code line that raised it, without the message. No patient records
+    are sent.
+
+    The request uses the server-side fallback beta and ``output_config``,
+    which need ``anthropic>=1.15`` (:data:`MIN_ANTHROPIC`).
 
     Args:
         model: Claude model id.
@@ -48,8 +57,14 @@ class ClaudeLLM:
                 import anthropic
             except ImportError as e:
                 raise ImportError(
-                    "ClaudeLLM needs the anthropic package: pip install anthropic"
+                    'ClaudeLLM needs the anthropic package: pip install "anthropic>=1.15"'
                 ) from e
+            found = tuple(int(x) for x in re.findall(r"\d+", anthropic.__version__)[:2])
+            if found < MIN_ANTHROPIC:
+                raise ImportError(
+                    f"ClaudeLLM needs anthropic>=1.15, found {anthropic.__version__}: "
+                    'pip install -U "anthropic>=1.15"'
+                )
             client = anthropic.Anthropic()
         self.client = client
         self.model = model

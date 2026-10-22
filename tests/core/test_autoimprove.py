@@ -4,6 +4,7 @@ import importlib.util
 import json
 import os
 import random
+import sys
 import tempfile
 import unittest
 from types import SimpleNamespace
@@ -326,6 +327,110 @@ class TestAutoImprover(unittest.TestCase):
             [16, 32, 64, 128, 100],
         )
 
+    def test_cross_validation_without_a_baseline(self):
+        scores = {16: [0.50, 0.50, 0.50], 32: [0.40, 0.70, 0.66], 64: [0.55, 0.55, 0.55]}
+
+        def fake_cv(config, space, train, val, metric, folds, *args, **kwargs):
+            fold_scores = scores[config.model_params["hidden_dim"]]
+            return {"metrics": {metric: sum(fold_scores) / 3}, "fold_scores": fold_scores,
+                    "seconds": 0.0, "n_params": 0}
+
+        llm = ScriptedLLM([_reply({"model": "MLP", "model_params": {
+            "hidden_dim": d, "embedding_dim": 16}}) for d in (16, 32, 64)])
+        with self.assertLogs("pyhealth.autoimprove.improver", "WARNING") as logs:
+            improver = AutoImprover(self.train, self.val, LLMProposer(llm), space=SPACE,
+                                    n_agents=3, n_cycles=1, cv_folds=3, check=False)
+        self.assertIn("no baseline", logs.output[0])
+        with mock.patch("pyhealth.autoimprove.improver.run_config_cv", fake_cv):
+            result = improver.run()
+        # the best mean, not the trial with the steadiest gain over the first one
+        self.assertEqual(result.best.config.model_params["hidden_dim"], 32)
+        self.assertIn("no baseline to compare with", llm.prompts[1])
+
+    def test_resuming_with_changed_settings_is_refused(self):
+        baseline = PipelineConfig("LogisticRegression", {"embedding_dim": 16})
+        with tempfile.TemporaryDirectory() as tmp:
+            run = os.path.join(tmp, "run")
+
+            def improver(**kwargs):
+                settings = {"baseline": baseline, "space": SPACE, "n_agents": 1,
+                            "n_cycles": 1, "run_dir": run, "check": False, **kwargs}
+                return AutoImprover(self.train, self.val, RandomProposer(seed=0),
+                                    **settings)
+
+            improver().run()
+            with open(os.path.join(run, "meta.json")) as f:
+                self.assertEqual(json.load(f)["metric"], "pr_auc")
+            with self.assertRaisesRegex(ValueError, "different metric"):
+                improver(metric="roc_auc").run()
+            with self.assertRaisesRegex(ValueError, "different baseline"):
+                improver(baseline=PipelineConfig("MLP", {"embedding_dim": 16})).run()
+            with self.assertRaisesRegex(ValueError, "different cv_folds, promote_se"):
+                improver(cv_folds=3).run()
+            # a larger budget is not a different setting
+            self.assertEqual(len(improver(n_cycles=2).run().trials), 3)
+            # a run saved before meta.json existed is resumed, with a warning
+            os.remove(os.path.join(run, "meta.json"))
+            with self.assertLogs("pyhealth.autoimprove.improver", "WARNING"):
+                improver(n_cycles=2).run()
+            self.assertTrue(os.path.exists(os.path.join(run, "meta.json")))
+
+    def test_error_messages_stay_out_of_prompts(self):
+        secret = "raw-value-4711"
+
+        def failing(*args, **kwargs):
+            raise ValueError(f"could not parse {secret!r}")
+
+        llm = ScriptedLLM([_reply({"model": "MLP", "model_params": {
+            "hidden_dim": d, "embedding_dim": 16}}) for d in (16, 32)])
+        improver = AutoImprover(self.train, self.val, LLMProposer(llm), space=SPACE,
+                                n_agents=1, n_cycles=2, check=False)
+        with mock.patch("pyhealth.autoimprove.improver.run_config", failing):
+            result = improver.run()
+        self.assertIn(secret, result.trials[0].error)  # kept for the user
+        self.assertIn("error: ValueError at", llm.prompts[1])
+        self.assertNotIn(secret, "".join(llm.prompts))
+
+    def test_proposer_errors_skip_the_turn(self):
+        class FlakyLLM(ScriptedLLM):
+            failures = 1
+
+            def __call__(self, system, prompt):
+                if self.failures:
+                    self.failures -= 1
+                    raise RuntimeError("Claude declined the request")
+                return super().__call__(system, prompt)
+
+        llm = FlakyLLM([_reply({"model": "MLP", "model_params": {
+            "hidden_dim": 16, "embedding_dim": 16}})])
+        improver = AutoImprover(self.train, self.val, LLMProposer(llm), space=SPACE,
+                                n_agents=2, n_cycles=1, check=False)
+        with self.assertLogs("pyhealth.autoimprove.improver", "WARNING") as logs:
+            result = improver.run()
+        self.assertEqual([t.agent for t in result.trials], ["agent1"])
+        self.assertTrue(any("turn skipped" in line for line in logs.output))
+
+        llm.failures = 10  # a broken backend stops the run
+        improver = AutoImprover(self.train, self.val, LLMProposer(llm), space=SPACE,
+                                n_agents=3, n_cycles=1, check=False)
+        with self.assertRaisesRegex(RuntimeError, "failed 3 turns in a row"):
+            improver.run()
+
+    def test_patient_folds_are_stratified(self):
+        samples = _samples(40, 4)
+        for i, s in enumerate(samples):
+            s["label"] = int(i % 8 == 0)  # 5 positive patients of 40
+        data = create_sample_dataset(
+            samples, {"conditions": "sequence"}, {"label": "binary"}
+        )
+        for seed in range(3):
+            folds = patient_folds(data, 5, seed=seed)
+            self.assertEqual([sum(int(data[int(i)]["label"]) for i in f) for f in folds],
+                             [1] * 5)
+            self.assertEqual([len(f) for f in folds], [8] * 5)
+        with self.assertLogs("pyhealth.autoimprove.evaluate", "WARNING"):
+            patient_folds(data, 8)
+
     @unittest.skipUnless(importlib.util.find_spec("xgboost"), "needs xgboost")
     def test_models_that_cannot_read_the_inputs_are_removed(self):
         # XGBoost cannot turn code sequences into fixed-width columns.
@@ -375,6 +480,7 @@ class TestSelection(unittest.TestCase):
 
     def test_paired_rule(self):
         base = self._trial(0, 0.50, [0.48, 0.50, 0.52])
+        base.agent = "baseline"
         noisy = self._trial(1, 0.52, [0.40, 0.58, 0.58])        # higher mean, not reliable
         steady = self._trial(2, 0.515, [0.495, 0.515, 0.535])   # +0.015 on every fold
         failed = self._trial(3, None, [], error="boom")
@@ -384,6 +490,18 @@ class TestSelection(unittest.TestCase):
         self.assertIs(select_trial(trials[:2], True, promote_se=1.0), base)
         self.assertEqual(paired_gain([1.0, 2.0], [2.0, 3.0], maximize=False), (1.0, 0.0))
         self.assertIsNone(select_trial([failed], True, 1.0))
+
+    def test_without_a_baseline_the_best_mean_is_selected(self):
+        # No trial to compare with: the first finished trial must not act as one.
+        first = self._trial(0, 0.50, [0.50, 0.50, 0.50])
+        noisy = self._trial(1, 0.587, [0.40, 0.70, 0.66])
+        steady = self._trial(2, 0.55, [0.55, 0.55, 0.55])
+        tie = self._trial(3, 0.587, [0.60, 0.58, 0.58])
+        for order in ([first, noisy, steady, tie], [tie, steady, noisy, first]):
+            self.assertIs(select_trial(order, True, promote_se=1.0), noisy)
+        failed_base = self._trial(4, None, [], error="boom")
+        failed_base.agent = "baseline"
+        self.assertIs(select_trial([failed_base, first, steady], True, 1.0), steady)
 
     def test_selection_ignores_trial_order(self):
         base = self._trial(0, 0.50, [0.50, 0.50, 0.50, 0.50])
@@ -429,6 +547,23 @@ class TestClaudeLLM(unittest.TestCase):
         client, _ = self._client(stop_reason="refusal")
         with self.assertRaises(RuntimeError):
             ClaudeLLM(client=client)("sys", "hi")
+
+    def test_old_sdk_is_refused(self):
+        old = SimpleNamespace(__version__="0.40.0", Anthropic=lambda: None)
+        with (mock.patch.dict(sys.modules, {"anthropic": old}),
+              self.assertRaisesRegex(ImportError, "anthropic>=1.15")):
+            ClaudeLLM()
+
+    @unittest.skipUnless(
+        os.environ.get("ANTHROPIC_API_KEY") and importlib.util.find_spec("anthropic"),
+        "needs ANTHROPIC_API_KEY and the anthropic package",
+    )
+    def test_live_request(self):
+        # The SDK and the API accept the request shape: the fallback beta
+        # header, fallbacks and output_config.
+        reply = ClaudeLLM(effort="low", max_tokens=1000)(
+            "Answer in one word.", "What colour is the sky on a clear day?")
+        self.assertTrue(reply.strip())
 
 
 if __name__ == "__main__":

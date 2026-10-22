@@ -42,10 +42,17 @@ DEFAULT_METRIC = {
 }
 """Metric optimised by default for each label type."""
 
+MAX_PROPOSER_FAILURES = 3
+"""Proposer errors in a row (API errors, refusals) before a run stops."""
+
 
 @dataclass
 class Trial:
     """One proposed configuration and how it did on validation.
+
+    ``error`` holds the full error text and is kept in ``trials.jsonl``.
+    ``error_brief`` leaves out the exception's message, which can quote a raw
+    value from a sample, and is the form shown to a proposer.
 
     Examples:
         >>> trial = Trial(0, 0, "baseline", "baseline", PipelineConfig("RNN"),
@@ -67,6 +74,7 @@ class Trial:
     n_params: int = 0
     error: str | None = None
     fold_scores: list[float] = field(default_factory=list)
+    error_brief: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """The trial as JSON-ready types."""
@@ -89,8 +97,8 @@ class ImproveResult:
     Args:
         trials: Every trial, in the order run.
         best: The selected trial: the best score, or with paired selection
-            (``cv_folds`` and ``promote_se``) the trial with the highest
-            lower bound on its fold-by-fold gain over the baseline.
+            (``cv_folds``, ``promote_se`` and a baseline) the trial with the
+            highest lower bound on its fold-by-fold gain over the baseline.
         baseline: The trial of the starting config, if one was given.
         lessons: The lessons at the end of the run.
         maximize: Whether larger scores are better.
@@ -187,8 +195,13 @@ class AutoImprover:
             ``val_dataset``. Much less noisy when the validation split is
             small, at the cost of ``cv_folds`` trainings per trial.
         device: Torch device for training.
-        run_dir: Directory for ``trials.jsonl`` and ``lessons.json``. A run
-            with the same directory resumes where the last one stopped.
+        run_dir: Directory for ``trials.jsonl``, ``lessons.json`` and
+            ``meta.json``. A run with the same directory resumes where the
+            last one stopped. ``meta.json`` records the settings the trials
+            depend on (metric, ``cv_folds``, ``promote_se``, seed, baseline,
+            search space and data sizes); resuming with any of them changed
+            raises ``ValueError`` rather than mixing old and new trials.
+            Budgets (``n_cycles``, ``max_trials``, ...) may change.
         lessons_path: A JSON file of lessons to reuse across runs. Lessons
             are stored per search space and task (inputs, label, models and
             their arguments), so a run only reads lessons learned on the same
@@ -197,7 +210,9 @@ class AutoImprover:
             baseline on the shared folds, and the selection is the trial
             whose gain has the highest lower bound, mean minus
             ``promote_se`` standard errors. The baseline stays selected
-            unless some bound is above 0. ``None`` selects the best mean.
+            unless some bound is above 0. ``None`` selects the best mean, as
+            does a run without a baseline (or whose baseline trial failed),
+            since there is nothing to compare with.
         check: Before searching, give every model in the space one training
             step on a few training samples (:func:`check_models`) and remove
             the ones that fail, e.g. a model that cannot read one of the
@@ -259,6 +274,11 @@ class AutoImprover:
         self.lessons_path = lessons_path
         self.cv_folds = cv_folds
         self.promote_se = promote_se if cv_folds else None
+        if self.promote_se is not None and baseline is None:
+            logger.warning(
+                "promote_se compares every trial with the baseline, and no "
+                "baseline was given: the best mean score is selected instead"
+            )
         self.folds = (
             patient_folds(train_dataset, cv_folds, seed) if cv_folds else None
         )
@@ -275,6 +295,8 @@ class AutoImprover:
                 f"{self.metric}_sd is the spread between folds."
             )
         self._fingerprint = space_fingerprint(self.space, train_dataset)
+        self._settings = self._run_settings()
+        self._proposer_failures = 0
 
     # ------------------------------------------------------------------ run
     def run(self) -> ImproveResult:
@@ -301,9 +323,13 @@ class AutoImprover:
                     (cycle + i) % len(strategies)
                 ]
                 self._turn(cycle, f"agent{i}", strategy)
-            self.lessons = self.proposer.reflect(
-                self.trials, self.lessons, self.metric, space=self.space
-            )
+            try:
+                self.lessons = self.proposer.reflect(
+                    self.trials, self.lessons, self.metric, space=self.space
+                )
+            except Exception as e:  # noqa: BLE001 - keep the lessons we have
+                logger.warning("lessons not updated in cycle %d: %s", cycle,
+                               describe_error(e))
             self._save_lessons()
             new_best, new_top = self._selected_id(), self._top_score()
             if (new_best is not None and new_best != best) or _better(
@@ -384,6 +410,14 @@ class AutoImprover:
             context = self._context(agent, strategy, feedback)
             try:
                 proposal = self.proposer.propose(context)
+            except ValueError as e:
+                feedback = f"your last proposal was rejected: {e}"
+                continue
+            except Exception as e:  # noqa: BLE001 - an API error or refusal
+                self._skip_turn(agent, cycle, e)
+                return
+            self._proposer_failures = 0
+            try:
                 config, notes = self.space.validate(proposal)
             except ValueError as e:
                 feedback = f"your last proposal was rejected: {e}"
@@ -402,6 +436,24 @@ class AutoImprover:
         logger.warning(
             "%s made no usable proposal in cycle %d: %s", agent, cycle, feedback
         )
+
+    def _skip_turn(self, agent: str, cycle: int, error: Exception) -> None:
+        """Skips a turn whose proposer failed, e.g. an API error or a refusal.
+
+        Raises:
+            RuntimeError: After :data:`MAX_PROPOSER_FAILURES` failures in a
+                row (e.g. missing credentials), so a broken backend does not
+                spend the whole budget.
+        """
+        self._proposer_failures += 1
+        text = describe_error(error)
+        if self._proposer_failures >= MAX_PROPOSER_FAILURES:
+            raise RuntimeError(
+                f"the proposer failed {self._proposer_failures} turns in a row; "
+                f"last error: {text}"
+            ) from error
+        logger.warning("%s's proposer failed in cycle %d, turn skipped: %s",
+                       agent, cycle, text)
 
     def _evaluate(self, config, cycle, agent, strategy, notes=None) -> Trial:
         trial = Trial(len(self.trials), cycle, agent, strategy, config,
@@ -424,9 +476,14 @@ class AutoImprover:
             trial.n_params = out["n_params"]
             trial.fold_scores = out.get("fold_scores", [])
             if trial.score is None or math.isnan(trial.score):
-                trial.error = f"{self.metric} is undefined on the validation split"
+                where = ("a cross-validation fold" if self.folds is not None
+                         else "the validation split")
+                trial.error = trial.error_brief = (
+                    f"{self.metric} is undefined on {where}"
+                )
         except Exception as e:  # noqa: BLE001 - a failed trial is feedback
             trial.error = describe_error(e)
+            trial.error_brief = describe_error(e, message=False)
         self.trials.append(trial)
         self._save_trial(trial)
         return trial
@@ -448,13 +505,20 @@ class AutoImprover:
             lessons=self.lessons,
             feedback=feedback,
             selected=result.best,
-            selection_rule=(
-                "The selection is the config whose fold-by-fold gain over the "
-                f"baseline has the highest lower bound (mean minus "
-                f"{self.promote_se:g} standard errors), so a gain must be "
-                "consistent across folds, not only high on average."
-                if self.promote_se is not None else ""
-            ),
+            selection_rule=self._selection_rule(result.baseline),
+        )
+
+    def _selection_rule(self, baseline: Trial | None) -> str:
+        if self.promote_se is None:
+            return ""
+        if baseline is None or baseline.error is not None:
+            return ("There is no baseline to compare with, so the selection is "
+                    "the config with the best mean score.")
+        return (
+            "The selection is the config whose fold-by-fold gain over the "
+            f"baseline has the highest lower bound (mean minus "
+            f"{self.promote_se:g} standard errors), so a gain must be "
+            "consistent across folds, not only high on average."
         )
 
     def _best_score(self) -> float | None:
@@ -534,6 +598,7 @@ class AutoImprover:
             self.lessons = list(stored[self._fingerprint]["lessons"])
         if not self.run_dir:
             return
+        self._check_settings()
         trials_path = os.path.join(self.run_dir, "trials.jsonl")
         if os.path.exists(trials_path) and not self.trials:
             with open(trials_path) as f:
@@ -542,6 +607,53 @@ class AutoImprover:
         if os.path.exists(lessons_file):
             with open(lessons_file) as f:
                 self.lessons = list(json.load(f))
+
+    def _run_settings(self) -> dict[str, Any]:
+        """The settings a resumed run must share with the trials it continues."""
+        settings = {
+            "metric": self.metric,
+            "cv_folds": self.cv_folds,
+            "promote_se": self.promote_se,
+            "seed": self.seed,
+            "baseline": None if self.baseline is None else self.baseline.to_dict(),
+            "space": self.space.describe(),
+            "data": (
+                f"inputs: {_schema_names(self.train_dataset.input_schema)} | "
+                f"label: {_schema_names(self.train_dataset.output_schema)} | "
+                f"{len(self.train_dataset)} training and "
+                f"{len(self.val_dataset)} validation samples"
+            ),
+        }
+        return json.loads(json.dumps(settings, default=str))
+
+    def _check_settings(self) -> None:
+        """Records the run's settings in ``meta.json``, or checks them on resume.
+
+        Raises:
+            ValueError: If ``run_dir`` holds a run with different settings.
+        """
+        path = os.path.join(self.run_dir, "meta.json")
+        if os.path.exists(path):
+            with open(path) as f:
+                stored = json.load(f)
+            changed = [k for k, v in self._settings.items()
+                       if k in stored and stored[k] != v]
+            if changed:
+                raise ValueError(
+                    f"{self.run_dir} holds a run with a different "
+                    f"{', '.join(changed)}; resuming would mix its trials with "
+                    "this run's. Use a new run_dir, or delete this one to start "
+                    "over."
+                )
+            return
+        if os.path.exists(os.path.join(self.run_dir, "trials.jsonl")):
+            logger.warning(
+                "%s has no meta.json, so its settings cannot be checked; the "
+                "current ones are recorded", self.run_dir,
+            )
+        os.makedirs(self.run_dir, exist_ok=True)
+        with open(path, "w") as f:
+            json.dump(self._settings, f, indent=1)
 
     def _save_trial(self, trial: Trial) -> None:
         if not self.run_dir:
@@ -629,12 +741,14 @@ def select_trial(
     """The trial a search would deploy.
 
     Without ``promote_se``: the best score. With it, every trial is compared
-    with the reference (the baseline, else the first finished trial) on the
-    shared folds, and the trial with the highest lower bound on its gain,
+    with the baseline trial (``agent == "baseline"``) on the shared folds,
+    and the trial with the highest lower bound on its gain,
     ``mean - promote_se * se``, is selected if that bound is above 0;
-    otherwise the reference stays selected. The result does not depend on
-    the order the trials ran in. Trials without fold scores matching the
-    reference's are not candidates.
+    otherwise the baseline stays selected. Trials without fold scores
+    matching the baseline's are not candidates. Without a finished baseline
+    trial with fold scores there is nothing to compare with, and the best
+    score is selected. Ties go to the lower ``trial_id``, so the result does
+    not depend on the order the trials ran in.
 
     Examples:
         >>> a = Trial(0, -1, "baseline", "baseline", PipelineConfig("RNN"),
@@ -644,14 +758,16 @@ def select_trial(
         >>> select_trial([a, b], True).trial_id, select_trial([a, b], True, 1.0).trial_id
         (1, 0)
     """
-    done = [t for t in trials if t.error is None and t.score is not None]
+    done = sorted((t for t in trials if t.error is None and t.score is not None),
+                  key=lambda t: t.trial_id)
     if not done:
         return None
+    best = min(done, key=lambda t: -t.score if maximize else t.score)
     if promote_se is None:
-        return sorted(done, key=lambda t: t.score, reverse=maximize)[0]
-    reference = next((t for t in done if t.agent == "baseline"), done[0])
-    if not reference.fold_scores:
-        return sorted(done, key=lambda t: t.score, reverse=maximize)[0]
+        return best
+    reference = next((t for t in done if t.agent == "baseline"), None)
+    if reference is None or not reference.fold_scores:
+        return best
     selected, best_bound = reference, 0.0
     for t in done:
         if t is reference or len(t.fold_scores) != len(reference.fold_scores):

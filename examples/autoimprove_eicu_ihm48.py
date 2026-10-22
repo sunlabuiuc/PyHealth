@@ -12,6 +12,13 @@ two input views:
 - ``sequence``: the same labs and vitals as an hourly 48-step series, plus
   medication and prior-diagnosis codes. LogisticRegression, MLP, RNN,
   Transformer, CNN and RETAIN, starting from the benchmark's GRU config.
+  Until #1315 is merged, LogisticRegression and MLP cannot read the
+  time series, so the model check removes them and this view searches RNN,
+  Transformer, CNN and RETAIN only.
+
+The task, ``InHospitalMortality48hEICU``, is defined in this example and is
+not part of ``pyhealth.tasks``. (``MortalityPredictionEICU`` there predicts
+mortality at the next visit, a different task.)
 
 Lab and vital values are expressed as (value - normal) / scale with fixed
 clinical reference constants (``VARIABLES``), not statistics fitted on the
@@ -29,9 +36,10 @@ PhysioNet; no credentials are needed. Put patient, lab, medication, diagnosis,
 vitalPeriodic, vitalAperiodic and apachePatientResult (``.csv.gz``) from
 https://physionet.org/content/eicu-crd-demo/2.0.1/ in one folder.
 
-With ``--llm claude`` the proposals come from Claude (``pip install anthropic``
-and set ANTHROPIC_API_KEY). Prompts hold the search space, dataset sizes,
-aggregate label counts and scores, never patient records.
+With ``--llm claude`` the proposals come from Claude
+(``pip install "anthropic>=1.15"`` and set ANTHROPIC_API_KEY). Prompts hold
+the search space, dataset sizes, aggregate label counts and scores, never
+patient records.
 
 Usage:
     python examples/autoimprove_eicu_ihm48.py --root ~/pyhealth-demo/eicu-crd-demo-2.0.1
@@ -158,6 +166,8 @@ def write_config(path: Path) -> Path:
 
 class InHospitalMortality48hEICU(BaseTask):
     """Benchmark task T1 on eICU (``ihm48_eicu@v1``).
+
+    Defined here for this example only; it is not part of ``pyhealth.tasks``.
 
     One sample per hospital stay (``patienthealthsystemstayid``), anchored at
     its first ICU stay. Prediction time is 48 h after hospital admission.
@@ -383,13 +393,14 @@ SPACES = {
 BENCHMARK_TRAIN = {"epochs": 30, "batch_size": 256, "lr": 1e-3,
                    "weight_decay": 1e-5, "patience": 5, "pos_weight": "balanced"}
 BASELINES = {
-    # The benchmark's reference model, class-weighted (spec section 8).
+    # The benchmark plan's reference model, class-weighted (the plan is not
+    # part of this repository).
     "tabular": PipelineConfig(
         "XGBoost",
         {"n_estimators": 300, "max_depth": 4, "learning_rate": 0.05,
          "subsample": 0.8, "colsample_bytree": 0.8, "scale_pos_weight": "balanced"},
     ),
-    # The benchmark's configs/models/gru.yaml.
+    # The benchmark plan's GRU settings.
     "sequence": PipelineConfig(
         "RNN",
         {"rnn_type": "GRU", "embedding_dim": 128, "hidden_dim": 128,

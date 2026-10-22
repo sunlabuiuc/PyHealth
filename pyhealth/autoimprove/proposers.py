@@ -256,6 +256,9 @@ def build_prompt(context: ProposalContext) -> str:
 def format_trials(trials: Sequence[Any]) -> str:
     """One line per trial: score, config, time and any error.
 
+    An error is shown by its exception type and the line that raised it
+    (``Trial.error_brief``), never its message, which can quote a raw value.
+
     Examples:
         >>> from pyhealth.autoimprove import PipelineConfig, Trial
         >>> trial = Trial(3, 0, "agent0", "explore", PipelineConfig("MLP"),
@@ -266,7 +269,9 @@ def format_trials(trials: Sequence[Any]) -> str:
     lines = []
     for t in trials:
         if t.error:
-            result = f"error: {t.error}"
+            # trials saved before error_brief existed: the exception type only
+            brief = getattr(t, "error_brief", None) or t.error.split(":")[0]
+            result = f"error: {brief}"
         else:
             result = f"{t.metric_name}={t.score:.4f}"
             spread = t.metrics.get(f"{t.metric_name}_sd")
