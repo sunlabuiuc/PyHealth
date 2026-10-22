@@ -5,7 +5,7 @@ from pyhealth.calib.predictionset.cluster import ClusterLabel, NeighborhoodLabel
 from pyhealth.calib.predictionset.covariate import CovariateLabel
 from pyhealth.calib.predictionset.favmac import FavMac
 from pyhealth.calib.predictionset.label import LABEL
-from pyhealth.calib.predictionset.label_shift import LabelShift
+from pyhealth.calib.predictionset.label_shift import LabelShift, bbse
 from pyhealth.calib.predictionset.scrib import SCRIB
 
 __all__ = [
@@ -15,6 +15,7 @@ __all__ = [
     "FavMac",
     "CovariateLabel",
     "LabelShift",
+    "bbse",
     "ClusterLabel",
     "NeighborhoodLabel",
 ]
