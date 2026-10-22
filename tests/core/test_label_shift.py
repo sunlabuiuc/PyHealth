@@ -524,6 +524,38 @@ class TestLabelShift(unittest.TestCase):
                     source_label_dist=bad,
                 )
 
+    def test_calibrate_rejects_labels_outside_source_support(self):
+        """A supplied source distribution that gives a class zero
+        probability is inconsistent with calibration data containing that
+        class, and is rejected instead of producing infinite calibration
+        weights (and NaN thresholds)."""
+        cal_model = LabelShift(model=self.model, alpha=0.3)
+        with self.assertRaises(ValueError):
+            cal_model.calibrate(
+                cal_dataset=self.dataset,
+                target_label_dist=[0.5, 0.3, 0.2],
+                source_label_dist=[0.5, 0.5, 0.0],
+            )
+
+    def test_unobserved_target_class_gets_infinite_threshold(self):
+        """A class with target mass but no calibration examples and zero
+        supplied source probability keeps its infinite threshold."""
+        subset_samples = [s for s in self.samples if s["label"] in (0, 1)]
+        subset_dataset = create_sample_dataset(
+            samples=subset_samples,
+            input_schema={"conditions": "sequence", "procedures": "tensor"},
+            output_schema={"label": "multiclass"},
+            dataset_name="test",
+        )
+        cal_model = LabelShift(model=self.model, alpha=0.3)
+        cal_model.calibrate(
+            cal_dataset=subset_dataset,
+            target_label_dist=[0.4, 0.3, 0.3],
+            source_label_dist=[0.6, 0.4, 0.0],
+        )
+        self.assertEqual(cal_model.label_ratios_[2], np.inf)
+        self.assertTrue(np.isinf(cal_model.t.numpy()[2]))
+
     def test_calibrate_extreme_target_dist_no_overflow(self):
         cal_model = LabelShift(model=self.model, alpha=0.3)
         cal_model.calibrate(
