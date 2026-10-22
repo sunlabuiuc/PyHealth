@@ -320,7 +320,9 @@ class LabelShift(SetPredictor):
                 If None (default), P(Y) is estimated from the calibration
                 labels; the label ratios are then plug-in estimates and
                 coverage under Q is approximate. Pass a known P(Y) for the
-                exact finite-sample guarantee.
+                exact finite-sample guarantee. Calibration labels with
+                zero probability under a supplied P(Y) are rejected as
+                inconsistent with it.
         """
         try:
             num_cal = len(cal_dataset)
@@ -353,6 +355,14 @@ class LabelShift(SetPredictor):
             source_label_dist = _validate_label_distribution(
                 source_label_dist, num_classes, "source_label_dist"
             )
+            inconsistent = np.unique(y_true[source_label_dist[y_true] == 0])
+            if len(inconsistent) > 0:
+                raise ValueError(
+                    "calibration labels are inconsistent with the supplied "
+                    "source_label_dist: labels "
+                    f"{inconsistent.tolist()} appear in the calibration "
+                    "data but have zero probability under it."
+                )
 
         # Non-conformity scores of the true labels (higher = less conforming)
         nc_scores = true_class_nc_scores(
