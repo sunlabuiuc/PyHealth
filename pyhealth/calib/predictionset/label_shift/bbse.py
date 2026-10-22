@@ -19,6 +19,8 @@ Paper:
     https://arxiv.org/abs/1802.03916
 """
 
+import warnings
+
 import numpy as np
 
 __all__ = ["bbse"]
@@ -31,13 +33,40 @@ def _as_label_array(y, name: str) -> np.ndarray:
         raise ValueError(
             f"{name} must be a non-empty one-dimensional array of labels."
         )
-    if not np.issubdtype(y.dtype, np.integer):
+    kind = y.dtype.kind
+    if kind == "b":
+        y = y.astype(np.int64)
+    elif kind == "u":
+        if y.max() > np.iinfo(np.int64).max:
+            raise ValueError(
+                f"{name} labels are outside the supported integer range."
+            )
+        y = y.astype(np.int64)
+    elif kind == "i":
+        y = y.astype(np.int64)
+    elif kind == "f":
         if not np.all(np.isfinite(y)) or not np.all(y == np.floor(y)):
             raise ValueError(f"{name} must contain integer labels.")
+        if np.any(np.abs(y) > 2**53):
+            raise ValueError(
+                f"{name} labels are too large to represent exactly."
+            )
         y = y.astype(np.int64)
+    else:
+        raise ValueError(f"{name} must contain integer labels.")
     if y.min() < 0:
         raise ValueError(f"{name} labels must be non-negative.")
     return y
+
+
+def _project_to_simplex(v: np.ndarray) -> np.ndarray:
+    """Euclidean projection of a vector onto the probability simplex
+    (Duchi et al. 2008)."""
+    u = np.sort(v)[::-1]
+    cumulative = np.cumsum(u)
+    rho = np.nonzero(u - (cumulative - 1) / (np.arange(len(v)) + 1) > 0)[0][-1]
+    theta = (cumulative[rho] - 1) / (rho + 1)
+    return np.maximum(v - theta, 0)
 
 
 def bbse(y_true_source, y_pred_source, y_pred_target, num_classes=None):
@@ -66,7 +95,21 @@ def bbse(y_true_source, y_pred_source, y_pred_target, num_classes=None):
     Raises:
         ValueError: If the inputs are not valid label arrays, if a class
             never appears in the source labels (its target proportion
-            cannot be estimated), or if the estimate has no positive mass.
+            cannot be estimated), if the confusion matrix is rank
+            deficient (the target distribution is not identifiable from
+            the predictions), or if num_classes is not a positive
+            integer.
+
+    Note:
+        The same fixed classifier must produce the source and target
+        predictions, and the labeled source data should be held out from
+        that classifier's training data: BBSE assumes the class-conditional
+        prediction distribution is the same under the source and target
+        distributions, which training data would violate. The estimate is
+        a plug-in input for LabelShift, so coverage guarantees stated for
+        known label ratios become approximate. When the confusion matrix
+        is ill-conditioned (condition number above 100), the estimate can
+        be unstable and a UserWarning is issued.
 
     Examples:
         >>> import numpy as np
@@ -96,8 +139,20 @@ def bbse(y_true_source, y_pred_source, y_pred_target, num_classes=None):
             )
             + 1
         )
-    if num_classes < 1:
-        raise ValueError(f"num_classes must be positive, got {num_classes}.")
+    else:
+        if isinstance(num_classes, bool) or not isinstance(
+            num_classes, (int, np.integer)
+        ):
+            raise ValueError(
+                f"num_classes must be a positive integer, got "
+                f"{num_classes!r}."
+            )
+        num_classes = int(num_classes)
+        if num_classes < 1:
+            raise ValueError(
+                f"num_classes must be a positive integer, got "
+                f"{num_classes}."
+            )
     for name, y in (
         ("y_true_source", y_true_source),
         ("y_pred_source", y_pred_source),
@@ -128,18 +183,33 @@ def bbse(y_true_source, y_pred_source, y_pred_target, num_classes=None):
     )
 
     # Under label shift, target_pred_dist = confusion @ target_label_dist.
-    target_label_dist, *_ = np.linalg.lstsq(
+    target_label_dist, _, rank, singular_values = np.linalg.lstsq(
         confusion, target_pred_dist, rcond=None
     )
-
-    # Sampling noise can push the least squares solution off the simplex;
-    # project back onto it.
-    target_label_dist = np.clip(target_label_dist, 0.0, None)
-    total = target_label_dist.sum()
-    if total <= 0:
+    if rank < num_classes:
         raise ValueError(
-            "BBSE produced an estimate with no positive mass; the "
-            "classifier's source confusion matrix may be too close to "
-            "singular for the observed target predictions."
+            "BBSE cannot identify the target label distribution: the "
+            f"confusion matrix has rank {rank} for {num_classes} classes, "
+            "so different target distributions produce the same "
+            "prediction distribution. The classifier must separate the "
+            "classes better for BBSE to apply."
         )
-    return target_label_dist / total
+    condition = singular_values[0] / singular_values[-1]
+    if condition > 100:
+        warnings.warn(
+            "The BBSE confusion matrix is ill-conditioned (condition "
+            f"number {condition:.1f}); the estimated target label "
+            "distribution may be unstable.",
+            UserWarning,
+            stacklevel=2,
+        )
+    if not np.all(np.isfinite(target_label_dist)):
+        raise ValueError(
+            "BBSE produced a non-finite estimate from the given inputs."
+        )
+
+    # Sampling noise can push the least squares solution off the simplex.
+    # Project it back with the Euclidean projection onto the simplex;
+    # note this projects the unconstrained estimate, it is not the
+    # constrained least squares solution.
+    return _project_to_simplex(target_label_dist)
