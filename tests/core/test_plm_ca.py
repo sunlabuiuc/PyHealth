@@ -10,6 +10,7 @@ directory, so nothing is downloaded and the suite runs in about a second.
 import shutil
 import tempfile
 import unittest
+from pathlib import Path
 
 import torch
 from tokenizers import Tokenizer, models, normalizers, pre_tokenizers, processors
@@ -205,6 +206,47 @@ class TestPLMCA(unittest.TestCase):
         self.assertTrue(torch.allclose(out_embed["logit"], out["logit"], atol=1e-5))
         self.assertIsNotNone(embeds.grad)
         self.assertEqual(embeds.grad.shape, embeds.shape)
+
+    def test_other_configurations(self):
+        for chunk_size, max_length, dropout in [(4, 16, 0.0), (16, 48, 0.5)]:
+            with self.subTest(chunk_size=chunk_size, max_length=max_length):
+                model = PLMCA(
+                    self.dataset,
+                    model_name=self.tmp_dir,
+                    chunk_size=chunk_size,
+                    max_length=max_length,
+                    dropout=dropout,
+                )
+                out = model(**self.batch)
+                out["loss"].backward()
+
+                self.assertEqual(out["logit"].shape, (2, 3))
+                self.assertLessEqual(
+                    out["attention"].shape[-1], max_length + chunk_size
+                )
+                self.assertEqual(out["attention"].shape[-1] % chunk_size, 0)
+                self.assertIsNotNone(model.decoder.class_queries.grad)
+
+    def test_save_and_load_state_dict(self):
+        self.model.eval()
+        with torch.no_grad():
+            expected = self.model(**self.batch)["logit"]
+        path = Path(self.tmp_dir) / "plm_ca_test.pt"
+        torch.save(self.model.state_dict(), path)
+
+        torch.manual_seed(123)  # different initial decoder weights
+        restored = PLMCA(
+            self.dataset,
+            model_name=self.tmp_dir,
+            chunk_size=CHUNK_SIZE,
+            max_length=MAX_LENGTH,
+        )
+        restored.load_state_dict(torch.load(path))
+        restored.eval()
+        with torch.no_grad():
+            actual = restored(**self.batch)["logit"]
+
+        self.assertTrue(torch.allclose(actual, expected, atol=1e-6))
 
     def test_rejects_non_multilabel_task(self):
         binary_dataset = create_sample_dataset(
