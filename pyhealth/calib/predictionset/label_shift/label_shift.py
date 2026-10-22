@@ -63,36 +63,91 @@ def _label_shift_threshold(
     return float(sorted_scores[idx])
 
 
+def _validate_label_distribution(dist, num_classes: int, name: str) -> np.ndarray:
+    """Validate a label distribution and return it normalized to sum to 1.
+
+    Entries are scaled by their maximum before normalizing, so very large
+    finite values cannot overflow the sum.
+    """
+    dist = np.asarray(dist, dtype=np.float64)
+    if dist.ndim != 1 or dist.shape[0] != num_classes:
+        raise ValueError(
+            f"{name} must have one entry per class ({num_classes}), "
+            f"got shape {dist.shape}."
+        )
+    if not np.all(np.isfinite(dist)):
+        raise ValueError(f"{name} entries must be finite.")
+    if np.any(dist < 0):
+        raise ValueError(f"{name} entries must be non-negative.")
+    scale = dist.max()
+    if scale <= 0:
+        raise ValueError(f"{name} must have positive total mass.")
+    dist = dist / scale
+    return dist / dist.sum()
+
+
+def _validate_calibration_labels(
+    y_true: np.ndarray, num_rows: int, num_classes: int
+) -> np.ndarray:
+    """Validate calibration labels and return them as an int64 array.
+
+    Raises an informative ValueError for an empty calibration set, labels
+    that are not one integer per prediction row, or labels outside
+    [0, num_classes), instead of surfacing low-level indexing, casting, or
+    division errors from later in the calibration code.
+    """
+    if y_true.ndim == 0 or len(y_true) == 0:
+        raise ValueError("calibration dataset is empty.")
+    if y_true.ndim != 1 or len(y_true) != num_rows:
+        raise ValueError(
+            "calibration labels must be one-dimensional with one label "
+            f"per prediction row ({num_rows}), got shape {y_true.shape}."
+        )
+    if not np.issubdtype(y_true.dtype, np.integer):
+        if not np.all(np.isfinite(y_true)) or not np.all(
+            y_true == np.floor(y_true)
+        ):
+            raise ValueError("calibration labels must be integers.")
+        y_true = y_true.astype(np.int64)
+    if y_true.min() < 0 or y_true.max() >= num_classes:
+        raise ValueError(
+            f"calibration labels must lie in [0, {num_classes}), got "
+            f"labels from {y_true.min()} to {y_true.max()}."
+        )
+    return y_true
+
+
 def _compute_label_shift_thresholds(
     nc_scores: np.ndarray,
     y_true: np.ndarray,
     target_label_dist: np.ndarray,
+    source_label_dist: np.ndarray,
     alpha: float,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray]:
     """Per-class thresholds for weighted conformal prediction under label shift.
 
     Each calibration example with label y is weighted by the label ratio
-    w(y) = target_label_dist[y] / source_label_dist[y], where the source
-    distribution is the empirical label distribution of the calibration set.
-    The threshold for candidate label y reserves an additional mass w(y) at
-    +inf for the test point itself, so every class gets its own threshold.
+    w(y) = target_label_dist[y] / source_label_dist[y]. The threshold for
+    candidate label y reserves an additional mass w(y) at +inf for the
+    test point itself, so every class gets its own threshold. Both
+    distributions are inputs: the caller decides whether the source
+    distribution is a known population distribution or the empirical
+    calibration distribution (a plug-in estimate).
 
     Returns:
-        Tuple of (thresholds, label_ratios, source_label_dist), each of
-        shape (num_classes,).
+        Tuple of (thresholds, label_ratios), each of shape (num_classes,).
     """
     num_classes = len(target_label_dist)
-    source_label_dist = np.bincount(y_true, minlength=num_classes) / len(y_true)
 
     label_ratios = np.zeros(num_classes)
     for k in range(num_classes):
         if source_label_dist[k] > 0:
             label_ratios[k] = target_label_dist[k] / source_label_dist[k]
         elif target_label_dist[k] > 0:
-            # The class never appears in the calibration set but has mass
-            # under the target distribution, so no calibration score can
-            # speak for it; its candidate weight is unbounded and the class
-            # ends up always included.
+            # The class has no mass under the source distribution but has
+            # mass under the target, so no calibration score can speak for
+            # it; its candidate weight is unbounded and the class ends up
+            # always included.
             label_ratios[k] = np.inf
 
     cal_weights = label_ratios[y_true]
@@ -102,7 +157,7 @@ def _compute_label_shift_thresholds(
             for k in range(num_classes)
         ]
     )
-    return thresholds, label_ratios, source_label_dist
+    return thresholds, label_ratios
 
 
 class LabelShift(SetPredictor):
@@ -127,6 +182,19 @@ class LabelShift(SetPredictor):
     ``calibrate`` (for example, a known deployment prevalence). When Q(Y)
     equals the empirical calibration label distribution, every weight is 1
     and the thresholds reduce exactly to those of BaseConformal.
+
+    The finite-sample coverage guarantee under Q holds when the label
+    ratios are known, that is, when both P(Y) and Q(Y) are known. The
+    source distribution P(Y) can be passed to ``calibrate`` directly; by
+    default it is estimated from the calibration labels instead, which
+    makes the ratios plug-in estimates and the coverage under Q
+    approximate rather than exact.
+
+    A class with zero target mass contributes no weight: its calibration
+    examples do not count toward any threshold, and its own threshold is
+    the weighted quantile of the remaining mass, so the class is not
+    excluded from prediction sets outright, it just needs one of the most
+    conforming scores to appear.
 
     Note:
         Unlike CovariateLabel, whose weights are a function of the inputs
@@ -237,6 +305,7 @@ class LabelShift(SetPredictor):
         self,
         cal_dataset: IterableDataset,
         target_label_dist,
+        source_label_dist=None,
     ):
         """Calibrate the per-class thresholds for prediction set construction.
 
@@ -246,7 +315,20 @@ class LabelShift(SetPredictor):
             target_label_dist: Label distribution Q(Y) of the target
                 distribution, one entry per class. It is normalized to sum
                 to 1 before use.
+            source_label_dist: Label distribution P(Y) of the source
+                distribution, one entry per class, normalized before use.
+                If None (default), P(Y) is estimated from the calibration
+                labels; the label ratios are then plug-in estimates and
+                coverage under Q is approximate. Pass a known P(Y) for the
+                exact finite-sample guarantee.
         """
+        try:
+            num_cal = len(cal_dataset)
+        except TypeError:
+            num_cal = None
+        if num_cal == 0:
+            raise ValueError("calibration dataset is empty.")
+
         cal_dataset_dict = prepare_numpy_dataset(
             self.model,
             cal_dataset,
@@ -255,35 +337,30 @@ class LabelShift(SetPredictor):
         )
 
         y_prob = cal_dataset_dict["y_prob"]
-        y_true = np.asarray(cal_dataset_dict["y_true"], dtype=np.int64)
-        _, num_classes = y_prob.shape
+        num_rows, num_classes = y_prob.shape
+        y_true = _validate_calibration_labels(
+            np.asarray(cal_dataset_dict["y_true"]), num_rows, num_classes
+        )
 
-        target_label_dist = np.asarray(target_label_dist, dtype=np.float64)
-        if target_label_dist.shape != (num_classes,):
-            raise ValueError(
-                f"target_label_dist must have one entry per class "
-                f"({num_classes}), got shape {target_label_dist.shape}."
+        target_label_dist = _validate_label_distribution(
+            target_label_dist, num_classes, "target_label_dist"
+        )
+        if source_label_dist is None:
+            source_label_dist = np.bincount(y_true, minlength=num_classes) / len(
+                y_true
             )
-        if not np.all(np.isfinite(target_label_dist)) or np.any(
-            target_label_dist < 0
-        ):
-            raise ValueError(
-                "target_label_dist entries must be finite and non-negative."
+        else:
+            source_label_dist = _validate_label_distribution(
+                source_label_dist, num_classes, "source_label_dist"
             )
-        total = target_label_dist.sum()
-        if total <= 0:
-            raise ValueError("target_label_dist must have positive total mass.")
-        target_label_dist = target_label_dist / total
 
         # Non-conformity scores of the true labels (higher = less conforming)
         nc_scores = true_class_nc_scores(
             y_prob, y_true, score_type=self.score_type, rng=self.rng
         )
 
-        thresholds, label_ratios, source_label_dist = (
-            _compute_label_shift_thresholds(
-                nc_scores, y_true, target_label_dist, self.alpha
-            )
+        thresholds, label_ratios = _compute_label_shift_thresholds(
+            nc_scores, y_true, target_label_dist, source_label_dist, self.alpha
         )
 
         self.t = torch.tensor(thresholds, device=self.device)
