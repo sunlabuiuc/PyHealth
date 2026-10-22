@@ -8,6 +8,8 @@ from pyhealth.calib.predictionset.base_conformal import _query_quantile
 from pyhealth.calib.predictionset.label_shift.label_shift import (
     _compute_label_shift_thresholds,
     _label_shift_threshold,
+    _validate_calibration_labels,
+    _validate_label_distribution,
 )
 from pyhealth.datasets import create_sample_dataset, get_dataloader
 from pyhealth.models import MLP
@@ -32,10 +34,13 @@ class TestLabelShiftHelpers(unittest.TestCase):
         """
         scores = np.array([0.1, 0.3, 0.5, 0.7])
         y_true = np.array([0, 0, 1, 1])
-        thresholds, ratios, source = _compute_label_shift_thresholds(
-            scores, y_true, np.array([0.25, 0.75]), alpha=0.25
+        thresholds, ratios = _compute_label_shift_thresholds(
+            scores,
+            y_true,
+            np.array([0.25, 0.75]),
+            np.array([0.5, 0.5]),
+            alpha=0.25,
         )
-        np.testing.assert_allclose(source, [0.5, 0.5])
         np.testing.assert_allclose(ratios, [0.5, 1.5])
         self.assertEqual(thresholds[0], 0.7)
         self.assertEqual(thresholds[1], np.inf)
@@ -60,8 +65,8 @@ class TestLabelShiftHelpers(unittest.TestCase):
         y_true = np.array([0, 0, 0, 1, 1, 2])
         scores = rng.random(len(y_true))
         source = np.bincount(y_true) / len(y_true)
-        thresholds, ratios, _ = _compute_label_shift_thresholds(
-            scores, y_true, source, alpha=0.2
+        thresholds, ratios = _compute_label_shift_thresholds(
+            scores, y_true, source, source, alpha=0.2
         )
         np.testing.assert_allclose(ratios, np.ones(3))
         expected = _query_quantile(scores, 0.2)
@@ -72,10 +77,10 @@ class TestLabelShiftHelpers(unittest.TestCase):
         infinite ratio and an infinite threshold."""
         scores = np.array([0.2, 0.4, 0.6])
         y_true = np.array([0, 0, 1])
-        thresholds, ratios, source = _compute_label_shift_thresholds(
-            scores, y_true, np.array([0.3, 0.3, 0.4]), alpha=0.1
+        source = np.array([2 / 3, 1 / 3, 0.0])
+        thresholds, ratios = _compute_label_shift_thresholds(
+            scores, y_true, np.array([0.3, 0.3, 0.4]), source, alpha=0.1
         )
-        self.assertEqual(source[2], 0.0)
         self.assertEqual(ratios[2], np.inf)
         self.assertEqual(thresholds[2], np.inf)
 
@@ -110,9 +115,9 @@ class TestLabelShiftHelpers(unittest.TestCase):
         test_prob, test_true = draw(30000, target_mix)
         test_scores = 1 - test_prob  # NC score of every class
 
-        # Weighted (oracle target mix): per-class thresholds.
-        thresholds, _, _ = _compute_label_shift_thresholds(
-            cal_scores, cal_true, target_mix, alpha
+        # Weighted (oracle source and target mixes): per-class thresholds.
+        thresholds, _ = _compute_label_shift_thresholds(
+            cal_scores, cal_true, target_mix, source_mix, alpha
         )
         weighted_sets = test_scores <= thresholds
         weighted_coverage = weighted_sets[
@@ -128,6 +133,208 @@ class TestLabelShiftHelpers(unittest.TestCase):
         self.assertGreater(weighted_coverage, 0.88)
         self.assertLess(weighted_coverage, 0.92)
         self.assertGreater(weighted_coverage, plain_coverage + 0.03)
+
+    def test_tied_scores(self):
+        """Tied scores: the threshold is the tied value when the cumulative
+        mass reaches 1 - alpha inside the tie, and the next distinct score
+        when it does not."""
+        scores = np.array([0.4, 0.4, 0.4, 0.8])
+        weights = np.ones(4)
+        self.assertEqual(
+            _label_shift_threshold(scores, weights, 0.5, 1.0), 0.4
+        )
+        self.assertEqual(
+            _label_shift_threshold(scores, weights, 0.25, 1.0), 0.8
+        )
+
+    def test_exact_cumulative_boundary(self):
+        """When the cumulative weight hits 1 - alpha exactly at a score,
+        that score is the threshold (the construction uses >=), and a
+        slightly smaller alpha moves past it."""
+        scores = np.array([0.1, 0.2, 0.3, 0.4])
+        weights = np.ones(4)
+        # Cumulative weights are [0.2, 0.4, 0.6, 0.8] out of a total of 5.
+        self.assertEqual(
+            _label_shift_threshold(scores, weights, 0.4, 1.0), 0.3
+        )
+        self.assertEqual(
+            _label_shift_threshold(scores, weights, 0.39, 1.0), 0.4
+        )
+
+    def test_zero_weight_points_do_not_move_threshold(self):
+        """A calibration point with weight 0 counts for nothing, whatever
+        its score."""
+        with_point = _label_shift_threshold(
+            np.array([0.1, 0.2, 0.99]), np.array([1.0, 1.0, 0.0]), 0.5, 1.0
+        )
+        without_point = _label_shift_threshold(
+            np.array([0.1, 0.2]), np.array([1.0, 1.0]), 0.5, 1.0
+        )
+        self.assertEqual(with_point, without_point)
+        self.assertEqual(with_point, 0.2)
+
+    def test_all_zero_calibration_weights(self):
+        """With no calibration mass at all, the threshold is +inf whether
+        the candidate weight is positive or also zero."""
+        scores = np.array([0.3, 0.9])
+        weights = np.zeros(2)
+        self.assertEqual(
+            _label_shift_threshold(scores, weights, 0.1, 2.0), np.inf
+        )
+        self.assertEqual(
+            _label_shift_threshold(scores, weights, 0.1, 0.0), np.inf
+        )
+
+    def test_single_point_needing_infinite_threshold(self):
+        """One calibration point rarely carries enough mass on its own."""
+        self.assertEqual(
+            _label_shift_threshold(
+                np.array([0.42]), np.array([1.0]), 0.1, 1.0
+            ),
+            np.inf,
+        )
+
+    def test_no_shift_equivalence_at_rank_boundaries(self):
+        """No-shift equivalence also holds when (n + 1)(1 - alpha) falls
+        exactly on an integer rank."""
+        rng = np.random.default_rng(3)
+        cases = (
+            (1, [0.5]),
+            (3, [0.25, 0.5, 0.75]),
+            (7, [0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875]),
+        )
+        for n, alphas in cases:
+            scores = rng.random(n)
+            for alpha in alphas:
+                expected = _query_quantile(scores, alpha)
+                got = _label_shift_threshold(scores, np.ones(n), alpha, 1.0)
+                self.assertEqual(got, expected)
+
+    def test_zero_target_mass_class_points_are_ignored(self):
+        """Changing the scores of a zero-target-mass class cannot change
+        the other classes' thresholds, since its points have weight 0."""
+        y_true = np.array([0, 0, 1, 1, 2])
+        source = np.array([0.4, 0.4, 0.2])
+        target = np.array([0.5, 0.5, 0.0])
+        scores_a = np.array([0.1, 0.2, 0.3, 0.4, 0.05])
+        scores_b = np.array([0.1, 0.2, 0.3, 0.4, 0.99])
+        thresholds_a, ratios = _compute_label_shift_thresholds(
+            scores_a, y_true, target, source, alpha=0.25
+        )
+        thresholds_b, _ = _compute_label_shift_thresholds(
+            scores_b, y_true, target, source, alpha=0.25
+        )
+        self.assertEqual(ratios[2], 0.0)
+        self.assertEqual(thresholds_a[0], thresholds_b[0])
+        self.assertEqual(thresholds_a[1], thresholds_b[1])
+        # The class itself still gets the weighted quantile of the
+        # remaining mass with a candidate weight of 0.
+        expected = _label_shift_threshold(
+            scores_a, ratios[y_true], 0.25, 0.0
+        )
+        self.assertEqual(thresholds_a[2], expected)
+
+    def test_validate_label_distribution(self):
+        # Very large finite values must not overflow the normalization.
+        dist = _validate_label_distribution(
+            [1e308, 1e308], 2, "target_label_dist"
+        )
+        np.testing.assert_allclose(dist, [0.5, 0.5])
+        self.assertTrue(np.all(np.isfinite(dist)))
+        # Unnormalized input is fine.
+        dist = _validate_label_distribution(
+            [2.0, 1.0, 1.0], 3, "target_label_dist"
+        )
+        np.testing.assert_allclose(dist, [0.5, 0.25, 0.25])
+        for bad in (
+            [np.nan, 1.0],
+            [np.inf, 1.0],
+            [0.5, -0.1],
+            [0.0, 0.0],
+            [0.5],
+            [[0.5, 0.5]],
+        ):
+            with self.assertRaises(ValueError):
+                _validate_label_distribution(bad, 2, "target_label_dist")
+
+    def test_validate_calibration_labels(self):
+        with self.assertRaises(ValueError):
+            _validate_calibration_labels(
+                np.array([], dtype=np.int64), 0, 3
+            )
+        with self.assertRaises(ValueError):
+            _validate_calibration_labels(np.array([[0, 1]]), 1, 3)
+        with self.assertRaises(ValueError):
+            _validate_calibration_labels(np.array([0, 1, 2]), 2, 3)
+        with self.assertRaises(ValueError):
+            _validate_calibration_labels(np.array([0.5, 1.0]), 2, 3)
+        with self.assertRaises(ValueError):
+            _validate_calibration_labels(np.array([0, 3]), 2, 3)
+        with self.assertRaises(ValueError):
+            _validate_calibration_labels(np.array([-1, 0]), 2, 3)
+        # Integral float labels are accepted and cast.
+        out = _validate_calibration_labels(np.array([0.0, 2.0]), 2, 3)
+        self.assertEqual(out.dtype, np.int64)
+        np.testing.assert_array_equal(out, [0, 2])
+        # Ordinary integer labels pass through unchanged.
+        out = _validate_calibration_labels(np.array([0, 1]), 2, 3)
+        np.testing.assert_array_equal(out, [0, 1])
+
+    def test_simulated_coverage_repeated_draws(self):
+        """Coverage across repeated calibration draws, oracle vs plug-in.
+
+        With known source and target mixes (oracle ratios) the weighted
+        construction has a finite-sample guarantee, so average coverage
+        should sit at or above the nominal level. With the source mix
+        estimated from the calibration labels (plug-in ratios) there is no
+        exact guarantee; coverage should still be close, and this test
+        only requires it to stay near the oracle level, not equal to it.
+        """
+        alpha = 0.1
+        source_mix = np.array([0.9, 0.1])
+        target_mix = np.array([0.7, 0.3])
+
+        def draw(rng, n, mix):
+            y = rng.choice(2, size=n, p=mix)
+            p_true = np.where(
+                y == 0, rng.uniform(0.70, 0.98, n), rng.uniform(0.50, 0.85, n)
+            )
+            y_prob = np.empty((n, 2))
+            y_prob[np.arange(n), y] = p_true
+            y_prob[np.arange(n), 1 - y] = 1 - p_true
+            return y_prob, y
+
+        oracle_coverages = []
+        plugin_coverages = []
+        for rep in range(25):
+            rng = np.random.default_rng(1000 + rep)
+            cal_prob, cal_true = draw(rng, 400, source_mix)
+            cal_scores = 1 - cal_prob[np.arange(len(cal_true)), cal_true]
+            test_prob, test_true = draw(rng, 4000, target_mix)
+            test_scores = 1 - test_prob
+
+            thresholds, _ = _compute_label_shift_thresholds(
+                cal_scores, cal_true, target_mix, source_mix, alpha
+            )
+            oracle_coverages.append(
+                (test_scores <= thresholds)[
+                    np.arange(len(test_true)), test_true
+                ].mean()
+            )
+
+            plugin_source = np.bincount(cal_true, minlength=2) / len(cal_true)
+            thresholds, _ = _compute_label_shift_thresholds(
+                cal_scores, cal_true, target_mix, plugin_source, alpha
+            )
+            plugin_coverages.append(
+                (test_scores <= thresholds)[
+                    np.arange(len(test_true)), test_true
+                ].mean()
+            )
+
+        self.assertGreaterEqual(np.mean(oracle_coverages), 0.885)
+        self.assertGreaterEqual(min(oracle_coverages), 0.83)
+        self.assertGreaterEqual(np.mean(plugin_coverages), 0.86)
 
 
 class TestLabelShift(unittest.TestCase):
@@ -279,6 +486,113 @@ class TestLabelShift(unittest.TestCase):
             cal_model.calibrate(
                 cal_dataset=self.dataset, target_label_dist=[0.0, 0.0, 0.0]
             )
+
+    def test_calibrate_with_known_source_dist(self):
+        # The calibration samples are uniform over classes, so passing the
+        # known source distribution explicitly matches the plug-in default.
+        default_model = LabelShift(model=self.model, alpha=0.3)
+        default_model.calibrate(
+            cal_dataset=self.dataset, target_label_dist=[0.5, 0.3, 0.2]
+        )
+        known_model = LabelShift(model=self.model, alpha=0.3)
+        known_model.calibrate(
+            cal_dataset=self.dataset,
+            target_label_dist=[0.5, 0.3, 0.2],
+            source_label_dist=[1 / 3, 1 / 3, 1 / 3],
+        )
+        np.testing.assert_allclose(
+            known_model.t.numpy(), default_model.t.numpy()
+        )
+        np.testing.assert_allclose(known_model.source_label_dist_, [1 / 3] * 3)
+        # A non-uniform known source gives the corresponding ratios.
+        other_model = LabelShift(model=self.model, alpha=0.3)
+        other_model.calibrate(
+            cal_dataset=self.dataset,
+            target_label_dist=[0.5, 0.3, 0.2],
+            source_label_dist=[0.5, 0.25, 0.25],
+        )
+        np.testing.assert_allclose(other_model.label_ratios_, [1.0, 1.2, 0.8])
+
+    def test_calibrate_validates_source_dist(self):
+        cal_model = LabelShift(model=self.model, alpha=0.3)
+        for bad in ([0.5, 0.5], [0.5, -0.1, 0.6], [np.nan, 0.5, 0.5],
+                    [0.0, 0.0, 0.0]):
+            with self.assertRaises(ValueError):
+                cal_model.calibrate(
+                    cal_dataset=self.dataset,
+                    target_label_dist=[0.5, 0.3, 0.2],
+                    source_label_dist=bad,
+                )
+
+    def test_calibrate_extreme_target_dist_no_overflow(self):
+        cal_model = LabelShift(model=self.model, alpha=0.3)
+        cal_model.calibrate(
+            cal_dataset=self.dataset,
+            target_label_dist=[1e308, 1e308, 1e308],
+        )
+        np.testing.assert_allclose(cal_model.target_label_dist_, [1 / 3] * 3)
+        self.assertTrue(np.all(np.isfinite(cal_model.target_label_dist_)))
+        self.assertFalse(np.isnan(cal_model.t.numpy()).any())
+
+    def test_calibrate_empty_dataset_raises(self):
+        empty_dataset = create_sample_dataset(
+            samples=[],
+            input_schema={"conditions": "sequence", "procedures": "tensor"},
+            output_schema={"label": "multiclass"},
+            dataset_name="test",
+        )
+        cal_model = LabelShift(model=self.model, alpha=0.3)
+        with self.assertRaises(ValueError):
+            cal_model.calibrate(
+                cal_dataset=empty_dataset, target_label_dist=[0.5, 0.3, 0.2]
+            )
+
+    def test_forward_candidatewise_with_known_thresholds(self):
+        """With known thresholds, a class is in the set exactly when its
+        NC score is at or below its own threshold; an infinite threshold
+        includes the class for every input."""
+        cal_model = LabelShift(model=self.model, alpha=0.3)
+        cal_model.calibrate(
+            cal_dataset=self.dataset, target_label_dist=[0.5, 0.3, 0.2]
+        )
+        thresholds = np.array([0.5, np.inf, 0.1], dtype=np.float32)
+        cal_model.t = torch.tensor(thresholds)
+        loader = get_dataloader(self.dataset, batch_size=2, shuffle=False)
+        batch = next(iter(loader))
+        with torch.no_grad():
+            output = cal_model(**batch)
+        scores = 1 - output["y_prob"].numpy().astype(np.float32)
+        expected = scores <= thresholds
+        np.testing.assert_array_equal(
+            output["y_predset"].numpy(), expected
+        )
+        # The infinite-threshold class is always included.
+        self.assertTrue(output["y_predset"][:, 1].all())
+
+    def test_aps_reproducible_with_fixed_seed(self):
+        """Two instances with the same seed calibrate to the same
+        thresholds and produce the same prediction sets."""
+
+        def build_and_run():
+            cal_model = LabelShift(
+                model=self.model, alpha=0.3, score_type="aps",
+                random_state=42,
+            )
+            cal_model.calibrate(
+                cal_dataset=self.dataset, target_label_dist=[0.5, 0.3, 0.2]
+            )
+            loader = get_dataloader(
+                self.dataset, batch_size=2, shuffle=False
+            )
+            batch = next(iter(loader))
+            with torch.no_grad():
+                output = cal_model(**batch)
+            return cal_model.t.numpy(), output["y_predset"].numpy()
+
+        t1, sets1 = build_and_run()
+        t2, sets2 = build_and_run()
+        np.testing.assert_array_equal(t1, t2)
+        np.testing.assert_array_equal(sets1, sets2)
 
     def test_forward_before_calibrate_raises(self):
         cal_model = LabelShift(model=self.model, alpha=0.3)
