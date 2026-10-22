@@ -18,6 +18,9 @@ from pyhealth.autoimprove import (
     PipelineConfig,
     QueueProposer,
     SearchSpace,
+    Trial,
+    build_report,
+    with_xgboost,
 )
 from pyhealth.autoimprove.evaluate import patient_folds, run_config_cv
 from pyhealth.data import Patient
@@ -229,6 +232,58 @@ class TestFeatureSearch(unittest.TestCase):
                             stop_if=lambda scores: len(scores) >= 2)
         self.assertTrue(out["stopped_early"])
         self.assertEqual(len(out["fold_scores"]), 2)
+
+
+class TestConfirmedReport(unittest.TestCase):
+    def test_why_quotes_the_scores_the_selection_used(self):
+        # On the search folds the 17-feature trial is clearly best; on the
+        # confirmation folds the pruned 4-feature trial is within one SE of
+        # it, and that is where the selection was made.
+        def trial(i, agent, n_features, search, confirmed_gain):
+            t = Trial(i, 0, agent, "explore", PipelineConfig("XGBoost"),
+                      metric_name="pr_auc", score=sum(search) / 5,
+                      fold_scores=list(search),
+                      features=[{"name": f"f{i}_{k}"} for k in range(n_features)])
+            return t, [c + g for c, g in zip(base_confirm, confirmed_gain)]
+
+        base_search = [0.47, 0.48, 0.46, 0.47, 0.47]
+        base_confirm = [0.46, 0.47, 0.47, 0.48, 0.46]
+        rows = [
+            trial(0, "baseline", 0, base_search, [0] * 5),
+            trial(1, "agent0", 17, [b + 0.04 for b in base_search],
+                  [0.035, 0.02, 0.04, 0.02, 0.03]),
+            trial(2, "agent1", 10, [b + 0.02 for b in base_search],
+                  [0.03, 0.025, 0.02, 0.03, 0.03]),
+            trial(3, "pruned", 4, [b + 0.015 for b in base_search],
+                  [0.028, 0.024, 0.02, 0.03, 0.028]),
+        ]
+        trials = [t for t, _ in rows]
+        confirmed = {t.trial_id: c for t, c in rows}
+        report = build_report(
+            trials, metric="pr_auc", promote_se=1.0, space=with_xgboost(SPACE),
+            confirmed=confirmed, confirm_se=2.0,
+            pruning={"selected": 2, "pruned_trial": 3, "ablation": [], "dropped": [],
+                     "final": [f"f3_{k}" for k in range(4)]})
+        self.assertEqual(report.data["selected"], 3)
+        text = report.to_markdown()
+        why = next(line for line in text.splitlines() if "Why this model" in line)
+        self.assertIn("on the confirmation folds", why)
+        self.assertIn("uses fewer engineered features (4 vs 17)", why)
+        self.assertIn("It is #2 after pruning", why)
+        self.assertNotIn("+0.025", why)  # the search-fold gap the rule did not use
+        self.assertIn("pruned to #3, the selection", text)
+
+        # a trial the confirmation did not re-score is not judged on its folds
+        extra = Trial(4, 0, "agent2", "explore", PipelineConfig("XGBoost"),
+                      metric_name="pr_auc", score=0.475, fold_scores=[
+                          b + 0.005 for b in base_search])
+        text = build_report(
+            [*trials, extra], metric="pr_auc", promote_se=0.0,
+            space=with_xgboost(SPACE), confirmed=confirmed, confirm_se=2.0,
+            pruning={"selected": 2, "pruned_trial": 3, "ablation": [],
+                     "dropped": [], "final": []}).to_markdown()
+        self.assertIn("| #4 | XGBoost | 4 | 0.475 |", text)
+        self.assertIn("not re-scored", text)
 
 
 if __name__ == "__main__":
