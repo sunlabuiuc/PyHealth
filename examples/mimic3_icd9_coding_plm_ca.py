@@ -50,6 +50,13 @@ session. Each run saves ``<output_dir>/<config>/test_scores.json``, and
         --model_name ... --max_samples 4000 --epochs 3 --configs truncate_512
     python examples/mimic3_icd9_coding_plm_ca.py --summarize
 
+If a session ends after training but before testing, ``--eval_only`` scores
+the saved checkpoints without retraining (same data arguments as the run)::
+
+    python examples/mimic3_icd9_coding_plm_ca.py --mimic3_root ... \\
+        --model_name ... --max_samples 4000 --epochs 3 --configs chunk_256 \\
+        --eval_only
+
 Results
 -------
 Fill in from the printed table after running.
@@ -72,12 +79,15 @@ Deviations from the paper
 
 import argparse
 import json
+import os
 import random
 import tempfile
+import time
 from pathlib import Path
 
 import torch
 from tokenizers import Tokenizer, models, normalizers, pre_tokenizers, processors
+from tqdm import tqdm
 from transformers import BertConfig, BertModel, PreTrainedTokenizerFast
 
 from pyhealth.data import Patient
@@ -88,6 +98,7 @@ from pyhealth.datasets import (
     get_dataloader,
     split_by_patient,
 )
+from pyhealth.metrics import multilabel_metrics_fn
 from pyhealth.models import PLMCA
 from pyhealth.tasks import MIMIC3ICD9Coding
 from pyhealth.trainer import Trainer
@@ -95,6 +106,8 @@ from pyhealth.trainer import Trainer
 TEXT_KEY = "text"
 LABEL_KEY = "icd_codes"
 METRICS = ["f1_micro", "f1_macro", "pr_auc_micro", "pr_auc_macro"]
+# How often --eval_only saves its progress, so a disconnect loses little.
+SAVE_EVERY_SECONDS = 600
 
 # Configurations compared in the ablation. "base" comes first and is the only
 # one run without --ablation.
@@ -319,16 +332,135 @@ def run_config(
         monitor_criterion="max",
     )
     scores = trainer.evaluate(get_dataloader(test_ds, args.batch_size))
+    save_scores(config, dataset, scores, args)
+    return scores
+
+
+def evaluate_saved_run(
+    config: dict,
+    dataset: SampleDataset,
+    splits: tuple,
+    model_name: str,
+    args: argparse.Namespace,
+) -> dict[str, float]:
+    """Scores a run whose training finished but whose testing did not.
+
+    Picks between the run's ``best.ckpt`` and ``last.ckpt`` by validation
+    micro-F1, as ``Trainer`` does at the end of training, then evaluates the
+    chosen checkpoint on the test split and saves ``test_scores.json``.
+
+    Every scoring step saves its progress under ``<run>/eval_progress/``, so
+    a rerun after a disconnect continues where the last one stopped.
+    """
+    _, val_ds, test_ds = splits
+    run_dir = Path(args.output_dir) / config["name"]
+    progress_dir = run_dir / "eval_progress"
+    progress_dir.mkdir(parents=True, exist_ok=True)
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"Device: {device}")
+    model = PLMCA(
+        dataset,
+        model_name=model_name,
+        chunk_size=config["chunk_size"],
+        max_length=config["max_length"],
+        dropout=0.2,
+    ).to(device)
+
+    def score(checkpoint: str, split: str, split_ds) -> dict[str, float]:
+        progress_path = progress_dir / f"{Path(checkpoint).stem}_{split}.pt"
+        if not progress_path.with_suffix(".json").is_file():
+            state = torch.load(
+                run_dir / checkpoint, map_location=device, weights_only=True
+            )
+            model.load_state_dict(state)
+        loader = get_dataloader(split_ds, args.batch_size)
+        return evaluate_resumable(model, loader, progress_path)
+
+    checkpoints = [n for n in ("best.ckpt", "last.ckpt") if (run_dir / n).is_file()]
+    if not checkpoints:
+        raise FileNotFoundError(f"No best.ckpt or last.ckpt in {run_dir}")
+    chosen, chosen_score = None, float("-inf")
+    for name in checkpoints:
+        value = score(name, "val", val_ds)["f1_micro"]
+        print(f"{config['name']}/{name}: validation f1_micro {value:.4f}")
+        if value > chosen_score:  # strictly better, as in Trainer
+            chosen, chosen_score = name, value
+    scores = score(chosen, "test", test_ds)
+    save_scores(config, dataset, scores, args, checkpoint=chosen)
+    return scores
+
+
+def evaluate_resumable(
+    model: PLMCA, dataloader, progress_path: Path
+) -> dict[str, float]:
+    """Evaluates like ``Trainer.evaluate``, saving progress to resume later.
+
+    Predictions so far are saved to ``progress_path`` every
+    ``SAVE_EVERY_SECONDS``. A rerun skips the batches already scored. When
+    all batches are done, the scores are written next to it as ``.json`` and
+    a later rerun returns them without evaluating again.
+    """
+    done_path = progress_path.with_suffix(".json")
+    if done_path.is_file():
+        return json.loads(done_path.read_text())
+    state = {"batches": 0, "y_true": [], "y_prob": [], "loss": []}
+    if progress_path.is_file():
+        state = torch.load(progress_path, weights_only=True)
+        print(f"Resuming {progress_path.stem} after batch {state['batches']}")
+
+    model.eval()
+    last_save = time.monotonic()
+    with torch.no_grad():
+        for index, batch in enumerate(tqdm(dataloader, desc=progress_path.stem)):
+            if index < state["batches"]:
+                continue  # scored in an earlier session
+            output = model(**batch)
+            state["y_true"].append(output["y_true"].cpu())
+            state["y_prob"].append(output["y_prob"].cpu())
+            state["loss"].append(output["loss"].item())
+            state["batches"] = index + 1
+            if time.monotonic() - last_save >= SAVE_EVERY_SECONDS:
+                save_atomically(state, progress_path)
+                last_save = time.monotonic()
+
+    scores = multilabel_metrics_fn(
+        torch.cat(state["y_true"]).numpy(),
+        torch.cat(state["y_prob"]).numpy(),
+        metrics=METRICS,
+    )
+    scores = {key: float(value) for key, value in scores.items()}
+    scores["loss"] = sum(state["loss"]) / len(state["loss"])
+    done_path.write_text(json.dumps(scores, indent=2))
+    progress_path.unlink(missing_ok=True)
+    return scores
+
+
+def save_atomically(state: dict, path: Path) -> None:
+    """Saves to a temporary file first, so a disconnect cannot corrupt it."""
+    temporary = path.with_suffix(".tmp")
+    torch.save(state, temporary)
+    os.replace(temporary, path)
+
+
+def save_scores(
+    config: dict,
+    dataset: SampleDataset,
+    scores: dict[str, float],
+    args: argparse.Namespace,
+    checkpoint: str | None = None,
+) -> None:
+    """Writes ``<output_dir>/<config>/test_scores.json`` for ``--summarize``."""
     record = {
         **config,
         "num_samples": len(dataset),
         "epochs": args.epochs,
         **{key: float(value) for key, value in scores.items()},
     }
+    if checkpoint is not None:
+        record["scored_from_checkpoint"] = checkpoint
     out_dir = Path(args.output_dir) / config["name"]
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "test_scores.json").write_text(json.dumps(record, indent=2))
-    return scores
 
 
 def print_table(results: dict[str, dict[str, float]]) -> None:
@@ -376,6 +508,11 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=None,
         help="train on a seeded random subset of this many notes",
+    )
+    parser.add_argument(
+        "--eval_only",
+        action="store_true",
+        help="score the checkpoints saved in --output_dir instead of training",
     )
     parser.add_argument("--dev", action="store_true", help="MIMIC-III dev subset")
     parser.add_argument("--num_synthetic", type=int, default=400)
@@ -433,8 +570,9 @@ def main() -> None:
 
     with tempfile.TemporaryDirectory() as tmp:
         model_name = args.model_name or build_tiny_encoder(Path(tmp))
+        run = evaluate_saved_run if args.eval_only else run_config
         results = {
-            config["name"]: run_config(config, dataset, splits, model_name, args)
+            config["name"]: run(config, dataset, splits, model_name, args)
             for config in configs
         }
     print_table(results)
