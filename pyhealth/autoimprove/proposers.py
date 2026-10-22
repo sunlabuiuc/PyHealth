@@ -180,7 +180,7 @@ class LLMProposer(Proposer):
             reply = self.llm(SYSTEM_PROMPT, prompt + error)
             try:
                 return PipelineConfig.from_dict(parse_json(reply))
-            except ValueError as e:
+            except (TypeError, ValueError) as e:
                 error = f"\n\nYour last reply could not be used: {e}. Reply again."
         raise ValueError(f"No usable configuration after {self.max_attempts} replies")
 
@@ -212,7 +212,9 @@ class LLMProposer(Proposer):
             data = parse_json(self.llm(SYSTEM_PROMPT, prompt))
         except ValueError:
             return list(lessons)
-        new = [str(x).strip() for x in data.get("lessons", []) if str(x).strip()]
+        if not isinstance(data.get("lessons"), list):
+            return list(lessons)
+        new = [str(x).strip() for x in data["lessons"] if str(x).strip()]
         return new[: self.max_lessons] or list(lessons)
 
 

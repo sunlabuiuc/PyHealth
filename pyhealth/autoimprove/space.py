@@ -145,12 +145,21 @@ class PipelineConfig:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> PipelineConfig:
-        """Builds a config from a dict such as one parsed from JSON."""
+        """Builds a config from a dict such as one parsed from JSON.
+
+        Raises:
+            TypeError: If ``model_params`` or ``train_params`` is not a dict.
+        """
+        params = {}
+        for key in ("model_params", "train_params"):
+            value = data.get(key) or {}
+            if not isinstance(value, dict):
+                raise TypeError(f"{key} must be an object, not {type(value).__name__}")
+            params[key] = dict(value)
         return cls(
             model=str(data.get("model", "")),
-            model_params=dict(data.get("model_params") or {}),
-            train_params=dict(data.get("train_params") or {}),
             rationale=str(data.get("rationale", "")),
+            **params,
         )
 
 

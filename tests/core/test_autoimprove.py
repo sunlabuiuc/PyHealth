@@ -14,6 +14,7 @@ from pyhealth.autoimprove import (
     AutoImprover,
     ClaudeLLM,
     LLMProposer,
+    ModelSpec,
     Param,
     PipelineConfig,
     RandomProposer,
@@ -22,11 +23,13 @@ from pyhealth.autoimprove import (
     check_models,
     paired_gain,
     select_trial,
+    train_pipeline,
     with_xgboost,
 )
 from pyhealth.autoimprove.evaluate import patient_folds
-from pyhealth.autoimprove.proposers import parse_json
+from pyhealth.autoimprove.proposers import ProposalContext, parse_json
 from pyhealth.datasets import create_sample_dataset
+from pyhealth.processors import BinaryLabelProcessor
 
 SPACE = SearchSpace(
     train_params={
@@ -54,15 +57,24 @@ def _samples(n, seed, offset=0):
     return out
 
 
-def _datasets():
-    schema = ({"conditions": "sequence"}, {"label": "binary"})
-    train = create_sample_dataset(_samples(80, 0), *schema)
+def _three_classes(codes):
+    return int("c1" in codes) + int("c2" in codes)
+
+
+def _datasets(label_type="binary", label=None):
+    """Train, validation and test splits; ``label(codes)`` replaces the label."""
+    parts = [_samples(80, 0), _samples(40, 1, 1000), _samples(40, 2, 2000)]
+    if label is not None:
+        for sample in (s for part in parts for s in part):
+            sample["label"] = label(sample["conditions"])
+    schema = ({"conditions": "sequence"}, {"label": label_type})
+    train = create_sample_dataset(parts[0], *schema)
     kwargs = {
         "input_processors": train.input_processors,
         "output_processors": train.output_processors,
     }
-    val = create_sample_dataset(_samples(40, 1, 1000), *schema, **kwargs)
-    test = create_sample_dataset(_samples(40, 2, 2000), *schema, **kwargs)
+    val = create_sample_dataset(parts[1], *schema, **kwargs)
+    test = create_sample_dataset(parts[2], *schema, **kwargs)
     return train, val, test
 
 
@@ -82,6 +94,13 @@ class ScriptedLLM:
         if "Rewrite the lessons" in prompt:
             return _reply({"lessons": ["RNN beats LogisticRegression here"]})
         return self.replies.pop(0)
+
+
+class UnreadableInputs:
+    """A model that cannot read the task's inputs, for the model check."""
+
+    def __init__(self, dataset, **kwargs):
+        raise ValueError("cannot read 'conditions'")
 
 
 class TestSearchSpace(unittest.TestCase):
@@ -134,6 +153,22 @@ class TestParseJson(unittest.TestCase):
     def test_no_json(self):
         with self.assertRaises(ValueError):
             parse_json("no config here")
+
+
+class TestLLMProposer(unittest.TestCase):
+    def test_malformed_replies_are_asked_again(self):
+        llm = ScriptedLLM([
+            _reply({"model": "MLP", "model_params": 5}),
+            _reply({"model": "MLP", "model_params": {"hidden_dim": 16}}),
+        ])
+        context = ProposalContext("a0", "explore", SPACE, "binary task", "pr_auc", True)
+        config = LLMProposer(llm).propose(context)
+        self.assertEqual(config.model_params, {"hidden_dim": 16})
+        self.assertIn("model_params must be an object, not int", llm.prompts[1])
+
+    def test_malformed_lessons_keep_the_old_ones(self):
+        proposer = LLMProposer(lambda system, prompt: _reply({"lessons": "use an RNN"}))
+        self.assertEqual(proposer.reflect([], ["keep this"], "pr_auc"), ["keep this"])
 
 
 class TestAutoImprover(unittest.TestCase):
@@ -431,6 +466,36 @@ class TestAutoImprover(unittest.TestCase):
         with self.assertLogs("pyhealth.autoimprove.evaluate", "WARNING"):
             patient_folds(data, 8)
 
+        with (mock.patch("pyhealth.autoimprove.evaluate.MAX_LABEL_SCAN", 10),
+              self.assertLogs("pyhealth.autoimprove.evaluate", "INFO") as logs):
+            folds = patient_folds(data, 5)
+        self.assertIn("not stratified", logs.output[0])
+        self.assertEqual(sorted(int(i) for f in folds for i in f), list(range(40)))
+
+    def test_models_that_fail_the_check_are_removed(self):
+        space = SearchSpace(
+            {**SPACE.models, "Unreadable": ModelSpec(f"{__name__}.UnreadableInputs")},
+            SPACE.train_params,
+        )
+        improver = AutoImprover(
+            self.train, self.val, RandomProposer(seed=0),
+            baseline=PipelineConfig("LogisticRegression", {"embedding_dim": 16}),
+            space=space, n_agents=2, n_cycles=1,
+        )
+        result = improver.run()
+        self.assertEqual(list(result.dropped_models), ["Unreadable"])
+        self.assertIn("cannot read 'conditions'", result.dropped_models["Unreadable"])
+        self.assertNotIn("Unreadable", improver.space.models)
+        self.assertTrue(all(t.error is None for t in result.trials))
+        self.assertIn("Not searched: Unreadable", result.summary())
+
+        with self.assertRaisesRegex(ValueError, "baseline model Unreadable"):
+            AutoImprover(self.train, self.val, RandomProposer(), space=space,
+                         baseline=PipelineConfig("Unreadable")).run()
+        only = SearchSpace({"Unreadable": space.models["Unreadable"]}, SPACE.train_params)
+        with self.assertRaisesRegex(ValueError, "No model in the search space runs"):
+            AutoImprover(self.train, self.val, RandomProposer(), space=only).run()
+
     @unittest.skipUnless(importlib.util.find_spec("xgboost"), "needs xgboost")
     def test_models_that_cannot_read_the_inputs_are_removed(self):
         # XGBoost cannot turn code sequences into fixed-width columns.
@@ -454,6 +519,14 @@ class TestAutoImprover(unittest.TestCase):
             AutoImprover(self.train, self.val, RandomProposer(), space=space,
                          baseline=PipelineConfig("XGBoost")).run()
 
+    def test_balanced_pos_weight_uses_the_training_labels(self):
+        config, _ = SPACE.validate(PipelineConfig(
+            "LogisticRegression", {"embedding_dim": 16}, {"pos_weight": "balanced"}))
+        model = train_pipeline(config, SPACE, self.train, self.val, "pr_auc")
+        positives = sum(s["label"] for s in _samples(80, 0))
+        self.assertAlmostEqual(float(model.pos_weight), (80 - positives) / positives,
+                               places=5)
+
     def test_random_search_budget_and_test_comparison(self):
         improver = AutoImprover(
             self.train, self.val, RandomProposer(seed=1),
@@ -470,6 +543,48 @@ class TestAutoImprover(unittest.TestCase):
         self.assertIn("baseline", test)
         self.assertIn("difference", test)
         self.assertLessEqual(test["best"]["lower"], test["best"]["upper"])
+        self.assertNotIn("predictions", test)
+
+
+class TestLabelTypes(unittest.TestCase):
+    def test_label_type_sets_the_metric_and_the_space(self):
+        cases = [
+            ("binary", lambda codes: int("c1" in codes), "pr_auc", True),
+            (BinaryLabelProcessor, lambda codes: int("c1" in codes), "pr_auc", True),
+            ("multiclass", _three_classes, "f1_macro", False),
+            ("multilabel", lambda codes: sorted({"c1", "c2"} & set(codes)) or ["none"],
+             "pr_auc_samples", True),
+            ("regression", lambda codes: float(_three_classes(codes)), "mse", False),
+        ]
+        for label_type, label, metric, weighted in cases:
+            with self.subTest(label_type=label_type):
+                samples = _samples(20, 0)
+                for s in samples:
+                    s["label"] = label(s["conditions"])
+                data = create_sample_dataset(
+                    samples, {"conditions": "sequence"}, {"label": label_type}
+                )
+                improver = AutoImprover(data, data, RandomProposer(), space=SPACE,
+                                        check=False)
+                self.assertEqual(improver.metric, metric)
+                self.assertEqual("pos_weight" in improver.space.train_params, weighted)
+
+    def test_multiclass_search_and_test_scores(self):
+        train, val, test = _datasets("multiclass", _three_classes)
+        improver = AutoImprover(
+            train, val, RandomProposer(seed=0),
+            baseline=PipelineConfig("LogisticRegression", {"embedding_dim": 16},
+                                    {"pos_weight": "balanced"}),
+            space=SPACE, n_agents=2, n_cycles=1,
+        )
+        result = improver.run()
+        self.assertTrue(all(t.error is None for t in result.trials))
+        self.assertFalse(any("pos_weight" in t.config.train_params for t in result.trials))
+
+        scores = improver.evaluate_on_test(test, return_predictions=True)
+        self.assertEqual(set(scores), {"best", "baseline", "predictions"})
+        self.assertIn("estimate", scores["best"])
+        self.assertEqual(scores["predictions"]["best"].shape, (40, 3))
 
 
 class TestSelection(unittest.TestCase):

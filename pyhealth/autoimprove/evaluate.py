@@ -27,6 +27,10 @@ LOWER_IS_BETTER = frozenset(
 )
 """Metric names where a smaller value is better."""
 
+MAX_LABEL_SCAN = 50000
+"""Most samples whose labels are read to count positives; reading a label runs
+the sample's processors, so larger datasets skip the count."""
+
 
 def greater_is_better(metric: str) -> bool:
     """Whether a larger value of ``metric`` is better.
@@ -166,11 +170,12 @@ def patient_folds(
 
     Every sample of a patient lands in the same fold, so a patient with
     several samples never sits on both sides of a fold. Patients are shuffled
-    with ``seed``. When the label is 0/1, the patients with a positive sample
-    are dealt first, each to the fold with the fewest of them, so every fold
-    has positives if at least ``n_folds`` patients do. The other patients go
-    to the currently smallest fold, which keeps fold sizes close when
-    patients have different numbers of samples.
+    with ``seed``. When the label is 0/1 and the dataset has at most
+    ``MAX_LABEL_SCAN`` (50,000) samples, the patients with a positive sample are
+    dealt first, each to the fold with the fewest of them, so every fold has
+    positives if at least ``n_folds`` patients do. The other patients go to
+    the currently smallest fold, which keeps fold sizes close when patients
+    have different numbers of samples.
 
     Raises:
         ValueError: If there are fewer patients than folds.
@@ -205,7 +210,14 @@ def patient_folds(
 
 
 def _positive_patients(dataset: SampleDataset) -> set[str] | None:
-    """Patients with a positive sample, or ``None`` if the label is not 0/1."""
+    """Patients with a positive sample, or ``None`` if the label is not 0/1
+    or the dataset is too large to read every label."""
+    if len(dataset) > MAX_LABEL_SCAN:
+        logger.info(
+            "%d samples: folds are not stratified by label (at most %d are read)",
+            len(dataset), MAX_LABEL_SCAN,
+        )
+        return None
     key = next(iter(dataset.output_schema))
     positive = set()
     for patient, indices in dataset.patient_to_index.items():

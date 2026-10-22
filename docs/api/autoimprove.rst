@@ -90,6 +90,8 @@ Safety and data
   :meth:`~pyhealth.autoimprove.AutoImprover.evaluate_on_test` retrains the
   best and the baseline configs and compares them on test. For binary labels
   it reports patient-level bootstrap intervals and a paired difference.
+  ``return_predictions=True`` also returns the test predictions, for other
+  metrics without training again.
 
 API Reference
 -------------

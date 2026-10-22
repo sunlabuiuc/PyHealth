@@ -73,8 +73,6 @@ from pyhealth.autoimprove import (
     RandomProposer,
     SearchSpace,
     check_models,
-    predict,
-    train_pipeline,
     with_xgboost,
 )
 from pyhealth.datasets import PatientSplit, eICUDataset
@@ -487,12 +485,10 @@ def main():
     print(result.summary(k=12))
     print("lessons:", *result.lessons, sep="\n- ")
 
-    scores = improver.evaluate_on_test(test, n_boot=1000)
-    model = train_pipeline(result.best.config, space, train, val, "pr_auc",
-                           seed=0, device="cpu")
-    y_true, p_best, patient_ids = predict(model, test)
-    y_true, p_best = np.ravel(y_true), np.ravel(p_best)
-    groups = np.asarray(patient_ids)
+    scores = improver.evaluate_on_test(test, n_boot=1000, return_predictions=True)
+    predictions = scores.pop("predictions")
+    y_true, p_best = np.ravel(predictions["y_true"]), np.ravel(predictions["best"])
+    groups = np.asarray(predictions["patient_ids"])
     scores["best_roc_auc"] = bootstrap_ci(y_true, p_best, "roc_auc",
                                           groups=groups, n_boot=1000, seed=0)
     scores["apache"] = apache_reference(args.root, test, y_true, p_best, groups, 1000)
