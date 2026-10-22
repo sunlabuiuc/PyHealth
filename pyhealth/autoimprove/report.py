@@ -276,21 +276,34 @@ def build_report(
         selected = top = select_trial(pool, maximize, bound)
     else:
         selected = top = max(pool, key=lambda t: sign * t.score)
+    chosen = selected  # the rule's pick; pruning may then replace it
     if confirmed:
         by_id = {t.trial_id: t for t in done}
         selected, top = by_id[selected.trial_id], by_id[top.trial_id]
+        chosen = selected
         pruned = (pruning or {}).get("pruned_trial")
         if pruned in by_id:
             selected = by_id[pruned]
 
-    def vs(a, b):
+    def paired(a_scores, b_scores, a_score, b_score):
         """Gain of a over b: (mean, se, folds better, n folds)."""
-        if not (a.fold_scores and len(a.fold_scores) == len(b.fold_scores)):
-            return sign * (a.score - b.score), None, None, None
-        gain, se = paired_gain(a.fold_scores, b.fold_scores, maximize)
-        better = sum(sign * (x - y) > FOLD_TIE
-                     for x, y in zip(a.fold_scores, b.fold_scores))
-        return gain, se, better, len(a.fold_scores)
+        if not (a_scores and len(a_scores) == len(b_scores)):
+            return sign * (a_score - b_score), None, None, None
+        gain, se = paired_gain(a_scores, b_scores, maximize)
+        better = sum(sign * (x - y) > FOLD_TIE for x, y in zip(a_scores, b_scores))
+        return gain, se, better, len(a_scores)
+
+    def vs(a, b):
+        """Gain of a over b on the search folds."""
+        return paired(a.fold_scores, b.fold_scores, a.score, b.score)
+
+    def vs_rule(a, b):
+        """Gain of a over b on the scores the selection used: confirmation
+        scores when both were confirmed, else the search folds."""
+        if confirmed and a.trial_id in confirmed and b.trial_id in confirmed:
+            ca, cb = confirmed[a.trial_id], confirmed[b.trial_id]
+            return paired(ca, cb, sum(ca) / len(ca), sum(cb) / len(cb))
+        return vs(a, b)
 
     gains = {t.trial_id: vs(t, reference) for t in done}
     candidates = {reference.trial_id} | {
@@ -299,14 +312,20 @@ def build_report(
         and (baseline is None
              or gains[t.trial_id][0] - promote_se * gains[t.trial_id][1] > 0)
     }
+    # within one SE of the top on the scores the selection used
     near = {
         t.trial_id for t in done
-        if t.trial_id in candidates and (t is top or (cv and vs(top, t)[0] <= vs(top, t)[1]))
+        if t.trial_id in candidates and (not confirmed or t.trial_id in confirmed)
+        and (t is top or (cv and vs_rule(top, t)[0] <= vs_rule(top, t)[1]))
     }
     ctx = {
         "metric": metric, "sign": sign, "reference": reference, "selected": selected,
         "top": top, "gains": gains, "candidates": candidates, "near": near,
         "space": space, "cv": cv, "promote_se": promote_se, "vs": vs,
+        "vs_rule": vs_rule, "chosen": chosen, "confirmed": bool(confirmed),
+        "rescored": set(confirmed or ()),
+        "pruned_from": (pruning or {}).get("selected")
+        if (pruning or {}).get("pruned_trial") == selected.trial_id else None,
         "one_se": one_se, "done": done, "baseline": baseline,
         "start": "start" if baseline else "first trial",
     }
@@ -436,7 +455,9 @@ def _model_section(ctx, rule, attribution, test) -> Section:
                 + (" (top)" if t is top and t is not sel else ""),
                 t.config.model, space.rung(t.config), f"{t.score:.3f}",
                 ctx["start"] if t is ctx["reference"] else _pm(gain, se, better, n),
-                "yes" if t.trial_id in ctx["near"] else "no",
+                "yes" if t.trial_id in ctx["near"] else (
+                    "not re-scored" if ctx["confirmed"]
+                    and t.trial_id not in ctx["rescored"] else "no"),
             ])
         blocks.append(("p", (f"Candidates ({len(cands)} of {len(ctx['gains'])} "
                              "finished trials) *(measured)*:")))
@@ -977,12 +998,35 @@ def _why(ctx) -> str:
         return (f"It beat the starting pipeline consistently across folds and has "
                 f"the highest score of the {n} candidates ({words}).{tail} "
                 "*(measured)*")
-    gap, se, better, n = ctx["vs"](top, sel)
-    return (f"It is the most interpretable candidate ({words}) whose score is within "
-            f"one standard error of the highest-scoring candidate, #{top.trial_id} "
-            f"({top.config.model}, rung {space.rung(top.config)}). Choosing it costs "
-            f"{_pm(gap, se, better, n)} in CV score, which is within noise. "
-            "*(measured)*")
+    chosen = ctx["chosen"]
+    on = " on the confirmation folds" if ctx["confirmed"] else ""
+    if chosen is top:
+        text = f"It had the highest score{on} ({words})."
+    else:
+        gap, se, better, k = ctx["vs_rule"](top, chosen)
+        name = "It" if chosen is sel else f"#{chosen.trial_id}"
+        text = (f"{name} scored within one standard error of the highest-scoring "
+                f"candidate, #{top.trial_id} ({top.config.model}, rung "
+                f"{space.rung(top.config)}){on}, and {_simpler(chosen, top, space)}. "
+                f"Choosing it costs {_pm(gap, se, better, k)}, which is within noise.")
+    if chosen is not sel:
+        text += (f" Pruning then removed features it did not need, leaving "
+                 f"#{sel.trial_id} with {len(sel.features)} engineered feature(s) "
+                 "(see *Confirmation*).")
+    elif ctx["pruned_from"] is not None:
+        text += (f" It is #{ctx['pruned_from']} after pruning removed the features "
+                 "it did not need (see *Confirmation*).")
+    return text + " *(measured)*"
+
+
+def _simpler(a, b, space) -> str:
+    """Why the one-SE rule preferred ``a`` to ``b``, as a verb phrase."""
+    ra, rb = space.rung(a.config), space.rung(b.config)
+    if ra != rb:
+        return f"is simpler (rung {ra} vs {rb})"
+    if len(a.features) != len(b.features):
+        return f"uses fewer engineered features ({len(a.features)} vs {len(b.features)})"
+    return "scores higher on the same rung"
 
 
 def _verdict(t, ctx) -> str:
@@ -997,13 +1041,18 @@ def _verdict(t, ctx) -> str:
         return "starting pipeline; trials that beat it consistently replace it"
     gain, se, _, _ = ctx["gains"][t.trial_id]
     space = ctx["space"]
+    chosen = ctx["chosen"]
+    if t is chosen:
+        return f"chosen by the selection rule, then pruned to #{sel.trial_id}"
+    if t.trial_id == ctx["pruned_from"]:
+        return f"pruned to #{sel.trial_id}, the selection"
     if t.trial_id in ctx["candidates"]:
         if t is top:
-            return (f"highest score, but #{sel.trial_id} is within one SE and "
-                    f"simpler (rung {space.rung(sel.config)} vs {space.rung(t.config)})")
+            return (f"highest score, but #{chosen.trial_id} is within one SE and "
+                    f"{_simpler(chosen, t, space)}")
         if t.trial_id in ctx["near"]:
-            return (f"within one SE of the top, but #{sel.trial_id} is simpler or "
-                    "scores higher on the same rung")
+            return (f"within one SE of the top, but #{chosen.trial_id} is simpler, "
+                    "uses fewer features or scores higher on the same rung")
         return (("beat the start, but " if ctx["baseline"] else "")
                 + f"more than one SE below the top candidate #{top.trial_id}")
     if se is None or gain <= 0:
