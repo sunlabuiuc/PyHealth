@@ -331,7 +331,7 @@ def build_report(
         if (pruning or {}).get("pruned_trial") == selected.trial_id else None,
         "one_se": one_se, "done": done, "baseline": baseline,
         "start": "start" if baseline else "first trial",
-        "confirmed": bool(confirmed), "bound": bound,
+        "bound": bound,
     }
     flags = [{**f, "review": review.get(f["id"])}
              for f in flags_for(card, explanation, test)]
