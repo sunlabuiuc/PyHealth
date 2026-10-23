@@ -140,7 +140,9 @@ class TestEM(unittest.TestCase):
         """Two calls on identical inputs give identical outputs."""
         rng = np.random.default_rng(23)
         _, cal_true = _binary_probas(rng, 2000, [0.9, 0.1])
-        tgt_proba, _ = _binary_probas(rng, 4000, [0.7, 0.3])
+        tgt_proba, _ = _binary_probas(
+            rng, 4000, [0.7, 0.3], source_mix=[0.9, 0.1]
+        )
         first = em(cal_true, tgt_proba)
         second = em(cal_true, tgt_proba)
         np.testing.assert_array_equal(first, second)
@@ -405,8 +407,26 @@ class TestEM(unittest.TestCase):
         tst_nc = 1.0 - tst_proba[np.arange(len(tst_true)), tst_true]
         weighted_coverage = np.mean(tst_nc <= thresholds[tst_true])
         plain_coverage = np.mean(tst_nc <= plain_threshold)
-        self.assertGreater(weighted_coverage, 0.87)
-        self.assertGreater(weighted_coverage, plain_coverage + 0.02)
+        # Weighted coverage must be closer to the nominal 90% than
+        # unweighted coverage, not merely higher: a weighted coverage of
+        # 0.99 with unweighted 0.94 would pass a one-sided comparison
+        # while being farther from nominal.
+        self.assertLessEqual(abs(weighted_coverage - 0.9), 0.02)
+        self.assertLess(
+            abs(weighted_coverage - 0.9),
+            abs(plain_coverage - 0.9) - 0.05,
+        )
+
+    def test_stopping_condition_is_strict(self):
+        """The EM loop stops when the largest update is strictly below
+        tol, not when it merely equals tol. With prior [0.5, 0.5] and
+        rows [[0.75, 0.25], [0.75, 0.25]], the first update is exactly
+        0.25, so tol=0.25 must not declare convergence: the loop runs a
+        second iteration and settles at [0.9, 0.1]."""
+        y_true_source = np.array([0, 1])
+        y_prob_target = np.array([[0.75, 0.25], [0.75, 0.25]])
+        estimate = em(y_true_source, y_prob_target, tol=0.25)
+        np.testing.assert_allclose(estimate, [0.9, 0.1], atol=1e-12)
 
 
 if __name__ == "__main__":

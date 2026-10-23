@@ -247,7 +247,7 @@ def em(
     converged = False
     for _ in range(max_iter):
         q_new = _posteriors(proba, q, source_prior).mean(axis=0)
-        if np.max(np.abs(q_new - q)) <= tol:
+        if np.max(np.abs(q_new - q)) < tol:
             q = q_new
             converged = True
             break
