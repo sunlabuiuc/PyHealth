@@ -335,5 +335,58 @@ class TestCachingFunctionality(BaseTestCase):
         self.assertFalse(stale_file.exists())
 
 
+class TestTmpDirOwnership(BaseTestCase):
+    """Jobs sharing a cache_dir must not delete each other's temporary files.
+
+    Before, clean_tmpdir() removed all of tmp/, so a job that finished a build
+    deleted the converted tables and Dask scratch of a job still building.
+    """
+
+    def setUp(self):
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        # Same configuration, so one cache directory: like two jobs of a sweep.
+        self.mine = MockDataset(cache_dir=temp_dir.name)
+        self.other = MockDataset(cache_dir=temp_dir.name)
+        self.assertEqual(self.mine.cache_dir, self.other.cache_dir)
+
+    def test_clean_tmpdir_keeps_other_datasets_tmpdirs(self):
+        mine_dir = self.mine.create_tmpdir()
+        other_file = self.other.create_tmpdir() / "table.parquet"
+        other_file.write_text("in use")
+
+        self.mine.clean_tmpdir()
+
+        self.assertFalse(mine_dir.exists())
+        self.assertTrue(other_file.exists())
+
+    def test_failed_build_keeps_other_datasets_tmpdirs(self):
+        # _event_transform calls clean_tmpdir() in its finally block.
+        other_file = self.other.create_tmpdir() / "table.parquet"
+        other_file.write_text("in use")
+
+        with (
+            patch.object(self.mine, "load_data", side_effect=RuntimeError("boom")),
+            self.assertRaises(RuntimeError),
+        ):
+            self.mine._event_transform(self.mine.cache_dir / "out.parquet")
+
+        self.assertTrue(other_file.exists())
+
+    def test_tmp_root_is_removed_once_empty(self):
+        tmp_root = self.mine.cache_dir / "tmp"
+        self.mine.create_tmpdir()
+        self.other.create_tmpdir()
+
+        self.mine.clean_tmpdir()
+        self.assertTrue(tmp_root.exists())
+        self.other.clean_tmpdir()
+        self.assertFalse(tmp_root.exists())
+
+    def test_clean_tmpdir_without_tmpdirs(self):
+        self.mine.clean_tmpdir()
+        self.assertFalse((self.mine.cache_dir / "tmp").exists())
+
+
 if __name__ == "__main__":
     unittest.main()
