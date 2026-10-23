@@ -1,30 +1,30 @@
 """
-Maximum likelihood label shift estimation (MLLS) with expectation
-maximization (EM).
+Maximum likelihood label shift estimation with expectation maximization.
 
 MLLS estimates the label distribution of a target distribution from a
 black box classifier's predicted probabilities, without target labels
-(Alexandari et al. 2020). Under label shift, a classifier trained on the
-source distribution still estimates the source class probabilities
-P(y | x), so the target data are a mixture of the source
-class-conditional distributions with the target label distribution as
-the mixture weights. MLLS fits that mixture by maximum likelihood: the
-E-step reweights each target point's predicted probabilities by the
-current importance weights q(y) / p(y), and the M-step averages those
-posteriors to form the next estimate of the target label distribution q.
+(Alexandari et al. 2020). Under label shift, a classifier that estimates
+the source class probabilities P(y | x) turns the target data into a
+mixture of the source class-conditional distributions, with the target
+label distribution as the mixture weights. MLLS fits those weights by
+maximum likelihood: the E-step reweights each target point's predicted
+probabilities by the current importance weights q(y) / p(y), and the
+M-step averages the resulting posteriors into the next estimate.
 
 This module implements the basic EM algorithm for the mixture
 proportions (Saerens et al. 2002), as analyzed for label shift in
 Alexandari et al. It does not include that paper's bias-corrected
-calibration step, so the predicted probabilities passed in should
-already be calibrated.
+calibration step, so the predicted probabilities should already be
+calibrated.
 
-Paper:
-    Alexandari, Amr, Anshul Kundaje, and Avanti Shrikumar.
-    "Maximum Likelihood with Bias-Corrected Calibration is
-    Hard-To-Beat at Label Shift Adaptation."
-    International Conference on Machine Learning (ICML), 2020.
-    https://arxiv.org/abs/1901.06852
+Papers:
+    Alexandari, Amr, Anshul Kundaje, and Avanti Shrikumar. "Maximum
+    Likelihood with Bias-Corrected Calibration is Hard-To-Beat at Label
+    Shift Adaptation." International Conference on Machine Learning
+    (ICML), 2020. https://arxiv.org/abs/1901.06852
+    Saerens, Marco, Patrice Latinne, and Christine Decaestecker.
+    "Adjusting the Outputs of a Classifier to New a Priori
+    Probabilities: A Simple Procedure." Neural Computation, 2002.
 """
 
 import warnings
@@ -35,131 +35,106 @@ from pyhealth.calib.predictionset.label_shift.bbse import _as_label_array
 
 __all__ = ["em"]
 
-# Below this per-target-point observed information (the smallest
-# eigenvalue of the negative Hessian of the log-likelihood restricted to
-# the simplex, divided by the number of target points), the target label
-# distribution is treated as weakly identified and a warning is issued.
-# The value is a heuristic: exactly flat likelihoods give 0, while
-# informative problems give values well above it.
-_WEAK_IDENTIFIABILITY_THRESHOLD = 1e-6
 
-
-def _as_probability_matrix(y_proba_target, num_classes: int) -> np.ndarray:
+def _as_probability_matrix(y_prob_target, num_classes: int) -> np.ndarray:
     """Validate the target predicted probabilities.
 
-    Returns them as a float64 array of shape (n_target, num_classes).
+    Returns them as a float64 array of shape (n_target, num_classes)
+    with rows renormalized to sum to exactly 1.
     """
-    proba = np.asarray(y_proba_target, dtype=np.float64)
+    proba = np.asarray(y_prob_target, dtype=np.float64)
     if proba.ndim != 2 or proba.shape[0] == 0:
         raise ValueError(
-            "y_proba_target must be a non-empty two-dimensional array of "
+            "y_prob_target must be a non-empty two-dimensional array of "
             "predicted probabilities with one row per target example."
+        )
+    if proba.shape[1] != num_classes or num_classes < 1:
+        raise ValueError(
+            "y_prob_target must have one probability column per class."
         )
     if not np.all(np.isfinite(proba)):
         raise ValueError(
-            "y_proba_target must contain finite predicted probabilities."
+            "y_prob_target must contain finite predicted probabilities."
         )
-    if np.any(proba < 0):
+    if np.any(proba < 0) or np.any(proba > 1):
         raise ValueError(
-            "y_proba_target must contain non-negative predicted "
-            "probabilities."
-        )
-    if proba.shape[1] != num_classes:
-        raise ValueError(
-            "y_proba_target has "
-            f"{proba.shape[1]} probability columns but num_classes is "
-            f"{num_classes}."
+            "y_prob_target entries must lie in [0, 1]."
         )
     row_sums = proba.sum(axis=1)
     if not np.allclose(row_sums, 1.0, rtol=1e-3, atol=1e-6):
         raise ValueError(
-            "Each row of y_proba_target must be a probability "
-            "distribution summing to 1."
+            "Each row of y_prob_target must be a probability distribution "
+            "summing to 1."
         )
-    return proba
+    return proba / row_sums[:, np.newaxis]
 
 
-def _log_likelihood(q, proba, source_prior) -> float:
-    """The MLLS log-likelihood (up to an additive constant).
+def _posteriors(
+    proba: np.ndarray, q: np.ndarray, source_prior: np.ndarray
+) -> np.ndarray:
+    """One E-step: reweight each target row by the current importance
+    weights q(y) / p(y) and normalize to a posterior over classes.
 
-    ell(q) = sum_i log(sum_j proba[i, j] * q[j] / source_prior[j]).
+    Classes with zero source prior keep zero importance; validation
+    guarantees such classes receive no predicted probability, so their
+    columns are all zero here.
     """
-    denominators = proba @ (q / source_prior)
-    if np.any(denominators <= 0):
-        return -np.inf
-    return float(np.log(denominators).sum())
-
-
-def _relative_optimality_gap(q, proba, source_prior) -> float:
-    """How far q is from a maximizer of the MLLS log-likelihood.
-
-    The log-likelihood is concave in q over the probability simplex, so
-    q maximizes it exactly when the KKT conditions hold: the gradient
-    components for classes with positive mass are all equal (to the
-    number of target points n), and the rest are no larger. The returned
-    gap, max_j (d ell / d q_j) / n - 1, is always non-negative and is
-    zero exactly at a maximizer.
-    """
-    importance = q / source_prior
-    denominators = proba @ importance
-    if np.any(denominators <= 0):
-        raise RuntimeError(
-            "Internal error: a target example has zero weight under the "
-            "current fit, so the optimality gap is undefined."
+    importance = np.zeros_like(q)
+    positive = source_prior > 0
+    importance[positive] = q[positive] / source_prior[positive]
+    numerator = proba * importance
+    denominators = numerator.sum(axis=1)
+    if not np.all(np.isfinite(denominators)) or np.any(denominators <= 0):
+        bad = np.flatnonzero(
+            ~np.isfinite(denominators) | (denominators <= 0)
+        ).tolist()
+        raise ValueError(
+            "EM encountered a target example with zero or nonfinite "
+            f"total weight under the current fit (rows {bad}); its "
+            "posterior is undefined."
         )
-    gradient = (proba / (source_prior * denominators[:, np.newaxis])).sum(
-        axis=0
+    return numerator / denominators[:, np.newaxis]
+
+
+def _validate_source_prior(
+    source_label_dist, y_true_source: np.ndarray, num_classes: int
+) -> np.ndarray:
+    """Return the source label distribution, either supplied or estimated
+    from the source labels. A supplied distribution must agree with the
+    empirical source distribution."""
+    empirical = np.bincount(y_true_source, minlength=num_classes) / len(
+        y_true_source
     )
-    gap = float(gradient.max() / proba.shape[0] - 1.0)
-    # The gap is mathematically non-negative; clamp tiny negative values
-    # from floating-point roundoff so the documented invariant holds.
-    return max(0.0, gap)
-
-
-def _identifiability_ratio(q, proba, source_prior) -> float:
-    """Per-target-point observed information in the least-informed
-    direction of the simplex.
-
-    This is the smallest eigenvalue of the negative Hessian of the
-    log-likelihood restricted to the simplex tangent space, divided by
-    the number of target points. Near zero, the likelihood is flat and
-    the target label distribution is not (or only weakly) identified
-    from the classifier's probabilities.
-    """
-    if len(q) == 1:
-        # A single class admits only one distribution, so there is no
-        # direction in which the likelihood could be flat.
-        return np.inf
-    scaled = proba / source_prior
-    denominators = scaled @ q
-    if np.any(denominators <= 0):
-        raise RuntimeError(
-            "Internal error: a target example has zero weight under the "
-            "current fit, so the identifiability diagnostic is undefined."
+    if source_label_dist is None:
+        return empirical
+    prior = np.asarray(source_label_dist, dtype=np.float64)
+    if prior.ndim != 1 or len(prior) != num_classes:
+        raise ValueError(
+            "source_label_dist must be a one-dimensional array with one "
+            f"entry per class (expected {num_classes})."
         )
-    weights = 1.0 / denominators**2
-    negative_hessian = (scaled * weights[:, np.newaxis]).T @ scaled
-    num_classes = len(q)
-    projection = np.eye(num_classes) - np.ones((num_classes, num_classes)) / (
-        num_classes
-    )
-    restricted = projection @ negative_hessian @ projection
-    eigenvalues = np.linalg.eigvalsh(restricted)
-    # One eigenvalue is zero (the all-ones direction, projected out);
-    # the smallest of the rest measures the flattest direction.
-    return float(np.sort(eigenvalues)[1] / proba.shape[0])
+    if not np.all(np.isfinite(prior)) or np.any(prior < 0):
+        raise ValueError(
+            "source_label_dist must contain finite non-negative entries."
+        )
+    if not np.isclose(prior.sum(), 1.0, rtol=0, atol=1e-6):
+        raise ValueError("source_label_dist must sum to 1.")
+    if not np.allclose(prior, empirical, rtol=0, atol=1e-6):
+        raise ValueError(
+            "source_label_dist contradicts the empirical distribution of "
+            "y_true_source; pass one or the other, not both."
+        )
+    return prior
 
 
 def em(
     y_true_source,
-    y_proba_target,
-    num_classes=None,
+    y_prob_target,
+    source_label_dist=None,
     max_iter=1000,
-    tol=1e-6,
-    optimality_tol=1e-6,
-    raise_on_non_convergence=True,
+    tol=1e-8,
 ):
-    """Estimate the target label distribution with MLLS via EM.
+    """Estimate the target label distribution with EM (MLLS).
 
     The estimate can be passed to
     :meth:`pyhealth.calib.predictionset.LabelShift.calibrate` as
@@ -171,42 +146,31 @@ def em(
         y_true_source: True labels of a labeled source dataset, used to
             estimate the source label distribution. One entry per source
             example.
-        y_proba_target: The model's predicted class probabilities on
+        y_prob_target: The model's predicted class probabilities on
             unlabeled target examples, an array of shape (n_target,
-            num_classes) with rows summing to 1. No target labels are
+            n_classes) with rows summing to 1. No target labels are
             needed.
-        num_classes: Number of classes. If None, it is inferred from the
-            width of y_proba_target.
+        source_label_dist: Optional known source label distribution. If
+            given, it must agree with the empirical distribution of
+            y_true_source.
         max_iter: Maximum number of EM iterations. Must be a positive
             integer.
         tol: The EM loop stops when the largest absolute change in the
             estimated distribution between iterations falls below tol.
-            Must be non-negative; with tol=0 the loop runs until the
-            estimate stops changing exactly or max_iter is reached.
-        optimality_tol: The EM loop additionally requires the relative
-            optimality gap of the log-likelihood (max_j
-            (d ell / d q_j) / n - 1, which is zero exactly at the
-            maximizer) to fall below optimality_tol. Must be
-            non-negative. A small parameter change alone does not certify
-            convergence, so both criteria must hold.
-        raise_on_non_convergence: If True (default), raise RuntimeError
-            when the EM loop does not converge within max_iter
-            iterations. If False, issue a UserWarning and return the
-            last iterate, which is not certified to maximize the
-            likelihood.
+            Must be positive and finite.
 
     Returns:
         The estimated target label distribution, an array of shape
-        (num_classes,) that is non-negative and sums to 1.
+        (n_classes,) that is finite, non-negative, and sums to 1, in the
+        same class order as the columns of y_prob_target.
 
     Raises:
-        ValueError: If the inputs are not valid, if a class never
-            appears in the source labels (its importance weight
-            q(y) / p(y) is undefined), if max_iter is not a positive
-            integer, or if tol or optimality_tol is negative.
-        RuntimeError: If the EM loop does not converge within max_iter
-            iterations (and raise_on_non_convergence is True), or if an
-            internal invariant of the EM computation is violated.
+        ValueError: If the inputs are not valid probability data, if a
+            class never appears in the source data but receives positive
+            predicted probability on the target data, if
+            source_label_dist contradicts y_true_source, if max_iter is
+            not a positive integer, or if tol is not positive and
+            finite.
 
     Note:
         The same fixed classifier must produce the target probabilities,
@@ -218,56 +182,56 @@ def em(
         pair EM with a bias-corrected calibration step for this reason;
         this function implements the basic EM only, without that step).
         The estimate is a plug-in input for LabelShift, so coverage
-        guarantees stated for known label ratios become approximate. The
-        EM estimate is only meaningful if the classifier separates the
-        classes well: with an uninformative classifier the likelihood is
-        flat, the target distribution is weakly identified, and a
-        UserWarning is issued.
+        guarantees stated for known label ratios become approximate.
 
     Examples:
         >>> import numpy as np
         >>> y_true_source = np.array([0, 0, 1, 1])
         >>> # A perfect classifier: each row is one-hot on the true class.
-        >>> y_proba_target = np.array(
+        >>> y_prob_target = np.array(
         ...     [[1.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 0.0]]
         ... )
-        >>> em(y_true_source, y_proba_target)
+        >>> em(y_true_source, y_prob_target)
         array([0.75, 0.25])
     """
     y_true_source = _as_label_array(y_true_source, "y_true_source")
-    if num_classes is None:
-        if np.ndim(y_proba_target) != 2:
-            raise ValueError(
-                "num_classes could not be inferred: y_proba_target must "
-                "be a two-dimensional array when num_classes is None."
-            )
-        num_classes = np.shape(y_proba_target)[1]
-    else:
-        if isinstance(num_classes, bool) or not isinstance(
-            num_classes, (int, np.integer)
-        ):
-            raise ValueError(
-                f"num_classes must be a positive integer, got "
-                f"{num_classes!r}."
-            )
-        num_classes = int(num_classes)
-        if num_classes < 1:
-            raise ValueError(
-                f"num_classes must be a positive integer, got "
-                f"{num_classes}."
-            )
+    proba = np.asarray(y_prob_target, dtype=np.float64)
+    if proba.ndim != 2 or proba.shape[0] == 0 or proba.shape[1] < 1:
+        raise ValueError(
+            "y_prob_target must be a non-empty two-dimensional array of "
+            "predicted probabilities with one row per target example."
+        )
+    num_classes = proba.shape[1]
     if y_true_source.max() >= num_classes:
         raise ValueError(
             f"y_true_source contains label {y_true_source.max()}, which "
             f"is outside [0, {num_classes})."
         )
-    proba = _as_probability_matrix(y_proba_target, num_classes)
+    proba = _as_probability_matrix(y_prob_target, num_classes)
+    source_prior = _validate_source_prior(
+        source_label_dist, y_true_source, num_classes
+    )
 
-    max_iter_is_int = isinstance(
+    # A class with no source mass can only keep a zero target proportion;
+    # if the target data assign it positive probability, the shift is
+    # inconsistent with the source support.
+    zero_prior = source_prior == 0
+    if np.any(zero_prior):
+        supported = np.any(proba[:, zero_prior] > 0, axis=0)
+        bad = np.flatnonzero(zero_prior)[supported].tolist()
+        if bad:
+            raise ValueError(
+                "EM cannot estimate the target proportion of classes "
+                "that never appear in the source data but receive "
+                f"positive predicted probability: {bad}."
+            )
+
+    # The frozen test contract requires ValueError (not TypeError) for
+    # every invalid input, including a wrongly typed max_iter.
+    if isinstance(max_iter, bool) or not isinstance(
         max_iter, (int, np.integer)
-    ) and not isinstance(max_iter, bool)
-    if not max_iter_is_int:
-        raise ValueError(
+    ):
+        raise ValueError(  # noqa: TRY004
             f"max_iter must be a positive integer, got {max_iter!r}."
         )
     max_iter = int(max_iter)
@@ -276,72 +240,23 @@ def em(
             f"max_iter must be a positive integer, got {max_iter}."
         )
     tol = float(tol)
-    if not np.isfinite(tol) or tol < 0:
-        raise ValueError(f"tol must be a non-negative number, got {tol}.")
-    optimality_tol = float(optimality_tol)
-    if not np.isfinite(optimality_tol) or optimality_tol < 0:
-        raise ValueError(
-            f"optimality_tol must be a non-negative number, got "
-            f"{optimality_tol}."
-        )
-
-    source_prior = np.bincount(y_true_source, minlength=num_classes) / len(
-        y_true_source
-    )
-    if np.any(source_prior == 0):
-        missing = np.flatnonzero(source_prior == 0).tolist()
-        raise ValueError(
-            "MLLS cannot estimate the target proportion of classes that "
-            f"never appear in the source labels: {missing}."
-        )
+    if not np.isfinite(tol) or tol <= 0:
+        raise ValueError(f"tol must be positive and finite, got {tol}.")
 
     q = source_prior.copy()
     converged = False
     for _ in range(max_iter):
-        # E-step: reweight each target point's predicted probabilities
-        # by the current importance weights, then normalize each row to
-        # a posterior over classes.
-        importance = q / source_prior
-        numerator = proba * importance
-        denominators = numerator.sum(axis=1)
-        if np.any(denominators <= 0):
-            raise RuntimeError(
-                "Internal error: a target example has zero weight under "
-                "the current fit, so its EM posterior is undefined."
-            )
-        posterior = numerator / denominators[:, np.newaxis]
-        # M-step: the next estimate is the average posterior.
-        q_new = posterior.mean(axis=0)
-        parameter_change = np.max(np.abs(q_new - q))
-        q = q_new
-        # A small parameter change alone does not certify convergence
-        # (the EM step can be tiny far from the maximizer), so the
-        # relative optimality gap of the concave log-likelihood must be
-        # small as well.
-        if parameter_change <= tol and _relative_optimality_gap(
-            q, proba, source_prior
-        ) <= optimality_tol:
+        q_new = _posteriors(proba, q, source_prior).mean(axis=0)
+        if np.max(np.abs(q_new - q)) <= tol:
+            q = q_new
             converged = True
             break
+        q = q_new
     if not converged:
-        message = (
-            "The EM loop did not converge within "
-            f"{max_iter} iterations; the returned estimate is not "
-            "certified to maximize the likelihood. Consider increasing "
-            "max_iter or relaxing tol / optimality_tol."
-        )
-        if raise_on_non_convergence:
-            raise RuntimeError(message)
-        warnings.warn(message, UserWarning, stacklevel=2)
-
-    if _identifiability_ratio(
-        q, proba, source_prior
-    ) < _WEAK_IDENTIFIABILITY_THRESHOLD:
         warnings.warn(
-            "The target label distribution is weakly identified: the "
-            "classifier's predicted probabilities carry almost no "
-            "information about the class mix (the likelihood is flat), "
-            "so the estimate may be unstable.",
+            f"EM did not converge within {max_iter} iterations; "
+            "returning the last estimate, which may not have reached "
+            "the fixed point.",
             UserWarning,
             stacklevel=2,
         )
@@ -355,7 +270,6 @@ def em(
         or not np.isclose(q.sum(), 1.0, rtol=0, atol=1e-8)
     ):
         raise RuntimeError(
-            "Internal error: the EM estimate left the probability "
-            "simplex."
+            "Internal error: the EM estimate left the probability simplex."
         )
     return q
