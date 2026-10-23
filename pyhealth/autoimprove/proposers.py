@@ -1,0 +1,501 @@
+"""Sources of new pipeline configs: an LLM, or random search as a baseline."""
+
+from __future__ import annotations
+
+import json
+import random
+import re
+from abc import ABC, abstractmethod
+from collections.abc import Sequence
+from dataclasses import dataclass, field
+from typing import Any
+
+from .llm import LLM
+from .space import PipelineConfig, SearchSpace
+
+STRATEGIES = {
+    "explore": (
+        "Explore: propose a configuration that differs clearly from everything "
+        "tried so far, for example a model family nobody has tried yet."
+    ),
+    "refine": (
+        "Refine: start from your own best configuration and change one or two "
+        "settings that the results suggest will help."
+    ),
+    "crossover": (
+        "Crossover: combine what works in your best configuration with what "
+        "works in the best configuration from another agent."
+    ),
+    "contrastive": (
+        "Contrast: compare the best and the worst configurations so far, and "
+        "propose one that keeps what the best ones share and avoids what the "
+        "worst ones share."
+    ),
+}
+"""Instructions for each improvement strategy, adapted from codegen-classroom."""
+
+FEATURE_STRATEGIES = {
+    "explore": (
+        "Explore: propose features of a kind nobody has tried yet, for a "
+        "clinical mechanism the current inputs do not capture."
+    ),
+    "refine": (
+        "Refine: change the window, threshold or selector of a promising "
+        "feature, or of one that just missed acceptance."
+    ),
+    "crossover": (
+        "Crossover: combine what the accepted features capture with a "
+        "related mechanism, e.g. a ratio, a trend or a threshold."
+    ),
+    "contrastive": (
+        "Contrast: compare the accepted and the rejected feature groups, and "
+        "propose features like the accepted ones and unlike the rejected ones."
+    ),
+    "evidence": (
+        "Evidence: propose untried published predictors from the list below, "
+        "adapting windows or thresholds to this task if needed; keep their "
+        "citations in each spec's \"citations\"."
+    ),
+}
+"""Instructions for each strategy in a feature cycle; "evidence" needs a knowledge base."""
+
+
+class ProposerExhausted(ValueError):
+    """Raised by a proposer with nothing left to propose; the search ends.
+
+    Examples:
+        >>> issubclass(ProposerExhausted, ValueError)
+        True
+    """
+
+
+@dataclass
+class ProposalContext:
+    """What a proposer knows when it makes one proposal.
+
+    Args:
+        agent: Name of the agent proposing.
+        strategy: A key of :data:`STRATEGIES`.
+        space: The search space.
+        task: Plain-text summary of the task (schema, sizes, label counts).
+        metric: Validation metric being optimised.
+        maximize: Whether larger metric values are better.
+        own_trials: This agent's earlier trials, oldest first.
+        leaderboard: The best trials of all agents, best first.
+        worst: The worst finished trials, worst first.
+        tried: Keys of every config already tried.
+        lessons: Notes carried over from earlier cycles and runs.
+        feedback: Why the previous attempt in this turn was rejected, if any.
+        selected: The trial currently selected as the result, if any.
+        selection_rule: How a trial replaces the selected one, for the prompt.
+        kind: ``"model"`` or ``"features"``: what to propose this turn.
+        features: The :class:`~pyhealth.autoimprove.FeatureSpace`, in a
+            feature turn.
+        accepted: The accepted feature specs (dicts with ``name`` and
+            ``definition``), which a feature turn adds to.
+        feature_trials: The latest feature trials, oldest first.
+        tried_features: Names of every feature tried so far, in any trial.
+        card: A plain-text summary of the task card, if any.
+        evidence: Untried published predictors, one line each, with their
+            citations (from a :class:`~pyhealth.autoimprove.KnowledgeBase`).
+
+    Examples:
+        >>> from pyhealth.autoimprove import SearchSpace
+        >>> context = ProposalContext("agent0", "explore", SearchSpace(),
+        ...                           "Inputs: conditions (sequence)", "pr_auc", True)
+        >>> context.strategy, context.tried
+        ('explore', set())
+    """
+
+    agent: str
+    strategy: str
+    space: SearchSpace
+    task: str
+    metric: str
+    maximize: bool
+    own_trials: Sequence[Any] = ()
+    leaderboard: Sequence[Any] = ()
+    worst: Sequence[Any] = ()
+    tried: set[str] = field(default_factory=set)
+    lessons: Sequence[str] = ()
+    feedback: str = ""
+    selected: Any = None
+    selection_rule: str = ""
+    kind: str = "model"
+    features: Any = None
+    accepted: Sequence[dict] = ()
+    feature_trials: Sequence[Any] = ()
+    tried_features: Sequence[str] = ()
+    card: str = ""
+    evidence: Sequence[str] = ()
+
+
+class Proposer(ABC):
+    """Proposes the next configuration to try.
+
+    Examples:
+        >>> class AlwaysMLP(Proposer):
+        ...     def propose(self, context):
+        ...         return PipelineConfig("MLP", rationale="a fixed choice")
+        >>> AlwaysMLP().propose(None).model
+        'MLP'
+    """
+
+    proposes_models: bool = True
+    """Whether the proposer takes model turns; feature-only proposers don't."""
+
+    @abstractmethod
+    def propose(self, context: ProposalContext) -> PipelineConfig:
+        """Returns one configuration (it is validated by the improver)."""
+
+    def propose_features(self, context: ProposalContext) -> dict[str, Any]:
+        """Returns a group of new features for a feature turn.
+
+        Returns:
+            ``{"features": [spec, ...], "rationale": str, "expected": str}``;
+            each spec is validated by the improver's FeatureSpace.
+
+        Raises:
+            ValueError: If the proposer cannot propose features.
+        """
+        raise ValueError(f"{type(self).__name__} cannot propose features")
+
+    def reflect(
+        self,
+        trials: Sequence[Any],
+        lessons: Sequence[str],
+        metric: str,
+        space: SearchSpace | None = None,
+    ) -> list[str]:
+        """Updates the lessons after a cycle. The default keeps them as they are."""
+        return list(lessons)
+
+
+class RandomProposer(Proposer):
+    """Random search over the space: a baseline that needs no LLM.
+
+    Args:
+        seed: Seed for the random draws.
+
+    Examples:
+        >>> from pyhealth.autoimprove import RandomProposer, SearchSpace
+        >>> from pyhealth.autoimprove.proposers import ProposalContext
+        >>> context = ProposalContext("a0", "explore", SearchSpace(), "", "pr_auc", True)
+        >>> RandomProposer(seed=0).propose(context).model in SearchSpace().models
+        True
+    """
+
+    def __init__(self, seed: int = 0):
+        self.rng = random.Random(seed)
+
+    def propose(self, context: ProposalContext) -> PipelineConfig:
+        config = context.space.sample(self.rng)
+        for _ in range(20):
+            if context.space.validate(config)[0].key() not in context.tried:
+                break
+            config = context.space.sample(self.rng)
+        return config
+
+    def propose_features(self, context: ProposalContext) -> dict[str, Any]:
+        """One or two random valid specs, without a clinical rationale."""
+        specs = [context.features.sample(self.rng)
+                 for _ in range(self.rng.randint(1, 2))]
+        return {"features": specs, "rationale": "random sample", "expected": ""}
+
+
+class QueueProposer(Proposer):
+    """Tries a ranked list of feature groups in order: no LLM, no randomness.
+
+    Use it to test hand-written features, or features ranked from the
+    literature, with the improver's acceptance, confirmation and pruning.
+    It proposes features only; model turns are skipped.
+
+    Args:
+        groups: Feature groups in the order to try: each a spec dict or a
+            list of spec dicts tried together.
+
+    Examples:
+        >>> queue = QueueProposer([{"op": "count", "window": 365,
+        ...                         "select": {"event_type": "ed_visits"},
+        ...                         "rationale": "prior ED use", "direction": "+"}])
+        >>> queue.proposes_models
+        False
+    """
+
+    proposes_models = False
+
+    def __init__(self, groups: Sequence[dict | Sequence[dict]]):
+        self.groups = [list(g) if isinstance(g, (list, tuple)) else [g] for g in groups]
+        self.position = 0
+
+    def propose(self, context: ProposalContext) -> PipelineConfig:
+        raise ValueError("QueueProposer proposes features only")
+
+    def propose_features(self, context: ProposalContext) -> dict[str, Any]:
+        if self.position >= len(self.groups):
+            raise ProposerExhausted("the queue is empty")
+        group = self.groups[self.position]
+        self.position += 1
+        rationale = "; ".join(str(s.get("rationale", "")) for s in group)
+        return {"features": group, "rationale": f"queued: {rationale}",
+                "expected": "score up"}
+
+
+FEATURE_SYSTEM_PROMPT = """\
+You are a clinician-scientist and machine-learning engineer improving a \
+PyHealth prediction model by adding input features. Each turn you propose ONE \
+group of new features, written as JSON specs from a fixed set of operators over \
+the patients' event records. The harness compiles them, checks they cannot see \
+the future, and accepts the group only if it improves the score consistently \
+across folds. You never see patient records or the test split.
+
+Prefer features with a clear clinical mechanism: each needs a one-sentence \
+"rationale" and the expected "direction" of its effect on the outcome. Do not \
+repeat a feature that was already tried. Reply with a short analysis, then one \
+JSON object in a ```json block:
+{"features": [SPEC, ...], "rationale": "<why this group should help>", \
+"expected": "<what you expect, e.g. score up by about 0.01>", "kind": "clinical"}"""
+
+SYSTEM_PROMPT = """\
+You are an expert in machine learning for electronic health records, \
+tuning a PyHealth pipeline. Each turn you propose ONE configuration from a \
+fixed search space. The harness trains it on the training split and reports \
+its score on the validation split. You never see patient records or the test \
+split.
+
+Reply with a short analysis, then one JSON object in a ```json block:
+{"model": "<model name>", "model_params": {...}, "train_params": {...}, \
+"rationale": "<one sentence: why this should help>", \
+"expected": "<what you expect to change, e.g. score up, smaller spread \
+between folds>", "kind": "<clinical or technical>", \
+"based_on": <id of the trial you are changing, or null>}
+The rationale and expectation are recorded before the trial runs and \
+compared with its result in the run's report. Use only the models and \
+arguments listed. Do not repeat a configuration that was already tried. Keep \
+the time budget in mind: prefer small changes that are likely to help over \
+expensive long shots."""
+
+
+class LLMProposer(Proposer):
+    """Asks an LLM for configurations, with results and lessons as context.
+
+    Each prompt holds the task summary, the search space, the agent's own
+    trials, the leaderboard, the worst trials, the lessons learned so far and
+    one improvement strategy (:data:`STRATEGIES`). After each cycle,
+    :meth:`reflect` asks the LLM to rewrite the lessons from the new results.
+    The lessons are passed to every later prompt and can be saved and reused
+    across runs, so the improver also improves the guidance it works from.
+
+    Args:
+        llm: Backend, e.g. :class:`~pyhealth.autoimprove.ClaudeLLM`, or any
+            callable ``llm(system, prompt) -> str``.
+        max_attempts: Requests per proposal before giving up on unparseable
+            replies.
+        max_lessons: Most lessons kept.
+
+    Examples:
+        >>> from pyhealth.autoimprove import ClaudeLLM, LLMProposer
+        >>> proposer = LLMProposer(ClaudeLLM())  # doctest: +SKIP
+    """
+
+    def __init__(self, llm: LLM, max_attempts: int = 3, max_lessons: int = 10):
+        self.llm = llm
+        self.max_attempts = max_attempts
+        self.max_lessons = max_lessons
+
+    def propose(self, context: ProposalContext) -> PipelineConfig:
+        prompt = build_prompt(context)
+        error = ""
+        for _ in range(self.max_attempts):
+            reply = self.llm(SYSTEM_PROMPT, prompt + error)
+            try:
+                return PipelineConfig.from_dict(parse_json(reply))
+            except (TypeError, ValueError) as e:
+                error = f"\n\nYour last reply could not be used: {e}. Reply again."
+        raise ValueError(f"No usable configuration after {self.max_attempts} replies")
+
+    def propose_features(self, context: ProposalContext) -> dict[str, Any]:
+        prompt = build_feature_prompt(context)
+        error = ""
+        for _ in range(self.max_attempts):
+            reply = self.llm(FEATURE_SYSTEM_PROMPT, prompt + error)
+            try:
+                data = parse_json(reply)
+                if not isinstance(data.get("features"), list) or not data["features"]:
+                    raise ValueError('the reply needs a non-empty "features" list')
+                return data
+            except ValueError as e:
+                error = f"\n\nYour last reply could not be used: {e}. Reply again."
+        raise ValueError(f"No usable features after {self.max_attempts} replies")
+
+    def reflect(
+        self,
+        trials: Sequence[Any],
+        lessons: Sequence[str],
+        metric: str,
+        space: SearchSpace | None = None,
+    ) -> list[str]:
+        available = (
+            f"Models available in this search: {', '.join(sorted(space.models))}. "
+            "Only state lessons about these models and their settings."
+            if space is not None else ""
+        )
+        prompt = "\n\n".join(filter(None, [
+            f"Validation metric: {metric}.",
+            available,
+            "All trials so far:\n" + format_trials(trials),
+            "Current lessons:\n" + (_bullets(lessons) or "(none)"),
+            (
+                f"Rewrite the lessons: at most {self.max_lessons} short, specific "
+                "statements about what helps or hurts on THIS task, supported by "
+                "the trials above. Drop lessons the results contradict. Reply "
+                'with a ```json block: {"lessons": ["...", ...]}'
+            ),
+        ]))
+        try:
+            data = parse_json(self.llm(SYSTEM_PROMPT, prompt))
+        except ValueError:
+            return list(lessons)
+        if not isinstance(data.get("lessons"), list):
+            return list(lessons)
+        new = [str(x).strip() for x in data["lessons"] if str(x).strip()]
+        return new[: self.max_lessons] or list(lessons)
+
+
+def build_prompt(context: ProposalContext) -> str:
+    """Builds the user prompt for one proposal.
+
+    Examples:
+        >>> from pyhealth.autoimprove import SearchSpace
+        >>> context = ProposalContext("a0", "explore", SearchSpace(), "binary task",
+        ...                           "pr_auc", True)
+        >>> "Strategy for this turn" in build_prompt(context)
+        True
+    """
+    direction = "higher" if context.maximize else "lower"
+    parts = [
+        f"Task:\n{context.task}",
+        context.space.describe(),
+        f"Validation metric: {context.metric} ({direction} is better).",
+    ]
+    if context.lessons:
+        parts.append("Lessons from earlier cycles:\n" + _bullets(context.lessons))
+    if context.leaderboard:
+        parts.append("Best trials so far:\n" + format_trials(context.leaderboard))
+    if context.worst:
+        parts.append("Worst trials so far:\n" + format_trials(context.worst))
+    if context.selected is not None:
+        parts.append(
+            f"Current selection: #{context.selected.trial_id}. "
+            f"{context.selection_rule}".strip()
+        )
+    if context.own_trials:
+        parts.append(
+            f"Your own trials ({context.agent}):\n" + format_trials(context.own_trials)
+        )
+    parts.append(f"Strategy for this turn: {STRATEGIES[context.strategy]}")
+    if context.feedback:
+        parts.append(f"Note: {context.feedback}")
+    return "\n\n".join(parts)
+
+
+def build_feature_prompt(context: ProposalContext) -> str:
+    """Builds the user prompt for one feature proposal.
+
+    Examples:
+        >>> build_feature_prompt(context)  # doctest: +SKIP
+    """
+    direction = "higher" if context.maximize else "lower"
+    parts = [f"Task:\n{context.task}"]
+    if context.card:
+        parts.append(f"Task card:\n{context.card}")
+    parts += [
+        f"Validation metric: {context.metric} ({direction} is better).",
+        context.features.describe(),
+    ]
+    if context.selected is not None:
+        parts.append("The model is held fixed during this feature cycle: "
+                     f"{context.selected.config.key()}")
+    if context.accepted:
+        parts.append("Accepted features (your group is added to these):\n" + _bullets(
+            f"{s['name']}: {s['definition']}" for s in context.accepted))
+    else:
+        parts.append("No features have been accepted yet.")
+    if context.feature_trials:
+        parts.append("Latest feature groups tried:\n" + format_trials(
+            context.feature_trials))
+    if context.tried_features:
+        parts.append("Every feature tried so far (do not propose these again): "
+                     + ", ".join(sorted(context.tried_features)))
+    if context.lessons:
+        parts.append("Lessons from earlier cycles:\n" + _bullets(context.lessons))
+    if context.evidence:
+        parts.append("Published predictors not tried yet (verified citations; the "
+                     "prior only orders them):\n" + _bullets(context.evidence))
+    parts.append(f"Strategy for this turn: {FEATURE_STRATEGIES[context.strategy]}")
+    parts.append(f"Propose at most {context.features.max_features} features.")
+    if context.feedback:
+        parts.append(f"Note: {context.feedback}")
+    return "\n\n".join(parts)
+
+
+def format_trials(trials: Sequence[Any]) -> str:
+    """One line per trial: score, config, time and any error.
+
+    An error is shown by its exception type and the line that raised it
+    (``Trial.error_brief``), never its message, which can quote a raw value.
+
+    Examples:
+        >>> from pyhealth.autoimprove import PipelineConfig, Trial
+        >>> trial = Trial(3, 0, "agent0", "explore", PipelineConfig("MLP"),
+        ...               metric_name="pr_auc", score=0.41, seconds=12)
+        >>> print(format_trials([trial]))
+        - #3 [pr_auc=0.4100, 12s] {"model": "MLP", "model_params": {}, "train_params": {}}
+    """
+    lines = []
+    for t in trials:
+        if t.error:
+            # trials saved before error_brief existed: the exception type only
+            brief = getattr(t, "error_brief", None) or t.error.split(":")[0]
+            result = f"error: {brief}"
+        else:
+            result = f"{t.metric_name}={t.score:.4f}"
+            spread = t.metrics.get(f"{t.metric_name}_sd")
+            if spread is not None:
+                result += f" (sd {spread:.4f})"
+        line = f"- #{t.trial_id} [{result}, {t.seconds:.0f}s] {t.config.key()}"
+        added = getattr(t, "added", None)
+        if added:
+            verdict = {True: "accepted", False: "rejected"}.get(
+                getattr(t, "accepted", None), "")
+            line += f" + features {', '.join(added)} ({verdict})"
+        if t.notes:
+            line += f" (notes: {'; '.join(t.notes)})"
+        lines.append(line)
+    return "\n".join(lines)
+
+
+def parse_json(text: str) -> dict[str, Any]:
+    """Extracts the last JSON object from an LLM reply.
+
+    Examples:
+        >>> parse_json('Try a GRU.\\n```json\\n{"model": "RNN"}\\n```')
+        {'model': 'RNN'}
+
+    Raises:
+        ValueError: If the reply holds no JSON object.
+    """
+    blocks = re.findall(r"```(?:json)?\s*(\{.*?\})\s*```", text, flags=re.DOTALL)
+    candidates = blocks or re.findall(r"\{.*\}", text, flags=re.DOTALL)
+    for raw in reversed(candidates):
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(data, dict):
+            return data
+    raise ValueError("no JSON object found")
+
+
+def _bullets(items: Sequence[str]) -> str:
+    return "\n".join(f"- {x}" for x in items)
