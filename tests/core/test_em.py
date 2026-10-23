@@ -5,6 +5,10 @@ import torch
 
 from pyhealth.calib.predictionset import LabelShift, bbse, em
 from pyhealth.calib.predictionset.base_conformal import _query_quantile
+from pyhealth.calib.predictionset.label_shift.em import (
+    _log_likelihood,
+    _relative_optimality_gap,
+)
 from pyhealth.calib.predictionset.label_shift.label_shift import (
     _compute_label_shift_thresholds,
 )
@@ -31,14 +35,99 @@ class TestEM(unittest.TestCase):
         source prior: with uniform source prior the importance weights
         start at 1, so the estimate is the column means of the target
         probabilities. A single iteration cannot have converged, so the
-        non-convergence warning fires."""
+        non-convergence warning fires (opting out of the default
+        RuntimeError)."""
         y_true_source = np.array([0, 0, 1, 1])
         y_proba_target = np.array([[0.6, 0.4], [0.2, 0.8]])
         with self.assertWarns(UserWarning):
             estimate = em(
-                y_true_source, y_proba_target, max_iter=1, tol=0.0
+                y_true_source,
+                y_proba_target,
+                max_iter=1,
+                tol=0.0,
+                raise_on_non_convergence=False,
             )
         np.testing.assert_allclose(estimate, [0.4, 0.6], atol=1e-12)
+
+    def test_two_em_steps_match_hand_computation(self):
+        """Reference check of the E-step with nonuniform importance
+        weights: two EM iterations on a tiny problem, computed by hand.
+
+        Source prior [0.5, 0.5]. Iteration 1 uses weights [1, 1], giving
+        q1 = [0.55, 0.45]. Iteration 2 uses weights [1.1, 0.9]: row 0 of
+        the posterior is [0.88/1.06, 0.18/1.06] and row 1 is
+        [0.33/0.96, 0.63/0.96].
+        """
+        y_true_source = np.array([0, 1])
+        y_proba_target = np.array([[0.8, 0.2], [0.3, 0.7]])
+        with self.assertWarns(UserWarning):
+            estimate = em(
+                y_true_source,
+                y_proba_target,
+                max_iter=2,
+                tol=0.0,
+                raise_on_non_convergence=False,
+            )
+        expected = np.array(
+            [
+                (0.8 * 1.1) / (0.8 * 1.1 + 0.2 * 0.9)
+                + (0.3 * 1.1) / (0.3 * 1.1 + 0.7 * 0.9),
+                (0.2 * 0.9) / (0.8 * 1.1 + 0.2 * 0.9)
+                + (0.7 * 0.9) / (0.3 * 1.1 + 0.7 * 0.9),
+            ]
+        ) / 2
+        np.testing.assert_allclose(estimate, expected, atol=1e-12)
+
+    def test_optimality_gap_certificate(self):
+        """The relative optimality gap is zero at the maximizer and
+        positive away from it. On the perfect-classifier problem the EM
+        estimate [0.75, 0.25] is the exact maximizer; the source prior
+        [0.5, 0.5] is not."""
+        y_true_source = np.array([0, 0, 1, 1])
+        y_proba_target = np.array(
+            [[1.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 0.0]]
+        )
+        source_prior = np.array([0.5, 0.5])
+        estimate = em(y_true_source, y_proba_target)
+        self.assertAlmostEqual(
+            _relative_optimality_gap(estimate, y_proba_target, source_prior),
+            0.0,
+        )
+        self.assertGreater(
+            _relative_optimality_gap(
+                source_prior, y_proba_target, source_prior
+            ),
+            0.0,
+        )
+        # The gap is never negative: the gradient average is n.
+        rng = np.random.default_rng(11)
+        for _ in range(20):
+            q = rng.dirichlet([1.0, 1.0])
+            proba = rng.dirichlet([2.0, 1.0], size=50)
+            self.assertGreaterEqual(
+                _relative_optimality_gap(q, proba, source_prior), 0.0
+            )
+
+    def test_estimate_maximizes_likelihood_on_grid(self):
+        """Independent check that the EM estimate maximizes the MLLS
+        log-likelihood: its likelihood is at least as large as the best
+        point on a dense grid over the simplex."""
+        rng = np.random.default_rng(4)
+        source_mix = np.array([0.9, 0.1])
+        draw = self._gaussian_sim(rng, source_mix)
+        cal_proba, cal_true = draw(2000, source_mix)
+        target_proba, _ = draw(5000, np.array([0.7, 0.3]))
+        source_prior = np.bincount(cal_true) / len(cal_true)
+        estimate = em(cal_true, target_proba)
+        grid = np.linspace(0.05, 0.95, 19)
+        best_grid = max(
+            _log_likelihood(np.array([g, 1 - g]), target_proba, source_prior)
+            for g in grid
+        )
+        self.assertGreaterEqual(
+            _log_likelihood(estimate, target_proba, source_prior),
+            best_grid - 1e-9,
+        )
 
     @staticmethod
     def _gaussian_sim(rng, source_mix):
@@ -214,21 +303,72 @@ class TestEM(unittest.TestCase):
             em(y_true_source, good_proba, tol=-1e-6)
         with self.assertRaises(ValueError):
             em(y_true_source, good_proba, tol=np.inf)
+        # optimality_tol must be non-negative.
+        with self.assertRaises(ValueError):
+            em(y_true_source, good_proba, optimality_tol=-1e-6)
+        with self.assertRaises(ValueError):
+            em(y_true_source, good_proba, optimality_tol=np.nan)
 
-    def test_non_convergence_warns(self):
-        """A single EM iteration cannot have converged, so the
-        non-convergence warning fires. The partial estimate is still
-        returned as a valid distribution."""
+    def test_non_convergence_raises_by_default(self):
+        """A single EM iteration cannot have converged, so the default
+        behavior raises RuntimeError instead of returning an uncertified
+        estimate."""
+        rng = np.random.default_rng(10)
+        source_mix = np.array([0.9, 0.1])
+        draw = self._gaussian_sim(rng, source_mix)
+        cal_proba, cal_true = draw(2000, source_mix)
+        target_proba, _ = draw(2000, np.array([0.7, 0.3]))
+        with self.assertRaises(RuntimeError):
+            em(cal_true, target_proba, max_iter=1)
+
+    def test_non_convergence_warns_when_not_strict(self):
+        """With raise_on_non_convergence=False the partial estimate is
+        returned with a UserWarning instead of raising."""
         rng = np.random.default_rng(10)
         source_mix = np.array([0.9, 0.1])
         draw = self._gaussian_sim(rng, source_mix)
         cal_proba, cal_true = draw(2000, source_mix)
         target_proba, _ = draw(2000, np.array([0.7, 0.3]))
         with self.assertWarns(UserWarning):
-            estimate = em(cal_true, target_proba, max_iter=1)
+            estimate = em(
+                cal_true, target_proba, max_iter=1,
+                raise_on_non_convergence=False,
+            )
         self.assertEqual(estimate.shape, (2,))
         self.assertTrue(np.all(estimate >= 0))
         self.assertAlmostEqual(estimate.sum(), 1.0)
+
+    def test_unidentifiable_mixture_warns(self):
+        """When the classifier's probabilities carry no information about
+        the class mix (every target row is [0.5, 0.5]), the likelihood is
+        flat and the weak-identifiability warning fires instead of
+        silently returning the starting point as if it were estimated."""
+        with self.assertWarnsRegex(UserWarning, "weakly identified"):
+            estimate = em(np.array([0, 1]), np.full((10, 2), 0.5))
+        np.testing.assert_allclose(estimate, [0.5, 0.5], atol=1e-12)
+
+    def test_calibration_sensitivity(self):
+        """MLLS assumes calibrated probabilities. Systematically
+        distorting them (squaring and renormalizing, i.e. overconfident)
+        biases the estimate: the calibrated estimate lands close to the
+        true mix while the distorted one does not."""
+        rng = np.random.default_rng(12)
+        source_mix = np.array([0.9, 0.1])
+        target_mix = np.array([0.7, 0.3])
+        draw = self._gaussian_sim(rng, source_mix)
+        cal_proba, cal_true = draw(10000, source_mix)
+        target_proba, _ = draw(20000, target_mix)
+        distorted = target_proba**2
+        distorted = distorted / distorted.sum(axis=1, keepdims=True)
+
+        calibrated_estimate = em(cal_true, target_proba)
+        np.testing.assert_allclose(
+            calibrated_estimate, target_mix, atol=0.05
+        )
+        distorted_estimate = em(cal_true, distorted)
+        self.assertGreater(
+            np.max(np.abs(distorted_estimate - target_mix)), 0.1
+        )
 
     def test_em_mix_restores_coverage(self):
         """End to end: thresholds weighted with the EM-estimated mix
@@ -254,8 +394,12 @@ class TestEM(unittest.TestCase):
         estimated_mix = em(cal_true, test_prob)
         np.testing.assert_allclose(estimated_mix, target_mix, atol=0.05)
 
+        # Like LabelShift.calibrate with source_label_dist=None, the
+        # source prior here is the empirical calibration label mix.
+        empirical_source_prior = np.bincount(cal_true) / len(cal_true)
         thresholds, _ = _compute_label_shift_thresholds(
-            cal_scores, cal_true, estimated_mix, source_mix, alpha
+            cal_scores, cal_true, estimated_mix, empirical_source_prior,
+            alpha,
         )
         weighted_sets = test_scores <= thresholds
         weighted_coverage = weighted_sets[
