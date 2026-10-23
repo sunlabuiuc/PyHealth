@@ -1,4 +1,5 @@
 import unittest
+import warnings
 
 import numpy as np
 import torch
@@ -78,6 +79,40 @@ class TestEM(unittest.TestCase):
         ) / 2
         np.testing.assert_allclose(estimate, expected, atol=1e-12)
 
+    def test_single_class_returns_trivial_distribution(self):
+        """With a single class the target distribution is trivially
+        [1.0]. The identifiability diagnostic has no tangent space for
+        K=1; it must not crash and no warning should fire."""
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            estimate = em(np.array([0, 0, 0]), np.ones((4, 1)))
+        self.assertEqual(caught, [])
+        np.testing.assert_allclose(estimate, [1.0], atol=1e-12)
+
+    def test_near_flat_counterexample_warns(self):
+        """The round-1 review's counterexample: nearly uniform target
+        probabilities make the likelihood almost flat. EM stops near its
+        starting point ([0.5000001, 0.4999999], far from the exact
+        maximizer [1.0, 0.0]) with the KKT gap within tolerance, so the
+        weak-identifiability warning fires instead of the estimate being
+        presented as an accurate identification of the target prior."""
+        y_true_source = np.array([0, 1])
+        y_proba_target = np.tile([0.5000001, 0.4999999], (10, 1))
+        with self.assertWarnsRegex(UserWarning, "weakly identified"):
+            estimate = em(y_true_source, y_proba_target)
+        source_prior = np.array([0.5, 0.5])
+        self.assertLessEqual(
+            _relative_optimality_gap(
+                estimate, y_proba_target, source_prior
+            ),
+            1e-6,
+        )
+        # The data do not identify the mix: the estimate is far from the
+        # exact maximizer, and the warning above is the honest output.
+        self.assertGreater(
+            np.max(np.abs(estimate - np.array([1.0, 0.0]))), 0.4
+        )
+
     def test_optimality_gap_certificate(self):
         """The relative optimality gap is zero at the maximizer and
         positive away from it. On the perfect-classifier problem the EM
@@ -99,14 +134,17 @@ class TestEM(unittest.TestCase):
             ),
             0.0,
         )
-        # The gap is never negative: the gradient average is n.
+        # The gap is never negative, exactly: tiny negative values
+        # from floating-point roundoff are clamped to zero.
         rng = np.random.default_rng(11)
-        for _ in range(20):
-            q = rng.dirichlet([1.0, 1.0])
-            proba = rng.dirichlet([2.0, 1.0], size=50)
-            self.assertGreaterEqual(
-                _relative_optimality_gap(q, proba, source_prior), 0.0
-            )
+        for _ in range(50):
+            num_classes = int(rng.integers(1, 5))
+            prior = rng.dirichlet(np.ones(num_classes))
+            q = rng.dirichlet(np.ones(num_classes))
+            proba = rng.dirichlet(np.ones(num_classes), size=50)
+            gap = _relative_optimality_gap(q, proba, prior)
+            self.assertGreaterEqual(gap, 0.0)
+            self.assertTrue(np.isfinite(gap))
 
     def test_estimate_maximizes_likelihood_on_grid(self):
         """Independent check that the EM estimate maximizes the MLLS
@@ -115,7 +153,7 @@ class TestEM(unittest.TestCase):
         rng = np.random.default_rng(4)
         source_mix = np.array([0.9, 0.1])
         draw = self._gaussian_sim(rng, source_mix)
-        cal_proba, cal_true = draw(2000, source_mix)
+        _, cal_true = draw(2000, source_mix)
         target_proba, _ = draw(5000, np.array([0.7, 0.3]))
         source_prior = np.bincount(cal_true) / len(cal_true)
         estimate = em(cal_true, target_proba)
@@ -163,7 +201,7 @@ class TestEM(unittest.TestCase):
         rng = np.random.default_rng(3)
         source_mix = np.array([0.9, 0.1])
         draw = self._gaussian_sim(rng, source_mix)
-        cal_proba, cal_true = draw(10000, source_mix)
+        _, cal_true = draw(10000, source_mix)
         y_proba_target, _ = draw(10000, source_mix)
         estimate = em(cal_true, y_proba_target)
         np.testing.assert_allclose(estimate, source_mix, atol=0.05)
@@ -174,7 +212,7 @@ class TestEM(unittest.TestCase):
         source_mix = np.array([0.9, 0.1])
         target_mix = np.array([0.7, 0.3])
         draw = self._gaussian_sim(rng, source_mix)
-        cal_proba, cal_true = draw(10000, source_mix)
+        _, cal_true = draw(10000, source_mix)
         y_proba_target, _ = draw(20000, target_mix)
         estimate = em(cal_true, y_proba_target)
         np.testing.assert_allclose(estimate, target_mix, atol=0.05)
@@ -210,7 +248,7 @@ class TestEM(unittest.TestCase):
             proba = np.exp(shifted) / np.exp(shifted).sum(axis=1, keepdims=True)
             return proba, y
 
-        cal_proba, cal_true = draw(5000, source_mix)
+        _, cal_true = draw(5000, source_mix)
         y_proba_target, _ = draw(5000, target_mix)
         estimate = em(cal_true, y_proba_target)
         self.assertEqual(estimate.shape, (3,))
@@ -316,7 +354,7 @@ class TestEM(unittest.TestCase):
         rng = np.random.default_rng(10)
         source_mix = np.array([0.9, 0.1])
         draw = self._gaussian_sim(rng, source_mix)
-        cal_proba, cal_true = draw(2000, source_mix)
+        _, cal_true = draw(2000, source_mix)
         target_proba, _ = draw(2000, np.array([0.7, 0.3]))
         with self.assertRaises(RuntimeError):
             em(cal_true, target_proba, max_iter=1)
@@ -327,7 +365,7 @@ class TestEM(unittest.TestCase):
         rng = np.random.default_rng(10)
         source_mix = np.array([0.9, 0.1])
         draw = self._gaussian_sim(rng, source_mix)
-        cal_proba, cal_true = draw(2000, source_mix)
+        _, cal_true = draw(2000, source_mix)
         target_proba, _ = draw(2000, np.array([0.7, 0.3]))
         with self.assertWarns(UserWarning):
             estimate = em(
@@ -356,7 +394,7 @@ class TestEM(unittest.TestCase):
         source_mix = np.array([0.9, 0.1])
         target_mix = np.array([0.7, 0.3])
         draw = self._gaussian_sim(rng, source_mix)
-        cal_proba, cal_true = draw(10000, source_mix)
+        _, cal_true = draw(10000, source_mix)
         target_proba, _ = draw(20000, target_mix)
         distorted = target_proba**2
         distorted = distorted / distorted.sum(axis=1, keepdims=True)
