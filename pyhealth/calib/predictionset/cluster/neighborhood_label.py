@@ -29,7 +29,35 @@ class NeighborhoodLabel(SetPredictor):
     Reference:
         Ghosh, S., Belkhouja, T., Yan, Y., & Doppa, J. R. (2023).
         Improving Uncertainty Quantification of Deep Classifiers via
-        Neighborhood Conformal Prediction.
+        Neighborhood Conformal Prediction. https://arxiv.org/abs/2303.10694
+
+    Note:
+        This implements Algorithm 2 of the paper (marginal coverage only --
+        the paper does not provide a class-conditional variant). Two
+        deviations from a literal reading of the paper, both deliberate:
+
+        1. The paper's k-NN weighting (Eq. 5) does not state whether a
+           calibration point's own score should be excluded from its own
+           neighbor set when searching for alpha_tilde (Eq. 2). This
+           implementation excludes it (leave-one-out): including it would
+           let a point's own score dominate its own threshold during
+           calibration -- something a genuine test point, never part of
+           the calibration set, cannot benefit from -- which biases the
+           search toward an overly permissive threshold and causes real
+           under-coverage at test time.
+        2. If a prediction set would come out empty (no class's score
+           reaches the threshold), the model's top-1 predicted class is
+           force-included. This is not specified in the paper, but is
+           coverage-safe: adding a class to a set can only raise coverage,
+           never lower it.
+
+        Like standard split-conformal prediction, the coverage guarantee
+        here assumes exchangeability between the calibration and test
+        distributions. It does not correct for covariate shift; see
+        :class:`~pyhealth.calib.predictionset.CovariateLabel` for a method
+        that does. Under real distribution shift (common in clinical data),
+        expect under-coverage even with a fully correct implementation --
+        that is an assumption violation, not an implementation bug.
 
     Args:
         model: A trained base model that supports embedding extraction
@@ -184,10 +212,28 @@ class NeighborhoodLabel(SetPredictor):
         self.cal_embeddings_ = np.atleast_2d(cal_embeddings)
         self.cal_conformity_scores_ = np.asarray(conformity_scores, dtype=np.float64)
 
-       # this is the ncp calibration step
-        distances_cal, indices_cal = self._nn.kneighbors(
-            self.cal_embeddings_, n_neighbors=k
+        # This is the NCP calibration step. Querying kneighbors() with an
+        # explicit X argument equal to the fitted set makes each point its
+        # own nearest neighbor at distance 0 (unlike the implicit no-argument
+        # form, which sklearn special-cases to exclude self-matches) -- so we
+        # request one extra neighbor and drop each point's own self-match
+        # (leave-one-out). Without this, a calibration point's own score
+        # leaks into its own threshold computation during the alpha_tilde
+        # search below, which a genuine test point -- never part of the
+        # calibration set -- can't benefit from; that asymmetry biases the
+        # search toward an overly permissive threshold and causes
+        # under-coverage at test time.
+        k_query = min(k + 1, N)
+        distances_all, indices_all = self._nn.kneighbors(
+            self.cal_embeddings_, n_neighbors=k_query
         )
+        n_neighbors_loo = k_query - 1
+        distances_cal = np.zeros((N, n_neighbors_loo), dtype=distances_all.dtype)
+        indices_cal = np.zeros((N, n_neighbors_loo), dtype=indices_all.dtype)
+        for i in range(N):
+            mask = indices_all[i] != i
+            distances_cal[i] = distances_all[i][mask][:n_neighbors_loo]
+            indices_cal[i] = indices_all[i][mask][:n_neighbors_loo]
         cal_weights = np.exp(-distances_cal / self.lambda_L)
         cal_weights = cal_weights / cal_weights.sum(axis=1, keepdims=True)
 
