@@ -110,7 +110,10 @@ def _relative_optimality_gap(q, proba, source_prior) -> float:
     gradient = (proba / (source_prior * denominators[:, np.newaxis])).sum(
         axis=0
     )
-    return float(gradient.max() / proba.shape[0] - 1.0)
+    gap = float(gradient.max() / proba.shape[0] - 1.0)
+    # The gap is mathematically non-negative; clamp tiny negative values
+    # from floating-point roundoff so the documented invariant holds.
+    return max(0.0, gap)
 
 
 def _identifiability_ratio(q, proba, source_prior) -> float:
@@ -123,6 +126,10 @@ def _identifiability_ratio(q, proba, source_prior) -> float:
     the target label distribution is not (or only weakly) identified
     from the classifier's probabilities.
     """
+    if len(q) == 1:
+        # A single class admits only one distribution, so there is no
+        # direction in which the likelihood could be flat.
+        return np.inf
     scaled = proba / source_prior
     denominators = scaled @ q
     if np.any(denominators <= 0):
@@ -256,9 +263,10 @@ def em(
         )
     proba = _as_probability_matrix(y_proba_target, num_classes)
 
-    if isinstance(max_iter, bool) or not isinstance(
+    max_iter_is_int = isinstance(
         max_iter, (int, np.integer)
-    ):
+    ) and not isinstance(max_iter, bool)
+    if not max_iter_is_int:
         raise ValueError(
             f"max_iter must be a positive integer, got {max_iter!r}."
         )
