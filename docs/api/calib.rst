@@ -12,6 +12,7 @@ Overview
 confidence levels:
 
 - :class:`~pyhealth.calib.calibration.TemperatureScaling`: Simple and effective logit scaling
+- :class:`~pyhealth.calib.calibration.LogisticRecalibration`: Refits the calibration intercept (and slope) on the logit scale
 - :class:`~pyhealth.calib.calibration.HistogramBinning`: Non-parametric binning approach
 - :class:`~pyhealth.calib.calibration.DirichletCalibration`: Matrix-based recalibration
 - :class:`~pyhealth.calib.calibration.KCal`: Kernel-based full calibration
