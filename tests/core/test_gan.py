@@ -191,6 +191,13 @@ class TestGANImageMode(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.model(visits=torch.zeros(1, 4))
 
+    def test_positional_image_arguments_raise(self):
+        """The pre-2.0 positional call explains the keyword form."""
+        with self.assertRaisesRegex(TypeError, "deprecated"):
+            GAN(1, 32)
+        with self.assertRaisesRegex(TypeError, "deprecated"):
+            GAN(1, 32, 8)
+
     def test_unsupported_input_size_raises(self):
         """Image sizes other than 32, 64 and 128 are rejected up front."""
         with self.assertRaises(ValueError):

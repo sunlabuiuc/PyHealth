@@ -78,6 +78,14 @@ class GAN(BaseModel):
         hidden_dim: int = 128,
         **kwargs,
     ):
+        # Before PyHealth 2.0 the first argument was input_channel.
+        if isinstance(dataset, int):
+            raise TypeError(
+                "GAN(input_channel, input_size, ...) with positional arguments "
+                "is deprecated: the first argument is now dataset. For image "
+                "mode, pass these by keyword, e.g. "
+                "GAN(input_channel=3, input_size=128)."
+            )
         super().__init__(dataset)
         self.hidden_dim = hidden_dim
 
