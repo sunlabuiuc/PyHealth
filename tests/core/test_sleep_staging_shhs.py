@@ -86,6 +86,25 @@ class TestSleepStagingSHHS(unittest.TestCase):
             self.assertEqual(epoch["signal"].shape, (2, 125))
             self.assertEqual(epoch["label"], sample["label"])
 
+    def test_drops_missing_channel_rows_before_selecting_eeg(self):
+        """15- and 16-channel recordings still yield the two EEG channels."""
+        for num_channels in (15, 16):
+            with self.subTest(num_channels=num_channels):
+                # each row holds its own channel index
+                signal = np.repeat(
+                    np.arange(num_channels, dtype=float)[:, None], 4 * 125, axis=1
+                )
+                with mock.patch.object(
+                    sleep_staging.mne.io,
+                    "read_raw_edf",
+                    return_value=_FakeRawEDF(signal),
+                ):
+                    samples = sleep_staging_shhs_fn(self.record, epoch_seconds=1)
+
+                with open(samples[0]["epoch_path"], "rb") as f:
+                    epoch = pickle.load(f)
+                np.testing.assert_array_equal(epoch["signal"][:, 0], [2, 7])
+
 
 if __name__ == "__main__":
     unittest.main()
