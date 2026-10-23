@@ -13,6 +13,12 @@ E-step reweights each target point's predicted probabilities by the
 current importance weights q(y) / p(y), and the M-step averages those
 posteriors to form the next estimate of the target label distribution q.
 
+This module implements the basic EM algorithm for the mixture
+proportions (Saerens et al. 2002), as analyzed for label shift in
+Alexandari et al. It does not include that paper's bias-corrected
+calibration step, so the predicted probabilities passed in should
+already be calibrated.
+
 Paper:
     Alexandari, Amr, Anshul Kundaje, and Avanti Shrikumar.
     "Maximum Likelihood with Bias-Corrected Calibration is
@@ -28,6 +34,14 @@ import numpy as np
 from pyhealth.calib.predictionset.label_shift.bbse import _as_label_array
 
 __all__ = ["em"]
+
+# Below this per-target-point observed information (the smallest
+# eigenvalue of the negative Hessian of the log-likelihood restricted to
+# the simplex, divided by the number of target points), the target label
+# distribution is treated as weakly identified and a warning is issued.
+# The value is a heuristic: exactly flat likelihoods give 0, while
+# informative problems give values well above it.
+_WEAK_IDENTIFIABILITY_THRESHOLD = 1e-6
 
 
 def _as_probability_matrix(y_proba_target, num_classes: int) -> np.ndarray:
@@ -65,12 +79,78 @@ def _as_probability_matrix(y_proba_target, num_classes: int) -> np.ndarray:
     return proba
 
 
+def _log_likelihood(q, proba, source_prior) -> float:
+    """The MLLS log-likelihood (up to an additive constant).
+
+    ell(q) = sum_i log(sum_j proba[i, j] * q[j] / source_prior[j]).
+    """
+    denominators = proba @ (q / source_prior)
+    if np.any(denominators <= 0):
+        return -np.inf
+    return float(np.log(denominators).sum())
+
+
+def _relative_optimality_gap(q, proba, source_prior) -> float:
+    """How far q is from a maximizer of the MLLS log-likelihood.
+
+    The log-likelihood is concave in q over the probability simplex, so
+    q maximizes it exactly when the KKT conditions hold: the gradient
+    components for classes with positive mass are all equal (to the
+    number of target points n), and the rest are no larger. The returned
+    gap, max_j (d ell / d q_j) / n - 1, is always non-negative and is
+    zero exactly at a maximizer.
+    """
+    importance = q / source_prior
+    denominators = proba @ importance
+    if np.any(denominators <= 0):
+        raise RuntimeError(
+            "Internal error: a target example has zero weight under the "
+            "current fit, so the optimality gap is undefined."
+        )
+    gradient = (proba / (source_prior * denominators[:, np.newaxis])).sum(
+        axis=0
+    )
+    return float(gradient.max() / proba.shape[0] - 1.0)
+
+
+def _identifiability_ratio(q, proba, source_prior) -> float:
+    """Per-target-point observed information in the least-informed
+    direction of the simplex.
+
+    This is the smallest eigenvalue of the negative Hessian of the
+    log-likelihood restricted to the simplex tangent space, divided by
+    the number of target points. Near zero, the likelihood is flat and
+    the target label distribution is not (or only weakly) identified
+    from the classifier's probabilities.
+    """
+    scaled = proba / source_prior
+    denominators = scaled @ q
+    if np.any(denominators <= 0):
+        raise RuntimeError(
+            "Internal error: a target example has zero weight under the "
+            "current fit, so the identifiability diagnostic is undefined."
+        )
+    weights = 1.0 / denominators**2
+    negative_hessian = (scaled * weights[:, np.newaxis]).T @ scaled
+    num_classes = len(q)
+    projection = np.eye(num_classes) - np.ones((num_classes, num_classes)) / (
+        num_classes
+    )
+    restricted = projection @ negative_hessian @ projection
+    eigenvalues = np.linalg.eigvalsh(restricted)
+    # One eigenvalue is zero (the all-ones direction, projected out);
+    # the smallest of the rest measures the flattest direction.
+    return float(np.sort(eigenvalues)[1] / proba.shape[0])
+
+
 def em(
     y_true_source,
     y_proba_target,
     num_classes=None,
     max_iter=1000,
     tol=1e-6,
+    optimality_tol=1e-6,
+    raise_on_non_convergence=True,
 ):
     """Estimate the target label distribution with MLLS via EM.
 
@@ -96,6 +176,17 @@ def em(
             estimated distribution between iterations falls below tol.
             Must be non-negative; with tol=0 the loop runs until the
             estimate stops changing exactly or max_iter is reached.
+        optimality_tol: The EM loop additionally requires the relative
+            optimality gap of the log-likelihood (max_j
+            (d ell / d q_j) / n - 1, which is zero exactly at the
+            maximizer) to fall below optimality_tol. Must be
+            non-negative. A small parameter change alone does not certify
+            convergence, so both criteria must hold.
+        raise_on_non_convergence: If True (default), raise RuntimeError
+            when the EM loop does not converge within max_iter
+            iterations. If False, issue a UserWarning and return the
+            last iterate, which is not certified to maximize the
+            likelihood.
 
     Returns:
         The estimated target label distribution, an array of shape
@@ -105,7 +196,10 @@ def em(
         ValueError: If the inputs are not valid, if a class never
             appears in the source labels (its importance weight
             q(y) / p(y) is undefined), if max_iter is not a positive
-            integer, or if tol is not positive.
+            integer, or if tol or optimality_tol is negative.
+        RuntimeError: If the EM loop does not converge within max_iter
+            iterations (and raise_on_non_convergence is True), or if an
+            internal invariant of the EM computation is violated.
 
     Note:
         The same fixed classifier must produce the target probabilities,
@@ -114,13 +208,14 @@ def em(
         estimates the source class probabilities P(y | x), which training
         data would violate. The probabilities should be calibrated:
         miscalibrated probabilities bias the estimate (Alexandari et al.
-        pair EM with a calibration step for this reason). The estimate is
-        a plug-in input for LabelShift, so coverage guarantees stated
-        for known label ratios become approximate. The EM estimate is
-        only meaningful if the classifier separates the classes well:
-        with an uninformative classifier the likelihood is flat and the
-        estimate can be unstable. A UserWarning is issued if the EM loop
-        does not converge within max_iter iterations.
+        pair EM with a bias-corrected calibration step for this reason;
+        this function implements the basic EM only, without that step).
+        The estimate is a plug-in input for LabelShift, so coverage
+        guarantees stated for known label ratios become approximate. The
+        EM estimate is only meaningful if the classifier separates the
+        classes well: with an uninformative classifier the likelihood is
+        flat, the target distribution is weakly identified, and a
+        UserWarning is issued.
 
     Examples:
         >>> import numpy as np
@@ -175,6 +270,12 @@ def em(
     tol = float(tol)
     if not np.isfinite(tol) or tol < 0:
         raise ValueError(f"tol must be a non-negative number, got {tol}.")
+    optimality_tol = float(optimality_tol)
+    if not np.isfinite(optimality_tol) or optimality_tol < 0:
+        raise ValueError(
+            f"optimality_tol must be a non-negative number, got "
+            f"{optimality_tol}."
+        )
 
     source_prior = np.bincount(y_true_source, minlength=num_classes) / len(
         y_true_source
@@ -194,34 +295,59 @@ def em(
         # a posterior over classes.
         importance = q / source_prior
         numerator = proba * importance
-        denominators = numerator.sum(axis=1, keepdims=True)
-        posterior = np.divide(
-            numerator,
-            denominators,
-            out=np.zeros_like(numerator),
-            where=denominators > 0,
-        )
+        denominators = numerator.sum(axis=1)
+        if np.any(denominators <= 0):
+            raise RuntimeError(
+                "Internal error: a target example has zero weight under "
+                "the current fit, so its EM posterior is undefined."
+            )
+        posterior = numerator / denominators[:, np.newaxis]
         # M-step: the next estimate is the average posterior.
         q_new = posterior.mean(axis=0)
-        if np.max(np.abs(q_new - q)) <= tol:
-            q = q_new
+        parameter_change = np.max(np.abs(q_new - q))
+        q = q_new
+        # A small parameter change alone does not certify convergence
+        # (the EM step can be tiny far from the maximizer), so the
+        # relative optimality gap of the concave log-likelihood must be
+        # small as well.
+        if parameter_change <= tol and _relative_optimality_gap(
+            q, proba, source_prior
+        ) <= optimality_tol:
             converged = True
             break
-        q = q_new
     if not converged:
-        warnings.warn(
+        message = (
             "The EM loop did not converge within "
-            f"{max_iter} iterations; the returned estimate may be "
-            "unstable. Consider increasing max_iter or relaxing tol.",
+            f"{max_iter} iterations; the returned estimate is not "
+            "certified to maximize the likelihood. Consider increasing "
+            "max_iter or relaxing tol / optimality_tol."
+        )
+        if raise_on_non_convergence:
+            raise RuntimeError(message)
+        warnings.warn(message, UserWarning, stacklevel=2)
+
+    if _identifiability_ratio(
+        q, proba, source_prior
+    ) < _WEAK_IDENTIFIABILITY_THRESHOLD:
+        warnings.warn(
+            "The target label distribution is weakly identified: the "
+            "classifier's predicted probabilities carry almost no "
+            "information about the class mix (the likelihood is flat), "
+            "so the estimate may be unstable.",
             UserWarning,
             stacklevel=2,
         )
 
-    total = q.sum()
-    if total <= 0:
-        raise ValueError(
-            "MLLS produced a degenerate estimate from the given inputs: "
-            "no target example has positive weight under the fitted "
-            "mixture."
+    # The M-step averages valid posteriors, so q must already lie on the
+    # simplex; validate that invariant instead of renormalizing, which
+    # would hide a broken computation.
+    if (
+        not np.all(np.isfinite(q))
+        or np.any(q < 0)
+        or not np.isclose(q.sum(), 1.0, rtol=0, atol=1e-8)
+    ):
+        raise RuntimeError(
+            "Internal error: the EM estimate left the probability "
+            "simplex."
         )
-    return q / total
+    return q
