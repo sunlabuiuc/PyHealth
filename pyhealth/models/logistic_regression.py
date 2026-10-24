@@ -23,6 +23,13 @@ class LogisticRegression(BaseModel):
     pools sequence dimensions, concatenates all feature embeddings, and applies a
     final linear layer.
 
+    A numeric series (e.g. ``timeseries``) is embedded step by step and
+    mean-pooled over the steps that hold data. A batch pads shorter series
+    with all-zero steps, so a real step whose features are all zero (e.g.
+    the zeros forward fill puts before the first measurement) also counts
+    as padding. A series with no nonzero step is averaged over all its
+    steps.
+
     Args:
         dataset: the dataset to train the model. It is used to query certain
             information such as the set of all tokens.
@@ -100,7 +107,9 @@ class LogisticRegression(BaseModel):
     def mean_pooling(x, mask):
         """Mean pooling over the middle dimension of the tensor.
 
-        Steps where ``mask`` is 0 are left out of the mean.
+        Steps where ``mask`` is 0 are left out of the mean. A row with no
+        valid step (e.g. an all-zero series) is averaged over all its steps,
+        as without a mask, so the result is never NaN.
 
         Args:
             x: tensor of shape (batch_size, seq_len, embedding_dim)
@@ -116,7 +125,8 @@ class LogisticRegression(BaseModel):
             [128, 32]
         """
         mask = mask.unsqueeze(-1)
-        return (x * mask).sum(dim=1) / mask.sum(dim=1)
+        mask = torch.where(mask.sum(dim=1, keepdim=True) > 0, mask, torch.ones_like(mask))
+        return (x * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1)
 
     def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
         """Forward propagation.
@@ -150,15 +160,18 @@ class LogisticRegression(BaseModel):
             else:
                 x = x.to(self.device)
 
-            # Handle 3D codes: (patient, event, # of codes) -> flatten to 2D.
-            # 3D numbers, e.g. a time series (patient, time, features), keep
-            # their shape: the embedding projects each step, then pooling.
-            # Their padded steps embed to the Linear bias, so the pooling
-            # mask comes from the raw steps.
-            processor = self.dataset.input_processors[feature_key]
-            if x.dim() == 3 and not processor.is_token():
+            # Handle 3D input: (patient, event, # of codes) -> flatten to 2D.
+            # A numeric series (patient, time, features) embedded by an
+            # nn.Linear over its features keeps its shape instead: the
+            # embedding projects each step, then pooling. Its padded steps
+            # embed to the Linear bias, so the pooling mask comes from the
+            # raw steps.
+            layers = self.embedding_model.embedding_layers
+            per_step = (x.dim() == 3 and feature_key in layers
+                        and isinstance(layers[feature_key], nn.Linear))
+            if per_step:
                 step_masks[feature_key] = get_step_mask(x)
-            if x.dim() == 3 and processor.is_token():
+            if x.dim() == 3 and not per_step:
                 batch_size, seq_len, inner_len = x.shape
                 x = x.view(batch_size, seq_len * inner_len)
                 reshape_info[feature_key] = {

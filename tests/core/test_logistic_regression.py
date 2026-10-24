@@ -29,6 +29,24 @@ def _padded_series():
     )
 
 
+def _nested_multihot():
+    """Two visits per patient as per-visit multi-hot rows."""
+    samples = [
+        {
+            "patient_id": f"patient-{i}",
+            "visits": [["a", "b"], ["c"] if i % 2 else ["a"]],
+            "label": i % 2,
+        }
+        for i in range(4)
+    ]
+    return create_sample_dataset(
+        samples=samples,
+        input_schema={"visits": "nested_multihot"},
+        output_schema={"label": "binary"},
+        dataset_name="test_multihot",
+    )
+
+
 class TestLogisticRegression(unittest.TestCase):
     """Test cases for the LogisticRegression model."""
 
@@ -245,6 +263,7 @@ class TestLogisticRegression(unittest.TestCase):
         with torch.no_grad():
             batch = next(iter(get_dataloader(dataset, batch_size=3)))
             together = model(**batch, embed=True)["embed"]
+            self.assertTrue(torch.isfinite(together).all())
             for i in range(len(dataset)):
                 row = batch["patient_id"].index(dataset[i]["patient_id"])
                 alone = next(iter(get_dataloader(dataset.subset([i]), batch_size=1)))
@@ -254,6 +273,36 @@ class TestLogisticRegression(unittest.TestCase):
                 # each step is embedded on its own, then the real steps averaged
                 pooled = linear(dataset[i]["vitals"]).mean(dim=0)
                 torch.testing.assert_close(together[row], pooled)
+
+    def test_mean_pooling_without_a_valid_step(self):
+        """A row whose mask is all zero is averaged over all its steps."""
+        x = torch.arange(24, dtype=torch.float).reshape(2, 3, 4)
+        mask = torch.tensor([[1.0, 0.0, 1.0], [0.0, 0.0, 0.0]])
+        pooled = LogisticRegression.mean_pooling(x, mask)
+        torch.testing.assert_close(pooled[0], x[0, [0, 2]].mean(dim=0))
+        torch.testing.assert_close(pooled[1], x[1].mean(dim=0))
+
+    def test_nested_multihot_is_flattened(self):
+        """Per-visit multi-hot rows have no per-step embedding, so they are
+        flattened into one vector, as before."""
+        dataset = _nested_multihot()
+        width = 2 * dataset.input_processors["visits"].size()  # two visits
+        model = LogisticRegression(dataset=dataset, embedding_dim=width)
+        batch = next(iter(get_dataloader(dataset, batch_size=4)))
+        with torch.no_grad():
+            embed = model(**batch, embed=True)["embed"]
+        torch.testing.assert_close(embed, batch["visits"].reshape(4, -1))
+
+    def test_list_inputs_and_unsupported_ranks(self):
+        """Inputs given as lists are converted; other ranks are rejected."""
+        dataset = _padded_series()
+        model = LogisticRegression(dataset=dataset, embedding_dim=8)
+        batch = next(iter(get_dataloader(dataset, batch_size=3)))
+        with torch.no_grad():
+            as_list = model(vitals=batch["vitals"].tolist(), label=batch["label"])
+            torch.testing.assert_close(as_list["logit"], model(**batch)["logit"])
+            with self.assertRaises(ValueError):
+                model(vitals=batch["vitals"].unsqueeze(1), label=batch["label"])
 
 if __name__ == "__main__":
     unittest.main()
