@@ -318,10 +318,14 @@ class LabelShift(BaseConformal):
                 exact finite-sample guarantee. Calibration labels with
                 zero probability under a supplied P(Y) are rejected as
                 inconsistent with it. A class gets an infinite threshold
-                only when its source probability is zero while its target
-                probability is positive; a supplied source distribution
-                with positive mass for a class gives it a finite threshold
-                even if no calibration example carries that label.
+                when the calibration mass alone cannot reach ``1 - alpha``
+                of the total weight including that class's candidate mass.
+                That happens when its source probability is zero while its
+                target probability is positive (its ratio is infinite),
+                and it can also happen with a positive source probability
+                if its candidate ratio is large relative to the total
+                calibration weight, so a positive source mass alone does
+                not guarantee a finite threshold.
         """
         try:
             num_cal = len(cal_dataset)
