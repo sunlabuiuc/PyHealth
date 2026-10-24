@@ -7,6 +7,28 @@ from pyhealth.datasets import create_sample_dataset, get_dataloader
 from pyhealth.models import MLP
 
 
+def _padded_series():
+    """Series of 2, 5 and 3 hourly steps; the last one is all zeros."""
+    t0 = datetime(2020, 1, 1)
+    samples = []
+    for i, n in enumerate([2, 5, 3]):
+        steps = [[float(h + 1), 2.0 * i + 1, -1.0] for h in range(n)]
+        samples.append({
+            "patient_id": f"patient-{i}",
+            "vitals": (
+                [t0 + timedelta(hours=h) for h in range(n)],
+                steps if i < 2 else [[0.0, 0.0, 0.0]] * n,
+            ),
+            "label": i % 2,
+        })
+    return create_sample_dataset(
+        samples=samples,
+        input_schema={"vitals": "timeseries"},
+        output_schema={"label": "binary"},
+        dataset_name="test_padding",
+    )
+
+
 class TestMLP(unittest.TestCase):
     """Test cases for the MLP model."""
 
@@ -173,6 +195,24 @@ class TestMLP(unittest.TestCase):
         ret["loss"].backward()
         self.assertEqual(ret["y_prob"].shape, (4, 1))
 
+    def test_padded_steps_are_left_out_of_the_mean(self):
+        """A short series pools the same in a padded batch as on its own."""
+        dataset = _padded_series()
+        model = MLP(dataset=dataset, embedding_dim=8)
+        model.eval()
+        linear = model.embedding_model.embedding_layers["vitals"]
+        with torch.no_grad():
+            batch = next(iter(get_dataloader(dataset, batch_size=3)))
+            together = model(**batch, embed=True)["embed"]
+            for i in range(len(dataset)):
+                row = batch["patient_id"].index(dataset[i]["patient_id"])
+                alone = next(iter(get_dataloader(dataset.subset([i]), batch_size=1)))
+                torch.testing.assert_close(
+                    together[row], model(**alone, embed=True)["embed"][0]
+                )
+                # each step is embedded on its own, then the real steps averaged
+                pooled = linear(dataset[i]["vitals"]).mean(dim=0)
+                torch.testing.assert_close(together[row], model.mlp["vitals"](pooled))
 
 if __name__ == "__main__":
     unittest.main()
