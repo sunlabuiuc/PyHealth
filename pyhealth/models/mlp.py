@@ -47,6 +47,13 @@ class MLP(BaseModel, Interpretable):
                   we use mean/sum pooling within each outer bracket and use MLP,
                   similar to case 2 after embedding table
 
+        A numeric series (e.g. ``timeseries``) is embedded step by step and
+        mean-pooled over the steps that hold data. A batch pads shorter series
+        with all-zero steps, so a real step whose features are all zero (e.g.
+        the zeros forward fill puts before the first measurement) also counts
+        as padding. A series with no nonzero step is averaged over all its
+        steps.
+
     Args:
         dataset: the dataset to train the model. It is used to query certain
             information such as the set of all tokens.
@@ -161,7 +168,9 @@ class MLP(BaseModel, Interpretable):
     def mean_pooling(x, mask):
         """Mean pooling over the middle dimension of the tensor.
 
-        Steps where ``mask`` is 0 are left out of the mean.
+        Steps where ``mask`` is 0 are left out of the mean. A row with no
+        valid step (e.g. an all-zero series) is averaged over all its steps,
+        as without a mask, so the result is never NaN.
 
         Args:
             x: tensor of shape (batch_size, seq_len, embedding_dim)
@@ -177,7 +186,8 @@ class MLP(BaseModel, Interpretable):
             [128, 32]
         """
         mask = mask.unsqueeze(-1)
-        return (x * mask).sum(dim=1) / mask.sum(dim=1)
+        mask = torch.where(mask.sum(dim=1, keepdim=True) > 0, mask, torch.ones_like(mask))
+        return (x * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1)
 
     @staticmethod
     def sum_pooling(x):
@@ -338,8 +348,7 @@ class MLP(BaseModel, Interpretable):
                 # as values without mask
                 feature = (feature,)
 
-            processor = self.dataset.input_processors[feature_key]
-            schema = processor.schema()
+            schema = self.dataset.input_processors[feature_key].schema()
 
             value = (
                 feature[schema.index("value")] if "value" in schema else None
@@ -354,17 +363,20 @@ class MLP(BaseModel, Interpretable):
             else:
                 value = value.to(self.device)
 
-            # Handle 3D codes: (batch, event, # of codes) -> flatten to 2D
+            # Handle 3D input: (batch, event, # of codes) -> flatten to 2D
             # before embedding to treat all codes as a single flat sequence.
-            # 3D numbers, e.g. a time series (batch, time, features), keep
-            # their shape: the embedding projects each step, then pooling.
-            # Their padded steps embed to the Linear bias, so the pooling
-            # mask comes from the raw steps (passed as an extra element).
+            # A numeric series (batch, time, features) embedded by an
+            # nn.Linear over its features keeps its shape instead: the
+            # embedding projects each step, then pooling. Its padded steps
+            # embed to the Linear bias, so the pooling mask comes from the
+            # raw steps (passed as an extra element).
+            layers = self.embedding_model.embedding_layers
+            per_step = (value.dim() == 3 and feature_key in layers
+                        and isinstance(layers[feature_key], nn.Linear))
             step_mask = None
-            if (value.dim() == 3 and not processor.is_token() and mask is None
-                    and len(feature) == len(schema)):
+            if per_step and mask is None and len(feature) == len(schema):
                 step_mask = get_step_mask(value)
-            if value.dim() == 3 and processor.is_token():
+            if value.dim() == 3 and not per_step:
                 batch_size, seq_len, inner_len = value.shape
                 value = value.view(batch_size, seq_len * inner_len)
                 if mask is not None:
