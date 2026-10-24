@@ -1,0 +1,20 @@
+version: "1.0"
+tables:
+  ptbxl:
+    file_path: "ptbxl-metadata-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+      - "ecg_id"
+      - "age"
+      - "sex"
+      - "strat_fold"
+      - "record_path_lr"
+      - "record_path_hr"
+      - "scp_codes"
+      - "labels_all"
+      - "labels_diagnostic"
+      - "labels_subdiagnostic"
+      - "labels_superdiagnostic"
+      - "labels_form"
+      - "labels_rhythm"

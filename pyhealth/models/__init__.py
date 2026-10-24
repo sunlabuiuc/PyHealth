@@ -50,6 +50,14 @@ from .unified_embedding import UnifiedMultimodalEmbeddingModel, SinusoidalTimeEm
 from .califorest import CaliForest
 from .gradient_boosted_trees import GradientBoostedTreeModel as GradientBoostedTreeModel
 from .xgboost_model import XGBoostModel as XGBoostModel
+from .protoecgnet import (
+    PTBXL_BRANCH_KWARGS as PTBXL_BRANCH_KWARGS,
+    PTBXL_BRANCH_LABELS as PTBXL_BRANCH_LABELS,
+    ProtoECGNet as ProtoECGNet,
+    PrototypeBranch as PrototypeBranch,
+    ResNet1dBackbone as ResNet1dBackbone,
+    ResNet2dBackbone as ResNet2dBackbone,
+)
 from .generators.halo import HALO
 from .generators.gpt2 import GPT2
 from .generators.promptehr import PromptEHR
