@@ -275,6 +275,12 @@ class LabelShift(BaseConformal):
             raise NotImplementedError(
                 "LabelShift only supports multiclass classification"
             )
+        if not isinstance(alpha, (float, np.floating)) or not 0.0 < alpha < 1.0:
+            raise ValueError(
+                "LabelShift controls marginal coverage under the target "
+                f"distribution, so alpha must be a float in (0, 1), "
+                f"got {alpha!r}."
+            )
         super().__init__(
             model,
             alpha,
@@ -283,12 +289,6 @@ class LabelShift(BaseConformal):
             debug=debug,
             **kwargs,
         )
-        if not isinstance(alpha, (float, np.floating)) or not 0.0 < alpha < 1.0:
-            raise ValueError(
-                "LabelShift controls marginal coverage under the target "
-                f"distribution, so alpha must be a float in (0, 1), "
-                f"got {alpha!r}."
-            )
         self.alpha = float(alpha)
 
         # Will be set during calibration
