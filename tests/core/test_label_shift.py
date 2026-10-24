@@ -434,6 +434,15 @@ class TestLabelShift(unittest.TestCase):
         with self.assertRaises(ValueError):
             LabelShift(model=self.model, alpha=0.0)
 
+    def test_bad_alpha_does_not_freeze_model(self):
+        """Alpha is validated before the parent init, so a rejected
+        alpha must not freeze the base model's parameters."""
+        with self.assertRaises(ValueError):
+            LabelShift(model=self.model, alpha=1.5)
+        self.assertTrue(
+            all(p.requires_grad for p in self.model.parameters())
+        )
+
     def test_initialization_unknown_score_type(self):
         with self.assertRaises(ValueError):
             LabelShift(model=self.model, alpha=0.1, score_type="nope")

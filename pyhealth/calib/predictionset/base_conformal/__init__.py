@@ -75,7 +75,11 @@ def _query_weighted_quantile(
     candidate_weight: float = 0.0,
     return_inf_on_exhaustion: bool = False,
 ) -> float:
-    """Compute weighted quantile of scores (e.g. for NCP or covariate shift).
+    """Compute weighted quantile of scores (e.g. for NCP).
+
+    Note: CovariateLabel does not use this helper; it has its own
+    conformity-scale weighted-quantile helper in
+    ``covariate/covariate_label.py``.
 
     Args:
         scores: Array of conformity scores
