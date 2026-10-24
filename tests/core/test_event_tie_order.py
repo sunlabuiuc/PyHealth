@@ -9,6 +9,7 @@ builds, which changed task outputs (for example which admission counts as the
 last one) and lost the ``seq_num`` priority order of diagnoses.
 """
 
+import json
 import random
 import tempfile
 import unittest
@@ -16,11 +17,19 @@ from datetime import datetime
 from pathlib import Path
 from unittest import mock
 
+import dask.dataframe as dd
+import pandas as pd
 import polars as pl
+import pyarrow.parquet as pq
 
 from pyhealth.data import Patient
-from pyhealth.datasets import BaseDataset
-from pyhealth.datasets.base_dataset import EVENT_FORMAT, SOURCE_ROW
+from pyhealth.datasets import MIMIC4FHIR, BaseDataset
+from pyhealth.datasets.base_dataset import (
+    EVENT_FORMAT,
+    SOURCE_ROW,
+    _event_parquet_options,
+    _source_row_as_int32,
+)
 
 CONFIG = """version: "1.0"
 tables:
@@ -93,6 +102,20 @@ class TestPatientTieOrder(unittest.TestCase):
         self.assertNotIn(SOURCE_ROW, event.attr_dict)
 
 
+class _DropsSourceRow(BaseDataset):
+    """A preprocess hook that rebuilds the frame without the source-row column."""
+
+    def preprocess_diagnoses(self, df):
+        return df.select("patient_id", "time", "hadm_id", "code")
+
+
+class _ReordersRows(BaseDataset):
+    """A preprocess hook that reorders rows but keeps the source-row column."""
+
+    def preprocess_diagnoses(self, df):
+        return df.sort("code")
+
+
 class TestDatasetTieOrder(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
@@ -102,8 +125,8 @@ class TestDatasetTieOrder(unittest.TestCase):
         _write_data(self.root)
         self.cache = Path(tmp.name) / "cache"
 
-    def _dataset(self) -> BaseDataset:
-        return BaseDataset(
+    def _dataset(self, cls=BaseDataset) -> BaseDataset:
+        return cls(
             root=str(self.root),
             tables=["admissions", "diagnoses"],
             dataset_name="TieOrderDataset",
@@ -122,17 +145,119 @@ class TestDatasetTieOrder(unittest.TestCase):
         codes = [e.code for e in patient.get_events(event_type="diagnoses")]
         self.assertEqual(codes, CODES)
 
-    def test_event_table_has_source_row(self):
-        columns = self._dataset().global_event_df.collect_schema().names()
-        self.assertIn(SOURCE_ROW, columns)
+    def test_event_table_stores_source_row_as_delta_encoded_int32(self):
+        dataset = self._dataset()
+        self.assertEqual(dataset.global_event_df.collect_schema()[SOURCE_ROW], pl.Int32)
+        files = sorted((dataset.cache_dir / "global_event_df.parquet").glob("*.parquet"))
+        meta = pq.ParquetFile(files[0]).metadata
+        column = meta.row_group(0).column(meta.schema.names.index(SOURCE_ROW))
+        self.assertIn("DELTA_BINARY_PACKED", column.encodings)
+
+    def test_hook_that_drops_source_row_gets_rows_numbered_again(self):
+        patient = self._dataset(_DropsSourceRow).get_patient("p1")
+        codes = [e.code for e in patient.get_events(event_type="diagnoses")]
+        self.assertEqual(codes, CODES)
+        rows = (
+            self._dataset(_DropsSourceRow).global_event_df
+            .filter(pl.col("event_type") == "diagnoses")
+            .select(SOURCE_ROW).collect()[SOURCE_ROW].sort().to_list()
+        )
+        self.assertEqual(rows, list(range(len(CODES))))
+
+    def test_hook_that_reorders_rows_keeps_source_order(self):
+        patient = self._dataset(_ReordersRows).get_patient("p1")
+        codes = [e.code for e in patient.get_events(event_type="diagnoses")]
+        self.assertEqual(codes, CODES)
 
     def test_cache_key_includes_event_format(self):
         # Caches written before SOURCE_ROW existed must not be reused.
         current = self._dataset().cache_dir
-        self.assertEqual(self._dataset().cache_dir, current)
+        self.assertEqual(self._dataset().cache_dir, current)  # the key is deterministic
         with mock.patch(
             "pyhealth.datasets.base_dataset.EVENT_FORMAT", EVENT_FORMAT - 1
         ):
+            self.assertNotEqual(self._dataset().cache_dir, current)
+
+
+class TestSourceRowType(unittest.TestCase):
+    def _frame(self, n: int) -> dd.DataFrame:
+        pdf = pd.DataFrame({"code": [f"c{i}" for i in range(n)], SOURCE_ROW: range(n)})
+        return dd.from_pandas(pdf, npartitions=2)
+
+    def test_source_row_is_int32(self):
+        frame = _source_row_as_int32(self._frame(6))
+        self.assertEqual(str(frame.dtypes[SOURCE_ROW]), "int32")
+        out = frame.compute(scheduler="sync")
+        self.assertEqual(str(out[SOURCE_ROW].dtype), "int32")
+        self.assertEqual(out[SOURCE_ROW].tolist(), list(range(6)))
+
+    def test_delta_encoding_only_for_an_integer_column(self):
+        frame = _source_row_as_int32(self._frame(4))
+        self.assertEqual(
+            _event_parquet_options(frame.dtypes)["column_encoding"],
+            {SOURCE_ROW: "DELTA_BINARY_PACKED"},
+        )
+        floats = frame.astype({SOURCE_ROW: "float64"})  # e.g. a column with gaps
+        self.assertEqual(_event_parquet_options(floats.dtypes), {})
+        self.assertEqual(_event_parquet_options(frame.drop(columns=SOURCE_ROW).dtypes), {})
+
+    def test_too_many_rows_fail_instead_of_wrapping_around(self):
+        with mock.patch("pyhealth.datasets.base_dataset._INT32_MAX", 3), \
+                self.assertRaisesRegex(OverflowError, "int32"):
+            _source_row_as_int32(self._frame(6)).compute(scheduler="sync")
+
+
+# Conditions of one encounter, all recorded at the same time, in file order.
+FHIR_CONDITIONS = ["c7", "c2", "c9", "c1", "c5", "c3"]
+
+
+def _write_fhir(root: Path) -> None:
+    resources = [
+        {"resourceType": "Patient", "id": "p1", "birthDate": "1950-01-01", "gender": "female"},
+        {
+            "resourceType": "Encounter", "id": "e1",
+            "subject": {"reference": "Patient/p1"},
+            "period": {"start": "2020-06-01T10:00:00Z"}, "class": {"code": "IMP"},
+        },
+    ] + [
+        {
+            "resourceType": "Condition", "id": cid,
+            "subject": {"reference": "Patient/p1"},
+            "encounter": {"reference": "Encounter/e1"},
+            "code": {"coding": [{"system": "http://hl7.org/fhir/sid/icd-10-cm", "code": f"I{i}"}]},
+            "onsetDateTime": "2020-06-01T11:00:00Z",
+        }
+        for i, cid in enumerate(FHIR_CONDITIONS)
+    ]
+    (root / "fixture.ndjson").write_text("\n".join(json.dumps(r) for r in resources) + "\n")
+
+
+class TestFHIRTieOrder(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name) / "fhir"
+        self.root.mkdir()
+        _write_fhir(self.root)
+        self.cache = Path(tmp.name) / "cache"
+
+    def _dataset(self) -> MIMIC4FHIR:
+        return MIMIC4FHIR(root=str(self.root), glob_pattern="*.ndjson", cache_dir=str(self.cache))
+
+    def test_tied_conditions_keep_file_order(self):
+        dataset = self._dataset()
+        numbered = (
+            dataset.global_event_df.filter(pl.col("event_type") == "condition")
+            .sort(SOURCE_ROW).select("condition/resource_id").collect()
+        )
+        self.assertEqual(numbered["condition/resource_id"].to_list(), FHIR_CONDITIONS)
+        patient = dataset.get_patient("p1")
+        ids = [e.resource_id for e in patient.get_events(event_type="condition")]
+        self.assertEqual(ids, FHIR_CONDITIONS)
+
+    def test_cache_key_includes_event_format(self):
+        current = self._dataset().cache_dir
+        with mock.patch("pyhealth.datasets.fhir.base.EVENT_FORMAT", EVENT_FORMAT - 1):
             self.assertNotEqual(self._dataset().cache_dir, current)
 
 

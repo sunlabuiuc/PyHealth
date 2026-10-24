@@ -82,7 +82,10 @@ built-in schemas — just pass a ``root`` path and a list of ``tables``:
 **Custom datasets** subclass ``BaseDataset`` and provide a ``config_path``
 pointing to your own ``config.yaml``. If files need preprocessing (e.g.
 merging multiple CSVs), define ``preprocess_<table_name>(self, df)`` on the
-subclass — it receives a narwhals LazyFrame and must return one.
+subclass — it receives a narwhals LazyFrame and must return one. The frame
+has a ``_source_row`` column numbering the rows in file order, which orders
+events that share a timestamp; a hook that reorders or aggregates rows should
+keep it.
 
 Key init params: ``root``, ``tables``, ``config_path`` (custom only),
 ``cache_dir``, ``num_workers``, ``dev``.

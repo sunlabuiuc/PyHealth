@@ -169,11 +169,14 @@ class Patient:
         self.patient_id = patient_id
         # Events that share a timestamp are ordered by table and then by their
         # row in the source file, so the order does not depend on how the cache
-        # was built. Older caches lack the source-row column; there the
-        # existing row order is kept (a stable sort).
+        # was built. (event_type, _source_row) identifies a source row, so this
+        # sort needs no stability (copies made by a one-to-many join share a
+        # row and have no fixed order). Older caches lack the source-row
+        # column; there the existing row order is kept, which needs a stable
+        # sort.
         if "_source_row" in data_source.columns:
             self.data_source = data_source.sort(
-                ["timestamp", "event_type", "_source_row"], maintain_order=True
+                ["timestamp", "event_type", "_source_row"]
             )
         else:
             self.data_source = data_source.sort("timestamp", maintain_order=True)

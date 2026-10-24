@@ -38,7 +38,15 @@ import orjson
 import pandas as pd
 from yaml import safe_load
 
-from ..base_dataset import BaseDataset, _default_cache_dir
+from ..base_dataset import (
+    EVENT_FORMAT,
+    SOURCE_ROW,
+    BaseDataset,
+    _default_cache_dir,
+    _source_row_as_int32,
+    _with_row_number,
+    _with_source_row,
+)
 from .utils import (
     FHIR_SCHEMA_VERSION,
     SUPPORTED_OUTPUT_FORMATS,
@@ -231,6 +239,7 @@ class FHIRDataset(BaseDataset):
                 "output_format": self.output_format,
                 "fhir_schema_version": FHIR_SCHEMA_VERSION,
                 "fhir_yaml_digest16": yaml_digest,
+                "event_format": EVENT_FORMAT,
             },
             option=orjson.OPT_SORT_KEYS,
         ).decode("utf-8")
@@ -326,6 +335,10 @@ class FHIRDataset(BaseDataset):
           strings include timezone suffix or partial dates).
         * Strips tz-aware timestamps to naive UTC for Dask compat.
         * Drops rows with null ``patient_id`` before returning.
+
+        Rows are numbered in ``SOURCE_ROW`` in flattened-table order, as in
+        ``BaseDataset.load_table``, so events that share a timestamp keep
+        their order in the NDJSON input on every cache build.
         """
         assert self.config is not None
         if table_name not in self.config.tables:
@@ -341,6 +354,7 @@ class FHIRDataset(BaseDataset):
         logger.info(f"Scanning FHIR flattened table: {table_name} from {path}")
         df: dd.DataFrame = self._read_flat_table(path)
         df = df.rename(columns=str.lower)
+        df = _with_source_row(df)
 
         preprocess_func = getattr(self, f"preprocess_{table_name}", None)
         if preprocess_func is not None:
@@ -349,6 +363,9 @@ class FHIRDataset(BaseDataset):
                 f"with {preprocess_func.__name__}"
             )
             df = preprocess_func(nw.from_native(df)).to_native()  # type: ignore[union-attr]
+            # As in BaseDataset.load_table: hooks should keep SOURCE_ROW.
+            if SOURCE_ROW not in df.columns:
+                df = _with_source_row(df)
 
         for join_cfg in table_cfg.join:
             join_path = self.prepared_tables_dir / Path(join_cfg.file_path).name
@@ -385,10 +402,9 @@ class FHIRDataset(BaseDataset):
 
             # Dask applies reset_index independently across frames,
             # meaning partitions share indexes, and therefore merge patients.
-            # The trick is to use a cumsum which acts globally across partitions.
-            df = df.assign(_one=1)
-            df = df.assign(patient_id=(df["_one"].cumsum() - 1).astype("string"))
-            df = df.drop(columns="_one")
+            # Number rows with a cumsum instead, which runs across partitions.
+            df = _with_row_number(df, "patient_id")
+            df = df.assign(patient_id=df["patient_id"].astype("string"))
 
         df = df.dropna(subset=["patient_id"])
         df = df.assign(event_type=table_name)
@@ -396,10 +412,12 @@ class FHIRDataset(BaseDataset):
             attr.lower(): f"{table_name}/{attr}" for attr in table_cfg.attributes
         }
         df = df.rename(columns=rename_attr)
-        return df[
-            ["patient_id", "event_type", "timestamp"]
-            + [rename_attr[a.lower()] for a in table_cfg.attributes]
-        ]
+        return _source_row_as_int32(
+            df[
+                ["patient_id", "event_type", "timestamp", SOURCE_ROW]
+                + [rename_attr[a.lower()] for a in table_cfg.attributes]
+            ]
+        )
 
     # ------------------------------------------------------------------
     # Patient IDs (deterministic sorted order)
