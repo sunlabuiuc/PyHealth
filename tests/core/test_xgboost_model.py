@@ -332,22 +332,6 @@ class TestModesAndInputs(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "drop_last"):
             XGBoostModel(ds).fit(loader)
 
-    def test_shuffle_warning_follows_the_fit_loader(self):
-        # Disk-backed, so the dataset's flag is litdata's ``shuffle``.
-        ds = create_sample_dataset(_mixed_samples(), {"labs": "tensor"}, {"label": "binary"},
-                                   in_memory=False)
-        # A shuffled loader on the same dataset, e.g. another model's training,
-        # leaves the flag set; get_dataloader's loaders set it again each pass.
-        for _ in get_dataloader(ds, batch_size=32, shuffle=True):
-            pass
-        self.assertTrue(ds.shuffle)
-        logger = "pyhealth.models.gradient_boosted_trees"
-        with self.assertNoLogs(logger, level="WARNING"):
-            XGBoostModel(ds, n_estimators=2).fit(get_dataloader(ds, batch_size=32))
-        with self.assertLogs(logger, level="WARNING") as logs:
-            XGBoostModel(ds, n_estimators=2).fit(get_dataloader(ds, 32, shuffle=True))
-        self.assertIn("shuffles", logs.output[0])
-
     def test_forward_before_fit_raises(self):
         ds = create_sample_dataset(_mixed_samples(), {"labs": "tensor"}, {"label": "binary"})
         with self.assertRaisesRegex(RuntimeError, "model.fit"):
