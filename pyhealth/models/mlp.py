@@ -8,6 +8,7 @@ from pyhealth.models import BaseModel
 from pyhealth.interpret.api import Interpretable
 
 from .embedding import EmbeddingModel
+from .utils import get_step_mask
 
 
 class MLP(BaseModel, Interpretable):
@@ -160,6 +161,8 @@ class MLP(BaseModel, Interpretable):
     def mean_pooling(x, mask):
         """Mean pooling over the middle dimension of the tensor.
 
+        Steps where ``mask`` is 0 are left out of the mean.
+
         Args:
             x: tensor of shape (batch_size, seq_len, embedding_dim)
             mask: tensor of shape (batch_size, seq_len)
@@ -170,10 +173,11 @@ class MLP(BaseModel, Interpretable):
         Examples:
             >>> x.shape
             [128, 5, 32]
-            >>> mean_pooling(x).shape
+            >>> mean_pooling(x, mask).shape
             [128, 32]
         """
-        return x.sum(dim=1) / mask.sum(dim=1, keepdim=True)
+        mask = mask.unsqueeze(-1)
+        return (x * mask).sum(dim=1) / mask.sum(dim=1)
 
     @staticmethod
     def sum_pooling(x):
@@ -354,6 +358,12 @@ class MLP(BaseModel, Interpretable):
             # before embedding to treat all codes as a single flat sequence.
             # 3D numbers, e.g. a time series (batch, time, features), keep
             # their shape: the embedding projects each step, then pooling.
+            # Their padded steps embed to the Linear bias, so the pooling
+            # mask comes from the raw steps (passed as an extra element).
+            step_mask = None
+            if (value.dim() == 3 and not processor.is_token() and mask is None
+                    and len(feature) == len(schema)):
+                step_mask = get_step_mask(value)
             if value.dim() == 3 and processor.is_token():
                 batch_size, seq_len, inner_len = value.shape
                 value = value.view(batch_size, seq_len * inner_len)
@@ -380,6 +390,8 @@ class MLP(BaseModel, Interpretable):
             
             args = list(feature)
             args[i] = value
+            if step_mask is not None:
+                args.append(step_mask)
             kwargs[feature_key] = tuple(args)
 
         return self.forward_from_embedding(**kwargs)

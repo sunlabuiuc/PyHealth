@@ -7,6 +7,7 @@ from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
 
 from .embedding import EmbeddingModel
+from .utils import get_step_mask
 
 
 class LogisticRegression(BaseModel):
@@ -99,6 +100,8 @@ class LogisticRegression(BaseModel):
     def mean_pooling(x, mask):
         """Mean pooling over the middle dimension of the tensor.
 
+        Steps where ``mask`` is 0 are left out of the mean.
+
         Args:
             x: tensor of shape (batch_size, seq_len, embedding_dim)
             mask: tensor of shape (batch_size, seq_len)
@@ -112,7 +115,8 @@ class LogisticRegression(BaseModel):
             >>> mean_pooling(x, mask).shape
             [128, 32]
         """
-        return x.sum(dim=1) / mask.sum(dim=1, keepdim=True)
+        mask = mask.unsqueeze(-1)
+        return (x * mask).sum(dim=1) / mask.sum(dim=1)
 
     def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
         """Forward propagation.
@@ -135,6 +139,7 @@ class LogisticRegression(BaseModel):
         # Preprocess inputs for EmbeddingModel
         processed_inputs = {}
         reshape_info = {}  # Track which inputs were reshaped
+        step_masks = {}  # Pooling masks of numeric series, from the raw steps
 
         for feature_key in self.feature_keys:
             x = kwargs[feature_key]
@@ -148,7 +153,11 @@ class LogisticRegression(BaseModel):
             # Handle 3D codes: (patient, event, # of codes) -> flatten to 2D.
             # 3D numbers, e.g. a time series (patient, time, features), keep
             # their shape: the embedding projects each step, then pooling.
+            # Their padded steps embed to the Linear bias, so the pooling
+            # mask comes from the raw steps.
             processor = self.dataset.input_processors[feature_key]
+            if x.dim() == 3 and not processor.is_token():
+                step_masks[feature_key] = get_step_mask(x)
             if x.dim() == 3 and processor.is_token():
                 batch_size, seq_len, inner_len = x.shape
                 x = x.view(batch_size, seq_len * inner_len)
@@ -178,7 +187,9 @@ class LogisticRegression(BaseModel):
             # Handle different tensor dimensions for pooling
             if x.dim() == 3:
                 # Case: (batch, seq_len, embedding_dim) - apply mean pooling
-                mask = (x.sum(dim=-1) != 0).float()
+                mask = step_masks.get(feature_key)
+                if mask is None:
+                    mask = (x.sum(dim=-1) != 0).float()
                 if mask.sum(dim=-1, keepdim=True).any():
                     x = self.mean_pooling(x, mask)
                 else:
