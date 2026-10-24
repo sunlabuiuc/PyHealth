@@ -350,8 +350,11 @@ class GradientBoostedTreeModel(BaseModel):
             # pass, so the dataset's flag may be left over from another loader.
             shuffles = getattr(loader, "shuffle_samples", None)
             if shuffles is None:
-                shuffles = isinstance(loader.sampler, RandomSampler) or getattr(
-                    loader.dataset, "shuffle", False
+                # Iterating a SampleDataset shuffles when its flag is set:
+                # litdata's ``shuffle`` on disk, ``_shuffle`` in memory.
+                shuffles = isinstance(loader.sampler, RandomSampler) or bool(
+                    getattr(loader.dataset, "shuffle", False)
+                    or getattr(loader.dataset, "_shuffle", False)
                 )
             if shuffles:
                 logger.warning(
