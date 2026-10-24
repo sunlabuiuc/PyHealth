@@ -2,7 +2,13 @@
 ===================================
 
 
-The separate callable RNNLayer and the complete RNN model.
+The separate callable RNNLayer and the complete RNN model, with configurable
+intra-visit code aggregation via ``CodePoolingLayer``.
+
+.. autoclass:: pyhealth.models.CodePoolingLayer
+    :members:
+    :undoc-members:
+    :show-inheritance:
 
 .. autoclass:: pyhealth.models.RNNLayer
     :members:
