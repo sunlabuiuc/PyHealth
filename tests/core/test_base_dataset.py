@@ -165,6 +165,9 @@ class TestBaseDataset(unittest.TestCase):
         # In a Jupyter kernel dask's progress() draws an ipywidgets bar, but
         # ipywidgets is not a PyHealth dependency. Simulate a kernel without it;
         # in_notebook() also switches dask to threaded workers, as in Jupyter.
+        # distributed.scheduler is where a progress feed cancelled by closing
+        # the cluster too early logs its CancelledError traceback, so this also
+        # fails without the wait after the build.
         with tempfile.TemporaryDirectory() as cache_root, patch(
             "pyhealth.datasets.base_dataset.platformdirs.user_cache_dir",
             return_value=cache_root,

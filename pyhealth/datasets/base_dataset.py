@@ -238,6 +238,10 @@ def _litdata_merge(cache_dir: Path) -> None:
     )
 
 
+# Seconds between the progress updates dask's scheduler sends (dask's default).
+_DASK_PROGRESS_INTERVAL = 0.1
+
+
 def _dask_progress_notebook() -> bool | None:
     """
     Chooses the ``notebook`` argument for dask's ``progress()``.
@@ -728,14 +732,22 @@ class BaseDataset(ABC):
                         compute=False,
                     )
                     handle = client.compute(collection)
-                    dask_progress(handle, notebook=_dask_progress_notebook())
+                    dask_progress(
+                        handle,
+                        notebook=_dask_progress_notebook(),
+                        interval=_DASK_PROGRESS_INTERVAL,
+                    )
                     handle.result()  # type: ignore
                     compute_ok = True  # Data is fully written to disk
                     if in_notebook():
-                        # With threaded workers, closing the cluster while the
-                        # scheduler's 100ms progress feed is asleep logs a spurious
-                        # CancelledError traceback. Let the feed see the bar close.
-                        time.sleep(0.3)
+                        # The scheduler's progress feed (Scheduler.feed in
+                        # distributed 2026.8) sleeps one interval between updates
+                        # and stops only when its next update finds the bar's
+                        # connection closed. Closing the threaded cluster during
+                        # that sleep cancels it, and distributed logs the
+                        # CancelledError as an error. distributed has no public
+                        # way to wait for the feed, so wait a few intervals.
+                        time.sleep(3 * _DASK_PROGRESS_INTERVAL)
         except TimeoutError:
             if compute_ok:
                 # Cluster shutdown timed out after successful compute — data is intact

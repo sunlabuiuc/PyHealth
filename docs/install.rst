@@ -137,7 +137,7 @@ it, PyHealth falls back to a plain text bar. ``ipywidgets`` is optional:
 
     pip install ipywidgets
 
-In PyHealth 2.0.2 and earlier, building a dataset in a notebook without
+In PyHealth 2.0.0 to 2.1.0, building a dataset in a notebook without
 ``ipywidgets`` failed with ``ModuleNotFoundError: No module named 'ipywidgets'``.
 Installing ``ipywidgets`` works around it on those versions.
 
