@@ -5,11 +5,13 @@ parameters) so the tests run in seconds.
 """
 
 import unittest
+from unittest import mock
 
 import torch
+from torch import nn
 
 from pyhealth.datasets import create_sample_dataset
-from pyhealth.models import TransformersModel
+from pyhealth.models import TransformersModel, transformers_model
 
 BERT = "hf-internal-testing/tiny-random-bert"  # has a pooler
 DISTILBERT = "hf-internal-testing/tiny-random-DistilBertModel"  # no pooler
@@ -59,8 +61,25 @@ class TestTransformersModelBase(unittest.TestCase):
 
 
 class TestMaxLength(TestTransformersModelBase):
-    def test_default_is_the_encoder_limit(self):
-        self.assertEqual(self.model().max_length, 512)
+    def test_default_is_256(self):
+        self.assertEqual(self.model().max_length, 256)
+
+    def test_none_is_the_encoder_limit(self):
+        self.assertEqual(self.model(max_length=None).max_length, 512)
+
+    def test_default_fits_a_shorter_encoder(self):
+        with mock.patch.object(TransformersModel, "_encoder_max_length",
+                               return_value=128):
+            self.assertEqual(self.model().max_length, 128)
+            with self.assertRaises(ValueError):
+                self.model(max_length=200)
+
+    def test_encoder_limit_respects_the_tokenizer(self):
+        model = self.model()
+        model.tokenizer.model_max_length = 100  # shorter than the 512 positions
+        self.assertEqual(model._encoder_max_length(), 100)
+        model.tokenizer.model_max_length = int(1e30)  # no limit configured
+        self.assertEqual(model._encoder_max_length(), 512)
 
     def test_custom_max_length(self):
         self.assertEqual(self.model(max_length=128).max_length, 128)
@@ -89,6 +108,16 @@ class TestChunking(TestTransformersModelBase):
     def test_rejects_bad_max_chunks(self):
         with self.assertRaises(ValueError):
             self.model(max_chunks=0)
+
+    def test_windows_need_a_fast_tokenizer(self):
+        load = transformers_model.AutoTokenizer.from_pretrained
+        with mock.patch.object(
+            transformers_model.AutoTokenizer, "from_pretrained",
+            side_effect=lambda name, **kwargs: load(name, use_fast=False),
+        ):
+            self.assertFalse(self.model().tokenizer.is_fast)  # one window: fine
+            with self.assertRaisesRegex(ValueError, "fast tokenizer"):
+                self.model(max_chunks=None)
 
     def test_long_text_is_split_into_windows(self):
         model = self.model(max_length=16, max_chunks=None)
@@ -161,12 +190,43 @@ class TestPooling(TestTransformersModelBase):
             padded = model.encode([SHORT, LONG])[:1]
         torch.testing.assert_close(alone, padded, atol=1e-5, rtol=1e-4)
 
+    def test_auto_pooling_matches_the_previous_implementation(self):
+        # Earlier releases tokenized with max_length=256 and used pooler_output.
+        model = self.model()
+        texts = [SHORT, LONG]
+        batch = model.tokenizer(
+            texts, return_tensors="pt", padding=True, truncation=True, max_length=256
+        )
+        with torch.no_grad():
+            expected = model.model(**batch).pooler_output
+            torch.testing.assert_close(model.encode(texts), expected)
+
     def test_encoder_without_pooler(self):
         torch.manual_seed(0)
         model = TransformersModel(self.dataset, model_name=DISTILBERT).eval()
         with torch.no_grad():
             out = model(text=[SHORT, LONG], label=torch.tensor([[1.0], [0.0]]))
         self.assertEqual(out["y_prob"].shape, (2, 1))
+
+
+class TestDropout(TestTransformersModelBase):
+    def assert_dropout(self, model, settings, p):
+        for name in settings:
+            self.assertEqual(getattr(model.model.config, name), p)
+        layers = [m for m in model.model.modules() if isinstance(m, nn.Dropout)]
+        self.assertTrue(layers)
+        self.assertEqual({m.p for m in layers}, {p})
+
+    def test_bert_dropout_settings(self):
+        model = self.model(dropout=0.3)
+        self.assert_dropout(
+            model, ("hidden_dropout_prob", "attention_probs_dropout_prob"), 0.3
+        )
+        self.assertEqual(model.dropout.p, 0.3)
+
+    def test_distilbert_dropout_settings(self):
+        model = TransformersModel(self.dataset, model_name=DISTILBERT, dropout=0.3)
+        self.assert_dropout(model, ("dropout", "attention_dropout"), 0.3)
 
 
 class TestForward(TestTransformersModelBase):

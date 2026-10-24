@@ -5,6 +5,7 @@ from transformers import AutoConfig, AutoModel, AutoTokenizer
 from ..datasets import SampleDataset
 from .base_model import BaseModel
 
+DEFAULT_MAX_LENGTH = 256
 POOLING_MODES = ("auto", "cls", "mean")
 DROPOUT_SETTINGS = (
     "hidden_dropout_prob",
@@ -22,7 +23,9 @@ class TransformersModel(BaseModel):
     multilabel).
 
     Long texts: an encoder reads at most ``max_length`` tokens at a time
-    (512 for BERT). By default only the first window is read, as before.
+    (256 by default, as before; up to 512 for BERT with
+    ``max_length=None``). By default only the first window is read, as
+    before.
     Set ``max_chunks`` above 1 (or to ``None`` for no limit) to split each
     text into consecutive windows, encode every window, and max-pool the
     window vectors, so the whole document reaches the classifier. All
@@ -37,8 +40,10 @@ class TransformersModel(BaseModel):
         dropout: Dropout inside the encoder (whichever of its dropout
             settings it has) and before the linear head. Default is 0.1.
         max_length: Tokens per window, special tokens included. Default
-            is None: the encoder's own limit (512 for BERT). Earlier
-            releases always used 256.
+            is 256, as in earlier releases (lowered to the encoder's limit
+            if that is smaller). ``None`` uses the encoder's limit (512 for
+            BERT), which reads more of each text but costs more memory and
+            time: attention grows with the square of the window length.
         max_chunks: Windows read per text. Default is 1: read the first
             ``max_length`` tokens and drop the rest. ``None`` reads the
             whole text. Needs a fast tokenizer when not 1.
@@ -60,13 +65,16 @@ class TransformersModel(BaseModel):
         ...     samples, input_schema={"text": "text"},
         ...     output_schema={"label": "binary"},
         ... )
-        >>> model = TransformersModel(
+        >>> model = TransformersModel(  # doctest: +SKIP
         ...     dataset,
         ...     model_name="emilyalsentzer/Bio_ClinicalBERT",
+        ...     max_length=None,  # the encoder's limit: 512 tokens
         ...     max_chunks=None,  # read whole notes in 512-token windows
         ... )
-        >>> out = model(text=["chest pain and dyspnea"], label=torch.tensor([[1.0]]))
-        >>> out["y_prob"].shape
+        >>> out = model(  # doctest: +SKIP
+        ...     text=["chest pain and dyspnea"], label=torch.tensor([[1.0]])
+        ... )
+        >>> out["y_prob"].shape  # doctest: +SKIP
         torch.Size([1, 1])
     """
 
@@ -75,7 +83,7 @@ class TransformersModel(BaseModel):
         dataset: SampleDataset,
         model_name: str,
         dropout: float = 0.1,
-        max_length: int | None = None,
+        max_length: int | None = DEFAULT_MAX_LENGTH,
         max_chunks: int | None = 1,
         pooling: str = "auto",
     ):
@@ -103,6 +111,9 @@ class TransformersModel(BaseModel):
         limit = self._encoder_max_length()
         if max_length is None:
             max_length = limit
+        elif max_length == DEFAULT_MAX_LENGTH:
+            # The default must load every encoder, including short ones.
+            max_length = min(max_length, limit)
         if not 2 < max_length <= limit:
             raise ValueError(
                 f"max_length must be between 3 and {limit} for {model_name}, "
@@ -124,7 +135,15 @@ class TransformersModel(BaseModel):
         self.fc = nn.Linear(hidden_dim, output_size)
 
     def _encoder_max_length(self) -> int:
-        """The longest input the encoder accepts, in tokens."""
+        """The longest input the encoder accepts, in tokens.
+
+        The smaller of the tokenizer's ``model_max_length`` and the
+        encoder's ``max_position_embeddings``. Neither alone is safe: a
+        RoBERTa encoder has 514 position embeddings but reads at most 512
+        tokens (two positions are offset by padding), and a tokenizer can
+        declare a shorter limit than the encoder's positions when the model
+        was trained on shorter inputs, so the later positions are untrained.
+        """
         limits = [
             self.tokenizer.model_max_length,
             getattr(self.model.config, "max_position_embeddings", None),
