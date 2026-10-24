@@ -53,6 +53,9 @@ class PTBXLDataset(BaseDataset):
         cache_dir: Optional directory for caching processed data.
         num_workers: Number of parallel workers for data processing.
         dev: If True, only a small subset of patients is loaded.
+        refresh_metadata: If True, recreates ``ptbxl-metadata-pyhealth.csv``
+            even when it already exists. Useful after upgrading PyHealth if the
+            label aggregation logic has changed.
 
     Attributes:
         root: Root directory of the raw data.
@@ -76,12 +79,13 @@ class PTBXLDataset(BaseDataset):
         cache_dir: str | None = None,
         num_workers: int = 1,
         dev: bool = False,
+        refresh_metadata: bool = False,
     ) -> None:
         if config_path is None:
             logger.info("No config path provided, using default config")
             config_path = Path(__file__).parent / "configs" / "ptbxl.yaml"
         metadata_path = os.path.join(root, "ptbxl-metadata-pyhealth.csv")
-        if not os.path.exists(metadata_path):
+        if refresh_metadata or not os.path.exists(metadata_path):
             self.prepare_metadata(root)
         super().__init__(
             root=root,

@@ -629,6 +629,9 @@ class ProtoECGNet(BaseModel):
             self.class_weights = class_weights.float()
         if label_cooccurrence is not None:
             self.label_cooccurrence = label_cooccurrence.float()
+        # Modules whose BN running stats must stay fixed after projection.
+        # Populated by set_stage; consumed by train().
+        self._frozen_modules: set[nn.Module] = set()
 
     def _prepare_groups(
         self, groups: dict[str, list[str]] | None
@@ -732,6 +735,19 @@ class ProtoECGNet(BaseModel):
                     parts[0] == "branches" and parts[2] in trainable[stage]
                 )
         self.stage = stage
+        # Recompute once here so train() is O(|frozen|) with no allocation.
+        self._frozen_modules = {
+            m for m in self.modules()
+            if any(True for _ in m.parameters(recurse=False))
+            and all(not p.requires_grad for p in m.parameters(recurse=False))
+        }
+
+    def train(self, mode: bool = True) -> "ProtoECGNet":
+        super().train(mode)
+        if mode:
+            for m in self._frozen_modules:
+                m.eval()
+        return self
 
     def _scatter(self, per_branch: dict[str, torch.Tensor], batch: int) -> torch.Tensor:
         """Writes branch logits into the full label space."""
@@ -819,6 +835,8 @@ class ProtoECGNet(BaseModel):
         For every prototype only samples that carry all of its label(s) are
         considered. The prototype is set to the feature window with the
         highest similarity, so that it corresponds to an actual ECG segment.
+        In global mode (``proto_time_len=None``), the stored vector is a
+        time-averaged feature rather than a raw ECG segment.
 
         Args:
             dataloader: Training dataloader (``shuffle=False``) yielding
@@ -885,16 +903,26 @@ class ProtoECGNet(BaseModel):
             signal: ECG batch ``(batch, leads, time)``.
 
         Returns:
-            For every branch a tensor ``(batch, num_branch_labels,
-            num_prototypes)`` equal to similarity times classifier weight.
+            For every branch a tensor equal to similarity times classifier
+            weight. Shape is ``(batch, num_labels, num_branch_prototypes)``
+            when ``stage="fusion"`` (fusion classifier weights, contributions
+            sum to the logit), or ``(batch, num_branch_labels,
+            num_branch_prototypes)`` otherwise (branch classifier weights).
         """
         was_training = self.training
         self.eval()
         x = signal.to(self.device).float()
+        use_fusion = self.stage == "fusion" and self.fusion_classifier is not None
         out = {}
+        offset = 0
         for name in self.branch_names:
             branch = self.branches[name]
             _, sim, _ = branch(x)
-            out[name] = sim.unsqueeze(1) * branch.classifier.weight.unsqueeze(0)
+            if use_fusion:
+                w = self.fusion_classifier.weight[:, offset : offset + branch.num_prototypes]
+                out[name] = sim.unsqueeze(1) * w.unsqueeze(0)
+                offset += branch.num_prototypes
+            else:
+                out[name] = sim.unsqueeze(1) * branch.classifier.weight.unsqueeze(0)
         self.train(was_training)
         return out

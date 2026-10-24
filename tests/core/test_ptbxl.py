@@ -169,6 +169,36 @@ class TestPTBXL(unittest.TestCase):
         self.assertEqual(out.dtype, np.float32)
         self.assertTrue(np.isfinite(out).all())
 
+    def test_500hz_path_yields_5000_samples(self):
+        task = PTBXLMultilabelClassification(sampling_rate=500)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "rec500")
+            write_record(path, np.random.default_rng(2).normal(size=(5000, 12)))
+            out = task._prepare_signal(path)
+        self.assertEqual(out.shape, (12, 5000))
+        self.assertEqual(out.dtype, np.float32)
+
+    def test_remove_baseline_suppresses_dc(self):
+        # A constant (DC-only) signal must be driven near zero by the 0.5 Hz
+        # high-pass filter; standardize=None isolates the filter's effect.
+        task = PTBXLMultilabelClassification(remove_baseline=True, standardize=None)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "dc")
+            write_record(path, np.ones((1000, 12), dtype=np.float32))
+            out = task._prepare_signal(path)
+        self.assertEqual(out.shape, (12, 1000))
+        np.testing.assert_allclose(out.mean(axis=1), 0.0, atol=0.05)
+
+    def test_refresh_metadata_recreates_file(self):
+        # Patch the metadata with stale content; refresh_metadata must overwrite it.
+        meta_path = os.path.join(self.root, "ptbxl-metadata-pyhealth.csv")
+        with open(meta_path, "w") as handle:
+            handle.write("stale\n")
+        PTBXLDataset(root=self.root, cache_dir=self.cache, refresh_metadata=True)
+        updated = pd.read_csv(meta_path)
+        self.assertIn("patient_id", updated.columns)
+        self.assertEqual(len(updated), 5)
+
 
 if __name__ == "__main__":
     unittest.main()

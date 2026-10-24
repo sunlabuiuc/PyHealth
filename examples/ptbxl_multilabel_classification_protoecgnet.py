@@ -275,7 +275,12 @@ def main() -> None:
     parser.add_argument("--ablation", action="store_true")
     parser.add_argument("--output", default="protoecgnet_ablation.md")
     args = parser.parse_args()
-    args.device = "cuda" if torch.cuda.is_available() else "cpu"
+    if torch.cuda.is_available():
+        args.device = "cuda"
+    elif getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
+        args.device = "mps"
+    else:
+        args.device = "cpu"
 
     scratch = tempfile.mkdtemp()
     if args.synthetic:

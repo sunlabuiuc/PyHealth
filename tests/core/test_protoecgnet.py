@@ -409,6 +409,54 @@ class TestProtoECGNet(unittest.TestCase):
         out = model.prototype_contributions(self.batch["signal"])
         self.assertEqual(out["all"].shape, (4, 6, 12))
 
+    def test_frozen_bn_stats_unchanged_in_classifier_stage(self):
+        model = ProtoECGNet(self.dataset, prototypes_per_label=2, **TINY)
+        model.set_stage("classifier")
+        branch = model.branches["all"]
+        bn = next(
+            m for m in branch.backbone.modules()
+            if isinstance(m, torch.nn.BatchNorm1d)
+        )
+        mean_before = bn.running_mean.clone()
+        var_before = bn.running_var.clone()
+        model.train()
+        model(**self.batch)
+        torch.testing.assert_close(bn.running_mean, mean_before)
+        torch.testing.assert_close(bn.running_var, var_before)
+
+    def test_frozen_bn_stats_unchanged_in_fusion_stage(self):
+        groups = {"rhythm": ["A", "B", "C"], "morph": ["D", "E", "F"]}
+        model = ProtoECGNet(
+            self.dataset, label_groups=groups, prototypes_per_label=2,
+            fusion="learned", **TINY,
+        )
+        model.set_stage("fusion")
+        bn = next(
+            m for m in model.branches["rhythm"].backbone.modules()
+            if isinstance(m, torch.nn.BatchNorm1d)
+        )
+        mean_before = bn.running_mean.clone()
+        model.train()
+        model(**self.batch)
+        torch.testing.assert_close(bn.running_mean, mean_before)
+
+    def test_prototype_contributions_sum_to_logit_fusion_stage(self):
+        groups = {"rhythm": ["A", "B", "C"], "morph": ["D", "E", "F"]}
+        model = ProtoECGNet(
+            self.dataset, label_groups=groups, prototypes_per_label=2,
+            fusion="learned", **TINY,
+        )
+        model.set_stage("fusion")
+        signal = self.batch["signal"]
+        contribs = model.prototype_contributions(signal)
+        # Contributions (without bias) must sum to logit - fusion bias.
+        total = sum(contribs[n].sum(dim=-1) for n in model.branch_names)
+        with torch.no_grad():
+            model.eval()
+            logit = model(**self.batch)["logit"]
+        expected = logit - model.fusion_classifier.bias
+        torch.testing.assert_close(total, expected, atol=1e-4, rtol=1e-4)
+
 
 if __name__ == "__main__":
     unittest.main()
