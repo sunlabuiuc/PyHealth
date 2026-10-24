@@ -5,7 +5,7 @@ import torch
 
 from pyhealth.calib.predictionset import LabelShift, bbse
 from pyhealth.calib.predictionset.base_conformal import _query_quantile
-from pyhealth.calib.predictionset.label_shift.bbse import _project_to_simplex
+from pyhealth.calib.predictionset.label_shift.black_box_shift import _project_to_simplex
 from pyhealth.calib.predictionset.label_shift.label_shift import (
     _compute_label_shift_thresholds,
 )
