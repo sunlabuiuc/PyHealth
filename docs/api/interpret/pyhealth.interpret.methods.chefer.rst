@@ -33,8 +33,22 @@ Usage Notes
 
 1. **Batch size**: For interpretability, use batch_size=1 to get per-sample explanations
 2. **Gradients required**: Do not use within ``torch.no_grad()`` context
-3. **Model compatibility**: Only works with PyHealth's Transformer model
+3. **Model compatibility**: Requires ``GradientInterpretable``, implemented by Transformer and StageAttentionNet. Incompatible models raise ``ValueError``.
 4. **Class specification**: You can specify a target class or use the predicted class
+
+Capture requirements
+--------------------
+
+Chefer explicitly requests ``capture_gradients=True``. Empty attention-layer
+lists, missing maps or gradients, and mismatched map/gradient shapes raise
+``RuntimeError`` with the affected feature key before relevance propagation.
+
+``CheferInterpretable`` remains an alias for ``GradientInterpretable``. Custom
+models must accept the new ``capture_gradients`` keyword; old one-argument
+implementations raise ``TypeError``. See
+:doc:`pyhealth.interpret.methods.attention_rollout` for the interface migration
+and sequential capture lifecycle. A complete synthetic demonstration is in
+``examples/interpretability/attention_capture.py``.
 
 Quick Start
 -----------
