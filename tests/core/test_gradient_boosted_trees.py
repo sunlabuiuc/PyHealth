@@ -267,20 +267,10 @@ class TestFitting(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "drop_last"):
             LinearBackend(ds).fit(_plain_loader(ds, drop_last=True))
 
-    def test_shuffle_warning_follows_the_fit_loader(self):
-        ds = create_sample_dataset(_samples(), {"labs": "tensor"}, {"label": "binary"})
-        # A shuffled loader on the same dataset, e.g. another model's training,
-        # leaves the dataset's flag set; get_dataloader's loaders reset it.
-        for _ in get_dataloader(ds, batch_size=32, shuffle=True):
-            pass
-        with self.assertNoLogs(LOGGER, "WARNING"):
-            LinearBackend(ds).fit(get_dataloader(ds, batch_size=32))
-        with self.assertLogs(LOGGER, "WARNING") as logs:
-            LinearBackend(ds).fit(get_dataloader(ds, 32, shuffle=True))
-        self.assertIn("shuffles", logs.output[0])
-
     def test_shuffle_warning_with_a_plain_dataloader(self):
         # Without shuffle_samples, the sampler and the dataset's flag decide.
+        # (get_dataloader's loaders with a stale flag on a disk-backed dataset
+        # are tested in test_xgboost_model.py.)
         ds = create_sample_dataset(_samples(), {"labs": "tensor"}, {"label": "binary"})
         rows = [ds[i] for i in range(len(ds))]  # map-style, so it can be shuffled
         with self.assertNoLogs(LOGGER, "WARNING"):
@@ -293,8 +283,9 @@ class TestFitting(unittest.TestCase):
         with self.assertNoLogs(LOGGER, "WARNING"):
             LinearBackend(ds).fit(_plain_loader(ds))
         ds.set_shuffle(True)
-        with self.assertLogs(LOGGER, "WARNING"):
+        with self.assertLogs(LOGGER, "WARNING") as logs:
             LinearBackend(ds).fit(_plain_loader(ds))
+        self.assertIn("shuffles", logs.output[0])
         ds.set_shuffle(False)
 
 

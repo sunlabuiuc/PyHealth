@@ -351,7 +351,10 @@ class GradientBoostedTreeModel(BaseModel):
             shuffles = getattr(loader, "shuffle_samples", None)
             if shuffles is None:
                 # Iterating a SampleDataset shuffles when its flag is set:
-                # litdata's ``shuffle`` on disk, ``_shuffle`` in memory.
+                # litdata's ``shuffle`` on disk, ``_shuffle`` in memory. For
+                # other iterable datasets, get_dataloader sets the flag once,
+                # when a loader is created, so the flag (and the order of this
+                # pass) follows the most recently created loader, not this one.
                 shuffles = isinstance(loader.sampler, RandomSampler) or bool(
                     getattr(loader.dataset, "shuffle", False)
                     or getattr(loader.dataset, "_shuffle", False)
