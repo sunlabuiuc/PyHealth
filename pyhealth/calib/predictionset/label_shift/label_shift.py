@@ -20,12 +20,11 @@ import numpy as np
 import torch
 from torch.utils.data import IterableDataset
 
-from pyhealth.calib.base_classes import SetPredictor
-from pyhealth.calib.predictionset.scores import (
-    SUPPORTED_SCORE_TYPES,
-    all_class_nc_scores,
-    true_class_nc_scores,
+from pyhealth.calib.predictionset.base_conformal import (
+    BaseConformal,
+    _query_weighted_quantile,
 )
+from pyhealth.calib.predictionset.scores import true_class_nc_scores
 from pyhealth.calib.utils import prepare_numpy_dataset
 from pyhealth.models import BaseModel
 
@@ -45,22 +44,26 @@ def _label_shift_threshold(
     least conforming value, since the test point's own score is unknown when
     the threshold is set (Tibshirani et al. 2019).
 
+    This is a thin adapter over the shared weighted-quantile helper in
+    ``base_conformal``, not a second implementation of it. The covariate
+    helper is deliberately not reused here: it works on conformity
+    scores with the test mass reserved at -inf, and flipping its sign
+    gives the alpha quantile from the bottom of the conformity scale,
+    which is not the smallest nonconformity score whose cumulative
+    weight reaches ``1 - alpha`` once a candidate mass sits at +inf.
+
     Returns:
         The smallest calibration score whose cumulative normalized weight
         reaches ``1 - alpha``, or +inf when the calibration mass alone
         cannot reach it, in which case the label is always included.
     """
-    order = np.argsort(nc_scores)
-    sorted_scores = nc_scores[order]
-    sorted_weights = cal_weights[order]
-    total_weight = np.sum(sorted_weights) + candidate_weight
-    if total_weight <= 0:
-        return np.inf
-    cum_weights = np.cumsum(sorted_weights) / total_weight
-    idx = np.searchsorted(cum_weights, 1 - alpha, side="left")
-    if idx >= len(sorted_scores):
-        return np.inf
-    return float(sorted_scores[idx])
+    return _query_weighted_quantile(
+        nc_scores,
+        1 - alpha,
+        cal_weights,
+        candidate_weight=candidate_weight,
+        return_inf_on_exhaustion=True,
+    )
 
 
 def _validate_label_distribution(dist, num_classes: int, name: str) -> np.ndarray:
@@ -160,8 +163,12 @@ def _compute_label_shift_thresholds(
     return thresholds, label_ratios
 
 
-class LabelShift(SetPredictor):
+class LabelShift(BaseConformal):
     """Label shift conformal prediction for multiclass classification.
+
+    This subclasses :class:`BaseConformal` and inherits its ``forward``:
+    per-class thresholds stored in ``self.t`` broadcast against every
+    candidate class, so only ``calibrate`` differs from the base class.
 
     Under label shift, the label distribution changes between the
     calibration distribution P and the deployment (target) distribution Q,
@@ -264,39 +271,27 @@ class LabelShift(SetPredictor):
         debug: bool = False,
         **kwargs,
     ) -> None:
-        super().__init__(model, **kwargs)
-
         if model.mode != "multiclass":
             raise NotImplementedError(
                 "LabelShift only supports multiclass classification"
             )
-        if score_type not in SUPPORTED_SCORE_TYPES:
-            raise ValueError(
-                f"Unknown score_type: {score_type!r}. Supported: "
-                f"{SUPPORTED_SCORE_TYPES}."
-            )
+        super().__init__(
+            model,
+            alpha,
+            score_type=score_type,
+            random_state=random_state,
+            debug=debug,
+            **kwargs,
+        )
         if not isinstance(alpha, (float, np.floating)) or not 0.0 < alpha < 1.0:
             raise ValueError(
                 "LabelShift controls marginal coverage under the target "
                 f"distribution, so alpha must be a float in (0, 1), "
                 f"got {alpha!r}."
             )
-
-        self.mode = self.model.mode
-
-        # Freeze model parameters
-        for param in model.parameters():
-            param.requires_grad = False
-        self.model.eval()
-
-        self.device = model.device
-        self.debug = debug
-        self.score_type = score_type
-        self.rng = np.random.default_rng(random_state)
         self.alpha = float(alpha)
 
         # Will be set during calibration
-        self.t = None
         self.label_ratios_ = None
         self.source_label_dist_ = None
         self.target_label_dist_ = None
@@ -322,7 +317,15 @@ class LabelShift(SetPredictor):
                 coverage under Q is approximate. Pass a known P(Y) for the
                 exact finite-sample guarantee. Calibration labels with
                 zero probability under a supplied P(Y) are rejected as
-                inconsistent with it.
+                inconsistent with it. A class gets an infinite threshold
+                when the calibration mass alone cannot reach ``1 - alpha``
+                of the total weight including that class's candidate mass.
+                That happens when its source probability is zero while its
+                target probability is positive (its ratio is infinite),
+                and it can also happen with a positive source probability
+                if its candidate ratio is large relative to the total
+                calibration weight, so a positive source mass alone does
+                not guarantee a finite threshold.
         """
         try:
             num_cal = len(cal_dataset)
@@ -380,31 +383,3 @@ class LabelShift(SetPredictor):
 
         if self.debug:
             print(f"Calibrated thresholds: {self.t}")
-
-    def forward(self, **kwargs) -> dict[str, torch.Tensor]:
-        """Forward propagation with prediction set construction.
-
-        Returns:
-            Dictionary with all results from base model, plus:
-                - y_predset: Boolean tensor indicating which classes
-                    are in the prediction set
-        """
-        if self.t is None:
-            raise RuntimeError(
-                "Model must be calibrated before inference. "
-                "Call calibrate() first."
-            )
-
-        pred = self.model(**kwargs)
-
-        y_prob = pred["y_prob"].detach().cpu().numpy()
-        nc_scores = all_class_nc_scores(
-            y_prob, score_type=self.score_type, rng=self.rng
-        )
-        nc_scores = torch.as_tensor(
-            nc_scores, device=pred["y_prob"].device, dtype=pred["y_prob"].dtype
-        )
-        # Include class y if its NC score <= its class threshold self.t[y]
-        pred["y_predset"] = nc_scores <= self.t
-
-        return pred

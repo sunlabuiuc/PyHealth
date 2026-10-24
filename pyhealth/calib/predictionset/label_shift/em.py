@@ -31,7 +31,7 @@ import warnings
 
 import numpy as np
 
-from pyhealth.calib.predictionset.label_shift.bbse import _as_label_array
+from pyhealth.calib.predictionset.label_shift.black_box_shift import _as_label_array
 
 __all__ = ["em"]
 

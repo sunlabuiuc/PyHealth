@@ -84,6 +84,26 @@ class TestLabelShiftHelpers(unittest.TestCase):
         self.assertEqual(ratios[2], np.inf)
         self.assertEqual(thresholds[2], np.inf)
 
+    def test_large_candidate_ratio_gives_inf_despite_positive_source(self):
+        """A positive source mass does not by itself guarantee a finite
+        threshold: with one calibration score of weight about 0.5 and a
+        candidate ratio of 50, the calibration mass reaches only about
+        0.01 of the total weight, well below 1 - alpha, so the threshold
+        is +inf even though the class has positive source mass and the
+        scores are computed over all calibration examples, not a
+        per-class subset."""
+        scores = np.array([0.5])
+        y_true = np.array([0])
+        thresholds, ratios = _compute_label_shift_thresholds(
+            scores,
+            y_true,
+            np.array([0.5, 0.5]),
+            np.array([0.99, 0.01]),
+            alpha=0.1,
+        )
+        self.assertAlmostEqual(ratios[1], 50.0)
+        self.assertEqual(thresholds[1], np.inf)
+
     def test_simulated_label_shift_coverage(self):
         """Under a known label shift, the oracle-weighted thresholds should
         hit the nominal coverage on target data while the unweighted split
