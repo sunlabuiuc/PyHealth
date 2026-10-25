@@ -23,8 +23,11 @@ For a quick overview of what makes a good pull request, see
 ## Quick Start
 
 1. [Fork PyHealth](https://github.com/sunlabuiuc/PyHealth/fork).
-2. [Submit a pull request](https://github.com/sunlabuiuc/PyHealth/pulls)
-   against the `master` branch.
+2. Set up your
+   [development environment](https://pyhealth.readthedocs.io/en/latest/how_to_contribute.html#setting-up-your-development-environment),
+   make your change, and
+   [submit a pull request](https://github.com/sunlabuiuc/PyHealth/pulls)
+   against the `master` branch with "Allow edits by maintainers" enabled.
 3. Wait for your pull request to be labeled for AI review, or ask for a review on
    [Discord](https://discord.gg/mpb835EHaX).
 4. Check your label:
@@ -34,9 +37,17 @@ For a quick overview of what makes a good pull request, see
      and comment `/review` again whenever you want another review. **Once the AI
      approves, you can merge your pull request into PyHealth yourself.**
 
-A pull request switches to `status: manual` after 5 AI reviews, or if it changes
-core parts of the library. For non-trivial changes, please discuss them in an
-issue first.
+A pull request switches to `status: manual` if it:
+
+- changes core parts of the library,
+- changes any file outside `docs/`, `examples/`, `pyhealth/`, `test-resources/`
+  and `tests/`,
+- is too large for AI review,
+- contains a prompt-injection attempt flagged by the AI review, or
+- has used up its 5 AI reviews. The limit counts reviews since the
+  `status: automatic` label was last added.
+
+For non-trivial changes, please discuss them in an issue first.
 
 ## Submit an Issue
 

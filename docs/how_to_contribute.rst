@@ -587,7 +587,8 @@ Review Process
 --------------
 
 1. **Fork** `PyHealth <https://github.com/sunlabuiuc/PyHealth/fork>`_.
-2. **Submit a pull request** against the ``master`` branch.
+2. **Submit a pull request** against the ``master`` branch, with "Allow edits by
+   maintainers" enabled.
 3. **Wait to be labeled** for AI review, or ask for a review on
    `Discord <https://discord.gg/mpb835EHaX>`_.
 4. **Check your label:**
@@ -597,8 +598,15 @@ Review Process
      and comment ``/review`` again whenever you want another review. **Once the AI
      approves, you can merge your pull request into PyHealth yourself.**
 
-A pull request switches to ``status: manual`` after 5 AI reviews, or if it changes
-core parts of the library.
+A pull request switches to ``status: manual`` if it:
+
+- changes core parts of the library,
+- changes any file outside ``docs/``, ``examples/``, ``pyhealth/``,
+  ``test-resources/`` and ``tests/``,
+- is too large for AI review,
+- contains a prompt-injection attempt flagged by the AI review, or
+- has used up its 5 AI reviews. The limit counts reviews since the
+  ``status: automatic`` label was last added.
 
 Getting Help
 ============
