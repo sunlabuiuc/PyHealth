@@ -48,6 +48,24 @@ tables:
       - "code"
 """
 
+# Diagnoses joined to a code lookup with an outer join.
+JOIN_CONFIG = """version: "1.0"
+tables:
+  diagnoses:
+    file_path: "diagnoses.csv"
+    patient_id: "patient_id"
+    timestamp: "time"
+    attributes:
+      - "code"
+      - "label"
+    join:
+      - file_path: "codes.csv"
+        "on": "code"
+        how: "outer"
+        columns:
+          - "label"
+"""
+
 # Codes in priority order, deliberately not sorted, and all at one timestamp.
 CODES = ["428.0", "250.00", "401.9", "038.9", "486", "584.9", "276.1", "285.9"]
 
@@ -214,6 +232,30 @@ class TestDatasetTieOrder(unittest.TestCase):
         codes = [e.code for e in patient.get_events(event_type="diagnoses")]
         self.assertEqual(codes, CODES)
 
+    def test_an_outer_join_builds_and_keeps_source_order(self):
+        # The lookup has a code no diagnosis uses; the outer join adds it as
+        # a row with no source row.
+        lookup = ["code,label"] + [f"{code},label-{code}" for code in CODES]
+        (self.root / "codes.csv").write_text("\n".join(lookup + ["999.9,unused"]) + "\n")
+        config = self.root / "config_join.yaml"
+        config.write_text(JOIN_CONFIG)
+        dataset = BaseDataset(
+            root=str(self.root),
+            tables=["diagnoses"],
+            dataset_name="TieOrderJoinDataset",
+            config_path=str(config),
+            cache_dir=str(self.cache),
+        )
+        patient = dataset.get_patient("p1")
+        events = patient.get_events(event_type="diagnoses")
+        self.assertEqual([e.code for e in events], CODES)
+        self.assertEqual([e.label for e in events], [f"label-{c}" for c in CODES])
+        added = (
+            dataset.global_event_df.filter(pl.col(SOURCE_ROW) == -1)
+            .select("diagnoses/code").collect()["diagnoses/code"].to_list()
+        )
+        self.assertEqual(added, ["999.9"])
+
     def test_cache_key_includes_event_format(self):
         # Caches written before SOURCE_ROW existed must not be reused.
         current = self._dataset().cache_dir
@@ -245,6 +287,14 @@ class TestSourceRowType(unittest.TestCase):
         floats = frame.astype({SOURCE_ROW: "float64"})  # e.g. a column with gaps
         self.assertEqual(_event_parquet_options(floats.dtypes), {})
         self.assertEqual(_event_parquet_options(frame.drop(columns=SOURCE_ROW).dtypes), {})
+
+    def test_rows_without_a_source_row_get_minus_one(self):
+        frame = dd.from_pandas(
+            pd.DataFrame({SOURCE_ROW: [0.0, float("nan"), 1.0]}), npartitions=1
+        )
+        rows = _source_row_as_int32(frame).compute()[SOURCE_ROW]
+        self.assertEqual(rows.dtype, "int32")
+        self.assertEqual(rows.tolist(), [0, -1, 1])
 
     def test_too_many_rows_fail_instead_of_wrapping_around(self):
         with mock.patch("pyhealth.datasets.base_dataset._INT32_MAX", 3), \

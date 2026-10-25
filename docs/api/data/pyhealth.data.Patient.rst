@@ -16,10 +16,11 @@ Dataset loading records each row's position in a ``_source_row`` column of the
 cached event table, so the order is the same on every cache build. Caches
 written before this column existed are rebuilt automatically.
 
-One exception: a ``join`` in a dataset config that matches several rows to one
-row copies that row's ``_source_row`` to every match, so the order among the
-copies can differ between builds. The bundled configs only join one row per
-key.
+Joins in a dataset config are the exception. A ``join`` that matches several
+rows to one row copies that row's ``_source_row`` to every match, and rows that
+a ``right`` or ``outer`` join adds without a match get ``-1``. The order among
+such rows can differ between builds. The bundled configs use ``left`` and
+``inner`` joins that look up one row per key.
 
 .. autoclass:: pyhealth.data.Patient
     :members:

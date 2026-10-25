@@ -162,6 +162,9 @@ def _source_row_as_int32(df: dd.DataFrame) -> dd.DataFrame:
     dask can change the column's declared type to float64 when other columns
     are assigned, and the parquet writer follows the declared type.
 
+    Rows that a right or outer join adds without a match have no source row
+    and get -1.
+
     Raises:
         OverflowError: When the frame is computed (for example when the
             cache is written), if a table has more than 2**31 - 1 rows,
@@ -169,12 +172,13 @@ def _source_row_as_int32(df: dd.DataFrame) -> dd.DataFrame:
     """
 
     def cast(part: pd.DataFrame) -> pd.DataFrame:
-        if len(part) and part[SOURCE_ROW].max() > _INT32_MAX:
+        rows = part[SOURCE_ROW].fillna(-1)
+        if len(part) and rows.max() > _INT32_MAX:
             raise OverflowError(
                 f"A table has more than {_INT32_MAX:,} rows, more than the int32 "
                 f"{SOURCE_ROW} column can number."
             )
-        return part.astype({SOURCE_ROW: "int32"})
+        return part.assign(**{SOURCE_ROW: rows.astype("int32")})
 
     meta = {**df.dtypes.to_dict(), SOURCE_ROW: "int32"}
     return df.map_partitions(cast, meta=meta)
@@ -904,8 +908,9 @@ class BaseDataset(ABC):
             how = join_cfg.how
 
             # A one-to-many join copies a row's SOURCE_ROW to every match, so
-            # the order of those copies is not fixed between builds. The
-            # bundled configs only look up one row per key.
+            # the order of those copies is not fixed between builds. Rows a
+            # right or outer join adds without a match get -1 when the column
+            # is cast. The bundled configs only look up one row per key.
             df: dd.DataFrame = df.merge(
                 join_df[[join_key] + columns], on=join_key, how=how
             )

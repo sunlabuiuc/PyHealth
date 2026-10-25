@@ -45,7 +45,10 @@ def main() -> None:
                 cache_dir=str(Path(tmp) / f"cache{build}"),  # a fresh build each time
             )
             events = dataset.get_patient("p1").get_events(event_type="diagnoses")
+            codes = [e.code for e in events]
             print(f"build {build}:", [(e.seq_num, e.code) for e in events])
+            assert codes == CODES, f"build {build} lost the priority order: {codes}"
+        print("All builds keep the priority order.")
 
 
 if __name__ == "__main__":

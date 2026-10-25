@@ -135,8 +135,8 @@ class Patient:
     their rows in the source file (for example all diagnoses of a MIMIC
     admission, which carry its discharge time), using the ``_source_row``
     column that dataset loading adds. The order is the same on every cache
-    build, except among copies of a row made by a one-to-many ``join`` in the
-    dataset config.
+    build, except among rows that a ``join`` in the dataset config copies
+    (one-to-many) or adds without a match (``right`` or ``outer``).
 
     Attributes:
         patient_id (str): Unique patient identifier.
