@@ -411,6 +411,10 @@ class MLP(BaseModel, Interpretable):
             
             args = list(feature)
             args[i] = value
+            if mask is not None:
+                # The mask flattened with 3D codes above, so it lines up
+                # with the embedded steps when pooling.
+                args[schema.index("mask")] = mask
             if step_mask is not None:
                 args.append(step_mask)
             kwargs[feature_key] = tuple(args)

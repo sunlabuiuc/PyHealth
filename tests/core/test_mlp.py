@@ -1,5 +1,6 @@
 import unittest
 from datetime import datetime, timedelta
+from unittest import mock
 
 import torch
 
@@ -282,6 +283,40 @@ class TestMLP(unittest.TestCase):
             with self.assertRaises(ValueError):
                 model.forward_from_embedding(vitals=embedded.unsqueeze(1))
         self.assertEqual(MLP.sum_pooling(embedded).shape, (3, 8))
+
+    def test_a_processor_mask_is_flattened_with_its_codes(self):
+        """When a processor supplies its own mask, 3D codes and the mask are
+        flattened together, so a masked code is left out of the mean."""
+        samples = [
+            {
+                "patient_id": f"patient-{i}",
+                "visits": [["a", "b"], ["c", "d"] if i % 2 else ["c"]],
+                "label": i % 2,
+            }
+            for i in range(4)
+        ]
+        dataset = create_sample_dataset(
+            samples=samples,
+            input_schema={"visits": "nested_sequence"},
+            output_schema={"label": "binary"},
+            dataset_name="test_codes_mask",
+        )
+        model = MLP(dataset=dataset, embedding_dim=8, hidden_dim=8)
+        model.eval()
+        batch = next(iter(get_dataloader(dataset, batch_size=4)))
+        codes = batch["visits"]
+        mask = codes != 0
+        mask[:, 0, 1] = False  # mask out a real code: "b" in the first visit
+        processor = dataset.input_processors["visits"]
+        embedding = model.embedding_model.embedding_layers["visits"]
+        with torch.no_grad():
+            with mock.patch.object(processor, "schema", return_value=("value", "mask")):
+                masked = model(visits=(codes, mask), label=batch["label"], embed=True)
+            unmasked = model(**batch, embed=True)
+            for i in range(len(codes)):
+                kept = embedding(codes[i][mask[i]]).mean(dim=0)
+                torch.testing.assert_close(masked["embed"][i], model.mlp["visits"](kept))
+        self.assertFalse(torch.allclose(masked["embed"], unmasked["embed"]))
 
 if __name__ == "__main__":
     unittest.main()
