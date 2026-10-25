@@ -13,7 +13,7 @@ import json
 import random
 import tempfile
 import unittest
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from unittest import mock
 
@@ -124,6 +124,27 @@ class TestPatientTieOrder(unittest.TestCase):
         patient = Patient("p1", _events(3))
         event = patient.get_events(event_type="diagnoses")[0]
         self.assertNotIn(SOURCE_ROW, event.attr_dict)
+        self.assertNotIn(SOURCE_ROW, event)
+        self.assertIn("timestamp", event)
+        self.assertEqual(event["timestamp"], event.timestamp)
+        self.assertEqual(event["event_type"], "diagnoses")
+
+    def test_a_time_window_keeps_tied_events_in_source_order(self):
+        tied = _events(20)
+        t = tied["timestamp"][0]
+        others = pl.DataFrame(
+            {
+                "patient_id": ["p1", "p1"],
+                "event_type": ["diagnoses", "diagnoses"],
+                "timestamp": [t - timedelta(days=1), t + timedelta(days=1)],
+                SOURCE_ROW: [100, 101],
+                "diagnoses/code": ["before", "after"],
+            }
+        )
+        events = pl.concat([others, tied.reverse()])
+        patient = Patient("p1", events)
+        got = [e.code for e in patient.get_events(event_type="diagnoses", start=t, end=t)]
+        self.assertEqual(got, tied["diagnoses/code"].to_list())
 
 
 class _DropsSourceRow(BaseDataset):
@@ -256,6 +277,13 @@ def _write_fhir(root: Path) -> None:
     (root / "fixture.ndjson").write_text("\n".join(json.dumps(r) for r in resources) + "\n")
 
 
+class _FHIRDropsSourceRow(MIMIC4FHIR):
+    """A FHIR preprocess hook that rebuilds the frame without the column."""
+
+    def preprocess_condition(self, df):
+        return df.drop(SOURCE_ROW)
+
+
 class TestFHIRTieOrder(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
@@ -265,8 +293,8 @@ class TestFHIRTieOrder(unittest.TestCase):
         _write_fhir(self.root)
         self.cache = Path(tmp.name) / "cache"
 
-    def _dataset(self) -> MIMIC4FHIR:
-        return MIMIC4FHIR(root=str(self.root), glob_pattern="*.ndjson", cache_dir=str(self.cache))
+    def _dataset(self, cls=MIMIC4FHIR) -> MIMIC4FHIR:
+        return cls(root=str(self.root), glob_pattern="*.ndjson", cache_dir=str(self.cache))
 
     def test_tied_conditions_keep_file_order(self):
         dataset = self._dataset()
@@ -276,6 +304,11 @@ class TestFHIRTieOrder(unittest.TestCase):
         )
         self.assertEqual(numbered["condition/resource_id"].to_list(), FHIR_CONDITIONS)
         patient = dataset.get_patient("p1")
+        ids = [e.resource_id for e in patient.get_events(event_type="condition")]
+        self.assertEqual(ids, FHIR_CONDITIONS)
+
+    def test_hook_that_drops_source_row_gets_rows_numbered_again(self):
+        patient = self._dataset(_FHIRDropsSourceRow).get_patient("p1")
         ids = [e.resource_id for e in patient.get_events(event_type="condition")]
         self.assertEqual(ids, FHIR_CONDITIONS)
 
