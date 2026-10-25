@@ -1,10 +1,14 @@
+import copy
 import unittest
 
 import numpy as np
 import torch
 
 from pyhealth.calib.predictionset import LabelShift
-from pyhealth.calib.predictionset.base_conformal import _query_quantile
+from pyhealth.calib.predictionset.base_conformal import (
+    _query_quantile,
+    _query_weighted_quantile,
+)
 from pyhealth.calib.predictionset.label_shift.label_shift import (
     _compute_label_shift_thresholds,
     _label_shift_threshold,
@@ -13,6 +17,10 @@ from pyhealth.calib.predictionset.label_shift.label_shift import (
 )
 from pyhealth.datasets import create_sample_dataset, get_dataloader
 from pyhealth.models import MLP
+from tests.core.label_shift_test_utils import (
+    SAMPLES,
+    make_sample_dataset_and_model,
+)
 
 
 class TestLabelShiftHelpers(unittest.TestCase):
@@ -56,6 +64,77 @@ class TestLabelShiftHelpers(unittest.TestCase):
                 expected = _query_quantile(scores, alpha)
                 got = _label_shift_threshold(scores, np.ones(n), alpha, 1.0)
                 self.assertEqual(got, expected)
+
+    def test_absent_class_threshold_differs_under_no_shift(self):
+        """A class absent from calibration is the exception to the
+        no-shift equivalence with BaseConformal.
+
+        Scores [0.1, 0.3, 0.5, 0.7] with labels [0, 0, 1, 1] and
+        source = target = [0.5, 0.5, 0.0] at alpha=0.1: classes 0 and
+        1 reserve a unit candidate mass, so their cumulative mass only
+        reaches 0.8 and their thresholds are +inf, matching
+        BaseConformal. Class 2 has ratio 0 and reserves no candidate
+        mass, so its cumulative mass reaches 1.0 at 0.7 and its
+        threshold is 0.7, not +inf.
+        """
+        scores = np.array([0.1, 0.3, 0.5, 0.7])
+        y_true = np.array([0, 0, 1, 1])
+        source = np.array([0.5, 0.5, 0.0])
+        thresholds, ratios = _compute_label_shift_thresholds(
+            scores, y_true, source, source, alpha=0.1
+        )
+        np.testing.assert_allclose(ratios, [1.0, 1.0, 0.0])
+        self.assertEqual(thresholds[0], np.inf)
+        self.assertEqual(thresholds[1], np.inf)
+        self.assertEqual(thresholds[2], 0.7)
+        self.assertEqual(_query_quantile(scores, 0.1), np.inf)
+
+    def test_weighted_quantile_candidate_weight_and_exhaustion(self):
+        """The shared helper's candidate-mass and exhaustion branches.
+
+        Scores [0.1, 0.3, 0.5] with unit weights and a candidate weight
+        of 1 give total weight 4, so the cumulative weights only reach
+        0.75. Querying 0.8 therefore exhausts the calibration mass: it
+        returns +inf when return_inf_on_exhaustion is True, and falls
+        back to the largest score when it is False.
+        """
+        scores = np.array([0.1, 0.3, 0.5])
+        weights = np.ones(3)
+        self.assertEqual(
+            _query_weighted_quantile(
+                scores, 0.8, weights, candidate_weight=1.0,
+                return_inf_on_exhaustion=True,
+            ),
+            np.inf,
+        )
+        self.assertEqual(
+            _query_weighted_quantile(
+                scores, 0.8, weights, candidate_weight=1.0,
+                return_inf_on_exhaustion=False,
+            ),
+            0.5,
+        )
+
+    def test_weighted_quantile_empty_scores(self):
+        """Empty scores return +inf on exhaustion and -inf otherwise,
+        whether or not a candidate mass is reserved."""
+        empty = np.array([])
+        empty_weights = np.array([])
+        for candidate in (0.0, 2.0):
+            self.assertEqual(
+                _query_weighted_quantile(
+                    empty, 0.9, empty_weights, candidate_weight=candidate,
+                    return_inf_on_exhaustion=True,
+                ),
+                np.inf,
+            )
+            self.assertEqual(
+                _query_weighted_quantile(
+                    empty, 0.9, empty_weights, candidate_weight=candidate,
+                    return_inf_on_exhaustion=False,
+                ),
+                -np.inf,
+            )
 
     def test_target_equal_to_source_gives_single_threshold(self):
         """When the target distribution equals the empirical calibration
@@ -361,63 +440,10 @@ class TestLabelShift(unittest.TestCase):
     """End-to-end tests with a small sample dataset and an MLP."""
 
     def setUp(self):
-        self.samples = [
-            {
-                "patient_id": "patient-0",
-                "visit_id": "visit-0",
-                "conditions": ["cond-33", "cond-86", "cond-80", "cond-12"],
-                "procedures": [1.0, 2.0, 3.5, 4.0],
-                "label": 0,
-            },
-            {
-                "patient_id": "patient-1",
-                "visit_id": "visit-1",
-                "conditions": ["cond-33", "cond-86", "cond-80"],
-                "procedures": [5.0, 2.0, 3.5, 4.0],
-                "label": 1,
-            },
-            {
-                "patient_id": "patient-2",
-                "visit_id": "visit-2",
-                "conditions": ["cond-10", "cond-20", "cond-30"],
-                "procedures": [2.0, 3.0, 4.5, 5.0],
-                "label": 2,
-            },
-            {
-                "patient_id": "patient-3",
-                "visit_id": "visit-3",
-                "conditions": ["cond-40", "cond-50"],
-                "procedures": [1.5, 2.5, 3.0, 4.5],
-                "label": 0,
-            },
-            {
-                "patient_id": "patient-4",
-                "visit_id": "visit-4",
-                "conditions": ["cond-60", "cond-70", "cond-80"],
-                "procedures": [3.0, 4.0, 5.0, 6.0],
-                "label": 1,
-            },
-            {
-                "patient_id": "patient-5",
-                "visit_id": "visit-5",
-                "conditions": ["cond-90", "cond-100"],
-                "procedures": [2.5, 3.5, 4.0, 5.5],
-                "label": 2,
-            },
-        ]
-        self.dataset = create_sample_dataset(
-            samples=self.samples,
-            input_schema={"conditions": "sequence", "procedures": "tensor"},
-            output_schema={"label": "multiclass"},
-            dataset_name="test",
-        )
-        self.model = MLP(
-            dataset=self.dataset,
-            feature_keys=["conditions", "procedures"],
-            label_key="label",
-            mode="multiclass",
-        )
-        self.model.eval()
+        # A copy, not an alias: mutating self.samples in a test must
+        # never mutate the shared module-level fixture.
+        self.samples = copy.deepcopy(SAMPLES)
+        self.dataset, self.model = make_sample_dataset_and_model()
 
     def test_initialization(self):
         cal_model = LabelShift(model=self.model, alpha=0.1)

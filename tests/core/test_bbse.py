@@ -9,8 +9,8 @@ from pyhealth.calib.predictionset.label_shift.black_box_shift import _project_to
 from pyhealth.calib.predictionset.label_shift.label_shift import (
     _compute_label_shift_thresholds,
 )
-from pyhealth.datasets import create_sample_dataset, get_dataloader
-from pyhealth.models import MLP
+from pyhealth.datasets import get_dataloader
+from tests.core.label_shift_test_utils import make_sample_dataset_and_model
 
 
 class TestBBSE(unittest.TestCase):
@@ -265,63 +265,7 @@ class TestBBSELabelShiftInterface(unittest.TestCase):
     """The bbse estimate plugs into the public LabelShift interface."""
 
     def setUp(self):
-        self.samples = [
-            {
-                "patient_id": "patient-0",
-                "visit_id": "visit-0",
-                "conditions": ["cond-33", "cond-86", "cond-80", "cond-12"],
-                "procedures": [1.0, 2.0, 3.5, 4.0],
-                "label": 0,
-            },
-            {
-                "patient_id": "patient-1",
-                "visit_id": "visit-1",
-                "conditions": ["cond-33", "cond-86", "cond-80"],
-                "procedures": [5.0, 2.0, 3.5, 4.0],
-                "label": 1,
-            },
-            {
-                "patient_id": "patient-2",
-                "visit_id": "visit-2",
-                "conditions": ["cond-10", "cond-20", "cond-30"],
-                "procedures": [2.0, 3.0, 4.5, 5.0],
-                "label": 2,
-            },
-            {
-                "patient_id": "patient-3",
-                "visit_id": "visit-3",
-                "conditions": ["cond-40", "cond-50"],
-                "procedures": [1.5, 2.5, 3.0, 4.5],
-                "label": 0,
-            },
-            {
-                "patient_id": "patient-4",
-                "visit_id": "visit-4",
-                "conditions": ["cond-60", "cond-70", "cond-80"],
-                "procedures": [3.0, 4.0, 5.0, 6.0],
-                "label": 1,
-            },
-            {
-                "patient_id": "patient-5",
-                "visit_id": "visit-5",
-                "conditions": ["cond-90", "cond-100"],
-                "procedures": [2.5, 3.5, 4.0, 5.5],
-                "label": 2,
-            },
-        ]
-        self.dataset = create_sample_dataset(
-            samples=self.samples,
-            input_schema={"conditions": "sequence", "procedures": "tensor"},
-            output_schema={"label": "multiclass"},
-            dataset_name="test",
-        )
-        self.model = MLP(
-            dataset=self.dataset,
-            feature_keys=["conditions", "procedures"],
-            label_key="label",
-            mode="multiclass",
-        )
-        self.model.eval()
+        self.dataset, self.model = make_sample_dataset_and_model()
 
     def test_estimate_feeds_label_shift_calibrate(self):
         # The exact multiclass estimate from TestBBSE ([0.2, 0.3, 0.5]).

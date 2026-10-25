@@ -186,9 +186,17 @@ class LabelShift(BaseConformal):
     itself. The result is one threshold per class, stored in ``self.t``.
 
     The target label distribution Q(Y) is supplied by the caller to
-    ``calibrate`` (for example, a known deployment prevalence). When Q(Y)
-    equals the empirical calibration label distribution, every weight is 1
-    and the thresholds reduce exactly to those of BaseConformal.
+    ``calibrate`` (for example, a known deployment prevalence). When the
+    source distribution is the empirical calibration distribution (the
+    default) and Q(Y) equals it, every weight is 1 for classes present
+    in calibration, and their thresholds reduce exactly to those of
+    BaseConformal. A class absent from calibration is the exception:
+    its label ratio is 0, so it reserves no candidate mass, and its
+    threshold is computed from the N calibration scores alone instead
+    of the N + 1 scores BaseConformal uses. It can therefore sit one
+    rank below the BaseConformal threshold, including the case where
+    BaseConformal returns +inf while the absent class gets the largest
+    calibration score.
 
     The finite-sample coverage guarantee under Q holds when the label
     ratios are known, that is, when both P(Y) and Q(Y) are known. The
