@@ -210,7 +210,7 @@ class TestEM(unittest.TestCase):
             "prior negative": (good_source, [0.6, -0.1], {}),
             "prior nonfinite": (good_source, [0.6, np.nan], {}),
             "prior not summing to 1": (good_source, [0.6, 0.6], {}),
-            "prior contradicts source": (good_source, [0.9, 0.1], {}),
+            "prior zero for observed class": (good_source, [1.0, 0.0], {}),
             "tol zero": (good_source, None, {"tol": 0.0}),
             "tol negative": (good_source, None, {"tol": -1e-8}),
             "tol infinite": (good_source, None, {"tol": np.inf}),
@@ -227,12 +227,36 @@ class TestEM(unittest.TestCase):
                     source_label_dist=prior,
                     **kwargs,
                 )
-        # A supplied prior that agrees with the source labels is
-        # accepted.
+        # A supplied prior that differs from the empirical source
+        # proportions is accepted.
         estimate = em(
-            good_source, y_prob_target, source_label_dist=[0.5, 0.5]
+            good_source, y_prob_target, source_label_dist=[0.9, 0.1]
         )
         _assert_valid_distribution(self, estimate, 2)
+
+    def test_supplied_prior_overrides_empirical(self):
+        """A supplied prior is actually used, not just accepted.
+
+        Source labels [0, 0, 1, 1] give empirical prior [0.5, 0.5].
+        With target rows all [0.9, 0.1] and a supplied prior of
+        [0.9, 0.1], the first E-step leaves the rows unchanged, so
+        [0.9, 0.1] is an exact fixed point and EM returns it at once.
+        With the empirical prior instead, the same rows push the
+        estimate away from [0.9, 0.1] toward [1, 0], so the two
+        estimates must differ clearly.
+        """
+        y_true_source = np.array([0, 0, 1, 1])
+        y_prob_target = np.array([[0.9, 0.1], [0.9, 0.1]])
+        with_prior = em(
+            y_true_source,
+            y_prob_target,
+            source_label_dist=[0.9, 0.1],
+        )
+        np.testing.assert_allclose(with_prior, [0.9, 0.1], atol=1e-8)
+        without_prior = em(y_true_source, y_prob_target)
+        self.assertGreater(
+            np.max(np.abs(with_prior - without_prior)), 0.05
+        )
 
     def test_exact_fixed_point(self):
         """Source labels with empirical prior [0.6, 0.4] and target

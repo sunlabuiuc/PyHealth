@@ -100,8 +100,12 @@ def _validate_source_prior(
     source_label_dist, y_true_source: np.ndarray, num_classes: int
 ) -> np.ndarray:
     """Return the source label distribution, either supplied or estimated
-    from the source labels. A supplied distribution must agree with the
-    empirical source distribution."""
+    from the source labels. A supplied distribution is used as given,
+    even when it differs from the empirical source proportions, since a
+    known population prior almost never matches a finite sample exactly.
+    It must still give positive probability to every class observed in
+    the source labels; a zero there would contradict the source data
+    itself, rather than just differing from its proportions."""
     empirical = np.bincount(y_true_source, minlength=num_classes) / len(
         y_true_source
     )
@@ -119,10 +123,10 @@ def _validate_source_prior(
         )
     if not np.isclose(prior.sum(), 1.0, rtol=0, atol=1e-6):
         raise ValueError("source_label_dist must sum to 1.")
-    if not np.allclose(prior, empirical, rtol=0, atol=1e-6):
+    if np.any((empirical > 0) & (prior == 0)):
         raise ValueError(
-            "source_label_dist contradicts the empirical distribution of "
-            "y_true_source; pass one or the other, not both."
+            "source_label_dist gives zero probability to a class "
+            "observed in y_true_source."
         )
     return prior
 
@@ -151,8 +155,10 @@ def em(
             n_classes) with rows summing to 1. No target labels are
             needed.
         source_label_dist: Optional known source label distribution. If
-            given, it must agree with the empirical distribution of
-            y_true_source.
+            given, it is used as the source prior in place of the
+            empirical distribution of y_true_source, so it may differ
+            from the sample proportions. It must still give positive
+            probability to every class observed in y_true_source.
         max_iter: Maximum number of EM iterations. Must be a positive
             integer.
         tol: The EM loop stops when the largest absolute change in the
@@ -168,9 +174,9 @@ def em(
         ValueError: If the inputs are not valid probability data, if a
             class never appears in the source data but receives positive
             predicted probability on the target data, if
-            source_label_dist contradicts y_true_source, if max_iter is
-            not a positive integer, or if tol is not positive and
-            finite.
+            source_label_dist gives zero probability to a class observed
+            in y_true_source, if max_iter is not a positive integer, or
+            if tol is not positive and finite.
 
     Note:
         The same fixed classifier must produce the target probabilities,
@@ -226,8 +232,8 @@ def em(
                 f"positive predicted probability: {bad}."
             )
 
-    # The frozen test contract requires ValueError (not TypeError) for
-    # every invalid input, including a wrongly typed max_iter.
+    # Every invalid input raises ValueError (not TypeError), including
+    # a wrongly typed max_iter.
     if isinstance(max_iter, bool) or not isinstance(
         max_iter, (int, np.integer)
     ):
