@@ -90,15 +90,13 @@ NeighborhoodLabel (Neighborhood Conformal Prediction)
 .. note::
 
    ``NeighborhoodLabel.calibrate()`` excludes each calibration point from
-   its own k-nearest-neighbor set during the alpha_tilde search.
-   ``sklearn``'s ``NearestNeighbors.kneighbors()`` returns each point as
-   its own nearest neighbor (distance 0) when queried with an explicit
-   ``X`` equal to the fitted set -- unlike the implicit no-argument form,
-   which excludes self-matches. Without excluding this self-match, a
-   calibration point's own score leaks into its own threshold during
-   calibration (something a genuine test point never benefits from),
-   biasing the search toward an overly permissive threshold and causing
-   real under-coverage at test time.
+   its own k-nearest-neighbor set during the alpha_tilde search
+   (leave-one-out), matching test time, where a test point is never its
+   own neighbor. Including it lets a point's own score lower its own
+   threshold and causes under-coverage at test time. With a small
+   ``k_neighbors`` the target coverage can be unreachable even at
+   alpha_tilde = 0; ``calibrate()`` then emits a ``UserWarning``, and
+   increasing ``k_neighbors`` helps.
 
 .. autoclass:: pyhealth.calib.predictionset.NeighborhoodLabel
    :members:

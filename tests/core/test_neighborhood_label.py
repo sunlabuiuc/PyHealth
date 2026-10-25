@@ -1,6 +1,8 @@
 """Tests for NeighborhoodLabel (NCP) prediction set constructor."""
 
 import unittest
+import warnings
+
 import numpy as np
 import torch
 
@@ -162,46 +164,13 @@ class TestNeighborhoodLabel(unittest.TestCase):
         self.assertIsNotNone(ncp.cal_conformity_scores_)
 
     def test_calibration_empirical_coverage_at_least_1_minus_alpha(self):
-        """After calibrate(), empirical coverage on calibration set >= 1-alpha,
-        recomputed the same leave-one-out way calibrate() itself does (a
-        calibration point's own score must never appear in its own
-        neighbor set -- see test_calibrate_excludes_self_from_neighbors for
-        why: querying kneighbors() with an explicit X equal to the fitted
-        set makes each point its own nearest neighbor at distance 0, which
-        would leak a point's own score into its own threshold and trivially
-        inflate this exact coverage check if not excluded).
+        """After calibrate(), empirical coverage on the calibration set,
+        recomputed the same leave-one-out way calibrate() does, is >= 1-alpha.
 
-        Uses its own seeded, larger (N=30), *trained* calibration set rather
-        than the shared 6-sample untrained fixture. Two independent issues
-        made the original version flaky/wrong, not just one:
-
-        1. With only 6 points, achievable coverage values are exactly
-           {0, 1/6, ..., 1}, so the target 1-alpha=0.8 sits squarely between
-           4/6=0.667 and 5/6=0.833 -- a single point tipping either way
-           (driven only by the model's unseeded random init, since setUp()
-           never seeds torch) flips the assertion.
-        2. More fundamentally: the shared fixture's model is never trained,
-           so its predicted probabilities -- and therefore the conformity
-           scores NCP calibrates on -- are just noise from a random init,
-           uncorrelated with embedding-space locality. NCP's per-point
-           threshold comes from each point's k-nearest *neighbors only*
-           (itself excluded), not a global quantile over all N points the
-           way plain split conformal's is, so it has no automatic "any
-           alpha_tilde >= 0 must reach 1-alpha coverage" guarantee the way
-           a global quantile would -- that guarantee is a property of the
-           *underlying scores actually correlating with locality*, which an
-           untrained model doesn't provide. Confirmed directly: with the
-           untrained model, alpha_tilde_ converges to its floor of 0.0 (the
-           search's most permissive setting) and still only covers 23/30,
-           because roughly 1/(k+1) of points have a lower score than all k
-           of their neighbors purely by chance when scores are pure noise.
-           Training the model so scores genuinely reflect how "easy" each
-           point is relative to its neighborhood removes this floor issue.
-
-        N=30 gives a 3.3%-wide step size (fine enough not to sit on a knife
-        edge), a fixed seed makes the outcome reproducible, and training
-        makes the target coverage actually achievable by the method's own
-        theory rather than accidentally testing an unmet precondition.
+        Uses a seeded, briefly trained model on N=30 points. With the
+        untrained 6-point fixture, scores are noise unrelated to locality,
+        the target can be unreachable even at alpha_tilde = 0, and 6 points
+        give too coarse a coverage grid for alpha=0.2.
         """
         from pyhealth.calib.predictionset.base_conformal import _query_weighted_quantile
 
@@ -293,41 +262,47 @@ class TestNeighborhoodLabel(unittest.TestCase):
             msg=f"Calibration empirical coverage {empirical_coverage:.4f} should be >= 1-alpha={1 - ncp.alpha}",
         )
 
-    def test_calibrate_excludes_self_from_neighbors(self):
-        """Regression test: calibrate()'s alpha_tilde search must not let a
-        calibration point be its own nearest neighbor.
-
-        Querying sklearn's NearestNeighbors.kneighbors() with an explicit X
-        argument equal to the fitted set returns each point as its own
-        nearest neighbor at distance 0 (unlike the implicit no-argument
-        form, which sklearn special-cases to exclude self-matches). Without
-        excluding this self-match, a calibration point's own score leaks
-        into its own threshold computation during calibration -- something
-        a genuine test point (never part of the calibration set) can't
-        benefit from -- which biases the alpha_tilde search toward an
-        overly permissive threshold and causes real under-coverage at test
-        time (empirically ~0.82-0.83 actual vs. 0.90 target in isolated
-        simulation, before this fix).
-        """
-        ncp = NeighborhoodLabel(model=self.model, alpha=0.2, k_neighbors=3, lambda_L=50.0)
+    def test_calibrate_point_is_not_its_own_neighbor(self):
+        """Regression test for the self-inclusion leak (suggested by
+        @konstde00). With k_neighbors=1, a point that is its own neighbor is
+        always covered, so the search ends near 1. Without self-matches the
+        closest pair can't both be covered, so 6 points can't reach 0.9."""
+        ncp = NeighborhoodLabel(model=self.model, alpha=0.1, k_neighbors=1, lambda_L=50.0)
         cal_dataset = self.dataset.subset([0, 1, 2, 3, 4, 5])
-        cal_emb = self._get_embeddings(cal_dataset)
-        ncp.calibrate(cal_dataset=cal_dataset, cal_embeddings=cal_emb)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            ncp.calibrate(
+                cal_dataset=cal_dataset, cal_embeddings=self._get_embeddings(cal_dataset)
+            )
+        self.assertLess(ncp.alpha_tilde_, 0.5)
 
-        N = ncp.cal_conformity_scores_.shape[0]
-        k = min(ncp.k_neighbors, N)
-        k_query = min(k + 1, N)
-        _, indices_all = ncp._nn.kneighbors(ncp.cal_embeddings_, n_neighbors=k_query)
+    def test_calibrate_warns_when_target_unreachable(self):
+        """With k_neighbors=1 and alpha=0.1, at most 5 of 6 points can be
+        covered even at alpha_tilde = 0 (see the test above), so calibrate()
+        must warn instead of silently under-covering."""
+        ncp = NeighborhoodLabel(model=self.model, alpha=0.1, k_neighbors=1, lambda_L=50.0)
+        cal_dataset = self.dataset.subset([0, 1, 2, 3, 4, 5])
+        with self.assertWarnsRegex(UserWarning, "k_neighbors"):
+            ncp.calibrate(
+                cal_dataset=cal_dataset, cal_embeddings=self._get_embeddings(cal_dataset)
+            )
+        self.assertEqual(ncp.alpha_tilde_, 0.0)
 
-        for i in range(N):
-            with self.subTest(point=i):
-                mask = indices_all[i] != i
-                kept = indices_all[i][mask][: k_query - 1]
-                self.assertNotIn(
-                    i,
-                    kept,
-                    f"calibration point {i} leaked into its own neighbor set",
-                )
+    def test_calibrate_no_warning_when_target_reachable(self):
+        """With k_neighbors=5 (all other points) only the lowest-scoring
+        point can miss at alpha_tilde = 0, so coverage >= 5/6 and a target
+        of 0.5 is reachable: no warning."""
+        ncp = NeighborhoodLabel(model=self.model, alpha=0.5, k_neighbors=5, lambda_L=50.0)
+        cal_dataset = self.dataset.subset([0, 1, 2, 3, 4, 5])
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            ncp.calibrate(
+                cal_dataset=cal_dataset, cal_embeddings=self._get_embeddings(cal_dataset)
+            )
+        self.assertFalse(
+            [w for w in caught if "k_neighbors" in str(w.message)],
+            "unexpected unreachable-target warning",
+        )
 
 
 if __name__ == "__main__":
