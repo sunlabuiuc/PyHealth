@@ -40,7 +40,8 @@ What's new in PyHealth 2.1
 --------------------------
 
 Already using PyHealth? Three short notebooks, about 10 minutes each on a free
-CPU runtime, walk through every 2.1 change on runnable examples. See also the
+CPU runtime, walk through the main 2.1 features on runnable examples. For the
+full list of changes, see the
 `release notes <https://github.com/sunlabuiuc/PyHealth/releases/tag/v2.1.0>`_.
 
 .. list-table::
