@@ -581,10 +581,45 @@ Review Process
 
 After submitting your pull request:
 
-1. Maintainers will review your code for style, functionality, and completeness
-2. Automated tests will be run to ensure compatibility
-3. You may be asked to make revisions based on feedback
-4. Once approved, your contribution will be merged into the main branch
+1. Automated checks run on every commit: the test suite and the PR contribution
+   rules (``ruff`` and docstring examples).
+2. Your pull request is labeled ``status: automatic`` or ``status: manual``. The
+   label decides who can request an AI review and whether the AI can approve.
+3. You may be asked to make revisions based on feedback.
+4. Once approved, a maintainer merges your contribution into the ``master`` branch.
+
+AI Review with ``/review``
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+If your pull request is labeled ``status: automatic``, you don't need to wait for
+a maintainer to review it. Request an AI review yourself:
+
+1. **Comment** ``/review`` **on your pull request.** A 👀 reaction means the request
+   is queued. The review starts once the tests and contribution-rule checks pass
+   on your latest commit.
+2. **Read the review.** It is posted as a pull request review with a suggestion
+   and a decision. If it approves, your pull request is approved and ready for a
+   maintainer to merge. Otherwise it lists concrete steps to get it merged.
+3. **Push your fixes and comment** ``/review`` **again.** Each commit is reviewed
+   only once, so push your changes before asking for another review.
+
+A few rules apply:
+
+- **Five reviews per label.** Each ``status: automatic`` label allows up to 5 AI
+  reviews. After that, the pull request switches to ``status: manual`` and a
+  maintainer takes over.
+- **Some pull requests need a human.** A pull request switches to
+  ``status: manual`` if it changes files outside ``docs/``, ``examples/``,
+  ``pyhealth/``, ``tests/`` or ``test-resources/``, is too large for AI review,
+  or touches core parts of the library. It can still get an AI review, but a
+  maintainer makes the decision.
+- **Who can request a review.** On ``status: automatic`` pull requests, the
+  author and maintainers can comment ``/review``. On ``status: manual`` pull
+  requests, only maintainers can.
+
+Before requesting a review, make sure your tests pass locally and your pull
+request meets the requirements on this page. The reviewer checks your tests and
+their coverage along with the code.
 
 Getting Help
 ============
