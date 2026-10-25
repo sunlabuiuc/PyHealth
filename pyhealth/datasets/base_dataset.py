@@ -15,6 +15,7 @@ import platformdirs
 import multiprocessing
 import multiprocessing.queues
 import shutil
+import time
 
 from filelock import FileLock
 import litdata
@@ -235,6 +236,28 @@ def _litdata_merge(cache_dir: Path) -> None:
     BinaryWriter(cache_dir=str(cache_dir), chunk_bytes="64MB").merge(
         num_workers=len(index_files)
     )
+
+
+# Seconds between the progress updates dask's scheduler sends (dask's default).
+_DASK_PROGRESS_INTERVAL = 0.1
+
+
+def _dask_progress_notebook() -> bool | None:
+    """
+    Chooses the ``notebook`` argument for dask's ``progress()``.
+
+    In a Jupyter kernel dask draws an ipywidgets progress bar, but ipywidgets is
+    not a PyHealth dependency. Without it, fall back to dask's text bar.
+
+    Returns:
+        bool | None: None to let dask detect the environment, or False to force
+            the text progress bar when ipywidgets is not installed.
+    """
+    try:
+        import ipywidgets  # noqa: F401
+    except ImportError:
+        return False
+    return None
 
 
 class _ProgressContext:
@@ -722,9 +745,22 @@ class BaseDataset(ABC):
                         compute=False,
                     )
                     handle = client.compute(collection)
-                    dask_progress(handle)
+                    dask_progress(
+                        handle,
+                        notebook=_dask_progress_notebook(),
+                        interval=_DASK_PROGRESS_INTERVAL,
+                    )
                     handle.result()  # type: ignore
                     compute_ok = True  # Data is fully written to disk
+                    if in_notebook():
+                        # The scheduler's progress feed (Scheduler.feed in
+                        # distributed 2026.8) sleeps one interval between updates
+                        # and stops only when its next update finds the bar's
+                        # connection closed. Closing the threaded cluster during
+                        # that sleep cancels it, and distributed logs the
+                        # CancelledError as an error. distributed has no public
+                        # way to wait for the feed, so wait a few intervals.
+                        time.sleep(3 * _DASK_PROGRESS_INTERVAL)
         except TimeoutError:
             if compute_ok:
                 # Cluster shutdown timed out after successful compute — data is intact
