@@ -33,18 +33,21 @@ class NeighborhoodLabel(SetPredictor):
         Neighborhood Conformal Prediction. https://arxiv.org/abs/2303.10694
 
     Note:
-        This implements Algorithm 2 of the paper (marginal coverage only --
-        the paper does not provide a class-conditional variant). Two
-        deviations from a literal reading of the paper, both deliberate:
+        This implements the paper's NCP calibration with marginal coverage
+        only (the paper has no class-conditional variant). Two deviations
+        from a literal reading of the paper, both deliberate:
 
-        1. The paper's k-NN weighting (Eq. 5) does not say whether a
-           calibration point is part of its own neighbor set when searching
-           for alpha_tilde (Eq. 2). This implementation excludes it
-           (leave-one-out), matching test time, where a test point's
-           neighbors never include itself. Including it inflates
-           calibration coverage and causes under-coverage at test time.
-           With a small ``k_neighbors`` the target can be unreachable even
-           at alpha_tilde = 0; ``calibrate()`` then warns.
+        1. The paper does not say whether a calibration point is part of
+           its own neighbor set when searching for alpha_tilde. This
+           implementation excludes it (leave-one-out), matching test time,
+           where a test point's neighbors never include itself. Including
+           it inflates calibration coverage and causes under-coverage at
+           test time. With leave-one-out, the lowest-scoring calibration
+           point is never covered, so calibration coverage is at most
+           (N-1)/N for N calibration points, whatever ``k_neighbors`` is.
+           If the target 1 - alpha is unreachable, ``calibrate()`` warns:
+           above (N-1)/N it needs more calibration data or a larger alpha;
+           below it, a larger ``k_neighbors`` can also help.
         2. If a prediction set would come out empty (no class's score
            reaches the threshold), the model's top-1 predicted class is
            force-included. This is not specified in the paper, but is
@@ -249,16 +252,30 @@ class NeighborhoodLabel(SetPredictor):
 
         # Coverage is largest at alpha_tilde = 0. If even that misses the
         # target, the search above silently bottoms out at 0 and the
-        # prediction sets will under-cover.
+        # prediction sets will under-cover. With leave-one-out the
+        # lowest-scoring point is never covered, so (N-1)/N is a ceiling
+        # that no k_neighbors can lift.
         if self.alpha_tilde_ == 0.0:
             best_coverage = _empirical_coverage(0.0)
-            if best_coverage < 1.0 - self.alpha:
+            target = 1.0 - self.alpha
+            if best_coverage < target:
+                ceiling = (N - 1) / N
+                if target > ceiling:
+                    advice = (
+                        f"With {N} calibration points coverage is at most "
+                        f"{ceiling:.3f} for any k_neighbors; use a larger "
+                        "calibration set or a larger alpha."
+                    )
+                else:
+                    advice = (
+                        f"Increase k_neighbors (now {self.k_neighbors}), the "
+                        "calibration set size, or alpha."
+                    )
                 warnings.warn(
-                    f"NeighborhoodLabel: the target coverage {1.0 - self.alpha:.3f} "
-                    f"cannot be reached on the calibration set with "
-                    f"k_neighbors={self.k_neighbors} (best achievable: "
+                    f"NeighborhoodLabel: target coverage {target:.3f} is not "
+                    f"reachable on the calibration set (best achievable: "
                     f"{best_coverage:.3f}), so prediction sets will likely "
-                    "under-cover. Increasing k_neighbors helps.",
+                    f"under-cover. {advice}",
                     UserWarning,
                     stacklevel=2,
                 )

@@ -93,10 +93,12 @@ NeighborhoodLabel (Neighborhood Conformal Prediction)
    its own k-nearest-neighbor set during the alpha_tilde search
    (leave-one-out), matching test time, where a test point is never its
    own neighbor. Including it lets a point's own score lower its own
-   threshold and causes under-coverage at test time. With a small
-   ``k_neighbors`` the target coverage can be unreachable even at
-   alpha_tilde = 0; ``calibrate()`` then emits a ``UserWarning``, and
-   increasing ``k_neighbors`` helps.
+   threshold and causes under-coverage at test time. With leave-one-out
+   the lowest-scoring calibration point is never covered, so calibration
+   coverage is at most (N-1)/N for N calibration points, whatever
+   ``k_neighbors`` is. If the target is unreachable, ``calibrate()`` emits
+   a ``UserWarning``: above (N-1)/N it needs more calibration data or a
+   larger alpha; below it, a larger ``k_neighbors`` can also help.
 
 .. autoclass:: pyhealth.calib.predictionset.NeighborhoodLabel
    :members:

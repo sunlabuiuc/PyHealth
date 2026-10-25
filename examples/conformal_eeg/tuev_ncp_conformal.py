@@ -18,8 +18,7 @@ Example (from repo root):
 
 Note: NeighborhoodLabel.calibrate() excludes each calibration point from
 its own k-nearest-neighbor set during the alpha_tilde search, to avoid a
-calibration point's own score leaking into its own threshold; see
-docs/api/calib/pyhealth.calib.predictionset.rst for details.
+calibration point's own score leaking into its own threshold.
 """
 
 from __future__ import annotations

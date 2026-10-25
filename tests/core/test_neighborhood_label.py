@@ -263,10 +263,10 @@ class TestNeighborhoodLabel(unittest.TestCase):
         )
 
     def test_calibrate_point_is_not_its_own_neighbor(self):
-        """Regression test for the self-inclusion leak (suggested by
-        @konstde00). With k_neighbors=1, a point that is its own neighbor is
-        always covered, so the search ends near 1. Without self-matches the
-        closest pair can't both be covered, so 6 points can't reach 0.9."""
+        """Regression test for the self-inclusion leak. With k_neighbors=1, a
+        point that is its own neighbor is always covered, so the search ends
+        near 1. Without self-matches the closest pair can't both be covered,
+        so 6 points can't reach 0.9."""
         ncp = NeighborhoodLabel(model=self.model, alpha=0.1, k_neighbors=1, lambda_L=50.0)
         cal_dataset = self.dataset.subset([0, 1, 2, 3, 4, 5])
         with warnings.catch_warnings():
@@ -276,33 +276,53 @@ class TestNeighborhoodLabel(unittest.TestCase):
             )
         self.assertLess(ncp.alpha_tilde_, 0.5)
 
-    def test_calibrate_warns_when_target_unreachable(self):
-        """With k_neighbors=1 and alpha=0.1, at most 5 of 6 points can be
-        covered even at alpha_tilde = 0 (see the test above), so calibrate()
-        must warn instead of silently under-covering."""
-        ncp = NeighborhoodLabel(model=self.model, alpha=0.1, k_neighbors=1, lambda_L=50.0)
+    def _calibrate_and_get_ncp_warnings(self, ncp, cal_embeddings=None):
+        """Calibrate on the 6-point fixture and return the messages of any
+        unreachable-target warnings."""
         cal_dataset = self.dataset.subset([0, 1, 2, 3, 4, 5])
-        with self.assertWarnsRegex(UserWarning, "k_neighbors"):
-            ncp.calibrate(
-                cal_dataset=cal_dataset, cal_embeddings=self._get_embeddings(cal_dataset)
-            )
+        if cal_embeddings is None:
+            cal_embeddings = self._get_embeddings(cal_dataset)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            ncp.calibrate(cal_dataset=cal_dataset, cal_embeddings=cal_embeddings)
+        return [
+            str(w.message)
+            for w in caught
+            if "NeighborhoodLabel: target coverage" in str(w.message)
+        ]
+
+    def test_calibrate_warns_target_above_ceiling(self):
+        """With leave-one-out the lowest-scoring point is never covered, so 6
+        points cap coverage at 5/6 for any k_neighbors. A 0.9 target is above
+        that even with k_neighbors=5 (all other points), so the warning must
+        point to more calibration data or a larger alpha, not k_neighbors."""
+        ncp = NeighborhoodLabel(model=self.model, alpha=0.1, k_neighbors=5, lambda_L=50.0)
+        msgs = self._calibrate_and_get_ncp_warnings(ncp)
+        self.assertEqual(len(msgs), 1)
+        self.assertIn("at most 0.833", msgs[0])
+        self.assertIn("larger calibration set or a larger alpha", msgs[0])
+        self.assertNotIn("Increase k_neighbors", msgs[0])
+        self.assertEqual(ncp.alpha_tilde_, 0.0)
+
+    def test_calibrate_warns_small_k_below_ceiling(self):
+        """Embeddings in three well-separated pairs make each point's only
+        neighbor (k_neighbors=1) its partner, and one point of each pair is
+        never covered: 3/6 at best. A 0.8 target is below the 5/6 ceiling, so
+        a larger k_neighbors can help and the warning must say so."""
+        ncp = NeighborhoodLabel(model=self.model, alpha=0.2, k_neighbors=1, lambda_L=50.0)
+        pairs = np.array([[0.0], [0.1], [10.0], [10.1], [20.0], [20.1]])
+        msgs = self._calibrate_and_get_ncp_warnings(ncp, cal_embeddings=pairs)
+        self.assertEqual(len(msgs), 1)
+        self.assertIn("best achievable: 0.500", msgs[0])
+        self.assertIn("Increase k_neighbors", msgs[0])
         self.assertEqual(ncp.alpha_tilde_, 0.0)
 
     def test_calibrate_no_warning_when_target_reachable(self):
         """With k_neighbors=5 (all other points) only the lowest-scoring
-        point can miss at alpha_tilde = 0, so coverage >= 5/6 and a target
+        point can miss at alpha_tilde = 0, so coverage is 5/6 and a target
         of 0.5 is reachable: no warning."""
         ncp = NeighborhoodLabel(model=self.model, alpha=0.5, k_neighbors=5, lambda_L=50.0)
-        cal_dataset = self.dataset.subset([0, 1, 2, 3, 4, 5])
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            ncp.calibrate(
-                cal_dataset=cal_dataset, cal_embeddings=self._get_embeddings(cal_dataset)
-            )
-        self.assertFalse(
-            [w for w in caught if "k_neighbors" in str(w.message)],
-            "unexpected unreachable-target warning",
-        )
+        self.assertEqual(self._calibrate_and_get_ncp_warnings(ncp), [])
 
 
 if __name__ == "__main__":
