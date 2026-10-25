@@ -49,6 +49,36 @@ def _nested_multihot():
     )
 
 
+# Other 3D numeric inputs embedded by an nn.Linear over their last dimension;
+# no step is all zeros, so every step counts in the mean.
+NUMERIC_INPUTS = {
+    "nested_sequence_floats": lambda i: [[1.0 + i, 2.0], [3.0, 4.0 - i]],
+    "stagenet_tensor": lambda i: (
+        [0.0, 1.5, 3.0],
+        [[1.0, 2.0 + i, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0 - i]],
+    ),
+    "tensor": lambda i: [[1.0, 2.0 + i], [3.0, 4.0], [5.0 - i, 6.0]],
+}
+
+
+def _numeric_input(input_type):
+    """Four samples of one field of the given input type."""
+    samples = [
+        {
+            "patient_id": f"patient-{i}",
+            "x": NUMERIC_INPUTS[input_type](i),
+            "label": i % 2,
+        }
+        for i in range(4)
+    ]
+    return create_sample_dataset(
+        samples=samples,
+        input_schema={"x": input_type},
+        output_schema={"label": "binary"},
+        dataset_name=f"test_{input_type}",
+    )
+
+
 class TestMLP(unittest.TestCase):
     """Test cases for the MLP model."""
 
@@ -215,6 +245,30 @@ class TestMLP(unittest.TestCase):
         ret["loss"].backward()
         self.assertEqual(ret["y_prob"].shape, (4, 1))
 
+    def test_other_numeric_3d_inputs_are_embedded_per_step(self):
+        """nested_sequence_floats, stagenet_tensor and tensor inputs are
+        embedded per step too, each pooling to the mean of its steps."""
+        for input_type in NUMERIC_INPUTS:
+            with self.subTest(input_type):
+                dataset = _numeric_input(input_type)
+                model = MLP(dataset=dataset, embedding_dim=8, hidden_dim=8)
+                batch = next(iter(get_dataloader(dataset, batch_size=4)))
+                ret = model(**batch)
+                ret["loss"].backward()
+                self.assertEqual(ret["y_prob"].shape, (4, 1))
+                model.eval()
+                linear = model.embedding_model.embedding_layers["x"]
+                schema = dataset.input_processors["x"].schema()
+                with torch.no_grad():
+                    embed = model(**batch, embed=True)["embed"]
+                    for i in range(len(dataset)):
+                        row = batch["patient_id"].index(dataset[i]["patient_id"])
+                        steps = dataset[i]["x"]
+                        if isinstance(steps, tuple):
+                            steps = steps[schema.index("value")]
+                        pooled = linear(steps).mean(dim=0)
+                        torch.testing.assert_close(embed[row], model.mlp["x"](pooled))
+
     def test_padded_steps_are_left_out_of_the_mean(self):
         """A short series pools the same in a padded batch as on its own."""
         dataset = _padded_series()
@@ -254,9 +308,9 @@ class TestMLP(unittest.TestCase):
         self.assertTrue(torch.isfinite(attributions["vitals"]).all())
 
     def test_nested_multihot_passes_through_flattened(self):
-        """EmbeddingModel has no layer for nested_multihot, so the raw
-        multi-hot rows pass through and are flattened into one vector."""
-        # Pins the current passthrough, not a design choice.
+        """Documents a limitation: EmbeddingModel has no layer for
+        nested_multihot, so the raw multi-hot rows pass through and are
+        flattened into one vector."""
         dataset = _nested_multihot()
         width = 2 * dataset.input_processors["visits"].size()  # two visits
         model = MLP(dataset=dataset, embedding_dim=width, hidden_dim=8)
@@ -284,9 +338,10 @@ class TestMLP(unittest.TestCase):
                 model.forward_from_embedding(vitals=embedded.unsqueeze(1))
         self.assertEqual(MLP.sum_pooling(embedded).shape, (3, 8))
 
-    def test_a_processor_mask_is_flattened_with_its_codes(self):
-        """When a processor supplies its own mask, 3D codes and the mask are
-        flattened together, so a masked code is left out of the mean."""
+    def test_a_mask_given_with_3d_codes_is_flattened_with_them(self):
+        """A mask given with 3D codes, by the processor or appended as the
+        interpretability methods append theirs, is flattened with the codes,
+        so a masked code is left out of the mean."""
         samples = [
             {
                 "patient_id": f"patient-{i}",
@@ -310,13 +365,16 @@ class TestMLP(unittest.TestCase):
         processor = dataset.input_processors["visits"]
         embedding = model.embedding_model.embedding_layers["visits"]
         with torch.no_grad():
+            unmasked = model(**batch, embed=True)["embed"]
             with mock.patch.object(processor, "schema", return_value=("value", "mask")):
-                masked = model(visits=(codes, mask), label=batch["label"], embed=True)
-            unmasked = model(**batch, embed=True)
-            for i in range(len(codes)):
-                kept = embedding(codes[i][mask[i]]).mean(dim=0)
-                torch.testing.assert_close(masked["embed"][i], model.mlp["visits"](kept))
-        self.assertFalse(torch.allclose(masked["embed"], unmasked["embed"]))
+                from_processor = model(visits=(codes, mask), label=batch["label"], embed=True)
+            # the processor's schema is ("value",), so the mask is an extra element
+            appended = model(visits=(codes, mask), label=batch["label"], embed=True)
+            for masked in (from_processor["embed"], appended["embed"]):
+                for i in range(len(codes)):
+                    kept = embedding(codes[i][mask[i]]).mean(dim=0)
+                    torch.testing.assert_close(masked[i], model.mlp["visits"](kept))
+                self.assertFalse(torch.allclose(masked, unmasked))
 
 if __name__ == "__main__":
     unittest.main()

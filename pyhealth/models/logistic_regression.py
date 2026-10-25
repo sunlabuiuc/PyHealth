@@ -153,6 +153,11 @@ class LogisticRegression(BaseModel):
 
         for feature_key in self.feature_keys:
             x = kwargs[feature_key]
+            # A processor with several outputs, such as stagenet_tensor's
+            # (time, value), gives a tuple; the model uses the value.
+            schema = self.dataset.input_processors[feature_key].schema()
+            if isinstance(x, tuple) and "value" in schema:
+                x = x[schema.index("value")]
 
             # Convert to tensor if not already
             if not isinstance(x, torch.Tensor):

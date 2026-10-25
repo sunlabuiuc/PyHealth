@@ -385,6 +385,7 @@ class MLP(BaseModel, Interpretable):
             step_mask = None
             if per_step and mask is None and len(feature) == len(schema):
                 step_mask = get_step_mask(value)
+            extra_mask = None
             if value.dim() == 3 and not per_step:
                 batch_size, seq_len, inner_len = value.shape
                 value = value.view(batch_size, seq_len * inner_len)
@@ -393,6 +394,15 @@ class MLP(BaseModel, Interpretable):
                      # Flatten mask properly if it exists
                      if mask.dim() == 3:
                          mask = mask.view(batch_size, seq_len * inner_len)
+                elif (len(feature) == len(schema) + 1
+                      and isinstance(feature[-1], torch.Tensor)
+                      and feature[-1].dim() == 3):
+                    # A mask appended after the schema's elements, as the
+                    # interpretability methods append theirs, is flattened
+                    # with the codes too.
+                    extra_mask = feature[-1].to(self.device).reshape(
+                        batch_size, seq_len * inner_len
+                    )
 
             if mask is not None:
                 mask = mask.to(self.device)
@@ -415,6 +425,8 @@ class MLP(BaseModel, Interpretable):
                 # The mask flattened with 3D codes above, so it lines up
                 # with the embedded steps when pooling.
                 args[schema.index("mask")] = mask
+            if extra_mask is not None:
+                args[-1] = extra_mask
             if step_mask is not None:
                 args.append(step_mask)
             kwargs[feature_key] = tuple(args)
