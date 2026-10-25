@@ -649,6 +649,37 @@ class TestCovariateLabel(unittest.TestCase):
         result = _query_weighted_quantile(scores, 0.3, weights, test_weight=1.0)
         self.assertAlmostEqual(result, 0.1, places=10)
 
+    def test_weighted_quantile_uniform_weights_match_split_conformal(self):
+        """With equal weights (test_weight = 1, no shift), the threshold must
+        be exactly standard split conformal's: the floor(alpha*(n+1))-th
+        smallest conformity score, i.e. BaseConformal/LABEL's
+        ceil((1-alpha)*(n+1))-th smallest nonconformity score. Includes
+        n where alpha*(n+1) is an integer (9, 19, 49, 99), where a
+        side="left" search would pick one rank too low (n=19: coverage
+        0.95 instead of 0.90)."""
+        from pyhealth.calib.predictionset.base_conformal import _query_quantile
+
+        rng = np.random.default_rng(0)
+        alpha = 0.1
+        for n in [9, 19, 20, 49, 99, 100]:
+            with self.subTest(n=n):
+                scores = rng.uniform(size=n)
+                result = _query_weighted_quantile(
+                    scores, alpha, np.ones(n), test_weight=1.0
+                )
+                expected = np.sort(scores)[int(np.floor(alpha * (n + 1))) - 1]
+                self.assertAlmostEqual(result, expected, places=12)
+                split = 1.0 - _query_quantile(1.0 - scores, alpha)
+                self.assertAlmostEqual(result, split, places=12)
+
+        # n=19: threshold is the 2nd smallest score, so 18 of 20
+        # exchangeable points are covered (0.90), not 19 of 20 (0.95).
+        scores = np.arange(1.0, 20.0)
+        self.assertEqual(
+            _query_weighted_quantile(scores, alpha, np.ones(19), test_weight=1.0),
+            2.0,
+        )
+
     def test_likelihood_ratio_function(self):
         """Test the likelihood ratio computation."""
         from pyhealth.calib.predictionset.covariate.covariate_label import (

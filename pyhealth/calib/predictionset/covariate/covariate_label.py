@@ -197,10 +197,12 @@ def _query_weighted_quantile(
             direct callers of this helper).
 
     Returns:
-        The weighted alpha-quantile of scores. Returns ``-inf`` if the
-        reserved test-point mass alone already meets or exceeds ``alpha``,
-        since there isn't enough calibration mass to justify a stricter,
-        finite threshold without risking under-coverage.
+        The largest calibration score ``t`` whose weighted mass strictly
+        below it, including the reserved test-point mass, is at most
+        ``alpha``. With equal weights this is the floor(alpha*(n+1))-th
+        smallest score, the same threshold as standard split conformal
+        prediction. Returns ``-inf`` if the reserved test-point mass alone
+        exceeds ``alpha``.
 
     Note:
         This implements Corollary 1 of Tibshirani, Barber, Candes, and
@@ -228,13 +230,9 @@ def _query_weighted_quantile(
         return -np.inf
 
     p_test = test_weight / total_weight
-    if p_test >= alpha:
-        # Not enough calibration mass to reach the target coverage without
-        # dipping into the mass reserved for the test point itself: fall
-        # back to the maximally permissive (safe) threshold. This is the
-        # case where the reserved point (sitting first, at -inf, in the
-        # augmented distribution) already accounts for the full quantile
-        # by itself.
+    if p_test > alpha:
+        # The reserved test-point mass (at -inf) alone exceeds alpha, so no
+        # finite threshold is valid: include every class.
         return -np.inf
 
     # Cumulative weights over the reserved-mass-inclusive total, with the
@@ -243,8 +241,11 @@ def _query_weighted_quantile(
     # taking the cumulative sum).
     cum_weights = (test_weight + np.cumsum(sorted_weights)) / total_weight
 
-    # Find the index where cumulative weight exceeds alpha
-    idx = np.searchsorted(cum_weights, alpha, side="left")
+    # First index whose cumulative weight strictly exceeds alpha. Using
+    # side="right" keeps a score whose mass below it equals alpha exactly
+    # (the paper's quantile); side="left" would be one rank too
+    # conservative whenever alpha*(n+1) is an integer.
+    idx = np.searchsorted(cum_weights, alpha, side="right")
 
     # Handle edge cases
     if idx >= len(sorted_scores):
@@ -342,7 +343,13 @@ class CovariateLabel(SetPredictor):
         >>> cal_model.calibrate(cal_dataset=val_data,
         ...     cal_embeddings=cal_embs, test_embeddings=test_embs)
         >>>
-        >>> # Evaluate
+        >>> # Evaluate. Trainer.inference() cannot pass test_embeddings, so
+        >>> # this uses one threshold from the mean calibration weight (an
+        >>> # approximation of Tibshirani et al.'s per-point threshold) and
+        >>> # warns once. For per-point thresholds, call
+        >>> # cal_model(test_embeddings=<this batch's rows of test_embs>,
+        >>> # **batch) batch by batch with shuffle=False; see
+        >>> # examples/conformal_eeg/tuev_covariate_shift_conformal.py.
         >>> test_dl = get_dataloader(test_data, batch_size=32,
         ...     shuffle=False)
         >>> from pyhealth.trainer import Trainer, get_metrics_fn
@@ -771,7 +778,10 @@ if __name__ == "__main__":
         test_embeddings=test_embeddings
     )
 
-    # Evaluate
+    # Evaluate. Trainer.inference() cannot pass test_embeddings, so this
+    # uses the mean-weight fallback threshold and warns; see
+    # examples/conformal_eeg/tuev_covariate_shift_conformal.py for the
+    # per-test-point path.
     test_dl = get_dataloader(test_data, batch_size=32, shuffle=False)
     y_true, y_prob, _, extra = Trainer(model=cal_model_1).inference(
         test_dl, additional_outputs=["y_predset"]
