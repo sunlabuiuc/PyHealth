@@ -233,6 +233,15 @@ class MLP(BaseModel, Interpretable):
                       generated from the embedded values (non-zero
                       entries are treated as valid).
 
+                      For a numeric series embedded by an ``nn.Linear``
+                      (e.g. ``timeseries``), pass the mask: a padded step
+                      embeds to the Linear's bias, which is nonzero, so
+                      without it padded steps are counted, unlike in
+                      :meth:`forward`. Build it from the raw values with
+                      :func:`~pyhealth.models.utils.get_step_mask`, as
+                      :meth:`forward` does; the interpretability methods
+                      pass an equivalent mask.
+
                 The label key should contain the true labels for loss
                 computation.
 

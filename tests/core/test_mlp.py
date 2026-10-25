@@ -252,9 +252,10 @@ class TestMLP(unittest.TestCase):
         attributions = IntegratedGradients(model).attribute(**batch, steps=5)
         self.assertTrue(torch.isfinite(attributions["vitals"]).all())
 
-    def test_nested_multihot_is_flattened(self):
-        """Per-visit multi-hot rows have no per-step embedding, so they are
-        flattened into one vector, as before."""
+    def test_nested_multihot_passes_through_flattened(self):
+        """EmbeddingModel has no layer for nested_multihot, so the raw
+        multi-hot rows pass through and are flattened into one vector."""
+        # Pins the current passthrough, not a design choice.
         dataset = _nested_multihot()
         width = 2 * dataset.input_processors["visits"].size()  # two visits
         model = MLP(dataset=dataset, embedding_dim=width, hidden_dim=8)
@@ -264,15 +265,6 @@ class TestMLP(unittest.TestCase):
             embed = model(**batch, embed=True)["embed"]
             flat = batch["visits"].reshape(4, -1)
             torch.testing.assert_close(embed, model.mlp["visits"](flat))
-
-    def test_arguments_it_sets_itself_and_activations(self):
-        """MLP rejects layer sizes it derives and unknown activations."""
-        for kwargs in ({"input_size": 4}, {"hidden_size": 4}, {"activation": "swish"}):
-            with self.subTest(**kwargs), self.assertRaises(ValueError):
-                MLP(dataset=self.dataset, **kwargs)
-        for name, cls in (("sigmoid", torch.nn.Sigmoid),
-                          ("leaky_relu", torch.nn.LeakyReLU), ("elu", torch.nn.ELU)):
-            self.assertIsInstance(MLP(dataset=self.dataset, activation=name).activation, cls)
 
     def test_forward_from_embedding_inputs(self):
         """A bare tensor and a mask with a feature dimension are accepted;

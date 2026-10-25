@@ -282,9 +282,10 @@ class TestLogisticRegression(unittest.TestCase):
         torch.testing.assert_close(pooled[0], x[0, [0, 2]].mean(dim=0))
         torch.testing.assert_close(pooled[1], x[1].mean(dim=0))
 
-    def test_nested_multihot_is_flattened(self):
-        """Per-visit multi-hot rows have no per-step embedding, so they are
-        flattened into one vector, as before."""
+    def test_nested_multihot_passes_through_flattened(self):
+        """EmbeddingModel has no layer for nested_multihot, so the raw
+        multi-hot rows pass through and are flattened into one vector."""
+        # Pins the current passthrough, not a design choice.
         dataset = _nested_multihot()
         width = 2 * dataset.input_processors["visits"].size()  # two visits
         model = LogisticRegression(dataset=dataset, embedding_dim=width)
