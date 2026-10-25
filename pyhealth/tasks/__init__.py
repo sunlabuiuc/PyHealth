@@ -52,9 +52,12 @@ from .mortality_prediction_stagenet_mimic4 import (
     MortalityPredictionStageNetMIMIC4,
 )
 from .generate_ehr import (
-    EHRGeneration,
+    EHRCodeSetGenerationMIMIC3 as EHRCodeSetGenerationMIMIC3,
+    EHRCodeSetGenerationMIMIC4 as EHRCodeSetGenerationMIMIC4,
     EHRGenerationMIMIC3,
     EHRGenerationMIMIC4,
+    EHRSequenceGenerationMIMIC3 as EHRSequenceGenerationMIMIC3,
+    EHRSequenceGenerationMIMIC4 as EHRSequenceGenerationMIMIC4,
     decode_dataset,
     to_evaluation_dataframe,
 )

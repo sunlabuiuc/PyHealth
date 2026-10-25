@@ -98,9 +98,9 @@ To start contributing to PyHealth:
 5. **Push changes** to your forked repository
 6. **Create a pull request** to the main PyHealth repository
 
-   - Target the ``main`` branch
+   - Target the ``master`` branch
    - Enable edits by maintainers
-   - Rebase with the remote ``sunlabuiuc`` main branch before creating the PR
+   - Rebase with the remote ``sunlabuiuc`` master branch before creating the PR
 
 Data Access for Testing
 ========================

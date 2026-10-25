@@ -10,6 +10,11 @@ tasks, such as drug drug interaction (DDI) rate.
 For synthetic (generative) EHR data, we provide privacy, utility, and statistical
 fidelity metrics.
 
+Expected Calibration Error (ECE) is available for binary and multiclass
+predictions through :func:`pyhealth.metrics.calibration.ece_confidence_binary`
+and :func:`pyhealth.metrics.calibration.ece_confidence_multiclass`. The API
+reference includes the ECE definition and formula used by these helpers.
+
 
 .. toctree::
     :maxdepth: 3
@@ -18,6 +23,7 @@ fidelity metrics.
     metrics/pyhealth.metrics.multilabel
     metrics/pyhealth.metrics.binary
     metrics/pyhealth.metrics.calibration
+    metrics/pyhealth.metrics.bootstrap
     metrics/pyhealth.metrics.prediction_set
     metrics/pyhealth.metrics.fairness
     metrics/pyhealth.metrics.interpretability

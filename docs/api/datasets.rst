@@ -31,6 +31,13 @@ compact ``global_event_df.parquet`` cache to disk. On subsequent runs with
 the same configuration it reads from cache rather than re-parsing the source
 files, so startup is fast.
 
+"The same configuration" means the same root, tables, dataset name and dev flag,
+the same YAML config, and unchanged source files: the cache key includes a hash of
+the config and the size and modification time of every source file the requested
+tables read. Editing the YAML or rewriting a source file (even at the same path)
+therefore builds a fresh cache instead of silently reusing a stale one. Old cache
+folders are left in place; delete them to reclaim disk space.
+
 The result is a :class:`~pyhealth.datasets.BaseDataset` — a structured
 patient→event tree. It is different from a PyTorch Dataset: it has no integer
 length and you cannot index into it with ``dataset[i]``. Think of it as a
@@ -130,13 +137,44 @@ Initialization Parameters
   Native datasets have this built in and ignore the parameter.
 - **cache_dir** — where to store the cached Parquet and LitData files. PyHealth
   appends a UUID derived from your configuration, so different setups never
-  overwrite each other.
+  overwrite each other. If you leave it out, PyHealth uses your user cache
+  folder (e.g. ``~/Library/Caches/pyhealth`` on macOS, ``~/.cache/pyhealth`` on
+  Linux) and logs a warning naming it — see *Working with identified data* below.
 - **num_workers** — parallel processes for data loading. Increasing this can
   speed up ``set_task()`` on large datasets.
 - **dev** — when ``True``, PyHealth caps the dataset at 1 000 patients. This
   is very useful during development because it makes each iteration complete in
   seconds rather than minutes. Switch to ``dev=False`` for your final training
   run.
+
+Working with identified data
+----------------------------
+
+The dataset cache holds **processed copies of your source data**: the event
+table every patient's events are read from, and the samples each ``set_task()``
+produces. For identified clinical data (PHI), that cache must live in storage
+approved for the data, not in a personal cache folder.
+
+- Always pass ``cache_dir`` pointing inside your project's controlled storage:
+
+  .. code-block:: python
+
+      dataset = MIMIC4Dataset(ehr_root=..., ehr_tables=[...],
+                              cache_dir="/secure/project/pyhealth_cache")
+
+- To make a forgotten ``cache_dir`` an error instead of a warning, set an
+  environment variable for the project (in your job script, ``.env`` or shell):
+
+  .. code-block:: bash
+
+      export PYHEALTH_REQUIRE_CACHE_DIR=1
+
+  Any dataset created without ``cache_dir`` then raises ``ValueError`` before
+  writing anything.
+
+- ``create_sample_dataset(..., in_memory=False)`` writes samples to the system
+  temporary folder; keep the default ``in_memory=True`` for identified data, or
+  build the ``SampleDataset`` at a path you control.
 
 config.yaml for Custom Datasets
 ---------------------------------
@@ -195,6 +233,20 @@ Each event in the returned list has:
 - ``event.icd_code``, ``event["icd_code"]``, ``event.attr_dict`` — different
   ways to access the other attributes. All attribute names are lowercase.
 
+Shuffling and Reproducibility
+-----------------------------
+
+``get_dataloader(dataset, batch_size, shuffle=True, seed=None)`` gives each
+loader its own shuffle order: the same ``seed`` gives the same sequence of
+epoch orders, a different seed a different one, and each epoch is reshuffled.
+With ``seed=None`` the seed is drawn from torch's random generator when the
+loader is created, so ``torch.manual_seed(...)`` alone makes runs
+reproducible. This also holds with ``num_workers > 0``. Each loader applies
+its own settings to the dataset at the start of every pass, so an unshuffled
+evaluation loader on a training dataset leaves the training loader shuffling;
+just don't iterate two loaders over one dataset at the same time. See the
+Trainer docs for the full checklist.
+
 Things to Watch Out For
 ------------------------
 
@@ -239,6 +291,7 @@ Available Datasets
     datasets/pyhealth.datasets.ISRUCDataset
     datasets/pyhealth.datasets.MIMICExtractDataset
     datasets/pyhealth.datasets.OMOPDataset
+    datasets/pyhealth.datasets.SyntheaCSVDataset
     datasets/pyhealth.datasets.DREAMTDataset
     datasets/pyhealth.datasets.SHHSDataset
     datasets/pyhealth.datasets.SleepEDFDataset

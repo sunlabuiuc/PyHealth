@@ -48,6 +48,9 @@ routes each feature type automatically.
    * - :doc:`models/pyhealth.models.GraphCare`
      - You want to augment EHR codes with a medical knowledge graph
      - Combines code sequences with a :class:`~pyhealth.graph.KnowledgeGraph`
+   * - :doc:`models/pyhealth.models.XGBoostModel`
+     - Features are tabular (engineered labs, demographics) or bags of codes; you want the standard strong baseline
+     - Gradient-boosted trees; fit with ``model.fit`` (not ``Trainer.train``); exact TreeSHAP; needs ``pip install "pyhealth[xgboost]"``
 
 How BaseModel Works
 --------------------
@@ -116,6 +119,41 @@ on the label processor in your task's ``output_schema``:
    * - ``"regression"``
      - MSE
      - identity → (batch, 1)
+
+The schema value can be written as a string, a label processor class, a
+processor instance, or a ``(name, kwargs)`` tuple. These are equivalent:
+
+.. code-block:: python
+
+    output_schema = {"icd_codes": "multilabel"}
+    output_schema = {"icd_codes": MultiLabelProcessor}
+    output_schema = {"icd_codes": ("multilabel", {})}
+
+Whichever form a task uses, ``model.mode`` is always the plain string
+(``"binary"``, ``"multiclass"``, ``"multilabel"`` or ``"regression"``), or
+``None`` when the label is not one of these kinds. ``Trainer.evaluate()`` and
+the calibration methods use it to pick metrics. ``BaseModel`` sets it for you,
+so custom models don't need to assign ``self.mode``; if they do, the value is
+resolved the same way.
+
+Imbalanced outcomes
+^^^^^^^^^^^^^^^^^^^
+
+For rare binary or multilabel outcomes, weight the positive examples in the
+default loss with ``set_pos_weight``:
+
+.. code-block:: python
+
+    model = RNN(dataset=samples)
+    model.set_pos_weight("balanced", train_dataset)   # negatives / positives
+    # or a fixed weight: model.set_pos_weight(9.0); remove it: set_pos_weight(None)
+
+``"balanced"`` is computed from the dataset you pass, so pass the training split,
+not the full dataset. The weight applies to models that use the default loss
+(``BaseModel.get_loss_function``); the drug-recommendation models (GAMENet,
+SafeDrug, MoleRec, MICRON) compute their own loss and ignore it. Weighting
+shifts the predicted probabilities upward, so check calibration before
+interpreting them as risks. See ``examples/imbalanced_outcome_pos_weight.py``.
 
 Building a Custom Model
 -----------------------
@@ -207,9 +245,12 @@ API Reference
     models/pyhealth.models.PromptEHR
     models/pyhealth.models.MedGAN
     models/pyhealth.models.CorGAN
+    models/pyhealth.models.Synthea
     models/pyhealth.models.SDOH
     models/pyhealth.models.VisionEmbeddingModel
     models/pyhealth.models.TextEmbedding
     models/pyhealth.models.BIOT
     models/pyhealth.models.unified_multimodal_embedding_docs
     models/pyhealth.models.califorest
+    models/pyhealth.models.XGBoostModel
+    models/pyhealth.models.survival_mdn

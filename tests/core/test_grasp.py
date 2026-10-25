@@ -241,5 +241,40 @@ class TestGRASP(unittest.TestCase):
         self.assertEqual(ret["y_prob"].shape[0], 1)
 
 
+    def test_similar_cluster_graph_is_built_not_identity(self):
+        """Regression test: the kNN similar-cluster graph must be built and fed
+        to the GCN, not the identity fallback.
+
+        Previously ``self.A_mat`` was set to None and never reassigned, so the
+        ``if self.A_mat is None`` branch always won and the GCN received
+        ``np.eye`` (identity) -- the kNN graph construction was dead code and
+        GRASP's core "similar patients" mechanism did nothing.
+        """
+        import numpy as np
+        from unittest.mock import patch
+        from pyhealth.models.grasp import GRASPLayer
+
+        x = torch.randn(8, 5, 6)
+        mask = torch.ones(8, 5)
+
+        def adj_fed_to_gcn(layer):
+            layer.eval()
+            with patch.object(layer.GCN, "forward", wraps=layer.GCN.forward) as spy:
+                with torch.no_grad():
+                    layer(x, mask=mask)
+            return spy.call_args[0][0].detach().cpu().numpy()
+
+        # cluster_num >= 2: a real kNN graph, not identity.
+        adj = adj_fed_to_gcn(GRASPLayer(input_dim=6, hidden_dim=8, cluster_num=3, block="GRU"))
+        self.assertFalse(np.allclose(adj, np.eye(3)), "GCN got identity; graph is dead")
+        self.assertTrue(np.allclose(np.diag(adj), np.ones(3)))
+        self.assertGreater(float(adj.sum()), 0.0)          # has edges
+
+        # cluster_num == 1: genuine identity fallback (too few clusters for a graph).
+        adj1 = adj_fed_to_gcn(GRASPLayer(input_dim=6, hidden_dim=8, cluster_num=1, block="GRU"))
+        self.assertTrue(np.allclose(adj1, np.eye(1)))
+
+
+
 if __name__ == "__main__":
     unittest.main()
