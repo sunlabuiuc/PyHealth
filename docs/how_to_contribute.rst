@@ -6,6 +6,13 @@ How to Contribute
 
 We welcome contributions to PyHealth! This guide will help you get started with contributing datasets, tasks, models, bug fixes, or other improvements to the project.
 
+.. card:: 🌐 Read the Contributor Quick Guide on pyhealth.dev
+   :link: https://pyhealth.dev/how_to_contribute.html
+   :link-type: url
+   :class-card: sd-bg-primary sd-text-white sd-text-center
+
+   **pyhealth.dev** — what makes a good pull request, and how to get it reviewed →
+
 Examples of Great Contributions
 ================================
 
@@ -579,47 +586,19 @@ Every pull request must include the following information in the comment:
 Review Process
 --------------
 
-After submitting your pull request:
+1. **Fork** `PyHealth <https://github.com/sunlabuiuc/PyHealth/fork>`_.
+2. **Submit a pull request** against the ``master`` branch.
+3. **Wait to be labeled** for AI review, or ask for a review on
+   `Discord <https://discord.gg/mpb835EHaX>`_.
+4. **Check your label:**
 
-1. Automated checks run on every commit: the test suite and the PR contribution
-   rules (``ruff`` and docstring examples).
-2. Your pull request is labeled ``status: automatic`` or ``status: manual``. The
-   label decides who can request an AI review and whether the AI can approve.
-3. You may be asked to make revisions based on feedback.
-4. Once approved, a maintainer merges your contribution into the ``master`` branch.
+   - ``status: manual``: wait for a maintainer to review and approve your pull request.
+   - ``status: automatic``: comment ``/review`` to get an AI review. Push your fixes
+     and comment ``/review`` again whenever you want another review. **Once the AI
+     approves, you can merge your pull request into PyHealth yourself.**
 
-AI Review with ``/review``
-^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-If your pull request is labeled ``status: automatic``, you don't need to wait for
-a maintainer to review it. Request an AI review yourself:
-
-1. **Comment** ``/review`` **on your pull request.** A 👀 reaction means the request
-   is queued. The review starts once the tests and contribution-rule checks pass
-   on your latest commit.
-2. **Read the review.** It is posted as a pull request review with a suggestion
-   and a decision. If it approves, your pull request is approved and ready for a
-   maintainer to merge. Otherwise it lists concrete steps to get it merged.
-3. **Push your fixes and comment** ``/review`` **again.** Each commit is reviewed
-   only once, so push your changes before asking for another review.
-
-A few rules apply:
-
-- **Five reviews per label.** Each ``status: automatic`` label allows up to 5 AI
-  reviews. After that, the pull request switches to ``status: manual`` and a
-  maintainer takes over.
-- **Some pull requests need a human.** A pull request switches to
-  ``status: manual`` if it changes files outside ``docs/``, ``examples/``,
-  ``pyhealth/``, ``tests/`` or ``test-resources/``, is too large for AI review,
-  or touches core parts of the library. It can still get an AI review, but a
-  maintainer makes the decision.
-- **Who can request a review.** On ``status: automatic`` pull requests, the
-  author and maintainers can comment ``/review``. On ``status: manual`` pull
-  requests, only maintainers can.
-
-Before requesting a review, make sure your tests pass locally and your pull
-request meets the requirements on this page. The reviewer checks your tests and
-their coverage along with the code.
+A pull request switches to ``status: manual`` after 5 AI reviews, or if it changes
+core parts of the library.
 
 Getting Help
 ============

@@ -16,26 +16,27 @@ Please read it before opening a pull request. It covers:
 - File checklists for contributing a dataset, task, or model
 - Test case requirements, including how to write fast tests with synthetic data
 - How to format your pull request description
-- How pull requests are reviewed, including AI review with `/review`
+
+For a quick overview of what makes a good pull request, see
+[pyhealth.dev](https://pyhealth.dev/how_to_contribute.html).
 
 ## Quick Start
 
-1. [Fork the PyHealth repository](https://github.com/sunlabuiuc/PyHealth/fork)
-2. Clone your fork and install it in editable mode:
+1. [Fork PyHealth](https://github.com/sunlabuiuc/PyHealth/fork).
+2. [Submit a pull request](https://github.com/sunlabuiuc/PyHealth/pulls)
+   against the `master` branch.
+3. Wait for your pull request to be labeled for AI review, or ask for a review on
+   [Discord](https://discord.gg/mpb835EHaX).
+4. Check your label:
+   - `status: manual`: wait for a maintainer to review and approve your pull
+     request.
+   - `status: automatic`: comment `/review` to get an AI review. Push your fixes
+     and comment `/review` again whenever you want another review. **Once the AI
+     approves, you can merge your pull request into PyHealth yourself.**
 
-   ```bash
-   git clone https://github.com/your_username/PyHealth.git
-   cd PyHealth
-   pip install -e .
-   ```
-
-3. Implement your change with tests and documentation
-4. Push to your fork and
-   [open a pull request](https://github.com/sunlabuiuc/PyHealth/pulls)
-   against the `master` branch, with "Allow edits by maintainers" enabled
-
-For trivial changes you can open a pull request directly. For non-trivial
-changes, please discuss them in an issue first.
+A pull request switches to `status: manual` after 5 AI reviews, or if it changes
+core parts of the library. For non-trivial changes, please discuss them in an
+issue first.
 
 ## Submit an Issue
 
@@ -64,29 +65,6 @@ which runs `tools/check_pr_rules.py`. You can run the same check locally:
 ```bash
 python tools/check_pr_rules.py --base <base_sha> --head HEAD
 ```
-
-## AI Review with `/review`
-
-Pull requests are labeled `status: automatic` or `status: manual`. If yours is
-labeled `status: automatic`, you can request an AI review yourself:
-
-1. Comment `/review` on your pull request. A 👀 reaction means the request is
-   queued; the review starts once the tests and contribution-rule checks pass on
-   your latest commit.
-2. If the review approves, your pull request is approved and ready for a
-   maintainer to merge. Otherwise it lists what to fix.
-3. Push your fixes and comment `/review` again. Each commit is reviewed once.
-
-Each `status: automatic` label allows up to 5 AI reviews, after which the pull
-request switches to `status: manual` and a maintainer takes over. Pull requests
-that change files outside `docs/`, `examples/`, `pyhealth/`, `tests/` or
-`test-resources/`, are too large, or touch core parts of the library also switch
-to `status: manual`. On those, only maintainers can request an AI review, and a
-maintainer makes the decision.
-
-The workflow is `.github/workflows/ai-review.yml`. See the
-[Review Process](https://pyhealth.readthedocs.io/en/latest/how_to_contribute.html#review-process)
-section of the guide for details.
 
 ## Community
 
