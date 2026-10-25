@@ -907,10 +907,10 @@ class BaseDataset(ABC):
             columns = join_cfg.columns
             how = join_cfg.how
 
-            # A one-to-many join copies a row's SOURCE_ROW to every match, so
-            # the order of those copies is not fixed between builds. Rows a
-            # right or outer join adds without a match get -1 when the column
-            # is cast. The bundled configs only look up one row per key.
+            # A one-to-many join copies a row's SOURCE_ROW to every match;
+            # Patient orders the copies by their other columns. Rows a right
+            # or outer join adds without a match get -1 when the column is
+            # cast.
             df: dd.DataFrame = df.merge(
                 join_df[[join_key] + columns], on=join_key, how=how
             )

@@ -16,13 +16,14 @@ Dataset loading records each row's position in a ``_source_row`` column of the
 cached event table, so the order is the same on every cache build. Caches
 written before this column existed are rebuilt automatically.
 
-Rows that a join or a preprocess hook copies or adds are the exception. A
-``join`` in a dataset config that matches several rows to one row copies that
-row's ``_source_row`` to every match, as does a ``preprocess_<table>`` hook
-that duplicates rows. Rows that a ``right`` or ``outer`` join adds without a
-match get ``-1``. The order among such rows can differ between builds. The
-bundled configs use ``left`` and ``inner`` joins that look up one row per key,
-and the bundled hooks do not duplicate rows.
+Some rows share a ``_source_row``. A ``join`` in a dataset config that matches
+one row to several rows copies the row's ``_source_row`` to every copy: the
+MIMIC-CXR ``chexpert``, ``negbio`` and ``test_set_labeled`` tables, for
+example, are joined to one metadata row per image. A ``preprocess_<table>``
+hook that duplicates rows does the same, and rows that a ``right`` or ``outer``
+join adds without a match all get ``-1``. Rows that tie on timestamp, event
+type and ``_source_row`` are ordered by their other columns (for the MIMIC-CXR
+labels, by image), so their order is also the same on every build.
 
 .. autoclass:: pyhealth.data.Patient
     :members:

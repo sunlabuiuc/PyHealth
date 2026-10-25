@@ -67,6 +67,24 @@ tables:
           - "label"
 """
 
+# Admissions joined to several images each: a one-to-many join.
+ONE_TO_MANY_CONFIG = """version: "1.0"
+tables:
+  admissions:
+    file_path: "admissions.csv"
+    patient_id: "patient_id"
+    timestamp: "admittime"
+    attributes:
+      - "hadm_id"
+      - "image_id"
+    join:
+      - file_path: "images.csv"
+        "on": "hadm_id"
+        how: "inner"
+        columns:
+          - "image_id"
+"""
+
 # Diagnoses read from a directory of Parquet shards.
 SHARD_CONFIG = """version: "1.0"
 tables:
@@ -143,6 +161,25 @@ class TestPatientTieOrder(unittest.TestCase):
                 ("prescriptions", "p1"),
             ],
         )
+
+    def test_copies_of_one_source_row_are_ordered_by_their_other_columns(self):
+        t = datetime(2020, 1, 1)  # noqa: DTZ001 - event timestamps are naive
+        images = [f"i{i}" for i in range(6)]
+        events = pl.DataFrame(
+            {
+                "patient_id": ["p1"] * 6,
+                "event_type": ["chexpert"] * 6,
+                "timestamp": [t] * 6,
+                SOURCE_ROW: [0] * 6,  # one study row joined to six images
+                "chexpert/dicom_id": images,
+            }
+        )
+        for seed in range(5):
+            rows = list(range(events.height))
+            random.Random(seed).shuffle(rows)
+            patient = Patient("p1", events[rows])
+            got = [e.dicom_id for e in patient.get_events(event_type="chexpert")]
+            self.assertEqual(got, images)
 
     def test_caches_without_source_row_keep_their_row_order(self):
         events = _events(50).drop(SOURCE_ROW).reverse()
@@ -267,6 +304,26 @@ class TestDatasetTieOrder(unittest.TestCase):
             .select("diagnoses/code").collect()["diagnoses/code"].to_list()
         )
         self.assertEqual(added, ["999.9"])
+
+    def test_a_one_to_many_join_orders_the_copies(self):
+        (self.root / "images.csv").write_text(
+            "hadm_id,image_id\nh1,i3\nh2,i5\nh1,i1\nh2,i4\nh1,i2\n"
+        )
+        config = self.root / "config_one_to_many.yaml"
+        config.write_text(ONE_TO_MANY_CONFIG)
+        dataset = BaseDataset(
+            root=str(self.root),
+            tables=["admissions"],
+            dataset_name="TieOrderOneToManyDataset",
+            config_path=str(config),
+            cache_dir=str(self.cache),
+        )
+        events = dataset.get_patient("p1").get_events(event_type="admissions")
+        # h2 and h1 tie and keep file order; each one's copies follow image_id.
+        self.assertEqual(
+            [(e.hadm_id, e.image_id) for e in events],
+            [("h2", "i4"), ("h2", "i5"), ("h1", "i1"), ("h1", "i2"), ("h1", "i3")],
+        )
 
     def test_parquet_shards_are_numbered_in_shard_order(self):
         # Written out of name order. Each shard is read as its own partition,

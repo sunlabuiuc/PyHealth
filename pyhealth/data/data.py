@@ -134,13 +134,16 @@ class Patient:
     by table, sorted by ``event_type``, and within a table keep the order of
     their rows in the source file (for example all diagnoses of a MIMIC
     admission, which carry its discharge time), using the ``_source_row``
-    column that dataset loading adds. The order is the same on every cache
-    build, except among rows that a ``join`` in the dataset config copies
-    (one-to-many) or adds without a match (``right`` or ``outer``).
+    column that dataset loading adds. Rows that still tie, such as the copies
+    of one row that a one-to-many ``join`` in the dataset config makes, are
+    ordered by their other columns. The order is the same on every cache
+    build.
 
     Attributes:
         patient_id (str): Unique patient identifier.
-        data_source (pl.DataFrame): DataFrame containing all events, sorted by timestamp.
+        data_source (pl.DataFrame): DataFrame containing all events, sorted by
+            timestamp. It keeps the ``_source_row`` column, which is not an
+            event attribute.
         event_type_partitions (Dict[str, pl.DataFrame]): Dictionary mapping event types to their respective DataFrame partitions.
 
     Examples:
@@ -171,14 +174,21 @@ class Patient:
         self.patient_id = patient_id
         # Events that share a timestamp are ordered by table and then by their
         # row in the source file, so the order does not depend on how the cache
-        # was built. (event_type, _source_row) identifies a source row, so this
-        # sort needs no stability (copies made by a one-to-many join share a
-        # row and have no fixed order). Older caches lack the source-row
-        # column; there the existing row order is kept, which needs a stable
-        # sort.
+        # was built. Copies of one source row (from a one-to-many join or a
+        # hook that duplicates rows) share all three keys, so the remaining
+        # columns break those ties; no stable sort is needed. Older caches
+        # lack the source-row column; there the existing row order is kept,
+        # which needs a stable sort.
         if "_source_row" in data_source.columns:
+            keys = ["timestamp", "event_type", "_source_row"]
+            rest = [
+                name
+                for name, dtype in data_source.schema.items()
+                if name not in keys and not dtype.is_nested() and dtype != pl.Object
+            ]
+            # A typical patient's few hundred events sort faster on one thread.
             self.data_source = data_source.sort(
-                ["timestamp", "event_type", "_source_row"]
+                keys + rest, multithreaded=data_source.height > 2_000
             )
         else:
             self.data_source = data_source.sort("timestamp", maintain_order=True)
