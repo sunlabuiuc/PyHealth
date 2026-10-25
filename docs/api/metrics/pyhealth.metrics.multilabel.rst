@@ -16,4 +16,5 @@ change the numbers. ``metrics=["ddi", "jaccard_samples"]`` and
 
 ``"ddi"`` loads ``ddi_adj.npy`` from the PyHealth cache directory. GAMENet,
 MICRON, MoleRec and SafeDrug write that file when the model is built, so
-``"ddi"`` is available once one of those models has been created.
+``"ddi"`` is available once one of those models has been created. All four
+write the same file, so it holds the matrix of whichever model was built last.
