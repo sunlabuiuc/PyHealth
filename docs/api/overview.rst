@@ -85,7 +85,8 @@ merging multiple CSVs), define ``preprocess_<table_name>(self, df)`` on the
 subclass — it receives a narwhals LazyFrame and must return one. The frame
 has a ``_source_row`` column numbering the rows in file order, which orders
 events that share a timestamp; a hook that reorders or aggregates rows should
-keep it.
+keep it. Rows a hook duplicates share one ``_source_row``, so their order among
+tied events can differ between builds.
 
 Key init params: ``root``, ``tables``, ``config_path`` (custom only),
 ``cache_dir``, ``num_workers``, ``dev``.

@@ -29,6 +29,7 @@ from pyhealth.datasets.base_dataset import (
     SOURCE_ROW,
     _event_parquet_options,
     _source_row_as_int32,
+    _with_source_row,
 )
 
 CONFIG = """version: "1.0"
@@ -64,6 +65,17 @@ tables:
         how: "outer"
         columns:
           - "label"
+"""
+
+# Diagnoses read from a directory of Parquet shards.
+SHARD_CONFIG = """version: "1.0"
+tables:
+  diagnoses:
+    file_path: "shards"
+    patient_id: "patient_id"
+    timestamp: "time"
+    attributes:
+      - "code"
 """
 
 # Codes in priority order, deliberately not sorted, and all at one timestamp.
@@ -256,6 +268,32 @@ class TestDatasetTieOrder(unittest.TestCase):
         )
         self.assertEqual(added, ["999.9"])
 
+    def test_parquet_shards_are_numbered_in_shard_order(self):
+        # Written out of name order. Each shard is read as its own partition,
+        # so this also numbers rows across partitions in a real build.
+        shards = self.root / "shards"
+        shards.mkdir()
+        for name in ["c", "a", "b"]:
+            pd.DataFrame(
+                {
+                    "patient_id": ["p1", "p1"],
+                    "time": ["2020-01-05 00:00:00"] * 2,
+                    "code": [f"{name}0", f"{name}1"],
+                }
+            ).to_parquet(shards / f"{name}.parquet")
+        config = self.root / "config_shards.yaml"
+        config.write_text(SHARD_CONFIG)
+        dataset = BaseDataset(
+            root=str(self.root),
+            tables=["diagnoses"],
+            dataset_name="TieOrderShardDataset",
+            config_path=str(config),
+            cache_dir=str(self.cache),
+        )
+        patient = dataset.get_patient("p1")
+        codes = [e.code for e in patient.get_events(event_type="diagnoses")]
+        self.assertEqual(codes, ["a0", "a1", "b0", "b1", "c0", "c1"])
+
     def test_cache_key_includes_event_format(self):
         # Caches written before SOURCE_ROW existed must not be reused.
         current = self._dataset().cache_dir
@@ -270,6 +308,12 @@ class TestSourceRowType(unittest.TestCase):
     def _frame(self, n: int) -> dd.DataFrame:
         pdf = pd.DataFrame({"code": [f"c{i}" for i in range(n)], SOURCE_ROW: range(n)})
         return dd.from_pandas(pdf, npartitions=2)
+
+    def test_rows_are_numbered_across_partitions(self):
+        frame = dd.from_pandas(pd.DataFrame({"code": range(10)}), npartitions=3)
+        self.assertEqual(frame.npartitions, 3)
+        rows = _with_source_row(frame).compute(scheduler="sync")[SOURCE_ROW]
+        self.assertEqual(rows.tolist(), list(range(10)))
 
     def test_source_row_is_int32(self):
         frame = _source_row_as_int32(self._frame(6))
