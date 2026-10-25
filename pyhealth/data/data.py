@@ -176,9 +176,10 @@ class Patient:
         # row in the source file, so the order does not depend on how the cache
         # was built. Copies of one source row (from a one-to-many join or a
         # hook that duplicates rows) share all three keys, so the remaining
-        # columns break those ties; no stable sort is needed. Older caches
-        # lack the source-row column; there the existing row order is kept,
-        # which needs a stable sort.
+        # columns break those ties; no stable sort is needed. A Patient built
+        # by hand or by MIMICExtractDataset has no source-row column (caches
+        # written before it are rebuilt, not read); there the existing row
+        # order is kept, which needs a stable sort.
         if "_source_row" in data_source.columns:
             keys = ["timestamp", "event_type", "_source_row"]
             rest = [

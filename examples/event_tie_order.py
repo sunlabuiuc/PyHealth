@@ -3,7 +3,9 @@
 Builds a tiny dataset whose diagnoses all share one timestamp (as MIMIC
 diagnoses share their admission's discharge time), then shows that a patient's
 diagnoses come out in the order of the source file, which is their priority
-order, on every cache build.
+order, on every cache build. It is a demonstration: with five rows, an
+unordered build can also come out in this order by chance, so the regression
+tests are in ``tests/core/test_event_tie_order.py``.
 
 Run:
     python examples/event_tie_order.py
