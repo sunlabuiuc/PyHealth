@@ -130,11 +130,13 @@ class Event:
 class Patient:
     """Patient class representing a sequence of events.
 
-    Events are ordered by timestamp. Events that share a timestamp (for
-    example all diagnoses of a MIMIC admission, which carry its discharge time)
-    keep the order of their rows in the source file, using the
-    ``_source_row`` column that dataset loading adds, so the order is the same
-    on every cache build.
+    Events are ordered by timestamp. Events that share a timestamp are grouped
+    by table, sorted by ``event_type``, and within a table keep the order of
+    their rows in the source file (for example all diagnoses of a MIMIC
+    admission, which carry its discharge time), using the ``_source_row``
+    column that dataset loading adds. The order is the same on every cache
+    build, except among copies of a row made by a one-to-many ``join`` in the
+    dataset config.
 
     Attributes:
         patient_id (str): Unique patient identifier.

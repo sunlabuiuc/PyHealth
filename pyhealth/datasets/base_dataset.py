@@ -163,8 +163,9 @@ def _source_row_as_int32(df: dd.DataFrame) -> dd.DataFrame:
     are assigned, and the parquet writer follows the declared type.
 
     Raises:
-        OverflowError: When the frame is built, if a table has more than
-            2**31 - 1 rows, rather than letting the numbers wrap around.
+        OverflowError: When the frame is computed (for example when the
+            cache is written), if a table has more than 2**31 - 1 rows,
+            rather than letting the numbers wrap around.
     """
 
     def cast(part: pd.DataFrame) -> pd.DataFrame:

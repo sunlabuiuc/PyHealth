@@ -90,6 +90,30 @@ class TestPatientTieOrder(unittest.TestCase):
             got = [e.code for e in patient.get_events(event_type="diagnoses")]
             self.assertEqual(got, expected)
 
+    def test_tied_events_of_different_tables_are_grouped_by_table(self):
+        t = datetime(2020, 1, 1)  # noqa: DTZ001 - event timestamps are naive
+        events = pl.DataFrame(
+            {
+                "patient_id": ["p1"] * 4,
+                "event_type": ["prescriptions", "diagnoses"] * 2,
+                "timestamp": [t] * 4,
+                SOURCE_ROW: [1, 1, 0, 0],
+                "diagnoses/code": [None, "d1", None, "d0"],
+                "prescriptions/code": ["p1", None, "p0", None],
+            }
+        )
+        patient = Patient("p1", events)
+        got = [(e.event_type, e.code) for e in patient.get_events()]
+        self.assertEqual(
+            got,
+            [
+                ("diagnoses", "d0"),
+                ("diagnoses", "d1"),
+                ("prescriptions", "p0"),
+                ("prescriptions", "p1"),
+            ],
+        )
+
     def test_caches_without_source_row_keep_their_row_order(self):
         events = _events(50).drop(SOURCE_ROW).reverse()
         patient = Patient("p1", events)
