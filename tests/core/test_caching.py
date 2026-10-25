@@ -170,9 +170,9 @@ class TestCachingFunctionality(BaseTestCase):
                 all(len(indexes) == 2 for indexes in sample_dataset.patient_to_index.values())
             )
             self.assertEqual(sample_dataset.record_to_index, {})
-        # Ensure directory is cleaned up after context exit
-        self.assertFalse((sample_dir / "index.json").exists())
-        self.assertFalse((sample_dir / "schema.pkl").exists())
+        # The processed-sample cache is reusable, so closing keeps it
+        self.assertTrue((sample_dir / "index.json").exists())
+        self.assertTrue((sample_dir / "schema.pkl").exists())
         # Ensure intermediate cache files are still present
         self.assertTrue((task_cache_dir / "task_df.ld" / "index.json").exists())
 
