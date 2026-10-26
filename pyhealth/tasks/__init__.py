@@ -1,4 +1,9 @@
 from .base_task import BaseTask
+from .task_card import (
+    DIRECTIONS as DIRECTIONS,
+    FeatureInfo as FeatureInfo,
+    TaskCard as TaskCard,
+)
 from .benchmark_ehrshot import BenchmarkEHRShot
 from .cancer_survival import CancerMutationBurden, CancerSurvivalPrediction
 from .bmd_hs_disease_classification import BMDHSDiseaseClassification
