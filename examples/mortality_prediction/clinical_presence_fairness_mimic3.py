@@ -47,15 +47,17 @@ Usage:
 
 Writes aggregate results only, never per-patient rows: metrics.csv (long
 format), selection.csv (each C's validation score and iterations per draw, and
-the chosen C), cohort.json (cohort sizes and the paper's Table 1), report.md
-(Tables 2 and 5-10, with the paper's values in brackets) and
-fig_deltas_<model>_<capacity>.png (Figures 5 and 9-11, if matplotlib is
-installed).
+the chosen C), cohort.json (cohort sizes, the paper's Table 1 and each
+strategy's share of extreme imputations), fig_deltas_<model>_<capacity>.png
+(the gaps of Figures 5 and 9-11, if matplotlib is installed) and report.md
+(Tables 1, 2 and 5-10, the gaps, the chosen C and the extreme imputations, with
+the paper's values in brackets).
 """
 
 import argparse
 import json
 import logging
+import platform
 import time
 import warnings
 from collections import defaultdict
@@ -63,12 +65,14 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import sklearn
 from joblib import Parallel, delayed
 from scipy import stats
 from sklearn.exceptions import ConvergenceWarning
 from sklearn.linear_model import LogisticRegression as SkLogisticRegression
 from sklearn.metrics import roc_auc_score
 
+import pyhealth
 from pyhealth.datasets import MIMIC3Dataset, get_dataloader
 from pyhealth.metrics.fairness_utils import capacity_fairness_metrics
 from pyhealth.models import LogisticRegression
@@ -142,6 +146,27 @@ PAPER = {
         "MICE Missing": (.251, .287, .294, .272, .279, .301, .283),
         "Group MICE Missing": (.419, .285, .311, .277, .288, .321, .293)},
 }
+GROUP_AXIS = {"Population": "Overall",
+              **{g: axis for axis, (_, a, b) in AXES.items() for g in (a, b)}}
+# Paper Table 1 (36,296 patients): (lab orders, missing labs) as (mean, sd). The paper
+# marks every contrast p < 0.001 and calls missing labs "distinct tests".
+PAPER_COHORT = 36296
+PAPER_TABLE1 = {
+    "Alive": ((5.68, 4.64), (40.80, 6.73)), "Dead": ((7.57, 5.44), (37.22, 7.50)),
+    "Black": ((5.24, 4.08), (40.94, 6.94)), "Non Black": ((5.86, 4.77), (40.52, 6.84)),
+    "Female": ((5.54, 4.45), (40.75, 6.89)), "Male": ((6.03, 4.91), (40.41, 6.80)),
+    "Public": ((5.67, 4.57), (40.46, 6.76)), "Private": ((6.11, 5.01), (40.75, 7.01)),
+}
+N_LABS = 67
+FIGURES = {0.05: "Figure 9", 0.3: "Figures 5 and 10", 0.5: "Figure 11"}  # by capacity
+MODEL_NAMES = {"sklearn": "scikit-learn LogisticRegression",
+               "pyhealth": "PyHealth LogisticRegression"}
+# tab20 colour per strategy: one hue per imputer, its light shade with indicators
+COLOURS = {"Median": 0, "Median Missing": 1, "MICE": 2, "MICE Missing": 3,
+           "Group MICE": 4, "Group MICE Missing": 5, "MissForest": 6,
+           "MissForest Missing": 7, "Group MissForest": 8,
+           "Group MissForest Missing": 9, "Corrected MICE": 10,
+           "Corrected Group MICE": 12}
 
 
 def load_arrays(sd):
@@ -259,99 +284,247 @@ def cohort_summary(data):
            "split_sizes": {s: int((data["split"] == s).sum())
                            for s in ("train", "val", "test")},
            "features_per_draw": int(data["X"].shape[2]), "table1": {}}
-    missing = 67 - f["n_observed_labs"]
+    missing = N_LABS - f["n_observed_labs"]
     contrasts = {"Outcome": (y == 0, y == 1, "Alive", "Dead"),
                  **{axis: (f[field] == 1, f[field] == 0, marg, rest)
                     for axis, (field, marg, rest) in AXES.items()}}
-    for name, (a, b, la, lb) in contrasts.items():
-        out["table1"][name] = {
-            col: {la: [round(float(v[a].mean()), 2), round(float(v[a].std()), 2)],
-                  lb: [round(float(v[b].mean()), 2), round(float(v[b].std()), 2)],
+    for name, (a, b, la, lb) in contrasts.items():  # ddof=1 as pandas, like the paper
+        out["table1"][name] = {"patients": {la: int(a.sum()), lb: int(b.sum())}} | {
+            col: {la: [round(float(v[a].mean()), 2), round(float(v[a].std(ddof=1)), 2)],
+                  lb: [round(float(v[b].mean()), 2), round(float(v[b].std(ddof=1)), 2)],
                   "t_test_p": float(stats.ttest_ind(v[a], v[b]).pvalue)}
             for col, v in (("orders", f["n_lab_orders"]), ("missing_labs", missing))}
     return out
 
 
-def _cell(sub, strategy, group, metric):
-    s = sub[(sub.strategy == strategy) & (sub.group == group) & (sub.metric == metric)]
+def extreme_summary(data):
+    """Extreme imputations, as shares of imputed cells and of patients with one.
+
+    A cell is extreme beyond the training range widened by 3 sd. Each share is
+    [mean over draws, largest in a draw], overall and, for patients, by group.
+    """
+    E, f = data["n_extreme"], data["fields"]
+    hit = E > 0  # (draw, patient)
+    cells = E.sum(axis=1) / max((N_LABS - f["n_observed_labs"]).sum(), 1)
+    shares = {"cells": cells, "patients": hit.mean(axis=1)}
+    for field, marg, rest in AXES.values():
+        for label, m in ((marg, f[field] == 1), (rest, f[field] == 0)):
+            shares[label] = hit[:, m].mean(axis=1) if m.any() else None
+    return {k: None if v is None else [round(float(x), 7) for x in (v.mean(), v.max())]
+            for k, v in shares.items()}
+
+
+def _paper(strategy, metric, group):
+    """The paper's value at 30%; a + Black flag row gets its base strategy's.
+
+    The paper's Group MICE code also passed the Black flag to the classifier.
+    """
+    vals = PAPER[metric].get(strategy.split(" + ")[0])
+    return None if vals is None else vals[GROUP_ROWS.index(group)]
+
+
+def _paper_gap(strategy, metric, axis):
+    _, marg, rest = AXES[axis]
+    a, b = _paper(strategy, metric, marg), _paper(strategy, metric, rest)
+    return None if a is None else a - b
+
+
+def _cell(d, axis, strategy, group, metric, paper=None, sign=""):
+    """mean (bootstrap sd), then ± the sd across seeds if several, then [paper]."""
+    s = d[(d.axis == axis) & (d.strategy == strategy) & (d.group == group)
+          & (d.metric == metric)]
     if s.empty:
         return "—"
-    txt = f"{s['mean'].mean():.3f} ({s['std'].mean():.3f})"
-    return txt + (f" ±{s['mean'].std():.3f}" if len(s) > 1 else "")
+    txt = f"{s['mean'].mean():{sign}.3f} ({s['std'].mean():.3f})"
+    if len(s) > 1:
+        txt += f" ±{s['mean'].std():.3f}"
+    return txt if paper is None else f"{txt} [{paper:{sign}.3f}]"
 
 
-def write_report(df, cohorts, out, args):
-    lines = ["# Clinical presence and imputation fairness: results", "",
-             (f"Seeds {args.seeds}; capacities {args.capacities}; "
-              f"{args.n_bootstrap} bootstrap resamples. Cells: mean (bootstrap sd)"
-              " [± sd across seeds]; paper values in brackets."), "",
-             "## Cohort", "", "```json", json.dumps(cohorts, indent=1), "```"]
-    for model in sorted(df.model.unique()):
-        d = df[(df.model == model) & (df.capacity == 0.3)]
-        strategies = [s for s in STRATEGIES if s in set(d.strategy)]
-        group_rows = [(axis, g) for axis, (_, a, b) in AXES.items() for g in (a, b)]
-        group_rows.append(("Overall", "Population"))
-        for metric, title in (("auc", "AUC-ROC (Tables 2, 5, 8)"),
-                              ("prioritization_rate", "Prioritisation (Tables 6, 9)"),
-                              ("fnr", "False negative rate (Tables 7, 10)")):
-            lines += ["", f"## {model}: {title}, 30% capacity", "",
-                      "| Group | " + " | ".join(strategies) + " |",
-                      "|---" * (len(strategies) + 1) + "|"]
-            for axis, g in group_rows:
-                cells = []
-                for s in strategies:
-                    c = _cell(d[d.axis == axis], s, g, metric)
-                    if s in PAPER[metric]:
-                        c += f" [{PAPER[metric][s][GROUP_ROWS.index(g)]:.3f}]"
-                    cells.append(c)
-                lines.append(f"| {g} | " + " | ".join(cells) + " |")
+def _table(header, rows):
+    return ["| " + " | ".join(header) + " |", "|---" * len(header) + "|",
+            *("| " + " | ".join(r) + " |" for r in rows)]
+
+
+def write_report(df, selection, cohorts, figures, out, args):
+    """report.md: Tables 1, 2 and 5-10 and the gaps, with paper values in brackets."""
+    first = cohorts[f"seed {args.seeds[0]}"]
+    split = " / ".join(f"{n:,}" for n in first["split_sizes"].values())
+    lines = [
+        "# Imputation strategies under clinical presence: results", "",
+        (f"Split seed{'s' * (len(args.seeds) > 1)} {', '.join(map(str, args.seeds))}; "
+         f"{args.n_bootstrap} bootstrap "
+         f"resamples of the {first['split_sizes']['test']:,}-patient test split; "
+         f"capacities {', '.join(f'{c:.0%}' for c in args.capacities)}. "
+         f"Python {platform.python_version()}, NumPy {np.__version__}, pandas "
+         f"{pd.__version__}, scikit-learn {sklearn.__version__}, PyHealth "
+         f"{pyhealth.__version__}."), "",
+        "How to read the tables:", "",
+        ("- A cell is the mean over bootstrap resamples, with their sd in parentheses. "
+         "With several seeds, it is the mean over seeds and the mean bootstrap sd, "
+         "followed by ± the sd across seeds."),
+        ("- Brackets hold the paper's value. The paper evaluated on 28% of its cohort, "
+         "so its sds are smaller."),
+        ("- Δ is the marginalised group (Black, female, publicly insured) minus the "
+         "rest. A positive Δ means the marginalised group has the larger value."),
+        ("- The paper's code for Group MICE also passed the Black flag to the "
+         "classifier, so its Group MICE values are bracketed in the + Black flag rows "
+         "too."),
+        ("- Figure error bars are 1.96 bootstrap sds. The paper's figures divide "
+         "that by 10."),
+        "", "## Cohort (Table 1)", "",
+        (f"{first['patients']:,} patients [{PAPER_COHORT:,}], of whom "
+         f"{first['positives']:,} ({first['prevalence']:.2%}) died within 8 days of "
+         f"admission. Split: {split} (train / validation / test)."), ""]
+    rows = []
+    for block in first["table1"].values():
+        for i, g in enumerate(block["patients"]):
+            cells = [g, f"{block['patients'][g]:,}"]
+            for k, col in enumerate(("orders", "missing_labs")):
+                (m, s), (pm, ps) = block[col][g], PAPER_TABLE1[g][k]
+                cells.append(f"{m:.2f} ({s:.2f}) [{pm:.2f} ({ps:.2f})]")
+            cells.append("" if i else ", ".join(f"{block[c]['t_test_p']:.1g}"
+                                                for c in ("orders", "missing_labs"))
+                         + " [< 0.001]")
+            rows.append(cells)
+    lines += _table(["Group", "Patients", "Lab orders", f"Missing labs, of {N_LABS}",
+                     "t-test p: orders, missing labs"], rows)
+    lines += ["", ("The paper calls missing labs \"distinct tests\". Its lab-order "
+                   "means differ from what its published code computes on MIMIC-III "
+                   "v1.4, which agrees with this script; its missing labs match.")]
+
+    ext = defaultdict(list)
+    for summary in cohorts.values():
+        for s, e in summary.get("extreme_imputations", {}).items():
+            ext[s].append(e)
+    groups = [g for _, a, b in AXES.values() for g in (a, b)]
+    rows = []
+    for s in [s for s in STRATEGIES if s in ext]:
+        cells = []
+        for k in ("cells", "patients", *groups):
+            v = np.array([e[k] for e in ext[s] if e[k] is not None]).reshape(-1, 2)
+            fmt = ".3%" if k == "cells" else ".2%"
+            cells.append(f"{v[:, 0].mean():{fmt}} ({v[:, 1].max():{fmt}})"
+                         if len(v) else "—")
+        rows.append([s, *cells])
+    if rows:
+        lines += ["", "## Extreme imputations", "",
+                  ("Share of imputed cells beyond the training range widened by 3 "
+                   "training sds, and share of patients with at least one: the mean "
+                   "over draws (and seeds), then the largest share in any one draw."),
+                  ""]
+        lines += _table(["Strategy", "Imputed cells", "Patients", *groups], rows)
+
+    if len(selection):
+        rows = []
+        for s in [s for s in STRATEGIES if s in set(selection.strategy)]:
+            g = selection[selection.strategy == s]
+            counts = g[g.chosen].C.value_counts().sort_index()
+            rows.append([s, ", ".join(f"{C:g} ×{k}" for C, k in counts.items()),
+                         f"{int((g.n_iter == MAX_ITER).sum())} of {len(g)}"])
+        lines += ["", "## Choosing C (scikit-learn)", "",
+                  (f"One fit per draw and C in {', '.join(f'{C:g}' for C in C_GRID)}; "
+                   f"C is chosen by validation {args.select_metric}, the first winning "
+                   f"ties. sag stops after {MAX_ITER} epochs."), ""]
+        lines += _table(["Strategy", "Chosen C: draws", "Fits stopped at max_iter"],
+                        rows)
+
+    cols = ["Population", *(g for g in GROUP_ROWS if g != "Population")]
+    gaps = [(m, a) for m in ("prioritization_rate", "fnr") for a in AXES]
+    short = {"prioritization_rate": "prio", "fnr": "FNR"}
+    main_cap = next((c for c in args.capacities if np.isclose(c, 0.3)),
+                    args.capacities[0])
+    at_30 = bool(np.isclose(main_cap, 0.3))
+    for model in [m for m in MODEL_NAMES if m in set(df.model)]:  # scikit-learn first
+        dm = df[df.model == model]
+        d = dm[np.isclose(dm.capacity, main_cap)]
+        strategies = [s for s in STRATEGIES if s in set(dm.strategy)]
+        lines += ["", f"## {MODEL_NAMES.get(model, model)}"]
+        for metric, title in (
+                ("auc", "AUC-ROC (Tables 2, 5 and 8)"),
+                ("prioritization_rate", f"Prioritisation at {main_cap:.0%} capacity"
+                 + (" (Tables 6 and 9)" if at_30 else "")),
+                ("fnr", f"False negative rate at {main_cap:.0%} capacity"
+                 + (" (Tables 7 and 10)" if at_30 else ""))):
+            paper = metric == "auc" or at_30  # AUC does not depend on the capacity
+            rows = [[s, *(_cell(d, GROUP_AXIS[g], s, g, metric,
+                                _paper(s, metric, g) if paper else None) for g in cols)]
+                    for s in strategies]
+            lines += ["", f"### {title}", ""]
+            if metric == "auc":
+                lines += [("AUC does not depend on the capacity. The Population column "
+                           "is Table 2."), ""]
+            lines += _table(["Strategy", *cols], rows)
+            if metric == "auc":
+                rows = [[s, *(_cell(d, a, s, "Delta", "auc",
+                                    _paper_gap(s, "auc", a), "+") for a in AXES)]
+                        for s in strategies]
+                lines += ["", "### AUC gaps", ""]
+                lines += _table(["Strategy", *(f"Δ AUC {a}" for a in AXES)], rows)
         for cap in args.capacities:
-            dc = df[(df.model == model) & (df.capacity == cap)]
-            gaps = [f"Δ{m} {a}" for a in AXES for m in ("prio", "FNR", "AUC")]
-            lines += ["", (f"## {model}: gaps (marginalised − rest), {cap:.0%} "
-                           "capacity (Figures 5, 9-11)"), "",
-                      "| Strategy | " + " | ".join(gaps) + " |",
-                      "|---" * (len(gaps) + 1) + "|"]
-            for s in [s for s in STRATEGIES if s in set(dc.strategy)]:
-                cells = [_cell(dc[dc.axis == a], s, "Delta", m) for a in AXES
-                         for m in ("prioritization_rate", "fnr", "auc")]
-                lines.append(f"| {s} | " + " | ".join(cells) + " |")
+            dc = dm[np.isclose(dm.capacity, cap)]
+            ref = FIGURES.get(round(cap, 2))
+            rows = [[s, *(_cell(dc, a, s, "Delta", m, _paper_gap(s, m, a)
+                                if np.isclose(cap, 0.3) else None, "+")
+                          for m, a in gaps)] for s in strategies]
+            lines += ["", f"### Gaps at {cap:.0%} capacity"
+                      + (f" ({ref})" if ref else ""), ""]
+            lines += _table(["Strategy", *(f"Δ {short[m]} {a}" for m, a in gaps)], rows)
+            fig = f"fig_deltas_{model}_{round(cap * 100)}.png"
+            if fig in figures:
+                lines += ["", f"![Gaps at {cap:.0%} capacity]({fig})"]
     (out / "report.md").write_text("\n".join(lines) + "\n")
 
 
 def plot_deltas(df, out):
+    """Figures 5 and 9-11: Δ prioritisation and Δ FNR by axis; returns the files."""
     try:
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
     except ImportError:
         logger.warning("matplotlib not installed; skipping figures")
-        return
+        return set()
+    tab20, written = plt.get_cmap("tab20").colors, set()
     for (model, cap), d in df[df.group == "Delta"].groupby(["model", "capacity"]):
-        fig, axes = plt.subplots(1, 2, figsize=(11, 5), sharey=True)
         strategies = [s for s in STRATEGIES if s in set(d.strategy)]
-        bases = [s for s in strategies if STRATEGIES[s][2] != "diagnostic"]
-        palette = dict(zip(bases, plt.get_cmap("tab10").colors))
-        n, h = len(strategies), 1 / (len(strategies) + 1)
+        n, h = len(strategies), 0.8 / len(strategies)
+        base = np.arange(len(AXES))[::-1]  # Ethnicity on top, as in the paper
+        fig, axes = plt.subplots(1, 2, figsize=(11, 1.5 + 0.15 * n * len(AXES)),
+                                 sharey=True)
         for ax, metric, label in zip(axes, ("prioritization_rate", "fnr"),
                                      ("Δ prioritisation", "Δ false negative rate")):
+            shown = False
             for k, s in enumerate(strategies):          # first strategy on top
                 e = d[(d.strategy == s) & (d.metric == metric)].groupby("axis")[
                     ["mean", "std"]].mean().reindex(list(AXES))
-                diagnostic = STRATEGIES[s][2] == "diagnostic"
-                ax.barh(np.arange(len(AXES)) + (n - 1 - k) * h, e["mean"], height=h,
-                        xerr=1.96 * e["std"], label=s,
-                        color=palette.get(s.split(" + ")[0], "grey"),
-                        hatch="///" if diagnostic else None, edgecolor="white",
-                        linewidth=0.5, error_kw={"lw": 0.8})
+                y = base + (n - 1 - 2 * k) * h / 2
+                ax.barh(y, e["mean"], height=h, xerr=1.96 * e["std"], label=s,
+                        color=tab20[COLOURS.get(s.split(" + ")[0], 14)],
+                        hatch="///" if STRATEGIES[s][2] == "diagnostic" else None,
+                        edgecolor="white", linewidth=0.5, error_kw={"lw": 0.8})
+                paper = [_paper_gap(s, metric, a) for a in AXES]
+                if np.isclose(cap, 0.3) and None not in paper:
+                    ax.scatter(paper, y, marker="D", s=12, color="black", zorder=3,
+                               label="_" if shown else "paper")
+                    shown = True
             ax.axvline(0, color="k", lw=0.8, ls="--")
-            ax.set_yticks(np.arange(len(AXES)) + (n - 1) * h / 2, list(AXES))
+            ax.set_yticks(base, list(AXES))
             ax.set_xlabel(label)
-        axes[1].legend(fontsize=7, loc="center left", bbox_to_anchor=(1, 0.5))
-        fig.suptitle(f"{model}, {cap:.0%} capacity (bars: 1.96 × bootstrap sd)")
-        fig.savefig(out / f"fig_deltas_{model}_{int(cap * 100)}.png", dpi=150,
-                    bbox_inches="tight")
+        handles, labels = axes[1].get_legend_handles_labels()
+        order = sorted(range(len(labels)), key=lambda i: labels[i] == "paper")
+        axes[1].legend([handles[i] for i in order], [labels[i] for i in order],
+                       fontsize=7, loc="center left", bbox_to_anchor=(1, 0.5))
+        ref, seeds = FIGURES.get(round(cap, 2)), d.seed.nunique()
+        fig.suptitle(f"{MODEL_NAMES.get(model, model)}, {cap:.0%} capacity"
+                     + (f" (paper: {ref})" if ref else "")
+                     + (f", mean of {seeds} seeds" if seeds > 1 else "")
+                     + "\nΔ = marginalised − rest; bars: 1.96 × bootstrap sd")
+        name = f"fig_deltas_{model}_{round(cap * 100)}.png"
+        fig.savefig(out / name, dpi=150, bbox_inches="tight")
+        written.add(name)
         plt.close(fig)
+    return written
 
 
 def parse_args():
@@ -415,7 +588,10 @@ def main():
                 logger.info("%s, seed %d: set_task + load %.0f s", name, seed,
                             time.perf_counter() - t)
             sd, data = datasets[key]
-            cohorts.setdefault(f"seed {seed}", cohort_summary(data))
+            summary = cohorts.setdefault(f"seed {seed}", cohort_summary(data))
+            if not extra:  # the diagnostics reuse their base strategy's imputations
+                summary.setdefault("extreme_imputations", {})[name] = (
+                    extreme_summary(data))
             te = data["split"] == "test"
             fields_te = {f: v[te] for f, v in data["fields"].items()}
             t = time.perf_counter()
@@ -438,12 +614,12 @@ def main():
     df = pd.DataFrame(records, columns=["seed", "model", "strategy", "family", "axis",
                                         "group", "metric", "mean", "std", "capacity"])
     df.to_csv(out / "metrics.csv", index=False)
-    pd.DataFrame(selection, columns=["seed", "strategy", "draw", "C",
-                                     f"val_{args.select_metric}", "n_iter", "chosen"]
-                 ).to_csv(out / "selection.csv", index=False)
+    selection = pd.DataFrame(selection, columns=["seed", "strategy", "draw", "C",
+                                                 f"val_{args.select_metric}", "n_iter",
+                                                 "chosen"])
+    selection.to_csv(out / "selection.csv", index=False)
     (out / "cohort.json").write_text(json.dumps(cohorts, indent=1))
-    write_report(df, cohorts, out, args)
-    plot_deltas(df, out)
+    write_report(df, selection, cohorts, plot_deltas(df, out), out, args)
     logger.info("wrote %s", out)
 
 
