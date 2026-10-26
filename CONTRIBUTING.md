@@ -1,61 +1,51 @@
 # Contribute
 
-We welcome all kinds of contributions to keep PyHealth growing and thriving.
+We welcome all kinds of contributions to keep PyHealth growing and thriving:
+bug reports, feature proposals, new datasets, tasks, and models, bug fixes,
+and documentation improvements.
 
-Everyone can contribute, and we value every contribution, whether it is
+**The full contributor guide lives in our documentation:
+[How to Contribute](https://pyhealth.readthedocs.io/en/latest/how_to_contribute.html)**
+(source: [`docs/how_to_contribute.rst`](docs/how_to_contribute.rst)).
+Please read it before opening a pull request. It covers:
 
-- Reporting a bug
-- Proposing new features
-- Discussing the current state of the code
-- Submitting new code
-- Becoming a maintainer
+- Examples of great contributions and the review criteria we use
+- Setting up your development environment
+- Getting data access (MIMIC credentialing and open demo datasets)
+- Implementation requirements: file headers, code style, and docstrings
+- File checklists for contributing a dataset, task, or model
+- Test case requirements, including how to write fast tests with synthetic data
+- How to format your pull request description
+
+## Quick Start
+
+1. [Fork the PyHealth repository](https://github.com/sunlabuiuc/PyHealth/fork)
+2. Clone your fork and install it in editable mode:
+
+   ```bash
+   git clone https://github.com/your_username/PyHealth.git
+   cd PyHealth
+   pip install -e .
+   ```
+
+3. Implement your change with tests and documentation
+4. Push to your fork and
+   [open a pull request](https://github.com/sunlabuiuc/PyHealth/pulls)
+   against the `master` branch, with "Allow edits by maintainers" enabled
+
+For trivial changes you can open a pull request directly. For non-trivial
+changes, please discuss them in an issue first.
 
 ## Submit an Issue
 
-In the following cases, you are encouraged
-to [submit an issue](https://github.com/sunlabuiuc/PyHealth/issues)
-on GitHub.
-
-- Reporting a bug
-- Proposing a new feature
-
-For bug reports, please be as detailed as possible. It is recommended to include
+[Submit an issue](https://github.com/sunlabuiuc/PyHealth/issues) on GitHub to
+report a bug or propose a new feature. For bug reports, please include:
 
 - A quick summary
 - Steps to reproduce (with sample code if possible)
-- What you expected would happen
+- What you expected to happen
 - What actually happens
-- Notes
-    - Why you think this might be happening
-    - Stuff you have tried that did not work
-
-## Submit a Pull Request
-
-You can contribute code to the project through pull requests. To submit a pull
-request, you need to
-
-- [Fork the PyHealth repository]
-- Clone it to your local machine
-- Implement your code and test it
-- Push it to your GitHub repository
-- [Create a pull request] in PyHelath repository
-
-[Fork the PyHealth repository]: https://github.com/sunlabuiuc/PyHealth/fork
-
-[Create a pull request]: https://github.com/sunlabuiuc/PyHealth/pulls
-
-If your forked repository is behind the latest version, you can create a pull request in
-your repository to pull the latest version from PyHealth.
-
-You can directly make a pull request for trivial changes. For non-trivial changes, it is
-better to discuss it in an issue before you implement the code.
-
-## Coding Style
-
-We follow the [PEP8 style](https://peps.python.org/pep-0008/) for code. The line length
-is set to 88 characters. We follow
-the [Google style](https://google.github.io/styleguide/pyguide.html#38-comments-and-docstrings)
-for docstrings.
+- Why you think this might be happening, and anything you tried that did not work
 
 ## PR Contribution Rules (enforced in CI)
 
@@ -179,3 +169,6 @@ We enforce code reviews for the main branches.
 
 - `master`: requires two approvals from the core developers
 - `develop`: requires one approval from the core developers
+Join our
+[Slack workspace](https://join.slack.com/t/pyhealthworkspace/shared_invite/zt-1j8h4da47-ZZWENUYax7SlgCRHNyL2DQ)
+to ask questions, discuss ideas, and share your work.

@@ -87,6 +87,19 @@ ClusterLabel (K-means Cluster-based Conformal)
 NeighborhoodLabel (Neighborhood Conformal Prediction)
 -----------------------------------------------------
 
+.. note::
+
+   ``NeighborhoodLabel.calibrate()`` excludes each calibration point from
+   its own k-nearest-neighbor set during the alpha_tilde search
+   (leave-one-out), matching test time, where a test point is never its
+   own neighbor. Including it lets a point's own score lower its own
+   threshold and causes under-coverage at test time. With leave-one-out
+   the lowest-scoring calibration point is never covered, so calibration
+   coverage is at most (N-1)/N for N calibration points, whatever
+   ``k_neighbors`` is. If the target is unreachable, ``calibrate()`` emits
+   a ``UserWarning``: above (N-1)/N it needs more calibration data or a
+   larger alpha; below it, a larger ``k_neighbors`` can also help.
+
 .. autoclass:: pyhealth.calib.predictionset.NeighborhoodLabel
    :members:
    :undoc-members:

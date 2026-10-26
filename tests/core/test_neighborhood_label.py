@@ -1,6 +1,8 @@
 """Tests for NeighborhoodLabel (NCP) prediction set constructor."""
 
 import unittest
+import warnings
+
 import numpy as np
 import torch
 
@@ -162,13 +164,64 @@ class TestNeighborhoodLabel(unittest.TestCase):
         self.assertIsNotNone(ncp.cal_conformity_scores_)
 
     def test_calibration_empirical_coverage_at_least_1_minus_alpha(self):
-        """After calibrate(), empirical coverage on calibration set >= 1-alpha."""
+        """After calibrate(), empirical coverage on the calibration set,
+        recomputed the same leave-one-out way calibrate() does, is >= 1-alpha.
+
+        Uses a seeded, briefly trained model on N=30 points. With the
+        untrained 6-point fixture, scores are noise unrelated to locality,
+        the target can be unreachable even at alpha_tilde = 0, and 6 points
+        give too coarse a coverage grid for alpha=0.2.
+        """
         from pyhealth.calib.predictionset.base_conformal import _query_weighted_quantile
 
-        ncp = NeighborhoodLabel(model=self.model, alpha=0.2, k_neighbors=3, lambda_L=50.0)
-        cal_indices = [0, 1, 2, 3, 4, 5]
-        cal_dataset = self.dataset.subset(cal_indices)
-        cal_emb = self._get_embeddings(cal_dataset)
+        torch.manual_seed(0)
+        np.random.seed(0)
+
+        n_per_class = 10
+        samples = []
+        for label in range(3):
+            for j in range(n_per_class):
+                idx = label * n_per_class + j
+                samples.append(
+                    {
+                        "patient_id": f"p{idx}",
+                        "visit_id": f"v{idx}",
+                        "conditions": [f"c{idx}"],
+                        "procedures": [float(label) + 0.01 * j],
+                        "label": label,
+                    }
+                )
+        dataset = create_sample_dataset(
+            samples=samples,
+            input_schema=self.input_schema,
+            output_schema=self.output_schema,
+            dataset_name="test_coverage",
+        )
+        model = MLP(
+            dataset=dataset,
+            feature_keys=["conditions", "procedures"],
+            label_key="label",
+            mode="multiclass",
+        )
+
+        # Brief training: this trivially class-separable fixture (procedures
+        # cleanly bucketed by label) only needs a handful of epochs for
+        # predicted probabilities -- and thus conformity scores -- to
+        # reflect real structure instead of random-init noise.
+        model.train()
+        optimizer = torch.optim.Adam(model.parameters(), lr=0.05)
+        train_loader = get_dataloader(dataset, batch_size=len(samples), shuffle=True)
+        for _ in range(50):
+            for batch in train_loader:
+                optimizer.zero_grad()
+                ret = model(**batch)
+                ret["loss"].backward()
+                optimizer.step()
+        model.eval()
+
+        ncp = NeighborhoodLabel(model=model, alpha=0.2, k_neighbors=3, lambda_L=50.0)
+        cal_dataset = dataset.subset(list(range(len(samples))))
+        cal_emb = extract_embeddings(model, cal_dataset, batch_size=32, device="cpu")
         ncp.calibrate(cal_dataset=cal_dataset, cal_embeddings=cal_emb)
 
         self.assertIsNotNone(ncp.alpha_tilde_)
@@ -178,9 +231,17 @@ class TestNeighborhoodLabel(unittest.TestCase):
         # Recompute per-sample thresholds using alpha_tilde (Q^NCP definition: alpha_tilde-quantile of conformity)
         N = ncp.cal_conformity_scores_.shape[0]
         k = min(ncp.k_neighbors, N)
-        distances_cal, indices_cal = ncp._nn.kneighbors(
-            ncp.cal_embeddings_, n_neighbors=k
+        k_query = min(k + 1, N)
+        distances_all, indices_all = ncp._nn.kneighbors(
+            ncp.cal_embeddings_, n_neighbors=k_query
         )
+        n_loo = k_query - 1
+        distances_cal = np.zeros((N, n_loo))
+        indices_cal = np.zeros((N, n_loo), dtype=int)
+        for i in range(N):
+            mask = indices_all[i] != i
+            distances_cal[i] = distances_all[i][mask][:n_loo]
+            indices_cal[i] = indices_all[i][mask][:n_loo]
         cal_weights = np.exp(-distances_cal / ncp.lambda_L)
         cal_weights = cal_weights / cal_weights.sum(axis=1, keepdims=True)
 
@@ -200,6 +261,68 @@ class TestNeighborhoodLabel(unittest.TestCase):
             1.0 - ncp.alpha - 1e-6,
             msg=f"Calibration empirical coverage {empirical_coverage:.4f} should be >= 1-alpha={1 - ncp.alpha}",
         )
+
+    def test_calibrate_point_is_not_its_own_neighbor(self):
+        """Regression test for the self-inclusion leak. With k_neighbors=1, a
+        point that is its own neighbor is always covered, so the search ends
+        near 1. Without self-matches the closest pair can't both be covered,
+        so 6 points can't reach 0.9."""
+        ncp = NeighborhoodLabel(model=self.model, alpha=0.1, k_neighbors=1, lambda_L=50.0)
+        cal_dataset = self.dataset.subset([0, 1, 2, 3, 4, 5])
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            ncp.calibrate(
+                cal_dataset=cal_dataset, cal_embeddings=self._get_embeddings(cal_dataset)
+            )
+        self.assertLess(ncp.alpha_tilde_, 0.5)
+
+    def _calibrate_and_get_ncp_warnings(self, ncp, cal_embeddings=None):
+        """Calibrate on the 6-point fixture and return the messages of any
+        unreachable-target warnings."""
+        cal_dataset = self.dataset.subset([0, 1, 2, 3, 4, 5])
+        if cal_embeddings is None:
+            cal_embeddings = self._get_embeddings(cal_dataset)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            ncp.calibrate(cal_dataset=cal_dataset, cal_embeddings=cal_embeddings)
+        return [
+            str(w.message)
+            for w in caught
+            if "NeighborhoodLabel: target coverage" in str(w.message)
+        ]
+
+    def test_calibrate_warns_target_above_ceiling(self):
+        """With leave-one-out the lowest-scoring point is never covered, so 6
+        points cap coverage at 5/6 for any k_neighbors. A 0.9 target is above
+        that even with k_neighbors=5 (all other points), so the warning must
+        point to more calibration data or a larger alpha, not k_neighbors."""
+        ncp = NeighborhoodLabel(model=self.model, alpha=0.1, k_neighbors=5, lambda_L=50.0)
+        msgs = self._calibrate_and_get_ncp_warnings(ncp)
+        self.assertEqual(len(msgs), 1)
+        self.assertIn("at most 0.833", msgs[0])
+        self.assertIn("larger calibration set or a larger alpha", msgs[0])
+        self.assertNotIn("Increase k_neighbors", msgs[0])
+        self.assertEqual(ncp.alpha_tilde_, 0.0)
+
+    def test_calibrate_warns_small_k_below_ceiling(self):
+        """Embeddings in three well-separated pairs make each point's only
+        neighbor (k_neighbors=1) its partner, and one point of each pair is
+        never covered: 3/6 at best. A 0.8 target is below the 5/6 ceiling, so
+        a larger k_neighbors can help and the warning must say so."""
+        ncp = NeighborhoodLabel(model=self.model, alpha=0.2, k_neighbors=1, lambda_L=50.0)
+        pairs = np.array([[0.0], [0.1], [10.0], [10.1], [20.0], [20.1]])
+        msgs = self._calibrate_and_get_ncp_warnings(ncp, cal_embeddings=pairs)
+        self.assertEqual(len(msgs), 1)
+        self.assertIn("best achievable: 0.500", msgs[0])
+        self.assertIn("Increase k_neighbors", msgs[0])
+        self.assertEqual(ncp.alpha_tilde_, 0.0)
+
+    def test_calibrate_no_warning_when_target_reachable(self):
+        """With k_neighbors=5 (all other points) only the lowest-scoring
+        point can miss at alpha_tilde = 0, so coverage is 5/6 and a target
+        of 0.5 is reachable: no warning."""
+        ncp = NeighborhoodLabel(model=self.model, alpha=0.5, k_neighbors=5, lambda_L=50.0)
+        self.assertEqual(self._calibrate_and_get_ncp_warnings(ncp), [])
 
 
 if __name__ == "__main__":
