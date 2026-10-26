@@ -5,8 +5,8 @@ Prediction set constructors that provide set-valued predictions with statistical
 coverage guarantees. These methods are based on conformal prediction and related
 techniques for uncertainty quantification.
 
-``BaseConformal``, ``LABEL``, ``ClusterLabel``, ``CovariateLabel``, and
-``NeighborhoodLabel`` all accept a ``score_type`` argument selecting the
+``BaseConformal``, ``LABEL``, ``ClusterLabel``, ``CovariateLabel``,
+``LabelShift``, and ``NeighborhoodLabel`` all accept a ``score_type`` argument selecting the
 nonconformity/conformity score used for calibration and set construction:
 either ``"threshold"`` (the default, unchanged from prior releases) or
 ``"aps"`` (Adaptive Prediction Sets, Romano, Sesia, and Candes 2020), which
@@ -27,6 +27,7 @@ Available Methods
    pyhealth.calib.predictionset.SCRIB
    pyhealth.calib.predictionset.FavMac
    pyhealth.calib.predictionset.CovariateLabel
+   pyhealth.calib.predictionset.LabelShift
    pyhealth.calib.predictionset.ClusterLabel
    pyhealth.calib.predictionset.NeighborhoodLabel
 
@@ -76,6 +77,14 @@ CovariateLabel (Covariate Shift Adaptive)
    :undoc-members:
    :show-inheritance:
 
+LabelShift (Label Shift Adaptive)
+---------------------------------
+
+.. autoclass:: pyhealth.calib.predictionset.LabelShift
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 ClusterLabel (K-means Cluster-based Conformal)
 ----------------------------------------------
 
@@ -109,6 +118,8 @@ Helper Functions
 ----------------
 
 .. autofunction:: pyhealth.calib.predictionset.covariate.fit_kde
+.. autofunction:: pyhealth.calib.predictionset.bbse
+.. autofunction:: pyhealth.calib.predictionset.em
 
 Score Functions
 ---------------
