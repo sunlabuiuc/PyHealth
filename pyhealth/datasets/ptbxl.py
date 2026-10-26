@@ -307,7 +307,9 @@ class PTBXLDataset(BaseDataset):
     directory containing ``ptbxl_database.csv``, ``scp_statements.csv``,
     ``records100/``, and ``records500/``. Raw data must live outside the git
     repo. Earlier PhysioNet releases (v1.0.1 / v1.0.2) are not supported:
-    required columns and record counts differ.
+    they still contain duplicate records removed in v1.0.2 / v1.0.3
+    (21,837 records in v1.0.1, 21,799 in v1.0.3). The release version is not
+    detected; only missing required columns raise an error.
 
     Derived metadata CSVs are written under PyHealth's dataset cache
     (``~/.cache/pyhealth/datasets/ptbxl/`` by default), **not** into ``root``,
@@ -317,6 +319,10 @@ class PTBXLDataset(BaseDataset):
     ``ptbxl_database.csv`` so different roots and source versions never share
     a derived CSV. ``BaseDataset`` cache identity (``global_event_df``) further
     includes those hashes via ``dataset_name`` (same pattern as EEGBCI).
+    The derived CSV and resolved YAML are written before
+    ``BaseDataset.__init__`` runs, so with ``PYHEALTH_REQUIRE_CACHE_DIR`` set
+    and no ``cache_dir`` they are still written to ``metadata_cache_dir``
+    before ``BaseDataset`` raises.
 
     Args:
         root (str): Version root of the PTB-XL download (signal + official CSVs).

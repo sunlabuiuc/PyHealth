@@ -54,6 +54,8 @@ def main() -> None:
         scp_statements_path=str(args.root / "scp_statements.csv"),
     )
     samples = dataset.set_task(task)
+    # Without ``folds=``, fold values are read through ``samples[i]``, which
+    # decodes every stored sample, signal included, once before splitting.
     train, val, test = split_by_strat_fold(samples)
     print(
         f"samples={len(samples)} "
