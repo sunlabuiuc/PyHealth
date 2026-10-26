@@ -593,10 +593,10 @@ class SampleDataset(litdata.StreamingDataset):
     def subset(self, indices: Union[Sequence[int], slice]) -> "SampleDataset":
         """Create a StreamingDataset restricted to the provided indices.
 
-        The subset reads with litdata's POSIX-fast mmap reads and batched
-        decoding turned off (litdata >= 0.2.68). Both cache per index run, not
-        per chunk file, which makes a patient-level split ~20x slower to
-        iterate. The full dataset keeps them.
+        The subset reads with litdata's POSIX-fast mmap reads turned off from
+        litdata 0.2.68 and batched decoding turned off from 0.2.74. Both cache
+        per index run, not per chunk file, which makes a patient-level split
+        ~20x slower to iterate on 0.2.76. The full dataset keeps them.
         """
 
         new_dataset = deepcopy_dataset(self)
@@ -672,14 +672,17 @@ class SampleDataset(litdata.StreamingDataset):
         new_dataset._delete_on_close = False
         new_dataset.reset()
 
-        if Version(litdata.__version__) >= Version("0.2.68"):
-            # The subset lists one (file, region) entry per run of consecutive
-            # indices, so a patient-level split has thousands of entries over a
-            # few chunk files. litdata 0.2.68+ POSIX-fast reads and batched
-            # decoding cache per entry, not per file: each entry re-maps its
-            # file, re-parses the offset table and re-decodes a window of rows
-            # it mostly discards, so iterating is ~20x slower with them on.
+        # The subset lists one (file, region) entry per run of consecutive
+        # indices, so a patient-level split has thousands of entries over a
+        # few chunk files. These features cache per entry, not per file.
+        litdata_version = Version(litdata.__version__)
+        if litdata_version >= Version("0.2.68"):
+            # POSIX-fast re-maps the file and re-parses its offset table for
+            # each entry.
             new_dataset.posix_fast = None  # type: ignore
+        if litdata_version >= Version("0.2.74"):
+            # Batched decoding re-decodes a window of rows mostly outside
+            # the entry's region.
             new_dataset.batch_decode = 0  # type: ignore
 
         return new_dataset
