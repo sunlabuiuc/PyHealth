@@ -227,7 +227,7 @@ def pyhealth_probs(sd, data, out_dir, epochs, seed):
 
 
 def evaluate(y, p, fields, capacities, n_bootstrap):
-    """Rows of (axis, group, metric, mean, std, capacity), paper conventions."""
+    """(axis, group, metric, mean, std, capacity) rows; Delta = marginalised - rest."""
     rows = []
     for cap in capacities:
         try:
