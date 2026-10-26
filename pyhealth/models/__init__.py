@@ -48,8 +48,12 @@ from .sdoh import SdohClassifier
 from .medlink import MedLink
 from .unified_embedding import UnifiedMultimodalEmbeddingModel, SinusoidalTimeEmbedding
 from .califorest import CaliForest
+from .gradient_boosted_trees import GradientBoostedTreeModel as GradientBoostedTreeModel
+from .xgboost_model import XGBoostModel as XGBoostModel
 from .generators.halo import HALO
 from .generators.gpt2 import GPT2
 from .generators.promptehr import PromptEHR
 from .generators.medgan import MedGAN
-from .generators.corgan import CorGAN
+from .generators.synthea import Synthea as Synthea
+from .generators.corgan import CorGAN as CorGAN
+from .survival_mdn import SurvivalMDN as SurvivalMDN

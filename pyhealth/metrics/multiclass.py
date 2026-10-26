@@ -41,6 +41,12 @@ def multiclass_metrics_fn(
         - ECE_adapt: adaptive ECE (with 20 equal-size bins). Check :func:`pyhealth.metrics.calibration.ece_confidence_multiclass`.
         - cwECEt: classwise ECE with threshold=min(0.01,1/K). Check :func:`pyhealth.metrics.calibration.ece_classwise`.
         - cwECEt_adapt: classwise adaptive ECE with threshold=min(0.01,1/K). Check :func:`pyhealth.metrics.calibration.ece_classwise`.
+        - hits@n: ranking metric, the fraction of samples whose true class is among
+            the top n predicted classes. n cannot be chosen, the output always has
+            three entries: HITS@1, HITS@5 and HITS@10.
+        - mean_rank: mean rank of the true class, where rank 1 is the class with the
+            highest predicted probability. The output has two entries: mean_rank
+            and mean_reciprocal_rank.
 
     The following metrics related to the prediction sets are accepted as well, but will be ignored if y_predset is None:
         - rejection_rate: Frequency of rejection, where rejection happens when the prediction set has cardinality other than 1. Check :func:`pyhealth.metrics.prediction_set.rejection_rate`.
@@ -64,6 +70,8 @@ def multiclass_metrics_fn(
         y_prob: Predicted probabilities of shape (n_samples, n_classes).
         metrics: List of metrics to compute. Default is ["accuracy", "f1_macro",
             "f1_micro"].
+        y_predset: Optional prediction sets, one per sample. Only used by the
+            prediction set metrics listed above. Default is None.
 
     Returns:
         Dictionary of metrics whose keys are the metric names and values are

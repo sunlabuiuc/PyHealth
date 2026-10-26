@@ -38,6 +38,11 @@ tables read. Editing the YAML or rewriting a source file (even at the same path)
 therefore builds a fresh cache instead of silently reusing a stale one. Old cache
 folders are left in place; delete them to reclaim disk space.
 
+Temporary files (converted source tables, Dask scratch space) go to folders
+under ``tmp/`` in the cache directory. Each dataset removes only the folders it
+created, so a job that finishes does not delete the temporary files of another
+job using the same ``cache_dir``.
+
 The result is a :class:`~pyhealth.datasets.BaseDataset` — a structured
 patient→event tree. It is different from a PyTorch Dataset: it has no integer
 length and you cannot index into it with ``dataset[i]``. Think of it as a
@@ -88,6 +93,9 @@ future runs without re-fitting.
 
 Calling ``samples.subset(...)`` rebuilds both lookups with indices local to the
 new dataset, so they remain valid after repeated splitting.
+
+Calling ``close()`` preserves reusable task caches. Disk-backed datasets created
+by ``create_sample_dataset()`` own a temporary directory and remove it on close.
 
 For testing or small cohorts you can skip the disk step entirely using
 ``InMemorySampleDataset``, which holds all processed samples in RAM and is
@@ -230,6 +238,20 @@ Each event in the returned list has:
 - ``event.icd_code``, ``event["icd_code"]``, ``event.attr_dict`` — different
   ways to access the other attributes. All attribute names are lowercase.
 
+Shuffling and Reproducibility
+-----------------------------
+
+``get_dataloader(dataset, batch_size, shuffle=True, seed=None)`` gives each
+loader its own shuffle order: the same ``seed`` gives the same sequence of
+epoch orders, a different seed a different one, and each epoch is reshuffled.
+With ``seed=None`` the seed is drawn from torch's random generator when the
+loader is created, so ``torch.manual_seed(...)`` alone makes runs
+reproducible. This also holds with ``num_workers > 0``. Each loader applies
+its own settings to the dataset at the start of every pass, so an unshuffled
+evaluation loader on a training dataset leaves the training loader shuffling;
+just don't iterate two loaders over one dataset at the same time. See the
+Trainer docs for the full checklist.
+
 Things to Watch Out For
 ------------------------
 
@@ -274,6 +296,7 @@ Available Datasets
     datasets/pyhealth.datasets.ISRUCDataset
     datasets/pyhealth.datasets.MIMICExtractDataset
     datasets/pyhealth.datasets.OMOPDataset
+    datasets/pyhealth.datasets.SyntheaCSVDataset
     datasets/pyhealth.datasets.DREAMTDataset
     datasets/pyhealth.datasets.SHHSDataset
     datasets/pyhealth.datasets.SleepEDFDataset
