@@ -14,6 +14,7 @@ import uuid
 import platformdirs
 import multiprocessing
 import multiprocessing.queues
+from queue import Empty
 import shutil
 import time
 
@@ -1088,7 +1089,7 @@ class BaseDataset(ABC):
                         while not result.ready():
                             try:
                                 progress.update(queue.get(timeout=1))
-                            except:
+                            except Empty:
                                 pass
 
                         # remaining items
@@ -1153,7 +1154,7 @@ class BaseDataset(ABC):
                         while not result.ready():
                             try:
                                 progress.update(queue.get(timeout=1))
-                            except:
+                            except Empty:
                                 pass
 
                         # remaining items
