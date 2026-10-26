@@ -145,15 +145,20 @@ def load_arrays(sd):
     pids = sorted({r["patient_id"] for r in rows}, key=int)
     pos = {pid: j for j, pid in enumerate(pids)}
     n_draws = 1 + max(int(r["draw"]) for r in rows)
-    X = np.zeros((n_draws, len(pids), rows[0]["labs"].shape[0]), dtype=np.float32)
+    X = np.full((n_draws, len(pids), rows[0]["labs"].shape[0]), np.nan, np.float32)
+    n_extreme = np.zeros((n_draws, len(pids)), dtype=np.int64)
     first, index = {}, defaultdict(list)
     for i, r in enumerate(rows):
-        X[int(r["draw"]), pos[r["patient_id"]]] = r["labs"].numpy()
+        d, j = int(r["draw"]), pos[r["patient_id"]]
+        X[d, j] = r["labs"].numpy()
+        n_extreme[d, j] = r["n_extreme_imputations"]
         first.setdefault(r["patient_id"], r)
-        index[(r["split"], int(r["draw"]))].append(i)
+        index[(r["split"], d)].append(i)
+    if len(rows) != n_draws * len(pids) or np.isnan(X).any():  # no cell missed
+        raise ValueError("Expected exactly one sample per (patient, draw).")
     meta = [first[p] for p in pids]
     fields = [f for f, _, _ in AXES.values()] + ["n_lab_orders", "n_observed_labs"]
-    return {"X": X, "pids": pids, "index": index,
+    return {"X": X, "pids": pids, "index": index, "n_extreme": n_extreme,
             "y": np.array([int(m["mortality"].item()) for m in meta]),
             "split": np.array([m["split"] for m in meta]),
             "fields": {f: np.array([int(m[f]) for m in meta]) for f in fields}}
