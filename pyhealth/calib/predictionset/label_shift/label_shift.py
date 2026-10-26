@@ -169,6 +169,12 @@ class LabelShift(BaseConformal):
     This subclasses :class:`BaseConformal` and inherits its ``forward``:
     per-class thresholds stored in ``self.t`` broadcast against every
     candidate class, so only ``calibrate`` differs from the base class.
+    That difference is intentional and includes the signature:
+    ``calibrate`` requires ``target_label_dist``, unlike
+    ``BaseConformal.calibrate``, so a LabelShift instance cannot be
+    calibrated through a generic BaseConformal call that passes only a
+    calibration dataset. Label shift calibration inherently needs the
+    target distribution, so no default is supplied.
 
     Under label shift, the label distribution changes between the
     calibration distribution P and the deployment (target) distribution Q,

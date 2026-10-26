@@ -7,12 +7,16 @@ real patient data:
    source mix.
 2) The test set follows a different, shifted mix, so plain split
    conformal prediction undercovers.
-3) LabelShift is calibrated three ways: with the true target mix
-   (oracle), with BBSE, and with EM/MLLS, where BBSE and EM estimate
-   the target mix from the model's predictions alone, without test
-   labels.
+3) LabelShift is calibrated three ways: with both true mixes
+   (oracle, so the label ratios are fully known), with BBSE, and with
+   EM/MLLS, where BBSE and EM estimate the target mix from the model's
+   predictions alone, without test labels.
 4) Each predictor's prediction sets are evaluated on the shifted test
-   set: empirical coverage (target 90%) and average set size.
+   set: empirical coverage (target 90%) and average set size. The
+   class-conditional (LABEL) predictor is included as a baseline that
+   needs no target-mix estimate at all, since class-conditional
+   coverage is preserved under label shift; the tradeoff is that it
+   can need more calibration data per class and may give larger sets.
 
 Usage (from the repo root):
     python examples/label_shift_conformal.py
@@ -21,7 +25,13 @@ Usage (from the repo root):
 import numpy as np
 import torch
 
-from pyhealth.calib.predictionset import BaseConformal, LabelShift, bbse, em
+from pyhealth.calib.predictionset import (
+    LABEL,
+    BaseConformal,
+    LabelShift,
+    bbse,
+    em,
+)
 from pyhealth.datasets import create_sample_dataset, get_dataloader
 from pyhealth.models import MLP
 from pyhealth.trainer import Trainer
@@ -47,15 +57,8 @@ def make_samples(rng, n_samples, mix, start_id):
             {
                 "patient_id": f"patient-{start_id + i}",
                 "visit_id": f"visit-{start_id + i}",
-                # A fixed small code set, so every split shares the
-                # training set's embedding vocabulary.
-                "conditions": [
-                    str(
-                        rng.choice(
-                            ["cond-a", "cond-b", "cond-c", "cond-d", "cond-e"]
-                        )
-                    )
-                ],
+                # Procedures only: no categorical feature, so no
+                # per-split vocabulary mapping can scramble the inputs.
                 "procedures": [
                     signal,
                     float(rng.uniform()),
@@ -71,7 +74,7 @@ def make_samples(rng, n_samples, mix, start_id):
 def make_dataset(samples):
     return create_sample_dataset(
         samples=samples,
-        input_schema={"conditions": "sequence", "procedures": "tensor"},
+        input_schema={"procedures": "tensor"},
         output_schema={"label": "multiclass"},
         dataset_name="synthetic",
     )
@@ -114,7 +117,7 @@ def main():
 
     model = MLP(
         dataset=train_ds,
-        feature_keys=["conditions", "procedures"],
+        feature_keys=["procedures"],
         label_key="label",
         mode="multiclass",
     )
@@ -138,8 +141,19 @@ def main():
     plain = BaseConformal(model, alpha=ALPHA)
     plain.calibrate(cal_dataset=cal_ds)
     predictors.append(("Plain BaseConformal", plain))
+    # Class-conditional baseline: one threshold per class, no
+    # target-mix estimate needed.
+    label = LABEL(model, np.array([ALPHA, ALPHA, ALPHA]))
+    label.calibrate(cal_dataset=cal_ds)
+    predictors.append(("Class-conditional (LABEL)", label))
+    oracle = LabelShift(model, alpha=ALPHA)
+    oracle.calibrate(
+        cal_dataset=cal_ds,
+        target_label_dist=TARGET_MIX,
+        source_label_dist=SOURCE_MIX,
+    )
+    predictors.append(("LabelShift (oracle)", oracle))
     for name, target_dist in (
-        ("LabelShift (oracle)", TARGET_MIX),
         ("LabelShift (BBSE)", bbse_mix),
         ("LabelShift (EM)", em_mix),
     ):
