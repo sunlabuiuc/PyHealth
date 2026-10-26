@@ -1,5 +1,3 @@
-from typing import Dict, List, Optional
-
 import numpy as np
 import sklearn.metrics as sklearn_metrics
 
@@ -7,45 +5,58 @@ import sklearn.metrics as sklearn_metrics
 def regression_metrics_fn(
     x: np.ndarray,
     x_rec: np.ndarray,
-    metrics: Optional[List[str]] = None,
-) -> Dict[str, float]:
+    metrics: list[str] | None = None,
+) -> dict[str, float]:
     """Computes metrics for regression.
 
     User can specify which metrics to compute by passing a list of metric names.
     The accepted metric names are:
-        - kl_divergence: KL divergence
+        - kl_divergence: KL divergence KL(x_rec || x), computed after clipping
+          values below 1e-6 and normalizing each array to sum to 1
         - mse: mean squared error
         - mae: mean absolute error
-    If no metrics are specified, kd_div, mse, mae are computed by default.
+    If no metrics are specified, kl_divergence, mse and mae are computed by
+    default.
 
-    This function calls sklearn.metrics functions to compute the metrics. For
-    more information on the metrics, please refer to the documentation of the
+    The mse and mae metrics call sklearn.metrics functions. For more
+    information on them, please refer to the documentation of the
     corresponding sklearn.metrics functions.
 
     Args:
         x: True target data sample.
-        x_rec: reconstructed data sample.
-        metrics: List of metrics to compute. Default is ["kl_divergence", "mse", "mae"].
+        x_rec: Reconstructed data sample. Must have the same shape as x.
+        metrics: List of metrics to compute. Default is
+            ["kl_divergence", "mse", "mae"].
 
     Returns:
         Dictionary of metrics whose keys are the metric names and values are
-            the metric values.
+            the metric values as Python floats.
+
+    Raises:
+        ValueError: If x and x_rec do not have the same shape, or if an
+            unknown metric name is given.
 
     Examples:
-        >>> from pyhealth.metrics import binary_metrics_fn
-        >>> y_true = np.array([0, 0, 1, 1])
-        >>> y_prob = np.array([0.1, 0.4, 0.35, 0.8])
-        >>> binary_metrics_fn(y_true, y_prob, metrics=["accuracy"])
-        {'accuracy': 0.75}
+        >>> import numpy as np
+        >>> from pyhealth.metrics import regression_metrics_fn
+        >>> x = np.array([0.1, 0.2, 0.3, 0.4])
+        >>> x_rec = np.array([0.1, 0.25, 0.25, 0.4])
+        >>> result = regression_metrics_fn(x, x_rec, metrics=["mse", "mae"])
+        >>> {k: round(v, 5) for k, v in result.items()}
+        {'mse': 0.00125, 'mae': 0.025}
     """
     if metrics is None:
         metrics = ["kl_divergence", "mse", "mae"]
 
+    # Check shapes before flattening: flattening first would let arrays of
+    # different shapes but equal size, e.g. (2, 3) and (3, 2), pass silently.
+    if x.shape != x_rec.shape:
+        raise ValueError(
+            f"x and x_rec must have the same shape, got {x.shape} and {x_rec.shape}."
+        )
+
     x = x.flatten()
     x_rec = x_rec.flatten()
-    
-    if x.shape != x_rec.shape:
-        raise ValueError("x and x_rec must have the same shape.")
 
     output = {}
     for metric in metrics:
@@ -58,13 +69,13 @@ def regression_metrics_fn(
             x_kl = x_kl / np.sum(x_kl)
             x_rec_kl = x_rec_kl / np.sum(x_rec_kl)
             kl_divergence = np.sum(x_rec_kl * np.log(x_rec_kl / x_kl))
-            output["kl_divergence"] = kl_divergence
+            output["kl_divergence"] = float(kl_divergence)
         elif metric == "mse":
             mse = sklearn_metrics.mean_squared_error(x, x_rec)
-            output["mse"] = mse
+            output["mse"] = float(mse)
         elif metric == "mae":
             mae = sklearn_metrics.mean_absolute_error(x, x_rec)
-            output["mae"] = mae
+            output["mae"] = float(mae)
         else:
             raise ValueError(f"Unknown metric for regression task: {metric}")
     return output
