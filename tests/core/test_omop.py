@@ -22,6 +22,10 @@ class TestOMOPDataset(unittest.TestCase):
             "procedure_occurrence",
             "drug_exposure",
             "measurement",
+            "observation_period",
+            "visit_detail",
+            "observation",
+            "device_exposure",
         ]
         self.dataset = OMOPDataset(root=str(self.test_data_path), tables=self.tables)
 
@@ -131,6 +135,19 @@ class TestOMOPDataset(unittest.TestCase):
             self.assertIsNotNone(measurement.timestamp)
             self.assertEqual(measurement.event_type, "measurement")
             self.assertIn("measurement_concept_id", measurement.attr_dict)
+
+    def test_added_tables(self):
+        """Test that observation_period, visit_detail, observation and device_exposure load."""
+        patient = self.dataset.get_patient("-4873075614181207858")
+        for table in [
+            "observation_period",
+            "visit_detail",
+            "observation",
+            "device_exposure",
+        ]:
+            events = patient.get_events(event_type=table)
+            self.assertGreater(len(events), 0, table)
+            self.assertIsNotNone(events[0].timestamp)
 
     def test_event_types(self):
         """Test that all expected event types are present."""

@@ -24,13 +24,13 @@ from pathlib import Path
 import requests
 import tarfile
 from typing import List, Optional
-import urllib.request
 
 import pandas as pd
 
 from pyhealth.datasets import BaseDataset
 from pyhealth.processors import ImageProcessor
 from pyhealth.tasks import ChestXray14MultilabelClassification
+from pyhealth.utils import download_file
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +42,13 @@ class ChestXray14Dataset(BaseDataset):
         dataset_name (str): Name of the dataset.
         config_path (str): Path to the configuration file.
         classes (List[str]): List of diseases that appear in the dataset.
+
+    Examples:
+        >>> from pyhealth.datasets import ChestXray14Dataset
+        >>> dataset = ChestXray14Dataset(  # doctest: +SKIP
+        ...     root="./chestxray14", download=True, partial=True
+        ... )
+        >>> dataset.stats()  # doctest: +SKIP
     """
     classes: List[str] = ["atelectasis", "cardiomegaly", "consolidation",
                "edema", "effusion", "emphysema",
@@ -154,7 +161,9 @@ class ChestXray14Dataset(BaseDataset):
                 "&file_id=f_219760887468"
             ),
             allow_redirects=True,
+            timeout=60,
         )
+        response.raise_for_status()
 
         with open(self._label_path, "wb") as f:
             f.write(response.content)
@@ -199,7 +208,7 @@ class ChestXray14Dataset(BaseDataset):
             fn = os.path.join(root, f"images_{idx+1:02d}.tar.gz")
 
             logger.info(f'Downloading {fn}...')
-            urllib.request.urlretrieve(link, fn)
+            download_file(link, fn)
 
             logger.info(f"Checking MD5 checksum for {fn}...")
             with open(fn, 'rb') as f:
@@ -224,7 +233,7 @@ class ChestXray14Dataset(BaseDataset):
                         logger.error(msg)
                         raise ValueError(msg)
 
-                tar.extractall(path=root)
+                tar.extractall(path=root, filter="data")
 
             logger.info(f"Deleting {fn}...")
             os.remove(fn)
