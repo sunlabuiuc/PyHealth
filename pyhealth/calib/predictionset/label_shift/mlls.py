@@ -190,11 +190,14 @@ def em(
         The estimate is a plug-in input for LabelShift, so coverage
         guarantees stated for known label ratios become approximate.
         Convergence does not establish identifiability: when the target
-        probabilities are (nearly) constant across examples, EM can
-        converge immediately at the source prior even though the true
-        target proportions differ, and a UserWarning is issued in that
-        case. More generally, an estimate that equals the source prior
-        is not evidence on its own that no shift occurred.
+        probabilities are nearly constant across examples (the largest
+        per-class spread across rows is at most 1e-3), they carry
+        almost no information about a prevalence change, and a
+        UserWarning is issued in that case. The estimate may then be
+        driven by the source prior, but the source prior is an exact
+        fixed point only when the constant row equals it. More
+        generally, an estimate that equals the source prior is not
+        evidence on its own that no shift occurred.
 
     Examples:
         >>> import numpy as np
@@ -255,22 +258,24 @@ def em(
     if not np.isfinite(tol) or tol <= 0:
         raise ValueError(f"tol must be positive and finite, got {tol}.")
 
-    # Target rows that are (nearly) identical carry no information about
-    # a prevalence change: the source prior is then a fixed point, so EM
-    # can converge at once and return it without any evidence that the
-    # target proportions equal the source proportions. Warn instead of
-    # raising, since the inputs are valid, only uninformative. This
-    # catches clearly uninformative inputs; it does not diagnose every
-    # unidentifiable case, and convergence alone never establishes
-    # identifiability.
-    if proba.shape[0] > 1 and np.allclose(
-        proba, proba[0], rtol=0, atol=1e-12
-    ):
+    # Nearly constant target rows carry almost no information about a
+    # prevalence change: with a spread of at most 1e-3 in any class,
+    # the rows cannot distinguish target proportions, so the estimate
+    # may be driven by the source prior. The source prior is an exact
+    # fixed point only when the constant row equals it. Warn instead
+    # of raising, since the inputs are valid, only uninformative.
+    # This catches clearly uninformative inputs; it does not diagnose
+    # every unidentifiable case, and convergence alone never
+    # establishes identifiability.
+    if proba.shape[0] > 1 and (
+        proba.max(axis=0) - proba.min(axis=0)
+    ).max() <= 1e-3:
         warnings.warn(
-            "Target predicted probabilities are (nearly) constant "
-            "across examples, so they carry little or no information "
-            "about a prevalence change; the EM estimate may simply "
-            "reflect the source prior.",
+            "Target predicted probabilities are nearly constant "
+            "across examples (largest per-class spread at most 0.001), "
+            "so they carry little or no information about a prevalence "
+            "change; the EM estimate may simply reflect the source "
+            "prior.",
             UserWarning,
             stacklevel=2,
         )
