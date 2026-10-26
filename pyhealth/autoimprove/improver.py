@@ -9,15 +9,16 @@ import logging
 import math
 import os
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
 
 from pyhealth.datasets import SampleDataset
-from pyhealth.metrics import bootstrap_ci, paired_bootstrap_diff
+from pyhealth.metrics import bootstrap_ci, clinical_summary, paired_bootstrap_diff
 from pyhealth.processors import PROCESSOR_REGISTRY
+from pyhealth.tasks.task_card import TaskCard
 from pyhealth.trainer import get_metrics_fn
 
 from .evaluate import (
@@ -32,7 +33,7 @@ from .evaluate import (
     train_pipeline,
 )
 from .proposers import STRATEGIES, ProposalContext, Proposer
-from .space import PipelineConfig, SearchSpace
+from .space import PipelineConfig, SearchSpace, config_diff
 
 logger = logging.getLogger(__name__)
 
@@ -47,10 +48,18 @@ DEFAULT_METRIC = {
 MAX_PROPOSER_FAILURES = 3
 """Proposer errors in a row (API errors, refusals) before a run stops."""
 
+FOLD_TIE = 1e-4
+"""Fold scores closer than this count as a tie, not as one fold being better."""
+
 
 @dataclass
 class Trial:
     """One proposed configuration and how it did on validation.
+
+    Together the trials are the run's decision log: the config with the
+    proposer's rationale and hypothesis (written before the trial ran), the
+    trial it was changed from (``parent``) and what changed (``change``),
+    and the scores.
 
     ``error`` holds the full error text and is kept in ``trials.jsonl``.
     ``error_brief`` leaves out the exception's message, which can quote a raw
@@ -77,17 +86,21 @@ class Trial:
     error: str | None = None
     fold_scores: list[float] = field(default_factory=list)
     error_brief: str | None = None
+    parent: int | None = None
+    change: dict[str, str] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         """The trial as JSON-ready types."""
         data = dict(self.__dict__)
-        data["config"] = {**self.config.to_dict(), "rationale": self.config.rationale}
+        data["config"] = {**self.config.to_dict(), "rationale": self.config.rationale,
+                          "hypothesis": self.config.hypothesis}
         return data
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Trial:
-        """Rebuilds a trial saved with :meth:`to_dict`."""
-        data = dict(data)
+        """Rebuilds a trial saved with :meth:`to_dict` (unknown keys are ignored)."""
+        known = {f for f in cls.__dataclass_fields__}
+        data = {k: v for k, v in data.items() if k in known}
         data["config"] = PipelineConfig.from_dict(data["config"])
         return cls(**data)
 
@@ -98,14 +111,15 @@ class ImproveResult:
 
     Args:
         trials: Every trial, in the order run.
-        best: The selected trial: the best score, or with paired selection
-            (``cv_folds``, ``promote_se`` and a baseline) the trial with the
-            highest lower bound on its fold-by-fold gain over the baseline.
+        best: The selected trial (see :func:`select_simplest` and
+            :func:`select_trial`).
         baseline: The trial of the starting config, if one was given.
         lessons: The lessons at the end of the run.
         maximize: Whether larger scores are better.
         dropped_models: Models removed from the space before the search
             because they did not run on the training data, with the error.
+        top: The highest-scoring candidate. It differs from ``best`` when a
+            simpler model within one standard error was selected instead.
 
     Examples:
         >>> trial = Trial(0, -1, "baseline", "baseline", PipelineConfig("MLP"),
@@ -121,6 +135,7 @@ class ImproveResult:
     lessons: list[str]
     maximize: bool
     dropped_models: dict[str, str] = field(default_factory=dict)
+    top: Trial | None = None
 
     def leaderboard(self, k: int = 10) -> list[Trial]:
         """The ``k`` best finished trials, best first."""
@@ -211,17 +226,26 @@ class AutoImprover:
             their arguments), so a run only reads lessons learned on the same
             kind of search.
         promote_se: With ``cv_folds``, every trial is compared with the
-            baseline on the shared folds, and the selection is the trial
-            whose gain has the highest lower bound, mean minus
-            ``promote_se`` standard errors. The baseline stays selected
-            unless some bound is above 0. ``None`` selects the best mean, as
-            does a run without a baseline (or whose baseline trial failed),
-            since there is nothing to compare with.
+            baseline on the shared folds. A trial is a candidate if its gain
+            has a lower bound above 0, the mean minus ``promote_se``
+            standard errors; the baseline is always a candidate. Without a
+            baseline (or if the baseline trial failed) there is nothing to
+            compare with, and every finished trial is a candidate. ``None``
+            selects the best mean.
+        one_se: With ``promote_se``, select the most interpretable
+            candidate (lowest rung, :meth:`SearchSpace.rung`) whose score is
+            within one paired standard error of the best candidate's, the
+            one-SE rule (:func:`select_simplest`). ``False`` selects the
+            candidate with the highest lower bound (:func:`select_trial`).
         check: Before searching, give every model in the space one training
             step on a few training samples (:func:`check_models`) and remove
             the ones that fail, e.g. a model that cannot read one of the
             task's input types, so no trial is spent on them. They are listed
             in ``ImproveResult.dropped_models``.
+        task_card: The task's :class:`~pyhealth.tasks.TaskCard` (e.g.
+            ``task.task_card()``): the design choices with their rationale and
+            the feature dictionary. Reports use it to explain the model in
+            clinical terms and to check the directions of its effects.
 
     Examples:
         >>> from pyhealth.autoimprove import (AutoImprover, ClaudeLLM,
@@ -233,7 +257,9 @@ class AutoImprover:
         ... )  # doctest: +SKIP
         >>> result = improver.run()  # doctest: +SKIP
         >>> print(result.summary())  # doctest: +SKIP
+        >>> improver.attribute()  # doctest: +SKIP
         >>> improver.evaluate_on_test(test_ds)  # doctest: +SKIP
+        >>> improver.report("runs/mortality/report.html")  # doctest: +SKIP
     """
 
     def __init__(
@@ -256,7 +282,9 @@ class AutoImprover:
         lessons_path: str | None = None,
         cv_folds: int | None = None,
         promote_se: float | None = 1.0,
+        one_se: bool = True,
         check: bool = True,
+        task_card: TaskCard | None = None,
     ):
         self.train_dataset = train_dataset
         self.val_dataset = val_dataset
@@ -283,15 +311,19 @@ class AutoImprover:
         self.lessons_path = lessons_path
         self.cv_folds = cv_folds
         self.promote_se = promote_se if cv_folds else None
+        self.one_se = one_se
         if self.promote_se is not None and baseline is None:
             logger.warning(
                 "promote_se compares every trial with the baseline, and no "
-                "baseline was given: the best mean score is selected instead"
+                "baseline was given: every finished trial is a candidate, and %s",
+                "the one-SE rule picks among them" if one_se
+                else "the best mean score is selected",
             )
         self.folds = (
             patient_folds(train_dataset, cv_folds, seed) if cv_folds else None
         )
         self.check = check
+        self.task_card = task_card
         self.dropped_models: dict[str, str] = {}
         self._checked = False
         self.trials: list[Trial] = []
@@ -313,6 +345,7 @@ class AutoImprover:
         if self.check and not self._checked:
             self._check_models()
         self._load()
+        self._save_settings()
         self._warn_if_small_validation()
         start = time.perf_counter()
         if self.baseline is not None and not any(
@@ -406,11 +439,46 @@ class AutoImprover:
 
     def result(self) -> ImproveResult:
         """The current state as an :class:`ImproveResult`."""
-        best = select_trial(self.trials, self.maximize, self.promote_se)
+        if self.promote_se is not None and self.one_se:
+            best, top = select_simplest(
+                self.trials, self.maximize, self.promote_se, self.space.rung
+            )
+        else:
+            best = top = select_trial(self.trials, self.maximize, self.promote_se)
         baseline = next((t for t in self.trials if t.agent == "baseline"), None)
         return ImproveResult(
             list(self.trials), best, baseline, list(self.lessons), self.maximize,
-            dict(self.dropped_models),
+            dict(self.dropped_models), top,
+        )
+
+    def selection_rule(self) -> str:
+        """How the selection is made, in plain words (for prompts and reports)."""
+        if self.promote_se is None:
+            return "The selection is the trial with the best score."
+        simplest = (
+            "the most interpretable model (lowest rung) whose score is within one "
+            "paired standard error of the best"
+        )
+        baseline = next((t for t in self.trials if t.agent == "baseline"), None)
+        if self.baseline is None or (baseline is not None and baseline.error):
+            if not self.one_se:
+                return ("There is no starting pipeline to compare with, so the "
+                        "selection is the trial with the best mean score.")
+            return ("There is no starting pipeline to compare with, so every trial "
+                    f"is a candidate. The selection is {simplest}: simpler models "
+                    "win ties.")
+        bound = (
+            f"Every trial is compared with the starting pipeline fold by fold. "
+            f"A trial is a candidate if its gain is above 0 by more than "
+            f"{self.promote_se:g} standard error(s), so a gain must be "
+            f"consistent across folds, not only high on average."
+        )
+        if not self.one_se:
+            return bound + " The selection is the candidate with the highest bound."
+        return bound + (
+            " Among the candidates, the selection is the most interpretable "
+            "model (lowest rung) whose score is within one paired standard error "
+            "of the best candidate's: simpler models win ties."
         )
 
     def _turn(self, cycle: int, agent: str, strategy: str) -> None:
@@ -467,6 +535,11 @@ class AutoImprover:
     def _evaluate(self, config, cycle, agent, strategy, notes=None) -> Trial:
         trial = Trial(len(self.trials), cycle, agent, strategy, config,
                       metric_name=self.metric, notes=list(notes or []))
+        parent = None if agent == "baseline" else _parent_of(config, self.trials)
+        if parent is not None:
+            trial.parent, trial.change = parent.trial_id, config_diff(
+                parent.config, config
+            )
         try:
             if self.folds is not None:
                 out = run_config_cv(
@@ -514,20 +587,7 @@ class AutoImprover:
             lessons=self.lessons,
             feedback=feedback,
             selected=result.best,
-            selection_rule=self._selection_rule(result.baseline),
-        )
-
-    def _selection_rule(self, baseline: Trial | None) -> str:
-        if self.promote_se is None:
-            return ""
-        if baseline is None or baseline.error is not None:
-            return ("There is no baseline to compare with, so the selection is "
-                    "the config with the best mean score.")
-        return (
-            "The selection is the config whose fold-by-fold gain over the "
-            f"baseline has the highest lower bound (mean minus "
-            f"{self.promote_se:g} standard errors), so a gain must be "
-            "consistent across folds, not only high on average."
+            selection_rule=self.selection_rule() if self.promote_se is not None else "",
         )
 
     def _best_score(self) -> float | None:
@@ -554,27 +614,43 @@ class AutoImprover:
         self,
         test_dataset: SampleDataset,
         n_boot: int = 1000,
+        subgroups: Mapping[str, Sequence[Any]] | None = None,
         return_predictions: bool = False,
     ) -> dict[str, Any]:
-        """Retrains the best and the baseline configs and scores them on test.
+        """Retrains the selected and the baseline configs and scores them on test.
 
         Run this once, after the search. For binary labels the result holds
         patient-level bootstrap intervals (``bootstrap_ci``) and a paired
-        bootstrap interval for best minus baseline (``paired_bootstrap_diff``).
-        Other label types get the metric's value on test.
+        bootstrap interval for selected minus baseline
+        (``paired_bootstrap_diff``). Other label types get the metric's value
+        on test. When a simpler model was selected over the highest-scoring
+        candidate, that candidate is scored too, so the price of the simpler
+        model is measured on test as well. With a ``run_dir`` the result is
+        saved to ``test.json``; it holds aggregate scores only.
+
+        For binary labels each config also gets its clinical performance
+        (:func:`~pyhealth.metrics.clinical_summary`): calibration, what
+        flagging the top 5, 10 and 20% of risk would catch, net benefit, and
+        results within each subgroup. Counts below 11 patients are
+        suppressed.
 
         Args:
-            test_dataset: Held-out samples, never seen by the search.
-            n_boot: Bootstrap resamples.
+            test_dataset: The held-out test samples, never seen by the search.
+            n_boot: Bootstrap resamples (of patients) for the intervals.
+            subgroups: Attribute name to one label per test sample, in the
+                dataset's order, e.g. ``{"sex": [...], "age band": [...]}``.
             return_predictions: Also return the test predictions, e.g. to
-                compute other metrics without training again.
+                compute other metrics without training again. They are not
+                written to ``test.json``.
 
         Returns:
-            ``{"best": {...}, "baseline": {...}, "difference": {...}}``;
-            ``baseline`` and ``difference`` are present when a baseline was
-            given, and ``difference`` only for binary labels. With
-            ``return_predictions``, ``"predictions"`` holds ``y_true``,
-            ``patient_ids`` and each config's ``y_prob`` under its name.
+            ``{"best": {...}, "baseline": {...}, "difference": {...}}``, with
+            ``best`` the selected config; ``baseline`` and ``difference`` are
+            present when a baseline was given and not selected (``difference``
+            only for binary labels), and ``top`` and ``top_minus_best`` when
+            the highest-scoring candidate differs. With ``return_predictions``,
+            ``"predictions"`` holds ``y_true``, ``patient_ids`` and each
+            config's ``y_prob`` under its name.
 
         Examples:
             >>> improver.evaluate_on_test(test_ds)  # doctest: +SKIP
@@ -582,11 +658,15 @@ class AutoImprover:
         result = self.result()
         if result.best is None:
             raise ValueError("no successful trial to evaluate")
-        configs = {"best": result.best.config}
-        if result.baseline is not None and result.baseline.error is None:
-            configs["baseline"] = result.baseline.config
-        probs, out = {}, {}
-        for name, config in configs.items():
+        configs = {"best": result.best}
+        if (result.baseline is not None and result.baseline.error is None
+                and result.baseline is not result.best):
+            configs["baseline"] = result.baseline
+        if result.top is not None and result.top is not result.best:
+            configs["top"] = result.top
+        probs, out = {}, {"metric": self.metric}
+        for name, trial in configs.items():
+            config = trial.config
             model = train_pipeline(
                 config, self.space, self.train_dataset, self.val_dataset,
                 self.metric, self.seed, self.device,
@@ -603,14 +683,291 @@ class AutoImprover:
                 value = get_metrics_fn(self.mode)(y_true, y_prob, metrics=[self.metric])
                 out[name] = {"estimate": float(value[self.metric])}
             out[name]["config"] = config.to_dict()
-        if "baseline" in probs and self.mode == "binary":
-            out["difference"] = paired_bootstrap_diff(
-                y_true, probs["best"], probs["baseline"], self.metric,
-                groups=groups, n_boot=n_boot, seed=self.seed,
-            )
+            out[name]["trial_id"] = trial.trial_id
+            if self.mode == "binary":
+                out[name]["clinical"] = clinical_summary(
+                    np.ravel(y_true), np.ravel(y_prob), groups=groups,
+                    subgroups=subgroups,
+                )
+        pairs = {"difference": ("best", "baseline"), "top_minus_best": ("top", "best")}
+        for key, (a, b) in pairs.items():
+            if a in probs and b in probs and self.mode == "binary":
+                out[key] = paired_bootstrap_diff(
+                    y_true, probs[a], probs[b], self.metric,
+                    groups=groups, n_boot=n_boot, seed=self.seed,
+                )
+        if self.run_dir:
+            os.makedirs(self.run_dir, exist_ok=True)
+            with open(os.path.join(self.run_dir, "test.json"), "w") as f:
+                json.dump(out, f, indent=1, default=float)
         if return_predictions:
             out["predictions"] = {"y_true": y_true, "patient_ids": patient_ids, **probs}
         return out
+
+    # ---------------------------------------------------------- explaining
+    def attribute(self, trial_id: int | None = None) -> dict[str, Any]:
+        """Measures what each changed setting of a trial contributes.
+
+        Each setting that differs between the trial (by default the
+        selected one) and its reference is reverted, one at a time, and the
+        reverted config is scored on the same folds. A setting's
+        contribution is the trial's score minus the reverted config's, with
+        its paired standard error. The reference is the baseline when the
+        trial uses the baseline's model, and otherwise the default settings
+        of the trial's own model (arguments of different models cannot be
+        compared). With a ``run_dir`` the result is saved to
+        ``attribution.json``.
+
+        Returns:
+            ``{"trial_id", "reference", "rows": [{"setting", "from", "to",
+            "contribution", "se", "folds_better", "score_without"}], ...}``.
+
+        Examples:
+            >>> improver.attribute()  # doctest: +SKIP
+            {'trial_id': 17, 'reference': 'the starting pipeline (#0)', 'rows': [...]}
+        """
+        result = self.result()
+        target = result.best if trial_id is None else self.trials[trial_id]
+        if target is None or target.error is not None:
+            raise ValueError("no successful trial to attribute")
+        base = result.baseline
+        if base is not None and base.error is None and base.config.model == (
+            target.config.model
+        ):
+            reference = base.config
+            label = f"the starting pipeline (#{base.trial_id})"
+        else:
+            reference, _ = self.space.validate(PipelineConfig(target.config.model))
+            label = f"the default settings of {target.config.model}"
+        out: dict[str, Any] = {
+            "trial_id": target.trial_id, "reference": label, "metric": self.metric,
+            "score": target.score, "rows": [],
+        }
+        for group in ("model_params", "train_params"):
+            ref_params = getattr(reference, group)
+            for name, value in sorted(getattr(target.config, group).items()):
+                if name not in ref_params or ref_params[name] == value:
+                    continue
+                reverted = PipelineConfig(
+                    target.config.model, dict(target.config.model_params),
+                    dict(target.config.train_params),
+                )
+                getattr(reverted, group)[name] = ref_params[name]
+                scored = self._score(reverted)
+                row = {"setting": name, "from": ref_params[name], "to": value,
+                       "score_without": scored["score"],
+                       "fold_scores_without": scored["fold_scores"]}
+                if scored["fold_scores"] and target.fold_scores:
+                    gain, se = paired_gain(
+                        target.fold_scores, scored["fold_scores"], self.maximize
+                    )
+                    sign = 1 if self.maximize else -1
+                    better = sum(
+                        sign * (a - b) > FOLD_TIE
+                        for a, b in zip(target.fold_scores, scored["fold_scores"])
+                    )
+                    row.update(contribution=gain, se=se, folds_better=better)
+                else:
+                    sign = 1 if self.maximize else -1
+                    row.update(contribution=sign * (target.score - scored["score"]),
+                               se=None, folds_better=None)
+                out["rows"].append(row)
+        if self.run_dir:
+            os.makedirs(self.run_dir, exist_ok=True)
+            with open(os.path.join(self.run_dir, "attribution.json"), "w") as f:
+                json.dump(out, f, indent=1, default=str)
+        return out
+
+    def _score(self, config: PipelineConfig) -> dict[str, Any]:
+        config, _ = self.space.validate(config)
+        if self.folds is not None:
+            out = run_config_cv(
+                config, self.space, self.train_dataset, self.val_dataset,
+                self.metric, self.folds, (), self.seed, self.device,
+            )
+        else:
+            out = run_config(
+                config, self.space, self.train_dataset, self.val_dataset,
+                self.metric, (), self.seed, self.device,
+            )
+        return {"score": out["metrics"][self.metric],
+                "fold_scores": out.get("fold_scores", [])}
+
+    def explain(
+        self,
+        top_k: int = 10,
+        stability: bool = True,
+        max_samples: int = 2000,
+    ) -> dict[str, Any]:
+        """Explains how the selected model decides, in clinical terms.
+
+        The selected config is trained on the training split and its
+        predictions on training samples are attributed to the inputs
+        (:func:`~pyhealth.autoimprove.explain.attributions`: exact TreeSHAP
+        for trees, integrated gradients for torch models). The summary
+        (:func:`~pyhealth.autoimprove.explain.summarize`) gives:
+
+        - importance by the task card's clinical factor groups;
+        - the top features, each with its meaning and the shape of its
+          effect, in bins of at least 11 patients;
+        - each feature's learned direction, compared with the direction the
+          card expects.
+
+        With ``stability`` and ``cv_folds``, the config is also trained on
+        each fold's training part, to show how many of the top features each
+        fold model shares. With a ``run_dir`` the result is saved to
+        ``explain.json``; it holds aggregates only.
+
+        Examples:
+            >>> improver.explain()["groups"]  # doctest: +SKIP
+            [{'group': 'labs', 'share': 0.52}, {'group': 'vital signs', 'share': 0.31}, ...]
+        """
+        from .explain import attributions, summarize, top_overlap
+
+        result = self.result()
+        if result.best is None:
+            raise ValueError("no successful trial to explain")
+        config = result.best.config
+
+        def ranked(model):
+            attrib = attributions(model, self.train_dataset, max_samples=max_samples)
+            names = getattr(model, "feature_names", None)
+            fields = getattr(model, "feature_layout", None)
+            by_field = None
+            if names and fields:
+                by_field, start = {}, 0
+                for entry in fields:
+                    width = entry.get("width") or 0
+                    by_field[entry["key"]] = list(names[start:start + width])
+                    start += width
+            return summarize(attrib, self.task_card, by_field, top_k=top_k)
+
+        model = train_pipeline(config, self.space, self.train_dataset,
+                               self.val_dataset, self.metric, self.seed, self.device)
+        out = ranked(model)
+        out["trial_id"] = result.best.trial_id
+        if stability and self.folds is not None and out["features"]:
+            tops = []
+            everything = np.arange(len(self.train_dataset))
+            for held_out in self.folds:
+                part = self.train_dataset.subset(
+                    np.setdiff1d(everything, held_out).tolist()
+                )
+                fold_model = train_pipeline(config, self.space, part, self.val_dataset,
+                                            self.metric, self.seed, self.device)
+                tops.append([f["name"] for f in ranked(fold_model)["features"]])
+            out["stability"] = top_overlap([f["name"] for f in out["features"]], tops)
+        if self.run_dir:
+            os.makedirs(self.run_dir, exist_ok=True)
+            with open(os.path.join(self.run_dir, "explain.json"), "w") as f:
+                json.dump(out, f, indent=1, default=float)
+        return out
+
+    def flags(self) -> list[dict[str, Any]]:
+        """Items a clinician should decide on before the model is used.
+
+        Raised from the task card, :meth:`explain` and
+        :meth:`evaluate_on_test`: a missing task card, a top feature with no
+        entry in the card's dictionary, a learned effect opposite to the
+        expected direction, poor calibration, and a large gap between
+        subgroups. Each flag carries the decision recorded with
+        :meth:`approve`, if any.
+
+        Examples:
+            >>> for flag in improver.flags():  # doctest: +SKIP
+            ...     print(flag["id"], flag["detail"])
+            direction:spo2_min learned +, expected -
+        """
+        from .report import flags_for
+
+        review = self._read_json("review.json") or {}
+        return [
+            {**flag, "review": review.get(flag["id"])}
+            for flag in flags_for(self.task_card, self._read_json("explain.json"),
+                                  self._read_json("test.json"))
+        ]
+
+    def approve(
+        self,
+        flag_id: str,
+        reviewer: str,
+        note: str = "",
+        decision: str = "approved",
+    ) -> dict[str, Any]:
+        """Records a clinician's decision on a flag in ``review.json``.
+
+        Args:
+            flag_id: The ``id`` of a flag from :meth:`flags`.
+            reviewer: Who decided.
+            note: Their reasoning.
+            decision: ``"approved"`` (keep as is) or ``"rejected"`` (change
+                the model or the task before use).
+
+        Examples:
+            >>> improver.approve("direction:spo2_min", "Dr. A",  # doctest: +SKIP
+            ...                  "SpO2 is charted only when low; known artifact")
+        """
+        if not self.run_dir:
+            raise ValueError("approve needs a run_dir to record the decision")
+        if decision not in ("approved", "rejected"):
+            raise ValueError("decision must be 'approved' or 'rejected'")
+        known = {flag["id"] for flag in self.flags()}
+        if flag_id not in known:
+            raise ValueError(f"no flag {flag_id!r}; current flags: {sorted(known)}")
+        review = self._read_json("review.json") or {}
+        review[flag_id] = {"decision": decision, "reviewer": reviewer, "note": note,
+                           "date": time.strftime("%Y-%m-%d")}
+        with open(os.path.join(self.run_dir, "review.json"), "w") as f:
+            json.dump(review, f, indent=1)
+        return review[flag_id]
+
+    def report(self, path: str | None = None):
+        """Writes the run's report: HTML, Markdown and JSON.
+
+        The report explains the selected model and how the search got there:
+        the model and its settings in plain words, why it was selected (the
+        selection rule, its rung on the interpretability ladder and the
+        price of choosing it over the highest-scoring candidate), what each
+        changed setting contributed (if :meth:`attribute` was run), the test
+        comparison (if :meth:`evaluate_on_test` was run), and the reasoning
+        trace: every trial with its hypothesis, change, result and verdict.
+        Statements are labelled by their evidence: measured, tested or
+        hypothesis. It holds definitions, configs and aggregate scores only.
+
+        Args:
+            path: Where to write the HTML; ``.md`` and ``.json`` files are
+                written next to it. Defaults to ``report.html`` in
+                ``run_dir``; with neither, nothing is written.
+
+        Returns:
+            The :class:`~pyhealth.autoimprove.report.Report`.
+
+        Examples:
+            >>> improver.report("runs/mortality/report.html")  # doctest: +SKIP
+        """
+        from .report import build_report
+
+        report = build_report(
+            self.trials, metric=self.metric, maximize=self.maximize,
+            promote_se=self.promote_se, one_se=self.one_se, space=self.space,
+            task=self._task, lessons=self.lessons,
+            test=self._read_json("test.json"),
+            attribution=self._read_json("attribution.json"),
+            dropped_models=self.dropped_models, rule=self.selection_rule(),
+            card=self.task_card, explanation=self._read_json("explain.json"),
+            review=self._read_json("review.json") or {},
+        )
+        if path is None and self.run_dir:
+            path = os.path.join(self.run_dir, "report.html")
+        if path is not None:
+            report.save(path)
+        return report
+
+    def _read_json(self, name: str) -> Any:
+        if not self.run_dir or not os.path.exists(os.path.join(self.run_dir, name)):
+            return None
+        with open(os.path.join(self.run_dir, name)) as f:
+            return json.load(f)
 
     # ---------------------------------------------------------- persistence
     def _load(self) -> None:
@@ -675,6 +1032,24 @@ class AutoImprover:
         os.makedirs(self.run_dir, exist_ok=True)
         with open(path, "w") as f:
             json.dump(self._settings, f, indent=1)
+
+    def _save_settings(self) -> None:
+        """Writes run.json: what a report needs besides the trials."""
+        if not self.run_dir:
+            return
+        os.makedirs(self.run_dir, exist_ok=True)
+        settings = {
+            "metric": self.metric, "maximize": self.maximize, "task": self._task,
+            "cv_folds": self.cv_folds, "promote_se": self.promote_se,
+            "one_se": self.one_se, "seed": self.seed,
+            "models": sorted(self.space.models), "rule": self.selection_rule(),
+            "dropped_models": self.dropped_models,
+        }
+        with open(os.path.join(self.run_dir, "run.json"), "w") as f:
+            json.dump(settings, f, indent=1)
+        if self.task_card is not None:
+            with open(os.path.join(self.run_dir, "card.json"), "w") as f:
+                json.dump(self.task_card.to_dict(), f, indent=1)
 
     def _save_trial(self, trial: Trial) -> None:
         if not self.run_dir:
@@ -798,6 +1173,109 @@ def select_trial(
         if bound > best_bound:
             selected, best_bound = t, bound
     return selected
+
+
+def select_simplest(
+    trials: Sequence[Trial],
+    maximize: bool,
+    promote_se: float = 1.0,
+    rung: Callable[[PipelineConfig], int] | None = None,
+) -> tuple[Trial | None, Trial | None]:
+    """The most interpretable trial that is as good as the best: the one-SE rule.
+
+    1. The candidates are the baseline trial and every trial whose
+       fold-by-fold gain over it has a lower bound,
+       ``mean - promote_se * se``, above 0. Without a finished baseline
+       there is nothing to compare with, and every finished trial is a
+       candidate.
+    2. The top candidate is the one with the best mean score.
+    3. The selection is the candidate on the lowest ``rung`` whose score is
+       at most one paired standard error below the top candidate's; among
+       those, the one with the best mean.
+
+    Without fold scores, the best score is both selected and top.
+
+    Args:
+        trials: The trials of a search.
+        maximize: Whether larger scores are better.
+        promote_se: Standard errors a gain must clear to make a candidate.
+        rung: A config's place on the interpretability ladder (lower is
+            simpler), e.g. :meth:`SearchSpace.rung`. ``None`` puts every
+            config on one rung, so the top candidate is selected.
+
+    Returns:
+        ``(selected, top)``.
+
+    Examples:
+        >>> base = Trial(0, -1, "baseline", "baseline", PipelineConfig("XGBoost"),
+        ...              score=0.50, fold_scores=[0.48, 0.50, 0.52])
+        >>> lr = Trial(1, 0, "a0", "explore", PipelineConfig("LogisticRegression"),
+        ...            score=0.55, fold_scores=[0.52, 0.57, 0.56])
+        >>> mlp = Trial(2, 0, "a1", "explore", PipelineConfig("MLP"),
+        ...             score=0.56, fold_scores=[0.55, 0.555, 0.575])
+        >>> selected, top = select_simplest([base, lr, mlp], True, 1.0,
+        ...                                 SearchSpace().rung)
+        >>> selected.trial_id, top.trial_id
+        (1, 2)
+    """
+    done = sorted((t for t in trials if t.error is None and t.score is not None),
+                  key=lambda t: t.trial_id)
+    if not done:
+        return None, None
+    sign = 1 if maximize else -1
+    reference = next((t for t in done if t.agent == "baseline"), None)
+    if reference is None:
+        candidates = [t for t in done if t.fold_scores]
+    elif reference.fold_scores:
+        candidates = [reference]
+        for t in done:
+            if t is reference or len(t.fold_scores) != len(reference.fold_scores):
+                continue
+            gain, se = paired_gain(t.fold_scores, reference.fold_scores, maximize)
+            if gain - promote_se * se > 0:
+                candidates.append(t)
+    else:
+        candidates = []
+    if not candidates:
+        best = max(done, key=lambda t: sign * t.score)
+        return best, best
+    top = max(candidates, key=lambda t: sign * t.score)
+    rung = rung or (lambda config: 0)
+
+    def within(t: Trial) -> bool:
+        if t is top:
+            return True
+        if len(t.fold_scores) != len(top.fold_scores):
+            return False
+        gap, se = paired_gain(top.fold_scores, t.fold_scores, maximize)
+        return gap <= se
+
+    near = [t for t in candidates if within(t)]
+    selected = min(near, key=lambda t: (rung(t.config), -sign * t.score))
+    return selected, top
+
+
+def _parent_of(config: PipelineConfig, trials: Sequence[Trial]) -> Trial | None:
+    """The trial a config was changed from.
+
+    The proposer's ``based_on`` when it names an earlier trial; otherwise
+    the closest earlier trial: same model first, then fewest differing
+    settings, then the most recent.
+    """
+    by_id = {t.trial_id: t for t in trials}
+    based_on = config.hypothesis.get("based_on")
+    try:
+        if based_on is not None and int(based_on) in by_id:
+            return by_id[int(based_on)]
+    except (TypeError, ValueError):
+        pass
+    if not trials:
+        return None
+    return min(
+        trials,
+        key=lambda t: (t.config.model != config.model,
+                       len(config_diff(t.config, config)), -t.trial_id),
+    )
 
 
 def describe_task(train_dataset: SampleDataset, val_dataset: SampleDataset) -> str:
