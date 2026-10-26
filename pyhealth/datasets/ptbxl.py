@@ -341,10 +341,11 @@ class PTBXLDataset(BaseDataset):
     Note:
         Age missing (NaN) vs HIPAA-censored (``age == 300`` for ≥90) are
         exposed as ``age_is_missing`` / ``age_is_censored``. Sex is encoded
-        as ``0`` = female, ``1`` = male. ``scp_codes`` keeps the original
-        stringified dict; likelihood ``0`` means unknown confidence. Label
-        aggregation lives in task modules. ``recording_date`` is used as the
-        event timestamp.
+        as ``0`` = male, ``1`` = female (Wagner et al., Scientific Data,
+        Table 2); values are passed through unchanged. ``scp_codes`` keeps
+        the original stringified dict; likelihood ``0`` means unknown
+        confidence. Label aggregation lives in task modules.
+        ``recording_date`` is used as the event timestamp.
 
     Examples:
         >>> dataset = PTBXLDataset(root="/data/ptb-xl/1.0.3")  # doctest: +SKIP

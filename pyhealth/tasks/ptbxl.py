@@ -266,7 +266,7 @@ class PTBXLSuperclassClassification(BaseTask):
                     "age": age,
                     "age_is_censored": age_censored,
                     "age_is_missing": age_missing,
-                    # sex: 0 = female, 1 = male
+                    # sex: 0 = male, 1 = female (Wagner et al., Table 2)
                     "sex": int(float(event.sex)),
                 }
             )

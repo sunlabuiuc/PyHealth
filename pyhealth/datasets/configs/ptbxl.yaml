@@ -16,7 +16,7 @@ tables:
     - "age"
     - "age_is_censored"
     - "age_is_missing"
-    - "sex"  # 0 = female, 1 = male
+    - "sex"  # 0 = male, 1 = female (Wagner et al., Sci Data 2020, Table 2)
     - "site"
     - "device"
     - "scp_codes"
