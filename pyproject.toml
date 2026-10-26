@@ -41,6 +41,8 @@ dependencies = [
   "pandas>=2.2,<3",
   "pydantic>=2.11,<3",
   "dask[complete]>=2026.1.0",
+  # >=0.2.64: worker indexes merge in numeric rank order (patient_to_index relies
+  # on it).
   "litdata>=0.2.64",
   "pyarrow>=23.0.1",
   "orjson~=3.10",
