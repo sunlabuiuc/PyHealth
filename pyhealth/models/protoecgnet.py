@@ -8,8 +8,10 @@ code is at https://github.com/bbj-lab/protoecgnet .
 A 1D ResNet turns a 12-lead ECG into a feature map. Each *prototype branch*
 compares (windows of) that map with learned prototype vectors that are assigned
 to labels, and a last linear layer turns prototype similarities into logits.
-Because prototypes can be projected onto real training ECG segments, every
-prediction can be explained with example cases.
+Calling :meth:`project_prototypes` replaces every prototype with the most
+similar real training segment and returns the source-sample mapping to the
+caller; store that alongside the checkpoint to support case-based explanations
+after reloading.
 """
 
 from collections.abc import Sequence
@@ -207,6 +209,9 @@ class ResNet2dBackbone(nn.Module):
 
         net = resnet18(weights=ResNet18_Weights.DEFAULT if pretrained else None)
         net.conv1 = nn.Conv2d(1, 64, (in_leads, 7), (1, 2), (0, 3), bias=False)
+        # avgpool and fc are not used; replace with no-ops to drop their parameters.
+        net.avgpool = nn.Identity()
+        net.fc = nn.Identity()
         self.net = net
         self.out_channels = 512
 
@@ -521,7 +526,10 @@ class ProtoECGNet(BaseModel):
         topk: Windows averaged into a similarity. Defaults to 1.
         base_width: Width of the 1D ResNet's first stage. Defaults to 64.
         layers: Residual blocks per 1D stage. Defaults to ``(2, 2, 2, 2)``.
-        fusion: ``"average"`` or ``"learned"``. Defaults to ``"average"``.
+        fusion: ``"average"`` (scatter each branch's logits into the full
+            label space with no cross-branch interaction) or ``"learned"``
+            (train a linear layer over all prototype similarities in the
+            ``"fusion"`` stage). Defaults to ``"average"``.
         lam_clst: Weight of the clustering loss. Defaults to 0.004.
         lam_sep: Weight of the separation loss. Defaults to 0.0004.
         lam_div: Weight of the diversity loss. Defaults to 250.
@@ -632,6 +640,8 @@ class ProtoECGNet(BaseModel):
         # Modules whose BN running stats must stay fixed after projection.
         # Populated by set_stage; consumed by train().
         self._frozen_modules: set[nn.Module] = set()
+        # Set by project_prototypes; not in state_dict — persist alongside ckpt.
+        self.projection_info: dict[str, list[dict | None]] | None = None
 
     def _prepare_groups(
         self, groups: dict[str, list[str]] | None
@@ -838,6 +848,11 @@ class ProtoECGNet(BaseModel):
         In global mode (``proto_time_len=None``), the stored vector is a
         time-averaged feature rather than a raw ECG segment.
 
+        The result is also stored on ``self.projection_info`` for the current
+        session. It is **not** part of ``state_dict``; save it separately
+        alongside the model checkpoint to support case-based explanations after
+        reloading (e.g. ``torch.save(model.projection_info, "proj.pt")``).
+
         Args:
             dataloader: Training dataloader (``shuffle=False``) yielding
                 batches with the signal and the multi-hot labels.
@@ -891,6 +906,7 @@ class ProtoECGNet(BaseModel):
                     )
                     branch.prototype_vectors.data[p] = vector
         self.train(was_training)
+        self.projection_info = best
         return best
 
     @torch.no_grad()
@@ -905,9 +921,13 @@ class ProtoECGNet(BaseModel):
         Returns:
             For every branch a tensor equal to similarity times classifier
             weight. Shape is ``(batch, num_labels, num_branch_prototypes)``
-            when ``stage="fusion"`` (fusion classifier weights, contributions
-            sum to the logit), or ``(batch, num_branch_labels,
-            num_branch_prototypes)`` otherwise (branch classifier weights).
+            when ``stage="fusion"`` (fusion classifier weights; summing over
+            all branches and prototypes gives ``logit - fusion_classifier.bias``
+            because the branch classifiers have no bias but the fusion
+            classifier does), or ``(batch, num_branch_labels,
+            num_branch_prototypes)`` otherwise (branch classifier weights,
+            which have no bias so contributions sum exactly to the branch
+            logits).
         """
         was_training = self.training
         self.eval()

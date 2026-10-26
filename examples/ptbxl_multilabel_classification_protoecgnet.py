@@ -43,11 +43,14 @@ Note:
 import argparse
 import itertools
 import os
+import shutil
 import tempfile
+import warnings
 
 import numpy as np
 import pandas as pd
 import torch
+from sklearn.metrics import roc_auc_score
 
 from pyhealth.datasets import PTBXLDataset, get_dataloader
 from pyhealth.models import PTBXL_BRANCH_KWARGS, PTBXL_BRANCH_LABELS, ProtoECGNet
@@ -56,6 +59,25 @@ from pyhealth.trainer import Trainer
 
 LEADS = ["I", "II", "III", "aVR", "aVL", "aVF", "V1", "V2", "V3", "V4", "V5", "V6"]
 SYNTHETIC_CODES = ["NORM", "MI", "STTC", "CD", "HYP"]
+
+
+def safe_roc_auc_macro(y_true: np.ndarray, y_prob: np.ndarray) -> float:
+    """Macro AUROC over labels that have at least one positive in y_true.
+
+    sklearn raises ValueError when a label has no positives (e.g. rare SCP
+    codes absent from the validation or test fold), so we skip those labels
+    and warn instead.
+    """
+    has_pos = y_true.sum(axis=0) > 0
+    n_skip = int((~has_pos).sum())
+    if n_skip:
+        warnings.warn(
+            f"{n_skip} label(s) with no positives in the eval fold are "
+            "excluded from macro AUROC."
+        )
+    if not has_pos.any():
+        return float("nan")
+    return float(roc_auc_score(y_true[:, has_pos], y_prob[:, has_pos], average="macro"))
 
 
 def build_synthetic_ptbxl(root: str, num_patients: int = 60, seed: int = 0) -> None:
@@ -219,7 +241,7 @@ def run_pipeline(
     )
     trainer = Trainer(
         model=model,
-        metrics=["roc_auc_macro"],
+        metrics=[],
         device=args.device,
         enable_logging=False,
     )
@@ -230,7 +252,8 @@ def run_pipeline(
             train_dataloader=loaders[0],
             val_dataloader=loaders[1],
             epochs=epochs,
-            monitor="roc_auc_macro",
+            monitor="loss",
+            monitor_criterion="min",
             optimizer_params={"lr": args.lr},
         )
 
@@ -241,7 +264,8 @@ def run_pipeline(
     stage("classifier", max(1, args.epochs // 2))
     if args.paper_groups:
         stage("fusion", max(1, args.epochs // 2))
-    return trainer.evaluate(loaders[2])
+    y_true, y_prob, loss = trainer.inference(loaders[2])[:3]
+    return {"roc_auc_macro": safe_roc_auc_macro(y_true, y_prob), "loss": loss}
 
 
 def main() -> None:
@@ -257,7 +281,10 @@ def main() -> None:
     parser.add_argument("--prototypes-per-label", type=int, default=3)
     parser.add_argument("--topk", type=int, default=1, help="top-k window pooling")
     parser.add_argument("--rounds", type=int, default=1, help="joint+projection rounds")
-    parser.add_argument("--lam-l1", type=float, default=0.0, help="L1 of final layers")
+    parser.add_argument("--lam-l1", type=float, default=0.0,
+                        help="L1 sparsity weight for classifier/fusion layers "
+                             "(off by default; try 1e-4 to encourage each "
+                             "prototype to predict only its assigned labels)")
     parser.add_argument("--paper-prototypes", action="store_true",
                         help="with --paper-groups, use the paper's 5/18/7 "
                              "prototypes per label instead of "
@@ -282,11 +309,9 @@ def main() -> None:
     else:
         args.device = "cpu"
 
-    scratch = tempfile.mkdtemp()
+    # Validate and set defaults before creating the scratch directory so that
+    # parser.error() exits cleanly without leaving a temp dir behind.
     if args.synthetic:
-        args.root = os.path.join(scratch, "ptbxl")
-        os.makedirs(args.root)
-        build_synthetic_ptbxl(args.root)
         args.epochs = args.epochs or 3
         args.width = args.width or 8
         args.proto_dim = args.proto_dim or 16
@@ -299,43 +324,52 @@ def main() -> None:
     args.width = args.width or 64
     args.proto_dim = args.proto_dim or 128
 
-    dataset = PTBXLDataset(
-        root=args.root, cache_dir=os.path.join(scratch, "cache"), dev=args.dev
-    )
-    task = PTBXLMultilabelClassification(
-        label_set=args.label_set, remove_baseline=args.remove_baseline
-    )
-    samples = dataset.set_task(task)
-    splits = split_by_fold(samples, args.root)
-    print(f"samples: train={len(splits[0])} val={len(splits[1])} test={len(splits[2])}")
+    scratch = tempfile.mkdtemp()
+    try:
+        if args.synthetic:
+            args.root = os.path.join(scratch, "ptbxl")
+            os.makedirs(args.root)
+            build_synthetic_ptbxl(args.root)
 
-    baseline = run_pipeline(
-        samples, splits, args, use_contrastive=not args.no_contrastive
-    )
-    name = "no-contrastive" if args.no_contrastive else "baseline"
-    print(f"{name} test macro AUROC: {baseline['roc_auc_macro']:.4f}")
+        dataset = PTBXLDataset(
+            root=args.root, cache_dir=os.path.join(scratch, "cache"), dev=args.dev
+        )
+        task = PTBXLMultilabelClassification(
+            label_set=args.label_set, remove_baseline=args.remove_baseline
+        )
+        samples = dataset.set_task(task)
+        splits = split_by_fold(samples, args.root)
+        print(f"samples: train={len(splits[0])} val={len(splits[1])} test={len(splits[2])}")
 
-    if args.ablation:
-        rows = []
-        for contrastive, similarity, per_label in itertools.product(
-            [True, False], ["cosine", "l2"], [1, 3]
-        ):
-            result = run_pipeline(
-                samples, splits, args, contrastive, similarity, per_label
-            )
-            rows.append(
-                {
-                    "contrastive": contrastive,
-                    "similarity": similarity,
-                    "prototypes_per_label": per_label,
-                    "test_roc_auc_macro": round(result["roc_auc_macro"], 4),
-                }
-            )
-            print(rows[-1])
-        table = to_markdown_table(rows)
-        with open(args.output, "w", encoding="utf-8") as handle:
-            handle.write(table + "\n")
-        print(table)
+        baseline = run_pipeline(
+            samples, splits, args, use_contrastive=not args.no_contrastive
+        )
+        name = "no-contrastive" if args.no_contrastive else "baseline"
+        print(f"{name} test macro AUROC: {baseline['roc_auc_macro']:.4f}")
+
+        if args.ablation:
+            rows = []
+            for contrastive, similarity, per_label in itertools.product(
+                [True, False], ["cosine", "l2"], [1, 3]
+            ):
+                result = run_pipeline(
+                    samples, splits, args, contrastive, similarity, per_label
+                )
+                rows.append(
+                    {
+                        "contrastive": contrastive,
+                        "similarity": similarity,
+                        "prototypes_per_label": per_label,
+                        "test_roc_auc_macro": round(result["roc_auc_macro"], 4),
+                    }
+                )
+                print(rows[-1])
+            table = to_markdown_table(rows)
+            with open(args.output, "w", encoding="utf-8") as handle:
+                handle.write(table + "\n")
+            print(table)
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
 
 
 if __name__ == "__main__":

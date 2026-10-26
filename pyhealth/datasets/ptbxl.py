@@ -163,6 +163,7 @@ class PTBXLDataset(BaseDataset):
                     "https://physionet.org/content/ptb-xl/1.0.3/ and pass the "
                     "extracted folder as `root`."
                 )
+        root = os.path.abspath(root)
         database = pd.read_csv(database_path, index_col="ecg_id")
         statements = pd.read_csv(statements_path, index_col=0)
 
