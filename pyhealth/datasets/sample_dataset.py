@@ -593,10 +593,10 @@ class SampleDataset(litdata.StreamingDataset):
     def subset(self, indices: Union[Sequence[int], slice]) -> "SampleDataset":
         """Create a StreamingDataset restricted to the provided indices.
 
-        The subset reads with litdata's POSIX-fast mmap reads turned off from
-        litdata 0.2.68 and batched decoding turned off from 0.2.74. Both cache
-        per index run, not per chunk file, which makes a patient-level split
-        ~20x slower to iterate on 0.2.76. The full dataset keeps them.
+        The subset reads with litdata's POSIX-fast mmap reads turned off
+        (litdata >= 0.2.68). They cache per index run, not per chunk file,
+        which makes a patient-level split ~20x slower to iterate. The full
+        dataset keeps them.
         """
 
         new_dataset = deepcopy_dataset(self)
@@ -674,16 +674,13 @@ class SampleDataset(litdata.StreamingDataset):
 
         # The subset lists one (file, region) entry per run of consecutive
         # indices, so a patient-level split has thousands of entries over a
-        # few chunk files. These features cache per entry, not per file.
-        litdata_version = Version(litdata.__version__)
-        if litdata_version >= Version("0.2.68"):
-            # POSIX-fast re-maps the file and re-parses its offset table for
-            # each entry.
+        # few chunk files. POSIX-fast caches per entry, not per file: it
+        # re-maps the file and re-parses its offset table for each entry.
+        # Batched decoding stays on: turning it off as well gains nothing,
+        # and with both off litdata <= 0.2.76 cannot random-access chunks
+        # stored in its Arrow-footer layout (Lightning-AI/litData#954).
+        if Version(litdata.__version__) >= Version("0.2.68"):
             new_dataset.posix_fast = None  # type: ignore
-        if litdata_version >= Version("0.2.74"):
-            # Batched decoding re-decodes a window of rows mostly outside
-            # the entry's region.
-            new_dataset.batch_decode = 0  # type: ignore
 
         return new_dataset
 

@@ -99,11 +99,10 @@ by ``create_sample_dataset()`` own a temporary directory and remove it on close.
 
 .. note::
    Subsets (from ``subset()``, ``split_by_patient`` and ``set_task(split=...)``)
-   read with litdata's POSIX-fast mmap reads turned off from litdata 0.2.68
-   and batched decoding turned off from 0.2.74, when each feature was
-   introduced; the full dataset keeps them. Both cache per run of consecutive
+   read with litdata's POSIX-fast mmap reads turned off (litdata 0.2.68+);
+   the full dataset keeps them. POSIX-fast caches per run of consecutive
    indices instead of per chunk file. A patient-level split has thousands of
-   such runs over a few files, so with them on in litdata 0.2.76, iterating a
+   such runs over a few files, so with it on in litdata 0.2.76, iterating a
    training part takes ~20x longer (43 s vs 2 s for 140k samples).
 
 For testing or small cohorts you can skip the disk step entirely using
