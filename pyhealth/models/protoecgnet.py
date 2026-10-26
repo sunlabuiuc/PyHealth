@@ -20,6 +20,7 @@ from itertools import combinations
 import torch
 import torch.nn.functional as F
 from torch import nn
+from torch.utils.data import RandomSampler
 
 from ..datasets import SampleDataset
 from .base_model import BaseModel
@@ -540,6 +541,12 @@ class ProtoECGNet(BaseModel):
         class_weights: Optional positive-class weights ``(num_labels,)``.
         label_cooccurrence: Optional label co-occurrence matrix.
 
+    Note:
+        ``ProtoECGNet`` applies loss weighting via its own ``class_weights``
+        parameter. The inherited
+        :meth:`~pyhealth.models.BaseModel.set_pos_weight` has no effect on
+        this model.
+
     Examples:
         >>> from pyhealth.datasets import create_sample_dataset, get_dataloader
         >>> samples = [
@@ -862,7 +869,19 @@ class ProtoECGNet(BaseModel):
             ``sample`` index within the loader order, the ``window`` index and
             the ``similarity`` of the chosen segment, or None if no sample
             carried the prototype's labels (the prototype is then unchanged).
+
+        Raises:
+            ValueError: If ``dataloader`` uses a :class:`RandomSampler`.
+                Sample index tracking requires a deterministic order.
         """
+        if getattr(dataloader, "shuffle_samples", False) or isinstance(
+            getattr(dataloader, "sampler", None), RandomSampler
+        ):
+            raise ValueError(
+                "project_prototypes requires a deterministic loader "
+                "(shuffle=False). Sample index mapping is wrong with a "
+                "shuffled loader."
+            )
         was_training = self.training
         self.eval()
         best = {

@@ -93,7 +93,7 @@ class TestPTBXL(unittest.TestCase):
         shutil.rmtree(cls.cache, ignore_errors=True)
 
     def test_metadata_file_and_label_strings(self):
-        meta = pd.read_csv(os.path.join(self.root, "ptbxl-metadata-pyhealth.csv"))
+        meta = pd.read_csv(self.dataset.metadata_path)
         self.assertEqual(len(meta), 5)
         self.assertEqual(meta.loc[0, "patient_id"], 10)
         # IMI aggregates to the MI super-class and the IMI sub-class.
@@ -189,9 +189,18 @@ class TestPTBXL(unittest.TestCase):
         self.assertEqual(out.shape, (12, 1000))
         np.testing.assert_allclose(out.mean(axis=1), 0.0, atol=0.05)
 
+    def test_metadata_written_to_cache_dir(self):
+        """When cache_dir is provided, the metadata CSV is written there, not root."""
+        expected = os.path.join(self.cache, "ptbxl-metadata-pyhealth.csv")
+        self.assertEqual(self.dataset.metadata_path, expected)
+        self.assertTrue(os.path.exists(expected))
+        self.assertFalse(
+            os.path.exists(os.path.join(self.root, "ptbxl-metadata-pyhealth.csv"))
+        )
+
     def test_refresh_metadata_recreates_file(self):
         # Patch the metadata with stale content; refresh_metadata must overwrite it.
-        meta_path = os.path.join(self.root, "ptbxl-metadata-pyhealth.csv")
+        meta_path = os.path.join(self.cache, "ptbxl-metadata-pyhealth.csv")
         with open(meta_path, "w") as handle:
             handle.write("stale\n")
         PTBXLDataset(root=self.root, cache_dir=self.cache, refresh_metadata=True)

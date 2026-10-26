@@ -458,5 +458,12 @@ class TestProtoECGNet(unittest.TestCase):
         torch.testing.assert_close(total, expected, atol=1e-4, rtol=1e-4)
 
 
+    def test_project_prototypes_raises_on_shuffled_loader(self):
+        model = ProtoECGNet(self.dataset, prototypes_per_label=1, **TINY)
+        shuffled = get_dataloader(self.dataset, batch_size=4, shuffle=True)
+        with self.assertRaises(ValueError, msg="shuffled loader must raise"):
+            model.project_prototypes(shuffled)
+
+
 if __name__ == "__main__":
     unittest.main()

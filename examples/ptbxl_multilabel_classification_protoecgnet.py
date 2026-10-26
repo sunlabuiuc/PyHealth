@@ -142,17 +142,18 @@ def build_synthetic_ptbxl(root: str, num_patients: int = 60, seed: int = 0) -> N
     statements.to_csv(os.path.join(root, "scp_statements.csv"))
 
 
-def split_by_fold(sample_dataset, root: str):
+def split_by_fold(sample_dataset, metadata_path: str):
     """Splits a PTB-XL SampleDataset by the recommended ``strat_fold``.
 
     Args:
         sample_dataset: The dataset returned by ``set_task``.
-        root: PTB-XL root containing ``ptbxl-metadata-pyhealth.csv``.
+        metadata_path: Path to ``ptbxl-metadata-pyhealth.csv``
+            (use ``dataset.metadata_path``).
 
     Returns:
         ``(train, val, test)`` datasets (folds 1-8, 9 and 10).
     """
-    meta = pd.read_csv(os.path.join(root, "ptbxl-metadata-pyhealth.csv"))
+    meta = pd.read_csv(metadata_path)
     fold_of = dict(zip(meta["patient_id"].astype(str), meta["strat_fold"]))
     buckets: dict[str, list[int]] = {"train": [], "val": [], "test": []}
     for patient, indices in sample_dataset.patient_to_index.items():
@@ -344,7 +345,7 @@ def main() -> None:
             label_set=args.label_set, remove_baseline=args.remove_baseline
         )
         samples = dataset.set_task(task)
-        splits = split_by_fold(samples, args.root)
+        splits = split_by_fold(samples, dataset.metadata_path)
         print(f"samples: train={len(splits[0])} val={len(splits[1])} test={len(splits[2])}")
 
         baseline = run_pipeline(

@@ -6,11 +6,32 @@ import os
 from pathlib import Path
 
 import pandas as pd
+import yaml
 
 from ..tasks import PTBXLMultilabelClassification
 from .base_dataset import BaseDataset
 
 logger = logging.getLogger(__name__)
+
+
+def _patch_ptbxl_config(source: str, rel_metadata: str, cache_dir: str) -> str:
+    """Writes a patched copy of the YAML config to cache_dir.
+
+    Replaces ``file_path`` in the ``ptbxl`` table entry with ``rel_metadata``
+    so :class:`~pyhealth.datasets.BaseDataset` can find the CSV when it lives
+    outside ``root``.
+
+    Returns:
+        Absolute path to the patched YAML in ``cache_dir``.
+    """
+    with open(source) as fh:
+        cfg = yaml.safe_load(fh)
+    cfg["tables"]["ptbxl"]["file_path"] = rel_metadata
+    patched = os.path.join(cache_dir, "ptbxl.yaml")
+    with open(patched, "w") as fh:
+        yaml.dump(cfg, fh, default_flow_style=False)
+    return patched
+
 
 # Label sets that can be derived from ``scp_statements.csv``.
 LABEL_SETS = (
@@ -61,6 +82,16 @@ class PTBXLDataset(BaseDataset):
         root: Root directory of the raw data.
         dataset_name: Name of the dataset.
         config_path: Path to the configuration file.
+        metadata_path: Absolute path to the derived
+            ``ptbxl-metadata-pyhealth.csv``. Written to ``cache_dir`` when
+            provided (so it works on read-only roots such as
+            ``/kaggle/input``), otherwise written to ``root``.
+
+    Note:
+        PTB-XL is also available through
+        :class:`~pyhealth.datasets.CardiologyDataset` via the PhysioNet
+        Challenge 2020 subset. That version uses SNOMED-CT codes and a
+        different fold structure; the two datasets are not directly comparable.
 
     Examples:
         >>> from pyhealth.datasets import PTBXLDataset
@@ -84,9 +115,22 @@ class PTBXLDataset(BaseDataset):
         if config_path is None:
             logger.info("No config path provided, using default config")
             config_path = Path(__file__).parent / "configs" / "ptbxl.yaml"
-        metadata_path = os.path.join(root, "ptbxl-metadata-pyhealth.csv")
+        # Prefer cache_dir for the derived CSV so PTBXLDataset works on
+        # read-only roots (e.g. /kaggle/input mounts). When cache_dir is given,
+        # a patched YAML config is written there so BaseDataset can find the CSV
+        # via a relative path from root.
+        if cache_dir is not None:
+            os.makedirs(cache_dir, exist_ok=True)
+            metadata_path = os.path.join(cache_dir, "ptbxl-metadata-pyhealth.csv")
+            rel_to_root = os.path.relpath(
+                os.path.abspath(metadata_path), os.path.abspath(root)
+            )
+            config_path = _patch_ptbxl_config(str(config_path), rel_to_root, cache_dir)
+        else:
+            metadata_path = os.path.join(root, "ptbxl-metadata-pyhealth.csv")
+        self.metadata_path = metadata_path
         if refresh_metadata or not os.path.exists(metadata_path):
-            self.prepare_metadata(root)
+            self.prepare_metadata(root, metadata_path)
         super().__init__(
             root=root,
             tables=["ptbxl"],
@@ -140,8 +184,10 @@ class PTBXLDataset(BaseDataset):
             for name, labels in per_set.items()
         }
 
-    def prepare_metadata(self, root: str) -> None:
-        """Creates ``ptbxl-metadata-pyhealth.csv`` from the raw PTB-XL files.
+    def prepare_metadata(
+        self, root: str, metadata_path: str | None = None
+    ) -> None:
+        """Creates the metadata CSV from the raw PTB-XL files.
 
         The CSV has one row per ECG with absolute record paths (without file
         extension), the recommended fold, and label strings for every label
@@ -149,6 +195,8 @@ class PTBXLDataset(BaseDataset):
 
         Args:
             root: Root directory containing the raw PTB-XL files.
+            metadata_path: Where to write the CSV. Defaults to
+                ``ptbxl-metadata-pyhealth.csv`` inside ``root``.
 
         Raises:
             FileNotFoundError: If ``ptbxl_database.csv`` or
@@ -164,6 +212,8 @@ class PTBXLDataset(BaseDataset):
                     "extracted folder as `root`."
                 )
         root = os.path.abspath(root)
+        if metadata_path is None:
+            metadata_path = os.path.join(root, "ptbxl-metadata-pyhealth.csv")
         database = pd.read_csv(database_path, index_col="ecg_id")
         statements = pd.read_csv(statements_path, index_col=0)
 
@@ -183,9 +233,7 @@ class PTBXLDataset(BaseDataset):
             }
             row.update({f"labels_{name}": text for name, text in labels.items()})
             rows.append(row)
-        pd.DataFrame(rows).to_csv(
-            os.path.join(root, "ptbxl-metadata-pyhealth.csv"), index=False
-        )
+        pd.DataFrame(rows).to_csv(metadata_path, index=False)
 
     @property
     def default_task(self) -> PTBXLMultilabelClassification:
