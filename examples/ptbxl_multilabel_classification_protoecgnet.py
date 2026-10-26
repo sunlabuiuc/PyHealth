@@ -299,6 +299,11 @@ def main() -> None:
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--cache-dir", type=str, default=None,
+                        help="persistent directory for the processed dataset "
+                             "cache (default: a temp dir cleaned up after the "
+                             "run; set this to avoid re-preprocessing several "
+                             "GB of PTB-XL on every invocation)")
     parser.add_argument("--ablation", action="store_true")
     parser.add_argument("--output", default="protoecgnet_ablation.md")
     args = parser.parse_args()
@@ -331,8 +336,9 @@ def main() -> None:
             os.makedirs(args.root)
             build_synthetic_ptbxl(args.root)
 
+        cache_dir = args.cache_dir or os.path.join(scratch, "cache")
         dataset = PTBXLDataset(
-            root=args.root, cache_dir=os.path.join(scratch, "cache"), dev=args.dev
+            root=args.root, cache_dir=cache_dir, dev=args.dev
         )
         task = PTBXLMultilabelClassification(
             label_set=args.label_set, remove_baseline=args.remove_baseline
