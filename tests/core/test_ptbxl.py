@@ -222,6 +222,22 @@ class TestPTBXLDatasetMetadata(unittest.TestCase):
         self.assertTrue((self.cache_dir / ds500.metadata_file_name).is_file())
         self.assertNotEqual(ds.metadata_file_name, ds500.metadata_file_name)
 
+    def test_500_hz_signal_file_points_at_records500(self):
+        ds = PTBXLDataset(
+            root=str(self.data_root),
+            metadata_cache_dir=self.cache_dir,
+            sampling_rate=500,
+            cache_dir=self.tmp / "c500",
+        )
+        meta = pd.read_csv(self.cache_dir / ds.metadata_file_name)
+        self.assertEqual(len(meta), 5)
+        self.assertEqual(set(meta["sampling_rate"]), {500})
+        # 500 Hz must read filename_hr (records500/…_hr), never filename_lr.
+        records500 = (self.data_root / "records500").resolve()
+        for path in meta["signal_file"]:
+            Path(str(path)).relative_to(records500)
+            self.assertTrue(Path(str(path)).name.endswith("_hr"))
+
     def test_end_to_end_reads_event_from_fixture(self):
         """Instantiate PTBXLDataset and read a real event (not just helpers)."""
         ds = PTBXLDataset(
@@ -485,6 +501,20 @@ class TestPTBXLSetTaskE2E(unittest.TestCase):
         # Multi-hot from MultiLabelProcessor, not a list of strings.
         self.assertEqual(tuple(sample["labels"].shape), (3,))
         self.assertTrue(torch.is_tensor(sample["labels"]))
+
+    def test_set_task_at_500_hz_loads_records500(self):
+        dataset_500 = PTBXLDataset(
+            root=str(self.data_root),
+            metadata_cache_dir=self.cache_dir,
+            sampling_rate=500,
+            cache_dir=self.tmp / "pyhealth_cache_500",
+        )
+        samples = dataset_500.set_task(self.task, num_workers=1)
+        self.assertEqual(len(samples), 3)
+        # Fixture records are 12 x 250 at 500 Hz but 12 x 50 at 100 Hz, so a
+        # signal_file pointing at records100 or a missing transpose fails here.
+        for sample in samples:
+            self.assertEqual(tuple(sample["signal"].shape), (12, 250))
 
     def test_multilabel_vocab_order_is_alphabetical_observed(self):
         samples = self.dataset.set_task(self.task, num_workers=1)
