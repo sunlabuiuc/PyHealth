@@ -44,6 +44,8 @@ class DeepNestedSequenceProcessor(FeatureProcessor, TokenProcessorInterface):
         >>> result.shape  # (1, max_visits_per_group, max_codes_per_visit)
     """
 
+    stores_tensor = True
+
     def __init__(self):
         self.code_vocab: Dict[Any, int] = {"<pad>": self.PAD, "<unk>": self.UNK}
         self._next_index = 2
@@ -91,6 +93,7 @@ class DeepNestedSequenceProcessor(FeatureProcessor, TokenProcessorInterface):
         order = [k for k, v in sorted(self.code_vocab.items(), key=lambda x: x[1]) if k in keep]
         
         self.code_vocab = { k : i for i, k in enumerate(order) }
+        self._next_index = len(self.code_vocab)
 
     def retain(self, tokens: set[str]):
         """Retain only the specified vocabularies in the processor."""
@@ -98,6 +101,7 @@ class DeepNestedSequenceProcessor(FeatureProcessor, TokenProcessorInterface):
         order = [k for k, v in sorted(self.code_vocab.items(), key=lambda x: x[1]) if k in keep]
         
         self.code_vocab = { k : i for i, k in enumerate(order) }
+        self._next_index = len(self.code_vocab)
 
     def add(self, tokens: set[str]):
         """Add specified vocabularies to the processor."""
@@ -106,6 +110,7 @@ class DeepNestedSequenceProcessor(FeatureProcessor, TokenProcessorInterface):
             if token not in self.code_vocab:
                 self.code_vocab[token] = i
                 i += 1
+        self._next_index = len(self.code_vocab)
 
     def tokens(self) -> set[str]:
         """Return the set of tokens in the processor's vocabulary."""
@@ -250,6 +255,8 @@ class DeepNestedFloatsProcessor(FeatureProcessor):
         >>> result = processor.process([[[1.0, 2.0], [3.0]]])
         >>> result.shape  # (1, max_visits_per_group, max_values_per_visit)
     """
+
+    stores_tensor = True
 
     def __init__(self, forward_fill: bool = True):
         self._max_middle_len = 1  # Maximum length of middle sequences (visits)

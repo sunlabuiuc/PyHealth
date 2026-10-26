@@ -1,8 +1,7 @@
-from pyhealth.datasets import split_by_patient, get_dataloader
-from pyhealth.trainer import Trainer
-from pyhealth.datasets import SHHSDataset
+from pyhealth.datasets import SHHSDataset, get_dataloader, split_by_patient
+from pyhealth.models import SparcNet
 from pyhealth.tasks import sleep_staging_shhs_fn
-from pyhealth.models import ContraWR, SparcNet
+from pyhealth.trainer import Trainer
 
 # step 1: load signal data
 dataset = SHHSDataset(

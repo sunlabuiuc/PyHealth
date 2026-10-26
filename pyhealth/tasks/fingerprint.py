@@ -498,18 +498,41 @@ def task_cache_name(task: Any, *, include_source: bool | None = None) -> str:
 def processors_fingerprint(
     input_processors: Mapping[str, Any] | None,
     output_processors: Mapping[str, Any] | None,
+    *,
+    storage_format: Any = None,
+    split: Any = None,
 ) -> str:
-    """Fingerprint pre-fitted processors for the ``samples_*`` cache key.
+    """Fingerprint the processed-samples cache key below a task directory.
 
     Same failure modes as tasks: ``SequenceProcessor`` holds a ``CrossMap``
     (address-bearing repr) and a ``code_vocab`` typed ``Dict[Any, int]``
     (mixed keys crash ``sort_keys=True``).
+
+    ``storage_format`` and ``split`` are the other two inputs that decide the
+    content of a ``samples_*`` directory: the on-disk layout makes older
+    ``*.bin`` files unreadable when it changes, and a split decides which
+    patients fit the processors. Both are omitted from the payload when left at
+    ``None``, so a caller that passes neither keeps the two-argument digest.
+
+    Args:
+        input_processors: Pre-fitted input processors, or None.
+        output_processors: Pre-fitted output processors, or None.
+        storage_format: ``SampleDataset.STORAGE_FORMAT`` of the writer.
+        split: ``Split.to_dict()`` of the split in use, or None without one.
 
     Example:
         >>> processors_fingerprint(None, None) == processors_fingerprint({}, {})
         True
         >>> len(processors_fingerprint(None, None))
         64
+        >>> a = processors_fingerprint(None, None, split={"kind": "patient", "seed": 1})
+        >>> b = processors_fingerprint(None, None, split={"kind": "patient", "seed": 2})
+        >>> a == b
+        False
+        >>> processors_fingerprint(None, None, storage_format=2) == processors_fingerprint(
+        ...     None, None, storage_format=3
+        ... )
+        False
     """
     payload = {
         "fingerprint_version": FINGERPRINT_VERSION,
@@ -520,6 +543,12 @@ def processors_fingerprint(
             {f"{k}:{_qualname(type(v))}": v for k, v in (output_processors or {}).items()}, "output"
         ),
     }
+    # Kept out of the payload when absent so that an unsplit cache written
+    # before these two entered the key keeps its digest.
+    if storage_format is not None:
+        payload["storage_format"] = _canon(storage_format, "storage_format")
+    if split is not None:
+        payload["split"] = _canon(split, "split")
     return _digest(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode())
 
 
