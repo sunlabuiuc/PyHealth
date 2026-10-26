@@ -2,13 +2,17 @@
 
 import importlib.util
 import json
+import math
 import os
 import random
+import re
 import sys
 import tempfile
 import unittest
 from types import SimpleNamespace
 from unittest import mock
+
+import numpy as np
 
 from pyhealth.autoimprove import (
     AutoImprover,
@@ -20,16 +24,23 @@ from pyhealth.autoimprove import (
     RandomProposer,
     SearchSpace,
     Trial,
+    build_report,
     check_models,
+    load_run,
     paired_gain,
+    select_simplest,
     select_trial,
     train_pipeline,
+    unverified_numbers,
     with_xgboost,
 )
 from pyhealth.autoimprove.evaluate import patient_folds
+from pyhealth.autoimprove.explain import attributions, summarize
 from pyhealth.autoimprove.proposers import ProposalContext, parse_json
 from pyhealth.datasets import create_sample_dataset
+from pyhealth.models import LogisticRegression
 from pyhealth.processors import BinaryLabelProcessor
+from pyhealth.tasks import FeatureInfo, TaskCard
 
 SPACE = SearchSpace(
     train_params={
@@ -282,9 +293,10 @@ class TestAutoImprover(unittest.TestCase):
         self.assertIn("cross-validation folds", llm.prompts[0])
         self.assertIn("(sd ", llm.prompts[0])
         self.assertIn("Current selection: #0", llm.prompts[0])
-        self.assertIn("standard errors", llm.prompts[0])
-        # the selection follows the paired rule, not the best mean
-        self.assertIs(result.best, select_trial(result.trials, True, 1.0))
+        self.assertIn("standard error", llm.prompts[0])
+        # the selection follows the one-SE rule over the paired candidates
+        self.assertIs(result.best,
+                      select_simplest(result.trials, True, 1.0, SPACE.rung)[0])
 
     def test_clipped_repeat_names_the_clipping(self):
         llm = ScriptedLLM([
@@ -380,7 +392,7 @@ class TestAutoImprover(unittest.TestCase):
             result = improver.run()
         # the best mean, not the trial with the steadiest gain over the first one
         self.assertEqual(result.best.config.model_params["hidden_dim"], 32)
-        self.assertIn("no baseline to compare with", llm.prompts[1])
+        self.assertIn("no starting pipeline to compare with", llm.prompts[1])
 
     def test_resuming_with_changed_settings_is_refused(self):
         baseline = PipelineConfig("LogisticRegression", {"embedding_dim": 16})
@@ -582,8 +594,9 @@ class TestLabelTypes(unittest.TestCase):
         self.assertFalse(any("pos_weight" in t.config.train_params for t in result.trials))
 
         scores = improver.evaluate_on_test(test, return_predictions=True)
-        self.assertEqual(set(scores), {"best", "baseline", "predictions"})
+        self.assertNotIn("difference", scores)
         self.assertIn("estimate", scores["best"])
+        self.assertIn("estimate", scores["baseline"])
         self.assertEqual(scores["predictions"]["best"].shape, (40, 3))
 
 
@@ -629,6 +642,322 @@ class TestSelection(unittest.TestCase):
         for order in ([base, steady, early, later_noise], [later_noise, early, steady, base]):
             self.assertIs(select_trial(order, True, 1.0), steady)
         self.assertIs(select_trial([base, early, later_noise], True, 1.0), early)
+
+
+class TestOneSERule(unittest.TestCase):
+    @staticmethod
+    def _trial(i, model, score, folds, agent=None, params=None):
+        return Trial(i, 0, agent or f"a{i}", "explore",
+                     PipelineConfig(model, params or {}), metric_name="pr_auc",
+                     score=score, fold_scores=folds)
+
+    def test_simpler_model_within_one_se_wins(self):
+        space = with_xgboost(SearchSpace())
+        base = self._trial(0, "XGBoost", 0.50, [0.48, 0.50, 0.52], "baseline",
+                           {"max_depth": 4})
+        lr = self._trial(1, "LogisticRegression", 0.55, [0.52, 0.57, 0.56])
+        deep = self._trial(2, "XGBoost", 0.56, [0.55, 0.555, 0.575], params={
+            "max_depth": 6})
+        noisy = self._trial(3, "MLP", 0.60, [0.40, 0.80, 0.60])  # not a candidate
+        selected, top = select_simplest([base, lr, deep, noisy], True, 1.0, space.rung)
+        self.assertEqual((selected.trial_id, top.trial_id), (1, 2))
+        # without a ladder the top candidate is selected
+        self.assertEqual(select_simplest([base, lr, deep], True, 1.0)[0].trial_id, 2)
+
+    def test_top_kept_when_simpler_is_clearly_worse(self):
+        space = with_xgboost(SearchSpace())
+        base = self._trial(0, "XGBoost", 0.50, [0.50, 0.50, 0.50], "baseline")
+        lr = self._trial(1, "LogisticRegression", 0.52, [0.519, 0.52, 0.521])
+        deep = self._trial(2, "XGBoost", 0.60, [0.599, 0.60, 0.601])
+        selected, top = select_simplest([base, lr, deep], True, 1.0, space.rung)
+        self.assertIs(selected, deep)
+        self.assertIs(top, deep)
+
+    def test_baseline_stays_without_consistent_gains(self):
+        base = self._trial(0, "MLP", 0.50, [0.48, 0.50, 0.52], "baseline")
+        noisy = self._trial(1, "LogisticRegression", 0.52, [0.40, 0.58, 0.58])
+        selected, top = select_simplest([base, noisy], True, 1.0, SearchSpace().rung)
+        self.assertIs(selected, base)
+        self.assertIs(top, base)
+
+    def test_without_a_baseline_every_trial_is_a_candidate(self):
+        # The first trial must not act as a baseline that others have to beat.
+        space = with_xgboost(SearchSpace())
+        first = self._trial(0, "XGBoost", 0.50, [0.50, 0.50, 0.50])
+        lr = self._trial(1, "LogisticRegression", 0.55, [0.45, 0.65, 0.55])
+        deep = self._trial(2, "XGBoost", 0.56, [0.50, 0.66, 0.52])
+        for order in ([first, lr, deep], [deep, lr, first]):
+            selected, top = select_simplest(order, True, 1.0, space.rung)
+            self.assertEqual((selected.trial_id, top.trial_id), (1, 2))
+        report = build_report([first, lr, deep], metric="pr_auc", promote_se=1.0,
+                              space=space)
+        why = report.to_markdown()
+        self.assertIn("no starting pipeline to compare with", why)
+        self.assertNotIn("starting pipeline;", why)  # no trial is labelled as one
+
+    def test_ladder_and_plain_words(self):
+        space = with_xgboost(SearchSpace())
+        rungs = [space.rung(PipelineConfig("LogisticRegression")),
+                 space.rung(PipelineConfig("XGBoost", {"max_depth": 1})),
+                 space.rung(PipelineConfig("XGBoost", {"max_depth": 3})),
+                 space.rung(PipelineConfig("MLP")),
+                 space.rung(PipelineConfig("RNN"))]
+        self.assertEqual(rungs, [1, 2, 3, 3, 4])
+        words = space.explain(PipelineConfig(
+            "XGBoost", {"max_depth": 1, "scale_pos_weight": None}))
+        self.assertIn("additive", words[1])
+        self.assertIn("observed frequencies", words[2])
+
+
+class TestExplainedRuns(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.train, cls.val, cls.test = _datasets()
+
+    def test_decision_log_records_hypothesis_and_change(self):
+        llm = ScriptedLLM([
+            _reply({"model": "MLP", "model_params": {"hidden_dim": 16,
+                    "embedding_dim": 16}, "rationale": "a small MLP",
+                    "expected": "PR-AUC up", "kind": "technical"}),
+            _reply({"model": "MLP", "model_params": {"hidden_dim": 32,
+                    "embedding_dim": 16}, "based_on": 1,
+                    "rationale": "wider"}),
+        ])
+        with tempfile.TemporaryDirectory() as tmp:
+            improver = AutoImprover(
+                self.train, self.val, LLMProposer(llm),
+                baseline=PipelineConfig("LogisticRegression", {"embedding_dim": 16}),
+                space=SPACE, n_agents=1, n_cycles=2, patience=5, run_dir=tmp,
+            )
+            result = improver.run()
+            first, second = result.trials[1], result.trials[2]
+            self.assertEqual(first.parent, 0)  # nearest earlier trial
+            self.assertEqual(first.change["model"], "LogisticRegression → MLP")
+            self.assertEqual(first.config.hypothesis,
+                             {"expected": "PR-AUC up", "kind": "technical"})
+            self.assertEqual((second.parent, second.change),
+                             (1, {"hidden_dim": "16 → 32"}))
+            # the log round-trips, and older records without the fields load
+            with open(os.path.join(tmp, "trials.jsonl")) as f:
+                saved = [json.loads(line) for line in f]
+            self.assertEqual(Trial.from_dict(saved[2]).change, second.change)
+            old = {k: v for k, v in saved[1].items() if k not in ("parent", "change")}
+            old["unknown_future_field"] = 1
+            self.assertIsNone(Trial.from_dict(old).parent)
+            self.assertTrue(os.path.exists(os.path.join(tmp, "run.json")))
+
+    def test_attribution_reverts_one_setting_at_a_time(self):
+        # depth 4 -> 2 is worth 0.04 and n_estimators 300 -> 600 nothing
+        def fake_cv(config, space, train, val, metric, folds, *args, **kwargs):
+            p = config.model_params
+            mean = 0.50 + (0.04 if p["max_depth"] == 2 else 0.0)
+            return {"metrics": {metric: mean},
+                    "fold_scores": [mean - 0.01, mean, mean + 0.01],
+                    "seconds": 0.0, "n_params": 0}
+
+        target = {"max_depth": 2, "n_estimators": 600}
+        llm = ScriptedLLM([_reply({"model": "XGBoost", "model_params": target})])
+        with tempfile.TemporaryDirectory() as tmp, mock.patch(
+            "pyhealth.autoimprove.improver.run_config_cv", fake_cv
+        ):
+            improver = AutoImprover(
+                self.train, self.val, LLMProposer(llm),
+                baseline=PipelineConfig("XGBoost", {"max_depth": 4}),
+                space=with_xgboost(SPACE), n_agents=1, n_cycles=1, cv_folds=3,
+                run_dir=tmp, check=False,
+            )
+            result = improver.run()
+            self.assertEqual(result.best.trial_id, 1)
+            out = improver.attribute()
+            rows = {r["setting"]: r for r in out["rows"]}
+            self.assertEqual(set(rows), {"max_depth", "n_estimators"})
+            self.assertAlmostEqual(rows["max_depth"]["contribution"], 0.04)
+            self.assertAlmostEqual(rows["n_estimators"]["contribution"], 0.0)
+            self.assertEqual(out["reference"], "the starting pipeline (#0)")
+            self.assertTrue(os.path.exists(os.path.join(tmp, "attribution.json")))
+
+            report = improver.report()
+            text = report.to_markdown()
+            self.assertIn("What each change contributed", text)
+            self.assertIn("max_depth", text)
+            for name in ("report.html", "report.md", "report.json"):
+                self.assertTrue(os.path.exists(os.path.join(tmp, name)))
+            # rebuilt from the run directory alone, the report is the same
+            self.assertEqual(load_run(tmp).to_markdown(), text)
+
+    def test_report_from_a_real_run(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            improver = AutoImprover(
+                self.train, self.val, RandomProposer(seed=1),
+                baseline=PipelineConfig("LogisticRegression", {"embedding_dim": 16}),
+                space=SPACE, n_agents=2, n_cycles=2, cv_folds=3, run_dir=tmp,
+            )
+            result = improver.run()
+            test = improver.evaluate_on_test(self.test, n_boot=50, return_predictions=True)
+            with open(os.path.join(tmp, "test.json")) as f:
+                saved = json.load(f)
+            self.assertEqual(saved["best"]["trial_id"], result.best.trial_id)
+            self.assertIn("predictions", test)
+            self.assertNotIn("predictions", saved)  # aggregates only on disk
+            self.assertEqual(test["metric"], "pr_auc")
+            report = improver.report()
+            titles = [s.title for s in report.sections]
+            self.assertEqual(titles, [
+                "Summary", "Task and data", "The model and why",
+                "Performance in clinical terms", "Reasoning trace",
+                "Clinician review", "Reporting checklist", "How to read this report",
+            ])
+            html_text = report.to_html()
+            self.assertIn("<table>", html_text)
+            self.assertIn("Why this model", html_text)
+            verdicts = report.data["verdicts"]
+            self.assertEqual(verdicts[result.best.trial_id], "selected")
+            self.assertEqual(len(verdicts), len(result.trials))
+
+    def test_baseline_kept_after_confirmation(self):
+        from pyhealth.autoimprove.report import build_report
+
+        folds = [0.40, 0.41, 0.42, 0.43, 0.44]
+        trials = [Trial(0, -1, "baseline", "baseline", PipelineConfig("MLP"),
+                        score=0.42, fold_scores=folds),
+                  Trial(1, 0, "a0", "explore",
+                        PipelineConfig("MLP", {}, {"weight_decay": 0.01}),
+                        score=0.45, fold_scores=[x + 0.03 for x in folds])]
+        confirmed = {0: folds, 1: [x + d for x, d in
+                                   zip(folds, [0.02, -0.01, 0.02, -0.01, 0.0])]}
+        text = build_report(trials, metric="pr_auc", confirmed=confirmed).to_markdown()
+        self.assertIn("**Selected: #0", text)
+        self.assertNotIn("beat the starting pipeline consistently", text)
+        self.assertIn("1 trial(s) beat the starting pipeline on the search folds", text)
+
+    def test_number_checker(self):
+        trials = [Trial(0, -1, "baseline", "baseline", PipelineConfig("MLP"),
+                        score=0.2164),
+                  Trial(1, 0, "a0", "explore",
+                        PipelineConfig("MLP", {}, {"weight_decay": 0.01}),
+                        score=0.2950)]
+        text = ("#1 scored 0.295 vs 0.216 (+0.079) with weight decay 0.01; "
+                "batch 32 dropped to 0.256")
+        self.assertEqual(unverified_numbers(text, trials), ["0.256"])
+
+
+def _tabular(n, seed, offset=0):
+    """Three numeric columns: one raises risk, one lowers it, one is noise."""
+    rng = random.Random(seed)
+    out = []
+    for i in range(n):
+        x = [rng.gauss(0, 1) for _ in range(3)]
+        risk = 1 / (1 + math.exp(-(2.0 * x[0] - 1.5 * x[1])))
+        out.append({"patient_id": f"q{offset + i}", "tab": x,
+                    "label": int(rng.random() < risk)})
+    return out
+
+
+def _tabular_datasets():
+    schema = ({"tab": "tensor"}, {"label": "binary"})
+    train = create_sample_dataset(_tabular(300, 0), *schema)
+    kwargs = {"input_processors": train.input_processors,
+              "output_processors": train.output_processors}
+    val = create_sample_dataset(_tabular(80, 1, 1000), *schema, **kwargs)
+    test = create_sample_dataset(_tabular(200, 2, 2000), *schema, **kwargs)
+    return train, val, test
+
+
+# The card expects "protect" to raise risk; the data say it lowers it.
+CARD = TaskCard(
+    population=("synthetic patients", "a test of the explanation"),
+    outcome="a planted binary label",
+    features={
+        "risk_up": FeatureInfo("planted risk factor", "labs", "+"),
+        "protect": FeatureInfo("planted protective factor", "labs", "+"),
+        "noise": FeatureInfo("unrelated value", "other", ""),
+    },
+    columns={"tab": ["risk_up", "protect", "noise"]},
+    notes="No missing values.",
+)
+
+
+class TestClinicalReport(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.train, cls.val, cls.test = _tabular_datasets()
+
+    def test_explain_flags_review_and_privacy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            improver = AutoImprover(
+                self.train, self.val, RandomProposer(seed=0),
+                baseline=PipelineConfig("LogisticRegression", {"embedding_dim": 16},
+                                        {"epochs": 2}),
+                space=SPACE, n_agents=1, n_cycles=1, cv_folds=3, run_dir=tmp,
+                task_card=CARD,
+            )
+            improver.run()
+            explanation = improver.explain(top_k=3)
+            by_name = {f["name"]: f for f in explanation["features"]}
+            self.assertEqual(by_name["risk_up"]["learned"], "+")
+            self.assertEqual(by_name["risk_up"]["check"], "as expected")
+            self.assertEqual(by_name["protect"]["learned"], "-")
+            self.assertEqual(by_name["protect"]["check"], "opposite")
+            self.assertEqual(explanation["groups"][0]["group"], "labs")
+            self.assertEqual(explanation["stability"]["models"], 3)
+
+            ids = [f["id"] for f in improver.flags()]
+            self.assertIn("direction:protect", ids)
+            self.assertNotIn("direction:risk_up", ids)
+            improver.approve("direction:protect", "Dr. Test", "planted in the data")
+            flag = next(f for f in improver.flags() if f["id"] == "direction:protect")
+            self.assertEqual(flag["review"]["decision"], "approved")
+            with self.assertRaises(ValueError):
+                improver.approve("no_such_flag", "Dr. Test")
+
+            halves = ["early" if i < 100 else "late" for i in range(len(self.test))]
+            test = improver.evaluate_on_test(self.test, n_boot=50,
+                                             subgroups={"half": halves})
+            clinical = test["best"]["clinical"]
+            self.assertIn("calibration_slope", clinical["calibration"])
+            self.assertIn("half", clinical["subgroups"])
+
+            report = improver.report()
+            titles = [s.title for s in report.sections]
+            self.assertIn("How it decides", titles)
+            self.assertIn("Performance in clinical terms", titles)
+            text = report.to_markdown()
+            self.assertIn("approved by Dr. Test", text)
+            self.assertIn("planted protective factor", text)
+            self.assertIn("TRIPOD+AI", text)
+            self.assertEqual(load_run(tmp, space=SPACE).to_markdown(), text)
+
+            # Privacy: no patient ids, and every published cell has 11+ patients.
+            blob = report.to_json() + report.to_html()
+            self.assertIsNone(re.search(r"\bq\d+\b", blob))
+            for f in report.data["explanation"]["features"]:
+                self.assertTrue(all(b["n"] >= 11 for b in f["bins"]))
+            for sub in clinical["subgroups"].values():
+                for row in sub["groups"].values():
+                    self.assertTrue(row["n"] is None or row["n"] >= 11)
+            self.assertTrue(all(b["n"] >= 11 for b in clinical["calibration_bins"]))
+
+    def test_logistic_attributions_are_exact(self):
+        model = LogisticRegression(self.train, embedding_dim=8)
+        out = attributions(model, self.train, max_samples=100)
+        values = out["fields"]["tab"]["values"]
+        contribs = out["fields"]["tab"]["contributions"]
+        layer = model.embedding_model.embedding_layers["tab"]
+        weights = (model.fc.weight @ layer.weight).detach().numpy().ravel()
+        # integrated gradients start from the mean of the explained samples
+        expected = (values - values.mean(axis=0)) * weights
+        np.testing.assert_allclose(contribs, expected, atol=1e-4)
+
+    @unittest.skipUnless(importlib.util.find_spec("xgboost"), "needs xgboost")
+    def test_tree_attributions(self):
+        from pyhealth.models import XGBoostModel
+
+        model = XGBoostModel(self.train, n_estimators=50, max_depth=2).fit(self.train)
+        out = summarize(attributions(model, self.train), CARD, top_k=3)
+        self.assertTrue(out["method"].startswith("TreeSHAP"))
+        by_name = {f["name"]: f for f in out["features"]}
+        self.assertEqual(by_name["risk_up"]["learned"], "+")
+        self.assertEqual(by_name["protect"]["check"], "opposite")
 
 
 class TestClaudeLLM(unittest.TestCase):
