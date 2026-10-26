@@ -396,7 +396,6 @@ class TestEM(unittest.TestCase):
         estimate = em(y_true_source, y_prob_target, tol=0.25)
         np.testing.assert_allclose(estimate, [0.9, 0.1], atol=1e-12)
 
-
     def test_constant_target_rows_warn(self):
         """Constant target rows carry no prevalence information, so EM
         warns instead of silently returning the source prior. With
@@ -414,6 +413,22 @@ class TestEM(unittest.TestCase):
         self.assertTrue(issubclass(caught[0].category, UserWarning))
         self.assertIn("constant", str(caught[0].message))
         np.testing.assert_allclose(estimate, [0.75, 0.25], atol=1e-12)
+
+    def test_near_constant_target_rows_warn(self):
+        """Rows that differ by only 1e-4 still warn: a spread that
+        small carries almost no prevalence information, even though
+        the rows are not exactly identical."""
+        y_true_source = np.array([0, 0, 0, 1])
+        y_prob_target = np.array(
+            [[0.75, 0.25], [0.7501, 0.2499], [0.7499, 0.2501]]
+        )
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            estimate = em(y_true_source, y_prob_target)
+        self.assertEqual(len(caught), 1)
+        self.assertTrue(issubclass(caught[0].category, UserWarning))
+        self.assertIn("nearly constant", str(caught[0].message))
+        _assert_valid_distribution(self, estimate, 2)
 
     def test_varying_target_rows_do_not_warn(self):
         """Informative target rows must not trigger the constant-rows
