@@ -6,10 +6,10 @@ import torch
 
 from pyhealth.calib.predictionset import LabelShift, bbse, em
 from pyhealth.calib.predictionset.base_conformal import _query_quantile
-from pyhealth.calib.predictionset.label_shift.em import _posteriors
 from pyhealth.calib.predictionset.label_shift.label_shift import (
     _compute_label_shift_thresholds,
 )
+from pyhealth.calib.predictionset.label_shift.mlls import _posteriors
 from pyhealth.datasets import get_dataloader
 from tests.core.label_shift_test_utils import make_sample_dataset_and_model
 
@@ -395,6 +395,35 @@ class TestEM(unittest.TestCase):
         y_prob_target = np.array([[0.75, 0.25], [0.75, 0.25]])
         estimate = em(y_true_source, y_prob_target, tol=0.25)
         np.testing.assert_allclose(estimate, [0.9, 0.1], atol=1e-12)
+
+
+    def test_constant_target_rows_warn(self):
+        """Constant target rows carry no prevalence information, so EM
+        warns instead of silently returning the source prior. With
+        source prior [0.75, 0.25] and every target row [0.75, 0.25],
+        the source prior is an exact fixed point, exactly the case
+        Logiquo flagged."""
+        y_true_source = np.array([0, 0, 0, 1])
+        y_prob_target = np.array(
+            [[0.75, 0.25], [0.75, 0.25], [0.75, 0.25]]
+        )
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            estimate = em(y_true_source, y_prob_target)
+        self.assertEqual(len(caught), 1)
+        self.assertTrue(issubclass(caught[0].category, UserWarning))
+        self.assertIn("constant", str(caught[0].message))
+        np.testing.assert_allclose(estimate, [0.75, 0.25], atol=1e-12)
+
+    def test_varying_target_rows_do_not_warn(self):
+        """Informative target rows must not trigger the constant-rows
+        warning."""
+        y_true_source = np.array([0, 0, 1, 1])
+        y_prob_target = np.array([[0.9, 0.1], [0.1, 0.9]])
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            estimate = em(y_true_source, y_prob_target)
+        _assert_valid_distribution(self, estimate, 2)
 
 
 if __name__ == "__main__":
