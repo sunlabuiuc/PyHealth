@@ -97,6 +97,14 @@ new dataset, so they remain valid after repeated splitting.
 Calling ``close()`` preserves reusable task caches. Disk-backed datasets created
 by ``create_sample_dataset()`` own a temporary directory and remove it on close.
 
+.. note::
+   Subsets (from ``subset()``, ``split_by_patient`` and ``set_task(split=...)``)
+   read with litdata's POSIX-fast mmap reads and batched decoding turned off;
+   the full dataset keeps them. litdata 0.2.68+ caches both per run of
+   consecutive indices instead of per chunk file. A patient-level split has
+   thousands of such runs over a few files, so with them on, iterating a
+   training part takes ~20x longer (43 s vs 2 s for 140k samples).
+
 For testing or small cohorts you can skip the disk step entirely using
 ``InMemorySampleDataset``, which holds all processed samples in RAM and is
 returned by default from ``create_sample_dataset()``.
