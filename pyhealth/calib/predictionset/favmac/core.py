@@ -1,13 +1,15 @@
+import logging
 from collections import deque
 from importlib import reload
 
 import numpy as np
 import pandas as pd
 import tqdm
-#from data_utils import INTEGER_SAFE_DELTA
 from scipy.special import expit
 
 from pyhealth.calib.predictionset.favmac import quantiletree
+
+logger = logging.getLogger(__name__)
 
 
 class FavMac:
@@ -152,15 +154,41 @@ class FavMac:
         return self._forward(logit, label)
 
 class FavMac_GreedyRatio(FavMac):
-    #In each step, maximize dValue/dProxy.
+    """FavMac that grows prediction sets greedily by value per unit of proxy cost.
+
+    Each step adds the label with the largest ratio of value gained to proxy
+    cost added. With an additive proxy the whole sequence comes from one sort;
+    otherwise, or if that fails, it falls back to an O(K^2) search.
+
+    Examples:
+        >>> import numpy as np
+        >>> from pyhealth.calib.predictionset.favmac import AdditiveSetFunction
+        >>> w = np.full(3, 1 / 3)
+        >>> fm = FavMac_GreedyRatio(
+        ...     cost_fn=AdditiveSetFunction(w, mode="cost"),
+        ...     util_fn=AdditiveSetFunction(np.ones(3), mode="util"),
+        ...     proxy_fn=AdditiveSetFunction(w, mode="proxy"),
+        ...     target_cost=0.1,
+        ... )
+        >>> sets, _ = fm._greedy_sequence(np.array([0.9, 0.2, 0.6]))
+        >>> [s.tolist() for s in sets]
+        [[0, 0, 0], [1, 0, 0], [1, 0, 1], [1, 1, 1]]
+    """
+
     def _greedy_sequence(self, pred:np.ndarray):
         proxy_fn = lambda _S: self.proxy_fn(_S, pred=pred, target_cost = None if self.delta is None else self.target_cost)
         try:
             if self.proxy_fn.is_additive():
                 Ss, _ = self.util_fn.greedy_maximize_seq(pred=pred, d_proxy = self.proxy_fn.values * (1-pred))
                 return Ss, list(map(proxy_fn, Ss))
-        except:
-            pass
+        except Exception:
+            if not getattr(self, "_fallback_warned", False):
+                logger.warning(
+                    "greedy_maximize_seq failed; falling back to the O(K^2) path. "
+                    "If the predictions contain NaN, the fallback will not recover either.",
+                    exc_info=True,
+                )
+                self._fallback_warned = True
 
         Ss = [np.zeros(len(pred), dtype=int)]
         proxies = [proxy_fn(Ss[0])]

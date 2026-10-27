@@ -245,6 +245,7 @@ API Reference
     models/pyhealth.models.PromptEHR
     models/pyhealth.models.MedGAN
     models/pyhealth.models.CorGAN
+    models/pyhealth.models.Synthea
     models/pyhealth.models.SDOH
     models/pyhealth.models.VisionEmbeddingModel
     models/pyhealth.models.TextEmbedding
@@ -252,3 +253,4 @@ API Reference
     models/pyhealth.models.unified_multimodal_embedding_docs
     models/pyhealth.models.califorest
     models/pyhealth.models.XGBoostModel
+    models/pyhealth.models.survival_mdn

@@ -47,7 +47,7 @@ def multiclass_metrics_fn(
         - hits@n: shorthand that returns HITS@1, HITS@5 and HITS@10 together
         - mean_rank: mean rank of the true class (1 is best); also returns
             mean_reciprocal_rank
-            
+
     The following metrics related to the prediction sets are accepted as well, but will be ignored if y_predset is None:
         - rejection_rate: Frequency of rejection, where rejection happens when the prediction set has cardinality other than 1. Check :func:`pyhealth.metrics.prediction_set.rejection_rate`.
         - set_size: Average size of the prediction sets. Check :func:`pyhealth.metrics.prediction_set.size`.
@@ -70,6 +70,8 @@ def multiclass_metrics_fn(
         y_prob: Predicted probabilities of shape (n_samples, n_classes).
         metrics: List of metrics to compute. Default is ["accuracy", "f1_macro",
             "f1_micro"].
+        y_predset: Optional prediction sets, one per sample. Only used by the
+            prediction set metrics listed above. Default is None.
 
     Returns:
         Dictionary of metrics whose keys are the metric names and values are
