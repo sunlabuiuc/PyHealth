@@ -704,6 +704,12 @@ class ProtoECGNet(BaseModel):
     ) -> None:
         """Sets class weights and the label co-occurrence matrix.
 
+        Both are backed by persistent buffers initialised to ``ones`` (identity
+        for BCE's ``pos_weight``) and ``zeros`` (gates the contrastive term off
+        via an ``.any()`` check in :meth:`forward`); supplying a real
+        ``label_cooccurrence`` enables the contrastive term, and supplying an
+        all-zeros matrix explicitly also leaves it off.
+
         Args:
             class_weights: Positive-class weights ``(num_labels,)``.
             label_cooccurrence: Co-occurrence matrix ``(num_labels, num_labels)``.
@@ -828,11 +834,13 @@ class ProtoECGNet(BaseModel):
             if self.stage == "fusion":
                 logits = self.fusion_classifier(sims)
             if y is not None and self.stage in ("all", "joint", "prototypes"):
+                # Hoist the one-time .any() check out of the per-branch loop.
+                cnrst_on = self.lam_cnrst > 0 and bool(self.label_cooccurrence.any())
                 for name, (_, sim, _) in outputs.items():
                     index = self.branch_index(name)
-                    cooc = None
-                    if self.lam_cnrst > 0 and self.label_cooccurrence.any():
-                        cooc = self.label_cooccurrence[index][:, index]
+                    cooc = (
+                        self.label_cooccurrence[index][:, index] if cnrst_on else None
+                    )
                     t = self.branches[name].prototype_terms(sim, y[:, index], cooc)
                     extra.append(
                         self.lam_clst * t["clst"]
