@@ -247,7 +247,7 @@ def pyhealth_probs(sd, data, out_dir, epochs, seed):
                       monitor="roc_auc", patience=3)
         _, y_prob, _, pids = trainer.inference(loaders["test"],
                                                return_patient_ids=True)
-        for h in trainer_log.handlers[n_handlers:]:  # zdo't drop log.txt
+        for h in trainer_log.handlers[n_handlers:]:  # don't drop log.txt
             trainer_log.removeHandler(h)
             h.close()
         for pid, prob in zip(pids, np.ravel(y_prob)):
