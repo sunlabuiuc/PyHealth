@@ -172,6 +172,7 @@ class TestRC3PClass(unittest.TestCase):
         )
         self.assertTrue(np.isinf(cal_model.t.numpy()[2]))
         self.assertEqual(cal_model.k_hat[2], 3)
+        self.assertAlmostEqual(cal_model.alpha_hat[2], 0.3)
         with torch.no_grad():
             output = cal_model(**batch)
         self.assertTrue(output["y_predset"][:, 2].all())
@@ -182,6 +183,7 @@ class TestRC3PClass(unittest.TestCase):
         )
         self.assertTrue(np.isinf(cal_model.t.numpy()[2]))
         self.assertEqual(cal_model.k_hat[2], 3)
+        self.assertAlmostEqual(cal_model.alpha_hat[2], 0.3)
         with torch.no_grad():
             output = cal_model(**batch)
         self.assertTrue(output["y_predset"][:, 2].all())

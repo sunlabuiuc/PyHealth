@@ -115,9 +115,12 @@ class RC3P(SetPredictor):
     included, which preserves coverage at the cost of larger sets.
 
     This is a prediction-set constructor for multi-class
-    classification problems. It controls
+    classification problems. It targets class-wise miscoverage at
+    level alpha, in the sense
     :math:`\\mathbb{P}\\{Y \\not \\in C(X) | Y=k\\}\\leq \\alpha`
-    for every class k.
+    for every class k; finite-sample coverage depends on the
+    accuracy of the estimated top-k errors and is not guaranteed by
+    this implementation alone.
 
     Paper:
 
@@ -288,6 +291,12 @@ class RC3P(SetPredictor):
             if y not in rank_present or y not in score_present:
                 thresholds[y] = np.inf
                 k_hat[y] = num_classes
+                # With cutoff K, the top-K error is 0, so the
+                # adjusted rate for the forced cutoff is alpha
+                # itself, not the rate computed for the original
+                # cutoff. Keeping the old rate would leave the
+                # stored calibration state internally inconsistent.
+                alpha_hat[y] = self.alpha
         self.t = torch.tensor(thresholds, device=self.device)
         self.k_hat = k_hat
         self.alpha_hat = alpha_hat
