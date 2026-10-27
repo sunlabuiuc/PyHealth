@@ -87,6 +87,13 @@ from .variant_classification import (
     VariantClassificationClinVar,
 )
 from .patient_linkage_mimic3 import PatientLinkageMIMIC3Task
+from .yaib_mimic4 import (
+    YAIBAKIMIMIC4,
+    YAIBKidneyFunctionMIMIC4,
+    YAIBLengthOfStayMIMIC4,
+    YAIBMortalityMIMIC4,
+    YAIBSepsisMIMIC4,
+)
 
 
 def __getattr__(name: str):
