@@ -727,12 +727,12 @@ def split_by_patient_conformal_tuh(
         ``base_dataset.set_task(task, split=...)`` with :class:`PatientSplit`
         or a custom :class:`Split`.
     """
-    assert len(ratios) == 3, (
-        "ratios must have exactly 3 elements (train/val/cal). "
-        "The test set is determined by the TUH eval partition."
-    )
-    return split_by_predefined(dataset, ratios, seed, get_index, by_patient=True)
+
     _validate_ratios(ratios, expected_length=3)
+    
+    
+    return split_by_predefined(dataset, ratios, seed, get_index, by_patient=True)
+    
 
     # Bucket patients by partition using dataset.patient_to_index (fast path).
     # TUH guarantees each patient is in exactly one partition, so inspecting the
@@ -791,6 +791,9 @@ def split_by_sample_conformal_tuh(
     seed: Optional[int] = None,
     get_index: Optional[bool] = False,
 ):
+
+    _validate_ratios(ratios, expected_length=3)
+    
     """Splits a TUH EEG dataset (TUEV/TUAB) using its pre-defined train/eval split.
 
     This is a thin wrapper around :func:`split_by_predefined`.
@@ -827,12 +830,9 @@ def split_by_sample_conformal_tuh(
         ``base_dataset.set_task(task, split=...)`` with :class:`PatientSplit`
         or a custom :class:`Split`.
     """
-    assert len(ratios) == 3, (
-        "ratios must have exactly 3 elements (train/val/cal). "
-        "The test set is determined by the dataset's own eval partition."
-    )
+
     return split_by_predefined(dataset, ratios, seed, get_index, by_patient=False)
-    _validate_ratios(ratios, expected_length=3)
+    
 
     # verify every sample has the required "split" field
     for i in range(len(dataset)):
@@ -886,6 +886,9 @@ def split_by_patient_tuh(
     seed: Optional[int] = None,
     get_index: Optional[bool] = False,
 ):
+
+    _validate_ratios(ratios, expected_length=2)
+    
     """Splits a TUH EEG dataset by PATIENT within the TUH train partition.
 
     Like :func:`split_by_patient_conformal_tuh` but returns a 3-way split
@@ -933,12 +936,8 @@ def split_by_patient_tuh(
         ``base_dataset.set_task(task, split=...)`` with :class:`PatientSplit`
         or a custom :class:`Split`.
     """
-    assert len(ratios) == 2, (
-        "ratios must have exactly 2 elements (train/val). "
-        "The test set is determined by the TUH eval partition."
-    )
     return split_by_predefined(dataset, ratios, seed, get_index, by_patient=True)
-    _validate_ratios(ratios, expected_length=2)
+
 
     train_patient_to_indices: dict = {}
     test_list: List[int] = []
@@ -992,6 +991,9 @@ def split_by_sample_tuh(
     seed: Optional[int] = None,
     get_index: Optional[bool] = False,
 ):
+
+    _validate_ratios(ratios, expected_length=2)
+    
     """Splits a TUH EEG dataset (TUEV/TUAB) using its pre-defined split.
 
     Like :func:`split_by_sample_conformal_tuh` but returns a 3-way split
@@ -1033,12 +1035,9 @@ def split_by_sample_tuh(
         ``base_dataset.set_task(task, split=...)`` with :class:`PatientSplit`
         or a custom :class:`Split`.
     """
-    assert len(ratios) == 2, (
-        "ratios must have exactly 2 elements (train/val). "
-        "The test set is determined by the dataset's own eval partition."
-    )
+
     return split_by_predefined(dataset, ratios, seed, get_index, by_patient=False)
-    _validate_ratios(ratios, expected_length=2)
+
 
     for i in range(len(dataset)):
         assert "split" in dataset[i], (
