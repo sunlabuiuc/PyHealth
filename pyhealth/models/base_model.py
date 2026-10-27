@@ -1,6 +1,7 @@
 from abc import ABC
 from collections.abc import Iterable, Sequence
 from typing import Callable, Any, Optional
+import functools
 import inspect
 import logging
 
@@ -14,7 +15,42 @@ from ..processors import PROCESSOR_REGISTRY
 logger = logging.getLogger(__name__)
 
 # Label kinds understood by the loss helpers, Trainer and the calibration methods.
-VALID_MODES = ("binary", "multiclass", "multilabel", "regression")
+# The timeseries modes are labels per time step (see TimeseriesLabelProcessor).
+VALID_MODES = (
+    "binary",
+    "multiclass",
+    "multilabel",
+    "regression",
+    "timeseries_binary",
+    "timeseries_regression",
+)
+
+
+def _masked_step_loss(
+    loss_fn: Callable,
+    logits: torch.Tensor,
+    target: tuple[torch.Tensor, torch.Tensor],
+) -> torch.Tensor:
+    """Averages a per-step loss over the time steps that have a label.
+
+    Args:
+        loss_fn: Elementwise loss accepting ``reduction="none"``.
+        logits: Per-step logits of shape (batch, steps, 1).
+        target: Batched ``(value, mask)`` of shape (batch, label steps), where
+            padding and unlabeled steps have mask 0.
+    """
+    # Temporary workaround: per-step labels arrive as a (value, mask) tuple so
+    # the existing single-tensor label API stays unchanged. A more unified
+    # handling of padded/masked label tensors across models is a follow-up.
+    value, mask = target
+    if value.shape[1] > logits.shape[1]:
+        raise ValueError(
+            f"The label has {value.shape[1]} time steps but the input only "
+            f"{logits.shape[1]}; label and input must share the time grid."
+        )
+    logits = logits[:, : value.shape[1], 0]
+    loss = loss_fn(logits, value, reduction="none")
+    return (loss * mask).sum() / mask.sum().clamp(min=1)
 
 
 class BaseModel(ABC, nn.Module):
@@ -38,7 +74,8 @@ class BaseModel(ABC, nn.Module):
     Mode
     --------
         ``mode`` is always one of ``"binary"``, ``"multiclass"``, ``"multilabel"``,
-        ``"regression"`` or ``None``. It is resolved from the single label's
+        ``"regression"``, ``"timeseries_binary"``, ``"timeseries_regression"``
+        or ``None``. It is resolved from the single label's
         ``output_schema`` entry, which may be a string, a processor class, a
         processor instance or a ``(name, kwargs)`` tuple. Assigning ``self.mode``
         in a subclass resolves the value the same way.
@@ -269,6 +306,14 @@ class BaseModel(ABC, nn.Module):
             - multiclass: `F.cross_entropy`
             - multilabel: `F.binary_cross_entropy_with_logits`
             - regression: `F.mse_loss`
+            - timeseries_binary: `F.binary_cross_entropy_with_logits` per
+              time step, averaged over the labeled steps
+            - timeseries_regression: `F.mse_loss` per time step, averaged
+              over the labeled steps
+
+        The timeseries losses take per-step logits of shape (batch, steps, 1)
+        and the batched ``(value, mask)`` label of a
+        :class:`~pyhealth.processors.TimeseriesLabelProcessor`.
 
         For binary and multilabel labels, a weight set with
         :meth:`set_pos_weight` is passed as ``pos_weight``.
@@ -298,6 +343,10 @@ class BaseModel(ABC, nn.Module):
             return F.binary_cross_entropy_with_logits
         elif mode == "regression":
             return F.mse_loss
+        elif mode == "timeseries_binary":
+            return functools.partial(_masked_step_loss, F.binary_cross_entropy_with_logits)
+        elif mode == "timeseries_regression":
+            return functools.partial(_masked_step_loss, F.mse_loss)
         else:
             raise ValueError(f"Invalid mode: {mode}")
 
@@ -315,6 +364,10 @@ class BaseModel(ABC, nn.Module):
             - multilabel: a tensor of shape (batch_size, num_labels) with values
                 in [0, 1], which is obtained with `torch.sigmoid()`
             - regression: a tensor of shape (batch_size, 1) with raw logits
+            - timeseries_binary: a tensor of shape (batch_size, steps, 1)
+                with values in [0, 1] per time step, from `torch.sigmoid()`
+            - timeseries_regression: a tensor of shape (batch_size, steps, 1)
+                with raw logits per time step
 
         Args:
             logits (torch.Tensor): The predicted logit tensor.
@@ -334,6 +387,10 @@ class BaseModel(ABC, nn.Module):
         elif mode in ["multilabel"]:
             y_prob = torch.sigmoid(logits)
         elif mode in ["regression"]:
+            y_prob = logits
+        elif mode in ["timeseries_binary"]:
+            y_prob = torch.sigmoid(logits)
+        elif mode in ["timeseries_regression"]:
             y_prob = logits
         else:
             raise NotImplementedError
