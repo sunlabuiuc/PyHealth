@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from typing import Dict, List, Optional
 
 import numpy as np
@@ -69,6 +70,42 @@ def regression_metrics_fn(
             raise ValueError(f"Unknown metric for regression task: {metric}")
     return output
 
+
+
+def timeseries_regression_metrics_fn(
+    y_true: Sequence[np.ndarray],
+    y_pred: Sequence[np.ndarray],
+    metrics: list[str] | None = None,
+) -> dict[str, float]:
+    """Computes metrics for real-valued labels given per time step.
+
+    Each sample contributes the targets and predictions of its labeled time
+    steps. The steps of all samples are pooled and scored with
+    :func:`regression_metrics_fn`, as in benchmarks that evaluate every hour
+    of every ICU stay (e.g. YAIB).
+
+    Args:
+        y_true: One array of targets per sample, over its labeled steps.
+        y_pred: One array of predictions per sample, matching ``y_true``.
+        metrics: Metrics to compute, see :func:`regression_metrics_fn`.
+
+    Returns:
+        Dictionary of metrics whose keys are the metric names and values are
+            the metric values.
+
+    Examples:
+        >>> import numpy as np
+        >>> from pyhealth.metrics import timeseries_regression_metrics_fn
+        >>> y_true = [np.array([3.0, 2.0]), np.array([1.0])]
+        >>> y_pred = [np.array([2.0, 2.0]), np.array([2.0])]
+        >>> timeseries_regression_metrics_fn(y_true, y_pred, metrics=["mae"])
+        {'mae': 0.6666666666666666}
+    """
+    return regression_metrics_fn(
+        np.concatenate([np.ravel(y) for y in y_true]),
+        np.concatenate([np.ravel(p) for p in y_pred]),
+        metrics=metrics,
+    )
 
 if __name__ == "__main__":
     x = np.random.random(size=10000)

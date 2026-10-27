@@ -1,4 +1,4 @@
-from .binary import binary_metrics_fn
+from .binary import binary_metrics_fn, timeseries_binary_metrics_fn
 from .bootstrap import bootstrap_ci, paired_bootstrap_diff
 from .drug_recommendation import ddi_rate_score
 from .fairness import fairness_metrics_fn
@@ -20,7 +20,7 @@ from .interpretability import (
 from .multiclass import multiclass_metrics_fn
 from .multilabel import multilabel_metrics_fn
 from .ranking import ranking_metrics_fn
-from .regression import regression_metrics_fn
+from .regression import regression_metrics_fn, timeseries_regression_metrics_fn
 
 __all__ = [
     "ComprehensivenessMetric",
@@ -43,4 +43,6 @@ __all__ = [
     "paired_bootstrap_diff",
     "ranking_metrics_fn",
     "regression_metrics_fn",
+    "timeseries_binary_metrics_fn",
+    "timeseries_regression_metrics_fn",
 ]
