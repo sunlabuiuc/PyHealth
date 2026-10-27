@@ -534,6 +534,8 @@ def _extreme_imputations(
     hi = np.full(X.shape[1], np.inf)
     lo[seen] = np.nanmin(observed, axis=0) - 3 * sd
     hi[seen] = np.nanmax(observed, axis=0) + 3 * sd
+    # a lab with one training value has lo == hi
+    lo, hi = lo.astype(imputed.dtype), hi.astype(imputed.dtype)
     return (((imputed < lo) | (imputed > hi)) & np.isnan(X)).sum(axis=2)
 
 
