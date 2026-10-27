@@ -234,17 +234,22 @@ def sklearn_probs(data, extra_flags, select_metric, n_jobs=1):
 def pyhealth_probs(sd, data, out_dir, epochs, seed):
     """One PyHealth LogisticRegression per draw on (split, draw) subsets; averaged."""
     by_pid = defaultdict(list)
+    trainer_log = logging.getLogger("pyhealth.trainer")
     for d in range(data["X"].shape[0]):
         set_seed(seed * 1000 + d)
         loaders = {s: get_dataloader(sd.subset(data["index"][(s, d)]), 256,
                                      shuffle=(s == "train"))
                    for s in ("train", "val", "test")}
+        n_handlers = len(trainer_log.handlers)
         trainer = Trainer(model=LogisticRegression(dataset=sd), metrics=["roc_auc"],
                           output_path=str(out_dir), exp_name=f"draw{d}")
         trainer.train(loaders["train"], loaders["val"], epochs=epochs,
                       monitor="roc_auc", patience=3)
         _, y_prob, _, pids = trainer.inference(loaders["test"],
                                                return_patient_ids=True)
+        for h in trainer_log.handlers[n_handlers:]:  # zdo't drop log.txt
+            trainer_log.removeHandler(h)
+            h.close()
         for pid, prob in zip(pids, np.ravel(y_prob)):
             by_pid[pid].append(float(prob))
     return np.array([np.mean(by_pid[p]) if p in by_pid else np.nan
@@ -491,7 +496,7 @@ def plot_deltas(df, out):
         n, h = len(strategies), 0.8 / len(strategies)
         base = np.arange(len(AXES))[::-1]  # Ethnicity on top, as in the paper
         fig, axes = plt.subplots(1, 2, figsize=(11, 1.5 + 0.15 * n * len(AXES)),
-                                 sharey=True)
+                                 sharey=True, layout="constrained")
         for ax, metric, label in zip(axes, ("prioritization_rate", "fnr"),
                                      ("Δ prioritisation", "Δ false negative rate")):
             shown = False

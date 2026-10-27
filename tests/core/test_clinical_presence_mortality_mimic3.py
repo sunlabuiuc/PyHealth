@@ -32,6 +32,7 @@ from pyhealth.tasks.clinical_presence_mortality_mimic3 import (
     _assemble,
     _assign_split,
     _extract_cohort,
+    _extreme_imputations,
     _feature_names,
     _impute_draws,
     _OLSResidualNoise,
@@ -503,6 +504,19 @@ class TestImputation(unittest.TestCase):
         self.assertTrue(np.isfinite(out).all())
         self.assertTrue(self.missing[:, 10].any())
         np.testing.assert_array_equal(out[:, :, 10], 5.0)
+
+    def test_extreme_imputations(self):
+        # Bounds: lab 0 [-2, 6]; lab 1 one value, inexact in float32; lab 2 none
+        X = np.array(
+            [[1.0, np.nan, np.nan], [3.0, 0.1, np.nan], [np.nan] * 3, [np.nan] * 3]
+        )
+        train = np.array([True, True, False, False])
+        imputed = np.array(
+            [[[1.0, 0.1, 0.0], [3.0, 0.1, 0.0], [6.0, 0.1, 0.0], [6.5, 0.1, 9.0]]],
+            dtype=np.float32,
+        )
+        counts = _extreme_imputations(imputed, X, train)
+        np.testing.assert_array_equal(counts, [[0, 0, 0, 1]])
 
     def test_ols_residual_noise_options(self):
         rng = np.random.default_rng(0)
