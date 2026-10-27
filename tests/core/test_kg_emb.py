@@ -395,6 +395,37 @@ class TestUMLSDataset(unittest.TestCase):
             second = UMLSDataset(root=tmp, cache_dir=root / "cache")
             self.assertEqual((second.num_entities, second.num_relations), (3, 3))
 
+    def test_a_concurrent_up_to_date_copy_is_accepted(self) -> None:
+        # Windows refuses os.replace while another job replaces the same file.
+        from unittest import mock
+
+        from pyhealth.medcode.pretrained_embeddings.kg_emb.datasets import umls
+
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            root = Path(tmp)
+            (root / "graph.txt").write_text("A\tPAR\tB\n")
+            UMLSDataset.prepare_metadata(tmp)  # the other job's copy
+            busy = PermissionError("the target is being replaced")
+            with mock.patch.object(umls.os, "replace", side_effect=busy):
+                UMLSDataset.prepare_metadata(tmp)
+            self.assertEqual(
+                sorted(f.name for f in root.iterdir()), ["graph.txt", "umls-pyhealth.tsv"]
+            )
+
+    def test_a_failed_replacement_without_an_up_to_date_copy_raises(self) -> None:
+        from unittest import mock
+
+        from pyhealth.medcode.pretrained_embeddings.kg_emb.datasets import umls
+
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            root = Path(tmp)
+            (root / "graph.txt").write_text("A\tPAR\tB\n")
+            busy = PermissionError("the target is being replaced")
+            replace = mock.patch.object(umls.os, "replace", side_effect=busy)
+            with replace, self.assertRaises(PermissionError):
+                UMLSDataset.prepare_metadata(tmp)
+            self.assertEqual([f.name for f in root.iterdir()], ["graph.txt"])
+
     def test_url_root_is_rejected_with_a_hint(self) -> None:
         with self.assertRaisesRegex(ValueError, "graph.txt"):
             UMLSDataset(root="https://storage.googleapis.com/pyhealth/umls/")

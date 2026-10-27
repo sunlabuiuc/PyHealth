@@ -1,6 +1,7 @@
 import logging
 import os
 import shutil
+import uuid
 from pathlib import Path
 
 from pyhealth.datasets.base_dataset import is_url
@@ -25,7 +26,10 @@ class UMLSDataset(BaseKGDataset):
     rows under a ``head``/``relation``/``tail`` header, which the bundled
     ``configs/umls.yaml`` reads. ``graph.txt`` itself is never modified. The
     copy is made again whenever ``graph.txt`` is newer than it or differs from
-    it in size, so replacing ``graph.txt`` gives a new dataset cache.
+    it in size, so replacing ``graph.txt`` gives a new dataset cache. A
+    ``graph.txt`` replaced by an older file of the same size, as ``cp -p`` or
+    ``rsync -t`` can produce, is not detected: delete ``umls-pyhealth.tsv``
+    in that case.
 
     Entity and relation ids are assigned by sorted name (see
     :class:`BaseKGDataset`), no longer by order of first appearance as in
@@ -147,12 +151,27 @@ class UMLSDataset(BaseKGDataset):
         logger.info(f"Writing {target} from {source}")
         # Written under a temporary name and renamed when complete: an
         # interrupted copy must not leave a truncated file that later runs
-        # would take as prepared.
-        partial = target + ".partial"
-        with open(source, "rb") as src, open(partial, "wb") as dst:
-            dst.write(HEADER)
-            shutil.copyfileobj(src, dst)
-        os.replace(partial, target)
+        # would take as prepared. The name is unique, so jobs preparing the
+        # same root at once (parallel hyper-parameter runs) never write into
+        # the same file; "xb" keeps the default permissions, which mkstemp
+        # would narrow to the owner. A process killed mid-copy leaves its
+        # partial file behind, which is never taken as prepared.
+        partial = f"{target}.{uuid.uuid4().hex}.partial"
+        try:
+            with open(source, "rb") as src, open(partial, "xb") as dst:
+                dst.write(HEADER)
+                shutil.copyfileobj(src, dst)
+            try:
+                os.replace(partial, target)
+            except PermissionError:
+                # Windows refuses to replace a file that another process is
+                # replacing at the same moment. If that process has just
+                # written an up-to-date copy, there is nothing left to do.
+                if UMLSDataset._needs_preparation(root):
+                    raise
+        finally:
+            if os.path.exists(partial):
+                os.remove(partial)
 
 
 if __name__ == "__main__":
