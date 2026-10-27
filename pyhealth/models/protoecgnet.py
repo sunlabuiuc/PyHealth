@@ -8,10 +8,14 @@ code is at https://github.com/bbj-lab/protoecgnet .
 A 1D ResNet turns a 12-lead ECG into a feature map. Each *prototype branch*
 compares (windows of) that map with learned prototype vectors that are assigned
 to labels, and a last linear layer turns prototype similarities into logits.
-Calling :meth:`project_prototypes` replaces every prototype with the most
-similar real training segment and returns the source-sample mapping to the
-caller; store that alongside the checkpoint to support case-based explanations
-after reloading.
+Calling :meth:`project_prototypes` replaces every prototype with the
+feature-space representation of a real training ECG segment, and returns the
+source-sample and window indices to the caller. In global mode
+(``proto_time_len=None``) the stored vector is a time-averaged feature rather
+than a raw segment, so case-based explanations should display the matching
+window from the source sample rather than the prototype vector itself. Store
+the returned mapping alongside the checkpoint to recover those windows after
+reloading.
 """
 
 from collections.abc import Sequence
@@ -638,8 +642,14 @@ class ProtoECGNet(BaseModel):
             nn.Linear(total, self.num_labels) if fusion == "learned" else None
         )
         self.register_buffer("fusion_mask", self._build_fusion_mask(total))
-        self.register_buffer("class_weights", None)
-        self.register_buffer("label_cooccurrence", None)
+        # Real-tensor defaults so state_dict keys are stable regardless of whether
+        # label statistics were provided. ones(class_weights) is BCE's identity;
+        # zeros(label_cooccurrence) + the .any() gate in forward keeps the
+        # contrastive term off until a real matrix is supplied.
+        self.register_buffer("class_weights", torch.ones(self.num_labels))
+        self.register_buffer(
+            "label_cooccurrence", torch.zeros(self.num_labels, self.num_labels)
+        )
         if class_weights is not None:
             self.class_weights = class_weights.float()
         if label_cooccurrence is not None:
@@ -821,7 +831,7 @@ class ProtoECGNet(BaseModel):
                 for name, (_, sim, _) in outputs.items():
                     index = self.branch_index(name)
                     cooc = None
-                    if self.label_cooccurrence is not None and self.lam_cnrst > 0:
+                    if self.lam_cnrst > 0 and self.label_cooccurrence.any():
                         cooc = self.label_cooccurrence[index][:, index]
                     t = self.branches[name].prototype_terms(sim, y[:, index], cooc)
                     extra.append(

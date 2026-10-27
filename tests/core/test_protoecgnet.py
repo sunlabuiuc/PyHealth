@@ -500,8 +500,13 @@ class TestProtoECGNet(unittest.TestCase):
     def test_state_dict_round_trip_preserves_forward_output(self):
         """state_dict → load_state_dict must reproduce forward outputs exactly.
 
-        Covers prototypes, classifier weights, fusion weights and buffers
-        (class_weights, label_cooccurrence, fusion_mask).
+        Covers prototypes, classifier weights, fusion weights and the buffers
+        populated by ``set_label_statistics`` (``class_weights``,
+        ``label_cooccurrence``). ``class_weights`` and ``label_cooccurrence``
+        were previously registered as ``None`` buffers and promoted to tensors
+        only when supplied; strict ``load_state_dict`` then failed because the
+        saved checkpoint carried keys the fresh model lacked. This test guards
+        against that regression.
         """
         torch.manual_seed(0)
         groups = {"rhythm": ["A", "B", "C"], "morph": ["D", "E", "F"]}
@@ -509,6 +514,12 @@ class TestProtoECGNet(unittest.TestCase):
             self.dataset, label_groups=groups, prototypes_per_label=2,
             fusion="learned", **TINY,
         )
+        # Set non-trivial label statistics so the buffers carry real tensors
+        # and the contrastive term is active in forward.
+        weights, cooc = ProtoECGNet.compute_label_statistics(
+            torch.stack([self.dataset[i]["labels"] for i in range(12)])
+        )
+        model.set_label_statistics(class_weights=weights, label_cooccurrence=cooc)
         # Nudge weights off their initializer so random re-init would be caught.
         with torch.no_grad():
             for p in model.parameters():
@@ -521,10 +532,13 @@ class TestProtoECGNet(unittest.TestCase):
             self.dataset, label_groups=groups, prototypes_per_label=2,
             fusion="learned", **TINY,
         ).eval()
+        # strict=True by default; fails if keys mismatch.
         clone.load_state_dict(model.state_dict())
         with torch.no_grad():
             got = clone(**self.batch)["logit"]
         torch.testing.assert_close(got, expected, atol=1e-6, rtol=1e-6)
+        torch.testing.assert_close(clone.class_weights, model.class_weights)
+        torch.testing.assert_close(clone.label_cooccurrence, model.label_cooccurrence)
 
 
 if __name__ == "__main__":

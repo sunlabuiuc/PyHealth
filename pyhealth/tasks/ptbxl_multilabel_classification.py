@@ -25,10 +25,14 @@ _GAIN_PATTERN = re.compile(r"^([0-9.eE+-]+)(?:\(([-0-9]+)\))?(?:/.*)?$")
 def read_wfdb_signal(record_path: str) -> np.ndarray:
     """Reads a WFDB record and returns its physical signal.
 
-    Delegates to :func:`~pyhealth.datasets.ptbxl.load_ptbxl_record` when
-    the optional ``wfdb`` extra is installed. Otherwise a small built-in
-    reader that supports the 16-bit format used by PTB-XL is used, so no
-    extra dependency is required for the task itself.
+    Delegates to :func:`~pyhealth.datasets.ptbxl.load_ptbxl_record` (the
+    canonical PTB-XL reader in ``pyhealth.datasets.ptbxl``) when the optional
+    ``wfdb`` extra is installed, so the wfdb-backed decoding path is not
+    duplicated. When ``wfdb`` is not available, a built-in reader for the
+    16-bit WFDB format used by PTB-XL is used so that this task's test suite
+    and the ``--synthetic`` example can run without the optional dependency —
+    neither path exists for PTB-XL elsewhere in the codebase, so the fallback
+    is kept here deliberately.
 
     Args:
         record_path: Path of the record without extension, e.g.
@@ -105,9 +109,14 @@ def _aggregate_labels(
 ) -> list[str]:
     """Aggregate SCP codes to the chosen label set with likelihood filtering.
 
-    Extends :func:`~pyhealth.tasks.ptbxl.aggregate_diagnostic_superclasses` to
-    all six SCP-ECG label sets (diagnostic, subdiagnostic, superdiagnostic,
-    form, rhythm, all).
+    Generalises :func:`~pyhealth.tasks.ptbxl.aggregate_diagnostic_superclasses`
+    (which only maps diagnostic codes to the 5 ``diagnostic_class`` superclasses
+    and ignores the per-code likelihood field) to all six SCP-ECG label sets
+    (``all``, ``diagnostic``, ``subdiagnostic``, ``superdiagnostic``, ``form``,
+    ``rhythm``) and applies per-code ``min_likelihood`` filtering. A direct
+    call-through isn't viable because the public helper doesn't take a label
+    set or a likelihood threshold, so this reimplementation lives next to the
+    task.
 
     For ``"subdiagnostic"`` and ``"superdiagnostic"`` the max likelihood of
     all contributing codes is used per parent class (matching the original

@@ -878,16 +878,120 @@ class TestPTBXLMultilabelClassification(unittest.TestCase):
             self.assertGreater(len(item["labels"]), 0)
             self.assertIn("strat_fold", item)
 
-    def test_standardize_none_keeps_raw_scale(self):
+    def test_standardize_record_versus_none(self):
+        """'record' forces per-lead mean≈0 and std≈1; None does not."""
         from pyhealth.tasks import PTBXLMultilabelClassification
-        task = PTBXLMultilabelClassification(
+        rec = str(self.root / "records100" / "00000" / "00004_lr")
+
+        task_std = PTBXLMultilabelClassification(scp_statements_path=self.scp_path)
+        out_std = task_std._prepare_signal(rec, 100)
+        np.testing.assert_allclose(out_std.mean(axis=1), 0.0, atol=1e-5)
+        np.testing.assert_allclose(out_std.std(axis=1), 1.0, atol=1e-3)
+
+        task_raw = PTBXLMultilabelClassification(
             scp_statements_path=self.scp_path, standardize=None
         )
+        out_raw = task_raw._prepare_signal(rec, 100)
+        self.assertEqual(out_raw.shape, (12, 1000))
+        # The fixture signals are not centered, so standardize=None keeps a
+        # per-lead mean clearly away from zero for at least one lead.
+        self.assertTrue((np.abs(out_raw.mean(axis=1)) > 0.01).any())
+
+    def test_remove_baseline_changes_signal(self):
+        """remove_baseline=True must perturb the output vs. remove_baseline=False."""
+        from pyhealth.tasks import PTBXLMultilabelClassification
         rec = str(self.root / "records100" / "00000" / "00004_lr")
-        out = task._prepare_signal(rec, 100)
-        self.assertEqual(out.shape, (12, 1000))
-        # Without standardization the mean is not forced to zero
-        self.assertIsNotNone(out)
+
+        task_no_bl = PTBXLMultilabelClassification(
+            scp_statements_path=self.scp_path,
+            standardize=None,
+            remove_baseline=False,
+        )
+        task_bl = PTBXLMultilabelClassification(
+            scp_statements_path=self.scp_path,
+            standardize=None,
+            remove_baseline=True,
+        )
+        out_no_bl = task_no_bl._prepare_signal(rec, 100)
+        out_bl = task_bl._prepare_signal(rec, 100)
+        self.assertEqual(out_bl.shape, out_no_bl.shape)
+        self.assertFalse(np.allclose(out_no_bl, out_bl))
+        # A high-pass filter removes DC; so the per-lead mean of the filtered
+        # output is closer to zero than the unfiltered one.
+        self.assertLess(
+            float(np.abs(out_bl.mean(axis=1)).max()),
+            float(np.abs(out_no_bl.mean(axis=1)).max()),
+        )
+
+    def test_fallback_reader_rejects_non_16bit_format(self):
+        """Fallback reader (no wfdb) raises ValueError on non-16-bit records."""
+        import builtins
+        from pyhealth.tasks.ptbxl_multilabel_classification import read_wfdb_signal
+
+        bad = Path(self.tmp) / "bad_fmt"
+        bad.parent.mkdir(parents=True, exist_ok=True)
+        name = bad.name
+        header = [f"{name} 12 100 1000"] + [
+            # format 212 (not 16) — unsupported by the fallback.
+            f"{name}.dat 212 1000/mV 16 0 0 0 0 lead{i}" for i in range(12)
+        ]
+        Path(str(bad) + ".hea").write_text("\n".join(header) + "\n")
+        Path(str(bad) + ".dat").write_bytes(b"\x00" * 24000)
+
+        real_import = builtins.__import__
+
+        def block_wfdb(name, *args, **kwargs):
+            if name == "wfdb" or name.startswith("wfdb."):
+                raise ImportError("blocked")
+            return real_import(name, *args, **kwargs)
+
+        with patch("builtins.__import__", side_effect=block_wfdb):
+            with self.assertRaises(ValueError) as ctx:
+                read_wfdb_signal(str(bad))
+            self.assertIn("Unsupported WFDB format", str(ctx.exception))
+
+    def test_fallback_reader_raises_on_missing_data_file(self):
+        """Fallback reader raises FileNotFoundError if the .dat is missing."""
+        import builtins
+        from pyhealth.tasks.ptbxl_multilabel_classification import read_wfdb_signal
+
+        hdr_only = Path(self.tmp) / "hdr_only"
+        hdr_only.parent.mkdir(parents=True, exist_ok=True)
+        name = hdr_only.name
+        header = [f"{name} 12 100 1000"] + [
+            f"{name}.dat 16 1000/mV 16 0 0 0 0 lead{i}" for i in range(12)
+        ]
+        Path(str(hdr_only) + ".hea").write_text("\n".join(header) + "\n")
+        # Deliberately do NOT write the .dat file.
+
+        real_import = builtins.__import__
+
+        def block_wfdb(name, *args, **kwargs):
+            if name == "wfdb" or name.startswith("wfdb."):
+                raise ImportError("blocked")
+            return real_import(name, *args, **kwargs)
+
+        with patch("builtins.__import__", side_effect=block_wfdb):
+            with self.assertRaises(FileNotFoundError):
+                read_wfdb_signal(str(hdr_only))
+
+    def test_fallback_reader_roundtrip(self):
+        """Fallback reader (no wfdb) decodes the same shape as the delegated path."""
+        import builtins
+        from pyhealth.tasks.ptbxl_multilabel_classification import read_wfdb_signal
+
+        real_import = builtins.__import__
+
+        def block_wfdb(name, *args, **kwargs):
+            if name == "wfdb" or name.startswith("wfdb."):
+                raise ImportError("blocked")
+            return real_import(name, *args, **kwargs)
+
+        rec = str(self.root / "records100" / "00000" / "00001_lr")
+        with patch("builtins.__import__", side_effect=block_wfdb):
+            sig = read_wfdb_signal(rec)
+        self.assertEqual(sig.shape, (1000, 12))
+        self.assertEqual(sig.dtype, np.float32)
 
 
 if __name__ == "__main__":
