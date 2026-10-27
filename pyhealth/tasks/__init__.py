@@ -88,11 +88,11 @@ from .variant_classification import (
 )
 from .patient_linkage_mimic3 import PatientLinkageMIMIC3Task
 from .yaib_mimic4 import (
-    YAIBAKIMIMIC4,
-    YAIBKidneyFunctionMIMIC4,
-    YAIBLengthOfStayMIMIC4,
-    YAIBMortalityMIMIC4,
-    YAIBSepsisMIMIC4,
+    YAIBAKIMIMIC4 as YAIBAKIMIMIC4,
+    YAIBKidneyFunctionMIMIC4 as YAIBKidneyFunctionMIMIC4,
+    YAIBLengthOfStayMIMIC4 as YAIBLengthOfStayMIMIC4,
+    YAIBMortalityMIMIC4 as YAIBMortalityMIMIC4,
+    YAIBSepsisMIMIC4 as YAIBSepsisMIMIC4,
 )
 
 

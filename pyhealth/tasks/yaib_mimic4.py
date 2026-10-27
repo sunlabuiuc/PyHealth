@@ -11,8 +11,9 @@ All tasks share the YAIB feature set: 4 static variables (age, sex, height,
 weight) and 48 dynamic variables binned hourly from ICU admission.
 """
 
+from collections.abc import Sequence
 from datetime import datetime, timedelta
-from typing import Any, ClassVar, Dict, List, NamedTuple, Optional, Sequence, Set, Tuple
+from typing import Any, ClassVar, NamedTuple
 
 import numpy as np
 import polars as pl
@@ -28,8 +29,8 @@ class _Item(NamedTuple):
     """
 
     table: str
-    itemids: Tuple[int, ...]
-    unit_regex: Optional[str] = None
+    itemids: tuple[int, ...]
+    unit_regex: str | None = None
     scale: float = 1.0
     offset: float = 0.0
 
@@ -43,7 +44,7 @@ def _chart(*itemids: int, **kwargs: Any) -> _Item:
 
 
 # feature: (min, max, items). Out-of-range values are dropped, as in ricu.
-_DYNAMIC_FEATURES: Dict[str, Tuple[Optional[float], Optional[float], List[_Item]]] = {
+_DYNAMIC_FEATURES: dict[str, tuple[float | None, float | None, list[_Item]]] = {
     "alb": (0, 6, [_lab(50862, 53085)]),
     "alp": (0, None, [_lab(50863, 53086)]),
     "alt": (0, None, [_lab(50861)]),
@@ -113,7 +114,7 @@ _DYNAMIC_FEATURES: Dict[str, Tuple[Optional[float], Optional[float], List[_Item]
 }
 
 # Chart-based static features, aggregated by median over the whole stay.
-_STATIC_CHART_FEATURES: Dict[str, Tuple[Optional[float], Optional[float], List[_Item]]] = {
+_STATIC_CHART_FEATURES: dict[str, tuple[float | None, float | None, list[_Item]]] = {
     "height": (10, 230, [_chart(226707, unit_regex="^in", scale=2.54)]),
     "weight": (1, 500, [_chart(226512)]),
 }
@@ -145,7 +146,7 @@ _TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 
 def _item_lookup(
-    features: Dict[str, Tuple[Optional[float], Optional[float], List[_Item]]],
+    features: dict[str, tuple[float | None, float | None, list[_Item]]],
 ) -> pl.DataFrame:
     """Flattens feature definitions into one row per (table, itemid)."""
     rows = []
@@ -254,7 +255,7 @@ class _YAIBMIMIC4Task(BaseTask):
     Requires the ``labevents``, ``chartevents`` and ``outputevents`` tables.
     """
 
-    input_schema: Dict[str, Any] = {
+    input_schema: ClassVar[dict[str, Any]] = {
         "dynamic": (
             "timeseries",
             {"normalization": "zscore", "missing_indicators": True},
@@ -269,17 +270,17 @@ class _YAIBMIMIC4Task(BaseTask):
         ),
     }
 
-    DYNAMIC_FEATURES: ClassVar[List[str]] = list(_DYNAMIC_FEATURES)
-    STATIC_FEATURES: ClassVar[List[str]] = ["age", "sex", "height", "weight"]
+    DYNAMIC_FEATURES: ClassVar[list[str]] = list(_DYNAMIC_FEATURES)
+    STATIC_FEATURES: ClassVar[list[str]] = ["age", "sex", "height", "weight"]
 
     _DYNAMIC_ITEMS: ClassVar[pl.DataFrame] = _item_lookup(_DYNAMIC_FEATURES)
     _STATIC_ITEMS: ClassVar[pl.DataFrame] = _item_lookup(_STATIC_CHART_FEATURES)
     # Item IDs a task needs beyond the features, by table.
-    _EXTRA_ITEMIDS: ClassVar[Dict[str, Tuple[int, ...]]] = {}
+    _EXTRA_ITEMIDS: ClassVar[dict[str, tuple[int, ...]]] = {}
     # Tables a task needs beyond the measurement tables.
-    _EXTRA_TABLES: ClassVar[Tuple[str, ...]] = ()
+    _EXTRA_TABLES: ClassVar[tuple[str, ...]] = ()
 
-    ICU_WARDS: ClassVar[Tuple[str, ...]] = (
+    ICU_WARDS: ClassVar[tuple[str, ...]] = (
         "Cardiac Vascular Intensive Care Unit (CVICU)",
         "Coronary Care Unit (CCU)",
         "Medical Intensive Care Unit (MICU)",
@@ -422,7 +423,7 @@ class _YAIBMIMIC4Task(BaseTask):
             .alias("value")
         )
 
-    def _static(self, patient: Any, stays: pl.DataFrame) -> Dict[int, List[float]]:
+    def _static(self, patient: Any, stays: pl.DataFrame) -> dict[int, list[float]]:
         demographics = patient.get_events(event_type="patients")
         age, sex = float("nan"), float("nan")
         if demographics:
@@ -445,7 +446,7 @@ class _YAIBMIMIC4Task(BaseTask):
 
     def _base_cohort(
         self, patient: Any, stays: pl.DataFrame
-    ) -> Tuple[pl.DataFrame, pl.DataFrame, Dict[int, List[float]]]:
+    ) -> tuple[pl.DataFrame, pl.DataFrame, dict[int, list[float]]]:
         """Applies the YAIB base cohort exclusions.
 
         Args:
@@ -493,7 +494,7 @@ class _YAIBMIMIC4Task(BaseTask):
 
     def _dynamic(
         self, hourly: pl.DataFrame, stay_id: int, intime: datetime, end: int
-    ) -> Tuple[List[datetime], np.ndarray]:
+    ) -> tuple[list[datetime], np.ndarray]:
         """Builds the ``[end + 1, 48]`` hourly grid for bins ``0..end``."""
         values = np.full((end + 1, len(self.DYNAMIC_FEATURES)), np.nan)
         rows = hourly.filter(
@@ -507,7 +508,7 @@ class _YAIBMIMIC4Task(BaseTask):
         timestamps = [intime + timedelta(hours=hour) for hour in range(end + 1)]
         return timestamps, values
 
-    def _icu_deaths(self, patient: Any, stays: pl.DataFrame) -> Dict[int, datetime]:
+    def _icu_deaths(self, patient: Any, stays: pl.DataFrame) -> dict[int, datetime]:
         """Returns the ICU death time per ICU stay.
 
         A hospital death (``hospital_expire_flag``) counts as an ICU death
@@ -559,7 +560,7 @@ class _YAIBMIMIC4Task(BaseTask):
 
     def _series(
         self, hourly: pl.DataFrame, stay_id: int, feature: str
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray]:
         """Returns the measured hours and values of one feature, by hour.
 
         Unlike :meth:`_dynamic`, this includes hours outside the stay.
@@ -595,8 +596,8 @@ class _YAIBMIMIC4Task(BaseTask):
 
     @staticmethod
     def _outcome_window(
-        onset: Optional[int], steps: int, before: int, after: int
-    ) -> List[float]:
+        onset: int | None, steps: int, before: int, after: int
+    ) -> list[float]:
         """Labels 1 for steps ``onset - before`` to ``onset + after``, else 0.
 
         As YAIB-cohorts ``outcome_window``; an onset outside the ``steps``
@@ -641,16 +642,16 @@ class YAIBMortalityMIMIC4(_YAIBMIMIC4Task):
     """
 
     task_name: str = "YAIBMortalityMIMIC4"
-    output_schema: Dict[str, Any] = {"mortality": "binary"}
+    output_schema: ClassVar[dict[str, Any]] = {"mortality": "binary"}
 
     OBSERVATION_HOURS: ClassVar[int] = 24
     MIN_STAY_HOURS: ClassVar[int] = 30
 
-    def __init__(self, icu_wards: Optional[Sequence[str]] = None) -> None:
+    def __init__(self, icu_wards: Sequence[str] | None = None) -> None:
         super().__init__()
         self.icu_wards = list(self.ICU_WARDS if icu_wards is None else icu_wards)
 
-    def __call__(self, patient: Any) -> List[Dict[str, Any]]:
+    def __call__(self, patient: Any) -> list[dict[str, Any]]:
         all_stays = self._stays(patient)
         if all_stays.height == 0:
             return []
@@ -706,12 +707,12 @@ class YAIBKidneyFunctionMIMIC4(_YAIBMIMIC4Task):
     """
 
     task_name: str = "YAIBKidneyFunctionMIMIC4"
-    output_schema: Dict[str, Any] = {"creatinine": "regression"}
+    output_schema: ClassVar[dict[str, Any]] = {"creatinine": "regression"}
 
     OBSERVATION_HOURS: ClassVar[int] = 24
     MIN_STAY_HOURS: ClassVar[int] = 48
 
-    def __call__(self, patient: Any) -> List[Dict[str, Any]]:
+    def __call__(self, patient: Any) -> list[dict[str, Any]]:
         all_stays = self._stays(patient)
         if all_stays.height == 0:
             return []
@@ -773,11 +774,11 @@ class YAIBLengthOfStayMIMIC4(_YAIBMIMIC4Task):
     """
 
     task_name: str = "YAIBLengthOfStayMIMIC4"
-    output_schema: Dict[str, Any] = {"los": "timeseries_regression"}
+    output_schema: ClassVar[dict[str, Any]] = {"los": "timeseries_regression"}
 
     MAX_HOURS: ClassVar[int] = 7 * 24
 
-    def __call__(self, patient: Any) -> List[Dict[str, Any]]:
+    def __call__(self, patient: Any) -> list[dict[str, Any]]:
         all_stays = self._stays(patient)
         if all_stays.height == 0:
             return []
@@ -846,7 +847,7 @@ class YAIBAKIMIMIC4(_YAIBMIMIC4Task):
     """
 
     task_name: str = "YAIBAKIMIMIC4"
-    output_schema: Dict[str, Any] = {"aki": "timeseries_binary"}
+    output_schema: ClassVar[dict[str, Any]] = {"aki": "timeseries_binary"}
 
     MAX_HOURS: ClassVar[int] = 7 * 24
     HORIZON: ClassVar[int] = 6
@@ -872,7 +873,7 @@ class YAIBAKIMIMIC4(_YAIBMIMIC4Task):
     @classmethod
     def _kdigo_urine(
         cls, hours: np.ndarray, urine: np.ndarray, weight: float
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray]:
         gap = np.diff(hours, prepend=hours[:1]) + 1.0
         gap[0] = 1.0
         gap[gap > 24] = 1.0
@@ -895,7 +896,7 @@ class YAIBAKIMIMIC4(_YAIBMIMIC4Task):
 
     def _aki_onset(
         self, hourly: pl.DataFrame, stay_id: int, weight: float
-    ) -> Tuple[Optional[int], Optional[float]]:
+    ) -> tuple[int | None, float | None]:
         """Returns the first AKI hour and the baseline creatinine of a stay."""
         onsets = []
         baseline = None
@@ -913,7 +914,7 @@ class YAIBAKIMIMIC4(_YAIBMIMIC4Task):
             onsets.extend(urine_hours[stage >= 1].tolist())
         return (int(min(onsets)) if onsets else None), baseline
 
-    def __call__(self, patient: Any) -> List[Dict[str, Any]]:
+    def __call__(self, patient: Any) -> list[dict[str, Any]]:
         all_stays = self._stays(patient)
         if all_stays.height == 0:
             return []
@@ -1006,7 +1007,7 @@ class YAIBSepsisMIMIC4(_YAIBMIMIC4Task):
     """
 
     task_name: str = "YAIBSepsisMIMIC4"
-    output_schema: Dict[str, Any] = {"sepsis": "timeseries_binary"}
+    output_schema: ClassVar[dict[str, Any]] = {"sepsis": "timeseries_binary"}
 
     MAX_HOURS: ClassVar[int] = 7 * 24
     HORIZON: ClassVar[int] = 6
@@ -1014,7 +1015,7 @@ class YAIBSepsisMIMIC4(_YAIBMIMIC4Task):
 
     # SOFA inputs, aggregated per hour as in ricu's SOFA concepts.
     _SOFA_INPUTS: ClassVar[
-        Dict[str, Tuple[Optional[float], Optional[float], List[_Item]]]
+        dict[str, tuple[float | None, float | None, list[_Item]]]
     ] = {
         "po2": _DYNAMIC_FEATURES["po2"],
         "fio2": _DYNAMIC_FEATURES["fio2"],
@@ -1027,7 +1028,7 @@ class YAIBSepsisMIMIC4(_YAIBMIMIC4Task):
         "mgcs": (1, 6, [_chart(223901)]),
         "vgcs": (1, 5, [_chart(223900)]),
     }
-    _SOFA_AGGREGATES: ClassVar[Dict[str, str]] = {
+    _SOFA_AGGREGATES: ClassVar[dict[str, str]] = {
         "po2": "min",
         "fio2": "max",
         "plt": "min",
@@ -1041,13 +1042,13 @@ class YAIBSepsisMIMIC4(_YAIBMIMIC4Task):
     }
     _SOFA_ITEMS: ClassVar[pl.DataFrame] = _item_lookup(_SOFA_INPUTS)
     # Vasopressor: (inputevents item ID, minimum rate, maximum rate).
-    _VASOPRESSORS: ClassVar[Dict[str, Tuple[int, float, float]]] = {
+    _VASOPRESSORS: ClassVar[dict[str, tuple[int, float, float]]] = {
         "dopa": (221662, 0, 50),
         "norepi": (221906, 0, 3),
         "dobu": (221653, 0, 50),
         "epi": (221289, 0, 1.5),
     }
-    _ANTIBIOTICS: ClassVar[Tuple[int, ...]] = (
+    _ANTIBIOTICS: ClassVar[tuple[int, ...]] = (
         225798, 225837, 225838, 225840, 225842, 225843, 225844, 225845, 225847,
         225848, 225850, 225851, 225853, 225855, 225857, 225859, 225860, 225862,
         225863, 225865, 225866, 225868, 225869, 225871, 225873, 225875, 225876,
@@ -1056,22 +1057,22 @@ class YAIBSepsisMIMIC4(_YAIBMIMIC4Task):
         225900, 225902, 225903, 225905, 227691, 228003,
     )
     # Invasive and non-invasive ventilation (procedureevents).
-    _VENTILATION: ClassVar[Tuple[int, ...]] = (225792, 225794)
+    _VENTILATION: ClassVar[tuple[int, ...]] = (225792, 225794)
     _INTUBATED_GCS: ClassVar[str] = "No Response-ETT"
 
-    _EXTRA_ITEMIDS: ClassVar[Dict[str, Tuple[int, ...]]] = {
+    _EXTRA_ITEMIDS: ClassVar[dict[str, tuple[int, ...]]] = {
         "chartevents": (220739, 223901, 223900),
         "inputevents": (221662, 221906, 221653, 221289, *_ANTIBIOTICS),
         "procedureevents": _VENTILATION,
     }
-    _EXTRA_TABLES: ClassVar[Tuple[str, ...]] = (
+    _EXTRA_TABLES: ClassVar[tuple[str, ...]] = (
         "inputevents",
         "procedureevents",
         "microbiologyevents",
         "transfers",
     )
 
-    def __init__(self, icu_wards: Optional[Sequence[str]] = None) -> None:
+    def __init__(self, icu_wards: Sequence[str] | None = None) -> None:
         super().__init__()
         self.icu_wards = list(self.ICU_WARDS if icu_wards is None else icu_wards)
 
@@ -1082,7 +1083,7 @@ class YAIBSepsisMIMIC4(_YAIBMIMIC4Task):
         patient: Any,
         table: str,
         stays: pl.DataFrame,
-        columns: Dict[str, pl.Expr],
+        columns: dict[str, pl.Expr],
     ) -> pl.DataFrame:
         """Events of a stay-level table, in whole minutes since ICU admission.
 
@@ -1121,11 +1122,11 @@ class YAIBSepsisMIMIC4(_YAIBMIMIC4Task):
 
     def _sofa_inputs(
         self, patient: Any, stays: pl.DataFrame
-    ) -> Dict[int, Dict[str, Dict[int, float]]]:
+    ) -> dict[int, dict[str, dict[int, float]]]:
         """Hourly lab and chart SOFA inputs: stay -> input -> hour -> value."""
         names = list(self._SOFA_INPUTS)
         rows = self._measurements(patient, stays, self._SOFA_ITEMS)
-        out: Dict[int, Dict[str, Dict[int, float]]] = {}
+        out: dict[int, dict[str, dict[int, float]]] = {}
         for (stay_id, feature), group in rows.group_by("stay_id", "feature"):
             name = names[feature]
             aggregate = getattr(pl.col("value"), self._SOFA_AGGREGATES[name])()
@@ -1136,7 +1137,7 @@ class YAIBSepsisMIMIC4(_YAIBMIMIC4Task):
     @staticmethod
     def _merge_ranges(
         starts: np.ndarray, ends: np.ndarray, gap: int
-    ) -> List[Tuple[int, int]]:
+    ) -> list[tuple[int, int]]:
         """Merges ranges as ricu's ``merge_ranges`` (``foverlaps``, first match).
 
         Each range is grouped under the first range, in start order, that
@@ -1145,7 +1146,7 @@ class YAIBSepsisMIMIC4(_YAIBMIMIC4Task):
         ends = ends + gap
         order = np.lexsort((ends, starts))
         starts, ends = starts[order], ends[order]
-        merged: Dict[int, int] = {}
+        merged: dict[int, int] = {}
         for i in range(len(starts)):
             first = next(
                 j
@@ -1158,7 +1159,7 @@ class YAIBSepsisMIMIC4(_YAIBMIMIC4Task):
 
     def _vasopressors(
         self, patient: Any, stays: pl.DataFrame
-    ) -> Dict[int, Dict[str, Dict[int, float]]]:
+    ) -> dict[int, dict[str, dict[int, float]]]:
         """Hourly maximum rate of infusions lasting >= 1 hour (ricu ``vaso60``).
 
         Rates are spread over every minute of their infusion (median per
@@ -1174,7 +1175,7 @@ class YAIBSepsisMIMIC4(_YAIBMIMIC4Task):
                 "link": pl.col("inputevents/linkorderid").cast(pl.Int64, strict=False),
             },
         )
-        out: Dict[int, Dict[str, Dict[int, float]]] = {}
+        out: dict[int, dict[str, dict[int, float]]] = {}
         if events.height == 0:
             return out
         events = events.drop_nulls(["minute", "end_minute"])
@@ -1233,10 +1234,10 @@ class YAIBSepsisMIMIC4(_YAIBMIMIC4Task):
 
     def _ventilated_hours(
         self, patient: Any, stays: pl.DataFrame
-    ) -> Dict[int, Set[int]]:
+    ) -> dict[int, set[int]]:
         """Hours with invasive or non-invasive ventilation (ricu ``vent_ind``)."""
         events = self._stay_events(patient, "procedureevents", stays, {})
-        out: Dict[int, Set[int]] = {}
+        out: dict[int, set[int]] = {}
         if events.height == 0:
             return out
         events = events.filter(
@@ -1252,12 +1253,12 @@ class YAIBSepsisMIMIC4(_YAIBMIMIC4Task):
 
     def _intubated_hours(
         self, patient: Any, stays: pl.DataFrame
-    ) -> Dict[int, Set[int]]:
+    ) -> dict[int, set[int]]:
         """Hours with a verbal GCS of "No Response-ETT" (ricu ``ett_gcs``)."""
         events = self._stay_events(
             patient, "chartevents", stays, {"value": pl.col("chartevents/value")}
         )
-        out: Dict[int, Set[int]] = {}
+        out: dict[int, set[int]] = {}
         if events.height == 0:
             return out
         intubated = events.filter(pl.col("value") == self._INTUBATED_GCS)
@@ -1268,14 +1269,14 @@ class YAIBSepsisMIMIC4(_YAIBMIMIC4Task):
     # SOFA -------------------------------------------------------------------
 
     @staticmethod
-    def _pafi(po2: Dict[int, float], fio2: Dict[int, float]) -> Dict[int, float]:
+    def _pafi(po2: dict[int, float], fio2: dict[int, float]) -> dict[int, float]:
         """PaO2/FiO2 from values up to 2 hours apart (ricu ``pafi``).
 
         Each PaO2 is paired with the last FiO2 of the past 2 hours and each
         FiO2 with the last PaO2; a missing FiO2 counts as 21%.
         """
 
-        def last_within(series: Dict[int, float], hour: int) -> float:
+        def last_within(series: dict[int, float], hour: int) -> float:
             for previous in range(hour, hour - 3, -1):
                 if previous in series:
                     return series[previous]
@@ -1283,7 +1284,7 @@ class YAIBSepsisMIMIC4(_YAIBMIMIC4Task):
 
         pairs = {(h, v, last_within(fio2, h)) for h, v in po2.items()}
         pairs |= {(h, last_within(po2, h), v) for h, v in fio2.items()}
-        pafi: Dict[int, float] = {}
+        pafi: dict[int, float] = {}
         for hour, pao2, fraction in pairs:
             fraction = 21.0 if np.isnan(fraction) else fraction
             if not np.isnan(pao2) and fraction != 0:
@@ -1292,8 +1293,8 @@ class YAIBSepsisMIMIC4(_YAIBMIMIC4Task):
 
     @staticmethod
     def _gcs(
-        inputs: Dict[str, Dict[int, float]], intubated: Set[int]
-    ) -> Dict[int, float]:
+        inputs: dict[str, dict[int, float]], intubated: set[int]
+    ) -> dict[int, float]:
         """GCS per hour with a component (ricu ``gcs``).
 
         Each component is carried forward over the past 6 hours of GCS
@@ -1302,7 +1303,7 @@ class YAIBSepsisMIMIC4(_YAIBMIMIC4Task):
         """
         components = [inputs.get(name, {}) for name in ("egcs", "vgcs", "mgcs")]
         hours = sorted(set().union(*components))
-        gcs: Dict[int, float] = {}
+        gcs: dict[int, float] = {}
         for hour in hours:
             if hour in intubated:
                 gcs[hour] = 15.0
@@ -1316,7 +1317,7 @@ class YAIBSepsisMIMIC4(_YAIBMIMIC4Task):
         return gcs
 
     @staticmethod
-    def _urine24(urine: Dict[int, float]) -> Dict[int, float]:
+    def _urine24(urine: dict[int, float]) -> dict[int, float]:
         """24-hour urine output (ricu ``urine24``).
 
         Over the hours from the first to the last urine measurement, the sum
@@ -1338,15 +1339,15 @@ class YAIBSepsisMIMIC4(_YAIBMIMIC4Task):
 
     def _sofa(
         self,
-        inputs: Dict[str, Dict[int, float]],
-        vasopressors: Dict[str, Dict[int, float]],
-        ventilated: Set[int],
-        intubated: Set[int],
-    ) -> Tuple[np.ndarray, np.ndarray]:
+        inputs: dict[str, dict[int, float]],
+        vasopressors: dict[str, dict[int, float]],
+        ventilated: set[int],
+        intubated: set[int],
+    ) -> tuple[np.ndarray, np.ndarray]:
         """Hourly SOFA score from the first to the last hour of any component."""
         eps = np.finfo(float).eps ** 0.5
         nan = np.nan
-        components: Dict[str, Dict[int, float]] = {}
+        components: dict[str, dict[int, float]] = {}
 
         pafi = self._pafi(inputs.get("po2", {}), inputs.get("fio2", {}))
         respiration = {}
@@ -1429,8 +1430,8 @@ class YAIBSepsisMIMIC4(_YAIBMIMIC4Task):
     # Suspected infection and onset -------------------------------------------
 
     def _continuous_antibiotics(
-        self, patient: Any, stays: pl.DataFrame, deaths: Dict[int, datetime]
-    ) -> Dict[int, List[int]]:
+        self, patient: Any, stays: pl.DataFrame, deaths: dict[int, datetime]
+    ) -> dict[int, list[int]]:
         """Start hours of continuous antibiotic treatment (YAIB ``abx_cont``).
 
         From each antibiotic start, the gaps between the end of the
@@ -1439,7 +1440,7 @@ class YAIBSepsisMIMIC4(_YAIBMIMIC4Task):
         are floored to hours, as when ricu loads them hourly.
         """
         events = self._stay_events(patient, "inputevents", stays, {})
-        out: Dict[int, List[int]] = {}
+        out: dict[int, list[int]] = {}
         if events.height == 0:
             return out
         events = events.filter(
@@ -1471,7 +1472,7 @@ class YAIBSepsisMIMIC4(_YAIBMIMIC4Task):
                     out.setdefault(stay_id, []).append(int(start))
         return out
 
-    def _sample_hours(self, patient: Any, stays: pl.DataFrame) -> Dict[int, List[int]]:
+    def _sample_hours(self, patient: Any, stays: pl.DataFrame) -> dict[int, list[int]]:
         """Hours with a body fluid sample (ricu ``samp``).
 
         As in ricu, a sample is attributed to an ICU stay by its
@@ -1479,7 +1480,7 @@ class YAIBSepsisMIMIC4(_YAIBMIMIC4Task):
         ``chartdate`` if missing.
         """
         events = patient.get_events(event_type="microbiologyevents", return_df=True)
-        out: Dict[int, List[int]] = {}
+        out: dict[int, list[int]] = {}
         if events.height == 0:
             return out
         events = events.select(
@@ -1504,8 +1505,8 @@ class YAIBSepsisMIMIC4(_YAIBMIMIC4Task):
 
     @staticmethod
     def _suspected_infection(
-        antibiotics: List[int], samples: List[int]
-    ) -> Optional[int]:
+        antibiotics: list[int], samples: list[int]
+    ) -> int | None:
         """First suspected infection hour (ricu ``susp_inf``, mode ``"and"``)."""
         times = [a for a in antibiotics if any(a <= s <= a + 24 for s in samples)]
         times += [s for s in samples if any(s <= a <= s + 72 for a in antibiotics)]
@@ -1513,8 +1514,8 @@ class YAIBSepsisMIMIC4(_YAIBMIMIC4Task):
 
     @staticmethod
     def _sepsis_onset(
-        hours: np.ndarray, sofa: np.ndarray, infection: Optional[int]
-    ) -> Optional[int]:
+        hours: np.ndarray, sofa: np.ndarray, infection: int | None
+    ) -> int | None:
         """First hour of a SOFA rise >= 2 around the infection (ricu ``sep3``)."""
         if infection is None:
             return None
@@ -1525,7 +1526,7 @@ class YAIBSepsisMIMIC4(_YAIBMIMIC4Task):
         rising = np.nonzero(sofa - np.minimum.accumulate(sofa) >= 2)[0]
         return int(hours[rising[0]]) if len(rising) else None
 
-    def __call__(self, patient: Any) -> List[Dict[str, Any]]:
+    def __call__(self, patient: Any) -> list[dict[str, Any]]:
         all_stays = self._stays(patient)
         if all_stays.height == 0:
             return []
