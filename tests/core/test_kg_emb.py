@@ -933,6 +933,20 @@ class TestModelsOnSampleDatasets(unittest.TestCase):
         out["loss"].backward()
         self.assertIsNotNone(model.E_emb.grad)
 
+    def test_training_does_not_call_np_in1d(self) -> None:
+        # np.in1d no longer exists in NumPy 2.4, which pyproject.toml allows.
+        from unittest import mock
+
+        import numpy as np
+
+        from pyhealth.medcode.pretrained_embeddings.kg_emb.models import TransE
+
+        model = TransE(dataset=self.train, e_dim=8, r_dim=8, negative_sampling=5)
+        model.train()
+        removed = AssertionError("np.in1d was removed in NumPy 2.4")
+        with mock.patch.object(np, "in1d", side_effect=removed, create=True):
+            model(**self.batch(self.train))["loss"].backward()
+
     def test_subsampling_weights_come_from_the_processor(self) -> None:
         from pyhealth.medcode.pretrained_embeddings.kg_emb.models import TransE
 
@@ -1016,6 +1030,29 @@ class TestTrainingNegativesUseTrainingTriplesOnly(unittest.TestCase):
         # semantics); the test-only positives 2 and 5 are drawable.
         self.assertEqual(set(drawn["tail"].flatten().tolist()), {0, 2, 4, 5})
         self.assertEqual(set(drawn["head"].flatten().tolist()), {1, 2, 3, 5})
+
+    def test_negatives_are_drawn_with_replacement(self) -> None:
+        # With assume_unique=True, the repeated draws 5 and 7 would be dropped:
+        # for these sizes NumPy takes its sort path, where the flag matters.
+        from types import SimpleNamespace
+        from unittest import mock
+
+        import numpy as np
+
+        from pyhealth.medcode.pretrained_embeddings.kg_emb.models import TransE
+        from pyhealth.processors import KGTripleProcessor
+
+        processor = KGTripleProcessor(num_entities=2000, num_relations=1)
+        part = SimpleNamespace(input_processors={"triple": processor})
+        model = TransE(dataset=part, e_dim=2, r_dim=2)
+        known = list(range(100, 2000, 100))
+        draws = np.array([5, 5, 7, 7, 100, 200, 8, 9])
+        with mock.patch.object(np.random, "randint", return_value=draws):
+            head, tail = model.train_neg_sample_gen(
+                gt_head=[known], gt_tail=[known], negative_sampling=4
+            )
+        self.assertEqual(head.tolist(), [[5, 5, 7, 7]])
+        self.assertEqual(tail.tolist(), [[5, 5, 7, 7]])
 
 
 class TestTrainingNegativesOnARealSplit(unittest.TestCase):

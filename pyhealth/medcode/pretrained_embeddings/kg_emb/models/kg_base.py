@@ -268,12 +268,10 @@ class KGEBaseModel(ABC, nn.Module):
 
             while negative_sample_size_head < negative_sampling:
                 negative_sample = np.random.randint(self.e_num, size=negative_sampling*2)
-                mask = np.in1d(
-                    negative_sample,
-                    gt_head[i],
-                    assume_unique=True,
-                    invert=True
-                )
+                # No assume_unique=True (unlike the RotatE reference): the draws are
+                # made with replacement, and on NumPy's sort path the flag silently
+                # drops repeated draws of a valid negative.
+                mask = np.isin(negative_sample, gt_head[i], invert=True)
                 negative_sample = negative_sample[mask]
                 negative_sample_list_head.append(negative_sample)
                 negative_sample_size_head += negative_sample.size
@@ -284,12 +282,7 @@ class KGEBaseModel(ABC, nn.Module):
 
             while negative_sample_size_tail < negative_sampling:
                 negative_sample = np.random.randint(self.e_num, size=negative_sampling*2)
-                mask = np.in1d(
-                    negative_sample,
-                    gt_tail[i],
-                    assume_unique=True,
-                    invert=True
-                )
+                mask = np.isin(negative_sample, gt_tail[i], invert=True)
                 negative_sample = negative_sample[mask]
                 negative_sample_list_tail.append(negative_sample)
                 negative_sample_size_tail += negative_sample.size
