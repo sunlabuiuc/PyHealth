@@ -10,7 +10,7 @@ from .utils import NORMALIZATIONS, Normalization, fit_normalization
 
 
 def sample_on_grid(
-    timestamps: List[datetime], values: np.ndarray, sampling_rate: timedelta
+    timestamps: list[datetime], values: np.ndarray, sampling_rate: timedelta
 ) -> np.ndarray:
     """Places values on a uniform time grid starting at the first timestamp.
 
@@ -21,6 +21,15 @@ def sample_on_grid(
 
     Returns:
         Array of shape ``(S, F)``, NaN where the grid has no value.
+
+    Examples:
+        >>> from datetime import datetime, timedelta
+        >>> from pyhealth.processors.timeseries_processor import sample_on_grid
+        >>> t0 = datetime(2020, 1, 1)
+        >>> sample_on_grid([t0, t0 + timedelta(hours=2)], [1.0, 3.0], timedelta(hours=1))
+        array([[ 1.],
+               [nan],
+               [ 3.]])
     """
     values = np.asarray(values, dtype=float)
     if values.ndim == 1:
@@ -105,8 +114,8 @@ class TimeseriesProcessor(FeatureProcessor):
         self.missing_indicators = missing_indicators
         self.learns_statistics = normalization is not None
         self.n_features = None
-        self.center: List[float] = []
-        self.scale: List[float] = []
+        self.center: list[float] = []
+        self.scale: list[float] = []
 
     def fit(self, samples: Any, field: str) -> None:
         """Fit the processor.
@@ -141,7 +150,7 @@ class TimeseriesProcessor(FeatureProcessor):
             )
 
     def _sample(
-        self, timestamps: List[datetime], values: np.ndarray
+        self, timestamps: list[datetime], values: np.ndarray
     ) -> np.ndarray:
         return sample_on_grid(timestamps, values, self.sampling_rate)
 
@@ -237,14 +246,22 @@ class TimeseriesLabelProcessor(FeatureProcessor):
 
     Args:
         sampling_rate: Interval of the sampled time steps.
+
+    Examples:
+        >>> from datetime import datetime, timedelta
+        >>> from pyhealth.processors import TimeseriesBinaryLabelProcessor
+        >>> t0 = datetime(2020, 1, 1)
+        >>> times = [t0, t0 + timedelta(hours=2)]
+        >>> TimeseriesBinaryLabelProcessor().process((times, [0, 1]))
+        (tensor([0., 0., 1.]), tensor([1., 0., 1.]))
     """
 
     def __init__(self, sampling_rate: timedelta = timedelta(hours=1)):
         self.sampling_rate = sampling_rate
 
     def process(
-        self, value: Tuple[List[datetime], np.ndarray]
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        self, value: tuple[list[datetime], np.ndarray]
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         timestamps, labels = value
         if len(timestamps) == 0:
             raise ValueError("Timestamps list is empty.")
@@ -301,5 +318,14 @@ class TimeseriesBinaryLabelProcessor(TimeseriesLabelProcessor):
 
 @register_processor("timeseries_regression")
 class TimeseriesRegressionLabelProcessor(TimeseriesLabelProcessor):
-    """Real-valued label per time step, see :class:`TimeseriesLabelProcessor`."""
+    """Real-valued label per time step, see :class:`TimeseriesLabelProcessor`.
+
+    Examples:
+        >>> from datetime import datetime, timedelta
+        >>> from pyhealth.processors import TimeseriesRegressionLabelProcessor
+        >>> t0 = datetime(2020, 1, 1)
+        >>> times = [t0 + timedelta(hours=h) for h in range(3)]
+        >>> TimeseriesRegressionLabelProcessor().process((times, [2.5, float("nan"), 0.5]))
+        (tensor([2.5000, 0.0000, 0.5000]), tensor([1., 0., 1.]))
+    """
 

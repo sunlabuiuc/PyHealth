@@ -1,4 +1,5 @@
-from typing import Any, Dict, Iterable, List, Literal, Optional
+from typing import Any, Dict, Iterable, Optional
+from typing import Literal
 
 import torch
 
@@ -40,7 +41,7 @@ class TensorProcessor(FeatureProcessor):
     # Defaults for processors pickled before these options existed.
     normalization: Normalization = None
     missing_indicators: bool = False
-    impute_strategy: Optional[Literal["zero"]] = None
+    impute_strategy: Literal["zero"] | None = None
 
     def __init__(
         self,
@@ -48,7 +49,7 @@ class TensorProcessor(FeatureProcessor):
         spatial_dims: Optional[tuple[bool, ...]] = None,
         normalization: Normalization = None,
         missing_indicators: bool = False,
-        impute_strategy: Optional[Literal["zero"]] = None,
+        impute_strategy: Literal["zero"] | None = None,
     ):
         """
         Initialize the TensorProcessor.
@@ -77,8 +78,8 @@ class TensorProcessor(FeatureProcessor):
         self.missing_indicators = missing_indicators
         self.impute_strategy = impute_strategy
         self.learns_statistics = normalization is not None
-        self.center: List[float] = []
-        self.scale: List[float] = []
+        self.center: list[float] = []
+        self.scale: list[float] = []
 
     def fit(self, samples: Iterable[Dict[str, Any]], field: str) -> None:
         """Infer n_dim and the feature width from the first valid sample.

@@ -1,16 +1,17 @@
 """Utilities shared by processors."""
 
-from typing import Iterable, List, Literal, Optional, Tuple
+from collections.abc import Iterable
+from typing import Literal
 
 import numpy as np
 
-Normalization = Optional[Literal["zscore", "minmax"]]
+Normalization = Literal["zscore", "minmax"] | None
 NORMALIZATIONS = (None, "zscore", "minmax")
 
 
 def fit_normalization(
     arrays: Iterable[np.ndarray], method: Normalization
-) -> Tuple[List[float], List[float]]:
+) -> tuple[list[float], list[float]]:
     """Learns per-feature ``(center, scale)`` from the observed values.
 
     Missing values (``NaN``) are ignored. ``"zscore"`` uses the mean and the
@@ -23,6 +24,12 @@ def fit_normalization(
 
     Returns:
         The center and scale of each feature, as lists of floats.
+
+    Examples:
+        >>> import numpy as np
+        >>> from pyhealth.processors.utils import fit_normalization
+        >>> fit_normalization([np.array([[1.0], [3.0]]), np.array([[np.nan]])], "zscore")
+        ([2.0], [1.0])
     """
     count = total_mean = total_m2 = low = high = None
     for array in arrays:
