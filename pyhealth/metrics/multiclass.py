@@ -214,6 +214,15 @@ def multiclass_metrics_fn(
 
 def _true_label_ranks(y_true: np.ndarray, y_prob: np.ndarray) -> np.ndarray:
     """Returns the 1-based rank of the true class in each row of ``y_prob``."""
+    y_true = np.asarray(y_true)
+    num_classes = y_prob.shape[1]
+    invalid = (y_true < 0) | (y_true >= num_classes)
+    if np.any(invalid):
+        bad = np.unique(y_true[invalid]).tolist()
+        raise ValueError(
+            f"y_true contains label {bad} outside the valid range "
+            f"[0, {num_classes - 1}] for y_prob with {num_classes} classes."
+        )
     argsort = np.argsort(-y_prob, axis=1)
     return np.argmax(argsort == np.asarray(y_true)[:, None], axis=1) + 1
 

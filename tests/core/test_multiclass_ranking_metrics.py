@@ -48,6 +48,12 @@ class TestMulticlassRankingMetrics(unittest.TestCase):
         self.assertAlmostEqual(
             result["mean_reciprocal_rank"], np.mean([1, 1 / 2, 1 / 3, 1 / 4])
         )
+    
+    def test_out_of_range_label_raises(self):
+        y_true = np.array([2])
+        y_prob = np.array([[0.6, 0.4]])
+        with self.assertRaises(ValueError):
+            multiclass_metrics_fn(y_true, y_prob, metrics=["hits@1"])
 
 
 if __name__ == "__main__":
