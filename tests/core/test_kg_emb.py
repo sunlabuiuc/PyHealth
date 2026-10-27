@@ -90,11 +90,18 @@ def make_dataset(n: int = 8, **kwargs: Any) -> SampleKGDataset:
     )
 
 
+def processor_dataset(num_entities: int, num_relations: int) -> Any:
+    """Stands in for a set_task part: the models only read its triple processor."""
+    from types import SimpleNamespace
+
+    from pyhealth.processors import KGTripleProcessor
+
+    processor = KGTripleProcessor(num_entities=num_entities, num_relations=num_relations)
+    return SimpleNamespace(input_processors={"triple": processor})
+
+
 class TestKGEmbImports(unittest.TestCase):
     """The module must import cleanly. This was the original symptom of issue #952."""
-
-    def test_package_imports(self) -> None:
-        import pyhealth.medcode.pretrained_embeddings  # noqa: F401
 
     def test_model_classes_are_exported(self) -> None:
         from pyhealth.medcode.pretrained_embeddings.kg_emb.models import (
@@ -466,6 +473,61 @@ class TestScoringInvariants(unittest.TestCase):
         )
 
 
+class TestScoringReferenceValues(unittest.TestCase):
+    """Each score function on hand-set embeddings, against its formula worked by hand.
+
+    The values are chosen so that a sign error, a missing conjugate or a wrong
+    norm gives a different number. Shapes are (batch, candidates, dim).
+    """
+
+    def check(self, model, head, relation, tail, expected) -> None:
+        h, r, t = (torch.tensor([[x]]) for x in (head, relation, tail))
+        for mode in ("pos", "head", "tail"):
+            with self.subTest(model=type(model).__name__, mode=mode):
+                self.assertAlmostEqual(model.calc(h, r, t, mode=mode).item(), expected, places=5)
+
+    def test_transe(self) -> None:
+        from pyhealth.medcode.pretrained_embeddings.kg_emb.models import TransE
+
+        # gamma - ||h + r - t||_1 = 24 - (|1 + 0.5 - 2| + |2 + 0.25 - 1|) = 24 - 1.75;
+        # a negative component, so a norm without absolute values differs.
+        model = TransE(processor_dataset(2, 1), e_dim=2, r_dim=2)
+        self.check(model, [1.0, 2.0], [0.5, 0.25], [2.0, 1.0], 22.25)
+
+    def test_distmult(self) -> None:
+        from pyhealth.medcode.pretrained_embeddings.kg_emb.models import DistMult
+
+        # sum(h * r * t) = 1 * 3 * 0.5 + 2 * (-1) * 4
+        model = DistMult(processor_dataset(2, 1), e_dim=2, r_dim=2)
+        self.check(model, [1.0, 2.0], [3.0, -1.0], [0.5, 4.0], -6.5)
+
+    def test_complex(self) -> None:
+        from pyhealth.medcode.pretrained_embeddings.kg_emb.models import ComplEx
+
+        # Re(h * r * conj(t)) with h = 1 + 2i, r = 3 + 5i, t = 7 + 11i:
+        # Re((-7 + 11i)(7 - 11i)) = 72, every real and imaginary part being
+        # non-zero. Without the conjugate it would be -170.
+        model = ComplEx(processor_dataset(2, 1), e_dim=2, r_dim=2)
+        self.check(model, [1.0, 2.0], [3.0, 5.0], [7.0, 11.0], 72.0)
+
+    def test_rotate(self) -> None:
+        import cmath
+        import math
+
+        from pyhealth.medcode.pretrained_embeddings.kg_emb.models import RotatE
+
+        # gamma - |h * exp(i theta) - t| with h = 1 and theta = pi / 2, the phase
+        # being relation / (r_emb_range / pi): t = i scores 24, t = 1 scores 24 - sqrt 2.
+        model = RotatE(processor_dataset(2, 1), e_dim=2, r_dim=1)
+        quarter_turn = [model.r_emb_range.item() / 2]
+        self.check(model, [1.0, 0.0], quarter_turn, [0.0, 1.0], 24.0)
+        self.check(model, [1.0, 0.0], quarter_turn, [1.0, 0.0], 24.0 - math.sqrt(2))
+        # A general case, with no zero part: h = 1 + 2i, theta = pi / 4, t = 3 - i.
+        eighth_turn = [model.r_emb_range.item() / 4]
+        rotated = complex(1, 2) * cmath.exp(1j * math.pi / 4)
+        self.check(model, [1.0, 2.0], eighth_turn, [3.0, -1.0], 24.0 - abs(rotated - complex(3, -1)))
+
+
 class TestGroundTruthUnpadding(unittest.TestCase):
     """Regression test for the padding-sentinel collision the Tensor Trick
     introduces: pad_token_id (0) is not a reserved value, so a real entity id
@@ -685,41 +747,63 @@ class _ListHandler(logging.Handler):
         self.messages.append(record.getMessage())
 
 
+_TASK_SPLIT: dict[str, Any] = {}
+
+
+def task_split() -> dict[str, Any]:
+    """set_task on TASK_TRIPLES with a triple-level split, built once.
+
+    Tests may call set_task on the shared dataset again: another task or other
+    processors get their own cache entry, so the parts held here are never
+    rewritten. Tests must not refit or modify the parts' processors. The log
+    records are captured while it is built, and the kg_emb logger is left as
+    it was found.
+    """
+    if not _TASK_SPLIT:
+        from pyhealth.datasets import PatientSplit
+        from pyhealth.medcode.pretrained_embeddings.kg_emb.tasks import KGLinkPrediction
+
+        tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        root = Path(tmp.name)
+        config = write_kg(root, TASK_TRIPLES)
+        dataset = BaseKGDataset(root=str(root), config_path=config, cache_dir=root / "cache")
+        task = KGLinkPrediction(
+            num_entities=dataset.num_entities, num_relations=dataset.num_relations
+        )
+        split = PatientSplit(ratios=TASK_SPLIT_RATIOS, seed=3)
+        handler = _ListHandler()
+        kg_logger = logging.getLogger("pyhealth.medcode.pretrained_embeddings.kg_emb")
+        level = kg_logger.level
+        kg_logger.addHandler(handler)
+        kg_logger.setLevel(logging.INFO)
+        try:
+            parts = dataset.set_task(task, split=split, num_workers=1)
+        finally:
+            kg_logger.removeHandler(handler)
+            kg_logger.setLevel(level)
+        _TASK_SPLIT.update(
+            tmp=tmp, root=root, dataset=dataset, task=task, split=split,
+            parts=parts, log=handler.messages,
+        )
+    return _TASK_SPLIT
+
+
+def tearDownModule() -> None:
+    if _TASK_SPLIT:
+        _TASK_SPLIT["tmp"].cleanup()
+
+
 class TestKGLinkPrediction(unittest.TestCase):
     """KGLinkPrediction through the real set_task, with a triple-level split."""
 
     @classmethod
     def setUpClass(cls) -> None:
-        from pyhealth.datasets import PatientSplit
-        from pyhealth.medcode.pretrained_embeddings.kg_emb.tasks import KGLinkPrediction
-
-        cls._tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
-        cls.root = Path(cls._tmp.name)
-        config = write_kg(cls.root, TASK_TRIPLES)
-        cls.dataset = BaseKGDataset(
-            root=str(cls.root), config_path=config, cache_dir=cls.root / "cache"
-        )
-        cls.task = KGLinkPrediction(
-            num_entities=cls.dataset.num_entities,
-            num_relations=cls.dataset.num_relations,
-        )
-        cls.split = PatientSplit(ratios=TASK_SPLIT_RATIOS, seed=3)
-        handler = _ListHandler()
-        kg_logger = logging.getLogger("pyhealth.medcode.pretrained_embeddings.kg_emb")
-        kg_logger.addHandler(handler)
-        kg_logger.setLevel(logging.INFO)
-        try:
-            cls.parts = cls.dataset.set_task(cls.task, split=cls.split, num_workers=1)
-        finally:
-            kg_logger.removeHandler(handler)
-        cls.log = handler.messages
+        shared = task_split()
+        cls.root, cls.dataset, cls.task = shared["root"], shared["dataset"], shared["task"]
+        cls.split, cls.parts, cls.log = shared["split"], shared["parts"], shared["log"]
 
         e, r = cls.dataset.entity2id, cls.dataset.relation2id
         cls.distinct = sorted({(e[h], r[rel], e[t]) for h, rel, t in TASK_TRIPLES})
-
-    @classmethod
-    def tearDownClass(cls) -> None:
-        cls._tmp.cleanup()
 
     def triples_of(self, part) -> list[tuple[int, int, int]]:
         return [tuple(part[i]["triple"].tolist()) for i in range(len(part))]
@@ -904,23 +988,9 @@ class TestModelsOnSampleDatasets(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        from pyhealth.datasets import PatientSplit
-        from pyhealth.medcode.pretrained_embeddings.kg_emb.tasks import KGLinkPrediction
-
-        cls._tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
-        root = Path(cls._tmp.name)
-        config = write_kg(root, TASK_TRIPLES)
-        cls.dataset = BaseKGDataset(root=str(root), config_path=config, cache_dir=root / "cache")
-        task = KGLinkPrediction(
-            num_entities=cls.dataset.num_entities, num_relations=cls.dataset.num_relations
-        )
-        cls.train, cls.val, cls.test = cls.dataset.set_task(
-            task, split=PatientSplit(ratios=TASK_SPLIT_RATIOS, seed=3)
-        )
-
-    @classmethod
-    def tearDownClass(cls) -> None:
-        cls._tmp.cleanup()
+        shared = task_split()
+        cls.dataset = shared["dataset"]
+        cls.train, cls.val, cls.test = shared["parts"]
 
     def batch(self, part, size=4):
         from pyhealth.datasets import get_dataloader
@@ -941,6 +1011,48 @@ class TestModelsOnSampleDatasets(unittest.TestCase):
                 self.assertEqual(model.e_num, self.dataset.num_entities)
                 self.assertEqual(model.r_num, self.dataset.num_relations)
                 self.assertIs(model.triple_processor, self.train.input_processors["triple"])
+
+    def test_every_model_trains_and_evaluates(self) -> None:
+        from pyhealth.medcode.pretrained_embeddings.kg_emb.models import (
+            ComplEx,
+            DistMult,
+            RotatE,
+            TransE,
+        )
+
+        train_batch = self.batch(self.train)
+        test_batch = self.batch(self.test, size=len(self.test))
+        for cls in (TransE, RotatE, DistMult, ComplEx):
+            with self.subTest(model=cls.__name__):
+                torch.manual_seed(0)
+                model = cls(
+                    dataset=self.train, e_dim=8, r_dim=4 if cls is RotatE else 8,
+                    negative_sampling=4,
+                )
+                model.train()
+                loss = model(**train_batch)["loss"]
+                self.assertTrue(torch.isfinite(loss))
+                loss.backward()
+                self.assertTrue(torch.isfinite(model.E_emb.grad).all())
+
+                model.eval()
+                with torch.no_grad():
+                    y_prob = model(**test_batch)["y_prob"]
+                n = len(self.test)
+                self.assertEqual(tuple(y_prob.shape), (2 * n, self.dataset.num_entities))
+                self.assertTrue(torch.isfinite(y_prob).all())
+
+    def test_uniform_negative_weighting_trains(self) -> None:
+        # ns="uniform" is valid for DistMult, whose score does not depend on ns:
+        # it reaches the loss branch without self-adversarial weighting.
+        from pyhealth.medcode.pretrained_embeddings.kg_emb.models import DistMult
+
+        torch.manual_seed(0)
+        model = DistMult(dataset=self.train, e_dim=8, r_dim=8, ns="uniform", negative_sampling=4)
+        model.train()
+        loss = model(**self.batch(self.train))["loss"]
+        self.assertTrue(torch.isfinite(loss))
+        loss.backward()
 
     def test_negative_sampling_is_a_model_argument(self) -> None:
         from pyhealth.medcode.pretrained_embeddings.kg_emb.models import TransE
@@ -1011,6 +1123,60 @@ class TestModelsOnSampleDatasets(unittest.TestCase):
         with self.assertWarnsRegex(UserWarning, "'train' flag is ignored"), torch.no_grad():
             out = model(**batch)
         self.assertIn("y_prob", out)  # model.eval() decides, not the flag
+
+
+class TestFilteredRankingByHand(unittest.TestCase):
+    """forward in eval mode, then the rank metrics, on a TransE scored by hand.
+
+    A filtered candidate must fall below the true entity, and the padding of a
+    kg_entity_list field must not be taken for entity 0.
+    """
+
+    def test_filtered_scores_ranks_and_mrr(self) -> None:
+        from pyhealth.medcode.pretrained_embeddings.kg_emb.models import TransE
+        from pyhealth.metrics import multiclass_metrics_fn
+
+        model = TransE(processor_dataset(4, 1), e_dim=1, r_dim=1, gamma=10.0)
+        with torch.no_grad():
+            model.E_emb.copy_(torch.tensor([[0.0], [1.2], [2.5], [4.0]]))
+            model.R_emb.copy_(torch.tensor([[1.0]]))
+        model.eval()
+        # Both rows rank (0, r, 2); the score is 10 - |h + 1 - t|.
+        #   candidate heads, t = 2.5: 8.5 (true), 9.7, 9.0, 7.5
+        #   candidate tails, h = 0:   9.0, 9.8, 8.5 (true), 7.0
+        # Row 0: heads [0] and tails [2, 1], each followed by a padding 0.
+        # Row 1: entity 0 is a real member of both lists.
+        batch = {
+            "triple": torch.tensor([[0, 0, 2], [0, 0, 2]]),
+            "ground_truth_head": {
+                "value": torch.tensor([[0, 0], [0, 2]]),
+                "mask": torch.tensor([[1, 0], [1, 1]]),
+            },
+            "ground_truth_tail": {
+                "value": torch.tensor([[2, 1, 0], [2, 1, 0]]),
+                "mask": torch.tensor([[1, 1, 0], [1, 1, 1]]),
+            },
+        }
+        with torch.no_grad():
+            out = model(**batch)
+
+        # A filtered candidate is scored as the true entity minus 1.
+        expected = torch.tensor([
+            [8.5, 9.7, 9.0, 7.5],  # head, row 0: nothing to filter
+            [8.5, 9.7, 7.5, 7.5],  # head, row 1: head 2 filtered
+            [9.0, 7.5, 8.5, 7.0],  # tail, row 0: tail 1 filtered, the padding 0 is not
+            [7.5, 7.5, 8.5, 7.0],  # tail, row 1: tails 1 and 0 filtered
+        ])
+        self.assertTrue(torch.allclose(out["y_prob"], expected, atol=1e-5), out["y_prob"])
+        self.assertEqual(out["y_true"].tolist(), [0, 0, 2, 2])
+
+        scores = multiclass_metrics_fn(
+            out["y_true"].numpy(), out["y_prob"].numpy(), metrics=["mean_rank", "hits@n"]
+        )
+        # Filtered ranks 3, 2, 2, 1; unfiltered they would be 3, 3, 3, 3.
+        self.assertAlmostEqual(scores["mean_rank"], 2.0)
+        self.assertAlmostEqual(scores["mean_reciprocal_rank"], (1 / 3 + 1 / 2 + 1 / 2 + 1) / 4)
+        self.assertAlmostEqual(scores["HITS@1"], 0.25)
 
 
 def record_negatives(model) -> dict:
@@ -1093,7 +1259,6 @@ class TestTrainingNegativesOnARealSplit(unittest.TestCase):
 
     # Same graph and split as TestModelsOnSampleDatasets, without its tests.
     setUpClass = classmethod(TestModelsOnSampleDatasets.setUpClass.__func__)
-    tearDownClass = classmethod(TestModelsOnSampleDatasets.tearDownClass.__func__)
 
     def test_held_out_heads_are_not_filtered(self) -> None:
         import numpy as np
