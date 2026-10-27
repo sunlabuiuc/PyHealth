@@ -104,6 +104,7 @@ def multiclass_metrics_fn(
     y_pred = np.argmax(y_prob, axis=-1)
 
     output = {}
+    ranking = None
     for metric in metrics:
         if metric == "roc_auc_macro_ovo":
             y_prob_roc = y_prob[:, 1] if y_prob.shape[1] == 2 else y_prob
@@ -197,15 +198,18 @@ def multiclass_metrics_fn(
             elif metric == "error_overall_ps":
                 output[metric] = pset.error_overall_ps(y_predset, y_true)
         elif metric == "hits@n":
-            ranking = _true_label_ranks(y_true, y_prob)
+            if ranking is None:
+                ranking = _true_label_ranks(y_true, y_prob)
             for k in (1, 5, 10):
                 output[f"HITS@{k}"] = _hits_at_k(ranking, k)
         elif metric.startswith("hits@"):
             k = _parse_hits_cutoff(metric)
-            ranking = _true_label_ranks(y_true, y_prob)
+            if ranking is None:
+                ranking = _true_label_ranks(y_true, y_prob)
             output[f"HITS@{k}"] = _hits_at_k(ranking, k)
         elif metric == "mean_rank":
-            ranking = _true_label_ranks(y_true, y_prob)
+            if ranking is None:
+                ranking = _true_label_ranks(y_true, y_prob)
             output["mean_rank"] = np.mean(ranking)
             output["mean_reciprocal_rank"] = np.mean(1 / ranking)
         else:
@@ -245,7 +249,7 @@ def _parse_hits_cutoff(metric: str) -> int:
     return int(cutoff)
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     all_metrics = [
         "roc_auc_macro_ovo",
         "roc_auc_macro_ovr",
