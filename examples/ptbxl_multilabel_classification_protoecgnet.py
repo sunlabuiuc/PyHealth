@@ -43,6 +43,7 @@ Note:
 import argparse
 import itertools
 import os
+import random
 import shutil
 import tempfile
 import warnings
@@ -192,6 +193,9 @@ def run_pipeline(
     Returns:
         A dict with the test ``roc_auc_macro`` and ``loss``.
     """
+    # Seed every RNG that affects training/ablation reproducibility.
+    random.seed(args.seed)
+    np.random.seed(args.seed)
     torch.manual_seed(args.seed)
     train, val, test = splits
     loaders = [
@@ -293,13 +297,18 @@ def main() -> None:
                              "GB of PTB-XL on every invocation)")
     parser.add_argument("--ablation", action="store_true")
     parser.add_argument("--output", default="protoecgnet_ablation.md")
+    parser.add_argument("--device", choices=["auto", "cpu", "cuda", "mps"],
+                        default="auto",
+                        help="training device (default: auto picks "
+                             "CUDA > MPS > CPU; pass 'cpu' to force CPU)")
     args = parser.parse_args()
-    if torch.cuda.is_available():
-        args.device = "cuda"
-    elif getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
-        args.device = "mps"
-    else:
-        args.device = "cpu"
+    if args.device == "auto":
+        if torch.cuda.is_available():
+            args.device = "cuda"
+        elif getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
+            args.device = "mps"
+        else:
+            args.device = "cpu"
 
     # Validate and set defaults before creating the scratch directory so that
     # parser.error() exits cleanly without leaving a temp dir behind.

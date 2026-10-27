@@ -497,6 +497,35 @@ class TestProtoECGNet(unittest.TestCase):
         with self.assertRaises(ValueError, msg="shuffled loader must raise"):
             model.project_prototypes(shuffled)
 
+    def test_state_dict_round_trip_preserves_forward_output(self):
+        """state_dict → load_state_dict must reproduce forward outputs exactly.
+
+        Covers prototypes, classifier weights, fusion weights and buffers
+        (class_weights, label_cooccurrence, fusion_mask).
+        """
+        torch.manual_seed(0)
+        groups = {"rhythm": ["A", "B", "C"], "morph": ["D", "E", "F"]}
+        model = ProtoECGNet(
+            self.dataset, label_groups=groups, prototypes_per_label=2,
+            fusion="learned", **TINY,
+        )
+        # Nudge weights off their initializer so random re-init would be caught.
+        with torch.no_grad():
+            for p in model.parameters():
+                p.add_(0.1 * torch.randn_like(p))
+        model.eval()
+        with torch.no_grad():
+            expected = model(**self.batch)["logit"]
+
+        clone = ProtoECGNet(
+            self.dataset, label_groups=groups, prototypes_per_label=2,
+            fusion="learned", **TINY,
+        ).eval()
+        clone.load_state_dict(model.state_dict())
+        with torch.no_grad():
+            got = clone(**self.batch)["logit"]
+        torch.testing.assert_close(got, expected, atol=1e-6, rtol=1e-6)
+
 
 if __name__ == "__main__":
     unittest.main()
