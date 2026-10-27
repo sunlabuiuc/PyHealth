@@ -547,9 +547,10 @@ class ProtoECGNet(BaseModel):
 
     Note:
         ``ProtoECGNet`` applies loss weighting via its own ``class_weights``
-        parameter. The inherited
-        :meth:`~pyhealth.models.BaseModel.set_pos_weight` has no effect on
-        this model.
+        buffer. :meth:`set_pos_weight` is overridden to route the inherited
+        :class:`~pyhealth.models.BaseModel` argument into ``class_weights``
+        (including the ``"balanced"`` option), so callers like autoimprove
+        work unchanged.
 
     Examples:
         >>> from pyhealth.datasets import create_sample_dataset, get_dataloader
@@ -696,6 +697,32 @@ class ProtoECGNet(BaseModel):
     def branch_index(self, name: str) -> torch.Tensor:
         """Returns the global label indices owned by branch ``name``; used for scattering branch logits into the full label space and slicing the co-occurrence matrix."""
         return getattr(self, f"index_{name}")
+
+    def set_pos_weight(
+        self,
+        pos_weight,
+        dataset=None,
+    ) -> None:
+        """Honor :meth:`BaseModel.set_pos_weight` by routing it to ``class_weights``.
+
+        ``ProtoECGNet`` applies positive-class weighting through its own
+        ``class_weights`` buffer, so the inherited method would otherwise be a
+        no-op (silently dropping e.g. ``pos_weight="balanced"`` from
+        ``autoimprove``). This override delegates to the base implementation
+        to parse the argument (scalar, sequence, tensor, ``"balanced"``, or
+        ``None``) and then mirrors ``self._pos_weight`` into
+        ``self.class_weights`` so BCE picks it up. ``None`` resets
+        ``class_weights`` to ones.
+
+        Args:
+            pos_weight: Same semantics as :meth:`BaseModel.set_pos_weight`.
+            dataset: Required when ``pos_weight="balanced"``.
+        """
+        super().set_pos_weight(pos_weight, dataset)
+        if self._pos_weight is None:
+            self.class_weights = torch.ones(self.num_labels, device=self.device)
+        else:
+            self.class_weights = self._pos_weight.to(self.device).float()
 
     def set_label_statistics(
         self,

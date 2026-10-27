@@ -717,6 +717,17 @@ class TestWFDBImportError(unittest.TestCase):
             self.assertIn("pyhealth[ptbxl]", str(ctx.exception))
 
 
+try:
+    import wfdb as _wfdb  # noqa: F401
+    _WFDB_AVAILABLE = True
+except ImportError:
+    _WFDB_AVAILABLE = False
+
+
+@unittest.skipUnless(
+    _WFDB_AVAILABLE,
+    "wfdb not installed; install the 'pyhealth[ptbxl]' extra to run these tests",
+)
 class TestPTBXLMultilabelClassification(unittest.TestCase):
     """Tests for PTBXLMultilabelClassification wired to the master dataset."""
 
@@ -772,13 +783,6 @@ class TestPTBXLMultilabelClassification(unittest.TestCase):
             PTBXLMultilabelClassification(
                 scp_statements_path=self.scp_path, standardize="dataset"
             )
-
-    def test_read_wfdb_signal_roundtrip(self):
-        from pyhealth.tasks.ptbxl_multilabel_classification import read_wfdb_signal
-        rec = str(self.root / "records100" / "00000" / "00001_lr")
-        sig = read_wfdb_signal(rec)
-        self.assertEqual(sig.shape[1], 12)
-        self.assertEqual(sig.dtype, np.float32)
 
     def test_prepare_signal_shape_and_dtype(self):
         from pyhealth.tasks import PTBXLMultilabelClassification
@@ -862,10 +866,39 @@ class TestPTBXLMultilabelClassification(unittest.TestCase):
         labels = _aggregate_labels({"NORM": 100.0, "IMI": 80.0}, stmts, "form", 0.0)
         self.assertEqual(labels, [])
 
-    def test_read_wfdb_signal_missing_header_raises(self):
-        from pyhealth.tasks.ptbxl_multilabel_classification import read_wfdb_signal
-        with self.assertRaises(FileNotFoundError):
-            read_wfdb_signal(str(self.root / "records100" / "00000" / "nonexistent"))
+    def test_superdiagnostic_matches_superclass_task(self):
+        """When label_set='superdiagnostic' and min_likelihood=0, labels match
+        PTBXLSuperclassClassification record-for-record.
+
+        Guards the Blocker-1 refactor that delegates the overlapping path to
+        aggregate_diagnostic_superclasses.
+        """
+        from pyhealth.tasks import (
+            PTBXLMultilabelClassification,
+            PTBXLSuperclassClassification,
+        )
+        multi = PTBXLMultilabelClassification(
+            scp_statements_path=self.scp_path, label_set="superdiagnostic"
+        )
+        superclass = PTBXLSuperclassClassification(
+            scp_statements_path=self.scp_path, drop_empty_labels=True
+        )
+        multi_samples = {
+            (s["patient_id"], s["strat_fold"]): sorted(s["labels"])
+            for s in self.dataset.set_task(multi)
+        }
+        # Build a fresh dataset for the superclass task so the two caches don't collide.
+        from pyhealth.datasets.ptbxl import PTBXLDataset
+        other_dataset = PTBXLDataset(
+            root=str(self.root), cache_dir=str(Path(self.tmp) / "cache_sup")
+        )
+        super_samples = {
+            (s["patient_id"], s["strat_fold"]): sorted(s["labels"])
+            for s in other_dataset.set_task(superclass)
+        }
+        self.assertEqual(set(multi_samples.keys()), set(super_samples.keys()))
+        for key, labels in multi_samples.items():
+            self.assertEqual(labels, super_samples[key])
 
     def test_diagnostic_samples_labels_nonempty(self):
         from pyhealth.tasks import PTBXLMultilabelClassification
@@ -923,75 +956,22 @@ class TestPTBXLMultilabelClassification(unittest.TestCase):
             float(np.abs(out_no_bl.mean(axis=1)).max()),
         )
 
-    def test_fallback_reader_rejects_non_16bit_format(self):
-        """Fallback reader (no wfdb) raises ValueError on non-16-bit records."""
-        import builtins
-        from pyhealth.tasks.ptbxl_multilabel_classification import read_wfdb_signal
+    def test_load_signal_matches_superclass_task_signal(self):
+        """Both tasks must load the exact same signal tensor from the same record.
 
-        bad = Path(self.tmp) / "bad_fmt"
-        bad.parent.mkdir(parents=True, exist_ok=True)
-        name = bad.name
-        header = [f"{name} 12 100 1000"] + [
-            # format 212 (not 16) — unsupported by the fallback.
-            f"{name}.dat 212 1000/mV 16 0 0 0 0 lead{i}" for i in range(12)
-        ]
-        Path(str(bad) + ".hea").write_text("\n".join(header) + "\n")
-        Path(str(bad) + ".dat").write_bytes(b"\x00" * 24000)
+        The multi-label task now uses load_ptbxl_record directly (same as the
+        superclass task), so there is one decoding path and the signals match.
+        """
+        from pyhealth.datasets.ptbxl import load_ptbxl_record
+        from pyhealth.tasks import PTBXLMultilabelClassification
 
-        real_import = builtins.__import__
-
-        def block_wfdb(name, *args, **kwargs):
-            if name == "wfdb" or name.startswith("wfdb."):
-                raise ImportError("blocked")
-            return real_import(name, *args, **kwargs)
-
-        with patch("builtins.__import__", side_effect=block_wfdb):
-            with self.assertRaises(ValueError) as ctx:
-                read_wfdb_signal(str(bad))
-            self.assertIn("Unsupported WFDB format", str(ctx.exception))
-
-    def test_fallback_reader_raises_on_missing_data_file(self):
-        """Fallback reader raises FileNotFoundError if the .dat is missing."""
-        import builtins
-        from pyhealth.tasks.ptbxl_multilabel_classification import read_wfdb_signal
-
-        hdr_only = Path(self.tmp) / "hdr_only"
-        hdr_only.parent.mkdir(parents=True, exist_ok=True)
-        name = hdr_only.name
-        header = [f"{name} 12 100 1000"] + [
-            f"{name}.dat 16 1000/mV 16 0 0 0 0 lead{i}" for i in range(12)
-        ]
-        Path(str(hdr_only) + ".hea").write_text("\n".join(header) + "\n")
-        # Deliberately do NOT write the .dat file.
-
-        real_import = builtins.__import__
-
-        def block_wfdb(name, *args, **kwargs):
-            if name == "wfdb" or name.startswith("wfdb."):
-                raise ImportError("blocked")
-            return real_import(name, *args, **kwargs)
-
-        with patch("builtins.__import__", side_effect=block_wfdb):
-            with self.assertRaises(FileNotFoundError):
-                read_wfdb_signal(str(hdr_only))
-
-    def test_fallback_reader_roundtrip(self):
-        """Fallback reader (no wfdb) decodes the same shape as the delegated path."""
-        import builtins
-        from pyhealth.tasks.ptbxl_multilabel_classification import read_wfdb_signal
-
-        real_import = builtins.__import__
-
-        def block_wfdb(name, *args, **kwargs):
-            if name == "wfdb" or name.startswith("wfdb."):
-                raise ImportError("blocked")
-            return real_import(name, *args, **kwargs)
-
+        task = PTBXLMultilabelClassification(
+            scp_statements_path=self.scp_path, standardize=None,
+        )
         rec = str(self.root / "records100" / "00000" / "00001_lr")
-        with patch("builtins.__import__", side_effect=block_wfdb):
-            sig = read_wfdb_signal(rec)
-        self.assertEqual(sig.shape, (1000, 12))
-        self.assertEqual(sig.dtype, np.float32)
+        prepped = task._prepare_signal(rec, 100)
+        canonical = load_ptbxl_record(rec)[:, :1000]
+        np.testing.assert_allclose(prepped, canonical, atol=1e-5)
 
 
 if __name__ == "__main__":

@@ -491,6 +491,31 @@ class TestProtoECGNet(unittest.TestCase):
         torch.testing.assert_close(total, expected, atol=1e-4, rtol=1e-4)
 
 
+    def test_set_pos_weight_routes_to_class_weights(self):
+        """ProtoECGNet.set_pos_weight must mirror the parsed weight into
+        ``class_weights`` (regression: previously a silent no-op)."""
+        model = ProtoECGNet(self.dataset, prototypes_per_label=1, **TINY)
+
+        # Scalar: broadcast to a (1,)-shape tensor, assigned verbatim.
+        model.set_pos_weight(4.0)
+        torch.testing.assert_close(
+            model.class_weights.detach().cpu(), torch.tensor([4.0])
+        )
+
+        # Per-label sequence: length-6 vector covering self.dataset's labels.
+        weights = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
+        model.set_pos_weight(weights)
+        torch.testing.assert_close(
+            model.class_weights.detach().cpu(), torch.tensor(weights)
+        )
+
+        # None resets to the ones default (identity for BCE pos_weight).
+        model.set_pos_weight(None)
+        torch.testing.assert_close(
+            model.class_weights.detach().cpu(),
+            torch.ones(model.num_labels),
+        )
+
     def test_project_prototypes_raises_on_shuffled_loader(self):
         model = ProtoECGNet(self.dataset, prototypes_per_label=1, **TINY)
         shuffled = get_dataloader(self.dataset, batch_size=4, shuffle=True)

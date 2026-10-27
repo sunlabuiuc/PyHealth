@@ -2,7 +2,6 @@
 
 import functools
 import os
-import re
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -19,80 +18,6 @@ _LABEL_SETS = (
     "form",
     "rhythm",
 )
-_GAIN_PATTERN = re.compile(r"^([0-9.eE+-]+)(?:\(([-0-9]+)\))?(?:/.*)?$")
-
-
-def read_wfdb_signal(record_path: str) -> np.ndarray:
-    """Reads a WFDB record and returns its physical signal.
-
-    Delegates to :func:`~pyhealth.datasets.ptbxl.load_ptbxl_record` (the
-    canonical PTB-XL reader in ``pyhealth.datasets.ptbxl``) when the optional
-    ``wfdb`` extra is installed, so the wfdb-backed decoding path is not
-    duplicated. When ``wfdb`` is not available, a built-in reader for the
-    16-bit WFDB format used by PTB-XL is used so that this task's test suite
-    and the ``--synthetic`` example can run without the optional dependency —
-    neither path exists for PTB-XL elsewhere in the codebase, so the fallback
-    is kept here deliberately.
-
-    Args:
-        record_path: Path of the record without extension, e.g.
-            ``".../records100/00000/00001_lr"``.
-
-    Returns:
-        A float32 array of shape ``(num_samples, num_leads)`` in millivolts.
-
-    Raises:
-        FileNotFoundError: If the header or data file does not exist.
-        ValueError: If the record uses an unsupported WFDB storage format.
-
-    Examples:
-        >>> signal = read_wfdb_signal("records100/00000/00001_lr")  # doctest: +SKIP
-        >>> signal.shape  # doctest: +SKIP
-        (1000, 12)
-    """
-    # Prefer load_ptbxl_record (master's canonical reader) when wfdb is available.
-    try:
-        from pyhealth.datasets.ptbxl import load_ptbxl_record
-
-        # load_ptbxl_record returns (n_leads, n_samples); transpose to compat shape.
-        return load_ptbxl_record(record_path).T
-    except ImportError:
-        pass
-
-    # Fallback: read 16-bit PTB-XL WFDB records without the wfdb package.
-    header_path = record_path + ".hea"
-    if not os.path.isfile(header_path):
-        raise FileNotFoundError(f"WFDB header not found: {header_path}")
-    with open(header_path, "r", encoding="utf-8") as handle:
-        lines = [ln.strip() for ln in handle if ln.strip()]
-    lines = [ln for ln in lines if not ln.startswith("#")]
-    first = lines[0].split()
-    num_leads, num_samples = int(first[1]), int(first[3])
-    gains, baselines, files = [], [], set()
-    for line in lines[1 : 1 + num_leads]:
-        fields = line.split()
-        files.add(fields[0])
-        if fields[1].split("+")[0] != "16":
-            raise ValueError(
-                f"Unsupported WFDB format {fields[1]} in {header_path}; "
-                "install `wfdb` to read this record."
-            )
-        match = _GAIN_PATTERN.match(fields[2])
-        gain = float(match.group(1)) if match else 200.0
-        gains.append(gain if gain != 0 else 200.0)
-        baselines.append(
-            int(match.group(2)) if match and match.group(2) else int(fields[4])
-        )
-    if len(files) != 1:
-        raise ValueError("Only records with a single signal file are supported.")
-    data_path = os.path.join(os.path.dirname(header_path), files.pop())
-    if not os.path.isfile(data_path):
-        raise FileNotFoundError(f"WFDB data file not found: {data_path}")
-    digital = np.fromfile(data_path, dtype="<i2").reshape(-1, num_leads)
-    digital = digital[:num_samples].astype(np.float32)
-    return (digital - np.asarray(baselines, dtype=np.float32)) / np.asarray(
-        gains, dtype=np.float32
-    )
 
 
 @functools.cache
@@ -237,6 +162,13 @@ class PTBXLMultilabelClassification(BaseTask):
     def _prepare_signal(self, signal_file: str, sampling_rate: int) -> np.ndarray:
         """Loads, crops/pads and normalizes one ECG.
 
+        Signal loading goes through
+        :func:`~pyhealth.datasets.ptbxl.load_ptbxl_record` — the canonical
+        PTB-XL reader also used by
+        :class:`~pyhealth.tasks.PTBXLSuperclassClassification` — so there is a
+        single decoding path. ``wfdb`` is a hard requirement here; install
+        the ``pyhealth[ptbxl]`` extra.
+
         Args:
             signal_file: Record path without extension (as stored in the event).
             sampling_rate: Waveform sampling rate in Hz (100 or 500).
@@ -244,7 +176,9 @@ class PTBXLMultilabelClassification(BaseTask):
         Returns:
             Float32 array of shape ``(12, 10 * sampling_rate)``.
         """
-        signal = read_wfdb_signal(signal_file).T  # (leads, samples)
+        from pyhealth.datasets.ptbxl import load_ptbxl_record
+
+        signal = load_ptbxl_record(signal_file)  # (leads, samples)
         length = 10 * sampling_rate
         if signal.shape[1] < length:
             signal = np.pad(signal, ((0, 0), (0, length - signal.shape[1])))
@@ -263,6 +197,14 @@ class PTBXLMultilabelClassification(BaseTask):
     def __call__(self, patient: Any) -> list[dict[str, Any]]:
         """Builds one sample per labelled ECG of a patient.
 
+        For the ``superdiagnostic`` label set with ``min_likelihood == 0`` the
+        aggregation delegates to
+        :func:`~pyhealth.tasks.ptbxl.aggregate_diagnostic_superclasses` (used
+        by :class:`~pyhealth.tasks.PTBXLSuperclassClassification`), so the
+        labels produced by both tasks are identical for that configuration.
+        Other label sets or non-zero likelihood thresholds use
+        :func:`_aggregate_labels`.
+
         Args:
             patient: A patient object with ``records`` events from
                 :class:`~pyhealth.datasets.PTBXLDataset`.
@@ -274,20 +216,39 @@ class PTBXLMultilabelClassification(BaseTask):
         """
         from pyhealth.datasets.ptbxl import parse_scp_codes
 
-        statements = _load_scp_statements(self.scp_statements_path)
+        if self.label_set == "superdiagnostic" and self.min_likelihood == 0.0:
+            from pyhealth.tasks.ptbxl import (
+                aggregate_diagnostic_superclasses,
+                load_diagnostic_class_map,
+            )
+
+            class_map = load_diagnostic_class_map(self.scp_statements_path)
+
+            def aggregate(scp_codes_raw: Any) -> list[str]:
+                return aggregate_diagnostic_superclasses(scp_codes_raw, class_map)
+        else:
+            statements = _load_scp_statements(self.scp_statements_path)
+
+            def aggregate(scp_codes_raw: Any) -> list[str]:
+                return _aggregate_labels(
+                    parse_scp_codes(scp_codes_raw),
+                    statements,
+                    self.label_set,
+                    self.min_likelihood,
+                )
+
         samples = []
         for event in patient.get_events(event_type="records"):
-            scp_codes = parse_scp_codes(event.scp_codes)
-            labels = _aggregate_labels(
-                scp_codes, statements, self.label_set, self.min_likelihood
-            )
+            labels = aggregate(event.scp_codes)
             if not labels:
                 continue
             sampling_rate = int(event.sampling_rate)
             samples.append(
                 {
                     "patient_id": patient.patient_id,
-                    "strat_fold": int(event.strat_fold),
+                    # int(float(...)) matches PTBXLSuperclassClassification and
+                    # tolerates "9.0" strings from the CSV.
+                    "strat_fold": int(float(event.strat_fold)),
                     "signal": self._prepare_signal(event.signal_file, sampling_rate),
                     "labels": labels,
                 }
