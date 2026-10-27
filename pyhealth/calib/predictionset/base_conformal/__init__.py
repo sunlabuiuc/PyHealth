@@ -69,14 +69,31 @@ def _query_quantile(nc_scores: np.ndarray, alpha: float) -> float:
 
 
 def _query_weighted_quantile(
-    scores: np.ndarray, alpha: float, weights: np.ndarray
+    scores: np.ndarray,
+    alpha: float,
+    weights: np.ndarray,
+    candidate_weight: float = 0.0,
+    return_inf_on_exhaustion: bool = False,
 ) -> float:
-    """Compute weighted quantile of scores (e.g. for NCP or covariate shift).
+    """Compute weighted quantile of scores (e.g. for NCP).
+
+    Note: CovariateLabel does not use this helper; it has its own
+    conformity-scale weighted-quantile helper in
+    ``covariate/covariate_label.py``.
 
     Args:
         scores: Array of conformity scores
         alpha: Quantile level (between 0 and 1)
         weights: Weights for each score (same length as scores)
+        candidate_weight: Extra mass reserved for a point not in
+            ``scores`` (default 0, which preserves the historical
+            behavior). It is added to the total weight but contributes
+            no score of its own, so it sits beyond the largest score.
+        return_inf_on_exhaustion: When True, return +inf if the
+            calibration mass alone cannot reach ``alpha`` (the
+            reserved candidate mass is the only mass left). When
+            False (default, historical behavior), fall back to the
+            largest score instead.
 
     Returns:
         The weighted alpha-quantile of scores
@@ -84,12 +101,16 @@ def _query_weighted_quantile(
     sorted_indices = np.argsort(scores)
     sorted_scores = scores[sorted_indices]
     sorted_weights = weights[sorted_indices]
-    w_sum = np.sum(sorted_weights)
+    w_sum = np.sum(sorted_weights) + candidate_weight
     if w_sum <= 0:
-        return -np.inf
+        return np.inf if return_inf_on_exhaustion else -np.inf
+    if len(sorted_scores) == 0:
+        return np.inf if return_inf_on_exhaustion else -np.inf
     cum_weights = np.cumsum(sorted_weights) / w_sum
     idx = np.searchsorted(cum_weights, alpha, side="left")
     if idx >= len(sorted_scores):
+        if return_inf_on_exhaustion:
+            return np.inf
         idx = len(sorted_scores) - 1
     return float(sorted_scores[idx])
 

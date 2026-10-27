@@ -73,6 +73,9 @@ nlp = [
   "rouge_score~=0.1.2",
   "nltk~=3.9.1",
 ]
+ptbxl = [
+  "wfdb>=4.1.0",
+]
 xgboost = [
   "xgboost>=2.0",
 ]
@@ -145,7 +148,7 @@ pytest = "*"
 pytest-cov = "*"
 
 [tool.pixi.feature.test.pypi-dependencies]
-pyhealth = { path = ".", editable = true }
+pyhealth = { path = ".", editable = true, extras = ["ptbxl"] }
 
 [tool.pixi.feature.nlp.pypi-dependencies]
 pyhealth = { path = ".", editable = true }

@@ -53,6 +53,7 @@ import torch
 from sklearn.metrics import roc_auc_score
 
 from pyhealth.datasets import PTBXLDataset, get_dataloader
+from pyhealth.datasets.splitter import split_by_strat_fold
 from pyhealth.models import PTBXL_BRANCH_KWARGS, PTBXL_BRANCH_LABELS, ProtoECGNet
 from pyhealth.tasks import PTBXLMultilabelClassification
 from pyhealth.trainer import Trainer
@@ -84,7 +85,8 @@ def build_synthetic_ptbxl(root: str, num_patients: int = 60, seed: int = 0) -> N
     """Writes a small PTB-XL-like dataset whose labels are learnable.
 
     Label ``k`` adds a sine wave of frequency ``k + 1`` Hz to lead ``k``, so a
-    classifier can recover the labels from the signal.
+    classifier can recover the labels from the signal. The layout matches what
+    :class:`~pyhealth.datasets.PTBXLDataset` expects (v1.0.3 column set).
 
     Args:
         root: Output directory.
@@ -122,6 +124,9 @@ def build_synthetic_ptbxl(root: str, num_patients: int = 60, seed: int = 0) -> N
                     "patient_id": float(patient),
                     "age": 60.0,
                     "sex": 1,
+                    "site": 0,
+                    "device": "CS-12",
+                    "recording_date": f"199{patient % 10}-01-01 00:00:00",
                     "scp_codes": str(codes),
                     "strat_fold": 1 + patient % 10,
                     "filename_lr": rel,
@@ -142,25 +147,6 @@ def build_synthetic_ptbxl(root: str, num_patients: int = 60, seed: int = 0) -> N
     statements.to_csv(os.path.join(root, "scp_statements.csv"))
 
 
-def split_by_fold(sample_dataset, metadata_path: str):
-    """Splits a PTB-XL SampleDataset by the recommended ``strat_fold``.
-
-    Args:
-        sample_dataset: The dataset returned by ``set_task``.
-        metadata_path: Path to ``ptbxl-metadata-pyhealth.csv``
-            (use ``dataset.metadata_path``).
-
-    Returns:
-        ``(train, val, test)`` datasets (folds 1-8, 9 and 10).
-    """
-    meta = pd.read_csv(metadata_path)
-    fold_of = dict(zip(meta["patient_id"].astype(str), meta["strat_fold"]))
-    buckets: dict[str, list[int]] = {"train": [], "val": [], "test": []}
-    for patient, indices in sample_dataset.patient_to_index.items():
-        fold = fold_of[patient]
-        key = "val" if fold == 9 else "test" if fold == 10 else "train"
-        buckets[key].extend(indices)
-    return tuple(sample_dataset.subset(buckets[k]) for k in ("train", "val", "test"))
 
 
 def collect_labels(dataset) -> torch.Tensor:
@@ -342,10 +328,12 @@ def main() -> None:
             root=args.root, cache_dir=cache_dir, dev=args.dev
         )
         task = PTBXLMultilabelClassification(
-            label_set=args.label_set, remove_baseline=args.remove_baseline
+            scp_statements_path=dataset.scp_statements_path,
+            label_set=args.label_set,
+            remove_baseline=args.remove_baseline,
         )
         samples = dataset.set_task(task)
-        splits = split_by_fold(samples, dataset.metadata_path)
+        splits = split_by_strat_fold(samples, folds=[range(1, 9), [9], [10]])
         print(f"samples: train={len(splits[0])} val={len(splits[1])} test={len(splits[2])}")
 
         baseline = run_pipeline(
