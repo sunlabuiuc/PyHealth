@@ -42,12 +42,14 @@ class _StepLabelProcessor(FeatureProcessor):
         return (True,)
 
 
-def _dataset(mode="timeseries_binary", unlabeled=()):
+def _dataset(mode="timeseries_binary", unlabeled=(), unlabeled_value=None):
     rng = np.random.default_rng(0)
     samples = []
     for i, steps in enumerate([5, 3, 6, 4]):
         values = [float((i + h) % 2) for h in range(steps)]
         mask = [0.0 if (i, h) in unlabeled else 1.0 for h in range(steps)]
+        if unlabeled_value is not None:
+            values = [unlabeled_value if m == 0 else v for v, m in zip(values, mask)]
         samples.append(
             {
                 "patient_id": f"p{i}",
@@ -99,6 +101,56 @@ class TestTimeseriesModes(unittest.TestCase):
             after = model(**batch)["y_prob"][0, :, 0]
         torch.testing.assert_close(before[:-1], after[:-1])
         self.assertFalse(torch.allclose(before[-1], after[-1]))
+
+    def test_nan_on_unlabeled_step_is_ignored(self):
+        for mode in ("timeseries_binary", "timeseries_regression"):
+            nan = _dataset(mode, unlabeled={(1, 0)}, unlabeled_value=float("nan"))
+            zero = _dataset(mode, unlabeled={(1, 0)}, unlabeled_value=0.0)
+            torch.manual_seed(0)
+            model = RNN(dataset=nan, hidden_dim=8, embedding_dim=8)
+            batch = next(iter(get_dataloader(nan, batch_size=4)))
+            out = model(**batch)
+            self.assertTrue(torch.isfinite(out["loss"]))
+            out["loss"].backward()
+            for parameter in model.parameters():
+                if parameter.grad is not None:
+                    self.assertTrue(torch.isfinite(parameter.grad).all())
+
+            # Same loss as with any other value on the unlabeled step.
+            loss_fn = model.get_loss_function()
+            logits = out["logit"].detach()
+            zero_batch = next(iter(get_dataloader(zero, batch_size=4)))
+            torch.testing.assert_close(
+                loss_fn(logits, batch["label"]), loss_fn(logits, zero_batch["label"])
+            )
+
+    def test_label_longer_than_input_is_rejected(self):
+        model = RNN(dataset=_dataset(), hidden_dim=8, embedding_dim=8)
+        logits = torch.zeros(1, 3, 1)
+        label = (torch.zeros(1, 4), torch.ones(1, 4))
+        with self.assertRaises(ValueError):
+            model.get_loss_function()(logits, label)
+
+    def test_time_series_inputs_must_share_the_time_grid(self):
+        samples = [
+            {
+                "patient_id": "p0",
+                "a": ([T0 + timedelta(hours=h) for h in range(3)], np.zeros((3, 1))),
+                "b": ([T0 + timedelta(hours=h) for h in range(5)], np.zeros((5, 1))),
+                "label": ([0.0] * 3, [1.0] * 3),
+            }
+        ]
+        dataset = create_sample_dataset(
+            samples=samples,
+            input_schema={"a": "timeseries", "b": "timeseries"},
+            output_schema={"label": "timeseries_binary"},
+            output_processors={"label": _StepLabelProcessor()},
+            dataset_name="timeseries_grids",
+        )
+        model = RNN(dataset=dataset, hidden_dim=8, embedding_dim=8)
+        batch = next(iter(get_dataloader(dataset, batch_size=1)))
+        with self.assertRaises(ValueError):
+            model(**batch)
 
     def test_bidirectional_is_rejected(self):
         with self.assertRaises(ValueError):

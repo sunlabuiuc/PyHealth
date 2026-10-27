@@ -15,7 +15,8 @@ from ..processors import PROCESSOR_REGISTRY
 logger = logging.getLogger(__name__)
 
 # Label kinds understood by the loss helpers, Trainer and the calibration methods.
-# The timeseries modes are labels per time step (see TimeseriesLabelProcessor).
+# The timeseries modes are labels per time step; they need an output processor
+# whose process() returns (value, mask), with mask 0 for steps without a label.
 VALID_MODES = (
     "binary",
     "multiclass",
@@ -37,7 +38,8 @@ def _masked_step_loss(
         loss_fn: Elementwise loss accepting ``reduction="none"``.
         logits: Per-step logits of shape (batch, steps, 1).
         target: Batched ``(value, mask)`` of shape (batch, label steps), where
-            padding and unlabeled steps have mask 0.
+            padding and unlabeled steps have mask 0. Values at those steps are
+            ignored and may be NaN.
     """
     # Temporary workaround: per-step labels arrive as a (value, mask) tuple so
     # the existing single-tensor label API stays unchanged. A more unified
@@ -49,8 +51,13 @@ def _masked_step_loss(
             f"{logits.shape[1]}; label and input must share the time grid."
         )
     logits = logits[:, : value.shape[1], 0]
+    labeled = mask > 0
+    # Replace unlabeled values before the loss so a NaN there reaches neither
+    # the loss nor its gradient, then drop those steps from the sum.
+    value = torch.where(labeled, value, torch.zeros_like(value))
     loss = loss_fn(logits, value, reduction="none")
-    return (loss * mask).sum() / mask.sum().clamp(min=1)
+    loss = torch.where(labeled, loss, torch.zeros_like(loss))
+    return loss.sum() / labeled.sum().clamp(min=1)
 
 
 class BaseModel(ABC, nn.Module):
@@ -312,8 +319,10 @@ class BaseModel(ABC, nn.Module):
               over the labeled steps
 
         The timeseries losses take per-step logits of shape (batch, steps, 1)
-        and the batched ``(value, mask)`` label of a
-        :class:`~pyhealth.processors.TimeseriesLabelProcessor`.
+        and the batched ``(value, mask)`` label, each of shape (batch, steps),
+        produced by an output processor whose ``process()`` returns
+        ``(value, mask)`` per sample with mask 0 for steps without a label.
+        Values at masked steps are ignored and may be NaN.
 
         For binary and multilabel labels, a weight set with
         :meth:`set_pos_weight` is passed as ``pos_weight``.
