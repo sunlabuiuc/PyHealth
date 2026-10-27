@@ -20,7 +20,7 @@ class RotatE(KGEBaseModel):
         ...     input_processors = {
         ...         "triple": KGTripleProcessor(num_entities=2, num_relations=1)
         ...     }
-        >>> model = RotatE(_Toy(), e_dim=4, r_dim=2, ns="uniform")
+        >>> model = RotatE(_Toy(), e_dim=4, r_dim=2)
         >>> tuple(model.E_emb.shape)
         (2, 4)
     """

@@ -249,7 +249,7 @@ class TestCollateAndForward(unittest.TestCase):
         loader = DataLoader(
             train, batch_size=2, shuffle=False, collate_fn=collate_fn_dict_with_padding
         )
-        model = TransE(dataset=dataset, e_dim=8, r_dim=8, ns="uniform")
+        model = TransE(dataset=dataset, e_dim=8, r_dim=8)
         out = model(**next(iter(loader)))
         self.assertIn("loss", out)
         out["loss"].backward()

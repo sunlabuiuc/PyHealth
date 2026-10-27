@@ -20,7 +20,7 @@ class TransE(KGEBaseModel):
         ...     input_processors = {
         ...         "triple": KGTripleProcessor(num_entities=2, num_relations=1)
         ...     }
-        >>> model = TransE(_Toy(), e_dim=4, r_dim=4, ns="uniform")
+        >>> model = TransE(_Toy(), e_dim=4, r_dim=4)
         >>> tuple(model.E_emb.shape)
         (2, 4)
     """
