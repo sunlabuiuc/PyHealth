@@ -255,6 +255,20 @@ class TestYAIBMortalityMIMIC4(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.task.pre_filter(df)
 
+    def test_pre_filter_requires_transfers(self):
+        columns = {
+            "patient_id": ["p1"],
+            "event_type": ["icustays"],
+            "timestamp": [T0],
+            "labevents/itemid": ["50912"],
+            "chartevents/itemid": ["220045"],
+            "outputevents/itemid": ["226559"],
+        }
+        with self.assertRaisesRegex(ValueError, "transfers"):
+            self.task.pre_filter(pl.LazyFrame(columns))
+        columns["transfers/careunit"] = [None]
+        self.task.pre_filter(pl.LazyFrame(columns)).collect()
+
 
 def _crea(time, value, hadm_id=1):
     return _event("labevents", time, hadm_id=hadm_id, itemid=50912,

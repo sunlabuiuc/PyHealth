@@ -646,6 +646,8 @@ class YAIBMortalityMIMIC4(_YAIBMIMIC4Task):
 
     OBSERVATION_HOURS: ClassVar[int] = 24
     MIN_STAY_HOURS: ClassVar[int] = 30
+    # ICU death needs the last ward before hospital discharge.
+    _EXTRA_TABLES: ClassVar[tuple[str, ...]] = ("transfers",)
 
     def __init__(self, icu_wards: Sequence[str] | None = None) -> None:
         super().__init__()
@@ -828,8 +830,9 @@ class YAIBAKIMIMIC4(_YAIBMIMIC4Task):
       to stays whose weight record is missing a value).
 
     AKI onset is the first hour with either stage at 1 or higher. On top of
-    the YAIB base cohort, stays are excluded if the onset is within the
-    first 6 hours of the stay, or if the baseline creatinine (the running
+    the YAIB base cohort, stays are excluded if the onset is before hour 6
+    of the ICU stay, including onsets before ICU admission (as in
+    YAIB-cohorts), or if the baseline creatinine (the running
     minimum up to the first creatinine in the ICU) exceeds 4 mg/dL. The stay
     is observed until 6 hours after the onset, for at most 7 days, and every
     hour from 6 hours before to 6 hours after the onset is labeled 1.
@@ -982,8 +985,9 @@ class YAIBSepsisMIMIC4(_YAIBMIMIC4Task):
     suspected infections, onsets and the cohort and labels were verified to
     match ricu and YAIB-cohorts exactly on the MIMIC-IV demo.
 
-    On top of the YAIB base cohort, stays with onset within the first 6
-    hours of the stay are excluded. The stay is observed until 6 hours after
+    On top of the YAIB base cohort, stays with onset before hour 6 of the
+    ICU stay are excluded, including onsets before ICU admission (as in
+    YAIB-cohorts). The stay is observed until 6 hours after
     the onset, for at most 7 days, and every hour from 6 hours before to 6
     hours after the onset is labeled 1.
 
