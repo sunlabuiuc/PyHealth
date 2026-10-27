@@ -116,9 +116,7 @@ class RC3P(SetPredictor):
 
     This is a prediction-set constructor for multi-class
     classification problems. It targets class-wise miscoverage at
-    level alpha, in the sense
-    :math:`\\mathbb{P}\\{Y \\not \\in C(X) | Y=k\\}\\leq \\alpha`
-    for every class k; finite-sample coverage depends on the
+    level alpha, but its finite-sample coverage depends on the
     accuracy of the estimated top-k errors and is not guaranteed by
     this implementation alone.
 
