@@ -34,9 +34,19 @@ def _candidate_ranks(y_prob: np.ndarray) -> np.ndarray:
     probability is at least the probability of y, following the
     paper's rank definition. Tied labels therefore share the worse
     rank: for probabilities [0.2, 0.2, 0.6] the ranks are [3, 3, 1].
+
+    Computed from sorted probabilities, so the memory is N x K, not
+    N x K x K: the rank of y is K minus the number of probabilities
+    strictly below the probability of y.
     """
     y_prob = np.asarray(y_prob, dtype=np.float64)
-    return (y_prob[:, None, :] >= y_prob[:, :, None]).sum(axis=2)
+    num_classes = y_prob.shape[1]
+    sorted_probs = np.sort(y_prob, axis=1)
+    ranks = np.empty(y_prob.shape, dtype=np.int64)
+    for i, row in enumerate(y_prob):
+        below = np.searchsorted(sorted_probs[i], row, side="left")
+        ranks[i] = num_classes - below
+    return ranks
 
 
 def _rank_calibration(
@@ -93,7 +103,8 @@ class RC3P(SetPredictor):
     score threshold for class y is then computed at the adjusted
     miscoverage ``alpha_hat(y) = alpha - eps_y^{k_hat(y)}`` instead of
     at alpha, which is what targets per-class coverage while the rank
-    filter shrinks the sets. The paper's coverage theorem is stated
+    filter is intended to shrink the sets in regimes where
+    class-conditional sets are large. The paper's coverage theorem is stated
     for known population top-k errors; this implementation estimates
     those errors from a finite rank subset, so the procedure is an
     empirical calibration targeting class-wise coverage, not a proven
