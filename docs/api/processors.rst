@@ -35,6 +35,8 @@ Available Processors
 - ``MultiClassLabelProcessor``: Multi-class classification labels
 - ``MultiLabelProcessor``: Multi-label classification (e.g., drug recommendation)
 - ``RegressionLabelProcessor``: Continuous regression targets
+- ``TimeseriesBinaryLabelProcessor``: Binary label per time step (``"timeseries_binary"``), returned as ``(value, mask)`` on the time grid of the input time series
+- ``TimeseriesRegressionLabelProcessor``: Real-valued label per time step (``"timeseries_regression"``)
 
 **Data Type Processors:**
 
@@ -43,9 +45,9 @@ Available Processors
 - ``TupleTimeTextProcessor``: For text paired with temporal information (time-aware text)
 - ``AudioProcessor``: For audio signal data
 - ``SignalProcessor``: For general signal data (e.g., EEG, ECG)
-- ``TimeseriesProcessor``: For time-series data
+- ``TimeseriesProcessor``: For time-series data; optional ``normalization`` (``"zscore"`` or ``"minmax"``, fitted on the training split) and ``missing_indicators``
 - ``TimeImageProcessor``: For time-stamped image sequences (e.g., serial X-rays)
-- ``TensorProcessor``: For pre-processed tensor data
+- ``TensorProcessor``: For pre-processed tensor data; optional ``normalization``, ``missing_indicators`` and ``impute_strategy="zero"``
 - ``RawProcessor``: Pass-through processor for raw data
 
 **Specialized Processors:**
@@ -548,6 +550,9 @@ API Reference
     processors/pyhealth.processors.MultiClassLabelProcessor
     processors/pyhealth.processors.MultiLabelProcessor
     processors/pyhealth.processors.RegressionLabelProcessor
+    processors/pyhealth.processors.TimeseriesLabelProcessor
+    processors/pyhealth.processors.TimeseriesBinaryLabelProcessor
+    processors/pyhealth.processors.TimeseriesRegressionLabelProcessor
     processors/pyhealth.processors.ImageProcessor
     processors/pyhealth.processors.TextProcessor
     processors/pyhealth.processors.TupleTimeTextProcessor
@@ -563,3 +568,4 @@ API Reference
     processors/pyhealth.processors.StageNetProcessor
     processors/pyhealth.processors.StageNetTensorProcessor
     processors/pyhealth.processors.GraphProcessor
+    processors/pyhealth.processors.utils
