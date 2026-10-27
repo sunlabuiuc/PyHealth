@@ -172,6 +172,17 @@ pipeline:
 
 See ``examples/kg_emb_link_prediction.py`` for a self-contained walk-through.
 
+Two caveats apply to the reported metrics. A candidate whose score ties with
+the true entity's is ranked in the order returned by ``np.argsort``, not by a
+stated convention, so ranks are ill-defined when many scores tie, as with
+degenerate embeddings. In ``graph_filtered.txt``, the UMLS file that PyHealth
+1.x used in dev mode, every triple has its exact inverse, so a triple-level
+split leaves the inverse of most test triples in the training part
+(``graph.txt`` has not been checked; see
+:class:`~pyhealth.medcode.pretrained_embeddings.kg_emb.datasets.UMLSDataset`);
+this is the leakage reported for FB15k and WN18 by Toutanova and Chen (2015)
+and Dettmers et al. (2018).
+
 The PyHealth 1.x entry points, ``link_prediction_fn``,
 :class:`~pyhealth.medcode.pretrained_embeddings.kg_emb.datasets.SampleKGDataset`
 and :func:`~pyhealth.medcode.pretrained_embeddings.kg_emb.datasets.split`,

@@ -32,6 +32,18 @@ class UMLSDataset(BaseKGDataset):
     PyHealth 1.x: embeddings trained with 1.x must be mapped through the
     ``id2entity`` / ``id2relation`` saved with them.
 
+    Every triple of ``graph_filtered.txt``, the file of the 1.x bucket that
+    PyHealth 1.x read with ``dev=True``, has its exact inverse under one of
+    four pairs of relations, such as ``may_treat`` and ``may_be_treated_by``.
+    A triple-level split therefore leaves the inverse of most test triples in
+    the training part: with that file in ``root`` as ``graph.txt`` and
+    ``PatientSplit(ratios=(0.9, 0.05, 0.05), seed=0)``, 3924 of the 4409 test
+    triples (0.89) have it there, so a rule that only looks the inverse up
+    reaches a filtered tail Hits@1 of at least 0.89, whatever the
+    tie-breaking. ``graph.txt`` itself has not been checked. Report UMLS
+    metrics next to such a baseline, or keep the two triples of each inverse
+    pair on the same side of the split.
+
     Args:
         root: Local directory holding ``graph.txt``. URLs are not accepted;
             the 1.x bucket ``https://storage.googleapis.com/pyhealth/umls/``
