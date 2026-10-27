@@ -39,7 +39,9 @@ class UMLSDataset(BaseKGDataset):
         dataset_name: Name of the dataset. Defaults to ``"umls"``.
         config_path: Config to use instead of the bundled ``umls.yaml``.
         **kwargs: Passed to :class:`BaseKGDataset` (``cache_dir``,
-            ``num_workers``, ``dev``).
+            ``num_workers``, ``dev``). With ``dev=True`` the dataset still
+            reads ``graph.txt`` and keeps 1000 of its triples; PyHealth 1.x
+            read the whole of ``graph_filtered.txt`` instead.
 
     Raises:
         ValueError: If ``root`` is a URL.

@@ -38,8 +38,9 @@ class KGLinkPrediction(BaseTask):
     filtered ranking evaluation (Bordes et al., 2013; Sun et al., 2019):
     when a test triple is ranked, the other known true entities are removed
     from the candidates, whatever part they belong to. Training does not use
-    them; it draws its negatives from the training triples only, through the
-    ``kg_triple`` processor fitted on the training part.
+    them: it filters its negatives with the positives of the training triples
+    only, held by the ``kg_triple`` processor fitted on the training part.
+    The negatives themselves are drawn from every entity of the graph.
 
     Because ``set_task`` builds samples patient by patient, and each triple
     is its own patient, these graph-wide lists are computed beforehand, in

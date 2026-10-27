@@ -188,8 +188,11 @@ def _log_unseen_in_training(parts: tuple) -> None:
     """Logs, per held-out part, the triples whose entity or relation is not
     in any training triple.
 
-    Ids are global, so such triples are kept and scored, but their embeddings
-    received no training signal for that entity or relation.
+    Ids are global, so such triples are kept and scored. An entity absent
+    from the training triples is still drawn as a negative, so the data terms
+    of the loss only train it to score low; a relation absent from them gets
+    no gradient from those terms. Regularization, such as the default ``l3``
+    of ComplEx and DistMult, still reaches both.
     """
     fitted = parts[0].input_processors["triple"]
     entities = {h for h, _ in fitted.true_tail} | {
@@ -230,8 +233,9 @@ class BaseKGDataset(BaseDataset):
         dataset_name: Name of the dataset. Defaults to the class name.
         cache_dir: Cache directory, as in :class:`~pyhealth.datasets.BaseDataset`.
         num_workers: Worker processes for loading and ``set_task``.
-        dev: Keep only the first 1000 triples, as ``BaseDataset`` keeps the
-            first 1000 patients.
+        dev: Keep 1000 triples, chosen by the dev filter of ``BaseDataset``:
+            the first 1000 of the file when the table is read as a single
+            partition, not necessarily otherwise.
         refresh_cache: Deprecated and ignored. The cache key now covers the
             config and the source files, so an edited file builds a new cache.
 

@@ -11,9 +11,12 @@ dicts used to train KG embedding models: the known heads of each
 and the pair frequencies behind subsampling weights.
 
 Fit it on the training triples only, with
-``set_task(task, split=PatientSplit(...))``: the training negatives and
-weights then never depend on validation or test triples. ``size()`` returns
-the number of entities, which is given (ids are global), not fitted.
+``set_task(task, split=PatientSplit(...))``: the dicts that filter the
+training negatives, and the subsampling weights, then come from the training
+triples only. The negatives themselves are drawn from every entity of the
+graph, including entities that appear only in validation or test triples.
+``size()`` returns the number of entities, which is given (ids are global),
+not fitted.
 
 API Reference
 -------------

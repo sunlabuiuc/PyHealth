@@ -158,8 +158,12 @@ pipeline:
    (:class:`~pyhealth.processors.KGTripleProcessor`), fitted on the training
    triples, gives the models the numbers of entities and relations and the
    dicts that keep known training positives out of the training negatives,
-   as in the reference implementation of Sun et al. (2019). Validation and
-   test triples therefore never shape training. ``set_task`` warns when
+   as in the reference implementation of Sun et al. (2019). The training
+   filters and the subsampling weights therefore come from the training
+   triples only. The entity set is that of the whole graph, however, so an
+   entity that appears only in validation or test triples is still drawn as a
+   training negative; such held-out triples are kept and scored, and
+   ``set_task`` logs how many there are in each part. ``set_task`` warns when
    called without ``split``.
 4. The models take ``negative_sampling`` as an argument and follow
    ``model.train()`` / ``model.eval()``, as set by
@@ -172,8 +176,12 @@ The PyHealth 1.x entry points, ``link_prediction_fn``,
 :class:`~pyhealth.medcode.pretrained_embeddings.kg_emb.datasets.SampleKGDataset`
 and :func:`~pyhealth.medcode.pretrained_embeddings.kg_emb.datasets.split`,
 still work for one release with a ``DeprecationWarning``. They keep their
-1.x behaviour, including training negatives filtered with every triple of
-the graph, held-out ones included; only the 2.0 path above avoids that. A
+1.x behaviour, including training negatives filtered with, and subsampling
+weights computed on, every triple of the graph, held-out ones included; only
+the 2.0 path above avoids that. The 2.0 path also removes duplicate triples,
+where 1.x made one sample per row, so its sample counts, weights and metrics
+are not comparable with 1.x runs. ``UMLSDataset(dev=True)`` now keeps 1000
+triples of ``graph.txt``, where 1.x loaded the whole of ``graph_filtered.txt``. A
 model must be built from a sample dataset part, not from the
 ``BaseKGDataset`` itself. Ids no longer follow the 1.x order of first
 appearance: map 1.x embeddings through the ``id2entity`` saved with them.
