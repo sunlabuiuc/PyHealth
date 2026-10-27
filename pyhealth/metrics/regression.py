@@ -1,4 +1,5 @@
-from typing import Dict, List, Optional, Sequence
+from collections.abc import Sequence
+from typing import Dict, List, Optional
 
 import numpy as np
 import sklearn.metrics as sklearn_metrics
@@ -74,8 +75,8 @@ def regression_metrics_fn(
 def timeseries_regression_metrics_fn(
     y_true: Sequence[np.ndarray],
     y_pred: Sequence[np.ndarray],
-    metrics: Optional[List[str]] = None,
-) -> Dict[str, float]:
+    metrics: list[str] | None = None,
+) -> dict[str, float]:
     """Computes metrics for real-valued labels given per time step.
 
     Each sample contributes the targets and predictions of its labeled time

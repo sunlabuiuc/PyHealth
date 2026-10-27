@@ -53,6 +53,22 @@ def set_logger(log_path: str) -> None:
 
 
 def get_metrics_fn(mode: str) -> Callable:
+    """Returns the metrics function for a model mode.
+
+    Args:
+        mode: One of ``"binary"``, ``"multiclass"``, ``"multilabel"``,
+            ``"regression"``, ``"timeseries_binary"`` or
+            ``"timeseries_regression"``.
+
+    Returns:
+        The function computing the metrics of that mode. The ``timeseries_*``
+        modes take one array per sample over its labeled steps.
+
+    Examples:
+        >>> from pyhealth.trainer import get_metrics_fn
+        >>> get_metrics_fn("timeseries_binary").__name__
+        'timeseries_binary_metrics_fn'
+    """
     if mode == "binary":
         return binary_metrics_fn
     elif mode == "multiclass":

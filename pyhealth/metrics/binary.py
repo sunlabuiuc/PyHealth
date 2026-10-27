@@ -1,4 +1,5 @@
-from typing import Dict, List, Optional, Sequence
+from collections.abc import Sequence
+from typing import Dict, List, Optional
 
 import numpy as np
 import sklearn.metrics as sklearn_metrics
@@ -151,9 +152,9 @@ def binary_metrics_fn(
 def timeseries_binary_metrics_fn(
     y_true: Sequence[np.ndarray],
     y_prob: Sequence[np.ndarray],
-    metrics: Optional[List[str]] = None,
+    metrics: list[str] | None = None,
     threshold: float = 0.5,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """Computes metrics for binary labels given per time step.
 
     Each sample contributes the labels and predicted probabilities of its
