@@ -5,6 +5,7 @@ paper's Algorithm 1, Option II. They must not be edited to make an
 implementation pass; a change needs a stated, valid reason.
 """
 
+import copy
 import unittest
 
 import numpy as np
@@ -21,8 +22,11 @@ from pyhealth.calib.predictionset.scores import (
     all_class_nc_scores,
     true_class_nc_scores,
 )
-from pyhealth.datasets import get_dataloader
-from tests.core.label_shift_test_utils import make_sample_dataset_and_model
+from pyhealth.datasets import create_sample_dataset, get_dataloader
+from tests.core.label_shift_test_utils import (
+    SAMPLES,
+    make_sample_dataset_and_model,
+)
 
 
 def _synthetic_probs(seed, n_per_class, num_classes=3):
@@ -111,7 +115,11 @@ class TestRC3PClass(unittest.TestCase):
             RC3P(model=self.model, alpha=1.0)
         with self.assertRaises(ValueError):
             RC3P(model=self.model, alpha=float("nan"))
-        with self.assertRaises(ValueError):
+        # A non-float alpha type raises TypeError per the repo's
+        # PR rules (TRY004); out-of-range and non-finite values raise
+        # ValueError. This split is the stated reason for the
+        # TypeError case in this frozen validation test.
+        with self.assertRaises(TypeError):
             RC3P(model=self.model, alpha=[0.1, 0.1, 0.1])
         with self.assertRaises(ValueError):
             RC3P(model=self.model, alpha=0.1, score_type="unknown")
@@ -141,6 +149,42 @@ class TestRC3PClass(unittest.TestCase):
         self.assertTrue(
             np.all((cal_model.alpha_hat > 0) & (cal_model.alpha_hat <= 0.3))
         )
+
+    def test_absent_from_one_subset_is_included(self):
+        """A class missing from only the rank or only the score
+        subset must be included for every input, with threshold +inf
+        and cutoff K, not just the fallback its own subset gives."""
+        samples_no_class2 = [
+            copy.deepcopy(s) for s in SAMPLES if s["label"] != 2
+        ]
+        partial_dataset = create_sample_dataset(
+            samples=samples_no_class2,
+            input_schema={"conditions": "sequence", "procedures": "tensor"},
+            output_schema={"label": "multiclass"},
+            dataset_name="test",
+        )
+        loader = get_dataloader(self.dataset, batch_size=2, shuffle=False)
+        batch = next(iter(loader))
+        # Class 2 absent from the score subset only.
+        cal_model = RC3P(model=self.model, alpha=0.3, random_state=0)
+        cal_model.calibrate(
+            cal_dataset=partial_dataset, rank_cal_dataset=self.dataset
+        )
+        self.assertTrue(np.isinf(cal_model.t.numpy()[2]))
+        self.assertEqual(cal_model.k_hat[2], 3)
+        with torch.no_grad():
+            output = cal_model(**batch)
+        self.assertTrue(output["y_predset"][:, 2].all())
+        # Class 2 absent from the rank subset only.
+        cal_model = RC3P(model=self.model, alpha=0.3, random_state=0)
+        cal_model.calibrate(
+            cal_dataset=self.dataset, rank_cal_dataset=partial_dataset
+        )
+        self.assertTrue(np.isinf(cal_model.t.numpy()[2]))
+        self.assertEqual(cal_model.k_hat[2], 3)
+        with torch.no_grad():
+            output = cal_model(**batch)
+        self.assertTrue(output["y_predset"][:, 2].all())
 
     def test_aps_reproducible_with_fixed_seed(self):
         def build_and_run():
@@ -209,6 +253,9 @@ class TestCoverageSimulation(unittest.TestCase):
         mask = _predset_mask(test_nc, thresholds, test_ranks, k_hat)
         for y in range(3):
             coverage = mask[test_true == y, y].mean()
+            # 0.87 is an empirical sanity threshold for a 0.90 target
+            # at this sample size, not a proof of nominal coverage:
+            # the top-k errors here are estimated, not known.
             self.assertGreaterEqual(coverage, 0.87)
         # CCP comparison, reported only: RC3P size is computed here
         # but is not a pass/fail assertion, per the frozen spec.

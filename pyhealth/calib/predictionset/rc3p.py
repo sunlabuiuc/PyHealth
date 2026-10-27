@@ -92,8 +92,14 @@ class RC3P(SetPredictor):
     ``k_hat(y)`` calibrated from the top-k error of that class. The
     score threshold for class y is then computed at the adjusted
     miscoverage ``alpha_hat(y) = alpha - eps_y^{k_hat(y)}`` instead of
-    at alpha, which is what keeps the per-class coverage guarantee
-    while the rank filter shrinks the sets.
+    at alpha, which is what targets per-class coverage while the rank
+    filter shrinks the sets. The paper's coverage theorem is stated
+    for known population top-k errors; this implementation estimates
+    those errors from a finite rank subset, so the procedure is an
+    empirical calibration targeting class-wise coverage, not a proven
+    finite-sample guarantee. Splitting rank and score calibration
+    keeps the cutoff selection independent of the score thresholds,
+    which is the part of the argument the split supports.
 
     Calibration uses two disjoint subsets, because the paper takes
     the top-k errors as inputs and estimating them from the same
@@ -104,8 +110,8 @@ class RC3P(SetPredictor):
     adjusted rates. Splitting costs data on both sides: each subset
     is smaller than the full calibration set, so both the rank-error
     estimates and the score quantiles are noisier than a
-    single-subset procedure would be. A class absent from a subset
-    falls back to threshold +inf and cutoff K, so it is always
+    single-subset procedure would be. A class absent from either
+    subset falls back to threshold +inf and cutoff K, so it is always
     included, which preserves coverage at the cost of larger sets.
 
     This is a prediction-set constructor for multi-class
@@ -149,7 +155,7 @@ class RC3P(SetPredictor):
         ...     label_key="label", mode="multiclass")
         >>> # ... Train the model here ...
         >>> cal_model = RC3P(model, 0.1)
-        >>> cal_model.calibrate(cal_dataset=test_data)
+        >>> cal_model.calibrate(cal_dataset=val_data)
         >>> # Evaluate
         >>> from pyhealth.trainer import Trainer, get_metrics_fn
         >>> test_dl = get_dataloader(test_data, batch_size=32, shuffle=False)
@@ -175,7 +181,7 @@ class RC3P(SetPredictor):
                 f"{SUPPORTED_SCORE_TYPES}."
             )
         if isinstance(alpha, bool) or not isinstance(alpha, (float, int)):
-            raise ValueError("alpha must be a float in (0, 1).")
+            raise TypeError("alpha must be a float in (0, 1).")
         alpha = float(alpha)
         if not np.isfinite(alpha) or not 0 < alpha < 1:
             raise ValueError("alpha must be a float in (0, 1).")
@@ -270,6 +276,18 @@ class RC3P(SetPredictor):
             class_scores = score_nc[score_y_true == y]
             if len(class_scores) > 0:
                 thresholds[y] = _query_quantile(class_scores, alpha_hat[y])
+        # Always-include fallback: a class missing from either subset
+        # gets both fallback values, not just the one its own subset
+        # would give. A finite threshold with cutoff K still filters
+        # nothing, but an infinite threshold with a cutoff below K
+        # would wrongly exclude high-rank candidates, so both must
+        # be forced together.
+        rank_present = set(np.unique(rank_y_true).tolist())
+        score_present = set(np.unique(score_y_true).tolist())
+        for y in range(num_classes):
+            if y not in rank_present or y not in score_present:
+                thresholds[y] = np.inf
+                k_hat[y] = num_classes
         self.t = torch.tensor(thresholds, device=self.device)
         self.k_hat = k_hat
         self.alpha_hat = alpha_hat
