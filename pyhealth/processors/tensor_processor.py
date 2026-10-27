@@ -131,8 +131,10 @@ class TensorProcessor(FeatureProcessor):
             tensor = torch.tensor(value, dtype=self.dtype)
 
         if self.normalization is not None:
-            center = torch.tensor(self.center, dtype=self.dtype)
-            scale = torch.tensor(self.scale, dtype=self.dtype)
+            # Shaped like the last dimension, so a scalar input stays a scalar.
+            shape = tensor.shape[-1:]
+            center = torch.tensor(self.center, dtype=self.dtype).reshape(shape)
+            scale = torch.tensor(self.scale, dtype=self.dtype).reshape(shape)
             tensor = (tensor - center) / scale
         if self.missing_indicators:
             if tensor.dim() == 0:
@@ -172,7 +174,8 @@ class TensorProcessor(FeatureProcessor):
         """Number of dimensions for the output tensor.
 
         Returns:
-            (n_dim,)
+            (n_dim,). With missing-value indicators, a scalar input becomes a
+            vector of 2, so n_dim is at least 1.
 
         Raises:
             NotImplementedError: If n_dim was not provided and fit() was not called.
@@ -182,7 +185,12 @@ class TensorProcessor(FeatureProcessor):
                 "TensorProcessor cannot determine n_dim automatically. "
                 "Call fit() first."
             )
-        return (self._n_dim,)
+        return (self._output_n_dim(),)
+
+    def _output_n_dim(self) -> int:
+        if self.missing_indicators:
+            return max(self._n_dim, 1)
+        return self._n_dim
 
     def spatial(self) -> tuple[bool, ...]:
         """Whether each dimension of the output tensor is spatial.
@@ -197,7 +205,7 @@ class TensorProcessor(FeatureProcessor):
                 "TensorProcessor cannot determine spatial dims. "
                 "Call fit() first."
             )
-        return tuple(False for _ in range(self._n_dim))
+        return tuple(False for _ in range(self._output_n_dim()))
 
     def __repr__(self) -> str:
         """

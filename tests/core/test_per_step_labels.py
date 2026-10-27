@@ -62,61 +62,43 @@ class TestTimeseriesLabelProcessors(unittest.TestCase):
         with self.assertRaises(ValueError):
             TimeseriesBinaryLabelProcessor().process((_times(2), [0, 2]))
 
+    def test_timestamps_between_steps_are_floored(self):
+        times = [T0, T0 + timedelta(minutes=90)]
+        value, mask = TimeseriesRegressionLabelProcessor().process((times, [1.0, 2.0]))
+        np.testing.assert_array_equal(value.numpy(), [1.0, 2.0])
+        np.testing.assert_array_equal(mask.numpy(), [1, 1])
 
-class TestPerStepModel(unittest.TestCase):
-    def test_modes_are_separate_from_binary_and_regression(self):
-        model = RNN(dataset=_dataset("timeseries_binary"))
-        self.assertEqual(model.mode, "timeseries_binary")
-        model = RNN(dataset=_dataset("timeseries_regression"))
-        self.assertEqual(model.mode, "timeseries_regression")
+    def test_two_labels_in_one_step_are_rejected(self):
+        times = [T0, T0 + timedelta(minutes=20), T0 + timedelta(hours=1)]
+        with self.assertRaisesRegex(ValueError, "time step 0"):
+            TimeseriesBinaryLabelProcessor().process((times, [0, 1, 0]))
 
-    def test_loss_ignores_unlabeled_and_padded_steps(self):
-        # Stay 1 has an unlabeled step and is padded; changing what the
-        # model predicts there must not change the loss.
-        dataset = _dataset(label_fn=lambda i, h: NAN if (i, h) == (1, 0) else float(h % 2))
-        model = RNN(dataset=dataset, hidden_dim=8, embedding_dim=8).eval()
-        batch = next(iter(get_dataloader(dataset, batch_size=4)))
-        with torch.no_grad():
+
+class TestPerStepEndToEnd(unittest.TestCase):
+    """The label processors with a model and the Trainer.
+
+    Model-level behaviour (masked loss, causality, bidirectional guard) is
+    covered with a mock label processor in test_timeseries_modes.py.
+    """
+
+    def test_label_processors_train_and_evaluate(self):
+        for mode, metric in (
+            ("timeseries_binary", "roc_auc"),
+            ("timeseries_regression", "mae"),
+        ):
+            dataset = _dataset(mode)
+            model = RNN(dataset=dataset, hidden_dim=8, embedding_dim=8)
+            self.assertEqual(model.mode, mode)
+            batch = next(iter(get_dataloader(dataset, batch_size=4)))
             out = model(**batch)
-        value, mask = out["y_true"]
-        self.assertEqual(tuple(out["y_prob"].shape), (4, 6, 1))
-        self.assertEqual(int(mask.sum()), 17)  # 5 + 3 + 6 + 4 steps, minus one
+            self.assertEqual(tuple(out["y_prob"].shape), (4, 6, 1))
+            self.assertTrue(torch.isfinite(out["loss"]))
 
-        logits = out["logit"].clone()
-        loss_fn = model.get_loss_function()
-        logits[mask == 0] = 1e3
-        torch.testing.assert_close(loss_fn(logits, (value, mask)), out["loss"])
-
-    def test_predictions_do_not_see_future_steps(self):
-        dataset = _dataset()
-        model = RNN(dataset=dataset, hidden_dim=8, embedding_dim=8).eval()
-        batch = next(iter(get_dataloader(dataset, batch_size=1)))
-        with torch.no_grad():
-            before = model(**batch)["y_prob"][0, :, 0]
-            batch["dynamic"] = batch["dynamic"].clone()
-            batch["dynamic"][:, -1] += 100.0
-            after = model(**batch)["y_prob"][0, :, 0]
-        torch.testing.assert_close(before[:-1], after[:-1])
-        self.assertFalse(torch.allclose(before[-1], after[-1]))
-
-    def test_bidirectional_is_rejected(self):
-        with self.assertRaises(ValueError):
-            RNN(dataset=_dataset(), bidirectional=True)
-
-    def test_trainer_scores_labeled_steps_per_sample(self):
-        dataset = _dataset()
-        model = RNN(dataset=dataset, hidden_dim=8, embedding_dim=8)
-        trainer = Trainer(model=model, metrics=["roc_auc"], enable_logging=False)
-        loader = get_dataloader(dataset, batch_size=3)
-        y_true, y_prob, _ = trainer.inference(loader)
-        self.assertEqual(sorted(len(y) for y in y_true), [3, 4, 5, 6])
-        self.assertEqual([len(p) for p in y_prob], [len(y) for y in y_true])
-        self.assertIn("roc_auc", trainer.evaluate(loader))
-
-        dataset = _dataset("timeseries_regression")
-        model = RNN(dataset=dataset, hidden_dim=8, embedding_dim=8)
-        trainer = Trainer(model=model, metrics=["mae"], enable_logging=False)
-        self.assertIn("mae", trainer.evaluate(get_dataloader(dataset, batch_size=3)))
+            trainer = Trainer(model=model, metrics=[metric], enable_logging=False)
+            loader = get_dataloader(dataset, batch_size=3)
+            y_true, _, _ = trainer.inference(loader)
+            self.assertEqual(sorted(len(y) for y in y_true), [3, 4, 5, 6])
+            self.assertIn(metric, trainer.evaluate(loader))
 
 if __name__ == "__main__":
     unittest.main()

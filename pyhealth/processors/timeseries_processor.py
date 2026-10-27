@@ -6,47 +6,13 @@ import torch
 
 from . import register_processor
 from .base_processor import FeatureProcessor
-from .utils import NORMALIZATIONS, Normalization, fit_normalization
-
-
-def sample_on_grid(
-    timestamps: list[datetime], values: np.ndarray, sampling_rate: timedelta
-) -> np.ndarray:
-    """Places values on a uniform time grid starting at the first timestamp.
-
-    Args:
-        timestamps: Time of each row of ``values``.
-        values: Array of shape ``(T,)`` or ``(T, F)``.
-        sampling_rate: Interval of the grid.
-
-    Returns:
-        Array of shape ``(S, F)``, NaN where the grid has no value.
-
-    Examples:
-        >>> from datetime import datetime, timedelta
-        >>> from pyhealth.processors.timeseries_processor import sample_on_grid
-        >>> t0 = datetime(2020, 1, 1)
-        >>> sample_on_grid([t0, t0 + timedelta(hours=2)], [1.0, 3.0], timedelta(hours=1))
-        array([[ 1.],
-               [nan],
-               [ 3.]])
-    """
-    values = np.asarray(values, dtype=float)
-    if values.ndim == 1:
-        values = values[:, None]
-    num_features = values.shape[1]
-
-    start_time = timestamps[0]
-    end_time = timestamps[-1]
-    total_steps = int((end_time - start_time) / sampling_rate) + 1
-    sampled_values = np.full((total_steps, num_features), np.nan)
-
-    # Map original timestamps to indices in the sampled grid
-    for t, v in zip(timestamps, values):
-        idx = int((t - start_time) / sampling_rate)
-        if 0 <= idx < total_steps:
-            sampled_values[idx] = v
-    return sampled_values
+from .utils import (
+    NORMALIZATIONS,
+    Normalization,
+    fit_normalization,
+    grid_steps,
+    sample_on_grid,
+)
 
 
 @register_processor("timeseries")
@@ -229,10 +195,16 @@ class TimeseriesLabelProcessor(FeatureProcessor):
     """Base processor for labels given per time step.
 
     The label is a time series ``(timestamps, values)``, placed on the same
-    kind of uniform grid as :class:`TimeseriesProcessor`. With the same first
-    timestamp and ``sampling_rate`` as the input time series, each label lines
-    up with one input step. Steps without a label (NaN or not on the grid)
-    are masked out and never imputed.
+    kind of uniform grid as :class:`TimeseriesProcessor`: a label at time
+    ``t`` goes to step ``floor((t - t0) / sampling_rate)``, where ``t0`` is the
+    first label timestamp. Steps that no label falls into, or whose label is
+    NaN, are masked out and never imputed. Two labels in the same step raise
+    a ``ValueError`` rather than one silently replacing the other.
+
+    The processor does not see the input time series, so the caller must give
+    the labels the same first timestamp and ``sampling_rate`` as the input for
+    each label to line up with one input step. A label series longer than its
+    input is rejected by the model's loss.
 
     Output:
         - ``(value, mask)``: two float tensors of shape (S,), where ``mask``
@@ -265,6 +237,15 @@ class TimeseriesLabelProcessor(FeatureProcessor):
         timestamps, labels = value
         if len(timestamps) == 0:
             raise ValueError("Timestamps list is empty.")
+        steps, counts = np.unique(
+            grid_steps(timestamps, self.sampling_rate), return_counts=True
+        )
+        if (counts > 1).any():
+            step = int(steps[counts > 1][0])
+            raise ValueError(
+                f"{int(counts.max())} labels fall into time step {step}; "
+                "give at most one label per step of the sampling rate."
+            )
         sampled = sample_on_grid(timestamps, labels, self.sampling_rate)
         if sampled.shape[1] != 1:
             raise ValueError("Expected one label per time step.")

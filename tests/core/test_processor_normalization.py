@@ -4,8 +4,12 @@ from datetime import datetime, timedelta
 import numpy as np
 import torch
 
-from pyhealth.processors import TensorProcessor, TimeseriesProcessor
-from pyhealth.processors.utils import fit_normalization
+from pyhealth.processors import (
+    TemporalTimeseriesProcessor,
+    TensorProcessor,
+    TimeseriesProcessor,
+)
+from pyhealth.processors.utils import fit_normalization, grid_steps, sample_on_grid
 
 T0 = datetime(2020, 1, 1)
 NAN = float("nan")
@@ -39,6 +43,25 @@ class TestFitNormalization(unittest.TestCase):
     def test_unknown_method(self):
         with self.assertRaises(ValueError):
             fit_normalization([np.zeros((1, 1))], "robust")
+
+
+class TestGrid(unittest.TestCase):
+    def test_grid_steps_floor_timestamps(self):
+        times = [T0, T0 + timedelta(minutes=59), T0 + timedelta(minutes=61)]
+        self.assertEqual(grid_steps(times, timedelta(hours=1)).tolist(), [0, 0, 1])
+
+    def test_sample_on_grid_keeps_the_last_value_of_a_step(self):
+        times = [T0, T0 + timedelta(minutes=30), T0 + timedelta(hours=2)]
+        out = sample_on_grid(times, [1.0, 2.0, 3.0], timedelta(hours=1))
+        np.testing.assert_array_equal(out[:, 0], [2.0, NAN, 3.0])
+
+    def test_temporal_timeseries_processor_uses_the_shared_grid(self):
+        value = ([T0, T0 + timedelta(hours=2)], np.array([[1.0], [3.0]]))
+        p = TemporalTimeseriesProcessor()
+        p.fit([{"x": value}], "x")
+        out = p.process(value)
+        np.testing.assert_array_equal(out["value"].numpy()[:, 0], [1.0, 1.0, 3.0])
+        np.testing.assert_array_equal(out["time"].numpy(), [0.0, 1.0, 2.0])
 
 
 class TestTimeseriesProcessorOptions(unittest.TestCase):
@@ -89,6 +112,19 @@ class TestTensorProcessorOptions(unittest.TestCase):
         np.testing.assert_allclose(out.numpy(), [0.0, 0.0, 1.0, 0.0])
         out = p.process([3.0, NAN])
         np.testing.assert_allclose(out.numpy(), [1.0, 0.0, 0.0, 1.0])
+
+    def test_scalar_shapes_match_dim(self):
+        for kwargs, shape in (
+            ({"normalization": "zscore"}, ()),
+            ({"missing_indicators": True}, (2,)),
+            ({"normalization": "zscore", "missing_indicators": True}, (2,)),
+        ):
+            p = TensorProcessor(**kwargs)
+            p.fit([{"x": 1.0}, {"x": 3.0}], "x")
+            out = p.process(2.0)
+            self.assertEqual(tuple(out.shape), shape)
+            self.assertEqual(p.dim(), (len(shape),))
+            self.assertEqual(len(p.spatial()), len(shape))
 
 
 if __name__ == "__main__":
