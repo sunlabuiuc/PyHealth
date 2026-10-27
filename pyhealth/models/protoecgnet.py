@@ -753,10 +753,12 @@ class ProtoECGNet(BaseModel):
                 )
         self.stage = stage
         # Recompute once here so train() is O(|frozen|) with no allocation.
+        # Use recurse=True so a PrototypeBranch whose backbone has trainable
+        # children is never added even though prototype_vectors itself is frozen.
         self._frozen_modules = {
             m for m in self.modules()
             if any(True for _ in m.parameters(recurse=False))
-            and all(not p.requires_grad for p in m.parameters(recurse=False))
+            and not any(p.requires_grad for p in m.parameters(recurse=True))
         }
 
     def train(self, mode: bool = True) -> "ProtoECGNet":

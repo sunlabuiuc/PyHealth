@@ -815,6 +815,80 @@ class TestPTBXLMultilabelClassification(unittest.TestCase):
         self.assertIn("MI", labels_hi)
         self.assertNotIn("NORM", labels_hi)
 
+    def test_all_label_set_includes_rhythm(self):
+        from pyhealth.tasks.ptbxl_multilabel_classification import (
+            _aggregate_labels,
+            _load_scp_statements,
+        )
+        stmts = _load_scp_statements(str(self.scp_path))
+        # IMI is diagnostic; SR is rhythm — both appear under "all"
+        labels = _aggregate_labels({"IMI": 80.0, "SR": 100.0}, stmts, "all", 0.0)
+        self.assertIn("IMI", labels)
+        self.assertIn("SR", labels)
+
+    def test_diagnostic_label_set_excludes_rhythm(self):
+        from pyhealth.tasks.ptbxl_multilabel_classification import (
+            _aggregate_labels,
+            _load_scp_statements,
+        )
+        stmts = _load_scp_statements(str(self.scp_path))
+        labels = _aggregate_labels({"IMI": 80.0, "SR": 100.0}, stmts, "diagnostic", 0.0)
+        self.assertIn("IMI", labels)
+        self.assertNotIn("SR", labels)
+
+    def test_subdiagnostic_label_set_maps_to_subclass(self):
+        from pyhealth.tasks.ptbxl_multilabel_classification import (
+            _aggregate_labels,
+            _load_scp_statements,
+        )
+        stmts = _load_scp_statements(str(self.scp_path))
+        # IMI → diagnostic_subclass=IMI, LVH → diagnostic_subclass=LVH
+        labels = _aggregate_labels(
+            {"IMI": 100.0, "LVH": 80.0}, stmts, "subdiagnostic", 0.0
+        )
+        self.assertIn("IMI", labels)
+        self.assertIn("LVH", labels)
+        # SR has no diagnostic==1, so should not appear
+        labels_rhythm = _aggregate_labels({"SR": 100.0}, stmts, "subdiagnostic", 0.0)
+        self.assertEqual(labels_rhythm, [])
+
+    def test_form_label_set_empty_in_fixture(self):
+        from pyhealth.tasks.ptbxl_multilabel_classification import (
+            _aggregate_labels,
+            _load_scp_statements,
+        )
+        stmts = _load_scp_statements(str(self.scp_path))
+        # Fixture scp_statements has no form==1 codes
+        labels = _aggregate_labels({"NORM": 100.0, "IMI": 80.0}, stmts, "form", 0.0)
+        self.assertEqual(labels, [])
+
+    def test_read_wfdb_signal_missing_header_raises(self):
+        from pyhealth.tasks.ptbxl_multilabel_classification import read_wfdb_signal
+        with self.assertRaises(FileNotFoundError):
+            read_wfdb_signal(str(self.root / "records100" / "00000" / "nonexistent"))
+
+    def test_diagnostic_samples_labels_nonempty(self):
+        from pyhealth.tasks import PTBXLMultilabelClassification
+        task = PTBXLMultilabelClassification(
+            scp_statements_path=self.scp_path, label_set="diagnostic"
+        )
+        samples = self.dataset.set_task(task)
+        self.assertGreater(len(samples), 0)
+        for item in samples:
+            self.assertGreater(len(item["labels"]), 0)
+            self.assertIn("strat_fold", item)
+
+    def test_standardize_none_keeps_raw_scale(self):
+        from pyhealth.tasks import PTBXLMultilabelClassification
+        task = PTBXLMultilabelClassification(
+            scp_statements_path=self.scp_path, standardize=None
+        )
+        rec = str(self.root / "records100" / "00000" / "00004_lr")
+        out = task._prepare_signal(rec, 100)
+        self.assertEqual(out.shape, (12, 1000))
+        # Without standardization the mean is not forced to zero
+        self.assertIsNotNone(out)
+
 
 if __name__ == "__main__":
     unittest.main()

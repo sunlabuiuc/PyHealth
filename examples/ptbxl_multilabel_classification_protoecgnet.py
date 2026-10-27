@@ -333,7 +333,7 @@ def main() -> None:
             remove_baseline=args.remove_baseline,
         )
         samples = dataset.set_task(task)
-        splits = split_by_strat_fold(samples, folds=[range(1, 9), [9], [10]])
+        splits = split_by_strat_fold(samples)
         print(f"samples: train={len(splits[0])} val={len(splits[1])} test={len(splits[2])}")
 
         baseline = run_pipeline(

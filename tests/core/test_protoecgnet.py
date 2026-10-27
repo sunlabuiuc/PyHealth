@@ -286,6 +286,39 @@ class TestProtoECGNet(unittest.TestCase):
         self.assertIsNotNone(branch.pretrain_head.weight.grad)
         self.assertIsNone(branch.prototype_vectors.grad)
 
+    def test_backbone_bn_stays_in_train_mode_in_feature_extractor_stage(self):
+        """Backbone BatchNorm must stay in train mode so running stats update.
+
+        Regression: _frozen_modules previously used recurse=False, which
+        mistakenly included the whole PrototypeBranch (because
+        prototype_vectors has requires_grad=False), causing train() to call
+        .eval() on the branch and freeze BN statistics.
+        """
+        import torch.nn as nn
+
+        model = ProtoECGNet(self.dataset, prototypes_per_label=1, **TINY)
+        model.set_stage("feature_extractor")
+        model.train()
+
+        branch = model.branches["all"]
+        bn = next(
+            (
+                m
+                for m in branch.backbone.modules()
+                if isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d))
+            ),
+            None,
+        )
+        self.assertIsNotNone(bn, "backbone must contain a BatchNorm layer")
+        self.assertTrue(bn.training, "BatchNorm must be in train mode")
+
+        mean_before = bn.running_mean.clone()
+        model(**self.batch)
+        self.assertFalse(
+            torch.equal(bn.running_mean, mean_before),
+            "BatchNorm running_mean must update when backbone is in train mode",
+        )
+
     def test_invalid_stage_and_fusion(self):
         model = ProtoECGNet(self.dataset, prototypes_per_label=1, **TINY)
         with self.assertRaises(ValueError):
