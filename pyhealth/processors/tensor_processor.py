@@ -1,5 +1,5 @@
-from typing import Any, Dict, Iterable, Optional
-from typing import Literal
+from collections.abc import Iterable
+from typing import Any, Literal
 
 import torch
 
@@ -46,7 +46,7 @@ class TensorProcessor(FeatureProcessor):
     def __init__(
         self,
         dtype: torch.dtype = torch.float32,
-        spatial_dims: Optional[tuple[bool, ...]] = None,
+        spatial_dims: tuple[bool, ...] | None = None,
         normalization: Normalization = None,
         missing_indicators: bool = False,
         impute_strategy: Literal["zero"] | None = None,
@@ -81,7 +81,7 @@ class TensorProcessor(FeatureProcessor):
         self.center: list[float] = []
         self.scale: list[float] = []
 
-    def fit(self, samples: Iterable[Dict[str, Any]], field: str) -> None:
+    def fit(self, samples: Iterable[dict[str, Any]], field: str) -> None:
         """Infer n_dim and the feature width from the first valid sample.
 
         Args:
