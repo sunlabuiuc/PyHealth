@@ -3,10 +3,18 @@
 See ``notes/Unified_Sequence_Processor.md`` (Section 7) for the design.
 """
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from itertools import accumulate, repeat
-from typing import TYPE_CHECKING, Any, Literal, TypedDict, get_args
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Literal,
+    NamedTuple,
+    Required,
+    TypedDict,
+    get_args,
+)
 
 import numpy as np
 import numpy.typing as npt
@@ -23,10 +31,17 @@ Role = Literal["tokens", "values", "time", "offsets"]
 FieldKey = tuple[int, Role]
 CodeMapping = tuple[str, str]
 ResampleMethod = Literal["first", "last", "min", "max", "avg", "merge"]
+ImputeMethod = Literal[
+    "zero", "mean", "min", "max", "forward_fill", "backward_fill", "linear"
+]
 
+# Imputation methods that use statistics learned in fit().
+_STATISTICS = ("mean", "min", "max")
+# Imputation methods that work along time.
+_ALONG_TIME = ("forward_fill", "backward_fill", "linear")
 
 # Options reserved in the configuration but not implemented in Phase 1.
-_RESERVED = {"normalize": None, "impute": None, "missing_indicator": False}
+_RESERVED = {"normalize": None, "missing_indicator": False}
 
 
 class Records(TypedDict, total=False):
@@ -83,12 +98,53 @@ class Resample(TypedDict):
     method: ResampleMethod
 
 
+class Impute(TypedDict, total=False):
+    """One imputation step for a level's NaN values; a plain ``dict``.
+
+    Keys:
+        method: How to fill.
+
+            - ``"zero"``: 0.0 for values and ``<pad>`` for tokens. Ignores
+              ``by_tokens`` and ``by_dims``.
+            - ``"mean"`` / ``"min"`` / ``"max"``: a statistic of the raw
+              training values (before resampling), learned in ``fit()``
+              with NaN skipped.
+            - ``"forward_fill"`` / ``"backward_fill"``: the previous / next
+              value along time.
+            - ``"linear"``: linear interpolation along time, using ``time``
+              (or the step index on a resampled level).
+
+            The last three need a ``sequence`` or ``series`` level, never
+            cross into another group of records, work value position by
+            value position (ignoring ``by_dims``), and leave gaps at the
+            edges as NaN.
+        by_tokens: Token namespaces. Statistics are kept per token in
+            these namespaces, and the time-based methods only use records
+            with the same token. None (the default) ignores tokens; the time-
+            based methods then also fill ``<pad>`` tokens.
+        by_dims: For statistics: the axes of the value shape ``S`` to
+            reduce over, indexed like ``values`` and ``spatial``. None (the
+            default) reduces over all of them, ``()`` over none (one
+            statistic per value position); e.g. for ``values: [3, 64, 64]``,
+            ``(1, 2)`` gives one statistic per channel. Time is always
+            reduced.
+
+    A key without a statistic (a token or value never seen in ``fit()``)
+    keeps its NaN, as does any gap a method cannot fill; chain several steps
+    to fill those.
+    """
+
+    method: Required[ImputeMethod]
+    by_tokens: Sequence[int] | None
+    by_dims: Sequence[int] | None
+
+
 class LevelConfig(TypedDict, total=False):
     """Configuration of one level; a plain ``dict`` with type hints.
 
     Like :class:`Records`, ``tokens`` and ``values`` declare a role by being
     present. They are fixed by the task, so :meth:`SequenceProcessorV2.fit`
-    only builds vocabularies.
+    only builds vocabularies (and impute statistics).
 
     Keys:
         ordering: ``"set"``, ``"sequence"`` (default) or ``"series"``.
@@ -105,8 +161,9 @@ class LevelConfig(TypedDict, total=False):
         resample: A :class:`Resample` for a ``series`` level: puts its
             records on a time grid, turning it into a ``sequence`` level.
         spatial: One bool per value axis; defaults to all False.
+        impute: An :class:`Impute` step, or a list of them applied in order,
+            run after resampling.
         normalize: Reserved for future work; only None.
-        impute: Reserved for future work; only None.
         missing_indicator: Reserved for future work; only False.
     """
 
@@ -116,9 +173,17 @@ class LevelConfig(TypedDict, total=False):
     code_mapping: CodeMapping | Sequence[CodeMapping | None] | None
     resample: Resample | None
     spatial: Sequence[bool] | None
+    impute: Impute | Sequence[Impute] | None
     normalize: None
-    impute: None
     missing_indicator: Literal[False]
+
+
+class _ImputeStep(NamedTuple):
+    """A checked :class:`Impute`."""
+
+    method: ImputeMethod
+    by_tokens: tuple[int, ...] | None
+    by_dims: tuple[int, ...] | None
 
 
 @dataclass(frozen=True)
@@ -136,10 +201,17 @@ class _InternalLevelConfig:
     code_mapping: tuple[CodeMapping | None, ...] | None
     resample: tuple[float, ResampleMethod] | None  # (step, method)
     spatial: tuple[bool, ...] | None
+    impute: tuple[_ImputeStep, ...]
 
     @staticmethod
     def _is_count(value: Any) -> bool:
         return isinstance(value, int) and not isinstance(value, bool) and value > 0
+
+    @staticmethod
+    def _is_index(value: Any, size: int) -> bool:
+        return (
+            isinstance(value, int) and not isinstance(value, bool) and 0 <= value < size
+        )
 
     @staticmethod
     def _parse_code_mapping(
@@ -284,6 +356,65 @@ class _InternalLevelConfig:
                 )
             spatial = tuple(spatial)
 
+        impute = config.get("impute")
+        steps = (
+            [] if impute is None else [impute] if isinstance(impute, dict) else impute
+        )
+        if not isinstance(steps, (list, tuple)):
+            raise TypeError(
+                f"Level {level}: impute must be a dict or a list of dicts, got {impute!r}."
+            )
+        parsed: list[_ImputeStep] = []
+        for step in steps:
+            if (
+                not isinstance(step, dict)
+                or "method" not in step
+                or not step.keys() <= Impute.__annotations__.keys()
+            ):
+                raise ValueError(
+                    f"Level {level}: each impute step must be a dict with 'method' and "
+                    f"optionally 'by_tokens' and 'by_dims', got {step!r}."
+                )
+            method = step["method"]
+            if method not in get_args(ImputeMethod):
+                raise ValueError(
+                    f"Level {level}: impute method must be one of "
+                    f"{get_args(ImputeMethod)}, got {method!r}."
+                )
+            by_tokens, by_dims = step.get("by_tokens"), step.get("by_dims")
+            if by_tokens is not None:
+                if (
+                    not isinstance(by_tokens, (tuple, list))
+                    or not by_tokens
+                    or not all(cls._is_index(k, tokens) for k in by_tokens)
+                ):
+                    raise ValueError(
+                        f"Level {level}: by_tokens must be None or a non-empty list of "
+                        f"token namespaces below {tokens}, got {by_tokens!r}."
+                    )
+                by_tokens = tuple(by_tokens)
+            if by_dims is not None:
+                if (
+                    not isinstance(by_dims, (tuple, list))
+                    or not all(cls._is_index(d, len(values)) for d in by_dims)
+                    or len(set(by_dims)) != len(by_dims)
+                ):
+                    raise ValueError(
+                        f"Level {level}: by_dims must be None or a list of distinct "
+                        f"value axes below {len(values)}, got {by_dims!r}."
+                    )
+                by_dims = tuple(by_dims)
+            if method in (*_STATISTICS, "linear") and not values:
+                raise ValueError(
+                    f"Level {level}: impute method {method!r} needs values."
+                )
+            if method in _ALONG_TIME and ordering == "set":
+                raise ValueError(
+                    f"Level {level}: impute method {method!r} works along time, so the "
+                    "level must be a 'sequence' or 'series'."
+                )
+            parsed.append(_ImputeStep(method, by_tokens, by_dims))
+
         return cls(
             ordering=ordering,
             tokens=tokens,
@@ -291,7 +422,296 @@ class _InternalLevelConfig:
             code_mapping=code_mapping,
             resample=resample,
             spatial=spatial,
+            impute=tuple(parsed),
         )
+
+
+class _Resampler:
+    """Puts the records of one ``series`` level on a time grid; see :class:`Resample`."""
+
+    def __init__(self, level: int, step: float, method: ResampleMethod):
+        self.level, self.step, self.method = level, step, method
+
+    def __call__(
+        self, columns: dict[Role, np.ndarray], children: list[list[Records]]
+    ) -> tuple[dict[Role, np.ndarray], list[list[Records]]]:
+        """Puts the level's records on the grid, one record per step.
+
+        Args:
+            columns: The level's ``tokens`` (IDs), ``values`` and ``time`` for
+                all its records, and ``offsets``: the record count of each
+                group of records (one group per record of the level above).
+            children: One group of child ``Records`` per record.
+
+        Returns:
+            The columns and children of the grid: one record per step, no
+            ``time``, and ``offsets`` holding each group's number of steps. A
+            step without records gets ``<pad>`` tokens, NaN values and no
+            children, for imputation to fill.
+        """
+        time, counts = columns["time"], columns["offsets"]
+        if (time < 0).any():
+            raise ValueError(f"Level {self.level}: resample needs non-negative time.")
+        steps = np.floor(time.astype(np.float64) / self.step).astype(np.int64)
+
+        # A group's grid runs from step 0 to its last record's step. Each group
+        # gets its own block of the level's grid, so `grid` never decreases.
+        sizes = np.zeros(len(counts), dtype=np.int64)
+        filled_groups = counts > 0
+        sizes[filled_groups] = steps[np.cumsum(counts)[filled_groups] - 1] + 1
+        grid = steps + np.repeat(np.cumsum(sizes) - sizes, counts)
+        n = int(sizes.sum())
+
+        # The first and last record of each step that has records.
+        starts = np.flatnonzero(np.diff(grid, prepend=-1))
+        ends = np.flatnonzero(np.diff(grid, append=-1))
+        filled = grid[starts]
+
+        resampled: dict[Role, np.ndarray] = {"offsets": sizes}
+        grid_children: list[list[Records]] = [[] for _ in range(n if self.level else 0)]
+        if self.method == "merge":
+            for i, kids in zip(grid.tolist(), children):
+                grid_children[i].extend(kids)
+        elif self.method == "first" or self.method == "last":
+            keep = starts if self.method == "first" else ends
+            pad = TokenProcessorInterface.PAD
+            for role, fill in (("tokens", pad), ("values", np.nan)):
+                if role in columns:
+                    column = columns[role]
+                    on_grid = np.full((n, *column.shape[1:]), fill, dtype=column.dtype)
+                    on_grid[filled] = column[keep]
+                    resampled[role] = on_grid
+            if self.level:
+                for i, kept in zip(filled.tolist(), keep.tolist()):
+                    grid_children[i] = children[kept]
+        else:
+            reduce = {"min": np.minimum, "max": np.maximum, "avg": np.add}[self.method]
+            values = reduce.reduceat(
+                columns["values"].astype(np.float64), starts, axis=0
+            )
+            if self.method == "avg":
+                values /= (ends - starts + 1).reshape(-1, *[1] * (values.ndim - 1))
+            on_grid = np.full((n, *values.shape[1:]), np.nan, dtype=np.float32)
+            on_grid[filled] = values
+            resampled["values"] = on_grid
+        return resampled, grid_children
+
+
+class _Imputer:
+    """Runs the impute steps of one level (see :class:`Impute`).
+
+    It also holds the statistics of the ``mean`` / ``min`` / ``max`` steps:
+    :meth:`accumulate` adds one ``Records``' raw values during ``fit()``, and
+    :meth:`finish` turns the running state into statistics.
+    """
+
+    def __init__(self, level: int, steps: tuple[_ImputeStep, ...], tokens: int):
+        self.level, self.steps, self.tokens = level, steps, tokens
+        self.learns_statistics = any(step.method in _STATISTICS for step in steps)
+        # Per statistic step: its running state during fit(), then, per token
+        # key, its statistic.
+        self._state = self._new_state()
+        self._stats: dict[int, dict[tuple[int, ...], np.ndarray]] = {}
+
+    def _new_state(self) -> dict[int, dict[tuple[int, ...], list[np.ndarray]]]:
+        return {
+            index: {}
+            for index, step in enumerate(self.steps)
+            if step.method in _STATISTICS
+        }
+
+    def accumulate(self, values: np.ndarray, ids: list[list[int]]) -> None:
+        """Adds one ``Records``' raw values (and their token IDs) to the statistics."""
+        for index, state in self._state.items():
+            step = self.steps[index]
+            keys = np.zeros((len(values), 0), dtype=np.int64)
+            if step.by_tokens is not None:
+                if len(ids) != len(values):
+                    raise ValueError(
+                        f"Level {self.level}: {len(ids)} tokens but {len(values)} values."
+                    )
+                table = np.array(ids, dtype=np.int64).reshape(len(ids), self.tokens)
+                keys = table[:, list(step.by_tokens)]
+            self._accumulate(step, values, keys, state)
+
+    def finish(self) -> None:
+        """Turns the running state into statistics, ready for a new fit()."""
+        for index, state in self._state.items():
+            stats: dict[tuple[int, ...], np.ndarray] = {}
+            for key, parts in state.items():
+                if self.steps[index].method == "mean":
+                    with np.errstate(invalid="ignore", divide="ignore"):
+                        stat = parts[0] / parts[1]
+                else:
+                    stat = np.where(np.isinf(parts[0]), np.nan, parts[0])
+                stats[key] = stat.astype(np.float32)
+            self._stats[index] = stats
+        self._state = self._new_state()
+
+    @staticmethod
+    def _split_by_key(keys: np.ndarray) -> Iterator[tuple[tuple[int, ...], np.ndarray]]:
+        """Yields each distinct row of ``keys`` and the mask of rows equal to it."""
+        if len(keys) == 0:
+            return
+        if keys.shape[1] == 0:
+            yield (), np.ones(len(keys), dtype=bool)
+            return
+        unique, inverse = np.unique(keys, axis=0, return_inverse=True)
+        inverse = inverse.reshape(-1)
+        for index, key in enumerate(unique.tolist()):
+            yield tuple(key), inverse == index
+
+    def _accumulate(
+        self,
+        step: _ImputeStep,
+        values: np.ndarray,
+        keys: np.ndarray,
+        state: dict[tuple[int, ...], list[np.ndarray]],
+    ) -> None:
+        """Adds raw values to the running state of one statistic, per token key."""
+        reduced = range(values.ndim - 1) if step.by_dims is None else step.by_dims
+        axes = (0, *(1 + d for d in reduced))
+        values = values.astype(np.float64)  # sums over a dataset need the range
+        finite = np.isfinite(values)
+        for key, rows in self._split_by_key(keys):
+            x, ok = values[rows], finite[rows]
+            if step.method == "mean":
+                total = np.where(ok, x, 0.0).sum(axis=axes, keepdims=True)[0]
+                count = ok.sum(axis=axes, keepdims=True)[0]
+                if key in state:
+                    state[key][0] += total
+                    state[key][1] += count
+                else:
+                    state[key] = [total, count]
+            else:
+                low = step.method == "min"
+                fill = np.inf if low else -np.inf
+                reduce = np.min if low else np.max
+                extreme = reduce(np.where(ok, x, fill), axis=axes, keepdims=True)[0]
+                if key in state:
+                    combine = np.minimum if low else np.maximum
+                    state[key][0] = combine(state[key][0], extreme)
+                else:
+                    state[key] = [extreme]
+
+    @staticmethod
+    def _previous_valid(valid: np.ndarray, start: np.ndarray) -> np.ndarray:
+        """Index of the latest valid row at or before each row, in its segment.
+
+        ``valid`` is ``[L, M]``; ``start[i]`` is the first row of row ``i``'s
+        segment. Returns ``[L, M]``, with -1 where there is none.
+        """
+        index = np.arange(len(valid))[:, None]
+        latest = np.maximum.accumulate(np.where(valid, index, -1), axis=0)
+        return np.where(latest >= start[:, None], latest, -1)
+
+    def _next_valid(
+        self, valid: np.ndarray, start: np.ndarray, end: np.ndarray
+    ) -> np.ndarray:
+        """Like :meth:`_previous_valid`, for the earliest valid row at or after."""
+        last = len(valid) - 1
+        found = self._previous_valid(valid[::-1], (last - end)[::-1])[::-1]
+        return np.where(found >= 0, last - found, -1)
+
+    @staticmethod
+    def _segments(
+        group: np.ndarray, keys: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Orders rows by segment: by group, then by token key, keeping time order.
+
+        Returns the order and, for each row in that order, the first and last
+        row of its segment.
+        """
+        n = len(group)
+        order = np.lexsort([np.arange(n), *keys.T[::-1], group])
+        group, keys = group[order], keys[order]
+        new = np.ones(n, dtype=bool)
+        new[1:] = (group[1:] != group[:-1]) | (keys[1:] != keys[:-1]).any(axis=1)
+        first = np.flatnonzero(new)
+        segment = np.cumsum(new) - 1
+        return order, first[segment], np.append(first[1:], n)[segment] - 1
+
+    def __call__(self, columns: dict[Role, np.ndarray]) -> None:
+        """Runs the impute steps in place on the level's concatenated columns."""
+        pad = TokenProcessorInterface.PAD
+        counts = columns["offsets"]
+        n = int(counts.sum())
+        group = np.repeat(np.arange(len(counts)), counts)
+        for index, step in enumerate(self.steps):
+            values, tokens = columns.get("values"), columns.get("tokens")
+            if step.method == "zero":
+                if values is not None:
+                    columns["values"] = np.where(np.isnan(values), 0.0, values).astype(
+                        np.float32
+                    )
+                continue  # missing tokens are already <pad>
+
+            keys = (
+                tokens[:, list(step.by_tokens)]
+                if tokens is not None and step.by_tokens is not None
+                else np.zeros((n, 0), dtype=np.int64)
+            )
+            if step.method in _STATISTICS:
+                assert values is not None  # the configuration requires values
+                stats = self._stats.get(index, {})
+                values = values.copy()
+                for key, rows in self._split_by_key(keys):
+                    stat = stats.get(key)
+                    if stat is not None:
+                        x = values[rows]
+                        values[rows] = np.where(np.isnan(x), stat, x)
+                columns["values"] = values
+                continue
+
+            # Along time: work in segment order, so each segment is contiguous.
+            order, start, end = self._segments(group, keys)
+            skip = (keys[order] == pad).any(axis=1)  # rows without a token
+            if values is not None:
+                x = values.reshape(n, -1)[order]
+                valid = ~np.isnan(x)
+                before = self._previous_valid(valid, start)
+                after = self._next_valid(valid, start, end)
+                if step.method == "linear":
+                    time = columns.get("time")
+                    position = (time if time is not None else np.arange(n))[order]
+                    position = position.astype(np.float64)
+                    ok = ~valid & (before >= 0) & (after >= 0)
+                    x0 = np.take_along_axis(x, np.maximum(before, 0), axis=0)
+                    x1 = np.take_along_axis(x, np.maximum(after, 0), axis=0)
+                    t0 = position[np.maximum(before, 0)]
+                    t1 = position[np.maximum(after, 0)]
+                    with np.errstate(invalid="ignore", divide="ignore"):
+                        weight = np.where(
+                            t1 > t0, (position[:, None] - t0) / (t1 - t0), 0.0
+                        )
+                    filled = np.where(ok, x0 + (x1 - x0) * weight, x)
+                else:
+                    source = before if step.method == "forward_fill" else after
+                    taken = np.take_along_axis(x, np.maximum(source, 0), axis=0)
+                    filled = np.where(~valid & (source >= 0), taken, x)
+                filled[skip] = x[skip]
+                result = np.empty_like(filled)
+                result[order] = filled
+                columns["values"] = result.reshape(values.shape).astype(np.float32)
+            if (
+                tokens is not None
+                and step.by_tokens is None
+                and step.method != "linear"
+            ):
+                # Without by_tokens, <pad> tokens (steps without records) are
+                # filled from the same neighbour as the values.
+                t = tokens[order]
+                valid = (t != pad).any(axis=1)[:, None]
+                if step.method == "forward_fill":
+                    source = self._previous_valid(valid, start)[:, 0]
+                else:
+                    source = self._next_valid(valid, start, end)[:, 0]
+                t = np.where(
+                    (~valid[:, 0] & (source >= 0))[:, None], t[np.maximum(source, 0)], t
+                )
+                result = np.empty_like(t)
+                result[order] = t
+                columns["tokens"] = result
 
 
 def _new_vocab() -> dict[str, int]:
@@ -307,7 +727,8 @@ class SequenceProcessorV2(FeatureProcessor):
     ``offsets``). ``offsets`` at level ``l`` partitions level ``l`` records
     into level ``l + 1`` records, in CSR layout. Which roles a level has, the
     number of token namespaces ``K`` and the value shape ``S`` come from the
-    configuration; :meth:`fit` only builds the vocabularies.
+    configuration; :meth:`fit` only builds the vocabularies and the statistics
+    of the impute steps.
 
     Subclasses are configuration only: their ``__init__`` passes fixed
     ``levels`` to ``super().__init__()`` and adds no logic.
@@ -357,7 +778,20 @@ class SequenceProcessorV2(FeatureProcessor):
                     f"records, so level {level - 1} must have ordering 'set'."
                 )
 
-        # The only fitted state: one vocabulary per level and token namespace.
+        self._resamplers = [
+            None if config.resample is None else _Resampler(level, *config.resample)
+            for level, config in enumerate(self._config)
+        ]
+        # Fitted state: one vocabulary per level and token namespace, and the
+        # statistics held by each level's imputer.
+        self._imputers = [
+            _Imputer(level, config.impute, config.tokens) if config.impute else None
+            for level, config in enumerate(self._config)
+        ]
+        self.learns_statistics = any(
+            imputer is not None and imputer.learns_statistics
+            for imputer in self._imputers
+        )
         self._vocabs = [
             [_new_vocab() for _ in range(config.tokens)] for config in self._config
         ]
@@ -543,75 +977,6 @@ class SequenceProcessorV2(FeatureProcessor):
             raise ValueError(f"Level {level}: time must be non-decreasing.")
         return array
 
-    def _resample(
-        self,
-        level: int,
-        step: float,
-        method: ResampleMethod,
-        columns: dict[Role, np.ndarray],
-        children: list[list[Records]],
-    ) -> tuple[dict[Role, np.ndarray], list[list[Records]]]:
-        """Puts one level's records on a time grid, one record per step.
-
-        Args:
-            columns: The level's ``tokens`` (IDs), ``values`` and ``time`` for
-                all its records, and ``offsets``: the record count of each
-                group of records (one group per record of the level above).
-            children: One group of child ``Records`` per record.
-
-        Returns:
-            The columns and children of the grid: one record per step, no
-            ``time``, and ``offsets`` holding each group's number of steps. A
-            step without records gets ``<pad>`` tokens, NaN values and no
-            children, for imputation to fill.
-        """
-        time, counts = columns["time"], columns["offsets"]
-        if (time < 0).any():
-            raise ValueError(f"Level {level}: resample needs non-negative time.")
-        steps = np.floor(time.astype(np.float64) / step).astype(np.int64)
-
-        # A group's grid runs from step 0 to its last record's step. Each group
-        # gets its own block of the level's grid, so `grid` never decreases.
-        sizes = np.zeros(len(counts), dtype=np.int64)
-        filled_groups = counts > 0
-        sizes[filled_groups] = steps[np.cumsum(counts)[filled_groups] - 1] + 1
-        grid = steps + np.repeat(np.cumsum(sizes) - sizes, counts)
-        n = int(sizes.sum())
-
-        # The first and last record of each step that has records.
-        starts = np.flatnonzero(np.diff(grid, prepend=-1))
-        ends = np.flatnonzero(np.diff(grid, append=-1))
-        filled = grid[starts]
-
-        resampled: dict[Role, np.ndarray] = {"offsets": sizes}
-        grid_children: list[list[Records]] = [[] for _ in range(n if level else 0)]
-        if method == "merge":
-            for i, kids in zip(grid.tolist(), children):
-                grid_children[i].extend(kids)
-        elif method == "first" or method == "last":
-            keep = starts if method == "first" else ends
-            pad = TokenProcessorInterface.PAD
-            for role, fill in (("tokens", pad), ("values", np.nan)):
-                if role in columns:
-                    column = columns[role]
-                    on_grid = np.full((n, *column.shape[1:]), fill, dtype=column.dtype)
-                    on_grid[filled] = column[keep]
-                    resampled[role] = on_grid
-            if level:
-                for i, kept in zip(filled.tolist(), keep.tolist()):
-                    grid_children[i] = children[kept]
-        else:
-            reduce = {"min": np.minimum, "max": np.maximum, "avg": np.add}[method]
-            values = reduce.reduceat(
-                columns["values"].astype(np.float64), starts, axis=0
-            )
-            if method == "avg":
-                values /= (ends - starts + 1).reshape(-1, *[1] * (values.ndim - 1))
-            on_grid = np.full((n, *values.shape[1:]), np.nan, dtype=np.float32)
-            on_grid[filled] = values
-            resampled["values"] = on_grid
-        return resampled, grid_children
-
     def _empty(self, level: int, role: Role) -> np.ndarray:
         """The start of each column, so a level without records still works."""
         config = self._config[level]
@@ -626,9 +991,10 @@ class SequenceProcessorV2(FeatureProcessor):
     # ------------------------------------------------------------------
 
     def fit(self, samples: Iterable[dict[str, Any]], field: str) -> None:
-        """Builds the vocabularies from the (code-mapped) tokens.
+        """Builds the vocabularies and the statistics of the impute steps.
 
-        Records are not checked here; :meth:`process` checks them.
+        Vocabularies come from the (code-mapped) tokens, statistics from the
+        raw values. Records are not checked here; :meth:`process` checks them.
 
         Args:
             samples: Iterable of sample dicts, read once.
@@ -639,10 +1005,13 @@ class SequenceProcessorV2(FeatureProcessor):
             level_records: list[Records] = [sample[field]]
             for level in range(self.depth, -1, -1):
                 vocabs, mappers = self._vocabs[level], self._mappers[level]
+                imputer = self._imputers[level]
                 children: list[Records] = []
                 for records in level_records:
+                    ids: list[list[int]] = []
                     for token in records.get("tokens", ()):
                         codes = (token,) if isinstance(token, str) else token
+                        row: list[int] = []
                         for vocab, code, mapper in zip(
                             vocabs, codes, mappers or repeat(None)
                         ):
@@ -650,8 +1019,18 @@ class SequenceProcessorV2(FeatureProcessor):
                             for target in targets or [code]:
                                 if target not in vocab:
                                     vocab[target] = len(vocab)
+                            row.append(vocab[(targets or [code])[0]])
+                        ids.append(row)
+                    if imputer is not None and imputer.learns_statistics:
+                        # Statistics are taken from the raw values, before
+                        # resampling.
+                        imputer.accumulate(self._read_values(level, records), ids)
                     children.extend(records.get("children", ()))
                 level_records = children
+
+        for imputer in self._imputers:
+            if imputer is not None:
+                imputer.finish()
         self._fitted = True
 
     def process(self, value: Records) -> tuple[torch.Tensor, ...]:
@@ -734,10 +1113,11 @@ class SequenceProcessorV2(FeatureProcessor):
                 role: np.concatenate(part) for role, part in parts.items()
             }
             columns["offsets"] = np.array(counts, dtype=np.int64)
-            if config.resample is not None:
-                columns, children = self._resample(
-                    level, *config.resample, columns, children
-                )
+            resampler, imputer = self._resamplers[level], self._imputers[level]
+            if resampler is not None:
+                columns, children = resampler(columns, children)
+            if imputer is not None:
+                imputer(columns)
             for role in self._output_roles(level):
                 array = columns[role]
                 if role == "offsets":
@@ -746,8 +1126,8 @@ class SequenceProcessorV2(FeatureProcessor):
                     array = array.reshape(-1)
                 elif role == "values" and not np.isfinite(array).all():
                     raise ValueError(
-                        f"Level {level}: values contain NaN or inf, and imputation "
-                        "is not supported yet."
+                        f"Level {level}: values contain NaN or inf; impute them "
+                        "(see Impute) or remove them in the task."
                     )
                 fields[(level, role)] = torch.from_numpy(array)
             groups = children
