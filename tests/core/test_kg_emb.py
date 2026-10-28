@@ -7,6 +7,7 @@ contract.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import logging
 import tempfile
@@ -446,6 +447,19 @@ TASK_TRIPLES = [
 TASK_SPLIT_RATIOS = (0.6, 0.2, 0.2)
 
 
+@contextlib.contextmanager
+def user_warnings_as_errors_but_dask():
+    """Turns every UserWarning into an error, except those of dask, which
+    warns on its own, e.g. "Port 8787 is already in use" when another
+    cluster runs on the machine."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        warnings.filterwarnings(
+            "ignore", category=UserWarning, module=r"distributed\."
+        )
+        yield
+
+
 class FirstTripleOnly(KGTripleProcessor):
     """A kg_triple processor that records only the first triple it is given.
 
@@ -595,6 +609,23 @@ class TestKGLinkPrediction(unittest.TestCase):
             prefix = f"Part {k}: {expected} of {len(self.parts[k])} triples"
             self.assertTrue(any(m.startswith(prefix) for m in self.log), self.log)
 
+    def test_set_task_with_split_gives_no_warning(self) -> None:
+        with user_warnings_as_errors_but_dask():
+            self.dataset.set_task(self.task, split=self.split)
+
+    def test_an_empty_held_out_part_is_handled(self) -> None:
+        from pyhealth.datasets import PatientSplit
+        from pyhealth.medcode.pretrained_embeddings.kg_emb.datasets import (
+            base_kg_dataset,
+        )
+
+        split = PatientSplit(ratios=(0.7, 0.3, 0.0), seed=3)
+        with self.assertLogs(base_kg_dataset.logger, level="INFO") as logs:
+            parts = self.dataset.set_task(self.task, split=split)
+        self.assertEqual(len(parts[2]), 0)
+        self.assertEqual(parts[2].known_triples, self.parts[0].known_triples)
+        self.assertTrue(any("Part 2: 0 of 0 triples" in line for line in logs.output))
+
     def test_two_workers_give_the_same_samples(self) -> None:
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             dataset = BaseKGDataset(
@@ -644,24 +675,20 @@ class TestKGLinkPrediction(unittest.TestCase):
 
     def test_supplied_processors_are_used_as_they_are(self) -> None:
         """A supplied kg_triple processor is neither refitted nor warned about."""
-        from pyhealth.processors import KGTripleProcessor
-
-        everything = KGTripleProcessor(
+        some = KGTripleProcessor(
             num_entities=self.dataset.num_entities,
             num_relations=self.dataset.num_relations,
         )
-        everything.fit([{"triple": t} for t in self.distinct], "triple")
-        with warnings.catch_warnings():
-            warnings.simplefilter("error", UserWarning)
+        some.fit([{"triple": t} for t in self.distinct[:3]], "triple")
+        with user_warnings_as_errors_but_dask():
             parts = self.dataset.set_task(
-                self.task, split=self.split, input_processors={"triple": everything}
+                self.task, split=self.split, input_processors={"triple": some}
             )
-            whole = self.dataset.set_task(
-                self.task, input_processors={"triple": everything}
-            )
-        # Fitted on the 11 triples, not refitted on the 6 training ones.
+            whole = self.dataset.set_task(self.task, input_processors={"triple": some})
+        # Fitted on 3 triples: a refit on the 6 training triples, or on all
+        # 11 without split, would change the dicts.
         for result in (parts[0], whole):
-            self.assertEqual(result.input_processors["triple"].true_tail, everything.true_tail)
+            self.assertEqual(result.input_processors["triple"].true_tail, some.true_tail)
 
     def test_known_triples_do_not_depend_on_a_supplied_processor(self) -> None:
         """A supplied processor may be fitted on other triples than the
@@ -792,7 +819,9 @@ class TestKGLinkPrediction(unittest.TestCase):
     def test_the_unseen_log_counts_against_the_training_part(self) -> None:
         """With a supplied processor fitted on every triple, the counts are
         still those of the training part."""
-        from pyhealth.medcode.pretrained_embeddings.kg_emb.datasets import base_kg_dataset
+        from pyhealth.medcode.pretrained_embeddings.kg_emb.datasets import (
+            base_kg_dataset,
+        )
         from pyhealth.processors import KGTripleProcessor
 
         everything = KGTripleProcessor(
@@ -913,8 +942,7 @@ class TestKGLinkPrediction(unittest.TestCase):
             dataset = BaseKGDataset(
                 root=str(self.root), config_path=self.root / "kg.yaml", cache_dir=Path(tmp)
             )
-            with warnings.catch_warnings():
-                warnings.simplefilter("error", UserWarning)
+            with user_warnings_as_errors_but_dask():
                 parts = dataset.set_task(task, split=self.split)
             for part in parts:
                 self.assertFalse(hasattr(part, "known_triples"))
@@ -943,24 +971,37 @@ class TestUnseenInTrainingLog(unittest.TestCase):
     """The per-part count of triples whose entity or relation training never saw."""
 
     def test_counts_heads_tails_and_relations(self) -> None:
-        from pyhealth.medcode.pretrained_embeddings.kg_emb.datasets import base_kg_dataset
+        from pyhealth.medcode.pretrained_embeddings.kg_emb.datasets import (
+            base_kg_dataset,
+        )
 
         train = [(0, 0, 1), (1, 1, 2)]
         held_out = [
             [(0, 0, 2), (4, 0, 1)],  # seen; unseen head
             [(0, 0, 5), (1, 2, 2), (3, 2, 4)],  # unseen tail; unseen relation; both
+            [(1, 1, 0)],  # seen
         ]
         with self.assertLogs(base_kg_dataset.logger, level="INFO") as logs:
             base_kg_dataset._log_unseen_in_training(train, held_out)
         self.assertEqual(
             [line.split(":", 2)[2] for line in logs.output],
             [
-                "Part 1: 1 of 2 triples involve an entity absent from the training "
-                "triples, 0 a relation absent from them.",
-                "Part 2: 2 of 3 triples involve an entity absent from the training "
-                "triples, 2 a relation absent from them.",
+                (
+                    "Part 1: 1 of 2 triples involve an entity absent from the "
+                    "training triples, 0 a relation absent from them."
+                ),
+                (
+                    "Part 2: 2 of 3 triples involve an entity absent from the "
+                    "training triples, 2 a relation absent from them."
+                ),
+                (
+                    "Part 3: 0 of 1 triples involve an entity absent from the "
+                    "training triples, 0 a relation absent from them."
+                ),
             ],
         )
+        levels = [line.split(":", 1)[0] for line in logs.output]
+        self.assertEqual(levels, ["WARNING", "WARNING", "INFO"])
 
 
 class TestModelsOnSampleDatasets(unittest.TestCase):
@@ -1076,8 +1117,35 @@ class TestModelsOnSampleDatasets(unittest.TestCase):
         weights = model._subsampling_weight(batch["triple"])
         expected = self.train.input_processors["triple"].subsampling_weight(batch["triple"])
         self.assertTrue(torch.equal(weights, expected))
+
+        # They enter the loss, normalised by their sum: weighted (2, 0), the
+        # loss of two triples is the unweighted loss of the first alone,
+        # which draws the same negatives for it. DistMult starts with small
+        # embeddings, so both terms of its loss are far from zero; with
+        # TransE's margin the positive term is about 1e-6 and a missing
+        # normalisation of it would go unseen.
+        from unittest import mock
+
+        import numpy as np
+
+        from pyhealth.medcode.pretrained_embeddings.kg_emb.models import DistMult
+
+        torch.manual_seed(0)
+        model = DistMult(
+            dataset=self.train, e_dim=8, r_dim=8, ns="uniform",
+            use_regularization=None, use_subsampling_weight=True,
+        )
         model.train()
-        model(**batch)["loss"].backward()
+        pair = batch["triple"][:2]
+        two_zero = torch.tensor([2.0, 0.0])
+        with mock.patch.object(model, "_subsampling_weight", return_value=two_zero):
+            np.random.seed(0)
+            weighted = model(triple=pair)["loss"]
+        model.use_subsampling_weight = False
+        np.random.seed(0)
+        alone = model(triple=pair[:1])["loss"]
+        self.assertTrue(torch.allclose(weighted, alone), (weighted, alone))
+        weighted.backward()
 
     def test_eval_mode_ranks_every_entity(self) -> None:
         from pyhealth.medcode.pretrained_embeddings.kg_emb.models import TransE
@@ -1090,6 +1158,30 @@ class TestModelsOnSampleDatasets(unittest.TestCase):
         n = len(self.test)
         self.assertEqual(tuple(out["y_prob"].shape), (2 * n, self.dataset.num_entities))
         self.assertEqual(out["y_true"].tolist(), batch["triple"][:, 0].tolist() + batch["triple"][:, 2].tolist())
+
+
+class TestKnownTriples(unittest.TestCase):
+    """The filter sets, built from triples that may repeat across parts."""
+
+    def test_a_triple_given_twice_counts_once(self) -> None:
+        import polars as pl
+
+        from pyhealth.medcode.pretrained_embeddings.kg_emb.datasets import (
+            KnownTriples,
+            base_kg_dataset,
+        )
+
+        triples = [(0, 0, 2), (0, 0, 1), (0, 0, 2)]
+        ids = pl.DataFrame(
+            triples, schema=["head_id", "relation_id", "tail_id"], orient="row"
+        )
+        expected = KnownTriples(heads={(0, 1): [0], (0, 2): [0]}, tails={(0, 0): [1, 2]})
+        self.assertEqual(KnownTriples.from_ids(ids), expected)
+        # As set_task builds them: the training triples, then those of each
+        # held-out part, here with a triple in two parts.
+        train, held_out = [(0, 0, 2)], [[(0, 0, 2), (0, 0, 1)]]
+        concatenated = train + [t for part in held_out for t in part]
+        self.assertEqual(base_kg_dataset._known_triples(concatenated), expected)
 
 
 class TestFilteredRankingByHand(unittest.TestCase):
