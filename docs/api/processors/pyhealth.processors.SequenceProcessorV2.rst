@@ -7,8 +7,8 @@ depth of nesting, stored without padding or truncation.
 The task returns each field as a ``Records``, a plain dict of columns.
 ``children`` holds the records one level down, and the innermost records
 (level 0) have no ``children``. The processor emits a tuple of tensors in
-``schema()`` order: by level, then by role (``tokens``, ``values``, ``time``,
-``offsets``). ``offsets`` at level ``l`` partitions the level-``l`` records into
+``schema()`` order: by level, then by role (``tokens``, ``values``, ``mask``,
+``time``, ``offsets``). ``offsets`` at level ``l`` partitions the level-``l`` records into
 level-``l + 1`` records, in CSR layout.
 
 Each level's configuration declares its roles: ``tokens`` gives the number of
@@ -37,8 +37,10 @@ In a task schema the configuration is plain data:
 Batches are packed with ``collate()``, which follows ``batch_schema()``: the
 fields of ``schema()`` plus the batch offsets ``[B + 1]``. After resampling,
 ``impute`` fills NaN values (see ``Impute``) and ``normalize`` scales them (see
-``Normalize``); ``missing_indicator`` is reserved for future work and only
-accepts ``False``. Values still containing NaN or inf raise.
+``Normalize``). With ``missing_indicator`` (which needs ``impute``), a level
+also emits ``mask`` right after ``values``: a bool tensor of the same shape,
+True where a value was missing before imputation. Values still containing NaN
+or inf raise.
 
 .. autoclass:: pyhealth.processors.SequenceProcessorV2
     :members:
