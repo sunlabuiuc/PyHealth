@@ -263,6 +263,17 @@ def _fitted_triples(processor: KGTripleProcessor) -> list[tuple[int, int, int]]:
     return [(h, r, t) for (h, r), tails in processor.true_tail.items() for t in tails]
 
 
+def _holds_the_first_part(processor: KGTripleProcessor) -> bool:
+    """Whether a processor fitted by ``set_task`` holds exactly the triples
+    of the first part, so that reading that part can be skipped.
+
+    ``KGTripleProcessor.fit`` records every triple it is given, and
+    ``set_task`` gives it the samples of the first part. A subclass may
+    record other triples, so its first part is read.
+    """
+    return type(processor) is KGTripleProcessor
+
+
 def _known_triples(triples: list[tuple[int, int, int]]) -> KnownTriples:
     """The :class:`KnownTriples` of ``triples``.
 
@@ -464,9 +475,9 @@ class BaseKGDataset(BaseDataset):
         triples of all the parts, which the models read to filter the
         ranking at evaluation. The triples of the held-out parts are read by
         index from the stored samples rather than streamed, and so are those
-        of the first part when its processor was supplied, so under
-        ``torch.distributed`` they are not limited to the share of the
-        current rank.
+        of the first part when its processor was supplied or is a subclass,
+        so under ``torch.distributed`` they are not limited to the share of
+        the current rank.
         """
         if task is None:
             task = self.default_task
@@ -495,9 +506,9 @@ class BaseKGDataset(BaseDataset):
         # processor.
         if isinstance(processor, KGTripleProcessor):
             # The first part is usually the largest. A processor fitted here
-            # holds exactly its triples, which spares reading it again; a
-            # supplied one may have been fitted on other triples.
-            if not supplied:
+            # by this class holds exactly its triples, which spares reading it
+            # again; a supplied one may have been fitted on other triples.
+            if not supplied and _holds_the_first_part(processor):
                 first = _fitted_triples(processor)
                 held_out = _stored_triples(parts, split, start=1)
             else:

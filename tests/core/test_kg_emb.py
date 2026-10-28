@@ -21,6 +21,7 @@ from pyhealth.medcode.pretrained_embeddings.kg_emb.datasets import (
     BaseKGDataset,
     UMLSDataset,
 )
+from pyhealth.processors import KGTripleProcessor
 
 # A small graph: entities a..d, relations r1, r2. Names first appear out of
 # order (c before a, r2 before r1), so numbering by first appearance would
@@ -430,6 +431,16 @@ TASK_TRIPLES = [
 TASK_SPLIT_RATIOS = (0.6, 0.2, 0.2)
 
 
+class FirstTripleOnly(KGTripleProcessor):
+    """A kg_triple processor that records only the first triple it is given.
+
+    Defined at module level so that set_task can pickle it with the schema.
+    """
+
+    def fit(self, samples, field):
+        super().fit(list(samples)[:1], field)
+
+
 class _ListHandler(logging.Handler):
     def __init__(self) -> None:
         super().__init__(level=logging.DEBUG)
@@ -682,6 +693,28 @@ class TestKGLinkPrediction(unittest.TestCase):
         self.assertEqual(parts[0].known_triples, self.parts[0].known_triples)
         # Without split, every stored sample is read, not the rank's share.
         self.assertEqual(whole.known_triples, self.parts[0].known_triples)
+
+    def test_known_triples_do_not_depend_on_a_processor_subclass(self) -> None:
+        """A KGTripleProcessor subclass may record other triples than those it
+        is given; the first part is then read rather than rebuilt from it."""
+        from pyhealth.medcode.pretrained_embeddings.kg_emb.tasks import KGLinkPrediction
+
+        class WithSubclass(KGLinkPrediction):
+            task_name = "KGLinkPredictionWithSubclass"
+
+            def __init__(self, num_entities, num_relations):
+                super().__init__(num_entities, num_relations)
+                kwargs = self.input_schema["triple"][1]
+                self.input_schema = {"triple": (FirstTripleOnly, kwargs)}
+
+        task = WithSubclass(self.dataset.num_entities, self.dataset.num_relations)
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            dataset = BaseKGDataset(
+                root=str(self.root), config_path=self.root / "kg.yaml", cache_dir=Path(tmp)
+            )
+            parts = dataset.set_task(task, split=self.split)
+            self.assertEqual(len(parts[0].input_processors["triple"].true_tail), 1)
+            self.assertEqual(parts[0].known_triples, self.parts[0].known_triples)
 
     def test_known_triples_are_those_of_a_task_on_a_subgraph(self) -> None:
         """A task that drops triples before numbering gets filter sets in its
