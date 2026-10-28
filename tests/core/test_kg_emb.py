@@ -16,30 +16,12 @@ from pathlib import Path
 from typing import Any
 
 import torch
-from torch.utils.data import DataLoader
 
 from pyhealth.datasets import collate_fn_dict_with_padding
 from pyhealth.medcode.pretrained_embeddings.kg_emb.datasets import (
     BaseKGDataset,
-    SampleKGDataset,
     UMLSDataset,
-    split,
 )
-from pyhealth.medcode.pretrained_embeddings.kg_emb.tasks import link_prediction_fn
-
-
-def make_samples(n: int = 8) -> list[dict[str, Any]]:
-    """Build ``n`` synthetic link-prediction samples over a 10-entity graph."""
-    return [
-        {
-            "triple": (i % 10, i % 3, (i + 4) % 10),
-            "ground_truth_head": [i % 10, (i + 1) % 10],
-            "ground_truth_tail": [(i + 4) % 10],
-            "subsampling_weight": torch.tensor([0.25]),
-        }
-        for i in range(n)
-    ]
-
 
 # A small graph: entities a..d, relations r1, r2. Names first appear out of
 # order (c before a, r2 before r1), so numbering by first appearance would
@@ -51,11 +33,6 @@ TOY_TRIPLES = [
     ("b", "r2", "c"),
     ("d", "r1", "a"),
 ]
-
-# Twelve triples: the loader stores rows sorted on the string row number
-# ("0", "1", "10", "11", "2", ...), so file order is only recovered by a
-# numeric sort once there are more than ten rows.
-ORDER_TRIPLES = [(f"e{i}", "r", f"e{i + 1}") for i in range(12)]
 
 TOY_CONFIG = """version: "1.0"
 tables:
@@ -74,20 +51,6 @@ def write_kg(root: Path, triples: list[tuple[str, str, str]]) -> Path:
     config = root / "kg.yaml"
     config.write_text(TOY_CONFIG)
     return config
-
-
-def make_dataset(n: int = 8, **kwargs: Any) -> SampleKGDataset:
-    entity2id = {f"e{i}": i for i in range(10)}
-    relation2id = {f"r{i}": i for i in range(3)}
-    return SampleKGDataset(
-        samples=make_samples(n),
-        dataset_name="synthetic",
-        task_name="link_prediction",
-        entity2id=entity2id,
-        relation2id=relation2id,
-        negative_sampling=4,
-        **kwargs,
-    )
 
 
 def processor_dataset(num_entities: int, num_relations: int) -> Any:
@@ -116,152 +79,6 @@ class TestKGEmbImports(unittest.TestCase):
             self.assertTrue(issubclass(cls, torch.nn.Module))
 
 
-class TestSampleKGDataset(unittest.TestCase):
-    """Construction and indexing: the failure a rename alone does not fix."""
-
-    def test_construction_and_length(self) -> None:
-        dataset = make_dataset(n=8)
-        self.assertEqual(len(dataset), 8)
-        self.assertEqual(dataset.entity_num, 10)
-        self.assertEqual(dataset.relation_num, 3)
-
-    def test_getitem_returns_the_sample(self) -> None:
-        dataset = make_dataset(n=3)
-        # "triple" is now a pure LongTensor (the Tensor Trick), not the raw
-        # tuple, so this is a torch.equal check rather than a tuple ==.
-        self.assertTrue(torch.equal(dataset[0]["triple"], torch.tensor([0, 0, 4])))
-        self.assertIn("ground_truth_head", dataset[1])
-
-    def test_inverse_vocabularies(self) -> None:
-        dataset = make_dataset(n=2)
-        self.assertEqual(dataset.id2entity[0], "e0")
-        self.assertEqual(dataset.id2relation[2], "r2")
-
-    def test_task_specific_hyperparameters_are_captured(self) -> None:
-        dataset = make_dataset(n=2)
-        self.assertEqual(dataset.task_spec_param, {"negative_sampling": 4})
-
-    def test_missing_vocabularies_do_not_crash(self) -> None:
-        dataset = SampleKGDataset(
-            samples=make_samples(2), entity_num=10, relation_num=3
-        )
-        self.assertEqual(dataset.id2entity, {})
-        self.assertIsNone(dataset.task_spec_param)
-
-    def test_contradictory_cardinalities_are_rejected(self) -> None:
-        with self.assertRaises(ValueError):
-            SampleKGDataset(
-                samples=make_samples(1),
-                entity_num=99,
-                entity2id={f"e{i}": i for i in range(10)},
-            )
-
-    def test_stat_returns_a_report(self) -> None:
-        report = make_dataset(n=2).stat()
-        self.assertIn("Number of triples: 2", report)
-
-    def test_is_an_in_memory_sample_dataset(self) -> None:
-        """SampleKGDataset is deliberately back under the InMemorySampleDataset
-        umbrella (see PR discussion), so `set_shuffle` is now expected to be
-        present rather than absent — this supersedes the old standalone-Dataset
-        isolation check."""
-        from pyhealth.datasets.sample_dataset import InMemorySampleDataset
-
-        dataset = make_dataset(n=2)
-        self.assertIsInstance(dataset, torch.utils.data.Dataset)
-        self.assertIsInstance(dataset, InMemorySampleDataset)
-        self.assertTrue(hasattr(dataset, "set_shuffle"))
-
-
-class TestSplit(unittest.TestCase):
-    """The splitter must partition the dataset and stay reproducible."""
-
-    def test_partition_sizes(self) -> None:
-        train, val, test = split(make_dataset(n=10), [0.6, 0.2, 0.2], seed=0)
-        self.assertEqual((len(train), len(val), len(test)), (6, 2, 2))
-
-    def test_folds_are_disjoint_and_exhaustive(self) -> None:
-        train, val, test = split(make_dataset(n=10), [0.6, 0.2, 0.2], seed=0)
-        # "triple" is now a Tensor, which is neither hashable-by-value nor
-        # comparable the way a tuple is; compare/hash via .tolist() instead.
-        triples = [tuple(s["triple"].tolist()) for s in train + val + test]
-        self.assertEqual(len(triples), 10)
-        self.assertEqual(len(set(triples)), 10)
-
-    def test_is_reproducible_under_a_fixed_seed(self) -> None:
-        first = split(make_dataset(n=10), [0.6, 0.2, 0.2], seed=7)[0]
-        second = split(make_dataset(n=10), [0.6, 0.2, 0.2], seed=7)[0]
-        self.assertEqual(
-            [s["triple"].tolist() for s in first],
-            [s["triple"].tolist() for s in second],
-        )
-
-    def test_global_numpy_state_is_untouched(self) -> None:
-        import numpy as np
-
-        np.random.seed(1234)
-        before = np.random.rand()
-        np.random.seed(1234)
-        split(make_dataset(n=10), [0.6, 0.2, 0.2], seed=99)
-        self.assertEqual(before, np.random.rand())
-
-    def test_training_fold_carries_hyperparameters(self) -> None:
-        train, val, _ = split(make_dataset(n=10), [0.6, 0.2, 0.2], seed=0)
-        self.assertTrue(train[0]["train"])
-        self.assertEqual(train[0]["hyperparameters"], {"negative_sampling": 4})
-        self.assertFalse(val[0]["train"])
-
-    def test_malformed_ratios_are_rejected(self) -> None:
-        dataset = make_dataset(n=10)
-        for bad in ([0.5, 0.2, 0.2], [0.5, 0.5], [1.2, -0.2, 0.0]):
-            with self.subTest(ratios=bad), self.assertRaises(ValueError):
-                split(dataset, bad, seed=0)
-
-    def test_ratio_sum_error_message(self) -> None:
-        with self.assertRaisesRegex(ValueError, "ratios must sum to 1.0, got 0.9"):
-            split(make_dataset(n=10), [0.5, 0.2, 0.2], seed=0)
-
-
-class TestCollateAndForward(unittest.TestCase):
-    """Tensor Trick collation: KG fields arrive pre-padded, with masks; one train step runs."""
-
-    def test_ground_truth_collates_to_padded_tensor_with_mask(self) -> None:
-        """Supersedes the old "stays a python list" expectation: since the
-        Tensor Trick (KGProcessor), triple/ground_truth_* are pre-padded
-        pure tensors by the time they leave SampleKGDataset, not raw Python
-        lists collated dynamically per batch."""
-        dataset = make_dataset(n=4)
-        train, _, _ = split(dataset, [1.0, 0.0, 0.0], seed=0)
-        loader = DataLoader(
-            train, batch_size=2, shuffle=False, collate_fn=collate_fn_dict_with_padding
-        )
-        batch = next(iter(loader))
-
-        self.assertIsInstance(batch["triple"], torch.Tensor)
-        self.assertEqual(tuple(batch["triple"].shape), (2, 3))
-
-        for field in ("ground_truth_head", "ground_truth_tail"):
-            gt = batch[field]
-            self.assertIsInstance(gt, dict)
-            self.assertEqual(gt["value"].shape, gt["mask"].shape)
-            self.assertEqual(gt["value"].shape[0], 2)  # batch size
-            # Every sample has at least one real (unmasked) entity.
-            self.assertTrue(gt["mask"].bool().any(dim=1).all())
-
-    def test_transe_train_step(self) -> None:
-        from pyhealth.medcode.pretrained_embeddings.kg_emb.models import TransE
-
-        dataset = make_dataset(n=4)
-        train, _, _ = split(dataset, [1.0, 0.0, 0.0], seed=0)
-        loader = DataLoader(
-            train, batch_size=2, shuffle=False, collate_fn=collate_fn_dict_with_padding
-        )
-        model = TransE(dataset=dataset, e_dim=8, r_dim=8)
-        out = model(**next(iter(loader)))
-        self.assertIn("loss", out)
-        out["loss"].backward()
-
-
 class TestBaseKGDataset(unittest.TestCase):
     """BaseKGDataset loads one triples table through the BaseDataset backend."""
 
@@ -287,58 +104,6 @@ class TestBaseKGDataset(unittest.TestCase):
         self.assertEqual(self.dataset.id2entity[3], "d")
         self.assertEqual(self.dataset.id2relation[1], "r2")
         self.assertEqual((self.dataset.num_entities, self.dataset.num_relations), (4, 2))
-        # Pre-2.0 names, still read by older code.
-        self.assertEqual((self.dataset.entity_num, self.dataset.relation_num), (4, 2))
-
-    def test_legacy_function_task_still_works_with_a_warning(self) -> None:
-        with self.assertWarns(DeprecationWarning):
-            sample_ds = self.dataset.set_task(link_prediction_fn, negative_sampling=4)
-        self.assertIsInstance(sample_ds, SampleKGDataset)
-        self.assertEqual(len(sample_ds), len(TOY_TRIPLES))
-        self.assertEqual(sample_ds.task_spec_param, {"negative_sampling": 4})
-        self.assertEqual(sample_ds.entity_num, 4)
-
-    def test_legacy_task_warns_once_per_call(self) -> None:
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            self.dataset.set_task(link_prediction_fn)
-        ours = [w for w in caught if "will be removed in the next release" in str(w.message)]
-        self.assertEqual(len(ours), 1, [str(w.message) for w in ours])
-
-    def test_legacy_task_fn_keyword_is_accepted(self) -> None:
-        with self.assertWarns(DeprecationWarning):
-            sample_ds = self.dataset.set_task(task_fn=link_prediction_fn)
-        self.assertEqual(len(sample_ds), len(TOY_TRIPLES))
-
-    def test_legacy_path_rejects_2_0_arguments(self) -> None:
-        from pyhealth.datasets import PatientSplit
-
-        with self.assertRaisesRegex(TypeError, "split"), warnings.catch_warnings():
-            warnings.simplefilter("ignore", DeprecationWarning)
-            self.dataset.set_task(link_prediction_fn, split=PatientSplit((0.5, 0.5)))
-
-    def test_legacy_members_warn(self) -> None:
-        with self.assertWarns(DeprecationWarning):
-            report = self.dataset.stat()
-        self.assertIn("Number of triples: 5", report)
-        with self.assertWarns(DeprecationWarning):
-            BaseKGDataset.info()
-        with self.assertWarns(DeprecationWarning):
-            self.assertEqual(len(self.dataset.triples), len(TOY_TRIPLES))
-
-
-class TestLegacyTripleOrder(unittest.TestCase):
-    """The legacy path hands task functions the triples in file order."""
-
-    def test_more_than_ten_triples_keep_file_order(self) -> None:
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
-            root = Path(tmp)
-            config = write_kg(root, ORDER_TRIPLES)
-            dataset = BaseKGDataset(root=tmp, config_path=config, cache_dir=root / "cache")
-            e, r = dataset.entity2id, dataset.relation2id
-            expected = [(e[h], r[rel], e[t]) for h, rel, t in ORDER_TRIPLES]
-            with self.assertWarns(DeprecationWarning):
-                self.assertEqual(dataset.triples, expected)
 
 
 class TestBaseKGDatasetValidation(unittest.TestCase):
@@ -359,16 +124,6 @@ class TestBaseKGDatasetValidation(unittest.TestCase):
             dataset = BaseKGDataset(root=tmp, config_path=config, cache_dir=root / "cache")
             with self.assertRaisesRegex(ValueError, r"1 triple\(s\) have a missing"):
                 dataset.entity2id
-
-    def test_refresh_cache_is_deprecated(self) -> None:
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
-            root = Path(tmp)
-            config = write_kg(root, TOY_TRIPLES)
-            with self.assertWarns(DeprecationWarning):
-                BaseKGDataset(
-                    root=tmp, config_path=config, cache_dir=root / "cache",
-                    refresh_cache=True,
-                )
 
 
 class TestUMLSDataset(unittest.TestCase):
@@ -449,7 +204,7 @@ class TestScoringInvariants(unittest.TestCase):
     def test_distmult_is_symmetric_in_head_and_tail(self) -> None:
         from pyhealth.medcode.pretrained_embeddings.kg_emb.models import DistMult
 
-        model = DistMult(dataset=make_dataset(n=4), e_dim=8, r_dim=8, gamma=12.0)
+        model = DistMult(dataset=processor_dataset(5, 2), e_dim=8, r_dim=8, gamma=12.0)
         head, relation, tail = (torch.randn(2, 1, 8) for _ in range(3))
         self.assertTrue(
             torch.allclose(
@@ -462,7 +217,7 @@ class TestScoringInvariants(unittest.TestCase):
     def test_transe_scores_a_perfect_triple_at_the_margin(self) -> None:
         from pyhealth.medcode.pretrained_embeddings.kg_emb.models import TransE
 
-        model = TransE(dataset=make_dataset(n=4), e_dim=8, r_dim=8, gamma=24.0)
+        model = TransE(dataset=processor_dataset(5, 2), e_dim=8, r_dim=8, gamma=24.0)
         head = torch.zeros(1, 1, 8)
         relation = torch.ones(1, 1, 8)
         tail = torch.ones(1, 1, 8)  # h + r - t == 0
@@ -536,7 +291,7 @@ class TestGroundTruthUnpadding(unittest.TestCase):
     def test_unpad_ground_truth_keeps_real_entity_zero_and_drops_padding(self) -> None:
         from pyhealth.medcode.pretrained_embeddings.kg_emb.models import TransE
 
-        model = TransE(dataset=make_dataset(n=4), e_dim=8, r_dim=8)
+        model = TransE(dataset=processor_dataset(5, 2), e_dim=8, r_dim=8)
 
         # Row 0: entities {0, 5} are real (mask=1), trailing slot is padding.
         # Row 1: entity {3} is real, two trailing slots are padding.
@@ -550,7 +305,7 @@ class TestGroundTruthUnpadding(unittest.TestCase):
     def test_unpad_ground_truth_passes_through_plain_lists_unchanged(self) -> None:
         from pyhealth.medcode.pretrained_embeddings.kg_emb.models import TransE
 
-        model = TransE(dataset=make_dataset(n=4), e_dim=8, r_dim=8)
+        model = TransE(dataset=processor_dataset(5, 2), e_dim=8, r_dim=8)
         raw = [[0, 5], [3]]
         self.assertEqual(model._unpad_ground_truth(raw), raw)
 
@@ -592,16 +347,18 @@ class TestKGTripleProcessor(unittest.TestCase):
         self.assertEqual(self.processor.true_head[(1, 1)], [3])
         self.assertNotIn((1, 0), self.processor.true_tail)
 
-    def test_counts_and_weights_match_link_prediction_fn(self) -> None:
-        """Same frequencies and weights as the 1.x task on the same triples."""
-        from pyhealth.medcode.pretrained_embeddings.kg_emb.tasks.link_prediction import (
-            count_frequency,
+    def test_counts_and_weights_follow_the_reference_formula(self) -> None:
+        """Worked by hand: a pair's count starts at 4 and grows by one per
+        further triple, and a triple weighs 1 / sqrt(count[(h, r)] +
+        count[(t, -r - 1)]), as in the reference implementation of RotatE."""
+        self.assertEqual(
+            self.processor.count,
+            {(0, 0): 5, (1, -1): 4, (2, -1): 5, (3, 1): 4,
+             (1, -2): 4, (4, 0): 4, (5, 1): 4, (0, -2): 4},
         )
-
-        self.assertEqual(self.processor.count, count_frequency(self.triples))
-        legacy = [s["subsampling_weight"].item() for s in link_prediction_fn(self.triples)]
         weights = self.processor.subsampling_weight(torch.tensor(self.triples))
-        self.assertTrue(torch.allclose(weights, torch.tensor(legacy)))
+        expected = torch.tensor([9.0, 10.0, 8.0, 9.0, 8.0]).rsqrt()
+        self.assertTrue(torch.allclose(weights, expected))
 
     def test_weight_of_a_triple_with_an_unseen_pair_raises(self) -> None:
         # (1, 1) never occurs as (head, relation) in the fitted triples.
@@ -666,11 +423,11 @@ class TestKGTripleProcessor(unittest.TestCase):
         self.assertEqual(fitted, train)
         self.assertTrue(held_out)
         self.assertFalse(fitted & held_out)
-        from pyhealth.medcode.pretrained_embeddings.kg_emb.tasks.link_prediction import (
-            count_frequency,
-        )
+        from pyhealth.processors import KGTripleProcessor
 
-        self.assertEqual(processor.count, count_frequency(sorted(train)))
+        on_train_only = KGTripleProcessor(num_entities=6, num_relations=2)
+        on_train_only.fit([{"triple": t} for t in sorted(train)], "triple")
+        self.assertEqual(processor.count, on_train_only.count)
 
     def test_fitting_without_split_warns(self) -> None:
         samples = [{"patient_id": str(i), "triple": t} for i, t in enumerate(self.triples)]
@@ -710,7 +467,7 @@ class TestKGProcessorKeepsLongLists(unittest.TestCase):
         # The model's unpadding recovers the exact lists, entity 0 included.
         from pyhealth.medcode.pretrained_embeddings.kg_emb.models import TransE
 
-        model = TransE(dataset=make_dataset(n=4), e_dim=8, r_dim=8)
+        model = TransE(dataset=processor_dataset(5, 2), e_dim=8, r_dim=8)
         self.assertEqual(model._unpad_ground_truth(gt), [[5, 0, 7, 9], [4]])
 
 
@@ -1060,8 +817,6 @@ class TestModelsOnSampleDatasets(unittest.TestCase):
         self.assertEqual(TransE(dataset=self.train, e_dim=8, r_dim=8).negative_sampling, 128)
         model = TransE(dataset=self.train, e_dim=8, r_dim=8, negative_sampling=5)
         self.assertEqual(model.negative_sampling, 5)
-        # A 1.x SampleKGDataset still provides its own value.
-        self.assertEqual(TransE(dataset=make_dataset(n=4), e_dim=8, r_dim=8).negative_sampling, 4)
         with self.assertRaises(ValueError):
             TransE(dataset=self.train, e_dim=8, r_dim=8, negative_sampling=0)
 
@@ -1095,7 +850,7 @@ class TestModelsOnSampleDatasets(unittest.TestCase):
 
         model = TransE(dataset=self.train, e_dim=8, r_dim=8, use_subsampling_weight=True)
         batch = self.batch(self.train)
-        weights = model._subsampling_weight(batch, batch["triple"])
+        weights = model._subsampling_weight(batch["triple"])
         expected = self.train.input_processors["triple"].subsampling_weight(batch["triple"])
         self.assertTrue(torch.equal(weights, expected))
         model.train()
@@ -1112,17 +867,6 @@ class TestModelsOnSampleDatasets(unittest.TestCase):
         n = len(self.test)
         self.assertEqual(tuple(out["y_prob"].shape), (2 * n, self.dataset.num_entities))
         self.assertEqual(out["y_true"].tolist(), batch["triple"][:, 0].tolist() + batch["triple"][:, 2].tolist())
-
-    def test_a_disagreeing_1x_train_flag_warns(self) -> None:
-        from pyhealth.medcode.pretrained_embeddings.kg_emb.models import TransE
-
-        train, _, _ = split(make_dataset(n=4), [1.0, 0.0, 0.0], seed=0)
-        batch = collate_fn_dict_with_padding(train[:2])
-        model = TransE(dataset=make_dataset(n=4), e_dim=8, r_dim=8)
-        model.eval()
-        with self.assertWarnsRegex(UserWarning, "'train' flag is ignored"), torch.no_grad():
-            out = model(**batch)
-        self.assertIn("y_prob", out)  # model.eval() decides, not the flag
 
 
 class TestFilteredRankingByHand(unittest.TestCase):
@@ -1291,45 +1035,9 @@ class TestTrainingNegativesOnARealSplit(unittest.TestCase):
     def test_a_model_cannot_be_built_from_the_base_dataset(self) -> None:
         from pyhealth.medcode.pretrained_embeddings.kg_emb.models import TransE
 
-        # It has the 1.x count attributes, but no processor fitted on training triples.
+        # A base dataset has no processor fitted on training triples.
         with self.assertRaisesRegex(TypeError, "training part"):
             TransE(dataset=self.dataset, e_dim=4, r_dim=4)
-
-
-class TestDeprecatedEntryPoints(unittest.TestCase):
-    """The 1.x entry points keep their import paths and work, with a warning."""
-
-    def test_old_import_paths_resolve(self) -> None:
-        from pyhealth.medcode.pretrained_embeddings.kg_emb import datasets, tasks
-
-        for name in ("BaseKGDataset", "SampleKGDataset", "UMLSDataset", "split"):
-            self.assertTrue(hasattr(datasets, name), name)
-        self.assertTrue(callable(tasks.link_prediction_fn))
-
-    def test_link_prediction_fn_warns(self) -> None:
-        with self.assertWarns(DeprecationWarning):
-            samples = link_prediction_fn([(0, 0, 1)])
-        self.assertEqual(len(samples), 1)
-
-    def test_sample_kg_dataset_warns(self) -> None:
-        with self.assertWarns(DeprecationWarning):
-            make_dataset(n=2)
-
-    def test_split_warns(self) -> None:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", DeprecationWarning)
-            dataset = make_dataset(n=10)
-        with self.assertWarns(DeprecationWarning):
-            split(dataset, [0.6, 0.2, 0.2], seed=0)
-
-    def test_a_model_on_a_1x_dataset_warns(self) -> None:
-        from pyhealth.medcode.pretrained_embeddings.kg_emb.models import TransE
-
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", DeprecationWarning)
-            dataset = make_dataset(n=4)
-        with self.assertWarnsRegex(DeprecationWarning, "kg_triple"):
-            TransE(dataset=dataset, e_dim=4, r_dim=4)
 
 
 class TestNegativeSamplingReachesTheSampler(unittest.TestCase):
@@ -1347,25 +1055,10 @@ class TestNegativeSamplingReachesTheSampler(unittest.TestCase):
         model.train_neg_sample_gen = record
         return shapes
 
-    def legacy_batch(self, per_sample=None, **dataset_kwargs):
-        samples = make_samples(4)
-        if per_sample is not None:
-            for s in samples:
-                s["hyperparameters"] = {"negative_sampling": per_sample}
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", DeprecationWarning)
-            dataset = SampleKGDataset(
-                samples=samples, entity_num=10, relation_num=3, **dataset_kwargs
-            )
-        loader = DataLoader(dataset, batch_size=2, collate_fn=collate_fn_dict_with_padding)
-        return dataset, next(iter(loader))
-
     def build(self, dataset, **kwargs):
         from pyhealth.medcode.pretrained_embeddings.kg_emb.models import TransE
 
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", DeprecationWarning)
-            model = TransE(dataset=dataset, e_dim=4, r_dim=4, **kwargs)
+        model = TransE(dataset=dataset, e_dim=4, r_dim=4, **kwargs)
         model.train()
         return model
 
@@ -1373,7 +1066,7 @@ class TestNegativeSamplingReachesTheSampler(unittest.TestCase):
         from pyhealth.processors import KGTripleProcessor
 
         processor = KGTripleProcessor(num_entities=10, num_relations=3)
-        processor.fit([{"triple": s["triple"]} for s in make_samples(4)], "triple")
+        processor.fit([{"triple": t} for t in [(0, 0, 4), (1, 1, 5), (2, 2, 6)]], "triple")
 
         class _Train:
             input_processors = {"triple": processor}
@@ -1386,24 +1079,8 @@ class TestNegativeSamplingReachesTheSampler(unittest.TestCase):
     def test_numpy_integers_are_accepted(self) -> None:
         import numpy as np
 
-        dataset, _ = self.legacy_batch()
+        dataset = processor_dataset(10, 3)
         self.assertEqual(self.build(dataset, negative_sampling=np.int64(6)).negative_sampling, 6)
-        dataset, _ = self.legacy_batch(negative_sampling=np.int32(5))
-        self.assertEqual(self.build(dataset).negative_sampling, 5)
+        self.assertEqual(self.build(dataset, negative_sampling=np.int32(5)).negative_sampling, 5)
         with self.assertRaises(ValueError):
             self.build(dataset, negative_sampling=True)
-
-    def test_a_1x_per_sample_value_applies_when_none_was_chosen(self) -> None:
-        dataset, batch = self.legacy_batch(per_sample=3)
-        model = self.build(dataset)
-        shapes = self.spy(model)
-        model(**batch)
-        self.assertEqual(shapes, [(2, 3)])
-
-    def test_a_chosen_value_wins_over_the_samples_with_a_warning(self) -> None:
-        dataset, batch = self.legacy_batch(per_sample=3)
-        model = self.build(dataset, negative_sampling=5)
-        shapes = self.spy(model)
-        with self.assertWarnsRegex(UserWarning, "negative_sampling=3 is ignored"):
-            model(**batch)
-        self.assertEqual(shapes, [(2, 5)])

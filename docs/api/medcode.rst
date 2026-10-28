@@ -183,19 +183,22 @@ split leaves the inverse of most test triples in the training part
 this is the leakage reported for FB15k and WN18 by Toutanova and Chen (2015)
 and Dettmers et al. (2018).
 
-The PyHealth 1.x entry points, ``link_prediction_fn``,
-:class:`~pyhealth.medcode.pretrained_embeddings.kg_emb.datasets.SampleKGDataset`
-and :func:`~pyhealth.medcode.pretrained_embeddings.kg_emb.datasets.split`,
-still work for one release with a ``DeprecationWarning``. They keep their
-1.x behaviour, including training negatives filtered with, and subsampling
-weights computed on, every triple of the graph, held-out ones included; only
-the 2.0 path above avoids that. The 2.0 path also removes duplicate triples,
-where 1.x made one sample per row, so its sample counts, weights and metrics
-are not comparable with 1.x runs. ``UMLSDataset(dev=True)`` now keeps 1000
-triples of ``graph.txt``, where 1.x loaded the whole of ``graph_filtered.txt``. A
-model must be built from a sample dataset part, not from the
-``BaseKGDataset`` itself. Ids no longer follow the 1.x order of first
-appearance: map 1.x embeddings through the ``id2entity`` saved with them.
+The PyHealth 1.x entry points ``link_prediction_fn``, ``SampleKGDataset``
+and ``kg_emb.datasets.split`` have been removed, as have ``set_task`` with a
+function or ``task_fn=``, its ``task_name=``, ``save=`` and extra keyword
+arguments (``negative_sampling`` is now a model argument, step 4), the
+``refresh_cache`` argument, ``len()``, and the ``entity_num``,
+``relation_num``, ``triples``, ``stat()`` and ``info()`` members of
+``BaseKGDataset`` (use ``num_entities``, ``num_relations`` and
+``stats()``); use the 2.0 path above. Its
+results are not comparable with 1.x runs: 1.x filtered training negatives
+with, and computed subsampling weights on, every triple of the graph,
+held-out ones included, and made one sample per row of the file, duplicates
+included. ``UMLSDataset(dev=True)`` now keeps 1000 triples of ``graph.txt``,
+where 1.x loaded the whole of ``graph_filtered.txt``. A model must be built
+from a sample dataset part, not from the ``BaseKGDataset`` itself. Ids no
+longer follow the 1.x order of first appearance: map 1.x embeddings through
+the ``id2entity`` saved with them.
 
 .. autoclass:: pyhealth.medcode.pretrained_embeddings.kg_emb.datasets.BaseKGDataset
     :members:
@@ -208,13 +211,6 @@ appearance: map 1.x embeddings through the ``id2entity`` saved with them.
 .. autoclass:: pyhealth.medcode.pretrained_embeddings.kg_emb.tasks.KGLinkPrediction
     :members:
     :show-inheritance:
-
-.. autoclass:: pyhealth.medcode.pretrained_embeddings.kg_emb.datasets.SampleKGDataset
-    :members:
-    :undoc-members:
-    :show-inheritance:
-
-.. autofunction:: pyhealth.medcode.pretrained_embeddings.kg_emb.datasets.split
 
 .. autoclass:: pyhealth.medcode.pretrained_embeddings.kg_emb.models.KGEBaseModel
     :members:

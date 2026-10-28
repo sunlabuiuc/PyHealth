@@ -18,16 +18,12 @@ from __future__ import annotations
 import inspect
 import logging
 import warnings
-from collections.abc import Callable
 from pathlib import Path
-from typing import Any
 
 import polars as pl
 
 from pyhealth.datasets import BaseDataset
 from pyhealth.tasks import BaseTask
-
-from .sample_kg_dataset import SampleKGDataset
 
 logger = logging.getLogger(__name__)
 
@@ -236,8 +232,6 @@ class BaseKGDataset(BaseDataset):
         dev: Keep 1000 triples, chosen by the dev filter of ``BaseDataset``:
             the first 1000 of the file when the table is read as a single
             partition, not necessarily otherwise.
-        refresh_cache: Deprecated and ignored. The cache key now covers the
-            config and the source files, so an edited file builds a new cache.
 
     Raises:
         ValueError: If the config has no ``triples`` table with the
@@ -272,15 +266,7 @@ class BaseKGDataset(BaseDataset):
         cache_dir: str | Path | None = None,
         num_workers: int = 1,
         dev: bool = False,
-        refresh_cache: bool | None = None,
     ) -> None:
-        if refresh_cache is not None:
-            warnings.warn(
-                "refresh_cache is deprecated and ignored: the dataset cache is "
-                "keyed on the config and the source files.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
         super().__init__(
             root=root,
             tables=[TABLE],
@@ -356,106 +342,17 @@ class BaseKGDataset(BaseDataset):
         """Number of distinct relations in the graph."""
         return len(self.relation2id)
 
-    @property
-    def entity_num(self) -> int:
-        """Alias of ``num_entities``, the name used before PyHealth 2.0."""
-        return self.num_entities
-
-    @property
-    def relation_num(self) -> int:
-        """Alias of ``num_relations``, the name used before PyHealth 2.0."""
-        return self.num_relations
-
-    def _indexed_triples(self) -> list[tuple[int, int, int]]:
-        """All triples as ``(head_id, relation_id, tail_id)``, in file order."""
-        self._load_vocabularies()  # raises on incomplete triples
-        triples = self._triples_frame()
-        indexed = (
-            index_triples(triples, entity_vocabulary(triples), relation_vocabulary(triples))
-            # The loader numbers rows in file order but stores them sorted on
-            # the string id ("0", "1", "10", ...); the numeric sort restores
-            # the file order.
-            .sort(pl.col("patient_id").cast(pl.Int64))
-            .select("head_id", "relation_id", "tail_id")
-            .collect()
-        )
-        return list(indexed.iter_rows())
-
-    @property
-    def triples(self) -> list[tuple[int, int, int]]:
-        """Deprecated: all triples as id tuples, as in PyHealth 1.x.
-
-        This loads the whole graph into a Python list. Use a task and
-        ``set_task`` instead.
-        """
-        warnings.warn(
-            "BaseKGDataset.triples is deprecated and will be removed in the next "
-            "release; use set_task with a task instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return self._indexed_triples()
-
-    def stat(self) -> str:
-        """Deprecated: prints and returns the size of the graph.
-
-        Use ``stats()``, ``num_entities`` and ``num_relations`` instead.
-        """
-        warnings.warn(
-            "BaseKGDataset.stat() is deprecated and will be removed in the next "
-            "release; use stats(), num_entities and num_relations.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        n_triples = self._triples_frame().select(pl.len()).collect().item()
-        report = "\n".join(
-            [
-                "",
-                f"Statistics of base dataset (dev={self.dev}):",
-                f"\t- Dataset: {self.dataset_name}",
-                f"\t- Number of triples: {n_triples}",
-                f"\t- Number of entities: {self.num_entities}",
-                f"\t- Number of relations: {self.num_relations}",
-                "",
-            ]
-        )
-        print(report)
-        return report
-
-    @staticmethod
-    def info() -> None:
-        """Deprecated: prints the layout of the triples table."""
-        warnings.warn(
-            "BaseKGDataset.info() is deprecated and will be removed in the next "
-            "release.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        print(f"Table '{TABLE}': one row per triple, attributes {list(FIELDS)}.")
-
-    def set_task(self, task: BaseTask | Callable | None = None, *args, **kwargs):
+    def set_task(self, task: BaseTask | None = None, *args, **kwargs):
         """Builds the sample dataset(s) of ``task``.
 
-        With a :class:`~pyhealth.tasks.BaseTask` (by default
-        :class:`KGLinkPrediction`), this is
-        :meth:`pyhealth.datasets.BaseDataset.set_task`. For a task whose
+        This is :meth:`pyhealth.datasets.BaseDataset.set_task`, with
+        :class:`KGLinkPrediction` as the default task. For a task whose
         ``triple`` field uses the ``kg_triple`` processor, it also warns when
         ``split`` is missing, since that processor would then be fitted on
         every triple, and with ``split`` it logs, for each held-out part, how
         many triples involve an entity or a relation absent from the training
-        triples. A plain function,
-        such as ``link_prediction_fn``, goes through the deprecated path of
-        PyHealth 1.x: it receives the list of indexed triples, in file order,
-        and its samples are wrapped in a :class:`SampleKGDataset`, with the
-        remaining keyword arguments (e.g. ``negative_sampling``) as task
-        hyper-parameters. That path takes neither ``split`` nor the other
-        arguments of the 2.0 ``set_task``.
+        triples.
         """
-        if task is None and "task_fn" in kwargs:
-            # PyHealth 1.x named this argument task_fn.
-            task = kwargs.pop("task_fn")
-        if task is not None and not isinstance(task, BaseTask) and callable(task):
-            return self._set_legacy_task(task, *args, **kwargs)
         if task is None:
             task = self.default_task
 
@@ -489,45 +386,3 @@ class BaseKGDataset(BaseDataset):
         return KGLinkPrediction(
             num_entities=self.num_entities, num_relations=self.num_relations
         )
-
-    def _set_legacy_task(
-        self,
-        task_fn: Callable,
-        task_name: str | None = None,
-        save: bool | None = None,
-        **task_spec_param: Any,
-    ) -> SampleKGDataset:
-        warnings.warn(
-            "set_task(task_fn) with a function is deprecated and will be removed "
-            "in the next release. Pass a BaseTask and split=PatientSplit(...) "
-            "to get streaming SampleDatasets.",
-            DeprecationWarning,
-            stacklevel=3,
-        )
-        # These would otherwise be stored as task hyper-parameters and
-        # silently have no effect.
-        unsupported = sorted(
-            {"split", "num_workers", "input_processors", "output_processors"}
-            & task_spec_param.keys()
-        )
-        if unsupported:
-            raise TypeError(
-                f"set_task with a function does not take {unsupported}; "
-                "pass a BaseTask to use them."
-            )
-        if save is not None:
-            logger.info("set_task(save=...) is ignored: samples are not pickled.")
-        # One deprecation warning per call, the one above: link_prediction_fn
-        # and SampleKGDataset would each add their own.
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", DeprecationWarning)
-            samples = task_fn(self._indexed_triples())
-            return SampleKGDataset(
-                samples=samples,
-                dataset_name=self.dataset_name,
-                task_name=task_name or task_fn.__name__,
-                dev=self.dev,
-                entity2id=self.entity2id,
-                relation2id=self.relation2id,
-                **task_spec_param,
-            )
