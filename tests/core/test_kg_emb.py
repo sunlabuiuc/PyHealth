@@ -652,6 +652,37 @@ class TestKGLinkPrediction(unittest.TestCase):
         )
         self.assertEqual(parts[0].known_triples, self.parts[0].known_triples)
 
+    def test_known_triples_cover_every_rank_under_torch_distributed(self) -> None:
+        """With a process group, litdata streams each rank its share of a
+        part; the known triples must still hold the triples of all ranks."""
+        from unittest import mock
+
+        from litdata.utilities.env import _DistributedEnv
+
+        from pyhealth.processors import KGTripleProcessor
+
+        everything = KGTripleProcessor(
+            num_entities=self.dataset.num_entities,
+            num_relations=self.dataset.num_relations,
+        )
+        everything.fit([{"triple": t} for t in self.distinct], "triple")
+        # The processed caches are built before the patch: the test covers
+        # parts read under torch.distributed from caches built beforehand.
+        self.dataset.set_task(self.task, input_processors={"triple": everything})
+        held_out = len(self.triples_of(self.parts[2]))
+        rank_0_of_2 = _DistributedEnv(world_size=2, global_rank=0, num_nodes=1)
+        with mock.patch.object(_DistributedEnv, "detect", return_value=rank_0_of_2):
+            parts = self.dataset.set_task(self.task, split=self.split)
+            whole = self.dataset.set_task(
+                self.task, input_processors={"triple": everything}
+            )
+            streamed = sum(1 for _ in parts[2])
+        # The patch takes effect: iterating a part gives a share of it.
+        self.assertLess(streamed, held_out)
+        self.assertEqual(parts[0].known_triples, self.parts[0].known_triples)
+        # Without split, every stored sample is read, not the rank's share.
+        self.assertEqual(whole.known_triples, self.parts[0].known_triples)
+
     def test_known_triples_are_those_of_a_task_on_a_subgraph(self) -> None:
         """A task that drops triples before numbering gets filter sets in its
         own id space, built from its own samples."""

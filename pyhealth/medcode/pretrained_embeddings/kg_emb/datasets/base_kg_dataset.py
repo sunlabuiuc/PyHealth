@@ -21,9 +21,10 @@ import warnings
 from dataclasses import dataclass
 from pathlib import Path
 
+import numpy as np
 import polars as pl
 
-from pyhealth.datasets import BaseDataset
+from pyhealth.datasets import BaseDataset, SampleDataset
 from pyhealth.processors import PROCESSOR_REGISTRY, KGTripleProcessor
 from pyhealth.tasks import BaseTask
 
@@ -219,10 +220,42 @@ class KnownTriples:
         )
 
 
-def _triples_of(part) -> list[tuple[int, int, int]]:
-    # Sequential iteration: on a subset, litdata's part[i] costs O(i), which
-    # made a pass quadratic in the size of the part.
-    return [tuple(sample["triple"].tolist()) for sample in part]
+def _stored_triples(
+    parts: tuple[SampleDataset, ...], split, start: int = 0
+) -> list[list[tuple[int, int, int]]]:
+    """The triples of ``parts[start:]``, read by index from the stored samples.
+
+    Iterating a part is not used. Under ``torch.distributed``, litdata
+    streams to each rank only its share of the part, so filter sets built
+    from an iteration would miss the triples of the other ranks. On a part
+    whose samples are scattered, iteration also remaps the chunk once per
+    run of consecutive indices, which made the reads grow faster than the
+    number of triples. Index access on the unsplit dataset is neither
+    sharded nor remapped. The sample indices of each part are those of
+    ``split.npz``, from which ``BaseDataset.set_task`` builds the parts.
+
+    Args:
+        parts: The parts returned by ``BaseDataset.set_task``.
+        split: The ``split`` passed to it, or None.
+        start: Index of the first part to read.
+
+    Returns:
+        One list of ``(head, relation, tail)`` per part read, in sample order.
+    """
+    path = Path(parts[0].path)
+    unsplit = SampleDataset(path=str(path))
+    if split is None:
+        # len() of a streaming dataset is the share of the current rank, so
+        # count the stored samples instead.
+        n_samples = sum(end - begin for begin, end in unsplit.region_of_interest)
+        indices = [np.arange(n_samples)]
+    else:
+        with np.load(path / "split.npz") as stored:
+            indices = [stored[f"arr_{k}"] for k in range(len(stored.files))]
+    return [
+        [tuple(unsplit[int(i)]["triple"].tolist()) for i in part]
+        for part in indices[start:]
+    ]
 
 
 def _fitted_triples(processor: KGTripleProcessor) -> list[tuple[int, int, int]]:
@@ -429,7 +462,11 @@ class BaseKGDataset(BaseDataset):
         or a relation absent from the training triples, and every returned
         part carries, as ``known_triples``, the :class:`KnownTriples` of the
         triples of all the parts, which the models read to filter the
-        ranking at evaluation.
+        ranking at evaluation. The triples of the held-out parts are read by
+        index from the stored samples rather than streamed, and so are those
+        of the first part when its processor was supplied, so under
+        ``torch.distributed`` they are not limited to the share of the
+        current rank.
         """
         if task is None:
             task = self.default_task
@@ -457,11 +494,14 @@ class BaseKGDataset(BaseDataset):
         # string: a processor class or instance in the schema gives the same
         # processor.
         if isinstance(processor, KGTripleProcessor):
-            # A processor fitted here holds exactly the triples of the first
-            # part, usually the largest, which spares reading it again; a
+            # The first part is usually the largest. A processor fitted here
+            # holds exactly its triples, which spares reading it again; a
             # supplied one may have been fitted on other triples.
-            first = _triples_of(parts[0]) if supplied else _fitted_triples(processor)
-            held_out = [_triples_of(part) for part in parts[1:]]
+            if not supplied:
+                first = _fitted_triples(processor)
+                held_out = _stored_triples(parts, split, start=1)
+            else:
+                first, *held_out = _stored_triples(parts, split)
             if held_out:
                 _log_unseen_in_training(first, held_out)
             known = _known_triples(first + [t for part in held_out for t in part])
