@@ -920,6 +920,10 @@ class SequenceProcessorV2(FeatureProcessor):
         (tensor([2, 3, 4]), tensor([0, 2, 2, 3]))
     """
 
+    # process() returns the same number of tensors for every sample, which
+    # the disk cache stores as tensors.
+    stores_tensor = True
+
     def __init__(self, levels: Sequence[LevelConfig]):
         if not isinstance(levels, (list, tuple)) or not levels:
             raise ValueError("levels must be a non-empty list of dicts.")
