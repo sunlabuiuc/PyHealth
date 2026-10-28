@@ -31,6 +31,7 @@ class CNNBlock(nn.Module):
     Args:
         in_channels: number of input channels.
         out_channels: number of output channels.
+        spatial_dim: number of spatial dimensions of the input (1, 2 or 3).
 
     Example:
         >>> import torch
