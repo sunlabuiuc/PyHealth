@@ -18,7 +18,7 @@ authors = [
   {name = "Paul Landes", email = "plande2@uic.edu"},
   {name = "Jimeng Sun"},
 ]
-description = "A Python library for healthcare AI"
+description = "A deep learning toolkit for healthcare AI: EHR (MIMIC, eICU, OMOP), clinical text, biosignals and medical imaging"
 readme = "README.rst"
 requires-python = ">=3.12,<3.14"
 dependencies = [
@@ -54,14 +54,33 @@ dependencies = [
 license = "BSD-3-Clause"
 license-files = ["LICENSE.md"]
 keywords = [
-  "heathcare AI",
+  "healthcare AI",
   "healthcare",
   "electronic health records",
-  "EHRs",
+  "EHR",
+  "MIMIC-III",
+  "MIMIC-IV",
+  "eICU",
+  "OMOP",
+  "clinical machine learning",
+  "clinical NLP",
+  "medical codes",
+  "biosignals",
   "machine learning",
-  "data mining",
-  "neural networks",
   "deep learning",
+  "PyTorch",
+]
+classifiers = [
+  "Development Status :: 5 - Production/Stable",
+  "Intended Audience :: Science/Research",
+  "Intended Audience :: Healthcare Industry",
+  "Intended Audience :: Developers",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Topic :: Scientific/Engineering :: Medical Science Apps.",
 ]
 
 [project.optional-dependencies]
@@ -84,11 +103,13 @@ lint = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/sunlabuiuc/PyHealth"
-Documentation = "https://pyhealth.readthedocs.io/en/latest/about.html"
+Homepage = "https://pyhealth.dev"
+Documentation = "https://pyhealth.readthedocs.io/en/latest/"
+Tutorials = "https://pyhealth.readthedocs.io/en/latest/tutorials.html"
 Repository = "https://github.com/sunlabuiuc/PyHealth.git"
 Issues = "https://github.com/sunlabuiuc/PyHealth/issues"
 Changelog = "https://github.com/sunlabuiuc/PyHealth/blob/master/CHANGELOG.md"
+Discord = "https://discord.gg/mpb835EHaX"
 
 [build-system]
 requires = ["hatchling"]
