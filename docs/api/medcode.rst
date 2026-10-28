@@ -167,7 +167,8 @@ pipeline:
    entity that appears only in validation or test triples is still drawn as a
    training negative; such held-out triples are kept and scored, and
    ``set_task`` logs how many there are in each part. ``set_task`` warns when
-   called without ``split``.
+   called without ``split`` and without a supplied ``triple`` processor, and
+   when the supplied ``kg_triple`` processor has not been fitted.
 4. The models take ``negative_sampling`` as an argument and follow
    ``model.train()`` / ``model.eval()``, as set by
    :class:`~pyhealth.trainer.Trainer`; use the ``hits@n`` and ``mean_rank``

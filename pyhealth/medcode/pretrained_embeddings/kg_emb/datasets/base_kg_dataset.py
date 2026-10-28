@@ -473,9 +473,11 @@ class BaseKGDataset(BaseDataset):
         This is :meth:`pyhealth.datasets.BaseDataset.set_task`, with
         :class:`~pyhealth.medcode.pretrained_embeddings.kg_emb.tasks.KGLinkPrediction`
         as the default task. For a task whose
-        ``triple`` field uses the ``kg_triple`` processor, it also warns when
-        ``split`` is missing, since that processor would then be fitted on
-        every triple. When the fitted ``triple`` processor is a
+        ``triple`` field uses the ``kg_triple`` processor, it also warns at
+        every call without ``split`` and without a supplied ``triple``
+        processor, since that processor is then fitted on every triple, and
+        when the ``kg_triple`` processor passed in ``input_processors`` has
+        not been fitted. When the fitted ``triple`` processor is a
         :class:`~pyhealth.processors.KGTripleProcessor`, it logs, with
         ``split``, for each held-out part, how many triples involve an entity
         or a relation absent from the training triples, and every returned
@@ -495,8 +497,23 @@ class BaseKGDataset(BaseDataset):
         ).arguments
         split = bound.get("split")
         # A supplied processor is used as it is, never refitted.
-        supplied = "triple" in (bound.get("input_processors") or {})
+        supplied_processors = bound.get("input_processors") or {}
+        supplied = "triple" in supplied_processors
         fits_triples = _uses_kg_triple(task) and not supplied
+        supplied_triple = supplied_processors.get("triple")
+        unfitted = (
+            isinstance(supplied_triple, KGTripleProcessor)
+            and not supplied_triple.true_tail
+        )
+        if unfitted:
+            warnings.warn(
+                "The supplied kg_triple processor has not been fitted on any "
+                "triple, so training negatives are not filtered and subsampling "
+                "weights are undefined. Fit it on the training triples, or let "
+                "set_task fit it with split=PatientSplit(...).",
+                UserWarning,
+                stacklevel=2,
+            )
         if fits_triples and split is None:
             warnings.warn(
                 "set_task without split= fits the kg_triple processor on every "

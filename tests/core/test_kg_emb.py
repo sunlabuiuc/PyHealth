@@ -845,6 +845,16 @@ class TestKGLinkPrediction(unittest.TestCase):
             with self.subTest(schema=schema):
                 self.assertFalse(_uses_kg_triple(SimpleNamespace(input_schema=schema)))
 
+    def test_an_unfitted_supplied_processor_warns(self) -> None:
+        unfitted = KGTripleProcessor(
+            num_entities=self.dataset.num_entities,
+            num_relations=self.dataset.num_relations,
+        )
+        with self.assertWarnsRegex(UserWarning, "has not been fitted on any triple"):
+            self.dataset.set_task(
+                self.task, split=self.split, input_processors={"triple": unfitted}
+            )
+
     def test_a_processor_class_in_the_schema_without_split_warns(self) -> None:
         from pyhealth.medcode.pretrained_embeddings.kg_emb.tasks import KGLinkPrediction
         from pyhealth.processors import KGTripleProcessor
