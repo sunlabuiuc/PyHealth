@@ -103,10 +103,7 @@ class TestConfiguration(unittest.TestCase):
                 SequenceProcessorV2(levels=levels)
 
     def test_reserved_options_not_implemented(self):
-        reserved: list[tuple[str, Any]] = [
-            ("normalize", "zscore"),
-            ("missing_indicator", True),
-        ]
+        reserved: list[tuple[str, Any]] = [("missing_indicator", True)]
         for key, value in reserved:
             config: Any = {"tokens": 1, key: value}  # deliberately invalid
             with self.subTest(key=key), self.assertRaises(NotImplementedError):
@@ -770,6 +767,114 @@ class TestImpute(unittest.TestCase):
         proc = _fit([level], {"values": [[2.0], [4.0]]})
         restored = pickle.loads(pickle.dumps(proc))
         self.assertEqual(restored.process({"values": [[NAN]]})[0].tolist(), [[3.0]])
+
+
+class TestNormalize(unittest.TestCase):
+    @staticmethod
+    def level(normalize: Any, **config: Any) -> LevelConfig:
+        # Typed Any: the tests also build invalid configurations.
+        level: Any = {"normalize": normalize}
+        level.update(config)
+        return level
+
+    def test_rejects_bad_configurations(self):
+        level = self.level
+        bad: list[Any] = [
+            [level("zscore", values=[1])],
+            [level({"by_dims": ()}, values=[1])],  # no method
+            [level({"method": "robust"}, values=[1])],
+            [level({"method": "zscore", "extra": 1}, values=[1])],
+            [level({"method": "zscore"}, tokens=1)],  # no values
+            [level({"method": "zscore", "by_tokens": [1]}, tokens=1, values=[1])],
+            [level({"method": "zscore", "by_dims": [0, 0]}, values=[2, 2])],
+        ]
+        for levels in bad:
+            with self.subTest(levels=levels), self.assertRaises(ValueError):
+                SequenceProcessorV2(levels=levels)
+
+    def test_learns_statistics(self):
+        proc = SequenceProcessorV2(
+            levels=[self.level({"method": "minmax"}, values=[1])]
+        )
+        self.assertTrue(proc.learns_statistics)
+
+    def test_zscore_per_channel_by_default(self):
+        raw: Records = {"values": [[1.0, 10.0], [3.0, 30.0]]}
+        proc = _fit([self.level({"method": "zscore"}, values=[2])], raw)
+        (values,) = proc.process(raw)
+        self.assertEqual(values.tolist(), [[-1.0, -1.0], [1.0, 1.0]])
+
+    def test_minmax_over_all_axes(self):
+        raw: Records = {"values": [[1.0, 10.0], [3.0, 21.0]]}
+        level = self.level({"method": "minmax", "by_dims": None}, values=[2])
+        (values,) = _fit([level], raw).process(raw)
+        torch.testing.assert_close(values, torch.tensor([[0.0, 0.45], [0.1, 1.0]]))
+
+    def test_statistics_stream_over_samples(self):
+        # Chan et al.'s update across samples equals one pass over all values.
+        samples: list[Records] = [
+            {"values": [[1.0], [2.0]]},
+            {"values": [[3.0]]},
+            {"values": []},
+            {"values": [[4.0], [NAN]]},
+        ]
+        proc = _fit([self.level({"method": "zscore"}, values=[1])], *samples)
+        (values,) = proc.process({"values": [[2.5]]})
+        self.assertAlmostEqual(values.item(), 0.0, places=6)
+        (values,) = proc.process({"values": [[2.5 + 1.25**0.5]]})
+        self.assertAlmostEqual(values.item(), 1.0, places=6)
+
+    def test_by_tokens_falls_back_to_all_tokens(self):
+        train: Records = {
+            "tokens": ["A", "A", "B", "B"],
+            "values": [[0.0], [2.0], [10.0], [30.0]],
+        }
+        level = self.level(
+            {"method": "minmax", "by_tokens": (0,)}, tokens=1, values=[1]
+        )
+        proc = _fit([level], train)
+        _, values = proc.process(
+            {"tokens": ["A", "B", "C"], "values": [[1.0], [20.0], [15.0]]}
+        )
+        # A: 0..2, B: 10..30, and unseen C: all tokens, 0..30.
+        self.assertEqual(values.reshape(-1).tolist(), [0.5, 0.5, 0.5])
+
+    def test_constant_divides_by_one(self):
+        raw: Records = {"values": [[5.0], [5.0]]}
+        proc = _fit([self.level({"method": "zscore"}, values=[1])], raw)
+        self.assertEqual(proc.process({"values": [[7.0]]})[0].tolist(), [[2.0]])
+
+    def test_position_never_seen_is_kept(self):
+        train: Records = {"values": [[1.0, NAN], [3.0, NAN]]}
+        proc = _fit([self.level({"method": "zscore"}, values=[2])], train)
+        (values,) = proc.process({"values": [[3.0, 7.0]]})
+        self.assertEqual(values.tolist(), [[1.0, 7.0]])
+
+    def test_runs_after_imputation(self):
+        # mean imputation, then zscore with the same keys: the gap becomes 0.
+        level = self.level({"method": "zscore"}, values=[1], impute={"method": "mean"})
+        proc = _fit([level], {"values": [[1.0], [3.0]]})
+        (values,) = proc.process({"values": [[NAN], [3.0]]})
+        self.assertEqual(values.tolist(), [[0.0], [1.0]])
+
+    def test_statistics_come_from_raw_values(self):
+        # Resampling averages 0 and 4 into 2; minmax still spans the raw 0..4.
+        level = self.level(
+            {"method": "minmax"},
+            ordering="series",
+            values=[1],
+            resample={"step": 1.0, "method": "avg"},
+        )
+        raw: Records = {"time": [0.0, 0.5, 1.0], "values": [[0.0], [4.0], [1.0]]}
+        (values,) = _fit([level], raw).process(raw)
+        self.assertEqual(values.reshape(-1).tolist(), [0.5, 0.25])
+
+    def test_pickle_keeps_statistics(self):
+        proc = _fit(
+            [self.level({"method": "zscore"}, values=[1])], {"values": [[1.0], [3.0]]}
+        )
+        restored = pickle.loads(pickle.dumps(proc))
+        self.assertEqual(restored.process({"values": [[3.0]]})[0].tolist(), [[1.0]])
 
 
 class TestCollateAndValidate(unittest.TestCase):

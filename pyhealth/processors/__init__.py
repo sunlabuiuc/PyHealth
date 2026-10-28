@@ -40,6 +40,7 @@ from .sequence_processor import SequenceProcessor
 from .sequence_processor_v2 import (
     Impute,
     LevelConfig,
+    Normalize,
     Records,
     Resample,
     SequenceProcessorV2,
@@ -87,6 +88,7 @@ __all__ = [
     "Records",
     "LevelConfig",
     "Impute",
+    "Normalize",
     "Resample",
     "SignalProcessor",
     "StageNetProcessor",

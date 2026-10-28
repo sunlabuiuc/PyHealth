@@ -3,7 +3,7 @@
 See ``notes/Unified_Sequence_Processor.md`` (Section 7) for the design.
 """
 
-from collections.abc import Iterable, Iterator, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from itertools import accumulate, repeat
 from typing import (
@@ -34,6 +34,7 @@ ResampleMethod = Literal["first", "last", "min", "max", "avg", "merge"]
 ImputeMethod = Literal[
     "zero", "mean", "min", "max", "forward_fill", "backward_fill", "linear"
 ]
+NormalizeMethod = Literal["zscore", "minmax"]
 
 # Imputation methods that use statistics learned in fit().
 _STATISTICS = ("mean", "min", "max")
@@ -41,7 +42,7 @@ _STATISTICS = ("mean", "min", "max")
 _ALONG_TIME = ("forward_fill", "backward_fill", "linear")
 
 # Options reserved in the configuration but not implemented in Phase 1.
-_RESERVED = {"normalize": None, "missing_indicator": False}
+_RESERVED = {"missing_indicator": False}
 
 
 class Records(TypedDict, total=False):
@@ -139,12 +140,46 @@ class Impute(TypedDict, total=False):
     by_dims: Sequence[int] | None
 
 
+class Normalize(TypedDict, total=False):
+    """Normalization of a level's values; a plain ``dict``.
+
+    It runs after resampling and imputation, so imputed values are scaled
+    too: ``mean`` imputation followed by ``zscore`` with the same keys puts
+    imputed values at 0.
+
+    Keys:
+        method: ``"zscore"``, ``(x - mean) / std``, or ``"minmax"``,
+            ``(x - min) / (max - min)``. The statistics are learned in
+            ``fit()`` from the raw training values (before resampling), with
+            NaN skipped. A spread of 0 (a constant) divides by 1.
+        by_tokens: Token namespaces; the statistics are kept per token in
+            these namespaces. A token without statistics uses the statistics
+            over all tokens, so its value keeps its measured size on the
+            population scale. That is ``<unk>`` (any token not seen in
+            ``fit()``), ``<pad>`` (a resampled step without records, whose
+            value is NaN unless imputed), and a token whose training values
+            were all NaN. None (the default) ignores tokens.
+        by_dims: The axes of the value shape ``S`` to reduce over, indexed
+            like ``values`` and ``spatial``. ``()`` (the default) keeps one
+            statistic per value position, e.g. per channel of ``[N, F]``
+            vitals; ``(1, 2)`` gives one per channel of ``[C, H, W]``
+            images; None reduces over all axes. Time is always reduced.
+
+    A value position without any training value is left as it is.
+    """
+
+    method: Required[NormalizeMethod]
+    by_tokens: Sequence[int] | None
+    by_dims: Sequence[int] | None
+
+
 class LevelConfig(TypedDict, total=False):
     """Configuration of one level; a plain ``dict`` with type hints.
 
     Like :class:`Records`, ``tokens`` and ``values`` declare a role by being
     present. They are fixed by the task, so :meth:`SequenceProcessorV2.fit`
-    only builds vocabularies (and impute statistics).
+    only builds vocabularies (and the statistics of imputation and
+    normalization).
 
     Keys:
         ordering: ``"set"``, ``"sequence"`` (default) or ``"series"``.
@@ -163,7 +198,7 @@ class LevelConfig(TypedDict, total=False):
         spatial: One bool per value axis; defaults to all False.
         impute: An :class:`Impute` step, or a list of them applied in order,
             run after resampling.
-        normalize: Reserved for future work; only None.
+        normalize: A :class:`Normalize`, run after imputation.
         missing_indicator: Reserved for future work; only False.
     """
 
@@ -174,7 +209,7 @@ class LevelConfig(TypedDict, total=False):
     resample: Resample | None
     spatial: Sequence[bool] | None
     impute: Impute | Sequence[Impute] | None
-    normalize: None
+    normalize: Normalize | None
     missing_indicator: Literal[False]
 
 
@@ -182,6 +217,14 @@ class _ImputeStep(NamedTuple):
     """A checked :class:`Impute`."""
 
     method: ImputeMethod
+    by_tokens: tuple[int, ...] | None
+    by_dims: tuple[int, ...] | None
+
+
+class _NormalizeStep(NamedTuple):
+    """A checked :class:`Normalize`."""
+
+    method: NormalizeMethod
     by_tokens: tuple[int, ...] | None
     by_dims: tuple[int, ...] | None
 
@@ -202,6 +245,7 @@ class _InternalLevelConfig:
     resample: tuple[float, ResampleMethod] | None  # (step, method)
     spatial: tuple[bool, ...] | None
     impute: tuple[_ImputeStep, ...]
+    normalize: _NormalizeStep | None
 
     @staticmethod
     def _is_count(value: Any) -> bool:
@@ -243,6 +287,42 @@ class _InternalLevelConfig:
             f"Level {level}: code_mapping must be a (source, target) pair or a list "
             f"with one pair (or None) per token namespace, got {mapping!r}."
         )
+
+    @classmethod
+    def _parse_by(
+        cls,
+        level: int,
+        step: Mapping[str, object],
+        tokens: int,
+        values: tuple[int, ...],
+        default_dims: tuple[int, ...] | None,
+    ) -> tuple[tuple[int, ...] | None, tuple[int, ...] | None]:
+        """Checks the ``by_tokens`` and ``by_dims`` of an impute or normalize step."""
+        by_tokens = step.get("by_tokens")
+        if by_tokens is not None:
+            if (
+                not isinstance(by_tokens, (tuple, list))
+                or not by_tokens
+                or not all(cls._is_index(k, tokens) for k in by_tokens)
+            ):
+                raise ValueError(
+                    f"Level {level}: by_tokens must be None or a non-empty list of "
+                    f"token namespaces below {tokens}, got {by_tokens!r}."
+                )
+            by_tokens = tuple(by_tokens)
+        by_dims = step.get("by_dims", default_dims)
+        if by_dims is not None:
+            if (
+                not isinstance(by_dims, (tuple, list))
+                or not all(cls._is_index(d, len(values)) for d in by_dims)
+                or len(set(by_dims)) != len(by_dims)
+            ):
+                raise ValueError(
+                    f"Level {level}: by_dims must be None or a list of distinct "
+                    f"value axes below {len(values)}, got {by_dims!r}."
+                )
+            by_dims = tuple(by_dims)
+        return by_tokens, by_dims
 
     @classmethod
     def parse(cls, level: int, config: LevelConfig) -> "_InternalLevelConfig":
@@ -381,29 +461,7 @@ class _InternalLevelConfig:
                     f"Level {level}: impute method must be one of "
                     f"{get_args(ImputeMethod)}, got {method!r}."
                 )
-            by_tokens, by_dims = step.get("by_tokens"), step.get("by_dims")
-            if by_tokens is not None:
-                if (
-                    not isinstance(by_tokens, (tuple, list))
-                    or not by_tokens
-                    or not all(cls._is_index(k, tokens) for k in by_tokens)
-                ):
-                    raise ValueError(
-                        f"Level {level}: by_tokens must be None or a non-empty list of "
-                        f"token namespaces below {tokens}, got {by_tokens!r}."
-                    )
-                by_tokens = tuple(by_tokens)
-            if by_dims is not None:
-                if (
-                    not isinstance(by_dims, (tuple, list))
-                    or not all(cls._is_index(d, len(values)) for d in by_dims)
-                    or len(set(by_dims)) != len(by_dims)
-                ):
-                    raise ValueError(
-                        f"Level {level}: by_dims must be None or a list of distinct "
-                        f"value axes below {len(values)}, got {by_dims!r}."
-                    )
-                by_dims = tuple(by_dims)
+            by_tokens, by_dims = cls._parse_by(level, step, tokens, values, None)
             if method in (*_STATISTICS, "linear") and not values:
                 raise ValueError(
                     f"Level {level}: impute method {method!r} needs values."
@@ -415,6 +473,27 @@ class _InternalLevelConfig:
                 )
             parsed.append(_ImputeStep(method, by_tokens, by_dims))
 
+        normalize = config.get("normalize")
+        if normalize is not None:
+            if (
+                not isinstance(normalize, dict)
+                or "method" not in normalize
+                or not normalize.keys() <= Normalize.__annotations__.keys()
+            ):
+                raise ValueError(
+                    f"Level {level}: normalize must be a dict with 'method' and "
+                    f"optionally 'by_tokens' and 'by_dims', got {normalize!r}."
+                )
+            if normalize["method"] not in get_args(NormalizeMethod):
+                raise ValueError(
+                    f"Level {level}: normalize method must be one of "
+                    f"{get_args(NormalizeMethod)}, got {normalize['method']!r}."
+                )
+            if not values:
+                raise ValueError(f"Level {level}: normalize needs values.")
+            by_tokens, by_dims = cls._parse_by(level, normalize, tokens, values, ())
+            normalize = _NormalizeStep(normalize["method"], by_tokens, by_dims)
+
         return cls(
             ordering=ordering,
             tokens=tokens,
@@ -423,6 +502,7 @@ class _InternalLevelConfig:
             resample=resample,
             spatial=spatial,
             impute=tuple(parsed),
+            normalize=normalize,
         )
 
 
@@ -497,102 +577,189 @@ class _Resampler:
         return resampled, grid_children
 
 
-class _Imputer:
-    """Runs the impute steps of one level (see :class:`Impute`).
+def _split_by_key(keys: np.ndarray) -> Iterator[tuple[tuple[int, ...], np.ndarray]]:
+    """Yields each distinct row of ``keys`` and the mask of rows equal to it."""
+    if len(keys) == 0:
+        return
+    if keys.shape[1] == 0:
+        yield (), np.ones(len(keys), dtype=bool)
+        return
+    unique, inverse = np.unique(keys, axis=0, return_inverse=True)
+    inverse = inverse.reshape(-1)
+    for index, key in enumerate(unique.tolist()):
+        yield tuple(key), inverse == index
 
-    It also holds the statistics of the ``mean`` / ``min`` / ``max`` steps:
-    :meth:`accumulate` adds one ``Records``' raw values during ``fit()``, and
-    :meth:`finish` turns the running state into statistics.
+
+class _KeyedStatistics:
+    """Dataset statistics of a level's raw values, per token key.
+
+    The key of a record is its token IDs in the ``by_tokens`` namespaces
+    (``()`` when ``by_tokens`` is None), and the ``by_dims`` axes of ``S``
+    are reduced. Each statistic has shape ``S`` with size 1 on the reduced
+    axes, so it broadcasts over the values it applies to.
+
+    :meth:`accumulate` adds one ``Records``' values during ``fit()``,
+    :meth:`finish` turns the running state into statistics, and
+    :meth:`lookup` finds them for the records of a level in ``process()``.
+    With ``pooled``, the statistics over all tokens are kept as well, under
+    the key None, for records whose key has none.
     """
 
-    def __init__(self, level: int, steps: tuple[_ImputeStep, ...], tokens: int):
-        self.level, self.steps, self.tokens = level, steps, tokens
-        self.learns_statistics = any(step.method in _STATISTICS for step in steps)
-        # Per statistic step: its running state during fit(), then, per token
-        # key, its statistic.
-        self._state = self._new_state()
-        self._stats: dict[int, dict[tuple[int, ...], np.ndarray]] = {}
+    def __init__(
+        self,
+        level: int,
+        tokens: int,
+        by_tokens: tuple[int, ...] | None,
+        by_dims: tuple[int, ...] | None,
+        pooled: bool = False,
+    ):
+        self.level, self.tokens = level, tokens
+        self.by_tokens, self.by_dims = by_tokens, by_dims
+        self.pooled = pooled and by_tokens is not None
+        # Running state while fitting: count, mean, M2 (Chan et al.), min, max.
+        self._state: dict[tuple[int, ...] | None, list[np.ndarray]] = {}
+        self._stats: dict[tuple[int, ...] | None, dict[str, np.ndarray]] = {}
 
-    def _new_state(self) -> dict[int, dict[tuple[int, ...], list[np.ndarray]]]:
-        return {
-            index: {}
-            for index, step in enumerate(self.steps)
-            if step.method in _STATISTICS
-        }
+    def _keys(self, tokens: np.ndarray | None, n: int) -> np.ndarray:
+        if self.by_tokens is None or tokens is None:
+            return np.zeros((n, 0), dtype=np.int64)
+        return tokens[:, list(self.by_tokens)]
 
     def accumulate(self, values: np.ndarray, ids: list[list[int]]) -> None:
-        """Adds one ``Records``' raw values (and their token IDs) to the statistics."""
-        for index, state in self._state.items():
-            step = self.steps[index]
-            keys = np.zeros((len(values), 0), dtype=np.int64)
-            if step.by_tokens is not None:
-                if len(ids) != len(values):
-                    raise ValueError(
-                        f"Level {self.level}: {len(ids)} tokens but {len(values)} values."
-                    )
-                table = np.array(ids, dtype=np.int64).reshape(len(ids), self.tokens)
-                keys = table[:, list(step.by_tokens)]
-            self._accumulate(step, values, keys, state)
+        """Adds one ``Records``' raw values ``[N, *S]`` and token IDs ``[N][K]``."""
+        tokens = None
+        if self.by_tokens is not None:
+            if len(ids) != len(values):
+                raise ValueError(
+                    f"Level {self.level}: {len(ids)} tokens but {len(values)} values."
+                )
+            tokens = np.array(ids, dtype=np.int64).reshape(len(ids), self.tokens)
+        values = values.astype(np.float64)  # sums over a dataset need the range
+        reduced = range(values.ndim - 1) if self.by_dims is None else self.by_dims
+        axes = (0, *(1 + d for d in reduced))
+        groups: list[tuple[tuple[int, ...] | None, np.ndarray]] = list(
+            _split_by_key(self._keys(tokens, len(values)))
+        )
+        if self.pooled and len(values):
+            groups.append((None, np.ones(len(values), dtype=bool)))
+        for key, rows in groups:
+            x = values[rows]
+            ok = np.isfinite(x)
+            count = ok.sum(axis=axes, keepdims=True)
+            with np.errstate(invalid="ignore", divide="ignore"):
+                mean = np.where(ok, x, 0.0).sum(axis=axes, keepdims=True) / count
+            mean = np.where(count > 0, mean, 0.0)
+            m2 = np.where(ok, (x - mean) ** 2, 0.0).sum(axis=axes, keepdims=True)
+            low = np.where(ok, x, np.inf).min(axis=axes, keepdims=True)
+            high = np.where(ok, x, -np.inf).max(axis=axes, keepdims=True)
+            batch = [a[0] for a in (count.astype(np.float64), mean, m2, low, high)]
+            if key not in self._state:
+                self._state[key] = batch
+                continue
+            n_a, mean_a, m2_a, low_a, high_a = self._state[key]
+            n_b, mean_b, m2_b, low_b, high_b = batch
+            total = n_a + n_b
+            with np.errstate(invalid="ignore", divide="ignore"):
+                share = np.where(total > 0, n_b / total, 0.0)
+            delta = mean_b - mean_a
+            self._state[key] = [
+                total,
+                mean_a + delta * share,
+                m2_a + m2_b + delta**2 * n_a * share,
+                np.minimum(low_a, low_b),
+                np.maximum(high_a, high_b),
+            ]
 
     def finish(self) -> None:
         """Turns the running state into statistics, ready for a new fit()."""
-        for index, state in self._state.items():
-            stats: dict[tuple[int, ...], np.ndarray] = {}
-            for key, parts in state.items():
-                if self.steps[index].method == "mean":
-                    with np.errstate(invalid="ignore", divide="ignore"):
-                        stat = parts[0] / parts[1]
-                else:
-                    stat = np.where(np.isinf(parts[0]), np.nan, parts[0])
-                stats[key] = stat.astype(np.float32)
-            self._stats[index] = stats
-        self._state = self._new_state()
+        self._stats = {}
+        for key, (count, mean, m2, low, high) in self._state.items():
+            seen = count > 0
+            with np.errstate(invalid="ignore", divide="ignore"):
+                std = np.sqrt(m2 / count)
+            self._stats[key] = {
+                "mean": np.where(seen, mean, np.nan).astype(np.float32),
+                "std": np.where(seen, std, np.nan).astype(np.float32),
+                "min": np.where(seen, low, np.nan).astype(np.float32),
+                "max": np.where(seen, high, np.nan).astype(np.float32),
+            }
+        self._state = {}
 
-    @staticmethod
-    def _split_by_key(keys: np.ndarray) -> Iterator[tuple[tuple[int, ...], np.ndarray]]:
-        """Yields each distinct row of ``keys`` and the mask of rows equal to it."""
-        if len(keys) == 0:
-            return
-        if keys.shape[1] == 0:
-            yield (), np.ones(len(keys), dtype=bool)
-            return
-        unique, inverse = np.unique(keys, axis=0, return_inverse=True)
-        inverse = inverse.reshape(-1)
-        for index, key in enumerate(unique.tolist()):
-            yield tuple(key), inverse == index
+    def lookup(
+        self, tokens: np.ndarray | None, n: int
+    ) -> Iterator[tuple[np.ndarray, dict[str, np.ndarray]]]:
+        """Yields the mask of rows that share a key, and the key's statistics.
 
-    def _accumulate(
-        self,
-        step: _ImputeStep,
-        values: np.ndarray,
-        keys: np.ndarray,
-        state: dict[tuple[int, ...], list[np.ndarray]],
-    ) -> None:
-        """Adds raw values to the running state of one statistic, per token key."""
-        reduced = range(values.ndim - 1) if step.by_dims is None else step.by_dims
-        axes = (0, *(1 + d for d in reduced))
-        values = values.astype(np.float64)  # sums over a dataset need the range
-        finite = np.isfinite(values)
-        for key, rows in self._split_by_key(keys):
-            x, ok = values[rows], finite[rows]
-            if step.method == "mean":
-                total = np.where(ok, x, 0.0).sum(axis=axes, keepdims=True)[0]
-                count = ok.sum(axis=axes, keepdims=True)[0]
-                if key in state:
-                    state[key][0] += total
-                    state[key][1] += count
-                else:
-                    state[key] = [total, count]
+        Rows whose key has no statistics are skipped, or, with ``pooled``, get
+        the statistics over all tokens.
+        """
+        for key, rows in _split_by_key(self._keys(tokens, n)):
+            stats = self._stats.get(key)
+            if stats is None and self.pooled:
+                stats = self._stats.get(None)
+            if stats is not None:
+                yield rows, stats
+
+
+class _Normalizer:
+    """Normalizes one level's values (see :class:`Normalize`)."""
+
+    learns_statistics = True
+
+    def __init__(self, level: int, step: _NormalizeStep, tokens: int):
+        self.method = step.method
+        self.statistics = _KeyedStatistics(
+            level, tokens, step.by_tokens, step.by_dims, pooled=True
+        )
+
+    def accumulate(self, values: np.ndarray, ids: list[list[int]]) -> None:
+        self.statistics.accumulate(values, ids)
+
+    def finish(self) -> None:
+        self.statistics.finish()
+
+    def __call__(self, columns: dict[Role, np.ndarray]) -> None:
+        """Normalizes the level's concatenated values in place."""
+        values = columns["values"].astype(np.float64)
+        for rows, stats in self.statistics.lookup(columns.get("tokens"), len(values)):
+            if self.method == "zscore":
+                center, spread = stats["mean"], stats["std"]
             else:
-                low = step.method == "min"
-                fill = np.inf if low else -np.inf
-                reduce = np.min if low else np.max
-                extreme = reduce(np.where(ok, x, fill), axis=axes, keepdims=True)[0]
-                if key in state:
-                    combine = np.minimum if low else np.maximum
-                    state[key][0] = combine(state[key][0], extreme)
-                else:
-                    state[key] = [extreme]
+                center, spread = stats["min"], stats["max"] - stats["min"]
+            # A constant divides by 1; a position never seen in fit() is kept.
+            spread = np.where(spread > 0, spread, 1.0)
+            center = np.where(np.isnan(center), 0.0, center)
+            values[rows] = (values[rows] - center) / spread
+        columns["values"] = values.astype(np.float32)
+
+
+class _Imputer:
+    """Runs the impute steps of one level (see :class:`Impute`).
+
+    It also holds the statistics of the ``mean`` / ``min`` / ``max`` steps
+    (:class:`_KeyedStatistics`): :meth:`accumulate` adds one ``Records``' raw
+    values during ``fit()``, and :meth:`finish` turns them into statistics.
+    """
+
+    def __init__(self, level: int, steps: tuple[_ImputeStep, ...], tokens: int):
+        self.level, self.steps = level, steps
+        # The statistics of each mean / min / max step, by step index.
+        self.statistics = {
+            index: _KeyedStatistics(level, tokens, step.by_tokens, step.by_dims)
+            for index, step in enumerate(steps)
+            if step.method in _STATISTICS
+        }
+        self.learns_statistics = bool(self.statistics)
+
+    def accumulate(self, values: np.ndarray, ids: list[list[int]]) -> None:
+        """Adds one ``Records``' raw values (and their token IDs) to the statistics."""
+        for statistics in self.statistics.values():
+            statistics.accumulate(values, ids)
+
+    def finish(self) -> None:
+        """Turns the running state into statistics, ready for a new fit()."""
+        for statistics in self.statistics.values():
+            statistics.finish()
 
     @staticmethod
     def _previous_valid(valid: np.ndarray, start: np.ndarray) -> np.ndarray:
@@ -653,13 +820,10 @@ class _Imputer:
             )
             if step.method in _STATISTICS:
                 assert values is not None  # the configuration requires values
-                stats = self._stats.get(index, {})
                 values = values.copy()
-                for key, rows in self._split_by_key(keys):
-                    stat = stats.get(key)
-                    if stat is not None:
-                        x = values[rows]
-                        values[rows] = np.where(np.isnan(x), stat, x)
+                for rows, stats in self.statistics[index].lookup(tokens, n):
+                    x = values[rows]
+                    values[rows] = np.where(np.isnan(x), stats[step.method], x)
                 columns["values"] = values
                 continue
 
@@ -728,7 +892,7 @@ class SequenceProcessorV2(FeatureProcessor):
     into level ``l + 1`` records, in CSR layout. Which roles a level has, the
     number of token namespaces ``K`` and the value shape ``S`` come from the
     configuration; :meth:`fit` only builds the vocabularies and the statistics
-    of the impute steps.
+    of imputation and normalization.
 
     Subclasses are configuration only: their ``__init__`` passes fixed
     ``levels`` to ``super().__init__()`` and adds no logic.
@@ -783,14 +947,20 @@ class SequenceProcessorV2(FeatureProcessor):
             for level, config in enumerate(self._config)
         ]
         # Fitted state: one vocabulary per level and token namespace, and the
-        # statistics held by each level's imputer.
+        # statistics held by each level's imputer and normalizer.
         self._imputers = [
             _Imputer(level, config.impute, config.tokens) if config.impute else None
             for level, config in enumerate(self._config)
         ]
+        self._normalizers = [
+            None
+            if config.normalize is None
+            else _Normalizer(level, config.normalize, config.tokens)
+            for level, config in enumerate(self._config)
+        ]
         self.learns_statistics = any(
-            imputer is not None and imputer.learns_statistics
-            for imputer in self._imputers
+            learner is not None and learner.learns_statistics
+            for learner in (*self._imputers, *self._normalizers)
         )
         self._vocabs = [
             [_new_vocab() for _ in range(config.tokens)] for config in self._config
@@ -991,7 +1161,7 @@ class SequenceProcessorV2(FeatureProcessor):
     # ------------------------------------------------------------------
 
     def fit(self, samples: Iterable[dict[str, Any]], field: str) -> None:
-        """Builds the vocabularies and the statistics of the impute steps.
+        """Builds the vocabularies and the statistics of imputation and normalization.
 
         Vocabularies come from the (code-mapped) tokens, statistics from the
         raw values. Records are not checked here; :meth:`process` checks them.
@@ -1005,7 +1175,11 @@ class SequenceProcessorV2(FeatureProcessor):
             level_records: list[Records] = [sample[field]]
             for level in range(self.depth, -1, -1):
                 vocabs, mappers = self._vocabs[level], self._mappers[level]
-                imputer = self._imputers[level]
+                learners = [
+                    learner
+                    for learner in (self._imputers[level], self._normalizers[level])
+                    if learner is not None and learner.learns_statistics
+                ]
                 children: list[Records] = []
                 for records in level_records:
                     ids: list[list[int]] = []
@@ -1021,16 +1195,18 @@ class SequenceProcessorV2(FeatureProcessor):
                                     vocab[target] = len(vocab)
                             row.append(vocab[(targets or [code])[0]])
                         ids.append(row)
-                    if imputer is not None and imputer.learns_statistics:
+                    if learners:
                         # Statistics are taken from the raw values, before
                         # resampling.
-                        imputer.accumulate(self._read_values(level, records), ids)
+                        values = self._read_values(level, records)
+                        for learner in learners:
+                            learner.accumulate(values, ids)
                     children.extend(records.get("children", ()))
                 level_records = children
 
-        for imputer in self._imputers:
-            if imputer is not None:
-                imputer.finish()
+        for learner in (*self._imputers, *self._normalizers):
+            if learner is not None:
+                learner.finish()
         self._fitted = True
 
     def process(self, value: Records) -> tuple[torch.Tensor, ...]:
@@ -1118,6 +1294,9 @@ class SequenceProcessorV2(FeatureProcessor):
                 columns, children = resampler(columns, children)
             if imputer is not None:
                 imputer(columns)
+            normalizer = self._normalizers[level]
+            if normalizer is not None:
+                normalizer(columns)
             for role in self._output_roles(level):
                 array = columns[role]
                 if role == "offsets":
