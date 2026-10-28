@@ -237,7 +237,8 @@ def pyhealth_probs(sd, data, out_dir, epochs, seed):
     trainer_log = logging.getLogger("pyhealth.trainer")
     for d in range(data["X"].shape[0]):
         set_seed(seed * 1000 + d)
-        loaders = {s: get_dataloader(sd.subset(data["index"][(s, d)]), 256,
+        # Lists, not sd.subset()
+        loaders = {s: get_dataloader([sd[i] for i in data["index"][(s, d)]], 256,
                                      shuffle=(s == "train"))
                    for s in ("train", "val", "test")}
         n_handlers = len(trainer_log.handlers)
