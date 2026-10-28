@@ -357,6 +357,21 @@ class TestKGTripleProcessor(unittest.TestCase):
         self.assertEqual(self.processor.true_head, {(1, 0): [5]})
         self.assertEqual(self.processor.count, {(5, 1): 4, (0, -2): 4})
 
+    def test_str_holds_the_arguments_and_not_the_fitted_state(self) -> None:
+        """str() of a processor given in a schema goes into the task cache key."""
+
+        class WithStep(KGTripleProcessor):
+            def __init__(self, step, **kwargs):
+                super().__init__(**kwargs)
+                self.step = step
+
+        sizes = {"num_entities": 6, "num_relations": 2}
+        fresh = KGTripleProcessor(**sizes)
+        self.assertEqual(str(fresh), str(self.processor))
+        self.assertNotEqual(str(KGTripleProcessor(**sizes, count_start=1)), str(fresh))
+        self.assertNotEqual(str(FirstTripleOnly(**sizes)), str(fresh))
+        self.assertNotEqual(str(WithStep(1, **sizes)), str(WithStep(2, **sizes)))
+
     def test_a_fitted_processor_can_be_passed_back_to_set_task(self) -> None:
         """set_task puts vars() of pre-fitted processors in a JSON cache key."""
         import json
@@ -839,6 +854,30 @@ class TestKGLinkPrediction(unittest.TestCase):
             )
             with self.assertWarnsRegex(UserWarning, "split=PatientSplit"):
                 dataset.set_task(task)
+
+    def test_a_processor_instance_in_the_schema_keeps_its_task_cache(self) -> None:
+        """set_task fits an instance given in the schema; the task cache key,
+        which holds str() of that instance, must not change with that fit."""
+        from pyhealth.medcode.pretrained_embeddings.kg_emb.tasks import KGLinkPrediction
+
+        class ByInstance(KGLinkPrediction):
+            task_name = "KGLinkPredictionByInstance"
+
+            def __init__(self, num_entities, num_relations):
+                super().__init__(num_entities, num_relations)
+                kwargs = self.input_schema["triple"][1]
+                self.input_schema = {"triple": KGTripleProcessor(**kwargs)}
+
+        task = ByInstance(self.dataset.num_entities, self.dataset.num_relations)
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            dataset = BaseKGDataset(
+                root=str(self.root), config_path=self.root / "kg.yaml", cache_dir=Path(tmp)
+            )
+            first = dataset.set_task(task, split=self.split)
+            second = dataset.set_task(task, split=self.split)
+            task_dirs = sorted(p.name for p in Path(tmp).glob("*/tasks/*"))
+            self.assertEqual(len(task_dirs), 1, task_dirs)
+            self.assertEqual(second[0].known_triples, first[0].known_triples)
 
     def test_a_triple_field_with_another_processor_gets_no_known_triples(self) -> None:
         from pyhealth.medcode.pretrained_embeddings.kg_emb.tasks import KGLinkPrediction

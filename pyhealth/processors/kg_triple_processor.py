@@ -230,3 +230,32 @@ class KGTripleProcessor(FeatureProcessor):
             f"num_relations={self.num_relations}, "
             f"fitted_pairs={len(self.true_tail)})"
         )
+
+    def __str__(self) -> str:
+        """The class and the arguments of the processor, without its fitted
+        state.
+
+        ``BaseDataset.set_task`` writes the task's ``input_schema`` into the
+        task cache key with ``json.dumps(..., default=str)``, which takes
+        ``str()`` of a processor instance given there. ``set_task`` fits
+        that instance itself, so its fitted state must stay out of the key,
+        or the next call would miss the cache. Its other attributes, such as
+        ``count_start`` or those a subclass adds, change what is fitted and
+        stay in it.
+
+        Examples:
+            >>> processor = KGTripleProcessor(num_entities=3, num_relations=1)
+            >>> before = str(processor)
+            >>> processor.fit([{"triple": (0, 0, 1)}], "triple")
+            >>> str(processor) == before
+            True
+            >>> print(before)
+            pyhealth.processors.kg_triple_processor.KGTripleProcessor(count_start=4, num_entities=3, num_relations=1)
+        """
+        arguments = ", ".join(
+            f"{name}={value!r}"
+            for name, value in sorted(vars(self).items())
+            if name != "_fitted"
+        )
+        cls = type(self)
+        return f"{cls.__module__}.{cls.__qualname__}({arguments})"
