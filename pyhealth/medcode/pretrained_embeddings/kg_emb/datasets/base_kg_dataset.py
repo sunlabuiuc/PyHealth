@@ -419,7 +419,8 @@ class BaseKGDataset(BaseDataset):
         """Builds the sample dataset(s) of ``task``.
 
         This is :meth:`pyhealth.datasets.BaseDataset.set_task`, with
-        :class:`KGLinkPrediction` as the default task. For a task whose
+        :class:`~pyhealth.medcode.pretrained_embeddings.kg_emb.tasks.KGLinkPrediction`
+        as the default task. For a task whose
         ``triple`` field uses the ``kg_triple`` processor, it also warns when
         ``split`` is missing, since that processor would then be fitted on
         every triple. When the fitted ``triple`` processor is a
@@ -470,7 +471,9 @@ class BaseKGDataset(BaseDataset):
 
     @property
     def default_task(self) -> BaseTask:
-        """:class:`KGLinkPrediction` on this graph."""
+        """The default task:
+        :class:`~pyhealth.medcode.pretrained_embeddings.kg_emb.tasks.KGLinkPrediction`
+        on this graph."""
         from ..tasks.kg_link_prediction import KGLinkPrediction
 
         return KGLinkPrediction(

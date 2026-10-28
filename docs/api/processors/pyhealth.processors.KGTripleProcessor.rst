@@ -20,7 +20,7 @@ not fitted.
 
 API Reference
 -------------
-.. automodule:: pyhealth.processors.kg_triple_processor
+.. autoclass:: pyhealth.processors.KGTripleProcessor
     :members:
     :undoc-members:
     :show-inheritance:

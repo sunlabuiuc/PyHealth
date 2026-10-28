@@ -34,8 +34,9 @@ class KGLinkPrediction(BaseTask):
     Filtered ranking evaluation (Bordes et al., 2013; Sun et al., 2019)
     removes, when a test triple is ranked, the other entities known to
     complete it, whatever part they belong to. Those sets are not carried by
-    the samples: :meth:`BaseKGDataset.set_task` builds them once, from the
-    triples of all the parts, as
+    the samples:
+    :meth:`~pyhealth.medcode.pretrained_embeddings.kg_emb.datasets.BaseKGDataset.set_task`
+    builds them once, from the triples of all the parts, as
     :class:`~pyhealth.medcode.pretrained_embeddings.kg_emb.datasets.KnownTriples`,
     and attaches them to every part. Training does not use them: it filters
     its negatives with the positives of the training triples only, held by
