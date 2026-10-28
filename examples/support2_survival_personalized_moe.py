@@ -11,12 +11,14 @@ preprocessing fits the fixed seed-42 80/10/10 training split only.
 
 Defaults: seeds 42–46, one 128-unit layer, eight experts, 4-dimensional embeddings,
 Adam (lr=0.0005, eps=1e-7), batch 64, up to 1,000 epochs with patience 10 on
-validation NLL. Each seed pairs initialization and batch order across dropout
+validation negative log-likelihood (NLL). Each run keeps the checkpoint with the
+lowest validation NLL. Each seed pairs initialization and batch order across dropout
 0/0.1/0.3/0.5. The grid has 100 training-range points plus a final overflow point.
 
 Reports median-survival Harrell C-index, grid-averaged IPCW Brier/ECE (ten equal-
-mass risk bins, reverse KM floored at 0.01), NLL gaps, mean/sample SD and paired
-changes from dropout=0. Synthetic mode checks execution only. Repeated training
+mass risk bins, reverse KM floored at 0.01), train/validation/test NLL and NLL gaps,
+mean/sample SD and paired changes from dropout=0. Synthetic mode checks execution
+only. Repeated training
 seeds measure optimization variability on one split, not population uncertainty.
 SUPPORT2 results (7283/911/911 patients; mean +/- sample SD over five seeds):
     Dropout  C-index          IPCW Brier       IPCW ECE         NLL gap
@@ -26,6 +28,15 @@ SUPPORT2 results (7283/911/911 patients; mean +/- sample SD over five seeds):
     0.5      0.8043+/-0.0022  0.1431+/-0.0016  0.0473+/-0.0034  0.1871+/-0.0204
 Early stopping ended runs after 14–38 epochs. Dropout 0.1 had the best mean
 discrimination and calibration; larger dropout did not consistently improve them.
+Mean NLL at each run's selected checkpoint (lower is better):
+    Dropout  Training  Validation  Test    Validation - training
+    0.0      2.0034    2.1984      2.1801  0.1949
+    0.1      2.0016    2.1896      2.1662  0.1881
+    0.3      1.9885    2.1932      2.1695  0.2046
+    0.5      2.0144    2.2015      2.1729  0.1871
+Dropout 0.1 also had the lowest mean validation and test NLL. Dropout 0.5 had the
+smallest gap, showing that a smaller gap alone does not imply better predictions.
+NLL excludes the expert-balancing penalty; test NLL does not select checkpoints.
 Reference: https://github.com/ToddMorrill/survival-moe (7ce58fa).
 """
 
@@ -232,7 +243,15 @@ def load_data(root: str | None, synthetic: bool, seed: int) -> pd.DataFrame:
 
 def summarize(rows):
     """Summarize seed variability and paired changes from the no-dropout arm."""
-    metrics = ["c_index", "ipcw_brier", "ipcw_ece", "gap"]
+    metrics = [
+        "c_index",
+        "ipcw_brier",
+        "ipcw_ece",
+        "train_nll",
+        "val_nll",
+        "test_nll",
+        "gap",
+    ]
     baseline = {row["seed"]: row for row in rows if row["dropout"] == 0}
     summary = []
     for dropout in [0.0, 0.1, 0.3, 0.5]:
