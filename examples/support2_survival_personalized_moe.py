@@ -2,7 +2,7 @@
 
     pip install SurvivalEVAL
     python examples/support2_survival_personalized_moe.py --root data/support2
-    python examples/support2_survival_personalized_moe.py --synthetic --epochs 2 --seeds 42
+    python examples/support2_survival_personalized_moe.py --synthetic --epochs 2
 
 Downloads missing data from UCI; loads patients through Support2Dataset in CSV
 order. Uses the reference's 42 features, physiological/median imputation, missing
