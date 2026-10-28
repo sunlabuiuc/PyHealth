@@ -797,6 +797,25 @@ class TestKGLinkPrediction(unittest.TestCase):
             for part in parts:
                 self.assertFalse(hasattr(part, "known_triples"))
 
+    def test_the_first_duplicate_in_numeric_row_order_is_kept(self) -> None:
+        # Rows are stored sorted on the string row number ("0", "1", "10",
+        # "2", ...): with a duplicate on rows 2 and 10, only a numeric sort
+        # keeps row 2, the first in file order.
+        from pyhealth.medcode.pretrained_embeddings.kg_emb.tasks import KGLinkPrediction
+
+        rows = [(f"e{i}", "r", f"e{i + 1}") for i in range(10)]
+        rows.append(rows[2])
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            root = Path(tmp)
+            config = write_kg(root, rows)
+            dataset = BaseKGDataset(root=tmp, config_path=config, cache_dir=root / "cache")
+            e = dataset.entity2id
+            duplicate = (e["e2"], 0, e["e3"])
+            with self.assertWarnsRegex(UserWarning, "split=PatientSplit"):
+                samples = dataset.set_task(KGLinkPrediction(num_entities=11, num_relations=1))
+            kept = [s["patient_id"] for s in samples if tuple(s["triple"].tolist()) == duplicate]
+            self.assertEqual(kept, ["2"])
+
 
 class TestUnseenInTrainingLog(unittest.TestCase):
     """The per-part count of triples whose entity or relation training never saw."""
