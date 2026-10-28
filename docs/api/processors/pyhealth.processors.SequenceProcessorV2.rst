@@ -35,10 +35,10 @@ In a task schema the configuration is plain data:
     }
 
 Batches are packed with ``collate()``, which follows ``batch_schema()``: the
-fields of ``schema()`` plus the batch offsets ``[B + 1]``. ``impute`` fills NaN
-values (see ``Impute``); ``normalize`` and ``missing_indicator`` are reserved
-for future work and only accept ``None`` / ``False``. Values still containing
-NaN or inf raise.
+fields of ``schema()`` plus the batch offsets ``[B + 1]``. After resampling,
+``impute`` fills NaN values (see ``Impute``) and ``normalize`` scales them (see
+``Normalize``); ``missing_indicator`` is reserved for future work and only
+accepts ``False``. Values still containing NaN or inf raise.
 
 .. autoclass:: pyhealth.processors.SequenceProcessorV2
     :members:
@@ -55,4 +55,7 @@ NaN or inf raise.
     :members:
 
 .. autoclass:: pyhealth.processors.Impute
+    :members:
+
+.. autoclass:: pyhealth.processors.Normalize
     :members:
