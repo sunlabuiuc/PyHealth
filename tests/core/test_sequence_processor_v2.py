@@ -102,22 +102,6 @@ class TestConfiguration(unittest.TestCase):
             ):
                 SequenceProcessorV2(levels=levels)
 
-    def test_reserved_options_not_implemented(self):
-        reserved: list[tuple[str, Any]] = [("missing_indicator", True)]
-        for key, value in reserved:
-            config: Any = {"tokens": 1, key: value}  # deliberately invalid
-            with self.subTest(key=key), self.assertRaises(NotImplementedError):
-                SequenceProcessorV2(levels=[config])
-        SequenceProcessorV2(
-            levels=[
-                {
-                    "tokens": 1,
-                    "normalize": None,
-                    "missing_indicator": False,
-                }
-            ]
-        )
-
     def test_only_vocabulary_needs_fit(self):
         proc = SequenceProcessorV2(levels=[{"tokens": 2, "values": [3]}])
         self.assertEqual(proc.schema(), ((0, "tokens"), (0, "values")))
@@ -875,6 +859,77 @@ class TestNormalize(unittest.TestCase):
         )
         restored = pickle.loads(pickle.dumps(proc))
         self.assertEqual(restored.process({"values": [[3.0]]})[0].tolist(), [[1.0]])
+
+
+class TestMissingIndicator(unittest.TestCase):
+    def test_rejects_bad_configurations(self):
+        bad: list[Any] = [
+            [{"values": [1], "missing_indicator": 1}],
+            [{"tokens": 1, "missing_indicator": True}],  # no values
+            [{"values": [1], "missing_indicator": True}],  # no impute
+        ]
+        for levels in bad:
+            with (
+                self.subTest(levels=levels),
+                self.assertRaises((ValueError, TypeError)),
+            ):
+                SequenceProcessorV2(levels=levels)
+
+    def test_mask_follows_values_in_the_schema(self):
+        level: LevelConfig = {
+            "ordering": "series",
+            "tokens": 1,
+            "values": [2],
+            "impute": {"method": "zero"},
+            "missing_indicator": True,
+        }
+        proc = SequenceProcessorV2(levels=[level])
+        self.assertEqual(
+            proc.schema(), ((0, "tokens"), (0, "values"), (0, "mask"), (0, "time"))
+        )
+
+    def test_mask_marks_values_missing_before_imputation(self):
+        level: LevelConfig = {
+            "values": [2],
+            "impute": {"method": "zero"},
+            "missing_indicator": True,
+        }
+        values, mask = _fit([level]).process({"values": [[1.0, NAN], [NAN, 4.0]]})
+        self.assertEqual(values.tolist(), [[1.0, 0.0], [0.0, 4.0]])
+        self.assertEqual(mask.dtype, torch.bool)
+        self.assertEqual(mask.tolist(), [[False, True], [True, False]])
+
+    def test_resampled_gaps_are_missing(self):
+        level: LevelConfig = {
+            "ordering": "series",
+            "values": [1],
+            "resample": {"step": 1.0, "method": "last"},
+            "impute": {"method": "forward_fill"},
+            "missing_indicator": True,
+        }
+        raw: Records = {"time": [0.0, 2.0], "values": [[1.0], [3.0]]}
+        values, mask = _fit([level]).process(raw)
+        self.assertEqual(values.reshape(-1).tolist(), [1.0, 1.0, 3.0])
+        self.assertEqual(mask.reshape(-1).tolist(), [False, True, False])
+
+    def test_collate_and_validate(self):
+        level: LevelConfig = {
+            "values": [1],
+            "impute": {"method": "zero"},
+            "missing_indicator": True,
+        }
+        proc = _fit([level, {}])
+        a = proc.process({"children": [{"values": [[NAN]]}, {"values": [[2.0]]}]})
+        b = proc.process({"children": [{"values": []}]})
+        proc.validate(a)
+        batch = proc.collate([a, b])
+        proc.validate(batch, batched=True)
+        self.assertEqual(batch[1].reshape(-1).tolist(), [True, False])
+        values, mask, offsets = a
+        with self.assertRaises(ValueError):
+            proc.validate((values, mask.float(), offsets))  # mask must be bool
+        with self.assertRaises(ValueError):
+            proc.validate((values, mask[:, :0], offsets))  # and shaped like values
 
 
 class TestCollateAndValidate(unittest.TestCase):

@@ -27,7 +27,7 @@ if TYPE_CHECKING:
     from pyhealth.medcode import CrossMap
 
 OrderType = Literal["set", "sequence", "series"]
-Role = Literal["tokens", "values", "time", "offsets"]
+Role = Literal["tokens", "values", "mask", "time", "offsets"]
 FieldKey = tuple[int, Role]
 CodeMapping = tuple[str, str]
 ResampleMethod = Literal["first", "last", "min", "max", "avg", "merge"]
@@ -40,9 +40,6 @@ NormalizeMethod = Literal["zscore", "minmax"]
 _STATISTICS = ("mean", "min", "max")
 # Imputation methods that work along time.
 _ALONG_TIME = ("forward_fill", "backward_fill", "linear")
-
-# Options reserved in the configuration but not implemented in Phase 1.
-_RESERVED = {"missing_indicator": False}
 
 
 class Records(TypedDict, total=False):
@@ -199,7 +196,10 @@ class LevelConfig(TypedDict, total=False):
         impute: An :class:`Impute` step, or a list of them applied in order,
             run after resampling.
         normalize: A :class:`Normalize`, run after imputation.
-        missing_indicator: Reserved for future work; only False.
+        missing_indicator: If True, the level also emits ``mask``: a bool
+            tensor shaped like ``values``, True where a value was missing
+            (NaN, including a resampled step without records) before
+            imputation. Needs values and ``impute``.
     """
 
     ordering: OrderType
@@ -210,7 +210,7 @@ class LevelConfig(TypedDict, total=False):
     spatial: Sequence[bool] | None
     impute: Impute | Sequence[Impute] | None
     normalize: Normalize | None
-    missing_indicator: Literal[False]
+    missing_indicator: bool
 
 
 class _ImputeStep(NamedTuple):
@@ -246,6 +246,7 @@ class _InternalLevelConfig:
     spatial: tuple[bool, ...] | None
     impute: tuple[_ImputeStep, ...]
     normalize: _NormalizeStep | None
+    missing_indicator: bool
 
     @staticmethod
     def _is_count(value: Any) -> bool:
@@ -340,13 +341,6 @@ class _InternalLevelConfig:
             raise ValueError(
                 f"Level {level}: unknown configuration keys {sorted(unknown)}."
             )
-
-        for key, default in _RESERVED.items():
-            if config.get(key, default) != default:
-                raise NotImplementedError(
-                    f"Level {level}: '{key}' is reserved for future work and only "
-                    f"accepts {default!r} for now."
-                )
 
         ordering = config.get("ordering", "sequence")
         if ordering not in get_args(OrderType):
@@ -473,6 +467,21 @@ class _InternalLevelConfig:
                 )
             parsed.append(_ImputeStep(method, by_tokens, by_dims))
 
+        missing_indicator = config.get("missing_indicator", False)
+        if not isinstance(missing_indicator, bool):
+            raise TypeError(
+                f"Level {level}: missing_indicator must be a bool, got "
+                f"{missing_indicator!r}."
+            )
+        if missing_indicator and not values:
+            raise ValueError(f"Level {level}: missing_indicator needs values.")
+        if missing_indicator and not parsed:
+            # Without imputation any NaN raises, so the mask would be all False.
+            raise ValueError(
+                f"Level {level}: missing_indicator marks the values imputation "
+                "fills, so it needs impute."
+            )
+
         normalize = config.get("normalize")
         if normalize is not None:
             if (
@@ -503,6 +512,7 @@ class _InternalLevelConfig:
             spatial=spatial,
             impute=tuple(parsed),
             normalize=normalize,
+            missing_indicator=missing_indicator,
         )
 
 
@@ -887,7 +897,7 @@ class SequenceProcessorV2(FeatureProcessor):
     """Processor for hierarchical packed records, without padding or truncation.
 
     Reads a :class:`Records` and emits a tuple of tensors in :meth:`schema`
-    order: by level, then by role (``tokens``, ``values``, ``time``,
+    order: by level, then by role (``tokens``, ``values``, ``mask``, ``time``,
     ``offsets``). ``offsets`` at level ``l`` partitions level ``l`` records
     into level ``l + 1`` records, in CSR layout. Which roles a level has, the
     number of token namespaces ``K`` and the value shape ``S`` come from the
@@ -998,6 +1008,7 @@ class SequenceProcessorV2(FeatureProcessor):
         present = {
             "tokens": config.tokens > 0,
             "values": len(config.values) > 0,
+            "mask": config.missing_indicator,
             "time": config.ordering == "series" and config.resample is None,
             "offsets": level < self.depth,
         }
@@ -1217,8 +1228,9 @@ class SequenceProcessorV2(FeatureProcessor):
 
         Returns:
             Tuple of tensors: ``int64`` tokens (``[N]``, or ``[N, K]``),
-            ``float32`` values ``[N, *S]``, ``float32`` time ``[N]`` and
-            ``int64`` offsets ``[N_{l+1} + 1]``.
+            ``float32`` values ``[N, *S]``, ``bool`` mask ``[N, *S]`` (True
+            where a value was missing), ``float32`` time ``[N]`` and ``int64``
+            offsets ``[N_{l+1} + 1]``.
         """
         self._require_fit()
         unk = TokenProcessorInterface.UNK
@@ -1292,6 +1304,9 @@ class SequenceProcessorV2(FeatureProcessor):
             resampler, imputer = self._resamplers[level], self._imputers[level]
             if resampler is not None:
                 columns, children = resampler(columns, children)
+            if config.missing_indicator:
+                # Missing before imputation fills it, including resampled gaps.
+                columns["mask"] = np.isnan(columns["values"])
             if imputer is not None:
                 imputer(columns)
             normalizer = self._normalizers[level]
@@ -1368,7 +1383,11 @@ class SequenceProcessorV2(FeatureProcessor):
                 raise TypeError(
                     f"{(level, role)}: expected a tensor, got {type(tensor).__name__}."
                 )
-            dtype = torch.long if role in ("tokens", "offsets") else torch.float32
+            dtype = {
+                "tokens": torch.long,
+                "offsets": torch.long,
+                "mask": torch.bool,
+            }.get(role, torch.float32)
             if tensor.dtype != dtype:
                 raise ValueError(
                     f"{(level, role)}: expected {dtype}, got {tensor.dtype}."
@@ -1390,6 +1409,12 @@ class SequenceProcessorV2(FeatureProcessor):
                 if (tensor < 0).any() or (tensor >= limits).any():
                     raise ValueError(
                         f"{(level, role)}: token index outside the vocabulary."
+                    )
+            elif role == "mask":
+                shape = self._config[level].values
+                if tuple(tensor.shape[1:]) != shape or tensor.dim() != 1 + len(shape):
+                    raise ValueError(
+                        f"{(level, role)}: expected [N, *{shape}], got {tuple(tensor.shape)}."
                     )
             elif role == "values":
                 shape = self._config[level].values
