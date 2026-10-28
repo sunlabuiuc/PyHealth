@@ -163,6 +163,79 @@ class TestGAN(unittest.TestCase):
             GAN(dataset=bad)
 
 
+class TestGANContinuousMode(unittest.TestCase):
+    """A tensor feature puts the GAN in continuous mode."""
+
+    def setUp(self):
+        torch.manual_seed(0)
+        # [age, heart rate, respiration rate] per patient.
+        self.values = [
+            [64.0, 85.0, 18.0],
+            [71.0, 102.0, 24.0],
+            [45.0, 76.0, 16.0],
+            [83.0, 91.0, 20.0],
+        ]
+        self.dataset = create_sample_dataset(
+            samples=[
+                {"patient_id": f"patient-{i}", "vitals": v}
+                for i, v in enumerate(self.values)
+            ],
+            input_schema={"vitals": "tensor"},
+            output_schema={},
+            dataset_name="test_gan_continuous",
+        )
+        self.model = GAN(dataset=self.dataset, hidden_dim=8)
+
+    def test_model_initialization(self):
+        """Continuous mode sizes MLPs to the vector, with an unbounded output."""
+        self.assertEqual(self.model.gan_mode, "continuous")
+        self.assertEqual(self.model.input_dim, 3)
+        self.assertIsInstance(self.model.generator[-1], torch.nn.Linear)
+        self.assertEqual(self.model.generator[-1].out_features, 3)
+
+    def test_train_model_fits_scaling(self):
+        """train_model standardizes with the training data's mean and std."""
+        self.model.train_model(self.dataset, epochs=1, batch_size=2, device="cpu")
+        values = torch.tensor(self.values)
+        self.assertTrue(torch.allclose(self.model.feature_mean, values.mean(0)))
+        self.assertTrue(torch.allclose(self.model.feature_std, values.std(0)))
+
+    def test_model_forward(self):
+        """A forward pass scores real vectors against fakes of the same shape."""
+        data_batch = next(iter(get_dataloader(self.dataset, batch_size=2)))
+        with torch.no_grad():
+            ret = self.model(**data_batch)
+        self.assertEqual(ret["real_prob"].shape, (2, 1))
+        self.assertEqual(ret["fake"].shape, (2, 3))
+
+    def test_generate_returns_original_units(self):
+        """generate() undoes the standardization."""
+        self.model.train_model(self.dataset, epochs=1, batch_size=2, device="cpu")
+        torch.manual_seed(1)
+        generated = self.model.generate(num_samples=5)
+        torch.manual_seed(1)
+        with torch.no_grad():
+            standardized = self.model.generate_fake(5, "cpu")
+        expected = standardized * self.model.feature_std + self.model.feature_mean
+        self.assertEqual(generated.shape, (5, 3))
+        self.assertTrue(torch.allclose(generated, expected))
+        with self.assertRaises(ValueError):
+            self.model.generate(num_samples=1, random_sampling=True)
+
+    def test_non_vector_tensor_raises(self):
+        """Continuous mode generates one flat vector per sample."""
+        grid = create_sample_dataset(
+            samples=[
+                {"patient_id": "p1", "vitals": [[1.0, 2.0], [3.0, 4.0]]},
+                {"patient_id": "p2", "vitals": [[5.0, 6.0], [7.0, 8.0]]},
+            ],
+            input_schema={"vitals": "tensor"},
+            output_schema={},
+        )
+        with self.assertRaises(ValueError):
+            GAN(dataset=grid)
+
+
 class TestGANImageMode(unittest.TestCase):
     """An image feature puts the GAN in image mode."""
 

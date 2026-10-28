@@ -5,7 +5,7 @@ from tqdm import tqdm
 
 from pyhealth.datasets import get_dataloader
 from pyhealth.models import BaseModel, ResBlock2D
-from pyhealth.processors import ImageProcessor, MultiHotProcessor
+from pyhealth.processors import ImageProcessor, MultiHotProcessor, TensorProcessor
 
 
 class Flatten(nn.Module):
@@ -20,7 +20,7 @@ class Flatten(nn.Module):
         return out # (batch_size, *size)
     
 class GAN(BaseModel):
-    """GAN model for synthetic patient code sets or small images.
+    """GAN model for synthetic patient code sets, continuous vectors or small images.
 
     Ian J. Goodfellow, Jean Pouget-Abadie, Mehdi Mirza, Bing Xu, David Warde-Farley,
     Sherjil Ozair, Aaron Courville, and Yoshua Bengio. Generative adversarial nets.
@@ -34,6 +34,12 @@ class GAN(BaseModel):
       over the code vocabulary, e.g. a MIMIC-III patient's pooled diagnosis
       codes from :class:`~pyhealth.tasks.EHRCodeSetGenerationMIMIC3`. Both
       networks are MLPs, and :meth:`generate` decodes synthetic patients.
+    * **Continuous mode** (``tensor``): each sample is one fixed-length vector of
+      continuous values, e.g. an ICU stay's mean vital signs from
+      :class:`~pyhealth.tasks.CARTVitalsGenerationEICU`. Both networks are
+      MLPs. :meth:`train_model` standardizes each feature with the training
+      data's mean and standard deviation, and :meth:`generate` returns a
+      tensor in the original units.
     * **Image mode** (``image``): CNN networks for 32x32, 64x64 or 128x128
       images, sized from the processor's ``image_size`` and the images'
       channels. :meth:`generate` returns a tensor of images.
@@ -44,7 +50,8 @@ class GAN(BaseModel):
 
     Args:
         dataset: a ``SampleDataset`` with exactly one input feature, backed by
-            a ``MultiHotProcessor`` or an ``ImageProcessor``.
+            a ``MultiHotProcessor``, a ``TensorProcessor`` or an
+            ``ImageProcessor``.
         hidden_dim: the noise dimension, also the width of the hidden layers.
             Default is 128.
 
@@ -77,7 +84,8 @@ class GAN(BaseModel):
             raise TypeError(
                 "GAN(input_channel, input_size, ...) is deprecated: GAN now "
                 "takes a dataset whose single input feature is 'multi_hot' "
-                "(code sets) or 'image' (images), e.g. "
+                "(code sets), 'tensor' (continuous vectors) or 'image' (images), "
+                "e.g. "
                 "GAN(dataset=samples, hidden_dim=128)."
             )
         super().__init__(dataset)
@@ -93,14 +101,17 @@ class GAN(BaseModel):
         if isinstance(processor, MultiHotProcessor):
             self.gan_mode = "code_set"
             self._init_code_set_mode(processor)
+        elif isinstance(processor, TensorProcessor):
+            self.gan_mode = "continuous"
+            self._init_continuous_mode(dataset)
         elif isinstance(processor, ImageProcessor):
             self.gan_mode = "image"
             self._init_image_mode(dataset, processor)
         else:
             raise TypeError(
                 f"GAN expects '{self.feature_key}' to use a MultiHotProcessor "
-                "(input_schema 'multi_hot') or an ImageProcessor ('image'), "
-                f"got {type(processor).__name__}."
+                "(input_schema 'multi_hot'), a TensorProcessor ('tensor') or an "
+                f"ImageProcessor ('image'), got {type(processor).__name__}."
             )
 
     def _init_code_set_mode(self, processor: MultiHotProcessor) -> None:
@@ -110,6 +121,24 @@ class GAN(BaseModel):
         for code, idx in processor.label_vocab.items():
             self._idx_to_code[idx] = code
 
+        self._build_mlp_networks(bounded=True)
+
+    def _init_continuous_mode(self, dataset) -> None:
+        """Builds MLP networks over fixed-length vectors of continuous values."""
+        example = dataset[0][self.feature_key]
+        if example.dim() != 1:
+            raise ValueError(
+                "GAN's continuous mode expects each sample to be a 1-D vector, got "
+                f"shape {tuple(example.shape)}."
+            )
+        self.input_dim = example.shape[0]
+        # Fitted by train_model(); identity scaling until then.
+        self.register_buffer("feature_mean", torch.zeros(self.input_dim))
+        self.register_buffer("feature_std", torch.ones(self.input_dim))
+        self._build_mlp_networks(bounded=False)
+
+    def _build_mlp_networks(self, bounded: bool) -> None:
+        """MLP networks for vectors; ``bounded`` ends the generator in [0, 1]."""
         self.discriminator = nn.Sequential(
             nn.Linear(self.input_dim, self.hidden_dim),
             nn.LeakyReLU(0.2),
@@ -118,14 +147,16 @@ class GAN(BaseModel):
             nn.Linear(self.hidden_dim, 1),
             nn.Sigmoid(),
         )
-        self.generator = nn.Sequential(
+        generator = [
             nn.Linear(self.hidden_dim, self.hidden_dim),
             nn.ReLU(),
             nn.Linear(self.hidden_dim, self.hidden_dim),
             nn.ReLU(),
             nn.Linear(self.hidden_dim, self.input_dim),
-            nn.Sigmoid(),
-        )
+        ]
+        if bounded:
+            generator.append(nn.Sigmoid())
+        self.generator = nn.Sequential(*generator)
 
     def _init_image_mode(self, dataset, processor: ImageProcessor) -> None:
         """Builds CNN networks sized to the dataset's images."""
@@ -218,7 +249,7 @@ class GAN(BaseModel):
         return y
 
     def sampling(self, n_samples, device) -> torch.Tensor:
-        if self.gan_mode == "code_set":
+        if self.gan_mode != "image":
             return torch.randn(n_samples, self.hidden_dim, device=device)
         eps = torch.randn(n_samples, self.hidden_dim, 1, 1).to(device)
         return eps
@@ -244,6 +275,22 @@ class GAN(BaseModel):
         fake_loss = self._bce(self.discriminator(fake.detach()), 0.0)
         return (real_loss + fake_loss) / 2
 
+    def _prepare_real(self, values: torch.Tensor) -> torch.Tensor:
+        """Moves a real batch to the model, standardized in continuous mode."""
+        real = values.to(self.device).float()
+        if self.gan_mode == "continuous":
+            real = (real - self.feature_mean) / self.feature_std
+        return real
+
+    def _fit_scaling(self, train_dataset) -> None:
+        """Fits continuous mode's per-feature mean and std on the training data."""
+        values = torch.stack(
+            [sample[self.feature_key] for sample in train_dataset]
+        ).float()
+        self.feature_mean.copy_(values.mean(0))
+        # A constant feature keeps unit scale rather than dividing by zero.
+        self.feature_std.copy_(values.std(0).clamp_min(1e-6))
+
     def _generator_loss(self, fake: torch.Tensor) -> torch.Tensor:
         """Rewards fakes that the discriminator calls real (1)."""
         return self._bce(self.discriminator(fake), 1.0)
@@ -256,16 +303,17 @@ class GAN(BaseModel):
         Args:
             **kwargs: a batch from ``get_dataloader``, holding the input
                 feature as a ``(batch_size, input_dim)`` multi-hot tensor in
-                code-set mode, or ``(batch_size, channels, size, size)``
-                images in image mode.
+                code-set mode, a ``(batch_size, input_dim)`` vector in continuous
+                mode, or ``(batch_size, channels, size, size)`` images in
+                image mode.
 
         Returns:
             A dict with the scalar ``d_loss`` and ``g_loss``, the
             discriminator's ``real_prob`` and ``fake_prob`` (each
             ``(batch_size, 1)``), and the generated ``fake`` samples, shaped
-            like the real batch.
+            like the real batch (standardized, in continuous mode).
         """
-        real = kwargs[self.feature_key].to(self.device).float()
+        real = self._prepare_real(kwargs[self.feature_key])
         fake = self.generate_fake(real.shape[0], self.device)
         return {
             "d_loss": self._discriminator_loss(real, fake),
@@ -289,7 +337,8 @@ class GAN(BaseModel):
         fresh batch of fakes) and then one generator step (make those fakes
         pass as real). Named ``train_model`` so it does not shadow
         ``nn.Module.train()``. Call ``torch.manual_seed`` first for a
-        reproducible run.
+        reproducible run. In continuous mode it first fits each feature's mean
+        and standard deviation on ``train_dataset``.
 
         Args:
             train_dataset: a ``SampleDataset`` with the same input feature
@@ -307,6 +356,8 @@ class GAN(BaseModel):
         if device is None:
             device = "cuda" if torch.cuda.is_available() else "cpu"
         self.to(device)
+        if self.gan_mode == "continuous":
+            self._fit_scaling(train_dataset)
 
         loader = get_dataloader(train_dataset, batch_size, shuffle=True)
 
@@ -322,7 +373,7 @@ class GAN(BaseModel):
         for _ in tqdm(range(epochs), desc="GAN training"):
             d_total, g_total, n_batches = 0.0, 0.0, 0
             for batch in loader:
-                real = batch[self.feature_key].to(self.device).float()
+                real = self._prepare_real(batch[self.feature_key])
                 fake = self.generate_fake(real.shape[0], self.device)
 
                 opt_d.zero_grad()
@@ -361,16 +412,18 @@ class GAN(BaseModel):
             ``{"patient_id": "synthetic_i", "visits": [[code, ...]]}`` dict
             per patient, the format of :meth:`pyhealth.models.MedGAN.generate`:
             a single visit holding the patient's codes, possibly none. In
-            image mode, a ``(num_samples, channels, size, size)`` tensor of
-            images in ``[0, 1]``.
+            continuous mode, a ``(num_samples, input_dim)`` tensor in the
+            training data's units. In image mode, a
+            ``(num_samples, channels, size, size)`` tensor of images in
+            ``[0, 1]``.
         """
+        if self.gan_mode != "code_set" and random_sampling:
+            raise ValueError("random_sampling only applies to code-set mode.")
         with torch.no_grad():
             probs = self.generate_fake(num_samples, self.device)
+            if self.gan_mode == "continuous":
+                return (probs * self.feature_std + self.feature_mean).cpu()
             if self.gan_mode == "image":
-                if random_sampling:
-                    raise ValueError(
-                        "random_sampling only applies to code-set mode."
-                    )
                 return probs.cpu()
             if random_sampling:
                 rows = torch.bernoulli(probs)
