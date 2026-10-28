@@ -184,7 +184,7 @@ class HistogramBinning(PostHocCalibrator):
 
         :param cal_dataset: Calibration set.
         :type cal_dataset: Subset
-        :param nbins: number of bins to use, defaults to 15
+        :param nbins: number of bins to use for each class, defaults to 15
         :type nbins: int, optional
         """
         _cal_data = prepare_numpy_dataset(
@@ -205,7 +205,7 @@ class HistogramBinning(PostHocCalibrator):
                 y_true = one_hot_np(y_true, self.num_classes)
             for k in range(self.num_classes):
                 self.calib.append(
-                    HB_binary().fit(_cal_data["y_prob"][:, k], y_true[:, k])
+                    HB_binary(nbins).fit(_cal_data["y_prob"][:, k], y_true[:, k])
                 )
 
     def forward(self, normalization="sum", **kwargs) -> Dict[str, torch.Tensor]:

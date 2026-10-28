@@ -44,7 +44,12 @@ from .stagenet_processor import (
 )
 from .tensor_processor import TensorProcessor
 from .text_processor import TextProcessor
-from .timeseries_processor import TimeseriesProcessor
+from .timeseries_processor import (
+    TimeseriesBinaryLabelProcessor,
+    TimeseriesLabelProcessor,
+    TimeseriesProcessor,
+    TimeseriesRegressionLabelProcessor,
+)
 from .time_image_processor import TimeImageProcessor
 from .graph_processor import GraphProcessor
 from .kg_triple_processor import KGTripleProcessor
@@ -78,7 +83,10 @@ __all__ = [
     "TensorProcessor",
     "TemporalTimeseriesProcessor",
     "TextProcessor",
+    "TimeseriesBinaryLabelProcessor",
+    "TimeseriesLabelProcessor",
     "TimeseriesProcessor",
+    "TimeseriesRegressionLabelProcessor",
     "TimeImageProcessor",
     "GraphProcessor",
     "KGTripleProcessor",

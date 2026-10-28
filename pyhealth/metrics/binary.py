@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from typing import Dict, List, Optional
 
 import numpy as np
@@ -146,6 +147,46 @@ def binary_metrics_fn(
             raise ValueError(f"Unknown metric for binary classification: {metric}")
     return output
 
+
+
+def timeseries_binary_metrics_fn(
+    y_true: Sequence[np.ndarray],
+    y_prob: Sequence[np.ndarray],
+    metrics: list[str] | None = None,
+    threshold: float = 0.5,
+) -> dict[str, float]:
+    """Computes metrics for binary labels given per time step.
+
+    Each sample contributes the labels and predicted probabilities of its
+    labeled time steps. The steps of all samples are pooled and scored with
+    :func:`binary_metrics_fn`, as in benchmarks that evaluate every hour of
+    every ICU stay (e.g. YAIB).
+
+    Args:
+        y_true: One array of 0/1 labels per sample, over its labeled steps.
+        y_prob: One array of predicted probabilities per sample, matching
+            ``y_true``.
+        metrics: Metrics to compute, see :func:`binary_metrics_fn`.
+        threshold: Decision threshold, see :func:`binary_metrics_fn`.
+
+    Returns:
+        Dictionary of metrics whose keys are the metric names and values are
+            the metric values.
+
+    Examples:
+        >>> import numpy as np
+        >>> from pyhealth.metrics import timeseries_binary_metrics_fn
+        >>> y_true = [np.array([0, 0, 1]), np.array([1, 0])]
+        >>> y_prob = [np.array([0.1, 0.4, 0.8]), np.array([0.7, 0.2])]
+        >>> timeseries_binary_metrics_fn(y_true, y_prob, metrics=["roc_auc"])
+        {'roc_auc': 1.0}
+    """
+    return binary_metrics_fn(
+        np.concatenate([np.ravel(y) for y in y_true]),
+        np.concatenate([np.ravel(p) for p in y_prob]),
+        metrics=metrics,
+        threshold=threshold,
+    )
 
 if __name__ == "__main__":
     all_metrics = [

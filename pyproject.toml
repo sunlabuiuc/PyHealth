@@ -42,8 +42,8 @@ dependencies = [
   "pydantic>=2.11,<3",
   "dask[complete]>=2026.1.0",
   # >=0.2.64: worker indexes merge in numeric rank order (patient_to_index relies
-  # on it). <0.2.68: 0.2.68+ reads SampleDataset.subset() parts ~10-35x slower.
-  "litdata>=0.2.64,<0.2.68",
+  # on it).
+  "litdata>=0.2.64",
   "pyarrow>=23.0.1",
   "orjson~=3.10",
   "narwhals>=2.13,<3",
@@ -72,6 +72,9 @@ nlp = [
   "rapidfuzz>=3.0.0",
   "rouge_score~=0.1.2",
   "nltk~=3.9.1",
+]
+ptbxl = [
+  "wfdb>=4.1.0",
 ]
 xgboost = [
   "xgboost>=2.0",
@@ -145,7 +148,7 @@ pytest = "*"
 pytest-cov = "*"
 
 [tool.pixi.feature.test.pypi-dependencies]
-pyhealth = { path = ".", editable = true }
+pyhealth = { path = ".", editable = true, extras = ["ptbxl"] }
 
 [tool.pixi.feature.nlp.pypi-dependencies]
 pyhealth = { path = ".", editable = true }

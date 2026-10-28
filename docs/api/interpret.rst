@@ -85,6 +85,10 @@ Attribution Methods
     interpret/pyhealth.interpret.methods.shap
     interpret/pyhealth.interpret.methods.lime
     interpret/pyhealth.interpret.methods.tree_shap
+    interpret/pyhealth.interpret.methods.ig_gim
+    interpret/pyhealth.interpret.methods.ensemble
+    interpret/pyhealth.interpret.methods.baseline
+    interpret/pyhealth.interpret.methods.base_interpreter
 
 Visualization Utilities
 -----------------------
