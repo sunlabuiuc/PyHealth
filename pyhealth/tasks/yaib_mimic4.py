@@ -513,7 +513,9 @@ class _YAIBMIMIC4Task(BaseTask):
 
         A hospital death (``hospital_expire_flag``) counts as an ICU death
         unless the last ward before hospital discharge (from ``transfers``) is
-        known and is not one of ``icu_wards``. The death is attributed to the
+        not one of ``icu_wards``; a last ward without a care unit counts as
+        not an ICU ward, as in ricu. An admission without a discharge
+        transfer keeps its death. The death is attributed to the
         first ICU stay of the admission discharged at or after the time of
         death, or else the last one (ricu ``death_icu``).
         """
@@ -548,6 +550,8 @@ class _YAIBMIMIC4Task(BaseTask):
             transfers.filter(
                 pl.col("eventtype").shift(-1).over("hadm_id") == "discharge"
             )
+            # A missing care unit counts as not an ICU ward, as in ricu's
+            # `is_true(ward %in% icu_wards)` (NA is never %in% a set).
             .filter(~pl.col("careunit").is_in(icu_wards).fill_null(False))
             ["hadm_id"]
         )
@@ -619,9 +623,11 @@ class YAIBMortalityMIMIC4(_YAIBMIMIC4Task):
     stay is shorter than 30 hours.
 
     A hospital death (``hospital_expire_flag``) counts as an ICU death unless
-    the last ward before hospital discharge (from ``transfers``) is known and
-    is not an ICU ward. The death is attributed to the first ICU stay of the
-    admission discharged at or after the time of death, or else the last one.
+    the last ward before hospital discharge (from ``transfers``) is not an ICU
+    ward, including when its care unit is missing (as in ricu); an admission
+    without a discharge transfer keeps its death. The death is attributed to
+    the first ICU stay of the admission discharged at or after the time of
+    death, or else the last one.
 
     Requires the ``labevents``, ``chartevents``, ``outputevents`` and
     ``transfers`` tables.

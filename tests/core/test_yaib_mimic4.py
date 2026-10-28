@@ -161,6 +161,27 @@ class TestYAIBMortalityMIMIC4(unittest.TestCase):
         )
         self.assertEqual([s["mortality"] for s in self.task(patient)], [0])
 
+    def test_hospital_death_with_unknown_last_ward_is_negative(self):
+        # As in ricu: a last ward without a care unit is not an ICU ward.
+        death = T0 + timedelta(hours=40)
+        patient = _patient(
+            stays=[(10, 1, T0, 48, range(48))],
+            admissions=[_admission(expire=1, deathtime=death, last_unit=None)],
+        )
+        self.assertEqual([s["mortality"] for s in self.task(patient)], [0])
+
+    def test_hospital_death_without_discharge_transfer_is_positive(self):
+        death = T0 + timedelta(hours=40)
+        patient = _patient(
+            stays=[(10, 1, T0, 48, range(48))],
+            admissions=[_admission(expire=1, deathtime=death, last_unit="Med/Surg")],
+        )
+        without_discharge = patient.data_source.filter(
+            pl.col("transfers/eventtype").ne("discharge").fill_null(True)
+        )
+        patient = Patient(patient_id="p1", data_source=without_discharge)
+        self.assertEqual([s["mortality"] for s in self.task(patient)], [1])
+
     def test_death_within_30_hours_is_excluded(self):
         death = T0 + timedelta(hours=29)
         patient = _patient(
@@ -402,6 +423,23 @@ def _platelets(time, value):
                   valueuom="K/uL")
 
 
+def _infusion(start, minutes, rate, itemid=221906, link=1, stay_id=10):
+    return _event("inputevents", start, stay_id=stay_id, hadm_id=1, itemid=itemid,
+                  endtime=_fmt(start + timedelta(minutes=minutes)), rate=rate,
+                  linkorderid=link)
+
+
+def _ventilation(start, hours, stay_id=10):
+    return _event("procedureevents", start, stay_id=stay_id, hadm_id=1,
+                  itemid=225792, endtime=_fmt(start + timedelta(hours=hours)))
+
+
+def _gcs(time, itemid, value, text=None, stay_id=10):
+    return _event("chartevents", time, stay_id=stay_id, hadm_id=1, itemid=itemid,
+                  value=text if text is not None else value, valuenum=value,
+                  valueuom=None)
+
+
 class TestYAIBSepsisMIMIC4(unittest.TestCase):
     def setUp(self):
         self.task = YAIBSepsisMIMIC4()
@@ -469,6 +507,51 @@ class TestYAIBSepsisMIMIC4(unittest.TestCase):
         self.assertEqual(gcs[0], 3.0)
         self.assertEqual(gcs[5], 5.0)  # eye and verbal carried forward
         self.assertEqual(gcs[9], 15.0)
+
+    def _sofa_patient(self, extra):
+        patient = _patient(
+            stays=[(10, 1, T0, 48, range(48))],
+            admissions=[_admission()],
+            extra=extra,
+        )
+        return patient, self.task._stays(patient)
+
+    def test_vasopressor_infusions_of_an_hour_or_more_score_cardiovascular(self):
+        patient, stays = self._sofa_patient([
+            _infusion(T0 + timedelta(hours=5), minutes=120, rate=0.2, link=1),
+            _infusion(T0 + timedelta(hours=20), minutes=30, rate=0.5, link=2),
+        ])
+        norepi = self.task._vasopressors(patient, stays)[10]["norepi"]
+        self.assertEqual(sorted(norepi), [5, 6, 7])  # 2-hour infusion only
+        self.assertAlmostEqual(norepi[6], 0.2)
+        hours, sofa = self.task._sofa({}, {"norepi": norepi}, set(), set())
+        scores = dict(zip(hours.tolist(), sofa.tolist()))
+        self.assertEqual(scores[5], 4.0)  # norepinephrine > 0.1
+
+    def test_ventilation_lifts_the_pafi_cap(self):
+        inputs = {"po2": {10: 75.0}, "fio2": {10: 50.0}}  # PaO2/FiO2 = 150
+        patient, stays = self._sofa_patient([_ventilation(T0 + timedelta(hours=9), 3)])
+        ventilated = self.task._ventilated_hours(patient, stays)[10]
+        self.assertEqual(ventilated, {9, 10, 11, 12})
+        _, unventilated = self.task._sofa(inputs, {}, set(), set())
+        _, with_ventilation = self.task._sofa(inputs, {}, ventilated, set())
+        self.assertEqual(unventilated[-1], 2.0)  # capped at 200
+        self.assertEqual(with_ventilation[-1], 3.0)  # 150 counts
+
+    def test_intubated_hours_count_as_normal_gcs(self):
+        hour = T0 + timedelta(hours=8, minutes=15)
+        patient, stays = self._sofa_patient([
+            _gcs(hour, 220739, 1.0),
+            _gcs(hour, 223901, 1.0),
+            _gcs(hour, 223900, 1.0, text="No Response-ETT"),
+        ])
+        intubated = self.task._intubated_hours(patient, stays)[10]
+        self.assertEqual(intubated, {8})
+        inputs = self.task._sofa_inputs(patient, stays)[10]
+        _, not_intubated = self.task._sofa(inputs, {}, set(), set())
+        _, with_intubation = self.task._sofa(inputs, {}, set(), intubated)
+        self.assertEqual(not_intubated[-1], 4.0)  # GCS 3
+        self.assertEqual(with_intubation[-1], 0.0)  # GCS 15
 
     def test_urine24_needs_twelve_hours(self):
         urine = YAIBSepsisMIMIC4._urine24({h: 50.0 for h in range(30)})
