@@ -28,23 +28,19 @@ __all__ = ["KGLinkPrediction"]
 class KGLinkPrediction(BaseTask):
     """Link prediction: predict the tail of ``(h, r, ?)`` and the head of ``(?, r, t)``.
 
-    Each triple of the graph gives one sample::
+    Each distinct triple of the graph gives one sample,
+    ``{"patient_id": ..., "triple": (h, r, t)}``.
 
-        {"patient_id": ..., "triple": (h, r, t),
-         "ground_truth_head": [h' : (h', r, t) in the graph],
-         "ground_truth_tail": [t' : (h, r, t') in the graph]}
-
-    The ground-truth lists cover the whole graph. They are the filter sets of
-    filtered ranking evaluation (Bordes et al., 2013; Sun et al., 2019):
-    when a test triple is ranked, the other known true entities are removed
-    from the candidates, whatever part they belong to. Training does not use
-    them: it filters its negatives with the positives of the training triples
-    only, held by the ``kg_triple`` processor fitted on the training part.
-    The negatives themselves are drawn from every entity of the graph.
-
-    Because ``set_task`` builds samples patient by patient, and each triple
-    is its own patient, these graph-wide lists are computed beforehand, in
-    :meth:`pre_filter`, with Polars ``group_by`` and ``join``.
+    Filtered ranking evaluation (Bordes et al., 2013; Sun et al., 2019)
+    removes, when a test triple is ranked, the other entities known to
+    complete it, whatever part they belong to. Those sets are not carried by
+    the samples: :meth:`BaseKGDataset.set_task` builds them once, from the
+    triples of all the parts, as
+    :class:`~pyhealth.medcode.pretrained_embeddings.kg_emb.datasets.KnownTriples`,
+    and attaches them to every part. Training does not use them: it filters
+    its negatives with the positives of the training triples only, held by
+    the ``kg_triple`` processor fitted on the training part. The negatives
+    themselves are drawn from every entity of the graph.
 
     Duplicate triples are removed in :meth:`pre_filter`, keeping the first in
     file order, and their number is logged: a duplicate could otherwise land
@@ -59,7 +55,7 @@ class KGLinkPrediction(BaseTask):
     Examples:
         >>> task = KGLinkPrediction(num_entities=4, num_relations=2)
         >>> sorted(task.input_schema)
-        ['ground_truth_head', 'ground_truth_tail', 'triple']
+        ['triple']
         >>> task.input_schema["triple"]
         ('kg_triple', {'num_entities': 4, 'num_relations': 2})
         >>> train, val, test = dataset.set_task(  # doctest: +SKIP
@@ -80,24 +76,21 @@ class KGLinkPrediction(BaseTask):
                 "kg_triple",
                 {"num_entities": num_entities, "num_relations": num_relations},
             ),
-            "ground_truth_head": ("kg_entity_list", {"pad_token_id": 0}),
-            "ground_truth_tail": ("kg_entity_list", {"pad_token_id": 0}),
         }
         self.output_schema = {}
         super().__init__()
 
     def pre_filter(self, df: pl.LazyFrame) -> pl.LazyFrame:
-        """Indexes the triples, removes duplicates and adds the ground truths.
+        """Indexes the triples and removes duplicates.
 
         Args:
             df: The dataset's ``global_event_df``.
 
         Returns:
             One event per distinct triple, with the attributes ``head_id``,
-            ``relation_id``, ``tail_id``, ``ground_truth_head`` and
-            ``ground_truth_tail``. The frame is computed here, once:
+            ``relation_id`` and ``tail_id``. The frame is computed here, once:
             ``set_task`` reads it again for every batch of records, which
-            would otherwise repeat the graph-wide aggregations each time.
+            would otherwise repeat the de-duplication each time.
 
         Raises:
             ValueError: If a triple has a missing field, or if the graph
@@ -137,32 +130,12 @@ class KGLinkPrediction(BaseTask):
                 len(distinct),
             )
 
-        ground_truth_head = distinct.group_by("relation_id", "tail_id").agg(
-            pl.col("head_id").sort().alias("ground_truth_head")
-        )
-        ground_truth_tail = distinct.group_by("head_id", "relation_id").agg(
-            pl.col("tail_id").sort().alias("ground_truth_tail")
-        )
-        samples = (
-            distinct.join(ground_truth_head, on=["relation_id", "tail_id"], how="left")
-            .join(ground_truth_tail, on=["head_id", "relation_id"], how="left")
-            .select(
-                "patient_id",
-                pl.lit(TABLE).alias("event_type"),
-                pl.lit(None, dtype=pl.Datetime("ms")).alias("timestamp"),
-                *(
-                    pl.col(c).alias(f"{TABLE}/{c}")
-                    for c in (
-                        "head_id",
-                        "relation_id",
-                        "tail_id",
-                        "ground_truth_head",
-                        "ground_truth_tail",
-                    )
-                ),
-            )
-            .sort("patient_id")
-        )
+        samples = distinct.select(
+            "patient_id",
+            pl.lit(TABLE).alias("event_type"),
+            pl.lit(None, dtype=pl.Datetime("ms")).alias("timestamp"),
+            *(pl.col(c).alias(f"{TABLE}/{c}") for c in ("head_id", "relation_id", "tail_id")),
+        ).sort("patient_id")
         return samples.lazy()
 
     def __call__(self, patient: Patient) -> list[dict[str, Any]]:
@@ -175,8 +148,6 @@ class KGLinkPrediction(BaseTask):
             {
                 "patient_id": patient.patient_id,
                 "triple": (event.head_id, event.relation_id, event.tail_id),
-                "ground_truth_head": list(event.ground_truth_head),
-                "ground_truth_tail": list(event.ground_truth_tail),
             }
             for event in patient.get_events(event_type=TABLE)
         ]

@@ -18,17 +18,20 @@ from __future__ import annotations
 import inspect
 import logging
 import warnings
+from dataclasses import dataclass
 from pathlib import Path
 
 import polars as pl
 
 from pyhealth.datasets import BaseDataset
+from pyhealth.processors import PROCESSOR_REGISTRY, KGTripleProcessor
 from pyhealth.tasks import BaseTask
 
 logger = logging.getLogger(__name__)
 
 __all__ = [
     "BaseKGDataset",
+    "KnownTriples",
     "entity_vocabulary",
     "index_triples",
     "relation_vocabulary",
@@ -174,35 +177,105 @@ def index_triples(
     )
 
 
+@dataclass
+class KnownTriples:
+    """The known heads and tails of every pair, over the triples of a task.
+
+    Filtered ranking (Bordes et al., 2013) ranks the true entity of a test
+    triple against every other entity except those that also complete it,
+    in any part: ``heads[(relation, tail)]`` and ``tails[(head, relation)]``
+    hold them, as sorted lists of ids. :meth:`BaseKGDataset.set_task` builds
+    them once, from the triples of all the parts it returns, and attaches
+    them to every part as ``part.known_triples``. Their size therefore grows
+    with the number of triples; a copy in each sample grew with the number
+    of triples times the largest degree. One instance is shared by every
+    part and by every model built from them, so treat it as read-only.
+    Training never reads them: its filters come from the ``kg_triple``
+    processor, fitted on the training part.
+
+    Examples:
+        >>> import polars as pl
+        >>> ids = pl.DataFrame(
+        ...     {"head_id": [0, 2, 0], "relation_id": [0, 0, 1], "tail_id": [1, 1, 2]}
+        ... )
+        >>> known = KnownTriples.from_ids(ids)
+        >>> known.heads[(0, 1)], known.tails[(0, 0)]
+        ([0, 2], [1])
+    """
+
+    heads: dict[tuple[int, int], list[int]]
+    tails: dict[tuple[int, int], list[int]]
+
+    @classmethod
+    def from_ids(cls, ids: pl.DataFrame) -> KnownTriples:
+        """Builds the sets from triples given as ``head_id``, ``relation_id``
+        and ``tail_id`` columns; duplicate triples count once."""
+        ids = ids.select("head_id", "relation_id", "tail_id").unique()
+        heads = ids.group_by("relation_id", "tail_id").agg(pl.col("head_id").sort())
+        tails = ids.group_by("head_id", "relation_id").agg(pl.col("tail_id").sort())
+        return cls(
+            heads={(r, t): h for r, t, h in heads.iter_rows()},
+            tails={(h, r): t for h, r, t in tails.iter_rows()},
+        )
+
+
+def _triples_of(part) -> list[tuple[int, int, int]]:
+    # Sequential iteration: on a subset, litdata's part[i] costs O(i), which
+    # made a pass quadratic in the size of the part.
+    return [tuple(sample["triple"].tolist()) for sample in part]
+
+
+def _fitted_triples(processor: KGTripleProcessor) -> list[tuple[int, int, int]]:
+    """The triples a ``kg_triple`` processor was fitted on."""
+    return [(h, r, t) for (h, r), tails in processor.true_tail.items() for t in tails]
+
+
+def _known_triples(triples: list[tuple[int, int, int]]) -> KnownTriples:
+    """The :class:`KnownTriples` of ``triples``.
+
+    ``set_task`` passes the triples of its parts rather than those of the
+    raw graph, so that a task whose ``pre_filter`` drops triples, or numbers
+    a subgraph, gets filter sets that match its own samples.
+    """
+    schema = {name: pl.Int64 for name in ("head_id", "relation_id", "tail_id")}
+    return KnownTriples.from_ids(pl.DataFrame(triples, schema=schema, orient="row"))
+
+
 def _uses_kg_triple(task: BaseTask) -> bool:
+    """Whether the task's ``triple`` field uses a ``KGTripleProcessor``, in any
+    form the schema accepts: a registered name, a class or an instance, alone
+    or with keyword arguments."""
     spec = getattr(task, "input_schema", {}).get("triple")
-    name = spec[0] if isinstance(spec, tuple) else spec
-    return name == "kg_triple"
+    if isinstance(spec, tuple):
+        spec = spec[0]
+    if isinstance(spec, str):
+        spec = PROCESSOR_REGISTRY.get(spec)
+    if not inspect.isclass(spec):
+        spec = type(spec)
+    return issubclass(spec, KGTripleProcessor)
 
 
-def _log_unseen_in_training(parts: tuple) -> None:
-    """Logs, per held-out part, the triples whose entity or relation is not
-    in any training triple.
+def _log_unseen_in_training(
+    train: list[tuple[int, int, int]], held_out: list[list[tuple[int, int, int]]]
+) -> None:
+    """Logs, per held-out part, how many triples involve an entity or a
+    relation absent from every training triple.
 
     Ids are global, so such triples are kept and scored. An entity absent
     from the training triples is still drawn as a negative, so the data terms
     of the loss only train it to score low; a relation absent from them gets
     no gradient from those terms. Regularization, such as the default ``l3``
     of ComplEx and DistMult, still reaches both.
+
+    Args:
+        train: The triples of the training part.
+        held_out: The triples of each held-out part, in part order.
     """
-    fitted = parts[0].input_processors["triple"]
-    entities = {h for h, _ in fitted.true_tail} | {
-        t for tails in fitted.true_tail.values() for t in tails
-    }
-    relations = {r for _, r in fitted.true_tail}
-    for k, part in enumerate(parts[1:], start=1):
-        n_entity = n_relation = 0
-        # Sequential iteration: on a subset, litdata's part[i] costs O(i),
-        # which made this pass quadratic in the size of the part.
-        for sample in part:
-            head, relation, tail = sample["triple"].tolist()
-            n_entity += head not in entities or tail not in entities
-            n_relation += relation not in relations
+    entities = {h for h, _, _ in train} | {t for _, _, t in train}
+    relations = {r for _, r, _ in train}
+    for k, triples in enumerate(held_out, start=1):
+        n_entity = sum(h not in entities or t not in entities for h, _, t in triples)
+        n_relation = sum(r not in relations for _, r, _ in triples)
         level = logging.WARNING if n_entity or n_relation else logging.INFO
         logger.log(
             level,
@@ -210,7 +283,7 @@ def _log_unseen_in_training(parts: tuple) -> None:
             "training triples, %d a relation absent from them.",
             k,
             n_entity,
-            len(part),
+            len(triples),
             n_relation,
         )
 
@@ -349,9 +422,13 @@ class BaseKGDataset(BaseDataset):
         :class:`KGLinkPrediction` as the default task. For a task whose
         ``triple`` field uses the ``kg_triple`` processor, it also warns when
         ``split`` is missing, since that processor would then be fitted on
-        every triple, and with ``split`` it logs, for each held-out part, how
-        many triples involve an entity or a relation absent from the training
-        triples.
+        every triple. When the fitted ``triple`` processor is a
+        :class:`~pyhealth.processors.KGTripleProcessor`, it logs, with
+        ``split``, for each held-out part, how many triples involve an entity
+        or a relation absent from the training triples, and every returned
+        part carries, as ``known_triples``, the :class:`KnownTriples` of the
+        triples of all the parts, which the models read to filter the
+        ranking at evaluation.
         """
         if task is None:
             task = self.default_task
@@ -361,9 +438,8 @@ class BaseKGDataset(BaseDataset):
         ).arguments
         split = bound.get("split")
         # A supplied processor is used as it is, never refitted.
-        fits_triples = _uses_kg_triple(task) and "triple" not in (
-            bound.get("input_processors") or {}
-        )
+        supplied = "triple" in (bound.get("input_processors") or {})
+        fits_triples = _uses_kg_triple(task) and not supplied
         if fits_triples and split is None:
             warnings.warn(
                 "set_task without split= fits the kg_triple processor on every "
@@ -374,8 +450,22 @@ class BaseKGDataset(BaseDataset):
                 stacklevel=2,
             )
         result = super().set_task(task, *args, **kwargs)
-        if _uses_kg_triple(task) and isinstance(result, tuple):
-            _log_unseen_in_training(result)
+        parts = result if isinstance(result, tuple) else (result,)
+        processor = parts[0].input_processors.get("triple")
+        # Test the fitted processor, as the models do, rather than the schema
+        # string: a processor class or instance in the schema gives the same
+        # processor.
+        if isinstance(processor, KGTripleProcessor):
+            # A processor fitted here holds exactly the triples of the first
+            # part, usually the largest, which spares reading it again; a
+            # supplied one may have been fitted on other triples.
+            first = _triples_of(parts[0]) if supplied else _fitted_triples(processor)
+            held_out = [_triples_of(part) for part in parts[1:]]
+            if held_out:
+                _log_unseen_in_training(first, held_out)
+            known = _known_triples(first + [t for part in held_out for t in part])
+            for part in parts:
+                part.known_triples = known
         return result
 
     @property

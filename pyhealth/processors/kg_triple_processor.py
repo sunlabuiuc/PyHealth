@@ -55,8 +55,8 @@ class KGTripleProcessor(FeatureProcessor):
 
     The models use ``true_head`` / ``true_tail`` to keep known positives out
     of the negatives they draw for training. Evaluation does not use them:
-    filtered ranking uses the ground-truth sets of the whole graph, carried
-    by the samples.
+    filtered ranking uses the known triples of all the parts, which
+    ``BaseKGDataset.set_task`` attaches to every part.
 
     These dicts must describe the training triples only, otherwise the
     negatives and weights of training depend on validation and test

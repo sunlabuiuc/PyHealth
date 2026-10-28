@@ -150,10 +150,13 @@ pipeline:
 2. ``set_task(KGLinkPrediction(...), split=PatientSplit(...))`` splits the
    triples and fits the processors on the training part only, returning one
    streaming :class:`~pyhealth.datasets.SampleDataset` per part. Each sample
-   holds a ``triple`` and its ``ground_truth_head`` / ``ground_truth_tail``
-   lists, which cover the whole graph and filter the ranking at evaluation
-   (filtered setting of Bordes et al., 2013). Duplicate triples are removed
-   and counted.
+   holds one ``triple``. The known heads and tails of every pair, which
+   filter the ranking at evaluation (filtered setting of Bordes et al.,
+   2013), are built once from the triples of all the parts and attached to
+   every part as ``known_triples``
+   (:class:`~pyhealth.medcode.pretrained_embeddings.kg_emb.datasets.KnownTriples`),
+   so the cache grows with the number of triples only.
+   Duplicate triples are removed and counted.
 3. The ``kg_triple`` processor
    (:class:`~pyhealth.processors.KGTripleProcessor`), fitted on the training
    triples, gives the models the numbers of entities and relations and the
@@ -203,6 +206,9 @@ the ``id2entity`` saved with them.
 .. autoclass:: pyhealth.medcode.pretrained_embeddings.kg_emb.datasets.BaseKGDataset
     :members:
     :show-inheritance:
+
+.. autoclass:: pyhealth.medcode.pretrained_embeddings.kg_emb.datasets.KnownTriples
+    :members:
 
 .. autoclass:: pyhealth.medcode.pretrained_embeddings.kg_emb.datasets.UMLSDataset
     :members:

@@ -12,9 +12,9 @@ Steps:
 2. ``set_task(KGLinkPrediction(...), split=PatientSplit(...))`` splits the
    triples and fits the processors on the training part only. The
    ``kg_triple`` processor keeps the training-graph dicts that filter the
-   training negatives; the ground-truth lists of each sample cover the
-   whole graph and filter the ranking at evaluation (filtered setting of
-   Bordes et al., 2013).
+   training negatives. The known triples of all the parts, here the whole
+   graph, which filter the ranking at evaluation (filtered setting of Bordes
+   et al., 2013), are built once and attached to every part.
 3. The model reads the numbers of entities and relations from that
    processor; the :class:`~pyhealth.trainer.Trainer` switches between
    training and filtered evaluation through ``model.train()`` /

@@ -17,7 +17,6 @@ from typing import Any
 
 import torch
 
-from pyhealth.datasets import collate_fn_dict_with_padding
 from pyhealth.medcode.pretrained_embeddings.kg_emb.datasets import (
     BaseKGDataset,
     UMLSDataset,
@@ -53,14 +52,17 @@ def write_kg(root: Path, triples: list[tuple[str, str, str]]) -> Path:
     return config
 
 
-def processor_dataset(num_entities: int, num_relations: int) -> Any:
-    """Stands in for a set_task part: the models only read its triple processor."""
+def processor_dataset(num_entities: int, num_relations: int, known_triples=None) -> Any:
+    """Stands in for a set_task part: the models read its triple processor and,
+    to evaluate, its known triples."""
     from types import SimpleNamespace
 
     from pyhealth.processors import KGTripleProcessor
 
     processor = KGTripleProcessor(num_entities=num_entities, num_relations=num_relations)
-    return SimpleNamespace(input_processors={"triple": processor})
+    return SimpleNamespace(
+        input_processors={"triple": processor}, known_triples=known_triples
+    )
 
 
 class TestKGEmbImports(unittest.TestCase):
@@ -283,33 +285,6 @@ class TestScoringReferenceValues(unittest.TestCase):
         self.check(model, [1.0, 2.0], eighth_turn, [3.0, -1.0], 24.0 - abs(rotated - complex(3, -1)))
 
 
-class TestGroundTruthUnpadding(unittest.TestCase):
-    """Regression test for the padding-sentinel collision the Tensor Trick
-    introduces: pad_token_id (0) is not a reserved value, so a real entity id
-    of 0 must survive unpadding while an actual padding slot does not."""
-
-    def test_unpad_ground_truth_keeps_real_entity_zero_and_drops_padding(self) -> None:
-        from pyhealth.medcode.pretrained_embeddings.kg_emb.models import TransE
-
-        model = TransE(dataset=processor_dataset(5, 2), e_dim=8, r_dim=8)
-
-        # Row 0: entities {0, 5} are real (mask=1), trailing slot is padding.
-        # Row 1: entity {3} is real, two trailing slots are padding.
-        value = torch.tensor([[0, 5, 0], [3, 0, 0]])
-        mask = torch.tensor([[1, 1, 0], [1, 0, 0]])
-
-        unpadded = model._unpad_ground_truth({"value": value, "mask": mask})
-
-        self.assertEqual(unpadded, [[0, 5], [3]])
-
-    def test_unpad_ground_truth_passes_through_plain_lists_unchanged(self) -> None:
-        from pyhealth.medcode.pretrained_embeddings.kg_emb.models import TransE
-
-        model = TransE(dataset=processor_dataset(5, 2), e_dim=8, r_dim=8)
-        raw = [[0, 5], [3]]
-        self.assertEqual(model._unpad_ground_truth(raw), raw)
-
-
 def fit_through_builder(samples, split=None):
     """Fit a kg_triple processor the way set_task does, via SampleBuilder."""
     from pyhealth.datasets.sample_dataset import SampleBuilder
@@ -436,41 +411,6 @@ class TestKGTripleProcessor(unittest.TestCase):
         self.assertTrue(any("triple" in line for line in logs.output))
 
 
-class TestKGProcessorKeepsLongLists(unittest.TestCase):
-    """Filter sets longer than the training maximum are kept whole (no truncation)."""
-
-    def setUp(self) -> None:
-        from pyhealth.processors import KGProcessor
-
-        self.processor = KGProcessor(pad_token_id=0)
-        # Fitted on "training" lists of at most 2 entities.
-        self.processor.fit([{"gt": [1, 2]}, {"gt": [3]}], "gt")
-
-    def test_a_longer_list_keeps_all_entities(self) -> None:
-        out = self.processor.process([5, 0, 7, 9])
-        self.assertEqual(out["value"].tolist(), [5, 0, 7, 9])
-        self.assertEqual(out["mask"].tolist(), [1, 1, 1, 1])
-
-    def test_shorter_lists_are_still_padded_to_the_fitted_length(self) -> None:
-        out = self.processor.process([4])
-        self.assertEqual(out["value"].tolist(), [4, 0])
-        self.assertEqual(out["mask"].tolist(), [1, 0])
-
-    def test_collation_pads_the_batch_with_mask_zero(self) -> None:
-        batch = [
-            {"gt": self.processor.process([5, 0, 7, 9])},
-            {"gt": self.processor.process([4])},
-        ]
-        gt = collate_fn_dict_with_padding(batch)["gt"]
-        self.assertEqual(gt["value"].tolist(), [[5, 0, 7, 9], [4, 0, 0, 0]])
-        self.assertEqual(gt["mask"].tolist(), [[1, 1, 1, 1], [1, 0, 0, 0]])
-        # The model's unpadding recovers the exact lists, entity 0 included.
-        from pyhealth.medcode.pretrained_embeddings.kg_emb.models import TransE
-
-        model = TransE(dataset=processor_dataset(5, 2), e_dim=8, r_dim=8)
-        self.assertEqual(model._unpad_ground_truth(gt), [[5, 0, 7, 9], [4]])
-
-
 # Twelve rows, one of them a duplicate of the first: 11 distinct triples
 # over entities a..f (f appears once, so a split can leave it out of training).
 TASK_TRIPLES = [
@@ -488,11 +428,6 @@ TASK_TRIPLES = [
     ("e", "r2", "f"),
 ]
 TASK_SPLIT_RATIOS = (0.6, 0.2, 0.2)
-
-
-def unpad(field: dict[str, torch.Tensor]) -> list[int]:
-    """The real entities of one processed kg_entity_list field."""
-    return field["value"][field["mask"].bool()].tolist()
 
 
 class _ListHandler(logging.Handler):
@@ -595,20 +530,22 @@ class TestKGLinkPrediction(unittest.TestCase):
         ]
         self.assertEqual(kept, ["0"])
 
-    def test_ground_truth_covers_the_whole_graph(self) -> None:
+    def test_samples_carry_only_the_triple(self) -> None:
         for part in self.parts:
-            for i in range(len(part)):
-                sample = part[i]
-                h, r, t = sample["triple"].tolist()
-                with self.subTest(triple=(h, r, t)):
-                    self.assertEqual(
-                        unpad(sample["ground_truth_head"]),
-                        sorted(x for x, y, z in self.distinct if (y, z) == (r, t)),
-                    )
-                    self.assertEqual(
-                        unpad(sample["ground_truth_tail"]),
-                        sorted(z for x, y, z in self.distinct if (x, y) == (h, r)),
-                    )
+            self.assertEqual(set(part.input_processors), {"triple"})
+            self.assertEqual(set(part[0]), {"patient_id", "triple"})
+
+    def test_every_part_shares_the_known_triples_of_the_whole_graph(self) -> None:
+        known = self.parts[0].known_triples
+        for part in self.parts:
+            self.assertIs(part.known_triples, known)
+        heads: dict = {}
+        tails: dict = {}
+        for h, r, t in self.distinct:
+            heads.setdefault((r, t), []).append(h)
+            tails.setdefault((h, r), []).append(t)
+        self.assertEqual(known.heads, {k: sorted(v) for k, v in heads.items()})
+        self.assertEqual(known.tails, {k: sorted(v) for k, v in tails.items()})
 
     def test_triple_processor_is_fitted_on_training_triples_only(self) -> None:
         processor = self.parts[0].input_processors["triple"]
@@ -643,17 +580,11 @@ class TestKGLinkPrediction(unittest.TestCase):
             parts = dataset.set_task(self.task, split=self.split, num_workers=2)
 
             def content(part):
-                return sorted(
-                    (
-                        tuple(s["triple"].tolist()),
-                        tuple(unpad(s["ground_truth_head"])),
-                        tuple(unpad(s["ground_truth_tail"])),
-                    )
-                    for s in (part[i] for i in range(len(part)))
-                )
+                return sorted(tuple(s["triple"].tolist()) for s in part)
 
             for mine, theirs in zip(self.parts, parts):
                 self.assertEqual(content(mine), content(theirs))
+                self.assertEqual(mine.known_triples, theirs.known_triples)
 
     def test_without_split_warns_at_every_call(self) -> None:
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
@@ -663,6 +594,7 @@ class TestKGLinkPrediction(unittest.TestCase):
             with self.assertWarnsRegex(UserWarning, "split=PatientSplit"):
                 samples = dataset.set_task(self.task)
             self.assertEqual(len(samples), 11)
+            self.assertEqual(samples.known_triples, self.parts[0].known_triples)
             # Second call: the processed cache exists, the warning still fires.
             with self.assertWarnsRegex(UserWarning, "split=PatientSplit"):
                 dataset.set_task(self.task)
@@ -705,30 +637,180 @@ class TestKGLinkPrediction(unittest.TestCase):
         for result in (parts[0], whole):
             self.assertEqual(result.input_processors["triple"].true_tail, everything.true_tail)
 
+    def test_known_triples_do_not_depend_on_a_supplied_processor(self) -> None:
+        """A supplied processor may be fitted on other triples than the
+        training part; the known triples are still those of the parts."""
+        from pyhealth.processors import KGTripleProcessor
+
+        one = KGTripleProcessor(
+            num_entities=self.dataset.num_entities,
+            num_relations=self.dataset.num_relations,
+        )
+        one.fit([{"triple": self.distinct[0]}], "triple")
+        parts = self.dataset.set_task(
+            self.task, split=self.split, input_processors={"triple": one}
+        )
+        self.assertEqual(parts[0].known_triples, self.parts[0].known_triples)
+
+    def test_known_triples_are_those_of_a_task_on_a_subgraph(self) -> None:
+        """A task that drops triples before numbering gets filter sets in its
+        own id space, built from its own samples."""
+        from pyhealth.medcode.pretrained_embeddings.kg_emb.models import TransE
+        from pyhealth.medcode.pretrained_embeddings.kg_emb.tasks import KGLinkPrediction
+
+        class WithoutA(KGLinkPrediction):
+            task_name = "KGLinkPredictionWithoutA"
+
+            def pre_filter(self, df):
+                import polars as pl
+
+                keep = (pl.col("triples/head") != "a") & (pl.col("triples/tail") != "a")
+                return super().pre_filter(df.filter(keep))
+
+        # Without a, entities b..f are numbered 0..4, not 1..5 as in the graph.
+        task = WithoutA(num_entities=5, num_relations=2)
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            dataset = BaseKGDataset(
+                root=str(self.root), config_path=self.root / "kg.yaml", cache_dir=Path(tmp)
+            )
+            parts = dataset.set_task(task, split=self.split)
+            triples = [t for part in parts for t in self.triples_of(part)]
+            self.assertEqual(len(triples), 5)
+            heads: dict = {}
+            for h, r, t in triples:
+                heads.setdefault((r, t), []).append(h)
+            self.assertEqual(
+                parts[0].known_triples.heads, {k: sorted(v) for k, v in heads.items()}
+            )
+            model = TransE(parts[0], e_dim=4, r_dim=4)
+            model.eval()
+            for part in parts:
+                if len(part):
+                    with torch.no_grad():
+                        out = model(triple=torch.tensor(self.triples_of(part)))
+                    self.assertEqual(tuple(out["y_prob"].shape), (2 * len(part), 5))
+
+    def test_a_processor_class_in_the_schema_also_gets_known_triples(self) -> None:
+        from pyhealth.medcode.pretrained_embeddings.kg_emb.tasks import KGLinkPrediction
+        from pyhealth.processors import KGTripleProcessor
+
+        class ByClass(KGLinkPrediction):
+            task_name = "KGLinkPredictionByClass"
+
+            def __init__(self, num_entities, num_relations):
+                super().__init__(num_entities, num_relations)
+                self.input_schema = {"triple": (KGTripleProcessor, self.input_schema["triple"][1])}
+
+        task = ByClass(self.dataset.num_entities, self.dataset.num_relations)
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            dataset = BaseKGDataset(
+                root=str(self.root), config_path=self.root / "kg.yaml", cache_dir=Path(tmp)
+            )
+            parts = dataset.set_task(task, split=self.split)
+            for part in parts:
+                self.assertEqual(part.known_triples, self.parts[0].known_triples)
+
+    def test_the_unseen_log_counts_against_the_training_part(self) -> None:
+        """With a supplied processor fitted on every triple, the counts are
+        still those of the training part."""
+        from pyhealth.medcode.pretrained_embeddings.kg_emb.datasets import base_kg_dataset
+        from pyhealth.processors import KGTripleProcessor
+
+        everything = KGTripleProcessor(
+            num_entities=self.dataset.num_entities,
+            num_relations=self.dataset.num_relations,
+        )
+        everything.fit([{"triple": t} for t in self.distinct], "triple")
+        with self.assertLogs(base_kg_dataset.logger, level="INFO") as logs:
+            self.dataset.set_task(
+                self.task, split=self.split, input_processors={"triple": everything}
+            )
+        logged = [line.split(":", 2)[2] for line in logs.output if ":Part " in line]
+        expected = [m for m in self.log if m.startswith("Part ")]
+        self.assertEqual(len(expected), 2)
+        self.assertEqual(logged, expected)
+
+    def test_every_form_of_a_kg_triple_spec_is_recognised(self) -> None:
+        from types import SimpleNamespace
+
+        from pyhealth.medcode.pretrained_embeddings.kg_emb.datasets.base_kg_dataset import (
+            _uses_kg_triple,
+        )
+        from pyhealth.processors import KGTripleProcessor
+
+        class Subclass(KGTripleProcessor):
+            pass
+
+        kwargs = {"num_entities": 2, "num_relations": 1}
+        cases = [
+            ("kg_triple", True),
+            (("kg_triple", kwargs), True),
+            (KGTripleProcessor, True),
+            ((Subclass, kwargs), True),
+            (KGTripleProcessor(**kwargs), True),
+            ("tensor", False),
+            (("tensor", {}), False),
+            (None, False),
+        ]
+        for spec, expected in cases:
+            with self.subTest(spec=spec):
+                task = SimpleNamespace(input_schema={"triple": spec})
+                self.assertEqual(_uses_kg_triple(task), expected)
+
+    def test_a_processor_class_in_the_schema_without_split_warns(self) -> None:
+        from pyhealth.medcode.pretrained_embeddings.kg_emb.tasks import KGLinkPrediction
+        from pyhealth.processors import KGTripleProcessor
+
+        class ByClass(KGLinkPrediction):
+            task_name = "KGLinkPredictionByClassUnsplit"
+
+            def __init__(self, num_entities, num_relations):
+                super().__init__(num_entities, num_relations)
+                self.input_schema = {"triple": (KGTripleProcessor, self.input_schema["triple"][1])}
+
+        task = ByClass(self.dataset.num_entities, self.dataset.num_relations)
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            dataset = BaseKGDataset(
+                root=str(self.root), config_path=self.root / "kg.yaml", cache_dir=Path(tmp)
+            )
+            with self.assertWarnsRegex(UserWarning, "split=PatientSplit"):
+                dataset.set_task(task)
+
+    def test_a_triple_field_with_another_processor_gets_no_known_triples(self) -> None:
+        from pyhealth.medcode.pretrained_embeddings.kg_emb.tasks import KGLinkPrediction
+
+        class AsTensor(KGLinkPrediction):
+            task_name = "KGLinkPredictionAsTensor"
+
+            def __init__(self, num_entities, num_relations):
+                super().__init__(num_entities, num_relations)
+                self.input_schema = {"triple": "tensor"}
+
+        task = AsTensor(self.dataset.num_entities, self.dataset.num_relations)
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            dataset = BaseKGDataset(
+                root=str(self.root), config_path=self.root / "kg.yaml", cache_dir=Path(tmp)
+            )
+            with warnings.catch_warnings():
+                warnings.simplefilter("error", UserWarning)
+                parts = dataset.set_task(task, split=self.split)
+            for part in parts:
+                self.assertFalse(hasattr(part, "known_triples"))
+
 
 class TestUnseenInTrainingLog(unittest.TestCase):
     """The per-part count of triples whose entity or relation training never saw."""
 
     def test_counts_heads_tails_and_relations(self) -> None:
         from pyhealth.medcode.pretrained_embeddings.kg_emb.datasets import base_kg_dataset
-        from pyhealth.processors import KGTripleProcessor
 
-        processor = KGTripleProcessor(num_entities=6, num_relations=3)
-        processor.fit([{"triple": (0, 0, 1)}, {"triple": (1, 1, 2)}], "triple")
-
-        class _Train(list):
-            input_processors = {"triple": processor}
-
-        def part(*triples):
-            return [{"triple": torch.tensor(t)} for t in triples]
-
-        parts = (
-            _Train(),
-            part((0, 0, 2), (4, 0, 1)),  # seen; unseen head
-            part((0, 0, 5), (1, 2, 2), (3, 2, 4)),  # unseen tail; unseen relation; both
-        )
+        train = [(0, 0, 1), (1, 1, 2)]
+        held_out = [
+            [(0, 0, 2), (4, 0, 1)],  # seen; unseen head
+            [(0, 0, 5), (1, 2, 2), (3, 2, 4)],  # unseen tail; unseen relation; both
+        ]
         with self.assertLogs(base_kg_dataset.logger, level="INFO") as logs:
-            base_kg_dataset._log_unseen_in_training(parts)
+            base_kg_dataset._log_unseen_in_training(train, held_out)
         self.assertEqual(
             [line.split(":", 2)[2] for line in logs.output],
             [
@@ -872,55 +954,83 @@ class TestModelsOnSampleDatasets(unittest.TestCase):
 class TestFilteredRankingByHand(unittest.TestCase):
     """forward in eval mode, then the rank metrics, on a TransE scored by hand.
 
-    A filtered candidate must fall below the true entity, and the padding of a
-    kg_entity_list field must not be taken for entity 0.
+    A candidate that is a known true entity of the pair, in any part, must
+    fall below the true entity; the known triples come from the task-level
+    KnownTriples, not from the samples.
     """
 
-    def test_filtered_scores_ranks_and_mrr(self) -> None:
-        from pyhealth.medcode.pretrained_embeddings.kg_emb.models import TransE
-        from pyhealth.metrics import multiclass_metrics_fn
+    # Embeddings 0, 1.2, 2.5, 4.0, one relation of 1.0, gamma 10, L1:
+    # the score of (h, r, t) is 10 - |h + 1 - t|.
+    GRAPH = ((0, 0, 2), (0, 0, 1), (2, 0, 2), (3, 0, 3), (2, 0, 3))
+    RANKED = ((0, 0, 2), (2, 0, 2), (3, 0, 3))
 
-        model = TransE(processor_dataset(4, 1), e_dim=1, r_dim=1, gamma=10.0)
+    def model(self, known_triples):
+        from pyhealth.medcode.pretrained_embeddings.kg_emb.models import TransE
+
+        part = processor_dataset(4, 1, known_triples=known_triples)
+        model = TransE(part, e_dim=1, r_dim=1, gamma=10.0)
         with torch.no_grad():
             model.E_emb.copy_(torch.tensor([[0.0], [1.2], [2.5], [4.0]]))
             model.R_emb.copy_(torch.tensor([[1.0]]))
         model.eval()
-        # Both rows rank (0, r, 2); the score is 10 - |h + 1 - t|.
-        #   candidate heads, t = 2.5: 8.5 (true), 9.7, 9.0, 7.5
-        #   candidate tails, h = 0:   9.0, 9.8, 8.5 (true), 7.0
-        # Row 0: heads [0] and tails [2, 1], each followed by a padding 0.
-        # Row 1: entity 0 is a real member of both lists.
-        batch = {
-            "triple": torch.tensor([[0, 0, 2], [0, 0, 2]]),
-            "ground_truth_head": {
-                "value": torch.tensor([[0, 0], [0, 2]]),
-                "mask": torch.tensor([[1, 0], [1, 1]]),
-            },
-            "ground_truth_tail": {
-                "value": torch.tensor([[2, 1, 0], [2, 1, 0]]),
-                "mask": torch.tensor([[1, 1, 0], [1, 1, 1]]),
-            },
-        }
+        return model
+
+    def test_filtered_scores_ranks_and_mrr(self) -> None:
+        import polars as pl
+
+        from pyhealth.medcode.pretrained_embeddings.kg_emb.datasets import KnownTriples
+        from pyhealth.metrics import multiclass_metrics_fn
+
+        ids = pl.DataFrame(
+            list(self.GRAPH), schema=["head_id", "relation_id", "tail_id"], orient="row"
+        )
+        model = self.model(KnownTriples.from_ids(ids))
         with torch.no_grad():
-            out = model(**batch)
+            out = model(triple=torch.tensor(self.RANKED))
 
         # A filtered candidate is scored as the true entity minus 1.
         expected = torch.tensor([
-            [8.5, 9.7, 9.0, 7.5],  # head, row 0: nothing to filter
-            [8.5, 9.7, 7.5, 7.5],  # head, row 1: head 2 filtered
-            [9.0, 7.5, 8.5, 7.0],  # tail, row 0: tail 1 filtered, the padding 0 is not
-            [7.5, 7.5, 8.5, 7.0],  # tail, row 1: tails 1 and 0 filtered
+            [8.5, 9.7, 7.5, 7.5],  # head of (0, r, 2): head 2 is known, filtered
+            [8.0, 9.7, 9.0, 7.5],  # head of (2, r, 2): head 0 is known, filtered
+            [7.0, 8.2, 8.0, 9.0],  # head of (3, r, 3): head 2 is known, filtered
+            [9.0, 7.5, 8.5, 7.0],  # tail of (0, r, 2): tail 1 is known, filtered
+            [6.5, 7.7, 9.0, 8.0],  # tail of (2, r, 2): tail 3 is known, filtered
+            [5.0, 6.2, 7.5, 9.0],  # tail of (3, r, 3): nothing to filter
         ])
         self.assertTrue(torch.allclose(out["y_prob"], expected, atol=1e-5), out["y_prob"])
-        self.assertEqual(out["y_true"].tolist(), [0, 0, 2, 2])
+        self.assertEqual(out["y_true"].tolist(), [0, 2, 3, 2, 2, 3])
 
         scores = multiclass_metrics_fn(
             out["y_true"].numpy(), out["y_prob"].numpy(), metrics=["mean_rank", "hits@n"]
         )
-        # Filtered ranks 3, 2, 2, 1; unfiltered they would be 3, 3, 3, 3.
-        self.assertAlmostEqual(scores["mean_rank"], 2.0)
-        self.assertAlmostEqual(scores["mean_reciprocal_rank"], (1 / 3 + 1 / 2 + 1 / 2 + 1) / 4)
-        self.assertAlmostEqual(scores["HITS@1"], 0.25)
+        # Filtered ranks 2, 2, 1, 2, 1, 1; unfiltered they would be 3, 2, 2, 3, 2, 1.
+        self.assertAlmostEqual(scores["mean_rank"], 1.5)
+        self.assertAlmostEqual(scores["mean_reciprocal_rank"], 0.75)
+        self.assertAlmostEqual(scores["HITS@1"], 0.5)
+
+    def test_evaluation_without_known_triples_is_refused(self) -> None:
+        model = self.model(known_triples=None)
+        with self.assertRaisesRegex(ValueError, "known triples"), torch.no_grad():
+            model(triple=torch.tensor(self.RANKED))
+
+    def test_a_triple_outside_the_known_triples_is_refused(self) -> None:
+        import polars as pl
+
+        from pyhealth.medcode.pretrained_embeddings.kg_emb.datasets import KnownTriples
+
+        ids = pl.DataFrame(
+            list(self.GRAPH), schema=["head_id", "relation_id", "tail_id"], orient="row"
+        )
+        model = self.model(KnownTriples.from_ids(ids))
+        # (1, r, 2) has the known pair (r, 2) but not (1, r); (0, r, 0) has
+        # (0, r) but not (r, 0); (0, r, 3) has both, yet is not a known triple,
+        # as a triple of another split in the same id space would be.
+        for triple in ((1, 0, 2), (0, 0, 0), (0, 0, 3)):
+            with self.subTest(triple=triple), torch.no_grad():
+                self.assertRaisesRegex(
+                    ValueError, "is not among the known triples",
+                    model, triple=torch.tensor([triple]),
+                )
 
 
 def record_negatives(model) -> dict:
@@ -957,12 +1067,7 @@ class TestTrainingNegativesUseTrainingTriplesOnly(unittest.TestCase):
 
         model = TransE(dataset=_Train(), e_dim=4, r_dim=4, negative_sampling=256)
         model.train()
-        # Ground truths of the whole graph, as KGLinkPrediction gives them.
-        batch = {
-            "triple": torch.tensor([[0, 0, 1]]),
-            "ground_truth_head": [[0, 4, 5]],
-            "ground_truth_tail": [[1, 2, 3]],
-        }
+        batch = {"triple": torch.tensor([[0, 0, 1]])}
         drawn = record_negatives(model)
         np.random.seed(0)
         model(**batch)["loss"].backward()
@@ -1018,10 +1123,8 @@ class TestTrainingNegativesOnARealSplit(unittest.TestCase):
         )
         test_triples = {tuple(self.test[i]["triple"].tolist()) for i in range(len(self.test))}
         self.assertIn((e["b"], r["r2"], e["d"]), test_triples)
-        self.assertEqual(
-            sorted(unpad({k: v[0] for k, v in batch["ground_truth_head"].items()})),
-            [e["a"], e["b"]],
-        )
+        known_heads = self.train.known_triples.heads[(r["r2"], e["d"])]
+        self.assertEqual(known_heads, sorted([e["a"], e["b"]]))
 
         model = TransE(dataset=self.train, e_dim=4, r_dim=4, negative_sampling=256)
         model.train()

@@ -26,7 +26,9 @@ class KGEBaseModel(ABC, nn.Module):
     Args:
         dataset: A sample dataset whose ``triple`` field uses the
             ``kg_triple`` processor, typically the training part returned
-            by ``set_task``.
+            by ``set_task``. Evaluation also reads the task's
+            ``known_triples`` from it, which ``BaseKGDataset.set_task``
+            attaches to every part.
         e_dim: the hidden embedding size for entity, 500 by default.
         r_dim: the hidden embedding size for relation, 500 by default.
         ns: negative sampling technique to use: can be "uniform", "normal" or "adv" (self-adversarial).
@@ -83,6 +85,9 @@ class KGEBaseModel(ABC, nn.Module):
         self.triple_processor = processor
         self.e_num = processor.num_entities
         self.r_num = processor.num_relations
+        # The task's known triples, for filtered ranking at evaluation; set
+        # on every part by BaseKGDataset.set_task. Training never reads them.
+        self.known_triples = getattr(dataset, "known_triples", None)
         if negative_sampling is None:
             negative_sampling = DEFAULT_NEGATIVE_SAMPLING
         if (
@@ -185,36 +190,6 @@ class KGEBaseModel(ABC, nn.Module):
         return head, relation, tail
 
     
-    @staticmethod
-    def _unpad_ground_truth(ground_truth):
-        """Recover the exact, unpadded per-sample entity-id lists.
-
-        ``KGProcessor`` pads ``ground_truth_head``/``ground_truth_tail`` to a
-        fixed length with ``pad_token_id`` (0 by default) so that they collate
-        into fixed-shape tensors. That padding value is not
-        necessarily an invalid entity id, so it must be stripped via the
-        accompanying mask before doing any set-membership filtering here;
-        otherwise a real entity 0 would be spuriously treated as always
-        "known true" (or, symmetrically, padding would be treated as a real
-        entity to exclude/replace).
-
-        Args:
-            ground_truth: Either a ``{"value": Tensor(B, L), "mask": Tensor(B, L)}``
-                pair (collated ``KGProcessor`` output), or already a list of
-                raw per-sample entity-id lists (e.g. when a caller bypasses
-                the processor and supplies unpadded lists directly).
-
-        Returns:
-            List of length ``B``, each entry the unpadded list of entity ids
-            for that sample.
-        """
-        if isinstance(ground_truth, dict):
-            value, mask = ground_truth["value"], ground_truth["mask"]
-            return [
-                value[i][mask[i].bool()].tolist() for i in range(value.size(0))
-            ]
-        return ground_truth
-
     def train_neg_sample_gen(self, gt_head, gt_tail, negative_sampling):
         """
         (only run in train batch)
@@ -222,17 +197,10 @@ class KGEBaseModel(ABC, nn.Module):
              with ground truth masked.
 
         Args:
-            gt_head: Either a list of raw (unpadded) entity-id lists, or a
-                ``{"value": Tensor(B, L), "mask": Tensor(B, L)}`` pair produced
-                by ``KGProcessor``. The padded ``value`` is not usable on its
-                own for membership filtering, since ``pad_token_id`` may
-                collide with a real entity id (e.g. 0); the ``mask`` recovers
-                the exact unpadded list first.
-            gt_tail: Same shape as ``gt_head``, for tail entities.
+            gt_head: For each triple, the entity ids kept out of its head
+                negatives.
+            gt_tail: The same, for tail negatives.
         """
-        gt_head = self._unpad_ground_truth(gt_head)
-        gt_tail = self._unpad_ground_truth(gt_tail)
-
         negative_sample_head = []
         negative_sample_tail = []
         for i in range(len(gt_head)):
@@ -281,15 +249,11 @@ class KGEBaseModel(ABC, nn.Module):
 
         Args:
             triples: Batch of ``(head, relation, tail)`` triples.
-            gt_head: Either a list of raw (unpadded) entity-id lists, or a
-                ``{"value": Tensor(B, L), "mask": Tensor(B, L)}`` pair produced
-                by ``KGProcessor``. See ``_unpad_ground_truth`` for why the
-                mask matters.
-            gt_tail: Same shape as ``gt_head``, for tail entities.
+            gt_head: For each triple, every known head of its
+                ``(relation, tail)`` pair in the task's ``known_triples``,
+                the true head included.
+            gt_tail: The same, for the tails of its ``(head, relation)`` pair.
         """
-        gt_head = self._unpad_ground_truth(gt_head)
-        gt_tail = self._unpad_ground_truth(gt_tail)
-
         negative_sample_head = []
         negative_sample_tail = []
         filter_bias_head = []
@@ -367,11 +331,10 @@ class KGEBaseModel(ABC, nn.Module):
 
         These are the ``true_head`` / ``true_tail`` dicts of the ``kg_triple``
         processor, fitted on the training triples only, as in the
-        reference implementation of Sun et al. (2019). The samples'
-        ``ground_truth_*`` lists cover the whole graph and serve filtered
-        evaluation; using them here would keep every validation and test
-        positive out of the training negatives, so training would depend on
-        the held-out triples.
+        reference implementation of Sun et al. (2019). The task's
+        ``known_triples`` serve filtered evaluation; using them here would
+        keep every validation and test positive out of the training
+        negatives, so training would depend on the held-out triples.
 
         Returns:
             Two lists of entity-id lists, for head and tail negatives.
@@ -438,10 +401,26 @@ class KGEBaseModel(ABC, nn.Module):
             return {"loss": loss}
 
         else: # valid/test
+            known = self.known_triples
+            if known is None:
+                raise ValueError(
+                    "Filtered evaluation needs the task's known triples: build "
+                    "the model from a part returned by BaseKGDataset.set_task."
+                )
+            triples = positive_sample.tolist()
+            for h, r, t in triples:
+                # h is a known head of (r, t) exactly when the triple is known,
+                # which also makes tails[(h, r)] defined.
+                if h not in known.heads.get((r, t), ()):
+                    raise ValueError(
+                        f"Triple {(h, r, t)} is not among the known triples of "
+                        "the model's dataset; filtered ranking covers only the "
+                        "triples of the set_task call that returned it."
+                    )
             inputs = self.test_neg_sample_filter_bias_gen(
-                    triples=positive_sample.tolist(),
-                    gt_head=data['ground_truth_head'],
-                    gt_tail=data['ground_truth_tail']
+                    triples=triples,
+                    gt_head=[known.heads[(r, t)] for _, r, t in triples],
+                    gt_tail=[known.tails[(h, r)] for h, r, _ in triples],
                 )
 
             # inputs, mode = (data['positive_sample'], data['negative_sample'], data['filter_bias']), data['mode']
