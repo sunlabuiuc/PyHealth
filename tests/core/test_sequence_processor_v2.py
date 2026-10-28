@@ -1001,6 +1001,43 @@ class TestCollateAndValidate(unittest.TestCase):
 
 
 class TestStorage(unittest.TestCase):
+    def test_dataloader_uses_the_processor_collate(self):
+        from pyhealth.datasets import create_sample_dataset, get_dataloader
+
+        deep: list[LevelConfig] = [{"ordering": "set", "tokens": 1}, {}, {}]
+        samples = [
+            {
+                "patient_id": "p0",
+                "visits": _visits(["A", "B"], ["C"]),
+                "stays": {"children": [_visits(["A"])]},
+                "label": 0,
+            },
+            {
+                "patient_id": "p1",
+                "visits": _visits(["C"]),
+                "stays": {"children": [_visits(["B"], ["C"])]},
+                "label": 1,
+            },
+        ]
+        dataset = create_sample_dataset(
+            samples=samples,
+            input_schema={
+                "visits": ("sequence_v2", {"levels": NESTED}),  # two tensors
+                "stays": ("sequence_v2", {"levels": deep}),  # three tensors
+            },
+            output_schema={"label": "binary"},
+        )
+        batch = next(iter(get_dataloader(dataset, batch_size=2)))
+        for key in ("visits", "stays"):
+            proc = dataset.input_processors[key]
+            assert isinstance(proc, SequenceProcessorV2)
+            expected = proc.collate([dataset[0][key], dataset[1][key]])
+            self.assertEqual(len(batch[key]), len(expected))
+            for got, want in zip(batch[key], expected):
+                torch.testing.assert_close(got, want)
+            proc.validate(batch[key], batched=True)
+        self.assertEqual(batch["label"].shape[0], 2)  # other fields as before
+
     def test_pickle_round_trip(self):
         raw = _visits(["A", "B"], ["C"])
         proc = pickle.loads(pickle.dumps(_fit(NESTED, raw)))

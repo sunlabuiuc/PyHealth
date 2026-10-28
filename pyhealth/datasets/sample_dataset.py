@@ -353,7 +353,8 @@ class SampleBuilder:
         litdata infers one serializer per value from the first sample it
         writes and expects every later sample to have the same structure, so a
         list whose length varies between samples cannot be written as-is.
-        Fields whose processor declares ``stores_tensor`` stay tensors; every
+        Fields whose processor declares ``stores_tensor`` stay tensors (or
+        tuples of tensors); every
         other field (including keys not in the schema, such as ``patient_id``)
         goes into one pickled payload, which has the same structure in every
         sample whatever the values look like. :class:`SampleDataset` decodes it
@@ -366,20 +367,24 @@ class SampleBuilder:
             A record with the tensor fields plus one bytes payload.
 
         Raises:
-            ValueError: If a field declared ``stores_tensor`` is not a tensor.
+            ValueError: If a field declared ``stores_tensor`` is not a tensor
+                or a tuple of tensors.
         """
         tensor_fields = self._tensor_fields()
         record: dict[str, Any] = {}
         objects: dict[str, Any] = {}
         for key, value in transformed.items():
             if key in tensor_fields:
-                if not isinstance(value, torch.Tensor):
+                is_tensors = isinstance(value, tuple) and all(
+                    isinstance(item, torch.Tensor) for item in value
+                )
+                if not (isinstance(value, torch.Tensor) or is_tensors):
                     processor = self._input_processors.get(key) or self._output_processors.get(key)
                     raise ValueError(
                         f"Field '{key}': {type(processor).__name__} declares "
                         f"stores_tensor=True but process() returned "
                         f"{type(value).__name__}. Set stores_tensor = False on the "
-                        "processor, or return a torch.Tensor."
+                        "processor, or return a torch.Tensor or a tuple of them."
                     )
                 record[key] = value
             else:

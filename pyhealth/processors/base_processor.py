@@ -70,11 +70,16 @@ class FeatureProcessor(Processor):
     warns unless it is fitted on a training split
     (``set_task(task, split=PatientSplit(...))``).
 
-    Set ``stores_tensor = True`` only if ``process()`` always returns a single
-    ``torch.Tensor``. Such fields are written to the disk cache as tensors;
-    every other output (lists, tuples, dicts, strings, None, objects) is
-    stored as one pickled value per sample, so it may vary freely in length
-    and shape between samples.
+    Set ``stores_tensor = True`` only if ``process()`` always returns a
+    ``torch.Tensor``, or a tuple of tensors with the same length for every
+    sample (each tensor may change shape). Such fields are written to the disk
+    cache as tensors; every other output (lists, other tuples, dicts, strings,
+    None, objects) is stored as one pickled value per sample, so it may vary
+    freely in length and shape between samples.
+
+    A processor whose batches need more than padding can define
+    ``collate(items)``, taking the ``process()`` outputs of one batch;
+    :func:`~pyhealth.datasets.get_dataloader` then uses it for that field.
 
     Examples:
         >>> import torch
