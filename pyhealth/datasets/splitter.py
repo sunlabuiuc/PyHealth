@@ -4,7 +4,6 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from itertools import chain
 from numbers import Real
-from typing import List, Optional, Tuple, Union
 
 import numpy as np
 import torch
@@ -185,7 +184,7 @@ def sample_balanced(
     dataset: SampleDataset,
     ratio: float = 1.0,
     subsample: float = 1.0,
-    seed: Optional[int] = None,
+    seed: int | None = None,
 ) -> SampleDataset:
     """Keep positives and negatives at a target ratio, then cap total size.
 
@@ -209,8 +208,8 @@ def sample_balanced(
 
     rng = np.random.default_rng(seed)
 
-    pos_indices: List[int] = []
-    neg_indices: List[int] = []
+    pos_indices: list[int] = []
+    neg_indices: list[int] = []
 
     for idx in range(len(dataset)):
         label = _label_to_int(dataset[idx]["label"])
@@ -270,8 +269,8 @@ def sample_balanced(
 
 def split_by_visit(
     dataset: SampleDataset,
-    ratios: Union[Tuple[float, float, float], List[float]],
-    seed: Optional[int] = None,
+    ratios: tuple[float, float, float] | list[float],
+    seed: int | None = None,
 ):
     """Splits the dataset by visit (i.e., samples).
 
@@ -321,8 +320,8 @@ def split_by_visit(
 
 def split_by_patient(
     dataset: SampleDataset,
-    ratios: Union[Tuple[float, float, float], List[float]],
-    seed: Optional[int] = None,
+    ratios: tuple[float, float, float] | list[float],
+    seed: int | None = None,
 ):
     """Splits the dataset by patient.
 
@@ -381,9 +380,9 @@ def split_by_patient(
 
 def split_by_sample(
     dataset: SampleDataset,
-    ratios: Union[Tuple[float, float, float], List[float]],
-    seed: Optional[int] = None,
-    get_index: Optional[bool] = False,
+    ratios: tuple[float, float, float] | list[float],
+    seed: int | None = None,
+    get_index: bool = False,
 ):
     """Splits the dataset by sample
 
@@ -444,8 +443,8 @@ def split_by_sample(
 
 def split_by_visit_conformal(
     dataset: SampleDataset,
-    ratios: Union[Tuple[float, float, float, float], List[float]],
-    seed: Optional[int] = None,
+    ratios: tuple[float, float, float, float] | list[float],
+    seed: int | None = None,
 ):
     """Splits the dataset by visit (i.e., samples) for conformal prediction.
 
@@ -506,8 +505,8 @@ def split_by_visit_conformal(
 
 def split_by_patient_conformal(
     dataset: SampleDataset,
-    ratios: Union[Tuple[float, float, float, float], List[float]],
-    seed: Optional[int] = None,
+    ratios: tuple[float, float, float, float] | list[float],
+    seed: int | None = None,
 ):
     """Splits the dataset by patient for conformal prediction.
 
@@ -577,9 +576,9 @@ def split_by_patient_conformal(
 
 def split_by_predefined(
     dataset: SampleDataset,
-    ratios: Union[Tuple[float, ...], List[float]],
-    seed: Optional[int] = None,
-    get_index: Optional[bool] = False,
+    ratios: tuple[float, ...] | list[float],
+    seed: int | None = None,
+    get_index: bool = False,
     by_patient: bool = False,
     split_key: str = "split",
     train_value: str = "train",
@@ -625,7 +624,7 @@ def split_by_predefined(
     assert abs(sum(ratios) - 1.0) < 1e-6, "ratios must sum to 1.0"
 
     pool: dict = {}  # group key (patient ID or sample index) -> sample indices
-    holdout: List[int] = []
+    holdout: list[int] = []
 
     if by_patient:
         # A patient belongs to one partition, so the first sample decides.
@@ -670,9 +669,9 @@ def split_by_predefined(
 
 def split_by_patient_conformal_tuh(
     dataset: SampleDataset,
-    ratios: Union[Tuple[float, float, float], List[float]],
-    seed: Optional[int] = None,
-    get_index: Optional[bool] = False,
+    ratios: tuple[float, float, float] | list[float],
+    seed: int | None = None,
+    get_index: bool = False,
 ):
     """Splits a TUH EEG dataset by PATIENT within the TUH train partition.
 
@@ -727,73 +726,16 @@ def split_by_patient_conformal_tuh(
         ``base_dataset.set_task(task, split=...)`` with :class:`PatientSplit`
         or a custom :class:`Split`.
     """
-
     _validate_ratios(ratios, expected_length=3)
-    
-    
     return split_by_predefined(dataset, ratios, seed, get_index, by_patient=True)
-    
-
-    # Bucket patients by partition using dataset.patient_to_index (fast path).
-    # TUH guarantees each patient is in exactly one partition, so inspecting the
-    # first sample per patient is sufficient.
-    train_patient_to_indices: dict = {}
-    test_list: List[int] = []
-
-    for pid, indices in dataset.patient_to_index.items():
-        first_sample = dataset[indices[0]]
-        assert "split" in first_sample, (
-            f"Patient {pid}: sample missing 'split' field. "
-            "Use EEGEventsTUEV or EEGAbnormalTUAB to build the dataset."
-        )
-        if first_sample["split"] == "train":
-            train_patient_to_indices[pid] = list(indices)
-        else:
-            test_list.extend(list(indices))
-
-    # Shuffle patients deterministically
-    patient_ids = sorted(train_patient_to_indices, key=str)
-    rng = np.random.default_rng(seed)
-    rng.shuffle(patient_ids)
-
-    n = len(patient_ids)
-    train_end = int(n * ratios[0])
-    val_end = int(n * (ratios[0] + ratios[1]))
-
-    train_pids = patient_ids[:train_end]
-    val_pids = patient_ids[train_end:val_end]
-    cal_pids = patient_ids[val_end:]
-
-    train_index = np.array(list(chain(*[train_patient_to_indices[p] for p in train_pids])))
-    val_index = np.array(list(chain(*[train_patient_to_indices[p] for p in val_pids])))
-    cal_index = np.array(list(chain(*[train_patient_to_indices[p] for p in cal_pids])))
-    test_index = np.array(test_list)
-
-    if get_index:
-        return (
-            torch.tensor(train_index),
-            torch.tensor(val_index),
-            torch.tensor(cal_index),
-            torch.tensor(test_index),
-        )
-    else:
-        return (
-            dataset.subset(train_index),  # type: ignore
-            dataset.subset(val_index),    # type: ignore
-            dataset.subset(cal_index),    # type: ignore
-            dataset.subset(test_index),   # type: ignore
-        )
 
 
 def split_by_sample_conformal_tuh(
     dataset: SampleDataset,
-    ratios: Union[Tuple[float, float, float], List[float]],
-    seed: Optional[int] = None,
-    get_index: Optional[bool] = False,
+    ratios: tuple[float, float, float] | list[float],
+    seed: int | None = None,
+    get_index: bool = False,
 ):
-
-    _validate_ratios(ratios, expected_length=3)
-    
     """Splits a TUH EEG dataset (TUEV/TUAB) using its pre-defined train/eval split.
 
     This is a thin wrapper around :func:`split_by_predefined`.
@@ -830,65 +772,16 @@ def split_by_sample_conformal_tuh(
         ``base_dataset.set_task(task, split=...)`` with :class:`PatientSplit`
         or a custom :class:`Split`.
     """
-
+    _validate_ratios(ratios, expected_length=3)
     return split_by_predefined(dataset, ratios, seed, get_index, by_patient=False)
-    
-
-    # verify every sample has the required "split" field
-    for i in range(len(dataset)):
-        assert "split" in dataset[i], (
-            f"Sample {i} is missing the 'split' field. "
-            "Make sure you used EEGEventsTUEV or EEGAbnormalTUAB to build the dataset."
-        )
-
-    train_pool: List[int] = []
-    test_list: List[int] = []
-    for i in range(len(dataset)):
-        if dataset[i]["split"] == "train":
-            train_pool.append(i)
-        else:
-            test_list.append(i)
-
-    # shuffle only the train pool
-    rng = np.random.default_rng(seed)
-    train_arr = np.array(train_pool)
-    rng.shuffle(train_arr)
-
-    # Slice into train / val / cal.
-    n = len(train_arr)
-    train_end = int(n * ratios[0])
-    val_end = int(n * (ratios[0] + ratios[1]))
-
-    train_index = train_arr[:train_end]
-    val_index = train_arr[train_end:val_end]
-    cal_index = train_arr[val_end:]
-    test_index = np.array(test_list)
-
-    if get_index:
-        return (
-            torch.tensor(train_index),
-            torch.tensor(val_index),
-            torch.tensor(cal_index),
-            torch.tensor(test_index),
-        )
-    else:
-        return (
-            dataset.subset(train_index),  # type: ignore
-            dataset.subset(val_index),    # type: ignore
-            dataset.subset(cal_index),    # type: ignore
-            dataset.subset(test_index),   # type: ignore
-        )
 
 
 def split_by_patient_tuh(
     dataset: SampleDataset,
-    ratios: Union[Tuple[float, float], List[float]],
-    seed: Optional[int] = None,
-    get_index: Optional[bool] = False,
+    ratios: tuple[float, float] | list[float],
+    seed: int | None = None,
+    get_index: bool = False,
 ):
-
-    _validate_ratios(ratios, expected_length=2)
-    
     """Splits a TUH EEG dataset by PATIENT within the TUH train partition.
 
     Like :func:`split_by_patient_conformal_tuh` but returns a 3-way split
@@ -936,64 +829,16 @@ def split_by_patient_tuh(
         ``base_dataset.set_task(task, split=...)`` with :class:`PatientSplit`
         or a custom :class:`Split`.
     """
+    _validate_ratios(ratios, expected_length=2)
     return split_by_predefined(dataset, ratios, seed, get_index, by_patient=True)
-
-
-    train_patient_to_indices: dict = {}
-    test_list: List[int] = []
-
-    for pid, indices in dataset.patient_to_index.items():
-        first_sample = dataset[indices[0]]
-        assert "split" in first_sample, (
-            f"Patient {pid}: sample missing 'split' field. "
-            "Use EEGEventsTUEV or EEGAbnormalTUAB to build the dataset."
-        )
-        if first_sample["split"] == "train":
-            train_patient_to_indices[pid] = list(indices)
-        else:
-            test_list.extend(list(indices))
-
-    patient_ids = sorted(train_patient_to_indices, key=str)
-    rng = np.random.default_rng(seed)
-    rng.shuffle(patient_ids)
-
-    n = len(patient_ids)
-    train_end = int(n * ratios[0])
-
-    train_pids = patient_ids[:train_end]
-    val_pids = patient_ids[train_end:]
-
-    train_index = np.array(
-        list(chain(*[train_patient_to_indices[p] for p in train_pids]))
-    )
-    val_index = np.array(
-        list(chain(*[train_patient_to_indices[p] for p in val_pids]))
-    )
-    test_index = np.array(test_list)
-
-    if get_index:
-        return (
-            torch.tensor(train_index),
-            torch.tensor(val_index),
-            torch.tensor(test_index),
-        )
-    else:
-        return (
-            dataset.subset(train_index),  # type: ignore
-            dataset.subset(val_index),    # type: ignore
-            dataset.subset(test_index),   # type: ignore
-        )
 
 
 def split_by_sample_tuh(
     dataset: SampleDataset,
-    ratios: Union[Tuple[float, float], List[float]],
-    seed: Optional[int] = None,
-    get_index: Optional[bool] = False,
+    ratios: tuple[float, float] | list[float],
+    seed: int | None = None,
+    get_index: bool = False,
 ):
-
-    _validate_ratios(ratios, expected_length=2)
-    
     """Splits a TUH EEG dataset (TUEV/TUAB) using its pre-defined split.
 
     Like :func:`split_by_sample_conformal_tuh` but returns a 3-way split
@@ -1035,54 +880,15 @@ def split_by_sample_tuh(
         ``base_dataset.set_task(task, split=...)`` with :class:`PatientSplit`
         or a custom :class:`Split`.
     """
-
+    _validate_ratios(ratios, expected_length=2)
     return split_by_predefined(dataset, ratios, seed, get_index, by_patient=False)
-
-
-    for i in range(len(dataset)):
-        assert "split" in dataset[i], (
-            f"Sample {i} is missing the 'split' field. "
-            "Use EEGEventsTUEV or EEGAbnormalTUAB to build the dataset."
-        )
-
-    train_pool: List[int] = []
-    test_list: List[int] = []
-    for i in range(len(dataset)):
-        if dataset[i]["split"] == "train":
-            train_pool.append(i)
-        else:
-            test_list.append(i)
-
-    rng = np.random.default_rng(seed)
-    train_arr = np.array(train_pool)
-    rng.shuffle(train_arr)
-
-    n = len(train_arr)
-    train_end = int(n * ratios[0])
-
-    train_index = train_arr[:train_end]
-    val_index = train_arr[train_end:]
-    test_index = np.array(test_list)
-
-    if get_index:
-        return (
-            torch.tensor(train_index),
-            torch.tensor(val_index),
-            torch.tensor(test_index),
-        )
-    else:
-        return (
-            dataset.subset(train_index),  # type: ignore
-            dataset.subset(val_index),    # type: ignore
-            dataset.subset(test_index),   # type: ignore
-        )
 
 
 def split_by_sample_conformal(
     dataset: SampleDataset,
-    ratios: Union[Tuple[float, float, float, float], List[float]],
-    seed: Optional[int] = None,
-    get_index: Optional[bool] = False,
+    ratios: tuple[float, float, float, float] | list[float],
+    seed: int | None = None,
+    get_index: bool = False,
 ):
     """Splits the dataset by sample for conformal prediction.
 
