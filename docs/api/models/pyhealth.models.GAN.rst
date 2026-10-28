@@ -1,18 +1,17 @@
 ﻿pyhealth.models.GAN
 ===================================
 
-A Generative Adversarial Network with two modes. In code-set mode, pass a
-dataset whose single input feature is ``multi_hot`` (for example from
-:class:`~pyhealth.tasks.EHRCodeSetGenerationMIMIC3`) and the GAN learns to
-generate synthetic patients as sets of codes with MLP networks; see
-``examples/gan_mimic3.ipynb``. In image mode, pass ``input_channel`` and
-``input_size`` (32, 64 or 128) to generate small images with CNN networks; see
-``examples/cxr/ChestXray-image-generation-GAN.ipynb``.
+A Generative Adversarial Network built from a dataset with a single input
+feature, whose processor picks the mode. With a ``multi_hot`` feature (for
+example from :class:`~pyhealth.tasks.EHRCodeSetGenerationMIMIC3`), the GAN
+learns to generate synthetic patients as sets of codes with MLP networks; see
+``examples/gan_mimic3.ipynb``. With an ``image`` feature whose ``image_size``
+is 32, 64 or 128, it generates small images with CNN networks.
 
 The PyHealth ``Trainer`` does not apply to GAN: train it with
 :meth:`~pyhealth.models.GAN.train_model`, then call
-:meth:`~pyhealth.models.GAN.generate` (code-set mode) or
-:meth:`~pyhealth.models.GAN.generate_fake` (image mode).
+:meth:`~pyhealth.models.GAN.generate`, which returns synthetic patients in
+code-set mode and a tensor of images in image mode.
 
 Reference:
     Goodfellow, I., Pouget-Abadie, J., Mirza, M., Xu, B., Warde-Farley, D.,

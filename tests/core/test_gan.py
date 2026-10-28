@@ -1,3 +1,4 @@
+import os
 import unittest
 
 import torch
@@ -163,46 +164,80 @@ class TestGAN(unittest.TestCase):
 
 
 class TestGANImageMode(unittest.TestCase):
-    """The original image mode keeps working alongside code-set mode."""
+    """An image feature puts the GAN in image mode."""
 
     def setUp(self):
         torch.manual_seed(0)
-        self.model = GAN(input_channel=1, input_size=32, hidden_dim=8)
+        image_path = os.path.join(
+            os.path.dirname(__file__), "../../test-resources/core/cameraman.tif"
+        )
+        self.samples = [
+            {"patient_id": f"patient-{i}", "image": image_path} for i in range(4)
+        ]
+        self.dataset = self._image_dataset({"image_size": 32, "mode": "L"})
+        self.model = GAN(dataset=self.dataset, hidden_dim=8)
 
-    def test_generate_and_discriminate_shapes(self):
-        """Fakes are images of the configured size; scores are probabilities."""
-        fake = self.model.generate_fake(2, "cpu")
-        self.assertEqual(fake.shape, (2, 1, 32, 32))
-        prob = self.model.discriminate(fake)
-        self.assertEqual(prob.shape, (2, 1))
+    def _image_dataset(self, processor_kwargs):
+        return create_sample_dataset(
+            samples=self.samples,
+            input_schema={"image": ("image", processor_kwargs)},
+            output_schema={},
+            dataset_name="test_gan_image",
+        )
 
-    def test_train_model_on_image_tensor(self):
-        """train_model accepts a tensor of images in image mode."""
-        images = torch.rand(4, 1, 32, 32)
+    def test_model_initialization(self):
+        """Image mode sizes the CNNs from the processor and the images."""
+        self.assertEqual(self.model.gan_mode, "image")
+        self.assertEqual(self.model.feature_key, "image")
+        self.assertEqual(self.model.discriminator[0].conv1.in_channels, 1)
+
+    def test_model_forward(self):
+        """A forward pass scores real images against fakes of the same shape."""
+        train_loader = get_dataloader(self.dataset, batch_size=2, shuffle=True)
+        data_batch = next(iter(train_loader))
+
+        with torch.no_grad():
+            ret = self.model(**data_batch)
+
+        self.assertEqual(ret["real_prob"].shape, (2, 1))
+        self.assertEqual(ret["fake"].shape, (2, 1, 32, 32))
+
+    def test_train_model_runs(self):
+        """train_model takes an image SampleDataset."""
         history = self.model.train_model(
-            images, epochs=1, batch_size=2, device="cpu"
+            self.dataset, epochs=1, batch_size=2, device="cpu"
         )
         self.assertEqual(len(history["d_loss"]), 1)
+        self.assertTrue(torch.isfinite(torch.tensor(history["g_loss"][0])))
 
-    def test_code_set_methods_raise(self):
-        """forward() and generate() are code-set-only."""
+    def test_generate(self):
+        """generate() returns a tensor of images in [0, 1]."""
+        images = self.model.generate(num_samples=3)
+        self.assertEqual(images.shape, (3, 1, 32, 32))
+        self.assertTrue(((images >= 0) & (images <= 1)).all())
         with self.assertRaises(ValueError):
-            self.model.generate(num_samples=1)
-        with self.assertRaises(ValueError):
-            self.model(visits=torch.zeros(1, 4))
+            self.model.generate(num_samples=1, random_sampling=True)
 
-    def test_positional_image_arguments_raise(self):
-        """The pre-2.0 positional call explains the keyword form."""
+    def test_unsupported_image_size_raises(self):
+        """Image sizes other than 32, 64 and 128 are rejected up front."""
+        with self.assertRaises(ValueError):
+            GAN(dataset=self._image_dataset({"image_size": 48}))
+
+    def test_normalized_images_raise(self):
+        """The generator outputs [0, 1], so normalized images are rejected."""
+        dataset = self._image_dataset(
+            {"image_size": 32, "normalize": True, "mean": [0.5], "std": [0.5]}
+        )
+        with self.assertRaises(ValueError):
+            GAN(dataset=dataset)
+
+    def test_pre_2_0_arguments_raise(self):
+        """The pre-2.0 constructor explains the dataset form."""
         with self.assertRaisesRegex(TypeError, "deprecated"):
             GAN(1, 32)
         with self.assertRaisesRegex(TypeError, "deprecated"):
-            GAN(1, 32, 8)
-
-    def test_unsupported_input_size_raises(self):
-        """Image sizes other than 32, 64 and 128 are rejected up front."""
-        with self.assertRaises(ValueError):
-            GAN(input_channel=1, input_size=48)
-        with self.assertRaises(ValueError):
+            GAN(input_channel=1, input_size=32)
+        with self.assertRaisesRegex(TypeError, "deprecated"):
             GAN()
 
 

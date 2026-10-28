@@ -1,12 +1,11 @@
 import torch
 import torch.nn.functional as F
 from torch import nn
-from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
 
 from pyhealth.datasets import get_dataloader
 from pyhealth.models import BaseModel, ResBlock2D
-from pyhealth.processors import MultiHotProcessor
+from pyhealth.processors import ImageProcessor, MultiHotProcessor
 
 
 class Flatten(nn.Module):
@@ -28,16 +27,16 @@ class GAN(BaseModel):
 
     A generator turns random noise into a fake sample, and a discriminator
     learns to tell fake samples from real ones; each network trains against
-    the other. The model runs in one of two modes:
+    the other. ``dataset`` must have exactly one input feature, and that
+    feature's processor picks the mode:
 
-    * **Code-set mode** (pass ``dataset``): each sample is one multi-hot vector
+    * **Code-set mode** (``multi_hot``): each sample is one multi-hot vector
       over the code vocabulary, e.g. a MIMIC-III patient's pooled diagnosis
       codes from :class:`~pyhealth.tasks.EHRCodeSetGenerationMIMIC3`. Both
-      networks are MLPs. Train with :meth:`train_model` and decode synthetic
-      patients with :meth:`generate`.
-    * **Image mode** (pass ``input_channel`` and ``input_size``): CNN networks
-      for 32x32, 64x64 or 128x128 images. Train with :meth:`train_model` on a
-      tensor of images and sample with :meth:`generate_fake`.
+      networks are MLPs, and :meth:`generate` decodes synthetic patients.
+    * **Image mode** (``image``): CNN networks for 32x32, 64x64 or 128x128
+      images, sized from the processor's ``image_size`` and the images'
+      channels. :meth:`generate` returns a tensor of images.
 
     The PyHealth ``Trainer`` does not apply: the two networks are updated by
     separate optimizers with opposing objectives, which :meth:`train_model`
@@ -45,10 +44,7 @@ class GAN(BaseModel):
 
     Args:
         dataset: a ``SampleDataset`` with exactly one input feature, backed by
-            a ``MultiHotProcessor``. Selects code-set mode.
-        input_channel: number of image channels. Image mode only.
-        input_size: image height and width; one of 32, 64 or 128. Image mode
-            only.
+            a ``MultiHotProcessor`` or an ``ImageProcessor``.
         hidden_dim: the noise dimension, also the width of the hidden layers.
             Default is 128.
 
@@ -70,36 +66,83 @@ class GAN(BaseModel):
         3
     """
 
-    def __init__(
-        self,
-        dataset=None,
-        input_channel: int | None = None,
-        input_size: int | None = None,
-        hidden_dim: int = 128,
-        **kwargs,
-    ):
-        # Before PyHealth 2.0 the first argument was input_channel.
-        if isinstance(dataset, int):
+    def __init__(self, dataset=None, hidden_dim: int = 128, **kwargs):
+        # Before PyHealth 2.0, GAN was built from input_channel and input_size.
+        if (
+            dataset is None
+            or isinstance(dataset, int)
+            or "input_channel" in kwargs
+            or "input_size" in kwargs
+        ):
             raise TypeError(
-                "GAN(input_channel, input_size, ...) with positional arguments "
-                "is deprecated: the first argument is now dataset. For image "
-                "mode, pass these by keyword, e.g. "
-                "GAN(input_channel=3, input_size=128)."
+                "GAN(input_channel, input_size, ...) is deprecated: GAN now "
+                "takes a dataset whose single input feature is 'multi_hot' "
+                "(code sets) or 'image' (images), e.g. "
+                "GAN(dataset=samples, hidden_dim=128)."
             )
         super().__init__(dataset)
         self.hidden_dim = hidden_dim
 
-        if dataset is not None:
-            self._init_code_set_mode(dataset)
-            return
-
-        if input_channel is None or input_size not in (32, 64, 128):
+        if len(self.feature_keys) != 1:
             raise ValueError(
-                "GAN needs a dataset (code-set mode), or input_channel and an "
-                "input_size of 32, 64 or 128 (image mode); got "
-                f"input_channel={input_channel}, input_size={input_size}."
+                "GAN expects exactly one input feature, got "
+                f"{self.feature_keys}."
             )
-        self.feature_key = None
+        self.feature_key = self.feature_keys[0]
+        processor = dataset.input_processors[self.feature_key]
+        if isinstance(processor, MultiHotProcessor):
+            self.gan_mode = "code_set"
+            self._init_code_set_mode(processor)
+        elif isinstance(processor, ImageProcessor):
+            self.gan_mode = "image"
+            self._init_image_mode(dataset, processor)
+        else:
+            raise TypeError(
+                f"GAN expects '{self.feature_key}' to use a MultiHotProcessor "
+                "(input_schema 'multi_hot') or an ImageProcessor ('image'), "
+                f"got {type(processor).__name__}."
+            )
+
+    def _init_code_set_mode(self, processor: MultiHotProcessor) -> None:
+        """Builds MLP networks over the multi-hot code vocabulary."""
+        self.input_dim = processor.size()
+        self._idx_to_code: list[str | None] = [None] * self.input_dim
+        for code, idx in processor.label_vocab.items():
+            self._idx_to_code[idx] = code
+
+        self.discriminator = nn.Sequential(
+            nn.Linear(self.input_dim, self.hidden_dim),
+            nn.LeakyReLU(0.2),
+            nn.Linear(self.hidden_dim, self.hidden_dim),
+            nn.LeakyReLU(0.2),
+            nn.Linear(self.hidden_dim, 1),
+            nn.Sigmoid(),
+        )
+        self.generator = nn.Sequential(
+            nn.Linear(self.hidden_dim, self.hidden_dim),
+            nn.ReLU(),
+            nn.Linear(self.hidden_dim, self.hidden_dim),
+            nn.ReLU(),
+            nn.Linear(self.hidden_dim, self.input_dim),
+            nn.Sigmoid(),
+        )
+
+    def _init_image_mode(self, dataset, processor: ImageProcessor) -> None:
+        """Builds CNN networks sized to the dataset's images."""
+        input_size = processor.image_size
+        if input_size not in (32, 64, 128):
+            raise ValueError(
+                "GAN's image mode supports an image_size of 32, 64 or 128, got "
+                f"{input_size}; set it in the input_schema, e.g. "
+                "(\"image\", {\"image_size\": 64})."
+            )
+        if not processor.to_tensor or processor.normalize:
+            raise ValueError(
+                "GAN's image mode needs images as tensors in [0, 1], the "
+                "generator's output range: use to_tensor=True and "
+                "normalize=False."
+            )
+        input_channel = dataset[0][self.feature_key].shape[0]
 
         # encoder part
         if input_size == 128:
@@ -170,49 +213,12 @@ class GAN(BaseModel):
                 nn.Sigmoid(),
             )
             
-    def _init_code_set_mode(self, dataset) -> None:
-        """Builds MLP networks over the dataset's multi-hot code vocabulary."""
-        if len(self.feature_keys) != 1:
-            raise ValueError(
-                "GAN's code-set mode expects exactly one input feature, got "
-                f"{self.feature_keys}."
-            )
-        self.feature_key = self.feature_keys[0]
-        processor = dataset.input_processors[self.feature_key]
-        if not isinstance(processor, MultiHotProcessor):
-            raise TypeError(
-                f"GAN's code-set mode expects '{self.feature_key}' to use a "
-                "MultiHotProcessor (input_schema 'multi_hot'), got "
-                f"{type(processor).__name__}."
-            )
-        self.input_dim = processor.size()
-        self._idx_to_code: list[str | None] = [None] * self.input_dim
-        for code, idx in processor.label_vocab.items():
-            self._idx_to_code[idx] = code
-
-        self.discriminator = nn.Sequential(
-            nn.Linear(self.input_dim, self.hidden_dim),
-            nn.LeakyReLU(0.2),
-            nn.Linear(self.hidden_dim, self.hidden_dim),
-            nn.LeakyReLU(0.2),
-            nn.Linear(self.hidden_dim, 1),
-            nn.Sigmoid(),
-        )
-        self.generator = nn.Sequential(
-            nn.Linear(self.hidden_dim, self.hidden_dim),
-            nn.ReLU(),
-            nn.Linear(self.hidden_dim, self.hidden_dim),
-            nn.ReLU(),
-            nn.Linear(self.hidden_dim, self.input_dim),
-            nn.Sigmoid(),
-        )
-
     def discriminate(self, x) -> torch.Tensor:
         y = self.discriminator(x)
         return y
 
     def sampling(self, n_samples, device) -> torch.Tensor:
-        if self.feature_key is not None:
+        if self.gan_mode == "code_set":
             return torch.randn(n_samples, self.hidden_dim, device=device)
         eps = torch.randn(n_samples, self.hidden_dim, 1, 1).to(device)
         return eps
@@ -246,23 +252,19 @@ class GAN(BaseModel):
         """Scores a batch of real samples against as many fresh fakes.
 
         Only computes the losses; :meth:`train_model` runs the optimization.
-        Code-set mode only.
 
         Args:
             **kwargs: a batch from ``get_dataloader``, holding the input
-                feature as a ``(batch_size, input_dim)`` multi-hot tensor.
+                feature as a ``(batch_size, input_dim)`` multi-hot tensor in
+                code-set mode, or ``(batch_size, channels, size, size)``
+                images in image mode.
 
         Returns:
             A dict with the scalar ``d_loss`` and ``g_loss``, the
             discriminator's ``real_prob`` and ``fake_prob`` (each
-            ``(batch_size, 1)``), and the generated ``fake`` samples
-            (``(batch_size, input_dim)``).
+            ``(batch_size, 1)``), and the generated ``fake`` samples, shaped
+            like the real batch.
         """
-        if self.feature_key is None:
-            raise ValueError(
-                "forward() needs code-set mode; in image mode call "
-                "generate_fake() and discriminate()."
-            )
         real = kwargs[self.feature_key].to(self.device).float()
         fake = self.generate_fake(real.shape[0], self.device)
         return {
@@ -290,9 +292,8 @@ class GAN(BaseModel):
         reproducible run.
 
         Args:
-            train_dataset: in code-set mode, a ``SampleDataset`` (e.g. the
-                training split); in image mode, a tensor of images shaped
-                ``(N, input_channel, input_size, input_size)`` in ``[0, 1]``.
+            train_dataset: a ``SampleDataset`` with the same input feature
+                as the one the model was built from, e.g. its training split.
             epochs: number of passes over ``train_dataset``. Default is 50.
             batch_size: samples per step. Default is 64.
             lr: Adam learning rate for both networks. Default is 2e-4.
@@ -307,11 +308,7 @@ class GAN(BaseModel):
             device = "cuda" if torch.cuda.is_available() else "cpu"
         self.to(device)
 
-        if self.feature_key is not None:
-            loader = get_dataloader(train_dataset, batch_size, shuffle=True)
-        else:
-            images = TensorDataset(torch.as_tensor(train_dataset))
-            loader = DataLoader(images, batch_size=batch_size, shuffle=True)
+        loader = get_dataloader(train_dataset, batch_size, shuffle=True)
 
         # beta1 = 0.5 is the usual Adam setting for GANs (Radford et al., 2016).
         opt_d = torch.optim.Adam(
@@ -325,11 +322,7 @@ class GAN(BaseModel):
         for _ in tqdm(range(epochs), desc="GAN training"):
             d_total, g_total, n_batches = 0.0, 0.0, 0
             for batch in loader:
-                if self.feature_key is not None:
-                    real = batch[self.feature_key]
-                else:
-                    real = batch[0]
-                real = real.to(self.device).float()
+                real = batch[self.feature_key].to(self.device).float()
                 fake = self.generate_fake(real.shape[0], self.device)
 
                 opt_d.zero_grad()
@@ -351,31 +344,34 @@ class GAN(BaseModel):
 
     def generate(
         self, num_samples: int, random_sampling: bool = False
-    ) -> list[dict]:
-        """Generates synthetic patients in code-set mode.
+    ) -> list[dict] | torch.Tensor:
+        """Generates synthetic samples.
 
-        The generator gives each code a probability; a patient has the codes
-        at or above 0.5, or, with ``random_sampling``, a coin flip per code
-        weighted by its probability.
+        In code-set mode the generator gives each code a probability; a
+        patient has the codes at or above 0.5, or, with ``random_sampling``,
+        a coin flip per code weighted by its probability.
 
         Args:
-            num_samples: number of synthetic patients.
-            random_sampling: sample each code instead of thresholding.
-                Default is False.
+            num_samples: number of synthetic samples.
+            random_sampling: code-set mode only; sample each code instead of
+                thresholding. Default is False.
 
         Returns:
-            One ``{"patient_id": "synthetic_i", "visits": [[code, ...]]}``
-            dict per patient, the format of
-            :meth:`pyhealth.models.MedGAN.generate`: a single visit holding
-            the patient's codes, possibly none.
+            In code-set mode, one
+            ``{"patient_id": "synthetic_i", "visits": [[code, ...]]}`` dict
+            per patient, the format of :meth:`pyhealth.models.MedGAN.generate`:
+            a single visit holding the patient's codes, possibly none. In
+            image mode, a ``(num_samples, channels, size, size)`` tensor of
+            images in ``[0, 1]``.
         """
-        if self.feature_key is None:
-            raise ValueError(
-                "generate() needs code-set mode; in image mode call "
-                "generate_fake()."
-            )
         with torch.no_grad():
             probs = self.generate_fake(num_samples, self.device)
+            if self.gan_mode == "image":
+                if random_sampling:
+                    raise ValueError(
+                        "random_sampling only applies to code-set mode."
+                    )
+                return probs.cpu()
             if random_sampling:
                 rows = torch.bernoulli(probs)
             else:
