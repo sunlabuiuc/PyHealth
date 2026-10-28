@@ -18,6 +18,7 @@ from __future__ import annotations
 import inspect
 import logging
 import warnings
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -287,11 +288,18 @@ def _known_triples(triples: list[tuple[int, int, int]]) -> KnownTriples:
 
 def _uses_kg_triple(task: BaseTask) -> bool:
     """Whether the task's ``triple`` field uses a ``KGTripleProcessor``, in any
-    form the schema accepts: a registered name, a class or an instance, alone
-    or with keyword arguments."""
-    spec = getattr(task, "input_schema", {}).get("triple")
+    form the schema accepts: a registered name or a class, alone or with a
+    mapping of keyword arguments, or an instance. Any other spec, and a schema
+    that is not a mapping, give False; ``BaseDataset.set_task`` then raises
+    its own error on them."""
+    schema = getattr(task, "input_schema", None)
+    spec = schema.get("triple") if isinstance(schema, Mapping) else None
     if isinstance(spec, tuple):
+        if len(spec) != 2 or not isinstance(spec[1], Mapping):
+            return False
         spec = spec[0]
+        if not (isinstance(spec, str) or inspect.isclass(spec)):
+            return False
     if isinstance(spec, str):
         spec = PROCESSOR_REGISTRY.get(spec)
     if not inspect.isclass(spec):

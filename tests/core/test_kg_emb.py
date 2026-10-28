@@ -830,11 +830,20 @@ class TestKGLinkPrediction(unittest.TestCase):
             ("tensor", False),
             (("tensor", {}), False),
             (None, False),
+            # Malformed: SampleBuilder rejects them, so no warning is due.
+            ((), False),
+            ((KGTripleProcessor,), False),
+            (("kg_triple", kwargs, 1), False),
+            (("kg_triple", 5), False),
+            ((KGTripleProcessor(**kwargs), kwargs), False),
         ]
         for spec, expected in cases:
             with self.subTest(spec=spec):
                 task = SimpleNamespace(input_schema={"triple": spec})
                 self.assertEqual(_uses_kg_triple(task), expected)
+        for schema in (None, [("triple", "kg_triple")]):
+            with self.subTest(schema=schema):
+                self.assertFalse(_uses_kg_triple(SimpleNamespace(input_schema=schema)))
 
     def test_a_processor_class_in_the_schema_without_split_warns(self) -> None:
         from pyhealth.medcode.pretrained_embeddings.kg_emb.tasks import KGLinkPrediction
