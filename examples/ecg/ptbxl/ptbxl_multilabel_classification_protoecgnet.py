@@ -20,17 +20,17 @@ seeds; the table is saved as markdown.
 
 Usage:
     # Quick check on synthetic ECGs (no download needed, runs on CPU):
-    python examples/ptbxl_multilabel_classification_protoecgnet.py --synthetic
+    python examples/ecg/ptbxl/ptbxl_multilabel_classification_protoecgnet.py --synthetic
 
     # Real data (open access; only the 100 Hz records, ptbxl_database.csv and
     # scp_statements.csv are needed):
     #   wget -r -N -c -np https://physionet.org/files/ptb-xl/1.0.3/
-    python examples/ptbxl_multilabel_classification_protoecgnet.py \
+    python examples/ecg/ptbxl/ptbxl_multilabel_classification_protoecgnet.py \
         --root physionet.org/files/ptb-xl/1.0.3 --label-set superdiagnostic \
         --epochs 20 --width 64 --ablation
 
     # Paper setting (all 71 labels, three branches, learned fusion):
-    python examples/ptbxl_multilabel_classification_protoecgnet.py \
+    python examples/ecg/ptbxl/ptbxl_multilabel_classification_protoecgnet.py \
         --root physionet.org/files/ptb-xl/1.0.3 --label-set all --paper-groups
 
 Note:

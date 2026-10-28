@@ -493,34 +493,106 @@ class TestProtoECGNet(unittest.TestCase):
 
     def test_set_pos_weight_routes_to_class_weights(self):
         """ProtoECGNet.set_pos_weight must mirror the parsed weight into
-        ``class_weights`` (regression: previously a silent no-op)."""
+        ``class_weights`` with a stable ``(num_labels,)`` shape (regression:
+        previously a silent no-op, then a scalar left a ``(1,)`` buffer that
+        broke strict ``load_state_dict``)."""
         model = ProtoECGNet(self.dataset, prototypes_per_label=1, **TINY)
+        n = model.num_labels
 
-        # Scalar: broadcast to a (1,)-shape tensor, assigned verbatim.
+        # Scalar: broadcast to (num_labels,) filled with the scalar.
         model.set_pos_weight(4.0)
+        self.assertEqual(model.class_weights.shape, (n,))
         torch.testing.assert_close(
-            model.class_weights.detach().cpu(), torch.tensor([4.0])
+            model.class_weights.detach().cpu(), torch.full((n,), 4.0)
         )
 
-        # Per-label sequence: length-6 vector covering self.dataset's labels.
+        # Per-label sequence: length-num_labels vector.
         weights = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
         model.set_pos_weight(weights)
         torch.testing.assert_close(
             model.class_weights.detach().cpu(), torch.tensor(weights)
         )
+        self.assertEqual(model.class_weights.shape, (n,))
+
+        # Wrong length (not 1, not num_labels): clear error.
+        with self.assertRaises(ValueError):
+            model.set_pos_weight([1.0, 2.0])
 
         # None resets to the ones default (identity for BCE pos_weight).
         model.set_pos_weight(None)
         torch.testing.assert_close(
-            model.class_weights.detach().cpu(),
-            torch.ones(model.num_labels),
+            model.class_weights.detach().cpu(), torch.ones(n)
         )
+        self.assertEqual(model.class_weights.shape, (n,))
+
+        # state_dict round-trip after a scalar set_pos_weight must work with
+        # strict loading — the (num_labels,) shape must survive the save/load.
+        model.set_pos_weight(2.5)
+        clone = ProtoECGNet(self.dataset, prototypes_per_label=1, **TINY)
+        clone.load_state_dict(model.state_dict())
+        torch.testing.assert_close(clone.class_weights, model.class_weights)
+
+    def test_set_pos_weight_balanced_uses_dataset(self):
+        """``set_pos_weight('balanced', dataset)`` fills class_weights from the
+        dataset's label distribution; checks the string / dataset path end-to-end.
+        """
+        model = ProtoECGNet(self.dataset, prototypes_per_label=1, **TINY)
+        model.set_pos_weight("balanced", self.dataset)
+        self.assertEqual(model.class_weights.shape, (model.num_labels,))
+        self.assertTrue(torch.isfinite(model.class_weights).all())
+        self.assertTrue((model.class_weights > 0).all())
+        # 'balanced' needs a dataset; otherwise the base class raises.
+        with self.assertRaises(ValueError):
+            model.set_pos_weight("balanced")
 
     def test_project_prototypes_raises_on_shuffled_loader(self):
         model = ProtoECGNet(self.dataset, prototypes_per_label=1, **TINY)
         shuffled = get_dataloader(self.dataset, batch_size=4, shuffle=True)
         with self.assertRaises(ValueError, msg="shuffled loader must raise"):
             model.project_prototypes(shuffled)
+
+    def test_trainer_runs_through_staged_protocol(self):
+        """One epoch per stage through the PyHealth Trainer, with a projection
+        between the joint and classifier stages. Catches regressions where the
+        trainer loop (optimizer / loss / stage switch) breaks even though the
+        unit tests of individual stages still pass.
+        """
+        from pyhealth.trainer import Trainer
+
+        model = ProtoECGNet(self.dataset, prototypes_per_label=1, **TINY)
+        loader = get_dataloader(self.dataset, batch_size=4, shuffle=False)
+        proj_loader = get_dataloader(self.dataset, batch_size=4, shuffle=False)
+        trainer = Trainer(model=model, metrics=[], enable_logging=False)
+
+        for stage in ("feature_extractor", "joint"):
+            model.set_stage(stage)
+            trainer.train(
+                train_dataloader=loader,
+                val_dataloader=loader,
+                epochs=1,
+                monitor="loss",
+                monitor_criterion="min",
+                optimizer_params={"lr": 1e-3},
+            )
+
+        # Projection between joint and classifier mirrors the example's loop.
+        model.project_prototypes(proj_loader)
+
+        model.set_stage("classifier")
+        trainer.train(
+            train_dataloader=loader,
+            val_dataloader=loader,
+            epochs=1,
+            monitor="loss",
+            monitor_criterion="min",
+            optimizer_params={"lr": 1e-3},
+        )
+
+        # Final inference must still produce finite logits for all labels.
+        y_true, y_prob, loss = trainer.inference(loader)[:3]
+        self.assertEqual(y_prob.shape[1], model.num_labels)
+        self.assertTrue(torch.isfinite(torch.as_tensor(y_prob)).all())
+        self.assertTrue(torch.isfinite(torch.as_tensor(loss)))
 
     def test_state_dict_round_trip_preserves_forward_output(self):
         """state_dict → load_state_dict must reproduce forward outputs exactly.

@@ -711,18 +711,32 @@ class ProtoECGNet(BaseModel):
         ``autoimprove``). This override delegates to the base implementation
         to parse the argument (scalar, sequence, tensor, ``"balanced"``, or
         ``None``) and then mirrors ``self._pos_weight`` into
-        ``self.class_weights`` so BCE picks it up. ``None`` resets
-        ``class_weights`` to ones.
+        ``self.class_weights`` so BCE picks it up. A scalar is broadcast to a
+        ``(num_labels,)`` tensor so the buffer's shape is stable across calls
+        (keeps strict ``load_state_dict`` working after a scalar
+        ``set_pos_weight``). ``None`` resets ``class_weights`` to ones.
 
         Args:
             pos_weight: Same semantics as :meth:`BaseModel.set_pos_weight`.
             dataset: Required when ``pos_weight="balanced"``.
+
+        Raises:
+            ValueError: If the parsed weight is neither length-1 (broadcastable)
+                nor length-``num_labels``.
         """
         super().set_pos_weight(pos_weight, dataset)
         if self._pos_weight is None:
             self.class_weights = torch.ones(self.num_labels, device=self.device)
-        else:
-            self.class_weights = self._pos_weight.to(self.device).float()
+            return
+        weight = self._pos_weight.to(self.device).float()
+        if weight.numel() == 1:
+            weight = weight.expand(self.num_labels).clone()
+        elif weight.numel() != self.num_labels:
+            raise ValueError(
+                "pos_weight must be a scalar / length-1 tensor or have one "
+                f"entry per label ({self.num_labels}); got {weight.numel()}."
+            )
+        self.class_weights = weight
 
     def set_label_statistics(
         self,
