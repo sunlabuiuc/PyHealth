@@ -7,6 +7,7 @@ from unittest.mock import patch
 import torch
 
 from pyhealth.processors import (
+    Impute,
     LevelConfig,
     Records,
     Resample,
@@ -104,7 +105,6 @@ class TestConfiguration(unittest.TestCase):
     def test_reserved_options_not_implemented(self):
         reserved: list[tuple[str, Any]] = [
             ("normalize", "zscore"),
-            ("impute", "zero"),
             ("missing_indicator", True),
         ]
         for key, value in reserved:
@@ -116,7 +116,6 @@ class TestConfiguration(unittest.TestCase):
                 {
                     "tokens": 1,
                     "normalize": None,
-                    "impute": None,
                     "missing_indicator": False,
                 }
             ]
@@ -588,9 +587,8 @@ class TestResample(unittest.TestCase):
 
     def test_grid_starts_at_time_zero(self):
         proc = _fit([self.series("last", values=[1])])
-        # Step 0 has no record, so its values are NaN, which imputation (not
-        # supported yet) would have to fill.
-        with self.assertRaisesRegex(ValueError, "imputation"):
+        # Step 0 has no record, so its values are NaN, and nothing imputes them.
+        with self.assertRaisesRegex(ValueError, "NaN"):
             proc.process({"time": [1.0, 2.0], "values": [[1.0], [2.0]]})
         self.assertEqual(
             proc.process({"time": [0.0, 1.0], "values": [[1.0], [2.0]]})[0].shape,
@@ -614,6 +612,164 @@ class TestResample(unittest.TestCase):
     def test_records_need_values(self):
         with self.assertRaises(ValueError):
             _fit([self.series("last", values=[1])]).process({"time": [0.0]})
+
+
+class TestImpute(unittest.TestCase):
+    @staticmethod
+    def level(*steps: Any, **config: Any) -> LevelConfig:
+        # Typed Any: the tests also build invalid configurations.
+        level: Any = {"impute": list(steps)}
+        level.update(config)
+        return level
+
+    def test_rejects_bad_steps(self):
+        level = self.level
+        bad: list[Any] = [
+            [{"values": [1], "impute": "zero"}],
+            [level({"by_tokens": [0]}, values=[1])],  # no method
+            [level({"method": "median"}, values=[1])],
+            [level({"method": "zero", "extra": 1}, values=[1])],
+            [level({"method": "mean", "by_tokens": [1]}, tokens=1, values=[1])],
+            [level({"method": "mean", "by_tokens": []}, tokens=1, values=[1])],
+            [level({"method": "mean", "by_dims": [1]}, values=[1])],
+            [level({"method": "mean", "by_dims": [0, 0]}, values=[2, 2])],
+            [level({"method": "mean"}, tokens=1)],  # no values
+            [level({"method": "linear"}, ordering="series", tokens=1)],
+            [level({"method": "forward_fill"}, ordering="set", values=[1])],
+        ]
+        for levels in bad:
+            with (
+                self.subTest(levels=levels),
+                self.assertRaises((ValueError, TypeError)),
+            ):
+                SequenceProcessorV2(levels=levels)
+
+    def test_learns_statistics_only_with_statistics(self):
+        zero = SequenceProcessorV2(levels=[self.level({"method": "zero"}, values=[1])])
+        mean = SequenceProcessorV2(levels=[self.level({"method": "mean"}, values=[1])])
+        self.assertFalse(zero.learns_statistics)
+        self.assertTrue(mean.learns_statistics)
+
+    def test_zero(self):
+        proc = _fit([self.level({"method": "zero"}, values=[2])])
+        (values,) = proc.process({"values": [[1.0, NAN], [NAN, 4.0]]})
+        self.assertEqual(values.tolist(), [[1.0, 0.0], [0.0, 4.0]])
+
+    def test_statistics_by_tokens_and_dims(self):
+        train: Records = {
+            "tokens": ["A", "A", "B"],
+            "values": [[1.0, 10.0], [3.0, NAN], [5.0, 50.0]],
+        }
+        test: Records = {"tokens": ["A", "B", "C"], "values": [[NAN, NAN]] * 3}
+        cases: list[tuple[Impute, list[list[float]]]] = [
+            # One mean of everything: (1 + 10 + 3 + 5 + 50) / 5.
+            ({"method": "mean"}, [[13.8, 13.8]] * 3),
+            # One mean per value position.
+            ({"method": "mean", "by_dims": ()}, [[3.0, 30.0]] * 3),
+            # One per token. "C" was never seen, so it keeps its NaN, which the
+            # chained "zero" step then fills.
+            (
+                {"method": "max", "by_tokens": (0,)},
+                [[10.0, 10.0], [50.0, 50.0], [0.0, 0.0]],
+            ),
+            (
+                {"method": "min", "by_tokens": (0,), "by_dims": ()},
+                [[1.0, 10.0], [5.0, 50.0], [0.0, 0.0]],
+            ),
+        ]
+        for step, expected in cases:
+            with self.subTest(step=step):
+                level = self.level(step, {"method": "zero"}, tokens=1, values=[2])
+                _, values = _fit([level], train).process(test)
+                torch.testing.assert_close(values, torch.tensor(expected))
+
+    def test_statistics_come_from_raw_values(self):
+        # Resampling averages 1 and 5 into 3, but the max is taken from raw
+        # values, so the empty step 1 becomes 5.
+        level = self.level(
+            {"method": "max"},
+            ordering="series",
+            values=[1],
+            resample={"step": 1.0, "method": "avg"},
+        )
+        raw: Records = {"time": [0.0, 0.5, 2.0], "values": [[1.0], [5.0], [2.0]]}
+        (values,) = _fit([level], raw).process(raw)
+        self.assertEqual(values.tolist(), [[3.0], [5.0], [2.0]])
+
+    def test_fills_never_cross_groups(self):
+        raw: Records = {
+            "children": [
+                {"values": [[1.0], [NAN], [3.0]]},
+                {"values": [[NAN], [2.0]]},
+            ]
+        }
+        cases: list[tuple[Impute, list[float]]] = [
+            ({"method": "forward_fill"}, [1.0, 1.0, 3.0, 0.0, 2.0]),
+            ({"method": "backward_fill"}, [1.0, 3.0, 3.0, 2.0, 2.0]),
+            ({"method": "linear"}, [1.0, 2.0, 3.0, 0.0, 2.0]),
+        ]
+        for step, expected in cases:
+            with self.subTest(step=step):
+                level = self.level(step, {"method": "zero"}, values=[1])
+                values, _ = _fit([level, {}], raw).process(raw)
+                self.assertEqual(values.reshape(-1).tolist(), expected)
+
+    def test_fills_by_token(self):
+        raw: Records = {
+            "time": [0.0, 1.0, 2.0, 4.0],
+            "tokens": ["A", "B", "A", "A"],
+            "values": [[1.0], [10.0], [NAN], [4.0]],
+        }
+        cases: list[tuple[Impute, float]] = [
+            ({"method": "forward_fill", "by_tokens": (0,)}, 1.0),
+            ({"method": "backward_fill", "by_tokens": (0,)}, 4.0),
+            ({"method": "linear", "by_tokens": (0,)}, 2.5),  # by time: 2 of 0..4
+            ({"method": "forward_fill"}, 10.0),  # any token: the previous record
+        ]
+        for step, expected in cases:
+            with self.subTest(step=step):
+                level = self.level(step, ordering="series", tokens=1, values=[1])
+                _, values, _ = _fit([level], raw).process(raw)
+                self.assertAlmostEqual(values[2, 0].item(), expected)
+
+    def test_fill_also_fills_pad_tokens(self):
+        level = self.level(
+            {"method": "forward_fill"},
+            ordering="series",
+            tokens=1,
+            values=[1],
+            resample={"step": 1.0, "method": "last"},
+        )
+        raw: Records = {
+            "time": [0.0, 2.0],
+            "tokens": ["A", "B"],
+            "values": [[1.0], [2.0]],
+        }
+        tokens, values = _fit([level], raw).process(raw)
+        self.assertEqual(tokens.tolist(), [2, 2, 3])  # step 1 takes "A"
+        self.assertEqual(values.reshape(-1).tolist(), [1.0, 1.0, 2.0])
+
+    def test_linear_on_a_resampled_grid_uses_steps(self):
+        level = self.level(
+            {"method": "linear"},
+            ordering="series",
+            values=[1],
+            resample={"step": 1.0, "method": "last"},
+        )
+        raw: Records = {"time": [0.0, 3.5], "values": [[0.0], [3.0]]}
+        (values,) = _fit([level], raw).process(raw)
+        self.assertEqual(values.reshape(-1).tolist(), [0.0, 1.0, 2.0, 3.0])
+
+    def test_unfilled_gaps_still_raise(self):
+        level = self.level({"method": "forward_fill"}, values=[1])
+        with self.assertRaisesRegex(ValueError, "NaN"):
+            _fit([level]).process({"values": [[NAN], [1.0]]})  # leading gap
+
+    def test_pickle_keeps_statistics(self):
+        level = self.level({"method": "mean"}, values=[1])
+        proc = _fit([level], {"values": [[2.0], [4.0]]})
+        restored = pickle.loads(pickle.dumps(proc))
+        self.assertEqual(restored.process({"values": [[NAN]]})[0].tolist(), [[3.0]])
 
 
 class TestCollateAndValidate(unittest.TestCase):
