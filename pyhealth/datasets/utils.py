@@ -6,8 +6,8 @@ from collections.abc import Callable, Mapping
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
-import torch
 import litdata
+import torch
 from dateutil.parser import parse as dateutil_parse
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader
@@ -253,7 +253,7 @@ def collate_fn_dict(batch: List[dict]) -> dict:
 
 
 def collate_fn_dict_with_padding(
-    batch: List[dict], collators: Optional[Mapping[str, Callable]] = None
+    batch: list[dict], collators: Mapping[str, Callable] | None = None
 ) -> dict:
     """Collates a batch of data into a dictionary with padding for tensor values.
 
@@ -266,6 +266,17 @@ def collate_fn_dict_with_padding(
         A dictionary where each key corresponds to a list of values from the batch.
         Tensor values are padded to the same shape.
         Tuples of (time, values) from temporal processors are collated separately.
+
+    Examples:
+        >>> import torch
+        >>> batch = [{"x": torch.tensor([1, 2]), "id": "a"}, {"x": torch.tensor([3]), "id": "b"}]
+        >>> collate_fn_dict_with_padding(batch)["x"]
+        tensor([[1, 2],
+                [3, 0]])
+        >>> collate_fn_dict_with_padding(batch)["id"]
+        ['a', 'b']
+        >>> collate_fn_dict_with_padding(batch, collators={"x": len})["x"]
+        2
     """
     collated = {}
     keys = batch[0].keys()
