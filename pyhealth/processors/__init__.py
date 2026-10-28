@@ -37,6 +37,12 @@ from .deep_nested_sequence_processor import (
 )
 from .raw_processor import RawProcessor
 from .sequence_processor import SequenceProcessor
+from .sequence_processor_v2 import (
+    LevelConfig,
+    Records,
+    Resample,
+    SequenceProcessorV2,
+)
 from .signal_processor import SignalProcessor
 from .stagenet_processor import (
     StageNetProcessor,
@@ -76,6 +82,10 @@ __all__ = [
     "NestedSequenceProcessor",
     "RawProcessor",
     "SequenceProcessor",
+    "SequenceProcessorV2",
+    "Records",
+    "LevelConfig",
+    "Resample",
     "SignalProcessor",
     "StageNetProcessor",
     "StageNetTensorProcessor",
