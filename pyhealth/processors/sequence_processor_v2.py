@@ -841,7 +841,8 @@ class _Imputer:
             order, start, end = self._segments(group, keys)
             skip = (keys[order] == pad).any(axis=1)  # rows without a token
             if values is not None:
-                x = values.reshape(n, -1)[order]
+                # An explicit width: numpy cannot infer -1 when n is 0.
+                x = values.reshape(n, int(np.prod(values.shape[1:])))[order]
                 valid = ~np.isnan(x)
                 before = self._previous_valid(valid, start)
                 after = self._next_valid(valid, start, end)

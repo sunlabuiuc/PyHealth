@@ -741,6 +741,30 @@ class TestImpute(unittest.TestCase):
         (values,) = _fit([level], raw).process(raw)
         self.assertEqual(values.reshape(-1).tolist(), [0.0, 1.0, 2.0, 3.0])
 
+    def test_levels_without_records(self):
+        # A sample whose stays have no records at all, for every method.
+        for method in ("zero", "mean", "forward_fill", "backward_fill", "linear"):
+            with self.subTest(method=method):
+                level = self.level(
+                    {"method": method}, ordering="series", tokens=1, values=[2]
+                )
+                proc = _fit(
+                    [level, {}],
+                    {
+                        "children": [
+                            {"time": [0.0], "tokens": ["A"], "values": [[1.0, 2.0]]}
+                        ]
+                    },
+                )
+                empty: Records = {"time": [], "tokens": [], "values": []}
+                tokens, values, time, offsets = proc.process(
+                    {"children": [empty, empty]}
+                )
+                self.assertEqual(
+                    (tokens.shape, values.shape, time.shape), ((0,), (0, 2), (0,))
+                )
+                self.assertEqual(offsets.tolist(), [0, 0, 0])
+
     def test_unfilled_gaps_still_raise(self):
         level = self.level({"method": "forward_fill"}, values=[1])
         with self.assertRaisesRegex(ValueError, "NaN"):
