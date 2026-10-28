@@ -125,8 +125,29 @@ def main():
         print(f"  {f.name}: {len(df)} rows")
 
 
+def create_vital_tables(source_root: Path = EICU_DEMO_ROOT) -> None:
+    """Adds vitalPeriodic and vitalAperiodic for the stays in patient.csv.
+
+    Keeps each stay's first 24 hours, the window CARTVitalsGenerationEICU
+    reads. vitalPeriodic is charted every few minutes, so only the first row
+    per stay per hour is kept, to keep the file small.
+    """
+    stay_ids = set(pd.read_csv(OUTPUT_DIR / "patient.csv")["patientunitstayid"])
+    for table_name, hourly in [("vitalPeriodic", True), ("vitalAperiodic", False)]:
+        df = load_csv_gz(source_root / f"{table_name}.csv.gz")
+        df = df[
+            df["patientunitstayid"].isin(stay_ids)
+            & df["observationoffset"].between(0, 24 * 60 - 1)
+        ].sort_values(["patientunitstayid", "observationoffset"])
+        if hourly:
+            hour = df["observationoffset"] // 60
+            df = df.groupby([df["patientunitstayid"], hour]).head(1)
+        save_csv(df, OUTPUT_DIR / f"{table_name}.csv")
+
+
 if __name__ == "__main__":
     main()
+    create_vital_tables()
 
 
 
