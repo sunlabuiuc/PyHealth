@@ -60,6 +60,20 @@ class Records(TypedDict, total=False):
             list is also accepted when ``S`` is ``(1,)``.
         children: ``[N]`` ``Records``; ``children[i]`` holds record ``i``'s
             records one level down. Read on every level but 0.
+
+    Examples:
+        Two timed visits, each a set of codes:
+
+        >>> visits: Records = {
+        ...     "time": [0.0, 30.0],
+        ...     "children": [{"tokens": ["A", "B"]}, {"tokens": ["C"]}],
+        ... }
+        >>> proc = SequenceProcessorV2(
+        ...     levels=[{"ordering": "set", "tokens": 1}, {"ordering": "series"}]
+        ... )
+        >>> proc.fit([{"visits": visits}], "visits")
+        >>> proc.process(visits)
+        (tensor([2, 3, 4]), tensor([0, 2, 3]), tensor([ 0., 30.]))
     """
 
     time: Sequence[float] | np.ndarray
@@ -90,6 +104,18 @@ class Resample(TypedDict):
 
             A step without records gets ``<pad>`` tokens, NaN values and no
             children; filling it is up to imputation.
+
+    Examples:
+        Averaging irregular values per time unit:
+
+        >>> resample: Resample = {"step": 1.0, "method": "avg"}
+        >>> proc = SequenceProcessorV2(
+        ...     levels=[{"ordering": "series", "values": [1], "resample": resample}]
+        ... )
+        >>> proc.fit([], "x")
+        >>> proc.process({"time": [0.0, 0.5, 1.2], "values": [[1.0], [3.0], [5.0]]})
+        (tensor([[2.],
+                [5.]]),)
     """
 
     step: float
@@ -130,6 +156,21 @@ class Impute(TypedDict, total=False):
     A key without a statistic (a token or value never seen in ``fit()``)
     keeps its NaN, as does any gap a method cannot fill; chain several steps
     to fill those.
+
+    Examples:
+        Forward fill, then zero for the leading gap it cannot fill:
+
+        >>> steps: list[Impute] = [{"method": "forward_fill"}, {"method": "zero"}]
+        >>> proc = SequenceProcessorV2(
+        ...     levels=[{"ordering": "series", "values": [1], "impute": steps}]
+        ... )
+        >>> proc.fit([], "x")
+        >>> nan = float("nan")
+        >>> values, time = proc.process(
+        ...     {"time": [0.0, 1.0, 2.0], "values": [[nan], [2.0], [nan]]}
+        ... )
+        >>> values.reshape(-1)
+        tensor([0., 2., 2.])
     """
 
     method: Required[ImputeMethod]
@@ -163,6 +204,17 @@ class Normalize(TypedDict, total=False):
             images; None reduces over all axes. Time is always reduced.
 
     A value position without any training value is left as it is.
+
+    Examples:
+        One z-score per channel, learned from the training values:
+
+        >>> normalize: Normalize = {"method": "zscore"}
+        >>> proc = SequenceProcessorV2(
+        ...     levels=[{"values": [2], "normalize": normalize}]
+        ... )
+        >>> proc.fit([{"x": {"values": [[1.0, 10.0], [3.0, 30.0]]}}], "x")
+        >>> proc.process({"values": [[1.0, 30.0]]})
+        (tensor([[-1.,  1.]]),)
     """
 
     method: Required[NormalizeMethod]
@@ -200,6 +252,23 @@ class LevelConfig(TypedDict, total=False):
             tensor shaped like ``values``, True where a value was missing
             (NaN, including a resampled step without records) before
             imputation. Needs values and ``impute``.
+
+    Examples:
+        Long-format labs (test, unit) in stays, with missing values imputed
+        and marked:
+
+        >>> levels: list[LevelConfig] = [
+        ...     {
+        ...         "ordering": "series",
+        ...         "tokens": 2,
+        ...         "values": [1],
+        ...         "impute": {"method": "zero"},
+        ...         "missing_indicator": True,
+        ...     },
+        ...     {"ordering": "sequence"},
+        ... ]
+        >>> SequenceProcessorV2(levels=levels).schema()
+        ((0, 'tokens'), (0, 'values'), (0, 'mask'), (0, 'time'), (0, 'offsets'))
     """
 
     ordering: OrderType
