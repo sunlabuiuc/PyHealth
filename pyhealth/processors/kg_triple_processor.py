@@ -61,8 +61,9 @@ class KGTripleProcessor(FeatureProcessor):
     These dicts must describe the training triples only, otherwise the
     negatives and weights of training depend on validation and test
     triples. ``set_task(task, split=PatientSplit(...))`` fits processors on
-    the training part only; without ``split``, PyHealth warns, because
-    ``learns_statistics`` is set.
+    the training part only. Without ``split``, ``BaseKGDataset.set_task``
+    warns at every call, and ``SampleBuilder.fit`` also logs a warning when
+    it fits the processor, because ``learns_statistics`` is set.
 
     Entity and relation ids are global (fixed on the full graph), so
     ``num_entities`` and ``num_relations`` are given, not fitted: an entity
@@ -74,7 +75,8 @@ class KGTripleProcessor(FeatureProcessor):
         num_relations: Number of relations; ids are
             ``0..num_relations - 1``.
         count_start: Value of a frequency the first time a pair is seen.
-            Default is 4, as in Sun et al. (2019).
+            Default is 4, as in the reference implementation of Sun et
+            al. (2019).
 
     Raises:
         ValueError: If a count is not a positive integer, or if ``fit``

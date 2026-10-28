@@ -32,8 +32,9 @@ class UMLSDataset(BaseKGDataset):
     in that case.
 
     Entity and relation ids are assigned by sorted name (see
-    :class:`BaseKGDataset`), no longer by order of first appearance as in
-    PyHealth 1.x: embeddings trained with 1.x must be mapped through the
+    :class:`BaseKGDataset`), no longer as in PyHealth 1.x, which numbered
+    entities in the order ``pandas.unique`` returned them from the head and
+    tail columns: embeddings trained with 1.x must be mapped through the
     ``id2entity`` / ``id2relation`` saved with them.
 
     Every triple of ``graph_filtered.txt``, the file of the 1.x bucket that

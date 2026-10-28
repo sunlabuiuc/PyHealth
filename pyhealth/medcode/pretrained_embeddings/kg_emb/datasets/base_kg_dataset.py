@@ -9,7 +9,8 @@ triples.
 
 Entity and relation ids are global. They are assigned on the full graph,
 names sorted, ids ``0..n-1``, so every split shares one id space, as in the
-transductive setting of Bordes et al. (2013) and Sun et al. (2019). Knowing
+link-prediction protocol of Bordes et al. (2013) and Sun et al. (2019),
+where a test triple is ranked against every entity of the graph. Knowing
 that an entity exists does not reveal any of its edges.
 """
 
@@ -190,8 +191,10 @@ class KnownTriples:
     them once, from the triples of all the parts it returns, and attaches
     them to every part as ``part.known_triples``. Their size therefore grows
     with the number of triples; a copy in each sample grew with the number
-    of triples times the largest degree. One instance is shared by every
-    part and by every model built from them, so treat it as read-only.
+    of triples times the largest degree. ``set_task`` attaches one instance
+    to every part it returns, and a model built from a part keeps it, so
+    treat it as read-only; ``subset()`` and ``copy.deepcopy`` of a part copy
+    it.
     Training never reads them: its filters come from the ``kg_triple``
     processor, fitted on the training part.
 

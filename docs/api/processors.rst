@@ -364,6 +364,7 @@ Common string keys for automatic processor selection:
 - ``"tensor"``: For pre-processed tensors
 - ``"raw"``: For raw/unprocessed data
 - ``"graph"``: For knowledge graph subgraphs
+- ``"kg_triple"``: For knowledge graph triples, with the training-graph dicts of the KG embedding models
 
 Writing Custom FeatureProcessors
 ---------------------------------

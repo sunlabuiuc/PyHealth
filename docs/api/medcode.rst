@@ -194,15 +194,24 @@ arguments (``negative_sampling`` is now a model argument, step 4), the
 ``refresh_cache`` argument, ``len()``, and the ``entity_num``,
 ``relation_num``, ``triples``, ``stat()`` and ``info()`` members of
 ``BaseKGDataset`` (use ``num_entities``, ``num_relations`` and
-``stats()``); use the 2.0 path above. Its
+``stats()``); use the 2.0 path above. ``BaseKGDataset`` now takes
+``(root, config_path, dataset_name=None, cache_dir=None, num_workers=1,
+dev=False)``, so ``config_path`` holds the second position, formerly
+``dataset_name``; its ``raw_graph_process()`` hook and its ``samples``,
+``task_name``, ``filepath`` and ``len`` attributes are gone, and
+``entity2id`` and ``relation2id`` are read-only properties.
+``UMLSDataset`` keeps ``root`` and ``dataset_name`` as its first two
+arguments, but its third is now ``config_path``, formerly ``dev``: pass
+``dev`` by keyword. Its
 results are not comparable with 1.x runs: 1.x filtered training negatives
 with, and computed subsampling weights on, every triple of the graph,
 held-out ones included, and made one sample per row of the file, duplicates
 included. ``UMLSDataset(dev=True)`` now keeps 1000 triples of ``graph.txt``,
 where 1.x loaded the whole of ``graph_filtered.txt``. A model must be built
 from a sample dataset part, not from the ``BaseKGDataset`` itself. Ids no
-longer follow the 1.x order of first appearance: map 1.x embeddings through
-the ``id2entity`` saved with them.
+longer follow the 1.x numbering, the order in which ``pandas.unique``
+returned the entities of the head and tail columns: map 1.x embeddings
+through the ``id2entity`` saved with them.
 
 .. autoclass:: pyhealth.medcode.pretrained_embeddings.kg_emb.datasets.BaseKGDataset
     :members:

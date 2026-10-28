@@ -34,10 +34,21 @@ class KGEBaseModel(ABC, nn.Module):
         ns: negative sampling technique to use: can be "uniform", "normal" or "adv" (self-adversarial).
         gamma: fixed margin (only need when ns="adv").
         use_subsampling_weight: whether to use subsampling weight (like in word2vec) or not, False by default.
-        use_regularization: whether to apply regularization or not, False by default.
+        use_regularization: None (the default here and in TransE and RotatE)
+            adds no penalty; "l3" adds ``l3_regularization()``, which only
+            ComplEx and DistMult define, and which they use by default.
+            Other values are not supported: they call ``regularization()``,
+            which needs a batch that ``forward`` does not pass.
         mode: evaluation metric type, one of "binary", "multiclass", or "multilabel", "multiclass" by default
         negative_sampling: Number of negative heads and of negative tails drawn
             per training triple, 128 by default.
+
+    Raises:
+        TypeError: If ``dataset`` is a base dataset, or has no ``kg_triple``
+            processor.
+        ValueError: If ``negative_sampling`` is not a positive integer. In
+            evaluation, ``forward`` also raises it when the dataset carried
+            no ``known_triples``, or for a triple that is not among them.
 
     Examples:
         >>> from pyhealth.processors import KGTripleProcessor
