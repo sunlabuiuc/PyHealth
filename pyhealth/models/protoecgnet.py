@@ -781,6 +781,22 @@ class ProtoECGNet(BaseModel):
         union = (counts.unsqueeze(0) + counts.unsqueeze(1) - inter).clamp_min(1e-6)
         return weights, inter / union
 
+    def get_extra_state(self) -> dict:
+        """Persists non-tensor state (currently ``self.stage``) in ``state_dict``.
+
+        ``stage`` selects the forward code path (branch-scatter logits vs.
+        ``fusion_classifier`` output) and the loss terms, so without this a
+        checkpoint saved after :meth:`set_stage` would silently reload in
+        ``"all"`` and return different logits — in particular, a learned-fusion
+        model would skip ``fusion_classifier`` entirely.
+        """
+        return {"stage": self.stage}
+
+    def set_extra_state(self, state) -> None:
+        """Restores non-tensor state saved by :meth:`get_extra_state`."""
+        if isinstance(state, dict) and "stage" in state:
+            self.set_stage(state["stage"])
+
     def set_stage(self, stage: str) -> None:
         """Selects which parameters are trained.
 

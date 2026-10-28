@@ -532,6 +532,49 @@ class TestProtoECGNet(unittest.TestCase):
         clone.load_state_dict(model.state_dict())
         torch.testing.assert_close(clone.class_weights, model.class_weights)
 
+    def test_state_dict_round_trip_preserves_fusion_stage(self):
+        """A learned-fusion model saved in the ``fusion`` stage must reload in
+        that same stage, so forward keeps using ``fusion_classifier`` instead of
+        falling back to the branch-scatter path.
+
+        Regression: ``self.stage`` was a plain attribute (not in ``state_dict``),
+        so a reloaded model silently resumed in ``"all"`` and returned the
+        wrong logits.
+        """
+        torch.manual_seed(0)
+        groups = {"rhythm": ["A", "B", "C"], "morph": ["D", "E", "F"]}
+        model = ProtoECGNet(
+            self.dataset, label_groups=groups, prototypes_per_label=2,
+            fusion="learned", **TINY,
+        )
+        model.set_stage("fusion")
+        with torch.no_grad():
+            for p in model.parameters():
+                if p.requires_grad:
+                    p.add_(0.1 * torch.randn_like(p))
+        model.eval()
+        with torch.no_grad():
+            expected = model(**self.batch)["logit"]
+            expected_contribs = model.prototype_contributions(self.batch["signal"])
+
+        clone = ProtoECGNet(
+            self.dataset, label_groups=groups, prototypes_per_label=2,
+            fusion="learned", **TINY,
+        ).eval()
+        # Default stage on a freshly constructed model.
+        self.assertEqual(clone.stage, "all")
+        clone.load_state_dict(model.state_dict())
+        # Extra state restored the fusion stage.
+        self.assertEqual(clone.stage, "fusion")
+        with torch.no_grad():
+            got = clone(**self.batch)["logit"]
+            got_contribs = clone.prototype_contributions(self.batch["signal"])
+        torch.testing.assert_close(got, expected, atol=1e-6, rtol=1e-6)
+        for name in model.branch_names:
+            torch.testing.assert_close(
+                got_contribs[name], expected_contribs[name], atol=1e-6, rtol=1e-6
+            )
+
     def test_set_pos_weight_balanced_uses_dataset(self):
         """``set_pos_weight('balanced', dataset)`` fills class_weights from the
         dataset's label distribution; checks the string / dataset path end-to-end.
