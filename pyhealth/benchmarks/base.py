@@ -124,14 +124,26 @@ class Result:
     ``metadata["error"]`` may contain patient data and must never be
     published. ``error_type`` is safe to display.
 
+    ``artifact`` points to the evaluation's reusable output, such as a
+    trained model checkpoint, so other benchmarks can load it instead of
+    retraining. It may be a file or a directory, and is typically written
+    under ``output_dir``. Like ``metadata["error"]``, it may contain patient
+    data (models can memorize training records) and must never be
+    published.
+
     Attributes:
         status: ``"success"`` or ``"failed"``.
         metrics: Metric names mapped to values.
         metadata: Any other information about the run.
+        artifact: Path to the reusable output, or ``None`` if the
+            evaluation produced none.
 
     Examples:
-        >>> Result("success", {"accuracy": 0.9})
-        Result(status='success', metrics={'accuracy': 0.9}, metadata={})
+        >>> Result("success", {"accuracy": 0.9}).metrics
+        {'accuracy': 0.9}
+        >>> from pathlib import Path
+        >>> Result("success", {}, artifact=Path("runs/1/model.pt")).artifact.name
+        'model.pt'
         >>> exc = ValueError("bad input")
         >>> Result(
         ...     "failed", {}, {"error": str(exc), "error_type": type(exc).__name__}
@@ -142,6 +154,7 @@ class Result:
     status: Literal["success", "failed"]
     metrics: Mapping[str, Any]
     metadata: Mapping[str, Any] = field(default_factory=dict)
+    artifact: Path | None = None
 
 
 class Benchmark(ABC):

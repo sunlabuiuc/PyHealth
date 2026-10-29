@@ -3,9 +3,11 @@
 # Description: Tests for the pyhealth.benchmarks base abstractions.
 
 import json
+import tempfile
 import types
 import unittest
 from collections import OrderedDict
+from pathlib import Path
 
 from pyhealth.benchmarks import Benchmark, Evaluation, Result
 
@@ -228,6 +230,29 @@ class TestBenchmark(unittest.TestCase):
         )
         with self.assertRaisesRegex(ValueError, "unexpected"):
             bench.evaluate(evs)
+
+    def test_artifact_defaults_to_none(self):
+        self.assertIsNone(Result("success", {}).artifact)
+
+    def test_artifact_returned_from_evaluate(self):
+        class Checkpointing(Benchmark):
+            @property
+            def name(self):
+                return "checkpointing"
+
+            def _evaluate(self, evaluations, cache_dir, output_dir):
+                results = {}
+                for ev in evaluations:
+                    path = output_dir / f"{ev.id}.pt"
+                    path.write_text("weights")
+                    results[ev] = Result("success", {}, artifact=path)
+                return results
+
+        ev = Evaluation({"x": 1})
+        with tempfile.TemporaryDirectory() as tmp:
+            result = Checkpointing().evaluate([ev], output_dir=Path(tmp))[ev]
+            self.assertEqual(result.artifact, Path(tmp) / f"{ev.id}.pt")
+            self.assertTrue(result.artifact.exists())
 
     def test_mixed_success_and_failure_returned(self):
         class Flaky(Benchmark):
