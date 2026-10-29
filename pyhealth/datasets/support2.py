@@ -147,12 +147,25 @@ def support2_released_split_ids(
         >>> [len(ids[s]) for s in ("train", "valid", "test")]  # doctest: +SKIP
         [5370, 1776, 1727]
     """
+    if not np.isfinite(tolerance) or tolerance < 0:
+        raise ValueError("tolerance must be finite and non-negative")
+    if (
+        isinstance(repeat, bool)
+        or not isinstance(repeat, (int, np.integer))
+        or not 1 <= repeat <= 10
+    ):
+        raise ValueError("repeat must be an integer from 1 through 10")
     path = Path(root).expanduser() / "support2.csv"
     ids, features, outcomes = [], [], []
+    seen = set()
     with path.open(newline="") as stream:
         for row in csv.DictReader(stream):
             if "sno" not in row:
                 raise ValueError("support2.csv needs an sno column")
+            source_id = str(row["sno"]).strip()
+            if not source_id or source_id in seen:
+                raise ValueError("SUPPORT2 sno values must be nonempty and unique")
+            seen.add(source_id)
             parsed = _support2_values(row, row["sno"])
             if parsed is not None:
                 ids.append(str(row["sno"]).strip())

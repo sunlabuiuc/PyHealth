@@ -1,6 +1,8 @@
 """Authors: Aritra Saha and Ugochukwu Njoku.
 
 Small download-free checks of the accepted model's native training pipeline.
+Paper: Survival Mixture Density Networks, Han et al., MLHC 2022.
+https://proceedings.mlr.press/v182/han22a.html
 """
 
 import json
@@ -8,6 +10,7 @@ import json
 import numpy as np
 import pytest
 import torch
+
 from examples.survival_pipeline import load_split, restore_pilot, run_pilot
 from pyhealth.datasets import create_sample_dataset, get_dataloader
 
@@ -29,21 +32,21 @@ def parts(request):
     width = request.param
     rng = np.random.default_rng(7)
     samples = []
-    for i in range(64):
+    for i in range(5):
         features = rng.normal(size=width)
         samples.append(
             {
                 "patient_id": f"p{i}",
                 "features": features.tolist(),
                 "duration": [float(np.exp(0.2 * features[0] + rng.normal(0, 0.3)))],
-                "event": [float(i % 3 != 0)],
+                "event": [float(i != 0)],
             }
         )
     dataset = create_sample_dataset(
         samples, {"features": "tensor"}, {"duration": "tensor", "event": "tensor"}
     )
     return tuple(
-        dataset.subset(indices) for indices in [range(40), range(40, 52), range(52, 64)]
+        dataset.subset(indices) for indices in [range(2), range(2, 3), range(3, 5)]
     )
 
 

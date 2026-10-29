@@ -11,6 +11,7 @@ from pathlib import Path
 import numpy as np
 import polars as pl
 import yaml
+
 from pyhealth.data import Patient
 from pyhealth.datasets import (
     Support2Dataset,
@@ -171,6 +172,12 @@ class TestSupport2Task(unittest.TestCase):
         self.assertAlmostEqual(sample["duration"][0], 30 / 365.25 + 0.001)
 
     def test_invalid_inputs_are_rejected(self):
+        for transform in ({"time_divisor": 1e-300}, {"time_offset": 1e300}):
+            with (
+                self.subTest(transform=transform),
+                self.assertRaisesRegex(ValueError, "finite positive float32"),
+            ):
+                SurvivalTimeToEventSupport2(**transform)(patient([row(1)]))
         for kwargs in (
             {"time_divisor": 0},
             {"time_offset": -1.0},
@@ -210,6 +217,18 @@ class TestSupport2ReleasedSplits(unittest.TestCase):
         write_released(self.root, self.cohort, [[3, 0], [4, 1], [2]])
         ids = support2_released_split_ids(self.root, self.root, 1)
         self.assertEqual(ids, {"train": ["5", "1"], "valid": ["6", "2"], "test": ["4"]})
+
+    def test_mapping_rejects_invalid_controls_and_duplicate_ids(self):
+        for tolerance in (float("nan"), float("inf"), -1):
+            with self.subTest(tolerance=tolerance), self.assertRaises(ValueError):
+                support2_released_split_ids(self.root, self.root, 1, tolerance=tolerance)
+        for repeat in (True, 0, 11, 1.5):
+            with self.subTest(repeat=repeat), self.assertRaises(ValueError):
+                support2_released_split_ids(self.root, self.root, repeat=repeat)
+        self.rows[1]["sno"] = self.rows[0]["sno"]
+        write_csv(self.root, self.rows)
+        with self.assertRaisesRegex(ValueError, "sno values"):
+            support2_released_split_ids(self.root, self.root, 1)
 
     def test_mismatch_and_leftover_fail(self):
         write_released(self.root, self.cohort, [[0, 1], [2], [3]])

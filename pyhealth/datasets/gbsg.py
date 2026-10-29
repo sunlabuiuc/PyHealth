@@ -35,6 +35,8 @@ def _read_gbsg_csv(root: str | Path) -> tuple[list[str], np.ndarray, np.ndarray]
             outcomes.append((time, event))
     if not ids:
         raise ValueError("GBSG CSV must contain at least one source row")
+    if any(not source_id.strip() for source_id in ids) or len(set(ids)) != len(ids):
+        raise ValueError("GBSG source IDs must be nonempty and unique")
     return ids, np.asarray(features, dtype=float), np.asarray(outcomes, dtype=float)
 
 
@@ -112,6 +114,14 @@ def gbsg_released_split_ids(
         >>> [len(ids[s]) for s in ("train", "valid", "test")]  # doctest: +SKIP
         [1785, 223, 224]
     """
+    if not np.isfinite(tolerance) or tolerance < 0:
+        raise ValueError("tolerance must be finite and non-negative")
+    if (
+        isinstance(repeat, bool)
+        or not isinstance(repeat, (int, np.integer))
+        or not 1 <= repeat <= 10
+    ):
+        raise ValueError("repeat must be an integer from 1 through 10")
     ids, features, outcomes = _read_gbsg_csv(root)
     released_times = outcomes[:, 0] / outcomes[:, 0].max() + _RELEASED_FILE_OFFSET
     used = np.zeros(len(ids), dtype=bool)

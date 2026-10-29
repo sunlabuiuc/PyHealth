@@ -13,6 +13,7 @@ from pathlib import Path
 import numpy as np
 import polars as pl
 import torch
+
 from pyhealth.data import Patient
 from pyhealth.datasets import (
     GBSGDataset,
@@ -375,6 +376,20 @@ class TestGBSGReleasedSplits(unittest.TestCase):
             {"time_divisor": 30.0, "time_offset": 0.002},
         )
 
+    def test_released_mapping_rejects_invalid_matching_controls(self):
+        for tolerance in (float("nan"), float("inf"), -1):
+            with self.subTest(tolerance=tolerance), self.assertRaises(ValueError):
+                gbsg_released_split_ids(self.root, self.root, 1, tolerance=tolerance)
+        for repeat in (True, 0, 11, 1.5):
+            with self.subTest(repeat=repeat), self.assertRaises(ValueError):
+                gbsg_released_split_ids(self.root, self.root, repeat=repeat)
+
+    def test_released_mapping_rejects_duplicate_source_ids(self):
+        self.rows[1]["source_id"] = self.rows[0]["source_id"]
+        write_csv(self.root, self.rows)
+        with self.assertRaisesRegex(ValueError, "source IDs"):
+            gbsg_released_split_ids(self.root, self.root, 1)
+
     def test_mapping_keeps_released_order_and_assigns_twins_once(self):
         # train_0 and train_3 are identical records; train_2 differs only in x.
         write_released(self.root, self.rows, [[3, 1], [0], [2]])
@@ -413,6 +428,13 @@ class TestGBSGReleasedSplits(unittest.TestCase):
         ):
             with self.assertRaises(ValueError):
                 SurvivalTimeToEventGBSG(**bad)
+
+        for transform in ({"time_divisor": 1e-300}, {"time_offset": 1e300}):
+            with (
+                self.subTest(transform=transform),
+                self.assertRaisesRegex(ValueError, "finite positive float32"),
+            ):
+                SurvivalTimeToEventGBSG(**transform)(patient_from_rows(self.rows[:1]))
 
     def test_example_runs_released_protocol(self):
         from examples.gbsg_survival_loading import load_gbsg_splits

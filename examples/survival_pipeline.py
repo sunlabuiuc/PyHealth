@@ -24,6 +24,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
+
 from pyhealth.datasets import (
     GBSGDataset,
     SampleDataset,
@@ -126,23 +127,28 @@ def load_split(
     }
 
 
-def restore_pilot(run_dir: Path, dataset: SampleDataset) -> SurvivalMDN:
+def restore_pilot(
+    run_dir: Path, dataset: SampleDataset, device: str = "cpu"
+) -> SurvivalMDN:
     """Reconstruct the recorded model configuration and load its best weights.
 
     Args:
         run_dir: Completed pilot directory, including record.json and trainer/.
         dataset: Matching training schema and feature representation.
+        device: Target CPU or CUDA device for restoration.
 
     Returns:
-        Restored accepted SurvivalMDN in CPU evaluation mode.
+        Restored SurvivalMDN in evaluation mode on the requested device.
 
     Examples:
         >>> model = restore_pilot(Path("/tmp/gbsg-native"), train)  # doctest: +SKIP
     """
     record = json.loads((run_dir / "record.json").read_text())
-    model = SurvivalMDN(dataset, **record["model"])
+    model = SurvivalMDN(dataset, **record["model"]).to(device)
     model.load_state_dict(
-        torch.load(run_dir / "trainer/best.ckpt", map_location="cpu", weights_only=True)
+        torch.load(
+            run_dir / "trainer/best.ckpt", map_location=device, weights_only=True
+        )
     )
     return model.eval()
 
@@ -154,6 +160,7 @@ def run_pilot(
     epochs: int = 5,
     seed: int = 1,
     time_transform: str = "softplus",
+    device: str = "cpu",
 ) -> dict:
     """Exercise the actual standard Trainer, curve metrics and checkpoint reload.
 
@@ -164,6 +171,7 @@ def run_pilot(
         epochs: Small compatibility training budget, not a tuning search.
         seed: Model initialization and training shuffle seed.
         time_transform: Accepted model's softplus or exp transformation.
+        device: CPU or CUDA device for the actual Trainer and reload check.
 
     Returns:
         Saved compatibility evidence. Invalid losses/gradients abort the run.
@@ -198,12 +206,14 @@ def run_pilot(
     gradient_checks, training_losses = [], []
 
     def check_gradient(gradient):
-        if not torch.isfinite(gradient).all():
+        if gradient.device != model.device or not torch.isfinite(gradient).all():
             raise FloatingPointError("nonfinite training gradient")
         gradient_checks.append(True)
         return gradient
 
     def check_output(module, inputs, output):
+        if output["loss"].device != model.device:
+            raise RuntimeError("loss and model devices differ")
         if not torch.isfinite(output["loss"]):
             raise FloatingPointError("nonfinite loss")
         if module.training:
@@ -214,7 +224,7 @@ def run_pilot(
     previous_handlers = set(trainer_logger.handlers)
     try:
         trainer = Trainer(
-            model, device="cpu", output_path=str(run_dir), exp_name="trainer"
+            model, device=device, output_path=str(run_dir), exp_name="trainer"
         )
         validation = get_dataloader(valid, batch_size=len(valid))
         initial = float(trainer.evaluate(validation)["loss"])
@@ -239,9 +249,12 @@ def run_pilot(
         vbatch = next(iter(get_dataloader(valid, batch_size=len(valid))))
         model.eval()
         with torch.no_grad():
-            params = model.network.mixture_parameters(vbatch["features"])
+            params = model.network.mixture_parameters(vbatch["features"].to(device))
             per_patient = model.network.censored_nll(
-                params, vbatch["duration"], vbatch["event"], reduction="none"
+                params,
+                vbatch["duration"].to(device),
+                vbatch["event"].to(device),
+                reduction="none",
             )
         patient_mean = float(per_patient.double().mean())
         np.testing.assert_allclose(final, patient_mean, rtol=1e-6, atol=1e-6)
@@ -288,7 +301,7 @@ def run_pilot(
                 "python": platform.python_version(),
                 "torch": torch.__version__,
                 "numpy": np.__version__,
-                "device": "cpu",
+                "device": str(model.device),
                 "torch_threads": torch.get_num_threads(),
             },
             "source": {
@@ -303,10 +316,12 @@ def run_pilot(
         }
         record_path = run_dir / "record.json"
         record_path.write_text(json.dumps(record, indent=2, allow_nan=False) + "\n")
-        restored = restore_pilot(run_dir, train)
-        replay = restored.predict_survival(batch["features"], grid).numpy()
+        restored = restore_pilot(run_dir, train, device=device)
+        replay = restored.predict_survival(batch["features"], grid).cpu().numpy()
         np.testing.assert_array_equal(curves, replay)
-        observed_replay = restored.predict_survival(batch["features"], unique).numpy()
+        observed_replay = (
+            restored.predict_survival(batch["features"], unique).cpu().numpy()
+        )
         np.testing.assert_array_equal(
             observed, observed_replay[np.arange(len(times)), columns]
         )
@@ -331,6 +346,7 @@ def main() -> None:
     parser.add_argument("--split", type=int, default=1)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--epochs", type=int, default=5)
+    parser.add_argument("--device", default="cpu")
     args = parser.parse_args()
     torch.set_num_threads(4)
     parts, metadata = load_split(
@@ -340,7 +356,9 @@ def main() -> None:
         args.split,
         args.out.parent / "cache",
     )
-    result = run_pilot(parts, metadata, args.out, epochs=args.epochs)
+    result = run_pilot(
+        parts, metadata, args.out, epochs=args.epochs, device=args.device
+    )
     print(
         json.dumps(
             {"passed": result["passed"], "record": str(args.out / "record.json")}

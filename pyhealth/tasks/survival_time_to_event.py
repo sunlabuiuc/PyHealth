@@ -142,9 +142,11 @@ class SurvivalTimeToEventGBSG(BaseTask):
             if not all(math.isfinite(v) and abs(v) <= _FLOAT32_MAX for v in features):
                 raise ValueError("Standardized GBSG features must be finite float32")
         time = time / self.time_divisor + self.time_offset
-        if not (time > 0 and np.float32(time) > 0):
+        if not (
+            math.isfinite(time) and 0 < time <= _FLOAT32_MAX and np.float32(time) > 0
+        ):
             raise ValueError(
-                f"GBSG record {patient.patient_id}: converted time must be positive"
+                f"GBSG record {patient.patient_id}: converted time must be finite positive float32"
             )
         return [
             {
@@ -333,9 +335,11 @@ class SurvivalTimeToEventSupport2(BaseTask):
                     "Standardized SUPPORT2 features must be finite float32"
                 )
         time = time / self.time_divisor + self.time_offset
-        if not (time > 0 and np.float32(time) > 0):
+        if not (
+            math.isfinite(time) and 0 < time <= _FLOAT32_MAX and np.float32(time) > 0
+        ):
             raise ValueError(
-                f"SUPPORT2 record {patient.patient_id}: converted time must be positive"
+                f"SUPPORT2 record {patient.patient_id}: converted time must be finite positive float32"
             )
         return [
             {
