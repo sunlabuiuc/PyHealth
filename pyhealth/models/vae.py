@@ -148,6 +148,10 @@ class VAE(BaseModel):
 
         image_processor = self.dataset.input_processors[self.feature_key]
         self.image_size = image_processor.image_size
+        if not isinstance(self.image_size, int) or self.image_size < 8:
+            raise ValueError(
+                "VAE image inputs require ImageProcessor with an integer image_size of at least 8."
+            )
         self.channels = {"L": 1, "RGB": 3, "RGBA": 4}.get(
             image_processor.mode, 3
         )
@@ -167,14 +171,44 @@ class VAE(BaseModel):
         self.image_log_var = nn.Linear(encoded_size, self.latent_dim)
         decoder_input = self.latent_dim * (2 if self.condition_key else 1)
         self.image_decoder_input = nn.Linear(decoder_input, encoded_size)
-        self.image_decoder = nn.Sequential(
-            nn.ConvTranspose2d(channels * 4, channels * 2, 4, 2, 1),
-            nn.ReLU(),
-            nn.ConvTranspose2d(channels * 2, channels, 4, 2, 1),
-            nn.ReLU(),
-            nn.ConvTranspose2d(channels, self.channels, 4, 2, 1),
-            nn.Sigmoid(),
-        )
+        # Match the number of upsampling stages to the configured image size.
+        decoder_layers = []
+        decoder_channels = channels * 4
+        decoder_size = 4
+        while decoder_size < self.image_size:
+            next_size = decoder_size * 2
+            if next_size >= self.image_size:
+                decoder_layers.extend(
+                    [
+                        nn.ConvTranspose2d(
+                            decoder_channels, self.channels, 4, 2, 1
+                        ),
+                        nn.Sigmoid(),
+                    ]
+                )
+            else:
+                next_channels = max(channels, decoder_channels // 2)
+                decoder_layers.extend(
+                    [
+                        nn.ConvTranspose2d(
+                            decoder_channels, next_channels, 4, 2, 1
+                        ),
+                        nn.ReLU(),
+                    ]
+                )
+                decoder_channels = next_channels
+            decoder_size = next_size
+
+        if decoder_size == 4:
+            decoder_layers.extend(
+                [
+                    nn.Conv2d(
+                        decoder_channels, self.channels, kernel_size=3, padding=1
+                    ),
+                    nn.Sigmoid(),
+                ]
+            )
+        self.image_decoder = nn.Sequential(*decoder_layers)
 
     def _init_sequence(self, dataset: SampleDataset) -> None:
         """Build a recurrent VAE for categorical code sequences."""
@@ -309,15 +343,20 @@ class VAE(BaseModel):
         decoded, _ = self.sequence_decoder(decoder_inputs, decoder_hidden)
         logits = self.sequence_output(decoded)
 
+        # Sum token NLL within each sequence, then average both terms per
+        # sequence so reconstruction and KL have matching batch reductions.
         token_loss = F.cross_entropy(
             logits.reshape(-1, self.vocab_size),
             tokens.reshape(-1),
             ignore_index=self.pad_token,
-            reduction="sum",
+            reduction="none",
+        ).reshape_as(tokens)
+        reconstruction_loss = token_loss.sum(dim=1).mean()
+        kl_per_sequence = -0.5 * torch.sum(
+            1 + log_var - mu.square() - log_var.exp(), dim=1
         )
-        reconstruction_loss = token_loss / mask.sum().clamp(min=1)
-        kl_loss = -0.5 * torch.sum(1 + log_var - mu.square() - log_var.exp())
-        loss = reconstruction_loss + kl_loss / tokens.shape[0]
+        kl_loss = kl_per_sequence.mean()
+        loss = reconstruction_loss + kl_loss
         return {
             "loss": loss,
             "reconstruction_logits": logits,
