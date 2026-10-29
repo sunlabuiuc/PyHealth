@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, final
 
-from ._serialization import _check_no_type_key, _decode, _dumps
+from ._serialization import _check_keys, _decode, _dumps
 
 
 @dataclass(frozen=True, eq=False)
@@ -16,7 +16,10 @@ class Evaluation:
     ``params`` may hold JSON types (``None``, ``bool``, ``int``, finite
     ``float``, ``str``, lists/tuples and str-keyed mappings) plus
     module-level classes and functions. Classes and functions are serialized
-    by import path as ``{"__type__": "<module>.<qualname>"}``.
+    by import path as ``{"__type__": "<module>.<qualname>"}``, and that path
+    must import back to the same object. Classes defined in ``__main__``
+    (a script run directly or a notebook) are rejected: move them into an
+    importable module.
 
     The ``id`` is the hex SHA-256 of the canonical JSON of ``params``. It is
     computed once at construction, so bad params fail immediately.
@@ -37,7 +40,9 @@ class Evaluation:
 
     Raises:
         TypeError: If ``params`` holds a value that is not allowed, such as
-            an arbitrary object, a lambda or a locally defined class.
+            an arbitrary object, a lambda, a locally defined class, a class
+            defined in ``__main__`` or a class whose path doesn't import
+            back to it, or a mapping key that is not a string.
         ValueError: If ``params`` holds NaN or infinity, or uses
             ``"__type__"`` as a key anywhere.
 
@@ -56,7 +61,7 @@ class Evaluation:
     id: str = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
-        _check_no_type_key(self.params)
+        _check_keys(self.params)
         digest = hashlib.sha256(_dumps(self.params).encode()).hexdigest()
         object.__setattr__(self, "id", digest)
 

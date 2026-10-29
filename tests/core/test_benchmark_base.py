@@ -3,6 +3,7 @@
 # Description: Tests for the pyhealth.benchmarks base abstractions.
 
 import json
+import types
 import unittest
 from collections import OrderedDict
 
@@ -16,6 +17,15 @@ def _module_function():
 class _Outer:
     class Inner:
         pass
+
+
+# Named differently from the variable, so its path doesn't resolve.
+_Alias = type("_NotBound", (), {})
+
+# Its name is rebound below, so its path resolves to a different class.
+_Shadowed = type("_Shadowed", (), {})
+_OldShadowed = _Shadowed
+_Shadowed = type("_Shadowed", (), {})
 
 
 class _CountingBenchmark(Benchmark):
@@ -79,6 +89,25 @@ class TestEvaluation(unittest.TestCase):
 
         with self.assertRaises(TypeError):
             Evaluation({"cls": Local})
+
+    def test_rejects_main_class(self):
+        cls = type("Script", (), {"__module__": "__main__"})
+        with self.assertRaisesRegex(TypeError, "importable module"):
+            Evaluation({"cls": cls})
+
+    def test_rejects_type_alias(self):
+        with self.assertRaises(TypeError):
+            Evaluation({"cls": _Alias})
+
+    def test_rejects_rebound_class(self):
+        with self.assertRaises(TypeError):
+            Evaluation({"cls": _OldShadowed})
+        Evaluation({"cls": _Shadowed})
+
+    def test_rejects_unresolvable_builtin_type(self):
+        for cls in [type(None), types.FunctionType]:
+            with self.subTest(cls=cls), self.assertRaises(TypeError):
+                Evaluation({"cls": cls})
 
     def test_rejects_nan(self):
         with self.assertRaises(ValueError):
@@ -156,6 +185,16 @@ class TestEvaluationFromDict(unittest.TestCase):
             {"a": [{"b": {"__type__": 1}}]},
         ]:
             with self.subTest(params=params), self.assertRaises(ValueError):
+                Evaluation(params)
+
+    def test_non_str_key_raises(self):
+        for params in [
+            {"p": {1: "a"}},
+            {"p": [{None: "a"}]},
+            {"p": {"q": {True: "a"}}},
+            {"p": {1.5: "a"}},
+        ]:
+            with self.subTest(params=params), self.assertRaises(TypeError):
                 Evaluation(params)
 
 

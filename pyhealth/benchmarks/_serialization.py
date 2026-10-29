@@ -18,6 +18,13 @@ def _encode(obj: Any) -> Any:
     ``{"__type__": "<module>.<qualname>"}``. Mappings that are not dicts
     become dicts.
 
+    The path must resolve back to ``obj`` in a fresh process, so that
+    ``from_dict`` can rebuild it. That rules out classes and functions
+    defined in ``__main__`` (a script run directly or a notebook), classes
+    made with ``type()`` under a name they aren't bound to, objects whose
+    name was later rebound to something else, and built-in types whose
+    ``__module__`` and ``__qualname__`` don't name them.
+
     Args:
         obj: The value ``json.dumps`` could not serialize.
 
@@ -25,8 +32,8 @@ def _encode(obj: Any) -> Any:
         A JSON-compatible stand-in for ``obj``.
 
     Raises:
-        TypeError: If ``obj`` is not a module-level class or function, or a
-            mapping.
+        TypeError: If ``obj`` is not a mapping or a module-level class or
+            function whose path resolves back to it.
     """
     if _is_type_ref(obj):
         qualname = obj.__qualname__
@@ -36,7 +43,24 @@ def _encode(obj: Any) -> Any:
                 f"{obj!r} is not a module-level class or function and cannot "
                 "be serialized by import path."
             )
-        return {"__type__": f"{module}.{qualname}"}
+        if module == "__main__":
+            raise TypeError(
+                f"{qualname} is defined in __main__ (a script run directly or "
+                "a notebook), so it can't be imported from another process. "
+                "Move it into an importable module and import it from there."
+            )
+        path = f"{module}.{qualname}"
+        try:
+            resolved = _resolve(path)
+        except ValueError:
+            resolved = None
+        if resolved is not obj:
+            raise TypeError(
+                f"{obj!r} is serialized as {path!r}, but that path does not "
+                "resolve back to it. Bind it to a module-level name matching "
+                "its __qualname__."
+            )
+        return {"__type__": path}
     if isinstance(obj, Mapping):
         return dict(obj)
     raise TypeError(
@@ -50,23 +74,35 @@ def _is_type_ref(obj: Any) -> bool:
     return isinstance(obj, (type, FunctionType, BuiltinFunctionType))
 
 
-def _check_no_type_key(obj: Any) -> None:
-    """Raises ``ValueError`` if ``"__type__"`` is a key anywhere in ``obj``.
+def _check_keys(obj: Any) -> None:
+    """Checks every mapping key anywhere in ``obj``.
 
-    The key is reserved for class and function references, so allowing it in
-    user data would make ``to_dict`` output ambiguous.
+    Keys must be strings, because ``json.dumps`` silently turns ``1`` into
+    ``"1"``, which would give ``{1: x}`` and ``{"1": x}`` the same id. The
+    key ``"__type__"`` is reserved for class and function references, so
+    allowing it in user data would make ``to_dict`` output ambiguous.
+
+    Raises:
+        TypeError: If a key is not a string.
+        ValueError: If a key is ``"__type__"``.
     """
     if isinstance(obj, Mapping):
+        for key in obj:
+            if not isinstance(key, str):
+                raise TypeError(
+                    f"Evaluation params keys must be strings, got {key!r} of "
+                    f"type {type(key).__name__}."
+                )
         if "__type__" in obj:
             raise ValueError(
                 '"__type__" is reserved for class and function references and '
                 "cannot be used as a key in Evaluation params."
             )
         for value in obj.values():
-            _check_no_type_key(value)
+            _check_keys(value)
     elif isinstance(obj, (list, tuple)):
         for value in obj:
-            _check_no_type_key(value)
+            _check_keys(value)
 
 
 def _resolve(path: str) -> Any:
