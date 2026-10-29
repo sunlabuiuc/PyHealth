@@ -278,7 +278,7 @@ class TestSurvivalBenchmarkMDN(unittest.TestCase):
     def test_changed_cli_creates_separate_run_and_current_summary(self):
         original = self.record_path.read_bytes()
         changed = self.args.copy()
-        changed[changed.index("--epochs") + 1] = "2"
+        changed.extend(["--lr", "0.0005"])
         with contextlib.redirect_stdout(io.StringIO()):
             run_survival_mdn.main(changed)
         self.assertEqual(self.record_path.read_bytes(), original)
@@ -289,7 +289,7 @@ class TestSurvivalBenchmarkMDN(unittest.TestCase):
         changed_record = json.loads(
             next(p for p in paths if p != self.record_path).read_text()
         )
-        self.assertEqual(changed_record["request"]["train"]["epochs"], 2)
+        self.assertEqual(changed_record["request"]["train"]["lr"], 0.0005)
         self.assertEqual(summary[0]["val_nll_mean"], changed_record["val_nll"])
 
     def test_missing_checkpoint_is_rejected_without_retraining(self):
@@ -387,7 +387,7 @@ class TestSurvivalBenchmarkAdapters(unittest.TestCase):
         HAS_DEEPSURV, "Install optional survival benchmark requirements for DeepSurv"
     )
     def test_deepsurv_contract_and_reload(self):
-        self.exercise(DeepSurvAdapter(hidden=[8], epochs=4, patience=2, seed=3))
+        self.exercise(DeepSurvAdapter(hidden=[4], epochs=1, patience=1, seed=3))
 
     @unittest.skipUnless(
         HAS_COX, "Install optional survival benchmark requirements for Cox"

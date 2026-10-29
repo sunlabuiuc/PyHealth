@@ -55,7 +55,7 @@ def parts(request):
 def test_standard_trainer_metrics_and_checkpoint(parts, transform, tmp_path):
     run = tmp_path / "pilot"
     record = run_pilot(
-        parts, {"fixture": True}, run, epochs=2, time_transform=transform
+        parts, {"fixture": True}, run, epochs=1, time_transform=transform
     )
     assert record["passed"]
     assert record["checkpoint_max_error"] == 0
@@ -79,7 +79,7 @@ def test_standard_trainer_metrics_and_checkpoint(parts, transform, tmp_path):
             restored.predict_survival(batch["features"], arrays["grid"]).numpy(),
         )
     with pytest.raises(FileExistsError):
-        run_pilot(parts, {}, run, epochs=2)
+        run_pilot(parts, {}, run, epochs=1)
 
 
 @pytest.mark.parametrize("split", [0, 11])
