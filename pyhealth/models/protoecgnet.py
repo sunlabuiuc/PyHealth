@@ -533,7 +533,9 @@ class ProtoECGNet(BaseModel):
         layers: Residual blocks per 1D stage. Defaults to ``(2, 2, 2, 2)``.
         fusion: ``"average"`` (scatter each branch's logits into the full
             label space with no cross-branch interaction) or ``"learned"``
-            (train a linear layer over all prototype similarities in the
+            (route logits through a linear layer over all prototype
+            similarities; see :meth:`_uses_fusion_head` — active in the
+            ``"all"`` and ``"fusion"`` stages, and dedicated-trained in the
             ``"fusion"`` stage). Defaults to ``"average"``.
         lam_clst: Weight of the clustering loss. Defaults to 0.004.
         lam_sep: Weight of the separation loss. Defaults to 0.0004.
@@ -770,9 +772,17 @@ class ProtoECGNet(BaseModel):
             labels: Multi-hot training labels ``(num_samples, num_labels)``.
 
         Returns:
-            ``(class_weights, cooccurrence)``. Class weights follow the
+            ``(class_weights, cooccurrence)``. Class weights follow the paper's
             reference code, ``(total - count) / count`` where ``total`` is the
-            sum of all label counts.
+            sum of all per-label positive counts (``counts.sum()``).
+
+        Note:
+            The ``total`` here differs from
+            :meth:`~pyhealth.models.BaseModel.set_pos_weight`'s ``"balanced"``
+            option, which uses the **sample count** instead of the label-count
+            total. Both paths end up in the same ``class_weights`` buffer, so
+            mix them deliberately (e.g. the model used autoimprove-style
+            ``"balanced"`` or the paper's reference weights, not both).
         """
         y = labels.float()
         counts = y.sum(dim=0).clamp_min(1.0)
@@ -841,6 +851,20 @@ class ProtoECGNet(BaseModel):
                 m.eval()
         return self
 
+    def _uses_fusion_head(self) -> bool:
+        """Whether ``forward`` should route logits through ``fusion_classifier``.
+
+        True for ``fusion="learned"`` in the ``"all"`` and ``"fusion"`` stages
+        (the first because the stage trains every parameter, the second because
+        it is the paper's dedicated fine-tune on top of frozen branches). The
+        paper's staged protocol goes through the per-branch classifiers in
+        ``"joint"`` / ``"classifier"`` / ``"prototypes"``.
+        """
+        return (
+            self.fusion_classifier is not None
+            and self.stage in ("all", "fusion")
+        )
+
     def _scatter(self, per_branch: dict[str, torch.Tensor], batch: int) -> torch.Tensor:
         """Writes branch logits into the full label space."""
         full = torch.zeros(batch, self.num_labels, device=self.device)
@@ -887,9 +911,15 @@ class ProtoECGNet(BaseModel):
         else:
             outputs = {n: self.branches[n](x) for n in self.branch_names}
             sims = torch.cat([o[1] for o in outputs.values()], dim=1)
-            logits = self._scatter({n: o[0] for n, o in outputs.items()}, batch)
-            if self.stage == "fusion":
+            # Use the learned fusion head in "all" (so it actually gets gradients
+            # when the stage claims to train everything) and in the "fusion"
+            # stage (the paper's dedicated fine-tune). Other stages — "joint",
+            # "classifier", "prototypes" — follow the paper's staged protocol
+            # and go through the per-branch classifiers.
+            if self._uses_fusion_head():
                 logits = self.fusion_classifier(sims)
+            else:
+                logits = self._scatter({n: o[0] for n, o in outputs.items()}, batch)
             if y is not None and self.stage in ("all", "joint", "prototypes"):
                 # Hoist the one-time .any() check out of the per-branch loop.
                 cnrst_on = self.lam_cnrst > 0 and bool(self.label_cooccurrence.any())
@@ -1017,18 +1047,19 @@ class ProtoECGNet(BaseModel):
         Returns:
             For every branch a tensor equal to similarity times classifier
             weight. Shape is ``(batch, num_labels, num_branch_prototypes)``
-            when ``stage="fusion"`` (fusion classifier weights; summing over
-            all branches and prototypes gives ``logit - fusion_classifier.bias``
-            because the branch classifiers have no bias but the fusion
-            classifier does), or ``(batch, num_branch_labels,
-            num_branch_prototypes)`` otherwise (branch classifier weights,
-            which have no bias so contributions sum exactly to the branch
-            logits).
+            when the forward path goes through ``fusion_classifier``
+            (``stage in {"all", "fusion"}`` with ``fusion="learned"``, mirroring
+            :meth:`_uses_fusion_head`; summing over all branches and prototypes
+            gives ``logit - fusion_classifier.bias`` because the branch
+            classifiers have no bias but the fusion classifier does), or
+            ``(batch, num_branch_labels, num_branch_prototypes)`` otherwise
+            (branch classifier weights, which have no bias so contributions
+            sum exactly to the branch logits).
         """
         was_training = self.training
         self.eval()
         x = signal.to(self.device).float()
-        use_fusion = self.stage == "fusion" and self.fusion_classifier is not None
+        use_fusion = self._uses_fusion_head()
         out = {}
         offset = 0
         for name in self.branch_names:

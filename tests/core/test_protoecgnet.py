@@ -362,6 +362,56 @@ class TestProtoECGNet(unittest.TestCase):
         self.assertIsNotNone(model.fusion_classifier.weight.grad)
         self.assertIsNone(model.branches["morph"].prototype_vectors.grad)
 
+    def test_fusion_head_affects_logits_in_all_and_fusion_stages(self):
+        """fusion_classifier is used in "all" (gets gradients, train everything)
+        and "fusion" stages; the branch classifiers are used in the staged
+        protocol's "joint" / "classifier" / "prototypes". Perturbing the fusion
+        head's weights must change the logits iff the stage uses it.
+        """
+        groups = {"rhythm": ["A", "B", "C"], "morph": ["D", "E", "F"]}
+        model = ProtoECGNet(
+            self.dataset, label_groups=groups, prototypes_per_label=2,
+            fusion="learned", **TINY,
+        ).eval()
+
+        def logits(stage: str) -> torch.Tensor:
+            model.set_stage(stage)
+            with torch.no_grad():
+                return model(**self.batch)["logit"].clone()
+
+        for stage in ("all", "fusion", "joint", "classifier"):
+            before = logits(stage)
+            with torch.no_grad():
+                model.fusion_classifier.weight.add_(1.0)
+            after = logits(stage)
+            with torch.no_grad():
+                model.fusion_classifier.weight.sub_(1.0)  # restore
+            changed = not torch.allclose(before, after)
+            if stage in ("all", "fusion"):
+                self.assertTrue(
+                    changed, f"fusion head must affect logits in stage {stage}"
+                )
+            else:
+                self.assertFalse(
+                    changed,
+                    f"fusion head must NOT affect logits in stage {stage}",
+                )
+
+    def test_all_stage_trains_fusion_head_with_learned_fusion(self):
+        """Backprop in "all" with fusion="learned" must give the fusion head
+        a gradient — otherwise its claim to "train everything" is false.
+        """
+        groups = {"rhythm": ["A", "B", "C"], "morph": ["D", "E", "F"]}
+        model = ProtoECGNet(
+            self.dataset, label_groups=groups, prototypes_per_label=2,
+            fusion="learned", **TINY,
+        )
+        # "all" is the default stage; be explicit for the test's intent.
+        model.set_stage("all")
+        model(**self.batch)["loss"].backward()
+        self.assertIsNotNone(model.fusion_classifier.weight.grad)
+        self.assertFalse(torch.all(model.fusion_classifier.weight.grad == 0))
+
     def test_mixed_1d_and_2d_branches(self):
         groups = {"rhythm": ["A", "B", "C"], "morph": ["D", "E", "F"]}
         model = ProtoECGNet(
