@@ -266,6 +266,7 @@ Available Tasks
     AHEPA Dementia Classification <tasks/pyhealth.tasks.DementiaClassificationAHEPA>
     BCI Competition IV 2a Motor Imagery <tasks/pyhealth.tasks.BCIIV2aMotorImageryClassification>
     BCI Competition IV 2a Left vs Right Hand <tasks/pyhealth.tasks.BCIIV2aLeftRightImagery>
+    MIT-BIH ECG Anomaly Detection <tasks/pyhealth.tasks.mitbih>
     PTB-XL Tasks <tasks/pyhealth.tasks.ptbxl>
     Sleep Staging v2 <tasks/pyhealth.tasks.sleep_staging_v2>
     Benchmark EHRShot <tasks/pyhealth.tasks.benchmark_ehrshot>

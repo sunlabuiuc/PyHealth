@@ -303,6 +303,10 @@ def __getattr__(name: str):
         from .mpf_clinical_prediction import MPFClinicalPredictionTask
 
         return MPFClinicalPredictionTask
+    if name == "MITBIHAnomalyDetection":
+        from .mitbih import MITBIHAnomalyDetection
+
+        return MITBIHAnomalyDetection
     if name == "PTBXLSuperclassClassification":
         from .ptbxl import PTBXLSuperclassClassification
 

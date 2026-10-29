@@ -1,3 +1,8 @@
+from .anomaly_detection import (
+    anomaly_detection_metrics,
+    point_adjust,
+    reconstruction_anomaly_scores,
+)
 from .binary import binary_metrics_fn, timeseries_binary_metrics_fn
 from .bootstrap import bootstrap_ci, paired_bootstrap_diff
 from .clinical import (
@@ -67,6 +72,7 @@ __all__ = [
     "RemovalBasedMetric",
     "SufficiencyMetric",
     "alert_rate_metrics",
+    "anomaly_detection_metrics",
     "binary_metrics_fn",
     "bootstrap_ci",
     "calc_membership_inference",
@@ -97,7 +103,9 @@ __all__ = [
     "paired_bootstrap_diff",
     "per_class_dice_score",
     "per_class_segmentation_metrics",
+    "point_adjust",
     "ranking_metrics_fn",
+    "reconstruction_anomaly_scores",
     "regression_metrics_fn",
     "remap_class_mask",
     "segmentation_metrics_fn",

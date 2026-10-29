@@ -658,6 +658,7 @@ Available Datasets
     datasets/pyhealth.datasets.EEGBCIDataset
     datasets/pyhealth.datasets.AHEPADementiaDataset
     datasets/pyhealth.datasets.BCICompetitionIV2aDataset
+    MIT-BIH Arrhythmia Dataset <datasets/pyhealth.datasets.MITBIHDataset>
     PTB-XL Dataset <datasets/pyhealth.datasets.PTBXLDataset>
     PhysioNet 2012 Dataset <datasets/pyhealth.datasets.PhysioNet2012Dataset>
     datasets/pyhealth.datasets.TUABDataset

@@ -371,4 +371,5 @@ API Reference
     models/pyhealth.models.DescEmb
     models/pyhealth.models.bulk_rna_bert
     models/pyhealth.models.DearLLM
+    models/pyhealth.models.MedTsLLMAnomaly
 

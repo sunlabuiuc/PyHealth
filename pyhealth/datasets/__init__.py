@@ -134,6 +134,8 @@ from .ahepa_dementia import AHEPADementiaDataset as AHEPADementiaDataset
 from .bciiv2a import BCICompetitionIV2aDataset as BCICompetitionIV2aDataset
 from .hup_ieeg import HUPiEEGDataset as HUPiEEGDataset
 from .iiic import IIICDataset as IIICDataset
+from .mitbih import MITBIHAnomalyRatioSplit as MITBIHAnomalyRatioSplit
+from .mitbih import MITBIHDataset as MITBIHDataset
 from .tuab import TUABDataset
 from .tuev import TUEVDataset
 from .chbmit import CHBMITDataset as CHBMITDataset
