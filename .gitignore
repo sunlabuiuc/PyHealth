@@ -159,3 +159,6 @@ test-resources/meds_demo/
 # Generated Synthea outputs and dataset caches
 .artifacts/
 examples/.artifacts/
+
+# Locally downloaded NIH ChestXray14 images (downloaded by the CXR VAE notebook)
+data/chestxray14/
