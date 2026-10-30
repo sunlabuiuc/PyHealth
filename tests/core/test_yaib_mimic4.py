@@ -3,11 +3,15 @@ from datetime import datetime, timedelta
 
 import numpy as np
 import polars as pl
+import torch
 
 from pyhealth.data import Patient
+from pyhealth.datasets import create_sample_dataset, get_dataloader
+from pyhealth.processors import LevelConfig, SequenceProcessorV2, TimeseriesProcessor
 from pyhealth.tasks import (
     YAIBAKIMIMIC4,
     YAIBKidneyFunctionMIMIC4,
+    YAIBLengthOfStayMIMIC4,
     YAIBMortalityMIMIC4,
     YAIBSepsisMIMIC4,
 )
@@ -18,6 +22,11 @@ HR = YAIBMortalityMIMIC4.DYNAMIC_FEATURES.index("hr")
 TEMP = YAIBMortalityMIMIC4.DYNAMIC_FEATURES.index("temp")
 URINE = YAIBMortalityMIMIC4.DYNAMIC_FEATURES.index("urine")
 CREA = YAIBMortalityMIMIC4.DYNAMIC_FEATURES.index("crea")
+
+
+def _labels(records):
+    """The label values of a ``timeseries_*`` label series."""
+    return [value[0] for value in records["values"]]
 
 
 def _event(event_type, timestamp, **attrs):
@@ -131,10 +140,10 @@ class TestYAIBMortalityMIMIC4(unittest.TestCase):
         self.assertEqual(sample["stay_id"], 10)
         self.assertEqual(sample["mortality"], 0)
 
-        timestamps, values = sample["dynamic"]
+        values = sample["dynamic"]["values"]
         self.assertEqual(values.shape, (25, len(self.task.DYNAMIC_FEATURES)))
-        self.assertEqual(timestamps[0], intime)
-        self.assertEqual(timestamps[-1], intime + timedelta(hours=24))
+        # Hours since ICU admission.
+        self.assertEqual(sample["dynamic"]["time"], [float(h) for h in range(25)])
         np.testing.assert_allclose(values[:, HR], 80 + np.arange(25))
         self.assertAlmostEqual(values[3, TEMP], 37.0)
         self.assertEqual(values[4, URINE], 150)
@@ -244,7 +253,7 @@ class TestYAIBMortalityMIMIC4(unittest.TestCase):
             extra=extra,
         )
         crea = {
-            s["stay_id"]: np.nonzero(np.isfinite(s["dynamic"][1][:, CREA]))[0]
+            s["stay_id"]: np.nonzero(np.isfinite(s["dynamic"]["values"][:, CREA]))[0]
             for s in self.task(patient)
         }
         np.testing.assert_array_equal(crea[10], [2])
@@ -263,7 +272,7 @@ class TestYAIBMortalityMIMIC4(unittest.TestCase):
             admissions=[_admission()],
             extra=extra,
         )
-        _, values = self.task(patient)[0]["dynamic"]
+        values = self.task(patient)[0]["dynamic"]["values"]
         o2sat = values[:, YAIBMortalityMIMIC4.DYNAMIC_FEATURES.index("o2sat")]
         self.assertEqual(o2sat[1], 90)
         self.assertEqual(o2sat[2], 94)
@@ -318,7 +327,7 @@ class TestYAIBKidneyFunctionMIMIC4(unittest.TestCase):
         samples = self.task(patient)
         self.assertEqual(len(samples), 1)
         self.assertEqual(samples[0]["creatinine"], 4.0)
-        _, values = samples[0]["dynamic"]
+        values = samples[0]["dynamic"]["values"]
         self.assertEqual(values.shape[0], 25)
         self.assertEqual(values[10, CREA], 9.0)
 
@@ -349,6 +358,29 @@ def _weight(value, stay_id=10):
                   hadm_id=1, itemid=226512, valuenum=value, valueuom="kg")
 
 
+class TestYAIBLengthOfStayMIMIC4(unittest.TestCase):
+    def setUp(self):
+        self.task = YAIBLengthOfStayMIMIC4()
+
+    def test_remaining_hours_at_every_hour(self):
+        patient = _patient(
+            stays=[(10, 1, T0, 20.5, range(20))], admissions=[_admission()]
+        )
+        sample = self.task(patient)[0]
+        self.assertEqual(sample["dynamic"]["time"], [float(h) for h in range(21)])
+        self.assertEqual(sample["los"]["time"], sample["dynamic"]["time"])
+        self.assertEqual(_labels(sample["los"]), [float(20 - h) for h in range(21)])
+
+    def test_capped_at_seven_days(self):
+        patient = _patient(
+            stays=[(10, 1, T0, 200, range(200))], admissions=[_admission(hours=210)]
+        )
+        los = self.task(patient)[0]["los"]
+        self.assertEqual(len(los["time"]), 169)  # observed for 7 days
+        self.assertEqual(_labels(los)[0], 168.0)
+        self.assertEqual(_labels(los)[-1], 32.0)  # 200 - 168
+
+
 class TestYAIBAKIMIMIC4(unittest.TestCase):
     def setUp(self):
         self.task = YAIBAKIMIMIC4()
@@ -368,17 +400,17 @@ class TestYAIBAKIMIMIC4(unittest.TestCase):
         ]
         samples = self._run(extra)
         self.assertEqual(len(samples), 1)
-        timestamps, labels = samples[0]["aki"]
-        # Observed until 6 hours after the onset at hour 20.
-        self.assertEqual(len(timestamps), 27)
-        self.assertEqual(samples[0]["dynamic"][1].shape[0], 27)
-        self.assertEqual(labels, [0.0] * 14 + [1.0] * 13)
+        aki = samples[0]["aki"]
+        # Observed until 6 hours after the onset at hour 20, on the same hours.
+        self.assertEqual(aki["time"], samples[0]["dynamic"]["time"])
+        self.assertEqual(len(aki["time"]), 27)
+        self.assertEqual(_labels(aki), [0.0] * 14 + [1.0] * 13)
 
     def test_stay_without_aki_is_negative_for_seven_days(self):
         samples = self._run([_crea(T0 + timedelta(hours=2), 1.0)], hours=200)
-        timestamps, labels = samples[0]["aki"]
-        self.assertEqual(len(timestamps), 169)
-        self.assertEqual(sum(labels), 0)
+        aki = samples[0]["aki"]
+        self.assertEqual(len(aki["time"]), 169)
+        self.assertEqual(sum(_labels(aki)), 0)
 
     def test_onset_within_six_hours_is_excluded(self):
         extra = [
@@ -398,12 +430,12 @@ class TestYAIBAKIMIMIC4(unittest.TestCase):
         # 20 mL every hour: 6-hour sum of rates 6 * 20 / 2 = 60 mL/h, below
         # 0.5 per kg only when divided by a weight above 120 kg.
         urine = [_urine(T0 + timedelta(hours=h, minutes=30), 20) for h in range(40)]
-        _, labels = self._run(urine + [_weight(130)])[0]["aki"]
+        labels = _labels(self._run(urine + [_weight(130)])[0]["aki"])
         self.assertGreater(sum(labels), 0)
-        _, labels = self._run(urine + [_weight(100)])[0]["aki"]
+        labels = _labels(self._run(urine + [_weight(100)])[0]["aki"])
         self.assertEqual(sum(labels), 0)
         # Without any weight the sums are not divided, as in YAIB.
-        _, labels = self._run(urine)[0]["aki"]
+        labels = _labels(self._run(urine)[0]["aki"])
         self.assertEqual(sum(labels), 0)
 
 
@@ -457,9 +489,9 @@ class TestYAIBSepsisMIMIC4(unittest.TestCase):
         )
         samples = self.task(patient)
         self.assertEqual(len(samples), 1)
-        timestamps, labels = samples[0]["sepsis"]
-        self.assertEqual(len(timestamps), 29)  # until 6 hours after hour 22
-        self.assertEqual(labels, [0.0] * 16 + [1.0] * 13)
+        sepsis = samples[0]["sepsis"]
+        self.assertEqual(len(sepsis["time"]), 29)  # until 6 hours after hour 22
+        self.assertEqual(_labels(sepsis), [0.0] * 16 + [1.0] * 13)
 
     def test_intermittent_antibiotics_are_not_suspected_infection(self):
         extra = [_platelets(T0 + timedelta(hours=h), 200) for h in range(0, 22, 3)]
@@ -471,7 +503,7 @@ class TestYAIBSepsisMIMIC4(unittest.TestCase):
             admissions=[_admission(hours=130)],
             extra=extra,
         )
-        _, labels = self.task(patient)[0]["sepsis"]
+        labels = _labels(self.task(patient)[0]["sepsis"])
         self.assertEqual(sum(labels), 0)
 
     def test_suspected_infection_both_directions(self):
@@ -558,6 +590,35 @@ class TestYAIBSepsisMIMIC4(unittest.TestCase):
         self.assertTrue(np.isnan(urine[10]))
         self.assertEqual(urine[11], 50.0 * 24)
         self.assertEqual(urine[29], 50.0 * 25 * 24 / 25)
+
+
+class TestYAIBProcessing(unittest.TestCase):
+    """The tasks' schemas: processors on task samples."""
+
+    def test_dynamic_matches_the_previous_timeseries_preprocessing(self):
+        # The sequence_v2 configuration reproduces TimeseriesProcessor with
+        # z-score, forward fill (0 before the first value) and indicators.
+        rng = np.random.default_rng(0)
+        grids = []
+        for steps in (5, 9, 3):
+            values = rng.normal(loc=2.0, scale=3.0, size=(steps, 4))
+            values[rng.random(values.shape) < 0.4] = np.nan
+            grids.append(values)
+        grids[0][:, 3] = np.nan  # a feature never seen in one sample
+        yaib: LevelConfig = YAIBMortalityMIMIC4.input_schema["dynamic"][1]["levels"][0]
+        levels: list[LevelConfig] = [{**yaib, "values": [4]}]  # 4 features here
+        v2 = SequenceProcessorV2(levels=levels)
+        v2.fit([{"x": {"time": list(range(len(g))), "values": g}} for g in grids], "x")
+        def hourly(grid):  # the previous input format: datetimes and values
+            return [T0 + timedelta(hours=h) for h in range(len(grid))], grid
+
+        v1 = TimeseriesProcessor(normalization="zscore", missing_indicators=True)
+        v1.fit([{"x": hourly(g)} for g in grids], "x")
+        for grid in grids:
+            values, mask, _ = v2.process({"time": list(range(len(grid))), "values": grid})
+            old = v1.process(hourly(grid))
+            torch.testing.assert_close(values, old[:, :4])
+            torch.testing.assert_close(mask.float(), old[:, 4:])
 
 
 if __name__ == "__main__":
