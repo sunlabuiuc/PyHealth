@@ -57,6 +57,7 @@ Available Processors
 - ``MultiHotProcessor``: For multi-hot encoding
 - ``IgnoreProcessor``: A special feature processor that marks a feature to be ignored.
 - ``GraphProcessor``: For knowledge graph subgraph extraction (e.g., GraphCare, G-BERT)
+- ``KGTripleProcessor``: For knowledge graph triples; keeps training-graph dicts for KG embedding models
 
 **Temporal Multimodal Processors (** :class:`~pyhealth.processors.TemporalFeatureProcessor` **subclasses):**
 
@@ -365,6 +366,7 @@ Common string keys for automatic processor selection:
 - ``"tensor"``: For pre-processed tensors
 - ``"raw"``: For raw/unprocessed data
 - ``"graph"``: For knowledge graph subgraphs
+- ``"kg_triple"``: For knowledge graph triples, with the training-graph dicts of the KG embedding models
 
 Writing Custom FeatureProcessors
 ---------------------------------
@@ -568,4 +570,5 @@ API Reference
     processors/pyhealth.processors.StageNetProcessor
     processors/pyhealth.processors.StageNetTensorProcessor
     processors/pyhealth.processors.GraphProcessor
+    processors/pyhealth.processors.KGTripleProcessor
     processors/pyhealth.processors.utils

@@ -350,6 +350,8 @@ Advanced Topics
      - Working with OMOP Common Data Model
    * - ``medcode.py``
      - Medical code vocabulary and mappings
+   * - ``kg_emb_link_prediction.py``
+     - Knowledge graph embeddings: link prediction with filtered ranking
    * - ``benchmark_ehrshot_xgboost.ipynb``
      - EHRShot benchmark with XGBoost (notebook)
 
@@ -383,7 +385,8 @@ Notebooks (Interactive)
    * - ``drug_recommendation/drug_recommendation_mimic3_micron.ipynb``
      - MICRON interactive notebook
    * - ``kg_embedding.ipynb``
-     - Knowledge graph embeddings
+     - Knowledge graph embeddings (PyHealth 1.x API, removed; see
+       ``kg_emb_link_prediction.py``)
    * - ``lm_embedding_huggingface.ipynb``
      - Language model embeddings with HuggingFace
    * - ``lm_embedding_openai.ipynb``
