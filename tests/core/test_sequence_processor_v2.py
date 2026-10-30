@@ -93,6 +93,8 @@ class TestConfiguration(unittest.TestCase):
                     "resample": {**LAST, "method": "sum"},
                 }
             ],
+            # A resampled level drops its time; level 0 then has nothing left.
+            [{"ordering": "series", "resample": LAST}],
             [{"values": [1, 1], "spatial": [1, 0]}],
             [{"tokens": 1, "spatial": [False]}],  # spatial without values
             [{"values": [1], "spatial": [False, True]}],  # one flag per axis
@@ -672,6 +674,17 @@ class TestImpute(unittest.TestCase):
         (values,) = _fit([level], raw).process(raw)
         self.assertEqual(values.tolist(), [[3.0], [5.0], [2.0]])
 
+    def test_token_without_finite_values_keeps_its_nan(self):
+        # Unlike normalization, imputation does not fall back to all tokens:
+        # A keeps its NaN, which the chained "zero" step then fills.
+        train: Records = {"tokens": ["A", "B"], "values": [[NAN], [4.0]]}
+        step: Impute = {"method": "mean", "by_tokens": (0,)}
+        level = self.level(step, {"method": "zero"}, tokens=1, values=[1])
+        _, values = _fit([level], train).process(
+            {"tokens": ["A", "B"], "values": [[NAN], [NAN]]}
+        )
+        self.assertEqual(values.reshape(-1).tolist(), [0.0, 4.0])
+
     def test_fills_never_cross_groups(self):
         raw: Records = {
             "children": [
@@ -841,6 +854,33 @@ class TestNormalize(unittest.TestCase):
         )
         # A: 0..2, B: 10..30, and unseen C: all tokens, 0..30.
         self.assertEqual(values.reshape(-1).tolist(), [0.5, 0.5, 0.5])
+
+    def test_by_tokens_falls_back_per_value_position(self):
+        # B never had a finite value: it uses the statistics over all tokens,
+        # like the unseen C. A never had one in channel 1: only that channel
+        # falls back. No token had one in channel 2: it is left as it is.
+        train: Records = {
+            "tokens": ["A", "A", "B", "D", "D"],
+            "values": [
+                [0.0, NAN, NAN],
+                [2.0, NAN, NAN],
+                [NAN, NAN, NAN],
+                [10.0, 100.0, NAN],
+                [30.0, 300.0, NAN],
+            ],
+        }
+        level = self.level(
+            {"method": "minmax", "by_tokens": (0,)}, tokens=1, values=[3]
+        )
+        proc = _fit([level], train)
+        _, values = proc.process(
+            {"tokens": ["A", "B", "C"], "values": [[1.0, 200.0, 7.0]] * 3}
+        )
+        # Over all tokens: channel 0 is 0..30, channel 1 is 100..300.
+        torch.testing.assert_close(
+            values,
+            torch.tensor([[0.5, 0.5, 7.0], [1 / 30, 0.5, 7.0], [1 / 30, 0.5, 7.0]]),
+        )
 
     def test_fit_checks_tokens_match_values(self):
         level = self.level(

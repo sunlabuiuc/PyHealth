@@ -95,9 +95,10 @@ class Resample(TypedDict):
               not per token.
             - ``"min"`` / ``"max"`` / ``"avg"``: reduce the values. Only for
               a level with values and no tokens or children.
-            - ``"merge"``: union the records' children into one set. Only for
-              a level with children and no tokens or values, whose child
-              level is a ``set``.
+            - ``"merge"``: combine the records' children into one set;
+              repeated children are kept, as in any ``set`` level. Only for a
+              level with children and no tokens or values, whose child level
+              is a ``set``.
 
             A step without records gets ``<pad>`` tokens, NaN values and no
             children; filling it is up to imputation.
@@ -141,8 +142,10 @@ class Impute(TypedDict, total=False):
             edges as NaN.
         by_tokens: Token namespaces. Statistics are kept per token in
             these namespaces, and the time-based methods only use records
-            with the same token. None (the default) ignores tokens; the time-
-            based methods then also fill ``<pad>`` tokens.
+            with the same token. None (the default) ignores tokens;
+            ``forward_fill`` and ``backward_fill`` then also fill ``<pad>``
+            tokens, while ``linear`` leaves them, as a token cannot be
+            interpolated.
         by_dims: For statistics: the axes of the value shape ``S`` to
             reduce over, indexed like ``values`` and ``spatial``. None (the
             default) reduces over all of them, ``()`` over none (one
@@ -188,12 +191,13 @@ class Normalize(TypedDict, total=False):
             ``fit()`` from the raw training values (before resampling), with
             NaN skipped. A spread of 0 (a constant) divides by 1.
         by_tokens: Token namespaces; the statistics are kept per token in
-            these namespaces. A token without statistics uses the statistics
-            over all tokens, so its value keeps its measured size on the
-            population scale. That is ``<unk>`` (any token not seen in
-            ``fit()``), ``<pad>`` (a resampled step without records, whose
-            value is NaN unless imputed), and a token whose training values
-            were all NaN. None (the default) ignores tokens.
+            these namespaces. Each value position uses its token's statistic,
+            or, where the token has none, the statistic over all tokens, so
+            the value keeps its measured size on the population scale. That
+            covers ``<unk>`` (any token not seen in ``fit()``), ``<pad>`` (a
+            resampled step without records, whose value is NaN unless
+            imputed), and a token, or one value position of it, whose
+            training values were all NaN. None (the default) ignores tokens.
         by_dims: The axes of the value shape ``S`` to reduce over, indexed
             like ``values`` and ``spatial``. ``()`` (the default) keeps one
             statistic per value position, e.g. per channel of ``[N, F]``
@@ -475,10 +479,15 @@ class _InternalLevelConfig:
                     f"Level {level}: resample method {method!r} reduces values, so the "
                     "level needs values and no tokens or children (level 0 only)."
                 )
+            if level == 0 and not tokens and not values:
+                raise ValueError(
+                    "Level 0: a resampled level drops its time, so it needs "
+                    "'tokens' or 'values'."
+                )
             if method == "merge" and (level == 0 or tokens or values):
                 raise ValueError(
-                    f"Level {level}: resample method 'merge' unions children, so the "
-                    "level needs children and no tokens or values."
+                    f"Level {level}: resample method 'merge' combines children, so "
+                    "the level needs children and no tokens or values."
                 )
             resample = (float(step), method)
 
@@ -679,7 +688,7 @@ class _KeyedStatistics:
     :meth:`finish` turns the running state into statistics, and
     :meth:`lookup` finds them for the records of a level in ``process()``.
     With ``pooled``, the statistics over all tokens are kept as well, under
-    the key None, for records whose key has none.
+    the key None, for the value positions where a key has none.
     """
 
     def __init__(
@@ -767,13 +776,18 @@ class _KeyedStatistics:
     ) -> Iterator[tuple[np.ndarray, dict[str, np.ndarray]]]:
         """Yields the mask of rows that share a key, and the key's statistics.
 
-        Rows whose key has no statistics are skipped, or, with ``pooled``, get
-        the statistics over all tokens.
+        Without ``pooled``, rows whose key has no statistics are skipped. With
+        ``pooled``, each value position uses the key's own statistic where it
+        has one, else the statistic over all tokens.
         """
+        pooled = self._stats.get(None) if self.pooled else None
         for key, rows in _split_by_key(self._keys(tokens, n)):
             stats = self._stats.get(key)
-            if stats is None and self.pooled:
-                stats = self._stats.get(None)
+            if pooled is not None:
+                stats = pooled if stats is None else {
+                    name: np.where(np.isnan(own), pooled[name], own)
+                    for name, own in stats.items()
+                }
             if stats is not None:
                 yield rows, stats
 
@@ -1031,7 +1045,7 @@ class SequenceProcessorV2(FeatureProcessor):
             merge = config.resample is not None and config.resample[1] == "merge"
             if merge and self._config[level - 1].ordering != "set":
                 raise ValueError(
-                    f"Level {level}: resample method 'merge' unions the children's "
+                    f"Level {level}: resample method 'merge' combines the children's "
                     f"records, so level {level - 1} must have ordering 'set'."
                 )
 
