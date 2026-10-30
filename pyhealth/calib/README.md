@@ -172,6 +172,23 @@ Uses importance weighting (likelihood ratios w(x) = p_test(x)/p_cal(x)) to corre
 - Tibshirani, Ryan J., Rina Foygel Barber, Emmanuel Candes, and Aaditya Ramdas. "Conformal prediction under covariate shift." NeurIPS 2019. https://arxiv.org/abs/1904.06019
 - Laghuvarapu, Siddhartha, Zhen Lin, and Jimeng Sun. "Conformal Drug Property Prediction with Density Estimation under Covariate Shift." NeurIPS 2023. https://arxiv.org/abs/2310.12033
 
+## Prediction Interval Methods (Time Series Conformal Prediction)
+
+These methods build prediction intervals `[y_lower, y_upper]` for regression on time series. Data arriving in time order is not exchangeable, so the split conformal guarantee above does not apply. These methods instead update online: as labels are revealed, recent residuals replace old ones, so the interval width tracks the current error level without refitting the model.
+
+### EnbPI (Ensemble Batch Prediction Intervals)
+
+**Modes**: `regression`
+
+**Class**: `pyhealth.calib.predictionset.EnbPI`
+
+EnbPI trains a bootstrap ensemble on the training series. Every training point gets an out-of-bag prediction from the models whose bootstrap sample left it out, and the absolute residuals of these predictions form a sliding window. The interval is the ensemble prediction plus or minus the (1-α) quantile of the window. Each time a batch of `s` test labels is revealed, their residuals enter the window and the oldest leave, with no model refit. No separate calibration split is needed.
+
+**Guarantee**: Approximate marginal coverage, P(Y_t ∈ C(X_t)) ≥ 1-α - o(1) as the training length grows, without exchangeability. It assumes a stationary, strongly mixing error process and out-of-bag predictors that estimate the regression function well. This is not a finite-sample guarantee.
+
+**Reference**:
+- Xu, Chen, and Yao Xie. "Conformal prediction interval for dynamic time-series." ICML 2021. https://proceedings.mlr.press/v139/xu21h.html
+
 ## Usage
 
 See the [full documentation](https://pyhealth.readthedocs.io/en/latest/api/calib.html) for detailed API references and examples.
