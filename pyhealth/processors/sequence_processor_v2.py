@@ -93,8 +93,9 @@ class Resample(TypedDict):
             - ``"first"`` / ``"last"``: keep the first / last record, with
               its tokens, values and children. Both are over the whole step,
               not per token.
-            - ``"min"`` / ``"max"`` / ``"avg"``: reduce the values. Only for
-              a level with values and no tokens or children.
+            - ``"min"`` / ``"max"`` / ``"avg"``: reduce the values, skipping
+              NaN (a missing reading). Only for a level with values and no
+              tokens or children.
             - ``"merge"``: combine the records' children into one set;
               repeated children are kept, as in any ``set`` level. Only for a
               level with children and no tokens or values, whose child level
@@ -651,12 +652,18 @@ class _Resampler:
                 for i, kept in zip(filled.tolist(), keep.tolist()):
                     grid_children[i] = children[kept]
         else:
-            reduce = {"min": np.minimum, "max": np.maximum, "avg": np.add}[self.method]
-            values = reduce.reduceat(
-                columns["values"].astype(np.float64), starts, axis=0
-            )
+            # NaN is a missing reading: it is skipped, so a step is NaN (for
+            # imputation) only where none of its readings has a value.
+            values = columns["values"].astype(np.float64)
             if self.method == "avg":
-                values /= (ends - starts + 1).reshape(-1, *[1] * (values.ndim - 1))
+                seen = ~np.isnan(values)
+                total = np.add.reduceat(np.where(seen, values, 0.0), starts, axis=0)
+                count = np.add.reduceat(seen.astype(np.float64), starts, axis=0)
+                with np.errstate(invalid="ignore", divide="ignore"):
+                    values = total / count
+            else:
+                reduce = np.fmin if self.method == "min" else np.fmax
+                values = reduce.reduceat(values, starts, axis=0)
             on_grid = np.full((n, *values.shape[1:]), np.nan, dtype=np.float32)
             on_grid[filled] = values
             resampled["values"] = on_grid
