@@ -26,7 +26,8 @@ Intentional, documented differences from the released reference code
   zero-valued inputs, giving non-zero embeddings that enter BatchNorm).
 * The post-convolution mask follows each block's actual receptive field
   (the reference average-pools the mask and ignores the convolution's
-  one-step shift).
+  one-step shift). The encoder also canonicalizes right-padding and reserves
+  room for boundary responses so predictions do not depend on padding length.
 * One length-aware packed LSTM path is used on CPU and CUDA (the reference
   uses packing on CUDA only).
 * The target predictor is always in eval mode (the reference runs it in
@@ -323,6 +324,21 @@ class _SequenceEncoder(nn.Module):
             RuntimeError: If a row has no valid position (callers must never
                 encode an all-padded state).
         """
+        # we discard arbitrary caller-supplied trailing padding so its length
+        # cannot change the convolution or pooling boundary for valid events
+        lengths = mask.sum(dim=1)
+        if bool((lengths == 0).any()):
+            raise RuntimeError("Cannot encode a state with no valid events")
+        valid_length = int(lengths.max().item())
+        x = x[..., :valid_length]
+        mask = mask[:, :valid_length]
+
+        # each kernel-2/pool-2 block may consume a right-boundary response
+        # we reserve enough zeros for all blocks, independent of input width
+        boundary_padding = 2 ** len(self.convs) - 1
+        x = F.pad(x, (0, boundary_padding))
+        mask = F.pad(mask, (0, boundary_padding), value=False)
+
         for conv, activation in zip(self.convs, self.activations):
             x = x * mask.unsqueeze(1)
             conv_valid = self.conv_mask(mask)
@@ -511,7 +527,10 @@ class TDCNNLSTM(BaseModel):
             raise ValueError(f"dataset.input_schema is missing {missing}")
 
     def _canonicalize_state(
-        self, batch: Mapping[str, Any], prefix: str = ""
+        self,
+        batch: Mapping[str, Any],
+        prefix: str = "",
+        expected_shape: Optional[torch.Size] = None,
     ) -> Dict[str, torch.Tensor]:
         """Collects one state's five channels as ``(B, L)`` tensors.
 
@@ -522,6 +541,8 @@ class TDCNNLSTM(BaseModel):
         Args:
             batch: Keyword batch passed to ``forward()``.
             prefix: ``""`` for the current state, ``"next_"`` for the successor.
+            expected_shape: Optional current-state ``(B, L)`` shape, required
+                to match when validating a paired successor state.
 
         Returns:
             Mapping from unprefixed channel name to a ``(B, L)`` tensor.
@@ -572,6 +593,12 @@ class TDCNNLSTM(BaseModel):
         assert shape is not None
         if shape[0] == 0 or shape[1] == 0:
             raise ValueError(f"{prefix}state batch is empty: shape {tuple(shape)}")
+        if expected_shape is not None and shape != expected_shape:
+            raise ValueError(
+                f"{prefix}state shape {tuple(shape)} does not match current "
+                f"state shape {tuple(expected_shape)}; paired states must "
+                "have identical batch and sequence dimensions"
+            )
         return state
 
     def _validate_state(
@@ -775,6 +802,7 @@ class TDCNNLSTM(BaseModel):
         batch: Mapping[str, Any],
         prefix: str = "",
         allow_empty: bool = False,
+        expected_shape: Optional[torch.Size] = None,
     ) -> Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor], torch.Tensor]:
         """Canonicalizes, validates, sorts and scales one state.
 
@@ -782,11 +810,12 @@ class TDCNNLSTM(BaseModel):
             batch: Keyword batch passed to ``forward()``.
             prefix: ``""`` for the current state, ``"next_"`` for the successor.
             allow_empty: Whether all-padded rows are allowed.
+            expected_shape: Expected ``(B, L)`` shape for a paired successor.
 
         Returns:
             ``(state, masks, has_events)`` ready for ``_TDPredictor``.
         """
-        state = self._canonicalize_state(batch, prefix)
+        state = self._canonicalize_state(batch, prefix, expected_shape)
         masks, has_events = self._validate_state(state, allow_empty, prefix)
         state, masks = self._sort_state(state, masks)
         return self._scale_state(state, masks), masks, has_events
@@ -819,7 +848,9 @@ class TDCNNLSTM(BaseModel):
 
     @torch.no_grad()
     def _target_probability(
-        self, batch: Mapping[str, Any]
+        self,
+        batch: Mapping[str, Any],
+        current_shape: Optional[torch.Size] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Scores successor states with the frozen target predictor.
 
@@ -827,6 +858,8 @@ class TDCNNLSTM(BaseModel):
 
         Args:
             batch: Keyword batch containing the five ``next_*`` channels.
+            current_shape: Current-state ``(B, L)`` shape to validate against.
+                Inferred from the batch when all current channels are present.
 
         Returns:
             ``(probability, has_next)``: a detached ``(B, 1)`` tensor that is
@@ -837,8 +870,13 @@ class TDCNNLSTM(BaseModel):
         """
         if self.target is None:
             raise RuntimeError("The supervised objective has no target predictor")
+        if current_shape is None and all(key in batch for key in STATE_KEYS):
+            current_shape = self._canonicalize_state(batch)["values"].shape
         state, masks, has_next = self._prepare_state(
-            batch, prefix=NEXT_PREFIX, allow_empty=True
+            batch,
+            prefix=NEXT_PREFIX,
+            allow_empty=True,
+            expected_shape=current_shape,
         )
         batch_size = has_next.shape[0]
         probability = torch.full(
@@ -861,8 +899,9 @@ class TDCNNLSTM(BaseModel):
 
         Args:
             **batch: The five current-state channels, each ``(B, L)`` or
-                ``(B, L, 1)``. Extra keys (e.g. ``patient_id`` or ``next_*``)
-                are ignored.
+                ``(B, L, 1)``. Optional ``next_*`` channels are validated as
+                a complete, shape-matched successor state but not scored until
+                T30-T32. Unrelated metadata (e.g. ``patient_id``) is ignored.
 
         Returns:
             Dictionary with ``logit`` and ``y_prob``, each of shape ``(B, 1)``.
@@ -875,5 +914,16 @@ class TDCNNLSTM(BaseModel):
                 "Labeled forward (loss, y_true) is implemented in T30-T32"
             )
         state, masks, _ = self._prepare_state(batch)
+
+        # we validate supplied successors even on the provisional inference
+        # path so a mismatched paired batch cannot silently pass T21
+        if any(NEXT_PREFIX + key in batch for key in STATE_KEYS):
+            self._prepare_state(
+                batch,
+                prefix=NEXT_PREFIX,
+                allow_empty=True,
+                expected_shape=state["values"].shape,
+            )
+
         logit = self.online(state, masks)
         return {"logit": logit, "y_prob": torch.sigmoid(logit)}
