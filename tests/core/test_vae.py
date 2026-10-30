@@ -126,6 +126,76 @@ class TestVAE(unittest.TestCase):
         generated = model.generate(num_samples=3)
         self.assertEqual(generated.shape, (3, 1, 32, 32))
 
+    def test_image_reconstruction_keeps_trainer_compatibility(self):
+        model = VAE(self.dataset, latent_dim=8, hidden_dim=4)
+        batch = next(iter(get_dataloader(self.dataset, batch_size=2)))
+        model.eval()
+        with torch.no_grad():
+            first = model(**batch)
+            second = model(**batch)
+        self.assertEqual(model.mode, "regression")
+        self.assertEqual(model.image_shape, (1, 32, 32))
+        self.assertEqual(first["y_prob"].shape, first["y_true"].shape)
+        torch.testing.assert_close(first["y_prob"], second["y_prob"])
+
+        trainer = Trainer(
+            model=model,
+            device="cpu",
+            metrics=["mse", "mae"],
+            enable_logging=False,
+        )
+        scores = trainer.evaluate(get_dataloader(self.dataset, batch_size=2))
+        self.assertTrue(np.isfinite(scores["mse"]))
+        self.assertTrue(np.isfinite(scores["mae"]))
+
+    def test_normalized_images_use_a_finite_reconstruction_loss(self):
+        samples = [
+            {
+                "patient_id": f"normalized-{index}",
+                "image": os.path.join(self.temp_dir, f"image-{index}.png"),
+            }
+            for index in range(4)
+        ]
+        dataset = create_sample_dataset(
+            samples=samples,
+            input_schema={
+                "image": (
+                    "image",
+                    {
+                        "image_size": 32,
+                        "mode": "L",
+                        "normalize": True,
+                        "mean": [0.5],
+                        "std": [0.25],
+                    },
+                )
+            },
+            output_schema={},
+            dataset_name="test_vae_normalized",
+        )
+        model = VAE(dataset, latent_dim=8, hidden_dim=4)
+        result = model(**next(iter(get_dataloader(dataset, batch_size=2))))
+        self.assertTrue(torch.isfinite(result["loss"]))
+
+    def test_image_processor_requires_explicit_mode(self):
+        samples = [
+            {
+                "patient_id": f"mode-{index}",
+                "image": os.path.join(self.temp_dir, f"image-{index}.png"),
+            }
+            for index in range(4)
+        ]
+        dataset = create_sample_dataset(
+            samples=samples,
+            input_schema={"image": ("image", {"image_size": 32})},
+            output_schema={},
+            dataset_name="test_vae_missing_image_mode",
+        )
+        with self.assertRaisesRegex(
+            ValueError, 'mode must be set to "L", "RGB" or "RGBA"'
+        ):
+            VAE(dataset)
+
 
 if __name__ == "__main__":
     unittest.main()
