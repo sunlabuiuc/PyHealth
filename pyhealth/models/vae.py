@@ -1,8 +1,6 @@
 # Author: Giovanni Dall'Olio
 # Description: Image and categorical-sequence VAEs for PyHealth 2.0.
 
-from typing import Dict
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -252,8 +250,8 @@ class VAE(BaseModel):
         return self.condition_embedding(indices)
 
     def _forward_image(
-        self, kwargs: Dict[str, torch.Tensor]
-    ) -> Dict[str, torch.Tensor]:
+        self, kwargs: dict[str, torch.Tensor]
+    ) -> dict[str, torch.Tensor]:
         """Reconstruct an image batch and calculate its VAE objective."""
         if self.feature_key not in kwargs:
             raise KeyError(f"Missing image input {self.feature_key!r}.")
@@ -302,8 +300,8 @@ class VAE(BaseModel):
         }
 
     def _forward_sequence(
-        self, kwargs: Dict[str, torch.Tensor]
-    ) -> Dict[str, torch.Tensor]:
+        self, kwargs: dict[str, torch.Tensor]
+    ) -> dict[str, torch.Tensor]:
         """Reconstruct categorical tokens with an autoregressive decoder."""
         if self.feature_key not in kwargs:
             raise KeyError(f"Missing sequence input {self.feature_key!r}.")
@@ -359,7 +357,7 @@ class VAE(BaseModel):
             "mask": mask,
         }
 
-    def forward(self, **kwargs: torch.Tensor) -> Dict[str, torch.Tensor]:
+    def forward(self, **kwargs: torch.Tensor) -> dict[str, torch.Tensor]:
         """Encode and reconstruct an image or categorical sequence batch."""
         if self.modality == "image":
             return self._forward_image(kwargs)
