@@ -354,10 +354,10 @@ class SampleBuilder:
         writes and expects every later sample to have the same structure, so a
         list whose length varies between samples cannot be written as-is.
         Fields whose processor declares ``stores_tensor`` stay tensors (or
-        tuples of tensors); every
-        other field (including keys not in the schema, such as ``patient_id``)
-        goes into one pickled payload, which has the same structure in every
-        sample whatever the values look like. :class:`SampleDataset` decodes it
+        tuples of tensors, one per ``schema()`` entry); every other field
+        (including keys not in the schema, such as ``patient_id``) goes into
+        one pickled payload, which has the same structure in every sample
+        whatever the values look like. :class:`SampleDataset` decodes it
         on read, so callers get back the original Python objects.
 
         Args:
@@ -368,9 +368,11 @@ class SampleBuilder:
 
         Raises:
             ValueError: If a field declared ``stores_tensor`` is not a tensor
-                or a tuple of tensors.
+                or a tuple of tensors, one per entry of its processor's
+                ``schema()``.
         """
         tensor_fields = self._tensor_fields()
+        processors = {**self._input_processors, **self._output_processors}
         record: dict[str, Any] = {}
         objects: dict[str, Any] = {}
         for key, value in transformed.items():
@@ -378,13 +380,21 @@ class SampleBuilder:
                 is_tensors = isinstance(value, tuple) and all(
                     isinstance(item, torch.Tensor) for item in value
                 )
+                processor = processors[key]
                 if not (isinstance(value, torch.Tensor) or is_tensors):
-                    processor = self._input_processors.get(key) or self._output_processors.get(key)
                     raise ValueError(
                         f"Field '{key}': {type(processor).__name__} declares "
                         f"stores_tensor=True but process() returned "
                         f"{type(value).__name__}. Set stores_tensor = False on the "
                         "processor, or return a torch.Tensor or a tuple of them."
+                    )
+                # litdata expects the same structure in every sample, and
+                # schema() fixes the tuple's length for all of them.
+                if is_tensors and len(value) != len(processor.schema()):
+                    raise ValueError(
+                        f"Field '{key}': {type(processor).__name__}.process() "
+                        f"returned {len(value)} tensors, but its schema() has "
+                        f"{len(processor.schema())} entries."
                     )
                 record[key] = value
             else:

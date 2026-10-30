@@ -50,6 +50,12 @@ class TestConfiguration(unittest.TestCase):
     def test_registered(self):
         self.assertIs(get_processor("sequence_v2"), SequenceProcessorV2)
 
+    def test_repr_shows_levels(self):
+        self.assertEqual(
+            repr(SequenceProcessorV2(levels=[CODES])),
+            "SequenceProcessorV2(levels=[{'tokens': 1}])",
+        )
+
     def test_subclass_is_configuration_only(self):
         class NestedCodes(SequenceProcessorV2):
             def __init__(self):
@@ -111,6 +117,8 @@ class TestConfiguration(unittest.TestCase):
             proc.vocab_size()
         with self.assertRaises(RuntimeError):
             proc.vocab(0)
+        with self.assertRaises(ValueError):
+            _fit([SCALARS]).vocab(0)  # no tokens
         with self.assertRaises(RuntimeError):
             proc.process({"tokens": [("A", "u")], "values": [[1.0, 2.0, 3.0]]})
 
@@ -331,6 +339,7 @@ class TestProcess(unittest.TestCase):
             ([series], {"tokens": ["A"]}),  # series without time
             ([series], {"time": [1.0, 0.0], "tokens": ["A", "B"]}),
             ([series], {"time": [NAN], "tokens": ["A"]}),
+            ([series], {"time": [[0.0]], "tokens": ["A"]}),
             ([SCALARS], {"values": [[1.0, 2.0]]}),
             ([SCALARS], {"values": [[[1.0]]]}),
             ([SCALARS], {"values": [[NAN]]}),
@@ -393,6 +402,7 @@ class TestCodeMapping(unittest.TestCase):
         self.assertEqual(offsets.tolist(), [0, 3, 5])
 
     def test_per_namespace_mapping(self):
+        self.use_table({"250.00": ["49"]})  # several namespaces need one target
         proc = _fit(
             [{"ordering": "set", "tokens": 2, "code_mapping": [None, ("A", "B")]}],
             {"tokens": [("401.9", "250.00")]},
@@ -400,12 +410,14 @@ class TestCodeMapping(unittest.TestCase):
         self.assertEqual(proc.vocab(0, 0), {"<pad>": 0, "<unk>": 1, "401.9": 2})
         self.assertEqual(proc.vocab(0, 1), {"<pad>": 0, "<unk>": 1, "49": 2})
 
-    def test_multi_target_mapping_needs_a_set_level_without_values(self):
+    def test_multi_target_mapping_needs_a_bottom_set_level_of_codes(self):
         mapping = self.MAPPING
         cases: list[list[LevelConfig]] = [
             [{"tokens": 1, "code_mapping": mapping}],  # sequence
             [{"ordering": "series", "tokens": 1, "code_mapping": mapping}],
             [{"ordering": "set", "tokens": 1, "values": [1], "code_mapping": mapping}],
+            [CODES, {"ordering": "set", "tokens": 1, "code_mapping": mapping}],
+            [{"ordering": "set", "tokens": 2, "code_mapping": [mapping, None]}],
         ]
         for levels in cases:
             with self.subTest(levels=levels), self.assertRaises(ValueError):
@@ -430,23 +442,6 @@ class TestCodeMapping(unittest.TestCase):
         self.assertEqual(tokens.tolist(), [2, 3])
         self.assertEqual(values.shape, (2, 1))
         self.assertEqual(time.tolist(), [0.0, 1.0])
-
-    def test_expansion_raises_when_it_would_duplicate_data(self):
-        mapping = self.MAPPING
-        cases: list[tuple[list[LevelConfig], Records]] = [
-            (
-                [{"ordering": "set", "tokens": 2, "code_mapping": [mapping, None]}],
-                {"tokens": [("401.9", "u")]},
-            ),
-            (
-                [CODES, {"ordering": "set", "tokens": 1, "code_mapping": mapping}],
-                {"tokens": ["401.9"], "children": [{"tokens": ["A"]}]},
-            ),
-        ]
-        for levels, raw in cases:
-            proc = _fit(levels, raw)  # fit only builds vocabularies
-            with self.subTest(raw=raw), self.assertRaises(ValueError):
-                proc.process(raw)
 
 
 class TestResample(unittest.TestCase):
@@ -847,6 +842,13 @@ class TestNormalize(unittest.TestCase):
         # A: 0..2, B: 10..30, and unseen C: all tokens, 0..30.
         self.assertEqual(values.reshape(-1).tolist(), [0.5, 0.5, 0.5])
 
+    def test_fit_checks_tokens_match_values(self):
+        level = self.level(
+            {"method": "zscore", "by_tokens": (0,)}, tokens=1, values=[1]
+        )
+        with self.assertRaises(ValueError):
+            _fit([level], {"tokens": ["A", "B"], "values": [[1.0]]})
+
     def test_constant_divides_by_one(self):
         raw: Records = {"values": [[5.0], [5.0]]}
         proc = _fit([self.level({"method": "zscore"}, values=[1])], raw)
@@ -1022,6 +1024,25 @@ class TestCollateAndValidate(unittest.TestCase):
                 proc.validate(output)
         with self.assertRaises(ValueError):
             proc.validate((tokens, offsets, torch.tensor([0, 1])), batched=True)
+        with self.assertRaises(TypeError):
+            proc.validate((tokens.tolist(), offsets))  # type: ignore[arg-type]
+
+    def test_validate_checks_shapes_values_and_time(self):
+        level: LevelConfig = {"ordering": "series", "tokens": 1, "values": [2]}
+        raw: Records = {"time": [0.0], "tokens": ["A"], "values": [[1.0, 2.0]]}
+        proc = _fit([level], raw)
+        tokens, values, time = proc.process(raw)
+        cases = {
+            "tokens [N, 1] for one namespace": (tokens[:, None], values, time),
+            "values [N, 1] for [2]": (tokens, values[:, :1], time),
+            "NaN value": (tokens, torch.full_like(values, NAN), time),
+            "time [N, 1]": (tokens, values, time[:, None]),
+            "infinite time": (tokens, values, torch.full_like(time, float("inf"))),
+            "record counts differ": (tokens, values, torch.zeros(2)),
+        }
+        for name, output in cases.items():
+            with self.subTest(name), self.assertRaises(ValueError):
+                proc.validate(output)
 
 
 class TestStorage(unittest.TestCase):

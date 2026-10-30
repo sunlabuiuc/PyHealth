@@ -1,7 +1,4 @@
-"""Unified processor for hierarchical packed records (CSR / jagged layout).
-
-See ``notes/Unified_Sequence_Processor.md`` (Section 7) for the design.
-"""
+"""Unified processor for hierarchical packed records (CSR / jagged layout)."""
 
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
@@ -241,7 +238,8 @@ class LevelConfig(TypedDict, total=False):
             ``pyhealth.medcode.CrossMap``, or a list with one pair (or None)
             per token namespace. A code that maps to several targets becomes
             several records, so a mapping with several targets per code is
-            only allowed on a ``set`` level without values.
+            only allowed on a bottom-level ``set`` with one token namespace
+            and no values.
         resample: A :class:`Resample` for a ``series`` level: puts its
             records on a time grid, turning it into a ``sequence`` level.
         spatial: One bool per value axis; defaults to all False.
@@ -1007,15 +1005,26 @@ class SequenceProcessorV2(FeatureProcessor):
         ]
         for level, (config, mappers) in enumerate(zip(self._config, self._mappers)):
             # A code with several targets becomes several records, which only
-            # makes sense in an unordered level with no values to copy.
+            # makes sense in an unordered bottom level with nothing else to
+            # copy: no values, no children and no other namespaces.
             many = [m for m in mappers or () if m is not None and m.has_many_targets]
-            if many and (config.ordering != "set" or config.values):
+            problems = [
+                problem
+                for problem, present in (
+                    (f"ordering {config.ordering!r}", config.ordering != "set"),
+                    ("values", bool(config.values)),
+                    ("children", level > 0),
+                    (f"{config.tokens} token namespaces", config.tokens > 1),
+                )
+                if present
+            ]
+            if many and problems:
                 raise ValueError(
                     f"Level {level}: {many[0].s_vocab}->{many[0].t_vocab} maps some "
-                    "codes to several targets, which is only allowed on a 'set' "
-                    f"level without values (got ordering {config.ordering!r}"
-                    f"{' with values' if config.values else ''}). Put the tokens "
-                    "to map in their own 'set' level, one level below this one."
+                    "codes to several targets, which is only allowed on a "
+                    "bottom-level 'set' with one token namespace and no values "
+                    f"(got {', '.join(problems)}). Put the tokens to map in their "
+                    "own 'set' level at the bottom."
                 )
 
         for level, config in enumerate(self._config):
@@ -1185,19 +1194,8 @@ class SequenceProcessorV2(FeatureProcessor):
                 targets.append(mapped if mapped else [code])
             if all(len(t) == 1 for t in targets):
                 mapped_tokens.append(tuple(t[0] for t in targets))
-                continue
-            # The configuration rules out time and values on a mapped level.
-            if level > 0 or len(token) > 1:
-                reason = (
-                    "its records also have children"
-                    if level > 0
-                    else "there are several namespaces"
-                )
-                raise ValueError(
-                    f"Level {level}: {token!r} maps to several codes, which would duplicate "
-                    f"records, but {reason}."
-                )
-            mapped_tokens.extend((target,) for target in targets[0])
+            else:  # the configuration allows this only with one namespace
+                mapped_tokens.extend((target,) for target in targets[0])
         return mapped_tokens
 
     def _read_values(self, level: int, records: Records) -> np.ndarray:
@@ -1431,13 +1429,10 @@ class SequenceProcessorV2(FeatureProcessor):
     def _count(
         schema: tuple[FieldKey, ...], output: tuple[torch.Tensor, ...], level: int
     ) -> int:
-        """Number of records at ``level``, read from any field that knows it."""
-        for (field_level, role), tensor in zip(schema, output):
-            if field_level == level and role != "offsets":
-                return tensor.shape[0]
-            if field_level == level - 1 and role == "offsets":
-                return tensor.shape[0] - 1
-        raise ValueError(f"No field records the size of level {level}.")
+        """Number of records at ``level``, read from the level below's offsets."""
+        if level > 0:
+            return output[schema.index((level - 1, "offsets"))].shape[0] - 1
+        return output[0].shape[0]  # level 0 always has tokens, values or time
 
     def validate(self, output: tuple[torch.Tensor, ...], batched: bool = False) -> None:
         """Checks an output of :meth:`process` (or :meth:`collate` if ``batched``).
