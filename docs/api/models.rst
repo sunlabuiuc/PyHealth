@@ -36,6 +36,12 @@ routes each feature type automatically.
    * - :doc:`models/pyhealth.models.MLP`
      - Features are static numeric vectors (aggregated lab values, demographics)
      - Fully connected; no notion of sequence order
+   * - :doc:`models/pyhealth.models.Unified_MLP`
+     - Features are nested ``sequence_v2`` records and static tensors
+     - MLPs at every hierarchy level and on static fields, with bottom-up mean pooling
+   * - :doc:`models/pyhealth.models.Unified_LogisticRegression`
+     - You want a linear-head baseline on the same packed records
+     - Learned embeddings, bottom-up means, and raw static vectors; supports per-step prefix means
    * - ``MultimodalRNN``
      - Features mix sequential codes with static tensors or multi-hot encodings
      - Auto-routes sequential features to RNN layers and non-sequential features to linear layers; good default for EHR
@@ -213,6 +219,8 @@ API Reference
     models/pyhealth.models.BaseModel
     models/pyhealth.models.LogisticRegression
     models/pyhealth.models.MLP
+    models/pyhealth.models.Unified_MLP
+    models/pyhealth.models.Unified_LogisticRegression
     models/pyhealth.models.CNN
     models/pyhealth.models.RNN
     models/pyhealth.models.GNN
