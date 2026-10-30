@@ -7,6 +7,7 @@ from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
 
 from .embedding import EmbeddingModel
+from .utils import get_step_mask
 
 
 class LogisticRegression(BaseModel):
@@ -21,6 +22,13 @@ class LogisticRegression(BaseModel):
     The model automatically handles different input types through the EmbeddingModel,
     pools sequence dimensions, concatenates all feature embeddings, and applies a
     final linear layer.
+
+    A numeric series (e.g. ``timeseries``) is embedded step by step and
+    mean-pooled over the steps that hold data. A batch pads shorter series
+    with all-zero steps, so a real step whose features are all zero (e.g.
+    the zeros forward fill puts before the first measurement) also counts
+    as padding. A series with no nonzero step is averaged over all its
+    steps.
 
     Args:
         dataset: the dataset to train the model. It is used to query certain
@@ -99,6 +107,10 @@ class LogisticRegression(BaseModel):
     def mean_pooling(x, mask):
         """Mean pooling over the middle dimension of the tensor.
 
+        Steps where ``mask`` is 0 are left out of the mean. A row with no
+        valid step (e.g. an all-zero series) is averaged over all its steps,
+        as without a mask, so the result is never NaN.
+
         Args:
             x: tensor of shape (batch_size, seq_len, embedding_dim)
             mask: tensor of shape (batch_size, seq_len)
@@ -112,7 +124,9 @@ class LogisticRegression(BaseModel):
             >>> mean_pooling(x, mask).shape
             [128, 32]
         """
-        return x.sum(dim=1) / mask.sum(dim=1, keepdim=True)
+        mask = mask.unsqueeze(-1)
+        mask = torch.where(mask.sum(dim=1, keepdim=True) > 0, mask, torch.ones_like(mask))
+        return (x * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1)
 
     def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
         """Forward propagation.
@@ -135,9 +149,15 @@ class LogisticRegression(BaseModel):
         # Preprocess inputs for EmbeddingModel
         processed_inputs = {}
         reshape_info = {}  # Track which inputs were reshaped
+        step_masks = {}  # Pooling masks of numeric series, from the raw steps
 
         for feature_key in self.feature_keys:
             x = kwargs[feature_key]
+            # A processor with several outputs, such as stagenet_tensor's
+            # (time, value), gives a tuple; the model uses the value.
+            schema = self.dataset.input_processors[feature_key].schema()
+            if isinstance(x, tuple) and "value" in schema:
+                x = x[schema.index("value")]
 
             # Convert to tensor if not already
             if not isinstance(x, torch.Tensor):
@@ -145,8 +165,18 @@ class LogisticRegression(BaseModel):
             else:
                 x = x.to(self.device)
 
-            # Handle 3D input: (patient, event, # of codes) -> flatten to 2D
-            if x.dim() == 3:
+            # Handle 3D input: (patient, event, # of codes) -> flatten to 2D.
+            # A numeric series (patient, time, features) embedded by an
+            # nn.Linear over its features keeps its shape instead: the
+            # embedding projects each step, then pooling. Its padded steps
+            # embed to the Linear bias, so the pooling mask comes from the
+            # raw steps.
+            layers = self.embedding_model.embedding_layers
+            per_step = (x.dim() == 3 and feature_key in layers
+                        and isinstance(layers[feature_key], nn.Linear))
+            if per_step:
+                step_masks[feature_key] = get_step_mask(x)
+            if x.dim() == 3 and not per_step:
                 batch_size, seq_len, inner_len = x.shape
                 x = x.view(batch_size, seq_len * inner_len)
                 reshape_info[feature_key] = {
@@ -175,7 +205,9 @@ class LogisticRegression(BaseModel):
             # Handle different tensor dimensions for pooling
             if x.dim() == 3:
                 # Case: (batch, seq_len, embedding_dim) - apply mean pooling
-                mask = (x.sum(dim=-1) != 0).float()
+                mask = step_masks.get(feature_key)
+                if mask is None:
+                    mask = (x.sum(dim=-1) != 0).float()
                 if mask.sum(dim=-1, keepdim=True).any():
                     x = self.mean_pooling(x, mask)
                 else:
