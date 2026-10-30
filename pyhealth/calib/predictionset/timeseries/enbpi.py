@@ -300,6 +300,14 @@ class EnbPI(IntervalPredictor):
         # Algorithm 1, lines 6-10: OOB prediction from the models that left
         # each point out.
         has_oob = self.oob.any(axis=0)
+        if not has_oob.any():
+            # Every center would be an empty aggregate, so every interval
+            # would be NaN, and updates could never fill the window.
+            raise ValueError(
+                "EnbPI: every training point is in every bootstrap sample, so "
+                "no out-of-bag predictions exist. Increase n_bootstrap or use "
+                "more training data."
+            )
         if not has_oob.all():
             logger.warning(
                 f"EnbPI: {int((~has_oob).sum())} training points are in every "

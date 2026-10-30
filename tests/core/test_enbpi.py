@@ -76,6 +76,28 @@ class TestOutOfBag(unittest.TestCase):
         )
         self.assertEqual(enbpi.residuals.maxlen, 4)
 
+    def test_no_out_of_bag_model_raises(self):
+        # Every bag contains every point, so no OOB prediction exists.
+        bags = np.array([[0, 1, 2, 3], [3, 2, 1, 0], [1, 0, 3, 2]])
+        enbpi = _fitted_enbpi(bags=bags, alpha=0.5)
+        with self.assertRaisesRegex(ValueError, "no out-of-bag"):
+            enbpi.calibrate(make_stream(Y_TRAIN))
+        self.assertFalse(enbpi.calibrated)
+
+    def test_no_out_of_bag_model_from_training_raises(self):
+        # The reported case: 2 samples, 1 model, and random_state=1 draws
+        # the bag [0, 1], which contains both points.
+        enbpi = EnbPI(
+            model_fn=lambda: ConstantModel(1.0),
+            alpha=0.5,
+            n_bootstrap=1,
+            random_state=1,
+            train_kwargs={"epochs": 0},
+        )
+        with self.assertRaisesRegex(ValueError, "no out-of-bag"):
+            enbpi.calibrate(make_stream([0.0, 1.0]))
+        self.assertFalse(enbpi.calibrated)
+
 
 class TestInterval(unittest.TestCase):
     def setUp(self):
