@@ -10,11 +10,11 @@ time since the previous same-feature event, and change since that event).
 A TD-trained model also receives the matching ``next_*`` channels of the
 selected successor state.
 
-Implementation status (task list T21-T29): input validation, train-derived
+Implementation status (tasks T21-T31): input validation, train-derived
 scaling, the five-branch event embedding, the no-delta ablation switch,
-chronological ordering, the CNN/LSTM encoder, the dense decoder, and the frozen
-target predictor. The TD/supervised losses, the labeled ``forward()`` output,
-and ``update_target()`` are tasks T30-T33.
+chronological ordering, the CNN/LSTM encoder, the dense decoder, the frozen
+target predictor, and TD/supervised loss computation. The labeled ``forward()``
+output and ``update_target()`` are tasks T32-T33.
 
 Intentional, documented differences from the released reference code
 (``utils/train/models.py``), approved in ``MODEL_API_DECISIONS.md``:
@@ -889,13 +889,149 @@ class TDCNNLSTM(BaseModel):
         return probability, has_next
 
     # ------------------------------------------------------------------
-    # Forward (provisional until T30-T32)
+    # T30 + T31: 28-day label validation and objective-specific losses
+    # ------------------------------------------------------------------
+    def _observed_labels(
+        self, batch: Mapping[str, Any], logits: torch.Tensor
+    ) -> torch.Tensor:
+        """Returns observed 28-day mortality labels as ``(B, 1)`` floats.
+
+        Args:
+            batch: Input batch with the single ``label`` field.
+            logits: Online predictor logits of shape ``(B, 1)``.
+
+        Returns:
+            Binary observed labels, on the same device and dtype as logits.
+
+        Raises:
+            ValueError: For missing, nonbinary or incorrectly shaped labels.
+        """
+        if logits.ndim != 2 or logits.shape[1] != 1:
+            raise ValueError(
+                f"logits must have shape (B, 1); got {tuple(logits.shape)}"
+            )
+        if self.label_key not in batch:
+            raise ValueError(
+                f"Missing observed 28-day mortality label {self.label_key!r}"
+            )
+
+        labels = torch.as_tensor(batch[self.label_key], device=logits.device)
+        if labels.is_complex():
+            raise ValueError("Observed mortality labels must be real and binary")
+        if labels.ndim == 1 and labels.shape[0] == logits.shape[0]:
+            labels = labels.unsqueeze(1)
+        if labels.shape != logits.shape:
+            raise ValueError(
+                "Observed 28-day mortality labels must have shape (B,) "
+                f"or (B, 1); got {tuple(labels.shape)}, "
+                f"expected batch size {logits.shape[0]}"
+            )
+
+        # we validate before casting so rounding cannot hide invalid labels
+        if not bool(torch.isfinite(labels).all()) or not bool(
+            ((labels == 0) | (labels == 1)).all()
+        ):
+            raise ValueError("Observed 28-day mortality labels must be 0 or 1")
+        return labels.to(dtype=logits.dtype).detach()
+
+    def _td_targets(
+        self,
+        observed_labels: torch.Tensor,
+        batch: Mapping[str, Any],
+        current_shape: Optional[torch.Size] = None,
+    ) -> torch.Tensor:
+        """Builds detached TD targets from successor risks or observed labels.
+
+        The successor network predicts a soft risk target when the selected
+        successor contains events. Otherwise, the observed 28-day mortality
+        label is used. No discount or intermediate reward is applied.
+
+        Args:
+            observed_labels: Validated ground-truth mortality of shape ``(B, 1)``.
+            batch: Batch containing all five ``next_*`` event channels.
+            current_shape: Expected ``(B, L)`` shape for the successor tensors.
+
+        Returns:
+            Detached, finite TD targets of shape ``(B, 1)``.
+        """
+        probabilities, has_next = self._target_probability(
+            batch, current_shape=current_shape
+        )
+        targets = torch.where(
+            has_next.unsqueeze(1), probabilities, observed_labels
+        ).detach()
+        if not bool(torch.isfinite(targets).all()):
+            raise ValueError("TD targets must be finite")
+        return targets
+
+    def _compute_td_loss(
+        self,
+        logits: torch.Tensor,
+        observed_labels: torch.Tensor,
+        batch: Mapping[str, Any],
+        current_shape: Optional[torch.Size] = None,
+    ) -> torch.Tensor:
+        """Computes mean TD binary cross-entropy from online logits.
+
+        Args:
+            logits: Current-state online logits of shape ``(B, 1)``.
+            observed_labels: Validated observed 28-day labels of shape ``(B, 1)``.
+            batch: Paired input batch with five ``next_*`` channels.
+            current_shape: Optional canonical current-state ``(B, L)`` shape.
+
+        Returns:
+            Scalar BCE-with-logits loss with detached bootstrap targets.
+        """
+        targets = self._td_targets(observed_labels, batch, current_shape)
+        return F.binary_cross_entropy_with_logits(logits, targets)
+
+    @staticmethod
+    def _compute_supervised_loss(
+        logits: torch.Tensor, observed_labels: torch.Tensor
+    ) -> torch.Tensor:
+        """Computes mean supervised BCE against observed 28-day mortality.
+
+        Args:
+            logits: Current-state online logits of shape ``(B, 1)``.
+            observed_labels: Validated observed 28-day labels of shape ``(B, 1)``.
+
+        Returns:
+            Scalar binary cross-entropy-with-logits loss.
+        """
+        return F.binary_cross_entropy_with_logits(logits, observed_labels)
+
+    def _compute_loss(
+        self,
+        logits: torch.Tensor,
+        batch: Mapping[str, Any],
+        current_shape: Optional[torch.Size] = None,
+    ) -> torch.Tensor:
+        """Dispatches to the TD or supervised loss for T32 to use in forward.
+
+        Args:
+            logits: Current-state online logits of shape ``(B, 1)``.
+            batch: Inputs and observed 28-day mortality label.
+            current_shape: Expected ``(B, L)`` shape for paired successors.
+
+        Returns:
+            Scalar differentiable loss for the configured objective.
+        """
+        observed_labels = self._observed_labels(batch, logits)
+        if self.objective == "td":
+            return self._compute_td_loss(
+                logits, observed_labels, batch, current_shape
+            )
+        return self._compute_supervised_loss(logits, observed_labels)
+
+    # ------------------------------------------------------------------
+    # Forward (provisional until T32)
     # ------------------------------------------------------------------
     def forward(self, **batch: Any) -> Dict[str, torch.Tensor]:
         """Predicts 28-day mortality risk for the current states.
 
-        This is the unlabeled-inference path. Loss computation and the
-        labeled output (``loss``, ``y_true``) are added in tasks T30-T32.
+        This is the unlabeled-inference path. T30-T31 loss helpers are
+        available via ``_compute_loss``; wiring their outputs into the
+        labeled forward dictionary is task T32.
 
         Args:
             **batch: The five current-state channels, each ``(B, L)`` or
@@ -911,7 +1047,7 @@ class TDCNNLSTM(BaseModel):
         """
         if self.label_key in batch:
             raise NotImplementedError(
-                "Labeled forward (loss, y_true) is implemented in T30-T32"
+                "Labeled forward (loss, y_true) is implemented in T32"
             )
         state, masks, _ = self._prepare_state(batch)
 

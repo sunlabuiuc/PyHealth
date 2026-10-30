@@ -140,3 +140,169 @@ def test_target_initially_frozen_and_always_eval():
     model.train()
     assert model.online.training
     assert not model.target.training
+
+
+# ---------------------------------------------------------------------------
+# T30 + T31: temporal-difference and supervised loss calculations
+# ---------------------------------------------------------------------------
+def test_td_loss_uses_successor_risks_and_28_day_terminal_labels(monkeypatch):
+    """Only states with a successor bootstrap; terminal states use truth."""
+    model = TDCNNLSTM(make_dataset(), n_features=3, hidden_dim=4)
+    online_logits = torch.tensor([[-1.0], [0.0], [2.0]], requires_grad=True)
+    observed = torch.tensor([0.0, 1.0, 0.0])
+    successor_risks = torch.tensor([[0.2], [float("nan")], [0.8]],
+                                   requires_grad=True)
+
+    def fake_target_probability(batch, current_shape=None):
+        assert current_shape == torch.Size([3, 4])
+        return successor_risks, torch.tensor([True, False, True])
+
+    monkeypatch.setattr(model, "_target_probability", fake_target_probability)
+    loss = model._compute_loss(
+        online_logits,
+        {"label": observed},
+        current_shape=torch.Size([3, 4]),
+    )
+    expected_targets = torch.tensor([[0.2], [1.0], [0.8]])
+    expected_loss = F.binary_cross_entropy_with_logits(
+        online_logits, expected_targets
+    )
+    torch.testing.assert_close(loss, expected_loss)
+    assert loss.ndim == 0
+    loss.backward()
+    assert online_logits.grad is not None
+    assert torch.isfinite(online_logits.grad).all()
+    assert successor_risks.grad is None
+
+
+def test_td_loss_all_terminal_uses_observed_labels():
+    """Missing successors do not imply zero mortality or missing targets."""
+    model = TDCNNLSTM(make_dataset(), n_features=3, hidden_dim=4).eval()
+    current = make_state(batch_size=2, sequence_length=4)
+    empty_successor = make_state(
+        batch_size=2, sequence_length=4, valid_lengths=[0, 0], prefix="next_"
+    )
+    labels = torch.tensor([1, 0])
+    logits = torch.tensor([[-0.4], [0.9]], requires_grad=True)
+    loss = model._compute_loss(logits, {**current, **empty_successor,
+                                        "label": labels})
+    expected_loss = F.binary_cross_entropy_with_logits(
+        logits, labels.float().unsqueeze(1)
+    )
+    torch.testing.assert_close(loss, expected_loss)
+
+
+def test_td_loss_uses_real_frozen_target_and_only_online_gradients():
+    """Paired successors are scored with the frozen model without backprop."""
+    torch.manual_seed(25)
+    model = TDCNNLSTM(make_dataset(), n_features=3, hidden_dim=4).eval()
+    current = make_state(2, 4, valid_lengths=[4, 2])
+    successor = make_state(2, 4, valid_lengths=[3, 0], prefix="next_")
+    batch = {**current, **successor, "label": torch.tensor([0, 1])}
+
+    logits = model(**current)["logit"]
+    target_risks, has_next = model._target_probability(batch)
+    assert has_next.tolist() == [True, False]
+    expected_targets = torch.where(
+        has_next.unsqueeze(1), target_risks, torch.tensor([[0.0], [1.0]])
+    )
+    expected_loss = F.binary_cross_entropy_with_logits(logits, expected_targets)
+    actual_loss = model._compute_loss(logits, batch)
+    torch.testing.assert_close(actual_loss, expected_loss)
+    actual_loss.backward()
+
+    assert any(p.grad is not None for p in model.online.parameters())
+    assert all(p.grad is None for p in model.target.parameters())
+
+
+def test_supervised_loss_matches_bce_and_has_no_target_network():
+    """Supervised mode trains only against observed 28-day labels."""
+    model = TDCNNLSTM(
+        make_dataset(), n_features=3, hidden_dim=4, objective="supervised"
+    )
+    assert model.target is None
+    logits = torch.tensor([[-0.7], [1.2]], requires_grad=True)
+    labels = torch.tensor([[1], [0]])
+    actual = model._compute_loss(logits, {"label": labels})
+    expected = F.binary_cross_entropy_with_logits(logits, labels.float())
+    torch.testing.assert_close(actual, expected)
+    actual.backward()
+    assert logits.grad is not None
+    assert torch.isfinite(logits.grad).all()
+
+
+def test_supervised_loss_does_not_need_successor_states():
+    """A supervised batch requires only an observed 28-day label."""
+    model = TDCNNLSTM(
+        make_dataset(), n_features=3, hidden_dim=4, objective="supervised"
+    )
+    logits = torch.tensor([[0.1], [-0.3]], requires_grad=True)
+    assert torch.isfinite(model._compute_loss(logits, {"label": [0, 1]}))
+
+
+@pytest.mark.parametrize(
+    "labels",
+    [
+        torch.tensor([[0, 0, 0, 0, 1], [0, 0, 0, 0, 0]]),
+        torch.tensor([0.0, 0.5]),
+        torch.tensor([0.0, 1.000000001], dtype=torch.float64),
+        torch.tensor([float("nan"), 1.0]),
+        torch.tensor([float("inf"), 1.0]),
+        torch.tensor([0.0, 1.0, 0.0]),
+    ],
+)
+def test_loss_rejects_invalid_28_day_mortality_labels(labels):
+    """Reject unlabeled, five-horizon, nonbinary and nonfinite targets."""
+    model = TDCNNLSTM(
+        make_dataset(), n_features=3, hidden_dim=4, objective="supervised"
+    )
+    logits = torch.tensor([[0.0], [0.0]])
+    with pytest.raises(ValueError, match="Observed 28-day mortality"):
+        model._compute_loss(logits, {"label": labels})
+
+
+def test_loss_requires_labels_and_one_logit_per_state():
+    """Loss code rejects missing labels and invalid output shapes."""
+    model = TDCNNLSTM(
+        make_dataset(), n_features=3, hidden_dim=4, objective="supervised"
+    )
+    with pytest.raises(ValueError, match="Missing observed 28-day"):
+        model._compute_loss(torch.zeros(2, 1), {})
+    with pytest.raises(ValueError, match="logits must have shape"):
+        model._compute_loss(torch.zeros(2, 5), {"label": [0, 1]})
+
+
+def test_td_loss_rejects_missing_or_mismatched_successor_state():
+    """TD bootstrap requires complete, correctly shaped next-state channels."""
+    model = TDCNNLSTM(make_dataset(), n_features=3, hidden_dim=4).eval()
+    current = make_state(2, 4)
+    logit = torch.tensor([[0.1], [0.2]])
+    with pytest.raises(ValueError, match="Missing required input"):
+        model._compute_loss(logit, {**current, "label": [0, 1]})
+    wrong_shape = make_state(2, 5, prefix="next_")
+    with pytest.raises(ValueError, match="paired states must have identical"):
+        model._compute_loss(
+            logit, {**current, **wrong_shape, "label": [0, 1]}
+        )
+
+
+def test_labeled_forward_remains_reserved_for_t32():
+    """The forward dictionary is intentionally completed in task T32."""
+    model = TDCNNLSTM(
+        make_dataset(), n_features=3, hidden_dim=4, objective="supervised"
+    )
+    with pytest.raises(NotImplementedError, match="T32"):
+        model(**make_state(), label=torch.tensor([0, 1]))
+
+
+def test_supervised_loss_does_not_train_labels():
+    """Observed labels are detached targets, not trainable parameters."""
+    model = TDCNNLSTM(
+        make_dataset(), n_features=3, hidden_dim=4, objective="supervised"
+    )
+    logits = torch.tensor([[0.3], [-1.0]], requires_grad=True)
+    labels = torch.tensor([0.0, 1.0], requires_grad=True)
+    loss = model._compute_loss(logits, {"label": labels})
+    loss.backward()
+    assert logits.grad is not None
+    assert labels.grad is None
