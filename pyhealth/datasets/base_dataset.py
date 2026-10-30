@@ -48,6 +48,11 @@ from ..processors.base_processor import FeatureProcessor
 from .configs import load_yaml_config
 from .sample_dataset import STORAGE_FORMAT, SampleDataset, SampleBuilder
 from .splitter import Split
+from ..tasks.fingerprint import (
+    processors_fingerprint,
+    task_cache_name,
+    write_task_metadata,
+)
 from ..utils import download_file, preserve_rng_state, set_env
 
 # Set logging level for distributed to ERROR to reduce verbosity
@@ -529,9 +534,10 @@ class BaseDataset(ABC):
                 tmp/                                # Temporary files during processing
                 global_event_df.parquet/            # Cached global event dataframe
                 tasks/                              # Cached task-specific data
-                    {task_name}_{task_uuid}/        # Cached data for specific task based on task name, schema, and args
+                    {task_name}_{task_fingerprint}/ # One task configuration (see set_task)
+                        task_meta.json              # Readable spec behind the fingerprint
                         task_df.ld/                 # Intermediate task dataframe based on schema
-                        samples_{proc_uuid}.ld/     # Final processed samples after applying processors
+                        samples_{proc_fingerprint}.ld/  # Final processed samples after applying processors
 
         Returns:
             Path: The resolved cache directory path.
@@ -1197,12 +1203,36 @@ class BaseDataset(ABC):
         """Processes the base dataset to generate the task-specific sample dataset.
         The cache structure is as follows::
 
-            {task_name}_{task_uuid}/        # Cached data for specific task based on task name, schema, and args
-                task_df.ld/                 # Intermediate task dataframe based on schema
-                samples_{proc_uuid}.ld/     # Final processed samples after applying processors
-                    schema.pkl              # Saved SampleBuilder schema
-                    split.npz               # Sample indices per split part (with split= only)
-                    *.bin                   # Processed sample files
+            {task_name}_{task_fingerprint}/     # One task configuration
+                task_meta.json                  # Readable spec behind the fingerprint
+                build.lock                      # Guards concurrent builds
+                task_df.ld/                     # Intermediate task dataframe based on schema
+                samples_{proc_fingerprint}.ld/  # Final processed samples after applying processors
+                    schema.pkl                  # Saved SampleBuilder schema
+                    split.npz                   # Sample indices per split part (with split= only)
+                    *.bin                       # Processed sample files
+
+        ``task_fingerprint`` is a digest of everything that determines the
+        generated samples: the ``__init__`` arguments of the task (with defaults
+        applied, so passing a default explicitly is not a different config),
+        class-level attributes, the input and output schemas, and
+        ``BaseTask.version``. Changing any of them yields a new directory, so
+        two configurations can never share a cache. Arguments that do not affect
+        the output -- ``num_workers``, ``verbose`` -- are excluded, and a task
+        can exclude more of its own via ``fingerprint_exclude``.
+
+        ``proc_fingerprint`` covers everything that determines the processed
+        samples below a given task directory: the pre-fitted processors, the
+        on-disk layout (``STORAGE_FORMAT``) and, when one is given, the
+        ``split``. The last two matter because a split changes which patients
+        fit the processors, and a layout change makes old ``*.bin`` files
+        unreadable; neither may share a directory with a different value.
+
+        Because the digest is opaque, ``task_meta.json`` records the full spec
+        in readable form: consult it to see which parameter produced a given
+        directory. Note that editing ``__call__`` does *not* change the
+        fingerprint by itself -- bump ``version`` on the task when its logic
+        changes, or existing caches will be silently reused.
 
         Args:
             task (Optional[BaseTask]): The task to set. Uses default task if None.
@@ -1249,56 +1279,30 @@ class BaseDataset(ABC):
             f"Setting task {task.task_name} for {self.dataset_name} base dataset..."
         )
 
-        task_params = json.dumps(
-            {
-                **vars(task),
-                "input_schema": task.input_schema,
-                "output_schema": task.output_schema,
-            },
-            sort_keys=True,
-            default=str,
-        )
-
-        cache_dir = (
-            self.cache_dir
-            / "tasks"
-            / f"{task.task_name}_{uuid.uuid5(uuid.NAMESPACE_DNS, task_params)}"
-        )
+        cache_dir = self.cache_dir / "tasks" / task_cache_name(task)
         cache_dir.mkdir(parents=True, exist_ok=True)
 
-        proc_params = json.dumps(
-            {
-                "input_processors": (
-                    {
-                        f"{k}_{v.__class__.__name__}": vars(v)
-                        for k, v in input_processors.items()
-                    }
-                    if input_processors
-                    else None
-                ),
-                "output_processors": (
-                    {
-                        f"{k}_{v.__class__.__name__}": vars(v)
-                        for k, v in output_processors.items()
-                    }
-                    if output_processors
-                    else None
-                ),
-                # Layout of processed samples on disk; a new layout gets a new cache.
-                "storage_format": STORAGE_FORMAT,
-                # Only present with a split, so existing unsplit caches keep their key.
-                **({"split": split.to_dict()} if split is not None else {}),
-            },
-            sort_keys=True,
-            default=str,
-        )
-
         task_df_path = Path(cache_dir) / "task_df.ld"
-        samples_path = (
-            Path(cache_dir)
-            / f"samples_{uuid.uuid5(uuid.NAMESPACE_DNS, proc_params)}.ld"
+        proc_fingerprint = processors_fingerprint(
+            input_processors,
+            output_processors,
+            # A new on-disk layout cannot reuse samples written under the old
+            # one, and a split decides which patients fit the processors.
+            storage_format=STORAGE_FORMAT,
+            split=split.to_dict() if split is not None else None,
         )
+        samples_path = Path(cache_dir) / f"samples_{proc_fingerprint[:16]}.ld"
 
+        # The cache key is opaque by construction; the sidecar makes it
+        # auditable. Written before the build so a crashed build still leaves
+        # a directory that explains what it was trying to produce.
+        meta_path = write_task_metadata(cache_dir, task)
+        logger.info(
+            "Task cache key %s -- derived from init args, schemas and task "
+            "version. Full spec: %s",
+            task_cache_name(task),
+            meta_path,
+        )
         logger.info(f"Task cache paths: task_df={task_df_path}, samples={samples_path}")
 
         task_df_path.mkdir(parents=True, exist_ok=True)

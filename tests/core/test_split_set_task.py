@@ -4,12 +4,10 @@ The synthetic data makes leakage visible: test patients' values are shifted by
 +100 and they carry a code that never occurs in training.
 """
 
-import json
 import logging
 import tempfile
 import tracemalloc
 import unittest
-import uuid
 from pathlib import Path
 
 import numpy as np
@@ -20,6 +18,7 @@ from pyhealth.datasets.sample_dataset import STORAGE_FORMAT, SampleBuilder
 from pyhealth.processors import SequenceProcessor
 from pyhealth.processors.base_processor import FeatureProcessor
 from pyhealth.tasks import BaseTask
+from pyhealth.tasks.fingerprint import processors_fingerprint
 
 N_PATIENTS = 40
 SPLIT = PatientSplit(ratios=(0.6, 0.2, 0.2), seed=3)
@@ -227,16 +226,26 @@ class TestSplitSetTask(unittest.TestCase):
 
     def test_unsplit_cache_key_has_no_split_entry(self):
         samples = self.dataset.set_task(EventTask())
-        key = {"input_processors": None, "output_processors": None,
-               "storage_format": STORAGE_FORMAT}
-        proc_key = json.dumps(key, sort_keys=True, default=str)
-        self.assertTrue(samples.path.endswith(f"samples_{uuid.uuid5(uuid.NAMESPACE_DNS, proc_key)}.ld"))
+        unsplit = processors_fingerprint(
+            None, None, storage_format=STORAGE_FORMAT, split=None
+        )
+        self.assertTrue(samples.path.endswith(f"samples_{unsplit[:16]}.ld"))
+
+    def test_a_split_changes_the_cache_key(self):
+        unsplit = processors_fingerprint(
+            None, None, storage_format=STORAGE_FORMAT, split=None
+        )
+        with_split = processors_fingerprint(
+            None, None, storage_format=STORAGE_FORMAT, split=SPLIT.to_dict()
+        )
+        self.assertNotEqual(unsplit, with_split)
 
     def test_caches_from_the_old_storage_layout_are_not_reused(self):
         samples = self.dataset.set_task(EventTask())
-        old_key = json.dumps({"input_processors": None, "output_processors": None},
-                             sort_keys=True, default=str)
-        self.assertFalse(samples.path.endswith(f"samples_{uuid.uuid5(uuid.NAMESPACE_DNS, old_key)}.ld"))
+        older_layout = processors_fingerprint(
+            None, None, storage_format=STORAGE_FORMAT - 1, split=None
+        )
+        self.assertFalse(samples.path.endswith(f"samples_{older_layout[:16]}.ld"))
 
     def test_supplied_processor_is_kept_with_split(self):
         codes = SequenceProcessor()
