@@ -87,6 +87,9 @@ from .variant_classification import (
     VariantClassificationClinVar,
 )
 from .patient_linkage_mimic3 import PatientLinkageMIMIC3Task
+from .vitals_generation_eicu import (
+    CARTVitalsGenerationEICU as CARTVitalsGenerationEICU,
+)
 
 
 def __getattr__(name: str):

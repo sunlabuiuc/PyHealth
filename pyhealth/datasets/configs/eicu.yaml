@@ -195,5 +195,57 @@ tables:
       - "admitdxname"
       - "admitdxtext"
 
+  vitalperiodic:
+    file_path: "vitalPeriodic.csv"
+    patient_id: "uniquepid"
+    timestamp: null
+    join:
+      - file_path: "patient.csv"
+        "on": "patientunitstayid"
+        how: "inner"
+        columns:
+          - "uniquepid"
+          - "patienthealthsystemstayid"
+          - "unitvisitnumber"
+          - "hospitaladmitoffset"
+          - "hospitaldischargeoffset"
+          - "unitdischargeoffset"
+          - "hospitaldischargeyear"
+          - "hospitaldischargestatus"
+    attributes:
+      - "patientunitstayid"
+      - "observationoffset"
+      - "temperature"
+      - "sao2"
+      - "heartrate"
+      - "respiration"
+      - "systemicsystolic"
+      - "systemicdiastolic"
+      - "systemicmean"
+
+  vitalaperiodic:
+    file_path: "vitalAperiodic.csv"
+    patient_id: "uniquepid"
+    timestamp: null
+    join:
+      - file_path: "patient.csv"
+        "on": "patientunitstayid"
+        how: "inner"
+        columns:
+          - "uniquepid"
+          - "patienthealthsystemstayid"
+          - "unitvisitnumber"
+          - "hospitaladmitoffset"
+          - "hospitaldischargeoffset"
+          - "unitdischargeoffset"
+          - "hospitaldischargeyear"
+          - "hospitaldischargestatus"
+    attributes:
+      - "patientunitstayid"
+      - "observationoffset"
+      - "noninvasivesystolic"
+      - "noninvasivediastolic"
+      - "noninvasivemean"
+
 
 
