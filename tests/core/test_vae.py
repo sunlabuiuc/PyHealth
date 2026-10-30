@@ -93,10 +93,38 @@ class TestVAE(unittest.TestCase):
         self.assertEqual(generated.shape, (2, 4))
         self.assertTrue(bool((generated > 0).all()))
         self.assertTrue(bool((generated < model.vocab_size).all()))
+        self.assertFalse(bool((generated == model.pad_token).any()))
+        if model.unk_token is not None:
+            self.assertFalse(bool((generated == model.unk_token).any()))
 
         trainer = Trainer(model=model, device="cpu")
         scores = trainer.evaluate(get_dataloader(self.sequence_dataset, batch_size=2))
         self.assertTrue(np.isfinite(scores["loss"]))
+
+    def test_unconditional_image_reconstruction_and_generation(self):
+        samples = [
+            {
+                "patient_id": f"unconditional-{index}",
+                "image": os.path.join(self.temp_dir, f"image-{index}.png"),
+                "label": "normal" if index % 2 == 0 else "disease",
+                "extra_label": index % 2,
+            }
+            for index in range(4)
+        ]
+        dataset = create_sample_dataset(
+            samples=samples,
+            input_schema={"image": ("image", {"image_size": 32, "mode": "L"})},
+            output_schema={"label": "multiclass", "extra_label": "binary"},
+            dataset_name="test_vae_unconditional",
+        )
+        model = VAE(dataset, latent_dim=8, hidden_dim=4)
+        self.assertIsNone(model.condition_key)
+
+        batch = next(iter(get_dataloader(dataset, batch_size=2)))
+        result = model(**batch)
+        self.assertTrue(torch.isfinite(result["loss"]))
+        generated = model.generate(num_samples=3)
+        self.assertEqual(generated.shape, (3, 1, 32, 32))
 
 
 if __name__ == "__main__":
