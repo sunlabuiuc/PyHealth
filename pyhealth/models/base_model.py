@@ -46,7 +46,7 @@ def _label_record_loss(
         raise ValueError(
             f"Expected one prediction per label record, {tuple(values.shape)}, "
             f"got {tuple(logits.shape)}. Per-step labels need a model that "
-            "predicts at each label's time."
+            "predicts at each label's time, such as Unified_RNN."
         )
     return loss_fn(logits, values)
 

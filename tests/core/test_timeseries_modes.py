@@ -9,7 +9,7 @@ from pyhealth.metrics import (
     timeseries_binary_metrics_fn,
     timeseries_regression_metrics_fn,
 )
-from pyhealth.models import RNN, MultimodalRNN
+from pyhealth.models import RNN, LevelEmbedding, MultimodalRNN, Unified_RNN
 from pyhealth.processors import (
     LevelConfig,
     TimeseriesBinaryLabelProcessor,
@@ -20,6 +20,7 @@ from pyhealth.trainer import Trainer
 from tests.core.label_record_model_utils import LabelRecordModel
 
 DYNAMIC: list[LevelConfig] = [{"ordering": "series", "values": [2]}]
+DIMS: dict[str, list[LevelEmbedding]] = {"dynamic": [{"values": 8}]}
 
 
 def _dataset(
@@ -60,6 +61,12 @@ def _model(dataset) -> LabelRecordModel:
     return model
 
 
+def _unified_rnn(dataset) -> Unified_RNN:
+    model = Unified_RNN(dataset, embedding_dim=DIMS, hidden_dim=8, dropout=0.0)
+    model.eval()
+    return model
+
+
 class TestTimeseriesModes(unittest.TestCase):
     def test_modes_are_separate_from_binary_and_regression(self):
         for mode in ("timeseries_binary", "timeseries_regression"):
@@ -78,18 +85,32 @@ class TestTimeseriesModes(unittest.TestCase):
     def test_one_prediction_per_label_record(self):
         # Sample 1 has no label at hour 0: it is left out, not masked.
         dataset = _dataset(labeled=lambda i, h: (i, h) != (1, 0))
-        model = _model(dataset)
         batch = next(iter(get_dataloader(dataset, batch_size=4)))
+        for make_model in (_model, _unified_rnn):
+            with self.subTest(model=make_model.__name__), torch.no_grad():
+                out = make_model(dataset)(**batch)
+                values, time, offsets = out["y_true"]
+                self.assertEqual(tuple(out["logit"].shape), (17, 1))  # 5 + 2 + 6 + 4
+                self.assertEqual(offsets.tolist(), [0, 5, 7, 13, 17])
+                self.assertEqual(time[5:7].tolist(), [1.0, 2.0])  # sample 1 from hour 1
+                loss = torch.nn.functional.binary_cross_entropy_with_logits(
+                    out["logit"], values
+                )
+                torch.testing.assert_close(loss, out["loss"])
+
+    def test_unified_rnn_predictions_do_not_see_later_records(self):
+        dataset = _dataset()
+        model = _unified_rnn(dataset)
+        batch = next(iter(get_dataloader(dataset, batch_size=1)))
         with torch.no_grad():
-            out = model(**batch)
-        values, time, offsets = out["y_true"]
-        self.assertEqual(tuple(out["logit"].shape), (17, 1))  # 5 + 2 + 6 + 4
-        self.assertEqual(offsets.tolist(), [0, 5, 7, 13, 17])
-        self.assertEqual(time[5:7].tolist(), [1.0, 2.0])  # sample 1 from hour 1
-        loss = torch.nn.functional.binary_cross_entropy_with_logits(
-            out["logit"], values
-        )
-        torch.testing.assert_close(loss, out["loss"])
+            before = model(**batch)["y_prob"][:, 0]
+            values, *rest = batch["dynamic"]
+            values = values.clone()
+            values[-1] += 100.0  # the last hour
+            batch["dynamic"] = (values, *rest)
+            after = model(**batch)["y_prob"][:, 0]
+        torch.testing.assert_close(before[:-1], after[:-1])
+        self.assertFalse(torch.allclose(before[-1], after[-1]))
 
     def test_loss_needs_one_prediction_per_label(self):
         model = _model(_dataset())
@@ -122,19 +143,24 @@ class TestTimeseriesModes(unittest.TestCase):
                 model(dataset=dataset)
 
     def test_trainer_scores_label_records_per_sample(self):
-        dataset = _dataset()
-        trainer = Trainer(
-            model=_model(dataset), metrics=["roc_auc"], enable_logging=False
-        )
-        loader = get_dataloader(dataset, batch_size=3)
-        y_true, y_prob, _ = trainer.inference(loader)
-        self.assertEqual(sorted(len(y) for y in y_true), [3, 4, 5, 6])
-        self.assertEqual([len(p) for p in y_prob], [len(y) for y in y_true])
-        self.assertIn("roc_auc", trainer.evaluate(loader))
+        for make_model in (_model, _unified_rnn):
+            with self.subTest(model=make_model.__name__):
+                dataset = _dataset()
+                trainer = Trainer(
+                    model=make_model(dataset), metrics=["roc_auc"], enable_logging=False
+                )
+                loader = get_dataloader(dataset, batch_size=3)
+                y_true, y_prob, _ = trainer.inference(loader)
+                self.assertEqual(sorted(len(y) for y in y_true), [3, 4, 5, 6])
+                self.assertEqual([len(p) for p in y_prob], [len(y) for y in y_true])
+                self.assertIn("roc_auc", trainer.evaluate(loader))
 
-        dataset = _dataset("timeseries_regression")
-        trainer = Trainer(model=_model(dataset), metrics=["mae"], enable_logging=False)
-        self.assertIn("mae", trainer.evaluate(get_dataloader(dataset, batch_size=3)))
+                dataset = _dataset("timeseries_regression")
+                trainer = Trainer(
+                    model=make_model(dataset), metrics=["mae"], enable_logging=False
+                )
+                loader = get_dataloader(dataset, batch_size=3)
+                self.assertIn("mae", trainer.evaluate(loader))
 
 
 class TestTimeseriesMetrics(unittest.TestCase):
