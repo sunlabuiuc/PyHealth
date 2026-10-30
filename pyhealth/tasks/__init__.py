@@ -12,6 +12,9 @@ from .cardiology_detect import (
 from .chestxray14_binary_classification import ChestXray14BinaryClassification
 from .chestxray14_multilabel_classification import ChestXray14MultilabelClassification
 from .covid19_cxr_classification import COVID19CXRClassification
+from .covid19_cxr_generation import (
+    COVID19CXRImageGeneration as COVID19CXRImageGeneration,
+)
 from .ptbxl_multilabel_classification import PTBXLMultilabelClassification as PTBXLMultilabelClassification
 from .deid_ner import DeIDNERTask
 from .dka import DKAPredictionMIMIC4, T1DDKAPredictionMIMIC4
@@ -88,6 +91,13 @@ from .variant_classification import (
     VariantClassificationClinVar,
 )
 from .patient_linkage_mimic3 import PatientLinkageMIMIC3Task
+from .yaib_mimic4 import (
+    YAIBAKIMIMIC4 as YAIBAKIMIMIC4,
+    YAIBKidneyFunctionMIMIC4 as YAIBKidneyFunctionMIMIC4,
+    YAIBLengthOfStayMIMIC4 as YAIBLengthOfStayMIMIC4,
+    YAIBMortalityMIMIC4 as YAIBMortalityMIMIC4,
+    YAIBSepsisMIMIC4 as YAIBSepsisMIMIC4,
+)
 
 
 def __getattr__(name: str):

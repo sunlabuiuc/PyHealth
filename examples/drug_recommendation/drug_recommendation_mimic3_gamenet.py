@@ -33,9 +33,10 @@ if __name__ == "__main__":
     )
 
     # STEP 4: define trainer
+    # Metric order does not affect the results.
     trainer = Trainer(
         model=model,
-        metrics=["jaccard_samples", "f1_samples", "pr_auc_samples", "ddi"],
+        metrics=["ddi", "jaccard_samples", "f1_samples", "pr_auc_samples"],
     )
 
     trainer.train(

@@ -225,6 +225,13 @@ class RNN(BaseModel):
             raise ValueError("hidden_size is determined by hidden_dim")
         assert len(self.label_keys) == 1, "Only one label key is supported if RNN is initialized"
         self.label_key = self.label_keys[0]
+        # Per-step (timeseries) labels predict at every input step.
+        self._per_step = self.mode in ("timeseries_binary", "timeseries_regression")
+        if self._per_step and kwargs.get("bidirectional", False):
+            raise ValueError(
+                "A per-step label needs a causal model; bidirectional=True would "
+                "use future time steps."
+            )
 
         self.embedding_model = EmbeddingModel(dataset, embedding_dim)
 
@@ -302,14 +309,30 @@ class RNN(BaseModel):
                 else:
                     mask = (torch.abs(x).sum(dim=-1) != 0).int()
 
-            _, x = self.rnn[feature_key](x, mask)
-            patient_emb.append(x)
+            outputs, x = self.rnn[feature_key](x, mask)
+            # Per-step labels use the output at every step, else the last one.
+            patient_emb.append(outputs if self._per_step else x)
 
-        patient_emb = torch.cat(patient_emb, dim=1)
-        # (patient, label_size)
+        if self._per_step:
+            # Features without a time axis (one step) are repeated over time.
+            steps = max(emb.shape[1] for emb in patient_emb)
+            for i, emb in enumerate(patient_emb):
+                if emb.shape[1] == 1:
+                    patient_emb[i] = emb.expand(-1, steps, -1)
+                elif emb.shape[1] != steps:
+                    raise ValueError(
+                        "Per-step labels need all time series features on the "
+                        "same time grid."
+                    )
+        patient_emb = torch.cat(patient_emb, dim=-1)
+        # (patient, label_size), or (patient, steps, label_size) per step
         logits = self.fc(patient_emb)
         # obtain y_true, loss, y_prob
-        y_true = kwargs[self.label_key].to(self.device)
+        if self._per_step:
+            # (value, mask) per step; the loss averages over labeled steps.
+            y_true = tuple(t.to(self.device) for t in kwargs[self.label_key])
+        else:
+            y_true = kwargs[self.label_key].to(self.device)
         loss = self.get_loss_function()(logits, y_true)
         y_prob = self.prepare_y_prob(logits)
         results = {"loss": loss, "y_prob": y_prob, "y_true": y_true, "logit": logits}
