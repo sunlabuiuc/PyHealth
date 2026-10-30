@@ -31,6 +31,7 @@ Available Methods
    pyhealth.calib.predictionset.RC3P
    pyhealth.calib.predictionset.ClusterLabel
    pyhealth.calib.predictionset.NeighborhoodLabel
+   pyhealth.calib.predictionset.EnbPI
 
 BaseConformal (Standard Split Conformal Prediction)
 ----------------------------------------------------
@@ -122,6 +123,37 @@ NeighborhoodLabel (Neighborhood Conformal Prediction)
    :members:
    :undoc-members:
    :show-inheritance:
+
+EnbPI (Ensemble Batch Prediction Intervals)
+--------------------------------------------
+
+EnbPI builds prediction intervals for time series regression rather than
+prediction sets. It trains its own bootstrap ensemble from a ``model_fn``
+factory, so it uses no separate calibration split. Intervals are returned as
+``y_lower`` and ``y_upper`` next to the point prediction ``y_prob``. In
+deployment, call ``forward`` for intervals and ``update`` once labels are
+revealed. ``predict_sequential`` is a convenience method for evaluation: it
+runs the paper's online predict, reveal and update loop over a fully labeled
+test stream. Score the results with
+:func:`pyhealth.metrics.regression_metrics_fn`, passing ``y_lower`` and
+``y_upper`` and asking for ``miscoverage_pi``, ``interval_width`` or
+``rolling_miscoverage_pi@W``.
+
+.. autoclass:: pyhealth.calib.predictionset.EnbPI
+   :members: calibrate, forward, update, predict_sequential
+   :show-inheritance:
+
+Interval Interface and Time Series Helpers
+------------------------------------------
+
+``IntervalPredictor`` fixes only the public surface of interval methods,
+``calibrate``, ``forward`` and ``update``. Each time series method implements
+its own online loop, using the helper functions below where they fit.
+
+.. autoclass:: pyhealth.calib.base_classes.IntervalPredictor
+   :members: calibrate, forward, update
+
+.. autofunction:: pyhealth.calib.predictionset.timeseries.conformal_quantile
 
 Helper Functions
 ----------------

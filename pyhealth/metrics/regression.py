@@ -4,11 +4,15 @@ from typing import Dict, List, Optional
 import numpy as np
 import sklearn.metrics as sklearn_metrics
 
+import pyhealth.metrics.prediction_interval as pint
+
 
 def regression_metrics_fn(
     x: np.ndarray,
     x_rec: np.ndarray,
     metrics: Optional[List[str]] = None,
+    y_lower: Optional[np.ndarray] = None,
+    y_upper: Optional[np.ndarray] = None,
 ) -> Dict[str, float]:
     """Computes metrics for regression.
 
@@ -17,6 +21,12 @@ def regression_metrics_fn(
         - kl_divergence: KL divergence
         - mse: mean squared error
         - mae: mean absolute error
+
+    The following metrics related to the prediction intervals are accepted as well, but will be ignored if y_lower or y_upper is None:
+        - miscoverage_pi: Prob(Y not in prediction interval). Check :func:`pyhealth.metrics.prediction_interval.miscoverage_pi`.
+        - interval_width: Average width of the prediction intervals. Check :func:`pyhealth.metrics.prediction_interval.width`.
+        - rolling_miscoverage_pi@W: miscoverage_pi over each run of W consecutive time steps, for any positive integer W (e.g. "rolling_miscoverage_pi@100"). Returns an array and needs the samples in time order. Check :func:`pyhealth.metrics.prediction_interval.rolling_miscoverage_pi`.
+
     If no metrics are specified, kd_div, mse, mae are computed by default.
 
     This function calls sklearn.metrics functions to compute the metrics. For
@@ -27,6 +37,12 @@ def regression_metrics_fn(
         x: True target data sample.
         x_rec: reconstructed data sample.
         metrics: List of metrics to compute. Default is ["kl_divergence", "mse", "mae"].
+        y_lower: Optional lower bounds of the prediction intervals, one per
+            sample. Only used by the prediction interval metrics listed above.
+            Default is None.
+        y_upper: Optional upper bounds of the prediction intervals, one per
+            sample. Only used by the prediction interval metrics listed above.
+            Default is None.
 
     Returns:
         Dictionary of metrics whose keys are the metric names and values are
@@ -48,9 +64,26 @@ def regression_metrics_fn(
     if x.shape != x_rec.shape:
         raise ValueError("x and x_rec must have the same shape.")
 
+    prediction_interval_metrics = ["miscoverage_pi", "interval_width"]
+    has_intervals = y_lower is not None and y_upper is not None
+
     output = {}
     for metric in metrics:
-        if metric == "kl_divergence":
+        if metric in prediction_interval_metrics or metric.startswith(
+            "rolling_miscoverage_pi@"
+        ):
+            if not has_intervals:
+                continue
+            if metric == "miscoverage_pi":
+                output[metric] = pint.miscoverage_pi(y_lower, y_upper, x)
+            elif metric == "interval_width":
+                output[metric] = pint.width(y_lower, y_upper)
+            else:
+                window = _parse_window(metric)
+                output[metric] = pint.rolling_miscoverage_pi(
+                    y_lower, y_upper, x, window
+                )
+        elif metric == "kl_divergence":
             # Work on copies to avoid mutating x/x_rec for subsequent metrics
             x_kl = x.copy()
             x_rec_kl = x_rec.copy()
@@ -69,6 +102,17 @@ def regression_metrics_fn(
         else:
             raise ValueError(f"Unknown metric for regression task: {metric}")
     return output
+
+
+def _parse_window(metric: str) -> int:
+    """Parses ``W`` from a metric name such as ``"rolling_miscoverage_pi@100"``."""
+    window = metric.split("@", 1)[1]
+    if not window.isdigit() or int(window) < 1:
+        raise ValueError(
+            f"Invalid metric {metric!r}: expected 'rolling_miscoverage_pi@W' with "
+            "W a positive integer (e.g. 'rolling_miscoverage_pi@100')."
+        )
+    return int(window)
 
 
 

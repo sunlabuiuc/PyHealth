@@ -27,6 +27,10 @@ confidence levels:
 - :class:`~pyhealth.calib.predictionset.ClusterLabel`: K-means cluster-based conformal prediction
 - :class:`~pyhealth.calib.predictionset.NeighborhoodLabel`: Neighborhood Conformal Prediction (NCP)
 
+**Prediction Interval Constructors** give online intervals for time series regression:
+
+- :class:`~pyhealth.calib.predictionset.EnbPI`: Ensemble batch prediction intervals, approximately valid without exchangeability
+
 Getting Started
 ---------------
 
