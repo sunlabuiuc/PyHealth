@@ -536,6 +536,29 @@ class TestResample(unittest.TestCase):
                 proc = _fit([self.series(method, values=[2])], raw)
                 self.assertEqual(proc.process(raw)[0].tolist(), expected)
 
+    def test_reductions_skip_missing_readings(self):
+        # Step 0: channel 0 has 1 and 3, channel 1 nothing. Step 1: one NaN
+        # reading next to a value in each channel.
+        raw: Records = {
+            "time": [0.0, 0.5, 1.0, 1.5],
+            "values": [[1.0, NAN], [3.0, NAN], [NAN, NAN], [5.0, 4.0]],
+        }
+        for method, expected in (
+            ("min", [[1.0, 0.0], [5.0, 4.0]]),
+            ("max", [[3.0, 0.0], [5.0, 4.0]]),
+            ("avg", [[2.0, 0.0], [5.0, 4.0]]),
+        ):
+            with self.subTest(method=method):
+                level: LevelConfig = {
+                    **self.series(method, values=[2]),
+                    "impute": {"method": "zero"},
+                    "missing_indicator": True,
+                }
+                values, mask = _fit([level], raw).process(raw)
+                self.assertEqual(values.tolist(), expected)
+                # Only a step without any reading in a channel is missing.
+                self.assertEqual(mask.tolist(), [[False, True], [False, False]])
+
     def test_merge_unions_child_sets(self):
         raw: Records = {
             "time": [0.0, 0.5, 2.0],
