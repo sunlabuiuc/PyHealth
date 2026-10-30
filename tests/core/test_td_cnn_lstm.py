@@ -3,6 +3,9 @@
 Place this file in ``tests/core/test_td_cnn_lstm.py`` in the PyHealth checkout.
 """
 
+import importlib.util
+import math
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -486,3 +489,286 @@ def test_target_changes_only_after_explicit_post_optimizer_update():
     expected = target_before[key] * 0.5 + online_after_step[key] * 0.5
     torch.testing.assert_close(model.target.state_dict()[key], expected)
     assert not model.target.training
+
+
+# ---------------------------------------------------------------------------
+# T34: explicit AdamW optimizer and post-step TD target synchronization
+# ---------------------------------------------------------------------------
+
+
+_EXAMPLE_PATH = (
+    Path(__file__).resolve().parents[2]
+    / "examples"
+    / "mimic4_mortality_td_cnn_lstm.py"
+)
+_EXAMPLE_SPEC = importlib.util.spec_from_file_location(
+    "td_cnn_lstm_example_helpers", _EXAMPLE_PATH
+)
+assert _EXAMPLE_SPEC is not None and _EXAMPLE_SPEC.loader is not None
+_example_helpers = importlib.util.module_from_spec(_EXAMPLE_SPEC)
+_EXAMPLE_SPEC.loader.exec_module(_example_helpers)
+make_reference_optimizer = _example_helpers.make_reference_optimizer
+training_step = _example_helpers.training_step
+
+
+def test_reference_adamw_uses_released_code_formulas_and_online_only():
+    """AdamW defaults match train.py, excluding frozen target parameters."""
+    model = TDCNNLSTM(make_dataset(), n_features=3, hidden_dim=4)
+    n_training_batches = 17
+    optimizer = make_reference_optimizer(model, n_training_batches)
+    expected_lr = 1.0 / math.sqrt(model.n_online_trainable_parameters)
+    expected_decay = 1.0 / (expected_lr * n_training_batches)
+
+    assert isinstance(optimizer, torch.optim.AdamW)
+    assert len(optimizer.param_groups) == 1
+    group = optimizer.param_groups[0]
+    assert group["lr"] == pytest.approx(expected_lr)
+    assert group["weight_decay"] == pytest.approx(expected_decay)
+    assert {id(p) for p in group["params"]} == {
+        id(p) for p in model.online.parameters() if p.requires_grad
+    }
+    assert not {id(p) for p in group["params"]} & {
+        id(p) for p in model.target.parameters()
+    }
+
+
+def test_reference_optimizer_supports_documented_overrides():
+    """Any deviation from reference hyperparameters can be passed explicitly."""
+    model = TDCNNLSTM(
+        make_dataset(), n_features=3, hidden_dim=4, objective="supervised"
+    )
+    optimizer = make_reference_optimizer(
+        model, 20, learning_rate=0.002, weight_decay=0.01
+    )
+    assert optimizer.param_groups[0]["lr"] == pytest.approx(0.002)
+    assert optimizer.param_groups[0]["weight_decay"] == pytest.approx(0.01)
+    optimizer = make_reference_optimizer(model, 20, learning_rate=0.005)
+    assert optimizer.param_groups[0]["weight_decay"] == pytest.approx(10.0)
+
+
+@pytest.mark.parametrize("n_batches", [0, -1, 1.5, True])
+def test_reference_optimizer_rejects_invalid_batch_counts(n_batches):
+    """The reference formula is undefined for zero or invalid batch counts."""
+    model = TDCNNLSTM(make_dataset(), n_features=3, hidden_dim=4)
+    with pytest.raises((TypeError, ValueError), match="n_training_batches"):
+        make_reference_optimizer(model, n_batches)
+
+
+@pytest.mark.parametrize(
+    "parameter,value",
+    [
+        ("learning_rate", 0.0),
+        ("learning_rate", float("nan")),
+        ("learning_rate", -0.1),
+        ("learning_rate", True),
+        ("weight_decay", -1.0),
+        ("weight_decay", float("inf")),
+        ("weight_decay", True),
+    ],
+)
+def test_reference_optimizer_rejects_invalid_hyperparameters(parameter, value):
+    """Reject invalid AdamW overrides instead of silently changing training."""
+    model = TDCNNLSTM(make_dataset(), n_features=3, hidden_dim=4)
+    with pytest.raises(ValueError, match=parameter):
+        make_reference_optimizer(model, 10, **{parameter: value})
+
+
+@pytest.mark.parametrize("objective", ["td", "supervised"])
+def test_training_step_orders_gradients_optimizer_and_target_update(
+    monkeypatch, objective
+):
+    """We must finish optimizer.step before synchronizing a TD target."""
+    torch.manual_seed(37)
+    model = TDCNNLSTM(
+        make_dataset(), n_features=3, hidden_dim=4,
+        dropout=0.0, objective=objective, target_alpha=0.8,
+    )
+    optimizer = make_reference_optimizer(model, 100, learning_rate=0.001)
+    batch = {**make_state(2, 4), "label": torch.tensor([0, 1])}
+    if objective == "td":
+        batch.update(make_state(2, 4, valid_lengths=[0, 2], prefix="next_"))
+
+    # we initialize stale gradients to verify zero_grad is called
+    for parameter in model.online.parameters():
+        parameter.grad = torch.ones_like(parameter)
+
+    events = []
+    original_step = optimizer.step
+
+    def checked_step(*args, **kwargs):
+        assert any(
+            parameter.grad is not None and torch.isfinite(parameter.grad).all()
+            for parameter in model.online.parameters()
+        )
+        events.append("optimizer")
+        return original_step(*args, **kwargs)
+
+    monkeypatch.setattr(optimizer, "step", checked_step)
+    original_update = model.update_target
+
+    def checked_update():
+        assert events == ["optimizer"]
+        events.append("target")
+        return original_update()
+
+    monkeypatch.setattr(model, "update_target", checked_update)
+    before_online = next(model.online.parameters()).detach().clone()
+    if objective == "td":
+        before_target = next(model.target.parameters()).detach().clone()
+    outputs = training_step(model, optimizer, batch)
+
+    assert set(outputs) == {"loss", "y_prob", "y_true", "logit"}
+    assert all(not value.requires_grad for value in outputs.values())
+    assert torch.isfinite(outputs["loss"])
+    assert not torch.equal(next(model.online.parameters()), before_online)
+    if objective == "td":
+        assert events == ["optimizer", "target"]
+        torch.testing.assert_close(
+            next(model.target.parameters()),
+            0.8 * before_target + 0.2 * next(model.online.parameters()),
+        )
+        assert not model.target.training
+        assert all(not p.requires_grad for p in model.target.parameters())
+    else:
+        assert events == ["optimizer"]
+
+
+def test_training_step_requires_observed_labels():
+    """Do not attempt backward when forward returns inference-only outputs."""
+    model = TDCNNLSTM(
+        make_dataset(), n_features=3, hidden_dim=4, objective="supervised"
+    )
+    optimizer = make_reference_optimizer(model, 5)
+    with pytest.raises(ValueError, match="observed mortality label"):
+        training_step(model, optimizer, make_state(2, 4))
+
+
+# ---------------------------------------------------------------------------
+# T35: constructor errors, CPU masks, padded states and finite forward shapes
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize(
+    "settings,error_type",
+    [
+        ({"n_features": 0}, ValueError),
+        ({"n_features": True}, TypeError),
+        ({"hidden_dim": 0}, ValueError),
+        ({"hidden_dim": 3.5}, TypeError),
+        ({"dropout": -0.1}, ValueError),
+        ({"dropout": 1.0}, ValueError),
+        ({"dropout": float("nan")}, ValueError),
+        ({"use_delta_embeddings": 0}, TypeError),
+        ({"objective": "invalid"}, ValueError),
+        ({"target_alpha": -0.1}, ValueError),
+        ({"target_alpha": 1.1}, ValueError),
+    ],
+)
+def test_constructor_rejects_invalid_settings(settings, error_type):
+    """Model configuration errors must be caught before building layers."""
+    config = {"n_features": 3, "hidden_dim": 4, **settings}
+    with pytest.raises(error_type):
+        TDCNNLSTM(make_dataset(), **config)
+
+
+@pytest.mark.parametrize("mode", ["td", "supervised"])
+def test_eval_inference_returns_finite_scores_for_single_and_padded_states(mode):
+    """One valid event or heavily padded sequences work in eval mode on CPU."""
+    model = TDCNNLSTM(
+        make_dataset(), n_features=3, hidden_dim=4, objective=mode
+    ).eval()
+    for batch_size, lengths, sequence_length in [
+        (1, [1], 1), (1, [1], 15), (2, [1, 11], 15),
+    ]:
+        outputs = model(**make_state(batch_size, sequence_length, lengths))
+        assert set(outputs) == {"logit", "y_prob"}
+        assert outputs["logit"].shape == (batch_size, 1)
+        assert outputs["y_prob"].shape == (batch_size, 1)
+        assert all(value.device.type == "cpu" for value in outputs.values())
+        assert all(torch.isfinite(value).all() for value in outputs.values())
+        assert torch.all((outputs["y_prob"] >= 0) & (outputs["y_prob"] <= 1))
+
+
+def test_all_padded_current_is_rejected_in_both_modes():
+    """Empty ICU states cannot produce a valid current-state prediction."""
+    batch = make_state(2, 4, valid_lengths=[0, 4])
+    for objective in ("td", "supervised"):
+        model = TDCNNLSTM(
+            make_dataset(), n_features=3, hidden_dim=4, objective=objective
+        ).eval()
+        with pytest.raises(ValueError, match="all padding"):
+            model(**batch)
+
+
+def test_cpu_event_and_independent_delta_masks_align_after_sorting():
+    """We sort all channels together and mask missing deltas independently."""
+    model = TDCNNLSTM(make_dataset(), n_features=3, hidden_dim=4).eval()
+    state = {
+        "timepoints": torch.tensor([[0.0, float("nan"), 20.0, 10.0]]),
+        "values": torch.tensor([[3.0, float("nan"), 1.0, 2.0]]),
+        "features": torch.tensor([[2, -1, 0, 1]]),
+        "delta_time": torch.tensor([[0.0, float("nan"), float("nan"), 5.0]]),
+        "delta_value": torch.tensor([[float("nan"), float("nan"), 0.2, 0.3]]),
+    }
+    prepared, masks, has_events = model._prepare_state(state)
+    assert prepared["values"].device.type == "cpu"
+    assert has_events.tolist() == [True]
+    assert masks["event"].tolist() == [[True, True, True, False]]
+    assert masks["delta_time"].tolist() == [[False, True, True, False]]
+    assert masks["delta_value"].tolist() == [[True, True, False, False]]
+    torch.testing.assert_close(prepared["timepoints"][0, :3],
+                               torch.tensor([20.0, 10.0, 0.0]))
+    assert prepared["features"].tolist() == [[0, 1, 2, -1]]
+
+
+def test_valid_feature_zero_and_missing_delta_remain_distinct_from_padding():
+    """Zero feature IDs and valid zero values are not padding sentinels."""
+    model = TDCNNLSTM(make_dataset(), n_features=3, hidden_dim=4).eval()
+    inputs = make_state(2, 4, valid_lengths=[2, 3])
+    inputs["delta_time"][0, 0] = float("nan")
+    inputs["delta_value"][1, 1] = float("nan")
+    _, masks, _ = model._prepare_state(inputs)
+    assert masks["event"][0, 0]
+    assert not masks["delta_time"][0, 0]
+    assert not masks["delta_value"][1, 1]
+    outputs = model(**inputs)
+    assert torch.isfinite(outputs["logit"]).all()
+
+
+def test_model_training_rejects_singleton_batch_due_to_decoder_batchnorm():
+    """One-example batches are allowed for eval but not training BatchNorm."""
+    model = TDCNNLSTM(
+        make_dataset(), n_features=3, hidden_dim=4, objective="supervised"
+    ).train()
+    with pytest.raises(ValueError, match="batch size of at least 2"):
+        model(**make_state(1, 2), label=torch.tensor([1]))
+
+
+def test_per_feature_scaling_preserves_missing_values_and_padding():
+    """Feature-specific normalization uses training statistics on CPU."""
+    scaling = {
+        "timepoints": {"mean": 10.0, "std": 2.0},
+        "values": {"mean": [1.0, 5.0, 9.0], "std": [2.0, 4.0, 2.0]},
+        "delta_time": {"mean": [1.0, 2.0, 3.0], "std": [1.0, 2.0, 1.0]},
+        "delta_value": {"mean": [0.0, 1.0, 2.0], "std": [1.0, 2.0, 1.0]},
+    }
+    model = TDCNNLSTM(
+        make_dataset(), n_features=3, hidden_dim=4, scaling=scaling
+    ).eval()
+    inputs = {
+        "timepoints": [[20.0, 10.0, float("nan")]],
+        "values": [[3.0, 9.0, float("nan")]],
+        "features": [[0, 1, -1]],
+        "delta_time": [[float("nan"), 4.0, float("nan")]],
+        "delta_value": [[0.0, 3.0, float("nan")]],
+    }
+    prepared, masks, _ = model._prepare_state(inputs)
+    torch.testing.assert_close(prepared["timepoints"][0, :2],
+                               torch.tensor([5.0, 0.0]))
+    torch.testing.assert_close(prepared["values"][0, :2],
+                               torch.tensor([1.0, 1.0]))
+    torch.testing.assert_close(prepared["delta_time"][0, 1],
+                               torch.tensor(1.0))
+    torch.testing.assert_close(prepared["delta_value"][0, :2],
+                               torch.tensor([0.0, 1.0]))
+    assert torch.isnan(prepared["values"][0, 2])
+    assert torch.isnan(prepared["delta_time"][0, 0])
+    assert masks["event"].tolist() == [[True, True, False]]
