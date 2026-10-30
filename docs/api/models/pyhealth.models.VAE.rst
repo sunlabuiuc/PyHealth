@@ -1,9 +1,10 @@
 ﻿pyhealth.models.VAE
 ===================================
 
-A convolutional variational autoencoder for image generation. It reads the image
-shape from the dataset's ``ImageProcessor``, trains with the standard ``Trainer``,
-and reports reconstruction error as regression metrics such as ``mse`` and ``mae``.
+Variational autoencoder for image and categorical EHR sequence inputs in a
+``SampleDataset``. Image VAEs can condition generation on a categorical label;
+sequence VAEs reconstruct and generate code tokens. The model optimizes input
+reconstruction and latent regularization rather than predicting labels.
 
 .. autoclass:: pyhealth.models.VAE
     :members:
