@@ -6,11 +6,11 @@ import torch
 
 from . import register_processor
 from .base_processor import FeatureProcessor
+from .sequence_processor_v2 import Records, SequenceProcessorV2
 from .utils import (
     NORMALIZATIONS,
     Normalization,
     fit_normalization,
-    grid_steps,
     sample_on_grid,
 )
 
@@ -191,24 +191,23 @@ class TimeseriesProcessor(FeatureProcessor):
         )
 
 
-class TimeseriesLabelProcessor(FeatureProcessor):
-    """Base processor for labels given per time step.
+class TimeseriesLabelProcessor(SequenceProcessorV2):
+    """Base processor for labels given at time points (a restricted V2 field).
 
-    The label is a time series ``(timestamps, values)``, placed on the same
-    kind of uniform grid as :class:`TimeseriesProcessor`: a label at time
-    ``t`` goes to step ``floor((t - t0) / sampling_rate)``, where ``t0`` is the
-    first label timestamp. Steps that no label falls into, or whose label is
-    NaN, are masked out and never imputed. Two labels in the same step raise
-    a ``ValueError`` rather than one silently replacing the other.
+    A :class:`SequenceProcessorV2` with one fixed ``series`` level of scalar
+    values, so a label is a :class:`Records`: ``{"time": [...], "values":
+    [[v], ...]}`` (a flat ``[v, ...]`` also works). Times are in the unit of
+    the inputs' top level and must be strictly increasing: two labels at one
+    time raise. A missing label is left out rather than given as NaN, which
+    raises. There is no grid, resampling, imputation or mask.
 
-    The processor does not see the input time series, so the caller must give
-    the labels the same first timestamp and ``sampling_rate`` as the input for
-    each label to line up with one input step. A label series longer than its
-    input is rejected by the model's loss.
+    A model predicts one value per label, at its time, from the input records
+    at or before it.
 
     Output:
-        - ``(value, mask)``: two float tensors of shape (S,), where ``mask``
-          is 1 for steps with a label. Padding added when batching has mask 0.
+        - ``(values, time)``: ``[N, 1]`` values and ``[N]`` times. A batch
+          (:meth:`collate`) is packed: ``[ΣN, 1]`` values, ``[ΣN]`` times
+          and the batch offsets ``[B + 1]``.
 
     The registered names ``"timeseries_binary"`` and
     ``"timeseries_regression"`` are model modes of their own, so modules that
@@ -216,97 +215,64 @@ class TimeseriesLabelProcessor(FeatureProcessor):
     interpretability) do not treat these labels as ``"binary"`` or
     ``"regression"``.
 
-    Args:
-        sampling_rate: Interval of the sampled time steps.
-
     Examples:
-        >>> from datetime import datetime, timedelta
-        >>> from pyhealth.processors import TimeseriesBinaryLabelProcessor
-        >>> t0 = datetime(2020, 1, 1)
-        >>> times = [t0, t0 + timedelta(hours=2)]
-        >>> TimeseriesBinaryLabelProcessor().process((times, [0, 1]))
-        (tensor([0., 0., 1.]), tensor([1., 0., 1.]))
+        >>> from pyhealth.processors import TimeseriesRegressionLabelProcessor
+        >>> TimeseriesRegressionLabelProcessor().process({"time": [0.0, 3.0], "values": [2.5, 4.0]})
+        (tensor([[2.5000],
+                [4.0000]]), tensor([0., 3.]))
     """
 
-    def __init__(self, sampling_rate: timedelta = timedelta(hours=1)):
-        self.sampling_rate = sampling_rate
+    def __init__(self) -> None:
+        super().__init__(levels=[{"ordering": "series", "values": [1]}])
+        # No tokens and no statistics: there is nothing to fit.
+        self._fitted = True
 
-    def process(
-        self, value: tuple[list[datetime], np.ndarray]
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        timestamps, labels = value
-        if len(timestamps) == 0:
-            raise ValueError("Timestamps list is empty.")
-        steps, counts = np.unique(
-            grid_steps(timestamps, self.sampling_rate), return_counts=True
-        )
-        if (counts > 1).any():
-            step = int(steps[counts > 1][0])
-            raise ValueError(
-                f"{int(counts.max())} labels fall into time step {step}; "
-                "give at most one label per step of the sampling rate."
-            )
-        sampled = sample_on_grid(timestamps, labels, self.sampling_rate)
-        if sampled.shape[1] != 1:
-            raise ValueError("Expected one label per time step.")
-        sampled = sampled[:, 0]
-        mask = ~np.isnan(sampled)
-        self._check(sampled[mask])
-        return (
-            torch.tensor(np.where(mask, sampled, 0.0), dtype=torch.float),
-            torch.tensor(mask, dtype=torch.float),
-        )
+    def process(self, value: Records) -> tuple[torch.Tensor, ...]:
+        if isinstance(value, dict) and "time" in value:
+            time = np.asarray(value["time"], dtype=np.float64)
+            if (np.diff(time) <= 0).any():
+                raise ValueError(
+                    "Label times must be strictly increasing: give at most one "
+                    "label per time."
+                )
+        output = super().process(value)
+        self._check(output[0])
+        return output
 
-    def _check(self, labels: np.ndarray) -> None:
+    def _check(self, values: torch.Tensor) -> None:
         pass
 
     def size(self) -> int:
+        """One output per label."""
         return 1
 
-    def is_token(self) -> bool:
-        return False
-
-    def schema(self) -> tuple[str, ...]:
-        return ("value", "mask")
-
-    def dim(self) -> tuple[int, ...]:
-        return (1, 1)
-
-    def spatial(self) -> tuple[bool, ...]:
-        return (True,)
-
-    def __repr__(self):
-        return f"{type(self).__name__}(sampling_rate={self.sampling_rate})"
+    def __repr__(self) -> str:
+        return f"{type(self).__name__}()"
 
 
 @register_processor("timeseries_binary")
 class TimeseriesBinaryLabelProcessor(TimeseriesLabelProcessor):
-    """Binary (0/1) label per time step, see :class:`TimeseriesLabelProcessor`.
+    """Binary (0/1) labels at time points, see :class:`TimeseriesLabelProcessor`.
 
     Examples:
-        >>> from datetime import datetime, timedelta
         >>> from pyhealth.processors import TimeseriesBinaryLabelProcessor
-        >>> t0 = datetime(2020, 1, 1)
-        >>> times = [t0 + timedelta(hours=h) for h in range(3)]
-        >>> TimeseriesBinaryLabelProcessor().process((times, [0, float("nan"), 1]))
-        (tensor([0., 0., 1.]), tensor([1., 0., 1.]))
+        >>> TimeseriesBinaryLabelProcessor().process({"time": [0.0, 1.0], "values": [0, 1]})
+        (tensor([[0.],
+                [1.]]), tensor([0., 1.]))
     """
 
-    def _check(self, labels: np.ndarray) -> None:
-        if not np.isin(labels, (0.0, 1.0)).all():
+    def _check(self, values: torch.Tensor) -> None:
+        if not torch.isin(values, torch.tensor([0.0, 1.0])).all():
             raise ValueError("Binary labels must be 0 or 1.")
 
 
 @register_processor("timeseries_regression")
 class TimeseriesRegressionLabelProcessor(TimeseriesLabelProcessor):
-    """Real-valued label per time step, see :class:`TimeseriesLabelProcessor`.
+    """Real-valued labels at time points, see :class:`TimeseriesLabelProcessor`.
 
     Examples:
-        >>> from datetime import datetime, timedelta
         >>> from pyhealth.processors import TimeseriesRegressionLabelProcessor
-        >>> t0 = datetime(2020, 1, 1)
-        >>> times = [t0 + timedelta(hours=h) for h in range(3)]
-        >>> TimeseriesRegressionLabelProcessor().process((times, [2.5, float("nan"), 0.5]))
-        (tensor([2.5000, 0.0000, 0.5000]), tensor([1., 0., 1.]))
+        >>> TimeseriesRegressionLabelProcessor().process({"time": [0.0, 2.0], "values": [2.5, 0.5]})
+        (tensor([[2.5000],
+                [0.5000]]), tensor([0., 2.]))
     """
-

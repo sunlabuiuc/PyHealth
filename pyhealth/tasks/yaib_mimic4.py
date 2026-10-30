@@ -223,17 +223,21 @@ class _YAIBMIMIC4Task(BaseTask):
     measurement (or the last stay, for measurements after all stays), which is
     how ricu maps admission-level data onto ICU stays.
 
-    Each sample holds ``dynamic`` (hourly timestamps from ICU admission and a
-    ``[T, 48]`` array with ``NaN`` for bins without measurement) and
+    Each sample holds ``dynamic``, a ``sequence_v2`` series of the hourly
+    bins (``{"time": [0, 1, ..., T], "values": [T + 1, 48]}``, time in hours
+    since ICU admission, ``NaN`` for bins without measurement), and
     ``static`` (``[age, sex, height, weight]``, sex encoded as 1 for male and
-    0 for female, ``NaN`` when unavailable). Missing values are left to the
-    processors, which apply YAIB's preprocessing: the dynamic features are
-    standardized, get missing-value indicators and are forward-filled, with
-    values before the first measurement set to 0 (the training mean); the
-    static features get missing-value indicators, are standardized and
-    zero-filled. The statistics are learned when the processors are fitted,
-    so use ``set_task(task, split=...)`` to learn them on the training
-    patients only. Unlike YAIB, which label-encodes sex as a category, sex is
+    0 for female, ``NaN`` when unavailable). Per-hour labels are
+    ``timeseries_*`` labels on the same hours (``{"time": [...], "values":
+    [...]}``), so a model predicts at hour ``h`` from the bins up to ``h``.
+    Missing values are left to the processors, which apply YAIB's
+    preprocessing: the dynamic features are forward-filled, with values
+    before the first measurement set to the training mean (0 once
+    standardized), standardized, and get a missing-value mask; the static
+    features get missing-value indicators, are standardized and zero-filled.
+    The statistics are learned when the processors are fitted, so use
+    ``set_task(task, split=...)`` to learn them on the training patients
+    only. Unlike YAIB, which label-encodes sex as a category, sex is
     standardized like the other static features.
 
     Note on ``o2sat`` (deliberate deviation from YAIB): YAIB pins ricu 0.6.0,
@@ -256,9 +260,27 @@ class _YAIBMIMIC4Task(BaseTask):
     """
 
     input_schema: ClassVar[dict[str, Any]] = {
+        # Forward fill, then the training mean (0 once standardized) before
+        # the first measurement, then 0 for a feature never seen in training
+        # (normalization leaves it as is): YAIB's preprocessing, with the
+        # missing-value indicators as the mask.
         "dynamic": (
-            "timeseries",
-            {"normalization": "zscore", "missing_indicators": True},
+            "sequence_v2",
+            {
+                "levels": [
+                    {
+                        "ordering": "series",
+                        "values": [len(_DYNAMIC_FEATURES)],
+                        "impute": [
+                            {"method": "forward_fill"},
+                            {"method": "mean", "by_dims": ()},  # per feature
+                            {"method": "zero"},
+                        ],
+                        "normalize": {"method": "zscore"},
+                        "missing_indicator": True,
+                    }
+                ]
+            },
         ),
         "static": (
             "tensor",
@@ -492,10 +514,8 @@ class _YAIBMIMIC4Task(BaseTask):
         hourly = hourly.filter(pl.col("stay_id").is_in(keep))
         return stays, hourly, {stay_id: static[stay_id] for stay_id in keep}
 
-    def _dynamic(
-        self, hourly: pl.DataFrame, stay_id: int, intime: datetime, end: int
-    ) -> tuple[list[datetime], np.ndarray]:
-        """Builds the ``[end + 1, 48]`` hourly grid for bins ``0..end``."""
+    def _dynamic(self, hourly: pl.DataFrame, stay_id: int, end: int) -> dict[str, Any]:
+        """Builds the series of hourly bins ``0..end``: ``[end + 1, 48]`` values."""
         values = np.full((end + 1, len(self.DYNAMIC_FEATURES)), np.nan)
         rows = hourly.filter(
             (pl.col("stay_id") == stay_id)
@@ -505,8 +525,12 @@ class _YAIBMIMIC4Task(BaseTask):
         values[rows["hour"].to_numpy(), rows["feature"].to_numpy()] = (
             rows["value"].to_numpy()
         )
-        timestamps = [intime + timedelta(hours=hour) for hour in range(end + 1)]
-        return timestamps, values
+        return {"time": [float(hour) for hour in range(end + 1)], "values": values}
+
+    @staticmethod
+    def _labels(time: list[float], labels: list[float]) -> dict[str, Any]:
+        """A per-hour label series on the hours of ``dynamic``."""
+        return {"time": time, "values": [[label] for label in labels]}
 
     def _icu_deaths(self, patient: Any, stays: pl.DataFrame) -> dict[int, datetime]:
         """Returns the ICU death time per ICU stay.
@@ -682,7 +706,7 @@ class YAIBMortalityMIMIC4(_YAIBMIMIC4Task):
                     "patient_id": patient.patient_id,
                     "stay_id": stay_id,
                     "dynamic": self._dynamic(
-                        hourly, stay_id, intime, min(end, self.OBSERVATION_HOURS)
+                        hourly, stay_id, min(end, self.OBSERVATION_HOURS)
                     ),
                     "static": static[stay_id],
                     "mortality": int(death is not None),
@@ -737,8 +761,8 @@ class YAIBKidneyFunctionMIMIC4(_YAIBMIMIC4Task):
         )
 
         samples = []
-        for stay_id, intime, los_hours, end in stays.select(
-            "stay_id", "intime", "los_hours", "end"
+        for stay_id, los_hours, end in stays.select(
+            "stay_id", "los_hours", "end"
         ).iter_rows():
             if los_hours < self.MIN_STAY_HOURS or stay_id not in labels:
                 continue
@@ -747,7 +771,7 @@ class YAIBKidneyFunctionMIMIC4(_YAIBMIMIC4Task):
                     "patient_id": patient.patient_id,
                     "stay_id": stay_id,
                     "dynamic": self._dynamic(
-                        hourly, stay_id, intime, min(end, self.OBSERVATION_HOURS)
+                        hourly, stay_id, min(end, self.OBSERVATION_HOURS)
                     ),
                     "static": static[stay_id],
                     "creatinine": labels[stay_id],
@@ -766,7 +790,7 @@ class YAIBLengthOfStayMIMIC4(_YAIBMIMIC4Task):
     ``min(168, end - h)``. The cohort is the YAIB base cohort without further
     exclusions.
 
-    The label is a per-hour time series on the same grid as ``dynamic``
+    The label is a per-hour series on the hours of ``dynamic``
     (``timeseries_regression``), so models predict at every hour.
 
     Requires the ``labevents``, ``chartevents`` and ``outputevents`` tables.
@@ -793,20 +817,19 @@ class YAIBLengthOfStayMIMIC4(_YAIBMIMIC4Task):
         stays, hourly, static = self._base_cohort(patient, all_stays)
 
         samples = []
-        for stay_id, intime, end in stays.select("stay_id", "intime", "end").iter_rows():
-            timestamps, values = self._dynamic(
-                hourly, stay_id, intime, min(end, self.MAX_HOURS)
-            )
+        for stay_id, end in stays.select("stay_id", "end").iter_rows():
+            dynamic = self._dynamic(hourly, stay_id, min(end, self.MAX_HOURS))
             remaining = [
-                float(min(self.MAX_HOURS, end - hour)) for hour in range(len(timestamps))
+                float(min(self.MAX_HOURS, end - hour))
+                for hour in range(len(dynamic["time"]))
             ]
             samples.append(
                 {
                     "patient_id": patient.patient_id,
                     "stay_id": stay_id,
-                    "dynamic": (timestamps, values),
+                    "dynamic": dynamic,
                     "static": static[stay_id],
-                    "los": (timestamps, remaining),
+                    "los": self._labels(dynamic["time"], remaining),
                 }
             )
         return samples
@@ -930,7 +953,7 @@ class YAIBAKIMIMIC4(_YAIBMIMIC4Task):
         stays, hourly, static = self._base_cohort(patient, all_stays)
 
         samples = []
-        for stay_id, intime, end in stays.select("stay_id", "intime", "end").iter_rows():
+        for stay_id, end in stays.select("stay_id", "end").iter_rows():
             onset, baseline = self._aki_onset(hourly, stay_id, static[stay_id][3])
             if onset is not None and onset < self.MIN_ONSET_HOURS:
                 continue
@@ -939,17 +962,17 @@ class YAIBAKIMIMIC4(_YAIBMIMIC4Task):
             last = min(end, self.MAX_HOURS)
             if onset is not None:
                 last = min(last, onset + self.HORIZON)
-            timestamps, values = self._dynamic(hourly, stay_id, intime, last)
+            dynamic = self._dynamic(hourly, stay_id, last)
             labels = self._outcome_window(
-                onset, len(timestamps), self.HORIZON, self.HORIZON
+                onset, len(dynamic["time"]), self.HORIZON, self.HORIZON
             )
             samples.append(
                 {
                     "patient_id": patient.patient_id,
                     "stay_id": stay_id,
-                    "dynamic": (timestamps, values),
+                    "dynamic": dynamic,
                     "static": static[stay_id],
-                    "aki": (timestamps, labels),
+                    "aki": self._labels(dynamic["time"], labels),
                 }
             )
         return samples
@@ -1554,7 +1577,7 @@ class YAIBSepsisMIMIC4(_YAIBMIMIC4Task):
         sample_hours = self._sample_hours(patient, all_stays)
 
         samples = []
-        for stay_id, intime, end in stays.select("stay_id", "intime", "end").iter_rows():
+        for stay_id, end in stays.select("stay_id", "end").iter_rows():
             sofa_hours, sofa = self._sofa(
                 inputs.get(stay_id, {}),
                 vasopressors.get(stay_id, {}),
@@ -1570,17 +1593,17 @@ class YAIBSepsisMIMIC4(_YAIBMIMIC4Task):
             last = min(end, self.MAX_HOURS)
             if onset is not None:
                 last = min(last, onset + self.HORIZON)
-            timestamps, values = self._dynamic(hourly, stay_id, intime, last)
+            dynamic = self._dynamic(hourly, stay_id, last)
             labels = self._outcome_window(
-                onset, len(timestamps), self.HORIZON, self.HORIZON
+                onset, len(dynamic["time"]), self.HORIZON, self.HORIZON
             )
             samples.append(
                 {
                     "patient_id": patient.patient_id,
                     "stay_id": stay_id,
-                    "dynamic": (timestamps, values),
+                    "dynamic": dynamic,
                     "static": static[stay_id],
-                    "sepsis": (timestamps, labels),
+                    "sepsis": self._labels(dynamic["time"], labels),
                 }
             )
         return samples

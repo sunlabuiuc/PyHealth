@@ -9,157 +9,123 @@ from pyhealth.metrics import (
     timeseries_binary_metrics_fn,
     timeseries_regression_metrics_fn,
 )
-from pyhealth.models import RNN
-from pyhealth.processors.base_processor import FeatureProcessor
+from pyhealth.models import RNN, MultimodalRNN
+from pyhealth.processors import (
+    LevelConfig,
+    TimeseriesBinaryLabelProcessor,
+    TimeseriesLabelProcessor,
+    TimeseriesRegressionLabelProcessor,
+)
 from pyhealth.trainer import Trainer
+from tests.core.label_record_model_utils import LabelRecordModel
 
-T0 = datetime(2020, 1, 1)
-
-
-class _StepLabelProcessor(FeatureProcessor):
-    """Minimal per-step label processor: ``(values, mask)`` lists to tensors."""
-
-    def process(self, value):
-        values, mask = value
-        return (
-            torch.tensor(values, dtype=torch.float),
-            torch.tensor(mask, dtype=torch.float),
-        )
-
-    def size(self):
-        return 1
-
-    def is_token(self):
-        return False
-
-    def schema(self):
-        return ("value", "mask")
-
-    def dim(self):
-        return (1, 1)
-
-    def spatial(self):
-        return (True,)
+DYNAMIC: list[LevelConfig] = [{"ordering": "series", "values": [2]}]
 
 
-def _dataset(mode="timeseries_binary", unlabeled=(), unlabeled_value=None):
+def _dataset(
+    mode: str | type[TimeseriesLabelProcessor] = "timeseries_binary",
+    labeled=lambda i, h: True,
+):
+    """Hourly dynamic series; labels at the hours ``labeled`` keeps."""
     rng = np.random.default_rng(0)
     samples = []
     for i, steps in enumerate([5, 3, 6, 4]):
-        values = [float((i + h) % 2) for h in range(steps)]
-        mask = [0.0 if (i, h) in unlabeled else 1.0 for h in range(steps)]
-        if unlabeled_value is not None:
-            values = [unlabeled_value if m == 0 else v for v, m in zip(values, mask)]
+        hours = [float(h) for h in range(steps)]
+        kept = [h for h in range(steps) if labeled(i, h)]
         samples.append(
             {
                 "patient_id": f"p{i}",
-                "dynamic": (
-                    [T0 + timedelta(hours=h) for h in range(steps)],
-                    rng.normal(size=(steps, 2)),
-                ),
+                "dynamic": {"time": hours, "values": rng.normal(size=(steps, 2))},
                 "static": [float(i), 1.0],
-                "label": (values, mask),
+                "label": {
+                    "time": [float(h) for h in kept],
+                    "values": [float((i + h) % 2) for h in kept],
+                },
             }
         )
     return create_sample_dataset(
         samples=samples,
-        input_schema={"dynamic": "timeseries", "static": "tensor"},
+        input_schema={
+            "dynamic": ("sequence_v2", {"levels": DYNAMIC}),
+            "static": "tensor",
+        },
         output_schema={"label": mode},
-        output_processors={"label": _StepLabelProcessor()},
         dataset_name="timeseries_modes",
     )
+
+
+def _model(dataset) -> LabelRecordModel:
+    model = LabelRecordModel(dataset)
+    model.eval()
+    return model
 
 
 class TestTimeseriesModes(unittest.TestCase):
     def test_modes_are_separate_from_binary_and_regression(self):
         for mode in ("timeseries_binary", "timeseries_regression"):
-            self.assertEqual(RNN(dataset=_dataset(mode)).mode, mode)
+            self.assertEqual(_model(_dataset(mode)).mode, mode)
 
-    def test_loss_ignores_unlabeled_and_padded_steps(self):
-        dataset = _dataset(unlabeled={(1, 0)})
-        model = RNN(dataset=dataset, hidden_dim=8, embedding_dim=8).eval()
+    def test_label_processor_class_resolves_to_its_own_mode(self):
+        # The label processors subclass SequenceProcessorV2; the most specific
+        # registered class decides the mode.
+        for processor, mode in (
+            (TimeseriesBinaryLabelProcessor, "timeseries_binary"),
+            (TimeseriesRegressionLabelProcessor, "timeseries_regression"),
+        ):
+            with self.subTest(mode=mode):
+                self.assertEqual(_model(_dataset(processor)).mode, mode)
+
+    def test_one_prediction_per_label_record(self):
+        # Sample 1 has no label at hour 0: it is left out, not masked.
+        dataset = _dataset(labeled=lambda i, h: (i, h) != (1, 0))
+        model = _model(dataset)
         batch = next(iter(get_dataloader(dataset, batch_size=4)))
         with torch.no_grad():
             out = model(**batch)
-        value, mask = out["y_true"]
-        self.assertEqual(tuple(out["y_prob"].shape), (4, 6, 1))
-        self.assertEqual(int(mask.sum()), 17)  # 5 + 3 + 6 + 4 steps, minus one
-
-        logits = out["logit"].clone()
-        logits[mask == 0] = 1e3
-        loss = model.get_loss_function()(logits, (value, mask))
+        values, time, offsets = out["y_true"]
+        self.assertEqual(tuple(out["logit"].shape), (17, 1))  # 5 + 2 + 6 + 4
+        self.assertEqual(offsets.tolist(), [0, 5, 7, 13, 17])
+        self.assertEqual(time[5:7].tolist(), [1.0, 2.0])  # sample 1 from hour 1
+        loss = torch.nn.functional.binary_cross_entropy_with_logits(
+            out["logit"], values
+        )
         torch.testing.assert_close(loss, out["loss"])
 
-    def test_predictions_do_not_see_future_steps(self):
-        dataset = _dataset()
-        model = RNN(dataset=dataset, hidden_dim=8, embedding_dim=8).eval()
-        batch = next(iter(get_dataloader(dataset, batch_size=1)))
-        with torch.no_grad():
-            before = model(**batch)["y_prob"][0, :, 0]
-            batch["dynamic"] = batch["dynamic"].clone()
-            batch["dynamic"][:, -1] += 100.0
-            after = model(**batch)["y_prob"][0, :, 0]
-        torch.testing.assert_close(before[:-1], after[:-1])
-        self.assertFalse(torch.allclose(before[-1], after[-1]))
+    def test_loss_needs_one_prediction_per_label(self):
+        model = _model(_dataset())
+        label = (torch.zeros(4, 1), torch.arange(4.0), torch.tensor([0, 4]))
+        with self.assertRaisesRegex(ValueError, "one prediction per label record"):
+            model.get_loss_function()(torch.zeros(1, 3, 1), label)
 
-    def test_nan_on_unlabeled_step_is_ignored(self):
-        for mode in ("timeseries_binary", "timeseries_regression"):
-            nan = _dataset(mode, unlabeled={(1, 0)}, unlabeled_value=float("nan"))
-            zero = _dataset(mode, unlabeled={(1, 0)}, unlabeled_value=0.0)
-            torch.manual_seed(0)
-            model = RNN(dataset=nan, hidden_dim=8, embedding_dim=8)
-            batch = next(iter(get_dataloader(nan, batch_size=4)))
-            out = model(**batch)
-            self.assertTrue(torch.isfinite(out["loss"]))
-            out["loss"].backward()
-            for parameter in model.parameters():
-                if parameter.grad is not None:
-                    self.assertTrue(torch.isfinite(parameter.grad).all())
-
-            # Same loss as with any other value on the unlabeled step.
-            loss_fn = model.get_loss_function()
-            logits = out["logit"].detach()
-            zero_batch = next(iter(get_dataloader(zero, batch_size=4)))
-            torch.testing.assert_close(
-                loss_fn(logits, batch["label"]), loss_fn(logits, zero_batch["label"])
-            )
-
-    def test_label_longer_than_input_is_rejected(self):
-        model = RNN(dataset=_dataset(), hidden_dim=8, embedding_dim=8)
-        logits = torch.zeros(1, 3, 1)
-        label = (torch.zeros(1, 4), torch.ones(1, 4))
-        with self.assertRaises(ValueError):
-            model.get_loss_function()(logits, label)
-
-    def test_time_series_inputs_must_share_the_time_grid(self):
+    def test_v1_rnns_reject_per_step_labels(self):
+        rng = np.random.default_rng(0)
+        t0 = datetime(2020, 1, 1)
         samples = [
             {
-                "patient_id": "p0",
-                "a": ([T0 + timedelta(hours=h) for h in range(3)], np.zeros((3, 1))),
-                "b": ([T0 + timedelta(hours=h) for h in range(5)], np.zeros((5, 1))),
-                "label": ([0.0] * 3, [1.0] * 3),
+                "patient_id": f"p{i}",
+                "dynamic": (
+                    [t0 + timedelta(hours=h) for h in range(3)],
+                    rng.normal(size=(3, 2)),
+                ),
+                "label": {"time": [0.0, 1.0, 2.0], "values": [0.0, 1.0, float(i)]},
             }
+            for i in range(2)
         ]
         dataset = create_sample_dataset(
-            samples=samples,
-            input_schema={"a": "timeseries", "b": "timeseries"},
-            output_schema={"label": "timeseries_binary"},
-            output_processors={"label": _StepLabelProcessor()},
-            dataset_name="timeseries_grids",
+            samples, {"dynamic": "timeseries"}, {"label": "timeseries_binary"}
         )
-        model = RNN(dataset=dataset, hidden_dim=8, embedding_dim=8)
-        batch = next(iter(get_dataloader(dataset, batch_size=1)))
-        with self.assertRaises(ValueError):
-            model(**batch)
+        for model in (RNN, MultimodalRNN):
+            with (
+                self.subTest(model=model.__name__),
+                self.assertRaisesRegex(ValueError, "does not support per-step"),
+            ):
+                model(dataset=dataset)
 
-    def test_bidirectional_is_rejected(self):
-        with self.assertRaises(ValueError):
-            RNN(dataset=_dataset(), bidirectional=True)
-
-    def test_trainer_scores_labeled_steps_per_sample(self):
+    def test_trainer_scores_label_records_per_sample(self):
         dataset = _dataset()
-        model = RNN(dataset=dataset, hidden_dim=8, embedding_dim=8)
-        trainer = Trainer(model=model, metrics=["roc_auc"], enable_logging=False)
+        trainer = Trainer(
+            model=_model(dataset), metrics=["roc_auc"], enable_logging=False
+        )
         loader = get_dataloader(dataset, batch_size=3)
         y_true, y_prob, _ = trainer.inference(loader)
         self.assertEqual(sorted(len(y) for y in y_true), [3, 4, 5, 6])
@@ -167,8 +133,7 @@ class TestTimeseriesModes(unittest.TestCase):
         self.assertIn("roc_auc", trainer.evaluate(loader))
 
         dataset = _dataset("timeseries_regression")
-        model = RNN(dataset=dataset, hidden_dim=8, embedding_dim=8)
-        trainer = Trainer(model=model, metrics=["mae"], enable_logging=False)
+        trainer = Trainer(model=_model(dataset), metrics=["mae"], enable_logging=False)
         self.assertIn("mae", trainer.evaluate(get_dataloader(dataset, batch_size=3)))
 
 
