@@ -1,6 +1,4 @@
-"""Focused synthetic regressions for T21-T36 (no clinical data needed).
-
-Place this file in ``tests/core/test_td_cnn_lstm.py`` in the PyHealth checkout.
+"""Focused synthetic regressions for T21-T38 (no clinical data needed).
 """
 
 import importlib.util
@@ -1215,3 +1213,117 @@ def test_t37_repeated_target_updates_match_analytic_ema():
             torch.testing.assert_close(actual, online_before[key])
         assert not model.target.training
         assert all(not p.requires_grad for p in model.target.parameters())
+
+
+# ---------------------------------------------------------------------------
+# T38: deterministic, one-step synthetic training in both objective modes
+# ---------------------------------------------------------------------------
+
+
+def _run_t38_synthetic_training_step(objective):
+    """Run exactly one CPU training step from a repeatable synthetic state."""
+    # we isolate random initialization from the rest of the test suite
+    with torch.random.fork_rng(devices=[]):
+        torch.manual_seed(83)
+        model = TDCNNLSTM(
+            make_dataset(),
+            n_features=3,
+            hidden_dim=4,
+            dropout=0.0,
+            objective=objective,
+            target_alpha=0.9,
+        ).cpu()
+
+        # we exercise mixed sequence lengths and both observed mortality classes
+        batch = {
+            **make_state(2, 5, valid_lengths=[5, 2]),
+            "label": torch.tensor([0, 1]),
+        }
+        if objective == "td":
+            # we include one valid successor and one terminal fallback
+            batch.update(
+                make_state(2, 5, valid_lengths=[3, 0], prefix="next_")
+            )
+
+        online_before = {
+            key: value.detach().clone()
+            for key, value in model.online.state_dict().items()
+        }
+        target_before = (
+            {
+                key: value.detach().clone()
+                for key, value in model.target.state_dict().items()
+            }
+            if model.target is not None
+            else None
+        )
+
+        # we override decay for a tiny one-batch test, not a reproduction run
+        optimizer = make_reference_optimizer(
+            model, n_training_batches=1, learning_rate=0.001, weight_decay=0.0
+        )
+        outputs = training_step(model, optimizer, batch)
+        return model, batch, online_before, target_before, outputs
+
+
+@pytest.mark.parametrize("objective", ["td", "supervised"])
+def test_t38_deterministic_one_step_synthetic_training(objective):
+    """One optimizer step trains each mode reproducibly without clinical data."""
+    first = _run_t38_synthetic_training_step(objective)
+    second = _run_t38_synthetic_training_step(objective)
+    model, batch, online_before, target_before, outputs = first
+    repeated_model, _, _, _, repeated_outputs = second
+
+    # we verify standard PyHealth outputs after an actual backward/AdamW step
+    assert set(outputs) == {"loss", "y_prob", "y_true", "logit"}
+    assert outputs["loss"].ndim == 0
+    assert all(not value.requires_grad for value in outputs.values())
+    assert all(torch.isfinite(value).all() for value in outputs.values())
+    assert outputs["logit"].shape == (2, 1)
+    assert outputs["y_prob"].shape == (2, 1)
+    assert outputs["y_true"].shape == (2, 1)
+    assert torch.equal(outputs["y_true"].flatten(), batch["label"].float())
+    assert bool(((outputs["y_prob"] >= 0) & (outputs["y_prob"] <= 1)).all())
+
+    # we verify the optimizer modified trainable weights and gradients are finite
+    assert any(
+        not torch.equal(parameter.detach(), online_before[name])
+        for name, parameter in model.online.named_parameters()
+    )
+    assert any(
+        parameter.grad is not None
+        and torch.isfinite(parameter.grad).all()
+        and bool((parameter.grad != 0).any())
+        for parameter in model.online.parameters()
+    )
+
+    if objective == "td":
+        # we verify the post-step target tracks online weights but has no grads
+        assert model.target is not None and target_before is not None
+        weight_name = "embedding.feature_embedding.weight"
+        expected = (
+            0.9 * target_before[weight_name]
+            + 0.1 * model.online.state_dict()[weight_name]
+        )
+        torch.testing.assert_close(
+            model.target.state_dict()[weight_name], expected, atol=1e-7, rtol=1e-6
+        )
+        assert not model.target.training
+        assert all(
+            parameter.grad is None and not parameter.requires_grad
+            for parameter in model.target.parameters()
+        )
+    else:
+        # we verify supervised training needs no target network or next states
+        assert model.target is None and target_before is None
+        assert not any(key.startswith("next_") for key in batch)
+
+    # we verify a fresh run with the same seed produces identical results
+    for key in outputs:
+        torch.testing.assert_close(
+            outputs[key], repeated_outputs[key], atol=0, rtol=0
+        )
+    for name, value in model.state_dict().items():
+        torch.testing.assert_close(
+            value, repeated_model.state_dict()[name], atol=0, rtol=0
+        )
