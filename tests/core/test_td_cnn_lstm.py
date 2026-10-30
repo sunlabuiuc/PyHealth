@@ -1,3 +1,8 @@
+"""Focused synthetic regressions for T21-T33 (no clinical data needed).
+
+Place this file in ``tests/core/test_td_cnn_lstm.py`` in the PyHealth checkout.
+"""
+
 from types import SimpleNamespace
 
 import pytest
@@ -286,13 +291,27 @@ def test_td_loss_rejects_missing_or_mismatched_successor_state():
         )
 
 
-def test_labeled_forward_remains_reserved_for_t32():
-    """The forward dictionary is intentionally completed in task T32."""
+def test_labeled_forward_returns_standard_pyhealth_keys_in_supervised_mode():
+    """A labeled supervised batch returns observed labels and BCE loss."""
     model = TDCNNLSTM(
         make_dataset(), n_features=3, hidden_dim=4, objective="supervised"
+    ).eval()
+    batch = {**make_state(2, 4), "label": torch.tensor([0, 1])}
+    outputs = model(**batch)
+
+    assert set(outputs) == {"loss", "y_prob", "y_true", "logit"}
+    assert outputs["logit"].shape == (2, 1)
+    assert outputs["y_prob"].shape == (2, 1)
+    assert outputs["y_true"].shape == (2, 1)
+    assert outputs["loss"].ndim == 0
+    torch.testing.assert_close(outputs["y_true"], batch["label"].float()[:, None])
+    torch.testing.assert_close(outputs["y_prob"], outputs["logit"].sigmoid())
+    torch.testing.assert_close(
+        outputs["loss"],
+        F.binary_cross_entropy_with_logits(outputs["logit"], outputs["y_true"]),
     )
-    with pytest.raises(NotImplementedError, match="T32"):
-        model(**make_state(), label=torch.tensor([0, 1]))
+    outputs["loss"].backward()
+    assert any(parameter.grad is not None for parameter in model.online.parameters())
 
 
 def test_supervised_loss_does_not_train_labels():
@@ -306,3 +325,164 @@ def test_supervised_loss_does_not_train_labels():
     loss.backward()
     assert logits.grad is not None
     assert labels.grad is None
+
+
+# ---------------------------------------------------------------------------
+# T32: forward contract in both modes
+# ---------------------------------------------------------------------------
+def test_td_forward_returns_observed_truth_and_bootstrapped_loss():
+    """The TD loss can use successor risks without altering observed y_true."""
+    model = TDCNNLSTM(make_dataset(), n_features=3, hidden_dim=4).eval()
+    batch = {
+        **make_state(3, 5, valid_lengths=[5, 2, 4]),
+        **make_state(3, 5, valid_lengths=[2, 0, 3], prefix="next_"),
+        "label": torch.tensor([1, 0, 1]),
+    }
+    outputs = model(**batch)
+
+    assert set(outputs) == {"loss", "y_prob", "y_true", "logit"}
+    assert outputs["logit"].shape == (3, 1)
+    assert outputs["y_prob"].shape == (3, 1)
+    assert outputs["y_true"].shape == (3, 1)
+    assert outputs["loss"].ndim == 0
+    assert torch.isfinite(outputs["loss"])
+    torch.testing.assert_close(outputs["y_prob"], outputs["logit"].sigmoid())
+    torch.testing.assert_close(outputs["y_true"], batch["label"].float()[:, None])
+
+    next_risks, has_next = model._target_probability(batch)
+    assert has_next.tolist() == [True, False, True]
+    targets = torch.where(has_next[:, None], next_risks, outputs["y_true"])
+    torch.testing.assert_close(
+        outputs["loss"],
+        F.binary_cross_entropy_with_logits(outputs["logit"], targets),
+    )
+    assert not torch.equal(targets, outputs["y_true"])
+    outputs["loss"].backward()
+    assert any(parameter.grad is not None for parameter in model.online.parameters())
+    assert all(parameter.grad is None for parameter in model.target.parameters())
+
+
+def test_td_labeled_forward_all_terminal_falls_back_to_labels():
+    """TD states without eligible successors use their observed 28-day labels."""
+    model = TDCNNLSTM(make_dataset(), n_features=3, hidden_dim=4).eval()
+    batch = {
+        **make_state(2, 5),
+        **make_state(2, 5, valid_lengths=[0, 0], prefix="next_"),
+        "label": torch.tensor([[0], [1]]),
+    }
+    outputs = model(**batch)
+    torch.testing.assert_close(
+        outputs["loss"],
+        F.binary_cross_entropy_with_logits(outputs["logit"], outputs["y_true"]),
+    )
+
+
+def test_td_labeled_forward_requires_complete_successor_state():
+    """TD loss cannot silently train without successor information."""
+    model = TDCNNLSTM(make_dataset(), n_features=3, hidden_dim=4).eval()
+    batch = {**make_state(2, 4), "label": [1, 0]}
+    with pytest.raises(ValueError, match="Missing required input"):
+        model(**batch)
+    batch.update(make_state(2, 5, prefix="next_"))
+    with pytest.raises(ValueError, match="paired states must have identical"):
+        model(**batch)
+
+
+def test_supervised_labeled_forward_needs_no_successor():
+    """Supervised batches use only their observed labels."""
+    model = TDCNNLSTM(
+        make_dataset(), n_features=3, hidden_dim=4, objective="supervised"
+    ).eval()
+    outputs = model(**make_state(2, 4), label=[0, 1])
+    assert outputs["y_true"].tolist() == [[0.0], [1.0]]
+    assert torch.isfinite(outputs["loss"])
+
+
+def test_unlabeled_forward_returns_only_predictions_in_both_modes():
+    """Unlabeled inference remains supported without loss or label keys."""
+    for objective in ("td", "supervised"):
+        model = TDCNNLSTM(
+            make_dataset(), n_features=3, hidden_dim=4, objective=objective
+        ).eval()
+        outputs = model(**make_state(batch_size=1, sequence_length=4))
+        assert set(outputs) == {"logit", "y_prob"}
+        assert outputs["y_prob"].shape == (1, 1)
+
+
+# ---------------------------------------------------------------------------
+# T33: target-network EMA after optimization
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize("alpha", [0.0, 0.75, 0.99, 1.0])
+def test_update_target_handles_parameters_float_buffers_and_integer_buffers(alpha):
+    """Every float tensor uses EMA; BatchNorm integer counts copy exactly."""
+    model = TDCNNLSTM(
+        make_dataset(), n_features=3, hidden_dim=4, target_alpha=alpha
+    )
+    with torch.no_grad():
+        model.online.embedding.feature_embedding.weight.add_(2.0)
+        model.online.embedding.norm.running_mean.add_(3.0)
+        model.online.decoder[0].num_batches_tracked.add_(7)
+
+    online_before = {
+        key: value.clone() for key, value in model.online.state_dict().items()
+    }
+    target_before = {
+        key: value.clone() for key, value in model.target.state_dict().items()
+    }
+    model.train()
+    model.update_target()
+
+    assert not model.target.training
+    assert all(not parameter.requires_grad for parameter in model.target.parameters())
+    for key, actual in model.target.state_dict().items():
+        if torch.is_floating_point(actual):
+            expected = alpha * target_before[key] + (1 - alpha) * online_before[key]
+            torch.testing.assert_close(actual, expected, atol=1e-6, rtol=1e-6)
+        else:
+            torch.testing.assert_close(actual, online_before[key])
+        torch.testing.assert_close(model.online.state_dict()[key], online_before[key])
+
+
+def test_update_target_rejects_supervised_objective():
+    """A supervised model does not have a target predictor to update."""
+    model = TDCNNLSTM(
+        make_dataset(), n_features=3, hidden_dim=4, objective="supervised"
+    )
+    with pytest.raises(RuntimeError, match="supervised"):
+        model.update_target()
+
+
+def test_target_changes_only_after_explicit_post_optimizer_update():
+    """A TD optimizer step changes only online weights until target update."""
+    torch.manual_seed(40)
+    model = TDCNNLSTM(
+        make_dataset(), n_features=3, hidden_dim=4, target_alpha=0.5
+    )
+    batch = {
+        **make_state(2, 5),
+        **make_state(2, 5, valid_lengths=[3, 0], prefix="next_"),
+        "label": torch.tensor([1, 0]),
+    }
+    optimizer = torch.optim.AdamW(model.online.parameters(), lr=0.01)
+    target_before = {
+        key: value.clone() for key, value in model.target.state_dict().items()
+    }
+
+    optimizer.zero_grad()
+    outputs = model(**batch)
+    outputs["loss"].backward()
+    assert all(parameter.grad is None for parameter in model.target.parameters())
+    optimizer.step()
+
+    # we confirm the optimizer step alone never updates the target
+    for key, actual in model.target.state_dict().items():
+        torch.testing.assert_close(actual, target_before[key])
+
+    online_after_step = {
+        key: value.clone() for key, value in model.online.state_dict().items()
+    }
+    model.update_target()
+    key = "embedding.feature_embedding.weight"
+    expected = target_before[key] * 0.5 + online_after_step[key] * 0.5
+    torch.testing.assert_close(model.target.state_dict()[key], expected)
+    assert not model.target.training

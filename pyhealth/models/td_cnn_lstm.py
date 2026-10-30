@@ -10,11 +10,11 @@ time since the previous same-feature event, and change since that event).
 A TD-trained model also receives the matching ``next_*`` channels of the
 selected successor state.
 
-Implementation status (tasks T21-T31): input validation, train-derived
+Implementation status (tasks T21-T33): input validation, train-derived
 scaling, the five-branch event embedding, the no-delta ablation switch,
 chronological ordering, the CNN/LSTM encoder, the dense decoder, the frozen
-target predictor, and TD/supervised loss computation. The labeled ``forward()``
-output and ``update_target()`` are tasks T32-T33.
+target predictor, TD/supervised losses, labeled ``forward()`` outputs, and
+explicit post-optimizer target updates.
 
 Intentional, documented differences from the released reference code
 (``utils/train/models.py``), approved in ``MODEL_API_DECISIONS.md``:
@@ -431,7 +431,7 @@ class TDCNNLSTM(BaseModel):
     The model predicts one 28-day mortality risk per ICU state. In TD mode it
     keeps a frozen target copy of the predictor that scores the successor
     state; the target is updated only through ``update_target()`` after each
-    optimizer step (task T33).
+    optimizer step.
 
     Args:
         dataset: PyHealth ``SampleDataset`` with ``output_schema`` exactly
@@ -1006,7 +1006,7 @@ class TDCNNLSTM(BaseModel):
         batch: Mapping[str, Any],
         current_shape: Optional[torch.Size] = None,
     ) -> torch.Tensor:
-        """Dispatches to the TD or supervised loss for T32 to use in forward.
+        """Dispatches to the TD or supervised loss used by ``forward()``.
 
         Args:
             logits: Current-state online logits of shape ``(B, 1)``.
@@ -1024,42 +1024,90 @@ class TDCNNLSTM(BaseModel):
         return self._compute_supervised_loss(logits, observed_labels)
 
     # ------------------------------------------------------------------
-    # Forward (provisional until T32)
+    # T32: standard PyHealth forward outputs
     # ------------------------------------------------------------------
     def forward(self, **batch: Any) -> Dict[str, torch.Tensor]:
-        """Predicts 28-day mortality risk for the current states.
+        """Predicts mortality and optionally computes an objective-specific loss.
 
-        This is the unlabeled-inference path. T30-T31 loss helpers are
-        available via ``_compute_loss``; wiring their outputs into the
-        labeled forward dictionary is task T32.
+        The ``y_true`` field always contains observed 28-day mortality. In TD
+        mode, the loss instead uses the detached next-state risk for valid
+        successors and the observed label for states without a successor.
 
         Args:
-            **batch: The five current-state channels, each ``(B, L)`` or
-                ``(B, L, 1)``. Optional ``next_*`` channels are validated as
-                a complete, shape-matched successor state but not scored until
-                T30-T32. Unrelated metadata (e.g. ``patient_id``) is ignored.
+            **batch: Five current-state channels of shape ``(B, L)`` or
+                ``(B, L, 1)``. Labeled TD batches also require all five
+                matching ``next_*`` channels. Unlabeled inference and
+                supervised training do not require successors. Extra metadata
+                keys are ignored.
 
         Returns:
-            Dictionary with ``logit`` and ``y_prob``, each of shape ``(B, 1)``.
+            ``logit`` and ``y_prob`` (both ``(B, 1)``) for every batch.
+            Labeled batches also return scalar ``loss`` and observed ``y_true``
+            (``(B, 1)``), as expected by PyHealth's binary model interface.
 
         Raises:
-            NotImplementedError: If the batch contains the label (T30-T32).
+            ValueError: If state inputs, labels, or required successor inputs
+                are invalid.
         """
-        if self.label_key in batch:
-            raise NotImplementedError(
-                "Labeled forward (loss, y_true) is implemented in T32"
-            )
         state, masks, _ = self._prepare_state(batch)
+        current_shape = state["values"].shape
 
-        # we validate supplied successors even on the provisional inference
-        # path so a mismatched paired batch cannot silently pass T21
-        if any(NEXT_PREFIX + key in batch for key in STATE_KEYS):
+        # we avoid duplicate next-state validation during labeled TD training
+        has_next_channels = any(NEXT_PREFIX + key in batch for key in STATE_KEYS)
+        labeled_td = self.label_key in batch and self.objective == "td"
+        if has_next_channels and not labeled_td:
             self._prepare_state(
                 batch,
                 prefix=NEXT_PREFIX,
                 allow_empty=True,
-                expected_shape=state["values"].shape,
+                expected_shape=current_shape,
             )
 
         logit = self.online(state, masks)
-        return {"logit": logit, "y_prob": torch.sigmoid(logit)}
+        outputs = {"logit": logit, "y_prob": torch.sigmoid(logit)}
+        if self.label_key in batch:
+            # y_true remains observed mortality, not a bootstrapped TD target
+            outputs["y_true"] = self._observed_labels(batch, logit)
+            outputs["loss"] = self._compute_loss(
+                logit, batch, current_shape=current_shape
+            )
+        return outputs
+
+    # ------------------------------------------------------------------
+    # T33: target predictor soft update (call after optimizer.step())
+    # ------------------------------------------------------------------
+    @torch.no_grad()
+    def update_target(self) -> None:
+        """Soft-updates the frozen target from the online predictor.
+
+        After an online optimizer step, each floating-point target parameter
+        and buffer is replaced by ``alpha * target + (1 - alpha) * online``.
+        Integer and boolean buffers (e.g. BatchNorm batch counters) are copied
+        directly to avoid invalid floating-point arithmetic on them.
+
+        The target always remains frozen and in evaluation mode. In supervised
+        mode this method raises an error because no target network exists.
+
+        Raises:
+            RuntimeError: If called on a supervised model or if the predictor
+                state layouts are incompatible.
+        """
+        if self.target is None:
+            raise RuntimeError("Cannot update target for supervised objective")
+
+        online_state = self.online.state_dict()
+        target_state = self.target.state_dict()
+        if online_state.keys() != target_state.keys():
+            raise RuntimeError("Online and target predictor states do not match")
+
+        for key, target_value in target_state.items():
+            online_value = online_state[key]
+            if torch.is_floating_point(target_value):
+                target_value.mul_(self.target_alpha).add_(
+                    online_value, alpha=1.0 - self.target_alpha
+                )
+            else:
+                target_value.copy_(online_value)
+
+        self.target.requires_grad_(False)
+        self.target.eval()
