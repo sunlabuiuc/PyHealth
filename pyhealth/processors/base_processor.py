@@ -71,11 +71,11 @@ class FeatureProcessor(Processor):
     (``set_task(task, split=PatientSplit(...))``).
 
     Set ``stores_tensor = True`` only if ``process()`` always returns a
-    ``torch.Tensor``, or a tuple of tensors with the same length for every
-    sample (each tensor may change shape). Such fields are written to the disk
-    cache as tensors; every other output (lists, other tuples, dicts, strings,
-    None, objects) is stored as one pickled value per sample, so it may vary
-    freely in length and shape between samples.
+    ``torch.Tensor``, or a tuple with one tensor per :meth:`schema` entry
+    (each tensor may change shape between samples). Such fields are written
+    to the disk cache as tensors; every other output (lists, other tuples,
+    dicts, strings, None, objects) is stored as one pickled value per sample,
+    so it may vary freely in length and shape between samples.
 
     A processor whose batches need more than padding can define
     ``collate(items)``, taking the ``process()`` outputs of one batch;
