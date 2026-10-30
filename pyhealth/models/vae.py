@@ -147,14 +147,16 @@ class VAE(BaseModel):
             )
 
         image_processor = self.dataset.input_processors[self.feature_key]
+        if image_processor.mode is None:
+            raise ValueError(
+                'ImageProcessor mode must be set to "L", "RGB" or "RGBA".'
+            )
         self.image_size = image_processor.image_size
         if not isinstance(self.image_size, int) or self.image_size < 8:
             raise ValueError(
                 "VAE image inputs require ImageProcessor with an integer image_size of at least 8."
             )
-        self.channels = {"L": 1, "RGB": 3, "RGBA": 4}.get(
-            image_processor.mode, 3
-        )
+        self.channels = {"L": 1, "RGB": 3, "RGBA": 4}[image_processor.mode]
         channels = self.hidden_dim
         self.image_encoder = nn.Sequential(
             nn.Conv2d(self.channels, channels, 4, 2, 1),
@@ -199,21 +201,13 @@ class VAE(BaseModel):
                 decoder_channels = next_channels
             decoder_size = next_size
 
-        if decoder_size == 4:
-            decoder_layers.extend(
-                [
-                    nn.Conv2d(
-                        decoder_channels, self.channels, kernel_size=3, padding=1
-                    ),
-                    nn.Sigmoid(),
-                ]
-            )
         self.image_decoder = nn.Sequential(*decoder_layers)
 
     def _init_sequence(self, dataset: SampleDataset) -> None:
         """Build a recurrent VAE for categorical code sequences."""
         self.sequence_processor = dataset.input_processors[self.feature_key]
         self.pad_token = int(self.sequence_processor.code_vocab.get("<pad>", 0))
+        self.unk_token = self.sequence_processor.code_vocab.get("<unk>")
         self.vocab_size = self.sequence_processor.vocab_size()
         self.embedding_model = EmbeddingModel(dataset, self.hidden_dim)
         self.sequence_encoder = nn.GRU(
@@ -406,7 +400,11 @@ class VAE(BaseModel):
                 decoded, hidden = self.sequence_decoder(previous, hidden)
                 logits = self.sequence_output(decoded[:, 0, :])
                 logits[:, self.pad_token] = torch.finfo(logits.dtype).min
-                token = logits.argmax(dim=-1)
+                if self.unk_token is not None:
+                    logits[:, self.unk_token] = torch.finfo(logits.dtype).min
+                token = torch.multinomial(
+                    F.softmax(logits, dim=-1), num_samples=1
+                ).squeeze(-1)
                 generated.append(token)
                 previous = self.embedding_model(
                     {self.feature_key: token.unsqueeze(1)}
