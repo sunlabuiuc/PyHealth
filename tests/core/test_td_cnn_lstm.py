@@ -962,3 +962,256 @@ def test_t36_supervised_loss_is_independent_of_supplied_successor_states():
     with_successor = model(**current, **successor, label=labels)
     for key in ("logit", "y_prob", "y_true", "loss"):
         torch.testing.assert_close(with_successor[key], without_successor[key])
+
+# ---------------------------------------------------------------------------
+# T37: delta ablation, embedding gradients, checkpoints and target EMA
+# ---------------------------------------------------------------------------
+
+
+def make_t37_state():
+    """Create heterogeneous, fully observed events for embedding tests."""
+    batch = make_state(4, 6, valid_lengths=[6, 5, 4, 3])
+    for row in range(4):
+        for index in range(6 - row):
+            batch["timepoints"][row, index] *= 5.0
+            batch["values"][row, index] += row * 0.4
+            batch["delta_time"][row, index] = 2.0 + index + row
+            batch["delta_value"][row, index] = (index - row) * 0.2
+    return batch
+
+
+def test_t37_ablation_removes_only_delta_embedding_branches():
+    """No-delta models omit both scalar branches without changing the encoder."""
+    full = TDCNNLSTM(make_dataset(), n_features=3, hidden_dim=8)
+    reduced = TDCNNLSTM(
+        make_dataset(), n_features=3, hidden_dim=8,
+        use_delta_embeddings=False,
+    )
+
+    assert full.online.embedding.scalar_keys == (
+        "timepoints", "values", "delta_time", "delta_value"
+    )
+    assert reduced.online.embedding.scalar_keys == ("timepoints", "values")
+    assert set(full.online.embedding.scalar_embeddings) == {
+        "time", "value", "delta_time", "delta_value"
+    }
+    assert set(reduced.online.embedding.scalar_embeddings) == {"time", "value"}
+    assert reduced.n_online_trainable_parameters < full.n_online_trainable_parameters
+    assert type(reduced.online.encoder) is type(full.online.encoder)
+    assert type(reduced.online.decoder) is type(full.online.decoder)
+    assert reduced.target is not None
+    assert "delta_time" not in reduced.target.embedding.scalar_embeddings
+    assert "delta_value" not in reduced.target.embedding.scalar_embeddings
+
+
+def test_t37_no_delta_predictions_ignore_delta_values_and_missingness():
+    """Removing delta branches makes inference independent of both delta inputs."""
+    torch.manual_seed(71)
+    model = TDCNNLSTM(
+        make_dataset(), n_features=3, hidden_dim=8,
+        use_delta_embeddings=False,
+    ).eval()
+    original = make_t37_state()
+    changed = {key: value.clone() for key, value in original.items()}
+    valid = torch.isfinite(changed["values"])
+    changed["delta_time"][valid] *= 100.0
+    changed["delta_value"][valid] -= 100.0
+    changed["delta_time"][0, 0] = float("nan")
+    changed["delta_value"][1, 1] = float("nan")
+
+    with torch.no_grad():
+        original_logits = model(**original)["logit"]
+        changed_logits = model(**changed)["logit"]
+    torch.testing.assert_close(original_logits, changed_logits, atol=0, rtol=0)
+
+
+@pytest.mark.parametrize("channel", ["delta_time", "delta_value"])
+def test_t37_full_embedding_responds_to_each_delta_channel(channel):
+    """The complete event embedding responds independently to both deltas."""
+    torch.manual_seed(72)
+    model = TDCNNLSTM(make_dataset(), n_features=3, hidden_dim=8).eval()
+    embedding = model.online.embedding
+
+    # we set positive weights so neither delta MLP has dead ReLU units
+    with torch.no_grad():
+        network = embedding.scalar_embeddings[channel]
+        for layer in (network[0], network[2]):
+            layer.weight.fill_(0.25)
+            layer.bias.fill_(0.5)
+
+    first = make_t37_state()
+    second = {key: value.clone() for key, value in first.items()}
+    valid = torch.isfinite(second["values"])
+    second[channel][valid] += 4.0
+
+    first_state, first_masks, _ = model._prepare_state(first)
+    second_state, second_masks, _ = model._prepare_state(second)
+    with torch.no_grad():
+        first_embedding = embedding(first_state, first_masks)
+        second_embedding = embedding(second_state, second_masks)
+    assert not torch.allclose(first_embedding, second_embedding)
+
+
+def test_t37_full_training_backpropagates_through_all_five_branches():
+    """Supervised loss trains every selected scalar embedding and feature IDs."""
+    torch.manual_seed(73)
+    model = TDCNNLSTM(
+        make_dataset(), n_features=3, hidden_dim=8, dropout=0.0,
+        objective="supervised",
+    ).train()
+    for network in model.online.embedding.scalar_embeddings.values():
+        # we keep the first ReLU active for all finite synthetic scalars
+        with torch.no_grad():
+            network[0].weight.fill_(0.1)
+            network[0].bias.fill_(2.0)
+
+    outputs = model(**make_t37_state(), label=torch.tensor([0, 1, 0, 1]))
+    outputs["loss"].backward()
+    feature_gradient = model.online.embedding.feature_embedding.weight.grad
+    assert feature_gradient is not None
+    assert float(feature_gradient.abs().sum()) > 0
+
+    for name in ("time", "value", "delta_time", "delta_value"):
+        network = model.online.embedding.scalar_embeddings[name]
+        for layer in (network[0], network[2]):
+            assert layer.weight.grad is not None, name
+            assert torch.isfinite(layer.weight.grad).all(), name
+            assert float(layer.weight.grad.abs().sum()) > 0, name
+
+
+def test_t37_ablation_backpropagates_only_through_retained_branches():
+    """No-delta training keeps feature, time and value gradients intact."""
+    torch.manual_seed(74)
+    model = TDCNNLSTM(
+        make_dataset(), n_features=3, hidden_dim=8, dropout=0.0,
+        use_delta_embeddings=False, objective="supervised",
+    ).train()
+    for network in model.online.embedding.scalar_embeddings.values():
+        with torch.no_grad():
+            network[0].weight.fill_(0.1)
+            network[0].bias.fill_(2.0)
+
+    outputs = model(**make_t37_state(), label=torch.tensor([0, 1, 0, 1]))
+    outputs["loss"].backward()
+    assert model.online.embedding.feature_embedding.weight.grad is not None
+    for name in ("time", "value"):
+        network = model.online.embedding.scalar_embeddings[name]
+        assert network[0].weight.grad is not None
+        assert network[2].weight.grad is not None
+        assert float(network[2].weight.grad.abs().sum()) > 0
+    assert "delta_time" not in model.online.embedding.scalar_embeddings
+    assert "delta_value" not in model.online.embedding.scalar_embeddings
+
+
+@pytest.mark.parametrize(
+    "objective,use_delta_embeddings",
+    [("td", True), ("supervised", False)],
+)
+def test_t37_checkpoint_roundtrip_preserves_predictions_and_scaling(
+    tmp_path, objective, use_delta_embeddings
+):
+    """Save/load restores weights, normalization, and optional target state."""
+    scaling = {
+        "timepoints": {"mean": 3.0, "std": 2.0},
+        "values": {"mean": [1.0, 2.0, 3.0], "std": [2.0, 3.0, 4.0]},
+        "delta_time": {"mean": [1.0, 2.0, 1.0], "std": [1.0, 2.0, 3.0]},
+        "delta_value": {"mean": [0.0, 0.0, 0.0], "std": [1.0, 1.0, 2.0]},
+    }
+    torch.manual_seed(75)
+    model = TDCNNLSTM(
+        make_dataset(), n_features=3, hidden_dim=8,
+        objective=objective, use_delta_embeddings=use_delta_embeddings,
+        scaling=scaling, target_alpha=0.8,
+    ).eval()
+    if model.target is not None:
+        with torch.no_grad():
+            model.online.embedding.feature_embedding.weight.add_(0.3)
+            model.online.embedding.norm.running_mean.add_(0.5)
+            model.online.decoder[0].num_batches_tracked.add_(4)
+        model.update_target()
+
+    current = make_t37_state()
+    successor = make_state(4, 6, valid_lengths=[4, 2, 0, 1], prefix="next_")
+    with torch.no_grad():
+        before = model(**current)
+        if model.target is not None:
+            before_target = model._target_probability({**current, **successor})
+
+    checkpoint = tmp_path / "td_cnn_lstm_state.pt"
+    torch.save(model.state_dict(), checkpoint)
+    restored = TDCNNLSTM(
+        make_dataset(), n_features=3, hidden_dim=8,
+        objective=objective, use_delta_embeddings=use_delta_embeddings,
+        target_alpha=0.8,
+    ).eval()
+    saved_state = torch.load(checkpoint, map_location="cpu", weights_only=True)
+    restored.load_state_dict(saved_state)
+
+    for key, value in model.state_dict().items():
+        torch.testing.assert_close(restored.state_dict()[key], value)
+    assert restored.values_mean.tolist() == scaling["values"]["mean"]
+    assert restored.timepoints_std.item() == scaling["timepoints"]["std"]
+    with torch.no_grad():
+        after = restored(**current)
+    torch.testing.assert_close(after["logit"], before["logit"], atol=0, rtol=0)
+    torch.testing.assert_close(after["y_prob"], before["y_prob"], atol=0, rtol=0)
+    if model.target is not None:
+        after_target = restored._target_probability({**current, **successor})
+        torch.testing.assert_close(after_target[0], before_target[0], equal_nan=True)
+        torch.testing.assert_close(after_target[1], before_target[1])
+        assert not restored.target.training
+        assert all(not p.requires_grad for p in restored.target.parameters())
+    else:
+        assert restored.target is None
+
+
+def test_t37_target_starts_equal_but_is_not_parameter_aliased():
+    """Online and target networks begin identical but store separate tensors."""
+    torch.manual_seed(76)
+    model = TDCNNLSTM(make_dataset(), n_features=3, hidden_dim=8)
+    for key, online_value in model.online.state_dict().items():
+        target_value = model.target.state_dict()[key]
+        torch.testing.assert_close(target_value, online_value, atol=0, rtol=0)
+        assert online_value.data_ptr() != target_value.data_ptr(), key
+    with torch.no_grad():
+        model.online.embedding.feature_embedding.weight.add_(1.0)
+    assert not torch.equal(
+        model.online.embedding.feature_embedding.weight,
+        model.target.embedding.feature_embedding.weight,
+    )
+    assert not model.target.training
+    assert all(not p.requires_grad for p in model.target.parameters())
+
+
+def test_t37_repeated_target_updates_match_analytic_ema():
+    """Two target updates obey repeated EMA, including BatchNorm buffers."""
+    alpha = 0.8
+    model = TDCNNLSTM(
+        make_dataset(), n_features=3, hidden_dim=8, target_alpha=alpha
+    )
+    with torch.no_grad():
+        model.online.embedding.feature_embedding.weight.add_(2.0)
+        model.online.embedding.norm.running_mean.fill_(3.0)
+        model.online.decoder[0].num_batches_tracked.add_(5)
+
+    target_before = {
+        key: value.clone() for key, value in model.target.state_dict().items()
+    }
+    online_before = {
+        key: value.clone() for key, value in model.online.state_dict().items()
+    }
+    for step in (1, 2):
+        model.update_target()
+        for key, actual in model.target.state_dict().items():
+            if torch.is_floating_point(actual):
+                expected = (
+                    (alpha ** step) * target_before[key]
+                    + (1 - alpha ** step) * online_before[key]
+                )
+                torch.testing.assert_close(actual, expected, atol=1e-6, rtol=1e-6)
+            else:
+                torch.testing.assert_close(actual, online_before[key])
+        for key, actual in model.online.state_dict().items():
+            torch.testing.assert_close(actual, online_before[key])
+        assert not model.target.training
+        assert all(not p.requires_grad for p in model.target.parameters())
