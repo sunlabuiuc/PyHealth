@@ -47,8 +47,8 @@ class CrhEnsemble(BaseInterpreterEnsemble):
             between successive iterations is below this value.
 
     Example:
-        >>> from pyhealth.interpret.methods import GradientShap, IntegratedGradients, Saliency
-        >>> experts = [GradientShap(model), IntegratedGradients(model), Saliency(model)]
+        >>> from pyhealth.interpret.methods import DeepLift, IntegratedGradients, LimeExplainer
+        >>> experts = [IntegratedGradients(model), DeepLift(model), LimeExplainer(model)]
         >>> ensemble = CrhEnsemble(model, experts, n_iter=30)
         >>> attrs = ensemble.attribute(**batch)
     """
