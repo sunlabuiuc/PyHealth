@@ -80,6 +80,13 @@ def _oob_aggregate(
     return out
 
 
+def _oob_mask(bootstrap_indices: np.ndarray) -> np.ndarray:
+    """Mask of shape (B, T), True where model ``b`` never saw point ``i``."""
+    in_bag = np.zeros(bootstrap_indices.shape, dtype=bool)
+    np.put_along_axis(in_bag, bootstrap_indices, True, axis=1)
+    return ~in_bag
+
+
 def _check_regression(model: BaseModel) -> None:
     if model.mode != "regression":
         raise NotImplementedError(
@@ -107,6 +114,12 @@ class EnbPI(IntervalPredictor):
     ``P(Y_t in C_t) >= 1 - alpha - o(1)`` when the errors are stationary and
     strongly mixing and the OOB predictors approximate the true regression
     function. Exchangeability is not required.
+
+    ``state_dict`` saves the whole predictor: the bootstrap models' weights
+    and the calibration state, including the current residual window. To
+    restore it, create an ``EnbPI`` with the same ``model_fn`` and
+    ``n_bootstrap`` and call ``load_state_dict``, or use
+    ``Trainer.save_ckpt`` and ``Trainer.load_ckpt``.
 
     Paper:
         Xu, Chen, and Yao Xie. "Conformal prediction interval for dynamic
@@ -279,9 +292,7 @@ class EnbPI(IntervalPredictor):
         self._train_models(cal_dataset)
         self.label_key = self.models[0].label_keys[0]
         n_samples = len(cal_dataset)
-        in_bag = np.zeros((len(self.models), n_samples), dtype=bool)
-        np.put_along_axis(in_bag, self.bootstrap_indices, True, axis=1)
-        self.oob = ~in_bag
+        self.oob = _oob_mask(self.bootstrap_indices)
 
         preds, y_true = [], []
         loader = get_dataloader(cal_dataset, self.batch_size, shuffle=False)
@@ -438,3 +449,56 @@ class EnbPI(IntervalPredictor):
             "y_lower": y_pred - width,
             "y_upper": y_pred + width,
         }
+
+    # ------------------------------------------------------------------
+    # Checkpointing, not part of Algorithm 1. PyTorch's extra state hooks
+    # let state_dict and load_state_dict carry the calibration state.
+    # ------------------------------------------------------------------
+    def get_extra_state(self) -> dict:
+        """Calibration state that ``state_dict`` saves next to the weights.
+
+        Holds the bootstrap indices, the residual window, the initial window
+        and the label key, as tensors and plain values, so checkpoints load
+        with ``torch.load(..., weights_only=True)`` as ``Trainer.load_ckpt``
+        does.
+        """
+        if not self.calibrated:
+            return {"calibrated": False}
+        return {
+            "calibrated": True,
+            "label_key": self.label_key,
+            "bootstrap_indices": torch.as_tensor(self.bootstrap_indices),
+            "residuals": torch.tensor(list(self.residuals), dtype=torch.float64),
+            "initial_residuals": torch.tensor(
+                self.initial_residuals, dtype=torch.float64
+            ),
+        }
+
+    def set_extra_state(self, state: dict) -> None:
+        """Restores the state saved by :meth:`get_extra_state`.
+
+        ``load_state_dict`` calls this before loading the bootstrap models'
+        weights, so it first builds ``n_bootstrap`` models with ``model_fn``
+        for those weights to load into.
+        """
+        if not state["calibrated"]:
+            self.calibrated = False
+            return
+        bootstrap_indices = state["bootstrap_indices"].numpy()
+        if len(bootstrap_indices) != self.n_bootstrap:
+            raise ValueError(
+                f"The checkpoint has {len(bootstrap_indices)} bootstrap models, "
+                f"but this EnbPI has n_bootstrap={self.n_bootstrap}."
+            )
+        if self.models is None or len(self.models) != self.n_bootstrap:
+            self.models = torch.nn.ModuleList(
+                self.model_fn() for _ in range(self.n_bootstrap)
+            )
+        self.bootstrap_indices = bootstrap_indices
+        self.oob = _oob_mask(bootstrap_indices)
+        self.label_key = state["label_key"]
+        residuals = state["residuals"].tolist()
+        self.residuals = deque(residuals, maxlen=bootstrap_indices.shape[1])
+        self.sorted_residuals = sorted(residuals)
+        self.initial_residuals = state["initial_residuals"].tolist()
+        self.calibrated = True

@@ -14,6 +14,7 @@ is 7/3 under the mean and 2 under the median. With targets [0, 3, 1, 5] the
 mean residuals are [2, 1, 0, 8/3].
 """
 
+import io
 import unittest
 
 import numpy as np
@@ -282,6 +283,74 @@ class TestInterface(unittest.TestCase):
         ):
             with self.subTest(**kwargs), self.assertRaises(ValueError):
                 EnbPI(model_fn=lambda: None, **kwargs)
+
+
+class TestCheckpoint(unittest.TestCase):
+    """state_dict and load_state_dict round-trip the whole predictor."""
+
+    def setUp(self):
+        torch.manual_seed(0)
+        self.stream = make_ar_stream(n=60, seed=0)
+        self.train = self.stream.subset(range(30))
+        self.revealed = self.stream.subset(range(30, 40))
+        self.test = self.stream.subset(range(40, 60))
+
+    def _enbpi(self):
+        return EnbPI(
+            model_fn=lambda: MLP(
+                dataset=self.stream,
+                feature_keys=["x"],
+                label_key="y",
+                mode="regression",
+                hidden_dim=4,
+            ),
+            alpha=0.2,
+            n_bootstrap=3,
+            train_kwargs={"epochs": 1},
+            device="cpu",
+            random_state=0,
+        )
+
+    def _round_trip(self, enbpi):
+        buffer = io.BytesIO()
+        torch.save(enbpi.state_dict(), buffer)
+        buffer.seek(0)
+        restored = self._enbpi()
+        # weights_only=True, as Trainer.load_ckpt loads checkpoints.
+        restored.load_state_dict(torch.load(buffer, weights_only=True))
+        return restored
+
+    def test_round_trip_resumes_online_updates(self):
+        enbpi = self._enbpi()
+        enbpi.calibrate(self.train)
+        enbpi.update(self.revealed)
+        restored = self._round_trip(enbpi)
+        self.assertTrue(restored.calibrated)
+        self.assertEqual(list(restored.residuals), list(enbpi.residuals))
+        expected = enbpi.predict_sequential(self.test)
+        actual = restored.predict_sequential(self.test)
+        for key in ("y_pred", "y_lower", "y_upper"):
+            np.testing.assert_array_equal(actual[key], expected[key])
+
+    def test_round_trip_keeps_initial_window(self):
+        enbpi = self._enbpi()
+        enbpi.calibrate(self.train)
+        initial = list(enbpi.residuals)
+        enbpi.update(self.revealed)
+        restored = self._round_trip(enbpi)
+        restored.reset()
+        self.assertEqual(list(restored.residuals), initial)
+
+    def test_uncalibrated_round_trip(self):
+        restored = self._round_trip(self._enbpi())
+        self.assertFalse(restored.calibrated)
+
+    def test_n_bootstrap_mismatch_raises(self):
+        enbpi = self._enbpi()
+        enbpi.calibrate(self.train)
+        other = EnbPI(model_fn=enbpi.model_fn, alpha=0.2, n_bootstrap=2)
+        with self.assertRaises(ValueError):
+            other.load_state_dict(enbpi.state_dict())
 
 
 class TestEndToEnd(unittest.TestCase):
