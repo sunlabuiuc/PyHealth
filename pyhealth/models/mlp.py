@@ -1,13 +1,17 @@
+from collections.abc import Mapping, Sequence
 from typing import Dict, cast
 
 import torch
 import torch.nn as nn
 
 from pyhealth.datasets import SampleDataset
-from pyhealth.models import BaseModel
 from pyhealth.interpret.api import Interpretable
+from pyhealth.models import BaseModel
 
 from .embedding import EmbeddingModel
+from .logistic_regression import Unified_LogisticRegression
+from .rnn import _per_field
+from .sequence_embedding import LevelEmbedding, MaskMode, PretrainedEmbedding
 
 
 class MLP(BaseModel, Interpretable):
@@ -388,6 +392,103 @@ class MLP(BaseModel, Interpretable):
             nn.Module: The embedding model used to embed raw features.
         """
         return self.embedding_model
+
+
+class Unified_MLP(Unified_LogisticRegression):
+    """Bottom-up record MLPs and mean pooling, plus MLPs for static fields.
+
+    Uses the input, hierarchy, spatial flattening, and per-step prefix means
+    described in :class:`Unified_LogisticRegression`. Each hierarchy level
+    has its own MLP, applied to records before pooling. Static tensors are
+    flattened per sample and transformed by their own MLPs. All field outputs
+    are concatenated and passed to a linear prediction head.
+
+    Args:
+        dataset: Dataset with fitted processors and exactly one label.
+        embedding_dim: Per V2 field, one :class:`LevelEmbedding` per level.
+        hidden_dim: MLP output width at every level, including static MLPs.
+            One value for all fields or a field mapping; default 128.
+        num_layers: Linear layers per MLP, at least one. One value or a
+            field mapping; default 2. ReLU and dropout occur between layers.
+        dropout: Dropout between linear layers. One value or a field mapping;
+            default 0.5. Has no effect with one layer.
+        mask: ``"ignore"`` or ``"concat"`` for numeric missing indicators.
+        pretrain: Pretrained token namespace embeddings.
+
+    Unlisted fields in mappings use the default. Token/value embedding sizes
+    are independent of MLP hidden sizes. Neither static nor sequence fields
+    bypass the MLP, so static-only datasets also receive nonlinear modeling
+    with the default two layers.
+
+    Examples:
+        >>> from pyhealth.datasets import create_sample_dataset, get_dataloader
+        >>> dataset = create_sample_dataset(
+        ...     [{"patient_id": str(i), "age": [50.0 + i], "y": i}
+        ...      for i in range(2)],
+        ...     {"age": "tensor"}, {"y": "binary"},
+        ... )
+        >>> model = Unified_MLP(dataset, embedding_dim={}, hidden_dim=16)
+        >>> model(**next(iter(get_dataloader(dataset, batch_size=2))))["logit"].shape
+        torch.Size([2, 1])
+    """
+
+    def __init__(
+        self,
+        dataset: SampleDataset,
+        embedding_dim: Mapping[str, Sequence[LevelEmbedding]],
+        hidden_dim: int | Mapping[str, int] = 128,
+        num_layers: int | Mapping[str, int] = 2,
+        dropout: float | Mapping[str, float] = 0.5,
+        mask: MaskMode = "ignore",
+        pretrain: Sequence[PretrainedEmbedding] | None = None,
+    ) -> None:
+        super().__init__(dataset, embedding_dim, mask=mask, pretrain=pretrain)
+        hidden: dict[str, int] = _per_field(
+            "hidden_dim",
+            hidden_dim,
+            self.feature_keys,
+            128,
+            lambda v: isinstance(v, int) and not isinstance(v, bool) and v > 0,
+        )
+        depths: dict[str, int] = _per_field(
+            "num_layers",
+            num_layers,
+            self.feature_keys,
+            2,
+            lambda v: isinstance(v, int) and not isinstance(v, bool) and v > 0,
+        )
+        dropouts: dict[str, float] = _per_field(
+            "dropout",
+            dropout,
+            self.feature_keys,
+            0.5,
+            lambda v: isinstance(v, (int, float)) and 0 <= v < 1,
+        )
+        for field in self.feature_keys:
+            below = 0
+            for level, width in enumerate(
+                self.embedding.embedding_dim_per_level(field)
+                if field in self.processors
+                else [self.field_dims[field]]
+            ):
+                layers: list[nn.Module] = [nn.Linear(width + below, hidden[field])]
+                for _ in range(depths[field] - 1):
+                    layers.extend(
+                        [
+                            nn.ReLU(),
+                            nn.Dropout(dropouts[field]),
+                            nn.Linear(hidden[field], hidden[field]),
+                        ]
+                    )
+                if field in self.processors:
+                    cast(nn.ModuleList, self.encoders[field])[level] = nn.Sequential(
+                        *layers
+                    )
+                else:
+                    self.static_encoders[field] = nn.Sequential(*layers)
+                below = hidden[field]
+            self.field_dims[field] = hidden[field]
+        self.fc = nn.Linear(sum(self.field_dims.values()), self.get_output_size())
 
 
 if __name__ == "__main__":
