@@ -9,7 +9,7 @@ classification models. This helps identify which regions of medical images most 
 model's prediction by visualizing gradients of model outputs with respect to input pixels.
 
 For a complete working example, see:
-``examples/ChestXrayClassificationWithSaliency.ipynb``
+``examples/cxr/ChestXrayClassificationWithSaliency.ipynb``
 
 API Reference
 -------------
