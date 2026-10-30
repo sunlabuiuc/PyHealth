@@ -117,7 +117,7 @@ class VAE(BaseModel):
 
         # This is an input-reconstruction model; dataset labels are optional
         # conditions and are not predictions for Trainer's task metrics.
-        self._mode = None
+        self._mode = "regression" if self.modality == "image" else None
 
     def _init_image(
         self, dataset: SampleDataset, condition_key: str | None
@@ -150,6 +150,13 @@ class VAE(BaseModel):
                 'ImageProcessor mode must be set to "L", "RGB" or "RGBA".'
             )
         self.image_size = image_processor.image_size
+        self.image_shape = (
+            {"L": 1, "RGB": 3, "RGBA": 4}[image_processor.mode],
+            self.image_size,
+            self.image_size,
+        )
+        self.normalized = bool(image_processor.normalize)
+        self.output_activation = nn.Identity() if self.normalized else nn.Sigmoid()
         if not isinstance(self.image_size, int) or self.image_size < 8:
             raise ValueError(
                 "VAE image inputs require ImageProcessor with an integer image_size of at least 8."
@@ -183,7 +190,7 @@ class VAE(BaseModel):
                         nn.ConvTranspose2d(
                             decoder_channels, self.channels, 4, 2, 1
                         ),
-                        nn.Sigmoid(),
+                        self.output_activation,
                     ]
                 )
             else:
@@ -261,7 +268,7 @@ class VAE(BaseModel):
                 "Image input must have shape (batch, channels, height, width) "
                 f"with {self.channels} channels."
             )
-        if bool(((image < 0) | (image > 1)).any()):
+        if not self.normalized and bool(((image < 0) | (image > 1)).any()):
             raise ValueError(
                 "Image values must be in [0, 1]; configure ImageProcessor "
                 "with normalize=False."
@@ -270,7 +277,7 @@ class VAE(BaseModel):
         encoded = self.image_encoder(image)
         mu = self.image_mu(encoded)
         log_var = self.image_log_var(encoded).clamp(min=-20, max=20)
-        latent = self._sample(mu, log_var)
+        latent = self._sample(mu, log_var) if self.training else mu
         condition = self._condition(
             kwargs.get(self.condition_key) if self.condition_key else None,
             image.shape[0],
@@ -287,14 +294,21 @@ class VAE(BaseModel):
             mode="bilinear",
             align_corners=False,
         )
-        reconstruction_loss = F.binary_cross_entropy(
-            reconstruction, image, reduction="sum"
-        ) / image.shape[0]
+        if self.normalized:
+            reconstruction_loss = F.mse_loss(
+                reconstruction, image, reduction="sum"
+            ) / image.shape[0]
+        else:
+            reconstruction_loss = F.binary_cross_entropy(
+                reconstruction, image, reduction="sum"
+            ) / image.shape[0]
         kl_loss = -0.5 * torch.sum(1 + log_var - mu.square() - log_var.exp())
         loss = reconstruction_loss + kl_loss / image.shape[0]
         return {
             "loss": loss,
             "reconstruction": reconstruction,
+            "y_prob": reconstruction,
+            "y_true": image,
             "mu": mu,
             "log_var": log_var,
         }
