@@ -1,4 +1,4 @@
-"""Focused synthetic regressions for T21-T33 (no clinical data needed).
+"""Focused synthetic regressions for T21-T36 (no clinical data needed).
 
 Place this file in ``tests/core/test_td_cnn_lstm.py`` in the PyHealth checkout.
 """
@@ -772,3 +772,193 @@ def test_per_feature_scaling_preserves_missing_values_and_padding():
     assert torch.isnan(prepared["values"][0, 2])
     assert torch.isnan(prepared["delta_time"][0, 0])
     assert masks["event"].tolist() == [[True, True, False]]
+
+
+# ---------------------------------------------------------------------------
+# T36: end-to-end TD/supervised correctness and gradient isolation
+# ---------------------------------------------------------------------------
+
+
+def test_t36_td_forward_matches_manual_mixed_targets_and_logit_gradients():
+    """Mixed successor/terminal TD loss uses detached risks and correct gradients."""
+    torch.manual_seed(61)
+    model = TDCNNLSTM(make_dataset(), n_features=3, hidden_dim=4).eval()
+    batch = {
+        **make_state(3, 6, valid_lengths=[6, 3, 2]),
+        **make_state(3, 6, valid_lengths=[5, 0, 4], prefix="next_"),
+        "label": torch.tensor([1, 0, 1]),
+    }
+
+    outputs = model(**batch)
+    next_risks, has_next = model._target_probability(batch)
+    assert has_next.tolist() == [True, False, True]
+    torch.testing.assert_close(
+        outputs["y_true"], torch.tensor([[1.0], [0.0], [1.0]])
+    )
+    expected_targets = torch.where(has_next[:, None], next_risks, outputs["y_true"])
+    expected_loss = F.binary_cross_entropy_with_logits(
+        outputs["logit"], expected_targets
+    )
+    torch.testing.assert_close(outputs["loss"], expected_loss)
+
+    outputs["logit"].retain_grad()
+    outputs["loss"].backward()
+    expected_logit_gradient = (
+        outputs["y_prob"].detach() - expected_targets
+    ) / len(batch["label"])
+    torch.testing.assert_close(
+        outputs["logit"].grad, expected_logit_gradient, atol=1e-6, rtol=1e-6
+    )
+    assert any(
+        parameter.grad is not None and bool((parameter.grad != 0).any())
+        for parameter in model.online.parameters()
+    )
+    assert all(parameter.grad is None for parameter in model.target.parameters())
+
+
+def test_t36_supervised_forward_matches_manual_bce_and_logit_gradients():
+    """Supervised mode trains on observed labels, without TD bootstrapping."""
+    torch.manual_seed(62)
+    model = TDCNNLSTM(
+        make_dataset(), n_features=3, hidden_dim=4, objective="supervised"
+    ).eval()
+    labels = torch.tensor([0, 1, 0])
+    outputs = model(**make_state(3, 6, valid_lengths=[2, 6, 3]), label=labels)
+    assert model.target is None
+    assert set(outputs) == {"loss", "y_true", "y_prob", "logit"}
+    torch.testing.assert_close(outputs["y_true"], labels.float()[:, None])
+    torch.testing.assert_close(
+        outputs["loss"],
+        F.binary_cross_entropy_with_logits(outputs["logit"], outputs["y_true"]),
+    )
+
+    outputs["logit"].retain_grad()
+    outputs["loss"].backward()
+    expected_logit_gradient = (
+        outputs["y_prob"].detach() - labels.float()[:, None]
+    ) / len(labels)
+    torch.testing.assert_close(
+        outputs["logit"].grad, expected_logit_gradient, atol=1e-6, rtol=1e-6
+    )
+    assert any(parameter.grad is not None for parameter in model.online.parameters())
+
+
+def test_t36_all_terminal_td_equals_supervised_with_same_online_weights():
+    """For all-terminal batches TD and supervised must agree even on gradients."""
+    torch.manual_seed(63)
+    td_model = TDCNNLSTM(make_dataset(), n_features=3, hidden_dim=4).eval()
+    supervised_model = TDCNNLSTM(
+        make_dataset(), n_features=3, hidden_dim=4, objective="supervised"
+    ).eval()
+    supervised_model.online.load_state_dict(td_model.online.state_dict())
+    current = make_state(3, 5, valid_lengths=[2, 5, 3])
+    batch = {**current, "label": torch.tensor([0, 1, 1])}
+    successors = make_state(3, 5, valid_lengths=[0, 0, 0], prefix="next_")
+
+    td_outputs = td_model(**batch, **successors)
+    supervised_outputs = supervised_model(**batch)
+    for key in ("logit", "y_prob", "loss", "y_true"):
+        torch.testing.assert_close(td_outputs[key], supervised_outputs[key])
+
+    td_outputs["loss"].backward()
+    supervised_outputs["loss"].backward()
+    for (name_td, parameter_td), (name_sup, parameter_sup) in zip(
+        td_model.online.named_parameters(),
+        supervised_model.online.named_parameters(),
+    ):
+        assert name_td == name_sup
+        assert parameter_td.grad is not None
+        torch.testing.assert_close(parameter_td.grad, parameter_sup.grad)
+    assert all(p.grad is None for p in td_model.target.parameters())
+
+
+def test_t36_observed_labels_do_not_replace_nonterminal_td_targets():
+    """Nonterminal labels affect y_true, but terminal labels affect TD loss."""
+    torch.manual_seed(64)
+    model = TDCNNLSTM(make_dataset(), n_features=3, hidden_dim=4).eval()
+    current = make_state(2, 5)
+    successors = make_state(2, 5, valid_lengths=[3, 0], prefix="next_")
+    batch = {**current, **successors}
+
+    original = model(**batch, label=[0, 0])
+    changed_nonterminal = model(**batch, label=[1, 0])
+    torch.testing.assert_close(original["logit"], changed_nonterminal["logit"])
+    torch.testing.assert_close(original["loss"], changed_nonterminal["loss"])
+    assert original["y_true"].tolist() == [[0.0], [0.0]]
+    assert changed_nonterminal["y_true"].tolist() == [[1.0], [0.0]]
+
+    changed_terminal = model(**batch, label=[0, 1])
+    next_risks, has_next = model._target_probability(batch)
+    assert has_next.tolist() == [True, False]
+    expected_targets = torch.where(
+        has_next[:, None], next_risks, changed_terminal["y_true"]
+    )
+    torch.testing.assert_close(
+        changed_terminal["loss"],
+        F.binary_cross_entropy_with_logits(
+            changed_terminal["logit"], expected_targets
+        ),
+    )
+    assert changed_terminal["y_true"].tolist() == [[0.0], [1.0]]
+
+
+def test_t36_td_training_backward_cannot_change_target_weights_or_bn():
+    """Training-mode forward/backward updates online BN, never frozen target."""
+    torch.manual_seed(65)
+    model = TDCNNLSTM(make_dataset(), n_features=3, hidden_dim=4)
+    model.train()
+    target_before = {
+        key: tensor.detach().clone()
+        for key, tensor in model.target.state_dict().items()
+    }
+    online_bn_before = model.online.embedding.norm.num_batches_tracked.item()
+    batch = {
+        **make_state(3, 6, valid_lengths=[4, 6, 2]),
+        **make_state(3, 6, valid_lengths=[5, 0, 2], prefix="next_"),
+        "label": torch.tensor([1, 0, 1]),
+    }
+
+    outputs = model(**batch)
+    outputs["loss"].backward()
+    assert model.online.embedding.norm.num_batches_tracked.item() > online_bn_before
+    assert not model.target.training
+    assert any(parameter.grad is not None for parameter in model.online.parameters())
+    assert all(parameter.grad is None for parameter in model.target.parameters())
+    for key, tensor in model.target.state_dict().items():
+        torch.testing.assert_close(tensor, target_before[key])
+
+
+def test_t36_all_terminal_td_never_invokes_target_predictor(monkeypatch):
+    """Fully missing next states bypass target inference and use observed truth."""
+    model = TDCNNLSTM(make_dataset(), n_features=3, hidden_dim=4).eval()
+    batch = {
+        **make_state(2, 4),
+        **make_state(2, 4, valid_lengths=[0, 0], prefix="next_"),
+        "label": torch.tensor([1, 0]),
+    }
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("Empty successor states must not be encoded")
+
+    monkeypatch.setattr(model.target, "forward", fail_if_called)
+    outputs = model(**batch)
+    torch.testing.assert_close(
+        outputs["loss"],
+        F.binary_cross_entropy_with_logits(outputs["logit"], outputs["y_true"]),
+    )
+
+
+def test_t36_supervised_loss_is_independent_of_supplied_successor_states():
+    """Supervised training must never bootstrap when valid next states exist."""
+    torch.manual_seed(66)
+    model = TDCNNLSTM(
+        make_dataset(), n_features=3, hidden_dim=4, objective="supervised"
+    ).eval()
+    current = make_state(2, 5, valid_lengths=[2, 5])
+    labels = torch.tensor([1, 0])
+    successor = make_state(2, 5, valid_lengths=[3, 0], prefix="next_")
+
+    without_successor = model(**current, label=labels)
+    with_successor = model(**current, **successor, label=labels)
+    for key in ("logit", "y_prob", "y_true", "loss"):
+        torch.testing.assert_close(with_successor[key], without_successor[key])
