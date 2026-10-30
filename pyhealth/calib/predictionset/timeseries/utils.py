@@ -55,12 +55,22 @@ def conformal_quantile(scores, alpha: float, presorted: bool = False) -> float:
 
 
 def as_numpy(values) -> np.ndarray:
-    """Flattens a label tensor or array to a float array of shape (n,)."""
+    """Flattens a label tensor or array to a float array of shape (n,).
+
+    Examples:
+        >>> as_numpy(torch.tensor([[1.0], [2.0]]))
+        array([1., 2.])
+    """
     if isinstance(values, torch.Tensor):
         values = values.detach().cpu().numpy()
     return np.asarray(values, dtype=float).reshape(-1)
 
 
 def as_column(values: np.ndarray) -> torch.Tensor:
-    """Converts an array of shape (n,) to a float32 tensor of shape (n, 1)."""
+    """Converts an array of shape (n,) to a float32 tensor of shape (n, 1).
+
+    Examples:
+        >>> as_column(np.array([1.0, 2.0])).shape
+        torch.Size([2, 1])
+    """
     return torch.as_tensor(np.asarray(values), dtype=torch.float32).reshape(-1, 1)

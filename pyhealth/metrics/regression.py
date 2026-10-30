@@ -11,8 +11,8 @@ def regression_metrics_fn(
     x: np.ndarray,
     x_rec: np.ndarray,
     metrics: Optional[List[str]] = None,
-    y_lower: Optional[np.ndarray] = None,
-    y_upper: Optional[np.ndarray] = None,
+    y_lower: np.ndarray | None = None,
+    y_upper: np.ndarray | None = None,
 ) -> Dict[str, float]:
     """Computes metrics for regression.
 

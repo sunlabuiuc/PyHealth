@@ -15,7 +15,7 @@ Paper:
 import bisect
 import logging
 from collections import deque
-from typing import Callable, Dict, Optional, Tuple
+from collections.abc import Callable
 
 import numpy as np
 import torch
@@ -167,10 +167,10 @@ class EnbPI(IntervalPredictor):
         aggregation: str = "mean",
         center: str = "aggregate",
         batch_size: int = 32,
-        train_kwargs: Optional[Dict] = None,
-        device: Optional[str] = None,
+        train_kwargs: dict | None = None,
+        device: str | None = None,
         feedback_size: int = 1,
-        random_state: Optional[int] = None,
+        random_state: int | None = None,
     ) -> None:
         if not 0 < alpha < 1:
             raise ValueError(f"alpha must be in (0, 1), got {alpha}.")
@@ -201,14 +201,14 @@ class EnbPI(IntervalPredictor):
         self.feedback_size = feedback_size
         self.rng = np.random.default_rng(random_state)
 
-        self.models: Optional[torch.nn.ModuleList] = None
-        self.bootstrap_indices: Optional[np.ndarray] = None
+        self.models: torch.nn.ModuleList | None = None
+        self.bootstrap_indices: np.ndarray | None = None
         # oob[b, i] is True when model b never saw training point i.
-        self.oob: Optional[np.ndarray] = None
-        self.residuals: Optional[deque] = None
+        self.oob: np.ndarray | None = None
+        self.residuals: deque | None = None
         # The same residuals in ascending order, so the width is a lookup.
-        self.sorted_residuals: Optional[list] = None
-        self.label_key: Optional[str] = None
+        self.sorted_residuals: list | None = None
+        self.label_key: str | None = None
         self.calibrated = False
 
     def _train_models(self, train_dataset) -> None:
@@ -335,7 +335,7 @@ class EnbPI(IntervalPredictor):
         """Algorithm 1, line 13: the ``(1 - alpha)`` quantile of the window."""
         return conformal_quantile(self.sorted_residuals, self.alpha, presorted=True)
 
-    def _predict_dataset(self, dataset) -> Tuple[np.ndarray, np.ndarray]:
+    def _predict_dataset(self, dataset) -> tuple[np.ndarray, np.ndarray]:
         """Centers and labels for a dataset, in dataset order."""
         loader = get_dataloader(dataset, self.batch_size, shuffle=False)
         y_pred, y_true = [], []
@@ -344,7 +344,7 @@ class EnbPI(IntervalPredictor):
             y_true.append(as_numpy(batch[self.label_key]))
         return np.concatenate(y_pred), np.concatenate(y_true)
 
-    def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
+    def forward(self, **kwargs) -> dict[str, torch.Tensor]:
         """Predicts intervals for one batch without changing the window.
 
         Works inside ``Trainer.inference``. Labels in the batch are not used
@@ -383,7 +383,7 @@ class EnbPI(IntervalPredictor):
         self._check_calibrated()
         self._push_residuals(*self._predict_dataset(revealed_dataset))
 
-    def predict_sequential(self, test_dataset) -> Dict[str, np.ndarray]:
+    def predict_sequential(self, test_dataset) -> dict[str, np.ndarray]:
         """Evaluates EnbPI on a labeled test stream, as in the paper.
 
         A convenience method for evaluation, not part of the
