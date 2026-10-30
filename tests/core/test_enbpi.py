@@ -39,12 +39,21 @@ Y_TRAIN = [0.0, 3.0, 1.0, 5.0]
 
 
 def _fitted_enbpi(bags=BAGS, models=None, **kwargs):
-    """EnbPI with fixed fake models and bags, so calibrate skips training."""
+    """EnbPI whose training installs fixed fake models and bags.
+
+    ``enbpi.train_calls`` counts how often calibrate trained.
+    """
     enbpi = EnbPI(model_fn=lambda: None, **kwargs)
     if models is None:
         models = [ConstantModel(1.0), ConstantModel(2.0), ConstantModel(4.0)]
-    enbpi.models = torch.nn.ModuleList(models)
-    enbpi.bootstrap_indices = np.asarray(bags)
+    enbpi.train_calls = 0
+
+    def install(train_dataset):
+        enbpi.models = torch.nn.ModuleList(models)
+        enbpi.bootstrap_indices = np.asarray(bags)
+        enbpi.train_calls += 1
+
+    enbpi._train_models = install
     return enbpi
 
 
@@ -228,27 +237,40 @@ class TestInterface(unittest.TestCase):
         with self.assertRaises(NotImplementedError):
             enbpi.calibrate(make_stream(Y_TRAIN))
 
-    def test_recalibrate_on_different_length_raises(self):
-        enbpi = _fitted_enbpi(alpha=0.5)
-        enbpi.calibrate(make_stream(Y_TRAIN))
-        with self.assertRaises(ValueError):
-            enbpi.calibrate(make_stream(Y_TRAIN + [2.0]))
-
-    def test_recalibrate_resets_window(self):
+    def test_recalibrate_retrains(self):
         enbpi = _fitted_enbpi(alpha=0.5)
         enbpi.calibrate(make_stream(Y_TRAIN))
         enbpi.update(make_stream([1.0, 9.0]))
         enbpi.calibrate(make_stream(Y_TRAIN))
+        self.assertEqual(enbpi.train_calls, 2)
         np.testing.assert_allclose(
             np.asarray(enbpi.residuals), [2.0, 1.0, 0.0, 8 / 3], rtol=RTOL
         )
 
-    def test_non_regression_model_raises(self):
-        enbpi = _fitted_enbpi(
-            bags=BAGS[:1], models=[ConstantModel(1.0, mode="binary")], alpha=0.1
+    def test_reset_restores_initial_window(self):
+        enbpi = _fitted_enbpi(alpha=0.5)
+        enbpi.calibrate(make_stream(Y_TRAIN))
+        enbpi.update(make_stream([1.0, 9.0]))
+        enbpi.reset()
+        self.assertEqual(enbpi.train_calls, 1)
+        np.testing.assert_allclose(
+            np.asarray(enbpi.residuals), [2.0, 1.0, 0.0, 8 / 3], rtol=RTOL
         )
-        with self.assertRaises(NotImplementedError):
-            enbpi.calibrate(make_stream(Y_TRAIN))
+        self.assertEqual(enbpi.sorted_residuals, sorted(enbpi.residuals))
+        self.assertEqual(enbpi.residuals.maxlen, 4)
+
+    def test_reset_reruns_give_same_intervals(self):
+        enbpi = _fitted_enbpi(alpha=0.5)
+        enbpi.calibrate(make_stream(Y_TRAIN))
+        test = make_stream([1.0, 9.0, 2.0])
+        first = enbpi.predict_sequential(test)
+        enbpi.reset()
+        second = enbpi.predict_sequential(test)
+        np.testing.assert_array_equal(first["y_upper"], second["y_upper"])
+
+    def test_reset_before_calibrate_raises(self):
+        with self.assertRaises(RuntimeError):
+            _fitted_enbpi(alpha=0.5).reset()
 
     def test_invalid_arguments_raise(self):
         for kwargs in (

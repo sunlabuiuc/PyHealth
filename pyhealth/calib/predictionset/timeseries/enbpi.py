@@ -208,6 +208,8 @@ class EnbPI(IntervalPredictor):
         self.residuals: deque | None = None
         # The same residuals in ascending order, so the width is a lookup.
         self.sorted_residuals: list | None = None
+        # The window as calibrate left it, restored by reset.
+        self.initial_residuals: list | None = None
         self.label_key: str | None = None
         self.calibrated = False
 
@@ -263,28 +265,20 @@ class EnbPI(IntervalPredictor):
     def calibrate(self, cal_dataset) -> None:
         """Trains the ensemble and fills the window with OOB residuals.
 
+        Every call trains a new ensemble on ``cal_dataset``, drawing new
+        bootstrap samples, so a second call gives different models than the
+        first. To rerun an experiment from the same starting window without
+        retraining, use :meth:`reset`.
+
         Args:
             cal_dataset: Training samples. EnbPI uses no separate calibration
                 split, so this is the data its models are trained on. Must
                 be in time order.
-
-        The ensemble is trained on the first call only. Calling
-        ``calibrate`` again on the same data reuses it and resets the window
-        to the OOB residuals, for example before evaluating another
-        ``alpha``. To train on different data, create a new ``EnbPI``.
         """
-        if self.models is None:
-            self._train_models(cal_dataset)
-        for model in self.models:
-            _check_regression(model)
+        self.calibrated = False
+        self._train_models(cal_dataset)
         self.label_key = self.models[0].label_keys[0]
         n_samples = len(cal_dataset)
-        if self.bootstrap_indices.shape[1] != n_samples:
-            raise ValueError(
-                f"The ensemble was trained on {self.bootstrap_indices.shape[1]} "
-                f"samples, but cal_dataset has {n_samples}. Create a new EnbPI "
-                "to train on different data."
-            )
         in_bag = np.zeros((len(self.models), n_samples), dtype=bool)
         np.put_along_axis(in_bag, self.bootstrap_indices, True, axis=1)
         self.oob = ~in_bag
@@ -320,7 +314,19 @@ class EnbPI(IntervalPredictor):
         self.residuals = deque(maxlen=n_samples)
         self.sorted_residuals = []
         self._push_residuals(y_oob, y_true)
+        self.initial_residuals = list(self.residuals)
         self.calibrated = True
+
+    def reset(self) -> None:
+        """Restores the window to the OOB residuals from :meth:`calibrate`.
+
+        Undoes every :meth:`update` without retraining or needing the
+        training data, so an evaluation can be rerun from the same start, for
+        example with another ``feedback_size`` or ``alpha``.
+        """
+        self._check_calibrated()
+        self.residuals = deque(self.initial_residuals, maxlen=self.residuals.maxlen)
+        self.sorted_residuals = sorted(self.initial_residuals)
 
     def _check_calibrated(self) -> None:
         if not self.calibrated:
@@ -408,8 +414,8 @@ class EnbPI(IntervalPredictor):
         arrive later, call :meth:`forward` and :meth:`update` directly.
 
         The window is changed in place: afterwards it holds the latest test
-        residuals, so a second call continues from there rather than starting
-        over.
+        residuals, so a second call continues from there. Call :meth:`reset`
+        first to start over from the calibration window.
 
         Args:
             test_dataset: Test samples following the training data, in time

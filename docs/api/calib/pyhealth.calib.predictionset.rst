@@ -140,7 +140,7 @@ test stream. Score the results with
 ``rolling_miscoverage_pi@W``.
 
 .. autoclass:: pyhealth.calib.predictionset.EnbPI
-   :members: calibrate, forward, update, predict_sequential
+   :members: calibrate, forward, update, reset, predict_sequential
    :show-inheritance:
 
 Interval Interface and Time Series Helpers
