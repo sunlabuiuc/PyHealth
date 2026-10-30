@@ -77,8 +77,111 @@ which runs `tools/check_pr_rules.py`. You can run the same check locally:
 python tools/check_pr_rules.py --base <base_sha> --head HEAD
 ```
 
+## Porting a Dataset's Official Splits
+
+Many datasets ship with pre-defined splits, for example the train/eval partitions
+of the TUH EEG corpora (TUEV, TUAB). To keep `pyhealth/datasets/splitter.py` from
+growing one near-identical function per dataset, port official splits as follows.
+
+1. **Tag every sample in the task.** In the task's `__call__`, set a `"split"`
+   field on each sample to the dataset's own partition label. `EEGEventsTUEV` and
+   `EEGAbnormalTUAB` in `pyhealth/tasks/temple_university_EEG_tasks.py` are the
+   reference: they iterate over the `"train"` and `"eval"` partitions and write
+   the partition name into `sample["split"]`. Document the field in the task's
+   docstring.
+2. **Do not add a new splitter to `splitter.py`.** Call
+   `pyhealth.datasets.split_by_predefined`, which holds the logic for all
+   pre-defined splits:
+    - `ratios` has 2 values (train / val) or 3 values (train / val / cal) and is
+      applied to the train pool only. Samples whose `split_key` value is not
+      `train_value` form the held-out test set.
+    - `by_patient=True` keeps all of a patient's samples in the same split
+      (the dataset must have `patient_to_index`). Patients are sorted by ID before
+      shuffling, so the result does not depend on sample order.
+    - `split_key` (default `"split"`) and `train_value` (default `"train"`) adapt
+      the function to a different field name or partition label.
+    - `get_index=True` returns `torch.Tensor` index vectors instead of datasets.
+3. **Wrap it only if the arguments are fixed.** If a dataset always needs the same
+   arguments, add a thin wrapper next to that dataset (in its module under
+   `pyhealth/datasets/`), not in `splitter.py`. The existing `*_tuh` functions in
+   `splitter.py` are such wrappers, kept for backward compatibility.
+4. **Test it.** Add a unit test that checks the held-out set is exactly the
+   official eval partition, that no patient appears in more than one part when
+   `by_patient=True`, and that the same seed gives the same split.
+
+```python
+>>> from pyhealth.datasets import split_by_predefined
+>>> train, val, test = split_by_predefined(  # doctest: +SKIP
+...     sample_dataset, [0.8, 0.2], seed=42, by_patient=True
+... )
+>>> train, val, cal, test = split_by_predefined(  # doctest: +SKIP
+...     sample_dataset, [0.6, 0.2, 0.2], seed=42, by_patient=True
+... )
+```
+
+These functions split an already-processed `SampleDataset`, so its processors
+(vocabularies, learned statistics) were fitted on all samples. If preprocessing
+must be fitted on the training part only, split inside `set_task` instead, with
+`PatientSplit` or a custom `Split`.
+
 ## Community
 
+We welcome you to join our community
+via [Slack](https://join.slack.com/t/pyhealthworkspace/shared_invite/zt-1j8h4da47-ZZWENUYax7SlgCRHNyL2DQ)
+workspace,
+where you can ask questions, discuss ideas, and share your work.
+
+## Core Development
+
+We use [GitHub Flow](https://docs.github.com/en/get-started/quickstart/github-flow)
+for development.
+
+### Branches
+
+We keep the following branches for parallel development and release management.
+
+- Main branches
+    - `master`: always reflects the production-ready state.
+    - `develop`: reflects the latest delivered development state. When the source code
+      in the `develop` branch reaches a stable point and is ready to be released, all
+      of the changes will be merged back into `master`.
+- Release branches
+    - `*-release`: holds the code for a specific release. These branches are
+      created from `develop`, and will be merged back into `master` and `develop`
+      when the release is deployed. Only minor bug fixes or preparing meta-data for
+      a release (version number, build dates, etc.) are allowed in this branch.
+    - `archived`: holds the original version of PyHealth developed
+      by [Yue Zhao](https://www.andrew.cmu.edu/user/yuezhao2/)
+      et al. This branch is not maintained anymore.
+- Feature branches:
+    - `[feature_name]`: feature branches are used to develop new features for the
+      upcoming release. These branches are created from `develop` and will be merged
+      back into `develop` once the feature is completed.
+- Hotfix branches:
+    - `[hotfix_name]`: hotfix branches are used to quickly patch small bugs in the
+      production version. These branches are created from `master` and will be merged
+      back into `master` and `develop`.
+
+See this blog post for more details
+on [Git Branching Model](https://nvie.com/posts/a-successful-git-branching-model/).
+
+### Pull Requests
+
+All code changes happen through pull requests.
+
+1. Create a new branch from `develop` (for feature) or `master` (for hotfix)
+2. Make the changes
+3. Write documentation for the changes
+4. Write unit tests for the changes
+5. Create a pull request to `develop` (for feature) or `master` branch (for hotfix)
+6. Wait for the review and merge
+
+### Code Review
+
+We enforce code reviews for the main branches.
+
+- `master`: requires two approvals from the core developers
+- `develop`: requires one approval from the core developers
 Join our
 [Slack workspace](https://join.slack.com/t/pyhealthworkspace/shared_invite/zt-1j8h4da47-ZZWENUYax7SlgCRHNyL2DQ)
 to ask questions, discuss ideas, and share your work.
