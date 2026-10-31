@@ -7,6 +7,7 @@ import torch
 
 from pyhealth.data import Patient
 from pyhealth.datasets import create_sample_dataset, get_dataloader
+from pyhealth.models import LevelEmbedding, Unified_RNN
 from pyhealth.processors import LevelConfig, SequenceProcessorV2, TimeseriesProcessor
 from pyhealth.tasks import (
     YAIBAKIMIMIC4,
@@ -593,7 +594,7 @@ class TestYAIBSepsisMIMIC4(unittest.TestCase):
 
 
 class TestYAIBProcessing(unittest.TestCase):
-    """The tasks' schemas: processors on task samples."""
+    """The tasks' schemas: processors, and a model, on task samples."""
 
     def test_dynamic_matches_the_previous_timeseries_preprocessing(self):
         # The sequence_v2 configuration reproduces TimeseriesProcessor with
@@ -619,6 +620,35 @@ class TestYAIBProcessing(unittest.TestCase):
             old = v1.process(hourly(grid))
             torch.testing.assert_close(values, old[:, :4])
             torch.testing.assert_close(mask.float(), old[:, 4:])
+
+    def test_tasks_train_with_unified_rnn(self):
+        patients = [
+            _patient(
+                stays=[(10 + i, 1, T0, 40 + 5 * i, range(40 + 5 * i))],
+                admissions=[_admission(hours=60 + 5 * i)],
+            )
+            for i in range(2)
+        ]
+        dims: dict[str, list[LevelEmbedding]] = {"dynamic": [{"values": 8}]}
+        for task, label in (
+            (YAIBMortalityMIMIC4(), "mortality"),
+            (YAIBLengthOfStayMIMIC4(), "los"),
+            (YAIBAKIMIMIC4(), "aki"),
+        ):
+            with self.subTest(task=task.task_name):
+                samples = [sample for patient in patients for sample in task(patient)]
+                if label == "mortality":  # a binary label needs both classes
+                    samples[0]["mortality"], samples[1]["mortality"] = 0, 1
+                dataset = create_sample_dataset(
+                    samples, task.input_schema, task.output_schema
+                )
+                model = Unified_RNN(dataset, embedding_dim=dims, hidden_dim=8, mask="concat")
+                out = model(**next(iter(get_dataloader(dataset, batch_size=2))))
+                self.assertTrue(torch.isfinite(out["loss"]))
+                expected = 2 if label == "mortality" else sum(
+                    len(s[label]["time"]) for s in samples
+                )
+                self.assertEqual(out["logit"].shape[0], expected)
 
 
 if __name__ == "__main__":
