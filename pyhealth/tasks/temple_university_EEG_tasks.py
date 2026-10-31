@@ -20,6 +20,8 @@ class EEGEventsTUEV(BaseTask):
       - "signal": np.ndarray, shape (16, 256*5)
       - "offending_channel": int
       - "label": int
+      - "split": str, "train" or "eval", the dataset's official partition.
+        Used by pyhealth.datasets.split_by_predefined.
 
     Examples:
         >>> from pyhealth.datasets import TUEVDataset
@@ -147,7 +149,8 @@ class EEGEventsTUEV(BaseTask):
         Iterates over both 'train' and 'eval' splits.
         Each sample includes a 'split' field and a precomputed 'stft' tensor.
 
-        Expected patient events to include a `signal_file` attribute pointing to an .edf file.
+        Expected patient events to include a `signal_file` attribute pointing to
+        an .edf file.
         """
         pid = patient.patient_id
         samples: List[Dict[str, Any]] = []
@@ -198,8 +201,7 @@ class EEGEventsTUEV(BaseTask):
                     samples.append(sample)
 
         return samples
-    
-    
+
 
 class EEGAbnormalTUAB(BaseTask):
     """Binary classification task for abnormal EEG detection on TUAB.
@@ -274,12 +276,12 @@ class EEGAbnormalTUAB(BaseTask):
     @staticmethod
     def convert_to_bipolar(raw_data: np.ndarray, ch_name: List[str]) -> np.ndarray:
         """Convert raw EEG channels to 16 bipolar montage channels following BIOT.
-        
+
         Returns:
             np.ndarray of shape (16, n_samples)
         """
         channeled_data = np.zeros((16, raw_data.shape[1]))
-        
+
         channeled_data[0] = (
             raw_data[ch_name.index("EEG FP1-REF")]
             - raw_data[ch_name.index("EEG F7-REF")]
@@ -350,8 +352,9 @@ class EEGAbnormalTUAB(BaseTask):
     def __call__(self, patient: Any) -> List[Dict[str, Any]]:
         """Processes one patient. Creates one 10-second window sample per segment.
 
-        Iterates over both 'train' and 'eval' splits. 
-        Each sample includes a 'split' field and, when compute_stft=True, a precomputed 'stft' tensor.
+        Iterates over both 'train' and 'eval' splits.
+        Each sample includes a 'split' field and, when compute_stft=True, a
+        precomputed 'stft' tensor.
         """
         pid = patient.patient_id
         samples: List[Dict[str, Any]] = []
@@ -412,7 +415,3 @@ class EEGAbnormalTUAB(BaseTask):
                     )
 
         return samples
-            
-    
-    
-    
