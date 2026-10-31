@@ -2,7 +2,7 @@
 # Description: Image and categorical-sequence VAEs for PyHealth 2.0.
 
 import torch
-import torch.nn as nn
+from torch import nn
 import torch.nn.functional as F
 from torch.nn.utils.rnn import pack_padded_sequence
 
