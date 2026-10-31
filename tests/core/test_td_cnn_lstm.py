@@ -1,4 +1,4 @@
-"""Focused synthetic regressions for T21-T38 (no clinical data needed).
+"""Focused synthetic regressions for T21-T41 (no clinical data needed).
 """
 
 import importlib.util
@@ -1327,3 +1327,249 @@ def test_t38_deterministic_one_step_synthetic_training(objective):
         torch.testing.assert_close(
             value, repeated_model.state_dict()[name], atol=0, rtol=0
         )
+
+
+# ---------------------------------------------------------------------------
+# T39-T41: public synthetic SampleDataset, example pipeline and offline run
+# ---------------------------------------------------------------------------
+_TINY_DATA = {"n_patients": 12, "states_per_patient": 3, "seq_len": 8, "n_features": 6}
+
+
+def _tiny_config(**overrides):
+    """A CPU example configuration small enough for the unit-test suite."""
+    settings = {
+        **_TINY_DATA,
+        "epochs": 1,
+        "batch_size": 4,
+        "hidden_dim": 4,
+        "seed": 7,
+    }
+    settings.update(overrides)
+    return _example_helpers.ExampleConfig(**settings)
+
+
+def _channel_values(sample, key):
+    return torch.as_tensor(sample[key], dtype=torch.float64).reshape(-1)
+
+
+def test_t39_synthetic_samples_follow_the_input_contract():
+    """Invented paired states use T07 sentinels, successors and both classes."""
+    samples = _example_helpers.make_synthetic_samples(**_TINY_DATA, seed=3)
+    repeated = _example_helpers.make_synthetic_samples(**_TINY_DATA, seed=3)
+    assert repr(samples) == repr(repeated)
+    assert len(samples) == 12 * 3
+    assert {sample["label"] for sample in samples} == {0, 1}
+
+    keys = _example_helpers.STATE_CHANNELS
+    for position, sample in enumerate(samples):
+        for prefix in ("", "next_"):
+            times = _channel_values(sample, prefix + "timepoints")
+            values = _channel_values(sample, prefix + "values")
+            features = _channel_values(sample, prefix + "features")
+            delta_time = _channel_values(sample, prefix + "delta_time")
+            event = torch.isfinite(times)
+            assert all(len(sample[prefix + key]) == 8 for key in keys)
+            # we require padding to be consistent across all aligned channels
+            assert torch.equal(event, torch.isfinite(values))
+            assert torch.equal(event, features >= 0)
+            assert bool((features[~event] == -1).all())
+            assert not bool(torch.isfinite(delta_time[~event]).any())
+            assert bool((delta_time[torch.isfinite(delta_time)] > 0).all())
+        # we require one valid current event at least, with the marker at 0
+        assert sample["timepoints"][0] == 0.0
+
+        if sample["state_index"] < 2:
+            successor = samples[position + 1]
+            assert successor["patient_id"] == sample["patient_id"]
+            for key in keys:
+                assert repr(sample["next_" + key]) == repr(successor[key])
+        else:
+            # we mark the final state of each patient as terminal
+            assert sample["next_features"] == [-1] * 8
+
+
+def test_t39_synthetic_samples_reject_unsplittable_settings():
+    with pytest.raises(ValueError, match="positive"):
+        _example_helpers.make_synthetic_samples(n_patients=5)
+    with pytest.raises(ValueError, match="positive_fraction"):
+        _example_helpers.make_synthetic_samples(positive_fraction=1.0)
+    with pytest.raises(TypeError, match="seq_len"):
+        _example_helpers.make_synthetic_samples(seq_len=2.5)
+
+
+def test_t39_sample_dataset_feeds_the_model():
+    """The real SampleDataset gives typed (B, L) batches TDCNNLSTM accepts."""
+    dataset = _example_helpers.build_synthetic_dataset(**_TINY_DATA, seed=3)
+    assert set(dataset.input_schema) == {
+        prefix + key
+        for prefix in ("", "next_")
+        for key in _example_helpers.STATE_CHANNELS
+    }
+    assert dataset.output_schema == {"label": "binary"}
+    first = dataset[0]
+    assert first["features"].dtype == torch.long
+    assert first["next_features"].dtype == torch.long
+    assert first["values"].dtype == torch.float32
+    assert first["values"].shape == (8,)
+
+    loader = _example_helpers.get_dataloader(dataset, batch_size=5, shuffle=False)
+    batch = next(iter(loader))
+    assert batch["timepoints"].shape == (5, 8)
+    assert batch["label"].shape == (5, 1)
+    # we confirm collation keeps padding sentinels instead of zero-filling
+    assert bool(torch.isnan(batch["timepoints"][batch["features"] == -1]).all())
+
+    torch.manual_seed(0)
+    model = TDCNNLSTM(dataset, n_features=6, hidden_dim=4, dropout=0.0)
+    model.eval()
+    with torch.no_grad():
+        outputs = model(**batch)
+    assert set(outputs) == {"loss", "y_prob", "y_true", "logit"}
+    assert outputs["y_prob"].shape == (5, 1)
+    assert torch.equal(outputs["y_true"], batch["label"])
+    assert bool(torch.isfinite(outputs["loss"]))
+
+
+def test_t39_stratified_patient_split_is_disjoint_with_both_classes():
+    dataset = _example_helpers.build_synthetic_dataset(**_TINY_DATA, seed=3)
+    splits = _example_helpers.split_by_patient_stratified(dataset, seed=3)
+
+    patient_sets = []
+    for split in splits:
+        patients = {sample["patient_id"] for sample in split}
+        labels = {int(sample["label"].item()) for sample in split}
+        assert labels == {0, 1}
+        patient_sets.append(patients)
+    assert sum(len(split) for split in splits) == len(dataset)
+    assert not patient_sets[0] & patient_sets[1]
+    assert not patient_sets[0] & patient_sets[2]
+    assert not patient_sets[1] & patient_sets[2]
+
+    with pytest.raises(ValueError, match="sum to 1"):
+        _example_helpers.split_by_patient_stratified(dataset, ratios=(0.5, 0.2, 0.2))
+
+
+def test_t39_scaling_is_derived_from_the_training_split_only():
+    dataset = _example_helpers.build_synthetic_dataset(**_TINY_DATA, seed=3)
+    train, _, test = _example_helpers.split_by_patient_stratified(dataset, seed=3)
+    scaling = _example_helpers.compute_training_scaling(train, n_features=6)
+
+    assert set(scaling) == {"timepoints", "values", "delta_time", "delta_value"}
+    assert scaling["timepoints"]["mean"].shape == ()
+    for key in ("values", "delta_time", "delta_value"):
+        assert scaling[key]["mean"].shape == (6,)
+        assert scaling[key]["std"].shape == (6,)
+        assert bool(torch.isfinite(scaling[key]["mean"]).all())
+
+    # we recompute one per-feature statistic by hand from training samples
+    values = torch.cat([_channel_values(sample, "values") for sample in train])
+    features = torch.cat([_channel_values(sample, "features") for sample in train])
+    feature = int(torch.mode(features[features >= 0]).values)
+    observed = values[features == feature]
+    assert observed.numel() > 1
+    torch.testing.assert_close(
+        scaling["values"]["mean"][feature],
+        observed.mean().float(),
+        atol=1e-5,
+        rtol=1e-5,
+    )
+    torch.testing.assert_close(
+        scaling["values"]["std"][feature],
+        observed.std().float(),
+        atol=1e-5,
+        rtol=1e-5,
+    )
+    test_scaling = _example_helpers.compute_training_scaling(test, n_features=6)
+    assert not torch.equal(test_scaling["values"]["mean"], scaling["values"]["mean"])
+
+    # we confirm the model accepts the derived statistics as buffers
+    model = TDCNNLSTM(dataset, n_features=6, hidden_dim=4, scaling=scaling)
+    torch.testing.assert_close(model.values_mean, scaling["values"]["mean"])
+
+
+def test_t41_safe_binary_auroc_handles_undefined_cases():
+    auroc = _example_helpers.safe_binary_auroc
+    assert auroc([0, 1, 1, 0], [0.1, 0.8, 0.7, 0.3]) == 1.0
+    assert auroc(torch.tensor([[0.0], [1.0]]), torch.tensor([[0.9], [0.2]])) == 0.0
+    assert math.isnan(auroc([1, 1, 1], [0.2, 0.4, 0.9]))
+    assert math.isnan(auroc([0], [0.5]))
+    assert math.isnan(auroc([], []))
+    with pytest.raises(ValueError, match="sizes differ"):
+        auroc([0, 1], [0.5])
+    with pytest.raises(ValueError, match="finite"):
+        auroc([0, 1], [0.5, float("nan")])
+
+
+def test_t41_example_runs_end_to_end_offline(monkeypatch):
+    """Full and no-delta TD runs complete without any network access."""
+    import socket
+
+    def _no_network(*args, **kwargs):
+        raise AssertionError("the synthetic example must not use the network")
+
+    monkeypatch.setattr(socket.socket, "connect", _no_network)
+    monkeypatch.setattr(socket, "create_connection", _no_network)
+
+    rng_before = torch.get_rng_state()
+    results = _example_helpers.run_example(_tiny_config(epochs=2))
+    repeated = _example_helpers.run_example(_tiny_config(epochs=2))
+    assert torch.equal(torch.get_rng_state(), rng_before)
+
+    assert set(results["models"]) == {"full", "no_delta"}
+    assert results["models"]["full"]["use_delta_embeddings"] is True
+    assert results["models"]["no_delta"]["use_delta_embeddings"] is False
+    assert sum(results["n_samples"].values()) == 12 * 3
+    for name, entry in results["models"].items():
+        assert entry["best_epoch"] in (1, 2)
+        assert len(entry["history"]) == 2
+        assert all(math.isfinite(epoch["train_loss"]) for epoch in entry["history"])
+        # we expect defined AUROC because every split contains both classes
+        for split in ("validation", "test"):
+            assert 0.0 <= entry[split]["auroc"] <= 1.0
+            assert 0 < entry[split]["n_positive"] < entry[split]["n_samples"]
+        assert entry["test"] == repeated["models"][name]["test"]
+
+    table = _example_helpers.format_results(results)
+    assert "no_delta" in table and "full - no_delta" in table
+
+
+def test_t41_example_reports_undefined_auroc_instead_of_failing():
+    results = {
+        "n_samples": {"train": 4, "val": 1, "test": 1},
+        "models": {
+            name: {
+                "best_epoch": 1,
+                "validation": {"auroc": math.nan},
+                "test": {"auroc": math.nan},
+            }
+            for name in ("full", "no_delta")
+        },
+    }
+    assert "undefined" in _example_helpers.format_results(results)
+
+
+def test_t41_example_command_line(capsys):
+    _example_helpers.main(
+        [
+            "--n-patients",
+            "12",
+            "--seq-len",
+            "8",
+            "--epochs",
+            "1",
+            "--batch-size",
+            "4",
+            "--hidden-dim",
+            "4",
+            "--seed",
+            "7",
+        ]
+    )
+    printed = capsys.readouterr().out
+    assert "not a clinical result" in printed
+    assert "full" in printed and "no_delta" in printed
+
+
+def test_t41_example_rejects_settings_without_a_full_training_batch():
+    with pytest.raises(ValueError, match="fewer than batch_size"):
+        _example_helpers.run_example(_tiny_config(batch_size=64))
