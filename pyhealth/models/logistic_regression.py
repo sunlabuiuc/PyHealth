@@ -1,12 +1,22 @@
-from typing import Dict
+from collections.abc import Mapping, Sequence
+from typing import Any, cast
 
 import torch
 import torch.nn as nn
 
 from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
+from pyhealth.processors import SequenceProcessorV2, TensorProcessor
+from pyhealth.processors.sequence_processor_v2 import Resample
 
 from .embedding import EmbeddingModel
+from .rnn import _groups, _pool
+from .sequence_embedding import (
+    LevelEmbedding,
+    MaskMode,
+    PretrainedEmbedding,
+    SequenceEmbeddingModel,
+)
 
 
 class LogisticRegression(BaseModel):
@@ -114,7 +124,7 @@ class LogisticRegression(BaseModel):
         """
         return x.sum(dim=1) / mask.sum(dim=1, keepdim=True)
 
-    def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
+    def forward(self, **kwargs) -> dict[str, torch.Tensor]:
         """Forward propagation.
 
         Args:
@@ -207,6 +217,184 @@ class LogisticRegression(BaseModel):
         }
         if kwargs.get("embed", False):
             results["embed"] = patient_emb
+        return results
+
+
+class Unified_LogisticRegression(BaseModel):
+    """Linear prediction over bottom-up means of learned record embeddings.
+
+    Accepts ``sequence_v2`` fields and static ``tensor`` fields. At each level,
+    a record's embedding is concatenated with its children's mean summary,
+    then records are mean-pooled within their parent. Levels may contain
+    multiple token namespaces, numeric values, both, or only child groups.
+    Spatial value axes are flattened and projected within each record by
+    :class:`SequenceEmbeddingModel`. Sequence order and timestamps do not
+    become input features. Empty groups give zero summaries; parents with
+    empty children still contribute their own embeddings.
+
+    Field summaries and flattened static tensors are concatenated and passed
+    to a single linear head. This is a linear head over learned embeddings,
+    rather than classical logistic regression on raw inputs. Nested means
+    weight parents equally, not individual leaves across different parents.
+
+    Per-step binary/regression labels use the cumulative mean of top-level
+    records with time ``<=`` the label time, or zeros before the first record.
+    Every sequence field must then have a ``series`` top level. Resampled
+    record ``i`` has time ``i * step``. Each top-level timestamp must indicate
+    when the entire record, including its children, is available. Static
+    vectors are repeated for each label record of their sample.
+
+    Args:
+        dataset: Dataset with fitted processors and exactly one label.
+        embedding_dim: One :class:`LevelEmbedding` per level of each V2
+            field, innermost first. Use ``{}`` for static-only datasets.
+        mask: ``"ignore"`` or ``"concat"`` for numeric missing indicators.
+        pretrain: Pretrained token namespace embeddings.
+
+    Examples:
+        >>> from pyhealth.datasets import create_sample_dataset, get_dataloader
+        >>> dataset = create_sample_dataset(
+        ...     [{"patient_id": str(i), "age": [50.0 + i], "y": i}
+        ...      for i in range(2)],
+        ...     {"age": "tensor"}, {"y": "binary"},
+        ... )
+        >>> model = Unified_LogisticRegression(dataset, embedding_dim={})
+        >>> model(**next(iter(get_dataloader(dataset, batch_size=2))))["logit"].shape
+        torch.Size([2, 1])
+    """
+
+    def __init__(
+        self,
+        dataset: SampleDataset,
+        embedding_dim: Mapping[str, Sequence[LevelEmbedding]],
+        mask: MaskMode = "ignore",
+        pretrain: Sequence[PretrainedEmbedding] | None = None,
+    ) -> None:
+        super().__init__(dataset)
+        if len(self.label_keys) != 1:
+            raise ValueError("Unified pooling models support exactly one label.")
+        if not self.feature_keys:
+            raise ValueError("At least one input field is required.")
+        self.label_key = self.label_keys[0]
+        self.per_step = self.mode in ("timeseries_binary", "timeseries_regression")
+        self.processors: dict[str, SequenceProcessorV2] = {}
+        self.static_fields: list[str] = []
+        for field in self.feature_keys:
+            if isinstance(
+                processor := dataset.input_processors[field], SequenceProcessorV2
+            ):
+                self.processors[field] = processor
+                if (
+                    self.per_step
+                    and self.processors[field].levels[-1].get("ordering", "sequence")
+                    != "series"
+                ):
+                    raise ValueError(
+                        f"'{field}': per-step labels require a 'series' top level."
+                    )
+            elif isinstance(dataset.input_processors[field], TensorProcessor):
+                self.static_fields.append(field)
+            else:
+                raise TypeError(
+                    f"'{field}': use 'sequence_v2' or static 'tensor' inputs."
+                )
+        self.embedding = SequenceEmbeddingModel(
+            dataset, embedding_dim=embedding_dim, mask=mask, pretrain=pretrain
+        )
+        self.encoders = nn.ModuleDict()
+        self.static_encoders = nn.ModuleDict()
+        self.field_dims: dict[str, int] = {}
+        for field, processor in self.processors.items():
+            self.encoders[field] = nn.ModuleList(
+                nn.Identity() for _ in range(processor.depth + 1)
+            )
+            self.field_dims[field] = sum(self.embedding.embedding_dim_per_level(field))
+            if self.embedding.embedding_dim_per_level(field)[0] == 0:
+                raise ValueError(
+                    f"'{field}': the innermost level has nothing to encode."
+                )
+        for field in self.static_fields:
+            self.static_encoders[field] = nn.Identity()
+            self.field_dims[field] = int(torch.as_tensor(dataset[0][field]).numel())
+        self.fc = nn.Linear(sum(self.field_dims.values()), self.get_output_size())
+
+    def forward(
+        self, **batch: torch.Tensor | tuple[torch.Tensor, ...] | bool
+    ) -> dict[str, Any]:
+        """Return loss, probabilities, targets, logits, and optionally ``embed``."""
+        embedded = self.embedding({field: batch[field] for field in self.processors})
+        label: tuple[torch.Tensor, ...] = ()
+        label_sample = torch.empty(0, dtype=torch.long, device=self.device)
+        if self.per_step:
+            label = tuple(
+                t.to(self.device)
+                for t in cast(tuple[torch.Tensor, ...], batch[self.label_key])
+            )
+            label_sample, _ = _groups(label[2])
+        parts: list[torch.Tensor] = []
+        for field, processor in self.processors.items():
+            summary: torch.Tensor | None = None
+            for level in range(processor.depth + 1):
+                rows: list[torch.Tensor] = []
+                if embedded[field][level]["embedding"] is not None:
+                    rows.append(embedded[field][level]["embedding"])
+                if summary is not None:
+                    rows.append(summary)
+                x = cast(nn.ModuleList, self.encoders[field])[level](
+                    torch.cat(rows, dim=-1)
+                )
+                offsets = embedded[field][level]["offsets"]
+                if self.per_step and level == processor.depth:
+                    # Search each sample's times, then subtract cumulative sums
+                    # at its start to obtain an independent causal prefix mean.
+                    group, position = _groups(offsets)
+                    time = embedded[field][level]["time"]
+                    if time is None:
+                        time = position.to(x.dtype) * float(
+                            cast(Resample, processor.levels[level].get("resample"))[
+                                "step"
+                            ]
+                        )
+                    padded = time.new_full(
+                        (len(offsets) - 1, max(int(offsets.diff().max()), 1)),
+                        float("inf"),
+                    )
+                    padded[group, position] = time
+                    seen = torch.searchsorted(
+                        padded[label_sample],
+                        cast(tuple[torch.Tensor, ...], label)[1]
+                        .to(time.dtype)
+                        .unsqueeze(1),
+                        right=True,
+                    )[:, 0]
+                    prefix = torch.cat([x.new_zeros(1, x.shape[1]), x.cumsum(0)])
+                    summary = (
+                        prefix[offsets[:-1][label_sample] + seen]
+                        - prefix[offsets[:-1][label_sample]]
+                    ) / seen.clamp(min=1).unsqueeze(1).to(x.dtype)
+                else:
+                    summary = _pool(x, offsets)
+            parts.append(cast(torch.Tensor, summary))
+        for field in self.static_fields:
+            x = self.static_encoders[field](
+                cast(torch.Tensor, batch[field]).to(self.device).float().flatten(1)
+            )
+            parts.append(x[label_sample] if self.per_step else x)
+        embed = torch.cat(parts, dim=-1)
+        logits = self.fc(embed)
+        y_true = (
+            label
+            if self.per_step
+            else cast(torch.Tensor, batch[self.label_key]).to(self.device)
+        )
+        results: dict[str, torch.Tensor | tuple[torch.Tensor, ...]] = {
+            "loss": self.get_loss_function()(logits, y_true),
+            "y_prob": self.prepare_y_prob(logits),
+            "y_true": y_true,
+            "logit": logits,
+        }
+        if batch.get("embed", False):
+            results["embed"] = embed
         return results
 
 
