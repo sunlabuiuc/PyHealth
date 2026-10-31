@@ -75,7 +75,7 @@ class Support2Dataset(BaseDataset):
         )
         return
 
-# Authors: Aritra Saha and Ugochukwu Njoku.
+# Added for Survival MDN by Aritra Saha and Ugochukwu Njoku.
 # Survival Mixture Density Networks, Han et al., MLHC 2022.
 # https://proceedings.mlr.press/v182/han22a.html
 
