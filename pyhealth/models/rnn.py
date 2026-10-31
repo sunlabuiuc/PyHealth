@@ -1,4 +1,4 @@
-from typing import Dict, Optional, Tuple
+from typing import Optional
 
 import torch
 import torch.nn as nn
@@ -20,6 +20,9 @@ from pyhealth.processors import (
 )
 
 from .embedding import EmbeddingModel
+
+# Label modes with one prediction per label record (TimeseriesLabelProcessor).
+_PER_STEP_MODES = ("timeseries_binary", "timeseries_regression")
 
 
 class RNNLayer(nn.Module):
@@ -86,7 +89,7 @@ class RNNLayer(nn.Module):
         self,
         x: torch.Tensor,
         mask: Optional[torch.Tensor] = None,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         """Forward propagation.
 
         Args:
@@ -225,12 +228,9 @@ class RNN(BaseModel):
             raise ValueError("hidden_size is determined by hidden_dim")
         assert len(self.label_keys) == 1, "Only one label key is supported if RNN is initialized"
         self.label_key = self.label_keys[0]
-        # Per-step (timeseries) labels predict at every input step.
-        self._per_step = self.mode in ("timeseries_binary", "timeseries_regression")
-        if self._per_step and kwargs.get("bidirectional", False):
+        if self.mode in _PER_STEP_MODES:
             raise ValueError(
-                "A per-step label needs a causal model; bidirectional=True would "
-                "use future time steps."
+                "RNN does not support per-step (timeseries_*) labels."
             )
 
         self.embedding_model = EmbeddingModel(dataset, embedding_dim)
@@ -243,7 +243,7 @@ class RNN(BaseModel):
         output_size = self.get_output_size()
         self.fc = nn.Linear(len(self.feature_keys) * self.hidden_dim, output_size)
 
-    def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
+    def forward(self, **kwargs) -> dict[str, torch.Tensor]:
         """Forward propagation.
 
         The label `kwargs[self.label_key]` is a list of labels for each patient.
@@ -253,7 +253,7 @@ class RNN(BaseModel):
                 all the feature keys and the label key.
 
         Returns:
-            Dict[str, torch.Tensor]: A dictionary with the following keys:
+            dict[str, torch.Tensor]: A dictionary with the following keys:
                 - loss: a scalar tensor representing the loss.
                 - y_prob: a tensor representing the predicted probabilities.
                 - y_true: a tensor representing the true labels.
@@ -309,30 +309,14 @@ class RNN(BaseModel):
                 else:
                     mask = (torch.abs(x).sum(dim=-1) != 0).int()
 
-            outputs, x = self.rnn[feature_key](x, mask)
-            # Per-step labels use the output at every step, else the last one.
-            patient_emb.append(outputs if self._per_step else x)
+            _, x = self.rnn[feature_key](x, mask)
+            patient_emb.append(x)
 
-        if self._per_step:
-            # Features without a time axis (one step) are repeated over time.
-            steps = max(emb.shape[1] for emb in patient_emb)
-            for i, emb in enumerate(patient_emb):
-                if emb.shape[1] == 1:
-                    patient_emb[i] = emb.expand(-1, steps, -1)
-                elif emb.shape[1] != steps:
-                    raise ValueError(
-                        "Per-step labels need all time series features on the "
-                        "same time grid."
-                    )
-        patient_emb = torch.cat(patient_emb, dim=-1)
-        # (patient, label_size), or (patient, steps, label_size) per step
+        patient_emb = torch.cat(patient_emb, dim=1)
+        # (patient, label_size)
         logits = self.fc(patient_emb)
         # obtain y_true, loss, y_prob
-        if self._per_step:
-            # (value, mask) per step; the loss averages over labeled steps.
-            y_true = tuple(t.to(self.device) for t in kwargs[self.label_key])
-        else:
-            y_true = kwargs[self.label_key].to(self.device)
+        y_true = kwargs[self.label_key].to(self.device)
         loss = self.get_loss_function()(logits, y_true)
         y_prob = self.prepare_y_prob(logits)
         results = {"loss": loss, "y_prob": y_prob, "y_true": y_true, "logit": logits}
@@ -443,6 +427,10 @@ class MultimodalRNN(BaseModel):
 
         assert len(self.label_keys) == 1, "Only one label key is supported"
         self.label_key = self.label_keys[0]
+        if self.mode in _PER_STEP_MODES:
+            raise ValueError(
+                "MultimodalRNN does not support per-step (timeseries_*) labels."
+            )
 
         self.embedding_model = EmbeddingModel(dataset, embedding_dim)
 
@@ -496,7 +484,7 @@ class MultimodalRNN(BaseModel):
             TimeseriesProcessor,
         ))
 
-    def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
+    def forward(self, **kwargs) -> dict[str, torch.Tensor]:
         """Forward propagation handling mixed modalities.
 
         The label `kwargs[self.label_key]` is a list of labels for each patient.
@@ -506,7 +494,7 @@ class MultimodalRNN(BaseModel):
                 all the feature keys and the label key.
 
         Returns:
-            Dict[str, torch.Tensor]: A dictionary with the following keys:
+            dict[str, torch.Tensor]: A dictionary with the following keys:
                 - loss: a scalar tensor representing the loss.
                 - y_prob: a tensor representing the predicted probabilities.
                 - y_true: a tensor representing the true labels.

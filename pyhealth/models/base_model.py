@@ -27,37 +27,28 @@ VALID_MODES = (
 )
 
 
-def _masked_step_loss(
+def _label_record_loss(
     loss_fn: Callable,
     logits: torch.Tensor,
-    target: tuple[torch.Tensor, torch.Tensor],
+    target: tuple[torch.Tensor, ...],
 ) -> torch.Tensor:
-    """Averages a per-step loss over the time steps that have a label.
+    """Averages a loss over the label records of a batch.
 
     Args:
-        loss_fn: Elementwise loss accepting ``reduction="none"``.
-        logits: Per-step logits of shape (batch, steps, 1).
-        target: Batched ``(value, mask)`` of shape (batch, label steps), where
-            padding and unlabeled steps have mask 0. Values at those steps are
-            ignored and may be NaN.
+        loss_fn: The loss, e.g. ``F.binary_cross_entropy_with_logits``.
+        logits: One prediction per label record, ``[ΣN, 1]``.
+        target: The packed batch of a
+            :class:`~pyhealth.processors.TimeseriesLabelProcessor`:
+            ``(values [ΣN, 1], time [ΣN], batch offsets [B + 1])``.
     """
-    # Temporary workaround: per-step labels arrive as a (value, mask) tuple so
-    # the existing single-tensor label API stays unchanged. A more unified
-    # handling of padded/masked label tensors across models is a follow-up.
-    value, mask = target
-    if value.shape[1] > logits.shape[1]:
+    values = target[0]
+    if logits.shape != values.shape:
         raise ValueError(
-            f"The label has {value.shape[1]} time steps but the input only "
-            f"{logits.shape[1]}; label and input must share the time grid."
+            f"Expected one prediction per label record, {tuple(values.shape)}, "
+            f"got {tuple(logits.shape)}. Per-step labels need a model that "
+            "predicts at each label's time."
         )
-    logits = logits[:, : value.shape[1], 0]
-    labeled = mask > 0
-    # Replace unlabeled values before the loss so a NaN there reaches neither
-    # the loss nor its gradient, then drop those steps from the sum.
-    value = torch.where(labeled, value, torch.zeros_like(value))
-    loss = loss_fn(logits, value, reduction="none")
-    loss = torch.where(labeled, loss, torch.zeros_like(loss))
-    return loss.sum() / labeled.sum().clamp(min=1)
+    return loss_fn(logits, values)
 
 
 class BaseModel(ABC, nn.Module):
@@ -193,13 +184,14 @@ class BaseModel(ABC, nn.Module):
         if isinstance(schema_entry, str):
             return schema_entry.lower()
 
-        # Get class reference
+        # The most specific registered class: a subclass of a registered
+        # processor (e.g. the timeseries labels, which are SequenceProcessorV2s)
+        # resolves to its own name before its base's.
         cls = schema_entry if inspect.isclass(schema_entry) else schema_entry.__class__
-        for name, registered_cls in PROCESSOR_REGISTRY.items():
-            if cls is registered_cls or issubclass(
-                cls, registered_cls
-            ):  # allow subclassing
-                return name.lower()
+        for klass in cls.__mro__:
+            for name, registered_cls in PROCESSOR_REGISTRY.items():
+                if klass is registered_cls:
+                    return name.lower()
         raise ValueError(
             f"Cannot resolve mode from output_schema entry {schema_entry}. Use a supported string"
         )
@@ -313,16 +305,14 @@ class BaseModel(ABC, nn.Module):
             - multiclass: `F.cross_entropy`
             - multilabel: `F.binary_cross_entropy_with_logits`
             - regression: `F.mse_loss`
-            - timeseries_binary: `F.binary_cross_entropy_with_logits` per
-              time step, averaged over the labeled steps
-            - timeseries_regression: `F.mse_loss` per time step, averaged
-              over the labeled steps
+            - timeseries_binary: `F.binary_cross_entropy_with_logits` over
+              the label records
+            - timeseries_regression: `F.mse_loss` over the label records
 
-        The timeseries losses take per-step logits of shape (batch, steps, 1)
-        and the batched ``(value, mask)`` label, each of shape (batch, steps),
-        produced by an output processor whose ``process()`` returns
-        ``(value, mask)`` per sample with mask 0 for steps without a label.
-        Values at masked steps are ignored and may be NaN.
+        The timeseries losses take one logit per label record, ``[ΣN, 1]``,
+        and the packed batch of a
+        :class:`~pyhealth.processors.TimeseriesLabelProcessor`, ``(values
+        [ΣN, 1], time [ΣN], batch offsets [B + 1])``.
 
         For binary and multilabel labels, a weight set with
         :meth:`set_pos_weight` is passed as ``pos_weight``.
@@ -353,9 +343,11 @@ class BaseModel(ABC, nn.Module):
         elif mode == "regression":
             return F.mse_loss
         elif mode == "timeseries_binary":
-            return functools.partial(_masked_step_loss, F.binary_cross_entropy_with_logits)
+            return functools.partial(
+                _label_record_loss, F.binary_cross_entropy_with_logits
+            )
         elif mode == "timeseries_regression":
-            return functools.partial(_masked_step_loss, F.mse_loss)
+            return functools.partial(_label_record_loss, F.mse_loss)
         else:
             raise ValueError(f"Invalid mode: {mode}")
 
@@ -373,10 +365,10 @@ class BaseModel(ABC, nn.Module):
             - multilabel: a tensor of shape (batch_size, num_labels) with values
                 in [0, 1], which is obtained with `torch.sigmoid()`
             - regression: a tensor of shape (batch_size, 1) with raw logits
-            - timeseries_binary: a tensor of shape (batch_size, steps, 1)
-                with values in [0, 1] per time step, from `torch.sigmoid()`
-            - timeseries_regression: a tensor of shape (batch_size, steps, 1)
-                with raw logits per time step
+            - timeseries_binary: a tensor of shape (label records, 1) with
+                values in [0, 1], from `torch.sigmoid()`
+            - timeseries_regression: a tensor of shape (label records, 1)
+                with raw logits
 
         Args:
             logits (torch.Tensor): The predicted logit tensor.
