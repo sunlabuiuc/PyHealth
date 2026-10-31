@@ -954,6 +954,7 @@ class ConCare(BaseModel):
                     "and sum-pooled per visit for memory efficiency. This reduces "
                     "per-visit code representations to a single scalar.",
                     UserWarning,
+                    stacklevel=2,
                 )
             else:
                 input_dim = proc.size()

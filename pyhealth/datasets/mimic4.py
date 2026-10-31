@@ -122,12 +122,14 @@ class MIMIC4NoteDataset(BaseDataset):
                 "Events from discharge table only have date timestamp (no specific time). "
                 "This may affect temporal ordering of events.",
                 UserWarning,
+                stacklevel=2,
             )
         if "discharge_detail" in tables:
             warnings.warn(
                 "Events from discharge_detail table only have date timestamp (no specific time). "
                 "This may affect temporal ordering of events.",
                 UserWarning,
+                stacklevel=2,
             )
         log_memory_usage(f"Before initializing {dataset_name}")
         super().__init__(
