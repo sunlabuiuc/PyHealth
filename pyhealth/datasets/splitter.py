@@ -792,9 +792,6 @@ def split_by_predefined(
         return tuple(torch.tensor(p) for p in parts)
     return tuple(dataset.subset(p) for p in parts)  # type: ignore
 
-def test_split_by_predefined_is_exported():
-    from pyhealth.datasets import split_by_predefined
-    assert callable(split_by_predefined)
 
 def split_by_patient_conformal_tuh(
     dataset: SampleDataset,
