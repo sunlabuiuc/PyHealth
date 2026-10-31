@@ -1,255 +1,455 @@
-"""Variational autoencoder for images.
-
-Author: Sameh Aissa (port to the PyHealth 2.0 API)
-Paper: Auto-Encoding Variational Bayes
-Paper Link: https://arxiv.org/abs/1312.6114
-
-Description:
-    A convolutional VAE that learns to reconstruct images from a small latent
-    vector and to generate new ones by decoding random latent vectors. The
-    image feature, its channel count and its size are all read from the
-    dataset's ``ImageProcessor``, so the model adapts to whatever image task
-    it is given, for example :class:`~pyhealth.tasks.COVID19CXRImageGeneration`.
-
-    The model reports ``mode == "regression"``, with the input image as the
-    target and the reconstruction as the prediction, so it trains with the
-    standard :class:`~pyhealth.trainer.Trainer` and its validation metrics are
-    reconstruction errors such as ``"mse"`` and ``"mae"``.
-"""
+# Author: Giovanni Dall'Olio
+# Description: Image and categorical-sequence VAEs for PyHealth 2.0.
 
 import torch
-import torch.nn.functional as F
 from torch import nn
+import torch.nn.functional as F
+from torch.nn.utils.rnn import pack_padded_sequence
 
 from pyhealth.datasets import SampleDataset
-from pyhealth.models.base_model import BaseModel
-from pyhealth.models.contrawr import ResBlock2D
-from pyhealth.processors import ImageProcessor
-
-# Encoder widths. Each block quarters the image side, and blocks are added
-# until the feature map is smaller than 8 pixels or the widths run out.
-ENCODER_WIDTHS = (16, 64, 256)
-MIN_ENCODED_SIDE = 8
+from pyhealth.models import BaseModel, EmbeddingModel
+from pyhealth.processors import ImageProcessor, SequenceProcessor
 
 
 class VAE(BaseModel):
-    """Convolutional variational autoencoder for a single image feature.
+    """Variational autoencoder for images or categorical EHR sequences.
 
-    The encoder is a stack of ``ResBlock2D`` blocks that maps an image to the
-    mean and log-variance of a Gaussian over a ``hidden_dim``-dimensional
-    latent space. The decoder maps a latent vector back to an image of the
-    same shape with transposed convolutions.
-
-    The loss is the negative evidence lower bound, averaged over the batch: a
-    reconstruction term plus the KL divergence of the latent posterior from a
-    standard normal prior. Images scaled to ``[0, 1]`` use binary cross-entropy
-    and a sigmoid output. Images normalized by the processor (``normalize=True``)
-    can fall outside that range, so they use a squared-error term and an
-    unbounded output instead.
-
-    Only image inputs are supported. Labels in the dataset's ``output_schema``
-    are ignored, so a classification task's dataset can be used as is.
+    The input modality is inferred from its fitted processor. Image inputs use
+    a convolutional encoder and decoder with a pixel reconstruction objective.
+    ``SequenceProcessor`` inputs use a recurrent encoder and an autoregressive
+    decoder trained to reconstruct code tokens. Both paths use the same latent
+    sampling and KL-divergence objective. The model reconstructs inputs rather
+    than predicting the dataset's output label, so ``Trainer`` reports loss
+    without classification metrics.
 
     Args:
-        dataset: The dataset to train the model. Its ``input_schema`` must
-            contain exactly one feature, processed by an ``ImageProcessor``
-            with ``to_tensor=True``.
-        hidden_dim: Size of the latent space. Default is 128.
+        dataset: A fitted ``SampleDataset`` with one supported input feature.
+        feature_key: Image or sequence key. If omitted, the dataset must have
+            exactly one supported input; specify it when there are several.
+        condition_key: Optional binary or multiclass output label used to
+            condition image generation. If omitted, the sole output label is
+            used for image datasets. Sequence generation is unconditional.
+        latent_dim: Size of the latent representation. Defaults to 128.
+        hidden_dim: Number of convolutional channels or token-embedding units.
+            Defaults to 32.
 
     Examples:
-        >>> import tempfile
-        >>> from pathlib import Path
+        >>> from tempfile import TemporaryDirectory
+        >>> import numpy as np
         >>> from PIL import Image
         >>> from pyhealth.datasets import create_sample_dataset, get_dataloader
         >>> from pyhealth.models import VAE
-        >>> root = Path(tempfile.mkdtemp())
-        >>> samples = []
-        >>> for i in range(4):
-        ...     path = root / f"{i}.png"
-        ...     Image.new("L", (32, 32), color=40 * i).save(path)
-        ...     samples.append({"patient_id": f"p{i}", "image": str(path)})
+        >>> temp_dir = TemporaryDirectory()
+        >>> image_path = f"{temp_dir.name}/image.png"
+        >>> Image.fromarray(np.zeros((32, 32), dtype=np.uint8)).save(image_path)
+        >>> samples = [
+        ...     {"image": image_path, "label": "normal"},
+        ...     {"image": image_path, "label": "disease"},
+        ... ]
         >>> dataset = create_sample_dataset(
         ...     samples=samples,
         ...     input_schema={"image": ("image", {"image_size": 32, "mode": "L"})},
-        ...     output_schema={},
+        ...     output_schema={"label": "multiclass"},
+        ...     dataset_name="vae-example",
         ... )
-        >>> model = VAE(dataset=dataset, hidden_dim=8)
+        >>> model = VAE(dataset, latent_dim=16, hidden_dim=8)
         >>> batch = next(iter(get_dataloader(dataset, batch_size=2)))
-        >>> output = model(**batch)
-        >>> output["y_prob"].shape
+        >>> result = model(**batch)
+        >>> result["reconstruction"].shape
         torch.Size([2, 1, 32, 32])
-        >>> model.generate(num_samples=3).shape
-        torch.Size([3, 1, 32, 32])
     """
 
-    def __init__(self, dataset: SampleDataset, hidden_dim: int = 128) -> None:
+    def __init__(
+        self,
+        dataset: SampleDataset,
+        feature_key: str | None = None,
+        condition_key: str | None = None,
+        latent_dim: int = 128,
+        hidden_dim: int = 32,
+    ) -> None:
         super().__init__(dataset=dataset)
-        self.hidden_dim = hidden_dim
+        if latent_dim < 1 or hidden_dim < 1:
+            raise ValueError("latent_dim and hidden_dim must be positive integers.")
 
-        # Step 1: find the image feature. The modality comes from the
-        # processor rather than from an argument.
-        if len(self.feature_keys) != 1:
-            raise ValueError(
-                "VAE takes exactly one input feature, an image, but the dataset "
-                f"has {len(self.feature_keys)}: {self.feature_keys}"
-            )
-        self.feature_key = self.feature_keys[0]
-        processor = dataset.input_processors[self.feature_key]
-        if not isinstance(processor, ImageProcessor):
-            raise TypeError(
-                f"VAE only supports image inputs, but '{self.feature_key}' is "
-                f"processed by {type(processor).__name__}"
-            )
-        if not processor.to_tensor:
-            raise ValueError("VAE needs the ImageProcessor to use to_tensor=True")
-        self.normalized = bool(processor.normalize)
-
-        # Step 2: read the image shape from a processed sample, so the
-        # processor's mode and image_size decide channels and size.
-        image = dataset[0][self.feature_key]
-        if image.dim() != 3:
-            raise ValueError(
-                f"Expected images of shape (channels, height, width), got "
-                f"{tuple(image.shape)}"
-            )
-        self.image_shape: tuple[int, int, int] = tuple(image.shape)
-        channels, height, width = self.image_shape
-        if min(height, width) < MIN_ENCODED_SIDE:
-            raise ValueError(
-                f"Images must be at least {MIN_ENCODED_SIDE} pixels on each side, "
-                f"got {height}x{width}"
-            )
-
-        # Step 3: build the encoder one block at a time, probing the output
-        # shape, until the feature map is small enough to flatten.
-        blocks: list[nn.Module] = []
-        probe = torch.zeros(2, channels, height, width)
-        in_channels = channels
-        with torch.no_grad():
-            for out_channels in ENCODER_WIDTHS:
-                block = ResBlock2D(in_channels, out_channels, 2, True, True)
-                probe = block.eval()(probe)
-                blocks.append(block)
-                in_channels = out_channels
-                if min(probe.shape[-2:]) < MIN_ENCODED_SIDE:
-                    break
-        self.encoder = nn.Sequential(*blocks)
-        self.encoded_shape: tuple[int, int, int] = tuple(probe.shape[1:])
-        encoded_size = probe[0].numel()
-        self.mu = nn.Linear(encoded_size, hidden_dim)
-        self.logvar = nn.Linear(encoded_size, hidden_dim)
-
-        # Step 4: build the decoder. Each transposed convolution doubles the
-        # side until it reaches the image size, and decode() resizes the
-        # result to the exact size when the doubling overshoots.
-        self.decoder_input = nn.Linear(hidden_dim, encoded_size)
-        layers: list[nn.Module] = []
-        side_h, side_w = self.encoded_shape[1:]
-        width_now = self.encoded_shape[0]
-        while side_h < height or side_w < width:
-            out_channels = max(width_now // 2, 16)
-            layers.append(
-                nn.ConvTranspose2d(
-                    width_now, out_channels, kernel_size=4, stride=2, padding=1
+        image_keys = [
+            key
+            for key, processor in dataset.input_processors.items()
+            if isinstance(processor, ImageProcessor)
+        ]
+        sequence_keys = [
+            key
+            for key, processor in dataset.input_processors.items()
+            if isinstance(processor, SequenceProcessor)
+        ]
+        supported_keys = image_keys + sequence_keys
+        if feature_key is None:
+            if len(supported_keys) != 1:
+                raise ValueError(
+                    "VAE requires one ImageProcessor or SequenceProcessor input; "
+                    "specify feature_key when the dataset has multiple inputs."
                 )
+            feature_key = supported_keys[0]
+        if feature_key in image_keys:
+            self.modality = "image"
+        elif feature_key in sequence_keys:
+            self.modality = "sequence"
+        else:
+            raise ValueError(
+                f"feature_key {feature_key!r} must use ImageProcessor or "
+                "SequenceProcessor."
             )
-            layers.append(nn.ReLU())
-            width_now = out_channels
-            side_h, side_w = side_h * 2, side_w * 2
-        layers.append(nn.Conv2d(width_now, channels, kernel_size=3, padding=1))
-        self.decoder = nn.Sequential(*layers)
+
+        self.feature_key = feature_key
+        self.latent_dim = latent_dim
+        self.hidden_dim = hidden_dim
+        self.condition_key = None
+        self.condition_embedding = None
+        self.num_conditions = 0
+
+        if self.modality == "image":
+            self._init_image(dataset, condition_key)
+        else:
+            if condition_key is not None:
+                raise ValueError(
+                    "condition_key is only supported for image generation."
+                )
+            self._init_sequence(dataset)
+
+        # This is an input-reconstruction model; dataset labels are optional
+        # conditions and are not predictions for Trainer's task metrics.
+        self._mode = "regression" if self.modality == "image" else None
+
+    def _init_image(
+        self, dataset: SampleDataset, condition_key: str | None
+    ) -> None:
+        """Build the image encoder, latent projections, and decoder."""
+        if condition_key is None and len(self.label_keys) == 1:
+            condition_key = self.label_keys[0]
+        if condition_key is not None:
+            if condition_key not in dataset.output_processors:
+                raise ValueError(
+                    f"condition_key {condition_key!r} must be in output_schema."
+                )
+            processor = dataset.output_processors[condition_key]
+            mode = self._resolve_mode(dataset.output_schema[condition_key])
+            if mode not in ("binary", "multiclass"):
+                raise ValueError(
+                    "condition_key must use a binary or multiclass label processor."
+                )
+            self.num_conditions = 2 if mode == "binary" else int(processor.size())
+            if self.num_conditions < 1:
+                raise ValueError("condition_key must have at least one category.")
+            self.condition_key = condition_key
+            self.condition_embedding = nn.Embedding(
+                self.num_conditions, self.latent_dim
+            )
+
+        image_processor = self.dataset.input_processors[self.feature_key]
+        if image_processor.mode is None:
+            raise ValueError(
+                'ImageProcessor mode must be set to "L", "RGB" or "RGBA".'
+            )
+        self.image_size = image_processor.image_size
+        self.image_shape = (
+            {"L": 1, "RGB": 3, "RGBA": 4}[image_processor.mode],
+            self.image_size,
+            self.image_size,
+        )
+        self.normalized = bool(image_processor.normalize)
         self.output_activation = nn.Identity() if self.normalized else nn.Sigmoid()
-
-        # The target is the input image, so the Trainer evaluates the
-        # reconstruction with regression metrics.
-        self.mode = "regression"
-
-    def encode(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        """Maps images to the mean and log-variance of the latent posterior.
-
-        Args:
-            x: Images of shape (batch_size, channels, height, width).
-
-        Returns:
-            A tuple ``(mu, logvar)``, each of shape (batch_size, hidden_dim).
-        """
-        h = self.encoder(x).flatten(start_dim=1)
-        return self.mu(h), self.logvar(h)
-
-    def decode(self, z: torch.Tensor) -> torch.Tensor:
-        """Maps latent vectors to images.
-
-        Args:
-            z: Latent vectors of shape (batch_size, hidden_dim).
-
-        Returns:
-            Images of shape (batch_size, channels, height, width), in ``[0, 1]``
-            unless the processor normalizes its images.
-        """
-        h = self.decoder_input(z).view(-1, *self.encoded_shape)
-        x = self.decoder(h)
-        if tuple(x.shape[-2:]) != self.image_shape[1:]:
-            x = F.interpolate(
-                x, size=self.image_shape[1:], mode="bilinear", align_corners=False
+        if not isinstance(self.image_size, int) or self.image_size < 8:
+            raise ValueError(
+                "VAE image inputs require ImageProcessor with an integer image_size of at least 8."
             )
-        return self.output_activation(x)
+        self.channels = {"L": 1, "RGB": 3, "RGBA": 4}[image_processor.mode]
+        channels = self.hidden_dim
+        self.image_encoder = nn.Sequential(
+            nn.Conv2d(self.channels, channels, 4, 2, 1),
+            nn.ReLU(),
+            nn.Conv2d(channels, channels * 2, 4, 2, 1),
+            nn.ReLU(),
+            nn.Conv2d(channels * 2, channels * 4, 4, 2, 1),
+            nn.ReLU(),
+            nn.AdaptiveAvgPool2d((4, 4)),
+            nn.Flatten(),
+        )
+        encoded_size = channels * 4 * 4 * 4
+        self.image_mu = nn.Linear(encoded_size, self.latent_dim)
+        self.image_log_var = nn.Linear(encoded_size, self.latent_dim)
+        decoder_input = self.latent_dim * (2 if self.condition_key else 1)
+        self.image_decoder_input = nn.Linear(decoder_input, encoded_size)
+        # Match the number of upsampling stages to the configured image size.
+        decoder_layers = []
+        decoder_channels = channels * 4
+        decoder_size = 4
+        while decoder_size < self.image_size:
+            next_size = decoder_size * 2
+            if next_size >= self.image_size:
+                decoder_layers.extend(
+                    [
+                        nn.ConvTranspose2d(
+                            decoder_channels, self.channels, 4, 2, 1
+                        ),
+                        self.output_activation,
+                    ]
+                )
+            else:
+                next_channels = max(channels, decoder_channels // 2)
+                decoder_layers.extend(
+                    [
+                        nn.ConvTranspose2d(
+                            decoder_channels, next_channels, 4, 2, 1
+                        ),
+                        nn.ReLU(),
+                    ]
+                )
+                decoder_channels = next_channels
+            decoder_size = next_size
 
-    def forward(
-        self, **kwargs: torch.Tensor | list[torch.Tensor]
+        self.image_decoder = nn.Sequential(*decoder_layers)
+
+    def _init_sequence(self, dataset: SampleDataset) -> None:
+        """Build a recurrent VAE for categorical code sequences."""
+        self.sequence_processor = dataset.input_processors[self.feature_key]
+        self.pad_token = int(self.sequence_processor.code_vocab.get("<pad>", 0))
+        self.unk_token = self.sequence_processor.code_vocab.get("<unk>")
+        self.vocab_size = self.sequence_processor.vocab_size()
+        self.embedding_model = EmbeddingModel(dataset, self.hidden_dim)
+        self.sequence_encoder = nn.GRU(
+            self.hidden_dim, self.hidden_dim, batch_first=True
+        )
+        self.sequence_mu = nn.Linear(self.hidden_dim, self.latent_dim)
+        self.sequence_log_var = nn.Linear(self.hidden_dim, self.latent_dim)
+        self.sequence_start = nn.Parameter(torch.zeros(1, 1, self.hidden_dim))
+        self.latent_to_hidden = nn.Linear(self.latent_dim, self.hidden_dim)
+        self.sequence_decoder = nn.GRU(
+            self.hidden_dim, self.hidden_dim, batch_first=True
+        )
+        self.sequence_output = nn.Linear(self.hidden_dim, self.vocab_size)
+
+    @staticmethod
+    def _sample(mu: torch.Tensor, log_var: torch.Tensor) -> torch.Tensor:
+        """Draw a latent sample using the reparameterization trick."""
+        return mu + torch.randn_like(mu) * torch.exp(0.5 * log_var)
+
+    def _condition(
+        self, labels: torch.Tensor | None, batch_size: int
+    ) -> torch.Tensor | None:
+        """Convert encoded image-class labels to condition embeddings."""
+        if self.condition_key is None:
+            if labels is not None:
+                raise ValueError("This VAE was initialized without a condition label.")
+            return None
+        if labels is None:
+            raise ValueError(
+                f"Conditional generation requires {self.condition_key!r} labels."
+            )
+        labels = labels.to(self.device).reshape(batch_size, -1)
+        if labels.shape[1] != 1:
+            raise ValueError(
+                "VAE conditioning supports one categorical label per image."
+            )
+        indices = labels[:, 0].long()
+        if bool(((indices < 0) | (indices >= self.num_conditions)).any()):
+            raise ValueError(
+                "Condition labels are outside the fitted label vocabulary."
+            )
+        return self.condition_embedding(indices)
+
+    def _forward_image(
+        self, kwargs: dict[str, torch.Tensor]
     ) -> dict[str, torch.Tensor]:
-        """Encodes, samples and decodes a batch of images.
+        """Reconstruct an image batch and calculate its VAE objective."""
+        if self.feature_key not in kwargs:
+            raise KeyError(f"Missing image input {self.feature_key!r}.")
+        image = kwargs[self.feature_key].to(self.device, dtype=torch.float32)
+        if image.ndim != 4 or image.shape[1] != self.channels:
+            raise ValueError(
+                "Image input must have shape (batch, channels, height, width) "
+                f"with {self.channels} channels."
+            )
+        if not self.normalized and bool(((image < 0) | (image > 1)).any()):
+            raise ValueError(
+                "Image values must be in [0, 1]; configure ImageProcessor "
+                "with normalize=False."
+            )
 
-        In training mode the latent vector is sampled with the
-        reparameterization trick. In eval mode the posterior mean is used, so
-        reconstructions and validation metrics are deterministic.
-
-        Args:
-            **kwargs: The batch, holding the image feature as a tensor of shape
-                (batch_size, channels, height, width) or a list of image tensors.
-
-        Returns:
-            A dictionary with:
-                loss: the negative evidence lower bound, averaged over the batch.
-                y_prob: the reconstructed images.
-                y_true: the input images.
-        """
-        x = kwargs[self.feature_key]
-        if isinstance(x, (list, tuple)):
-            x = torch.stack(list(x))
-        x = x.to(self.device).float()
-
-        mu, logvar = self.encode(x)
-        if self.training:
-            z = mu + torch.randn_like(mu) * torch.exp(0.5 * logvar)
-        else:
-            z = mu
-        x_rec = self.decode(z)
-
-        batch_size = x.shape[0]
+        encoded = self.image_encoder(image)
+        mu = self.image_mu(encoded)
+        log_var = self.image_log_var(encoded).clamp(min=-20, max=20)
+        latent = self._sample(mu, log_var) if self.training else mu
+        condition = self._condition(
+            kwargs.get(self.condition_key) if self.condition_key else None,
+            image.shape[0],
+        )
+        if condition is not None:
+            latent = torch.cat((latent, condition), dim=1)
+        decoded = self.image_decoder_input(latent).reshape(
+            image.shape[0], self.hidden_dim * 4, 4, 4
+        )
+        reconstruction = self.image_decoder(decoded)
+        reconstruction = F.interpolate(
+            reconstruction,
+            size=image.shape[-2:],
+            mode="bilinear",
+            align_corners=False,
+        )
         if self.normalized:
-            reconstruction = F.mse_loss(x_rec, x, reduction="sum")
+            reconstruction_loss = F.mse_loss(
+                reconstruction, image, reduction="sum"
+            ) / image.shape[0]
         else:
-            reconstruction = F.binary_cross_entropy(x_rec, x, reduction="sum")
-        kl = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
-        loss = (reconstruction + kl) / batch_size
-        return {"loss": loss, "y_prob": x_rec, "y_true": x}
+            reconstruction_loss = F.binary_cross_entropy(
+                reconstruction, image, reduction="sum"
+            ) / image.shape[0]
+        kl_loss = -0.5 * torch.sum(1 + log_var - mu.square() - log_var.exp())
+        loss = reconstruction_loss + kl_loss / image.shape[0]
+        return {
+            "loss": loss,
+            "reconstruction": reconstruction,
+            "y_prob": reconstruction,
+            "y_true": image,
+            "mu": mu,
+            "log_var": log_var,
+        }
 
-    @torch.no_grad()
+    def _forward_sequence(
+        self, kwargs: dict[str, torch.Tensor]
+    ) -> dict[str, torch.Tensor]:
+        """Reconstruct categorical tokens with an autoregressive decoder."""
+        if self.feature_key not in kwargs:
+            raise KeyError(f"Missing sequence input {self.feature_key!r}.")
+        tokens = kwargs[self.feature_key].to(self.device).long()
+        if tokens.ndim != 2:
+            raise ValueError(
+                "Sequence input must have shape (batch, sequence_length)."
+            )
+        mask = tokens != self.pad_token
+        lengths = mask.sum(dim=1).clamp(min=1).cpu()
+        embeddings = self.embedding_model({self.feature_key: tokens})[
+            self.feature_key
+        ]
+        packed = pack_padded_sequence(
+            embeddings, lengths, batch_first=True, enforce_sorted=False
+        )
+        _, hidden = self.sequence_encoder(packed)
+        mu = self.sequence_mu(hidden[-1])
+        log_var = self.sequence_log_var(hidden[-1]).clamp(min=-20, max=20)
+        latent = self._sample(mu, log_var)
+
+        start = self.sequence_start.expand(tokens.shape[0], -1, -1)
+        if tokens.shape[1] > 1:
+            previous_embeddings = self.embedding_model(
+                {self.feature_key: tokens[:, :-1]}
+            )[self.feature_key]
+            decoder_inputs = torch.cat((start, previous_embeddings), dim=1)
+        else:
+            decoder_inputs = start
+        decoder_hidden = torch.tanh(self.latent_to_hidden(latent)).unsqueeze(0)
+        decoded, _ = self.sequence_decoder(decoder_inputs, decoder_hidden)
+        logits = self.sequence_output(decoded)
+
+        # Sum token NLL within each sequence, then average both terms per
+        # sequence so reconstruction and KL have matching batch reductions.
+        token_loss = F.cross_entropy(
+            logits.reshape(-1, self.vocab_size),
+            tokens.reshape(-1),
+            ignore_index=self.pad_token,
+            reduction="none",
+        ).reshape_as(tokens)
+        reconstruction_loss = token_loss.sum(dim=1).mean()
+        kl_per_sequence = -0.5 * torch.sum(
+            1 + log_var - mu.square() - log_var.exp(), dim=1
+        )
+        kl_loss = kl_per_sequence.mean()
+        loss = reconstruction_loss + kl_loss
+        return {
+            "loss": loss,
+            "reconstruction_logits": logits,
+            "mu": mu,
+            "log_var": log_var,
+            "mask": mask,
+        }
+
+    def forward(self, **kwargs: torch.Tensor) -> dict[str, torch.Tensor]:
+        """Encode and reconstruct an image or categorical sequence batch."""
+        if self.modality == "image":
+            return self._forward_image(kwargs)
+        return self._forward_sequence(kwargs)
+
     def generate(
-        self, num_samples: int, device: str | torch.device | None = None
+        self,
+        num_samples: int | None = None,
+        sequence_length: int | None = None,
+        conditions: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        """Generates new images by decoding samples from the prior.
+        """Generate images or categorical sequences from latent noise.
 
         Args:
-            num_samples: Number of images to generate.
-            device: Device to generate on. Defaults to the model's device.
+            num_samples: Number of samples for unconditional generation.
+            sequence_length: Number of tokens to generate for a sequence VAE.
+            conditions: Encoded class indices for a conditional image VAE.
 
         Returns:
-            Images of shape (num_samples, channels, height, width).
+            Images shaped ``(batch, channels, height, width)``, or generated
+            token indices shaped ``(batch, sequence_length)``.
+
+        Examples:
+            >>> model.generate(num_samples=2, sequence_length=5)  # doctest: +SKIP
         """
-        was_training = self.training
-        self.eval()
-        z = torch.randn(num_samples, self.hidden_dim, device=device or self.device)
-        images = self.decode(z)
-        self.train(was_training)
-        return images
+        if self.modality == "sequence":
+            if conditions is not None:
+                raise ValueError("Sequence generation does not accept conditions.")
+            if num_samples is None or num_samples < 1:
+                raise ValueError("num_samples must be a positive integer.")
+            if sequence_length is None or sequence_length < 1:
+                raise ValueError("sequence_length must be a positive integer.")
+            latent = torch.randn(num_samples, self.latent_dim, device=self.device)
+            hidden = torch.tanh(self.latent_to_hidden(latent)).unsqueeze(0)
+            previous = self.sequence_start.expand(num_samples, -1, -1)
+            generated = []
+            for _ in range(sequence_length):
+                decoded, hidden = self.sequence_decoder(previous, hidden)
+                logits = self.sequence_output(decoded[:, 0, :])
+                logits[:, self.pad_token] = torch.finfo(logits.dtype).min
+                if self.unk_token is not None:
+                    logits[:, self.unk_token] = torch.finfo(logits.dtype).min
+                token = torch.multinomial(
+                    F.softmax(logits, dim=-1), num_samples=1
+                ).squeeze(-1)
+                generated.append(token)
+                previous = self.embedding_model(
+                    {self.feature_key: token.unsqueeze(1)}
+                )[self.feature_key]
+            return torch.stack(generated, dim=1)
+
+        if self.condition_key and conditions is None:
+            raise ValueError("Conditional generation requires encoded conditions.")
+        if self.condition_key is None and conditions is not None:
+            raise ValueError("This VAE was initialized without a condition label.")
+        if conditions is not None:
+            conditions = conditions.to(self.device).reshape(-1).long()
+            num_samples = conditions.shape[0]
+            if bool(
+                ((conditions < 0) | (conditions >= self.num_conditions)).any()
+            ):
+                raise ValueError(
+                    "Condition labels are outside the fitted label vocabulary."
+                )
+        if num_samples is None or num_samples < 1:
+            raise ValueError("num_samples must be a positive integer.")
+        latent = torch.randn(num_samples, self.latent_dim, device=self.device)
+        if conditions is not None:
+            latent = torch.cat(
+                (latent, self.condition_embedding(conditions)), dim=1
+            )
+        decoded = self.image_decoder_input(latent).reshape(
+            num_samples, self.hidden_dim * 4, 4, 4
+        )
+        images = self.image_decoder(decoded)
+        return F.interpolate(
+            images,
+            size=(self.image_size, self.image_size),
+            mode="bilinear",
+            align_corners=False,
+        )
