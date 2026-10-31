@@ -133,6 +133,125 @@ Medication codes:
     :undoc-members:
     :show-inheritance:
 
+Knowledge graph embeddings
+--------------------------
+
+``pyhealth.medcode.pretrained_embeddings.kg_emb`` trains TransE, RotatE,
+DistMult and ComplEx on a knowledge graph with the standard streaming
+pipeline:
+
+1. :class:`~pyhealth.medcode.pretrained_embeddings.kg_emb.datasets.BaseKGDataset`
+   is a :class:`~pyhealth.datasets.BaseDataset` with one ``triples`` table
+   (``head``, ``relation``, ``tail``) declared in YAML with
+   ``patient_id: null``, so each triple is one record.
+   :class:`~pyhealth.medcode.pretrained_embeddings.kg_emb.datasets.UMLSDataset`
+   is its bundled UMLS configuration. Entity and relation ids are assigned on
+   the full graph, by sorted name.
+2. ``set_task(KGLinkPrediction(...), split=PatientSplit(...))`` splits the
+   triples and fits the processors on the training part only, returning one
+   streaming :class:`~pyhealth.datasets.SampleDataset` per part. Each sample
+   holds one ``triple``. The known heads and tails of every pair, which
+   filter the ranking at evaluation (filtered setting of Bordes et al.,
+   2013), are built once from the triples of all the parts and attached to
+   every part as ``known_triples``
+   (:class:`~pyhealth.medcode.pretrained_embeddings.kg_emb.datasets.KnownTriples`),
+   so the cache grows with the number of triples only.
+   Duplicate triples are removed and counted.
+3. The ``kg_triple`` processor
+   (:class:`~pyhealth.processors.KGTripleProcessor`), fitted on the training
+   triples, gives the models the numbers of entities and relations and the
+   dicts that keep known training positives out of the training negatives,
+   as in the reference implementation of Sun et al. (2019). The training
+   filters and the subsampling weights therefore come from the training
+   triples only. The entity set is that of the whole graph, however, so an
+   entity that appears only in validation or test triples is still drawn as a
+   training negative; such held-out triples are kept and scored, and
+   ``set_task`` logs how many there are in each part. ``set_task`` warns when
+   called without ``split`` and without a supplied ``triple`` processor, and
+   when the supplied ``kg_triple`` processor has not been fitted.
+4. The models take ``negative_sampling`` as an argument and follow
+   ``model.train()`` / ``model.eval()``, as set by
+   :class:`~pyhealth.trainer.Trainer`; use the ``hits@n`` and ``mean_rank``
+   metrics.
+
+See ``examples/kg_emb_link_prediction.py`` for a self-contained walk-through.
+
+Two caveats apply to the reported metrics. A candidate whose score ties with
+the true entity's is ranked in the order returned by ``np.argsort``, not by a
+stated convention, so ranks are ill-defined when many scores tie, as with
+degenerate embeddings. In ``graph_filtered.txt``, the UMLS file that PyHealth
+1.x used in dev mode, every triple has its exact inverse, so a triple-level
+split leaves the inverse of most test triples in the training part
+(``graph.txt`` has not been checked; see
+:class:`~pyhealth.medcode.pretrained_embeddings.kg_emb.datasets.UMLSDataset`);
+this is the leakage reported for FB15k and WN18 by Toutanova and Chen (2015)
+and Dettmers et al. (2018).
+
+The PyHealth 1.x entry points ``link_prediction_fn``, ``SampleKGDataset``
+and ``kg_emb.datasets.split`` have been removed, as have ``set_task`` with a
+function or ``task_fn=``, its ``task_name=``, ``save=`` and extra keyword
+arguments (``negative_sampling`` is now a model argument, step 4), the
+``refresh_cache`` argument, ``len()``, and the ``entity_num``,
+``relation_num``, ``triples``, ``stat()`` and ``info()`` members of
+``BaseKGDataset`` (use ``num_entities``, ``num_relations`` and
+``stats()``); use the 2.0 path above. ``BaseKGDataset`` now takes
+``(root, config_path, dataset_name=None, cache_dir=None, num_workers=1,
+dev=False)``, so ``config_path`` holds the second position, formerly
+``dataset_name``; its ``raw_graph_process()`` hook and its ``samples``,
+``task_name``, ``filepath`` and ``len`` attributes are gone, and
+``entity2id`` and ``relation2id`` are read-only properties.
+``UMLSDataset`` keeps ``root`` and ``dataset_name`` as its first two
+arguments, but its third is now ``config_path``, formerly ``dev``: pass
+``dev`` by keyword. Its
+results are not comparable with 1.x runs: 1.x filtered training negatives
+with, and computed subsampling weights on, every triple of the graph,
+held-out ones included, and made one sample per row of the file, duplicates
+included. ``UMLSDataset(dev=True)`` now keeps 1000 triples of ``graph.txt``,
+where 1.x loaded the whole of ``graph_filtered.txt``. A model must be built
+from a sample dataset part, not from the ``BaseKGDataset`` itself. Ids no
+longer follow the 1.x numbering, the order in which ``pandas.unique``
+returned the entities of the head and tail columns: map 1.x embeddings
+through the ``id2entity`` saved with them.
+
+.. autoclass:: pyhealth.medcode.pretrained_embeddings.kg_emb.datasets.BaseKGDataset
+    :members:
+    :show-inheritance:
+
+.. autoclass:: pyhealth.medcode.pretrained_embeddings.kg_emb.datasets.KnownTriples
+    :members:
+
+.. autoclass:: pyhealth.medcode.pretrained_embeddings.kg_emb.datasets.UMLSDataset
+    :members:
+    :show-inheritance:
+
+.. autoclass:: pyhealth.medcode.pretrained_embeddings.kg_emb.tasks.KGLinkPrediction
+    :members:
+    :show-inheritance:
+
+.. autoclass:: pyhealth.medcode.pretrained_embeddings.kg_emb.models.KGEBaseModel
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+.. autoclass:: pyhealth.medcode.pretrained_embeddings.kg_emb.models.TransE
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+.. autoclass:: pyhealth.medcode.pretrained_embeddings.kg_emb.models.RotatE
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+.. autoclass:: pyhealth.medcode.pretrained_embeddings.kg_emb.models.DistMult
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+.. autoclass:: pyhealth.medcode.pretrained_embeddings.kg_emb.models.ComplEx
+    :members:
+    :undoc-members:
+    :show-inheritance:
 
 
 

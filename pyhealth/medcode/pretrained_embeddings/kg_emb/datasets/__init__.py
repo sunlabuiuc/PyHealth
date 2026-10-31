@@ -1,4 +1,8 @@
-from .sample_kg_dataset import SampleKGDataset
-from .base_kg_dataset import BaseKGDataset
+from .base_kg_dataset import BaseKGDataset, KnownTriples
 from .umls import UMLSDataset
-from .splitter import split
+
+__all__ = [
+    "BaseKGDataset",
+    "KnownTriples",
+    "UMLSDataset",
+]
