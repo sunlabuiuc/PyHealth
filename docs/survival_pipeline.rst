@@ -26,6 +26,13 @@ standardization on training patients once and uses ``days / 365.25 + 0.001``.
 Neither path passes a model-side ``time_scale``. The task defaults instead keep
 source months/days, allowing explicitly chosen alternative protocols.
 
+The MDN benchmark also accepts ``--standardize-gbsg`` for a controlled feature
+preprocessing comparison. It fits means and population standard deviations on
+the selected split's training patients and saves the transform. Validation/test
+features use those same values; constant features use scale one. The default
+remains raw GBSG features. Hold the model, seed, released split and training
+limits fixed when comparing the two conditions, and retain separate results.
+
 Predictions require positive grid times in the same units as the labels. Save
 the feature/time preprocessing and model configuration with every checkpoint.
 

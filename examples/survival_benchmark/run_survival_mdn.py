@@ -349,19 +349,28 @@ def config_grid(
 
 
 class GBSGBenchmark:
-    """GBSG released partitions with raw features and paper-normalized time.
+    """GBSG released partitions with explicit feature and time conventions.
 
     Args:
         root: Directory containing gbsg.csv.
         released_dir: Directory containing the released train/valid/test NPZs.
         cache_dir: Destination for native dataset/task caches.
+        standardize: Fit feature means/scales on each split's training patients.
+            Default False preserves the raw-feature paper protocol.
     """
 
-    def __init__(self, root: Path, released_dir: Path, cache_dir: Path) -> None:
+    def __init__(
+        self,
+        root: Path,
+        released_dir: Path,
+        cache_dir: Path,
+        standardize: bool = False,
+    ) -> None:
         self.root, self.released_dir = root, released_dir
-        dataset = GBSGDataset(root=str(root), cache_dir=cache_dir, num_workers=1)
+        self.standardize = standardize
+        self.dataset = GBSGDataset(root=str(root), cache_dir=cache_dir, num_workers=1)
         task = SurvivalTimeToEventGBSG(**gbsg_paper_time_transform(root))
-        self.samples = dataset.set_task(task)
+        self.samples = self.dataset.set_task(task)
         self.preprocessing = {"features": "raw", **gbsg_paper_time_transform(root)}
 
     def split(
@@ -376,7 +385,24 @@ class GBSGBenchmark:
             Train/validation/test IDs, native samples and time metadata.
         """
         ids = gbsg_released_split_ids(self.root, self.released_dir, split)
-        return ids, self.samples, self.preprocessing
+        if not self.standardize:
+            return ids, self.samples, self.preprocessing
+        raw = {
+            sample["patient_id"]: sample["features"].numpy() for sample in self.samples
+        }
+        train = np.stack([raw[pid] for pid in ids["train"]]).astype(float)
+        mean, scale = train.mean(axis=0), train.std(axis=0)
+        scale[scale == 0] = 1.0
+        time = gbsg_paper_time_transform(self.root)
+        task = SurvivalTimeToEventGBSG(mean.tolist(), scale.tolist(), **time)
+        samples = self.dataset.set_task(task)
+        preprocessing = {
+            "features": "standardized on this split's training patients",
+            "feature_mean": mean.tolist(),
+            "feature_scale": scale.tolist(),
+            **time,
+        }
+        return ids, samples, preprocessing
 
 
 class Support2Benchmark:
@@ -837,8 +863,15 @@ def main(argv: Sequence[str] | None = None) -> None:
     p.add_argument("--patience", type=int)
     p.add_argument("--lr", type=float)
     p.add_argument("--batch-size", type=int)
+    p.add_argument(
+        "--standardize-gbsg",
+        action="store_true",
+        help="Fit GBSG feature standardization on training patients only",
+    )
     p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     args = p.parse_args(argv)
+    if args.standardize_gbsg and args.dataset != "gbsg":
+        p.error("--standardize-gbsg requires --dataset gbsg")
     if args.dataset != "synthetic" and (args.root is None or args.released_dir is None):
         p.error("Real datasets require --root and --released-dir")
     if any(v < 1 for v in args.splits) or any(v < 0 for v in args.seeds):
@@ -884,6 +917,8 @@ def main(argv: Sequence[str] | None = None) -> None:
                 "runtime": {key: env[key] for key in ("python", "torch", "cuda", "gpu")}
                 | {"device": args.device},
             }
+            if args.dataset == "gbsg":
+                request["gbsg_standardize"] = args.standardize_gbsg
             parent = args.out / name / f"split_{split}" / f"seed_{seed}"
             run_dir, saved = resolve_run(parent, request)
             if saved is not None:
@@ -892,7 +927,14 @@ def main(argv: Sequence[str] | None = None) -> None:
                 continue
             if benchmark is None:
                 benchmark = BENCHMARKS[args.dataset](
-                    args.root, args.released_dir, args.out / "cache"
+                    args.root,
+                    args.released_dir,
+                    args.out / "cache",
+                    **(
+                        {"standardize": args.standardize_gbsg}
+                        if args.dataset == "gbsg"
+                        else {}
+                    ),
                 )
             if prepared is None:
                 prepared = benchmark.split(split)

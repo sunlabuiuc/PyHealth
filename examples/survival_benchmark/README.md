@@ -72,6 +72,11 @@ input hashes are recorded. Model initialization uses `--seed` for baselines and
   `months / cohort_max + 0.002`. Each GBSG baseline fits feature standardization
   on training patients only and saves its means/scales. This is an explicit
   model-specific preprocessing choice, not identical arithmetic for every model.
+  For a paired MDN preprocessing ablation, add `--standardize-gbsg`. This fits
+  all seven feature means and population standard deviations on the selected
+  split's training patients, applies them unchanged to validation/test, and
+  saves them in the record. Constant features use a scale of one. Raw features
+  remain the default; the option is rejected for other datasets.
 - SUPPORT uses all 27 task features, standardized on the selected split's
   training patients, and `days / 365.25 + 0.001`. Baselines disable their extra
   feature transform because the task already standardizes the inputs.
@@ -99,6 +104,23 @@ is fitted. Each output folder is named by configuration, split and seed.
 Model options use the public constructor names, including `time_transform`,
 `num_hidden_layers`, `hidden_dim` and `num_components`. For example:
 `{"model": {"time_transform": "exp", "num_hidden_layers": 3}}`.
+
+For raw-versus-standardized GBSG MDN, keep model settings, initialization seed,
+split membership, time conversion and training limits fixed. Use separate
+output roots for the two conditions, and add only `--standardize-gbsg` for the
+second. For example, run this twice with the indicated differences:
+
+```bash
+python -m examples.survival_benchmark.run_survival_mdn \
+  --dataset gbsg --root /data/gbsg --released-dir /data/Survival-MDN/data/gbsg \
+  --splits 1 2 3 4 5 6 7 8 9 10 --seeds 1 --device cpu --out /runs/gbsg-mdn-raw
+# Second condition: add --standardize-gbsg and use --out /runs/gbsg-mdn-standardized.
+```
+
+These are twenty new fits with the current upstream model. Keep them separate
+from results produced with another model implementation. Compare all matched
+splits and report the preprocessing effect without choosing conditions by test
+performance. Early stopping still selects weights using validation loss only.
 
 ## Metrics and saved results
 
