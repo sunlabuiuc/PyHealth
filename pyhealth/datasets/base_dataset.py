@@ -1,6 +1,7 @@
 import logging
 import os
 import pickle
+import posixpath
 from abc import ABC
 from pathlib import Path
 from typing import Dict, Iterator, Iterable, List, Optional, Any, Callable
@@ -106,10 +107,21 @@ def is_url(path: str) -> bool:
 
 
 def clean_path(path: str) -> str:
-    """Clean a path string."""
+    """Clean a path string.
+
+    URL paths are normalised as POSIX paths on every OS; local paths are
+    expanded and resolved.
+
+    Examples:
+        >>> from pyhealth.datasets.base_dataset import clean_path
+        >>> clean_path("https://example.org/a/b/../c.csv")
+        'https://example.org/a/c.csv'
+    """
     if is_url(path):
         parsed = urlparse(path)
-        cleaned_path = os.path.normpath(parsed.path)
+        # A URL path is POSIX whatever the host OS: os.path.normpath would
+        # rewrite the separators as backslashes on Windows.
+        cleaned_path = posixpath.normpath(parsed.path)
         # Rebuild the full URL
         return urlunparse(parsed._replace(path=cleaned_path))
     else:

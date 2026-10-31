@@ -214,6 +214,7 @@ Available Tasks
     MIMIC-III ICD-9 Coding <tasks/pyhealth.tasks.MIMIC3ICD9Coding>
     Cardiology Detection <tasks/pyhealth.tasks.cardiology_detect>
     COVID-19 CXR Classification <tasks/pyhealth.tasks.COVID19CXRClassification>
+    COVID-19 CXR Image Generation <tasks/pyhealth.tasks.COVID19CXRImageGeneration>
     DKA Prediction (MIMIC-IV) <tasks/pyhealth.tasks.dka>
     Drug Recommendation <tasks/pyhealth.tasks.drug_recommendation>
     EHR Generation <tasks/pyhealth.tasks.generate_ehr>
@@ -230,6 +231,7 @@ Available Tasks
     Sleep Staging (SleepEDF) <tasks/pyhealth.tasks.SleepStagingSleepEDF>
     Temple University EEG Tasks <tasks/pyhealth.tasks.temple_university_EEG_tasks>
     EEGBCI Tasks <tasks/pyhealth.tasks.eegbci>
+    PTB-XL Tasks <tasks/pyhealth.tasks.ptbxl>
     Sleep Staging v2 <tasks/pyhealth.tasks.sleep_staging_v2>
     Benchmark EHRShot <tasks/pyhealth.tasks.benchmark_ehrshot>
     ChestX-ray14 Binary Classification <tasks/pyhealth.tasks.ChestXray14BinaryClassification>

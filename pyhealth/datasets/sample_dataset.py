@@ -15,6 +15,7 @@ import logging
 
 import numpy as np
 import torch
+from packaging.version import Version
 
 from ..processors import get_processor, IgnoreProcessor
 from ..processors.base_processor import FeatureProcessor
@@ -590,7 +591,13 @@ class SampleDataset(litdata.StreamingDataset):
         return f"Sample dataset {self.dataset_name} {self.task_name}"
 
     def subset(self, indices: Union[Sequence[int], slice]) -> "SampleDataset":
-        """Create a StreamingDataset restricted to the provided indices."""
+        """Create a StreamingDataset restricted to the provided indices.
+
+        The subset reads with litdata's POSIX-fast mmap reads turned off
+        (litdata >= 0.2.68). They cache per index run, not per chunk file,
+        which makes a patient-level split ~20x slower to iterate. The full
+        dataset keeps them.
+        """
 
         new_dataset = deepcopy_dataset(self)
 
@@ -664,6 +671,16 @@ class SampleDataset(litdata.StreamingDataset):
         )
         new_dataset._delete_on_close = False
         new_dataset.reset()
+
+        # The subset lists one (file, region) entry per run of consecutive
+        # indices, so a patient-level split has thousands of entries over a
+        # few chunk files. POSIX-fast caches per entry, not per file: it
+        # re-maps the file and re-parses its offset table for each entry.
+        # Batched decoding stays on: turning it off as well gains nothing,
+        # and with both off litdata <= 0.2.76 cannot random-access chunks
+        # stored in its Arrow-footer layout (Lightning-AI/litData#954).
+        if Version(litdata.__version__) >= Version("0.2.68"):
+            new_dataset.posix_fast = None  # type: ignore
 
         return new_dataset
 

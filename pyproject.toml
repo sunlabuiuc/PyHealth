@@ -18,7 +18,7 @@ authors = [
   {name = "Paul Landes", email = "plande2@uic.edu"},
   {name = "Jimeng Sun"},
 ]
-description = "A Python library for healthcare AI"
+description = "A deep learning toolkit for healthcare AI: EHR (MIMIC, eICU, OMOP), clinical text, biosignals and medical imaging"
 readme = "README.rst"
 requires-python = ">=3.12,<3.14"
 dependencies = [
@@ -42,8 +42,8 @@ dependencies = [
   "pydantic>=2.11,<3",
   "dask[complete]>=2026.1.0",
   # >=0.2.64: worker indexes merge in numeric rank order (patient_to_index relies
-  # on it). <0.2.68: 0.2.68+ reads SampleDataset.subset() parts ~10-35x slower.
-  "litdata>=0.2.64,<0.2.68",
+  # on it).
+  "litdata>=0.2.64",
   "pyarrow>=23.0.1",
   "orjson~=3.10",
   "narwhals>=2.13,<3",
@@ -51,17 +51,36 @@ dependencies = [
   "einops>=0.8.0",
   "linear-attention-transformer>=0.19.1",
 ]
-license = "BSD-3-Clause"
-license-files = ["LICENSE.md"]
+license = "MIT"
+license-files = ["LICENSE"]
 keywords = [
-  "heathcare AI",
+  "healthcare AI",
   "healthcare",
   "electronic health records",
-  "EHRs",
+  "EHR",
+  "MIMIC-III",
+  "MIMIC-IV",
+  "eICU",
+  "OMOP",
+  "clinical machine learning",
+  "clinical NLP",
+  "medical codes",
+  "biosignals",
   "machine learning",
-  "data mining",
-  "neural networks",
   "deep learning",
+  "PyTorch",
+]
+classifiers = [
+  "Development Status :: 5 - Production/Stable",
+  "Intended Audience :: Science/Research",
+  "Intended Audience :: Healthcare Industry",
+  "Intended Audience :: Developers",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Topic :: Scientific/Engineering :: Medical Science Apps.",
 ]
 
 [project.optional-dependencies]
@@ -73,6 +92,9 @@ nlp = [
   "rouge_score~=0.1.2",
   "nltk~=3.9.1",
 ]
+ptbxl = [
+  "wfdb>=4.1.0",
+]
 xgboost = [
   "xgboost>=2.0",
 ]
@@ -81,11 +103,13 @@ lint = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/sunlabuiuc/PyHealth"
-Documentation = "https://pyhealth.readthedocs.io/en/latest/about.html"
+Homepage = "https://pyhealth.dev"
+Documentation = "https://pyhealth.readthedocs.io/en/latest/"
+Tutorials = "https://pyhealth.readthedocs.io/en/latest/tutorials.html"
 Repository = "https://github.com/sunlabuiuc/PyHealth.git"
 Issues = "https://github.com/sunlabuiuc/PyHealth/issues"
 Changelog = "https://github.com/sunlabuiuc/PyHealth/blob/master/CHANGELOG.md"
+Discord = "https://discord.gg/mpb835EHaX"
 
 [build-system]
 requires = ["hatchling"]
@@ -145,7 +169,7 @@ pytest = "*"
 pytest-cov = "*"
 
 [tool.pixi.feature.test.pypi-dependencies]
-pyhealth = { path = ".", editable = true }
+pyhealth = { path = ".", editable = true, extras = ["ptbxl"] }
 
 [tool.pixi.feature.nlp.pypi-dependencies]
 pyhealth = { path = ".", editable = true }
