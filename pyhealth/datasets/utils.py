@@ -1,11 +1,13 @@
+import functools
 import hashlib
 import os
 import pickle
+from collections.abc import Callable, Mapping
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
-import torch
 import litdata
+import torch
 from dateutil.parser import parse as dateutil_parse
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader
@@ -250,16 +252,31 @@ def collate_fn_dict(batch: List[dict]) -> dict:
     return {key: [d[key] for d in batch] for key in batch[0]}
 
 
-def collate_fn_dict_with_padding(batch: List[dict]) -> dict:
+def collate_fn_dict_with_padding(
+    batch: list[dict], collators: Mapping[str, Callable] | None = None
+) -> dict:
     """Collates a batch of data into a dictionary with padding for tensor values.
 
     Args:
         batch: List of dictionaries, where each dictionary represents a data sample.
+        collators: Optional collate function per key, given the key's values
+            in the batch. Keys with one are collated only by it.
 
     Returns:
         A dictionary where each key corresponds to a list of values from the batch.
         Tensor values are padded to the same shape.
         Tuples of (time, values) from temporal processors are collated separately.
+
+    Examples:
+        >>> import torch
+        >>> batch = [{"x": torch.tensor([1, 2]), "id": "a"}, {"x": torch.tensor([3]), "id": "b"}]
+        >>> collate_fn_dict_with_padding(batch)["x"]
+        tensor([[1, 2],
+                [3, 0]])
+        >>> collate_fn_dict_with_padding(batch)["id"]
+        ['a', 'b']
+        >>> collate_fn_dict_with_padding(batch, collators={"x": len})["x"]
+        2
     """
     collated = {}
     keys = batch[0].keys()
@@ -267,8 +284,10 @@ def collate_fn_dict_with_padding(batch: List[dict]) -> dict:
     for key in keys:
         values = [sample[key] for sample in batch]
 
+        if collators is not None and key in collators:
+            collated[key] = collators[key](values)
         # Check if this is a temporal feature tuple (time, values)
-        if isinstance(values[0], tuple) and len(values[0]) == 2:
+        elif isinstance(values[0], tuple) and len(values[0]) == 2:
             # Handle (time, values) tuples from processors
             time_tensors = [v[0] for v in values]
             value_tensors = [v[1] for v in values]
@@ -403,13 +422,25 @@ def get_dataloader(
     from .sample_dataset import SampleDataset
 
     if isinstance(dataset, SampleDataset):
+        # Fields whose processor defines collate() are batched by it.
+        processors = {**dataset.input_processors, **dataset.output_processors}
+        collators = {
+            key: processor.collate
+            for key, processor in processors.items()
+            if callable(getattr(processor, "collate", None))
+        }
+        collate_fn = (
+            functools.partial(collate_fn_dict_with_padding, collators=collators)
+            if collators
+            else collate_fn_dict_with_padding
+        )
         return _SeededDataLoader(
             dataset,
             shuffle_samples=shuffle,
             seed=seed,
             batch_size=batch_size,
             generator=generator,
-            collate_fn=collate_fn_dict_with_padding,
+            collate_fn=collate_fn,
         )
     if hasattr(dataset, "set_shuffle"):  # another iterable dataset, e.g. litdata's
         dataset.set_shuffle(shuffle)

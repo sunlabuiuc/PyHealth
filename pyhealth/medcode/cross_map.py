@@ -187,6 +187,19 @@ class CrossMap:
         """Source codes seen so far that had no target in this mapping."""
         return getattr(self.mapping, "unmapped_codes", frozenset())
 
+    @property
+    def has_many_targets(self):
+        """Whether some source code maps to more than one target code.
+
+        False means the mapping is single-valued (x-to-one): `map()` returns
+        at most one code. This describes the table, so it is True even if only
+        a few codes have several targets.
+        """
+        if isinstance(self.mapping, _ICDMappingsBackend):
+            # icd-mappings returns a single (primary) target for every code.
+            return False
+        return any(len(targets) > 1 for targets in self.mapping.values())
+
     def __repr__(self):
         return f"CrossMap(source_vocabulary={self.s_vocab}, source_class={self.s_class} target_vocabulary={self.t_vocab}, target_class={self.t_class})"
 
