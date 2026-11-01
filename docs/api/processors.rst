@@ -36,8 +36,8 @@ Available Processors
 - ``MultiClassLabelProcessor``: Multi-class classification labels
 - ``MultiLabelProcessor``: Multi-label classification (e.g., drug recommendation)
 - ``RegressionLabelProcessor``: Continuous regression targets
-- ``TimeseriesBinaryLabelProcessor``: Binary label per time step (``"timeseries_binary"``), returned as ``(value, mask)`` on the time grid of the input time series
-- ``TimeseriesRegressionLabelProcessor``: Real-valued label per time step (``"timeseries_regression"``)
+- ``TimeseriesBinaryLabelProcessor``: Binary labels at given times (``"timeseries_binary"``): each sample is ``{"time": [...], "values": [...]}``, packed per batch as ``(values [ΣN, 1], time [ΣN], batch offsets [B + 1])``, one record per label, with no grid or mask
+- ``TimeseriesRegressionLabelProcessor``: Real-valued labels at given times (``"timeseries_regression"``), in the same packed format
 
 **Data Type Processors:**
 

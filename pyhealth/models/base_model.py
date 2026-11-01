@@ -15,8 +15,8 @@ from ..processors import PROCESSOR_REGISTRY
 logger = logging.getLogger(__name__)
 
 # Label kinds understood by the loss helpers, Trainer and the calibration methods.
-# The timeseries modes are labels per time step; they need an output processor
-# whose process() returns (value, mask), with mask 0 for steps without a label.
+# The timeseries modes are per-step labels: a TimeseriesLabelProcessor packs
+# them as (values, time, batch offsets), one record per label.
 VALID_MODES = (
     "binary",
     "multiclass",
