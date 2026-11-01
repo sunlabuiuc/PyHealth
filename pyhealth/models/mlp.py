@@ -9,7 +9,7 @@ from pyhealth.interpret.api import Interpretable
 from pyhealth.models import BaseModel
 
 from .embedding import EmbeddingModel
-from .logistic_regression import Unified_LogisticRegression
+from .logistic_regression import LogisticRegression_V2
 from .rnn import _per_field
 from .sequence_embedding import LevelEmbedding, MaskMode, PretrainedEmbedding
 
@@ -394,11 +394,11 @@ class MLP(BaseModel, Interpretable):
         return self.embedding_model
 
 
-class Unified_MLP(Unified_LogisticRegression):
+class MLP_V2(LogisticRegression_V2):
     """Bottom-up record MLPs and mean pooling, plus MLPs for static fields.
 
     Uses the input, hierarchy, spatial flattening, and per-step prefix means
-    described in :class:`Unified_LogisticRegression`. Each hierarchy level
+    described in :class:`LogisticRegression_V2`. Each hierarchy level
     has its own MLP, applied to records before pooling. Static tensors are
     flattened per sample and transformed by their own MLPs. All field outputs
     are concatenated and passed to a linear prediction head.
@@ -427,7 +427,7 @@ class Unified_MLP(Unified_LogisticRegression):
         ...      for i in range(2)],
         ...     {"age": "tensor"}, {"y": "binary"},
         ... )
-        >>> model = Unified_MLP(dataset, embedding_dim={}, hidden_dim=16)
+        >>> model = MLP_V2(dataset, embedding_dim={}, hidden_dim=16)
         >>> model(**next(iter(get_dataloader(dataset, batch_size=2))))["logit"].shape
         torch.Size([2, 1])
     """

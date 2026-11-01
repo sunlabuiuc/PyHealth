@@ -16,7 +16,7 @@ from .sequence_embedding import (
 from .gamenet import GAMENet, GAMENetLayer
 from .jamba_ehr import JambaEHR, JambaLayer
 from .logistic_regression import LogisticRegression
-from .logistic_regression import Unified_LogisticRegression as Unified_LogisticRegression
+from .logistic_regression import LogisticRegression_V2 as LogisticRegression_V2
 from .gan import GAN
 from .gnn import GAT, GCN
 from .graph_torchvision_model import Graph_TorchvisionModel
@@ -26,7 +26,7 @@ from .medfuse import MedFuse, MedFuseLayer
 from .medlink import MedLink
 from .micron import MICRON, MICRONLayer
 from .mlp import MLP
-from .mlp import Unified_MLP as Unified_MLP
+from .mlp import MLP_V2 as MLP_V2
 from .molerec import MoleRec, MoleRecLayer
 from .retain import MultimodalRETAIN, RETAIN, RETAINLayer
 from .rnn import MultimodalRNN, RNN, RNNLayer

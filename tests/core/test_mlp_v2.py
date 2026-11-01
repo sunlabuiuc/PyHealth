@@ -9,7 +9,7 @@ import torch
 from torch import nn
 
 from pyhealth.datasets import create_sample_dataset, get_dataloader
-from pyhealth.models import LevelEmbedding, Unified_LogisticRegression, Unified_MLP
+from pyhealth.models import LevelEmbedding, LogisticRegression_V2, MLP_V2
 from pyhealth.models.sequence_embedding import _FieldEmbedding
 from pyhealth.processors import LevelConfig, SequenceProcessorV2
 from pyhealth.trainer import Trainer
@@ -67,7 +67,7 @@ class TestUnifiedPooling(unittest.TestCase):
         self.batch = next(iter(get_dataloader(self.dataset, batch_size=3)))
 
     def test_hierarchical_mean_and_static_flattening(self) -> None:
-        model = Unified_LogisticRegression(self.dataset, self.dims)
+        model = LogisticRegression_V2(self.dataset, self.dims)
         with torch.no_grad():
             for level in range(2):
                 projection = cast(
@@ -90,7 +90,7 @@ class TestUnifiedPooling(unittest.TestCase):
         )
 
     def test_mlp_transforms_every_level_and_statics(self) -> None:
-        model = Unified_MLP(
+        model = MLP_V2(
             self.dataset, self.dims, hidden_dim=1, num_layers=1, dropout=0
         )
         with torch.no_grad():
@@ -116,7 +116,7 @@ class TestUnifiedPooling(unittest.TestCase):
             {"y": "binary"},
         )
         batch = next(iter(get_dataloader(dataset, batch_size=2)))
-        model = Unified_MLP(dataset, {}, hidden_dim=2, num_layers=2, dropout=0)
+        model = MLP_V2(dataset, {}, hidden_dim=2, num_layers=2, dropout=0)
         with torch.no_grad():
             for module in cast(nn.Sequential, model.static_encoders["x"]):
                 if isinstance(module, nn.Linear):
@@ -126,7 +126,7 @@ class TestUnifiedPooling(unittest.TestCase):
             model(**batch, embed=True)["embed"], torch.tensor([[0.0, 3.0], [2.0, 0.0]])
         )
         torch.testing.assert_close(
-            Unified_LogisticRegression(dataset, {})(**batch, embed=True)["embed"],
+            LogisticRegression_V2(dataset, {})(**batch, embed=True)["embed"],
             batch["x"].float(),
         )
 
@@ -145,7 +145,7 @@ class TestUnifiedPooling(unittest.TestCase):
         for sample in original:
             del sample["events"]["time"]
         original = create_sample_dataset(original, schema, {"y": "binary"})
-        for cls in (Unified_MLP, Unified_LogisticRegression):
+        for cls in (MLP_V2, LogisticRegression_V2):
             model = cls(original, self.dims).eval()
             torch.testing.assert_close(
                 model(**next(iter(get_dataloader(original, batch_size=3))))["logit"],
@@ -153,7 +153,7 @@ class TestUnifiedPooling(unittest.TestCase):
             )
 
     def test_per_field_settings_and_gradients(self) -> None:
-        model = Unified_MLP(
+        model = MLP_V2(
             self.dataset,
             self.dims,
             hidden_dim={"events": 3, "static": 5},
@@ -184,8 +184,8 @@ class TestUnifiedPooling(unittest.TestCase):
             ],
         ):
             with self.subTest(kwargs=kwargs), self.assertRaises(ValueError):
-                Unified_MLP(self.dataset, self.dims, **kwargs)
-        for cls in (Unified_MLP, Unified_LogisticRegression):
+                MLP_V2(self.dataset, self.dims, **kwargs)
+        for cls in (MLP_V2, LogisticRegression_V2):
             with self.assertRaises(ValueError):
                 cls(self.dataset, self.dims, mask=cast(Any, "invalid"))
             with self.assertRaises(ValueError):
@@ -228,7 +228,7 @@ class TestUnifiedPooling(unittest.TestCase):
             samples, self.schema, {"y": "timeseries_binary"}
         )
         batch = next(iter(get_dataloader(dataset, batch_size=3)))
-        for cls in (Unified_MLP, Unified_LogisticRegression):
+        for cls in (MLP_V2, LogisticRegression_V2):
             model = cls(dataset, self.dims).eval()
             embed = model(**batch, embed=True)["embed"]
             # Predict at each individual parent time using single-record samples
@@ -297,7 +297,7 @@ class TestUnifiedPooling(unittest.TestCase):
                 {"y": "timeseries_regression"},
             )
             batch = next(iter(get_dataloader(dataset, batch_size=2)))
-            for cls in (Unified_MLP, Unified_LogisticRegression):
+            for cls in (MLP_V2, LogisticRegression_V2):
                 model = cls(dataset, {"x": [{"values": 1}]}).eval()
                 out = model(**batch, embed=True)
                 if empty:
@@ -365,7 +365,7 @@ class TestUnifiedPooling(unittest.TestCase):
         dims: dict[str, list[LevelEmbedding]] = {
             "x": [{"tokens": (2, 3), "values": 4}, {}, {"tokens": (2,)}]
         }
-        for cls in (Unified_MLP, Unified_LogisticRegression):
+        for cls in (MLP_V2, LogisticRegression_V2):
             model = cls(dataset, dims).eval()
             embedded = model.embedding({"x": batch["x"]})["x"]
             self.assertEqual(embedded[0]["embedding"].shape, (4, 9))
@@ -408,7 +408,7 @@ class TestUnifiedPooling(unittest.TestCase):
                 sample["y"] = label
             dataset = create_sample_dataset(samples, self.schema, {"y": mode})
             batch = next(iter(get_dataloader(dataset, batch_size=3)))
-            for cls in (Unified_MLP, Unified_LogisticRegression):
+            for cls in (MLP_V2, LogisticRegression_V2):
                 with self.subTest(mode=mode, model=cls.__name__):
                     out = cls(dataset, self.dims)(**batch)
                     self.assertEqual(out["logit"].shape, (3, width))
@@ -425,7 +425,7 @@ class TestUnifiedPooling(unittest.TestCase):
                 sample["y"] = {"time": [0.0, 1.0, 3.0], "values": [0.0, 1.0, 0.0]}
             dataset = create_sample_dataset(samples, self.schema, {"y": mode})
             loader = get_dataloader(dataset, batch_size=2)
-            for cls in (Unified_MLP, Unified_LogisticRegression):
+            for cls in (MLP_V2, LogisticRegression_V2):
                 trainer = Trainer(
                     model=cls(dataset, self.dims),
                     metrics=[metric],
@@ -446,7 +446,7 @@ class TestUnifiedPooling(unittest.TestCase):
                 self.assertIn(metric, trainer.evaluate(loader))
             dataset = create_sample_dataset(samples, {"static": "tensor"}, {"y": mode})
             batch = next(iter(get_dataloader(dataset, batch_size=3)))
-            for cls in (Unified_MLP, Unified_LogisticRegression):
+            for cls in (MLP_V2, LogisticRegression_V2):
                 model = cls(dataset, {}).eval()
                 out = model(**batch, embed=True)
                 torch.testing.assert_close(
@@ -465,7 +465,7 @@ class TestUnifiedPooling(unittest.TestCase):
             schema = copy.deepcopy(self.schema)
             schema["events"][1]["levels"][1]["ordering"] = ordering
             dataset = create_sample_dataset(samples, schema, {"y": "timeseries_binary"})
-            for cls in (Unified_MLP, Unified_LogisticRegression):
+            for cls in (MLP_V2, LogisticRegression_V2):
                 with self.assertRaisesRegex(ValueError, "series"):
                     cls(dataset, self.dims)
 
@@ -500,7 +500,7 @@ class TestUnifiedPooling(unittest.TestCase):
         batch = next(iter(get_dataloader(dataset, batch_size=2)))
         with tempfile.TemporaryDirectory() as directory:
             Path(directory, "tokens.txt").write_text("a 1 2\nb 3 4\n", encoding="utf-8")
-            for cls in (Unified_MLP, Unified_LogisticRegression):
+            for cls in (MLP_V2, LogisticRegression_V2):
                 model = cls(
                     dataset,
                     {"x": [{"tokens": (2,), "values": 1}]},
@@ -550,7 +550,7 @@ class TestUnifiedPooling(unittest.TestCase):
         dataset = create_sample_dataset(samples, schema, {"y": "timeseries_binary"})
         batch = next(iter(get_dataloader(dataset, batch_size=3)))
         dims: dict[str, list[LevelEmbedding]] = {**self.dims, "other": [{"values": 1}]}
-        for cls in (Unified_MLP, Unified_LogisticRegression):
+        for cls in (MLP_V2, LogisticRegression_V2):
             model = cls(dataset, dims).eval()
             out = model(**batch, embed=True)
             torch.testing.assert_close(

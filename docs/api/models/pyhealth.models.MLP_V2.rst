@@ -1,11 +1,11 @@
-pyhealth.models.Unified_MLP
-==========================
+pyhealth.models.MLP_V2
+======================
 
 An MLP baseline for packed hierarchical records and static tensors.
 Each level transforms its records before mean pooling into their parents.
 Static tensors are flattened per sample and passed through independent MLPs.
 
-.. autoclass:: pyhealth.models.Unified_MLP
+.. autoclass:: pyhealth.models.MLP_V2
     :members:
     :show-inheritance:
 
@@ -15,7 +15,7 @@ Example
 .. code-block:: python
 
     from pyhealth.datasets import create_sample_dataset, get_dataloader
-    from pyhealth.models import Unified_MLP, Unified_LogisticRegression
+    from pyhealth.models import MLP_V2, LogisticRegression_V2
 
     dataset = create_sample_dataset(
         [
@@ -33,9 +33,9 @@ Example
     )
     dims = {"visits": [{"tokens": (8,)}, {}]}
     batch = next(iter(get_dataloader(dataset, batch_size=2)))
-    model = Unified_MLP(dataset, dims, hidden_dim=16)
+    model = MLP_V2(dataset, dims, hidden_dim=16)
     result = model(**batch)
-    linear_baseline = Unified_LogisticRegression(dataset, dims)
+    linear_baseline = LogisticRegression_V2(dataset, dims)
     linear_result = linear_baseline(**batch)
 
 For per-step labels, give each sequence field a ``series`` top level.

@@ -5,8 +5,8 @@ Embeddings for the packed records of ``sequence_v2``
 (:class:`~pyhealth.processors.SequenceProcessorV2`) fields. Each level's
 records get one embedding per token namespace and a projection of their
 values, concatenated; each level keeps its offsets and times.
-:class:`~pyhealth.models.RNN_V2`, :class:`~pyhealth.models.Unified_MLP` and
-:class:`~pyhealth.models.Unified_LogisticRegression` build on it.
+:class:`~pyhealth.models.RNN_V2`, :class:`~pyhealth.models.MLP_V2` and
+:class:`~pyhealth.models.LogisticRegression_V2` build on it.
 
 .. autoclass:: pyhealth.models.SequenceEmbeddingModel
     :members:

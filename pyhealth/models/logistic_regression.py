@@ -220,7 +220,7 @@ class LogisticRegression(BaseModel):
         return results
 
 
-class Unified_LogisticRegression(BaseModel):
+class LogisticRegression_V2(BaseModel):
     """Linear prediction over bottom-up means of learned record embeddings.
 
     Accepts ``sequence_v2`` fields and static ``tensor`` fields. At each level,
@@ -258,7 +258,7 @@ class Unified_LogisticRegression(BaseModel):
         ...      for i in range(2)],
         ...     {"age": "tensor"}, {"y": "binary"},
         ... )
-        >>> model = Unified_LogisticRegression(dataset, embedding_dim={})
+        >>> model = LogisticRegression_V2(dataset, embedding_dim={})
         >>> model(**next(iter(get_dataloader(dataset, batch_size=2))))["logit"].shape
         torch.Size([2, 1])
     """
@@ -272,7 +272,7 @@ class Unified_LogisticRegression(BaseModel):
     ) -> None:
         super().__init__(dataset)
         if len(self.label_keys) != 1:
-            raise ValueError("Unified pooling models support exactly one label.")
+            raise ValueError(f"{type(self).__name__} supports exactly one label.")
         if not self.feature_keys:
             raise ValueError("At least one input field is required.")
         self.label_key = self.label_keys[0]
