@@ -142,6 +142,10 @@ from .patient_linkage_mimic3 import PatientLinkageMIMIC3Task
 from .knowrare_mimic4 import (
     KnowRareICUMortalityMIMIC4 as KnowRareICUMortalityMIMIC4,
 )
+from .value_set_completion import (
+    ValueSetCompletion as ValueSetCompletion,
+    build_retrieval_index as build_retrieval_index,
+)
 from .yaib_mimic3 import (
     YAIBAKIMIMIC3 as YAIBAKIMIMIC3,
     YAIBKidneyFunctionMIMIC3 as YAIBKidneyFunctionMIMIC3,

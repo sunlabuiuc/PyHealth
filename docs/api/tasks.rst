@@ -258,3 +258,4 @@ Available Tasks
     Lab Nowcasting (MIMIC-III/IV) <tasks/pyhealth.tasks.LabNowcasting>
     ICU Acuity and Therapies (MIMIC-IV) <tasks/pyhealth.tasks.ICUAcuityMIMIC4>
     Cancer Mutation Burden (TCGA) <tasks/pyhealth.tasks.CancerMutationBurden>
+    Value Set Completion (VSAC) <tasks/pyhealth.tasks.ValueSetCompletion>
