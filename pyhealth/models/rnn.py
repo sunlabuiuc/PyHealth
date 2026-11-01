@@ -786,6 +786,9 @@ class RNN_V2(BaseModel):
     of each record's children. A ``set`` level mean-pools each group; a
     ``sequence`` / ``series`` level runs its RNN over each group and keeps
     the last output, giving one summary per parent record, up to one per sample.
+    So a record and everything below it are encoded as one unit. Following
+    :class:`~pyhealth.processors.SequenceProcessorV2`, each level's time has
+    its own unit and origin, and only orders the records of a group.
 
     A group without records (e.g. a stay without labs) is skipped by the RNN
     and summarized as zeros. With ``time_feature``, each record of a timed
@@ -796,8 +799,11 @@ class RNN_V2(BaseModel):
     a :class:`~pyhealth.processors.TimeseriesLabelProcessor`): the model
     predicts once per label record. The label's times are in the unit of the
     fields' top level, with the same origin, and a label at time ``t`` uses
-    each field's top-level state after its last record with time ``<= t``
-    (zeros before the first) and the statics, so it never sees later records.
+    each field's top-level state after its last top-level record with time
+    ``<= t`` (zeros before the first) and the statics, so it never sees a
+    later top-level record. That state covers everything the record contains:
+    lower levels' times are not on the label's timeline and are not compared
+    to it, so data that must be cut at label times belongs at the top level.
     Every V2 field must have a ``series`` top level; a resampled one counts,
     with record ``i`` at time ``i * step``. Wrap a ``set`` or ``sequence``
     top level in a ``series`` with ``t = 0``. Logits are ``[label records,

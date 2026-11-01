@@ -48,9 +48,15 @@ class Records(TypedDict, total=False):
     a key it needs must be present (its column may be empty), and any other
     key is ignored.
 
+    A record contains its children: ``children[i]`` is part of record ``i``,
+    and together they are one unit at record ``i``'s place in its level. Each
+    level's time has its own unit and origin (e.g. hours since admission for
+    stays, minutes since the stay's start for its labs), so times are only
+    compared within a level, never across levels.
+
     Keys:
-        time: ``[N]`` numbers in the task's own unit. Read on ``series``
-            levels.
+        time: ``[N]`` numbers in this level's own unit and origin. Read on
+            ``series`` levels.
         tokens: ``[N]`` tokens, or ``[N]`` tuples of ``K`` tokens when the
             level has ``K`` token namespaces.
         values: ``[N, *S]`` numbers. Scalars are ``[N, 1]``; a flat ``[N]``
@@ -84,10 +90,10 @@ class Resample(TypedDict):
 
     Each grid step becomes one record, and the level becomes a ``sequence``
     without time: record ``i`` is the step starting at ``i * step``. The grid
-    starts at the task's time 0, so negative time raises.
+    starts at the level's time 0, so negative time raises.
 
     Keys:
-        step: Grid step, in the task's time unit.
+        step: Grid step, in the level's time unit.
         method: How the records in one step become one record.
 
             - ``"first"`` / ``"last"``: keep the first / last record, with
@@ -234,7 +240,8 @@ class LevelConfig(TypedDict, total=False):
 
     Keys:
         ordering: ``"set"``, ``"sequence"`` (default) or ``"series"``.
-            Describes the raw input; ``series`` levels carry ``time``.
+            Describes the raw input; ``series`` levels carry ``time``, in
+            the level's own unit (see :class:`Records`).
         tokens: Number of token namespaces ``K``; the level's records have
             ``tokens``, plain strings when ``K = 1`` and ``K``-tuples otherwise.
         values: Value shape ``S``, e.g. ``[1]`` for scalars; the level's
@@ -988,10 +995,12 @@ class SequenceProcessorV2(FeatureProcessor):
     Reads a :class:`Records` and emits a tuple of tensors in :meth:`schema`
     order: by level, then by role (``tokens``, ``values``, ``mask``, ``time``,
     ``offsets``). ``offsets`` at level ``l`` partitions level ``l`` records
-    into level ``l + 1`` records, in CSR layout. Which roles a level has, the
-    number of token namespaces ``K`` and the value shape ``S`` come from the
-    configuration; :meth:`fit` only builds the vocabularies and the statistics
-    of imputation and normalization.
+    into level ``l + 1`` records, in CSR layout: a level ``l + 1`` record
+    contains its group of level ``l`` records, and each level's time is its
+    own (see :class:`Records`). Which roles a level has, the number of token
+    namespaces ``K`` and the value shape ``S`` come from the configuration;
+    :meth:`fit` only builds the vocabularies and the statistics of imputation
+    and normalization.
 
     Subclasses are configuration only: their ``__init__`` passes fixed
     ``levels`` to ``super().__init__()`` and adds no logic.

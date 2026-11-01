@@ -281,6 +281,33 @@ class TestPerStep(unittest.TestCase):
         # The static age goes with every label record of its sample.
         self.assertEqual(result["embed"][:, 5].tolist(), [0.0] * 3 + [1.0] * 3)
 
+    def test_a_top_level_record_includes_all_its_children(self):
+        # Stays (series) of timed labs (series); lab times are in their own unit.
+        levels: list[LevelConfig] = [
+            {"ordering": "series", "tokens": 1},
+            {"ordering": "series", "tokens": 1},
+        ]
+        stays = {
+            "time": [0.0, 2.0],
+            "tokens": ["er", "op"],
+            "children": [
+                {"time": [0.0, 5.0, 9.0], "tokens": ["A", "B", "C"]},
+                {"time": [0.0], "tokens": ["D"]},
+            ],
+        }
+        dataset = self.dataset(levels, [stays] * 2)
+        model = _model(
+            dataset,
+            embedding_dim={"x": [{"tokens": (4,)}, {"tokens": (3,)}]},
+            hidden_dim=5,
+        )
+        batch = _batch(dataset)
+        embed = model(**batch, embed=True)["embed"][:, :5]
+        _, (_, states, _) = _encode(model, batch, "x")
+        # The label at 1.0 sees the whole stay at 0, labs at 5 and 9 included.
+        torch.testing.assert_close(embed[1], states[0])
+        torch.testing.assert_close(embed[2], states[1])
+
     def test_labels_between_records(self):
         records = [_visits((0.0, "er", ["A"]), (2.0, "op", ["B"]))] * 2
         dataset = self.dataset(VISITS, records, times=(1.5, 2.5))
