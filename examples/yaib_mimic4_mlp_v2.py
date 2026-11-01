@@ -1,10 +1,10 @@
-"""Train Unified_MLP or Unified_LogisticRegression on the five MIMIC-IV YAIB tasks.
+"""Train MLP_V2 or LogisticRegression_V2 on the five MIMIC-IV YAIB tasks.
 
 Run from the repository root with PyHealth and its dependencies installed::
 
-    .venv/Scripts/python.exe -B examples/yaib_mimic4_unified_mlp.py
-    .venv/Scripts/python.exe -B examples/yaib_mimic4_unified_mlp.py --check
-    .venv/Scripts/python.exe -B examples/yaib_mimic4_unified_mlp.py --model logistic_regression
+    .venv/Scripts/python.exe -B examples/yaib_mimic4_mlp_v2.py
+    .venv/Scripts/python.exe -B examples/yaib_mimic4_mlp_v2.py --check
+    .venv/Scripts/python.exe -B examples/yaib_mimic4_mlp_v2.py --model logistic_regression
 
 The default root is D:/physionet.org/files/mimiciv/3.1, the local MIMIC-IV
 installation. Override it with --root on other machines. This uses version
@@ -32,7 +32,7 @@ for variable in ("POLARS_MAX_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS"):
 import torch
 
 from pyhealth.datasets import MIMIC4EHRDataset, PatientSplit, SampleDataset, get_dataloader
-from pyhealth.models import Unified_LogisticRegression, Unified_MLP
+from pyhealth.models import LogisticRegression_V2, MLP_V2
 from pyhealth.tasks import (
     YAIBAKIMIMIC4,
     YAIBKidneyFunctionMIMIC4,
@@ -126,7 +126,7 @@ def run_task(
     # MLP transforms records before pooling and flattened statics before fusion;
     # logistic regression pools learned embeddings and uses raw static vectors.
     model = (
-        Unified_MLP(
+        MLP_V2(
             dataset=train_data,
             embedding_dim={"dynamic": [{"values": args.embedding_dim}]},
             hidden_dim=args.hidden_dim,
@@ -135,7 +135,7 @@ def run_task(
             mask="concat",
         )
         if args.model == "mlp"
-        else Unified_LogisticRegression(
+        else LogisticRegression_V2(
             dataset=train_data,
             embedding_dim={"dynamic": [{"values": args.embedding_dim}]},
             mask="concat",
@@ -197,7 +197,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--output-dir", type=Path,
-        default=REPO_ROOT / "output" / "yaib_unified_mlp",
+        default=REPO_ROOT / "output" / "yaib_mlp_v2",
     )
     parser.add_argument("--check", action="store_true", help="Check data files and linear device support, then exit")
     args = parser.parse_args()
