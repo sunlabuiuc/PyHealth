@@ -247,6 +247,7 @@ API Reference
     models/pyhealth.models.CorGAN
     models/pyhealth.models.Synthea
     models/pyhealth.models.SDOH
+    models/pyhealth.models.SequenceEmbeddingModel
     models/pyhealth.models.VisionEmbeddingModel
     models/pyhealth.models.TextEmbedding
     models/pyhealth.models.BIOT

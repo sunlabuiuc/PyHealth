@@ -8,6 +8,11 @@ from .concare import ConCare, ConCareLayer
 from .contrawr import ContraWR, ResBlock2D
 from .deepr import Deepr, DeeprLayer
 from .embedding import EmbeddingModel
+from .sequence_embedding import (
+    LevelEmbedding as LevelEmbedding,
+    PretrainedEmbedding as PretrainedEmbedding,
+    SequenceEmbeddingModel as SequenceEmbeddingModel,
+)
 from .gamenet import GAMENet, GAMENetLayer
 from .jamba_ehr import JambaEHR, JambaLayer
 from .logistic_regression import LogisticRegression
