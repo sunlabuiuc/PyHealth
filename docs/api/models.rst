@@ -39,7 +39,7 @@ routes each feature type automatically.
    * - ``MultimodalRNN``
      - Features mix sequential codes with static tensors or multi-hot encodings
      - Auto-routes sequential features to RNN layers and non-sequential features to linear layers; good default for EHR
-   * - ``Unified_RNN``
+   * - ``RNN_V2``
      - Features are ``sequence_v2`` fields (nested codes, values and timestamps), plus static tensors
      - Encodes each field bottom-up over packed records, without padding the hierarchy
    * - :doc:`models/pyhealth.models.StageNet`

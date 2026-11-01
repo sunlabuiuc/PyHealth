@@ -241,7 +241,7 @@ class _YAIBMIMIC4Task(BaseTask):
     standardized like the other static features.
 
     Training needs a model that reads the ``sequence_v2`` input and the
-    per-hour label records, such as :class:`~pyhealth.models.Unified_RNN`;
+    per-hour label records, such as :class:`~pyhealth.models.RNN_V2`;
     :class:`~pyhealth.models.RNN` and :class:`~pyhealth.models.MultimodalRNN`
     do not.
 

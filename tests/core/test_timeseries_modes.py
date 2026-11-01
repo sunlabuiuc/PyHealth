@@ -9,7 +9,7 @@ from pyhealth.metrics import (
     timeseries_binary_metrics_fn,
     timeseries_regression_metrics_fn,
 )
-from pyhealth.models import RNN, LevelEmbedding, MultimodalRNN, Unified_RNN
+from pyhealth.models import RNN, LevelEmbedding, MultimodalRNN, RNN_V2
 from pyhealth.processors import (
     LevelConfig,
     MultiHotProcessor,
@@ -62,8 +62,8 @@ def _model(dataset) -> LabelRecordModel:
     return model
 
 
-def _unified_rnn(dataset) -> Unified_RNN:
-    model = Unified_RNN(dataset, embedding_dim=DIMS, hidden_dim=8, dropout=0.0)
+def _rnn_v2(dataset) -> RNN_V2:
+    model = RNN_V2(dataset, embedding_dim=DIMS, hidden_dim=8, dropout=0.0)
     model.eval()
     return model
 
@@ -87,7 +87,7 @@ class TestTimeseriesModes(unittest.TestCase):
         # Sample 1 has no label at hour 0: it is left out, not masked.
         dataset = _dataset(labeled=lambda i, h: (i, h) != (1, 0))
         batch = next(iter(get_dataloader(dataset, batch_size=4)))
-        for make_model in (_model, _unified_rnn):
+        for make_model in (_model, _rnn_v2):
             with self.subTest(model=make_model.__name__), torch.no_grad():
                 out = make_model(dataset)(**batch)
                 values, time, offsets = out["y_true"]
@@ -99,9 +99,9 @@ class TestTimeseriesModes(unittest.TestCase):
                 )
                 torch.testing.assert_close(loss, out["loss"])
 
-    def test_unified_rnn_predictions_do_not_see_later_records(self):
+    def test_rnn_v2_predictions_do_not_see_later_records(self):
         dataset = _dataset()
-        model = _unified_rnn(dataset)
+        model = _rnn_v2(dataset)
         batch = next(iter(get_dataloader(dataset, batch_size=1)))
         with torch.no_grad():
             before = model(**batch)["y_prob"][:, 0]
@@ -163,7 +163,7 @@ class TestTimeseriesModes(unittest.TestCase):
                 model(dataset=dataset)
 
     def test_trainer_scores_label_records_per_sample(self):
-        for make_model in (_model, _unified_rnn):
+        for make_model in (_model, _rnn_v2):
             with self.subTest(model=make_model.__name__):
                 dataset = _dataset()
                 trainer = Trainer(

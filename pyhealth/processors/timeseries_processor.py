@@ -202,7 +202,7 @@ class TimeseriesLabelProcessor(SequenceProcessorV2):
     raises. There is no grid, resampling, imputation or mask.
 
     A model predicts one value per label, at its time, from the input records
-    at or before it (see :class:`~pyhealth.models.Unified_RNN`).
+    at or before it (see :class:`~pyhealth.models.RNN_V2`).
 
     Output:
         - ``(values, time)``: ``[N, 1]`` values and ``[N]`` times. A batch

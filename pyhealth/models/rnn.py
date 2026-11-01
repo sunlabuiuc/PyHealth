@@ -239,7 +239,7 @@ class RNN(BaseModel):
         if self.mode in _PER_STEP_MODES:
             raise ValueError(
                 "RNN does not support per-step (timeseries_*) labels; use "
-                "Unified_RNN with sequence_v2 inputs."
+                "RNN_V2 with sequence_v2 inputs."
             )
 
         self.embedding_model = EmbeddingModel(dataset, embedding_dim)
@@ -439,7 +439,7 @@ class MultimodalRNN(BaseModel):
         if self.mode in _PER_STEP_MODES:
             raise ValueError(
                 "MultimodalRNN does not support per-step (timeseries_*) labels; "
-                "use Unified_RNN with sequence_v2 inputs."
+                "use RNN_V2 with sequence_v2 inputs."
             )
 
         self.embedding_model = EmbeddingModel(dataset, embedding_dim)
@@ -592,7 +592,7 @@ class MultimodalRNN(BaseModel):
 
 
 # ----------------------------------------------------------------------------
-# Unified_RNN: RNNs over the packed records of SequenceProcessorV2 fields
+# RNN_V2: RNNs over the packed records of SequenceProcessorV2 fields
 # ----------------------------------------------------------------------------
 
 RNNType = Literal["RNN", "LSTM", "GRU"]
@@ -771,7 +771,7 @@ class _FieldRNN(nn.Module):
         return summary, states, out[self.depth]["time"]
 
 
-class Unified_RNN(BaseModel):
+class RNN_V2(BaseModel):
     """RNN model over :class:`~pyhealth.processors.SequenceProcessorV2` fields.
 
     Each V2 field is embedded by :class:`SequenceEmbeddingModel` and encoded
@@ -837,7 +837,7 @@ class Unified_RNN(BaseModel):
         ...     {"age": "tensor", "visits": ("sequence_v2", {"levels": levels})},
         ...     {"label": "binary"},
         ... )
-        >>> model = Unified_RNN(
+        >>> model = RNN_V2(
         ...     dataset, embedding_dim={"visits": [{"tokens": (8,)}, {}]}, hidden_dim=16
         ... )
         >>> out = model(**next(iter(get_dataloader(dataset, batch_size=4))))
@@ -861,7 +861,7 @@ class Unified_RNN(BaseModel):
     ):
         super().__init__(dataset)
         if len(self.label_keys) != 1:
-            raise ValueError("Unified_RNN supports exactly one label.")
+            raise ValueError("RNN_V2 supports exactly one label.")
         self.label_key = self.label_keys[0]
         self.per_step = self.mode in _PER_STEP_MODES
 
@@ -876,7 +876,7 @@ class Unified_RNN(BaseModel):
             else:
                 raise TypeError(
                     f"Field '{field}': {type(processor).__name__} is not supported. "
-                    "Unified_RNN takes 'sequence_v2' fields and static 'tensor' "
+                    "RNN_V2 takes 'sequence_v2' fields and static 'tensor' "
                     "fields; express sequences, sets and tokens with 'sequence_v2'."
                 )
 

@@ -4,7 +4,7 @@ from typing import Any, cast
 import torch
 
 from pyhealth.datasets import create_sample_dataset, get_dataloader
-from pyhealth.models import LevelEmbedding, Unified_RNN
+from pyhealth.models import LevelEmbedding, RNN_V2
 from pyhealth.models.rnn import _gaps, _pool
 from pyhealth.processors import LevelConfig
 from pyhealth.trainer import Trainer
@@ -54,8 +54,8 @@ def _dataset(output: str = "binary", **fields: Any):
     return create_sample_dataset(samples, schema, {"y": output})
 
 
-def _model(dataset, **kwargs: Any) -> Unified_RNN:
-    model = Unified_RNN(dataset, dropout=0.0, **kwargs)
+def _model(dataset, **kwargs: Any) -> RNN_V2:
+    model = RNN_V2(dataset, dropout=0.0, **kwargs)
     model.eval()
     return model
 
@@ -64,7 +64,7 @@ def _batch(dataset) -> dict[str, Any]:
     return next(iter(get_dataloader(dataset, batch_size=len(dataset))))
 
 
-def _encode(model: Unified_RNN, batch: dict[str, Any], field: str):
+def _encode(model: RNN_V2, batch: dict[str, Any], field: str):
     embedded = model.embedding({field: batch[field]})[field]
     return embedded, cast(Any, model.encoders[field])(embedded)
 
@@ -83,7 +83,7 @@ class TestConfiguration(unittest.TestCase):
         ]
         for kwargs in bad:
             with self.subTest(kwargs=kwargs), self.assertRaises(ValueError):
-                Unified_RNN(self.dataset, embedding_dim=VISIT_DIMS, **kwargs)
+                RNN_V2(self.dataset, embedding_dim=VISIT_DIMS, **kwargs)
 
     def test_needs_exactly_one_label(self):
         samples = [
@@ -96,14 +96,14 @@ class TestConfiguration(unittest.TestCase):
             {"y": "binary", "z": "binary"},
         )
         with self.assertRaisesRegex(ValueError, "exactly one label"):
-            Unified_RNN(dataset, embedding_dim=VISIT_DIMS)
+            RNN_V2(dataset, embedding_dim=VISIT_DIMS)
 
     def test_rejects_a_level_with_nothing_to_encode(self):
         times: list[LevelConfig] = [{"ordering": "series"}]  # time only
         records = [{"time": [0.0, 1.0]}, {"time": [0.5]}]
         dataset = _dataset(x=(times, records))
         with self.assertRaisesRegex(ValueError, "nothing to encode"):
-            Unified_RNN(dataset, embedding_dim={"x": [{}]})
+            RNN_V2(dataset, embedding_dim={"x": [{}]})
         # The time since the previous record is something to encode.
         model = _model(dataset, embedding_dim={"x": [{}]}, time_feature=True)
         self.assertEqual(model(**_batch(dataset))["logit"].shape, (2, 1))
@@ -113,7 +113,7 @@ class TestConfiguration(unittest.TestCase):
             samples = [{"patient_id": f"p{i}", "x": value, "y": i} for i in range(2)]
             dataset = create_sample_dataset(samples, {"x": spec}, {"y": "binary"})
             with self.subTest(spec=spec), self.assertRaises(TypeError):
-                Unified_RNN(dataset, embedding_dim={})
+                RNN_V2(dataset, embedding_dim={})
 
 
 class TestBottomUp(unittest.TestCase):
@@ -244,13 +244,13 @@ class TestPerStep(unittest.TestCase):
             ]
             dataset = self.dataset(levels, [{"children": [{"tokens": ["A"]}]}] * 2)
             with self.subTest(top=top), self.assertRaisesRegex(ValueError, "Wrap"):
-                Unified_RNN(dataset, embedding_dim={"x": [{"tokens": (4,)}, {}]})
+                RNN_V2(dataset, embedding_dim={"x": [{"tokens": (4,)}, {}]})
 
     def test_no_bidirectional(self):
         records = [_visits((0.0, "er", ["A"]))] * 2
         dataset = self.dataset(VISITS, records)
         with self.assertRaises(ValueError):
-            Unified_RNN(
+            RNN_V2(
                 dataset, embedding_dim={"x": VISIT_DIMS["visits"]}, bidirectional=True
             )
 
@@ -322,7 +322,7 @@ class TestPerStep(unittest.TestCase):
 class TestTraining(unittest.TestCase):
     def test_trains(self):
         dataset = _dataset(visits=(VISITS, VISIT_RECORDS))
-        model = Unified_RNN(
+        model = RNN_V2(
             dataset, embedding_dim=VISIT_DIMS, hidden_dim=8
         )
         loader = get_dataloader(dataset, batch_size=2, shuffle=True, seed=0)

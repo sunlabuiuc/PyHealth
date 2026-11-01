@@ -7,7 +7,7 @@ import numpy as np
 import torch
 
 from pyhealth.datasets import SampleDataset, create_sample_dataset, get_dataloader
-from pyhealth.models import BaseModel, Unified_RNN
+from pyhealth.models import BaseModel, RNN_V2
 from pyhealth.processors import (
     LevelConfig,
     SequenceProcessorV2,
@@ -118,7 +118,7 @@ class TestPerStepEndToEnd(unittest.TestCase):
     def test_label_processors_train_and_evaluate(self):
         models: dict[str, Callable[[SampleDataset], BaseModel]] = {
             "LabelRecordModel": LabelRecordModel,
-            "Unified_RNN": lambda dataset: Unified_RNN(
+            "RNN_V2": lambda dataset: RNN_V2(
                 dataset, embedding_dim={"dynamic": [{"values": 8}]}, hidden_dim=8
             ),
         }
