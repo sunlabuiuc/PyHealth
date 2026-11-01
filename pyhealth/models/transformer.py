@@ -13,6 +13,7 @@ from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
 from pyhealth.models.embedding import EmbeddingModel
 from pyhealth.interpret.api import CheferInterpretable
+from pyhealth.processors import field_index, has_field
 
 # VALID_OPERATION_LEVEL = ["visit", "event"]
 
@@ -491,8 +492,8 @@ class Transformer(BaseModel, CheferInterpretable):
             if isinstance(feature, torch.Tensor):
                 feature = (feature,)
 
-            value = feature[schema.index("value")] if "value" in schema else None
-            mask = feature[schema.index("mask")] if "mask" in schema else None
+            value = feature[field_index(schema, "value")] if has_field(schema, "value") else None
+            mask = feature[field_index(schema, "mask")] if has_field(schema, "mask") else None
 
             if len(feature) == len(schema) + 1 and mask is None:
                 mask = feature[-1]
@@ -569,8 +570,8 @@ class Transformer(BaseModel, CheferInterpretable):
 
             schema = self.dataset.input_processors[feature_key].schema()
 
-            value = feature[schema.index("value")] if "value" in schema else None
-            mask = feature[schema.index("mask")] if "mask" in schema else None
+            value = feature[field_index(schema, "value")] if has_field(schema, "value") else None
+            mask = feature[field_index(schema, "mask")] if has_field(schema, "mask") else None
 
             if value is None:
                 raise ValueError(
@@ -586,7 +587,7 @@ class Transformer(BaseModel, CheferInterpretable):
             else:
                 value = self.embedding_model({feature_key: value})[feature_key]
 
-            i = schema.index("value")
+            i = field_index(schema, "value")
             # Reconstruct tuple with embedded value
             # Note: we need to handle list/tuple conversion carefully
             # feature is a tuple.

@@ -22,6 +22,7 @@ from pyhealth.interpret.api import CheferInterpretable
 from pyhealth.models.base_model import BaseModel
 from pyhealth.interpret.api import CheferInterpretable
 from .base_interpreter import BaseInterpreter
+from pyhealth.processors import field_index, has_field
 
 
 # ---------------------------------------------------------------------------
@@ -235,8 +236,8 @@ class CheferRelevance(BaseInterpreter):
                 else:
                     schema = self.model.dataset.input_processors[key].schema()
                     val = (
-                        feature[schema.index("value")]
-                        if "value" in schema
+                        feature[field_index(schema, "value")]
+                        if has_field(schema, "value")
                         else None
                     )
                 if val is not None and val.dim() > attr.dim():

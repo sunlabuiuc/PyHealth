@@ -1127,9 +1127,7 @@ class SequenceProcessorV2(FeatureProcessor):
         }
         return tuple(role for role in get_args(Role) if present[role])
 
-    # FeatureProcessor.schema() returns semantic names for legacy models; V2
-    # deliberately returns (level, role) keys instead and is not used by them.
-    def schema(self) -> tuple[FieldKey, ...]:  # type: ignore[override]
+    def schema(self) -> tuple[FieldKey, ...]:
         """Fields of :meth:`process` output: ``(level, role)``, by level then role."""
         return tuple(
             (level, role)
@@ -1165,8 +1163,7 @@ class SequenceProcessorV2(FeatureProcessor):
             level: config.values or None for level, config in enumerate(self._config)
         }
 
-    # Like schema(): V2 reports one entry per level instead of the legacy tuple.
-    def spatial(self) -> dict[int, tuple[bool, ...] | None]:  # type: ignore[override]
+    def spatial(self) -> dict[int, tuple[bool, ...] | None]:
         """Whether each value axis is spatial, per level."""
         return {
             level: None

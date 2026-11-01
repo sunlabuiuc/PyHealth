@@ -4,7 +4,7 @@ from typing import Any, Dict, Iterable
 import torch
 
 from . import register_processor
-from .base_processor import FeatureProcessor
+from .base_processor import FeatureProcessor, FieldKey
 
 logger = logging.getLogger(__name__)
 
@@ -53,15 +53,15 @@ class BinaryLabelProcessor(FeatureProcessor):
         """Binary labels are continuous float targets for BCE loss."""
         return False
 
-    def schema(self) -> tuple[str, ...]:
-        return ("value",)
+    def schema(self) -> tuple[FieldKey, ...]:
+        return ((0, "value"),)
 
     def dim(self) -> tuple[int, ...]:
         """Output shape is (1,), so 1 dimension."""
         return (1,)
 
-    def spatial(self) -> tuple[bool, ...]:
-        return (False,)
+    def spatial(self) -> dict[int, tuple[bool, ...]]:
+        return {0: (False,)}
 
     def __repr__(self):
         return f"BinaryLabelProcessor(label_vocab_size={len(self.label_vocab)})"
@@ -108,15 +108,15 @@ class MultiClassLabelProcessor(FeatureProcessor):
         """Multi-class labels are discrete token indices."""
         return True
 
-    def schema(self) -> tuple[str, ...]:
-        return ("value",)
+    def schema(self) -> tuple[FieldKey, ...]:
+        return ((0, "value"),)
 
     def dim(self) -> tuple[int, ...]:
         """Output is a scalar tensor (dim 0)."""
         return (0,)
 
-    def spatial(self) -> tuple[bool, ...]:
-        return ()
+    def spatial(self) -> dict[int, tuple[bool, ...]]:
+        return {0: ()}
 
     def __repr__(self):
         return f"MultiClassLabelProcessor(label_vocab_size={len(self.label_vocab)})"
@@ -174,15 +174,15 @@ class MultiLabelProcessor(FeatureProcessor):
         """Multi-label indicators are continuous float targets for BCE loss."""
         return False
 
-    def schema(self) -> tuple[str, ...]:
-        return ("value",)
+    def schema(self) -> tuple[FieldKey, ...]:
+        return ((0, "value"),)
 
     def dim(self) -> tuple[int, ...]:
         """Output shape is (num_classes,), so 1 dimension."""
         return (1,)
 
-    def spatial(self) -> tuple[bool, ...]:
-        return (False,)
+    def spatial(self) -> dict[int, tuple[bool, ...]]:
+        return {0: (False,)}
 
     def __repr__(self):
         return f"MultiLabelProcessor(label_vocab_size={len(self.label_vocab)})"
@@ -211,15 +211,15 @@ class RegressionLabelProcessor(FeatureProcessor):
         """Regression labels are continuous, not discrete tokens."""
         return False
 
-    def schema(self) -> tuple[str, ...]:
-        return ("value",)
+    def schema(self) -> tuple[FieldKey, ...]:
+        return ((0, "value"),)
 
     def dim(self) -> tuple[int, ...]:
         """Output shape is (1,), so 1 dimension."""
         return (1,)
 
-    def spatial(self) -> tuple[bool, ...]:
-        return (False,)
+    def spatial(self) -> dict[int, tuple[bool, ...]]:
+        return {0: (False,)}
 
     def __repr__(self):
         return "RegressionLabelProcessor()"

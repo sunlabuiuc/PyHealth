@@ -170,6 +170,7 @@ an ``EmbeddingModel`` in ``__init__``, unpack processor schemas in
 
     from pyhealth.models import BaseModel
     from pyhealth.models.embedding import EmbeddingModel
+    from pyhealth.processors import field_index, has_field
     import torch
     import torch.nn as nn
 
@@ -188,9 +189,9 @@ an ``EmbeddingModel`` in ``__init__``, unpack processor schemas in
                 if isinstance(feature, torch.Tensor):
                     feature = (feature,)
                 schema = self.dataset.input_processors[key].schema()
-                inputs[key] = feature[schema.index("value")]
-                if "mask" in schema:
-                    masks[key] = feature[schema.index("mask")]
+                inputs[key] = feature[field_index(schema, "value")]
+                if has_field(schema, "mask"):
+                    masks[key] = feature[field_index(schema, "mask")]
 
             embedded = self.embedding_model(inputs, masks=masks)
             pooled = [embedded[k].mean(dim=1) for k in self.feature_keys]

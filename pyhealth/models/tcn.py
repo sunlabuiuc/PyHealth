@@ -9,6 +9,7 @@ from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
 
 from .embedding import EmbeddingModel
+from pyhealth.processors import field_index, has_field
 
 
 # From TCN original paper https://github.com/locuslab/TCN
@@ -316,8 +317,8 @@ class TCN(BaseModel):
             if isinstance(feature, torch.Tensor):
                 feature = (feature,)
             schema = self.dataset.input_processors[feature_key].schema()
-            value = feature[schema.index("value")] if "value" in schema else None
-            mask = feature[schema.index("mask")] if "mask" in schema else None
+            value = feature[field_index(schema, "value")] if has_field(schema, "value") else None
+            mask = feature[field_index(schema, "mask")] if has_field(schema, "mask") else None
             if value is None:
                 raise ValueError(
                     f"Feature '{feature_key}' must contain 'value' in the schema."

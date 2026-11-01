@@ -17,6 +17,7 @@ from pyhealth.utils import _seeded_by
 
 from pyhealth.models import BaseModel
 from .base_interpreter import BaseInterpreter
+from pyhealth.processors import field_index
 
 
 class RandomBaseline(BaseInterpreter):
@@ -123,7 +124,7 @@ class RandomBaseline(BaseInterpreter):
         values: dict[str, torch.Tensor] = {}
         for k, v in inputs.items():
             schema = self.model.dataset.input_processors[k].schema()
-            values[k] = v[schema.index("value")]
+            values[k] = v[field_index(schema, "value")]
 
         # Generate random attributions matching each value shape
         attributions: dict[str, torch.Tensor] = {}

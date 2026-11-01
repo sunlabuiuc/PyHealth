@@ -9,6 +9,7 @@ from pyhealth.models.utils import get_last_visit
 from pyhealth.interpret.api import Interpretable
 
 from .embedding import EmbeddingModel
+from pyhealth.processors import field_index, has_field
 
 
 class StageNetLayer(nn.Module):
@@ -417,9 +418,9 @@ class StageNet(BaseModel, Interpretable):
                 # Backward compatibility: if feature is a tensor, treat it as values without time and mask
                 feature = (feature,)
             
-            time = feature[schema.index("time")] if "time" in schema else None
-            value = feature[schema.index("value")] if "value" in schema else None
-            mask = feature[schema.index("mask")] if "mask" in schema else None
+            time = feature[field_index(schema, "time")] if has_field(schema, "time") else None
+            value = feature[field_index(schema, "value")] if has_field(schema, "value") else None
+            mask = feature[field_index(schema, "mask")] if has_field(schema, "mask") else None
             
             if len(feature) == len(schema) + 1 and mask is None:
                 # An optional mask can be provided as the last element if not included in the schema
@@ -529,7 +530,7 @@ class StageNet(BaseModel, Interpretable):
                 
             schema = self.dataset.input_processors[feature_key].schema()
             
-            value = feature[schema.index("value")] if "value" in schema else None
+            value = feature[field_index(schema, "value")] if has_field(schema, "value") else None
             
             if value is None:
                 raise ValueError(f"Feature '{feature_key}' must contain 'value' in the schema.")
@@ -538,7 +539,7 @@ class StageNet(BaseModel, Interpretable):
             
             value = self.embedding_model({feature_key: value})[feature_key]
             
-            i = schema.index("value")
+            i = field_index(schema, "value")
             kwargs[feature_key] = feature[:i] + (value,) + feature[i+1:]
         
         return self.forward_from_embedding(**kwargs)

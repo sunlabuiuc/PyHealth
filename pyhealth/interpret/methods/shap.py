@@ -10,6 +10,7 @@ from pyhealth.utils import _seeded_by
 from pyhealth.models import BaseModel
 from pyhealth.interpret.api import Interpretable
 from .base_interpreter import BaseInterpreter
+from pyhealth.processors import field_index, has_field
 
 
 class Shap(BaseInterpreter):
@@ -193,11 +194,11 @@ class Shap(BaseInterpreter):
         masks = {}
         for k, v in inputs.items():
             schema = self.model.dataset.input_processors[k].schema()
-            values[k] = v[schema.index("value")]
-            if "mask" in schema:
-                masks[k] = v[schema.index("mask")]
+            values[k] = v[field_index(schema, "value")]
+            if has_field(schema, "mask"):
+                masks[k] = v[field_index(schema, "mask")]
             else:
-                val = v[schema.index("value")]
+                val = v[field_index(schema, "value")]
                 processor = self.model.dataset.input_processors[k]
                 if processor.is_token():
                     masks[k] = (val != 0).int()
@@ -213,7 +214,7 @@ class Shap(BaseInterpreter):
 
         # Append input masks to inputs for baseline generation and perturbation
         for k, v in inputs.items():
-            if "mask" not in self.model.dataset.input_processors[k].schema():
+            if not has_field(self.model.dataset.input_processors[k].schema(), "mask"):
                 inputs[k] = (*v, masks[k])
 
         # Extract and prepare inputs
@@ -495,9 +496,9 @@ class Shap(BaseInterpreter):
             # Insert perturbed value tensor back into input tuple
             schema = self.model.dataset.input_processors[k].schema()
             inputs[k] = (
-                *inputs[k][: schema.index("value")],
+                *inputs[k][: field_index(schema, "value")],
                 perturb[k],
-                *inputs[k][schema.index("value") + 1 :],
+                *inputs[k][field_index(schema, "value") + 1 :],
             )
 
         if self.use_embeddings and isinstance(self.model, Interpretable):

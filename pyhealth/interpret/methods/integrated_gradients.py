@@ -8,6 +8,7 @@ import torch.nn.functional as F
 from pyhealth.models import BaseModel
 from pyhealth.interpret.api import Interpretable
 from .base_interpreter import BaseInterpreter
+from pyhealth.processors import field_index, has_field
 
 
 class IntegratedGradients(BaseInterpreter):
@@ -299,11 +300,11 @@ class IntegratedGradients(BaseInterpreter):
         masks: dict[str, torch.Tensor] = {}
         for k, v in inputs.items():
             schema = self.model.dataset.input_processors[k].schema()
-            values[k] = v[schema.index("value")]
-            if "mask" in schema:
-                masks[k] = v[schema.index("mask")]
+            values[k] = v[field_index(schema, "value")]
+            if has_field(schema, "mask"):
+                masks[k] = v[field_index(schema, "mask")]
             else:
-                val = v[schema.index("value")]
+                val = v[field_index(schema, "value")]
                 processor = self.model.dataset.input_processors[k]
                 if processor.is_token():
                     masks[k] = (val != 0).int()
@@ -319,7 +320,7 @@ class IntegratedGradients(BaseInterpreter):
 
         # Append input masks to inputs for models that expect them
         for k, v in inputs.items():
-            if "mask" not in self.model.dataset.input_processors[k].schema():
+            if not has_field(self.model.dataset.input_processors[k].schema(), "mask"):
                 inputs[k] = (*v, masks[k])
 
         # Determine target class from original input
@@ -449,7 +450,7 @@ class IntegratedGradients(BaseInterpreter):
             forward_inputs = inputs.copy()
             for k in forward_inputs.keys():
                 schema = self.model.dataset.input_processors[k].schema()
-                val_idx = schema.index("value")
+                val_idx = field_index(schema, "value")
                 forward_inputs[k] = (
                     *forward_inputs[k][:val_idx],
                     interpolated[k],
@@ -474,7 +475,7 @@ class IntegratedGradients(BaseInterpreter):
                     embedded_continuous = embedding_model(continuous_to_embed)
                     for k in continuous_keys:
                         schema = self.model.dataset.input_processors[k].schema()
-                        val_idx = schema.index("value")
+                        val_idx = field_index(schema, "value")
                         forward_inputs[k] = (
                             *forward_inputs[k][:val_idx],
                             embedded_continuous[k],

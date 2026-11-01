@@ -38,6 +38,7 @@ from pyhealth.models import BaseModel
 from .base_interpreter import BaseInterpreter
 from pyhealth.interpret.api import Interpretable
 from .gim import _GIMHookContext
+from pyhealth.processors import field_index, has_field
 
 
 class IntegratedGradientGIM(BaseInterpreter):
@@ -130,11 +131,11 @@ class IntegratedGradientGIM(BaseInterpreter):
         masks: dict[str, torch.Tensor] = {}
         for k, v in inputs.items():
             schema = self.model.dataset.input_processors[k].schema()
-            values[k] = v[schema.index("value")]
-            if "mask" in schema:
-                masks[k] = v[schema.index("mask")]
+            values[k] = v[field_index(schema, "value")]
+            if has_field(schema, "mask"):
+                masks[k] = v[field_index(schema, "mask")]
             else:
-                val = v[schema.index("value")]
+                val = v[field_index(schema, "value")]
                 processor = self.model.dataset.input_processors[k]
                 if processor.is_token():
                     masks[k] = (val != 0).int()
@@ -149,7 +150,7 @@ class IntegratedGradientGIM(BaseInterpreter):
                         masks[k] = (val != 0).int()
 
         for k, v in inputs.items():
-            if "mask" not in self.model.dataset.input_processors[k].schema():
+            if not has_field(self.model.dataset.input_processors[k].schema(), "mask"):
                 inputs[k] = (*v, masks[k])
 
         # ----- target class -----
@@ -250,7 +251,7 @@ class IntegratedGradientGIM(BaseInterpreter):
             forward_inputs = inputs.copy()
             for k in forward_inputs.keys():
                 schema = self.model.dataset.input_processors[k].schema()
-                val_idx = schema.index("value")
+                val_idx = field_index(schema, "value")
                 if k in continuous_keys:
                     embedding_model = self.model.get_embedding_model()
                     assert embedding_model is not None
