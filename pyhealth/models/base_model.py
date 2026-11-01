@@ -48,6 +48,10 @@ def _label_record_loss(
             f"got {tuple(logits.shape)}. Per-step labels need a model that "
             "predicts at each label's time."
         )
+    if values.numel() == 0:
+        # A batch without label records: a zero loss that keeps the graph,
+        # instead of the NaN mean of an empty tensor.
+        return logits.sum() * 0.0
     return loss_fn(logits, values)
 
 
@@ -184,13 +188,15 @@ class BaseModel(ABC, nn.Module):
         if isinstance(schema_entry, str):
             return schema_entry.lower()
 
-        # The most specific registered class: a subclass of a registered
-        # processor (e.g. the timeseries labels, which are SequenceProcessorV2s)
-        # resolves to its own name before its base's.
+        # The most specific registered class whose name is a mode: a subclass
+        # of a registered processor (e.g. the timeseries labels, which are
+        # SequenceProcessorV2s) resolves to its own mode before its base's,
+        # and one registered under another name (e.g. MultiHotProcessor as
+        # "multi_hot") falls back to its base's ("multilabel").
         cls = schema_entry if inspect.isclass(schema_entry) else schema_entry.__class__
         for klass in cls.__mro__:
             for name, registered_cls in PROCESSOR_REGISTRY.items():
-                if klass is registered_cls:
+                if klass is registered_cls and name.lower() in VALID_MODES:
                     return name.lower()
         raise ValueError(
             f"Cannot resolve mode from output_schema entry {schema_entry}. Use a supported string"

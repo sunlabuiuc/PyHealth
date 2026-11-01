@@ -12,6 +12,7 @@ from pyhealth.metrics import (
 from pyhealth.models import RNN, MultimodalRNN
 from pyhealth.processors import (
     LevelConfig,
+    MultiHotProcessor,
     TimeseriesBinaryLabelProcessor,
     TimeseriesLabelProcessor,
     TimeseriesRegressionLabelProcessor,
@@ -96,6 +97,25 @@ class TestTimeseriesModes(unittest.TestCase):
         label = (torch.zeros(4, 1), torch.arange(4.0), torch.tensor([0, 4]))
         with self.assertRaisesRegex(ValueError, "one prediction per label record"):
             model.get_loss_function()(torch.zeros(1, 3, 1), label)
+
+    def test_batch_without_label_records_has_zero_loss(self):
+        for mode in ("timeseries_binary", "timeseries_regression"):
+            with self.subTest(mode=mode):
+                model = _model(_dataset(mode))
+                logits = torch.zeros(0, 1, requires_grad=True)
+                label = (torch.zeros(0, 1), torch.zeros(0), torch.tensor([0, 0, 0]))
+                loss = model.get_loss_function()(logits, label)
+                loss.backward()
+                self.assertEqual(loss.item(), 0.0)
+                self.assertTrue(torch.isfinite(logits.grad).all())
+
+    def test_multi_hot_processor_still_resolves_to_multilabel(self):
+        # MultiHotProcessor subclasses MultiLabelProcessor but is registered
+        # as "multi_hot", which is not a mode.
+        model = _model(_dataset())
+        for entry in (MultiHotProcessor, MultiHotProcessor(), (MultiHotProcessor, {})):
+            with self.subTest(entry=entry):
+                self.assertEqual(model._resolve_mode(entry), "multilabel")
 
     def test_v1_rnns_reject_per_step_labels(self):
         rng = np.random.default_rng(0)

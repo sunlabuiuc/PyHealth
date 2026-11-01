@@ -240,6 +240,12 @@ class _YAIBMIMIC4Task(BaseTask):
     only. Unlike YAIB, which label-encodes sex as a category, sex is
     standardized like the other static features.
 
+    Training needs a model that reads the ``sequence_v2`` input and the
+    per-hour label records, which :class:`~pyhealth.models.RNN` and
+    :class:`~pyhealth.models.MultimodalRNN` do not. ``Unified_RNN`` adds
+    this in the next pull request of this stack (#1353); until then these
+    tasks build samples, but no model in PyHealth trains on them.
+
     Note on ``o2sat`` (deliberate deviation from YAIB): YAIB pins ricu 0.6.0,
     whose MIMIC-IV definition of ``o2sat`` lists the blood gas item 50817
     under ``chartevents``. 50817 is a ``labevents`` item, so that entry never
