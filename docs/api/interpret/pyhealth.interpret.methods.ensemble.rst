@@ -39,6 +39,8 @@ tensor of shape ``(B, M)``, both with values in [0, 1].
         def _ensemble(self, attributions: torch.Tensor) -> torch.Tensor:
             return attributions.max(dim=1).values
 
+    # ``model`` is a trained PyHealth model and ``batch`` a batch from a
+    # dataloader over its SampleDataset (``get_dataloader``).
     experts = [IntegratedGradients(model), DeepLift(model), LimeExplainer(model)]
     ensemble = MaxEnsemble(model, experts)
     attrs = ensemble.attribute(**batch)
