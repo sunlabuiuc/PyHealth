@@ -46,6 +46,30 @@ def get_last_visit(hidden_states, mask):
         return last_hidden_state
 
 
+def get_step_mask(x: torch.Tensor) -> torch.Tensor:
+    """Marks the steps of a zero-padded numeric sequence that hold data.
+
+    Collate pads shorter sequences with all-zero steps, so a step is padding
+    when all its features are zero. Take the mask from the raw values: an
+    embedding with a bias maps a padded step to a nonzero vector. A row with
+    no nonzero step (an all-zero series) is all zero; the models' mean
+    pooling then averages it over all its steps.
+
+    Args:
+        x: ``[batch, seq_len, n_features]`` raw values.
+
+    Returns:
+        ``[batch, seq_len]`` float mask, 1 for a step with data.
+
+    Examples:
+        >>> x = torch.tensor([[[1.0, 2.0], [0.0, 0.0]], [[0.0, 0.0], [0.0, 0.0]]])
+        >>> get_step_mask(x)
+        tensor([[1., 0.],
+                [0., 0.]])
+    """
+    return (x != 0).any(dim=-1).float()
+
+
 def get_rightmost_masked_timestep(hidden_states, mask):
     """Gather hidden state at the last True position in ``mask`` per row.
 

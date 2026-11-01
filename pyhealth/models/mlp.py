@@ -8,6 +8,7 @@ from pyhealth.models import BaseModel
 from pyhealth.interpret.api import Interpretable
 
 from .embedding import EmbeddingModel
+from .utils import get_step_mask
 
 
 class MLP(BaseModel, Interpretable):
@@ -45,6 +46,13 @@ class MLP(BaseModel, Interpretable):
                   same length; we assume each dimension has the same meaning;
                   we use mean/sum pooling within each outer bracket and use MLP,
                   similar to case 2 after embedding table
+
+        A numeric series (e.g. ``timeseries``) is embedded step by step and
+        mean-pooled over the steps that hold data. A batch pads shorter series
+        with all-zero steps, so a real step whose features are all zero (e.g.
+        the zeros forward fill puts before the first measurement) also counts
+        as padding. A series with no nonzero step is averaged over all its
+        steps.
 
     Args:
         dataset: the dataset to train the model. It is used to query certain
@@ -160,6 +168,10 @@ class MLP(BaseModel, Interpretable):
     def mean_pooling(x, mask):
         """Mean pooling over the middle dimension of the tensor.
 
+        Steps where ``mask`` is 0 are left out of the mean. A row with no
+        valid step (e.g. an all-zero series) is averaged over all its steps,
+        as without a mask, so the result is never NaN.
+
         Args:
             x: tensor of shape (batch_size, seq_len, embedding_dim)
             mask: tensor of shape (batch_size, seq_len)
@@ -170,10 +182,12 @@ class MLP(BaseModel, Interpretable):
         Examples:
             >>> x.shape
             [128, 5, 32]
-            >>> mean_pooling(x).shape
+            >>> mean_pooling(x, mask).shape
             [128, 32]
         """
-        return x.sum(dim=1) / mask.sum(dim=1, keepdim=True)
+        mask = mask.unsqueeze(-1)
+        mask = torch.where(mask.sum(dim=1, keepdim=True) > 0, mask, torch.ones_like(mask))
+        return (x * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1)
 
     @staticmethod
     def sum_pooling(x):
@@ -218,6 +232,15 @@ class MLP(BaseModel, Interpretable):
                       feature tuple. If not provided, masks will be
                       generated from the embedded values (non-zero
                       entries are treated as valid).
+
+                      For a numeric series embedded by an ``nn.Linear``
+                      (e.g. ``timeseries``), pass the mask: a padded step
+                      embeds to the Linear's bias, which is nonzero, so
+                      without it padded steps are counted, unlike in
+                      :meth:`forward`. Build it from the raw values with
+                      :func:`~pyhealth.models.utils.get_step_mask`, as
+                      :meth:`forward` does; the interpretability methods
+                      pass an equivalent mask.
 
                 The label key should contain the true labels for loss
                 computation.
@@ -350,8 +373,20 @@ class MLP(BaseModel, Interpretable):
                 value = value.to(self.device)
 
             # Handle 3D input: (batch, event, # of codes) -> flatten to 2D
-            # before embedding to treat all codes as a single flat sequence
-            if value.dim() == 3:
+            # before embedding to treat all codes as a single flat sequence.
+            # A numeric series (batch, time, features) embedded by an
+            # nn.Linear over its features keeps its shape instead: the
+            # embedding projects each step, then pooling. Its padded steps
+            # embed to the Linear bias, so the pooling mask comes from the
+            # raw steps (passed as an extra element).
+            layers = self.embedding_model.embedding_layers
+            per_step = (value.dim() == 3 and feature_key in layers
+                        and isinstance(layers[feature_key], nn.Linear))
+            step_mask = None
+            if per_step and mask is None and len(feature) == len(schema):
+                step_mask = get_step_mask(value)
+            extra_mask = None
+            if value.dim() == 3 and not per_step:
                 batch_size, seq_len, inner_len = value.shape
                 value = value.view(batch_size, seq_len * inner_len)
                 if mask is not None:
@@ -359,6 +394,15 @@ class MLP(BaseModel, Interpretable):
                      # Flatten mask properly if it exists
                      if mask.dim() == 3:
                          mask = mask.view(batch_size, seq_len * inner_len)
+                elif (len(feature) == len(schema) + 1
+                      and isinstance(feature[-1], torch.Tensor)
+                      and feature[-1].dim() == 3):
+                    # A mask appended after the schema's elements, as the
+                    # interpretability methods append theirs, is flattened
+                    # with the codes too.
+                    extra_mask = feature[-1].to(self.device).reshape(
+                        batch_size, seq_len * inner_len
+                    )
 
             if mask is not None:
                 mask = mask.to(self.device)
@@ -377,6 +421,14 @@ class MLP(BaseModel, Interpretable):
             
             args = list(feature)
             args[i] = value
+            if mask is not None:
+                # The mask flattened with 3D codes above, so it lines up
+                # with the embedded steps when pooling.
+                args[schema.index("mask")] = mask
+            if extra_mask is not None:
+                args[-1] = extra_mask
+            if step_mask is not None:
+                args.append(step_mask)
             kwargs[feature_key] = tuple(args)
 
         return self.forward_from_embedding(**kwargs)
