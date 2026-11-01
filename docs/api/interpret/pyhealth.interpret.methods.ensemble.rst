@@ -19,6 +19,30 @@ To add a new strategy, subclass
 :class:`~pyhealth.interpret.methods.base_ensemble.BaseInterpreterEnsemble` and
 implement ``_ensemble``.
 
+Writing a custom strategy
+-------------------------
+
+A new strategy only needs to override ``_ensemble``. It receives the
+rank-normalized attributions of all experts as a tensor of shape
+``(B, I, M)`` (batch, experts, flattened features) and returns a consensus
+tensor of shape ``(B, M)``, both with values in [0, 1].
+
+.. code-block:: python
+
+    import torch
+    from pyhealth.interpret.methods import IntegratedGradients, DeepLift, LimeExplainer
+    from pyhealth.interpret.methods.base_ensemble import BaseInterpreterEnsemble
+
+    class MaxEnsemble(BaseInterpreterEnsemble):
+        """Keep, for each feature, the highest score among the experts."""
+
+        def _ensemble(self, attributions: torch.Tensor) -> torch.Tensor:
+            return attributions.max(dim=1).values
+
+    experts = [IntegratedGradients(model), DeepLift(model), LimeExplainer(model)]
+    ensemble = MaxEnsemble(model, experts)
+    attrs = ensemble.attribute(**batch)
+
 API Reference
 -------------
 
