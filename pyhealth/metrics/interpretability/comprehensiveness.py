@@ -24,7 +24,7 @@ class ComprehensivenessMetric(RemovalBasedMetric):
         "ERASER: A Benchmark to Evaluate Rationalized NLP Models." ACL 2020.
 
     The metric is computed as:
-        COMP = (1/|B|) × Σ[p_c(x)(x) - p_c(x)(x \\ x:q%)]
+        COMP = (1/\\|B\\|) × Σ[p_c(x)(x) - p_c(x)(x \\ x:q%)]
                         q∈B
 
     Where:
