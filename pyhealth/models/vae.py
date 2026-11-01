@@ -24,14 +24,18 @@ class VAE(BaseModel):
 
     Args:
         dataset: A fitted ``SampleDataset`` with one supported input feature.
+        hidden_dim: Size of the latent representation. Defaults to 128, matching
+            the image VAE API before the PyHealth 2.0 port.
         feature_key: Image or sequence key. If omitted, the dataset must have
             exactly one supported input; specify it when there are several.
         condition_key: Optional binary or multiclass output label used to
-            condition image generation. If omitted, the sole output label is
-            used for image datasets. Sequence generation is unconditional.
-        latent_dim: Size of the latent representation. Defaults to 128.
-        hidden_dim: Number of convolutional channels or token-embedding units.
+            condition image reconstruction and generation. Labels are ignored
+            unless this key is explicitly provided. Sequence generation is
+            unconditional.
+        channel_dim: Base number of convolutional channels for image VAEs.
             Defaults to 32.
+        sequence_hidden_dim: Embedding and recurrent hidden size for sequence
+            VAEs. Defaults to 32.
 
     Examples:
         >>> from tempfile import TemporaryDirectory
@@ -52,7 +56,7 @@ class VAE(BaseModel):
         ...     output_schema={"label": "multiclass"},
         ...     dataset_name="vae-example",
         ... )
-        >>> model = VAE(dataset, latent_dim=16, hidden_dim=8)
+        >>> model = VAE(dataset, hidden_dim=16, channel_dim=8)
         >>> batch = next(iter(get_dataloader(dataset, batch_size=2)))
         >>> result = model(**batch)
         >>> result["reconstruction"].shape
@@ -62,14 +66,19 @@ class VAE(BaseModel):
     def __init__(
         self,
         dataset: SampleDataset,
+        hidden_dim: int = 128,
+        *,
         feature_key: str | None = None,
         condition_key: str | None = None,
-        latent_dim: int = 128,
-        hidden_dim: int = 32,
+        channel_dim: int = 32,
+        sequence_hidden_dim: int = 32,
     ) -> None:
         super().__init__(dataset=dataset)
-        if latent_dim < 1 or hidden_dim < 1:
-            raise ValueError("latent_dim and hidden_dim must be positive integers.")
+        if hidden_dim < 1 or channel_dim < 1 or sequence_hidden_dim < 1:
+            raise ValueError(
+                "hidden_dim, channel_dim, and sequence_hidden_dim must be "
+                "positive integers."
+            )
 
         image_keys = [
             key
@@ -100,8 +109,12 @@ class VAE(BaseModel):
             )
 
         self.feature_key = feature_key
-        self.latent_dim = latent_dim
+        # Preserve hidden_dim as the latent size from the image VAE API that
+        # preceded this port. New architecture widths have explicit names.
+        self.latent_dim = hidden_dim
         self.hidden_dim = hidden_dim
+        self.channel_dim = channel_dim
+        self.sequence_hidden_dim = sequence_hidden_dim
         self.condition_key = None
         self.condition_embedding = None
         self.num_conditions = 0
@@ -123,8 +136,6 @@ class VAE(BaseModel):
         self, dataset: SampleDataset, condition_key: str | None
     ) -> None:
         """Build the image encoder, latent projections, and decoder."""
-        if condition_key is None and len(self.label_keys) == 1:
-            condition_key = self.label_keys[0]
         if condition_key is not None:
             if condition_key not in dataset.output_processors:
                 raise ValueError(
@@ -150,8 +161,14 @@ class VAE(BaseModel):
                 'ImageProcessor mode must be set to "L", "RGB" or "RGBA".'
             )
         self.image_size = image_processor.image_size
+        mode_channels = {"L": 1, "RGB": 3, "RGBA": 4}
+        if image_processor.mode not in mode_channels:
+            raise ValueError(
+                "VAE supports ImageProcessor modes \"L\", \"RGB\", and "
+                f'"RGBA", got {image_processor.mode!r}.'
+            )
         self.image_shape = (
-            {"L": 1, "RGB": 3, "RGBA": 4}[image_processor.mode],
+            mode_channels[image_processor.mode],
             self.image_size,
             self.image_size,
         )
@@ -159,10 +176,11 @@ class VAE(BaseModel):
         self.output_activation = nn.Identity() if self.normalized else nn.Sigmoid()
         if not isinstance(self.image_size, int) or self.image_size < 8:
             raise ValueError(
-                "VAE image inputs require ImageProcessor with an integer image_size of at least 8."
+                "VAE image inputs require ImageProcessor with an integer "
+                "image_size of at least 8."
             )
-        self.channels = {"L": 1, "RGB": 3, "RGBA": 4}[image_processor.mode]
-        channels = self.hidden_dim
+        self.channels = mode_channels[image_processor.mode]
+        channels = self.channel_dim
         self.image_encoder = nn.Sequential(
             nn.Conv2d(self.channels, channels, 4, 2, 1),
             nn.ReLU(),
@@ -214,18 +232,26 @@ class VAE(BaseModel):
         self.pad_token = int(self.sequence_processor.code_vocab.get("<pad>", 0))
         self.unk_token = self.sequence_processor.code_vocab.get("<unk>")
         self.vocab_size = self.sequence_processor.vocab_size()
-        self.embedding_model = EmbeddingModel(dataset, self.hidden_dim)
+        self.embedding_model = EmbeddingModel(dataset, self.sequence_hidden_dim)
         self.sequence_encoder = nn.GRU(
-            self.hidden_dim, self.hidden_dim, batch_first=True
+            self.sequence_hidden_dim, self.sequence_hidden_dim, batch_first=True
         )
-        self.sequence_mu = nn.Linear(self.hidden_dim, self.latent_dim)
-        self.sequence_log_var = nn.Linear(self.hidden_dim, self.latent_dim)
-        self.sequence_start = nn.Parameter(torch.zeros(1, 1, self.hidden_dim))
-        self.latent_to_hidden = nn.Linear(self.latent_dim, self.hidden_dim)
+        self.sequence_mu = nn.Linear(self.sequence_hidden_dim, self.latent_dim)
+        self.sequence_log_var = nn.Linear(
+            self.sequence_hidden_dim, self.latent_dim
+        )
+        self.sequence_start = nn.Parameter(
+            torch.zeros(1, 1, self.sequence_hidden_dim)
+        )
+        self.latent_to_hidden = nn.Linear(
+            self.latent_dim, self.sequence_hidden_dim
+        )
         self.sequence_decoder = nn.GRU(
-            self.hidden_dim, self.hidden_dim, batch_first=True
+            self.sequence_hidden_dim, self.sequence_hidden_dim, batch_first=True
         )
-        self.sequence_output = nn.Linear(self.hidden_dim, self.vocab_size)
+        self.sequence_output = nn.Linear(
+            self.sequence_hidden_dim, self.vocab_size
+        )
 
     @staticmethod
     def _sample(mu: torch.Tensor, log_var: torch.Tensor) -> torch.Tensor:
@@ -285,7 +311,7 @@ class VAE(BaseModel):
         if condition is not None:
             latent = torch.cat((latent, condition), dim=1)
         decoded = self.image_decoder_input(latent).reshape(
-            image.shape[0], self.hidden_dim * 4, 4, 4
+            image.shape[0], self.channel_dim * 4, 4, 4
         )
         reconstruction = self.image_decoder(decoded)
         reconstruction = F.interpolate(
@@ -377,9 +403,12 @@ class VAE(BaseModel):
             return self._forward_image(kwargs)
         return self._forward_sequence(kwargs)
 
+    @torch.no_grad()
     def generate(
         self,
         num_samples: int | None = None,
+        device: str | torch.device | None = None,
+        *,
         sequence_length: int | None = None,
         conditions: torch.Tensor | None = None,
     ) -> torch.Tensor:
@@ -387,6 +416,7 @@ class VAE(BaseModel):
 
         Args:
             num_samples: Number of samples for unconditional generation.
+            device: Device for latent samples. Defaults to the model's device.
             sequence_length: Number of tokens to generate for a sequence VAE.
             conditions: Encoded class indices for a conditional image VAE.
 
@@ -397,6 +427,7 @@ class VAE(BaseModel):
         Examples:
             >>> model.generate(num_samples=2, sequence_length=5)  # doctest: +SKIP
         """
+        generation_device = device or self.device
         if self.modality == "sequence":
             if conditions is not None:
                 raise ValueError("Sequence generation does not accept conditions.")
@@ -404,7 +435,9 @@ class VAE(BaseModel):
                 raise ValueError("num_samples must be a positive integer.")
             if sequence_length is None or sequence_length < 1:
                 raise ValueError("sequence_length must be a positive integer.")
-            latent = torch.randn(num_samples, self.latent_dim, device=self.device)
+            latent = torch.randn(
+                num_samples, self.latent_dim, device=generation_device
+            )
             hidden = torch.tanh(self.latent_to_hidden(latent)).unsqueeze(0)
             previous = self.sequence_start.expand(num_samples, -1, -1)
             generated = []
@@ -428,7 +461,7 @@ class VAE(BaseModel):
         if self.condition_key is None and conditions is not None:
             raise ValueError("This VAE was initialized without a condition label.")
         if conditions is not None:
-            conditions = conditions.to(self.device).reshape(-1).long()
+            conditions = conditions.to(generation_device).reshape(-1).long()
             num_samples = conditions.shape[0]
             if bool(
                 ((conditions < 0) | (conditions >= self.num_conditions)).any()
@@ -438,13 +471,15 @@ class VAE(BaseModel):
                 )
         if num_samples is None or num_samples < 1:
             raise ValueError("num_samples must be a positive integer.")
-        latent = torch.randn(num_samples, self.latent_dim, device=self.device)
+        latent = torch.randn(
+            num_samples, self.latent_dim, device=generation_device
+        )
         if conditions is not None:
             latent = torch.cat(
                 (latent, self.condition_embedding(conditions)), dim=1
             )
         decoded = self.image_decoder_input(latent).reshape(
-            num_samples, self.hidden_dim * 4, 4, 4
+            num_samples, self.channel_dim * 4, 4, 4
         )
         images = self.image_decoder(decoded)
         return F.interpolate(
