@@ -278,6 +278,12 @@ These examples are located in ``examples/cxr/``.
      - Chest X-ray classification with saliency maps (notebook)
    * - ``cxr/chextXray_image_generation_VAE.py``
      - VAE for chest X-ray image generation
+   * - ``cxr/vae_cxr_synthetic.ipynb``
+     - Synthetic image VAE (no download needed)
+   * - ``cxr/vae_cxr_chestxray14.ipynb``
+     - ChestXray14 conditional image VAE
+   * - ``mortality_prediction/vae_ehr_sequences.ipynb``
+     - EHR code-sequence VAE
    * - ``cxr/ChestXray-image-generation-GAN.ipynb``
      - GAN for chest X-ray image generation (notebook)
 
