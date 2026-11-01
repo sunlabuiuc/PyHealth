@@ -2,6 +2,7 @@ import copy
 import logging
 import os
 from datetime import datetime
+from itertools import pairwise
 from typing import Callable, Dict, List, Optional, Type
 
 import numpy as np
@@ -358,7 +359,7 @@ class Trainer:
             y_true_all: List of true labels.
             y_prob_all: List of predicted probabilities.
                 For the per-step ``timeseries_*`` modes, both are lists with
-                one array per sample, over its labeled time steps.
+                one array per sample, over its label records.
             loss_mean: Mean loss over batches.
             additional_outputs (only if requested): Dict of additional results.
             patient_ids (only if requested): List of patient ids in the same order as y_true_all/y_prob_all.
@@ -377,16 +378,13 @@ class Trainer:
                 loss = output["loss"]
                 loss_all.append(loss.item())
                 if per_step:
-                    # Temporary workaround to avoid breaking the existing API:
-                    # samples differ in length, so keep each sample's labeled
-                    # steps as a separate array. A more unified handling of
-                    # padded/masked outputs is a follow-up.
-                    value, mask = (t.cpu().numpy() for t in output["y_true"])
-                    y_prob = output["y_prob"].cpu().numpy()[:, : value.shape[1], 0]
-                    for i in range(len(value)):
-                        labeled = mask[i] > 0
-                        y_true_all.append(value[i][labeled])
-                        y_prob_all.append(y_prob[i][labeled])
+                    # Packed label records (values, time, batch offsets): one
+                    # array per sample, as the timeseries metrics expect.
+                    values, _, offsets = (t.cpu().numpy() for t in output["y_true"])
+                    y_prob = output["y_prob"].cpu().numpy()[:, 0]
+                    for lo, hi in pairwise(offsets):
+                        y_true_all.append(values[lo:hi, 0])
+                        y_prob_all.append(y_prob[lo:hi])
                 else:
                     y_true_all.append(output["y_true"].cpu().numpy())
                     y_prob_all.append(output["y_prob"].cpu().numpy())
