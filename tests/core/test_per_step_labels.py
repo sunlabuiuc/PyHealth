@@ -1,10 +1,13 @@
 import unittest
+from collections.abc import Callable
+from itertools import product
 from typing import Any
 
 import numpy as np
 import torch
 
-from pyhealth.datasets import create_sample_dataset, get_dataloader
+from pyhealth.datasets import SampleDataset, create_sample_dataset, get_dataloader
+from pyhealth.models import BaseModel, RNN_V2
 from pyhealth.processors import (
     LevelConfig,
     SequenceProcessorV2,
@@ -113,24 +116,31 @@ class TestPerStepEndToEnd(unittest.TestCase):
     """
 
     def test_label_processors_train_and_evaluate(self):
-        for mode, metric in (
-            ("timeseries_binary", "roc_auc"),
-            ("timeseries_regression", "mae"),
+        models: dict[str, Callable[[SampleDataset], BaseModel]] = {
+            "LabelRecordModel": LabelRecordModel,
+            "RNN_V2": lambda dataset: RNN_V2(
+                dataset, embedding_dim={"dynamic": [{"values": 8}]}, hidden_dim=8
+            ),
+        }
+        for (mode, metric), (name, make_model) in product(
+            (("timeseries_binary", "roc_auc"), ("timeseries_regression", "mae")),
+            models.items(),
         ):
-            dataset = _dataset(mode)
-            model = LabelRecordModel(dataset)
-            self.assertEqual(model.mode, mode)
-            batch = next(iter(get_dataloader(dataset, batch_size=4)))
-            out = model(**batch)
-            self.assertEqual(tuple(out["y_prob"].shape), (18, 1))
-            self.assertTrue(torch.isfinite(out["loss"]))
+            with self.subTest(mode=mode, model=name):
+                dataset = _dataset(mode)
+                model = make_model(dataset)
+                self.assertEqual(model.mode, mode)
+                batch = next(iter(get_dataloader(dataset, batch_size=4)))
+                out = model(**batch)
+                self.assertEqual(tuple(out["y_prob"].shape), (18, 1))
+                self.assertTrue(torch.isfinite(out["loss"]))
 
-            trainer = Trainer(model=model, metrics=[metric], enable_logging=False)
-            loader = get_dataloader(dataset, batch_size=3)
-            trainer.train(train_dataloader=loader, epochs=1)
-            y_true, _, _ = trainer.inference(loader)
-            self.assertEqual(sorted(len(y) for y in y_true), [3, 4, 5, 6])
-            self.assertIn(metric, trainer.evaluate(loader))
+                trainer = Trainer(model=model, metrics=[metric], enable_logging=False)
+                loader = get_dataloader(dataset, batch_size=3)
+                trainer.train(train_dataloader=loader, epochs=1)
+                y_true, _, _ = trainer.inference(loader)
+                self.assertEqual(sorted(len(y) for y in y_true), [3, 4, 5, 6])
+                self.assertIn(metric, trainer.evaluate(loader))
 
 
 if __name__ == "__main__":

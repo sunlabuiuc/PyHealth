@@ -241,10 +241,9 @@ class _YAIBMIMIC4Task(BaseTask):
     standardized like the other static features.
 
     Training needs a model that reads the ``sequence_v2`` input and the
-    per-hour label records, which :class:`~pyhealth.models.RNN` and
-    :class:`~pyhealth.models.MultimodalRNN` do not. The next pull request
-    of this stack (#1353) adds such a model; until then these tasks build
-    samples, but no model in PyHealth trains on them.
+    per-hour label records, such as :class:`~pyhealth.models.RNN_V2`;
+    :class:`~pyhealth.models.RNN` and :class:`~pyhealth.models.MultimodalRNN`
+    do not.
 
     Note on ``o2sat`` (deliberate deviation from YAIB): YAIB pins ricu 0.6.0,
     whose MIMIC-IV definition of ``o2sat`` lists the blood gas item 50817

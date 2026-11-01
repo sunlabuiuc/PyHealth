@@ -46,7 +46,7 @@ def _label_record_loss(
         raise ValueError(
             f"Expected one prediction per label record, {tuple(values.shape)}, "
             f"got {tuple(logits.shape)}. Per-step labels need a model that "
-            "predicts at each label's time."
+            "predicts at each label's time, such as RNN_V2."
         )
     if values.numel() == 0:
         # A batch without label records: a zero loss that keeps the graph,
