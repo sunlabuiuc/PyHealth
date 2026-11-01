@@ -1,9 +1,9 @@
-"""Train a separate Unified_RNN on each of the five MIMIC-IV YAIB tasks.
+"""Train a separate RNN_V2 on each of the five MIMIC-IV YAIB tasks.
 
 Run from the repository root with PyHealth and its dependencies installed::
 
-    .venv/Scripts/python.exe -B examples/yaib_mimic4_unified_rnn.py
-    .venv/Scripts/python.exe -B examples/yaib_mimic4_unified_rnn.py --check
+    .venv/Scripts/python.exe -B examples/yaib_mimic4_rnn_v2.py
+    .venv/Scripts/python.exe -B examples/yaib_mimic4_rnn_v2.py --check
 
 The default root is D:/physionet.org/files/mimiciv/3.1, the local MIMIC-IV
 installation. Override it with --root on other machines. This uses version
@@ -30,7 +30,7 @@ for variable in ("POLARS_MAX_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS"):
 import torch
 
 from pyhealth.datasets import MIMIC4EHRDataset, PatientSplit, get_dataloader
-from pyhealth.models import Unified_RNN
+from pyhealth.models import RNN_V2
 from pyhealth.tasks import (
     YAIBAKIMIMIC4,
     YAIBKidneyFunctionMIMIC4,
@@ -118,7 +118,7 @@ def run_task(base_dataset, name, args, output_dir):
     # All tasks share hourly numeric dynamics and static demographics. The
     # model infers the label mode, including packed hourly labels for LOS,
     # AKI, and sepsis. Unidirectional states prevent future-hour leakage.
-    model = Unified_RNN(
+    model = RNN_V2(
         dataset=train_data,
         embedding_dim={"dynamic": [{"values": args.embedding_dim}]},
         hidden_dim=args.hidden_dim,
@@ -182,7 +182,7 @@ def main():
     )
     parser.add_argument(
         "--output-dir", type=Path,
-        default=REPO_ROOT / "output" / "yaib_unified_rnn",
+        default=REPO_ROOT / "output" / "yaib_rnn_v2",
     )
     parser.add_argument("--check", action="store_true", help="Check data files and RNN device support, then exit")
     args = parser.parse_args()
