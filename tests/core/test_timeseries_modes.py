@@ -130,13 +130,14 @@ class TestTimeseriesModes(unittest.TestCase):
                 self.assertEqual(loss.item(), 0.0)
                 self.assertTrue(torch.isfinite(logits.grad).all())
 
-    def test_multi_hot_processor_still_resolves_to_multilabel(self):
-        # MultiHotProcessor subclasses MultiLabelProcessor but is registered
-        # as "multi_hot", which is not a mode.
+    def test_multi_hot_processor_has_no_mode(self):
+        # MultiHotProcessor is an input processor, separate from
+        # MultiLabelProcessor, so it is not a label.
         model = _model(_dataset())
         for entry in (MultiHotProcessor, MultiHotProcessor(), (MultiHotProcessor, {})):
             with self.subTest(entry=entry):
-                self.assertEqual(model._resolve_mode(entry), "multilabel")
+                with self.assertRaises(ValueError):
+                    model._resolve_mode(entry)
 
     def test_v1_rnns_reject_per_step_labels(self):
         rng = np.random.default_rng(0)

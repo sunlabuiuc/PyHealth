@@ -26,11 +26,18 @@ FieldKey = tuple[int, str]
 """A field of a processor's output: ``(level, role)``, see :meth:`FeatureProcessor.schema`."""
 
 
+_MAIN_ROLES = ("value", "values", "tokens")
+"""Roles that ``"value"`` matches: the legacy main tensor, or V2's values or tokens."""
+
+
 def _field_matches(entry: FieldKey | str, role: str, level: int) -> bool:
     # A bare role is the not-yet-migrated form of (0, role).
-    if isinstance(entry, str):
-        return level == 0 and entry == role
-    return tuple(entry) == (level, role)
+    entry_level, entry_role = (0, entry) if isinstance(entry, str) else tuple(entry)
+    if entry_level != level:
+        return False
+    if role == "value":
+        return entry_role in _MAIN_ROLES
+    return entry_role == role
 
 
 def has_field(
@@ -39,7 +46,8 @@ def has_field(
     """Whether a processor's :meth:`~FeatureProcessor.schema` has a field.
 
     Accepts ``(level, role)`` keys and the bare roles of processors not
-    migrated yet.
+    migrated yet. The role ``"value"`` stands for the main tensor: a field
+    whose role is ``"value"``, ``"values"`` or ``"tokens"``.
 
     Args:
         schema: The output of ``schema()``.
@@ -48,7 +56,9 @@ def has_field(
 
     Examples:
         >>> from pyhealth.processors import has_field
-        >>> has_field(((0, "value"), (0, "mask")), "mask")
+        >>> has_field(((0, "values"), (0, "mask")), "mask")
+        True
+        >>> has_field(((0, "tokens"),), "value")
         True
         >>> has_field(("time", "value"), "mask")
         False
@@ -62,7 +72,9 @@ def field_index(
     """Position of a field in a processor's :meth:`~FeatureProcessor.schema`.
 
     Accepts ``(level, role)`` keys and the bare roles of processors not
-    migrated yet.
+    migrated yet. The role ``"value"`` stands for the main tensor: the first
+    field whose role is ``"value"``, ``"values"`` or ``"tokens"`` (with both
+    tokens and values at the level, the first of them).
 
     Args:
         schema: The output of ``schema()``.
@@ -77,9 +89,11 @@ def field_index(
 
     Examples:
         >>> from pyhealth.processors import field_index
-        >>> field_index(((0, "time"), (0, "value")), "value")
+        >>> field_index(((0, "time"), (0, "values")), "value")
         1
         >>> field_index(("time", "value"), "value")
+        1
+        >>> field_index(((0, "values"), (0, "time")), "time")
         1
     """
     for i, entry in enumerate(schema):
@@ -202,20 +216,17 @@ class FeatureProcessor(Processor):
         """Returns the fields of the processed feature, one per output tensor.
 
         Each field is a ``(level, role)`` key, in the order of the output
-        tuple. A processor that emits a single tensor returns
-        ``((0, "value"),)``; one that emits several returns e.g.
-        ``((0, "time"), (0, "value"))``. Packed processors
-        (:class:`~pyhealth.processors.SequenceProcessorV2`) use the level of
-        each record; every other processor puts all fields at level 0.
+        tuple, with the roles of
+        :class:`~pyhealth.processors.SequenceProcessorV2`: ``"tokens"``
+        (integer ids), ``"values"`` (floats), ``"mask"``, ``"time"`` and
+        ``"offsets"``. A processor that emits a single float tensor returns
+        ``((0, "values"),)``. Packed processors use the level of each record;
+        every other processor puts all fields at level 0.
 
-        Typical roles include:
-            - "value": the main processed tensor output of the processor
-            - "time": the time tensor output of the processor (mostly for StageNet)
-            - "mask": the mask tensor output of the processor (if applicable)
-
-        Processors not migrated yet return the roles alone (e.g.
-        ``("time", "value")``), meaning level 0. Read a schema with
-        :func:`field_index` and :func:`has_field`, which accept both forms.
+        Processors not migrated yet return bare roles (e.g.
+        ``("time", "value")``), meaning level 0, where ``"value"`` is the main
+        tensor. Read a schema with :func:`field_index` and :func:`has_field`,
+        which accept both forms.
 
         Returns:
             Tuple of ``(level, role)`` keys, one per output tensor.

@@ -168,7 +168,8 @@ class TensorProcessor(FeatureProcessor):
         return not self.dtype.is_floating_point
 
     def schema(self) -> tuple[FieldKey, ...]:
-        return ((0, "value"),)
+        """``((0, "tokens"),)`` for an integer dtype, else ``((0, "values"),)``."""
+        return ((0, "tokens" if self.is_token() else "values"),)
 
     def dim(self) -> tuple[int, ...]:
         """Number of dimensions for the output tensor.

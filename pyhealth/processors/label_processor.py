@@ -54,7 +54,7 @@ class BinaryLabelProcessor(FeatureProcessor):
         return False
 
     def schema(self) -> tuple[FieldKey, ...]:
-        return ((0, "value"),)
+        return ((0, "values"),)
 
     def dim(self) -> tuple[int, ...]:
         """Output shape is (1,), so 1 dimension."""
@@ -109,7 +109,7 @@ class MultiClassLabelProcessor(FeatureProcessor):
         return True
 
     def schema(self) -> tuple[FieldKey, ...]:
-        return ((0, "value"),)
+        return ((0, "tokens"),)
 
     def dim(self) -> tuple[int, ...]:
         """Output is a scalar tensor (dim 0)."""
@@ -175,7 +175,7 @@ class MultiLabelProcessor(FeatureProcessor):
         return False
 
     def schema(self) -> tuple[FieldKey, ...]:
-        return ((0, "value"),)
+        return ((0, "values"),)
 
     def dim(self) -> tuple[int, ...]:
         """Output shape is (num_classes,), so 1 dimension."""
@@ -212,7 +212,7 @@ class RegressionLabelProcessor(FeatureProcessor):
         return False
 
     def schema(self) -> tuple[FieldKey, ...]:
-        return ((0, "value"),)
+        return ((0, "values"),)
 
     def dim(self) -> tuple[int, ...]:
         """Output shape is (1,), so 1 dimension."""
