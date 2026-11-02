@@ -15,6 +15,7 @@ from .covid19_cxr_classification import COVID19CXRClassification
 from .covid19_cxr_generation import (
     COVID19CXRImageGeneration as COVID19CXRImageGeneration,
 )
+from .ptbxl_multilabel_classification import PTBXLMultilabelClassification as PTBXLMultilabelClassification
 from .deid_ner import DeIDNERTask
 from .dka import DKAPredictionMIMIC4, T1DDKAPredictionMIMIC4
 # New exports must use the redundant `X as X` form: this module has no
