@@ -313,6 +313,12 @@ Available Datasets
     datasets/pyhealth.datasets.BMDHSDataset
     datasets/pyhealth.datasets.COVID19CXRDataset
     datasets/pyhealth.datasets.ChestXray14Dataset
+    MSD Base Loader <datasets/pyhealth.datasets.MSDSegmentationDataset>
+    datasets/pyhealth.datasets.MSDHippocampusDataset
+    datasets/pyhealth.datasets.MSDProstateDataset
+    datasets/pyhealth.datasets.MSDSpleenDataset
+    datasets/pyhealth.datasets.CHAOSDataset
+    datasets/pyhealth.datasets.RSNAPneumoniaDataset
     datasets/pyhealth.datasets.PhysioNetDeIDDataset
     datasets/pyhealth.datasets.EEGBCIDataset
     PTB-XL Dataset <datasets/pyhealth.datasets.PTBXLDataset>

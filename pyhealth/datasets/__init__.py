@@ -48,6 +48,7 @@ class SampleSignalDataset:
 
 from .base_dataset import BaseDataset
 from .cardiology import CardiologyDataset
+from .chaos import CHAOSDataset as CHAOSDataset
 from .chestxray14 import ChestXray14Dataset
 from .clinvar import ClinVarDataset
 from .cosmic import COSMICDataset
@@ -58,12 +59,19 @@ from .eicu import eICUDataset
 from .isruc import ISRUCDataset
 from .medical_transcriptions import MedicalTranscriptionsDataset
 from .meds import MEDSDataset as MEDSDataset
+from .msd import (
+    MSDHippocampusDataset as MSDHippocampusDataset,
+    MSDProstateDataset as MSDProstateDataset,
+    MSDSegmentationDataset as MSDSegmentationDataset,
+    MSDSpleenDataset as MSDSpleenDataset,
+)
 from .mimic3 import MIMIC3Dataset
 from .mimic4 import MIMIC4CXRDataset, MIMIC4Dataset, MIMIC4EHRDataset, MIMIC4NoteDataset
 from .fhir import FHIRDataset, MIMIC4FHIR
 from .mimicextract import MIMICExtractDataset
 from .omop import OMOPDataset
 from .physionet_deid import PhysioNetDeIDDataset
+from .rsna_pneumonia import RSNAPneumoniaDataset as RSNAPneumoniaDataset
 from .sample_dataset import SampleBuilder, SampleDataset, create_sample_dataset
 from .shhs import SHHSDataset
 from .sleepedf import SleepEDFDataset

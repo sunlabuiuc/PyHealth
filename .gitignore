@@ -76,6 +76,8 @@ instance/
 
 # Sphinx documentation
 docs/_build/
+# autosummary stubs are generated at build time (Read the Docs regenerates them)
+docs/api/**/_autosummary/
 
 # PyBuilder
 target/
@@ -159,3 +161,6 @@ test-resources/meds_demo/
 # Generated Synthea outputs and dataset caches
 .artifacts/
 examples/.artifacts/
+
+# developer's local documentation (not part of the repo)
+*_zh.md

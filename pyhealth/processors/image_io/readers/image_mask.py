@@ -1,0 +1,167 @@
+"""Reader for directories of image segmentation-mask slices.
+
+Examples:
+    >>> from pyhealth.processors.image_io.readers.image_mask import ImageMaskReader
+    >>> ImageMaskReader().name
+    'image_mask'
+"""
+
+from __future__ import annotations
+
+import re
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+from PIL import Image
+
+from ..transforms import canonicalize_volume
+from ..types import ImageMetadata, PathLike
+from .base import BaseImageReader
+from .dicom import DicomSeriesReader
+
+
+def _natural_key(path: Path) -> list[Any]:
+    """Sort filenames by embedded integer parts, so ``2`` precedes ``10``."""
+    return [
+        int(part) if part.isdigit() else part.lower()
+        for part in re.split(r"(\d+)", path.name)
+    ]
+
+
+def _mask_files(path: PathLike, pattern: str = "*.png") -> list[Path]:
+    """Return mask files in the order supplied, or naturally sorted."""
+    if isinstance(path, (tuple, list)):
+        return [Path(item) for item in path]
+    source = Path(path)
+    if not source.is_dir():
+        raise FileNotFoundError(f"Mask directory not found: {source}")
+    files = sorted(source.glob(pattern), key=_natural_key)
+    if not files:
+        raise FileNotFoundError(
+            f"No mask files matching {pattern!r} in {source}."
+        )
+    return files
+
+
+def _prepare_mask_files(
+    mask_files: list[Path], series_path: str | Path | None
+) -> tuple[list[Path], ImageMetadata | None]:
+    """Order mask slices like the DICOM series and return its metadata."""
+    if series_path is None:
+        return mask_files, None
+    try:
+        metadata = DicomSeriesReader().read_metadata(series_path)
+    except (FileNotFoundError, ImportError, OSError, ValueError):
+        return mask_files, None
+    ordered_dicom = [Path(path) for path in metadata.source]
+    if len(ordered_dicom) != len(mask_files):
+        return mask_files, None
+
+    name_to_index = {path.name: index for index, path in enumerate(ordered_dicom)}
+    ordered: list[Path | None] = [None] * len(mask_files)
+    for mask_file in mask_files:
+        index = name_to_index.get(f"{mask_file.stem}.dcm")
+        if index is not None:
+            ordered[index] = mask_file
+    if all(path is not None for path in ordered):
+        return [path for path in ordered if path is not None], metadata
+
+    ordered = [None] * len(mask_files)
+    dicom_by_name = sorted(ordered_dicom, key=_natural_key)
+    for mask_file, dicom_file in zip(mask_files, dicom_by_name):
+        ordered[name_to_index[dicom_file.name]] = mask_file
+    return [path for path in ordered if path is not None], metadata
+
+
+class ImageMaskReader(BaseImageReader):
+    """Read ordered image slices as one integer mask volume.
+
+    The reader accepts any image format that :class:`PIL.Image` can open.
+    The caller is responsible for slice order when it differs from filename
+    order, for example when matching DICOM positions.
+
+    Examples:
+        >>> from pyhealth.processors.image_io.readers.image_mask import ImageMaskReader
+        >>> ImageMaskReader().name
+        'image_mask'
+    """
+
+    name = "image_mask"
+
+    def read_metadata(self, path: PathLike) -> ImageMetadata:
+        """Read mask shape and source files without loading every slice.
+
+        Args:
+            path: Directory or ordered tuple of image files.
+
+        Returns:
+            Metadata with shape ``(1, D, H, W)``.
+
+        Raises:
+            FileNotFoundError: If no image files are found.
+        """
+        files = _mask_files(path)
+        with Image.open(files[0]) as image:
+            width, height = image.size
+        return ImageMetadata(
+            format="image_mask",
+            shape=(1, len(files), height, width),
+            dtype="int64",
+            source=tuple(str(file) for file in files),
+        )
+
+    def load(
+        self,
+        path: PathLike,
+        metadata: ImageMetadata | None = None,
+        canonical: bool = True,
+        mode: str | None = None,
+        image_processor: Any = None,
+    ) -> np.ndarray:
+        """Load image slices and stack them into ``(1, D, H, W)``.
+
+        Args:
+            path: Directory or ordered tuple of image files.
+            metadata: Optional reference metadata. When it has an affine, the
+                mask is reoriented like the reference volume.
+            canonical: Reorient to canonical RAS when an affine is available.
+            mode: Optional PIL mode conversion.
+            image_processor: Optional pre-built ``ImageProcessor`` used to
+                read each slice.
+
+        Returns:
+            A contiguous ``int64`` array with shape ``(1, D, H, W)``.
+
+        Raises:
+            FileNotFoundError: If no image files are found.
+        """
+        files = _mask_files(path)
+
+        if image_processor is None:
+            # Imported lazily to avoid a circular import with the processor
+            # package while keeping image reading in one place.
+            from ...image_processor import ImageProcessor
+
+            image_processor = ImageProcessor(
+                image_size=None,
+                to_tensor=False,
+                normalize=False,
+                mode=mode,
+            )
+
+        slices = [np.asarray(image_processor.process(file)) for file in files]
+        # Nibabel does not accept bool or int64 data when reorienting, so use
+        # int32 for the intermediate volume and widen after canonicalisation.
+        volume = np.stack(slices, axis=0).astype(np.int32, copy=False)
+        if (
+            canonical
+            and metadata is not None
+            and metadata.affine is not None
+        ):
+            volume_xyz = np.transpose(volume, (2, 1, 0))
+            volume_xyz, _ = canonicalize_volume(
+                volume_xyz, np.asarray(metadata.affine, dtype=float)
+            )
+            volume = np.transpose(volume_xyz, (2, 1, 0))
+        return np.ascontiguousarray(volume, dtype=np.int64)[None, ...]

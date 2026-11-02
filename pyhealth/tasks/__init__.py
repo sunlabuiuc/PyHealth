@@ -11,6 +11,7 @@ from .cardiology_detect import (
 )
 from .chestxray14_binary_classification import ChestXray14BinaryClassification
 from .chestxray14_multilabel_classification import ChestXray14MultilabelClassification
+from .chaos_segmentation import CHAOSSegmentationTask as CHAOSSegmentationTask
 from .covid19_cxr_classification import COVID19CXRClassification
 from .deid_ner import DeIDNERTask
 from .dka import DKAPredictionMIMIC4, T1DDKAPredictionMIMIC4
@@ -38,6 +39,7 @@ from .length_of_stay_prediction import (
 from .length_of_stay_stagenet_mimic4 import LengthOfStayStageNetMIMIC4
 from .medical_coding import MIMIC3ICD9Coding
 from .medical_transcriptions_classification import MedicalTranscriptionsClassification
+from .msd_segmentation import MSDSegmentationTask as MSDSegmentationTask
 from .mortality_prediction import (
     MortalityPredictionEICU,
     MortalityPredictionEICU2,
@@ -62,6 +64,9 @@ from .generate_ehr import (
     to_evaluation_dataframe,
 )
 from .patient_linkage import patient_linkage_mimic3_fn
+from .rsna_pneumonia_classification import (
+    RSNAPneumoniaClassification as RSNAPneumoniaClassification,
+)
 from .readmission_prediction import (
     ReadmissionPredictionEICU,
     ReadmissionPredictionMIMIC3,
