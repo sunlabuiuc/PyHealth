@@ -7,10 +7,9 @@ import logging
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 from ..datasets import SampleDataset
-from ..processors import PROCESSOR_REGISTRY
+from ..processors import PROCESSOR_REGISTRY, LabelProcessor
 
 logger = logging.getLogger(__name__)
 
@@ -25,34 +24,6 @@ VALID_MODES = (
     "timeseries_binary",
     "timeseries_regression",
 )
-
-
-def _label_record_loss(
-    loss_fn: Callable,
-    logits: torch.Tensor,
-    target: tuple[torch.Tensor, ...],
-) -> torch.Tensor:
-    """Averages a loss over the label records of a batch.
-
-    Args:
-        loss_fn: The loss, e.g. ``F.binary_cross_entropy_with_logits``.
-        logits: One prediction per label record, ``[ΣN, 1]``.
-        target: The packed batch of a
-            :class:`~pyhealth.processors.TimeseriesLabelProcessor`:
-            ``(values [ΣN, 1], time [ΣN], batch offsets [B + 1])``.
-    """
-    values = target[0]
-    if logits.shape != values.shape:
-        raise ValueError(
-            f"Expected one prediction per label record, {tuple(values.shape)}, "
-            f"got {tuple(logits.shape)}. Per-step labels need a model that "
-            "predicts at each label's time, such as RNN_V2."
-        )
-    if values.numel() == 0:
-        # A batch without label records: a zero loss that keeps the graph,
-        # instead of the NaN mean of an empty tensor.
-        return logits.sum() * 0.0
-    return loss_fn(logits, values)
 
 
 class BaseModel(ABC, nn.Module):
@@ -79,8 +50,11 @@ class BaseModel(ABC, nn.Module):
         ``"regression"``, ``"timeseries_binary"``, ``"timeseries_regression"``
         or ``None``. It is resolved from the single label's
         ``output_schema`` entry, which may be a string, a processor class, a
-        processor instance or a ``(name, kwargs)`` tuple. Assigning ``self.mode``
-        in a subclass resolves the value the same way.
+        processor instance or a ``(name, kwargs)`` tuple; a processor gives
+        its :attr:`~pyhealth.processors.LabelProcessor.mode`. Assigning
+        ``self.mode`` in a subclass resolves the value the same way. The
+        default loss and ``y_prob`` come from the label's
+        :class:`~pyhealth.processors.LabelProcessor`.
 
     Examples:
         >>> from pyhealth.datasets import create_sample_dataset
@@ -181,26 +155,43 @@ class BaseModel(ABC, nn.Module):
           - processor class
           - processor instance
           - (string or processor class, kwargs) tuple
-        Returns the registered processor name if found.
+        A string is returned lowercased; a processor gives the ``mode`` of its
+        :class:`~pyhealth.processors.LabelProcessor`.
         """
         if isinstance(schema_entry, tuple):
             schema_entry = schema_entry[0]
         if isinstance(schema_entry, str):
             return schema_entry.lower()
 
-        # The most specific registered class whose name is a mode: a subclass
-        # of a registered processor (e.g. the timeseries labels, which are
-        # SequenceProcessorV2s) resolves to its own mode before its base's,
-        # and one registered under another name (e.g. MultiHotProcessor as
-        # "multi_hot") falls back to its base's ("multilabel").
         cls = schema_entry if inspect.isclass(schema_entry) else schema_entry.__class__
-        for klass in cls.__mro__:
-            for name, registered_cls in PROCESSOR_REGISTRY.items():
-                if klass is registered_cls and name.lower() in VALID_MODES:
-                    return name.lower()
+        if issubclass(cls, LabelProcessor) and getattr(cls, "mode", None) in VALID_MODES:
+            return cls.mode
         raise ValueError(
             f"Cannot resolve mode from output_schema entry {schema_entry}. Use a supported string"
         )
+
+    def _label_processor(self) -> LabelProcessor:
+        """The label processor of the single label key.
+
+        The fitted processor of the dataset when there is one, otherwise a
+        new instance of the processor registered under the label's mode
+        (enough for the stateless activation and loss).
+        """
+        assert (
+            len(self.label_keys) == 1
+        ), "Only one label key is supported for the default loss and y_prob"
+        label_key = self.label_keys[0]
+        try:
+            processor = self.dataset.output_processors.get(label_key)
+        except (AttributeError, RuntimeError):  # no or unfitted processors
+            processor = None
+        if isinstance(processor, LabelProcessor):
+            return processor
+        mode = self._resolve_mode(self.dataset.output_schema[label_key])
+        cls = PROCESSOR_REGISTRY.get(mode)
+        if not (inspect.isclass(cls) and issubclass(cls, LabelProcessor)):
+            raise ValueError(f"Invalid mode: {mode}")
+        return cls()
 
     @property
     def device(self) -> torch.device:
@@ -266,7 +257,7 @@ class BaseModel(ABC, nn.Module):
         if pos_weight is None:
             self._pos_weight = None
             return
-        if self.mode not in ("binary", "multilabel"):
+        if self.mode is None or not self._label_processor().supports_pos_weight:
             raise ValueError(
                 "pos_weight applies to binary or multilabel labels; this "
                 f"model's mode is {self.mode!r}."
@@ -304,7 +295,8 @@ class BaseModel(ABC, nn.Module):
 
     def get_loss_function(self) -> Callable:
         """
-        Gets the default loss function using `self.mode`.
+        Gets the default loss function: the label processor's
+        :meth:`~pyhealth.processors.LabelProcessor.loss`.
 
         The default loss functions are:
             - binary: `F.binary_cross_entropy_with_logits`
@@ -326,43 +318,18 @@ class BaseModel(ABC, nn.Module):
         Returns:
             Callable: The default loss function.
         """
-        assert (
-            len(self.label_keys) == 1
-        ), "Only one label key is supported if get_loss_function is called"
-        label_key = self.label_keys[0]
-        mode = self._resolve_mode(self.dataset.output_schema[label_key])
-        pos_weight = self.pos_weight
-        if mode in ("binary", "multilabel") and pos_weight is not None:
-
-            def weighted_bce(input, target, **kwargs):
-                return F.binary_cross_entropy_with_logits(
-                    input, target, pos_weight=pos_weight.to(input.device), **kwargs
-                )
-
-            return weighted_bce
-        if mode == "binary":
-            return F.binary_cross_entropy_with_logits
-        elif mode == "multiclass":
-            return F.cross_entropy
-        elif mode == "multilabel":
-            return F.binary_cross_entropy_with_logits
-        elif mode == "regression":
-            return F.mse_loss
-        elif mode == "timeseries_binary":
-            return functools.partial(
-                _label_record_loss, F.binary_cross_entropy_with_logits
-            )
-        elif mode == "timeseries_regression":
-            return functools.partial(_label_record_loss, F.mse_loss)
-        else:
-            raise ValueError(f"Invalid mode: {mode}")
+        return functools.partial(
+            self._label_processor().loss, pos_weight=self.pos_weight
+        )
 
     def prepare_y_prob(self, logits: torch.Tensor) -> torch.Tensor:
         """
         Prepares the predicted probabilities for model evaluation.
 
         This function converts the predicted logits to predicted probabilities
-        depending on the mode. The default formats are:
+        with the label processor's
+        :meth:`~pyhealth.processors.LabelProcessor.activation`. The default
+        formats are:
             - binary: a tensor of shape (batch_size, 1) with values in [0, 1],
                 which is obtained with `torch.sigmoid()`
             - multiclass: a tensor of shape (batch_size, num_classes) with
@@ -382,23 +349,4 @@ class BaseModel(ABC, nn.Module):
         Returns:
             torch.Tensor: The predicted probability tensor.
         """
-        assert (
-            len(self.label_keys) == 1
-        ), "Only one label key is supported if get_loss_function is called"
-        label_key = self.label_keys[0]
-        mode = self._resolve_mode(self.dataset.output_schema[label_key])
-        if mode in ["binary"]:
-            y_prob = torch.sigmoid(logits)
-        elif mode in ["multiclass"]:
-            y_prob = F.softmax(logits, dim=-1)
-        elif mode in ["multilabel"]:
-            y_prob = torch.sigmoid(logits)
-        elif mode in ["regression"]:
-            y_prob = logits
-        elif mode in ["timeseries_binary"]:
-            y_prob = torch.sigmoid(logits)
-        elif mode in ["timeseries_regression"]:
-            y_prob = logits
-        else:
-            raise NotImplementedError
-        return y_prob
+        return self._label_processor().activation(logits)

@@ -1,6 +1,7 @@
 import unittest
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from pyhealth.datasets.sample_dataset import create_sample_dataset
 from pyhealth.models.base_model import BaseModel
@@ -31,6 +32,10 @@ class DummyBinaryModel(BaseModel):
 
 
 class TestLegacyModeResolution(unittest.TestCase):
+    def _assert_loss(self, model, expected_fn, logits, y_true):
+        loss = model.get_loss_function()(logits, y_true)
+        self.assertTrue(torch.equal(loss, expected_fn(logits, y_true)))
+
     def _build_dataset(self, output_processor, key="label"):
         samples = [
             {key: 0, "text": "a"},
@@ -44,16 +49,18 @@ class TestLegacyModeResolution(unittest.TestCase):
         ds = self._build_dataset("binary")
         model = DummyBinaryModel(ds)
         self.assertEqual(model.mode, "binary")
-        self.assertEqual(
-            model.get_loss_function().__name__, "binary_cross_entropy_with_logits"
+        self._assert_loss(
+            model, F.binary_cross_entropy_with_logits,
+            torch.randn(2, 1), torch.tensor([[0.0], [1.0]]),
         )
 
     def test_processor_class_schema_sets_mode(self):
         ds = self._build_dataset(BinaryLabelProcessor)
         model = DummyBinaryModel(ds)
         self.assertEqual(model.mode, "binary")
-        self.assertEqual(
-            model.get_loss_function().__name__, "binary_cross_entropy_with_logits"
+        self._assert_loss(
+            model, F.binary_cross_entropy_with_logits,
+            torch.randn(2, 1), torch.tensor([[0.0], [1.0]]),
         )
 
     def test_unregistered_processor_leaves_mode_none(self):
@@ -71,7 +78,7 @@ class TestLegacyModeResolution(unittest.TestCase):
         )
         model = BaseModel(dataset=ds)
         self.assertEqual(model.mode, "multiclass")
-        self.assertEqual(model.get_loss_function().__name__, "cross_entropy")
+        self._assert_loss(model, F.cross_entropy, torch.randn(2, 3), torch.tensor([0, 2]))
 
     def test_multilabel_loss_selection(self):
         samples = [
@@ -81,8 +88,9 @@ class TestLegacyModeResolution(unittest.TestCase):
         ds = create_sample_dataset(samples, {"text": "raw"}, {"label": MultiLabelProcessor})
         model = BaseModel(dataset=ds)
         self.assertEqual(model.mode, "multilabel")
-        self.assertEqual(
-            model.get_loss_function().__name__, "binary_cross_entropy_with_logits"
+        self._assert_loss(
+            model, F.binary_cross_entropy_with_logits,
+            torch.randn(2, 3), torch.tensor([[1.0, 0.0, 1.0], [0.0, 1.0, 0.0]]),
         )
 
     def test_regression_loss_selection(self):
@@ -95,7 +103,7 @@ class TestLegacyModeResolution(unittest.TestCase):
         )
         model = BaseModel(dataset=ds)
         self.assertEqual(model.mode, "regression")
-        self.assertEqual(model.get_loss_function().__name__, "mse_loss")
+        self._assert_loss(model, F.mse_loss, torch.randn(2, 1), torch.randn(2, 1))
 
 
 if __name__ == "__main__":

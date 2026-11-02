@@ -21,6 +21,7 @@ def get_processor(name: str):
 from .image_processor import ImageProcessor
 from .label_processor import (
     BinaryLabelProcessor,
+    LabelProcessor,
     MultiClassLabelProcessor,
     MultiLabelProcessor,
     RegressionLabelProcessor,
@@ -52,12 +53,12 @@ from .stagenet_processor import (
 )
 from .tensor_processor import TensorProcessor
 from .text_processor import TextProcessor
-from .timeseries_processor import (
+from .timeseries_label_processor import (
     TimeseriesBinaryLabelProcessor,
     TimeseriesLabelProcessor,
-    TimeseriesProcessor,
     TimeseriesRegressionLabelProcessor,
 )
+from .timeseries_processor import TimeseriesProcessor
 from .time_image_processor import TimeImageProcessor
 from .graph_processor import GraphProcessor
 from .audio_processor import AudioProcessor
