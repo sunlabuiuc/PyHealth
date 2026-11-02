@@ -33,8 +33,8 @@ Available Processors
 **Label Processors:**
 
 - ``BinaryLabelProcessor``: Binary classification labels (e.g., mortality prediction)
-- ``MultiClassLabelProcessor``: Multi-class classification labels
-- ``MultiLabelProcessor``: Multi-label classification (e.g., drug recommendation)
+- ``MultiClassLabelProcessor``: Multi-class classification labels; pass ``labels`` (the classes in index order, or their number) to fix the label set instead of learning it in ``fit``
+- ``MultiLabelProcessor``: Multi-label classification (e.g., drug recommendation); takes the same optional ``labels``
 - ``RegressionLabelProcessor``: Continuous regression targets
 - ``TimeseriesBinaryLabelProcessor``: Binary labels at given times (``"timeseries_binary"``): each sample is ``{"time": [...], "values": [...]}``, packed per batch as ``(values [ΣN, 1], time [ΣN], batch offsets [B + 1])``, one record per label, with no grid or mask
 - ``TimeseriesRegressionLabelProcessor``: Real-valued labels at given times (``"timeseries_regression"``), in the same packed format
@@ -554,6 +554,7 @@ API Reference
     processors/pyhealth.processors.NestedSequenceProcessor
     processors/pyhealth.processors.NestedMultiHotProcessor
     processors/pyhealth.processors.NestedFloatsProcessor
+    processors/pyhealth.processors.LabelProcessor
     processors/pyhealth.processors.BinaryLabelProcessor
     processors/pyhealth.processors.MultiClassLabelProcessor
     processors/pyhealth.processors.MultiLabelProcessor

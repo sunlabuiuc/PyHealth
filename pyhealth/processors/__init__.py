@@ -21,6 +21,7 @@ def get_processor(name: str):
 from .image_processor import ImageProcessor
 from .label_processor import (
     BinaryLabelProcessor,
+    LabelProcessor,
     MultiClassLabelProcessor,
     MultiLabelProcessor,
     RegressionLabelProcessor,

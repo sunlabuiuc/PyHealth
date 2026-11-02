@@ -17,7 +17,7 @@ import numpy as np
 
 from pyhealth.datasets import SampleDataset
 from pyhealth.metrics import bootstrap_ci, paired_bootstrap_diff
-from pyhealth.processors import PROCESSOR_REGISTRY
+from pyhealth.processors import LabelProcessor
 from pyhealth.trainer import get_metrics_fn
 
 from .evaluate import (
@@ -842,9 +842,8 @@ def _label_mode(dataset: SampleDataset) -> str:
     if isinstance(entry, str):
         return entry.lower()
     cls = entry if inspect.isclass(entry) else type(entry)
-    for name, registered in PROCESSOR_REGISTRY.items():
-        if issubclass(cls, registered):
-            return name.lower()
+    if issubclass(cls, LabelProcessor):
+        return getattr(cls, "mode", "unknown")
     return "unknown"
 
 
