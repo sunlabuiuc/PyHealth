@@ -26,7 +26,6 @@ model = VAE(
     feature_key="image",
     condition_key="disease",
     hidden_dim=128,
-    channel_dim=32,
 )
 trainer = Trainer(
     model=model,

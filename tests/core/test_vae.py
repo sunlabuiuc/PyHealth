@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import torch
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from pyhealth.datasets import (
     COVID19CXRDataset,
@@ -75,7 +75,7 @@ class TestVAE(unittest.TestCase):
 
     def test_conditional_reconstruction_and_generation(self):
         model = VAE(
-            self.dataset, hidden_dim=8, channel_dim=4, condition_key="label"
+            self.dataset, hidden_dim=8, condition_key="label"
         )
         batch = next(iter(get_dataloader(self.dataset, batch_size=2)))
 
@@ -88,7 +88,7 @@ class TestVAE(unittest.TestCase):
         self.assertEqual(generated.shape, (2, 1, 32, 32))
 
     def test_trainer_evaluates_reconstruction_loss(self):
-        model = VAE(self.dataset, hidden_dim=8, channel_dim=4)
+        model = VAE(self.dataset, hidden_dim=8)
         trainer = Trainer(model=model, device="cpu")
         scores = trainer.evaluate(get_dataloader(self.dataset, batch_size=2))
         self.assertIn("loss", scores)
@@ -122,6 +122,11 @@ class TestVAE(unittest.TestCase):
         scores = trainer.evaluate(get_dataloader(self.sequence_dataset, batch_size=2))
         self.assertTrue(np.isfinite(scores["loss"]))
 
+        model.eval()
+        first = model(**batch)["loss"]
+        second = model(**batch)["loss"]
+        torch.testing.assert_close(first, second)
+
     def test_unconditional_image_reconstruction_and_generation(self):
         samples = [
             {
@@ -138,7 +143,7 @@ class TestVAE(unittest.TestCase):
             output_schema={"label": "multiclass", "extra_label": "binary"},
             dataset_name="test_vae_unconditional",
         )
-        model = VAE(dataset, hidden_dim=8, channel_dim=4)
+        model = VAE(dataset, hidden_dim=8)
         self.assertIsNone(model.condition_key)
 
         batch = next(iter(get_dataloader(dataset, batch_size=2)))
@@ -148,7 +153,7 @@ class TestVAE(unittest.TestCase):
         self.assertEqual(generated.shape, (3, 1, 32, 32))
 
     def test_image_reconstruction_keeps_trainer_compatibility(self):
-        model = VAE(self.dataset, hidden_dim=8, channel_dim=4)
+        model = VAE(self.dataset, hidden_dim=8)
         batch = next(iter(get_dataloader(self.dataset, batch_size=2)))
         model.eval()
         with torch.no_grad():
@@ -168,6 +173,58 @@ class TestVAE(unittest.TestCase):
         scores = trainer.evaluate(get_dataloader(self.dataset, batch_size=2))
         self.assertTrue(np.isfinite(scores["mse"]))
         self.assertTrue(np.isfinite(scores["mae"]))
+
+    def test_rgb_image_forward_generate_and_gradient_flow(self):
+        samples = []
+        for index in range(2):
+            path = os.path.join(self.temp_dir, f"rgb-{index}.png")
+            pixels = np.zeros((32, 32, 3), dtype=np.uint8)
+            pixels[..., index] = 180
+            Image.fromarray(pixels, mode="RGB").save(path)
+            samples.append({"patient_id": f"rgb-{index}", "image": path})
+        dataset = create_sample_dataset(
+            samples=samples,
+            input_schema={"image": ("image", {"image_size": 32, "mode": "RGB"})},
+            output_schema={},
+            dataset_name="test_vae_rgb",
+        )
+        model = VAE(dataset, hidden_dim=8)
+        batch = next(iter(get_dataloader(dataset, batch_size=2)))
+        result = model(**batch)
+        self.assertEqual(result["y_prob"].shape, (2, 3, 32, 32))
+        result["loss"].backward()
+        self.assertIsNotNone(next(model.encoder.parameters()).grad)
+        self.assertIsNotNone(next(model.decoder.parameters()).grad)
+        self.assertEqual(model.generate(2).shape, (2, 3, 32, 32))
+
+    def test_image_api_and_checkpoint_keys_round_trip(self):
+        model = VAE(self.dataset, hidden_dim=8)
+        self.assertTrue(hasattr(model, "encode"))
+        self.assertTrue(hasattr(model, "decode"))
+        self.assertTrue(hasattr(model, "encoder"))
+        self.assertTrue(hasattr(model, "decoder"))
+        self.assertTrue(hasattr(model, "mu"))
+        self.assertTrue(hasattr(model, "logvar"))
+        self.assertTrue(hasattr(model, "decoder_input"))
+        state = model.state_dict()
+        self.assertIn("encoder.0.conv1.weight", state)
+        self.assertIn("mu.weight", state)
+        self.assertIn("logvar.weight", state)
+        self.assertIn("decoder_input.weight", state)
+
+        restored = VAE(self.dataset, hidden_dim=8)
+        restored.load_state_dict(state, strict=True)
+        model.eval()
+        restored.eval()
+        batch = next(iter(get_dataloader(self.dataset, batch_size=2)))
+        torch.testing.assert_close(
+            model(**batch)["y_prob"], restored(**batch)["y_prob"]
+        )
+
+        mu, logvar = model.encode(batch["image"])
+        self.assertEqual(mu.shape, (2, 8))
+        self.assertEqual(logvar.shape, (2, 8))
+        self.assertEqual(model.decode(mu).shape, (2, 1, 32, 32))
 
     def test_normalized_images_use_a_finite_reconstruction_loss(self):
         samples = [
@@ -194,11 +251,11 @@ class TestVAE(unittest.TestCase):
             output_schema={},
             dataset_name="test_vae_normalized",
         )
-        model = VAE(dataset, hidden_dim=8, channel_dim=4)
+        model = VAE(dataset, hidden_dim=8)
         result = model(**next(iter(get_dataloader(dataset, batch_size=2))))
         self.assertTrue(torch.isfinite(result["loss"]))
 
-    def test_image_processor_requires_explicit_mode(self):
+    def test_image_processor_infers_channels_when_mode_is_unset(self):
         samples = [
             {
                 "patient_id": f"mode-{index}",
@@ -212,13 +269,32 @@ class TestVAE(unittest.TestCase):
             output_schema={},
             dataset_name="test_vae_missing_image_mode",
         )
-        with self.assertRaisesRegex(
-            ValueError, 'mode must be set to "L", "RGB" or "RGBA"'
-        ):
+        model = VAE(dataset)
+        self.assertEqual(model.image_shape, (1, 32, 32))
+
+    def test_image_processor_without_tensor_output_has_clear_error(self):
+        dataset = create_sample_dataset(
+            samples=[
+                {
+                    "patient_id": f"pil-{index}",
+                    "image": os.path.join(self.temp_dir, f"image-{index}.png"),
+                }
+                for index in range(4)
+            ],
+            input_schema={
+                "image": (
+                    "image",
+                    {"image_size": 32, "mode": "L", "to_tensor": False},
+                )
+            },
+            output_schema={},
+            dataset_name="test_vae_pil_output",
+        )
+        with self.assertRaisesRegex(ValueError, "to_tensor=True"):
             VAE(dataset)
 
     def test_legacy_hidden_dim_and_generate_device_are_supported(self):
-        model = VAE(self.dataset, 8, channel_dim=4)
+        model = VAE(self.dataset, 8)
         self.assertEqual(model.latent_dim, 8)
         generated = model.generate(2, "cpu")
         self.assertEqual(generated.shape, (2, 1, 32, 32))
@@ -239,11 +315,11 @@ class TestVAE(unittest.TestCase):
             output_schema={"score": "regression"},
             dataset_name="test_vae_regression_label",
         )
-        model = VAE(dataset, hidden_dim=8, channel_dim=4)
+        model = VAE(dataset, hidden_dim=8)
         self.assertIsNone(model.condition_key)
         self.assertEqual(model.generate(num_samples=2).shape, (2, 1, 32, 32))
         with self.assertRaisesRegex(ValueError, "binary or multiclass"):
-            VAE(dataset, hidden_dim=8, channel_dim=4, condition_key="score")
+            VAE(dataset, hidden_dim=8, condition_key="score")
 
     def test_unsupported_image_mode_raises_value_error(self):
         dataset = create_sample_dataset(
@@ -262,15 +338,15 @@ class TestVAE(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "got 'P'"):
             VAE(dataset)
 
-    def test_trainer_train_reduces_reconstruction_loss(self):
+    def test_trainer_learns_to_reconstruct_over_multiple_epochs(self):
         torch.manual_seed(7)
-        model = VAE(self.dataset, hidden_dim=8, channel_dim=2)
+        model = VAE(self.dataset, hidden_dim=8)
         loader = get_dataloader(self.dataset, batch_size=4, shuffle=False)
         trainer = Trainer(model=model, device="cpu", enable_logging=False)
         before = trainer.evaluate(loader)["loss"]
         trainer.train(
             train_dataloader=loader,
-            epochs=1,
+            epochs=20,
             optimizer_params={"lr": 1e-2},
         )
         after = trainer.evaluate(loader)["loss"]
@@ -307,7 +383,7 @@ class TestCOVID19CXRImageGeneration(unittest.TestCase):
         self.assertEqual(tuple(self.samples[0]["image"].shape), (1, 128, 128))
 
     def test_vae_reconstructs_the_generation_task_samples(self):
-        model = VAE(dataset=self.samples, hidden_dim=8, channel_dim=4)
+        model = VAE(dataset=self.samples, hidden_dim=8)
         output = model(**next(iter(get_dataloader(self.samples, batch_size=2))))
         self.assertEqual(output["y_prob"].shape, (2, 1, 128, 128))
         output["loss"].backward()
