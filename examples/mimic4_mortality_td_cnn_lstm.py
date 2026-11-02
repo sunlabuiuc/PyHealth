@@ -15,7 +15,8 @@ deterministic, **invented** paired-state dataset (tasks T39-T41):
    then ``update_target()``), keeping the epoch with the best validation
    AUROC.
 4. Evaluate held-out patients for the full model and for the
-   ``use_delta_embeddings=False`` ablation, trained under identical settings.
+   ``use_delta_embeddings=False`` ablation, using the same AdamW learning rate
+   and weight decay (derived from the full model unless explicitly overridden).
 
 No PhysioNet credentials, MIMIC-IV files or network access are needed. The
 synthetic scores only show that the pipeline works. They are **not**
@@ -33,7 +34,7 @@ Example:
 import argparse
 import copy
 import math
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
@@ -612,9 +613,11 @@ def train_one_epoch(
 class ExampleConfig:
     """Settings of the synthetic example (small enough for CPU tests).
 
-    ``learning_rate`` and ``weight_decay`` default to ``None``, which applies
-    the released ``train.py`` formulas through
-    :func:`make_reference_optimizer`. The reference settings use
+    ``learning_rate`` and ``weight_decay`` default to ``None``. The full
+    model uses the released ``train.py`` formulas; the no-delta ablation
+    reuses the resulting learning rate and weight decay, instead of
+    recalculating them using its smaller parameter count. Explicit overrides
+    apply identically to both models. The reference settings use
     ``hidden_dim=32``, ``dropout=0.5``, batch size 64 and 10 epochs on MIMIC-IV.
     """
 
@@ -645,9 +648,9 @@ def fit_model(
 ) -> Tuple[TDCNNLSTM, List[Dict[str, Any]], int]:
     """Trains one TD model and restores its best-validation-AUROC epoch.
 
-    The model seed, training-loader shuffle seed and optimizer settings depend
-    only on ``config``, so the full and no-delta models are trained under
-    identical conditions.
+    The model seed and training-loader shuffle seed depend only on
+    ``config``. For a paired ablation, ``run_example`` passes identical
+    explicit optimizer settings after resolving defaults from the full model.
 
     Args:
         dataset: Full dataset, used for the model's schema checks.
@@ -722,9 +725,8 @@ def run_example(config: Optional[ExampleConfig] = None) -> Dict[str, Any]:
         config: Settings; defaults to :class:`ExampleConfig`.
 
     Returns:
-        A dictionary with the configuration, split sizes and, for ``"full"``
-        and ``"no_delta"``, the training history, best epoch, and validation
-        and test metrics.
+        A dictionary with the configuration, split sizes, shared AdamW
+        optimizer settings, and each model's history, best epoch, and metrics.
     """
     config = ExampleConfig() if config is None else config
     if config.epochs < 1:
@@ -749,12 +751,40 @@ def run_example(config: Optional[ExampleConfig] = None) -> Dict[str, Any]:
         test_loader = get_dataloader(test, batch_size=config.batch_size, shuffle=False)
 
         models: Dict[str, Dict[str, Any]] = {}
+        shared_settings: Optional[Dict[str, float]] = None
+        full_parameter_count = 0
         for name, use_delta in (("full", True), ("no_delta", False)):
+            # we resolve defaults using the full model before fitting the ablation
+            if shared_settings is None:
+                run_config = config
+            else:
+                run_config = replace(config, **shared_settings)
             model, history, best_epoch = fit_model(
-                dataset, train, val_loader, scaling, use_delta, config
+                dataset, train, val_loader, scaling, use_delta, run_config
             )
+
+            if shared_settings is None:
+                # we preserve the reference formula for the full model only
+                full_parameter_count = model.n_online_trainable_parameters
+                n_training_batches = len(train) // config.batch_size
+                shared_learning_rate = (
+                    config.learning_rate
+                    if config.learning_rate is not None
+                    else 1.0 / math.sqrt(full_parameter_count)
+                )
+                shared_weight_decay = (
+                    config.weight_decay
+                    if config.weight_decay is not None
+                    else 1.0 / (shared_learning_rate * n_training_batches)
+                )
+                shared_settings = {
+                    "learning_rate": float(shared_learning_rate),
+                    "weight_decay": float(shared_weight_decay),
+                }
+
             models[name] = {
                 "use_delta_embeddings": use_delta,
+                "n_online_parameters": model.n_online_trainable_parameters,
                 "best_epoch": best_epoch,
                 "history": history,
                 "validation": evaluate(model, val_loader),
@@ -764,6 +794,10 @@ def run_example(config: Optional[ExampleConfig] = None) -> Dict[str, Any]:
     return {
         "config": asdict(config),
         "n_samples": {"train": len(train), "val": len(val), "test": len(test)},
+        "optimizer": {
+            **shared_settings,
+            "reference_parameter_count": full_parameter_count,
+        },
         "models": models,
     }
 
@@ -782,6 +816,15 @@ def format_results(results: Mapping[str, Any]) -> str:
         "",
         f"{'model':<10}{'best epoch':>12}{'val AUROC':>12}{'test AUROC':>12}",
     ]
+    if "optimizer" in results:
+        optimizer = results["optimizer"]
+        lines.insert(
+            2,
+            "shared AdamW: "
+            f"lr={optimizer['learning_rate']:.6g} "
+            f"weight_decay={optimizer['weight_decay']:.6g} "
+            f"(full-model parameters={optimizer['reference_parameter_count']})",
+        )
     for name, entry in results["models"].items():
         lines.append(
             f"{name:<10}{entry['best_epoch']:>12}"

@@ -1487,6 +1487,82 @@ def test_t39_scaling_is_derived_from_the_training_split_only():
     torch.testing.assert_close(model.values_mean, scaling["values"]["mean"])
 
 
+def test_t40_ablation_shares_full_model_optimizer_defaults(monkeypatch):
+    """The smaller no-delta model must not receive a different AdamW schedule."""
+    original_make_optimizer = _example_helpers.make_reference_optimizer
+    actual_optimizers = []
+
+    def record_optimizer(model, n_training_batches, **kwargs):
+        optimizer = original_make_optimizer(model, n_training_batches, **kwargs)
+        group = optimizer.param_groups[0]
+        actual_optimizers.append(
+            {
+                "parameter_count": model.n_online_trainable_parameters,
+                "learning_rate": group["lr"],
+                "weight_decay": group["weight_decay"],
+            }
+        )
+        return optimizer
+
+    monkeypatch.setattr(_example_helpers, "make_reference_optimizer", record_optimizer)
+    results = _example_helpers.run_example(_tiny_config())
+
+    assert len(actual_optimizers) == 2
+    full, no_delta = actual_optimizers
+    assert no_delta["parameter_count"] < full["parameter_count"]
+    assert full["learning_rate"] == pytest.approx(no_delta["learning_rate"])
+    assert full["weight_decay"] == pytest.approx(no_delta["weight_decay"])
+
+    expected_learning_rate = 1.0 / math.sqrt(full["parameter_count"])
+    n_training_batches = results["n_samples"]["train"] // 4
+    expected_weight_decay = 1.0 / (expected_learning_rate * n_training_batches)
+    assert full["learning_rate"] == pytest.approx(expected_learning_rate)
+    assert full["weight_decay"] == pytest.approx(expected_weight_decay)
+    assert results["optimizer"]["learning_rate"] == pytest.approx(
+        full["learning_rate"]
+    )
+    assert results["optimizer"]["weight_decay"] == pytest.approx(
+        full["weight_decay"]
+    )
+    assert results["optimizer"]["reference_parameter_count"] == full[
+        "parameter_count"
+    ]
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"learning_rate": 0.002},
+        {"weight_decay": 0.03},
+        {"learning_rate": 0.002, "weight_decay": 0.03},
+    ],
+)
+def test_t40_ablation_respects_explicit_optimizer_overrides(monkeypatch, overrides):
+    """A user-supplied AdamW override is applied equally to both models."""
+    original_make_optimizer = _example_helpers.make_reference_optimizer
+    observed = []
+
+    def record_optimizer(model, n_training_batches, **kwargs):
+        optimizer = original_make_optimizer(model, n_training_batches, **kwargs)
+        group = optimizer.param_groups[0]
+        observed.append((group["lr"], group["weight_decay"]))
+        return optimizer
+
+    monkeypatch.setattr(_example_helpers, "make_reference_optimizer", record_optimizer)
+    result = _example_helpers.run_example(_tiny_config(**overrides))
+
+    assert len(observed) == 2
+    assert observed[0] == pytest.approx(observed[1])
+    for name, value in overrides.items():
+        assert result["optimizer"][name] == pytest.approx(value)
+    assert observed[0] == pytest.approx(
+        (
+            result["optimizer"]["learning_rate"],
+            result["optimizer"]["weight_decay"],
+        )
+    )
+
+
 def test_t41_safe_binary_auroc_handles_undefined_cases():
     auroc = _example_helpers.safe_binary_auroc
     assert auroc([0, 1, 1, 0], [0.1, 0.8, 0.7, 0.3]) == 1.0
@@ -1519,6 +1595,8 @@ def test_t41_example_runs_end_to_end_offline(monkeypatch):
     assert results["models"]["full"]["use_delta_embeddings"] is True
     assert results["models"]["no_delta"]["use_delta_embeddings"] is False
     assert sum(results["n_samples"].values()) == 12 * 3
+    assert results["optimizer"]["learning_rate"] > 0
+    assert results["optimizer"]["weight_decay"] >= 0
     for name, entry in results["models"].items():
         assert entry["best_epoch"] in (1, 2)
         assert len(entry["history"]) == 2
@@ -1531,6 +1609,7 @@ def test_t41_example_runs_end_to_end_offline(monkeypatch):
 
     table = _example_helpers.format_results(results)
     assert "no_delta" in table and "full - no_delta" in table
+    assert "shared AdamW" in table
 
 
 def test_t41_example_reports_undefined_auroc_instead_of_failing():
