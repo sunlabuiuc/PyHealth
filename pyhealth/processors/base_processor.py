@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from enum import Enum
 import logging
+from collections.abc import Mapping, Sequence
 from typing import Any, Dict, List, Iterable
 
 import torch
@@ -19,6 +20,86 @@ def _warn_truncated(processor: Any, what: str, got: int, limit: int) -> None:
         "sample has the same shape. Pass a larger `padding` to keep more.",
         type(processor).__name__, got, what, limit, limit,
     )
+
+
+FieldKey = tuple[int, str]
+"""A field of a processor's output: ``(level, role)``, see :meth:`FeatureProcessor.schema`."""
+
+
+_MAIN_ROLES = ("value", "values", "tokens")
+"""Roles that ``"value"`` matches: the legacy main tensor, or V2's values or tokens."""
+
+
+def _field_matches(entry: FieldKey | str, role: str, level: int) -> bool:
+    # A bare role is the not-yet-migrated form of (0, role).
+    entry_level, entry_role = (0, entry) if isinstance(entry, str) else tuple(entry)
+    if entry_level != level:
+        return False
+    if role == "value":
+        return entry_role in _MAIN_ROLES
+    return entry_role == role
+
+
+def has_field(
+    schema: Sequence[FieldKey] | Sequence[str], role: str, level: int = 0
+) -> bool:
+    """Whether a processor's :meth:`~FeatureProcessor.schema` has a field.
+
+    Accepts ``(level, role)`` keys and the bare roles of processors not
+    migrated yet. The role ``"value"`` stands for the main tensor: a field
+    whose role is ``"value"``, ``"values"`` or ``"tokens"``.
+
+    Args:
+        schema: The output of ``schema()``.
+        role: The role to look for, e.g. ``"mask"``.
+        level: The level of the field.
+
+    Examples:
+        >>> from pyhealth.processors import has_field
+        >>> has_field(((0, "values"), (0, "mask")), "mask")
+        True
+        >>> has_field(((0, "tokens"),), "value")
+        True
+        >>> has_field(("time", "value"), "mask")
+        False
+    """
+    return any(_field_matches(entry, role, level) for entry in schema)
+
+
+def field_index(
+    schema: Sequence[FieldKey] | Sequence[str], role: str, level: int = 0
+) -> int:
+    """Position of a field in a processor's :meth:`~FeatureProcessor.schema`.
+
+    Accepts ``(level, role)`` keys and the bare roles of processors not
+    migrated yet. The role ``"value"`` stands for the main tensor: the first
+    field whose role is ``"value"``, ``"values"`` or ``"tokens"`` (with both
+    tokens and values at the level, the first of them).
+
+    Args:
+        schema: The output of ``schema()``.
+        role: The role to look for, e.g. ``"value"``.
+        level: The level of the field.
+
+    Returns:
+        The index of the field's tensor in the processor's output tuple.
+
+    Raises:
+        ValueError: If the schema has no such field.
+
+    Examples:
+        >>> from pyhealth.processors import field_index
+        >>> field_index(((0, "time"), (0, "values")), "value")
+        1
+        >>> field_index(("time", "value"), "value")
+        1
+        >>> field_index(((0, "values"), (0, "time")), "time")
+        1
+    """
+    for i, entry in enumerate(schema):
+        if _field_matches(entry, role, level):
+            return i
+    raise ValueError(f"No field {(level, role)} in schema {tuple(schema)}.")
 
 
 class ModalityType(str, Enum):
@@ -131,19 +212,24 @@ class FeatureProcessor(Processor):
         """
         raise NotImplementedError("is_token method is not implemented for this processor.")
     
-    def schema(self) -> tuple[str, ...]:
-        """Returns the schema of the processed feature. For a processor that emits a single tensor,
-        this should just return `["value"]`. For a processor that emits a tuple of tensors, 
-        this should return a tuple of the same length as the tuple, with the semantic name of each tensor,
-        such as `["time", "value"]`, `["value", "mask"]`, etc.
-        
-        Typical semantic names include:
-            - "value": the main processed tensor output of the processor
-            - "time": the time tensor output of the processor (mostly for StageNet)
-            - "mask": the mask tensor output of the processor (if applicable)
-        
+    def schema(self) -> tuple[FieldKey, ...] | tuple[str, ...]:
+        """Returns the fields of the processed feature, one per output tensor.
+
+        Each field is a ``(level, role)`` key, in the order of the output
+        tuple, with the roles of
+        :class:`~pyhealth.processors.SequenceProcessorV2`: ``"tokens"``
+        (integer ids), ``"values"`` (floats), ``"mask"``, ``"time"`` and
+        ``"offsets"``. A processor that emits a single float tensor returns
+        ``((0, "values"),)``. Packed processors use the level of each record;
+        every other processor puts all fields at level 0.
+
+        Processors not migrated yet return bare roles (e.g.
+        ``("time", "value")``), meaning level 0, where ``"value"`` is the main
+        tensor. Read a schema with :func:`field_index` and :func:`has_field`,
+        which accept both forms.
+
         Returns:
-            Tuple of semantic names corresponding to the output of the processor.
+            Tuple of ``(level, role)`` keys, one per output tensor.
         """
         raise NotImplementedError("Schema method is not implemented for this processor.")
     
@@ -156,16 +242,22 @@ class FeatureProcessor(Processor):
         """
         raise NotImplementedError("dim method is not implemented for this processor.")
     
-    def spatial(self) -> tuple[bool, ...]:
-        """Whether each dimension (axis) of the value tensor is spatial (i.e. corresponds to a spatial 
-        axis like time, height, width, etc.) or not. This is used to determine how to apply 
+    def spatial(self) -> Mapping[int, tuple[bool, ...] | None] | tuple[bool, ...]:
+        """Whether each dimension (axis) of the value tensor is spatial (i.e. corresponds to a spatial
+        axis like time, height, width, etc.) or not. This is used to determine how to apply
         augmentations and other transformations that should only be applied to spatial dimensions.
-        
-        E.g. for CNN or RNN features, this would help determine which dimensions to apply spatial augmentations to, 
+
+        E.g. for CNN or RNN features, this would help determine which dimensions to apply spatial augmentations to,
         and which dimensions to treat as channels or features.
-        
+
+        Keyed by level, like :meth:`schema`. At level 0 of a processor that
+        is not packed, the flags cover every axis of the value tensor; for
+        :class:`~pyhealth.processors.SequenceProcessorV2` they cover the
+        trailing value shape of each level, or are None at a level without
+        values. Processors not migrated yet return the level-0 tuple alone.
+
         Returns:
-            Tuple of booleans corresponding to whether each axis of the value tensor is spatial or not.
+            Dict from level to a tuple of booleans, one per axis.
         """
         raise NotImplementedError("spatial method is not implemented for this processor.")
     

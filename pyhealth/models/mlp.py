@@ -8,6 +8,7 @@ from pyhealth.models import BaseModel
 from pyhealth.interpret.api import Interpretable
 
 from .embedding import EmbeddingModel
+from pyhealth.processors import field_index, has_field
 
 
 class MLP(BaseModel, Interpretable):
@@ -242,8 +243,8 @@ class MLP(BaseModel, Interpretable):
                 # as values without mask
                 feature = (feature,)
 
-            value = feature[schema.index("value")] if "value" in schema else None
-            mask = feature[schema.index("mask")] if "mask" in schema else None
+            value = feature[field_index(schema, "value")] if has_field(schema, "value") else None
+            mask = feature[field_index(schema, "mask")] if has_field(schema, "mask") else None
 
             if len(feature) == len(schema) + 1 and mask is None:
                 # An optional mask can be provided as the last element
@@ -337,9 +338,9 @@ class MLP(BaseModel, Interpretable):
             schema = self.dataset.input_processors[feature_key].schema()
 
             value = (
-                feature[schema.index("value")] if "value" in schema else None
+                feature[field_index(schema, "value")] if has_field(schema, "value") else None
             )
-            mask = feature[schema.index("mask")] if "mask" in schema else None
+            mask = feature[field_index(schema, "mask")] if has_field(schema, "mask") else None
 
             if value is None:
                 raise ValueError(
@@ -366,7 +367,7 @@ class MLP(BaseModel, Interpretable):
             else:
                 value = self.embedding_model({feature_key: value})[feature_key]
 
-            i = schema.index("value")
+            i = field_index(schema, "value")
             # We replace 'value' in the tuple with the embedded value
             # But we must ensure other elements are preserved.
             

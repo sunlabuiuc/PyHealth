@@ -18,6 +18,7 @@ from pyhealth.models.embedding import EmbeddingModel
 from pyhealth.models.transformer import TransformerBlock
 from pyhealth.models.ehrmamba import MambaBlock
 from pyhealth.models.utils import get_last_visit
+from pyhealth.processors import field_index, has_field
 
 
 def build_layer_schedule(
@@ -340,13 +341,13 @@ class JambaEHR(BaseModel):
             schema = self.dataset.input_processors[feature_key].schema()
 
             value = (
-                feature[schema.index("value")]
-                if "value" in schema
+                feature[field_index(schema, "value")]
+                if has_field(schema, "value")
                 else None
             )
             mask = (
-                feature[schema.index("mask")]
-                if "mask" in schema
+                feature[field_index(schema, "mask")]
+                if has_field(schema, "mask")
                 else None
             )
 

@@ -4,7 +4,7 @@ from typing import Any, Literal
 import torch
 
 from . import register_processor
-from .base_processor import FeatureProcessor
+from .base_processor import FeatureProcessor, FieldKey
 from .utils import NORMALIZATIONS, Normalization, fit_normalization
 
 
@@ -167,8 +167,9 @@ class TensorProcessor(FeatureProcessor):
         """
         return not self.dtype.is_floating_point
 
-    def schema(self) -> tuple[str, ...]:
-        return ("value",)
+    def schema(self) -> tuple[FieldKey, ...]:
+        """``((0, "tokens"),)`` for an integer dtype, else ``((0, "values"),)``."""
+        return ((0, "tokens" if self.is_token() else "values"),)
 
     def dim(self) -> tuple[int, ...]:
         """Number of dimensions for the output tensor.
@@ -192,20 +193,20 @@ class TensorProcessor(FeatureProcessor):
             return max(self._n_dim, 1)
         return self._n_dim
 
-    def spatial(self) -> tuple[bool, ...]:
-        """Whether each dimension of the output tensor is spatial.
+    def spatial(self) -> dict[int, tuple[bool, ...]]:
+        """Whether each dimension of the output tensor is spatial, at level 0.
 
         If spatial_dims was provided at init, returns that. Otherwise defaults
         to all False based on n_dim.
         """
         if self._spatial_dims is not None:
-            return self._spatial_dims
+            return {0: self._spatial_dims}
         if self._n_dim is None:
             raise NotImplementedError(
                 "TensorProcessor cannot determine spatial dims. "
                 "Call fit() first."
             )
-        return tuple(False for _ in range(self._output_n_dim()))
+        return {0: tuple(False for _ in range(self._output_n_dim()))}
 
     def __repr__(self) -> str:
         """

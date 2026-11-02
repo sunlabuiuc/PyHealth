@@ -11,6 +11,7 @@ from .transformer import MultiHeadedAttention
 from pyhealth.interpret.api import CheferInterpretable
 
 from .embedding import EmbeddingModel
+from pyhealth.processors import field_index, has_field
 
 
 class StageNetAttentionLayer(nn.Module):
@@ -490,9 +491,9 @@ class StageAttentionNet(BaseModel, CheferInterpretable):
                 # as values without time and mask
                 feature = (feature,)
 
-            time = feature[schema.index("time")] if "time" in schema else None
-            value = feature[schema.index("value")] if "value" in schema else None
-            mask = feature[schema.index("mask")] if "mask" in schema else None
+            time = feature[field_index(schema, "time")] if has_field(schema, "time") else None
+            value = feature[field_index(schema, "value")] if has_field(schema, "value") else None
+            mask = feature[field_index(schema, "mask")] if has_field(schema, "mask") else None
 
             if len(feature) == len(schema) + 1 and mask is None:
                 # An optional mask can be provided as the last element
@@ -611,7 +612,7 @@ class StageAttentionNet(BaseModel, CheferInterpretable):
 
             schema = self.dataset.input_processors[feature_key].schema()
 
-            value = feature[schema.index("value")] if "value" in schema else None
+            value = feature[field_index(schema, "value")] if has_field(schema, "value") else None
 
             if value is None:
                 raise ValueError(
@@ -623,7 +624,7 @@ class StageAttentionNet(BaseModel, CheferInterpretable):
 
             value = self.embedding_model({feature_key: value})[feature_key]
 
-            i = schema.index("value")
+            i = field_index(schema, "value")
             kwargs[feature_key] = feature[:i] + (value,) + feature[i + 1:]
 
         return self.forward_from_embedding(**kwargs)
@@ -672,8 +673,8 @@ class StageAttentionNet(BaseModel, CheferInterpretable):
             if isinstance(feature, torch.Tensor):
                 feature = (feature,)
 
-            value = feature[schema.index("value")] if "value" in schema else None
-            mask = feature[schema.index("mask")] if "mask" in schema else None
+            value = feature[field_index(schema, "value")] if has_field(schema, "value") else None
+            mask = feature[field_index(schema, "mask")] if has_field(schema, "mask") else None
 
             if len(feature) == len(schema) + 1 and mask is None:
                 mask = feature[-1]

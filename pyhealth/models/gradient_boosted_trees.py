@@ -24,6 +24,7 @@ from ..processors import (
     BinaryLabelProcessor,
     DeepNestedSequenceProcessor,
     MultiClassLabelProcessor,
+    MultiHotProcessor,
     MultiLabelProcessor,
     NestedMultiHotProcessor,
     NestedSequenceProcessor,
@@ -195,7 +196,7 @@ class GradientBoostedTreeModel(BaseModel):
         for key in self.feature_keys:
             proc = self.dataset.input_processors[key]
             name = type(proc).__name__
-            if isinstance(proc, MultiLabelProcessor):  # includes multi_hot
+            if isinstance(proc, (MultiHotProcessor, MultiLabelProcessor)):
                 kind, width = "multi_hot", proc.size()
             elif isinstance(proc, NestedMultiHotProcessor):
                 kind, width = "visit_counts", len(proc.code_vocab) - _RESERVED_CODES

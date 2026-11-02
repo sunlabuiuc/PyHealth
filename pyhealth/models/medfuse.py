@@ -11,6 +11,7 @@ import torch.nn.utils.rnn as rnn_utils
 
 from pyhealth.datasets import SampleDataset
 from pyhealth.models.base_model import BaseModel
+from pyhealth.processors import field_index, has_field
 
 
 class MedFuseLayer(nn.Module):
@@ -353,8 +354,8 @@ class MedFuse(BaseModel):
             )
 
         schema = self.dataset.input_processors[feature_key].schema()
-        if "value" in schema:
-            value = feature[schema.index("value")]
+        if has_field(schema, "value"):
+            value = feature[field_index(schema, "value")]
             if isinstance(value, torch.Tensor):
                 return value
 

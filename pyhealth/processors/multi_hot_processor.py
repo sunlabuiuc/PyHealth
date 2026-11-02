@@ -1,18 +1,24 @@
+import logging
+from collections.abc import Iterable
 from typing import Any
 
+import torch
+
 from . import register_processor
-from .label_processor import MultiLabelProcessor
+from .base_processor import FeatureProcessor, FieldKey
+
+logger = logging.getLogger(__name__)
 
 
 @register_processor("multi_hot")
-class MultiHotProcessor(MultiLabelProcessor):
+class MultiHotProcessor(FeatureProcessor):
     """Processor for converting categorical variables into multi-hot encoded vectors.
 
-    This is an alias of :class:`MultiLabelProcessor` specifically for input feature schemas.
-    The implementation is identical to :class:`MultiLabelProcessor`, but this class provides
-    semantic clarity: use ``MultiLabelProcessor`` for output labels in classification tasks,
-    and ``MultiHotProcessor`` for input features like patient demographics (e.g., ethnicity,
-    race, comorbidities).
+    Use it for input features like patient demographics (e.g., ethnicity,
+    race, comorbidities). For multi-label targets use
+    :class:`~pyhealth.processors.MultiLabelProcessor`, which encodes labels
+    the same way; the two are separate classes so an input is never treated
+    as a label.
 
     The processor builds a vocabulary during the fit() phase and converts each sample's
     categorical values into a fixed-size binary vector.
@@ -47,14 +53,62 @@ class MultiHotProcessor(MultiLabelProcessor):
 
     Note:
         The processor sorts categories alphabetically during vocabulary construction
-        to ensure consistent index assignments across runs.
+        to ensure consistent index assignments across runs. Categories that
+        are already 0..K-1 keep their values as indices.
 
-    See Also:
-        :class:`MultiLabelProcessor`: Parent class with identical implementation.
-            Use for output labels in multi-label classification tasks.
+    Examples:
+        >>> from pyhealth.processors import MultiHotProcessor
+        >>> p = MultiHotProcessor()
+        >>> p.fit([{"x": ["asian", "white"]}, {"x": ["black"]}], "x")
+        >>> p.process(["white"])
+        tensor([0., 0., 1.])
     """
 
-    def process(self, value: Any):
-        return super().process(value)
+    stores_tensor = True
 
+    def __init__(self):
+        super().__init__()
+        self.label_vocab: dict[Any, int] = {}
 
+    def fit(self, samples: Iterable[dict[str, Any]], field: str) -> None:
+        all_labels = set()
+        for sample in samples:
+            for label in sample[field]:
+                all_labels.add(label)
+        num_classes = len(all_labels)
+        if all_labels == set(range(num_classes)):
+            self.label_vocab = {i: i for i in range(num_classes)}
+        else:
+            all_labels = list(all_labels)
+            all_labels.sort()
+            self.label_vocab = {label: i for i, label in enumerate(all_labels)}
+        logger.info(f"Multi-hot {field} vocab: {self.label_vocab}")
+
+    def process(self, value: Any) -> torch.Tensor:
+        if not isinstance(value, list):
+            raise TypeError("Expected a list of categories for a multi-hot feature.")
+        target = torch.zeros(len(self.label_vocab), dtype=torch.float32)
+        for label in value:
+            index = self.label_vocab[label]
+            target[index] = 1.0
+        return target
+
+    def size(self):
+        return len(self.label_vocab)
+
+    def is_token(self) -> bool:
+        """Multi-hot indicators are continuous float inputs, not token indices."""
+        return False
+
+    def schema(self) -> tuple[FieldKey, ...]:
+        return ((0, "values"),)
+
+    def dim(self) -> tuple[int, ...]:
+        """Output shape is (num_categories,), so 1 dimension."""
+        return (1,)
+
+    def spatial(self) -> dict[int, tuple[bool, ...]]:
+        return {0: (False,)}
+
+    def __repr__(self):
+        return f"MultiHotProcessor(label_vocab_size={len(self.label_vocab)})"

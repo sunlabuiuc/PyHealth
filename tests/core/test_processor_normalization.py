@@ -124,7 +124,7 @@ class TestTensorProcessorOptions(unittest.TestCase):
             out = p.process(2.0)
             self.assertEqual(tuple(out.shape), shape)
             self.assertEqual(p.dim(), (len(shape),))
-            self.assertEqual(len(p.spatial()), len(shape))
+            self.assertEqual(len(p.spatial()[0]), len(shape))
 
 
 if __name__ == "__main__":

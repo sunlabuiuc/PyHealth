@@ -12,6 +12,7 @@ from torch.nn import CosineSimilarity
 from pyhealth.models import BaseModel
 from pyhealth.interpret.api import Interpretable
 from .base_interpreter import BaseInterpreter
+from pyhealth.processors import field_index, has_field
 
 
 class Lime(BaseInterpreter):
@@ -221,11 +222,11 @@ class Lime(BaseInterpreter):
         masks = {}
         for k, v in inputs.items():
             schema = self.model.dataset.input_processors[k].schema()
-            values[k] = v[schema.index("value")]
-            if "mask" in schema:
-                masks[k] = v[schema.index("mask")]
+            values[k] = v[field_index(schema, "value")]
+            if has_field(schema, "mask"):
+                masks[k] = v[field_index(schema, "mask")]
             else:
-                val = v[schema.index("value")]
+                val = v[field_index(schema, "value")]
                 processor = self.model.dataset.input_processors[k]
                 if processor.is_token():
                     masks[k] = (val != 0).int()
@@ -243,7 +244,7 @@ class Lime(BaseInterpreter):
         for k, v in inputs.items():
             # If the processor schema does not include a mask, we add it as an additional tensor at the end of the tuple.
             # Models should follow this convention to ensure consistent auxiliary inputs and masks.
-            if "mask" not in self.model.dataset.input_processors[k].schema():
+            if not has_field(self.model.dataset.input_processors[k].schema(), "mask"):
                 inputs[k] = (*v, masks[k])
 
         # Extract and prepare inputs
@@ -498,7 +499,7 @@ class Lime(BaseInterpreter):
         for k in inputs.keys():
             # Insert perturbed value tensor back into input tuple
             schema = self.model.dataset.input_processors[k].schema()
-            inputs[k] = (*inputs[k][:schema.index("value")], perturb[k], *inputs[k][schema.index("value")+1:])
+            inputs[k] = (*inputs[k][:field_index(schema, "value")], perturb[k], *inputs[k][field_index(schema, "value")+1:])
 
         if self.use_embeddings:
             # Values are already embedded; bypass the model's own embedding.
