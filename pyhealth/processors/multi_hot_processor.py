@@ -1,5 +1,6 @@
 import logging
-from typing import Any, Dict, Iterable
+from collections.abc import Iterable
+from typing import Any
 
 import torch
 
@@ -67,9 +68,9 @@ class MultiHotProcessor(FeatureProcessor):
 
     def __init__(self):
         super().__init__()
-        self.label_vocab: Dict[Any, int] = {}
+        self.label_vocab: dict[Any, int] = {}
 
-    def fit(self, samples: Iterable[Dict[str, Any]], field: str) -> None:
+    def fit(self, samples: Iterable[dict[str, Any]], field: str) -> None:
         all_labels = set()
         for sample in samples:
             for label in sample[field]:
@@ -85,7 +86,7 @@ class MultiHotProcessor(FeatureProcessor):
 
     def process(self, value: Any) -> torch.Tensor:
         if not isinstance(value, list):
-            raise ValueError("Expected a list of categories for a multi-hot feature.")
+            raise TypeError("Expected a list of categories for a multi-hot feature.")
         target = torch.zeros(len(self.label_vocab), dtype=torch.float32)
         for label in value:
             index = self.label_vocab[label]
