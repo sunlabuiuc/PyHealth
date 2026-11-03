@@ -1,3 +1,28 @@
+# Parts of this module are ported from https://github.com/zengsihang/TrajSurv,
+# which is distributed under the following license:
+#
+# MIT License
+#
+# Copyright (c) 2026 Sihang Zeng
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
 """TrajSurv: neural controlled differential equations for survival.
 
 Implements TrajSurv from Zeng et al., "TrajSurv: Learning Continuous Latent
@@ -11,7 +36,8 @@ the SOFA score and its trend).
 
 Ported with attribution from the authors' code
 (https://github.com/zengsihang/TrajSurv, MIT License, Copyright (c) 2026
-Sihang Zeng). Differences from that code:
+Sihang Zeng; the full license is in the comment above). Differences from
+that code:
 
 - The CDE is solved in pure PyTorch (a natural cubic spline of the input
   path and a fixed-step Runge-Kutta 4 solver), so ``torchcde`` is not
@@ -236,6 +262,8 @@ class TrajSurv(BaseModel):
     field of :class:`~pyhealth.tasks.InHospitalSurvivalMIMIC4`
     (a :class:`~pyhealth.processors.SequenceProcessorV2` series, already
     imputed and standardized by the processor) or a dense ``[T, F]`` tensor.
+    Only single-level ``sequence_v2`` series are supported; every series
+    needs at least one record.
     The CDE's control path has ``1 + 2F`` channels: time (divided by
     ``time_scale``), the ``F`` values, and for each feature the fraction of
     steps observed so far (from the processor's missing-value mask; omitted
@@ -412,6 +440,11 @@ class TrajSurv(BaseModel):
             return {}
         roles = {}
         entries = schema()
+        if any(isinstance(entry, tuple) and entry[0] != 0 for entry in entries):
+            raise ValueError(
+                f"{key!r} has more than one level; TrajSurv reads a single-level "
+                "series (one record per time step)"
+            )
         for index, entry in enumerate(entries):
             role = entry[1] if isinstance(entry, tuple) else entry
             # single-tensor processors call their output "value"
@@ -451,9 +484,9 @@ class TrajSurv(BaseModel):
         mask = value[self._roles["mask"]] if "mask" in self._roles else None
         offsets = value[self._roles["offsets"]].to(self.device)
         lengths = offsets[1:] - offsets[:-1]
-        steps = int(lengths.max().item()) if len(lengths) else 0
-        if steps == 0:
+        if len(lengths) == 0 or bool((lengths == 0).any()):
             raise ValueError("TrajSurv needs at least one record per series")
+        steps = int(lengths.max().item())
         position = torch.arange(steps, device=self.device)
         index = offsets[:-1, None] + torch.minimum(
             position[None, :], (lengths - 1).clamp(min=0)[:, None]

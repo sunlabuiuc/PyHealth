@@ -5,6 +5,7 @@ import os
 import tempfile
 import unittest
 from datetime import datetime, timedelta
+from types import SimpleNamespace
 
 import numpy as np
 import polars as pl
@@ -296,6 +297,45 @@ class TestTrajSurvModel(unittest.TestCase):
         model.load_state_dict(unfitted_state)
         self.assertEqual(model.baseline_times.numel(), 0)
 
+    def test_trainer_trains_trajsurv(self):
+        dataset = _dense_dataset(n=16)
+        model = TrajSurv(dataset, feature_key="series", hidden_dim=8)
+        before = [p.detach().clone() for p in model.parameters()]
+        trainer = Trainer(model=model, enable_logging=False, device="cpu")
+        trainer.train(get_dataloader(dataset, batch_size=8, shuffle=True), epochs=1)
+        self.assertTrue(
+            any(not torch.equal(a, b) for a, b in zip(before, model.parameters()))
+        )
+
+    def test_linear_interpolation_and_substeps(self):
+        dataset = _dense_dataset(n=8)
+        batch = next(iter(get_dataloader(dataset, batch_size=8)))
+        risks = {}
+        for interpolation, substeps in (("cubic", 1), ("linear", 1), ("linear", 3)):
+            torch.manual_seed(0)
+            model = TrajSurv(dataset, feature_key="series", hidden_dim=8,
+                             interpolation=interpolation, substeps=substeps)
+            out = model(**batch)
+            self.assertTrue(torch.isfinite(out["loss"]))
+            out["loss"].backward()
+            risks[interpolation, substeps] = out["risk"].detach()
+        # same weights, different paths and step sizes give different risks
+        self.assertFalse(torch.allclose(risks["cubic", 1], risks["linear", 1]))
+        self.assertFalse(torch.allclose(risks["linear", 1], risks["linear", 3]))
+        with self.assertRaises(ValueError):
+            TrajSurv(dataset, feature_key="series", interpolation="spline")
+        with self.assertRaises(ValueError):
+            TrajSurv(dataset, feature_key="series", substeps=0)
+
+    def test_rejects_multi_level_series(self):
+        class TwoLevels:
+            def schema(self):
+                return ((0, "tokens"), (0, "offsets"), (1, "values"), (1, "offsets"))
+
+        fake = SimpleNamespace(input_processors={"x": TwoLevels()})
+        with self.assertRaisesRegex(ValueError, "more than one level"):
+            TrajSurv._series_roles(fake, "x")
+
     def test_sequence_v2_series_with_mask_and_ragged_lengths(self):
         features = len(InHospitalSurvivalMIMIC4.DYNAMIC_FEATURES)
         rng = np.random.default_rng(0)
@@ -332,6 +372,13 @@ class TestTrajSurvModel(unittest.TestCase):
             alone_batch = list(get_dataloader(dataset, batch_size=1))[1]
             alone = model(**alone_batch)["risk"][0]
         torch.testing.assert_close(in_batch, alone)
+        # a series with no records raises instead of reading its neighbour
+        value = list(batch["dynamic"])
+        offsets = value[model._roles["offsets"]].clone()
+        offsets[2] = offsets[1]  # second series now has zero records
+        value[model._roles["offsets"]] = offsets
+        with self.assertRaisesRegex(ValueError, "at least one record"):
+            model._dense(tuple(value))
         # SurvivalMDN reads the flat summary of the same samples
         mdn = SurvivalMDN(dataset, feature_key="summary", hidden_dim=8,
                           num_components=2)
