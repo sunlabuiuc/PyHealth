@@ -28,7 +28,7 @@ import pyhealth.models
 from pyhealth.datasets import create_sample_dataset, get_dataloader
 from pyhealth.metrics import multilabel_metrics_fn
 from pyhealth.models.utils import save_ddi_adj
-from pyhealth.trainer import Trainer
+from pyhealth.trainer import Trainer, get_metrics_fn, model_metrics_kwargs
 
 
 def _patch_cache_dir(testcase, *targets):
@@ -83,6 +83,24 @@ class TestDDIMetricArgument(unittest.TestCase):
     def test_missing_cache_file_has_clear_error(self):
         with self.assertRaisesRegex(FileNotFoundError, "ddi_adj="):
             multilabel_metrics_fn(self.y_true, self.y_prob, ["ddi"])
+
+
+class TestModelMetricsKwargs(unittest.TestCase):
+    """Only multilabel scoring of a model with a DDI matrix gets ddi_adj."""
+
+    def test_ddi_model_with_multilabel_metrics(self):
+        model = torch.nn.Linear(2, 2)
+        model.ddi_adj_matrix = np.eye(2)
+        kwargs = model_metrics_kwargs(model, get_metrics_fn("multilabel"))
+        self.assertIs(kwargs["ddi_adj"], model.ddi_adj_matrix)
+
+    def test_other_models_and_modes_get_nothing(self):
+        plain = torch.nn.Linear(2, 2)
+        self.assertEqual(model_metrics_kwargs(plain, get_metrics_fn("multilabel")), {})
+        ddi_model = torch.nn.Linear(2, 2)
+        ddi_model.ddi_adj_matrix = np.eye(2)
+        for mode in ("binary", "multiclass", "regression"):
+            self.assertEqual(model_metrics_kwargs(ddi_model, get_metrics_fn(mode)), {})
 
 
 def _require_ogb(testcase):
@@ -254,6 +272,41 @@ class TestSaveDDIAdj(unittest.TestCase):
         )
         with failing_save, self.assertRaises(OSError):
             save_ddi_adj(np.zeros((5, 5)), self.path)
+        np.testing.assert_array_equal(np.load(self.path), np.eye(3))
+        self.assertEqual(os.listdir(self.dir), ["ddi_adj.npy"])
+
+    def test_replace_retries_on_permission_error(self):
+        """Windows raises PermissionError while the target is open."""
+        real_replace = os.replace
+        calls = []
+
+        def flaky_replace(src, dst):
+            calls.append(src)
+            if len(calls) < 3:
+                raise PermissionError("file in use")
+            real_replace(src, dst)
+
+        with (
+            patch("pyhealth.models.utils.os.replace", flaky_replace),
+            patch("pyhealth.models.utils.time.sleep"),
+        ):
+            save_ddi_adj(np.eye(2), self.path)
+        self.assertEqual(len(calls), 3)
+        np.testing.assert_array_equal(np.load(self.path), np.eye(2))
+        self.assertEqual(os.listdir(self.dir), ["ddi_adj.npy"])
+
+    def test_replace_gives_up_with_warning_and_keeps_old_file(self):
+        save_ddi_adj(np.eye(3), self.path)
+        stuck = patch(
+            "pyhealth.models.utils.os.replace",
+            side_effect=PermissionError("file in use"),
+        )
+        no_sleep = patch("pyhealth.models.utils.time.sleep")
+        warns = self.assertWarnsRegex(RuntimeWarning, "Could not replace")
+        with stuck as mock_replace, no_sleep, warns:
+            returned = save_ddi_adj(np.zeros((2, 2)), self.path)
+        self.assertEqual(mock_replace.call_count, 5)
+        np.testing.assert_array_equal(returned, np.zeros((2, 2)))
         np.testing.assert_array_equal(np.load(self.path), np.eye(3))
         self.assertEqual(os.listdir(self.dir), ["ddi_adj.npy"])
 

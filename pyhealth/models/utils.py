@@ -1,5 +1,7 @@
 import os
+import time
 import uuid
+import warnings
 from typing import List
 
 import numpy as np
@@ -22,6 +24,10 @@ def batch_to_multihot(label: List[List[int]], num_labels: int) -> torch.tensor:
     return multihot
 
 
+_REPLACE_ATTEMPTS = 5
+"""How many times save_ddi_adj tries os.replace before giving up."""
+
+
 def save_ddi_adj(ddi_adj: np.ndarray | torch.Tensor, path: str) -> np.ndarray:
     """Atomically saves a drug-drug interaction (DDI) matrix as a ``.npy`` file.
 
@@ -30,6 +36,11 @@ def save_ddi_adj(ddi_adj: np.ndarray | torch.Tensor, path: str) -> np.ndarray:
     therefore sees either the old file or the complete new one, never a
     partially written file, even when several processes build drug
     recommendation models at the same time.
+
+    On Windows, replacing a file that another process has open raises
+    ``PermissionError``. The move is retried a few times; if it still fails,
+    a warning is issued, the old file is left in place and the matrix is
+    returned anyway, so building a model never fails because of the cache.
 
     GAMENet, MICRON, MoleRec and SafeDrug call this to keep the shared
     ``ddi_adj.npy`` cache file (read by the ``"ddi"`` metric of
@@ -61,12 +72,26 @@ def save_ddi_adj(ddi_adj: np.ndarray | torch.Tensor, path: str) -> np.ndarray:
     try:
         with open(tmp_path, "xb") as f:
             np.save(f, ddi_adj)
-        os.replace(tmp_path, path)
+        for attempt in range(_REPLACE_ATTEMPTS):
+            try:
+                os.replace(tmp_path, path)
+                return ddi_adj
+            except PermissionError as exc:
+                error = exc
+                time.sleep(0.05 * (attempt + 1))
+        os.remove(tmp_path)
+        warnings.warn(
+            f"Could not replace {path} ({error}); it may be open in another "
+            "process. The 'ddi' metric falls back to that file only when no "
+            "ddi_adj is passed; Trainer.evaluate passes the model's own.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        return ddi_adj
     except BaseException:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
         raise
-    return ddi_adj
 
 
 def get_last_visit(hidden_states, mask):
