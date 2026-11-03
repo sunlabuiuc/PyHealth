@@ -24,12 +24,12 @@ from pyhealth import BASE_CACHE_PATH as CACHE_PATH
 from pyhealth.datasets import SampleDataset
 from pyhealth.models.base_model import BaseModel
 from pyhealth.models.embedding import EmbeddingModel
-from pyhealth.models.utils import save_ddi_adj
 from pyhealth.models.utils import (
     ddi_adjacency,
     ehr_cooccurrence_adjacency,
     gcn_normalize_adjacency,
     history_to_label_index,
+    save_ddi_adj,
 )
 
 

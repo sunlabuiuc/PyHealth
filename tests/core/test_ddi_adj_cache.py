@@ -351,10 +351,15 @@ class TestSaveDDIAdj(unittest.TestCase):
         errors = []
         stop = threading.Event()
 
+        replaced = []
+
         def writer():
-            for i in range(100):
-                save_ddi_adj(large if i % 2 else small, self.path)
-            stop.set()
+            try:
+                for i in range(100):
+                    matrix = large if i % 2 else small
+                    replaced.append(save_array_atomically(self.path, matrix))
+            finally:
+                stop.set()
 
         def reader():
             while not stop.is_set():
@@ -373,6 +378,10 @@ class TestSaveDDIAdj(unittest.TestCase):
         for t in threads:
             t.join()
         self.assertEqual(errors, [])
+        # every write landed, and the file holds the last one (a skipped
+        # replace, e.g. a locked file on Windows, would fail here)
+        self.assertEqual(replaced, [True] * 100)
+        np.testing.assert_array_equal(np.load(self.path), large)
         self.assertEqual(os.listdir(self.dir), ["ddi_adj.npy"])
 
 

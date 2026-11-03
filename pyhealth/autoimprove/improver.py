@@ -18,7 +18,7 @@ import numpy as np
 from pyhealth.datasets import SampleDataset
 from pyhealth.metrics import bootstrap_ci, paired_bootstrap_diff
 from pyhealth.processors import PROCESSOR_REGISTRY
-from pyhealth.trainer import get_metrics_fn, model_metrics_kwargs
+from pyhealth.trainer import get_metrics_fn
 
 from .evaluate import (
     MAX_LABEL_SCAN,
@@ -600,11 +600,7 @@ class AutoImprover:
                     n_boot=n_boot, seed=self.seed,
                 )
             else:
-                metrics_fn = get_metrics_fn(self.mode)
-                value = metrics_fn(
-                    y_true, y_prob, metrics=[self.metric],
-                    **model_metrics_kwargs(model, metrics_fn),
-                )
+                value = get_metrics_fn(self.mode)(y_true, y_prob, metrics=[self.metric])
                 out[name] = {"estimate": float(value[self.metric])}
             out[name]["config"] = config.to_dict()
         if "baseline" in probs and self.mode == "binary":
