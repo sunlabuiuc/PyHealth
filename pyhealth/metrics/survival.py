@@ -159,6 +159,31 @@ def cumulative_dynamic_auc(duration, event, risk, time: float) -> float:
     return float((weights * wins).sum() / (weights.sum() * len(controls)))
 
 
+def _survival_at(survival, time_grid, t: float) -> np.ndarray:
+    """Survival curves ``[n, m]`` on ``time_grid``, linearly interpolated at ``t``.
+
+    Before the first grid time the curve runs linearly from ``S(0) = 1``.
+    A ``t`` after the last grid time raises, since extrapolating a survival
+    curve is not well defined.
+    """
+    grid = np.asarray(time_grid, dtype=float).reshape(-1)
+    survival = np.asarray(survival, dtype=float)
+    if survival.ndim != 2 or survival.shape[1] != grid.size:
+        raise ValueError("survival must have shape [n, len(time_grid)]")
+    if t > grid[-1]:
+        raise ValueError(
+            f"horizon {t:g} is after the last time_grid point {grid[-1]:g}"
+        )
+    if grid[0] > 0:
+        grid = np.concatenate([[0.0], grid])
+        survival = np.concatenate([np.ones((survival.shape[0], 1)), survival], 1)
+    right = int(np.clip(np.searchsorted(grid, t, side="left"), 1, grid.size - 1))
+    left = right - 1
+    span = grid[right] - grid[left]
+    weight = float(np.clip((t - grid[left]) / span, 0.0, 1.0)) if span > 0 else 1.0
+    return (1.0 - weight) * survival[:, left] + weight * survival[:, right]
+
+
 def survival_metrics_fn(
     duration,
     event,
@@ -169,13 +194,18 @@ def survival_metrics_fn(
 ) -> dict[str, float]:
     """Concordance plus Brier score and AUC at chosen horizons.
 
+    The Brier score at a horizon ``t`` reads each survival curve linearly
+    interpolated at ``t``; before the first grid time the curve starts from
+    ``S(0) = 1``. A horizon after the last grid time raises ``ValueError``.
+    The AUC uses ``risk`` and needs no grid.
+
     Args:
         duration: Observed times, shape ``[n]``.
         event: 1 for an observed event, 0 for censoring, shape ``[n]``.
         risk: Risk scores, shape ``[n]``; higher means earlier events.
         survival: Optional predicted survival curves, shape ``[n, m]``, on
             ``time_grid``. Needed for the Brier scores.
-        time_grid: The ``m`` times of ``survival``.
+        time_grid: The ``m`` increasing times of ``survival``.
         times: Horizons for ``brier@t`` (with ``survival``) and ``auc@t``.
 
     Returns:
@@ -184,15 +214,18 @@ def survival_metrics_fn(
     Examples:
         >>> survival_metrics_fn([1, 2, 3], [1, 1, 0], [3.0, 2.0, 1.0])
         {'c_index': 1.0}
+        >>> out = survival_metrics_fn(
+        ...     [1, 3], [1, 0], [1.0, 0.0], survival=[[0.0, 0.0], [1.0, 0.5]],
+        ...     time_grid=[1.0, 3.0], times=[2.0])
+        >>> round(out["brier@2"], 4)  # S(2) = 0.75 for the second record
+        0.0312
     """
     out = {"c_index": concordance_index(duration, event, risk)}
+    if survival is not None and times and time_grid is None:
+        raise ValueError("time_grid is needed with survival")
     for t in times:
         out[f"auc@{t:g}"] = cumulative_dynamic_auc(duration, event, risk, t)
         if survival is not None:
-            if time_grid is None:
-                raise ValueError("time_grid is needed with survival")
-            grid = np.asarray(time_grid, dtype=float)
-            column = int(np.clip(np.searchsorted(grid, t, side="right") - 1, 0, None))
-            surv = np.asarray(survival, dtype=float)[:, column]
+            surv = _survival_at(survival, time_grid, t)
             out[f"brier@{t:g}"] = ipcw_brier_score(duration, event, surv, t)
     return out

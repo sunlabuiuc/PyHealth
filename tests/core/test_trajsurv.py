@@ -62,6 +62,27 @@ class TestSurvivalMetrics(unittest.TestCase):
         )
         self.assertEqual(set(out), {"c_index", "auc@2", "brier@2"})
 
+    def test_brier_interpolates_off_grid_horizons(self):
+        rng = np.random.default_rng(0)
+        duration = rng.exponential(scale=10.0, size=50)
+        event = rng.random(50) < 0.7
+        scale = rng.uniform(5.0, 20.0, size=(50, 1))
+        grid = np.linspace(0.1, 60.0, 120)  # 7 falls between grid points
+        survival = np.exp(-grid[None, :] / scale)
+        for t in (7.0, 0.05):  # inside the grid, and before its first point
+            out = survival_metrics_fn(duration, event, -scale[:, 0],
+                                      survival=survival, time_grid=grid, times=[t])
+            if t > grid[0]:
+                at_t = np.array([np.interp(t, grid, row) for row in survival])
+            else:  # linear from S(0) = 1 to the first grid point
+                at_t = 1.0 + (t / grid[0]) * (survival[:, 0] - 1.0)
+            self.assertAlmostEqual(
+                out[f"brier@{t:g}"], ipcw_brier_score(duration, event, at_t, t)
+            )
+        with self.assertRaises(ValueError):
+            survival_metrics_fn(duration, event, -scale[:, 0], survival=survival,
+                                time_grid=grid, times=[61.0])
+
 
 class TestTrajSurvPieces(unittest.TestCase):
     def test_cox_loss_hand_checked(self):
