@@ -6,6 +6,7 @@ from torch import nn
 from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
 from pyhealth.models.embedding import EmbeddingModel
+from pyhealth.models.unified_embedding import UnifiedMultimodalEmbeddingModel
 from pyhealth.models.utils import get_last_visit
 from pyhealth.processors import (
     MultiHotProcessor,
@@ -111,6 +112,11 @@ class EHRMamba(BaseModel):
     Electronic Health Records (arxiv 2405.14567). Uses Mamba (SSM) for linear
     complexity in sequence length; supports long EHR sequences.
 
+    When ``unified_embedding`` is supplied the model switches to **unified
+    mode**: all temporal fields are jointly embedded and time-sorted by
+    :class:`UnifiedMultimodalEmbeddingModel`, then processed by a *single*
+    stack of :class:`MambaBlock` layers rather than one stack per field.
+
     Args:
         dataset: SampleDataset for token/embedding setup.
         embedding_dim: Embedding and hidden dimension. Default 128.
@@ -118,6 +124,8 @@ class EHRMamba(BaseModel):
         state_size: SSM state size per channel. Default 16.
         conv_kernel: Causal conv kernel size in block. Default 4.
         dropout: Dropout before classification head. Default 0.1.
+        unified_embedding: Optional pre-built UnifiedMultimodalEmbeddingModel.
+            When provided, enables unified multi-modal mode.
 
     Examples:
         >>> from pyhealth.datasets import create_sample_dataset, get_dataloader
@@ -140,6 +148,7 @@ class EHRMamba(BaseModel):
         state_size: int = 16,
         conv_kernel: int = 4,
         dropout: float = 0.1,
+        unified_embedding: UnifiedMultimodalEmbeddingModel | None = None,
     ):
         super().__init__(dataset=dataset)
         self.embedding_dim = embedding_dim
@@ -147,18 +156,17 @@ class EHRMamba(BaseModel):
         self.state_size = state_size
         self.conv_kernel = conv_kernel
         self.dropout_rate = dropout
+        self._use_unified = unified_embedding is not None
 
         assert len(self.label_keys) == 1, "EHRMamba supports single label key only"
         self.label_key = self.label_keys[0]
 
-        self.embedding_model = EmbeddingModel(dataset, embedding_dim)
-        self.feature_processors = {
-            k: self.dataset.input_processors[k] for k in self.feature_keys
-        }
+        output_size = self.label_processor.output_size()
+        self.dropout = nn.Dropout(dropout)
 
-        self.blocks = nn.ModuleDict()
-        for feature_key in self.feature_keys:
-            self.blocks[feature_key] = nn.ModuleList(
+        if self._use_unified:
+            self.embedding_model = unified_embedding
+            self._unified_blocks = nn.ModuleList(
                 [
                     MambaBlock(
                         d_model=embedding_dim,
@@ -168,10 +176,73 @@ class EHRMamba(BaseModel):
                     for _ in range(num_layers)
                 ]
             )
+            self.fc = nn.Linear(embedding_dim, output_size)
+        else:
+            self.embedding_model = EmbeddingModel(dataset, embedding_dim)
+            self.feature_processors = {
+                k: self.dataset.input_processors[k] for k in self.feature_keys
+            }
+            self.blocks = nn.ModuleDict()
+            for feature_key in self.feature_keys:
+                self.blocks[feature_key] = nn.ModuleList(
+                    [
+                        MambaBlock(
+                            d_model=embedding_dim,
+                            state_size=state_size,
+                            conv_kernel=conv_kernel,
+                        )
+                        for _ in range(num_layers)
+                    ]
+                )
+            self.fc = nn.Linear(len(self.feature_keys) * embedding_dim, output_size)
 
-        output_size = self.label_processor.output_size()
-        self.dropout = nn.Dropout(dropout)
-        self.fc = nn.Linear(len(self.feature_keys) * embedding_dim, output_size)
+    def _build_unified_inputs(
+        self, kwargs: dict[str, Any]
+    ) -> dict[str, dict[str, torch.Tensor]]:
+        """Build the inputs dict required by UnifiedMultimodalEmbeddingModel."""
+        inputs: dict[str, dict[str, torch.Tensor]] = {}
+        for field_name in self.feature_keys:
+            feature = kwargs[field_name]
+            if isinstance(feature, torch.Tensor):
+                feature = (feature,)
+            schema = self.dataset.input_processors[field_name].schema()
+            field_dict: dict[str, torch.Tensor] = {}
+            if "value" in schema:
+                field_dict["value"] = feature[schema.index("value")].to(self.device)
+            if "time" in schema:
+                field_dict["time"] = feature[schema.index("time")].to(self.device)
+            if "mask" in schema:
+                field_dict["mask"] = feature[schema.index("mask")].to(self.device)
+            inputs[field_name] = field_dict
+        return inputs
+
+    def _forward_unified(self, **kwargs) -> dict[str, torch.Tensor]:
+        """Forward pass in unified-embedding mode.
+
+        Calls UnifiedMultimodalEmbeddingModel to produce a single
+        temporally-sorted event sequence, then encodes it with one shared
+        MambaBlock stack and pools to the last valid event.
+        """
+        inputs = self._build_unified_inputs(kwargs)
+        out = self.embedding_model(inputs)
+        x = out["sequence"]       # (B, S_total, E)
+        mask = out["mask"].bool()    # (B, S_total)
+
+        for blk in self._unified_blocks:
+            x = blk(x)
+
+        last_h = get_last_visit(x, mask)
+        logits = self.fc(self.dropout(last_h))
+        y_prob = self.label_processor.activation(logits)
+        results: dict[str, torch.Tensor] = {"y_prob": y_prob, "logit": logits}
+        # The label is optional, so the model can predict without it.
+        if self.label_key in kwargs:
+            y_true = kwargs[self.label_key].to(self.device)
+            results["loss"] = self.label_processor.loss(logits, y_true)
+            results["y_true"] = y_true
+        if kwargs.get("embed", False):
+            results["embed"] = last_h
+        return results
 
     @staticmethod
     def _split_temporal(feature: Any) -> Tuple[Optional[torch.Tensor], Any]:
@@ -222,6 +293,9 @@ class EHRMamba(BaseModel):
         return x
 
     def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
+        if self._use_unified:
+            return self._forward_unified(**kwargs)
+
         patient_emb = []
         embedding_inputs: Dict[str, torch.Tensor] = {}
         masks: Dict[str, torch.Tensor] = {}
