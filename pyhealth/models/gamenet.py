@@ -77,6 +77,16 @@ class GCN(nn.Module):
         hidden_size: hidden feature size.
         adj: adjacency tensor of shape [num_nodes, num_nodes].
         dropout: dropout rate. Default is 0.5.
+
+    Examples:
+        >>> from pyhealth.models.gamenet import GCN
+        >>> gcn = GCN(adj=torch.tensor([[0.0, 1.0], [1.0, 0.0]]), hidden_size=4)
+        >>> gcn.adj
+        Parameter containing:
+        tensor([[0.5000, 0.5000],
+                [0.5000, 0.5000]])
+        >>> gcn().shape
+        torch.Size([2, 4])
     """
 
     def __init__(self, adj: torch.tensor, hidden_size: int, dropout: float = 0.5):
