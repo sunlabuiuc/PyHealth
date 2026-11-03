@@ -18,7 +18,7 @@ DDI matrix
 ----------
 
 ``"ddi"`` needs the drug-drug interaction matrix of the label vocabulary. Pass
-it as ``ddi_adj``. GAMENet, MICRON, MoleRec and SafeDrug store theirs in
+it as ``ddi_adj``. ARMR, GAMENet, MICRON, MoleRec and SafeDrug store theirs in
 ``model.ddi_adj_matrix``, and ``Trainer.evaluate`` passes that matrix for you
 when the evaluated model has one:
 

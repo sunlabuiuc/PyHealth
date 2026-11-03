@@ -226,6 +226,14 @@ class TestMICRONDDIMatrix(_ModelDDIMatrixMixin, _EvaluateDDIMixin, unittest.Test
     model_name = "MICRON"
 
 
+class TestARMRDDIMatrix(_ModelDDIMatrixMixin, _EvaluateDDIMixin, unittest.TestCase):
+    model_name = "ARMR"
+    uses_drugs_hist = True
+
+    def build_model(self, dataset):
+        return pyhealth.models.ARMR(dataset, embedding_dim=16, graph_dataset=dataset)
+
+
 class TestMoleRecDDIMatrix(_ModelDDIMatrixMixin, _EvaluateDDIMixin, unittest.TestCase):
     model_name = "MoleRec"
 

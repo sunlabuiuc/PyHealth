@@ -15,7 +15,7 @@ def _load_cached_ddi_adj() -> np.ndarray:
         raise FileNotFoundError(
             f"The 'ddi' metric needs a drug-drug interaction matrix, but {path} "
             "does not exist. Pass ddi_adj= (e.g. model.ddi_adj_matrix), or "
-            "build a GAMENet, MICRON, MoleRec or SafeDrug model first, which "
+            "build an ARMR, GAMENet, MICRON, MoleRec or SafeDrug model first, which "
             "writes that file."
         )
     return np.load(path)
@@ -91,7 +91,7 @@ def multilabel_metrics_fn(
             the PyHealth cache directory, which holds the matrix of the drug
             recommendation model built most recently in any process. Pass
             the evaluated model's own matrix (``model.ddi_adj_matrix`` for
-            GAMENet, MICRON, MoleRec and SafeDrug) to avoid that shared file.
+            ARMR, GAMENet, MICRON, MoleRec and SafeDrug) to avoid that shared file.
 
     Returns:
         Dictionary of metrics whose keys are the metric names and values are

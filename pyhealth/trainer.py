@@ -89,7 +89,7 @@ def get_metrics_fn(mode: str) -> Callable:
 def model_metrics_kwargs(model: nn.Module, metrics_fn: Callable) -> dict:
     """Extra keyword arguments that ``metrics_fn`` should get for ``model``.
 
-    Drug recommendation models (GAMENet, MICRON, MoleRec, SafeDrug) keep their
+    Drug recommendation models (ARMR, GAMENet, MICRON, MoleRec, SafeDrug) keep their
     drug-drug interaction matrix in ``ddi_adj_matrix``. The ``"ddi"`` metric is
     scored against it rather than the shared ``ddi_adj.npy`` cache file, which
     another model or process may have overwritten. Other models and metrics

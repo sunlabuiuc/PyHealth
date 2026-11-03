@@ -96,7 +96,7 @@ def save_array_atomically(path: str, array: np.ndarray) -> bool:
 def save_ddi_adj(ddi_adj: np.ndarray | torch.Tensor, path: str) -> np.ndarray:
     """Atomically saves a drug-drug interaction (DDI) matrix as a ``.npy`` file.
 
-    GAMENet, MICRON, MoleRec and SafeDrug call this to keep the shared
+    ARMR, GAMENet, MICRON, MoleRec and SafeDrug call this to keep the shared
     ``ddi_adj.npy`` cache file (read by the ``"ddi"`` metric of
     :func:`pyhealth.metrics.multilabel_metrics_fn` when no ``ddi_adj`` is
     passed) up to date. The write goes through :func:`save_array_atomically`,

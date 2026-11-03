@@ -24,6 +24,7 @@ from pyhealth import BASE_CACHE_PATH as CACHE_PATH
 from pyhealth.datasets import SampleDataset
 from pyhealth.models.base_model import BaseModel
 from pyhealth.models.embedding import EmbeddingModel
+from pyhealth.models.utils import save_ddi_adj
 from pyhealth.models.utils import (
     ddi_adjacency,
     ehr_cooccurrence_adjacency,
@@ -338,11 +339,12 @@ class ARMR(BaseModel):
             self.register_buffer("ddi_adj_norm", gcn_normalize_adjacency(ddi_adj))
             self.gcn_ehr = nn.ModuleList([nn.Linear(dim, dim), nn.Linear(dim, dim)])
             self.gcn_ddi = nn.ModuleList([nn.Linear(dim, dim), nn.Linear(dim, dim)])
-        # the "ddi" metric (pyhealth.metrics.multilabel) reads this file, as
-        # for GAMENet, SafeDrug, MICRON and MoleRec; written with or without
-        # the graphs so that metric works either way
-        os.makedirs(CACHE_PATH, exist_ok=True)
-        np.save(os.path.join(CACHE_PATH, "ddi_adj.npy"), ddi_adj.numpy())
+        # Trainer.evaluate passes ddi_adj_matrix to the "ddi" metric; the file
+        # is the fallback for callers of the metric that don't pass a matrix,
+        # as for GAMENet, SafeDrug, MICRON and MoleRec
+        self.ddi_adj_matrix = save_ddi_adj(
+            ddi_adj, os.path.join(CACHE_PATH, "ddi_adj.npy")
+        )
 
         # Joint recommendation (Eq. 16-19)
         patient_size = 4 * n_recent * dim
