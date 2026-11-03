@@ -218,6 +218,7 @@ API Reference
     models/pyhealth.models.GNN
     models/pyhealth.models.Transformer
     models/pyhealth.models.TransformersModel
+    models/pyhealth.models.LLMEHREncoder
     models/pyhealth.models.TransformerDeID
     models/pyhealth.models.RETAIN
     models/pyhealth.models.GAMENet
