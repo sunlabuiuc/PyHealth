@@ -36,9 +36,48 @@ Usage:
 
 ``--sample-frac`` keeps a fixed fraction of target value sets (hashed by OID,
 so every configuration sees the same sets); retrieval still searches the full
-corpus. Results go to ``--output`` as ``results.json`` and ``results.md``.
+corpus. Results go to ``--output`` as ``results.json``, ``results.md``, and
+one ``per_set_<config>.csv`` of value-set metrics per configuration.
 
-Results: see the module docstring section "Findings" once recorded.
+Setup: VSAC expansions at the paper's pinned versions with the authors'
+release splits (11,793 value sets), SapBERT index over 17,933 source sets,
+MLP with hidden_dim 256 and 2 layers, AdamW (lr 3e-4, weight decay 1e-4),
+batch 2,048, early stopping on validation PR-AUC. One NVIDIA A10G.
+
+Findings, reproduction (full test split, 3,737 value sets, patience 5):
+
+    Paper MLP:        pair AUROC 0.799, value-set F1 0.250
+    PyHealth MLP:     pair AUROC 0.722, value-set F1 0.186
+
+Pair counts match the paper's Table 1 within 3%, so the gap is the model:
+PyHealth's MLP has a tower per input and no BatchNorm or dropout, and
+validation PR-AUC peaks after 1-2 epochs. lr 1e-4 gives the same result.
+
+Findings, ablations (20% of target value sets, about 750 test sets,
+patience 2, one seed each; reruns of main and uncapped moved value-set F1
+by 0.002):
+
+    Config          Pair AUROC  Pair AP  VS F1  Retrieval recall
+    main            0.749       0.304    0.182  0.541
+    uncapped        0.775       0.325    0.194  0.553
+    k5              0.720       0.363    0.199  0.476
+    k20             0.764       0.248    0.198  0.588
+    k40             0.827       0.245    0.192  0.616
+    no_score        0.560       0.124    0.071  0.541
+    no_code_system  0.748       0.308    0.193  0.541
+
+- The retrieval score carries the classifier; without it F1 falls to 0.071.
+- Larger K raises retrieval recall and AUROC (more easy negatives), but
+  value-set F1 stays at 0.18-0.20.
+- The code-system one-hot adds nothing measurable.
+- Size trend under complete labels (paper section 5.3.2: classifiers improve
+  with set size). Value-set F1 still rises with complete set size (Spearman
+  rho 0.19 uncapped vs 0.17 capped, p < 1e-5). It rises from 0.12 at 3-5
+  codes to 0.28 at 51-200, then plateaus. The trend holds within
+  Condition/Clinical, Condition/Diagnosis, and Lab/Observation, so set type
+  doesn't explain it, but Medication shows none (rho -0.1, n=80). On the 21
+  test sets over 1,000 codes, capped labels understate F1 by 0.058 (paired
+  bootstrap 95% CI 0.002-0.138).
 """
 
 import argparse
