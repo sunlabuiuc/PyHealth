@@ -27,6 +27,7 @@ import warnings
 from typing import Any
 
 import torch
+import torch.nn.functional as F
 import torch.nn as nn
 
 from pyhealth.processors.base_processor import ModalityType, TemporalFeatureProcessor
@@ -164,6 +165,21 @@ class UnifiedMultimodalEmbeddingModel(nn.Module):
         freeze_text_encoder: If True, freeze TEXT encoder weights
             (``requires_grad=False``) so notes encode deterministically.
             Defaults to False.
+        normalize_content: If True, apply parameter-free layer norm to the
+            content term so one modality's raw magnitude cannot drown out the
+            time/type terms. Defaults to True. This CHANGES outputs versus the
+            previous unnormalized sum (content + time + type): the content
+            term is rescaled to unit variance per event before the time and
+            type terms are added. The default is True because raw feature
+            magnitude is an accident of feature scaling, not a modelling
+            decision.
+        numeric_standardizers: Optional mapping of NUMERIC/SIGNAL field names
+            to modules called as ``standardizer(value, observed)`` BEFORE the
+            projection, where ``observed`` comes from the sibling
+            ``{field}_mask`` field. Defaults to None. A ``{field}_mask`` input
+            is skipped as a modality ONLY when ``field`` has a registered
+            entry here; a field merely named ``x_mask`` with no standardizer
+            stays a normal modality.
 
     Example::
 
@@ -206,6 +222,8 @@ class UnifiedMultimodalEmbeddingModel(nn.Module):
         image_pool: str = "mean",
         field_embeddings: dict[str, Any] | None = None,
         freeze_text_encoder: bool = False,
+        normalize_content: bool = True,
+        numeric_standardizers: dict[str, Any] | None = None,
     ):
         super().__init__()
         if image_pool != "mean":
@@ -216,6 +234,10 @@ class UnifiedMultimodalEmbeddingModel(nn.Module):
         self._freeze_text_encoder = freeze_text_encoder
         self._frozen_text_fields: set[str] = set()
         self.image_pool = image_pool
+        self.normalize_content = normalize_content
+        # Statistics live in buffers, so they travel in state_dict. A checkpoint
+        # therefore applies at inference the same transform it trained under.
+        self.numeric_standardizers = nn.ModuleDict(numeric_standardizers or {})
         _field_embeddings = field_embeddings or {}
 
         self.encoders: nn.ModuleDict = nn.ModuleDict()
@@ -455,9 +477,23 @@ class UnifiedMultimodalEmbeddingModel(nn.Module):
         all_types:      list[torch.Tensor] = []
 
         for field_name, feat_dict in inputs.items():
-            value = feat_dict["value"]   # (B, N_i, ...) or (B, S, F)
-            time  = feat_dict["time"]    # (B, N_i)
-            mask  = feat_dict.get("mask")
+            if field_name.endswith("_mask") and field_name[: -len("_mask")] in self.numeric_standardizers:
+                # Observation-flag sibling consumed by the standardiser; not a
+                # modality of its own. Encoding it would duplicate every lab
+                # timestamp with a 0/1 vector. Skipped ONLY when the base
+                # field registered a standardiser: a field merely named
+                # ``x_mask`` with no standardiser stays a normal modality.
+                continue
+            value = feat_dict["value"]  # (B, N_i, ...) or (B, S, F)
+            time = feat_dict["time"]  # (B, N_i)
+            # Three different masks meet here and must not be conflated.
+            #   mask      token level, from the processor schema; this is the
+            #             attention mask a text encoder needs.
+            #   pad_mask  event level, from the collator; which slots are real
+            #             events rather than batch padding.
+            #   {field}_mask  a separate FIELD meaning "was this value
+            #             observed", consumed by the standardiser below.
+            mask = feat_dict.get("mask")
 
             if time is None:
                 # Fallback: treat every event as occurring at t=0
@@ -531,7 +567,37 @@ class UnifiedMultimodalEmbeddingModel(nn.Module):
                 emb       = img_emb.view(b, n, -1)
 
             else:  # NUMERIC / SIGNAL
-                emb = encoder(value)                           # (B, T, E')
+                # Standardise BEFORE the projection. The projection mixes the
+                # features, so a transform after it cannot correct a feature
+                # whose physical unit gives it 300 times the magnitude of
+                # another.
+                # nn.ModuleDict has no .get(), so the ternary stays.
+                standardizer = (
+                    self.numeric_standardizers[field_name]  # noqa: SIM401
+                    if field_name in self.numeric_standardizers
+                    else None
+                )
+                if standardizer is not None:
+                    # Observation flags live in the sibling ``{field}_mask``
+                    # FIELD, not in this field's dict. Reading the padding mask
+                    # here would tell the standardiser that every real event
+                    # was measured, which is exactly the distinction the
+                    # standardiser exists to preserve.
+                    sibling = inputs.get(f"{field_name}_mask")
+                    obs = sibling["value"] if isinstance(sibling, dict) else None
+                    if obs is None:
+                        raise ValueError(
+                            f"The standardiser for {field_name!r} needs a paired "
+                            f"{field_name}_mask field in the batch."
+                        )
+                    if obs.shape != value.shape:
+                        raise ValueError(
+                            f"{field_name}_mask has shape {tuple(obs.shape)}, "
+                            f"which does not match {field_name} "
+                            f"{tuple(value.shape)}."
+                        )
+                    value = standardizer(value, obs.bool())
+                emb = encoder(value)  # (B, T, E')
 
             # ── Build event-level validity mask ───────────────────────────
             if mask is None:
@@ -570,9 +636,19 @@ class UnifiedMultimodalEmbeddingModel(nn.Module):
         cat_types  = cat_types.gather(1, sort_idx)
 
         # ── Add time + type embeddings ────────────────────────────────────
-        time_emb = self.time_embed(cat_time)             # (B, S_total, E')
-        type_emb = self.type_embedding(cat_types)        # (B, S_total, E')
-        final    = cat_emb + time_emb + type_emb         # (B, S_total, E')
+        time_emb = self.time_embed(cat_time)  # (B, S_total, E')
+        type_emb = self.type_embedding(cat_types)  # (B, S_total, E')
+        if self.normalize_content:
+            # Put the content term on the scale of the additive terms. Without
+            # this the sum is decided by whichever modality has the larger
+            # magnitude, which is an accident of feature scaling and not a
+            # modelling decision. F.layer_norm without weight or bias adds NO
+            # parameters, so an existing checkpoint still loads.
+            cat_emb = F.layer_norm(cat_emb, (cat_emb.shape[-1],))
+        final = cat_emb + time_emb + type_emb
+        # Zero the padded slots so a consumer that ignores the mask, such as a
+        # mean pool, still cannot pick them up.
+        final = final * cat_mask.unsqueeze(-1).to(final.dtype)  # (B, S_total, E')
 
         return {
             "sequence": final,      # (B, S_total, E')
