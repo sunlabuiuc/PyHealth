@@ -34,7 +34,9 @@ class InHospitalSurvivalMIMIC4(_YAIBMIMIC4Task):
       for hours ``0 .. observation_hours - 1`` after ICU admission, a
       ``sequence_v2`` series that the processor forward-fills, standardizes
       and masks (36 hourly bins by default, as in TrajSurv).
-    - ``static``: age, sex, height and weight.
+    - ``static``: age, sex, height and weight. As in YAIB, height and
+      weight are the medians over the whole ICU stay, so they can include
+      measurements charted after the observation window.
     - ``summary``: the last measured value of each hourly variable in the
       window followed by the static variables, for models that need one flat
       vector, such as :class:`~pyhealth.models.SurvivalMDN` (missing values

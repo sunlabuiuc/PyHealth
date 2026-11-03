@@ -114,36 +114,54 @@ def rank_n_contrast_loss(
 
 
 # --------------------------------------------------------------- CDE solving
-def _natural_cubic_second_derivatives(x: Tensor) -> Tensor:
+def _natural_cubic_second_derivatives(
+    x: Tensor, lengths: Tensor | None = None
+) -> Tensor:
     """Second derivatives of the natural cubic spline through unit-spaced knots.
+
+    Each series is fitted on its own knots only, so the natural end
+    condition sits at its last real knot and padding after it has no effect.
 
     Args:
         x: Knot values, shape ``[B, T, C]``.
+        lengths: Knots per series, shape ``[B]``; all ``T`` when omitted.
 
     Returns:
-        Shape ``[B, T, C]``, zero at both ends.
+        Shape ``[B, T, C]``, zero at each series' ends and after them.
     """
-    steps = x.shape[1]
+    batch, steps, _ = x.shape
+    if lengths is None:
+        lengths = torch.full((batch,), steps, device=x.device)
     second = torch.zeros_like(x)
-    if steps < 3:
-        return second
-    n = steps - 2
-    system = (
-        4.0 * torch.eye(n, dtype=x.dtype, device=x.device)
-        + torch.diag(torch.ones(n - 1, dtype=x.dtype, device=x.device), 1)
-        + torch.diag(torch.ones(n - 1, dtype=x.dtype, device=x.device), -1)
-    )
-    rhs = 6.0 * (x[:, 2:] - 2.0 * x[:, 1:-1] + x[:, :-2])  # [B, n, C]
-    second[:, 1:-1] = torch.linalg.solve(system, rhs)
+    for length in torch.unique(lengths).tolist():
+        length = int(length)
+        if length < 3:
+            continue
+        rows = torch.nonzero(lengths == length, as_tuple=True)[0]
+        knots = x[rows, :length]
+        n = length - 2
+        system = (
+            4.0 * torch.eye(n, dtype=x.dtype, device=x.device)
+            + torch.diag(torch.ones(n - 1, dtype=x.dtype, device=x.device), 1)
+            + torch.diag(torch.ones(n - 1, dtype=x.dtype, device=x.device), -1)
+        )
+        rhs = 6.0 * (knots[:, 2:] - 2.0 * knots[:, 1:-1] + knots[:, :-2])
+        second[rows, 1 : length - 1] = torch.linalg.solve(system, rhs)
     return second
 
 
 class _CubicPath:
     """Derivative of a natural cubic (or linear) spline on unit-spaced knots."""
 
-    def __init__(self, x: Tensor, cubic: bool = True) -> None:
+    def __init__(
+        self, x: Tensor, cubic: bool = True, lengths: Tensor | None = None
+    ) -> None:
         self.delta = x[:, 1:] - x[:, :-1]  # [B, T-1, C]
-        second = _natural_cubic_second_derivatives(x) if cubic else torch.zeros_like(x)
+        second = (
+            _natural_cubic_second_derivatives(x, lengths)
+            if cubic
+            else torch.zeros_like(x)
+        )
         self.m_left = second[:, :-1]
         self.m_right = second[:, 1:]
 
@@ -396,7 +414,9 @@ class TrajSurv(BaseModel):
         """Batch field to padded ``values [B, T, F]``, ``observed`` and ``lengths``.
 
         Short sequences are padded with their last record, so their path is
-        constant after the end.
+        constant after the end. The spline is fitted per series length and
+        the solver freezes the state at each series' last knot, so a series'
+        risk does not depend on the other series in its batch.
         """
         if not isinstance(value, tuple) or "offsets" not in self._roles:
             values = torch.as_tensor(_first(value), dtype=torch.float32)
@@ -450,7 +470,9 @@ class TrajSurv(BaseModel):
         z0 = self.initial(start)
         if path.shape[1] < 2:
             return z0.unsqueeze(1), lengths
-        spline = _CubicPath(path, cubic=self.interpolation == "cubic")
+        spline = _CubicPath(
+            path, cubic=self.interpolation == "cubic", lengths=lengths
+        )
         states = _solve_cde(self.vector_field, z0, spline, lengths, self.substeps)
         return states, lengths
 

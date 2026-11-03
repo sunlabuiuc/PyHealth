@@ -94,6 +94,15 @@ class TestTrajSurvPieces(unittest.TestCase):
             torch.testing.assert_close(integral, x[:, segment + 1] - x[:, segment])
         # natural spline: continuous first derivative at the inner knots
         torch.testing.assert_close(path.derivative(0, 1.0), path.derivative(1, 0.0))
+        # Ragged lengths: each series is fitted on its own knots only.
+        padded = x.clone()
+        padded[1, 4:] = padded[1, 3]  # second series has 4 knots, then padding
+        ragged = _natural_cubic_second_derivatives(padded, torch.tensor([7, 4]))
+        torch.testing.assert_close(ragged[0], _natural_cubic_second_derivatives(x)[0])
+        torch.testing.assert_close(
+            ragged[1, :4], _natural_cubic_second_derivatives(x[1:, :4])[0]
+        )
+        self.assertTrue((ragged[1, 4:] == 0).all())
         linear = torch.arange(5.0).view(1, 5, 1)
         self.assertTrue(torch.allclose(_natural_cubic_second_derivatives(linear), 0 * linear))
 
@@ -224,6 +233,13 @@ class TestTrajSurvModel(unittest.TestCase):
         self.assertEqual(lengths.tolist(), [36, 20, 36])
         torch.testing.assert_close(states[1, 19], states[1, 35])  # frozen after end
         model(**batch)["loss"].backward()
+        # The short series gets the same risk alone as next to longer ones.
+        model.eval()
+        with torch.no_grad():
+            in_batch = model(**batch)["risk"][1]
+            alone_batch = list(get_dataloader(dataset, batch_size=1))[1]
+            alone = model(**alone_batch)["risk"][0]
+        torch.testing.assert_close(in_batch, alone)
         # SurvivalMDN reads the flat summary of the same samples
         mdn = SurvivalMDN(dataset, feature_key="summary", hidden_dim=8,
                           num_components=2)
