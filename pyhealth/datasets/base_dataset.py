@@ -528,6 +528,9 @@ class BaseDataset(ABC):
             {dataset_uuid}/                         # Cache files for this dataset configuration
                 tmp/                                # Temporary files during processing
                 global_event_df.parquet/            # Cached global event dataframe
+                global_event_df.lock                # Held while the event table is built
+                global_event_df.*.building/         # An event table being built; left
+                                                    # behind only by a killed job
                 tasks/                              # Cached task-specific data
                     {task_name}_{task_uuid}/        # Cached data for specific task based on task name, schema, and args
                         task_df.ld/                 # Intermediate task dataframe based on schema
@@ -797,6 +800,38 @@ class BaseDataset(ABC):
         finally:
             self.clean_tmpdir()
 
+    @staticmethod
+    def _event_cache_valid(path: Path) -> bool:
+        return path.is_dir() and any(path.glob("*.parquet"))
+
+    def _build_event_cache(self, ret_path: Path) -> None:
+        """Builds the event table and publishes it at ``ret_path`` when complete.
+
+        The table is written to a private folder next to ``ret_path`` and moved
+        into place with one ``os.replace``, so a folder at ``ret_path`` is always
+        a complete table: an interrupted build (Ctrl-C, an error) leaves nothing
+        there, and the next run builds again. A job killed outright (SIGKILL,
+        out of memory) can leave its ``global_event_df.*.building`` folder
+        behind; it is never read and can be deleted.
+        """
+        if ret_path.exists():
+            # e.g. a partial table left by a version without atomic publishing
+            logger.warning(
+                f"Incomplete parquet cache at {ret_path} (directory exists but "
+                "contains no parquet files). Removing and rebuilding."
+            )
+            shutil.rmtree(ret_path)
+        logger.info(f"No cached event dataframe found. Creating: {ret_path}")
+        build_path = ret_path.with_name(
+            f"global_event_df.{uuid.uuid4().hex}.building"
+        )
+        try:
+            self._event_transform(build_path)
+            os.replace(build_path, ret_path)
+        finally:
+            if build_path.exists():
+                shutil.rmtree(build_path, ignore_errors=True)
+
     @property
     def global_event_df(self) -> pl.LazyFrame:
         """Returns the path to the cached event dataframe.
@@ -808,17 +843,18 @@ class BaseDataset(ABC):
 
         if self._global_event_df is None:
             ret_path = self.cache_dir / "global_event_df.parquet"
-            cache_valid = ret_path.is_dir() and any(ret_path.glob("*.parquet"))
-            if not cache_valid:
-                if ret_path.exists():
-                    logger.warning(
-                        f"Incomplete parquet cache at {ret_path} (directory exists but contains no parquet files). Removing and rebuilding."
-                    )
-                    shutil.rmtree(ret_path)
-                logger.info(f"No cached event dataframe found. Creating: {ret_path}")
-                self._event_transform(ret_path)
-            else:
+            if self._event_cache_valid(ret_path):
                 logger.info(f"Found cached event dataframe: {ret_path}")
+            else:
+                # One process builds; others wait, then find the published table.
+                with FileLock(str(self.cache_dir / "global_event_df.lock"), timeout=7200):
+                    if self._event_cache_valid(ret_path):
+                        logger.info(
+                            f"Found cached event dataframe: {ret_path} "
+                            "(built by another process)"
+                        )
+                    else:
+                        self._build_event_cache(ret_path)
             self._global_event_df = ret_path
 
         return pl.scan_parquet(
