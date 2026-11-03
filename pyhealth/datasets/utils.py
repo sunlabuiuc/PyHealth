@@ -9,7 +9,6 @@ from typing import Any, Dict, List, Optional, Tuple
 import litdata
 import torch
 from dateutil.parser import parse as dateutil_parse
-from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader
 
 from pyhealth import BASE_CACHE_PATH
@@ -355,9 +354,7 @@ def collate_fn_dict_with_padding(
                     # Scalars, treat as stackable
                     collated[key] = torch.stack(values)
                 elif values[0].dim() >= 1:
-                    collated[key] = pad_sequence(
-                        values, batch_first=True, padding_value=0
-                    )
+                    collated[key] = _pad_stack(values)
                 else:
                     raise ValueError(f"Unsupported tensor shape: {values[0].shape}")
         else:

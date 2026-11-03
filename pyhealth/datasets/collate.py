@@ -47,6 +47,23 @@ def _stack_or_pad(tensors: list[torch.Tensor]) -> torch.Tensor:
     return _pad_stack(tensors)
 
 
+def _pad_mask(tensors: list[torch.Tensor]) -> torch.Tensor:
+    """Event-level validity for the tensor :func:`_stack_or_pad` just built.
+
+    Batch padding is created here and nowhere else, so it has to be recorded
+    here. A padded slot carries value 0.0 and time 0.0, which is
+    indistinguishable from a real measurement taken at admission time, so a
+    model given no mask treats padding as data.
+
+    This is deliberately NOT called ``mask``. A field may carry its own
+    ``{field}_mask`` meaning "was this value observed", which is a different
+    question from "is this slot real".
+    """
+    lengths = torch.tensor([t.shape[0] for t in tensors])
+    width = int(lengths.max())
+    return torch.arange(width)[None, :] < lengths[:, None]
+
+
 def collate_temporal(batch: list[dict[str, Any]]) -> dict[str, Any]:
     """Universal collator for datasets that contain ``TemporalFeatureProcessor``
     dict outputs alongside ordinary tensors and labels.
@@ -63,6 +80,13 @@ def collate_temporal(batch: list[dict[str, Any]]) -> dict[str, Any]:
 
     Returns:
         A single collated dict ready for model ``forward(**batch)``.
+
+    Example:
+        >>> import torch
+        >>> batch = [{"x": {"value": torch.ones(2, 2), "time": torch.zeros(2)}}]
+        >>> out = collate_temporal(batch)
+        >>> out["x"]["pad_mask"].tolist()
+        [[True, True]]
     """
     if not batch:
         return {}
@@ -82,6 +106,8 @@ def collate_temporal(batch: list[dict[str, Any]]) -> dict[str, Any]:
                     sub_result[sub_key] = [None] * len(sub_vals)
                 elif isinstance(sub_vals[0], torch.Tensor):
                     sub_result[sub_key] = _stack_or_pad(sub_vals)
+                    if sub_key == "time":
+                        sub_result["pad_mask"] = _pad_mask(sub_vals)
                 else:
                     sub_result[sub_key] = sub_vals
             result[key] = sub_result
