@@ -86,6 +86,20 @@ def get_metrics_fn(mode: str) -> Callable:
         raise ValueError(f"Mode {mode} is not supported")
 
 
+def _model_metrics_kwargs(model: nn.Module, metrics_fn: Callable) -> dict:
+    """Extra keyword arguments that ``metrics_fn`` should get for ``model``.
+
+    Drug recommendation models (GAMENet, MICRON, MoleRec, SafeDrug) keep their
+    drug-drug interaction matrix in ``ddi_adj_matrix``. The ``"ddi"`` metric is
+    scored against it rather than the shared ``ddi_adj.npy`` cache file, which
+    another model or process may have overwritten.
+    """
+    ddi_adj = getattr(model, "ddi_adj_matrix", None)
+    if metrics_fn is multilabel_metrics_fn and ddi_adj is not None:
+        return {"ddi_adj": ddi_adj}
+    return {}
+
+
 class Trainer:
     """Trainer for PyTorch models.
 
@@ -419,14 +433,11 @@ class Trainer:
             y_true_all, y_prob_all, loss_mean = self.inference(dataloader)
             mode = self.model.mode
             metrics_fn = get_metrics_fn(mode)
-            extra = {}
-            # Drug recommendation models keep their own DDI matrix; score
-            # "ddi" against it rather than the shared ddi_adj.npy cache file.
-            ddi_adj = getattr(self.model, "ddi_adj_matrix", None)
-            if metrics_fn is multilabel_metrics_fn and ddi_adj is not None:
-                extra["ddi_adj"] = ddi_adj
             scores = metrics_fn(
-                y_true_all, y_prob_all, metrics=self.metrics, **extra
+                y_true_all,
+                y_prob_all,
+                metrics=self.metrics,
+                **_model_metrics_kwargs(self.model, metrics_fn),
             )
             scores["loss"] = loss_mean
         else:

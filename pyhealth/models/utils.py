@@ -5,6 +5,11 @@ from typing import List
 import numpy as np
 import torch
 
+# Read once at import: os.umask() can only be read by setting it, which is
+# not thread-safe, and save_ddi_adj may run in threads.
+_UMASK = os.umask(0)
+os.umask(_UMASK)
+
 
 def batch_to_multihot(label: List[List[int]], num_labels: int) -> torch.tensor:
     """Converts label to multihot format.
@@ -61,6 +66,9 @@ def save_ddi_adj(ddi_adj: np.ndarray | torch.Tensor, path: str) -> np.ndarray:
     try:
         with os.fdopen(fd, "wb") as f:
             np.save(f, ddi_adj)
+        # mkstemp creates the file as 0600; give it the permissions np.save
+        # would have (0666 minus the umask) before it replaces the old file.
+        os.chmod(tmp_path, 0o666 & ~_UMASK)
         os.replace(tmp_path, path)
     except BaseException:
         if os.path.exists(tmp_path):
