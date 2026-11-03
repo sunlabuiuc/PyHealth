@@ -27,6 +27,7 @@ from pyhealth.models.embedding import EmbeddingModel
 from pyhealth.models.utils import (
     ddi_adjacency,
     ehr_cooccurrence_adjacency,
+    gcn_normalize_adjacency,
     history_to_label_index,
 )
 
@@ -333,8 +334,8 @@ class ARMR(BaseModel):
         ddi_adj = self._ddi_adj(label_vocab)
         if use_graph:
             ehr_adj = self._ehr_adj(label_vocab, graph_dataset)
-            self.register_buffer("ehr_adj", _normalize(ehr_adj))
-            self.register_buffer("ddi_adj_norm", _normalize(ddi_adj))
+            self.register_buffer("ehr_adj", gcn_normalize_adjacency(ehr_adj))
+            self.register_buffer("ddi_adj_norm", gcn_normalize_adjacency(ddi_adj))
             self.gcn_ehr = nn.ModuleList([nn.Linear(dim, dim), nn.Linear(dim, dim)])
             self.gcn_ddi = nn.ModuleList([nn.Linear(dim, dim), nn.Linear(dim, dim)])
         # the "ddi" metric (pyhealth.metrics.multilabel) reads this file, as
@@ -550,9 +551,3 @@ def _split_reused_new(history: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor
     seen_before = torch.cumsum(history, dim=1) - history > 0
     reused = history * seen_before
     return reused, history - reused
-
-
-def _normalize(adj: torch.Tensor) -> torch.Tensor:
-    """Row-normalizes ``adj + I``, as in Kipf and Welling's GCN."""
-    adj = adj + torch.eye(adj.size(0))
-    return adj / adj.sum(dim=1, keepdim=True)

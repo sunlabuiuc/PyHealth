@@ -146,6 +146,35 @@ def ehr_cooccurrence_adjacency(drug_sets, label_vocab: dict[str, int]) -> torch.
     adj.fill_diagonal_(0.0)
     return adj
 
+def gcn_normalize_adjacency(adj: torch.Tensor, self_loops: bool = True) -> torch.Tensor:
+    """Row-normalizes an adjacency matrix for a GCN (Kipf and Welling).
+
+    Computes ``D^-1 (A + I)``: each row is divided by its sum, after adding
+    self-loops if ``self_loops``. Rows that sum to zero stay zero. Shared by
+    GAMENet's GCN and ARMR.
+
+    Args:
+        adj: adjacency tensor of shape [num_nodes, num_nodes].
+        self_loops: add the identity before normalizing. Default is True.
+
+    Returns:
+        Tensor of the same shape whose non-empty rows sum to 1.
+
+    Examples:
+        >>> gcn_normalize_adjacency(torch.tensor([[0.0, 1.0], [1.0, 0.0]]))
+        tensor([[0.5000, 0.5000],
+                [0.5000, 0.5000]])
+        >>> gcn_normalize_adjacency(torch.zeros(2, 2), self_loops=False)
+        tensor([[0., 0.],
+                [0., 0.]])
+    """
+    if self_loops:
+        adj = adj + torch.eye(adj.size(0), dtype=adj.dtype, device=adj.device)
+    r_inv = adj.sum(dim=1).pow(-1)
+    r_inv[torch.isinf(r_inv)] = 0.0
+    return r_inv.unsqueeze(1) * adj
+
+
 def history_to_label_index(
     hist_vocab: dict[str, int], label_vocab: dict[str, int]
 ) -> torch.Tensor:

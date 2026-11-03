@@ -14,6 +14,7 @@ from pyhealth.models.armr import (
 from pyhealth.models.utils import (
     ddi_adjacency,
     ehr_cooccurrence_adjacency,
+    gcn_normalize_adjacency,
     history_to_label_index,
 )
 from pyhealth.trainer import Trainer
@@ -269,6 +270,18 @@ class TestDrugHelpers(unittest.TestCase):
         expected = torch.zeros(4, 4)
         expected[0, 1] = expected[1, 0] = expected[2, 3] = expected[3, 2] = 1.0
         self.assertTrue(torch.equal(adj, expected))
+
+    def test_gcn_normalize_adjacency_rows_sum_to_one(self):
+        adj = torch.tensor([[0.0, 1.0, 1.0], [1.0, 0.0, 0.0], [1.0, 0.0, 0.0]])
+        norm = gcn_normalize_adjacency(adj)
+        expected = torch.tensor(
+            [[1 / 3, 1 / 3, 1 / 3], [0.5, 0.5, 0.0], [0.5, 0.0, 0.5]]
+        )
+        self.assertTrue(torch.allclose(norm, expected))
+        self.assertTrue(torch.allclose(norm.sum(dim=1), torch.ones(3)))
+        # without self-loops, an empty row stays zero (no NaN or inf)
+        bare = gcn_normalize_adjacency(torch.tensor([[0.0, 2.0], [0.0, 0.0]]), False)
+        self.assertTrue(torch.equal(bare, torch.tensor([[0.0, 1.0], [0.0, 0.0]])))
 
     def test_history_to_label_index_sends_unknown_codes_to_trash(self):
         mapping = history_to_label_index(

@@ -10,6 +10,7 @@ from pyhealth.models import BaseModel
 from pyhealth.models.utils import (
     ddi_adjacency,
     ehr_cooccurrence_adjacency,
+    gcn_normalize_adjacency,
     get_last_visit,
     history_to_label_index,
 )
@@ -84,8 +85,7 @@ class GCN(nn.Module):
         self.dropout = dropout
 
         voc_size = adj.shape[0]
-        adj = adj + torch.eye(adj.shape[0])
-        adj = self.normalize(adj)
+        adj = gcn_normalize_adjacency(adj)
         self.adj = torch.nn.Parameter(adj, requires_grad=False)
         self.x = torch.nn.Parameter(torch.eye(voc_size), requires_grad=False)
 
@@ -95,12 +95,7 @@ class GCN(nn.Module):
 
     def normalize(self, mx: torch.tensor) -> torch.tensor:
         """Normalizes the matrix row-wise."""
-        rowsum = mx.sum(1)
-        r_inv = torch.pow(rowsum, -1).flatten()
-        r_inv[torch.isinf(r_inv)] = 0.0
-        r_mat_inv = torch.diagflat(r_inv)
-        mx = torch.mm(r_mat_inv, mx)
-        return mx
+        return gcn_normalize_adjacency(mx, self_loops=False)
 
     def forward(self) -> torch.tensor:
         """Forward propagation.
