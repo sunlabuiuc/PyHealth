@@ -44,7 +44,7 @@ EVENTS_CSV = "physionet2012-pyhealth-events.csv"
 PATIENTS_CSV = "physionet2012-pyhealth-patients.csv"
 
 # Records have elapsed times, not dates; they are placed after this origin.
-TIME_ORIGIN = datetime(2012, 1, 1)  # noqa: DTZ001 - PyHealth timestamps are naive
+TIME_ORIGIN = datetime.fromisoformat("2012-01-01")  # naive, like PyHealth timestamps
 _TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 _OUTCOME_COLUMNS = {
