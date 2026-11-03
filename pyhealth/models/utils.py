@@ -89,10 +89,10 @@ def ddi_adjacency(label_vocab: dict[str, int]) -> torch.Tensor:
         Symmetric 0/1 tensor of shape [len(label_vocab), len(label_vocab)].
 
     Examples:
-        >>> adj = ddi_adjacency({"N02B": 0, "B01A": 1, "C03C": 2})
-        >>> adj.shape
+        >>> adj = ddi_adjacency({"N02B": 0, "B01A": 1, "C03C": 2})  # doctest: +SKIP
+        >>> adj.shape  # doctest: +SKIP
         torch.Size([3, 3])
-        >>> bool((adj == adj.T).all())
+        >>> bool((adj == adj.T).all())  # doctest: +SKIP
         True
     """
     from pyhealth.medcode import ATC

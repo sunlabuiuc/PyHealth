@@ -1,3 +1,4 @@
+import math
 import unittest
 import warnings
 
@@ -15,6 +16,7 @@ from pyhealth.models.utils import (
     ehr_cooccurrence_adjacency,
     history_to_label_index,
 )
+from pyhealth.trainer import Trainer
 
 SCHEMA = {
     "conditions": "nested_sequence",
@@ -84,6 +86,20 @@ class TestARMR(unittest.TestCase):
             optimizer.step()
             first = first if first is not None else loss.item()
         self.assertLess(loss.item(), first * 0.5)
+
+    def test_trainer_trains_and_evaluates(self):
+        torch.manual_seed(0)
+        model = ARMR(self.dataset, embedding_dim=16, graph_dataset=self.dataset)
+        loader = get_dataloader(self.dataset, batch_size=2, shuffle=True)
+        trainer = Trainer(
+            model=model, metrics=["jaccard_samples", "f1_samples"],
+            enable_logging=False,
+        )
+        trainer.train(train_dataloader=loader, epochs=1)
+        scores = trainer.evaluate(get_dataloader(self.dataset, batch_size=2))
+        for key in ("loss", "jaccard_samples", "f1_samples"):
+            self.assertIn(key, scores)
+            self.assertTrue(math.isfinite(scores[key]))
 
     def test_inference_without_labels(self):
         model = ARMR(self.dataset, embedding_dim=16, use_graph=False)

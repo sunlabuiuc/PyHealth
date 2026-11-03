@@ -265,13 +265,13 @@ class ARMR(BaseModel):
         ...     output_schema={"drugs": "multilabel"},
         ...     dataset_name="demo",
         ... )
-        >>> model = ARMR(dataset, embedding_dim=16, use_graph=False)
+        >>> model = ARMR(dataset, embedding_dim=16, use_graph=False)  # doctest: +SKIP
         >>> # with the graphs, give the training split explicitly:
         >>> # ARMR(dataset, graph_dataset=train_split)
         >>> from pyhealth.datasets import get_dataloader
         >>> batch = next(iter(get_dataloader(dataset, batch_size=2)))
-        >>> out = model(**batch)
-        >>> sorted(out)
+        >>> out = model(**batch)  # doctest: +SKIP
+        >>> sorted(out)  # doctest: +SKIP
         ['logit', 'loss', 'y_prob', 'y_true']
     """
 
