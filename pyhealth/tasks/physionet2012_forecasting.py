@@ -115,7 +115,7 @@ class PhysioNet2012Forecasting(BaseTask):
         events = patient.get_events(event_type="events", return_df=True)
         if events.height == 0:
             return []
-        hourly = _hourly_means(events, self.variables)
+        hourly = _hourly_means(events, self.variables).sort("hour", "parameter")
         if hourly.height == 0:
             return []
         index = {v: i for i, v in enumerate(self.variables)}
@@ -156,18 +156,27 @@ class PhysioNet2012Forecasting(BaseTask):
         }]
 
 
-def _hourly_means(events: pl.DataFrame, variables: Sequence[str]) -> pl.DataFrame:
-    """Mean value per (hour since admission, variable)."""
+def _hourly_means(
+    events: pl.DataFrame | pl.LazyFrame,
+    variables: Sequence[str],
+    by: Sequence[str] = (),
+) -> pl.DataFrame | pl.LazyFrame:
+    """Mean value per (``by`` columns, hour since admission, variable).
+
+    Shared by the task and :func:`physionet2012_statistics` so both bin the
+    same way. Works on an eager or a lazy frame of ``events`` rows.
+    """
+    keys = [*by, "hour", "parameter"]
     return (
         events.select(
+            *by,
             (pl.col("events/minutes").cast(pl.Int64) // 60).alias("hour"),
             pl.col("events/parameter").alias("parameter"),
             pl.col("events/value").cast(pl.Float64).alias("value"),
         )
         .filter(pl.col("parameter").is_in(list(variables)))
-        .group_by("hour", "parameter")
+        .group_by(keys)
         .agg(pl.col("value").mean())
-        .sort("hour", "parameter")
     )
 
 
@@ -200,15 +209,7 @@ def physionet2012_statistics(
     if patient_ids is not None:
         events = events.filter(pl.col("patient_id").is_in(list(patient_ids)))
     hourly = (
-        events.select(
-            "patient_id",
-            (pl.col("events/minutes").cast(pl.Int64) // 60).alias("hour"),
-            pl.col("events/parameter").alias("parameter"),
-            pl.col("events/value").cast(pl.Float64).alias("value"),
-        )
-        .filter(pl.col("parameter").is_in(list(variables)))
-        .group_by("patient_id", "hour", "parameter")
-        .agg(pl.col("value").mean())
+        _hourly_means(events, variables, by=["patient_id"])
         .group_by("parameter")
         .agg(
             pl.col("value").mean().alias("mean"),

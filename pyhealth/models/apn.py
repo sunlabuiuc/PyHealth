@@ -13,6 +13,7 @@ details such as the default sizes.
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from typing import Any
 
 import torch
@@ -327,6 +328,36 @@ class APN(BaseModel):
         else:
             out["y_prob"] = forecast
         return out
+
+    def get_loss_function(self) -> Callable[..., torch.Tensor]:
+        """Returns :func:`masked_mse`, the loss that :meth:`forward` uses.
+
+        The label is a ``"tensor"`` field, which :class:`BaseModel` cannot map
+        to a loss, so APN supplies its own.
+
+        Returns:
+            :func:`masked_mse`.
+
+        Examples:
+            >>> model.get_loss_function() is masked_mse  # doctest: +SKIP
+            True
+        """
+        return masked_mse
+
+    def prepare_y_prob(self, logits: torch.Tensor) -> torch.Tensor:
+        """Returns the forecasts unchanged; a regression has no link function.
+
+        Args:
+            logits: Forecasts of any shape.
+
+        Returns:
+            ``logits``.
+
+        Examples:
+            >>> model.prepare_y_prob(torch.zeros(2, 3, 4)).shape  # doctest: +SKIP
+            torch.Size([2, 3, 4])
+        """
+        return logits
 
 
 def masked_mse(prediction: torch.Tensor, target: torch.Tensor) -> torch.Tensor:

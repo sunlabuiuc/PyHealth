@@ -1,9 +1,12 @@
 """Tests for the PhysioNet 2012 dataset, the forecasting task and APN."""
 
+import io
 import math
+import tarfile
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import numpy as np
 import torch
@@ -16,6 +19,8 @@ from pyhealth.datasets import (
 from pyhealth.datasets.physionet2012 import (
     EVENTS_CSV,
     PATIENTS_CSV,
+    PHYSIONET2012_URL,
+    download_physionet2012,
     prepare_physionet2012,
     read_record,
 )
@@ -147,6 +152,123 @@ class TestPhysioNet2012Dataset(unittest.TestCase):
         self.assertTrue(torch.isnan(samples[0]["y"]).any())  # NaN kept for the mask
 
 
+def _fake_tarball(records: dict[str, str]) -> bytes:
+    """A gzipped tar holding ``set-a/<id>.txt`` for each record."""
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
+        for record_id, text in records.items():
+            data = text.encode()
+            info = tarfile.TarInfo(f"set-a/{record_id}.txt")
+            info.size = len(data)
+            archive.addfile(info, io.BytesIO(data))
+    return buffer.getvalue()
+
+
+class TestPhysioNet2012Download(unittest.TestCase):
+    """The download and extraction path, with the network patched out."""
+
+    OUTCOMES = (
+        "RecordID,SAPS-I,SOFA,Length_of_stay,Survival,In-hospital_death\n"
+        "132539,6,1,5,-1,0\n"
+    )
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name) / "p12"
+        self.files = {
+            "set-a.tar.gz": _fake_tarball(
+                {"132539": _record(132539, ["00:10,HR,70\n", "37:00,HR,80\n"])}
+            ),
+            "Outcomes-a.txt": self.OUTCOMES.encode(),
+        }
+        self.calls = []
+        self.failures = {}  # filename -> attempts that fail before success
+        sleep = mock.patch("pyhealth.datasets.physionet2012.time.sleep")
+        self.sleep = sleep.start()
+        self.addCleanup(sleep.stop)
+
+    def _urlretrieve(self, url, filename):
+        name = url.removeprefix(PHYSIONET2012_URL)
+        self.calls.append(name)
+        if self.failures.get(name, 0) > 0:
+            self.failures[name] -= 1
+            Path(filename).write_bytes(b"partial")  # a half-written file
+            raise OSError("connection reset")
+        Path(filename).write_bytes(self.files[name])
+        return filename, None
+
+    def _download(self, **kwargs):
+        with mock.patch(
+            "urllib.request.urlretrieve", side_effect=self._urlretrieve
+        ):
+            download_physionet2012(self.root, sets=["a"], **kwargs)
+
+    def test_download_and_extract(self):
+        self._download()
+        self.assertEqual(self.calls, ["set-a.tar.gz", "Outcomes-a.txt"])
+        self.assertEqual((self.root / "Outcomes-a.txt").read_text(), self.OUTCOMES)
+        record_id, _, events = read_record(self.root / "set-a/132539.txt")
+        self.assertEqual((record_id, events), ("132539", [(10, "HR", 70.0),
+                                                          (37 * 60, "HR", 80.0)]))
+        self.assertEqual(
+            sorted(p.name for p in self.root.iterdir()),
+            ["Outcomes-a.txt", "set-a", "set-a.tar.gz"],
+        )  # no .part files or temporary folders left
+
+        # Files already present are not downloaded again.
+        self.calls.clear()
+        self._download()
+        self.assertEqual(self.calls, [])
+
+    def test_dataset_download(self):
+        with mock.patch(
+            "urllib.request.urlretrieve", side_effect=self._urlretrieve
+        ):
+            dataset = PhysioNet2012Dataset(
+                root=str(self.root),
+                download=True,
+                sets=["a"],
+                cache_dir=Path(self.tmp.name) / "cache",
+            )
+        self.assertEqual(dataset.unique_patient_ids, ["132539"])
+
+    def test_retry_discards_partial_file(self):
+        self.failures["set-a.tar.gz"] = 2
+        self._download(retries=3)
+        self.assertEqual(self.calls.count("set-a.tar.gz"), 3)
+        self.assertEqual(self.sleep.call_count, 2)
+        self.assertTrue((self.root / "set-a/132539.txt").exists())
+        self.assertFalse((self.root / "set-a.tar.gz.part").exists())
+
+    def test_gives_up_after_retries(self):
+        self.failures["Outcomes-a.txt"] = 5
+        with self.assertRaises(OSError):
+            self._download(retries=2)
+        self.assertEqual(self.calls.count("Outcomes-a.txt"), 2)
+        self.assertFalse((self.root / "Outcomes-a.txt").exists())
+        self.assertFalse((self.root / "Outcomes-a.txt.part").exists())
+        self.assertFalse((self.root / "set-a").exists())
+
+    def test_interrupted_extraction_is_redone(self):
+        self.root.mkdir(parents=True)
+        partial = self.root / ".set-a.partial" / "set-a"
+        partial.mkdir(parents=True)
+        (partial / "999999.txt").write_text("truncated")
+        with (
+            mock.patch("tarfile.TarFile.extractall", side_effect=OSError("full")),
+            self.assertRaises(OSError),
+        ):
+            self._download()
+        self.assertFalse((self.root / "set-a").exists())  # nothing half-made
+        self.assertFalse((self.root / ".set-a.partial").exists())
+
+        self._download()
+        self.assertEqual(
+            [p.name for p in (self.root / "set-a").iterdir()], ["132539.txt"]
+        )
+
+
 def _synthetic_samples(n=64, length=12, steps=3, n_vars=3, seed=0):
     """Sine waves with per-sample phase, observed at random points."""
     rng = np.random.default_rng(seed)
@@ -216,6 +338,13 @@ class TestAPN(unittest.TestCase):
         empty = masked_mse(pred, torch.full((2, 2), float("nan")))
         self.assertEqual(empty.item(), 0.0)
         self.assertTrue(empty.requires_grad)
+
+    def test_loss_and_probability_helpers(self):
+        dataset = _dataset(_synthetic_samples(n=8))
+        model = APN(dataset, hidden_dim=8, num_patches=4, time_dim=4)
+        self.assertIs(model.get_loss_function(), masked_mse)
+        logits = torch.randn(2, 3, 3)
+        self.assertIs(model.prepare_y_prob(logits), logits)
 
     def test_forward_backward_and_inference(self):
         dataset = _dataset(_synthetic_samples(n=8))

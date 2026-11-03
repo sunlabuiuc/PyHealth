@@ -11,8 +11,8 @@ Dataset paper: (please cite if you use this dataset)
 Description:
     12,000 ICU stays of at least 48 hours (sets a, b and c, 4,000 each). Each
     record holds up to 37 irregularly sampled time series from the first 48
-    hours (vital signs and labs) and six general descriptors recorded on
-    admission. The data is open access, so it can be downloaded without
+    hours (vital signs and labs) and five general descriptors recorded on
+    admission (age, gender, height, ICU type and weight). The data is open access, so it can be downloaded without
     credentials (``download=True``).
 """
 
@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
 import tarfile
 import time
 import urllib.request
@@ -62,8 +63,9 @@ def download_physionet2012(
     """Downloads and extracts the challenge records and outcomes into ``root``.
 
     Files already present are kept. Each file is written to a temporary name
-    and renamed once complete, so an interrupted download is retried rather
-    than used.
+    and renamed once complete, and each archive is extracted into a temporary
+    folder that is renamed once complete, so an interrupted download or
+    extraction is redone rather than used.
 
     Args:
         root: Directory to download into; ``set-a/`` etc. are created there.
@@ -78,9 +80,22 @@ def download_physionet2012(
     for name in sets:
         for filename in (f"set-{name}.tar.gz", f"Outcomes-{name}.txt"):
             _fetch(PHYSIONET2012_URL + filename, root / filename, retries)
-        if not (root / f"set-{name}").is_dir():
-            with tarfile.open(root / f"set-{name}.tar.gz") as archive:
-                archive.extractall(root, filter="data")
+        _extract(root / f"set-{name}.tar.gz", root / f"set-{name}")
+
+
+def _extract(archive_path: Path, dest: Path) -> None:
+    """Extracts ``archive_path`` (which holds ``dest.name/``) to ``dest``."""
+    if dest.is_dir():
+        return
+    tmp = dest.with_name(f".{dest.name}.partial")
+    shutil.rmtree(tmp, ignore_errors=True)  # left by an interrupted run
+    tmp.mkdir()
+    try:
+        with tarfile.open(archive_path) as archive:
+            archive.extractall(tmp, filter="data")
+        os.replace(tmp / dest.name, dest)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 def _fetch(url: str, dest: Path, retries: int) -> None:
