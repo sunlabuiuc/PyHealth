@@ -259,6 +259,7 @@ API Reference
     models/pyhealth.models.califorest
     models/pyhealth.models.XGBoostModel
     models/pyhealth.models.survival_mdn
+    models/pyhealth.models.TrajSurv
     models/pyhealth.models.ProtoECGNet
     models/pyhealth.models.HeartLang
     models/pyhealth.models.APN
