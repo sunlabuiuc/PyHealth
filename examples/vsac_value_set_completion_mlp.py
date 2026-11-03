@@ -265,7 +265,8 @@ def run_config(
         val_dataloader=get_dataloader(val, args.batch_size),
         epochs=args.epochs,
         optimizer_class=torch.optim.AdamW,
-        optimizer_params={"lr": args.lr, "weight_decay": 1e-4},
+        optimizer_params={"lr": args.lr},
+        weight_decay=args.weight_decay,
         monitor="pr_auc",
         patience=args.patience,
     )
@@ -328,6 +329,7 @@ def main() -> None:
     parser.add_argument("--patience", type=int, default=5)
     parser.add_argument("--batch-size", type=int, default=2048)
     parser.add_argument("--lr", type=float, default=3e-4)
+    parser.add_argument("--weight-decay", type=float, default=1e-4)
     parser.add_argument("--hidden-dim", type=int, default=256)
     parser.add_argument("--n-layers", type=int, default=2)
     parser.add_argument("--num-workers", type=int, default=1)
