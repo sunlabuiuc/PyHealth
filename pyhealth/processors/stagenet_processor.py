@@ -181,9 +181,9 @@ class StageNetProcessor(TemporalFeatureProcessor, TokenProcessorInterface):
 
     def _encode_codes(self, codes: List[str]) -> torch.Tensor:
         """Encode flat code list to indices."""
-        # Handle empty code list - return single padding token
+        # Handle empty code list — zero events, not a fake pad token.
         if len(codes) == 0:
-            return torch.tensor([self.code_vocab["<pad>"]], dtype=torch.long)
+            return torch.zeros((0,), dtype=torch.long)
 
         indices = []
         for code in codes:
@@ -200,11 +200,10 @@ class StageNetProcessor(TemporalFeatureProcessor, TokenProcessorInterface):
         """
         assert self._max_nested_len is not None, "Max nested length must be set during fit()"
         
-        # Handle empty nested codes (no visits/events)
-        # Return single padding token with shape (1, max_len)
+        # Handle empty nested codes (no visits/events) — zero events.
         if len(nested_codes) == 0:
-            pad_token = self.code_vocab["<pad>"]
-            return torch.tensor([[pad_token] * self._max_nested_len], dtype=torch.long)
+            max_len = self._max_nested_len if self._max_nested_len is not None else 1
+            return torch.zeros((0, max_len), dtype=torch.long)
 
         encoded_sequences = []
         # Use global max length determined during fit
@@ -398,10 +397,23 @@ class StageNetTensorProcessor(TemporalFeatureProcessor):
         """
         # Unpack tuple: (time, values)
         time_data, value_data = value
+        value_data = list(value_data or [])
 
-        # Convert to numpy for easier imputation handling
         import numpy as np
 
+        if len(value_data) == 0:
+            n_feat = self._size if self._size is not None else 1
+            nested = True if self._is_nested is None else self._is_nested
+            if nested:
+                value_tensor = torch.zeros((0, n_feat), dtype=torch.float)
+            else:
+                value_tensor = torch.zeros((0,), dtype=torch.float)
+            time_tensor = (
+                torch.zeros((0,), dtype=torch.float) if time_data is not None else None
+            )
+            return time_tensor, value_tensor
+
+        # Convert to numpy for easier imputation handling
         value_array = np.array(value_data, dtype=float)
 
         # Apply forward-fill imputation

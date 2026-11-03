@@ -207,11 +207,21 @@ class TestTimeImageProcessor(unittest.TestCase):
                 (self.rgb_paths[:3], self.times[:2])
             )
 
-    def test_process_empty_paths_raises(self):
-        """ValueError for empty image list."""
-        proc = TimeImageProcessor()
-        with self.assertRaises(ValueError):
-            proc.process(([], []))
+    def test_process_empty_paths_returns_zero_length(self):
+        """Empty image list is zero events, not an error."""
+        proc = TimeImageProcessor(image_size=32)
+        images, timestamps, tag = proc.process(([], []))
+        self.assertEqual(images.shape, (0, 3, 32, 32))
+        self.assertEqual(timestamps.shape, (0,))
+        self.assertEqual(tag, "image")
+
+    def test_padding_sentinel_returns_zero_tensor(self):
+        """Sentinel paths decode to zero tensors without disk access."""
+        proc = TimeImageProcessor(image_size=32, padding="MISSING")
+        images, timestamps, tag = proc.process((["MISSING"], [1.0]))
+        self.assertEqual(images.shape, (1, 3, 32, 32))
+        self.assertTrue(bool((images == 0).all()))
+        self.assertEqual(tag, "image")
 
     def test_process_invalid_path_raises(self):
         """FileNotFoundError for nonexistent image."""

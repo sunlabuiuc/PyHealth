@@ -199,9 +199,8 @@ class TestStageNetProcessor(unittest.TestCase):
 
         time, values = processor.process((None, []))
 
-        # Should return single padding token
-        self.assertEqual(values.shape, (1,))
-        self.assertEqual(values[0].item(), processor.code_vocab["<pad>"])
+        # Empty codes are zero events, not a fake pad token
+        self.assertEqual(values.shape, (0,))
 
     def test_empty_codes_nested(self):
         """Test processing empty nested codes."""
@@ -211,10 +210,8 @@ class TestStageNetProcessor(unittest.TestCase):
 
         time, values = processor.process((None, []))
 
-        # Should return single row of padding tokens
-        self.assertEqual(values.shape, (1, 2))
-        self.assertEqual(values[0, 0].item(), processor.code_vocab["<pad>"])
-        self.assertEqual(values[0, 1].item(), processor.code_vocab["<pad>"])
+        # Empty nested codes are zero events
+        self.assertEqual(values.shape, (0, 2))
 
     def test_vocab_size_method(self):
         """Test vocab_size() returns correct size."""
@@ -369,6 +366,16 @@ class TestStageNetTensorProcessor(unittest.TestCase):
 
         self.assertIsNone(time)
         self.assertEqual(values.shape, (2, 2))
+
+    def test_empty_values_returns_zero_length(self):
+        """Empty values are zero events, not imputed rows."""
+        processor = StageNetTensorProcessor()
+        samples = [{"data": ([0.0], [[1.0, 2.0]])}]
+        processor.fit(samples, "data")
+
+        time, values = processor.process(([0.0], []))
+        self.assertEqual(values.shape, (0, 2))
+        self.assertEqual(time.shape, (0,))
 
     def test_repr_tensor(self):
         """Test string representation for tensor processor."""
