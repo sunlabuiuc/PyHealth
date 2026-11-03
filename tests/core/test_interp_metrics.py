@@ -579,3 +579,30 @@ class TestMeanAblationBaseline(unittest.TestCase):
         baseline = metric._mean_baseline(x)
         self.assertTrue(torch.allclose(baseline, x.mean(dim=0, keepdim=True)))
         self.assertEqual(tuple(baseline.shape), (1, 3, 8, 8))
+
+    def test_mean_baseline_for_1d_input(self):
+        metric = self._metric()
+        x = torch.tensor([1.0, 2.0, 6.0])  # batch of one, no feature dims
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            baseline = metric._mean_baseline(x[:1])
+            baseline_3 = metric._mean_baseline(x.unsqueeze(0))
+        self.assertEqual(baseline.shape, (1,))
+        self.assertTrue(torch.allclose(baseline_3, torch.full((1, 1), 3.0)))
+
+    def test_apply_ablation_mean_uses_baseline(self):
+        metric = self._metric()
+        metric.ablation_strategy = "mean"
+        x = torch.tensor([[1.0, 2.0, 3.0, 6.0]])
+        mask = torch.tensor([[1.0, 0.0, 0.0, 1.0]])
+        times = torch.zeros(1, 4)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            out = metric._apply_ablation(
+                {"plain": x, "tupled": (times, x)},
+                {"plain": mask, "tupled": mask},
+            )
+        expected = torch.tensor([[3.0, 2.0, 3.0, 3.0]])
+        self.assertTrue(torch.allclose(out["plain"], expected))
+        self.assertIs(out["tupled"][0], times)
+        self.assertTrue(torch.allclose(out["tupled"][1], expected))

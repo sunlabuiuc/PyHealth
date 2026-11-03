@@ -16,7 +16,6 @@ Note on ResNet support:
 """
 
 import unittest
-# import pytest  # Disabled for unittest compatibility
 import torch
 import numpy as np
 import tempfile
@@ -31,108 +30,6 @@ from pyhealth.datasets import SampleDataset, create_sample_dataset
 from pyhealth.datasets.sample_dataset import SampleBuilder
 from pyhealth.interpret.methods import LayerwiseRelevancePropagation
 from pyhealth.models import MLP, StageNet
-
-
-# @pytest.fixture - Disabled for unittest compatibility
-def simple_dataset():
-    """Create a simple synthetic dataset for testing."""
-    samples = [
-        {
-            "patient_id": f"patient-{i}",
-            "visit_id": f"visit-0",
-            "conditions": [f"cond-{j}" for j in range(3)],
-            "labs": [float(j) for j in range(4)],
-            "label": i % 2,
-        }
-        for i in range(20)
-    ]
-
-    # Create temporary directory
-    temp_dir = tempfile.mkdtemp()
-    
-    # Build dataset using SampleBuilder
-    builder = SampleBuilder(
-        input_schema={"conditions": "sequence", "labs": "tensor"},
-        output_schema={"label": "binary"},
-    )
-    builder.fit(samples)
-    builder.save(f"{temp_dir}/schema.pkl")
-    
-    # Optimize samples into dataset format
-    def sample_generator():
-        for sample in samples:
-            yield {"sample": pickle.dumps(sample)}
-    
-    litdata.optimize(
-        fn=builder.transform,
-        inputs=list(sample_generator()),
-        output_dir=temp_dir,
-        num_workers=1,
-        chunk_bytes="64MB",
-    )
-    
-    # Create dataset
-    dataset = SampleDataset(
-        path=temp_dir,
-        dataset_name="test_dataset",
-    )
-    
-    yield dataset
-    
-    # Cleanup
-    shutil.rmtree(temp_dir, ignore_errors=True)
-
-
-# @pytest.fixture - Disabled for unittest compatibility
-def trained_model(simple_dataset):
-    """Create and return a simple trained model."""
-    # Use both features to test branching architecture handling
-    model = MLP(
-        dataset=simple_dataset,
-        feature_keys=["conditions", "labs"],  # Test with multiple features
-        embedding_dim=32,
-        hidden_dim=32,
-        dropout=0.0,
-    )
-    # Note: For testing, we don't need to actually train it
-    # The model structure is what matters for LRP
-    model.eval()
-    return model
-
-
-# @pytest.fixture - Disabled for unittest compatibility
-def _test_batch(simple_dataset):
-    """Create a test batch."""
-    # Get a raw sample - directly create it to avoid any processing issues
-    raw_sample = {
-        "patient_id": "patient-0",
-        "visit_id": "visit-0",
-        "conditions": ["cond-0", "cond-1", "cond-2"],
-        "labs": [0.0, 1.0, 2.0, 3.0],
-        "label": 0,
-    }
-    
-    # Process the sample using dataset processors
-    processed = {}
-    for key, processor in simple_dataset.input_processors.items():
-        if key in raw_sample:
-            processed[key] = processor.process(raw_sample[key])
-    
-    for key, processor in simple_dataset.output_processors.items():
-        if key in raw_sample:
-            processed[key] = processor.process(raw_sample[key])
-    
-    # Convert to tensors and add batch dimension
-    batch = {}
-    for key, value in processed.items():
-        if isinstance(value, torch.Tensor):
-            batch[key] = value.unsqueeze(0)
-        else:
-            batch[key] = torch.tensor([value])
-    
-    batch["patient_id"] = [raw_sample["patient_id"]]
-    
-    return batch
 
 
 class TestLRPInitialization(unittest.TestCase):
@@ -1357,10 +1254,18 @@ class TestStageNetLRP(unittest.TestCase):
             self.assertGreater(attr.abs().sum().item(), 1e-8,
                                f"All-zero attributions for '{key}'")
 
-
-if __name__ == "__main__":
-    # pytest.main([__file__, "-v", "-s"])  # Disabled - use unittest
-    pass
+    def test_target_class_changes_attributions(self):
+        """Attributions for class 0 and class 1 differ."""
+        batch = self._make_batch()
+        lrp = LayerwiseRelevancePropagation(
+            self.model, rule="epsilon", epsilon=0.01, use_embeddings=True
+        )
+        attrs0 = lrp.attribute(**batch, target_class_idx=0)
+        attrs1 = lrp.attribute(**batch, target_class_idx=1)
+        self.assertTrue(
+            any(not torch.allclose(attrs0[k], attrs1[k]) for k in attrs0),
+            "Attributions for class 0 and class 1 are identical",
+        )
 
 
 class TestAlphaBetaSignSeparation(unittest.TestCase):
@@ -1417,3 +1322,7 @@ class TestAlphaBetaSignSeparation(unittest.TestCase):
             bool((relevance < 0).any()),
             "beta=0 must not produce negative relevance on the conv path",
         )
+
+
+if __name__ == "__main__":
+    unittest.main()
