@@ -15,7 +15,7 @@ import numpy as np
 import torch
 
 from pyhealth.datasets import SampleDataset, get_dataloader
-from pyhealth.trainer import Trainer, _model_metrics_kwargs, get_metrics_fn
+from pyhealth.trainer import Trainer, get_metrics_fn, model_metrics_kwargs
 
 from .space import PipelineConfig, SearchSpace
 
@@ -131,7 +131,7 @@ def score(
     metrics_fn = get_metrics_fn(model.mode)
     values = metrics_fn(
         y_true, y_prob, metrics=list(metrics),
-        **_model_metrics_kwargs(model, metrics_fn),
+        **model_metrics_kwargs(model, metrics_fn),
     )
     return {k: float(v) for k, v in values.items()}
 

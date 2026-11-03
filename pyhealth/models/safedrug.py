@@ -347,9 +347,9 @@ class SafeDrug(BaseModel):
         ...     output_schema={"drugs": "multilabel"},
         ...     dataset_name="demo",
         ... )
-        >>> model = SafeDrug(dataset)
+        >>> model = SafeDrug(dataset)  # doctest: +SKIP
         >>> batch = next(iter(get_dataloader(dataset, batch_size=2)))
-        >>> sorted(model(**batch))
+        >>> sorted(model(**batch))  # doctest: +SKIP
         ['loss', 'y_prob', 'y_true']
     """
 

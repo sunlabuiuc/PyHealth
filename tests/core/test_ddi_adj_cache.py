@@ -231,7 +231,7 @@ class TestSaveDDIAdj(unittest.TestCase):
         self.assertEqual(os.listdir(self.dir), ["ddi_adj.npy"])
 
     def test_file_mode_follows_umask_like_np_save(self):
-        """mkstemp makes 0600 files; the saved file must match np.save's."""
+        """The saved file gets the same permissions np.save gives a file."""
         reference = os.path.join(self.dir, "reference.npy")
         np.save(reference, np.eye(2))
         save_ddi_adj(np.eye(2), self.path)

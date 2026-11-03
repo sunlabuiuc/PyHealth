@@ -1,14 +1,9 @@
 import os
-import tempfile
+import uuid
 from typing import List
 
 import numpy as np
 import torch
-
-# Read once at import: os.umask() can only be read by setting it, which is
-# not thread-safe, and save_ddi_adj may run in threads.
-_UMASK = os.umask(0)
-os.umask(_UMASK)
 
 
 def batch_to_multihot(label: List[List[int]], num_labels: int) -> torch.tensor:
@@ -59,16 +54,13 @@ def save_ddi_adj(ddi_adj: np.ndarray | torch.Tensor, path: str) -> np.ndarray:
     if isinstance(ddi_adj, torch.Tensor):
         ddi_adj = ddi_adj.detach().cpu().numpy()
     ddi_adj = np.asarray(ddi_adj)
-    directory = os.path.dirname(os.path.abspath(path))
-    fd, tmp_path = tempfile.mkstemp(
-        dir=directory, prefix=".ddi_adj-", suffix=".npy.tmp"
-    )
+    # A unique name in the same directory, so os.replace stays on one file
+    # system. Opening it with "xb" (O_EXCL) applies the umask, so the file
+    # gets the same permissions np.save(path) would give it.
+    tmp_path = f"{os.path.abspath(path)}.{os.getpid()}.{uuid.uuid4().hex}.tmp"
     try:
-        with os.fdopen(fd, "wb") as f:
+        with open(tmp_path, "xb") as f:
             np.save(f, ddi_adj)
-        # mkstemp creates the file as 0600; give it the permissions np.save
-        # would have (0666 minus the umask) before it replaces the old file.
-        os.chmod(tmp_path, 0o666 & ~_UMASK)
         os.replace(tmp_path, path)
     except BaseException:
         if os.path.exists(tmp_path):
