@@ -1,5 +1,8 @@
 import importlib.util
+import io
 import math
+import os
+import tempfile
 import unittest
 from datetime import datetime, timedelta
 
@@ -23,6 +26,7 @@ from pyhealth.models.trajsurv import (
     rank_n_contrast_loss,
 )
 from pyhealth.tasks import InHospitalSurvivalMIMIC4
+from pyhealth.trainer import Trainer
 
 T0 = datetime(2150, 1, 1, 8, 0, 0)  # noqa: DTZ001 - MIMIC times are naive
 
@@ -82,6 +86,14 @@ class TestSurvivalMetrics(unittest.TestCase):
         with self.assertRaises(ValueError):
             survival_metrics_fn(duration, event, -scale[:, 0], survival=survival,
                                 time_grid=grid, times=[61.0])
+
+    def test_ipcw_brier_hand_checked(self):
+        # Censoring KM: G = 1 before t=2, 0.5 from t=2 (one of two at risk).
+        # Record 0: event at 1, weight 1/G(1-) = 1, loss 0.5^2.
+        # Record 1: censored at 2, before the horizon, so weight 0.
+        # Record 2: still at risk at 2.5, weight 1/G(2.5) = 2, loss 2 * 0.2^2.
+        score = ipcw_brier_score([1, 2, 3], [1, 0, 1], [0.5, 0.3, 0.8], 2.5)
+        self.assertAlmostEqual(score, (0.25 + 0.0 + 2 * 0.04) / 3)
 
 
 class TestTrajSurvPieces(unittest.TestCase):
@@ -224,6 +236,65 @@ class TestTrajSurvModel(unittest.TestCase):
         model.alignment_weight = 1.0
         model(**batch)["loss"].backward()
         self.assertIsNotNone(model.projection[0].weight.grad)
+
+    def test_breslow_baseline_hand_checked(self):
+        samples = [
+            {"patient_id": f"p{i}", "series": [[0.0], [1.0]],
+             "duration": [d], "event": [e]}
+            for i, (d, e) in enumerate([(1.0, 1.0), (2.0, 1.0), (2.0, 0.0), (3.0, 1.0)])
+        ]
+        dataset = create_sample_dataset(
+            samples=samples, input_schema={"series": "tensor"},
+            output_schema={"duration": "tensor", "event": "tensor"},
+            dataset_name="breslow",
+        )
+        model = TrajSurv(dataset, feature_key="series", hidden_dim=4)
+        with torch.no_grad():  # risk 0 for everyone: Breslow = Nelson-Aalen
+            model.cox.weight.zero_()
+            model.cox.bias.zero_()
+        model.fit_baseline_hazard(get_dataloader(dataset, batch_size=2))
+        torch.testing.assert_close(model.baseline_times, torch.tensor([1.0, 2.0, 3.0]))
+        # at risk 4, 3, 1 at the event times; one event at each
+        expected = torch.tensor([1 / 4, 1 / 4 + 1 / 3, 1 / 4 + 1 / 3 + 1.0])
+        torch.testing.assert_close(model.baseline_cumhaz, expected)
+        surv = model.survival(torch.zeros(1), torch.tensor([0.5, 2.5]))
+        torch.testing.assert_close(surv[0], torch.exp(-torch.tensor([0.0, expected[1]])))
+
+    def test_fitted_baseline_survives_state_dict_round_trip(self):
+        dataset = _dense_dataset(n=16)
+        model = TrajSurv(dataset, feature_key="series", hidden_dim=8)
+        loader = get_dataloader(dataset, batch_size=8)
+        unfitted_state = {k: v.clone() for k, v in model.state_dict().items()}
+        model.fit_baseline_hazard(loader)
+        self.assertGreater(model.baseline_times.numel(), 0)
+        batch = next(iter(loader))
+        model.eval()
+        with torch.no_grad():
+            expected = model(**batch)["y_prob"]
+
+        buffer = io.BytesIO()
+        torch.save(model.state_dict(), buffer)
+        buffer.seek(0)
+        state = torch.load(buffer, weights_only=True)
+        fresh = TrajSurv(dataset, feature_key="series", hidden_dim=8)
+        fresh.load_state_dict(state)  # strict
+        fresh.eval()
+        with torch.no_grad():
+            torch.testing.assert_close(fresh(**batch)["y_prob"], expected)
+
+        # Trainer's checkpoint path (save_ckpt / load_ckpt)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "best.ckpt")
+            Trainer(model=model, enable_logging=False).save_ckpt(path)
+            other = TrajSurv(dataset, feature_key="series", hidden_dim=8)
+            Trainer(model=other, enable_logging=False).load_ckpt(path)
+            other.eval()
+            with torch.no_grad():
+                torch.testing.assert_close(other(**batch)["y_prob"], expected)
+
+        # an unfitted state (e.g. Trainer's in-memory best) loads into a fitted model
+        model.load_state_dict(unfitted_state)
+        self.assertEqual(model.baseline_times.numel(), 0)
 
     def test_sequence_v2_series_with_mask_and_ragged_lengths(self):
         features = len(InHospitalSurvivalMIMIC4.DYNAMIC_FEATURES)

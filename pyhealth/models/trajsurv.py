@@ -33,6 +33,7 @@ from torch import Tensor, nn
 
 from pyhealth.datasets import SampleDataset
 from pyhealth.models.base_model import BaseModel
+from pyhealth.models.survival_mdn import _value_tensor as _first
 
 __all__ = ["TrajSurv", "cox_partial_likelihood_loss", "rank_n_contrast_loss"]
 
@@ -248,7 +249,8 @@ class TrajSurv(BaseModel):
     survival curves ``S(t | x) = exp(-H0(t) exp(risk))`` on ``time_grid``.
     Call :meth:`fit_baseline_hazard` on the training data to estimate the
     Breslow baseline ``H0``; until then ``H0(t) = t`` is used, which ranks
-    patients correctly but is not calibrated.
+    patients correctly but is not calibrated. The fitted baseline is part of
+    the ``state_dict``, and it loads into a freshly built model.
 
     With ``alignment_key``, a Rank-N-Contrast loss (weight
     ``alignment_weight``) pulls together latent states whose alignment
@@ -383,6 +385,23 @@ class TrajSurv(BaseModel):
         # Breslow baseline cumulative hazard; empty means H0(t) = t.
         self.register_buffer("baseline_times", torch.zeros(0))
         self.register_buffer("baseline_cumhaz", torch.zeros(0))
+
+    def _load_from_state_dict(
+        self, state_dict, prefix, local_metadata, strict, missing_keys,
+        unexpected_keys, error_msgs,
+    ) -> None:
+        # The Breslow baseline has one entry per event time, so its size is
+        # only known after fit_baseline_hazard. Take the checkpoint's size so
+        # a fitted (or unfitted) baseline loads into any TrajSurv.
+        for name in ("baseline_times", "baseline_cumhaz"):
+            incoming = state_dict.get(prefix + name)
+            if incoming is not None:
+                current = getattr(self, name)
+                setattr(self, name, current.new_empty(incoming.shape))
+        super()._load_from_state_dict(
+            state_dict, prefix, local_metadata, strict, missing_keys,
+            unexpected_keys, error_msgs,
+        )
 
     # ------------------------------------------------------------ input
     @staticmethod
@@ -580,8 +599,3 @@ class TrajSurv(BaseModel):
         ) if len(times) else torch.zeros(0, device=risk.device)
         self.baseline_times = times.to(self.baseline_times.device)
         self.baseline_cumhaz = torch.cumsum(increments, 0).to(self.baseline_times.device)
-
-
-def _first(value):
-    """The primary tensor of a processor output (tuples carry extras)."""
-    return value[0] if isinstance(value, tuple) else value
