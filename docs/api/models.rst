@@ -39,6 +39,9 @@ routes each feature type automatically.
    * - ``MultimodalRNN``
      - Features mix sequential codes with static tensors or multi-hot encodings
      - Auto-routes sequential features to RNN layers and non-sequential features to linear layers; good default for EHR
+   * - ``RNN_V2``
+     - Features are ``sequence_v2`` fields (nested codes, values and timestamps), plus static tensors
+     - Encodes each field bottom-up over packed records, without padding the hierarchy
    * - :doc:`models/pyhealth.models.StageNet`
      - You have time-stamped vital signs with irregular measurement intervals
      - Requires ``StageNetProcessor`` or ``StageNetTensorProcessor`` in the task schema
@@ -247,6 +250,7 @@ API Reference
     models/pyhealth.models.CorGAN
     models/pyhealth.models.Synthea
     models/pyhealth.models.SDOH
+    models/pyhealth.models.SequenceEmbeddingModel
     models/pyhealth.models.VisionEmbeddingModel
     models/pyhealth.models.TextEmbedding
     models/pyhealth.models.BIOT
@@ -254,3 +258,5 @@ API Reference
     models/pyhealth.models.califorest
     models/pyhealth.models.XGBoostModel
     models/pyhealth.models.survival_mdn
+    models/pyhealth.models.ProtoECGNet
+

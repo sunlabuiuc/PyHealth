@@ -476,24 +476,27 @@ class SearchSpace:
                 lines.append(f"{line}: {meaning}" if meaning else line)
         return lines
 
-    def describe(self) -> str:
-        """The space in plain text, for an LLM prompt."""
-        lines = ["Models and their arguments (rung 1 is the easiest to interpret):"]
+    def describe(self, rungs: bool = True) -> str:
+        """The space in plain text, for an LLM prompt.
+
+        Args:
+            rungs: Whether to show each model's rung on the interpretability
+                ladder. Without them the text is the space's fingerprint for
+                resuming a run, which the ladder's wording does not change.
+        """
+        lines = ["Models and their arguments"
+                 + (" (rung 1 is the easiest to interpret):" if rungs else ":")]
         for name in sorted(self.models):
             spec = self.models[name]
             args = ", ".join(f"{k} ({p.describe()})" for k, p in spec.params.items())
             rung = "rung by depth" if callable(spec.rung) else f"rung {spec.rung}"
-            lines.append(f"- {name} [{rung}]: {args or 'no tunable arguments'}")
+            label = f"{name} [{rung}]" if rungs else name
+            lines.append(f"- {label}: {args or 'no tunable arguments'}")
         if self.train_params:
             lines.append("Training settings (all models above):")
             for k, p in self.train_params.items():
                 lines.append(f"- {k} ({p.describe()})")
         return "\n".join(lines)
-
-
-def _xgboost_rung(params: dict[str, Any]) -> int:
-    depth = params.get("max_depth") or 6
-    return 2 if depth <= 1 else 3 if depth <= 3 else 4
 
 
 def _depth_meaning(depth: int) -> str:
@@ -502,10 +505,20 @@ def _depth_meaning(depth: int) -> str:
     return f"each tree combines at most {depth} inputs"
 
 
+_XGB_DEPTH = Param("int", 1, 10, default=4, meaning=_depth_meaning)
+
+
+def _xgboost_rung(params: dict[str, Any]) -> int:
+    depth = params.get("max_depth")
+    if depth is None:  # validate() fills in the default, so rank that model
+        depth = _XGB_DEPTH.default
+    return 2 if depth <= 1 else 3 if depth <= 3 else 4
+
+
 XGBOOST = ModelSpec(
     "pyhealth.models.XGBoostModel",
     {"n_estimators": Param("int", 50, 1000, default=300, meaning="{value} trees"),
-     "max_depth": Param("int", 1, 10, default=4, meaning=_depth_meaning),
+     "max_depth": _XGB_DEPTH,
      "learning_rate": Param(
          "float", 0.01, 0.3, log=True, default=0.05,
          meaning="each tree's correction is scaled by this; smaller learns more "

@@ -37,6 +37,14 @@ from .deep_nested_sequence_processor import (
 )
 from .raw_processor import RawProcessor
 from .sequence_processor import SequenceProcessor
+from .sequence_processor_v2 import (
+    Impute,
+    LevelConfig,
+    Normalize,
+    Records,
+    Resample,
+    SequenceProcessorV2,
+)
 from .signal_processor import SignalProcessor
 from .stagenet_processor import (
     StageNetProcessor,
@@ -44,7 +52,12 @@ from .stagenet_processor import (
 )
 from .tensor_processor import TensorProcessor
 from .text_processor import TextProcessor
-from .timeseries_processor import TimeseriesProcessor
+from .timeseries_processor import (
+    TimeseriesBinaryLabelProcessor,
+    TimeseriesLabelProcessor,
+    TimeseriesProcessor,
+    TimeseriesRegressionLabelProcessor,
+)
 from .time_image_processor import TimeImageProcessor
 from .graph_processor import GraphProcessor
 from .audio_processor import AudioProcessor
@@ -71,13 +84,22 @@ __all__ = [
     "NestedSequenceProcessor",
     "RawProcessor",
     "SequenceProcessor",
+    "SequenceProcessorV2",
+    "Records",
+    "LevelConfig",
+    "Impute",
+    "Normalize",
+    "Resample",
     "SignalProcessor",
     "StageNetProcessor",
     "StageNetTensorProcessor",
     "TensorProcessor",
     "TemporalTimeseriesProcessor",
     "TextProcessor",
+    "TimeseriesBinaryLabelProcessor",
+    "TimeseriesLabelProcessor",
     "TimeseriesProcessor",
+    "TimeseriesRegressionLabelProcessor",
     "TimeImageProcessor",
     "GraphProcessor",
     "AudioProcessor",

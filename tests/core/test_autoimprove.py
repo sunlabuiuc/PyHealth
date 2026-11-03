@@ -34,6 +34,7 @@ from pyhealth.autoimprove import (
     unverified_numbers,
     with_xgboost,
 )
+from pyhealth.autoimprove import space as space_module
 from pyhealth.autoimprove.evaluate import patient_folds
 from pyhealth.autoimprove.explain import attributions, summarize
 from pyhealth.autoimprove.proposers import ProposalContext, parse_json
@@ -814,6 +815,88 @@ class TestExplainedRuns(unittest.TestCase):
             self.assertEqual(verdicts[result.best.trial_id], "selected")
             self.assertEqual(len(verdicts), len(result.trials))
 
+    def test_run_json_rule_is_rewritten_when_the_baseline_fails(self):
+        def fake_cv(config, space, train, val, metric, folds, *args, **kwargs):
+            if config.model_params.get("max_depth") == 4:
+                raise ValueError("baseline broke")
+            return {"metrics": {metric: 0.5}, "fold_scores": [0.49, 0.5, 0.51],
+                    "seconds": 0.0, "n_params": 0}
+
+        llm = ScriptedLLM([_reply({"model": "XGBoost",
+                                   "model_params": {"max_depth": 2}})])
+        with tempfile.TemporaryDirectory() as tmp, mock.patch(
+            "pyhealth.autoimprove.improver.run_config_cv", fake_cv
+        ):
+            improver = AutoImprover(
+                self.train, self.val, LLMProposer(llm),
+                baseline=PipelineConfig("XGBoost", {"max_depth": 4}),
+                space=with_xgboost(SPACE), n_agents=1, n_cycles=1, cv_folds=3,
+                run_dir=tmp, check=False,
+            )
+            improver.run()
+            self.assertIsNotNone(improver.trials[0].error)
+            with open(os.path.join(tmp, "run.json")) as f:
+                rule = json.load(f)["rule"]
+            self.assertEqual(rule, improver.selection_rule())
+            self.assertIn("no starting pipeline", rule)
+
+
+    def test_runs_started_with_another_space_are_resumed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            def improver(n_cycles):
+                return AutoImprover(
+                    self.train, self.val, RandomProposer(seed=0),
+                    baseline=PipelineConfig("LogisticRegression",
+                                            {"embedding_dim": 16}),
+                    space=SPACE, n_agents=1, n_cycles=n_cycles, run_dir=tmp,
+                    check=False,
+                )
+
+            improver(1).run()
+            path = os.path.join(tmp, "meta.json")
+            with open(path) as f:
+                meta = json.load(f)
+            # the ladder's wording is not part of the fingerprint
+            self.assertNotIn("rung", meta["space"])
+            self.assertEqual(meta["space"].splitlines()[0],
+                             "Models and their arguments:")
+            # a run written with an older space (e.g. XGBoost's depth from 2)
+            meta["space"] = meta["space"].replace("[16, 256]", "[8, 256]")
+            with open(path, "w") as f:
+                json.dump(meta, f)
+            with self.assertLogs("pyhealth.autoimprove.improver", "WARNING") as logs:
+                result = improver(2).run()
+            self.assertIn("different search space", "\n".join(logs.output))
+            self.assertEqual(len(result.trials), 3)
+            with open(path) as f:
+                self.assertEqual(json.load(f)["space"],
+                                 SPACE.describe(rungs=False))
+
+    def test_attribution_against_the_default_settings(self):
+        # the trial's model differs from the baseline's: settings are reverted
+        # to the model's defaults
+        def fake_cv(config, space, train, val, metric, folds, *args, **kwargs):
+            mean = 0.50 + (0.04 if config.model_params.get("max_depth") == 2 else 0)
+            return {"metrics": {metric: mean},
+                    "fold_scores": [mean - 0.01, mean, mean + 0.01],
+                    "seconds": 0.0, "n_params": 0}
+
+        llm = ScriptedLLM([_reply({"model": "XGBoost",
+                                   "model_params": {"max_depth": 2}})])
+        with mock.patch("pyhealth.autoimprove.improver.run_config_cv", fake_cv):
+            improver = AutoImprover(
+                self.train, self.val, LLMProposer(llm),
+                baseline=PipelineConfig("LogisticRegression", {"embedding_dim": 16}),
+                space=with_xgboost(SPACE), n_agents=1, n_cycles=1, cv_folds=3,
+                check=False,
+            )
+            self.assertEqual(improver.run().best.trial_id, 1)
+            out = improver.attribute()
+        self.assertEqual(out["reference"], "the default settings of XGBoost")
+        self.assertEqual([r["setting"] for r in out["rows"]], ["max_depth"])
+        self.assertEqual((out["rows"][0]["from"], out["rows"][0]["to"]), (4, 2))
+        self.assertAlmostEqual(out["rows"][0]["contribution"], 0.04)
+
     def test_number_checker(self):
         trials = [Trial(0, -1, "baseline", "baseline", PipelineConfig("MLP"),
                         score=0.2164),
@@ -942,6 +1025,151 @@ class TestClinicalReport(unittest.TestCase):
         by_name = {f["name"]: f for f in out["features"]}
         self.assertEqual(by_name["risk_up"]["learned"], "+")
         self.assertEqual(by_name["protect"]["check"], "opposite")
+
+
+_CI = {"estimate": 0.5, "lower": 0.4, "upper": 0.6}
+
+
+class TestReportIntegrity(unittest.TestCase):
+    """The report keeps raw values out and never mislabels whose numbers it shows."""
+
+    SPACE = with_xgboost(SearchSpace())
+
+    @staticmethod
+    def _trial(i, model, score, folds, agent=None, params=None, **kwargs):
+        return Trial(i, 0, agent or f"a{i}", "explore",
+                     PipelineConfig(model, params or {}), metric_name="pr_auc",
+                     score=score, fold_scores=folds, **kwargs)
+
+    def _trials(self):
+        # selected #1 (simplest within one SE), top #2
+        return [
+            self._trial(0, "XGBoost", 0.50, [0.48, 0.50, 0.52], "baseline",
+                        {"max_depth": 4}),
+            self._trial(1, "LogisticRegression", 0.55, [0.52, 0.57, 0.56]),
+            self._trial(2, "XGBoost", 0.56, [0.55, 0.555, 0.575],
+                        params={"max_depth": 6}),
+        ]
+
+    def _report(self, trials=None, **kwargs):
+        return build_report(trials or self._trials(), metric="pr_auc",
+                            promote_se=1.0, space=self.SPACE, **kwargs)
+
+    def test_error_messages_stay_out_of_the_report(self):
+        failed = self._trial(
+            3, "RNN", None, [],
+            error="ValueError: invalid literal 'patient 10023' at evaluate.py:12: "
+                  "x = int(v)",
+            error_brief="ValueError at evaluate.py:12: x = int(v)")
+        # saved before error_brief existed
+        old = self._trial(4, "MLP", None, [], error="KeyError: 'patient 10023'")
+        report = self._report(self._trials() + [failed, old])
+        for text in (report.to_markdown(), report.to_html(), report.to_json()):
+            self.assertNotIn("10023", text)
+        self.assertEqual(report.data["verdicts"][3],
+                         "failed: ValueError at evaluate.py:12: x = int(v)")
+        self.assertEqual(report.data["verdicts"][4], "failed: KeyError")
+        nothing = build_report([old], metric="pr_auc")
+        self.assertNotIn("10023", nothing.to_json())
+
+    def test_test_results_for_another_trial_are_left_out(self):
+        fresh = {"metric": "pr_auc", "best": {**_CI, "trial_id": 1},
+                 "top": {**_CI, "trial_id": 2},
+                 "top_minus_best": {"estimate": 0.01, "lower": -0.02, "upper": 0.04}}
+        report = self._report(test=fresh)
+        text = report.to_markdown()
+        self.assertIn("On the test patients", text)
+        self.assertIn("on test the difference", text)
+        self.assertEqual(report.data["notes"], [])
+
+        stale = self._report(test={**fresh, "best": {**_CI, "trial_id": 2}})
+        text = stale.to_markdown()
+        self.assertNotIn("On the test patients", text)
+        self.assertIn("test.json) are for trial #2, not the selected trial #1", text)
+        self.assertNotIn("Test comparison", [s.title for s in stale.sections])
+        self.assertIsNone(stale.data["test"])
+
+        old_top = self._report(test={**fresh, "top": {**_CI, "trial_id": 0}})
+        text = old_top.to_markdown()
+        self.assertIn("On the test patients", text)
+        self.assertIn("no longer the highest-scoring candidate", text)
+        self.assertNotIn("on test the difference", text)
+
+        # results saved without trial ids are matched by config
+        by_config = {"metric": "pr_auc", "best": {
+            **_CI, "config": self._trials()[1].config.to_dict()}}
+        self.assertIn("On the test patients",
+                      self._report(test=by_config).to_markdown())
+
+    def test_attribution_of_another_trial_is_labelled(self):
+        attribution = {"trial_id": 2, "reference": "the starting pipeline (#0)",
+                       "rows": [{"setting": "max_depth", "from": 4, "to": 6,
+                                 "contribution": 0.06, "se": 0.01,
+                                 "folds_better": 3, "score_without": 0.5}]}
+        text = self._report(attribution=attribution).to_markdown()
+        self.assertIn("contributed** to #2 (not the selected trial, #1)", text)
+        attribution["trial_id"] = 1
+        text = self._report(attribution=attribution).to_markdown()
+        self.assertIn("contributed** to #1, against", text)
+
+    def test_one_se_off_selects_the_top_candidate(self):
+        on, off = self._report(), self._report(one_se=False)
+        self.assertEqual((on.data["selected"], on.data["top"]), (1, 2))
+        self.assertEqual((off.data["selected"], off.data["top"]), (2, 2))
+        self.assertNotIn("Price of interpretability", off.to_markdown())
+
+    def test_xgboost_rung_uses_the_default_depth(self):
+        default, _ = self.SPACE.validate(PipelineConfig("XGBoost"))
+        self.assertEqual(default.model_params["max_depth"], 4)
+        # a config without max_depth is ranked as the model validate() builds
+        self.assertEqual(self.SPACE.rung(PipelineConfig("XGBoost")),
+                         self.SPACE.rung(default))
+        with mock.patch.object(space_module, "_XGB_DEPTH",
+                               Param("int", 1, 10, default=2)):
+            self.assertEqual(self.SPACE.rung(PipelineConfig("XGBoost")), 3)
+
+    def test_llm_text_is_escaped_in_html(self):
+        trials = self._trials()
+        trials[1].config.rationale = "<script>alert(1)</script> & more"
+        trials[1].config.hypothesis = {"expected": "<img src=x onerror=1>"}
+        report = self._report(trials, task="- <b>task</b>",
+                              lessons=["<iframe> lesson"])
+        page = report.to_html()
+        for raw in ("<script>", "<img", "<b>task", "<iframe>"):
+            self.assertNotIn(raw, page)
+        self.assertIn("&lt;script&gt;alert(1)&lt;/script&gt; &amp; more", page)
+
+    def test_load_run_on_an_old_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            # an old log: no run.json, no parent or change fields
+            with open(os.path.join(tmp, "trials.jsonl"), "w") as f:
+                for t in self._trials():
+                    data = t.to_dict()
+                    del data["parent"], data["change"]
+                    f.write(json.dumps(data) + "\n")
+            report = load_run(tmp, space=self.SPACE)
+            text = report.to_markdown()
+            self.assertEqual(report.data["selected"], 1)
+            self.assertIn("(inferred)", text)
+            self.assertIn("saved without run.json", text)
+            self.assertIn("**Selection rule.** Every trial is compared", text)
+            self.assertIn("most interpretable", report.data["rule"])
+
+            off = load_run(tmp, space=self.SPACE, one_se=False)
+            self.assertEqual(off.data["selected"], 2)
+            self.assertIn("the candidate with the highest bound", off.data["rule"])
+
+            # with run.json, its setting is used; overriding it is stated
+            with open(os.path.join(tmp, "run.json"), "w") as f:
+                json.dump({"metric": "pr_auc", "maximize": True, "promote_se": 1.0,
+                           "one_se": False, "rule": "the saved rule"}, f)
+            saved = load_run(tmp, space=self.SPACE)
+            self.assertEqual(saved.data["selected"], 2)
+            self.assertEqual((saved.data["rule"], saved.data["notes"]),
+                             ("the saved rule", []))
+            redone = load_run(tmp, space=self.SPACE, one_se=True)
+            self.assertEqual(redone.data["selected"], 1)
+            self.assertIn("re-selects with one_se=True", redone.to_markdown())
 
 
 class TestClaudeLLM(unittest.TestCase):

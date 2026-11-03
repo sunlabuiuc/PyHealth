@@ -128,6 +128,17 @@ class FavMac(SetPredictor):
         "Conformal prediction sets with limited false positives."
         ICML 2022.
 
+    Note:
+        Like standard split-conformal prediction, both guarantees above
+        (Theorem 4.6 of [1] for the violation-control case) assume
+        exchangeability between the calibration data and the point being
+        predicted. FavMac does not correct for covariate shift; expect the
+        target to be violated under real distribution shift (common in
+        clinical data) even with a fully correct implementation, since
+        that is an assumption violation, not an implementation bug. See
+        :class:`~pyhealth.calib.predictionset.CovariateLabel` for a
+        method that explicitly corrects for a known shift.
+
     Args:
         model (BaseModel): A trained model.
         value_weights (Union[float, np.ndarray]):
@@ -191,6 +202,10 @@ class FavMac(SetPredictor):
         self.device = model.device
         self.debug = debug
 
+        if target_cost <= 0:
+            raise ValueError(f"target_cost must be positive, got {target_cost!r}")
+        if delta is not None and not (0.0 < delta < 1.0):
+            raise ValueError(f"delta must be in (0, 1), got {delta!r}")
 
         self._cost_weights = cost_weights
         self._value_weights = value_weights
@@ -211,6 +226,12 @@ class FavMac(SetPredictor):
             C_max = self._cost_weights.sum()
         else:
             C_max = _cal_data["logit"].shape[1] * self._cost_weights
+        if self.target_cost > C_max:
+            raise ValueError(
+                f"target_cost ({self.target_cost}) must be <= the maximum "
+                f"possible cost ({C_max}, from cost_weights); the paper's "
+                "guarantee (Eq. 18/21) requires target_cost in (0, C_max]."
+            )
         self._favmac = FavMac_GreedyRatio(
             cost_fn=AdditiveSetFunction(self._cost_weights / C_max, mode='cost'),
             util_fn=AdditiveSetFunction(self._value_weights, mode='util'),
