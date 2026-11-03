@@ -571,13 +571,22 @@ class UnifiedMultimodalEmbeddingModel(nn.Module):
                 cls_emb   = out.last_hidden_state[:, 0, :]    # (B*N, H)
                 if field_name in self.projections:
                     cls_emb = self.projections[field_name](cls_emb)
-                emb = cls_emb.view(b, n, -1)                  # (B, N, E')
+                # cls_emb.shape[-1] instead of -1: when b*n == 0 (no note
+                # slots in this batch), the -1 is ambiguous for a 0-element
+                # tensor and torch raises.
+                emb = cls_emb.view(b, n, cls_emb.shape[-1])  # (B, N, E')
 
             elif modality == ModalityType.IMAGE:
                 b, n, c, h, w = value.shape
                 flat_imgs = value.view(b * n, c, h, w)
-                img_emb   = encoder(flat_imgs)                 # (B*N, E')
-                emb       = img_emb.view(b, n, -1)
+                if b * n == 0:
+                    # No image slots in this batch. reshape(0, -1) is
+                    # ambiguous since -1 can be any value for 0 elements.
+                    img_emb = value.new_zeros((0, self._embedding_dim))
+                else:
+                    img_emb = encoder(flat_imgs)               # (B*N, E')
+                # Explicit dim instead of -1: same 0-element ambiguity.
+                emb = img_emb.view(b, n, img_emb.shape[-1])
 
             else:  # NUMERIC / SIGNAL
                 # Standardise BEFORE the projection. The projection mixes the
