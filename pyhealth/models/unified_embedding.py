@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import math
 import warnings
+from contextlib import nullcontext
 from typing import Any
 
 import torch
@@ -173,6 +174,11 @@ class UnifiedMultimodalEmbeddingModel(nn.Module):
             type terms are added. The default is True because raw feature
             magnitude is an accident of feature scaling, not a modelling
             decision.
+        cache_frozen_text: If True, reuse frozen ``[CLS]`` vectors across
+            forwards instead of re-running the text encoder. Defaults to True.
+        max_frozen_text_cache: Maximum cached ``[CLS]`` vectors. Rows past the
+            cap are re-encoded each forward; notes are never dropped.
+            Defaults to 200000.
         numeric_standardizers: Optional mapping of NUMERIC/SIGNAL field names
             to modules called as ``standardizer(value, observed)`` BEFORE the
             projection, where ``observed`` comes from the sibling
@@ -223,6 +229,8 @@ class UnifiedMultimodalEmbeddingModel(nn.Module):
         field_embeddings: dict[str, Any] | None = None,
         freeze_text_encoder: bool = False,
         normalize_content: bool = True,
+        cache_frozen_text: bool = True,
+        max_frozen_text_cache: int = 200_000,
         numeric_standardizers: dict[str, Any] | None = None,
     ):
         super().__init__()
@@ -233,6 +241,9 @@ class UnifiedMultimodalEmbeddingModel(nn.Module):
         self._embedding_dim = embedding_dim
         self._freeze_text_encoder = freeze_text_encoder
         self._frozen_text_fields: set[str] = set()
+        self.cache_frozen_text = cache_frozen_text
+        self.max_frozen_text_cache = max_frozen_text_cache
+        self._frozen_text_cache: dict[str, dict[tuple[int, int], torch.Tensor]] = {}
         self.image_pool = image_pool
         self.normalize_content = normalize_content
         # Statistics live in buffers, so they travel in state_dict. A checkpoint
@@ -447,6 +458,105 @@ class UnifiedMultimodalEmbeddingModel(nn.Module):
     def embedding_dim(self) -> int:
         return self._embedding_dim
 
+    def _encode_text_cls(
+        self,
+        field_name: str,
+        encoder: nn.Module,
+        flat_ids: torch.Tensor,
+        flat_mask: torch.Tensor | None,
+    ) -> torch.Tensor:
+        """Return the ``[CLS]`` vector for each row, from a cache when possible.
+
+        A frozen encoder gives the same output for the same tokens, so a run of
+        50 epochs would otherwise repeat the identical 110M-parameter forward
+        pass 50 times.
+
+        The cache has three conditions. It is used only for a field in
+        ``_frozen_text_fields``, so a trainable encoder can never read it. The
+        key is ``(hash, real-token length)`` over the token identifiers under
+        the attention mask, so a change of tokenizer or truncation budget
+        gives a different key; the length is a cheap guard so a hash
+        collision alone cannot silently return the wrong embedding. The cache has a
+        maximum size, and it recalculates a row when the cache is full.
+
+        Key on the REAL tokens only. The collator pads each row to the widest
+        note in its batch, and batch composition changes every epoch because
+        the loader shuffles, so a key over the padded row gives the same note
+        a different key each epoch and the cache never hits. Measured on the
+        full-scale notes run: epoch time did not fall after epoch 1
+        (3458s, 3936s, 4048s, 3835s) because every lookup missed.
+        """
+        if flat_ids.shape[0] == 0:
+            hidden = encoder.config.hidden_size
+            first_param = next(encoder.parameters(), None)
+            dtype = (
+                first_param.dtype if first_param is not None
+                else torch.get_default_dtype()
+            )
+            return flat_ids.new_zeros((0, hidden), dtype=dtype)
+
+        if not (self.cache_frozen_text and field_name in self._frozen_text_fields):
+            ctx = torch.no_grad() if field_name in self._frozen_text_fields else nullcontext()
+            with ctx:
+                out = encoder(input_ids=flat_ids, attention_mask=flat_mask)
+            return out.last_hidden_state[:, 0, :]
+
+        cache = self._frozen_text_cache.setdefault(field_name, {})
+        ids_cpu = flat_ids.detach().cpu()
+        mask_cpu = (
+            flat_mask.detach().cpu().to(torch.int8)
+            if flat_mask is not None
+            else torch.ones_like(ids_cpu, dtype=torch.int8)
+        )
+        # Key on (hash, real-token length): hash() alone could silently
+        # return a wrong [CLS] on collision. Storing the length is a cheap
+        # guard — a collision then needs the same hash AND the same length.
+        keys: list[tuple[int, int]] = []
+        for i, m in zip(ids_cpu, mask_cpu):
+            n_real = int(m.sum())
+            if m.any():
+                h = hash(tuple(i[m.bool()].tolist()))
+            else:
+                h = hash(tuple(i.tolist()))
+            keys.append((h, n_real))
+
+        first_row_of_key: dict[tuple[int, int], int] = {}
+        for k, key in enumerate(keys):
+            if key not in cache and key not in first_row_of_key:
+                first_row_of_key[key] = k
+        missing = list(first_row_of_key.values())
+        if missing:
+            index = torch.tensor(missing, device=flat_ids.device)
+            with torch.no_grad():
+                out = encoder(
+                    input_ids=flat_ids.index_select(0, index),
+                    attention_mask=(
+                        flat_mask.index_select(0, index)
+                        if flat_mask is not None
+                        else None
+                    ),
+                )
+                fresh = out.last_hidden_state[:, 0, :].detach()
+            for slot, row in zip(missing, fresh):
+                if len(cache) < self.max_frozen_text_cache:
+                    cache[keys[slot]] = row.cpu()
+
+        rows = []
+        for k, key in enumerate(keys):
+            hit = cache.get(key)
+            if hit is None:
+                with torch.no_grad():
+                    out = encoder(
+                        input_ids=flat_ids[k : k + 1],
+                        attention_mask=(
+                            flat_mask[k : k + 1] if flat_mask is not None else None
+                        ),
+                    )
+                rows.append(out.last_hidden_state[0, 0, :].detach())
+            else:
+                rows.append(hit.to(flat_ids.device))
+        return torch.stack(rows).to(dtype=self.type_embedding.weight.dtype)
+
     def train(self, mode: bool = True) -> UnifiedMultimodalEmbeddingModel:
         """Keep a frozen text encoder in eval mode.
 
@@ -565,10 +675,11 @@ class UnifiedMultimodalEmbeddingModel(nn.Module):
 
             elif modality == ModalityType.TEXT:
                 b, n, l = value.shape
-                flat_ids  = value.view(b * n, l)
+                flat_ids = value.view(b * n, l)
                 flat_mask = mask.view(b * n, l) if mask is not None else None
-                out       = encoder(input_ids=flat_ids, attention_mask=flat_mask)
-                cls_emb   = out.last_hidden_state[:, 0, :]    # (B*N, H)
+                cls_emb = self._encode_text_cls(
+                    field_name, encoder, flat_ids, flat_mask
+                )  # (B*N, H)
                 if field_name in self.projections:
                     cls_emb = self.projections[field_name](cls_emb)
                 # cls_emb.shape[-1] instead of -1: when b*n == 0 (no note
