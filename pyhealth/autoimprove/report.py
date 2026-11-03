@@ -24,7 +24,14 @@ from dataclasses import dataclass, field
 from itertools import combinations
 from typing import Any
 
-from .space import LADDER, PipelineConfig, SearchSpace, config_diff, with_xgboost
+from .space import (
+    LADDER,
+    PipelineConfig,
+    SearchSpace,
+    _short,
+    config_diff,
+    with_xgboost,
+)
 
 EVIDENCE = {
     "measured": "a score or gain read from the trials",
@@ -139,13 +146,15 @@ def load_run(
     metric: str | None = None,
     maximize: bool | None = None,
     title: str = "AutoImprove report",
+    one_se: bool | None = None,
 ) -> Report:
     """Builds the report of a run from its directory alone.
 
     Reads ``trials.jsonl`` and, when present, ``run.json``, ``lessons.json``,
     ``attribution.json`` and ``test.json``. Runs written before ``run.json``
     existed need ``metric`` (and ``maximize`` for a metric where lower is
-    better).
+    better). Their selection is recomputed under the rule the report states,
+    and the report says so: the search itself may have chosen another trial.
 
     Args:
         run_dir: The improver's ``run_dir``.
@@ -154,6 +163,9 @@ def load_run(
         metric: The metric, if ``run.json`` is missing.
         maximize: Whether larger is better, if ``run.json`` is missing.
         title: The report title.
+        one_se: Whether to select with the one-SE rule. Defaults to the
+            run's setting, or ``True`` if ``run.json`` is missing. A value
+            that differs from the run's re-selects, and the report says so.
 
     Examples:
         >>> load_run("runs/mortality").save("runs/mortality/report.html")  # doctest: +SKIP
@@ -174,14 +186,29 @@ def load_run(
     if maximize is None:
         maximize = settings.get("maximize", True)
     cv = any(t.fold_scores for t in trials)
+    promote_se = settings.get("promote_se", 1.0 if cv else None)
+    saved_one_se = settings.get("one_se", True)
+    one_se = saved_one_se if one_se is None else one_se
+    rule, notes = settings.get("rule", ""), []
+    if not settings or one_se != saved_one_se:
+        from .improver import _rule_text
+
+        base = next((t for t in trials if t.agent == "baseline"), None)
+        rule = _rule_text(promote_se, one_se, base is not None and not base.error)
+        if not settings:
+            notes.append("This run was saved without run.json, so its selection "
+                         "was recomputed under the selection rule stated below. "
+                         "The search itself may have chosen a different trial.")
+        else:
+            notes.append(f"The search ran with one_se={saved_one_se}; this report "
+                         f"re-selects with one_se={one_se}.")
     return build_report(
-        trials, metric=metric, maximize=maximize,
-        promote_se=settings.get("promote_se", 1.0 if cv else None),
-        one_se=settings.get("one_se", True), space=space,
+        trials, metric=metric, maximize=maximize, promote_se=promote_se,
+        one_se=one_se, space=space,
         task=settings.get("task", ""), lessons=read("lessons.json", []),
         test=read("test.json"), attribution=read("attribution.json"),
         dropped_models=settings.get("dropped_models", {}),
-        rule=settings.get("rule", ""), title=title,
+        rule=rule, title=title, notes=notes,
     )
 
 
@@ -200,8 +227,13 @@ def build_report(
     dropped_models: dict[str, str] | None = None,
     rule: str = "",
     title: str = "AutoImprove report",
+    notes: Sequence[str] = (),
 ) -> Report:
     """Builds a report from a run's trials and, optionally, its test and attribution.
+
+    Test results for a trial other than the current selection (for example,
+    saved before the run was extended) are left out with a note, and an
+    attribution of another trial is labelled as such.
 
     Args:
         trials: The trials, in the order run (``Trial`` objects).
@@ -218,6 +250,7 @@ def build_report(
         dropped_models: Models removed before the search, with the error.
         rule: The selection rule in words.
         title: The report title.
+        notes: Caveats shown at the top of the summary.
 
     Examples:
         >>> from pyhealth.autoimprove import Trial
@@ -233,7 +266,7 @@ def build_report(
     done = [t for t in trials if t.error is None and t.score is not None]
     if not done:
         return Report(title, [Section("Summary", [("p", "No trial finished.")])],
-                      {"trials": [t.to_dict() for t in trials]})
+                      {"trials": [_public_trial(t) for t in trials]})
     baseline = next((t for t in done if t.agent == "baseline"), None)
     # gains are shown against the baseline, or the first trial without one
     reference = baseline or done[0]
@@ -244,6 +277,18 @@ def build_report(
         selected = top = select_trial(done, maximize, promote_se)
     else:
         selected = top = max(done, key=lambda t: sign * t.score)
+    notes = list(notes)
+    if test and not _same_trial(test.get("best"), selected):
+        notes.append(f"The saved test results (test.json) are for "
+                     f"{_trial_label(test.get('best'))}, not the selected trial "
+                     f"#{selected.trial_id}, so they are left out. Run "
+                     "evaluate_on_test again to test the current selection.")
+        test = None
+    elif test and "top" in test and not _same_trial(test["top"], top):
+        notes.append(f"The saved test results compare with "
+                     f"{_trial_label(test['top'])}, which is no longer the "
+                     "highest-scoring candidate, so that comparison is left out.")
+        test = {k: v for k, v in test.items() if k not in ("top", "top_minus_best")}
 
     def vs(a, b):
         """Gain of a over b: (mean, se, folds better, n folds)."""
@@ -271,9 +316,10 @@ def build_report(
         "space": space, "cv": cv, "promote_se": promote_se, "vs": vs,
         "one_se": one_se, "done": done, "baseline": baseline,
         "start": "start" if baseline else "first trial",
+        "by_id": {t.trial_id: t for t in done},
     }
     sections = [
-        _summary(ctx, test),
+        _summary(ctx, test, notes),
         _task_section(task, dropped_models or {}),
         _model_section(ctx, rule, attribution, test),
         _trace_section(ctx, trials, lessons),
@@ -288,7 +334,7 @@ def build_report(
               "Scores are on the validation split unless marked as test."),
     ]))
     data = {
-        "metric": metric, "maximize": maximize, "rule": rule,
+        "metric": metric, "maximize": maximize, "rule": rule, "notes": notes,
         "selected": selected.trial_id, "top": top.trial_id,
         "reference": reference.trial_id, "candidates": sorted(candidates),
         "settings": space.explain(selected.config),
@@ -300,16 +346,17 @@ def build_report(
                     for x in lessons],
         "attribution": attribution, "test": test, "task": task,
         "dropped_models": dropped_models or {},
-        "trials": [t.to_dict() for t in trials],
+        "trials": [_public_trial(t) for t in trials],
     }
     return Report(title, sections, data)
 
 
 # ----------------------------------------------------------------- sections
-def _summary(ctx, test) -> Section:
+def _summary(ctx, test, notes) -> Section:
     sel, ref, metric = ctx["selected"], ctx["reference"], ctx["metric"]
     space = ctx["space"]
-    blocks = [("p", (f"**Selected: #{sel.trial_id}, "
+    blocks = [("p", f"**Note.** {n}") for n in notes]
+    blocks += [("p", (f"**Selected: #{sel.trial_id}, "
                      f"{_model_words(sel.config, space)}.** "
                      f"{_score_line(sel, ref, ctx)} *(measured)*"))]
     if test and "best" in test:
@@ -373,13 +420,16 @@ def _model_section(ctx, rule, attribution, test) -> Section:
                      f"{_ci(test['top_minus_best'], signed=True)}")
         blocks.append(("p", line + ". *(measured)*"))
     if attribution and attribution.get("rows"):
+        target = ctx["by_id"].get(attribution.get("trial_id"), sel)
         rows = [[r["setting"], f"{_short(r['from'])} → {_short(r['to'])}",
                  _pm(r["contribution"], r.get("se"), r.get("folds_better"),
-                     len(sel.fold_scores) or None),
+                     len(target.fold_scores) or None),
                  f"{r['score_without']:.3f}"]
                 for r in attribution["rows"]]
+        other = ("" if attribution.get("trial_id") == sel.trial_id
+                 else f" (not the selected trial, #{sel.trial_id})")
         blocks.append(("p", (f"**What each change contributed** to #"
-                             f"{attribution['trial_id']}, against "
+                             f"{attribution['trial_id']}{other}, against "
                              f"{attribution['reference']}: each setting was "
                              "reverted alone and the result scored on the same "
                              "folds. *(tested)*")))
@@ -545,9 +595,38 @@ def _why(ctx) -> str:
             "*(measured)*")
 
 
+def _brief_error(t) -> str:
+    """A failed trial's error without the message, which can quote a raw value."""
+    # trials saved before error_brief existed: the exception type only
+    return getattr(t, "error_brief", None) or t.error.split(":")[0]
+
+
+def _public_trial(t) -> dict[str, Any]:
+    """The trial for a shared report: the error in its brief form."""
+    data = t.to_dict()
+    if t.error:
+        data["error"] = _brief_error(t)
+    return data
+
+
+def _same_trial(entry: Any, trial) -> bool:
+    """Whether a saved result (with ``trial_id`` or ``config``) is for ``trial``."""
+    if not isinstance(entry, dict):
+        return False
+    if "trial_id" in entry:
+        return entry["trial_id"] == trial.trial_id
+    return entry.get("config") == trial.config.to_dict()
+
+
+def _trial_label(entry: Any) -> str:
+    if isinstance(entry, dict) and "trial_id" in entry:
+        return f"trial #{entry['trial_id']}"
+    return "a different trial"
+
+
 def _verdict(t, ctx) -> str:
     if t.error:
-        return "failed: " + t.error.split(" at ")[0][:120]
+        return "failed: " + _brief_error(t)[:120]
     sel, top = ctx["selected"], ctx["top"]
     if t is sel:
         return "selected"
@@ -672,10 +751,6 @@ def _ci(r: dict[str, Any], signed: bool = False) -> str:
     if r.get("lower") is not None and r.get("upper") is not None:
         text += f" [{fmt(r['lower'])}, {fmt(r['upper'])}]"
     return text
-
-
-def _short(value: Any) -> str:
-    return f"{value:.3g}" if isinstance(value, float) else str(value)
 
 
 def _inline(text: str) -> str:

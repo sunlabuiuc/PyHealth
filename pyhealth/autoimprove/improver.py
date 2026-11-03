@@ -161,6 +161,41 @@ class ImproveResult:
         return "\n".join(rows)
 
 
+
+def _rule_text(promote_se: float | None, one_se: bool, compared: bool) -> str:
+    """The selection rule in plain words.
+
+    ``compared`` says whether trials are compared with a starting pipeline
+    that ran.
+    """
+    if promote_se is None:
+        return "The selection is the trial with the best score."
+    simplest = (
+        "the most interpretable model (lowest rung) whose score is within one "
+        "paired standard error of the best"
+    )
+    if not compared:
+        if not one_se:
+            return ("There is no starting pipeline to compare with, so the "
+                    "selection is the trial with the best mean score.")
+        return ("There is no starting pipeline to compare with, so every trial "
+                f"is a candidate. The selection is {simplest}: simpler models "
+                "win ties.")
+    bound = (
+        f"Every trial is compared with the starting pipeline fold by fold. "
+        f"A trial is a candidate if its gain is above 0 by more than "
+        f"{promote_se:g} standard error(s), so a gain must be "
+        f"consistent across folds, not only high on average."
+    )
+    if not one_se:
+        return bound + " The selection is the candidate with the highest bound."
+    return bound + (
+        " Among the candidates, the selection is the most interpretable "
+        "model (lowest rung) whose score is within one paired standard error "
+        "of the best candidate's: simpler models win ties."
+    )
+
+
 class AutoImprover:
     """Improves a PyHealth pipeline automatically, by guided search.
 
@@ -346,6 +381,8 @@ class AutoImprover:
         ):
             config, notes = self.space.validate(self.baseline)
             self._evaluate(config, -1, "baseline", "baseline", notes)
+            # the selection rule depends on whether the baseline ran
+            self._save_settings()
         first_cycle = max((t.cycle for t in self.trials), default=-1) + 1
         best, top = self._selected_id(), self._top_score()
         stale = 0
@@ -446,33 +483,11 @@ class AutoImprover:
 
     def selection_rule(self) -> str:
         """How the selection is made, in plain words (for prompts and reports)."""
-        if self.promote_se is None:
-            return "The selection is the trial with the best score."
-        simplest = (
-            "the most interpretable model (lowest rung) whose score is within one "
-            "paired standard error of the best"
-        )
         baseline = next((t for t in self.trials if t.agent == "baseline"), None)
-        if self.baseline is None or (baseline is not None and baseline.error):
-            if not self.one_se:
-                return ("There is no starting pipeline to compare with, so the "
-                        "selection is the trial with the best mean score.")
-            return ("There is no starting pipeline to compare with, so every trial "
-                    f"is a candidate. The selection is {simplest}: simpler models "
-                    "win ties.")
-        bound = (
-            f"Every trial is compared with the starting pipeline fold by fold. "
-            f"A trial is a candidate if its gain is above 0 by more than "
-            f"{self.promote_se:g} standard error(s), so a gain must be "
-            f"consistent across folds, not only high on average."
+        compared = self.baseline is not None and not (
+            baseline is not None and baseline.error
         )
-        if not self.one_se:
-            return bound + " The selection is the candidate with the highest bound."
-        return bound + (
-            " Among the candidates, the selection is the most interpretable "
-            "model (lowest rung) whose score is within one paired standard error "
-            "of the best candidate's: simpler models win ties."
-        )
+        return _rule_text(self.promote_se, self.one_se, compared)
 
     def _turn(self, cycle: int, agent: str, strategy: str) -> None:
         feedback = ""
