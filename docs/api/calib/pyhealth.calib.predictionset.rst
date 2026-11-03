@@ -6,7 +6,7 @@ coverage guarantees. These methods are based on conformal prediction and related
 techniques for uncertainty quantification.
 
 ``BaseConformal``, ``LABEL``, ``ClusterLabel``, ``CovariateLabel``,
-``LabelShift``, and ``NeighborhoodLabel`` all accept a ``score_type`` argument selecting the
+``LabelShift``, ``RC3P``, and ``NeighborhoodLabel`` all accept a ``score_type`` argument selecting the
 nonconformity/conformity score used for calibration and set construction:
 either ``"threshold"`` (the default, unchanged from prior releases) or
 ``"aps"`` (Adaptive Prediction Sets, Romano, Sesia, and Candes 2020), which
@@ -28,6 +28,7 @@ Available Methods
    pyhealth.calib.predictionset.FavMac
    pyhealth.calib.predictionset.CovariateLabel
    pyhealth.calib.predictionset.LabelShift
+   pyhealth.calib.predictionset.RC3P
    pyhealth.calib.predictionset.ClusterLabel
    pyhealth.calib.predictionset.NeighborhoodLabel
 
@@ -64,6 +65,17 @@ doesn't actually apply.
 FavMac (Fast Value-Maximizing Prediction Sets)
 -----------------------------------------------
 
+.. note::
+
+   FavMac's threshold formulas are verified directly against the paper's
+   Eq. 18 (expected cost control) and Eq. 21 (violation control,
+   Appendix B.3 Algorithm 5 / Theorem 4.6). Like standard split-conformal
+   prediction, both guarantees assume exchangeability between the
+   calibration data and the point being predicted -- FavMac does not
+   correct for covariate shift; see
+   :class:`~pyhealth.calib.predictionset.CovariateLabel` for a method
+   that does.
+
 .. autoclass:: pyhealth.calib.predictionset.FavMac
    :members:
    :undoc-members:
@@ -81,6 +93,14 @@ LabelShift (Label Shift Adaptive)
 ---------------------------------
 
 .. autoclass:: pyhealth.calib.predictionset.LabelShift
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+RC3P (Rank Calibrated Class-conditional Conformal Prediction)
+-------------------------------------------------------------
+
+.. autoclass:: pyhealth.calib.predictionset.RC3P
    :members:
    :undoc-members:
    :show-inheritance:
