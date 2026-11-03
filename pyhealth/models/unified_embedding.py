@@ -447,6 +447,19 @@ class UnifiedMultimodalEmbeddingModel(nn.Module):
     def embedding_dim(self) -> int:
         return self._embedding_dim
 
+    def train(self, mode: bool = True) -> UnifiedMultimodalEmbeddingModel:
+        """Keep a frozen text encoder in eval mode.
+
+        ``nn.Module.train()`` would enable dropout inside the encoder. Its
+        output would then change between passes even though every weight has
+        ``requires_grad=False``. That makes cached embeddings incorrect, and
+        it also makes a frozen encoder give a different answer to the same input.
+        """
+        super().train(mode)
+        for field_name in self._frozen_text_fields:
+            self.encoders[field_name].eval()
+        return self
+
     # ── Forward ───────────────────────────────────────────────────────────────
 
     def forward(
