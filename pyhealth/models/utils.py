@@ -1,5 +1,8 @@
+import os
+import tempfile
 from typing import List
 
+import numpy as np
 import torch
 
 
@@ -17,6 +20,53 @@ def batch_to_multihot(label: List[List[int]], num_labels: int) -> torch.tensor:
     for i, l in enumerate(label):
         multihot[i, l] = 1
     return multihot
+
+
+def save_ddi_adj(ddi_adj: np.ndarray | torch.Tensor, path: str) -> np.ndarray:
+    """Atomically saves a drug-drug interaction (DDI) matrix as a ``.npy`` file.
+
+    The matrix is written to a uniquely named temporary file in the same
+    directory and then moved onto ``path`` with :func:`os.replace`. A reader
+    therefore sees either the old file or the complete new one, never a
+    partially written file, even when several processes build drug
+    recommendation models at the same time.
+
+    GAMENet, MICRON, MoleRec and SafeDrug call this to keep the shared
+    ``ddi_adj.npy`` cache file (read by the ``"ddi"`` metric of
+    :func:`pyhealth.metrics.multilabel_metrics_fn`) up to date.
+
+    Args:
+        ddi_adj: the DDI adjacency matrix, as a numpy array or torch tensor.
+        path: destination ``.npy`` file.
+
+    Returns:
+        The saved matrix as a numpy array.
+
+    Examples:
+        >>> import os, tempfile
+        >>> import numpy as np
+        >>> from pyhealth.models.utils import save_ddi_adj
+        >>> path = os.path.join(tempfile.mkdtemp(), "ddi_adj.npy")
+        >>> saved = save_ddi_adj(np.eye(3), path)
+        >>> np.array_equal(np.load(path), saved)
+        True
+    """
+    if isinstance(ddi_adj, torch.Tensor):
+        ddi_adj = ddi_adj.detach().cpu().numpy()
+    ddi_adj = np.asarray(ddi_adj)
+    directory = os.path.dirname(os.path.abspath(path))
+    fd, tmp_path = tempfile.mkstemp(
+        dir=directory, prefix=".ddi_adj-", suffix=".npy.tmp"
+    )
+    try:
+        with os.fdopen(fd, "wb") as f:
+            np.save(f, ddi_adj)
+        os.replace(tmp_path, path)
+    except BaseException:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+        raise
+    return ddi_adj
 
 
 def get_last_visit(hidden_states, mask):

@@ -419,7 +419,15 @@ class Trainer:
             y_true_all, y_prob_all, loss_mean = self.inference(dataloader)
             mode = self.model.mode
             metrics_fn = get_metrics_fn(mode)
-            scores = metrics_fn(y_true_all, y_prob_all, metrics=self.metrics)
+            extra = {}
+            # Drug recommendation models keep their own DDI matrix; score
+            # "ddi" against it rather than the shared ddi_adj.npy cache file.
+            ddi_adj = getattr(self.model, "ddi_adj_matrix", None)
+            if metrics_fn is multilabel_metrics_fn and ddi_adj is not None:
+                extra["ddi_adj"] = ddi_adj
+            scores = metrics_fn(
+                y_true_all, y_prob_all, metrics=self.metrics, **extra
+            )
             scores["loss"] = loss_mean
         else:
             loss_all = []

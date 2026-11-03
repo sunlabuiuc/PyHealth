@@ -20,6 +20,7 @@ from pyhealth.models import BaseModel
 from pyhealth.models.utils import get_last_visit
 from pyhealth.models.embedding import EmbeddingModel
 from pyhealth import BASE_CACHE_PATH as CACHE_PATH
+from pyhealth.models.utils import save_ddi_adj
 
 class MaskLinear(nn.Module):
     """MaskLinear layer.
@@ -327,6 +328,29 @@ class SafeDrug(BaseModel):
         num_layers: the number of layers used in RNN. Default is 1.
         dropout: the dropout rate. Default is 0.5.
         **kwargs: other parameters for the SafeDrug layer.
+
+    Examples:
+        >>> from pyhealth.datasets import create_sample_dataset, get_dataloader
+        >>> samples = [
+        ...     {"patient_id": "p0", "visit_id": "v0",
+        ...      "conditions": [["c1", "c2"], ["c3"]],
+        ...      "procedures": [["p1"], ["p2"]],
+        ...      "drugs": ["A01A", "B01A"]},
+        ...     {"patient_id": "p1", "visit_id": "v1",
+        ...      "conditions": [["c2"]], "procedures": [["p1"]],
+        ...      "drugs": ["N02B"]},
+        ... ]
+        >>> dataset = create_sample_dataset(
+        ...     samples=samples,
+        ...     input_schema={"conditions": "nested_sequence",
+        ...                   "procedures": "nested_sequence"},
+        ...     output_schema={"drugs": "multilabel"},
+        ...     dataset_name="demo",
+        ... )
+        >>> model = SafeDrug(dataset)
+        >>> batch = next(iter(get_dataloader(dataset, batch_size=2)))
+        >>> sorted(model(**batch))
+        ['loss', 'y_prob', 'y_true']
     """
 
     def __init__(
@@ -431,7 +455,9 @@ class SafeDrug(BaseModel):
         
         # save ddi adj
         ddi_adj = self.generate_ddi_adj()
-        np.save(os.path.join(CACHE_PATH, "ddi_adj.npy"), ddi_adj.numpy())
+        self.ddi_adj_matrix = save_ddi_adj(
+            ddi_adj, os.path.join(CACHE_PATH, "ddi_adj.npy")
+        )
 
     def generate_ddi_adj(self) -> torch.tensor:
         """Generates the DDI graph adjacency matrix."""
