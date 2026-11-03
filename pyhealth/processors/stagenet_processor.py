@@ -327,8 +327,13 @@ class StageNetTensorProcessor(TemporalFeatureProcessor):
     - List of lists of numbers -> nested numeric sequences (feature vectors)
 
     Imputation Strategy:
-    - Forward-fill: Missing values (NaN/None) are filled with the last observed
-      value for that feature dimension. If no prior value exists, 0.0 is used.
+    - Forward-fill (default, ``forward_fill=True``): Missing values (NaN/None)
+      are filled with the last observed value for that feature dimension.
+      If no prior value exists, 0.0 is used.
+    - No fill (``forward_fill=False``): Missing values are set to 0.0 in
+      place and never propagate earlier rows. Use this for observation-mask
+      fields, where forward-filling a 0/1 mask would turn later missing
+      values into observed ones.
     - Applied per feature dimension independently
 
     Returns:
@@ -347,9 +352,10 @@ class StageNetTensorProcessor(TemporalFeatureProcessor):
         >>> time.shape    # (3,)
     """
 
-    def __init__(self):
+    def __init__(self, forward_fill: bool = True):
         self._size = None  # Feature dimension (set during fit)
         self._is_nested = None
+        self.forward_fill = forward_fill
 
     def fit(self, samples: Iterable[Dict[str, Any]], field: str) -> None:
         """Determine input structure.
@@ -385,7 +391,9 @@ class StageNetTensorProcessor(TemporalFeatureProcessor):
     ) -> Tuple[Optional[torch.Tensor], torch.Tensor]:
         """Process tuple format numeric data into tensors.
 
-        Applies forward-fill imputation to handle NaN/None values.
+        Applies forward-fill imputation to handle NaN/None values, unless
+        the processor was built with ``forward_fill=False`` (observation
+        masks), in which case missing values become 0.0 in place.
         For each feature dimension, missing values are filled with the
         last observed value (or 0.0 if no prior value exists).
 
@@ -416,8 +424,13 @@ class StageNetTensorProcessor(TemporalFeatureProcessor):
         # Convert to numpy for easier imputation handling
         value_array = np.array(value_data, dtype=float)
 
+        # Observation-mask fields must preserve false after a true observation;
+        # forward-filling a 0/1 mask would turn later missing labs into observed
+        # values. Ordinary numeric time-series retain the historical behaviour.
+        if not self.forward_fill:
+            value_array = np.nan_to_num(value_array, nan=0.0, posinf=0.0, neginf=0.0)
         # Apply forward-fill imputation
-        if value_array.ndim == 1:
+        elif value_array.ndim == 1:
             # Flat numeric: [1.5, 2.0, nan, 3.0, ...]
             last_value = 0.0
             for i in range(len(value_array)):

@@ -468,5 +468,61 @@ class TestStageNetProcessorIntegration(unittest.TestCase):
         self.assertLess(max_idx, vocab_size)
 
 
+class TestStageNetTensorProcessorForwardFill(unittest.TestCase):
+    """Tests for the ``forward_fill`` switch (observation masks).
+
+    Regression tests: the multimodal MIMIC-IV tasks declare
+    ``"labs_mask": ("stagenet_tensor", {"forward_fill": False})``, which
+    raised ``TypeError`` before ``StageNetTensorProcessor`` accepted the
+    kwarg, and would silently corrupt masks if the flag were ignored.
+    """
+
+    def test_spec_instantiation_with_forward_fill_kwarg(self):
+        """The task schema spec instantiates through the processor registry."""
+        from pyhealth.processors import get_processor
+
+        default = get_processor("stagenet_tensor")()
+        self.assertTrue(default.forward_fill)
+        no_fill = get_processor("stagenet_tensor")(forward_fill=False)
+        self.assertFalse(no_fill.forward_fill)
+
+    def test_default_still_forward_fills(self):
+        """Default construction keeps the historical forward-fill behaviour."""
+        processor = StageNetTensorProcessor()
+        samples = [{"data": ([0.0], [1.0, 2.0])}]
+        processor.fit(samples, "data")
+        _, values = processor.process(([0.0, 1.0, 2.0], [1.0, None, 3.0]))
+        self.assertEqual(values.tolist(), [1.0, 1.0, 3.0])
+
+    def test_no_forward_fill_keeps_missing_as_zero(self):
+        """With ``forward_fill=False`` missing values never propagate."""
+        processor = StageNetTensorProcessor(forward_fill=False)
+        samples = [{"data": ([0.0], [[1.0, 2.0]])}]
+        processor.fit(samples, "data")
+        _, values = processor.process(
+            ([0.0, 1.0, 2.0], [[1.0, None, 3.0], [None, 5.0, 6.0], [7.0, 8.0, None]])
+        )
+        self.assertEqual(
+            values.tolist(),
+            [[1.0, 0.0, 3.0], [0.0, 5.0, 6.0], [7.0, 8.0, 0.0]],
+        )
+
+    def test_no_forward_fill_preserves_observation_mask(self):
+        """A mask with gaps round-trips instead of filling gaps with 1s."""
+        observed = [[True, None], [None, True], [True, True]]
+        filled = StageNetTensorProcessor()  # default: forward_fill=True
+        samples = [{"data": ([0.0], observed)}]
+        filled.fit(samples, "data")
+        _, filled_values = filled.process(([0.0, 1.0, 2.0], observed))
+        # Forward-filling the mask corrupts it: the gap at [1, 0] becomes
+        # the earlier observed True.
+        self.assertEqual(filled_values.tolist(), [[1.0, 0.0], [1.0, 1.0], [1.0, 1.0]])
+
+        masked = StageNetTensorProcessor(forward_fill=False)
+        masked.fit(samples, "data")
+        _, masked_values = masked.process(([0.0, 1.0, 2.0], observed))
+        self.assertEqual(masked_values.tolist(), [[1.0, 0.0], [0.0, 1.0], [1.0, 1.0]])
+
+
 if __name__ == "__main__":
     unittest.main()
