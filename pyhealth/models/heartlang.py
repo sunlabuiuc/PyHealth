@@ -236,6 +236,9 @@ class _FeedForward(nn.Module):
 
 
 class _Attention(nn.Module):
+    # Kept separate from transformer.MultiHeadedAttention: the published
+    # checkpoint stores a fused ``to_qkv`` projection and a pre-norm inside
+    # the attention block, which that class doesn't have.
     def __init__(self, embed_dim: int, heads: int, head_dim: int, dropout: float):
         super().__init__()
         inner_dim = head_dim * heads
@@ -484,8 +487,10 @@ class HeartLang(BaseModel):
             Face, a string loads a local checkpoint file, ``False`` starts
             from random weights.
         freeze_backbone: Train only the linear head. The frozen backbone
-            also stays in eval mode (no dropout) when ``train()`` is called,
-            as in the paper's linear probe.
+            also stays in eval mode (no dropout) when ``train()`` is called.
+            This is the usual linear-probe setup; the authors' script
+            instead keeps the frozen encoder in training mode, with dropout
+            on.
         words_key: Input key of the heartbeat words.
         lead_key: Input key of the lead indices.
         time_key: Input key of the time indices.
