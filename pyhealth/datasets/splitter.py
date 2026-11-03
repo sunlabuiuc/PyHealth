@@ -3,6 +3,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from itertools import chain
+from numbers import Real
 from typing import List, Optional, Tuple, Union
 
 import numpy as np
@@ -143,6 +144,36 @@ class PatientSplit(Split):
         return parts
 
 
+def _validate_ratios(ratios: object, expected_length: int) -> None:
+    """Validate split proportions without changing the caller's values."""
+    if not isinstance(ratios, (list, tuple, np.ndarray)):
+        raise TypeError("ratios must be a list, tuple, or 1-D NumPy array")
+    if isinstance(ratios, np.ndarray) and ratios.ndim != 1:
+        raise ValueError("ratios must be one-dimensional")
+    if len(ratios) != expected_length:
+        raise ValueError(f"ratios must contain exactly {expected_length} values")
+
+    values = []
+    for index, value in enumerate(ratios):
+        if isinstance(value, (bool, np.bool_)) or not isinstance(value, Real):
+            raise TypeError(f"ratios[{index}] must be a real number, not a boolean")
+        try:
+            numeric_value = float(value)
+        except (OverflowError, ValueError) as exc:
+            raise ValueError(
+                f"ratios[{index}] must be finite and between 0 and 1"
+            ) from exc
+        if not math.isfinite(numeric_value):
+            raise ValueError(f"ratios[{index}] must be finite")
+        if not 0 <= value <= 1:
+            raise ValueError(f"ratios[{index}] must be between 0 and 1")
+        values.append(numeric_value)
+
+    total = math.fsum(values)
+    if not math.isclose(total, 1.0, rel_tol=0.0, abs_tol=1e-6):
+        raise ValueError(f"ratios must sum to 1.0 within 1e-6; got {total!r}")
+
+
 def _label_to_int(label) -> int:
     """Convert a stored label (int/np scalar/torch scalar) to Python int."""
     if torch.is_tensor(label):
@@ -253,11 +284,18 @@ def split_by_visit(
         train_dataset, val_dataset, test_dataset: ``SampleDataset`` views
             (``dataset.subset``) over the same processed samples.
 
-    Examples:
-        >>> from pyhealth.datasets import split_by_visit
-        >>> train, val, test = split_by_visit(  # doctest: +SKIP
-        ...     samples, [0.8, 0.1, 0.1], seed=42
-        ... )
+    Raises:
+        TypeError: If ``ratios`` has an unsupported container or element type.
+        ValueError: If its length, components, or total is invalid.
+
+    Example:
+        >>> from pyhealth.datasets import create_sample_dataset
+        >>> samples = [{"patient_id": f"p{i}", "record_id": f"r{i}", "feature": i,
+        ...             "label": i % 2} for i in range(8)]
+        >>> dataset = create_sample_dataset(samples, {"feature": "raw"}, {"label": "raw"})
+        >>> train, val, test = split_by_visit(dataset, [0.5, 0.25, 0.25], seed=42)
+        >>> [len(part) for part in (train, val, test)]
+        [4, 2, 2]
 
     Note:
         The processors of ``dataset`` (vocabularies, learned statistics) were
@@ -266,8 +304,8 @@ def split_by_visit(
         ``base_dataset.set_task(task, split=...)`` with :class:`PatientSplit`
         or a custom :class:`Split`.
     """
+    _validate_ratios(ratios, expected_length=3)
     rng = np.random.default_rng(seed)
-    assert sum(ratios) == 1.0, "ratios must sum to 1.0"
     index = np.arange(len(dataset))
     rng.shuffle(index)
     train_index = index[: int(len(dataset) * ratios[0])]
@@ -299,11 +337,18 @@ def split_by_patient(
         train_dataset, val_dataset, test_dataset: ``SampleDataset`` views
             (``dataset.subset``) over the same processed samples.
 
-    Examples:
-        >>> from pyhealth.datasets import split_by_patient
-        >>> train, val, test = split_by_patient(  # doctest: +SKIP
-        ...     samples, [0.8, 0.1, 0.1], seed=42
-        ... )
+    Raises:
+        TypeError: If ``ratios`` has an unsupported container or element type.
+        ValueError: If its length, components, or total is invalid.
+
+    Example:
+        >>> from pyhealth.datasets import create_sample_dataset
+        >>> samples = [{"patient_id": f"p{i}", "record_id": f"r{i}", "feature": i,
+        ...             "label": i % 2} for i in range(8)]
+        >>> dataset = create_sample_dataset(samples, {"feature": "raw"}, {"label": "raw"})
+        >>> train, val, test = split_by_patient(dataset, [0.5, 0.25, 0.25], seed=42)
+        >>> [len(part) for part in (train, val, test)]
+        [4, 2, 2]
 
     Note:
         The processors of ``dataset`` (vocabularies, learned statistics) were
@@ -312,8 +357,8 @@ def split_by_patient(
         ``base_dataset.set_task(task, split=...)`` with :class:`PatientSplit`
         or a custom :class:`Split`.
     """
+    _validate_ratios(ratios, expected_length=3)
     rng = np.random.default_rng(seed)
-    assert sum(ratios) == 1.0, "ratios must sum to 1.0"
     # Sort first: dict order follows sample order, which callers may change.
     patient_indx = sorted(dataset.patient_to_index, key=str)
     num_patients = len(patient_indx)
@@ -332,6 +377,132 @@ def split_by_patient(
     val_dataset = dataset.subset(val_index) # type: ignore
     test_dataset = dataset.subset(test_index) # type: ignore
     return train_dataset, val_dataset, test_dataset
+
+
+def split_by_strat_fold(
+    dataset: SampleDataset,
+    train_folds: tuple[int, ...] | list[int] = tuple(range(1, 9)),
+    val_folds: tuple[int, ...] | list[int] = (9,),
+    test_folds: tuple[int, ...] | list[int] = (10,),
+    fold_field: str = "strat_fold",
+    folds: tuple[int, ...] | list[int] | None = None,
+    check_patient_disjoint: bool = False,
+):
+    """Split a sample dataset using integer fold assignments.
+
+    The recommended PTB-XL protocol uses folds 1–8 for training, fold 9 for
+    validation, and fold 10 for testing. Official PTB-XL folds are
+    patient-disjoint; this helper does not assume that of arbitrary data.
+    Pass ``check_patient_disjoint=True`` to verify no ``patient_id`` appears
+    in more than one of train/val/test (uses ``dataset.patient_to_index``).
+
+    Pass ``folds`` (one integer per sample, aligned with dataset indices) to
+    avoid decoding every sample via ``dataset[i]``. When omitted, fold values
+    are read from ``sample[fold_field]``.
+
+    Args:
+        dataset (SampleDataset): A :class:`~pyhealth.datasets.SampleDataset`
+            (or compatible object exposing ``subset`` and ``__getitem__``).
+        train_folds (Tuple[int, ...] | List[int]): Folds assigned to train
+            (default ``1..8``).
+        val_folds (Tuple[int, ...] | List[int]): Folds assigned to validation
+            (default ``9``).
+        test_folds (Tuple[int, ...] | List[int]): Folds assigned to test
+            (default ``10``).
+        fold_field (str): Sample key holding the fold integer when ``folds``
+            is not provided. Defaults to ``\"strat_fold\"``.
+        folds (Tuple[int, ...] | List[int] | None): Optional precomputed fold
+            for each index. Length must equal ``len(dataset)``.
+        check_patient_disjoint (bool): If True, raise ``ValueError`` when a
+            ``patient_id`` has samples in more than one split. Requires
+            ``dataset.patient_to_index``. Defaults to False.
+
+    Returns:
+        tuple: ``(train_dataset, val_dataset, test_dataset)`` subsets.
+
+    Raises:
+        KeyError: If ``folds`` is omitted and a sample is missing ``fold_field``.
+        TypeError: If ``check_patient_disjoint`` is True but the dataset has
+            no ``patient_to_index``.
+        ValueError: If fold sets overlap, ``folds`` has the wrong length, a
+            sample fold is unassigned, or a patient leaks across splits.
+
+    Examples:
+        >>> # doctest: +SKIP
+        >>> from pyhealth.datasets import split_by_strat_fold
+        >>> train, val, test = split_by_strat_fold(sample_dataset)
+    """
+    train_set = {int(f) for f in train_folds}
+    val_set = {int(f) for f in val_folds}
+    test_set = {int(f) for f in test_folds}
+    if train_set & val_set or train_set & test_set or val_set & test_set:
+        raise ValueError("train_folds, val_folds, and test_folds must be disjoint")
+
+    n_samples = len(dataset)
+    if folds is not None:
+        if len(folds) != n_samples:
+            raise ValueError(
+                f"folds has length {len(folds)} but dataset has {n_samples} samples"
+            )
+        fold_values = [int(f) for f in folds]
+    else:
+        fold_values = []
+        for i in range(n_samples):
+            sample = dataset[i]
+            if fold_field not in sample:
+                raise KeyError(
+                    f"sample is missing {fold_field!r}; pass folds= to avoid "
+                    "decoding samples, or emit this field from the task"
+                )
+            fold_values.append(int(sample[fold_field]))
+
+    train_index: list[int] = []
+    val_index: list[int] = []
+    test_index: list[int] = []
+    for i, fold in enumerate(fold_values):
+        if fold in train_set:
+            train_index.append(i)
+        elif fold in val_set:
+            val_index.append(i)
+        elif fold in test_set:
+            test_index.append(i)
+        else:
+            raise ValueError(
+                f"{fold_field}={fold} is not in train/val/test fold sets"
+            )
+
+    if check_patient_disjoint:
+        patient_to_index = getattr(dataset, "patient_to_index", None)
+        if patient_to_index is None:
+            raise TypeError(
+                "check_patient_disjoint=True requires dataset.patient_to_index"
+            )
+        split_of_index = {}
+        for i in train_index:
+            split_of_index[i] = "train"
+        for i in val_index:
+            split_of_index[i] = "val"
+        for i in test_index:
+            split_of_index[i] = "test"
+        leaks = []
+        for pid, indices in patient_to_index.items():
+            splits = {split_of_index[i] for i in indices if i in split_of_index}
+            if len(splits) > 1:
+                leaks.append((str(pid), splits))
+        if leaks:
+            details = "; ".join(
+                f"{pid} in {sorted(splits)}" for pid, splits in leaks
+            )
+            raise ValueError(
+                "check_patient_disjoint: "
+                f"{len(leaks)} patient(s) appear in multiple splits: {details}"
+            )
+
+    return (
+        dataset.subset(train_index),  # type: ignore
+        dataset.subset(val_index),  # type: ignore
+        dataset.subset(test_index),  # type: ignore
+    )
 
 
 def split_by_sample(
@@ -354,11 +525,18 @@ def split_by_sample(
             (``dataset.subset``) over the same processed samples, or index
             tensors if ``get_index`` is True.
 
-    Examples:
-        >>> from pyhealth.datasets import split_by_sample
-        >>> train, val, test = split_by_sample(  # doctest: +SKIP
-        ...     samples, [0.8, 0.1, 0.1], seed=42
-        ... )
+    Raises:
+        TypeError: If ``ratios`` has an unsupported container or element type.
+        ValueError: If its length, components, or total is invalid.
+
+    Example:
+        >>> from pyhealth.datasets import create_sample_dataset
+        >>> samples = [{"patient_id": f"p{i}", "record_id": f"r{i}", "feature": i,
+        ...             "label": i % 2} for i in range(8)]
+        >>> dataset = create_sample_dataset(samples, {"feature": "raw"}, {"label": "raw"})
+        >>> train, val, test = split_by_sample(dataset, [0.5, 0.25, 0.25], seed=42)
+        >>> [len(part) for part in (train, val, test)]
+        [4, 2, 2]
 
     Note:
         The processors of ``dataset`` (vocabularies, learned statistics) were
@@ -367,8 +545,8 @@ def split_by_sample(
         ``base_dataset.set_task(task, split=...)`` with :class:`PatientSplit`
         or a custom :class:`Split`.
     """
+    _validate_ratios(ratios, expected_length=3)
     rng = np.random.default_rng(seed)
-    assert sum(ratios) == 1.0, "ratios must sum to 1.0"
     index = np.arange(len(dataset))
     rng.shuffle(index)
     train_index = index[: int(len(dataset) * ratios[0])]
@@ -407,11 +585,19 @@ def split_by_visit_conformal(
             ``SampleDataset`` views (``dataset.subset``) over the same
             processed samples.
 
-    Examples:
-        >>> from pyhealth.datasets import split_by_visit_conformal
-        >>> train, val, cal, test = split_by_visit_conformal(  # doctest: +SKIP
-        ...     samples, [0.6, 0.1, 0.1, 0.2], seed=42
-        ... )
+    Raises:
+        TypeError: If ``ratios`` has an unsupported container or element type.
+        ValueError: If its length, components, or total is invalid.
+
+    Example:
+        >>> from pyhealth.datasets import create_sample_dataset
+        >>> samples = [{"patient_id": f"p{i}", "record_id": f"r{i}", "feature": i,
+        ...             "label": i % 2} for i in range(8)]
+        >>> dataset = create_sample_dataset(samples, {"feature": "raw"}, {"label": "raw"})
+        >>> train, val, cal, test = split_by_visit_conformal(
+        ...     dataset, [0.5, 0.25, 0.125, 0.125], seed=42)
+        >>> [len(part) for part in (train, val, cal, test)]
+        [4, 2, 1, 1]
 
     Note:
         The processors of ``dataset`` (vocabularies, learned statistics) were
@@ -420,9 +606,8 @@ def split_by_visit_conformal(
         ``base_dataset.set_task(task, split=...)`` with :class:`PatientSplit`
         or a custom :class:`Split`.
     """
+    _validate_ratios(ratios, expected_length=4)
     rng = np.random.default_rng(seed)
-    assert len(ratios) == 4, "ratios must have 4 elements for train/val/cal/test"
-    assert sum(ratios) == 1.0, "ratios must sum to 1.0"
 
     index = np.arange(len(dataset))
     rng.shuffle(index)
@@ -462,11 +647,19 @@ def split_by_patient_conformal(
             ``SampleDataset`` views (``dataset.subset``) over the same
             processed samples.
 
-    Examples:
-        >>> from pyhealth.datasets import split_by_patient_conformal
-        >>> train, val, cal, test = split_by_patient_conformal(  # doctest: +SKIP
-        ...     samples, [0.6, 0.1, 0.1, 0.2], seed=42
-        ... )
+    Raises:
+        TypeError: If ``ratios`` has an unsupported container or element type.
+        ValueError: If its length, components, or total is invalid.
+
+    Example:
+        >>> from pyhealth.datasets import create_sample_dataset
+        >>> samples = [{"patient_id": f"p{i}", "record_id": f"r{i}", "feature": i,
+        ...             "label": i % 2} for i in range(8)]
+        >>> dataset = create_sample_dataset(samples, {"feature": "raw"}, {"label": "raw"})
+        >>> train, val, cal, test = split_by_patient_conformal(
+        ...     dataset, [0.5, 0.25, 0.125, 0.125], seed=42)
+        >>> [len(part) for part in (train, val, cal, test)]
+        [4, 2, 1, 1]
 
     Note:
         The processors of ``dataset`` (vocabularies, learned statistics) were
@@ -475,9 +668,8 @@ def split_by_patient_conformal(
         ``base_dataset.set_task(task, split=...)`` with :class:`PatientSplit`
         or a custom :class:`Split`.
     """
+    _validate_ratios(ratios, expected_length=4)
     rng = np.random.default_rng(seed)
-    assert len(ratios) == 4, "ratios must have 4 elements for train/val/cal/test"
-    assert sum(ratios) == 1.0, "ratios must sum to 1.0"
 
     # Sort first: dict order follows sample order, which callers may change.
     patient_indx = sorted(dataset.patient_to_index, key=str)
@@ -544,11 +736,20 @@ def split_by_patient_conformal_tuh(
     Returns:
         ``(train_dataset, val_dataset, cal_dataset, test_dataset)``
 
-    Examples:
-        >>> from pyhealth.datasets import split_by_patient_conformal_tuh
-        >>> train, val, cal, test = split_by_patient_conformal_tuh(  # doctest: +SKIP
-        ...     samples, [0.6, 0.2, 0.2], seed=42
-        ... )
+    Raises:
+        TypeError: If ``ratios`` has an unsupported container or element type.
+        ValueError: If its length, components, or total is invalid.
+
+    Example:
+        >>> from pyhealth.datasets import create_sample_dataset
+        >>> samples = [{"patient_id": f"p{i}", "record_id": f"r{i}", "feature": i,
+        ...             "label": i % 2, "split": "train" if i < 6 else "eval"}
+        ...            for i in range(8)]
+        >>> dataset = create_sample_dataset(samples, {"feature": "raw"}, {"label": "raw"})
+        >>> train, val, cal, test = split_by_patient_conformal_tuh(
+        ...     dataset, [0.5, 0.25, 0.25], seed=42)
+        >>> [len(part) for part in (train, val, cal, test)]
+        [3, 1, 2, 2]
 
     Note:
         The processors of ``dataset`` (vocabularies, learned statistics) were
@@ -557,11 +758,7 @@ def split_by_patient_conformal_tuh(
         ``base_dataset.set_task(task, split=...)`` with :class:`PatientSplit`
         or a custom :class:`Split`.
     """
-    assert len(ratios) == 3, (
-        "ratios must have exactly 3 elements (train/val/cal). "
-        "The test set is determined by the TUH eval partition."
-    )
-    assert abs(sum(ratios) - 1.0) < 1e-6, "ratios must sum to 1.0"
+    _validate_ratios(ratios, expected_length=3)
 
     # Bucket patients by partition using dataset.patient_to_index (fast path).
     # TUH guarantees each patient is in exactly one partition, so inspecting the
@@ -632,11 +829,20 @@ def split_by_sample_conformal_tuh(
     Returns:
         train_dataset, val_dataset, cal_dataset, test_dataset
 
-    Examples:
-        >>> from pyhealth.datasets import split_by_sample_conformal_tuh
-        >>> train, val, cal, test = split_by_sample_conformal_tuh(  # doctest: +SKIP
-        ...     samples, [0.6, 0.2, 0.2], seed=42
-        ... )
+    Raises:
+        TypeError: If ``ratios`` has an unsupported container or element type.
+        ValueError: If its length, components, or total is invalid.
+
+    Example:
+        >>> from pyhealth.datasets import create_sample_dataset
+        >>> samples = [{"patient_id": f"p{i}", "record_id": f"r{i}", "feature": i,
+        ...             "label": i % 2, "split": "train" if i < 6 else "eval"}
+        ...            for i in range(8)]
+        >>> dataset = create_sample_dataset(samples, {"feature": "raw"}, {"label": "raw"})
+        >>> train, val, cal, test = split_by_sample_conformal_tuh(
+        ...     dataset, [0.5, 0.25, 0.25], seed=42)
+        >>> [len(part) for part in (train, val, cal, test)]
+        [3, 1, 2, 2]
 
     Note:
         The processors of ``dataset`` (vocabularies, learned statistics) were
@@ -645,11 +851,7 @@ def split_by_sample_conformal_tuh(
         ``base_dataset.set_task(task, split=...)`` with :class:`PatientSplit`
         or a custom :class:`Split`.
     """
-    assert len(ratios) == 3, (
-        "ratios must have exactly 3 elements (train/val/cal). "
-        "The test set is determined by the dataset's own eval partition."
-    )
-    assert abs(sum(ratios) - 1.0) < 1e-6, "ratios must sum to 1.0"
+    _validate_ratios(ratios, expected_length=3)
 
     # verify every sample has the required "split" field
     for i in range(len(dataset)):
@@ -727,11 +929,19 @@ def split_by_patient_tuh(
     Returns:
         ``(train_dataset, val_dataset, test_dataset)``
 
-    Examples:
-        >>> from pyhealth.datasets import split_by_patient_tuh
-        >>> train, val, test = split_by_patient_tuh(  # doctest: +SKIP
-        ...     samples, [0.8, 0.2], seed=42
-        ... )
+    Raises:
+        TypeError: If ``ratios`` has an unsupported container or element type.
+        ValueError: If its length, components, or total is invalid.
+
+    Example:
+        >>> from pyhealth.datasets import create_sample_dataset
+        >>> samples = [{"patient_id": f"p{i}", "record_id": f"r{i}", "feature": i,
+        ...             "label": i % 2, "split": "train" if i < 6 else "eval"}
+        ...            for i in range(8)]
+        >>> dataset = create_sample_dataset(samples, {"feature": "raw"}, {"label": "raw"})
+        >>> train, val, test = split_by_patient_tuh(dataset, [0.5, 0.5], seed=42)
+        >>> [len(part) for part in (train, val, test)]
+        [3, 3, 2]
 
     Note:
         The processors of ``dataset`` (vocabularies, learned statistics) were
@@ -740,11 +950,7 @@ def split_by_patient_tuh(
         ``base_dataset.set_task(task, split=...)`` with :class:`PatientSplit`
         or a custom :class:`Split`.
     """
-    assert len(ratios) == 2, (
-        "ratios must have exactly 2 elements (train/val). "
-        "The test set is determined by the TUH eval partition."
-    )
-    assert abs(sum(ratios) - 1.0) < 1e-6, "ratios must sum to 1.0"
+    _validate_ratios(ratios, expected_length=2)
 
     train_patient_to_indices: dict = {}
     test_list: List[int] = []
@@ -816,11 +1022,19 @@ def split_by_sample_tuh(
     Returns:
         train_dataset, val_dataset, test_dataset
 
-    Examples:
-        >>> from pyhealth.datasets import split_by_sample_tuh
-        >>> train, val, test = split_by_sample_tuh(  # doctest: +SKIP
-        ...     samples, [0.8, 0.2], seed=42
-        ... )
+    Raises:
+        TypeError: If ``ratios`` has an unsupported container or element type.
+        ValueError: If its length, components, or total is invalid.
+
+    Example:
+        >>> from pyhealth.datasets import create_sample_dataset
+        >>> samples = [{"patient_id": f"p{i}", "record_id": f"r{i}", "feature": i,
+        ...             "label": i % 2, "split": "train" if i < 6 else "eval"}
+        ...            for i in range(8)]
+        >>> dataset = create_sample_dataset(samples, {"feature": "raw"}, {"label": "raw"})
+        >>> train, val, test = split_by_sample_tuh(dataset, [0.5, 0.5], seed=42)
+        >>> [len(part) for part in (train, val, test)]
+        [3, 3, 2]
 
     Note:
         The processors of ``dataset`` (vocabularies, learned statistics) were
@@ -829,11 +1043,7 @@ def split_by_sample_tuh(
         ``base_dataset.set_task(task, split=...)`` with :class:`PatientSplit`
         or a custom :class:`Split`.
     """
-    assert len(ratios) == 2, (
-        "ratios must have exactly 2 elements (train/val). "
-        "The test set is determined by the dataset's own eval partition."
-    )
-    assert abs(sum(ratios) - 1.0) < 1e-6, "ratios must sum to 1.0"
+    _validate_ratios(ratios, expected_length=2)
 
     for i in range(len(dataset)):
         assert "split" in dataset[i], (
@@ -893,11 +1103,19 @@ def split_by_sample_conformal(
             ``SampleDataset`` views (``dataset.subset``) over the same
             processed samples, or four index tensors if ``get_index`` is True.
 
-    Examples:
-        >>> from pyhealth.datasets import split_by_sample_conformal
-        >>> train, val, cal, test = split_by_sample_conformal(  # doctest: +SKIP
-        ...     samples, [0.6, 0.1, 0.1, 0.2], seed=42
-        ... )
+    Raises:
+        TypeError: If ``ratios`` has an unsupported container or element type.
+        ValueError: If its length, components, or total is invalid.
+
+    Example:
+        >>> from pyhealth.datasets import create_sample_dataset
+        >>> samples = [{"patient_id": f"p{i}", "record_id": f"r{i}", "feature": i,
+        ...             "label": i % 2} for i in range(8)]
+        >>> dataset = create_sample_dataset(samples, {"feature": "raw"}, {"label": "raw"})
+        >>> train, val, cal, test = split_by_sample_conformal(
+        ...     dataset, [0.5, 0.25, 0.125, 0.125], seed=42)
+        >>> [len(part) for part in (train, val, cal, test)]
+        [4, 2, 1, 1]
 
     Note:
         The processors of ``dataset`` (vocabularies, learned statistics) were
@@ -906,9 +1124,8 @@ def split_by_sample_conformal(
         ``base_dataset.set_task(task, split=...)`` with :class:`PatientSplit`
         or a custom :class:`Split`.
     """
+    _validate_ratios(ratios, expected_length=4)
     rng = np.random.default_rng(seed)
-    assert len(ratios) == 4, "ratios must have 4 elements for train/val/cal/test"
-    assert sum(ratios) == 1.0, "ratios must sum to 1.0"
 
     index = np.arange(len(dataset))
     rng.shuffle(index)
