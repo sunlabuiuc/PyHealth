@@ -316,6 +316,7 @@ Available Datasets
     datasets/pyhealth.datasets.PhysioNetDeIDDataset
     datasets/pyhealth.datasets.EEGBCIDataset
     PTB-XL Dataset <datasets/pyhealth.datasets.PTBXLDataset>
+    PhysioNet 2012 Dataset <datasets/pyhealth.datasets.PhysioNet2012Dataset>
     datasets/pyhealth.datasets.TUABDataset
     datasets/pyhealth.datasets.TUEVDataset
     datasets/pyhealth.datasets.ClinVarDataset
