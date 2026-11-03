@@ -17,6 +17,11 @@ from .covid19_cxr_generation import (
 )
 from .ptbxl_multilabel_classification import PTBXLMultilabelClassification as PTBXLMultilabelClassification
 from .ptbxl_heartlang import PTBXLHeartLangClassification as PTBXLHeartLangClassification
+from .physionet2012_forecasting import (
+    PhysioNet2012Forecasting as PhysioNet2012Forecasting,
+    physionet2012_benchmark_split as physionet2012_benchmark_split,
+    physionet2012_statistics as physionet2012_statistics,
+)
 from .deid_ner import DeIDNERTask
 from .dka import DKAPredictionMIMIC4, T1DDKAPredictionMIMIC4
 # New exports must use the redundant `X as X` form: this module has no

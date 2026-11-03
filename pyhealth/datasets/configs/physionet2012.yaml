@@ -1,0 +1,29 @@
+version: "1.0.0"  # PhysioNet/CinC Challenge 2012, open access
+tables:
+  events:
+    # Written by PhysioNet2012Dataset from the set-*/ record files.
+    file_path: "physionet2012-pyhealth-events.csv"
+    patient_id: "patient_id"
+    # TIME_ORIGIN plus the elapsed time since ICU admission
+    timestamp: "time"
+    timestamp_format: "%Y-%m-%d %H:%M:%S"
+    attributes:
+      - "minutes"
+      - "parameter"
+      - "value"
+  patients:
+    file_path: "physionet2012-pyhealth-patients.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+      - "set"
+      - "age"
+      - "gender"
+      - "height"
+      - "icutype"
+      - "weight"
+      - "saps_i"
+      - "sofa"
+      - "length_of_stay"
+      - "survival"
+      - "in_hospital_death"
