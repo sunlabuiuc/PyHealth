@@ -86,18 +86,18 @@ def test_tuple_time_text_processor_with_tokenizer():
     
     input_ids, attention_mask, token_type_ids, time_tensor, tag = result
     
-    # Check shapes
+    # Check shapes: per-sample longest padding bounded by max_length
     N = 2 # number of sentences
-    L = 16 # max_length
-    
+
     assert isinstance(input_ids, torch.Tensor)
-    assert input_ids.shape == (N, L)
-    
+    assert input_ids.shape[0] == N
+    assert input_ids.shape[1] <= 16
+
     assert isinstance(attention_mask, torch.Tensor)
-    assert attention_mask.shape == (N, L)
-    
+    assert attention_mask.shape == input_ids.shape
+
     assert isinstance(token_type_ids, torch.Tensor)
-    assert token_type_ids.shape == (N, L)
+    assert token_type_ids.shape == input_ids.shape
     
     assert isinstance(time_tensor, torch.Tensor)
     assert time_tensor.shape == (N,)
@@ -177,8 +177,9 @@ def test_tuple_in_schema_canonical_form():
     assert isinstance(sample["notes"], tuple)
     assert len(sample["notes"]) == 5
     input_ids, mask, type_ids, time, tag = sample["notes"]
-    assert input_ids.shape == (2, 16)   # (N_notes, L)
-    assert mask.shape == (2, 16)
+    assert input_ids.shape[0] == 2
+    assert input_ids.shape[1] <= 16
+    assert mask.shape == input_ids.shape
     assert time.shape == (2,)
     assert tag == "note"
 
