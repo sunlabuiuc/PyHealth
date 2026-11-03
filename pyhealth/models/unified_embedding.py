@@ -29,6 +29,7 @@ import torch
 import torch.nn as nn
 
 from pyhealth.processors.base_processor import ModalityType, TemporalFeatureProcessor
+from pyhealth.models.vision_embedding import PatchEmbedding
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -93,29 +94,12 @@ class SinusoidalTimeEmbedding(nn.Module):
         return torch.cat([args.sin(), args.cos()], dim=-1)
 
 
-def _build_image_encoder(embedding_dim: int) -> nn.Module:
-    """Lightweight 5-layer CNN encoder: C × H × W → embedding_dim.
+class _MeanPool(nn.Module):
+    """Pool a sequence of patch embeddings to a single vector via global mean."""
 
-    Uses ``torchvision.models.resnet18`` pre-trained backbone, strips the
-    final FC layer, and adds a projection to ``embedding_dim``.  Falls back to
-    a toy Conv-pool-flatten network if torchvision is not installed.
-    """
-    try:
-        import torchvision.models as tv
-
-        backbone = tv.resnet18(weights=None)
-        in_features = backbone.fc.in_features
-        backbone.fc = nn.Linear(in_features, embedding_dim)
-        return backbone
-    except ImportError:
-        # Minimal fallback: single conv → global avg pool → linear
-        return nn.Sequential(
-            nn.Conv2d(3, 32, 3, padding=1),
-            nn.ReLU(),
-            nn.AdaptiveAvgPool2d(1),
-            nn.Flatten(),
-            nn.Linear(32, embedding_dim),
-        )
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # (B, num_patches, E) -> (B, E)
+        return x.mean(dim=1)
 
 
 # ── Main model ───────────────────────────────────────────────────────────────
@@ -147,6 +131,15 @@ class UnifiedMultimodalEmbeddingModel(nn.Module):
     6. Add ``SinusoidalTimeEmbedding(time)`` + ``type_embedding(modality_idx)``.
     7. Return ``{"sequence", "time", "mask", "type_ids"}``.
 
+    Unimodal model reuse via ``field_embeddings``::
+
+        vision_model = VisionEmbeddingModel(dataset, embedding_dim=128)
+        unified = UnifiedMultimodalEmbeddingModel(
+            processors=dataset.input_processors,
+            embedding_dim=128,
+            field_embeddings={"chest_xray": vision_model},
+        )
+
     Args:
         processors: ``dict[field_name, TemporalFeatureProcessor]`` — the
             processors for each temporal field in the dataset.  Pass
@@ -155,6 +148,21 @@ class UnifiedMultimodalEmbeddingModel(nn.Module):
         time_embedding: ``"sinusoidal"`` (default) or ``"learned"``.
         max_time_hours: Longest wavelength of the time embedding, in hours.
             Defaults to 87600 (10 years). Shortest wavelength is 1 hour.
+        image_size: Image size (H=W) assumed for IMAGE fields when using
+            PatchEmbedding. Defaults to 224.
+        image_channels: Number of input channels for IMAGE fields. Defaults to 3.
+        patch_size: Patch size for IMAGE PatchEmbedding encoder. Defaults to 16.
+        image_pool: Pooling strategy applied to IMAGE patch tokens to produce
+            one vector per image event. Only ``"mean"`` (global mean pooling)
+            is currently implemented. Defaults to ``"mean"``.
+        field_embeddings: Optional mapping of field names to pre-built unimodal
+            embedding models (``EmbeddingModel``, ``VisionEmbeddingModel``, or
+            ``TextEmbedding``). The core encoder module is extracted from each
+            pre-built model; fields not present here use internally-built
+            encoders. Defaults to None.
+        freeze_text_encoder: If True, freeze TEXT encoder weights
+            (``requires_grad=False``) so notes encode deterministically.
+            Defaults to False.
 
     Example::
 
@@ -191,9 +199,23 @@ class UnifiedMultimodalEmbeddingModel(nn.Module):
         embedding_dim: int = 128,
         time_embedding: str = "sinusoidal",
         max_time_hours: float = 87600.0,
+        image_size: int = 224,
+        image_channels: int = 3,
+        patch_size: int = 16,
+        image_pool: str = "mean",
+        field_embeddings: dict[str, Any] | None = None,
+        freeze_text_encoder: bool = False,
     ):
         super().__init__()
-        self.embedding_dim = embedding_dim
+        if image_pool != "mean":
+            raise NotImplementedError(
+                f"Only image_pool='mean' is implemented, got {image_pool!r}."
+            )
+        self._embedding_dim = embedding_dim
+        self._freeze_text_encoder = freeze_text_encoder
+        self._frozen_text_fields: set[str] = set()
+        self.image_pool = image_pool
+        _field_embeddings = field_embeddings or {}
 
         self.encoders: nn.ModuleDict = nn.ModuleDict()
         self.projections: nn.ModuleDict = nn.ModuleDict()
@@ -210,35 +232,35 @@ class UnifiedMultimodalEmbeddingModel(nn.Module):
 
             m = processor.modality()
             self.modality_types[field_name] = m
+            pre_built = _field_embeddings.get(field_name)
 
             if m == ModalityType.CODE:
-                vocab_size = processor.value_dim()
-                self.encoders[field_name] = nn.Embedding(
-                    vocab_size, embedding_dim, padding_idx=0
+                self.encoders[field_name] = self._build_code_encoder(
+                    field_name, processor, pre_built, embedding_dim
                 )
 
             elif m == ModalityType.TEXT:
-                if processor.is_token():
-                    from transformers import AutoModel
-
-                    bert = AutoModel.from_pretrained(processor.tokenizer_model)
-                    self.encoders[field_name] = bert
-                    hidden = bert.config.hidden_size
-                    if hidden != embedding_dim:
-                        self.projections[field_name] = nn.Linear(hidden, embedding_dim)
-                else:
-                    raise ValueError(
-                        f"TEXT processor '{field_name}' must use a tokenizer "
-                        f"(set tokenizer_model=...) to be used with "
-                        f"UnifiedMultimodalEmbeddingModel."
-                    )
+                self._build_text_encoder(
+                    field_name, processor, pre_built, embedding_dim,
+                    freeze=freeze_text_encoder,
+                )
 
             elif m == ModalityType.IMAGE:
-                self.encoders[field_name] = _build_image_encoder(embedding_dim)
+                self.encoders[field_name] = self._build_image_encoder(
+                    field_name,
+                    processor,
+                    pre_built,
+                    embedding_dim,
+                    image_size,
+                    image_channels,
+                    patch_size,
+                    image_pool,
+                )
 
             elif m in (ModalityType.NUMERIC, ModalityType.SIGNAL):
-                in_features = processor.value_dim()
-                self.encoders[field_name] = nn.Linear(in_features, embedding_dim)
+                self.encoders[field_name] = self._build_numeric_encoder(
+                    field_name, processor, pre_built, embedding_dim
+                )
 
             else:
                 raise NotImplementedError(
@@ -257,6 +279,149 @@ class UnifiedMultimodalEmbeddingModel(nn.Module):
             self.time_embed = SinusoidalTimeEmbedding(embedding_dim, max_time_hours)
         else:
             raise NotImplementedError("Only 'sinusoidal' time embedding is implemented.")
+
+    # ── Encoder builders ──────────────────────────────────────────────────────
+
+    def _build_code_encoder(
+        self,
+        field_name: str,
+        processor: TemporalFeatureProcessor,
+        pre_built: Any,
+        embedding_dim: int,
+    ) -> nn.Module:
+        """Build CODE encoder: nn.Embedding, optionally from a pre-built EmbeddingModel."""
+        if (
+            pre_built is not None
+            and hasattr(pre_built, "embedding_layers")
+            and field_name in pre_built.embedding_layers
+        ):
+            layer = pre_built.embedding_layers[field_name]
+            pre_dim = getattr(pre_built, "embedding_dim", embedding_dim)
+            if pre_dim != embedding_dim:
+                return nn.Sequential(layer, nn.Linear(pre_dim, embedding_dim))
+            return layer
+
+        vocab_size = processor.value_dim()
+        return nn.Embedding(vocab_size, embedding_dim, padding_idx=0)
+
+    def _build_text_encoder(
+        self,
+        field_name: str,
+        processor: TemporalFeatureProcessor,
+        pre_built: Any,
+        embedding_dim: int,
+        freeze: bool = False,
+    ) -> None:
+        """Build TEXT encoder: BERT + projection, optionally from TextEmbedding."""
+
+        def _set_projection(
+            pre_dim: int, proj_source: nn.Module | None = None
+        ) -> None:
+            if pre_dim != embedding_dim:
+                if proj_source is not None:
+                    self.projections[field_name] = nn.Sequential(
+                        proj_source,
+                        nn.Linear(pre_dim, embedding_dim),
+                    )
+                else:
+                    self.projections[field_name] = nn.Linear(pre_dim, embedding_dim)
+            elif proj_source is not None:
+                self.projections[field_name] = proj_source
+
+        if (
+            pre_built is not None
+            and hasattr(pre_built, "transformer")
+            and hasattr(pre_built, "fc")
+        ):
+            self.encoders[field_name] = pre_built.transformer
+            if freeze:
+                for p in pre_built.transformer.parameters():
+                    p.requires_grad = False
+                self._frozen_text_fields.add(field_name)
+            pre_dim = getattr(pre_built, "embedding_dim", embedding_dim)
+            _set_projection(pre_dim, pre_built.fc)
+            return
+
+        if processor.is_token():
+            from transformers import AutoModel
+
+            bert = AutoModel.from_pretrained(processor.tokenizer_model)
+            if freeze:
+                for p in bert.parameters():
+                    p.requires_grad = False
+                self._frozen_text_fields.add(field_name)
+            self.encoders[field_name] = bert
+            hidden = bert.config.hidden_size
+            if hidden != embedding_dim:
+                self.projections[field_name] = nn.Linear(hidden, embedding_dim)
+        else:
+            raise ValueError(
+                f"TEXT processor '{field_name}' must either supply a pre-built "
+                f"TextEmbedding via field_embeddings or use a tokenizer "
+                f"(set tokenizer_model=...) to be used with "
+                f"UnifiedMultimodalEmbeddingModel."
+            )
+
+    def _build_image_encoder(
+        self,
+        field_name: str,
+        processor: TemporalFeatureProcessor,
+        pre_built: Any,
+        embedding_dim: int,
+        image_size: int,
+        image_channels: int,
+        patch_size: int,
+        image_pool: str,
+    ) -> nn.Module:
+        """Build IMAGE encoder: backbone + pool, optionally from VisionEmbeddingModel."""
+        pool_layers: dict[str, nn.Module] = {"mean": _MeanPool()}
+        pool_layer = pool_layers[image_pool]
+
+        if (
+            pre_built is not None
+            and hasattr(pre_built, "embedding_layers")
+            and field_name in pre_built.embedding_layers
+        ):
+            backbone = pre_built.embedding_layers[field_name]
+            pre_dim = getattr(pre_built, "embedding_dim", embedding_dim)
+            if pre_dim != embedding_dim:
+                return nn.Sequential(
+                    backbone, pool_layer, nn.Linear(pre_dim, embedding_dim)
+                )
+            return nn.Sequential(backbone, pool_layer)
+
+        _image_size = getattr(processor, "image_size", image_size)
+        _in_channels = getattr(processor, "in_channels", image_channels)
+        return nn.Sequential(
+            PatchEmbedding(_image_size, patch_size, _in_channels, embedding_dim),
+            pool_layer,
+        )
+
+    def _build_numeric_encoder(
+        self,
+        field_name: str,
+        processor: TemporalFeatureProcessor,
+        pre_built: Any,
+        embedding_dim: int,
+    ) -> nn.Module:
+        """Build NUMERIC/SIGNAL encoder: nn.Linear, optionally from EmbeddingModel."""
+        if (
+            pre_built is not None
+            and hasattr(pre_built, "embedding_layers")
+            and field_name in pre_built.embedding_layers
+        ):
+            layer = pre_built.embedding_layers[field_name]
+            pre_dim = getattr(pre_built, "embedding_dim", embedding_dim)
+            if pre_dim != embedding_dim:
+                return nn.Sequential(layer, nn.Linear(pre_dim, embedding_dim))
+            return layer
+
+        in_features = processor.value_dim()
+        return nn.Linear(in_features, embedding_dim)
+
+    @property
+    def embedding_dim(self) -> int:
+        return self._embedding_dim
 
     # ── Forward ───────────────────────────────────────────────────────────────
 
