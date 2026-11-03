@@ -65,8 +65,8 @@ class LLMEHREncoder(BaseModel):
     trained; ``"mean"`` or ``"cls"`` for BERT-style encoders), optionally
     L2-normalized. Only the linear head is trained, which makes this a
     logistic regression on the embeddings, as in the paper. Embeddings are
-    memoized in memory and, with ``cache_dir``, on disk, so later epochs and
-    reruns skip the encoder.
+    memoized in memory (``memoize``) and, with ``cache_dir``, on disk, so
+    later epochs and reruns skip the encoder.
 
     The encoder is not registered as a submodule, so saved checkpoints hold
     the head only, not billions of frozen weights. It follows the model's
@@ -96,6 +96,10 @@ class LLMEHREncoder(BaseModel):
             to ``model_name``; required with ``cache_dir`` when ``encoder``
             or ``embed_fn`` is given, so two embedders sharing a cache
             directory never read each other's vectors.
+        memoize: Keep every embedding in memory for later calls (and
+            epochs). It holds ``n x embedding_dim`` floats, about 1.6 GB for
+            400k records at 1024 dimensions; with ``cache_dir``, pass
+            ``False`` to read them from disk instead.
         torch_dtype: Passed to ``from_pretrained``, e.g. ``torch.float16``
             on a GPU. Default ``"auto"``.
         encoder: A loaded encoder to use instead of ``model_name`` (with
@@ -138,6 +142,7 @@ class LLMEHREncoder(BaseModel):
         batch_size: int = 8,
         cache_dir: str | None = None,
         cache_name: str | None = None,
+        memoize: bool = True,
         torch_dtype: Any = "auto",
         encoder: nn.Module | None = None,
         tokenizer: Any = None,
@@ -178,6 +183,7 @@ class LLMEHREncoder(BaseModel):
             )
         self.cache_dir = cache_dir
         self.cache_name = model_name if cache_name is None else cache_name
+        self.memoize = memoize
         self._memo: dict[str, torch.Tensor] = {}
         # kept out of the module tree: not trained, not saved, not moved by
         # .to(); see embed()
@@ -257,13 +263,17 @@ class LLMEHREncoder(BaseModel):
             torch.Size([1, 1024])
         """
         keys = [self._cache_key(t) for t in texts]
+        found: dict[str, torch.Tensor] = {}  # this call's vectors
         todo: dict[str, str] = {}  # key -> text, in first-seen order
         for key, text in zip(keys, texts):
-            if key in self._memo or key in todo:
+            if key in found or key in todo:
+                continue
+            if key in self._memo:
+                found[key] = self._memo[key]
                 continue
             path = self._cache_path(key)
             if path and os.path.exists(path):
-                self._memo[key] = torch.from_numpy(np.load(path))
+                found[key] = torch.from_numpy(np.load(path))
             else:
                 todo[key] = text
         items = list(todo.items())
@@ -273,11 +283,13 @@ class LLMEHREncoder(BaseModel):
             if self.normalize:
                 vectors = nn.functional.normalize(vectors, dim=-1)
             for (key, _), vector in zip(chunk, vectors):
-                self._memo[key] = vector
+                found[key] = vector
                 path = self._cache_path(key)
                 if path:
                     _save_atomically(path, vector.numpy())
-        return torch.stack([self._memo[k] for k in keys]).to(self.device)
+        if self.memoize:
+            self._memo.update(found)
+        return torch.stack([found[k] for k in keys]).to(self.device)
 
     def _cache_path(self, key: str) -> str | None:
         if not self.cache_dir:

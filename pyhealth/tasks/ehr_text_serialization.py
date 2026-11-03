@@ -31,9 +31,11 @@ from .base_task import BaseTask
 logger = logging.getLogger(__name__)
 
 # Fields of common PyHealth tasks and the vocabularies their codes come from,
-# tried in order. MIMIC-IV mixes ICD-9 and ICD-10 without a version prefix:
-# ICD-10 codes start with a letter, so the ICD-10 lookup is tried first and an
-# all-digit ICD-9 code falls through to ICD-9.
+# tried in order. MIMIC-IV mixes ICD-9 and ICD-10 without a version prefix in
+# the samples; the wrapper takes each code's version from the patient's
+# ``icd_version`` (see ICD_EVENT_TYPES), so only that version's vocabulary is
+# tried. Without a version, ICD-10 is tried first, except for codes shaped
+# like ICD-9 E/V codes (see CodeDescriber).
 DEFAULT_SECTIONS: dict[str, tuple[str, tuple[str, ...]]] = {
     "conditions": ("Conditions", ("ICD10CM", "ICD9CM")),
     "procedures": ("Procedures", ("ICD10PROC", "ICD9PROC")),
@@ -52,6 +54,10 @@ CODE_PROCESSORS: frozenset[str] = frozenset({
     "multi_hot", "nested_multihot", "stagenet",
 })
 TIMED_CODE_PROCESSORS: frozenset[str] = frozenset({"stagenet"})
+
+# Event types whose ``icd_code``/``icd_version`` attributes give the ICD
+# version of a sample's unprefixed codes (MIMIC-IV).
+ICD_EVENT_TYPES: tuple[str, ...] = ("diagnoses_icd", "procedures_icd")
 
 # For tasks whose single field holds vocabulary-prefixed codes such as
 # "ICD10CM/E11.9" (EHRSHOT), the section a code goes to, by prefix. Other
@@ -158,6 +164,11 @@ class CodeDescriber:
     some MIMIC-IV tasks write them) is tried only in the ``vocabularies``
     of that ICD version. Any other code is tried in ``vocabularies`` in
     order.
+    A code without a version prefix shaped like an ICD-9 E or V code
+    (``"E8490"``, ``"V1582"``) is tried in ICD-9 vocabularies first: over 700
+    such strings are also ICD-10-CM codes with another meaning (ICD-9
+    ``E000`` "External cause status", ICD-10 ``E00.0`` "Congenital
+    iodine-deficiency syndrome"). Prefix the version to be exact.
     Unknown codes return ``None``. Vocabularies are loaded on first use
     (:class:`~pyhealth.medcode.InnerMap`, downloaded once and cached) and
     lookups are memoized. A vocabulary that fails to load raises
@@ -227,6 +238,11 @@ class CodeDescriber:
             code = bare
             vocabularies = tuple(
                 v for v in vocabularies if re.fullmatch(rf"ICD{version}\D.*", v)
+            )
+        elif re.fullmatch(r"[EV]\d{2,4}", code):
+            # an ICD-9 E/V shape: ICD-9 first (a stable sort keeps the rest)
+            vocabularies = tuple(
+                sorted(vocabularies, key=lambda v: not v.startswith("ICD9"))
             )
         if self._lookup is not None:
             return self._lookup(code, vocabularies)
@@ -403,6 +419,37 @@ def mimic_demographics(
     return out
 
 
+def icd_versions(patient: Any) -> dict[str, str]:
+    """The ICD version of each of a patient's ICD codes, where known.
+
+    Reads ``icd_code`` and ``icd_version`` from the patient's
+    :data:`ICD_EVENT_TYPES` events (MIMIC-IV). A code seen with both
+    versions is left out, as is every code of a dataset without versions.
+
+    Examples:
+        >>> from types import SimpleNamespace
+        >>> events = {"diagnoses_icd": [
+        ...     SimpleNamespace(icd_code="E8490", icd_version="9"),
+        ...     SimpleNamespace(icd_code="E119", icd_version=10),
+        ... ]}
+        >>> patient = SimpleNamespace(
+        ...     get_events=lambda event_type: events.get(event_type, []))
+        >>> icd_versions(patient)
+        {'E8490': '9', 'E119': '10'}
+    """
+    seen: dict[str, set[str]] = {}
+    for event_type in ICD_EVENT_TYPES:
+        for event in _events(patient, event_type):
+            code = getattr(event, "icd_code", None)
+            version = getattr(event, "icd_version", None)
+            if code in (None, "") or version in (None, ""):
+                continue
+            version = str(version).split(".")[0].strip()
+            seen.setdefault(str(code).strip(), set()).add(version)
+    return {code: next(iter(versions)) for code, versions in seen.items()
+            if len(versions) == 1 and next(iter(versions)) in ("9", "10")}
+
+
 class EHRTextSerializationTask(BaseTask):
     """Wraps a task so each sample carries its record as Markdown text.
 
@@ -522,9 +569,19 @@ class EHRTextSerializationTask(BaseTask):
         return self.base_task.pre_filter(df)
 
     def serialize_sample(
-        self, sample: Mapping[str, Any], demographics: Mapping[str, Any] | None = None
+        self,
+        sample: Mapping[str, Any],
+        demographics: Mapping[str, Any] | None = None,
+        icd_versions: Mapping[str, str] | None = None,
     ) -> str:
         """The Markdown text of one sample of the wrapped task.
+
+        Args:
+            sample: A sample of the wrapped task.
+            demographics: The header's attributes.
+            icd_versions: Code to ICD version (``"9"`` or ``"10"``) for
+                unprefixed codes; such a code is looked up only in that
+                version's vocabularies. See :func:`icd_versions`.
 
         Examples:
             >>> from pyhealth.tasks import MortalityPredictionMIMIC4
@@ -552,7 +609,11 @@ class EHRTextSerializationTask(BaseTask):
                 section = heading
                 if sep and len(self.sections) == 1:
                     section = PREFIX_SECTIONS.get(prefix, "Conditions")
-                text = self.describer(code, vocabularies) or code
+                lookup = code
+                if (icd_versions and code in icd_versions
+                        and any(v.startswith("ICD") for v in vocabularies)):
+                    lookup = f"{icd_versions[code]}_{code}"
+                text = self.describer(lookup, vocabularies) or code
                 grouped.setdefault(section, []).append(text)
         return serialize_ehr(
             grouped, demographics,
@@ -564,12 +625,13 @@ class EHRTextSerializationTask(BaseTask):
         samples = self.base_task(patient)
         if not samples:
             return []
+        versions = icd_versions(patient)
         out = []
         for sample in samples:
             demographics = (self.demographics(patient, sample)
                             if self.demographics else None)
             new = {k: v for k, v in sample.items()
                    if k not in self.input_fields or self.keep_inputs}
-            new["text"] = self.serialize_sample(sample, demographics)
+            new["text"] = self.serialize_sample(sample, demographics, versions)
             out.append(new)
         return out

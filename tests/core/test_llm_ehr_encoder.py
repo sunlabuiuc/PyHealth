@@ -158,6 +158,62 @@ class TestSerialization(unittest.TestCase):
         self.assertEqual(seen, [("4019", ("ICD9CM",)), ("I10", ("ICD10CM",)),
                                 ("4019", both)])
 
+    def test_icd_version_from_the_source_events(self):
+        seen = []
+
+        def lookup(code, vocabularies):
+            seen.append((code, vocabularies))
+
+        task = EHRTextSerializationTask(_CodesTask(), demographics=None,
+                                        describer=CodeDescriber(lookup=lookup))
+        patient = _patient({"patient_id": "p0", "label": 0,
+                            "conditions": ["E000", "E119", "E8490"],
+                            "procedures": []})
+        events = {"diagnoses_icd": [
+            SimpleNamespace(icd_code="E000", icd_version="10"),
+            SimpleNamespace(icd_code="E119", icd_version="10"),
+            SimpleNamespace(icd_code="E8490", icd_version="9"),
+        ]}
+        get_events = patient.get_events
+        patient.get_events = lambda event_type=None, **kw: events.get(
+            event_type, get_events(event_type))
+        task(patient)
+        self.assertEqual(sorted(seen), [("E000", ("ICD10CM",)),
+                                        ("E119", ("ICD10CM",)),
+                                        ("E8490", ("ICD9CM",))])
+        # without a version, an ICD-9 E/V shape tries ICD-9 first
+        seen.clear()
+        both = ("ICD10CM", "ICD9CM")
+        describe = CodeDescriber(lookup=lookup)
+        for code in ("E000", "V1582", "E11", "I10"):
+            describe(code, both)
+        self.assertEqual(seen, [("E000", ("ICD9CM", "ICD10CM")),
+                                ("V1582", ("ICD9CM", "ICD10CM")),
+                                ("E11", ("ICD9CM", "ICD10CM")),
+                                ("I10", both)])
+
+    def test_real_vocabularies(self):
+        from pyhealth.medcode import InnerMap
+
+        try:
+            InnerMap.load("ICD9CM")
+            InnerMap.load("ICD10CM")
+        except Exception as e:  # noqa: BLE001 - e.g. offline without a cache
+            self.skipTest(f"vocabularies unavailable: {e}")
+        describe = CodeDescriber()
+        both = ("ICD10CM", "ICD9CM")
+        self.assertEqual(describe("4019", both),
+                         "Unspecified essential hypertension")
+        self.assertEqual(describe("V1582", both),
+                         "Personal history of tobacco use")  # ICD-9 V-code
+        self.assertEqual(describe("E8490", both), "Home accidents")  # ICD-9 E
+        self.assertEqual(describe("E119", both),
+                         "Type 2 diabetes mellitus without complications")
+        # E000 is a code in both: the version decides
+        self.assertEqual(describe("9_E000", both), "External cause status")
+        self.assertEqual(describe("10_E000", both),
+                         "Congenital iodine-deficiency syndrome, neurological type")
+
     def test_prefixed_codes_are_grouped_by_vocabulary(self):
         task = EHRTextSerializationTask(_EHRShotLikeTask(), describer=OFFLINE,
                                         demographics=None)
@@ -378,6 +434,11 @@ class TestLLMEHREncoder(unittest.TestCase):
         torch.testing.assert_close(again.embed(["a", "bb", "a"]), first)
         self.assertEqual(calls, [])  # read from disk
         torch.testing.assert_close(first.norm(dim=-1), torch.ones(3))
+        lean = LLMEHREncoder(self.dataset, embed_fn=embed_fn, cache_dir=cache,
+                             cache_name="stub", memoize=False)
+        calls.clear()
+        torch.testing.assert_close(lean.embed(["a", "bb"]), first[:2])
+        self.assertEqual((calls, lean._memo), ([], {}))  # from disk, not kept
         other = LLMEHREncoder(self.dataset, embed_fn=embed_fn, cache_dir=cache,
                               cache_name="stub", instruction="Predict death")
         calls.clear()
