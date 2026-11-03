@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import hashlib
 import os
-import tempfile
 from collections.abc import Callable, Sequence
 from typing import Any
 
@@ -28,6 +27,7 @@ from torch import nn
 from ..datasets import SampleDataset
 from ..tasks.ehr_text_serialization import _name
 from .base_model import BaseModel
+from .utils import save_array_atomically
 
 POOLING_MODES = ("last", "mean", "cls")
 
@@ -40,21 +40,6 @@ def qwen3_instruction(task: str, text: str) -> str:
         'Instruct: Predict in-hospital mortality\\nQuery:# EHR'
     """
     return f"Instruct: {task}\nQuery:{text}"
-
-
-def _save_atomically(path: str, array: np.ndarray) -> None:
-    """Saves ``array`` to ``path`` so readers never see a partial file."""
-    directory = os.path.dirname(path)
-    os.makedirs(directory, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=directory, suffix=".tmp")
-    try:
-        with os.fdopen(fd, "wb") as f:
-            np.save(f, array)
-        os.replace(tmp, path)
-    except BaseException:
-        if os.path.exists(tmp):
-            os.remove(tmp)
-        raise
 
 
 class LLMEHREncoder(BaseModel):
@@ -286,7 +271,7 @@ class LLMEHREncoder(BaseModel):
                 found[key] = vector
                 path = self._cache_path(key)
                 if path:
-                    _save_atomically(path, vector.numpy())
+                    save_array_atomically(path, vector.numpy())
         if self.memoize:
             self._memo.update(found)
         return torch.stack([found[k] for k in keys]).to(self.device)

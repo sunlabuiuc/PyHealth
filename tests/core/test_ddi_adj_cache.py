@@ -27,7 +27,7 @@ from packaging import version
 import pyhealth.models
 from pyhealth.datasets import create_sample_dataset, get_dataloader
 from pyhealth.metrics import multilabel_metrics_fn
-from pyhealth.models.utils import save_ddi_adj
+from pyhealth.models.utils import save_array_atomically, save_ddi_adj
 from pyhealth.trainer import Trainer, get_metrics_fn, model_metrics_kwargs
 
 
@@ -226,7 +226,7 @@ class TestMICRONDDIMatrix(_ModelDDIMatrixMixin, _EvaluateDDIMixin, unittest.Test
     model_name = "MICRON"
 
 
-class TestMoleRecDDIMatrix(_ModelDDIMatrixMixin, unittest.TestCase):
+class TestMoleRecDDIMatrix(_ModelDDIMatrixMixin, _EvaluateDDIMixin, unittest.TestCase):
     model_name = "MoleRec"
 
     def setUp(self):
@@ -309,6 +309,21 @@ class TestSaveDDIAdj(unittest.TestCase):
         np.testing.assert_array_equal(returned, np.zeros((2, 2)))
         np.testing.assert_array_equal(np.load(self.path), np.eye(3))
         self.assertEqual(os.listdir(self.dir), ["ddi_adj.npy"])
+
+    def test_save_array_atomically_creates_dirs_and_reports_result(self):
+        nested = os.path.join(self.dir, "ab", "key.npy")
+        self.assertTrue(save_array_atomically(nested, np.arange(4)))
+        np.testing.assert_array_equal(np.load(nested), np.arange(4))
+        self.assertEqual(os.listdir(os.path.dirname(nested)), ["key.npy"])
+        stuck = patch(
+            "pyhealth.models.utils.os.replace",
+            side_effect=PermissionError("file in use"),
+        )
+        no_sleep = patch("pyhealth.models.utils.time.sleep")
+        warns = self.assertWarns(RuntimeWarning)
+        with stuck, no_sleep, warns:
+            self.assertFalse(save_array_atomically(nested, np.zeros(2)))
+        np.testing.assert_array_equal(np.load(nested), np.arange(4))
 
     def test_concurrent_readers_never_see_a_partial_file(self):
         small, large = np.eye(3), np.ones((400, 400))
