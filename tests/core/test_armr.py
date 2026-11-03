@@ -1,0 +1,137 @@
+import unittest
+
+import torch
+
+from pyhealth.datasets import create_sample_dataset, get_dataloader
+from pyhealth.models import ARMR
+from pyhealth.models.armr import PiecewiseTemporalLearning, _reverse_padded
+
+SCHEMA = {
+    "conditions": "nested_sequence",
+    "procedures": "nested_sequence",
+    "drugs_hist": "nested_sequence",
+}
+
+
+def _samples():
+    return [
+        {"patient_id": "p0", "visit_id": "v0",
+         "conditions": [["d1", "d2"], ["d3"]],
+         "procedures": [["p1"], ["p2"]],
+         "drugs_hist": [["A01A"], []],
+         "drugs": ["A01A", "B01A"]},
+        # a long history: more visits than n_recent, so the Mamba branch runs
+        {"patient_id": "p1", "visit_id": "v1",
+         "conditions": [["d2"], ["d1"], ["d3"], ["d1"], ["d2"]],
+         "procedures": [["p2"], ["p1"], ["p1"], ["p2"], ["p1"]],
+         "drugs_hist": [["B01A"], ["C03C", "A01A"], ["B01A"], ["A01A"], []],
+         "drugs": ["C03C", "N02B"]},
+        # a single visit: no drug history at all
+        {"patient_id": "p2", "visit_id": "v2",
+         "conditions": [["d3"]],
+         "procedures": [["p1"]],
+         "drugs_hist": [[]],
+         "drugs": ["N02B"]},
+    ]
+
+
+class TestARMR(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.dataset = create_sample_dataset(
+            samples=_samples(), input_schema=SCHEMA,
+            output_schema={"drugs": "multilabel"}, dataset_name="armr",
+        )
+        cls.batch = next(iter(get_dataloader(cls.dataset, batch_size=3)))
+
+    def test_forward_shapes_with_and_without_graphs(self):
+        for use_graph in (False, True):
+            torch.manual_seed(0)
+            model = ARMR(self.dataset, embedding_dim=16, use_graph=use_graph)
+            out = model(**self.batch)
+            self.assertEqual(out["y_prob"].shape, (3, 4))
+            self.assertEqual(out["logit"].shape, (3, 4))
+            self.assertEqual(out["y_true"].shape, (3, 4))
+            self.assertEqual(out["loss"].dim(), 0)
+            self.assertTrue(((out["y_prob"] >= 0) & (out["y_prob"] <= 1)).all())
+            out["loss"].backward()
+            grads = [p.grad for p in model.parameters() if p.grad is not None]
+            self.assertTrue(grads)
+            self.assertFalse(any(torch.isnan(g).any() for g in grads))
+
+    def test_training_reduces_the_loss(self):
+        torch.manual_seed(0)
+        model = ARMR(self.dataset, embedding_dim=16, use_graph=False, dropout=0.0)
+        optimizer = torch.optim.Adam(model.parameters(), lr=1e-2)
+        first = None
+        for _ in range(20):
+            optimizer.zero_grad()
+            loss = model(**self.batch)["loss"]
+            loss.backward()
+            optimizer.step()
+            first = first if first is not None else loss.item()
+        self.assertLess(loss.item(), first * 0.5)
+
+    def test_inference_without_labels(self):
+        model = ARMR(self.dataset, embedding_dim=16, use_graph=False)
+        model.eval()
+        batch = {k: v for k, v in self.batch.items() if k != "drugs"}
+        with torch.no_grad():
+            out = model(**batch)
+        self.assertEqual(sorted(out), ["logit", "y_prob"])
+
+    def test_loss_is_the_weighted_bce_and_margin(self):
+        model = ARMR(self.dataset, embedding_dim=16, use_graph=False, alpha=1.0)
+        logit = torch.tensor([[2.0, -1.0, 0.5, -3.0]])
+        y = torch.tensor([[1.0, 0.0, 1.0, 0.0]])
+        bce = torch.nn.functional.binary_cross_entropy_with_logits(logit, y)
+        self.assertAlmostEqual(
+            model._loss(torch.sigmoid(logit), logit, y).item(), bce.item(), places=6
+        )
+        # the margin term alone: pairs (positive i, negative j), divided by |M|
+        model.alpha = 0.0
+        prob = torch.tensor([[0.9, 0.1, 0.6, 0.2]])
+        expected = sum(
+            max(0.0, 1 - (prob[0, i] - prob[0, j]).item())
+            for i in (0, 2) for j in (1, 3)
+        ) / 4
+        self.assertAlmostEqual(
+            model._loss(prob, logit, y).item(), expected, places=6
+        )
+
+    def test_drug_history_splits_reused_and_new_drugs(self):
+        model = ARMR(self.dataset, embedding_dim=16, use_graph=False)
+        hist = self.batch["drugs_hist"]
+        multihot = model._drug_history(hist, hist.size(1))
+        vocab = self.dataset.output_processors["drugs"].label_vocab
+        # patient p1: B01A, then C03C and A01A (both new), then B01A and
+        # A01A again (both reused)
+        p1 = multihot[1]
+        self.assertEqual(p1[0, vocab["B01A"]].item(), 1.0)
+        self.assertEqual(p1[1, vocab["C03C"]].item(), 1.0)
+        seen_before = torch.cumsum(p1, 0) - p1 > 0
+        reused = p1 * seen_before
+        self.assertEqual(reused[2, vocab["B01A"]].item(), 1.0)
+        self.assertEqual(reused[1].sum().item(), 0.0)
+
+
+class TestPiecewiseTemporalLearning(unittest.TestCase):
+    def test_reverse_padded_keeps_padding_last(self):
+        x = torch.arange(8.0).view(2, 4, 1)
+        out = _reverse_padded(x, torch.tensor([3, 1]))
+        self.assertEqual(out[0, :, 0].tolist(), [2.0, 1.0, 0.0, 3.0])
+        self.assertEqual(out[1, :, 0].tolist(), [4.0, 5.0, 6.0, 7.0])
+
+    def test_output_shape_and_padding_independence(self):
+        torch.manual_seed(0)
+        ptl = PiecewiseTemporalLearning(dim=8, n_recent=2).eval()
+        seq = torch.randn(1, 5, 8)
+        out = ptl(seq, torch.tensor([5]))
+        self.assertEqual(out.shape, (1, 4, 8))
+        # extra padded visits do not change the result
+        padded = torch.cat([seq, torch.randn(1, 3, 8)], dim=1)
+        self.assertTrue(torch.allclose(out, ptl(padded, torch.tensor([5])), atol=1e-6))
+
+
+if __name__ == "__main__":
+    unittest.main()

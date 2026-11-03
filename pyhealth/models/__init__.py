@@ -13,6 +13,7 @@ from .sequence_embedding import (
     PretrainedEmbedding as PretrainedEmbedding,
     SequenceEmbeddingModel as SequenceEmbeddingModel,
 )
+from .armr import ARMR as ARMR
 from .gamenet import GAMENet, GAMENetLayer
 from .jamba_ehr import JambaEHR, JambaLayer
 from .logistic_regression import LogisticRegression

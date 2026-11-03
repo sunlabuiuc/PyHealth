@@ -154,7 +154,7 @@ default loss with ``set_pos_weight``:
 ``"balanced"`` is computed from the dataset you pass, so pass the training split,
 not the full dataset. The weight applies to models that use the default loss
 (``BaseModel.get_loss_function``); the drug-recommendation models (GAMENet,
-SafeDrug, MoleRec, MICRON) compute their own loss and ignore it. Weighting
+SafeDrug, MoleRec, MICRON, ARMR) compute their own loss and ignore it. Weighting
 shifts the predicted probabilities upward, so check calibration before
 interpreting them as risks. See ``examples/imbalanced_outcome_pos_weight.py``.
 
@@ -225,6 +225,7 @@ API Reference
     models/pyhealth.models.MICRON
     models/pyhealth.models.SafeDrug
     models/pyhealth.models.MoleRec
+    models/pyhealth.models.ARMR
     models/pyhealth.models.Deepr
     models/pyhealth.models.EHRMamba
     models/pyhealth.models.EHRMambaCEHR
