@@ -98,6 +98,51 @@ class TestFrozenTextCache(unittest.TestCase):
         self.assertEqual(enc.calls, 2)
         self.assertTrue(torch.equal(h1, h2))
 
+    def test_counters_track_hits_and_misses(self):
+        model, enc = self._cached()
+        ids = torch.tensor([[1, 2, 3], [4, 5, 6]])
+        model._encode_text_cls("notes", enc, ids, None)
+        self.assertEqual(
+            model.frozen_text_cache_stats,
+            {"hits": 0, "misses": 2, "size": 2},
+        )
+        model._encode_text_cls("notes", enc, ids, None)
+        self.assertEqual(
+            model.frozen_text_cache_stats,
+            {"hits": 2, "misses": 2, "size": 2},
+        )
+        model.reset_frozen_text_cache_stats()
+        self.assertEqual(
+            model.frozen_text_cache_stats,
+            {"hits": 0, "misses": 0, "size": 2},
+        )
+
+    def test_shuffled_row_order_still_hits(self):
+        model, enc = self._cached()
+        ids = torch.tensor([[1, 2, 3], [4, 5, 6]])
+        h1 = model._encode_text_cls("notes", enc, ids, None)
+        calls_after_first = enc.calls
+        h2 = model._encode_text_cls("notes", enc, ids.flip(0), None)
+        self.assertEqual(enc.calls, calls_after_first)
+        self.assertTrue(torch.equal(h2[0], h1[1]))
+        self.assertTrue(torch.equal(h2[1], h1[0]))
+
+    def test_none_cap_is_uncapped(self):
+        model, enc = self._cached(max_frozen_text_cache=None)
+        ids = torch.tensor([[1], [2], [3]])
+        model._encode_text_cls("notes", enc, ids, None)
+        self.assertEqual(model.frozen_text_cache_size, 3)
+
+    def test_zero_cap_is_uncapped(self):
+        model, enc = self._cached(max_frozen_text_cache=0)
+        ids = torch.tensor([[1], [2]])
+        model._encode_text_cls("notes", enc, ids, None)
+        self.assertEqual(model.frozen_text_cache_size, 2)
+
+    def test_default_cap_is_one_million(self):
+        model, _ = self._cached()
+        self.assertEqual(model.max_frozen_text_cache, 1_000_000)
+
     def test_empty_rows_return_zeros_without_encoding(self):
         model, enc = self._cached()
         out = model._encode_text_cls(
@@ -122,9 +167,7 @@ class TestFrozenTextCache(unittest.TestCase):
         # Different first tokens -> different [CLS]; a collision would
         # have returned h1 for both rows.
         self.assertFalse(torch.equal(h1, h2))
-        self.assertEqual(
-            sum(len(c) for c in model._frozen_text_cache.values()), 2
-        )
+        self.assertEqual(model.frozen_text_cache_size, 2)
 
 
 if __name__ == "__main__":

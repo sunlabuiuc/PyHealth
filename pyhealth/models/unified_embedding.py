@@ -22,6 +22,7 @@ Quickstart::
 """
 from __future__ import annotations
 
+import logging
 import math
 import warnings
 from contextlib import nullcontext
@@ -33,6 +34,13 @@ import torch.nn as nn
 
 from pyhealth.processors.base_processor import ModalityType, TemporalFeatureProcessor
 from pyhealth.models.vision_embedding import PatchEmbedding
+
+logger = logging.getLogger(__name__)
+
+# Frozen [CLS] is 768-d float32 on CPU. Python tensor objects add overhead;
+# treat 8 KB/entry as a conservative host-RAM estimate when logging.
+_CLS_BYTES = 768 * 4
+_CACHE_LOG_SIZES = {1, 10_000, 50_000, 100_000, 200_000, 500_000, 1_000_000, 2_000_000}
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -176,9 +184,11 @@ class UnifiedMultimodalEmbeddingModel(nn.Module):
             decision.
         cache_frozen_text: If True, reuse frozen ``[CLS]`` vectors across
             forwards instead of re-running the text encoder. Defaults to True.
-        max_frozen_text_cache: Maximum cached ``[CLS]`` vectors. Rows past the
-            cap are re-encoded each forward; notes are never dropped.
-            Defaults to 200000.
+        max_frozen_text_cache: Maximum cached ``[CLS]`` vectors
+            (``None`` or ``<= 0`` means no cap). Rows past the cap are
+            re-encoded each forward; notes are never dropped. The cap is a
+            RAM fuse, not a speedup knob: speedup needs cap >= unique notes.
+            Defaults to 1000000.
         numeric_standardizers: Optional mapping of NUMERIC/SIGNAL field names
             to modules called as ``standardizer(value, observed)`` BEFORE the
             projection, where ``observed`` comes from the sibling
@@ -230,7 +240,7 @@ class UnifiedMultimodalEmbeddingModel(nn.Module):
         freeze_text_encoder: bool = False,
         normalize_content: bool = True,
         cache_frozen_text: bool = True,
-        max_frozen_text_cache: int = 200_000,
+        max_frozen_text_cache: int | None = 1_000_000,
         numeric_standardizers: dict[str, Any] | None = None,
     ):
         super().__init__()
@@ -244,6 +254,8 @@ class UnifiedMultimodalEmbeddingModel(nn.Module):
         self.cache_frozen_text = cache_frozen_text
         self.max_frozen_text_cache = max_frozen_text_cache
         self._frozen_text_cache: dict[str, dict[tuple[int, int], torch.Tensor]] = {}
+        self._frozen_text_cache_hits = 0
+        self._frozen_text_cache_misses = 0
         self.image_pool = image_pool
         self.normalize_content = normalize_content
         # Statistics live in buffers, so they travel in state_dict. A checkpoint
@@ -458,6 +470,39 @@ class UnifiedMultimodalEmbeddingModel(nn.Module):
     def embedding_dim(self) -> int:
         return self._embedding_dim
 
+    @property
+    def frozen_text_cache_size(self) -> int:
+        """Number of cached frozen ``[CLS]`` vectors across fields.
+
+        Example:
+            >>> model.frozen_text_cache_size
+            0
+        """
+        return sum(len(c) for c in self._frozen_text_cache.values())
+
+    @property
+    def frozen_text_cache_stats(self) -> dict[str, int]:
+        """Cache ``hits``, ``misses``, and ``size`` for the A/B timing run.
+
+        Misses count rows not cached before this forward (including
+        duplicates and overflow rows served from the current forward);
+        hits count rows served from the cache.
+
+        Example:
+            >>> sorted(model.frozen_text_cache_stats)
+            ['hits', 'misses', 'size']
+        """
+        return {
+            "hits": self._frozen_text_cache_hits,
+            "misses": self._frozen_text_cache_misses,
+            "size": self.frozen_text_cache_size,
+        }
+
+    def reset_frozen_text_cache_stats(self) -> None:
+        """Zero the ``hits``/``misses`` counters (cache entries are kept)."""
+        self._frozen_text_cache_hits = 0
+        self._frozen_text_cache_misses = 0
+
     def _encode_text_cls(
         self,
         field_name: str,
@@ -476,8 +521,11 @@ class UnifiedMultimodalEmbeddingModel(nn.Module):
         key is ``(hash, real-token length)`` over the token identifiers under
         the attention mask, so a change of tokenizer or truncation budget
         gives a different key; the length is a cheap guard so a hash
-        collision alone cannot silently return the wrong embedding. The cache has a
-        maximum size, and it recalculates a row when the cache is full.
+        collision alone cannot silently return the wrong embedding. ``None`` or
+        ``<= 0`` means no size cap. Default is 1_000_000 (~3 GB of fp32
+        ``[CLS]`` vectors): a RAM fuse, not a speedup knob. A smaller cap
+        than the unique-note count makes overflow notes re-run BERT every
+        epoch. Notes are never dropped from the sequence.
 
         Key on the REAL tokens only. The collator pads each row to the widest
         note in its batch, and batch composition changes every epoch because
@@ -502,6 +550,7 @@ class UnifiedMultimodalEmbeddingModel(nn.Module):
             return out.last_hidden_state[:, 0, :]
 
         cache = self._frozen_text_cache.setdefault(field_name, {})
+        pre_cached = set(cache)
         ids_cpu = flat_ids.detach().cpu()
         mask_cpu = (
             flat_mask.detach().cpu().to(torch.int8)
@@ -527,7 +576,7 @@ class UnifiedMultimodalEmbeddingModel(nn.Module):
         missing = list(first_row_of_key.values())
         # Rows encoded in this forward, kept even when the cache is full so a
         # miss is never encoded twice in one call.
-        fresh_rows: dict[int, torch.Tensor] = {}
+        fresh_rows: dict[tuple[int, int], torch.Tensor] = {}
         if missing:
             index = torch.tensor(missing, device=flat_ids.device)
             with torch.no_grad():
@@ -542,16 +591,31 @@ class UnifiedMultimodalEmbeddingModel(nn.Module):
                 fresh = out.last_hidden_state[:, 0, :].detach()
             for slot, row in zip(missing, fresh):
                 fresh_rows[keys[slot]] = row
-                if len(cache) < self.max_frozen_text_cache:
+                cap = self.max_frozen_text_cache
+                if cap is None or cap <= 0 or len(cache) < cap:
                     cache[keys[slot]] = row.cpu()
+                    n = len(cache)
+                    if n in _CACHE_LOG_SIZES or (n > 0 and n % 250_000 == 0):
+                        logger.info(
+                            "frozen text cache field=%s size=%d "
+                            "(~%.2f GB fp32 [CLS] tensors, ~%.2f GB with "
+                            "Python overhead). Overflow is re-encoded next "
+                            "forward; notes are never dropped.",
+                            field_name,
+                            n,
+                            n * _CLS_BYTES / 1e9,
+                            n * 8e3 / 1e9,
+                        )
 
         rows = []
         for key in keys:
             hit = cache.get(key)
-            if hit is None:
-                rows.append(fresh_rows[key])
-            else:
+            if key in pre_cached and hit is not None:
+                self._frozen_text_cache_hits += 1
                 rows.append(hit.to(flat_ids.device))
+            else:
+                self._frozen_text_cache_misses += 1
+                rows.append(fresh_rows[key])
         return torch.stack(rows).to(dtype=self.type_embedding.weight.dtype)
 
     def train(self, mode: bool = True) -> UnifiedMultimodalEmbeddingModel:
