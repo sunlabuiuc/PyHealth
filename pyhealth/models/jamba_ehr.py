@@ -15,6 +15,7 @@ import torch.nn as nn
 from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
 from pyhealth.models.embedding import EmbeddingModel
+from pyhealth.datasets.utils import PAD_MASK_SUFFIX
 from pyhealth.models.unified_embedding import UnifiedMultimodalEmbeddingModel
 from pyhealth.models.transformer import TransformerBlock
 from pyhealth.models.ehrmamba import MambaBlock
@@ -305,6 +306,9 @@ class JambaEHR(BaseModel):
                 field_dict["time"] = feature[schema.index("time")].to(self.device)
             if "mask" in schema:
                 field_dict["mask"] = feature[schema.index("mask")].to(self.device)
+            pad_mask = kwargs.get(f"{field_name}{PAD_MASK_SUFFIX}")
+            if pad_mask is not None:
+                field_dict["pad_mask"] = pad_mask.to(self.device)
             inputs[field_name] = field_dict
         return inputs
 

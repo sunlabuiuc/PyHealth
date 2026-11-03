@@ -678,6 +678,7 @@ class UnifiedMultimodalEmbeddingModel(nn.Module):
             #   {field}_mask  a separate FIELD meaning "was this value
             #             observed", consumed by the standardiser below.
             mask = feat_dict.get("mask")
+            pad_mask = feat_dict.get("pad_mask")
 
             if time is None:
                 # Fallback: treat every event as occurring at t=0
@@ -735,12 +736,36 @@ class UnifiedMultimodalEmbeddingModel(nn.Module):
                     )
 
             elif modality == ModalityType.TEXT:
+                # Collate pads note slots to the longest sample in the batch.
+                # Running BERT on those empty rows is what OOM'd batch-32
+                # notes_labs on a 48 GB GPU (~B*N=full pad width, L=512).
                 b, n, l = value.shape
-                flat_ids = value.view(b * n, l)
-                flat_mask = mask.view(b * n, l) if mask is not None else None
-                cls_emb = self._encode_text_cls(
-                    field_name, encoder, flat_ids, flat_mask
-                )  # (B*N, H)
+                flat_ids = value.reshape(b * n, l)
+                flat_attn = mask.reshape(b * n, l) if mask is not None else None
+                if pad_mask is not None:
+                    valid = pad_mask.reshape(b * n).bool()
+                elif flat_attn is not None:
+                    valid = flat_attn.any(dim=-1)
+                else:
+                    valid = torch.ones(
+                        b * n, dtype=torch.bool, device=value.device
+                    )
+                hidden = encoder.config.hidden_size
+                first_param = next(encoder.parameters(), None)
+                param_dtype = (
+                    first_param.dtype if first_param is not None
+                    else torch.get_default_dtype()
+                )
+                cls_emb = value.new_zeros((b * n, hidden), dtype=param_dtype)
+                if valid.any():
+                    h = self._encode_text_cls(
+                        field_name,
+                        encoder,
+                        flat_ids[valid],
+                        flat_attn[valid] if flat_attn is not None else None,
+                    )
+                    cls_emb = cls_emb.to(dtype=h.dtype)
+                    cls_emb[valid] = h
                 if field_name in self.projections:
                     cls_emb = self.projections[field_name](cls_emb)
                 # cls_emb.shape[-1] instead of -1: when b*n == 0 (no note
@@ -749,16 +774,27 @@ class UnifiedMultimodalEmbeddingModel(nn.Module):
                 emb = cls_emb.view(b, n, cls_emb.shape[-1])  # (B, N, E')
 
             elif modality == ModalityType.IMAGE:
+                # encoder = Sequential(PatchEmbedding, _MeanPool) -> (B*N, E')
                 b, n, c, h, w = value.shape
-                flat_imgs = value.view(b * n, c, h, w)
+                flat_imgs = value.reshape(b * n, c, h, w)
                 if b * n == 0:
                     # No image slots in this batch. reshape(0, -1) is
                     # ambiguous since -1 can be any value for 0 elements.
-                    img_emb = value.new_zeros((0, self._embedding_dim))
+                    valid = torch.zeros(b * n, dtype=torch.bool, device=value.device)
+                elif pad_mask is not None:
+                    valid = pad_mask.reshape(b * n).bool()
                 else:
-                    img_emb = encoder(flat_imgs)               # (B*N, E')
+                    valid = flat_imgs.reshape(b * n, -1).abs().sum(dim=-1) > 0
+                if valid.any():
+                    img_valid = encoder(flat_imgs[valid])
+                    emb_dim = img_valid.shape[-1]
+                    img_emb = img_valid.new_zeros((b * n, emb_dim))
+                    img_emb[valid] = img_valid
+                else:
+                    emb_dim = self._embedding_dim
+                    img_emb = value.new_zeros((b * n, emb_dim))
                 # Explicit dim instead of -1: same 0-element ambiguity.
-                emb = img_emb.view(b, n, img_emb.shape[-1])
+                emb = img_emb.view(b, n, emb_dim)  # (B, N, E')
 
             else:  # NUMERIC / SIGNAL
                 # Standardise BEFORE the projection. The projection mixes the
@@ -794,7 +830,19 @@ class UnifiedMultimodalEmbeddingModel(nn.Module):
                 emb = encoder(value)  # (B, T, E')
 
             # ── Build event-level validity mask ───────────────────────────
-            if mask is None:
+            if pad_mask is not None:
+                # The collator is authoritative about batch padding.
+                event_mask = pad_mask.to(emb.device).float()
+                if event_mask.shape[1] != emb.shape[1]:
+                    # A nested CODE field was flattened to (B, S*C); repeat the
+                    # event flags along the same axis.
+                    repeat = emb.shape[1] // event_mask.shape[1]
+                    event_mask = (
+                        event_mask.unsqueeze(-1)
+                        .expand(-1, -1, repeat)
+                        .reshape(emb.shape[0], -1)
+                    )
+            elif mask is None:
                 event_mask = torch.ones(emb.shape[:2], device=emb.device)
             else:
                 if mask.dim() > time.dim():
@@ -821,13 +869,20 @@ class UnifiedMultimodalEmbeddingModel(nn.Module):
         cat_types = torch.cat(all_types,      dim=1)   # (B, S_total)
 
         # ── Sort by time ──────────────────────────────────────────────────
-        sort_idx   = cat_time.argsort(dim=1)
-        cat_emb    = cat_emb.gather(
-            1, sort_idx.unsqueeze(-1).expand_as(cat_emb)
-        )
-        cat_time   = cat_time.gather(1, sort_idx)
-        cat_mask   = cat_mask.gather(1, sort_idx)
-        cat_types  = cat_types.gather(1, sort_idx)
+        # Padding carries time 0.0, so a plain ascending sort places it BEFORE
+        # every real event. Push invalid slots past every real one to keep the
+        # sequence left-aligned, which is what all consumers assume.
+        #
+        # Stable, because the key is heavily tied: all padding shares time 0.0
+        # and events from one admission share offsets. An unstable sort makes
+        # event order differ between torch builds and between CPU and CUDA,
+        # silently changing RNN and Mamba outputs.
+        sort_key = cat_time.masked_fill(~cat_mask.bool(), float("inf"))
+        sort_idx = sort_key.argsort(dim=1, stable=True)
+        cat_emb = cat_emb.gather(1, sort_idx.unsqueeze(-1).expand_as(cat_emb))
+        cat_time = cat_time.gather(1, sort_idx)
+        cat_mask = cat_mask.gather(1, sort_idx)
+        cat_types = cat_types.gather(1, sort_idx)
 
         # ── Add time + type embeddings ────────────────────────────────────
         time_emb = self.time_embed(cat_time)  # (B, S_total, E')
