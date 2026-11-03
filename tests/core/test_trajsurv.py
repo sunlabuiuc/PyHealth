@@ -87,6 +87,9 @@ class TestSurvivalMetrics(unittest.TestCase):
         with self.assertRaises(ValueError):
             survival_metrics_fn(duration, event, -scale[:, 0], survival=survival,
                                 time_grid=grid, times=[61.0])
+        with self.assertRaisesRegex(ValueError, "time_grid is needed"):
+            survival_metrics_fn(duration, event, -scale[:, 0], survival=survival,
+                                times=[7.0])
 
     def test_ipcw_brier_hand_checked(self):
         # Censoring KM: G = 1 before t=2, 0.5 from t=2 (one of two at risk).
