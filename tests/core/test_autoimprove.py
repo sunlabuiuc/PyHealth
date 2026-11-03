@@ -30,6 +30,7 @@ from pyhealth.autoimprove import (
     unverified_numbers,
     with_xgboost,
 )
+from pyhealth.autoimprove import space as space_module
 from pyhealth.autoimprove.evaluate import patient_folds
 from pyhealth.autoimprove.proposers import ProposalContext, parse_json
 from pyhealth.datasets import create_sample_dataset
@@ -831,6 +832,62 @@ class TestExplainedRuns(unittest.TestCase):
             self.assertIn("no starting pipeline", rule)
 
 
+    def test_runs_started_with_another_space_are_resumed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            def improver(n_cycles):
+                return AutoImprover(
+                    self.train, self.val, RandomProposer(seed=0),
+                    baseline=PipelineConfig("LogisticRegression",
+                                            {"embedding_dim": 16}),
+                    space=SPACE, n_agents=1, n_cycles=n_cycles, run_dir=tmp,
+                    check=False,
+                )
+
+            improver(1).run()
+            path = os.path.join(tmp, "meta.json")
+            with open(path) as f:
+                meta = json.load(f)
+            # the ladder's wording is not part of the fingerprint
+            self.assertNotIn("rung", meta["space"])
+            self.assertEqual(meta["space"].splitlines()[0],
+                             "Models and their arguments:")
+            # a run written with an older space (e.g. XGBoost's depth from 2)
+            meta["space"] = meta["space"].replace("[16, 256]", "[8, 256]")
+            with open(path, "w") as f:
+                json.dump(meta, f)
+            with self.assertLogs("pyhealth.autoimprove.improver", "WARNING") as logs:
+                result = improver(2).run()
+            self.assertIn("different search space", "\n".join(logs.output))
+            self.assertEqual(len(result.trials), 3)
+            with open(path) as f:
+                self.assertEqual(json.load(f)["space"],
+                                 SPACE.describe(rungs=False))
+
+    def test_attribution_against_the_default_settings(self):
+        # the trial's model differs from the baseline's: settings are reverted
+        # to the model's defaults
+        def fake_cv(config, space, train, val, metric, folds, *args, **kwargs):
+            mean = 0.50 + (0.04 if config.model_params.get("max_depth") == 2 else 0)
+            return {"metrics": {metric: mean},
+                    "fold_scores": [mean - 0.01, mean, mean + 0.01],
+                    "seconds": 0.0, "n_params": 0}
+
+        llm = ScriptedLLM([_reply({"model": "XGBoost",
+                                   "model_params": {"max_depth": 2}})])
+        with mock.patch("pyhealth.autoimprove.improver.run_config_cv", fake_cv):
+            improver = AutoImprover(
+                self.train, self.val, LLMProposer(llm),
+                baseline=PipelineConfig("LogisticRegression", {"embedding_dim": 16}),
+                space=with_xgboost(SPACE), n_agents=1, n_cycles=1, cv_folds=3,
+                check=False,
+            )
+            self.assertEqual(improver.run().best.trial_id, 1)
+            out = improver.attribute()
+        self.assertEqual(out["reference"], "the default settings of XGBoost")
+        self.assertEqual([r["setting"] for r in out["rows"]], ["max_depth"])
+        self.assertEqual((out["rows"][0]["from"], out["rows"][0]["to"]), (4, 2))
+        self.assertAlmostEqual(out["rows"][0]["contribution"], 0.04)
+
     def test_number_checker(self):
         trials = [Trial(0, -1, "baseline", "baseline", PipelineConfig("MLP"),
                         score=0.2164),
@@ -932,6 +989,27 @@ class TestReportIntegrity(unittest.TestCase):
         self.assertEqual((on.data["selected"], on.data["top"]), (1, 2))
         self.assertEqual((off.data["selected"], off.data["top"]), (2, 2))
         self.assertNotIn("Price of interpretability", off.to_markdown())
+
+    def test_xgboost_rung_uses_the_default_depth(self):
+        default, _ = self.SPACE.validate(PipelineConfig("XGBoost"))
+        self.assertEqual(default.model_params["max_depth"], 4)
+        # a config without max_depth is ranked as the model validate() builds
+        self.assertEqual(self.SPACE.rung(PipelineConfig("XGBoost")),
+                         self.SPACE.rung(default))
+        with mock.patch.object(space_module, "_XGB_DEPTH",
+                               Param("int", 1, 10, default=2)):
+            self.assertEqual(self.SPACE.rung(PipelineConfig("XGBoost")), 3)
+
+    def test_llm_text_is_escaped_in_html(self):
+        trials = self._trials()
+        trials[1].config.rationale = "<script>alert(1)</script> & more"
+        trials[1].config.hypothesis = {"expected": "<img src=x onerror=1>"}
+        report = self._report(trials, task="- <b>task</b>",
+                              lessons=["<iframe> lesson"])
+        page = report.to_html()
+        for raw in ("<script>", "<img", "<b>task", "<iframe>"):
+            self.assertNotIn(raw, page)
+        self.assertIn("&lt;script&gt;alert(1)&lt;/script&gt; &amp; more", page)
 
     def test_load_run_on_an_old_directory(self):
         with tempfile.TemporaryDirectory() as tmp:

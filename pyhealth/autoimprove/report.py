@@ -259,7 +259,13 @@ def build_report(
         >>> build_report([base], metric="pr_auc").sections[0].title
         'Summary'
     """
-    from .improver import FOLD_TIE, paired_gain, select_simplest, select_trial
+    from .improver import (
+        FOLD_TIE,
+        _one_se_sets,
+        paired_gain,
+        select_simplest,
+        select_trial,
+    )
 
     space = space or with_xgboost(SearchSpace())
     sign = 1 if maximize else -1
@@ -300,16 +306,13 @@ def build_report(
         return gain, se, better, len(a.fold_scores)
 
     gains = {t.trial_id: vs(t, reference) for t in done}
-    candidates = {reference.trial_id} | {
-        t.trial_id for t in done
-        if cv and t is not reference and gains[t.trial_id][1] is not None
-        and (baseline is None
-             or gains[t.trial_id][0] - promote_se * gains[t.trial_id][1] > 0)
-    }
-    near = {
-        t.trial_id for t in done
-        if t.trial_id in candidates and (t is top or (cv and vs(top, t)[0] < vs(top, t)[1]))
-    }
+    # the sets the selection chose from, so the report cannot drift from it
+    if cv:
+        cands, _, close = _one_se_sets(done, maximize, promote_se, top=top)
+        candidates = {reference.trial_id} | {t.trial_id for t in cands}
+        near = {t.trial_id for t in close}
+    else:
+        candidates, near = {reference.trial_id}, {top.trial_id} & {reference.trial_id}
     ctx = {
         "metric": metric, "sign": sign, "reference": reference, "selected": selected,
         "top": top, "gains": gains, "candidates": candidates, "near": near,
