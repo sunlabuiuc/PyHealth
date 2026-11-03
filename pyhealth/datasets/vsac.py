@@ -14,6 +14,8 @@ Description: Loads value sets downloaded from the NLM Value Set Authority
 import hashlib
 import json
 import logging
+import os
+import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -21,6 +23,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+import requests
 
 from ..tasks.value_set_completion import normalize_code_system
 from .base_dataset import BaseDataset
@@ -31,6 +34,11 @@ logger = logging.getLogger(__name__)
 VALUESETS_FILE = "vsac-valuesets.csv"
 CODES_FILE = "vsac-codes.csv"
 MANIFEST_FILE = "split_manifest.jsonl"
+RESOURCES_DIR = "resources"
+FHIR_BASE = "https://cts.nlm.nih.gov/fhir"
+PAGE_SIZE = 1000  # VSAC's maximum codes per $expand response
+_REQUEST_DELAY = 0.12  # seconds between requests, as in the RASC download script
+_TIMEOUT = 60
 VALUESET_COLUMNS = [
     "oid",
     "title",
@@ -72,6 +80,63 @@ def infer_value_set_type(systems: Sequence[str]) -> str:
     return _SYSTEM_TYPES.get(primary, "Other/Unknown")
 
 
+def _get_json(
+    session: requests.Session, path: str, params: dict[str, int] | None = None
+) -> dict[str, Any]:
+    """GETs one VSAC FHIR endpoint and returns its JSON body.
+
+    Args:
+        session: Session carrying the UMLS API key.
+        path: Path under ``FHIR_BASE``.
+        params: Query parameters.
+
+    Returns:
+        The decoded response.
+
+    Raises:
+        requests.HTTPError: On a non-2xx response.
+    """
+    response = session.get(f"{FHIR_BASE}/{path}", params=params, timeout=_TIMEOUT)
+    response.raise_for_status()
+    time.sleep(_REQUEST_DELAY)
+    return response.json()
+
+
+def _fetch_expansion(
+    session: requests.Session, oid: str, paginate: bool
+) -> dict[str, Any]:
+    """Fetches a value set's ``$expand`` response, optionally every page.
+
+    Args:
+        session: Session carrying the UMLS API key.
+        oid: Value set id; a dated id pins that version.
+        paginate: Request further pages until ``expansion.total`` codes are
+            held. ``False`` keeps the first page only, as the RASC download
+            script does.
+
+    Returns:
+        The ValueSet resource, with all fetched codes in
+        ``expansion.contains``.
+
+    Raises:
+        requests.HTTPError: On a non-2xx response.
+        RuntimeError: If a page comes back empty before ``total`` is reached.
+    """
+    path = f"ValueSet/{oid}/$expand"
+    resource = _get_json(session, path, {"offset": 0, "count": PAGE_SIZE})
+    expansion = resource.setdefault("expansion", {})
+    contains = expansion.setdefault("contains", [])
+    total = expansion.get("total", len(contains))
+    while paginate and len(contains) < total:
+        page = _get_json(session, path, {"offset": len(contains), "count": PAGE_SIZE})
+        batch = page.get("expansion", {}).get("contains", [])
+        if not batch:
+            raise RuntimeError(f"{oid}: empty page at offset {len(contains)}")
+        contains.extend(batch)
+    expansion["offset"] = 0
+    return resource
+
+
 @dataclass(frozen=True)
 class ValueSetSplit(Split):
     """Splits value sets by a fixed OID-to-split assignment.
@@ -95,11 +160,17 @@ class ValueSetSplit(Split):
     _digest: str = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
+        """Hashes the assignments once for :meth:`to_dict`."""
         payload = json.dumps(sorted(self.assignments.items())).encode()
         object.__setattr__(self, "_digest", hashlib.sha256(payload).hexdigest())
 
-    def to_dict(self) -> dict:
-        """JSON-serialisable description, used in cache keys and metadata."""
+    def to_dict(self) -> dict[str, Any]:
+        """Describes the split for cache keys and metadata.
+
+        Returns:
+            A JSON-serializable dict with the parts and a SHA-256 digest of
+            the assignments.
+        """
         return {
             "kind": "value_set",
             "parts": list(self.parts),
@@ -126,22 +197,85 @@ class ValueSetSplit(Split):
         return [np.array(sorted(b), dtype=np.int64) for b in buckets]
 
 
-def _read_manifest(path: Path) -> dict[str, dict]:
+def _read_manifest(path: Path) -> dict[str, dict[str, Any]]:
+    """Reads ``split_manifest.jsonl`` into OID -> row; empty if the file is absent.
+
+    Args:
+        path: Manifest path.
+
+    Returns:
+        One row per OID with ``split`` and optionally ``type`` and ``publisher``.
+
+    Raises:
+        ValueError: If a line is not JSON or has no ``oid``.
+    """
     if not path.exists():
         return {}
-    rows = (json.loads(line) for line in path.read_text().splitlines() if line.strip())
-    return {row["oid"]: row for row in rows}
+    rows = {}
+    for number, line in enumerate(path.read_text().splitlines(), 1):
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+            rows[row["oid"]] = row
+        except (json.JSONDecodeError, KeyError, TypeError) as error:
+            raise ValueError(f"{path}:{number}: invalid manifest row") from error
+    return rows
 
 
-def _parse_expansion(resource: dict, manifest_row: dict) -> tuple[dict, list[dict]]:
-    oid = resource["id"]
+def _read_resource(path: Path) -> dict[str, Any]:
+    """Loads one ValueSet JSON file, naming the file on failure.
+
+    Args:
+        path: File holding a FHIR ValueSet resource.
+
+    Returns:
+        The parsed resource.
+
+    Raises:
+        ValueError: If the file is not JSON or not a ValueSet object.
+    """
+    try:
+        resource = json.loads(path.read_text())
+    except json.JSONDecodeError as error:
+        raise ValueError(f"{path}: invalid JSON") from error
+    if not isinstance(resource, dict) or resource.get("resourceType") != "ValueSet":
+        raise ValueError(f"{path}: not a FHIR ValueSet resource")
+    return resource
+
+
+def _parse_expansion(
+    oid: str,
+    resource: dict[str, Any],
+    manifest_row: dict[str, Any],
+    metadata: dict[str, Any],
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Flattens one ``$expand`` response into a valuesets row and code rows.
+
+    Args:
+        oid: Value set id, taken from the file name.
+        resource: The ``$expand`` response.
+        manifest_row: The value set's manifest row, or ``{}``.
+        metadata: The plain ``ValueSet/<oid>`` read, or ``{}``. VSAC omits
+            ``purpose`` from ``$expand`` responses, so the description falls
+            back to it.
+
+    Returns:
+        The ``valuesets`` row and one ``codes`` row per member code, with
+        ``rank`` the position in the expansion.
+    """
     expansion = resource.get("expansion", {})
     contains = [c for c in expansion.get("contains", []) if c.get("code")]
     systems = sorted({c["system"] for c in contains if c.get("system")})
     valueset = {
         "oid": oid,
         "title": (resource.get("title") or resource.get("name") or "").strip(),
-        "description": (resource.get("description") or "").strip(),
+        "description": (
+            resource.get("description")
+            or metadata.get("description")
+            or metadata.get("purpose")
+            or ""
+        ).strip(),
         "publisher": manifest_row.get("publisher") or resource.get("publisher", ""),
         "type": manifest_row.get("type") or infer_value_set_type(systems),
         "version": resource.get("version", ""),
@@ -179,11 +313,18 @@ class VSACDataset(BaseDataset):
       reproduce the 1,000-code page limit of an unpaged ``$expand`` call.
 
     ``root`` must hold ``expansions/<oid>.json`` files, each the ValueSet
-    resource returned by ``ValueSet/<oid>/$expand`` (the layout written by the
-    RASC ``download_vsac.py`` script), and optionally ``split_manifest.jsonl``
-    with ``oid``, ``split``, ``type``, and ``publisher`` per line. With a
-    manifest, only its OIDs are loaded and its fields take precedence.
-    The first run flattens these into two CSV files under ``root``.
+    resource returned by ``ValueSet/<oid>/$expand``, as written by
+    :meth:`download_expansions` or the RASC ``download_vsac.py`` script (which
+    keeps only the first 1,000 codes). Optional files:
+
+    - ``resources/<oid>.json``: the plain ValueSet read. ``description``
+      falls back to its ``purpose`` text, which ``$expand`` omits.
+    - ``split_manifest.jsonl``: ``oid``, ``split``, ``type``, and
+      ``publisher`` per line. With a manifest, only its OIDs are loaded and
+      its fields take precedence.
+
+    The file name is the OID. The first run flattens these into two CSV files
+    under ``root``; delete them to rebuild.
 
     Args:
         root: Directory with ``expansions/`` and an optional manifest.
@@ -225,6 +366,74 @@ class VSACDataset(BaseDataset):
         )
 
     @staticmethod
+    def download_expansions(
+        root: str,
+        oids: Sequence[str],
+        api_key: str | None = None,
+        paginate: bool = True,
+        metadata: bool = True,
+        session: requests.Session | None = None,
+    ) -> list[str]:
+        """Downloads value sets from the VSAC FHIR API into ``root``.
+
+        Writes ``expansions/<oid>.json`` and, with ``metadata``,
+        ``resources/<oid>.json`` (the plain ValueSet read, which carries the
+        ``purpose`` text that ``$expand`` omits). Files already on disk are
+        skipped, so an interrupted download resumes.
+
+        Args:
+            root: Dataset directory.
+            oids: Value set ids. Dated ids (``<oid>-<yyyymmdd>``) pin versions,
+                e.g. the RASC release manifest's.
+            api_key: UMLS API key. Defaults to the ``UMLS_API_KEY``
+                environment variable.
+            paginate: Fetch every page. ``False`` keeps only the first 1,000
+                codes, reproducing the RASC benchmark's labels.
+            metadata: Also fetch each value set's ValueSet read.
+            session: HTTP session to use instead of one built from
+                ``api_key``.
+
+        Returns:
+            The OIDs that failed.
+
+        Raises:
+            ValueError: If no API key is given or set and no session is passed.
+
+        Examples:
+            >>> failed = VSACDataset.download_expansions(  # doctest: +SKIP
+            ...     "vsac_data", ["2.16.840.1.113883.3.464.1003.103.12.1001"]
+            ... )
+        """
+        if session is None:
+            api_key = api_key or os.environ.get("UMLS_API_KEY")
+            if not api_key:
+                raise ValueError("Pass api_key or set UMLS_API_KEY.")
+            session = requests.Session()
+            session.auth = ("apikey", api_key)
+            session.headers["Accept"] = "application/json"
+        exp_dir = Path(root) / "expansions"
+        meta_dir = Path(root) / RESOURCES_DIR
+        exp_dir.mkdir(parents=True, exist_ok=True)
+        if metadata:
+            meta_dir.mkdir(parents=True, exist_ok=True)
+        failed = []
+        for oid in oids:
+            exp_path, meta_path = exp_dir / f"{oid}.json", meta_dir / f"{oid}.json"
+            try:
+                if not exp_path.exists():
+                    resource = _fetch_expansion(session, oid, paginate)
+                    exp_path.write_text(json.dumps(resource))
+                if metadata and not meta_path.exists():
+                    resource = _get_json(session, f"ValueSet/{oid}")
+                    resource.pop("compose", None)
+                    meta_path.write_text(json.dumps(resource))
+            except (requests.RequestException, RuntimeError, ValueError) as error:
+                logger.warning(f"{oid}: download failed ({error})")
+                failed.append(oid)
+        logger.info(f"Downloaded {len(oids) - len(failed)} of {len(oids)} value sets.")
+        return failed
+
+    @staticmethod
     def prepare_metadata(root: str) -> None:
         """Flattens VSAC expansion files into the two CSV tables.
 
@@ -236,7 +445,10 @@ class VSACDataset(BaseDataset):
             root: Directory with ``expansions/`` and an optional manifest.
 
         Raises:
-            FileNotFoundError: If ``root/expansions`` does not exist.
+            FileNotFoundError: If ``root/expansions`` does not exist or holds
+                no expansion to load.
+            ValueError: If an expansion, resource, or manifest line is not
+                valid JSON of the expected shape.
 
         Examples:
             >>> VSACDataset.prepare_metadata("/path/to/vsac_data")  # doctest: +SKIP
@@ -255,23 +467,35 @@ class VSACDataset(BaseDataset):
             if manifest
             else sorted(exp_dir.glob("*.json"))
         )
+        meta_dir = root_path / RESOURCES_DIR
 
-        valuesets, codes, missing, truncated = [], [], 0, 0
+        valuesets, codes, missing, truncated, renamed = [], [], 0, 0, 0
         for path in paths:
             if not path.exists():
                 missing += 1
                 continue
-            resource = json.loads(path.read_text())
+            oid = path.stem
+            resource = _read_resource(path)
+            renamed += resource.get("id", oid) != oid
+            meta_path = meta_dir / path.name
+            metadata = _read_resource(meta_path) if meta_path.exists() else {}
             valueset, members = _parse_expansion(
-                resource, manifest.get(resource["id"], {})
+                oid, resource, manifest.get(oid, {}), metadata
             )
             total = resource.get("expansion", {}).get("total", len(members))
             truncated += total > len(members)
             valuesets.append(valueset)
             codes.extend(members)
 
+        if not valuesets:
+            raise FileNotFoundError(f"No expansion files found in {exp_dir}.")
         if missing:
             logger.warning(f"{missing} manifest OIDs have no expansion file.")
+        if renamed:
+            logger.warning(
+                f"{renamed} expansions have a resource id that differs from "
+                "their file name; the file name is used as the OID."
+            )
         if truncated:
             logger.warning(
                 f"{truncated} expansions hold fewer codes than expansion.total "

@@ -21,18 +21,25 @@ import logging
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import polars as pl
 import torch
 
+from pyhealth.data import Patient
+
 from .base_task import BaseTask
+
+if TYPE_CHECKING:
+    from pyhealth.datasets import BaseDataset
 
 logger = logging.getLogger(__name__)
 
 SAPBERT = "cambridgeltl/SapBERT-from-PubMedBERT-fulltext"
 FEATURES = ("title_embedding", "candidate_embedding", "code_system", "score")
+# Not in the paper; ablation input from VSAC's purpose text.
+ALL_FEATURES = (*FEATURES, "description_embedding")
 Encoder = Callable[[Sequence[str]], np.ndarray]
 
 # From create_dataset/build_dataset.py in the RASC repository.
@@ -89,6 +96,7 @@ _INDEX_FILES = (
     "source_codes.parquet",
     "displays.parquet",
     "display_embeddings.npy",
+    "description_embeddings.npy",
     "meta.json",
 )
 
@@ -152,7 +160,20 @@ def _top_neighbors(
     max_k: int,
     chunk: int = 1024,
 ) -> pl.DataFrame:
-    """Exact inner-product search, as ``faiss.IndexFlatIP``; skips self-matches."""
+    """Exact inner-product search, as ``faiss.IndexFlatIP``; skips self-matches.
+
+    Args:
+        queries: Query vectors, one row per ``query_ids`` entry.
+        sources: Source vectors, one row per ``source_ids`` entry.
+        query_ids: Query value set ids.
+        source_ids: Source value set ids.
+        max_k: Neighbors kept per query, excluding the query itself.
+        chunk: Queries scored per matrix product.
+
+    Returns:
+        Columns ``oid``, ``neighbor``, ``score``, and ``position`` (0 for the
+        nearest), sorted by score within each query.
+    """
     source_t = torch.from_numpy(sources)
     k = min(max_k + 1, len(source_ids))
     rows: dict[str, list] = {"oid": [], "neighbor": [], "score": [], "position": []}
@@ -178,7 +199,7 @@ def _top_neighbors(
 
 
 def build_retrieval_index(
-    dataset: Any,
+    dataset: "BaseDataset",
     encoder: Encoder,
     output_dir: str,
     max_k: int = 40,
@@ -191,11 +212,13 @@ def build_retrieval_index(
     their codes form the candidate pools. Titles and candidate display names
     are encoded once, so one index serves every ``k`` up to ``max_k`` and
     every ``max_codes_per_set``. Only codes of value sets that appear among
-    some query's ``max_k`` neighbors are stored and encoded.
+    some query's ``max_k`` neighbors are stored and encoded. Non-empty
+    descriptions are encoded too, for the ``description_embedding`` input.
 
     Args:
         dataset: A :class:`~pyhealth.datasets.VSACDataset`.
-        encoder: Maps texts to unit-norm vectors, e.g. :func:`sapbert_encoder`.
+        encoder: Maps texts to unit-norm vectors, e.g.
+            :func:`~pyhealth.tasks.value_set_completion.sapbert_encoder`.
         output_dir: Directory for the index files; created if missing.
         max_k: Largest number of neighbors a task may use.
         source_splits: Splits that may be retrieved; ``None`` for all.
@@ -204,7 +227,8 @@ def build_retrieval_index(
         ``output_dir``, to pass to :class:`ValueSetCompletion`.
 
     Raises:
-        ValueError: If no value set has a title or no source remains.
+        ValueError: If ``max_k`` is not positive, or no value set has a title,
+            or no source remains.
 
     Examples:
         >>> from pyhealth.tasks import build_retrieval_index
@@ -212,6 +236,8 @@ def build_retrieval_index(
         ...     dataset, sapbert_encoder(), "vsac_index", max_k=40
         ... )
     """
+    if max_k < 1:
+        raise ValueError(f"max_k must be positive, got {max_k}.")
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
     events = dataset.global_event_df
@@ -221,6 +247,10 @@ def build_retrieval_index(
             pl.col("patient_id").alias("oid"),
             pl.col("valuesets/title").fill_null("").str.strip_chars().alias("title"),
             pl.col("valuesets/split").fill_null("").alias("split"),
+            pl.col("valuesets/description")
+            .fill_null("")
+            .str.strip_chars()
+            .alias("description"),
         )
         .filter(pl.col("title") != "")
         .sort("oid")
@@ -238,6 +268,11 @@ def build_retrieval_index(
         raise ValueError(f"No value set has a split in {source_splits}.")
 
     title_vecs = np.asarray(encoder(valuesets["title"].to_list()), dtype=np.float32)
+    descriptions = valuesets["description"].to_list()
+    described = [i for i, text in enumerate(descriptions) if text]
+    description_vecs = np.zeros_like(title_vecs)
+    if described:
+        description_vecs[described] = encoder([descriptions[i] for i in described])
     row = {oid: i for i, oid in enumerate(valuesets["oid"].to_list())}
     source_ids = sources["oid"].to_list()
     neighbors = _top_neighbors(
@@ -270,12 +305,15 @@ def build_retrieval_index(
         "oid", "code", "system", pl.col("row").alias("display_row"), "rank"
     )
 
-    valuesets.with_row_index("row").write_parquet(out / "titles.parquet")
+    valuesets.drop("description").with_row_index("row").write_parquet(
+        out / "titles.parquet"
+    )
     np.save(out / "title_embeddings.npy", title_vecs)
     neighbors.write_parquet(out / "neighbors.parquet")
     source_codes.write_parquet(out / "source_codes.parquet")
     display_table.write_parquet(out / "displays.parquet")
     np.save(out / "display_embeddings.npy", display_vecs)
+    np.save(out / "description_embeddings.npy", description_vecs)
 
     digest = hashlib.sha256()
     for name in _INDEX_FILES[:-1]:
@@ -286,6 +324,7 @@ def build_retrieval_index(
         "n_queries": valuesets.height,
         "n_sources": len(source_ids),
         "n_displays": len(displays),
+        "n_descriptions": len(described),
         "fingerprint": digest.hexdigest(),
     }
     (out / "meta.json").write_text(json.dumps(meta, indent=2))
@@ -295,11 +334,14 @@ def build_retrieval_index(
 
 @dataclass
 class _RetrievalIndex:
+    """Index tables held in memory by each worker process."""
+
     neighbors: dict[str, list[tuple[str, float]]]
     source_codes: dict[str, list[tuple[str, str, int, int]]]
     title_row: dict[str, int]
     title_vecs: np.ndarray
     display_vecs: np.ndarray
+    description_vecs: np.ndarray | None
 
 
 # Loaded once per process; keeping it off the task keeps vars(task), the task
@@ -308,6 +350,15 @@ _LOADED: dict[str, _RetrievalIndex] = {}
 
 
 def _load_index(index_dir: str, fingerprint: str) -> _RetrievalIndex:
+    """Loads an index once per process; embeddings stay memory-mapped.
+
+    Args:
+        index_dir: Output of :func:`build_retrieval_index`.
+        fingerprint: The index's content fingerprint, part of the cache key.
+
+    Returns:
+        The loaded index.
+    """
     key = f"{index_dir}:{fingerprint}"
     if key not in _LOADED:
         path = Path(index_dir)
@@ -327,17 +378,31 @@ def _load_index(index_dir: str, fingerprint: str) -> _RetrievalIndex:
         ):
             source_codes.setdefault(oid, []).append((code, system, display_row, rank))
         titles = pl.read_parquet(path / "titles.parquet")
+        description_path = path / "description_embeddings.npy"
         _LOADED[key] = _RetrievalIndex(
             neighbors=neighbors,
             source_codes=source_codes,
             title_row=dict(zip(titles["oid"], titles["row"])),
             title_vecs=np.load(path / "title_embeddings.npy", mmap_mode="r"),
             display_vecs=np.load(path / "display_embeddings.npy", mmap_mode="r"),
+            description_vecs=(
+                np.load(description_path, mmap_mode="r")
+                if description_path.exists()
+                else None
+            ),
         )
     return _LOADED[key]
 
 
 def _one_hot(system: str) -> np.ndarray:
+    """One-hot encodes a code system URI over ``CODE_SYSTEM_VOCAB``.
+
+    Args:
+        system: Code system URI.
+
+    Returns:
+        A float32 vector with a single 1.
+    """
     vec = np.zeros(len(CODE_SYSTEM_VOCAB), dtype=np.float32)
     vec[CODE_SYSTEM_VOCAB.index(normalize_code_system(system))] = 1.0
     return vec
@@ -365,6 +430,8 @@ class ValueSetCompletion(BaseTask):
     - ``code_system``: one-hot over ``CODE_SYSTEM_VOCAB``.
     - ``score``: title similarity of the neighbor that supplied the
       candidate.
+    - ``description_embedding`` (opt-in, not in the paper): embedding of the
+      target's description; zeros when it has none.
 
     Samples also carry ``code``, ``system``, and ``n_true_codes`` (the
     target's code count after the cap) for value-set-level metrics.
@@ -374,13 +441,17 @@ class ValueSetCompletion(BaseTask):
         k: Number of retrieved value sets. At most the index's ``max_k``.
         max_codes_per_set: Codes kept per value set, or ``None`` for all.
         min_codes: Minimum codes for a target value set.
-        features: Input features to emit, a subset of ``FEATURES``.
+        features: Input features to emit, a subset of ``ALL_FEATURES``.
+            Defaults to the paper's four, ``FEATURES``.
         target_splits: Splits whose value sets become targets.
 
     Raises:
-        ValueError: If ``k`` exceeds the index's ``max_k``, ``features`` is
-            empty or has unknown names, or ``max_codes_per_set`` is not
-            positive.
+        ValueError: If ``k`` is outside ``[1, max_k]`` of the index,
+            ``features`` is empty or has unknown names,
+            ``max_codes_per_set`` or ``min_codes`` is not positive,
+            ``target_splits`` is empty, or ``description_embedding`` is
+            requested from an index built without descriptions.
+        FileNotFoundError: If ``index_dir`` has no ``meta.json``.
 
     Examples:
         >>> from pyhealth.datasets import VSACDataset
@@ -403,29 +474,41 @@ class ValueSetCompletion(BaseTask):
         features: Sequence[str] = FEATURES,
         target_splits: Sequence[str] = ("train", "val", "test"),
     ) -> None:
-        meta = json.loads((Path(index_dir) / "meta.json").read_text())
+        meta_path = Path(index_dir) / "meta.json"
+        if not meta_path.exists():
+            raise FileNotFoundError(
+                f"{meta_path} not found; run build_retrieval_index first."
+            )
+        meta = json.loads(meta_path.read_text())
         if not 1 <= k <= meta["max_k"]:
             raise ValueError(f"k must be in [1, {meta['max_k']}], got {k}.")
-        unknown = set(features) - set(FEATURES)
+        unknown = set(features) - set(ALL_FEATURES)
         if not features or unknown:
-            raise ValueError(f"features must be a non-empty subset of {FEATURES}.")
+            raise ValueError(f"features must be a non-empty subset of {ALL_FEATURES}.")
+        if "description_embedding" in features and "n_descriptions" not in meta:
+            raise ValueError("This index has no description embeddings; rebuild it.")
         if max_codes_per_set is not None and max_codes_per_set < 1:
             raise ValueError("max_codes_per_set must be positive or None.")
+        if min_codes < 1:
+            raise ValueError(f"min_codes must be positive, got {min_codes}.")
+        if not target_splits:
+            raise ValueError("target_splits must not be empty.")
         self.index_dir = str(index_dir)
         self.fingerprint = meta["fingerprint"]
         self.k = k
         self.max_codes_per_set = max_codes_per_set
         self.min_codes = min_codes
-        self.features = tuple(f for f in FEATURES if f in features)
+        self.features = tuple(f for f in ALL_FEATURES if f in features)
         self.target_splits = tuple(target_splits)
         self.input_schema = {name: "tensor" for name in self.features}
         self.output_schema = {"label": "binary"}
         super().__init__()
 
     def _within_cap(self, rank: int) -> bool:
+        """Whether a code at expansion position ``rank`` survives the cap."""
         return self.max_codes_per_set is None or rank < self.max_codes_per_set
 
-    def __call__(self, patient: Any) -> list[dict[str, Any]]:
+    def __call__(self, patient: Patient) -> list[dict[str, Any]]:
         """Builds one sample per candidate code of a value set.
 
         Args:
@@ -461,7 +544,13 @@ class ValueSetCompletion(BaseTask):
                     break
                 pool.setdefault((code, system), (score, display_row))
 
-        title_vec = np.array(index.title_vecs[index.title_row[oid]])
+        row = index.title_row[oid]
+        title_vec = np.array(index.title_vecs[row])
+        description_vec = (
+            np.array(index.description_vecs[row])
+            if "description_embedding" in self.features
+            else None
+        )
         samples = []
         for (code, system), (score, display_row) in pool.items():
             inputs = {
@@ -469,6 +558,7 @@ class ValueSetCompletion(BaseTask):
                 "candidate_embedding": np.array(index.display_vecs[display_row]),
                 "code_system": _one_hot(system),
                 "score": np.array([score], dtype=np.float32),
+                "description_embedding": description_vec,
             }
             samples.append(
                 {

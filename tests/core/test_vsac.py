@@ -7,18 +7,24 @@ bag-of-words stub encoder, so no network access or model download.
 """
 
 import json
+import logging
 import shutil
 import tempfile
 import unittest
 import zlib
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
+from unittest import mock
 
 import numpy as np
+import polars as pl
+import requests
 
 from pyhealth.datasets import ValueSetSplit, VSACDataset
 from pyhealth.datasets.vsac import CODES_FILE, VALUESETS_FILE
 from pyhealth.tasks import ValueSetCompletion, build_retrieval_index
+from pyhealth.tasks.value_set_completion import FEATURES, normalize_code_system
 
 ICD10 = "http://hl7.org/fhir/sid/icd-10-cm"
 RXNORM = "http://www.nlm.nih.gov/research/umls/rxnorm"
@@ -58,6 +64,9 @@ VALUE_SETS = {
 }
 
 
+PURPOSE = "(Clinical Focus: diabetes mellitus type 2 diagnoses.)"
+
+
 def stub_encoder(texts: Sequence[str]) -> np.ndarray:
     """Unit-norm bag-of-words hashing; shared words mean higher similarity."""
     vecs = np.zeros((len(texts), 16), dtype=np.float32)
@@ -69,8 +78,15 @@ def stub_encoder(texts: Sequence[str]) -> np.ndarray:
 
 
 def write_fixture(root: Path) -> None:
+    """Writes expansions, one ValueSet read with a purpose, and a manifest."""
     exp_dir = root / "expansions"
     exp_dir.mkdir(parents=True)
+    (root / "resources").mkdir()
+    (root / "resources" / "1.1-20240101.json").write_text(
+        json.dumps(
+            {"resourceType": "ValueSet", "id": "1.1-20240101", "purpose": PURPOSE}
+        )
+    )
     manifest = []
     for oid, (title, split, members, total) in VALUE_SETS.items():
         resource = {
@@ -84,6 +100,8 @@ def write_fixture(root: Path) -> None:
                 "total": total,
                 "contains": [
                     {"system": system, "code": code, "display": f"{code} name"}
+                    if code != "I15.0"
+                    else {"system": system, "code": code}
                     for system, code in members
                 ],
             },
@@ -100,9 +118,53 @@ def write_fixture(root: Path) -> None:
 _SHARED: dict = {}
 
 
-def setUpModule():
+class FakeResponse:
+    """Minimal ``requests.Response`` stand-in."""
+
+    def __init__(self, body: dict, status: int = 200) -> None:
+        self.body, self.status_code = body, status
+
+    def raise_for_status(self) -> None:
+        if self.status_code >= 400:
+            raise requests.HTTPError(f"HTTP {self.status_code}")
+
+    def json(self) -> dict:
+        return self.body
+
+
+class FakeSession:
+    """Serves a 3-code value set in pages of 2 and records each request."""
+
+    def __init__(self) -> None:
+        self.codes = [{"system": ICD10, "code": c} for c in ("A00", "A01", "A02")]
+        self.calls: list[tuple[str, dict | None]] = []
+
+    def get(self, url: str, params: dict | None = None, timeout: int = 0):
+        self.calls.append((url, params))
+        if "missing" in url:
+            return FakeResponse({}, 404)
+        if not url.endswith("$expand"):
+            return FakeResponse({"resourceType": "ValueSet", "purpose": "p"})
+        offset = params["offset"]
+        page = self.codes[offset : offset + 2]
+        return FakeResponse(
+            {"resourceType": "ValueSet", "expansion": {"total": 3, "contains": page}}
+        )
+
+
+# BaseDataset builds the event table on a Dask cluster of worker processes
+# (about 1 s to start); the threaded cluster it uses in notebooks keeps the
+# whole module setup under 1 s.
+_THREADED_DASK = mock.patch(
+    "pyhealth.datasets.base_dataset.in_notebook", return_value=True
+)
+
+
+def setUpModule() -> None:
     """Builds the dataset and retrieval index once for every test class."""
+    _THREADED_DASK.start()
     tmp = Path(tempfile.mkdtemp())
+    _SHARED["tmp"] = tmp
     write_fixture(tmp / "vsac")
     dataset = VSACDataset(root=str(tmp / "vsac"), cache_dir=tmp / "cache")
     index_dir = build_retrieval_index(
@@ -115,8 +177,10 @@ def setUpModule():
     _SHARED.update(tmp=tmp, dataset=dataset, index_dir=index_dir)
 
 
-def tearDownModule():
-    shutil.rmtree(_SHARED["tmp"])
+def tearDownModule() -> None:
+    """Removes the temporary directory and restores process-based Dask."""
+    _THREADED_DASK.stop()
+    shutil.rmtree(_SHARED["tmp"], ignore_errors=True)
 
 
 class VSACFixture(unittest.TestCase):
@@ -128,7 +192,7 @@ class VSACFixture(unittest.TestCase):
         cls.dataset = _SHARED["dataset"]
         cls.index_dir = _SHARED["index_dir"]
 
-    def samples_for(self, oid: str, **task_args) -> dict:
+    def samples_for(self, oid: str, **task_args: Any) -> dict:
         task = ValueSetCompletion(self.index_dir, **{"k": 2, **task_args})
         samples = task(self.dataset.get_patient(oid))
         return {(s["system"], s["code"]): s for s in samples}
@@ -166,6 +230,76 @@ class TestVSACDataset(VSACFixture):
         split = self.dataset.manifest_split()
         parts = split.split_indices({oid: [i] for i, oid in enumerate(VALUE_SETS)})
         self.assertEqual([p.tolist() for p in parts], [[0], [1], [2]])
+
+    def test_description_falls_back_to_purpose(self):
+        event = self.dataset.get_patient("1.1-20240101").get_events("valuesets")[0]
+        self.assertEqual(event["description"], PURPOSE)
+
+    def test_display_falls_back_to_code(self):
+        codes = self.dataset.get_patient("1.5-20240101").get_events("codes")
+        self.assertEqual({e["code"]: e["display"] for e in codes}["I15.0"], "I15.0")
+
+    def test_prepare_warns_and_uses_file_name(self):
+        root = self.tmp / "prepare"
+        write_fixture(root)
+        path = root / "expansions" / "1.2-20240101.json"
+        path.write_text(path.read_text().replace('"id": "1.2-20240101"', '"id": "x"'))
+        (root / "expansions" / "1.3-20240101.json").unlink()
+        with self.assertLogs("pyhealth.datasets.vsac", logging.WARNING) as logs:
+            VSACDataset.prepare_metadata(str(root))
+        text = " ".join(logs.output)
+        for phrase in ("no expansion file", "expansion.total", "file name"):
+            self.assertIn(phrase, text)
+        oids = (root / VALUESETS_FILE).read_text()
+        self.assertIn("1.2-20240101", oids)
+        self.assertNotIn("1.3-20240101", oids)
+
+    def test_invalid_files_raise(self):
+        root = self.tmp / "invalid"
+        (root / "expansions").mkdir(parents=True)
+        with self.assertRaises(FileNotFoundError):
+            VSACDataset.prepare_metadata(str(root))
+        (root / "expansions" / "bad.json").write_text("{not json")
+        with self.assertRaisesRegex(ValueError, "bad.json"):
+            VSACDataset.prepare_metadata(str(root))
+
+    def test_download_pages_and_metadata(self):
+        root = self.tmp / "download"
+        session = FakeSession()
+        with mock.patch("pyhealth.datasets.vsac._REQUEST_DELAY", 0):
+            failed = VSACDataset.download_expansions(
+                str(root), ["2.1", "missing"], session=session
+            )
+            self.assertEqual(failed, ["missing"])
+            saved = json.loads((root / "expansions" / "2.1.json").read_text())
+            self.assertEqual(len(saved["expansion"]["contains"]), 3)
+            self.assertEqual([c[1]["offset"] for c in session.calls[:2]], [0, 2])
+            meta = json.loads((root / "resources" / "2.1.json").read_text())
+            self.assertEqual(meta["purpose"], "p")
+            calls = len(session.calls)
+            VSACDataset.download_expansions(str(root), ["2.1"], session=session)
+            self.assertEqual(len(session.calls), calls)  # already on disk
+
+    def test_download_without_paging_keeps_first_page(self):
+        root = self.tmp / "single_page"
+        with mock.patch("pyhealth.datasets.vsac._REQUEST_DELAY", 0):
+            VSACDataset.download_expansions(
+                str(root),
+                ["2.1"],
+                paginate=False,
+                metadata=False,
+                session=FakeSession(),
+            )
+        saved = json.loads((root / "expansions" / "2.1.json").read_text())
+        self.assertEqual(len(saved["expansion"]["contains"]), 2)
+        self.assertFalse((root / "resources").exists())
+
+    def test_download_needs_key(self):
+        with (
+            mock.patch.dict("os.environ", {}, clear=True),
+            self.assertRaises(ValueError),
+        ):
+            VSACDataset.download_expansions(str(self.tmp / "nokey"), ["2.1"])
 
     def test_split_key_tracks_assignments(self):
         a = ValueSetSplit({"x": "train"}).to_dict()
@@ -227,9 +361,52 @@ class TestValueSetCompletion(VSACFixture):
         self.assertNotIn("title_embedding", sample)
 
     def test_invalid_arguments(self):
-        for kwargs in ({"k": 3}, {"features": ["nope"]}, {"max_codes_per_set": 0}):
+        for kwargs in (
+            {"k": 3},
+            {"k": 0},
+            {"features": ["nope"]},
+            {"max_codes_per_set": 0},
+            {"min_codes": 0},
+            {"target_splits": ()},
+        ):
             with self.assertRaises(ValueError):
-                ValueSetCompletion(self.index_dir, **kwargs)
+                ValueSetCompletion(self.index_dir, **{"k": 2, **kwargs})
+        with self.assertRaises(FileNotFoundError):
+            ValueSetCompletion(str(self.tmp / "no_index"))
+
+    def test_normalize_code_system(self):
+        self.assertEqual(normalize_code_system(ICD10), "ICD-10-CM")
+        self.assertEqual(normalize_code_system("urn:x:rxnorm"), "RxNorm")
+        self.assertEqual(normalize_code_system("urn:unknown"), "OTHER")
+
+    def test_source_splits_restrict_retrieval(self):
+        index_dir = build_retrieval_index(
+            self.dataset,
+            stub_encoder,
+            str(self.tmp / "corpus_index"),
+            max_k=2,
+            source_splits=("corpus",),
+        )
+        neighbors = pl.read_parquet(Path(index_dir) / "neighbors.parquet")
+        self.assertEqual(set(neighbors["neighbor"]), {"1.4-20240101", "1.5-20240101"})
+        with self.assertRaises(ValueError):
+            build_retrieval_index(self.dataset, stub_encoder, index_dir, max_k=0)
+
+    def test_description_embedding(self):
+        task = ValueSetCompletion(
+            self.index_dir, k=2, features=[*FEATURES, "description_embedding"]
+        )
+        with_text = task(self.dataset.get_patient("1.1-20240101"))[0]
+        without = task(self.dataset.get_patient("1.3-20240101"))[0]
+        self.assertGreater(np.abs(with_text["description_embedding"]).sum(), 0)
+        self.assertEqual(np.abs(without["description_embedding"]).sum(), 0)
+        old = self.tmp / "old_index"
+        shutil.copytree(self.index_dir, old)
+        meta = json.loads((old / "meta.json").read_text())
+        del meta["n_descriptions"]
+        (old / "meta.json").write_text(json.dumps(meta))
+        with self.assertRaises(ValueError):
+            ValueSetCompletion(str(old), k=2, features=["description_embedding"])
 
     def test_cap_changes_task_cache_key(self):
         capped = vars(ValueSetCompletion(self.index_dir, k=2))

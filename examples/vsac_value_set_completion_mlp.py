@@ -116,18 +116,37 @@ CONFIGS: dict[str, dict] = {
     "k40": {"k": 40},
     "no_score": {"features": [f for f in FEATURES if f != "score"]},
     "no_code_system": {"features": [f for f in FEATURES if f != "code_system"]},
+    "descriptions": {"features": [*FEATURES, "description_embedding"]},
 }
 SOURCE_SPLITS = ("train", "val", "test", "corpus")
+# Synthetic value sets hold 8-20 codes, so --synthetic caps at 10 instead of
+# 1,000 to make main and uncapped differ.
+SYNTHETIC_CAP = 10
 
 
 class SampledValueSetCompletion(ValueSetCompletion):
-    """Keeps a fixed, OID-hashed fraction of target value sets."""
+    """Keeps a fixed, OID-hashed fraction of target value sets.
+
+    Args:
+        index_dir: Output of ``build_retrieval_index``.
+        sample_frac: Fraction of value sets kept, by CRC32 of the OID, so every
+            configuration sees the same sets.
+        **kwargs: Passed to ``ValueSetCompletion``.
+    """
 
     def __init__(self, index_dir: str, sample_frac: float = 1.0, **kwargs: Any) -> None:
         super().__init__(index_dir, **kwargs)
         self.sample_frac = sample_frac
 
     def pre_filter(self, df: pl.LazyFrame) -> pl.LazyFrame:
+        """Keeps the events of the sampled value sets.
+
+        Args:
+            df: The dataset's global event frame.
+
+        Returns:
+            The frame restricted to sampled OIDs.
+        """
         if self.sample_frac >= 1.0:
             return df
         cutoff = int(self.sample_frac * 2**32)
@@ -147,12 +166,22 @@ def stub_encoder(texts: Sequence[str]) -> np.ndarray:
 
 
 def write_synthetic(root: Path, n_topics: int = 8, per_topic: int = 6) -> None:
-    """Writes value sets in topic families that share most of their codes."""
+    """Writes value sets in topic families that share most of their codes.
+
+    Half the value sets also get a ValueSet read with ``purpose`` text, for the
+    ``descriptions`` configuration.
+
+    Args:
+        root: Output directory.
+        n_topics: Number of topic families.
+        per_topic: Value sets per topic (3 train, 1 val, 1 test, 1 corpus).
+    """
     rng = random.Random(0)
     systems = ["http://snomed.info/sct", "http://hl7.org/fhir/sid/icd-10-cm"]
     splits = ["train", "train", "train", "val", "test", "corpus"]
     exp_dir = root / "expansions"
     exp_dir.mkdir(parents=True)
+    (root / "resources").mkdir()
     manifest = []
     for t in range(n_topics):
         pool = [f"T{t}C{c}" for c in range(30)]
@@ -160,6 +189,7 @@ def write_synthetic(root: Path, n_topics: int = 8, per_topic: int = 6) -> None:
             oid = f"9.{t}.{v}-20240101"
             members = rng.sample(pool, rng.randint(8, 20))
             resource = {
+                "resourceType": "ValueSet",
                 "id": oid,
                 "title": f"topic{t} condition variant{v}",
                 "version": "20240101",
@@ -172,6 +202,13 @@ def write_synthetic(root: Path, n_topics: int = 8, per_topic: int = 6) -> None:
                 },
             }
             (exp_dir / f"{oid}.json").write_text(json.dumps(resource))
+            if v % 2 == 0:
+                read = {
+                    "resourceType": "ValueSet",
+                    "id": oid,
+                    "purpose": f"(Clinical Focus: topic{t} disorders.)",
+                }
+                (root / "resources" / f"{oid}.json").write_text(json.dumps(read))
             manifest.append({"oid": oid, "split": splits[v]})
     (root / "split_manifest.jsonl").write_text(
         "".join(json.dumps(row) + "\n" for row in manifest)
@@ -179,7 +216,15 @@ def write_synthetic(root: Path, n_topics: int = 8, per_topic: int = 6) -> None:
 
 
 def best_threshold(y_true: np.ndarray, y_prob: np.ndarray) -> float:
-    """Threshold maximizing F1 on validation, as in the authors' scripts."""
+    """Threshold maximizing F1 on validation, as in the authors' scripts.
+
+    Args:
+        y_true: Validation labels.
+        y_prob: Validation probabilities.
+
+    Returns:
+        The probability cutoff with the highest F1.
+    """
     precision, recall, thresholds = precision_recall_curve(y_true, y_prob)
     f1 = 2 * precision * recall / np.clip(precision + recall, 1e-12, None)
     return float(thresholds[min(int(np.argmax(f1)), len(thresholds) - 1)])
@@ -190,7 +235,16 @@ def value_set_metrics(
 ) -> tuple[dict, pd.DataFrame]:
     """Macro precision/recall/F1 over value sets, recall over all true codes.
 
-    Returns the macro averages and one row per value set.
+    Args:
+        samples: Test samples, each with ``patient_id``, ``code``, ``label``,
+            and ``n_true_codes``.
+        y_prob: Predicted probability per sample.
+        threshold: Probability cutoff for predicting a code in the set.
+
+    Returns:
+        The macro averages, and one row per value set (``oid``,
+        ``n_true_codes``, ``precision``, ``recall``, ``f1``,
+        ``retrieval_recall``).
     """
     predicted, hits, retrieved, n_true = (
         defaultdict(set),
@@ -237,11 +291,24 @@ def run_config(
     index_dir: str,
     name: str,
     args: argparse.Namespace,
-) -> dict:
-    """Trains and evaluates one configuration; returns its metrics."""
+) -> dict[str, Any]:
+    """Trains and evaluates one configuration.
+
+    Also writes ``per_set_<name>.csv`` with each test value set's metrics.
+
+    Args:
+        dataset: The VSAC dataset.
+        index_dir: Retrieval index directory.
+        name: Key of ``CONFIGS``.
+        args: Parsed command-line arguments.
+
+    Returns:
+        Task arguments, pair counts, the tuned threshold, and test metrics.
+    """
     torch.manual_seed(42)
+    cap = {"max_codes_per_set": SYNTHETIC_CAP} if args.synthetic else {}
     task = SampledValueSetCompletion(
-        index_dir, sample_frac=args.sample_frac, **CONFIGS[name]
+        index_dir, sample_frac=args.sample_frac, **{**cap, **CONFIGS[name]}
     )
     train, val, test = dataset.set_task(
         task, num_workers=args.num_workers, split=dataset.manifest_split()
@@ -296,7 +363,13 @@ def run_config(
     return result
 
 
-def write_report(results: list[dict], output: Path) -> None:
+def write_report(results: list[dict[str, Any]], output: Path) -> None:
+    """Writes ``results.json`` and a markdown table, and prints the table.
+
+    Args:
+        results: One ``run_config`` result per configuration.
+        output: Output directory.
+    """
     output.mkdir(parents=True, exist_ok=True)
     (output / "results.json").write_text(json.dumps(results, indent=2, default=str))
     rows = [
@@ -317,6 +390,7 @@ def write_report(results: list[dict], output: Path) -> None:
 
 
 def main() -> None:
+    """Parses arguments, builds the index if needed, and runs each config."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--root", help="VSAC download (expansions/ + manifest)")
     parser.add_argument("--synthetic", action="store_true")
