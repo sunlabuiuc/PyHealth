@@ -24,8 +24,8 @@ def batch_to_multihot(label: List[List[int]], num_labels: int) -> torch.tensor:
     return multihot
 
 
+# how many times save_array_atomically tries os.replace before giving up
 _REPLACE_ATTEMPTS = 5
-"""How many times save_array_atomically tries os.replace before giving up."""
 
 
 def save_array_atomically(
@@ -38,10 +38,12 @@ def save_array_atomically(
     temporary file in the same directory (created if needed) and then moved
     onto ``path`` with :func:`os.replace`. A reader therefore sees either the
     old file or the complete new one, even when several processes write the
-    same path at once. The temporary file is opened with ``"xb"``, so the
-    umask applies and the result has the permissions ``np.save(path)`` would
-    give it, unless ``mode`` is given. The temporary file is created with
-    ``mode`` from the start, so the data is never readable more widely.
+    same path at once. The temporary file is created with :func:`os.open`
+    and ``O_EXCL``, so an existing file is never reused. Without ``mode`` it
+    is created with ``0o666`` and the umask applies, giving the permissions
+    ``np.save(path)`` would. With ``mode`` it is created with those bits and
+    then set to exactly ``mode`` with :func:`os.chmod`, in case the umask
+    removed some, so the data is never readable more widely.
 
     On Windows, replacing a file that another process has open raises
     ``PermissionError``. The move is retried a few times; if it still fails,
@@ -75,8 +77,9 @@ def save_array_atomically(
     # system.
     tmp_path = f"{path}.{os.getpid()}.{uuid.uuid4().hex}.tmp"
     try:
-        # O_EXCL as with "xb"; with mode, the file has those bits from the
-        # start (0o666 lets the umask apply, as np.save would)
+        # O_EXCL so an existing file is never reused; with mode, the file
+        # has those bits from the start (0o666 lets the umask apply, as
+        # np.save would)
         flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
         fd = os.open(tmp_path, flags, 0o666 if mode is None else mode)
         with os.fdopen(fd, "wb") as f:
