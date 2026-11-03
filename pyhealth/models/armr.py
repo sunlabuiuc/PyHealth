@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import math
 import os
+import warnings
 
 import numpy as np
 import torch
@@ -220,10 +221,9 @@ class ARMR(BaseModel):
         codes are ATC level 3, which the DDI graph needs.
 
     Args:
-        dataset: the training dataset (for example the training split from
-            :func:`~pyhealth.datasets.split_by_patient`), used for the
-            vocabularies and the drug co-occurrence graph. Passing the full
-            dataset lets validation and test labels into that graph.
+        dataset: the dataset whose processors give the vocabularies. A
+            split from :func:`~pyhealth.datasets.split_by_patient` works, as
+            does the full dataset.
         embedding_dim: code and visit embedding size. Default is 64.
         n_recent: number of recent visits ``N`` handled by the feedforward
             branch. Default is 3.
@@ -231,6 +231,10 @@ class ARMR(BaseModel):
         dropout: dropout on the patient representation. Default is 0.3.
         use_graph: add the co-occurrence and DDI graph embeddings to the drug
             embeddings, as the authors' code does. Default is True.
+        graph_dataset: the samples the drug co-occurrence graph is built
+            from; pass the training split, so that validation and test
+            labels stay out of the model. If ``use_graph`` is True and this is
+            None, the graph is built from ``dataset`` with a warning.
 
     Examples:
         >>> from pyhealth.datasets import create_sample_dataset
@@ -255,6 +259,8 @@ class ARMR(BaseModel):
         ...     dataset_name="demo",
         ... )
         >>> model = ARMR(dataset, embedding_dim=16, use_graph=False)
+        >>> # with the graphs, give the training split explicitly:
+        >>> # ARMR(dataset, graph_dataset=train_split)
         >>> from pyhealth.datasets import get_dataloader
         >>> batch = next(iter(get_dataloader(dataset, batch_size=2)))
         >>> out = model(**batch)
@@ -270,6 +276,7 @@ class ARMR(BaseModel):
         alpha: float = 0.7,
         dropout: float = 0.3,
         use_graph: bool = True,
+        graph_dataset: SampleDataset | None = None,
     ):
         super().__init__(dataset=dataset)
         for key in ("conditions", "procedures", "drugs_hist"):
@@ -309,7 +316,18 @@ class ARMR(BaseModel):
 
         ddi_adj = self._ddi_adj(label_vocab)
         if use_graph:
-            self.register_buffer("ehr_adj", _normalize(self._ehr_adj(label_vocab)))
+            if graph_dataset is None:
+                warnings.warn(
+                    "ARMR(use_graph=True) builds its drug co-occurrence graph "
+                    "from the drug labels of every sample in `dataset`. Pass "
+                    "the training split as `graph_dataset` so that validation "
+                    "and test labels do not leak into the model.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+                graph_dataset = self.dataset
+            ehr_adj = self._ehr_adj(label_vocab, graph_dataset)
+            self.register_buffer("ehr_adj", _normalize(ehr_adj))
             self.register_buffer("ddi_adj_norm", _normalize(ddi_adj))
             self.gcn_ehr = nn.ModuleList([nn.Linear(dim, dim), nn.Linear(dim, dim)])
             self.gcn_ddi = nn.ModuleList([nn.Linear(dim, dim), nn.Linear(dim, dim)])
@@ -337,14 +355,16 @@ class ARMR(BaseModel):
         hist_vocab = self.dataset.input_processors["drugs_hist"].code_vocab
         return history_to_label_index(hist_vocab, label_vocab)
 
-    def _ehr_adj(self, label_vocab: dict) -> torch.Tensor:
+    def _ehr_adj(self, label_vocab: dict, samples) -> torch.Tensor:
         """Co-occurrence graph of the drugs given together in a visit.
 
-        Built from every sample of ``self.dataset``, so pass the training
-        split to the model to keep evaluation labels out of it.
+        Args:
+            label_vocab: drug code to label index.
+            samples: the samples to read the drug labels from (the training
+                split).
         """
         adj = torch.zeros(self.label_size, self.label_size)
-        for sample in self.dataset:
+        for sample in samples:
             drugs = sample[self.label_key]
             if isinstance(drugs, torch.Tensor):  # processed: multi-hot
                 ids = torch.nonzero(drugs.flatten()).flatten()
@@ -440,7 +460,7 @@ class ARMR(BaseModel):
         )
         # the decay goes into the score (forward) instead: cosine ignores it here
         weight = taken.unsqueeze(-1) * q_reused + unused.unsqueeze(-1) * q_new
-        return emb.unsqueeze(0) * weight * self.label_size, used
+        return emb.unsqueeze(0) * weight, used
 
     def _loss(self, prob: torch.Tensor, logit: torch.Tensor, y: torch.Tensor):
         """``alpha * BCE + (1 - alpha) * multi-label margin`` (Eq. 20-22)."""

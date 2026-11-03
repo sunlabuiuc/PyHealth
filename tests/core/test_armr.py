@@ -1,4 +1,5 @@
 import unittest
+import warnings
 
 import torch
 
@@ -52,7 +53,10 @@ class TestARMR(unittest.TestCase):
     def test_forward_shapes_with_and_without_graphs(self):
         for use_graph in (False, True):
             torch.manual_seed(0)
-            model = ARMR(self.dataset, embedding_dim=16, use_graph=use_graph)
+            model = ARMR(
+                self.dataset, embedding_dim=16, use_graph=use_graph,
+                graph_dataset=self.dataset,
+            )
             out = model(**self.batch)
             self.assertEqual(out["y_prob"].shape, (3, 4))
             self.assertEqual(out["logit"].shape, (3, 4))
@@ -160,6 +164,27 @@ class TestARMR(unittest.TestCase):
         out = model(**batch)
         self.assertEqual(out["logit"].shape, (2, 2))
         self.assertFalse(torch.isnan(out["loss"]))
+
+    def test_graph_without_graph_dataset_warns(self):
+        with self.assertWarnsRegex(UserWarning, "graph_dataset"):
+            ARMR(self.dataset, embedding_dim=16)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            ARMR(self.dataset, embedding_dim=16, graph_dataset=self.dataset)
+            ARMR(self.dataset, embedding_dim=16, use_graph=False)
+
+    def test_graph_comes_only_from_graph_dataset(self):
+        vocab = self.dataset.output_processors["drugs"].label_vocab
+        a, b = vocab["A01A"], vocab["B01A"]
+        c, n = vocab["C03C"], vocab["N02B"]
+        # p0 (A01A with B01A) only; p1's C03C with N02B stays out
+        model = ARMR(
+            self.dataset, embedding_dim=16, graph_dataset=self.dataset.subset([0])
+        )
+        self.assertGreater(model.ehr_adj[a, b].item(), 0.0)
+        self.assertEqual(model.ehr_adj[c, n].item(), 0.0)
+        full = ARMR(self.dataset, embedding_dim=16, graph_dataset=self.dataset)
+        self.assertGreater(full.ehr_adj[c, n].item(), 0.0)
 
     def test_decay_parameters_get_a_gradient(self):
         torch.manual_seed(0)
