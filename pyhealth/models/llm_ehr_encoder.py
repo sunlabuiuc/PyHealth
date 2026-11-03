@@ -271,7 +271,7 @@ class LLMEHREncoder(BaseModel):
                 found[key] = vector
                 path = self._cache_path(key)
                 if path:
-                    save_array_atomically(path, vector.numpy())
+                    save_array_atomically(path, vector.numpy(), mode=0o600)
         if self.memoize:
             self._memo.update(found)
         return torch.stack([found[k] for k in keys]).to(self.device)

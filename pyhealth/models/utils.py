@@ -28,7 +28,9 @@ _REPLACE_ATTEMPTS = 5
 """How many times save_array_atomically tries os.replace before giving up."""
 
 
-def save_array_atomically(path: str, array: np.ndarray) -> bool:
+def save_array_atomically(
+    path: str, array: np.ndarray, mode: int | None = None
+) -> bool:
     """Saves ``array`` to the ``.npy`` file ``path`` so readers never see a
     partial file.
 
@@ -38,7 +40,8 @@ def save_array_atomically(path: str, array: np.ndarray) -> bool:
     old file or the complete new one, even when several processes write the
     same path at once. The temporary file is opened with ``"xb"``, so the
     umask applies and the result has the permissions ``np.save(path)`` would
-    give it.
+    give it, unless ``mode`` is given. The temporary file is created with
+    ``mode`` from the start, so the data is never readable more widely.
 
     On Windows, replacing a file that another process has open raises
     ``PermissionError``. The move is retried a few times; if it still fails,
@@ -50,6 +53,8 @@ def save_array_atomically(path: str, array: np.ndarray) -> bool:
     Args:
         path: destination ``.npy`` file.
         array: the array to save.
+        mode: optional permission bits for the new file, e.g. ``0o600`` for
+            files only the owner may read. ``None`` follows the umask.
 
     Returns:
         True if ``path`` now holds ``array``, False if the move gave up.
@@ -70,7 +75,13 @@ def save_array_atomically(path: str, array: np.ndarray) -> bool:
     # system.
     tmp_path = f"{path}.{os.getpid()}.{uuid.uuid4().hex}.tmp"
     try:
-        with open(tmp_path, "xb") as f:
+        # O_EXCL as with "xb"; with mode, the file has those bits from the
+        # start (0o666 lets the umask apply, as np.save would)
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
+        fd = os.open(tmp_path, flags, 0o666 if mode is None else mode)
+        with os.fdopen(fd, "wb") as f:
+            if mode is not None:
+                os.chmod(tmp_path, mode)  # the umask may have removed bits
             np.save(f, array)
         for attempt in range(_REPLACE_ATTEMPTS):
             try:

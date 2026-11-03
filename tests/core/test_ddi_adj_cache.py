@@ -318,6 +318,18 @@ class TestSaveDDIAdj(unittest.TestCase):
         np.testing.assert_array_equal(np.load(self.path), np.eye(3))
         self.assertEqual(os.listdir(self.dir), ["ddi_adj.npy"])
 
+    @unittest.skipIf(os.name == "nt", "POSIX permission bits")
+    def test_save_array_atomically_applies_mode(self):
+        path = os.path.join(self.dir, "private.npy")
+        old = os.umask(0o077)  # a stricter umask must not change an explicit mode
+        try:
+            self.assertTrue(save_array_atomically(path, np.eye(2), mode=0o640))
+        finally:
+            os.umask(old)
+        self.assertEqual(os.stat(path).st_mode & 0o777, 0o640)
+        np.testing.assert_array_equal(np.load(path), np.eye(2))
+        self.assertEqual(sorted(os.listdir(self.dir)), ["private.npy"])
+
     def test_save_array_atomically_creates_dirs_and_reports_result(self):
         nested = os.path.join(self.dir, "ab", "key.npy")
         self.assertTrue(save_array_atomically(nested, np.arange(4)))

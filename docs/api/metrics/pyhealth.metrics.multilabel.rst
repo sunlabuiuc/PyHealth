@@ -29,7 +29,7 @@ when the evaluated model has one:
     )
 
 Without ``ddi_adj``, ``"ddi"`` loads ``ddi_adj.npy`` from the PyHealth cache
-directory, and raises ``FileNotFoundError`` if it is missing. The four models
+directory, and raises ``FileNotFoundError`` if it is missing. The five models
 write that file when they are built (atomically, so a reader never sees a
 partial file), but it is shared: it holds the matrix of whichever model was
 built last, in any process. If another run or a model with a different drug
