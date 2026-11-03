@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import warnings
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -124,6 +125,10 @@ def ecg_to_heartbeat_sentence(
     lead 2, and so on form the sentence, padded with zeros or truncated to
     ``max_len`` words.
 
+    If no QRS complex is found (for example a flat or very noisy first
+    lead), the sentence is all padding and a ``UserWarning`` is issued; the
+    model still accepts it, but its prediction carries no ECG information.
+
     The model's time embedding covers whole seconds 1 to 15
     (:data:`MAX_INDEX`), so a QRS at 15 s or later raises ``ValueError``:
     crop longer recordings (HeartLang was trained on 10 s ECGs).
@@ -174,6 +179,11 @@ def ecg_to_heartbeat_sentence(
             sig=signal[0].astype(np.float64), fs=sampling_rate, verbose=False
         )
     qrs_inds = [int(i) for i in qrs_inds]
+    if not qrs_inds:
+        warnings.warn(
+            "no QRS complex found; the HeartLang sentence is all padding",
+            stacklevel=2,
+        )
     words, lead_ids, time_ids = [], [], []
     times = [i // sampling_rate + 1 for i in qrs_inds]
     if times and max(times) > MAX_INDEX:

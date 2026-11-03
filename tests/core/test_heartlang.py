@@ -3,14 +3,22 @@
 import argparse
 import importlib.util
 import os
+import shutil
 import tempfile
 import unittest
+from pathlib import Path
 from unittest import mock
 
 import numpy as np
+import pandas as pd
 import torch
 
-from pyhealth.datasets import create_sample_dataset, get_dataloader
+from pyhealth.datasets import (
+    PTBXLDataset,
+    create_sample_dataset,
+    get_dataloader,
+    split_by_strat_fold,
+)
 from pyhealth.models import HeartLang, HeartLangBackbone, ecg_to_heartbeat_sentence
 from pyhealth.models.heartlang import (
     HF_REVISION,
@@ -22,6 +30,9 @@ from pyhealth.tasks import PTBXLHeartLangClassification
 TINY = {"seq_len": 8, "token_len": 16, "embed_dim": 32, "depth": 1, "heads": 2,
         "dim_head": 8, "mlp_dim": 64}
 HAS_WFDB = importlib.util.find_spec("wfdb") is not None
+PTBXL_FIXTURE = (
+    Path(__file__).resolve().parents[2] / "test-resources" / "core" / "ptbxl"
+)
 
 
 def make_dataset(n: int = 6):
@@ -93,6 +104,12 @@ class TestHeartbeatSentence(unittest.TestCase):
             torch.from_numpy(words)[None], torch.from_numpy(lead_ids)[None],
             torch.from_numpy(time_ids)[None])
         self.assertEqual(out.shape, (1, 9, 32))
+
+    def test_no_qrs_warns_and_gives_padding(self):
+        with self.assertWarnsRegex(UserWarning, "no QRS complex"):
+            words, lead_ids, time_ids = ecg_to_heartbeat_sentence(
+                np.zeros((12, 1000)), qrs_inds=[])
+        self.assertFalse(words.any() or lead_ids.any() or time_ids.any())
 
     @unittest.skipUnless(HAS_WFDB, "wfdb not installed")
     def test_qrs_detection(self):
@@ -246,6 +263,71 @@ class TestPTBXLHeartLangTask(unittest.TestCase):
         self.assertEqual(sample["ecg_sentence"].shape, (256, 96))
         self.assertEqual(int((sample["lead_ids"] == 2).sum()), len(peaks))
         self.assertEqual(sample["strat_fold"], 3)
+
+
+def write_ptbxl_100hz(root: Path) -> None:
+    """The committed PTB-XL fixture CSVs plus 10 s, 100 Hz WFDB records with
+    R peaks (the 500 Hz records are not needed)."""
+    root.mkdir(parents=True)
+    for name in ("ptbxl_database.csv", "scp_statements.csv"):
+        shutil.copy(PTBXL_FIXTURE / name, root / name)
+    signal, _ = synthetic_ecg()
+    data = np.round(signal.T * 1000).astype(np.int16)  # mV -> uV
+    for rel in pd.read_csv(root / "ptbxl_database.csv")["filename_lr"]:
+        base = root / rel
+        base.parent.mkdir(parents=True, exist_ok=True)
+        Path(f"{base}.dat").write_bytes(data.tobytes())
+        lines = [f"{base.name} 12 100 {len(data)}"] + [
+            f"{base.name}.dat 16 1000.0(0)/uV 16 0 0 0 0 {i}" for i in range(12)
+        ]
+        Path(f"{base}.hea").write_text("\n".join(lines) + "\n")
+
+
+@unittest.skipUnless(HAS_WFDB, "wfdb not installed")
+class TestPTBXLHeartLangSetTask(unittest.TestCase):
+    """The real set_task and split path on the PTB-XL fixture (no mocks)."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        write_ptbxl_100hz(self.tmp / "data")
+        self.dataset = PTBXLDataset(
+            root=str(self.tmp / "data"),
+            metadata_cache_dir=self.tmp / "meta_cache",
+            sampling_rate=100,
+            cache_dir=self.tmp / "pyhealth_cache",
+        )
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_set_task_split_and_model(self):
+        task = PTBXLHeartLangClassification(self.dataset.scp_statements_path)
+        samples = self.dataset.set_task(task, num_workers=1)
+        # ecg 1 NORM (fold 1), 2 MI (fold 9), 4 HYP+MI (fold 2); ecg 3 is
+        # PACE only and ecg 5 has no label, so both are dropped
+        self.assertEqual(len(samples), 3)
+        by_fold = {int(s["strat_fold"]): s for s in samples}
+        self.assertEqual(set(by_fold), {1, 2, 9})
+        sample = by_fold[1]
+        self.assertEqual(tuple(sample["ecg_sentence"].shape), (256, 96))
+        # 12 peaks per lead (synthetic_ecg), every word on a detected beat
+        lead_ids = sample["lead_ids"].long()
+        self.assertGreaterEqual(int((lead_ids == 1).sum()), 10)
+        self.assertEqual(set(lead_ids.tolist()) - {0}, set(range(1, 13)))
+        self.assertLessEqual(int(sample["time_ids"].max()), 10)
+        self.assertEqual(by_fold[2]["labels"].tolist(), [1.0, 1.0, 0.0])
+
+        train, val, test = split_by_strat_fold(
+            samples, train_folds=(1,), val_folds=(2,), test_folds=(9,))
+        self.assertEqual([len(train), len(val), len(test)], [1, 1, 1])
+        self.assertEqual(int(test[0]["strat_fold"]), 9)
+
+        model = HeartLang(samples, pretrained=False, freeze_backbone=True,
+                          **{**TINY, "seq_len": 256, "token_len": 96})
+        batch = next(iter(get_dataloader(train, batch_size=1)))
+        out = model(**batch)
+        self.assertEqual(tuple(out["y_prob"].shape), (1, 3))
+        self.assertTrue(torch.isfinite(out["loss"]))
 
 
 if __name__ == "__main__":

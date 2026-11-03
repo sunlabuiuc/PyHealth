@@ -47,7 +47,8 @@ class PTBXLHeartLangClassification(PTBXLMultilabelClassification):
     the default standardization constants assume that rate, so build the
     dataset with ``PTBXLDataset(..., sampling_rate=100)``. Other rates raise
     ``ValueError`` unless ``sampling_rate=None``. QRS detection uses ``wfdb``
-    (the ``pyhealth[ptbxl]`` extra).
+    (the ``pyhealth[ptbxl]`` extra); an ECG in which no QRS complex is
+    detected is kept as an all-padding sentence, with a warning.
 
     Args:
         scp_statements_path: ``scp_statements.csv`` of the PTB-XL download;
