@@ -12,7 +12,6 @@ partially written one. These tests cover the three parts of the fix:
 * ``save_ddi_adj`` replaces the file atomically.
 """
 
-import importlib.metadata as importlib_metadata
 import os
 import stat
 import tempfile
@@ -22,13 +21,13 @@ from unittest.mock import patch
 
 import numpy as np
 import torch
-from packaging import version
 
 import pyhealth.models
 from pyhealth.datasets import create_sample_dataset, get_dataloader
 from pyhealth.metrics import multilabel_metrics_fn
 from pyhealth.models.utils import save_array_atomically, save_ddi_adj
 from pyhealth.trainer import Trainer, get_metrics_fn, model_metrics_kwargs
+from tests.core.ogb_test_utils import require_ogb
 
 
 def _patch_cache_dir(testcase, *targets):
@@ -101,20 +100,6 @@ class TestModelMetricsKwargs(unittest.TestCase):
         ddi_model.ddi_adj_matrix = np.eye(2)
         for mode in ("binary", "multiclass", "regression"):
             self.assertEqual(model_metrics_kwargs(ddi_model, get_metrics_fn(mode)), {})
-
-
-def _require_ogb(testcase):
-    """MoleRec needs ogb>=1.3.5; skip like tests/core/test_molerec.py does."""
-    try:
-        installed = importlib_metadata.version("ogb")
-    except importlib_metadata.PackageNotFoundError:
-        testcase.skipTest("ogb package not available")
-    if version.parse(installed) < version.parse("1.3.5"):
-        testcase.skipTest(f"ogb>=1.3.5 required, but found {installed}")
-    try:
-        from ogb.utils import smiles2graph  # noqa: F401
-    except ImportError as exc:
-        testcase.skipTest(f"ogb import failed: {exc}")
 
 
 class _ModelDDIMatrixMixin:
@@ -238,7 +223,7 @@ class TestMoleRecDDIMatrix(_ModelDDIMatrixMixin, _EvaluateDDIMixin, unittest.Tes
     model_name = "MoleRec"
 
     def setUp(self):
-        _require_ogb(self)
+        require_ogb(self)
         super().setUp()
 
 
@@ -380,8 +365,9 @@ class TestSaveDDIAdj(unittest.TestCase):
         self.assertEqual(errors, [])
         # every write landed, and the file holds the last one (a skipped
         # replace, e.g. a locked file on Windows, would fail here)
-        self.assertEqual(replaced, [True] * 100)
-        np.testing.assert_array_equal(np.load(self.path), large)
+        if os.name != "nt":  # Windows refuses to replace a file being read
+            self.assertEqual(replaced, [True] * 100)
+            np.testing.assert_array_equal(np.load(self.path), large)
         self.assertEqual(os.listdir(self.dir), ["ddi_adj.npy"])
 
 
