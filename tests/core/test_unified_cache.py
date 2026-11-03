@@ -83,6 +83,21 @@ class TestFrozenTextCache(unittest.TestCase):
         self.assertEqual(enc.calls, 2)
         self.assertTrue(torch.equal(h1, h2))
 
+    def test_full_cache_encodes_each_miss_once(self):
+        model, enc = self._cached(max_frozen_text_cache=1)
+        ids = torch.tensor([[1, 2, 3], [4, 5, 6]])
+        h1 = model._encode_text_cls("notes", enc, ids, None)
+        # One batched encoder call serves both misses; only the first fits.
+        self.assertEqual(enc.calls, 1)
+        self.assertEqual(h1.shape, (2, 8))
+        self.assertEqual(
+            sum(len(c) for c in model._frozen_text_cache.values()), 1
+        )
+        h2 = model._encode_text_cls("notes", enc, ids, None)
+        # The cached row hits; the overflow row re-encodes exactly once.
+        self.assertEqual(enc.calls, 2)
+        self.assertTrue(torch.equal(h1, h2))
+
     def test_empty_rows_return_zeros_without_encoding(self):
         model, enc = self._cached()
         out = model._encode_text_cls(
