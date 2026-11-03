@@ -179,6 +179,41 @@ class ImproveResult:
         return "\n".join(rows)
 
 
+
+def _rule_text(promote_se: float | None, one_se: bool, compared: bool) -> str:
+    """The selection rule in plain words.
+
+    ``compared`` says whether trials are compared with a starting pipeline
+    that ran.
+    """
+    if promote_se is None:
+        return "The selection is the trial with the best score."
+    simplest = (
+        "the most interpretable model (lowest rung) whose score is within one "
+        "paired standard error of the best"
+    )
+    if not compared:
+        if not one_se:
+            return ("There is no starting pipeline to compare with, so the "
+                    "selection is the trial with the best mean score.")
+        return ("There is no starting pipeline to compare with, so every trial "
+                f"is a candidate. The selection is {simplest}: simpler models "
+                "win ties.")
+    bound = (
+        f"Every trial is compared with the starting pipeline fold by fold. "
+        f"A trial is a candidate if its gain is above 0 by more than "
+        f"{promote_se:g} standard error(s), so a gain must be "
+        f"consistent across folds, not only high on average."
+    )
+    if not one_se:
+        return bound + " The selection is the candidate with the highest bound."
+    return bound + (
+        " Among the candidates, the selection is the most interpretable "
+        "model (lowest rung) whose score is within one paired standard error "
+        "of the best candidate's: simpler models win ties."
+    )
+
+
 class AutoImprover:
     """Improves a PyHealth pipeline automatically, by guided search.
 
@@ -428,6 +463,8 @@ class AutoImprover:
         ):
             config, notes = self.space.validate(self.baseline)
             self._evaluate(config, -1, "baseline", "baseline", notes)
+            # the selection rule depends on whether the baseline ran
+            self._save_settings()
         first_cycle = max((t.cycle for t in self.trials), default=-1) + 1
         best, top = self._selected_id(), self._top_score()
         stale = 0
@@ -565,33 +602,11 @@ class AutoImprover:
 
     def selection_rule(self) -> str:
         """How the selection is made, in plain words (for prompts and reports)."""
-        if self.promote_se is None:
-            return "The selection is the trial with the best score."
-        simplest = (
-            "the most interpretable model (lowest rung) whose score is within one "
-            "paired standard error of the best"
-        )
         baseline = next((t for t in self.trials if t.agent == "baseline"), None)
-        if self.baseline is None or (baseline is not None and baseline.error):
-            if not self.one_se:
-                return ("There is no starting pipeline to compare with, so the "
-                        "selection is the trial with the best mean score.")
-            return ("There is no starting pipeline to compare with, so every trial "
-                    f"is a candidate. The selection is {simplest}: simpler models "
-                    "win ties.")
-        bound = (
-            f"Every trial is compared with the starting pipeline fold by fold. "
-            f"A trial is a candidate if its gain is above 0 by more than "
-            f"{self.promote_se:g} standard error(s), so a gain must be "
-            f"consistent across folds, not only high on average."
+        compared = self.baseline is not None and not (
+            baseline is not None and baseline.error
         )
-        if not self.one_se:
-            return bound + " The selection is the candidate with the highest bound."
-        return bound + (
-            " Among the candidates, the selection is the most interpretable "
-            "model (lowest rung) whose score is within one paired standard error "
-            "of the best candidate's: simpler models win ties."
-        )
+        return _rule_text(self.promote_se, self.one_se, compared)
 
     def _turn(self, cycle: int, agent: str, strategy: str) -> None:
         feedback = ""
@@ -945,18 +960,10 @@ class AutoImprover:
                 parent.config, config
             )
         try:
-            train, val = self._datasets(trial.features)
-            if self.folds is not None:
-                out = run_config_cv(
-                    config, self.space, train, val, self.metric, self.folds,
-                    self.report_metrics, self.seed, self.device,
-                    stop_if=self._early_stop_rule(),
-                )
-            else:
-                out = run_config(
-                    config, self.space, train, val, self.metric,
-                    self.report_metrics, self.seed, self.device,
-                )
+            out = self._run_config(
+                config, self.report_metrics, trial.features,
+                stop_if=self._early_stop_rule(),
+            )
             trial.metrics = out["metrics"]
             trial.score = out["metrics"][self.metric]
             trial.seconds = out["seconds"]
@@ -1244,19 +1251,25 @@ class AutoImprover:
                 json.dump(out, f, indent=1, default=str)
         return out
 
-    def _score(self, config: PipelineConfig, features=()) -> dict[str, Any]:
-        config, _ = self.space.validate(config)
+    def _run_config(
+        self, config: PipelineConfig, report_metrics, features=(), stop_if=None,
+    ) -> dict[str, Any]:
+        """Scores a config, with these engineered features, on this run's
+        folds or on the validation split. ``stop_if`` applies to folds only."""
         train, val = self._datasets(list(features))
         if self.folds is not None:
-            out = run_config_cv(
-                config, self.space, train, val, self.metric, self.folds, (),
-                self.seed, self.device,
+            return run_config_cv(
+                config, self.space, train, val, self.metric, self.folds,
+                report_metrics, self.seed, self.device, stop_if=stop_if,
             )
-        else:
-            out = run_config(
-                config, self.space, train, val, self.metric, (), self.seed,
-                self.device,
-            )
+        return run_config(
+            config, self.space, train, val, self.metric, report_metrics,
+            self.seed, self.device,
+        )
+
+    def _score(self, config: PipelineConfig, features=()) -> dict[str, Any]:
+        config, _ = self.space.validate(config)
+        out = self._run_config(config, (), features)
         return {"score": out["metrics"][self.metric],
                 "fold_scores": out.get("fold_scores", [])}
 
@@ -1510,7 +1523,7 @@ class AutoImprover:
             "promote_se": self.promote_se,
             "seed": self.seed,
             "baseline": None if self.baseline is None else self.baseline.to_dict(),
-            "space": self.space.describe(),
+            "space": self.space.describe(rungs=False),
             "data": (
                 f"inputs: {_schema_names(self.train_dataset.input_schema)} | "
                 f"label: {_schema_names(self.train_dataset.output_schema)} | "
@@ -1532,6 +1545,17 @@ class AutoImprover:
                 stored = json.load(f)
             changed = [k for k, v in self._settings.items()
                        if k in stored and stored[k] != v]
+            if changed == ["space"]:
+                # The space only bounds new proposals: the trials so far are
+                # still valid scores on the same data, metric and folds.
+                logger.warning(
+                    "%s was started with a different search space; its trials "
+                    "are kept and new proposals use the current space",
+                    self.run_dir,
+                )
+                with open(path, "w") as f:
+                    json.dump(self._settings, f, indent=1)
+                return
             if changed:
                 raise ValueError(
                     f"{self.run_dir} holds a run with a different "
@@ -1739,6 +1763,52 @@ def select_simplest(
                   key=lambda t: t.trial_id)
     if not done:
         return None, None
+    candidates, top, near = _one_se_sets(done, maximize, promote_se)
+    if not candidates:
+        best = max(done, key=lambda t: (1 if maximize else -1) * t.score)
+        return best, best
+    rung = rung or (lambda config: 0)
+    # simpler wins: the lower rung, then fewer engineered features
+    selected = min(near, key=lambda t: (rung(t.config), len(t.features),
+                                        (-1 if maximize else 1) * t.score))
+    return selected, top
+
+
+def _one_se_sets(
+    trials: Sequence[Trial],
+    maximize: bool,
+    promote_se: float = 1.0,
+    top: Trial | None = None,
+) -> tuple[list[Trial], Trial | None, list[Trial]]:
+    """The candidates, the top candidate, and the candidates within one SE of it.
+
+    These are the sets :func:`select_simplest` chooses from (see its steps 1
+    to 3); the report shows them. Trials are compared on their fold scores.
+
+    Args:
+        trials: The trials of a search; failed ones are ignored.
+        maximize: Whether larger scores are better.
+        promote_se: Standard errors a gain must clear to make a candidate.
+        top: The trial to measure "within one SE" against. Defaults to the
+            candidate with the best mean score.
+
+    Returns:
+        ``(candidates, top, near)``, in trial order; empty lists and ``None``
+        when no trial can be compared.
+
+    Examples:
+        >>> base = Trial(0, -1, "baseline", "baseline", PipelineConfig("RNN"),
+        ...              score=0.50, fold_scores=[0.48, 0.50, 0.52])
+        >>> lr = Trial(1, 0, "a0", "explore", PipelineConfig("LogisticRegression"),
+        ...            score=0.55, fold_scores=[0.52, 0.57, 0.56])
+        >>> mlp = Trial(2, 0, "a1", "explore", PipelineConfig("MLP"),
+        ...             score=0.56, fold_scores=[0.55, 0.555, 0.575])
+        >>> candidates, top, near = _one_se_sets([base, lr, mlp], True)
+        >>> [t.trial_id for t in candidates], top.trial_id, [t.trial_id for t in near]
+        ([0, 1, 2], 2, [1, 2])
+    """
+    done = sorted((t for t in trials if t.error is None and t.score is not None),
+                  key=lambda t: t.trial_id)
     sign = 1 if maximize else -1
     reference = next((t for t in done if t.agent == "baseline"), None)
     if reference is None:
@@ -1754,10 +1824,8 @@ def select_simplest(
     else:
         candidates = []
     if not candidates:
-        best = max(done, key=lambda t: sign * t.score)
-        return best, best
-    top = max(candidates, key=lambda t: sign * t.score)
-    rung = rung or (lambda config: 0)
+        return [], None, []
+    top = top or max(candidates, key=lambda t: sign * t.score)
 
     def within(t: Trial) -> bool:
         if t is top:
@@ -1767,11 +1835,7 @@ def select_simplest(
         gap, se = paired_gain(top.fold_scores, t.fold_scores, maximize)
         return gap <= se
 
-    near = [t for t in candidates if within(t)]
-    # simpler wins: the lower rung, then fewer engineered features
-    selected = min(near, key=lambda t: (rung(t.config), len(t.features),
-                                        -sign * t.score))
-    return selected, top
+    return candidates, top, [t for t in candidates if within(t)]
 
 
 def _key(config: PipelineConfig, features: Sequence[dict[str, Any]]) -> str:

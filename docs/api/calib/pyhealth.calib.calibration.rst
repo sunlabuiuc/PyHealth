@@ -13,6 +13,7 @@ Available Methods
    :nosignatures:
 
    pyhealth.calib.calibration.TemperatureScaling
+   pyhealth.calib.calibration.LogisticRecalibration
    pyhealth.calib.calibration.HistogramBinning
    pyhealth.calib.calibration.DirichletCalibration
    pyhealth.calib.calibration.KCal
@@ -21,6 +22,14 @@ Temperature Scaling
 -------------------
 
 .. autoclass:: pyhealth.calib.calibration.TemperatureScaling
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+Logistic Recalibration
+----------------------
+
+.. autoclass:: pyhealth.calib.calibration.LogisticRecalibration
    :members:
    :undoc-members:
    :show-inheritance:

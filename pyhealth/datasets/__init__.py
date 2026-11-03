@@ -52,6 +52,7 @@ from .chestxray14 import ChestXray14Dataset
 from .clinvar import ClinVarDataset
 from .cosmic import COSMICDataset
 from .covid19_cxr import COVID19CXRDataset
+from .ptbxl import PTBXLDataset as PTBXLDataset
 from .dreamt import DREAMTDataset
 from .ehrshot import EHRShotDataset
 from .eicu import eICUDataset
@@ -83,6 +84,7 @@ from .splitter import (
     split_by_sample_conformal,
     split_by_sample_conformal_tuh,
     split_by_sample_tuh,
+    split_by_strat_fold as split_by_strat_fold,
     split_by_visit,
     split_by_visit_conformal,
 )
