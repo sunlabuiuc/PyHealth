@@ -9,6 +9,7 @@ from pyhealth.models.utils import get_last_visit
 from pyhealth.interpret.api import Interpretable
 
 from .embedding import EmbeddingModel
+from pyhealth.utils import _warn_user
 
 
 class StageNetLayer(nn.Module):
@@ -432,14 +433,13 @@ class StageNet(BaseModel, Interpretable):
                 
             if time is None:
                 import warnings
-                warnings.warn(
+                _warn_user(
                     f"Feature '{feature_key}' does not have time "
                     f"intervals. StageNet's temporal modeling "
                     f"capabilities will be limited. Consider using "
                     f"StageNet format with time intervals for "
                     f"better performance.",
                     UserWarning,
-                    stacklevel=2,
                 )
             else:
                 time = time.to(self.device)
@@ -448,12 +448,10 @@ class StageNet(BaseModel, Interpretable):
                     time = time.unsqueeze(0)
             
             if mask is None:
-                import warnings
-                warnings.warn(
+                _warn_user(
                     f"Feature '{feature_key}' does not have mask "
                     f"information. Default mask will be created from "
                     f"embedded values. But it may not be accurate.",
-                    stacklevel=2,
                 )
                 mask = (value.abs().sum(dim=-1) != 0).int()
             elif not processor.is_token() and value.dim() == mask.dim():

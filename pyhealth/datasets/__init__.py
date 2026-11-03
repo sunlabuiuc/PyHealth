@@ -12,12 +12,11 @@ class BaseEHRDataset:
     """
 
     def __init__(self, *args, **kwargs):
-        import warnings
+        from pyhealth.utils import _warn_user
 
-        warnings.warn(
+        _warn_user(
             "The BaseEHRDataset class is deprecated and will be removed in a future version.",
             DeprecationWarning,
-            stacklevel=2,
         )
 
 
@@ -35,12 +34,11 @@ class BaseSignalDataset:
     """
 
     def __init__(self, *args, **kwargs):
-        import warnings
+        from pyhealth.utils import _warn_user
 
-        warnings.warn(
+        _warn_user(
             "The BaseSignalDataset class is deprecated and will be removed in a future version.",
             DeprecationWarning,
-            stacklevel=2,
         )
 
 
@@ -58,12 +56,11 @@ class SampleEHRDataset:
     """
 
     def __init__(self, *args, **kwargs):
-        import warnings
+        from pyhealth.utils import _warn_user
 
-        warnings.warn(
+        _warn_user(
             "The SampleEHRDataset class is deprecated and will be removed in a future version.",
             DeprecationWarning,
-            stacklevel=2,
         )
 
 
@@ -81,12 +78,11 @@ class SampleSignalDataset:
     """
 
     def __init__(self, *args, **kwargs):
-        import warnings
+        from pyhealth.utils import _warn_user
 
-        warnings.warn(
+        _warn_user(
             "The SampleSignalDataset class is deprecated and will be removed in a future version.",
             DeprecationWarning,
-            stacklevel=2,
         )
 
 

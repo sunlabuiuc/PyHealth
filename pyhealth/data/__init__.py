@@ -14,5 +14,5 @@ class Visit:
         'DeprecationWarning'
     """
     def __init__(self, *args, **kwargs):
-        import warnings
-        warnings.warn("The Visit class is deprecated and will be removed in a future version.", DeprecationWarning, stacklevel=2)
+        from pyhealth.utils import _warn_user
+        _warn_user("The Visit class is deprecated and will be removed in a future version.", DeprecationWarning)

@@ -1,14 +1,38 @@
+import contextlib
+import functools
 import json
 import os
 import pickle
 import random
-import contextlib
-import functools
 import shutil
+import sys
 import urllib.request
+import warnings
 
 import numpy as np
 import torch
+
+_INTERNAL_PREFIXES = (
+    os.path.dirname(os.path.abspath(__file__)) + os.sep,
+    os.path.dirname(os.path.abspath(torch.__file__)) + os.sep,
+)
+
+
+def _warn_user(message: str, category: type[Warning] = UserWarning) -> None:
+    """Warns at the first frame outside PyHealth and PyTorch: the user's code.
+
+    A fixed ``stacklevel`` points at library internals when the warning is
+    raised inside ``forward()`` (called through ``nn.Module.__call__``) or in a
+    base class's ``__init__`` reached through ``super()``.
+    """
+    frame = sys._getframe(1)
+    level = 2
+    while frame is not None and frame.f_code.co_filename.startswith(
+        _INTERNAL_PREFIXES
+    ):
+        frame = frame.f_back
+        level += 1
+    warnings.warn(message, category, stacklevel=level)
 
 
 def download_file(url: str, path: str, timeout: float = 60.0) -> str:
