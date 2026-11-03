@@ -14,6 +14,7 @@ from torch.utils.data import DataLoader
 
 from pyhealth import BASE_CACHE_PATH
 from pyhealth.utils import create_directory
+from pyhealth.datasets.collate import _pad_stack
 
 MODULE_CACHE_PATH = os.path.join(BASE_CACHE_PATH, "datasets")
 create_directory(MODULE_CACHE_PATH)
@@ -240,6 +241,9 @@ def _restore_from_cache(sample: Dict[str, Any]) -> Dict[str, Any]:
     return restored
 
 
+PAD_MASK_SUFFIX = "__pad_mask"
+
+
 def collate_fn_dict(batch: List[dict]) -> dict:
     """Collates a batch of data into a dictionary of lists.
 
@@ -286,39 +290,55 @@ def collate_fn_dict_with_padding(
 
         if collators is not None and key in collators:
             collated[key] = collators[key](values)
-        # Check if this is a temporal feature tuple (time, values)
-        elif isinstance(values[0], tuple) and len(values[0]) == 2:
-            # Handle (time, values) tuples from processors
-            time_tensors = [v[0] for v in values]
-            value_tensors = [v[1] for v in values]
-
-            # Collate values
-            if value_tensors[0].dim() == 0:
-                # Scalars
-                collated_values = torch.stack(value_tensors)
-            elif all(v.shape == value_tensors[0].shape for v in value_tensors):
-                # All same shape
-                collated_values = torch.stack(value_tensors)
-            else:
-                # Variable shapes, use pad_sequence
-                collated_values = pad_sequence(
-                    value_tensors, batch_first=True, padding_value=0
-                )
-
-            # Collate times (if present)
-            collated_times = None
-            # Check if ALL samples have time (not just some)
-            if all(t is not None for t in time_tensors):
-                time_tensors_all = [t for t in time_tensors if t is not None]
-                if all(t.shape == time_tensors_all[0].shape for t in time_tensors_all):
-                    collated_times = torch.stack(time_tensors_all)
+        # Check if this is a temporal feature tuple: (time, values) from
+        # numeric/code processors, or (value, mask, ..., time, tag) from
+        # tuple text processors. Positions collate independently so ragged
+        # text batches stack exactly like (time, values) pairs do.
+        elif isinstance(values[0], tuple) and all(
+            isinstance(v, tuple) and len(v) == len(values[0]) for v in values
+        ):
+            arity = len(values[0])
+            stacked = []
+            for pos in range(arity):
+                elems = [v[pos] for v in values]
+                if all(e is None for e in elems):
+                    stacked.append(None)
+                elif all(e is None or isinstance(e, torch.Tensor) for e in elems):
+                    if any(e is None for e in elems):
+                        # Partial time info is dropped, as before
+                        stacked.append(None)
+                    elif elems[0].dim() == 0:
+                        # Scalars
+                        stacked.append(torch.stack(elems))
+                    else:
+                        # Same shape stacks; ragged pads every dimension
+                        stacked.append(_pad_stack(elems))
                 else:
-                    collated_times = pad_sequence(
-                        time_tensors_all, batch_first=True, padding_value=0
-                    )
+                    # Non-tensor positions (e.g. the text type tag) stay lists
+                    stacked.append(elems)
 
-            # Return as tuple (time, values)
-            collated[key] = (collated_times, collated_values)
+            # Return as a tuple in the processor's schema order
+            collated[key] = tuple(stacked)
+            # Event-level validity from the first non-scalar tensor
+            # position: every tensor position shares dim 0 (the event
+            # count). For (time, values) pairs this matches the old
+            # values-based lengths exactly.
+            event_lengths = None
+            for pos in range(arity):
+                elems = [v[pos] for v in values]
+                if (
+                    all(isinstance(e, torch.Tensor) for e in elems)
+                    and elems[0].dim() > 0
+                ):
+                    if not all(e.shape == elems[0].shape for e in elems):
+                        event_lengths = [e.shape[0] for e in elems]
+                    break
+            if event_lengths is not None:
+                lengths = torch.tensor(event_lengths)
+                width = int(lengths.max())
+                collated[f"{key}{PAD_MASK_SUFFIX}"] = (
+                    torch.arange(width)[None, :] < lengths[:, None]
+                )
             # PyG Data objects (graph processor output)
         elif HAS_PYG and isinstance(values[0], PyGData):
             collated[key] = PyGBatch.from_data_list(values)
