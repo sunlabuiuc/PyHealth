@@ -167,6 +167,11 @@ from .dearllm_mortality import (
     DearLLMMortalityPredictionMIMIC3 as DearLLMMortalityPredictionMIMIC3,
     DearLLMMortalityPredictionMIMIC4 as DearLLMMortalityPredictionMIMIC4,
 )
+from .multimodal_mimic4 import (
+    BaseMultimodalMIMIC4Task as BaseMultimodalMIMIC4Task,
+    LabsMIMIC4 as LabsMIMIC4,
+    NotesLabsMIMIC4 as NotesLabsMIMIC4,
+)
 from .generate_ehr import (
     EHRCodeSetGenerationMIMIC3 as EHRCodeSetGenerationMIMIC3,
     EHRCodeSetGenerationMIMIC4 as EHRCodeSetGenerationMIMIC4,
