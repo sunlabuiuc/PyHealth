@@ -184,6 +184,26 @@ class TestCheckpoint(unittest.TestCase):
                          ["cls_token", "pos_embed"])
         self.assertEqual(sorted(heartlang_state_dict(state)),
                          ["cls_token", "pos_embed"])
+        # the original feed-forward names map onto PyHealth's components
+        original = {
+            f"transformer.layers.{i}.1.net.{j}.{p}": torch.zeros(1)
+            for i in (0, 11) for j in (0, 1, 4) for p in ("weight", "bias")
+        }
+        original["transformer.layers.0.0.norm.weight"] = torch.zeros(1)
+        self.assertEqual(sorted(heartlang_state_dict(original)), sorted(
+            [f"transformer.layers.{i}.1.{m}.{p}" for i in (0, 11)
+             for m in ("sublayer.norm", "ff.w_1", "ff.w_2")
+             for p in ("weight", "bias")]
+            + ["transformer.layers.0.0.norm.weight"]))
+        # a model trained with the original layout loads into ours
+        backbone = HeartLangBackbone(**TINY)
+        renamed = {
+            k.replace("1.sublayer.norm.", "1.net.0.")
+            .replace("1.ff.w_1.", "1.net.1.").replace("1.ff.w_2.", "1.net.4."): v
+            for k, v in backbone.state_dict().items()
+        }
+        self.assertTrue(any(".net.4." in k for k in renamed))
+        HeartLangBackbone(**TINY).load_state_dict(heartlang_state_dict(renamed))
 
     def test_loads_a_training_checkpoint(self):
         # a checkpoint shaped like the published one: weights under "model",

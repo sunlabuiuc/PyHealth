@@ -12,9 +12,11 @@ masked heartbeat modelling encodes the sentence; downstream tasks use its
 [CLS] token.
 
 This module ports the QRS tokenizer and the transformer from the authors'
-code (https://github.com/PKUDigitalHealth/HeartLang), keeping the parameter
-names so the published checkpoint
-(https://huggingface.co/PKUDigitalHealth/HeartLang) loads as is. The VQ-HBR
+code (https://github.com/PKUDigitalHealth/HeartLang). The feed-forward
+blocks reuse PyHealth's transformer components; the other parameter names
+are the original ones, and :func:`heartlang_state_dict` renames the rest, so
+the published checkpoint (https://huggingface.co/PKUDigitalHealth/HeartLang)
+loads with every weight matched and identical outputs. The VQ-HBR
 tokenizer is only needed for pre-training (it produces the masked-modelling
 targets) and is not ported.
 
@@ -37,6 +39,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import warnings
 from collections.abc import Mapping, Sequence
 from typing import Any
@@ -49,6 +52,7 @@ from torch import nn
 from pyhealth.datasets import SampleDataset
 
 from .base_model import BaseModel
+from .transformer import PositionwiseFeedForward, SublayerConnection
 
 HF_REPO_ID = "PKUDigitalHealth/HeartLang"
 """Hugging Face repository with the published HeartLang checkpoints."""
@@ -212,15 +216,23 @@ def ecg_to_heartbeat_sentence(
 
 # ----------------------------------------------------------------- backbone
 class _FeedForward(nn.Module):
+    """HeartLang's pre-norm feed-forward block, residual included.
+
+    ``x + Dropout(Linear(Dropout(GELU(Linear(LayerNorm(x))))))``, which is
+    exactly :class:`~pyhealth.models.transformer.SublayerConnection` around
+    :class:`~pyhealth.models.transformer.PositionwiseFeedForward` (same
+    exact GELU, LayerNorm eps, biases and dropout positions). The original
+    code names these weights ``net.0`` (norm), ``net.1`` and ``net.4``;
+    :func:`heartlang_state_dict` renames them.
+    """
+
     def __init__(self, dim: int, hidden_dim: int, dropout: float = 0.0):
         super().__init__()
-        self.net = nn.Sequential(
-            nn.LayerNorm(dim), nn.Linear(dim, hidden_dim), nn.GELU(),
-            nn.Dropout(dropout), nn.Linear(hidden_dim, dim), nn.Dropout(dropout),
-        )
+        self.sublayer = SublayerConnection(dim, dropout)
+        self.ff = PositionwiseFeedForward(dim, hidden_dim, dropout)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.net(x)
+        return self.sublayer(x, self.ff)
 
 
 class _Attention(nn.Module):
@@ -262,7 +274,7 @@ class _Transformer(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         for attn, ff in self.layers:
             x = attn(x) + x
-            x = ff(x) + x
+            x = ff(x)  # the residual is inside _FeedForward
         return x
 
 
@@ -297,7 +309,7 @@ class HeartLangBackbone(nn.Module):
     lead (spatial) and a one-second time (temporal) embedding; a [CLS] token
     and a learned position embedding are added, and the sequence goes
     through a pre-norm transformer. Parameter names match the published
-    checkpoint.
+    checkpoint after :func:`heartlang_state_dict`.
 
     Args:
         seq_len: Words per sentence.
@@ -372,12 +384,20 @@ class HeartLangBackbone(nn.Module):
         return self.norm_layer(self.transformer(x))
 
 
+# Original feed-forward weight names (``layers.<i>.1.net.<j>.``) to ours.
+_FF_NAMES = {"0": "sublayer.norm.", "1": "ff.w_1.", "4": "ff.w_2."}
+_FF_RENAMES = re.compile(r"(?<=layers\.)(\d+\.1\.)net\.([014])\.")
+
+
 def heartlang_state_dict(checkpoint: Mapping[str, Any]) -> dict[str, torch.Tensor]:
     """Extracts the backbone weights from a HeartLang checkpoint.
 
     Accepts a training checkpoint (weights under ``"model"`` or
     ``"module"``) or a plain state dict, strips ``module.`` and
-    ``backbone.`` prefixes, and drops the pre-training ``lm_head``.
+    ``backbone.`` prefixes, drops the pre-training ``lm_head``, and renames
+    the feed-forward weights to PyHealth's transformer components
+    (``net.0`` to ``sublayer.norm``, ``net.1`` to ``ff.w_1``, ``net.4`` to
+    ``ff.w_2``).
 
     Args:
         checkpoint: The loaded checkpoint.
@@ -401,9 +421,12 @@ def heartlang_state_dict(checkpoint: Mapping[str, Any]) -> dict[str, torch.Tenso
     for name, value in state.items():
         for prefix in ("module.", "backbone."):
             name = name.removeprefix(prefix)
-        if not name.startswith("lm_head."):
-            out[name] = value
+        if name.startswith("lm_head."):
+            continue
+        name = _FF_RENAMES.sub(lambda m: m.group(1) + _FF_NAMES[m.group(2)], name)
+        out[name] = value
     return out
+
 
 
 def load_heartlang_checkpoint(path: str | None = None) -> dict[str, torch.Tensor]:

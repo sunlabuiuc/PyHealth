@@ -37,8 +37,9 @@ class PTBXLHeartLangClassification(PTBXLMultilabelClassification):
     the first selected lead, lead I by default
     (:func:`~pyhealth.models.heartlang.ecg_to_heartbeat_sentence`), and
     returned with the lead and time index of every word. Labels follow
-    :class:`~pyhealth.tasks.PTBXLMultilabelClassification`; with the default
-    ``min_likelihood=0`` they match the PTB-XL benchmark that HeartLang uses
+    :class:`~pyhealth.tasks.PTBXLMultilabelClassification` and keep every
+    SCP statement whatever its likelihood (``min_likelihood`` is fixed at 0,
+    not an argument), which matches the PTB-XL benchmark that HeartLang uses
     (Jin et al., ICLR 2025). Use
     :func:`~pyhealth.datasets.split_by_strat_fold` for its split: folds 1-8
     train, 9 validation, 10 test.
