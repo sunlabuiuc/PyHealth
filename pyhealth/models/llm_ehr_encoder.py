@@ -71,8 +71,12 @@ class LLMEHREncoder(BaseModel):
         instruction_format: ``format(instruction, text) -> str``.
         normalize: L2-normalize the embeddings.
         batch_size: Texts per encoder call.
-        cache_dir: Directory for an on-disk embedding cache, keyed by the
-            model, settings and text.
+        cache_dir: Directory for an on-disk embedding cache, keyed by
+            ``cache_name``, the settings and the text.
+        cache_name: The embedder's identity in the disk cache key. Defaults
+            to ``model_name``; required with ``cache_dir`` when ``encoder``
+            or ``embed_fn`` is given, so two embedders sharing a cache
+            directory never read each other's vectors.
         torch_dtype: Passed to ``from_pretrained``, e.g. ``torch.float16``
             on a GPU. Default ``"auto"``.
         encoder: A loaded encoder to use instead of ``model_name`` (with
@@ -113,6 +117,7 @@ class LLMEHREncoder(BaseModel):
         normalize: bool = True,
         batch_size: int = 8,
         cache_dir: str | None = None,
+        cache_name: str | None = None,
         torch_dtype: Any = "auto",
         encoder: nn.Module | None = None,
         tokenizer: Any = None,
@@ -141,7 +146,16 @@ class LLMEHREncoder(BaseModel):
         self.instruction_format = instruction_format
         self.normalize = normalize
         self.batch_size = batch_size
+        if cache_dir and cache_name is None and (
+            encoder is not None or embed_fn is not None
+        ):
+            raise ValueError(
+                "pass cache_name with cache_dir when encoder or embed_fn is "
+                "given: model_name does not identify a custom embedder, so "
+                "its cached vectors could be read by another one"
+            )
         self.cache_dir = cache_dir
+        self.cache_name = model_name if cache_name is None else cache_name
         self._memo: dict[str, torch.Tensor] = {}
         # kept out of the module tree: not trained, not saved, not moved by
         # .to(); see embed()
@@ -169,7 +183,7 @@ class LLMEHREncoder(BaseModel):
 
     # ------------------------------------------------------------ embedding
     def _cache_key(self, text: str) -> str:
-        settings = (f"{self.model_name}|{self.max_length}|{self.pooling}|"
+        settings = (f"{self.cache_name}|{self.max_length}|{self.pooling}|"
                     f"{self.instruction}|{self.normalize}|")
         return hashlib.sha256((settings + text).encode()).hexdigest()
 
@@ -215,16 +229,15 @@ class LLMEHREncoder(BaseModel):
             torch.Size([1, 1024])
         """
         keys = [self._cache_key(t) for t in texts]
-        missing = []
+        todo: dict[str, str] = {}  # key -> text, in first-seen order
         for key, text in zip(keys, texts):
-            if key in self._memo or key in missing:
+            if key in self._memo or key in todo:
                 continue
             path = self._cache_path(key)
             if path and os.path.exists(path):
                 self._memo[key] = torch.from_numpy(np.load(path))
             else:
-                missing.append(key)
-        todo = {k: t for k, t in zip(keys, texts) if k in missing}
+                todo[key] = text
         items = list(todo.items())
         for start in range(0, len(items), self.batch_size):
             chunk = items[start : start + self.batch_size]

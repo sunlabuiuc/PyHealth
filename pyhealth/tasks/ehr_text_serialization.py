@@ -19,6 +19,7 @@ adds no events and cannot leak the label.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import re
@@ -40,6 +41,13 @@ DEFAULT_SECTIONS: dict[str, tuple[str, tuple[str, ...]]] = {
     "drugs_hist": ("Medications", ("NDC", "ATC")),
     "labs": ("Lab tests", ()),
 }
+
+# Input processors whose fields hold codes, the only fields serialized. Other
+# inputs (time series, tensors, numbers, images) are not codes and are skipped.
+CODE_PROCESSORS: frozenset[str] = frozenset({
+    "sequence", "sequence_v2", "nested_sequence", "deep_nested_sequence",
+    "multi_hot", "nested_multihot",
+})
 
 # For tasks whose single field holds vocabulary-prefixed codes such as
 # "ICD10CM/E11.9" (EHRSHOT), the section a code goes to, by prefix. Other
@@ -91,9 +99,51 @@ class _Keyed:
 
 
 def _name(obj: Any) -> str:
+    """A stable name for a function, distinct for distinct lambdas.
+
+    Every lambda in a module shares the ``__qualname__`` ``<lambda>`` (and
+    nested functions share ``f.<locals>.g``), so these also get their line
+    number and a hash of their code. Values captured from an enclosing scope
+    are not part of the name.
+    """
     if obj is None:
         return "None"
-    return f"{getattr(obj, '__module__', '')}.{getattr(obj, '__qualname__', obj)}"
+    name = f"{getattr(obj, '__module__', '')}.{getattr(obj, '__qualname__', obj)}"
+    code = getattr(obj, "__code__", None)
+    if code is not None and ("<lambda>" in name or "<locals>" in name):
+        name += f"@{code.co_firstlineno}#{_code_hash(code)}"
+    return name
+
+
+def _code_hash(code: Any) -> str:
+    """A hash of a code object's bytecode, constants and names."""
+    digest = hashlib.sha256()
+    pending = [code]
+    while pending:
+        current = pending.pop()
+        digest.update(current.co_code)
+        digest.update(repr(current.co_names).encode())
+        for const in current.co_consts:
+            if hasattr(const, "co_code"):  # a nested function's code
+                pending.append(const)
+            else:
+                digest.update(repr(const).encode())
+    return digest.hexdigest()[:12]
+
+
+def _processor_name(spec: Any) -> str | None:
+    """The registered name of an input schema entry's processor."""
+    if isinstance(spec, tuple):
+        spec = spec[0]
+    if isinstance(spec, str):
+        return spec
+    from ..processors import PROCESSOR_REGISTRY
+
+    cls = spec if isinstance(spec, type) else type(spec)
+    for name, registered in PROCESSOR_REGISTRY.items():
+        if registered is cls:
+            return name
+    return None
 
 
 class CodeDescriber:
@@ -112,6 +162,10 @@ class CodeDescriber:
         lookup: Optional ``lookup(code, vocabularies) -> str | None`` that
             replaces the medcode lookup, e.g. for a custom vocabulary or to
             work offline.
+        name: The lookup's name in the task's cache key. Defaults to the
+            function's module, name, line and code hash; pass one when two
+            lookups share their code but not their data, e.g. closures
+            over different tables.
 
     Examples:
         >>> describe = CodeDescriber(
@@ -123,18 +177,25 @@ class CodeDescriber:
         True
         >>> describe("9_4019", ("ICD10CM", "ICD9CM"))  # ICD-9, version-prefixed
         'Hypertension'
+        >>> CodeDescriber(lookup=describe, name="my-table-v2")
+        CodeDescriber(lookup=my-table-v2)
     """
 
     def __init__(
         self,
         lookup: Callable[[str, Sequence[str]], str | None] | None = None,
+        name: str | None = None,
     ) -> None:
         self._lookup = lookup
+        self._name = name
         self._maps: dict[str, Any] = {}
         self._memo: dict[tuple[str, tuple[str, ...]], str | None] = {}
 
     def __repr__(self) -> str:
-        lookup = "" if self._lookup is None else f"lookup={_name(self._lookup)}"
+        if self._lookup is None:
+            lookup = ""
+        else:
+            lookup = f"lookup={self._name or _name(self._lookup)}"
         return f"CodeDescriber({lookup})"
 
     def __call__(self, code: str, vocabularies: Sequence[str] = ()) -> str | None:
@@ -237,8 +298,8 @@ def _flatten(value: Any) -> list[str]:
     """Codes of a sample field: a list, or a list of visits (lists)."""
     if value is None:
         return []
-    if isinstance(value, str):
-        return [value]
+    if isinstance(value, str) or not isinstance(value, (list, tuple)):
+        return [str(value)]
     out: list[str] = []
     for item in value:
         if isinstance(item, (list, tuple)):
@@ -291,14 +352,20 @@ class EHRTextSerializationTask(BaseTask):
     A field of vocabulary-prefixed codes (EHRSHOT's ``"ICD10CM/E11.9"``) is
     split into sections by prefix (:data:`PREFIX_SECTIONS`).
 
+    Only code fields (inputs with a processor in :data:`CODE_PROCESSORS`,
+    such as ``"sequence"``) are serialized. Other inputs, e.g. a
+    ``"timeseries"`` of lab values, are left out of the text with a
+    warning; a task with no code field raises ``ValueError``.
+
     Args:
         base_task: The task to wrap, e.g. ``MortalityPredictionMIMIC4()``.
         sections: Sample field to ``(heading, vocabularies)``. Defaults to
             :data:`DEFAULT_SECTIONS` for the fields the task has; any other
-            sequence field is shown under its own name with raw codes.
+            code field is shown under its own name with raw codes.
         demographics: ``demographics(patient) -> dict`` for the header, or
             ``None`` for no demographics. Defaults to
-            :func:`mimic_demographics`.
+            :func:`mimic_demographics`. A lambda or nested function is
+            named in the cache key by its code, not by captured values.
         describer: Code lookup; defaults to :class:`CodeDescriber`. Pass
             ``CodeDescriber(lookup=lambda code, vocabularies: None)`` to keep
             raw codes.
@@ -332,10 +399,27 @@ class EHRTextSerializationTask(BaseTask):
         self.task_name = f"{base_task.task_name}/text"
         inputs = dict(base_task.input_schema)
         known = dict(DEFAULT_SECTIONS, **(sections or {}))
+        codes = [f for f, spec in inputs.items()
+                 if _processor_name(spec) in CODE_PROCESSORS]
+        skipped = [f for f in inputs if f not in codes]
+        if sections and set(sections) & set(skipped):
+            raise ValueError(
+                f"sections names non-code inputs {sorted(set(sections) & set(skipped))}"
+                f"; only {sorted(CODE_PROCESSORS)} inputs can be serialized"
+            )
+        if not codes:
+            raise ValueError(
+                f"{base_task.task_name} has no code inputs to serialize; its "
+                f"inputs are {inputs}"
+            )
+        if skipped:
+            logger.warning("%s: inputs %s are not codes and are left out of "
+                           "the text", base_task.task_name, skipped)
         self.sections = {
             field: known.get(field, (field.replace("_", " ").capitalize(), ()))
-            for field in inputs
+            for field in codes
         }
+        self.input_fields = sorted(inputs)
         self._demographics = _Keyed(demographics, _name(demographics))
         describer = describer or CodeDescriber()
         self._describer = _Keyed(describer, repr(describer))
@@ -408,7 +492,7 @@ class EHRTextSerializationTask(BaseTask):
         out = []
         for sample in samples:
             new = {k: v for k, v in sample.items()
-                   if k not in self.sections or self.keep_inputs}
+                   if k not in self.input_fields or self.keep_inputs}
             new["text"] = self.serialize_sample(sample, demographics)
             out.append(new)
         return out

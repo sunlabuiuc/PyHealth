@@ -14,9 +14,11 @@ from transformers import BertConfig, BertModel, BertTokenizerFast
 
 from pyhealth.datasets import MIMIC4EHRDataset, create_sample_dataset, get_dataloader
 from pyhealth.models import LLMEHREncoder
+from pyhealth.processors import SequenceProcessor
 from pyhealth.tasks import (
     CodeDescriber,
     EHRTextSerializationTask,
+    InHospitalMortalityMIMIC4,
     MortalityPredictionMIMIC4,
     serialize_ehr,
 )
@@ -136,6 +138,51 @@ class TestSerialization(unittest.TestCase):
         self.assertNotEqual(key(a), key(EHRTextSerializationTask(
             MortalityPredictionMIMIC4(), max_chars=100)))
 
+    def test_cache_key_tells_lambdas_apart(self):
+        def key(describer):
+            task = EHRTextSerializationTask(MortalityPredictionMIMIC4(),
+                                            describer=describer)
+            return json.dumps(vars(task), sort_keys=True, default=str)
+
+        first = lambda code, vocabularies: "first"
+        second = lambda code, vocabularies: "second"
+        self.assertNotEqual(key(CodeDescriber(lookup=first)),
+                            key(CodeDescriber(lookup=second)))
+        self.assertEqual(key(CodeDescriber(lookup=first)),
+                         key(CodeDescriber(lookup=first)))
+        # closures over different data share their code: name them
+        tables = [{"4019": "A"}, {"4019": "B"}]
+        lookups = [lambda c, v, t=t: t.get(c) for t in tables]
+        self.assertNotEqual(key(CodeDescriber(lookup=lookups[0], name="a")),
+                            key(CodeDescriber(lookup=lookups[1], name="b")))
+
+    def test_only_code_inputs_are_serialized(self):
+        class _MixedTask(_CodesTask):
+            def __init__(self):
+                self.input_schema = {"conditions": SequenceProcessor,
+                                     "labs": "timeseries", "age": "tensor"}
+                self.output_schema = {"label": "binary"}
+
+        sample = {"patient_id": "p0", "label": 1, "conditions": ["4019"],
+                  "labs": ([1.0, 2.0], [[0.5, float("nan")]]), "age": 63.0}
+        with self.assertLogs("pyhealth.tasks.ehr_text_serialization", "WARNING"):
+            task = EHRTextSerializationTask(_MixedTask(), describer=OFFLINE,
+                                            demographics=None)
+        [out] = task(_patient(sample))
+        self.assertEqual(set(out), {"patient_id", "label", "text"})
+        self.assertEqual(out["text"], "# Electronic Health Record\n\n"
+                         "## Conditions\n- Unspecified essential hypertension")
+        kept = EHRTextSerializationTask(_MixedTask(), describer=OFFLINE,
+                                        keep_inputs=True)
+        self.assertEqual(set(kept(_patient(sample))[0]),
+                         {"patient_id", "label", "text", "conditions", "labs",
+                          "age"})
+        with self.assertRaises(ValueError):  # only a lab-value time series
+            EHRTextSerializationTask(InHospitalMortalityMIMIC4())
+        with self.assertRaises(ValueError):
+            EHRTextSerializationTask(_MixedTask(),
+                                     sections={"labs": ("Lab tests", ())})
+
     def test_mimic4_demo_end_to_end(self):
         root = Path(__file__).parents[2] / "test-resources" / "core" / "mimic4demo"
         with tempfile.TemporaryDirectory() as tmp:
@@ -230,23 +277,40 @@ class TestLLMEHREncoder(unittest.TestCase):
 
         cache = os.path.join(self.tmp.name, "cache")
         model = LLMEHREncoder(self.dataset, embed_fn=embed_fn, cache_dir=cache,
-                              model_name="stub")
+                              cache_name="stub")
         calls.clear()
         first = model.embed(["a", "bb", "a"])
         self.assertEqual(calls, [["a", "bb"]])  # each text encoded once
         model.embed(["bb"])
         self.assertEqual(len(calls), 1)  # memoized
         again = LLMEHREncoder(self.dataset, embed_fn=embed_fn, cache_dir=cache,
-                              model_name="stub")
+                              cache_name="stub")
         calls.clear()
         torch.testing.assert_close(again.embed(["a", "bb", "a"]), first)
         self.assertEqual(calls, [])  # read from disk
         torch.testing.assert_close(first.norm(dim=-1), torch.ones(3))
         other = LLMEHREncoder(self.dataset, embed_fn=embed_fn, cache_dir=cache,
-                              model_name="stub", instruction="Predict death")
+                              cache_name="stub", instruction="Predict death")
         calls.clear()
         other.embed(["a"])
         self.assertEqual(calls, [["a"]])  # other settings, other key
+
+    def test_embedders_sharing_a_cache_dir_do_not_collide(self):
+        cache = os.path.join(self.tmp.name, "cache")
+        ones = lambda texts: torch.ones(len(texts), 4)
+        twos = lambda texts: torch.arange(4.0).repeat(len(texts), 1)
+        a = LLMEHREncoder(self.dataset, embed_fn=ones, cache_dir=cache,
+                          cache_name="ones")
+        b = LLMEHREncoder(self.dataset, embed_fn=twos, cache_dir=cache,
+                          cache_name="twos")
+        a.embed(["x"])
+        self.assertFalse(torch.equal(a.embed(["x"]), b.embed(["x"])))
+        encoder, tokenizer = _tiny_encoder(self.tmp.name)
+        for custom in ({"embed_fn": ones},
+                       {"encoder": encoder, "tokenizer": tokenizer}):
+            with self.assertRaises(ValueError):  # no identity for the cache
+                LLMEHREncoder(self.dataset, cache_dir=cache, **custom)
+            LLMEHREncoder(self.dataset, **custom)  # no disk cache: fine
 
     def test_instruction_and_multiclass(self):
         seen = []
