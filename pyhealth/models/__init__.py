@@ -78,3 +78,8 @@ from .generators.medgan import MedGAN
 from .generators.synthea import Synthea as Synthea
 from .generators.corgan import CorGAN as CorGAN
 from .survival_mdn import SurvivalMDN as SurvivalMDN
+from .heartlang import (
+    HeartLang as HeartLang,
+    HeartLangBackbone as HeartLangBackbone,
+    ecg_to_heartbeat_sentence as ecg_to_heartbeat_sentence,
+)
