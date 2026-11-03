@@ -1,0 +1,199 @@
+"""Tests for HeartLang and its PTB-XL task, with tiny synthetic ECGs."""
+
+import argparse
+import importlib.util
+import os
+import tempfile
+import unittest
+from unittest import mock
+
+import numpy as np
+import torch
+
+from pyhealth.datasets import create_sample_dataset, get_dataloader
+from pyhealth.models import HeartLang, HeartLangBackbone, ecg_to_heartbeat_sentence
+from pyhealth.models.heartlang import heartlang_state_dict, load_heartlang_checkpoint
+from pyhealth.tasks import PTBXLHeartLangClassification
+
+TINY = {"seq_len": 8, "token_len": 16, "embed_dim": 32, "depth": 1, "heads": 2,
+        "dim_head": 8, "mlp_dim": 64}
+HAS_WFDB = importlib.util.find_spec("wfdb") is not None
+
+
+def make_dataset(n: int = 6):
+    rng = np.random.default_rng(0)
+    samples = [
+        {
+            "patient_id": f"p{i}",
+            "ecg_sentence": rng.standard_normal((8, 16)).astype(np.float32),
+            "lead_ids": np.arange(8) % 12 + 1,
+            "time_ids": np.arange(8) % 10 + 1,
+            "labels": ["NORM"] if i % 2 else ["MI", "STTC"],
+        }
+        for i in range(n)
+    ]
+    return create_sample_dataset(
+        samples,
+        input_schema={"ecg_sentence": "tensor", "lead_ids": "tensor",
+                      "time_ids": "tensor"},
+        output_schema={"labels": "multilabel"},
+    )
+
+
+def synthetic_ecg(rate: int = 100, seconds: int = 10, leads: int = 12):
+    """Sharp R peaks every 0.8 s on a flat line, the same on every lead."""
+    signal = np.zeros((leads, rate * seconds), dtype=np.float32)
+    peaks = np.arange(rate // 2, rate * seconds - rate // 4, int(0.8 * rate))
+    for p in peaks:
+        signal[:, p - 2 : p + 3] = [0.2, 0.6, 1.5, 0.6, 0.2]
+    return signal, peaks
+
+
+class TestHeartbeatSentence(unittest.TestCase):
+    def test_words_are_centred_on_the_qrs(self):
+        signal = np.zeros((2, 1000), dtype=np.float32)
+        signal[0, 300], signal[1, 300] = 1.0, 2.0
+        words, lead_ids, time_ids = ecg_to_heartbeat_sentence(
+            signal, qrs_inds=[100, 300, 500], max_len=10, token_len=96)
+        self.assertEqual(words.shape, (10, 96))
+        self.assertEqual(lead_ids.tolist(), [1, 1, 1, 2, 2, 2, 0, 0, 0, 0])
+        self.assertEqual(time_ids.tolist(), [2, 4, 6, 2, 4, 6, 0, 0, 0, 0])
+        self.assertEqual(words[1, 48], 1.0)  # QRS at the centre of its word
+        self.assertEqual(words[4, 48], 2.0)
+        self.assertFalse(words[6:].any())  # padding
+
+    def test_truncation_and_lead_subset(self):
+        signal = np.random.default_rng(0).standard_normal((12, 1000))
+        qrs = list(range(50, 1000, 80))
+        words, lead_ids, _ = ecg_to_heartbeat_sentence(
+            signal, qrs_inds=qrs, leads=[1, 7], max_len=16)
+        self.assertEqual(words.shape, (16, 96))
+        # lead ids keep the original lead index (II = 2, V2 = 8)
+        self.assertEqual(set(lead_ids.tolist()), {2, 8})
+        self.assertEqual(lead_ids.tolist().count(2), len(qrs))
+
+    @unittest.skipUnless(HAS_WFDB, "wfdb not installed")
+    def test_qrs_detection(self):
+        signal, peaks = synthetic_ecg()
+        words, lead_ids, _ = ecg_to_heartbeat_sentence(signal)
+        detected = int((lead_ids == 1).sum())
+        self.assertGreaterEqual(detected, len(peaks) - 2)
+        self.assertLessEqual(detected, len(peaks) + 1)
+        self.assertEqual(words.shape, (256, 96))
+
+
+class TestHeartLangModel(unittest.TestCase):
+    def test_backbone_shapes(self):
+        backbone = HeartLangBackbone(**TINY)
+        words = torch.randn(3, 8, 16)
+        ids = torch.ones(3, 8, dtype=torch.long)
+        self.assertEqual(backbone(words, ids, ids).shape, (3, 9, 32))
+        self.assertEqual(backbone(words).shape, (3, 9, 32))
+
+    def test_forward_and_backward(self):
+        dataset = make_dataset()
+        model = HeartLang(dataset, pretrained=False, **TINY)
+        batch = next(iter(get_dataloader(dataset, batch_size=6)))
+        out = model(**batch)
+        self.assertEqual(out["y_prob"].shape, (6, 3))
+        self.assertEqual(out["embed"].shape, (6, 32))
+        self.assertTrue(((out["y_prob"] >= 0) & (out["y_prob"] <= 1)).all())
+        out["loss"].backward()
+        self.assertIsNotNone(model.backbone.cls_token.grad)
+        # without labels (inference) there is no loss
+        unlabeled = {k: v for k, v in batch.items() if k != "labels"}
+        self.assertNotIn("loss", model(**unlabeled))
+
+    def test_freeze_backbone_trains_only_the_head(self):
+        dataset = make_dataset()
+        model = HeartLang(dataset, pretrained=False, freeze_backbone=True, **TINY)
+        self.assertFalse(any(p.requires_grad for p in model.backbone.parameters()))
+        batch = next(iter(get_dataloader(dataset, batch_size=6)))
+        model(**batch)["loss"].backward()
+        self.assertIsNone(model.backbone.cls_token.grad)
+        self.assertIsNotNone(model.mlp_head.weight.grad)
+
+    def test_missing_input_is_an_error(self):
+        dataset = make_dataset()
+        with self.assertRaises(ValueError):
+            HeartLang(dataset, pretrained=False, words_key="signal", **TINY)
+
+
+class TestCheckpoint(unittest.TestCase):
+    def test_state_dict_mapping(self):
+        state = {"module.backbone.cls_token": torch.zeros(4),
+                 "lm_head.weight": torch.zeros(2, 4), "pos_embed": torch.ones(1)}
+        self.assertEqual(sorted(heartlang_state_dict({"model": state})),
+                         ["cls_token", "pos_embed"])
+        self.assertEqual(sorted(heartlang_state_dict(state)),
+                         ["cls_token", "pos_embed"])
+
+    def test_loads_a_training_checkpoint(self):
+        # a checkpoint shaped like the published one: weights under "model",
+        # the pre-training head, and argparse arguments with numpy scalars
+        source = HeartLangBackbone(**TINY)
+        weights = dict(source.state_dict())
+        weights["lm_head.weight"] = torch.zeros(10, 32)
+        args = argparse.Namespace(lr=np.float64(5e-4), seed=np.int64(0))
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "checkpoint.pth")
+            torch.save({"model": weights, "epoch": 200, "args": args}, path)
+            self.assertEqual(len(load_heartlang_checkpoint(path)), len(weights) - 1)
+            model = HeartLang(make_dataset(), pretrained=path, **TINY)
+            self.assertTrue(torch.equal(model.backbone.pos_embed, source.pos_embed))
+            # a checkpoint for another architecture is refused
+            with self.assertRaises(ValueError):
+                HeartLang(make_dataset(), pretrained=path,
+                          **{**TINY, "depth": 2})
+            with self.assertRaises(FileNotFoundError):
+                load_heartlang_checkpoint(os.path.join(tmp, "missing.pth"))
+
+
+class TestPTBXLHeartLangTask(unittest.TestCase):
+    def setUp(self):
+        self.statements = os.path.join(
+            os.path.dirname(__file__), "..", "..", "test-resources", "core",
+            "ptbxl", "scp_statements.csv")
+
+    def test_schema_and_options(self):
+        task = PTBXLHeartLangClassification(self.statements)
+        self.assertEqual(task.label_set, "superdiagnostic")
+        self.assertEqual(set(task.input_schema),
+                         {"ecg_sentence", "lead_ids", "time_ids"})
+        with self.assertRaises(ValueError):
+            PTBXLHeartLangClassification(self.statements, signal_mean=0.0,
+                                         signal_std=None)
+        with self.assertRaises(ValueError):
+            PTBXLHeartLangClassification(self.statements, signal_std=0.0)
+
+    def test_global_standardization(self):
+        task = PTBXLHeartLangClassification(
+            self.statements, signal_mean=1.0, signal_std=2.0)
+        raw = np.full((12, 1000), 3.0, dtype=np.float32)
+        with mock.patch("pyhealth.datasets.ptbxl.load_ptbxl_record",
+                        return_value=raw):
+            out = task._prepare_signal("record", 100)
+        np.testing.assert_allclose(out, 1.0)
+
+    def test_samples_are_sentences(self):
+        task = PTBXLHeartLangClassification(self.statements, leads=[0, 1])
+        signal, peaks = synthetic_ecg()
+        parent = [{"patient_id": "1", "strat_fold": 3, "signal": signal,
+                   "labels": ["NORM"]}]
+        real = ecg_to_heartbeat_sentence
+        with mock.patch(
+            "pyhealth.tasks.ptbxl_multilabel_classification."
+            "PTBXLMultilabelClassification.__call__", return_value=parent
+        ), mock.patch(
+            "pyhealth.models.heartlang.ecg_to_heartbeat_sentence",
+            side_effect=lambda s, **kw: real(s, qrs_inds=peaks, **kw),
+        ):
+            (sample,) = task(patient=None)
+        self.assertNotIn("signal", sample)
+        self.assertEqual(sample["ecg_sentence"].shape, (256, 96))
+        self.assertEqual(int((sample["lead_ids"] == 2).sum()), len(peaks))
+        self.assertEqual(sample["strat_fold"], 3)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -259,4 +259,5 @@ API Reference
     models/pyhealth.models.XGBoostModel
     models/pyhealth.models.survival_mdn
     models/pyhealth.models.ProtoECGNet
+    models/pyhealth.models.HeartLang
 
