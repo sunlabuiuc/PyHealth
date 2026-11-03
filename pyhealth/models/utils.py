@@ -72,3 +72,69 @@ def get_rightmost_masked_timestep(hidden_states, mask):
     last_idx = last_idx.view(batch, 1, 1).expand(batch, 1, hidden)
     gathered = torch.gather(hidden_states, 1, last_idx)
     return gathered[:, 0, :]
+
+
+def ddi_adjacency(label_vocab: dict[str, int]) -> torch.Tensor:
+    """Builds the drug-drug interaction graph over a drug label vocabulary.
+
+    Uses the DDI pairs that GAMENet released (``ATC().get_ddi(gamenet_ddi=True)``)
+    converted to ATC level 3, so ``label_vocab`` should hold ATC-3 codes, as
+    the MIMIC drug-recommendation tasks produce. Shared by the drug
+    recommendation models (GAMENet, ARMR).
+
+    Args:
+        label_vocab: drug code to label index.
+
+    Returns:
+        Symmetric 0/1 tensor of shape [len(label_vocab), len(label_vocab)].
+
+    Examples:
+        >>> adj = ddi_adjacency({"N02B": 0, "B01A": 1, "C03C": 2})
+        >>> adj.shape
+        torch.Size([3, 3])
+        >>> bool((adj == adj.T).all())
+        True
+    """
+    from pyhealth.medcode import ATC
+
+    size = len(label_vocab)
+    adj = torch.zeros((size, size))
+    for a, b in ATC().get_ddi(gamenet_ddi=True):
+        a, b = ATC.convert(a, level=3), ATC.convert(b, level=3)
+        if a in label_vocab and b in label_vocab:
+            adj[label_vocab[a], label_vocab[b]] = 1
+            adj[label_vocab[b], label_vocab[a]] = 1
+    return adj
+
+
+def history_to_label_index(
+    hist_vocab: dict[str, int], label_vocab: dict[str, int]
+) -> torch.Tensor:
+    """Maps a drug-history input vocabulary onto the drug label vocabulary.
+
+    ``drugs_hist`` is tokenized with its own input vocabulary, which is not
+    the label vocabulary of ``drugs``. The returned table converts history
+    indices to label indices. Codes with no label (the processor's
+    ``<pad>``/``<unk>`` tokens, or a history code absent from the labels) map
+    to ``len(label_vocab)``, a "trash" index to slice away after a scatter.
+
+    Args:
+        hist_vocab: history code to input index.
+        label_vocab: drug code to label index.
+
+    Returns:
+        LongTensor of shape [len(hist_vocab)].
+
+    Examples:
+        >>> history_to_label_index(
+        ...     {"<pad>": 0, "<unk>": 1, "B01A": 2, "X99X": 3},
+        ...     {"N02B": 0, "B01A": 1},
+        ... ).tolist()
+        [2, 2, 1, 2]
+    """
+    trash = len(label_vocab)
+    mapping = torch.full((len(hist_vocab),), trash, dtype=torch.long)
+    for code, idx in hist_vocab.items():
+        if code in label_vocab:
+            mapping[idx] = label_vocab[code]
+    return mapping

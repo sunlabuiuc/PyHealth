@@ -4,7 +4,12 @@ import torch
 
 from pyhealth.datasets import create_sample_dataset, get_dataloader
 from pyhealth.models import ARMR
-from pyhealth.models.armr import PiecewiseTemporalLearning, _reverse_padded
+from pyhealth.models.armr import (
+    PiecewiseTemporalLearning,
+    _reverse_padded,
+    _split_reused_new,
+)
+from pyhealth.models.utils import ddi_adjacency, history_to_label_index
 
 SCHEMA = {
     "conditions": "nested_sequence",
@@ -106,14 +111,41 @@ class TestARMR(unittest.TestCase):
         vocab = self.dataset.output_processors["drugs"].label_vocab
         # patient p1: B01A, then C03C and A01A (both new), then B01A and
         # A01A again (both reused)
-        p1 = multihot[1]
-        self.assertEqual(p1[0, vocab["B01A"]].item(), 1.0)
-        self.assertEqual(p1[1, vocab["C03C"]].item(), 1.0)
-        seen_before = torch.cumsum(p1, 0) - p1 > 0
-        reused = p1 * seen_before
-        self.assertEqual(reused[2, vocab["B01A"]].item(), 1.0)
-        self.assertEqual(reused[1].sum().item(), 0.0)
+        reused, new = _split_reused_new(multihot)
+        b, c, a = vocab["B01A"], vocab["C03C"], vocab["A01A"]
+        self.assertEqual(new[1, 0, b].item(), 1.0)
+        self.assertEqual(new[1, 1, c].item(), 1.0)
+        self.assertEqual(new[1, 1, a].item(), 1.0)
+        self.assertEqual(reused[1, :2].sum().item(), 0.0)
+        self.assertEqual(reused[1, 2, b].item(), 1.0)
+        self.assertEqual(reused[1, 3, a].item(), 1.0)
+        self.assertEqual(new[1, 2:].sum().item(), 0.0)
+        self.assertTrue(torch.equal(reused + new, multihot))
 
+    def test_responsive_drugs_decay_reaches_the_score(self):
+        torch.manual_seed(0)
+        model = ARMR(self.dataset, embedding_dim=16, use_graph=False)
+        m = model.label_size
+        prev_len = torch.tensor([3])
+        # drug 0 given one visit back, or three visits back
+        recent = torch.zeros(1, 4, m)
+        recent[0, 2, 0] = 1.0
+        old = torch.zeros(1, 4, m)
+        old[0, 0, 0] = 1.0
+        _, rec_recent = model._responsive_drugs(recent, prev_len)
+        _, rec_old = model._responsive_drugs(old, prev_len)
+        # zero for drugs never taken, larger for more recent use
+        self.assertEqual(rec_recent[0, 1:].abs().sum().item(), 0.0)
+        self.assertGreater(rec_recent[0, 0].item(), rec_old[0, 0].item())
+        self.assertGreater(rec_old[0, 0].item(), 0.0)
+
+    def test_decay_parameters_get_a_gradient(self):
+        torch.manual_seed(0)
+        model = ARMR(self.dataset, embedding_dim=16, use_graph=False)
+        model(**self.batch)["loss"].backward()
+        for param in (model.decay_scale, model.decay_rate):
+            self.assertIsNotNone(param.grad)
+            self.assertNotEqual(param.grad.item(), 0.0)
 
 class TestPiecewiseTemporalLearning(unittest.TestCase):
     def test_reverse_padded_keeps_padding_last(self):
@@ -131,6 +163,22 @@ class TestPiecewiseTemporalLearning(unittest.TestCase):
         # extra padded visits do not change the result
         padded = torch.cat([seq, torch.randn(1, 3, 8)], dim=1)
         self.assertTrue(torch.allclose(out, ptl(padded, torch.tensor([5])), atol=1e-6))
+
+
+class TestDrugHelpers(unittest.TestCase):
+    def test_history_to_label_index_sends_unknown_codes_to_trash(self):
+        mapping = history_to_label_index(
+            {"<pad>": 0, "<unk>": 1, "B01A": 2, "X99X": 3}, {"N02B": 0, "B01A": 1}
+        )
+        self.assertEqual(mapping.tolist(), [2, 2, 1, 2])
+
+    def test_ddi_adjacency_is_a_symmetric_0_1_matrix(self):
+        vocab = {"N02B": 0, "B01A": 1, "C03C": 2, "N02A": 3, "M01A": 4}
+        adj = ddi_adjacency(vocab)
+        self.assertEqual(adj.shape, (5, 5))
+        self.assertTrue(torch.equal(adj, adj.T))
+        self.assertTrue(((adj == 0) | (adj == 1)).all())
+        self.assertGreater(adj.sum().item(), 0.0)
 
 
 if __name__ == "__main__":

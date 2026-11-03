@@ -22,9 +22,9 @@ from torch import nn
 
 from pyhealth import BASE_CACHE_PATH as CACHE_PATH
 from pyhealth.datasets import SampleDataset
-from pyhealth.medcode import ATC
 from pyhealth.models.base_model import BaseModel
 from pyhealth.models.embedding import EmbeddingModel
+from pyhealth.models.utils import ddi_adjacency, history_to_label_index
 
 
 def _reverse_padded(x: torch.Tensor, lengths: torch.Tensor) -> torch.Tensor:
@@ -50,6 +50,12 @@ class SelectiveSSM(nn.Module):
     Paper: Albert Gu and Tri Dao. "Mamba: Linear-Time Sequence Modeling with
     Selective State Spaces." 2023. The scan is a plain loop over time, which
     is fast enough for visit sequences (tens of steps).
+
+    This differs from :class:`pyhealth.models.ehrmamba.MambaBlock`: there the
+    step size and the ``B`` and ``C`` matrices are fixed per channel (a
+    time-invariant SSM computed as a convolution), while here they are
+    computed from each input step (Mamba's selection mechanism), which ARMR's
+    Eq. 2 relies on. Hence the separate block.
 
     Args:
         dim: input and output size.
@@ -179,10 +185,12 @@ class ARMR(BaseModel):
     network and distant visits through a Mamba block. Its Adaptively
     Responsive Module splits the medication history into drugs that were
     reused and drugs that were new at each visit, encodes both, and weights
-    every drug's embedding by whether the patient took it before, with a
-    learned time decay for past use. The recommendation fuses a direct score
-    from the patient representation with the cosine similarity between the
-    patient and each weighted drug embedding (Eq. 19). The loss is
+    every drug's embedding with the reused-drug attention if the patient took
+    it before and the new-drug attention otherwise. The recommendation fuses a
+    direct score from the patient representation with the cosine similarity
+    between the patient and each weighted drug embedding (Eq. 19), plus a
+    learned, time-decayed score for each drug the patient took before. The
+    loss is
     ``alpha * BCE + (1 - alpha) * multi-label margin`` (Eq. 22, alpha 0.7).
 
     Choices where the paper is open:
@@ -190,6 +198,11 @@ class ARMR(BaseModel):
     - Eq. 9 uses one learned decay rate and scale, ``alpha * exp(-beta *
       lag)`` summed over the visits in which drug ``j`` was given, where
       ``lag`` counts visits back from the prediction.
+    - In Eq. 11 that decayed use multiplies the drug's whole embedding, and
+      the cosine similarity of Eq. 17-18 cannot see a per-drug scale, so the
+      decay would have no effect on the output. Here Eq. 11 uses the
+      indicator of past use instead, and the decayed use is added to the
+      drug's score (Eq. 19) as a recency term.
     - Eq. 11's attention maps the drug-history attention to a per-feature
       weight (``W_o`` and ``W_n`` are ``2N -> dim``), so the weighting changes
       the direction of a drug's embedding, which cosine similarity sees.
@@ -207,7 +220,10 @@ class ARMR(BaseModel):
         codes are ATC level 3, which the DDI graph needs.
 
     Args:
-        dataset: the training dataset, used for vocabularies and the graphs.
+        dataset: the training dataset (for example the training split from
+            :func:`~pyhealth.datasets.split_by_patient`), used for the
+            vocabularies and the drug co-occurrence graph. Passing the full
+            dataset lets validation and test labels into that graph.
         embedding_dim: code and visit embedding size. Default is 64.
         n_recent: number of recent visits ``N`` handled by the feedforward
             branch. Default is 3.
@@ -316,14 +332,14 @@ class ARMR(BaseModel):
     def _hist_vocab_map(self, label_vocab: dict) -> torch.Tensor:
         """Maps drugs_hist input indices to label indices; others to a trash bin."""
         hist_vocab = self.dataset.input_processors["drugs_hist"].code_vocab
-        mapping = torch.full((len(hist_vocab),), self.label_size, dtype=torch.long)
-        for code, idx in hist_vocab.items():
-            if code in label_vocab:
-                mapping[idx] = label_vocab[code]
-        return mapping
+        return history_to_label_index(hist_vocab, label_vocab)
 
     def _ehr_adj(self, label_vocab: dict) -> torch.Tensor:
-        """Co-occurrence graph of the drugs given together in a training visit."""
+        """Co-occurrence graph of the drugs given together in a visit.
+
+        Built from every sample of ``self.dataset``, so pass the training
+        split to the model to keep evaluation labels out of it.
+        """
         adj = torch.zeros(self.label_size, self.label_size)
         for sample in self.dataset:
             drugs = sample[self.label_key]
@@ -338,13 +354,7 @@ class ARMR(BaseModel):
 
     def _ddi_adj(self, label_vocab: dict) -> torch.Tensor:
         """Drug-drug interaction graph at ATC level 3 (as GAMENet and SafeDrug)."""
-        adj = torch.zeros(self.label_size, self.label_size)
-        for a, b in ATC().get_ddi(gamenet_ddi=True):
-            a, b = ATC.convert(a, level=3), ATC.convert(b, level=3)
-            if a in label_vocab and b in label_vocab:
-                adj[label_vocab[a], label_vocab[b]] = 1.0
-                adj[label_vocab[b], label_vocab[a]] = 1.0
-        return adj
+        return ddi_adjacency(label_vocab)
 
     # ---------------------------------------------------------------- pieces
     def _visit_lengths(self, codes: torch.Tensor) -> torch.Tensor:
@@ -382,7 +392,7 @@ class ARMR(BaseModel):
 
     def _responsive_drugs(
         self, history: torch.Tensor, prev_len: torch.Tensor
-    ) -> torch.Tensor:
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         """The patient's weighted drug embeddings ``E'_m`` (Eq. 5-11).
 
         Args:
@@ -391,12 +401,12 @@ class ARMR(BaseModel):
             prev_len: number of previous visits per patient, [batch].
 
         Returns:
-            Tensor of shape [batch, M, dim].
+            The weighted drug embeddings, [batch, M, dim], and the time-decayed
+            past use of each drug (Eq. 9), [batch, M], which is zero for drugs
+            the patient never took.
         """
         visits = history.size(1)
-        seen_before = torch.cumsum(history, dim=1) - history > 0
-        reused = history * seen_before  # Eq. 5
-        new = history - reused  # Eq. 6
+        reused, new = _split_reused_new(history)  # Eq. 5-6
         emb = self._drug_embeddings()
         h_reused = self.ptl_reused(reused @ emb, prev_len)  # Eq. 7
         h_new = self.ptl_new(new @ emb, prev_len)  # Eq. 8
@@ -406,7 +416,8 @@ class ARMR(BaseModel):
         lag = (prev_len.unsqueeze(1) - steps).clamp(min=1).float()
         decay = self.decay_scale * torch.exp(-F.softplus(self.decay_rate) * lag)
         used = (history * decay.unsqueeze(-1)).sum(dim=1)  # [batch, M]
-        unused = 1.0 - (history.sum(dim=1) > 0).float()  # Eq. 10
+        taken = (history.sum(dim=1) > 0).float()
+        unused = 1.0 - taken  # Eq. 10
 
         # Eq. 11
         scale = math.sqrt(self.embedding_dim)
@@ -416,8 +427,9 @@ class ARMR(BaseModel):
         q_new = torch.softmax(
             self.w_new(torch.einsum("md,bkd->bmk", emb, h_new)) / scale, dim=1
         )
-        weight = used.unsqueeze(-1) * q_reused + unused.unsqueeze(-1) * q_new
-        return emb.unsqueeze(0) * weight * self.label_size
+        # the decay goes into the score (forward) instead: cosine ignores it here
+        weight = taken.unsqueeze(-1) * q_reused + unused.unsqueeze(-1) * q_new
+        return emb.unsqueeze(0) * weight * self.label_size, used
 
     def _loss(self, prob: torch.Tensor, logit: torch.Tensor, y: torch.Tensor):
         """``alpha * BCE + (1 - alpha) * multi-label margin`` (Eq. 20-22)."""
@@ -462,12 +474,12 @@ class ARMR(BaseModel):
         )
         valid = torch.arange(history.size(1), device=self.device) < prev_len.unsqueeze(1)
         history = history * valid.unsqueeze(-1)
-        drugs = self._responsive_drugs(history, prev_len)
+        drugs, recency = self._responsive_drugs(history, prev_len)
 
         o_direct = self.ff_direct(patient)  # Eq. 16
         query = self.ff_query(patient)
         o_sim = F.cosine_similarity(query.unsqueeze(1), drugs, dim=-1)  # Eq. 17-18
-        logit = self.w_direct * o_direct + self.w_sim * o_sim  # Eq. 19
+        logit = self.w_direct * o_direct + self.w_sim * o_sim + recency  # Eq. 19
         y_prob = torch.sigmoid(logit)
         out = {"logit": logit, "y_prob": y_prob}
         if self.label_key in kwargs:
@@ -475,6 +487,23 @@ class ARMR(BaseModel):
             out["loss"] = self._loss(y_prob, logit, y_true)
             out["y_true"] = y_true
         return out
+
+
+def _split_reused_new(history: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    """Splits multi-hot drugs per visit into reused and new drugs (Eq. 5-6).
+
+    A drug is reused at a visit if the patient took it at an earlier visit,
+    and new otherwise.
+
+    Args:
+        history: multi-hot drugs per visit, [batch, visits, M].
+
+    Returns:
+        ``(reused, new)``, each of the same shape as ``history``.
+    """
+    seen_before = torch.cumsum(history, dim=1) - history > 0
+    reused = history * seen_before
+    return reused, history - reused
 
 
 def _normalize(adj: torch.Tensor) -> torch.Tensor:

@@ -6,9 +6,13 @@ import torch
 import torch.nn as nn
 import numpy as np
 from pyhealth.datasets import SampleDataset
-from pyhealth.medcode import ATC
 from pyhealth.models import BaseModel
-from pyhealth.models.utils import get_last_visit, batch_to_multihot
+from pyhealth.models.utils import (
+    batch_to_multihot,
+    ddi_adjacency,
+    get_last_visit,
+    history_to_label_index,
+)
 from pyhealth import BASE_CACHE_PATH as CACHE_PATH
 from pyhealth.models.embedding import EmbeddingModel
 
@@ -445,19 +449,8 @@ class GAMENet(BaseModel):
 
     def generate_ddi_adj(self) -> torch.tensor:
         """Generates the DDI graph adjacency matrix."""
-        atc = ATC()
-        ddi = atc.get_ddi(gamenet_ddi=True)
         label_vocab = self.dataset.output_processors[self.label_key].label_vocab
-        label_size = len(label_vocab)
-        ddi_adj = torch.zeros((label_size, label_size))
-        ddi_atc3 = [
-            [ATC.convert(l[0], level=3), ATC.convert(l[1], level=3)] for l in ddi
-        ]
-        for atc_i, atc_j in ddi_atc3:
-            if atc_i in label_vocab and atc_j in label_vocab:
-                ddi_adj[label_vocab[atc_i], label_vocab[atc_j]] = 1
-                ddi_adj[label_vocab[atc_j], label_vocab[atc_i]] = 1
-        return ddi_adj
+        return ddi_adjacency(label_vocab)
 
     def _build_drug_hist_vocab_map(self) -> torch.Tensor:
         """Maps drugs_hist input-vocabulary indices to drugs label_vocab
@@ -474,12 +467,7 @@ class GAMENet(BaseModel):
         """
         hist_vocab = self.dataset.input_processors["drugs_hist"].code_vocab
         label_vocab = self.dataset.output_processors[self.label_key].label_vocab
-
-        mapping = torch.full((len(hist_vocab),), self.label_size, dtype=torch.long)
-        for code, hist_idx in hist_vocab.items():
-            if code in label_vocab:
-                mapping[hist_idx] = label_vocab[code]
-        return mapping
+        return history_to_label_index(hist_vocab, label_vocab)
 
     def _build_prev_drugs(self, drugs_hist: torch.Tensor) -> torch.Tensor:
         """Converts the raw drugs_hist tensor into the multi-hot Dynamic
