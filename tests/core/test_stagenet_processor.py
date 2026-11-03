@@ -524,5 +524,47 @@ class TestStageNetTensorProcessorForwardFill(unittest.TestCase):
         self.assertEqual(masked_values.tolist(), [[1.0, 0.0], [0.0, 1.0], [1.0, 1.0]])
 
 
+class TestStageNetFitSkipsEmptySamples(unittest.TestCase):
+    """``fit`` must scan past samples with no structural information.
+
+    Regression tests: real task streams start with whatever patient sorts
+    first, and empty-lab stays are legitimate records (the series emits no
+    placeholder rows). The old ``fit`` stopped after the first non-None
+    sample even when it was empty, leaving ``_size``/``_is_nested`` unset;
+    downstream ``value_dim()`` then reported 1 and the unified numeric
+    encoder was built with the wrong input width.
+    """
+
+    def test_tensor_fit_skips_empty_first_sample(self):
+        processor = StageNetTensorProcessor()
+        processor.fit(
+            [
+                {"data": ([], [])},
+                {"data": ([0.0, 1.0], [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])},
+            ],
+            "data",
+        )
+        self.assertTrue(processor._is_nested)
+        self.assertEqual(processor.size(), 3)
+        self.assertEqual(processor.value_dim(), 3)
+
+    def test_tensor_fit_all_empty_stays_unfitted(self):
+        processor = StageNetTensorProcessor()
+        processor.fit([{"data": ([], [])}, {"data": ([], [])}], "data")
+        self.assertIsNone(processor._size)
+        self.assertEqual(processor.value_dim(), 1)
+
+    def test_code_fit_skips_empty_first_sample(self):
+        processor = StageNetProcessor()
+        processor.fit(
+            [
+                {"data": ([], [])},
+                {"data": ([0.0], [["A", "B"], ["C"]])},
+            ],
+            "data",
+        )
+        self.assertTrue(processor._is_nested)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -69,7 +69,9 @@ class StageNetProcessor(TemporalFeatureProcessor, TokenProcessorInterface):
             samples: List of sample dictionaries
             key: The key in samples that contains tuple (time, values)
         """
-        # Examine first non-None sample to determine structure
+        # Scan for the first sample that determines the structure. Empty
+        # samples (e.g. a stay with no codes) carry no structural
+        # information, so they are skipped, not stopping the scan.
         for sample in samples:
             if field in sample and sample[field] is not None:
                 # Unpack tuple: (time, values)
@@ -82,11 +84,12 @@ class StageNetProcessor(TemporalFeatureProcessor, TokenProcessorInterface):
                     if isinstance(first_elem, str):
                         # Case 1: ["code1", "code2", ...]
                         self._is_nested = False
+                        break
                     elif isinstance(first_elem, list):
                         if len(first_elem) > 0 and isinstance(first_elem[0], str):
                             # Case 2: [["A", "B"], ["C"], ...]
                             self._is_nested = True
-                break
+                            break
 
         # Build vocabulary for codes and find max nested length
         max_inner_len = 0
@@ -364,7 +367,9 @@ class StageNetTensorProcessor(TemporalFeatureProcessor):
             samples: List of sample dictionaries
             key: The key in samples that contains tuple (time, values)
         """
-        # Examine first non-None sample to determine structure
+        # Scan for the first sample that determines the structure. Empty
+        # samples (e.g. a stay with no lab events) carry no structural
+        # information, so they are skipped, not stopping the scan.
         for sample in samples:
             if field in sample and sample[field] is not None:
                 # Unpack tuple: (time, values)
@@ -378,13 +383,14 @@ class StageNetTensorProcessor(TemporalFeatureProcessor):
                         # Flat numeric: [1.5, 2.0, ...]
                         self._is_nested = False
                         self._size = 1
+                        break
                     elif isinstance(first_elem, list):
                         if len(first_elem) > 0:
                             if isinstance(first_elem[0], (int, float)):
                                 # Nested numerics: [[1.0, 2.0], [3.0, 4.0]]
                                 self._is_nested = True
                                 self._size = len(first_elem)
-                break
+                                break
 
     def process(
         self, value: Tuple[Optional[List], List]
