@@ -44,10 +44,14 @@ DEFAULT_SECTIONS: dict[str, tuple[str, tuple[str, ...]]] = {
 
 # Input processors whose fields hold codes, the only fields serialized. Other
 # inputs (time series, tensors, numbers, images) are not codes and are skipped.
+# StageNet inputs are ``(times, codes)`` pairs; their codes are serialized.
+# Not supported: "cehr" (concept records, not plain codes) and the numeric
+# "stagenet_tensor", "timeseries", "tensor" and similar inputs.
 CODE_PROCESSORS: frozenset[str] = frozenset({
     "sequence", "sequence_v2", "nested_sequence", "deep_nested_sequence",
-    "multi_hot", "nested_multihot",
+    "multi_hot", "nested_multihot", "stagenet",
 })
+TIMED_CODE_PROCESSORS: frozenset[str] = frozenset({"stagenet"})
 
 # For tasks whose single field holds vocabulary-prefixed codes such as
 # "ICD10CM/E11.9" (EHRSHOT), the section a code goes to, by prefix. Other
@@ -325,32 +329,76 @@ def _flatten(value: Any) -> list[str]:
     return out
 
 
-def mimic_demographics(patient: Any) -> dict[str, Any]:
-    """Gender and age from a MIMIC patient's ``patients`` event.
+def _events(patient: Any, event_type: str) -> list[Any]:
+    try:
+        return list(patient.get_events(event_type=event_type) or [])
+    except Exception:  # noqa: BLE001 - datasets without the table
+        return []
 
-    MIMIC-IV gives ``anchor_age``; other datasets without it give gender
-    only. Return an empty dict to leave demographics out.
+
+def _age_at_sample(person: Any, patient: Any, sample: Mapping[str, Any]) -> int | None:
+    """MIMIC-IV age at the sample's admission, or None if it can't be told.
+
+    ``anchor_age`` is the age in ``anchor_year``, so the age at an admission
+    is ``anchor_age + (admission year - anchor_year)``. The admission is the
+    one whose ``hadm_id`` is the sample's ``hadm_id`` or ``visit_id``.
+    """
+    visit = sample.get("hadm_id", sample.get("visit_id"))
+    try:
+        anchor_age = int(float(person.anchor_age))
+        anchor_year = int(float(person.anchor_year))
+    except (AttributeError, TypeError, ValueError):
+        return None
+    if visit is None:
+        return None
+    for admission in _events(patient, "admissions"):
+        timestamp = getattr(admission, "timestamp", None)
+        if str(getattr(admission, "hadm_id", None)) == str(visit) and timestamp:
+            return anchor_age + timestamp.year - anchor_year
+    return None
+
+
+def mimic_demographics(
+    patient: Any, sample: Mapping[str, Any] | None = None
+) -> dict[str, Any]:
+    """Gender and age at the sample's admission for a MIMIC-IV patient.
+
+    MIMIC-IV gives ``anchor_age``, the age in the shifted ``anchor_year``;
+    the age at the sample's admission (its ``hadm_id`` or ``visit_id``) is
+    ``anchor_age`` plus the years from ``anchor_year`` to that admission.
+    Age is left out when this can't be computed: no ``anchor_year``, no
+    admission id in the sample (e.g. patient-level samples), or no matching
+    admission. Other datasets give gender only. Return an empty dict to
+    leave demographics out.
+
+    Args:
+        patient: The patient.
+        sample: The wrapped task's sample the header is for.
 
     Examples:
+        >>> from datetime import datetime
         >>> from types import SimpleNamespace
-        >>> event = SimpleNamespace(gender="F", anchor_age="63")
-        >>> patient = SimpleNamespace(get_events=lambda event_type: [event])
-        >>> mimic_demographics(patient)
-        {'Gender': 'F', 'Age': '63'}
+        >>> person = SimpleNamespace(gender="F", anchor_age="63",
+        ...                          anchor_year="2150")
+        >>> admission = SimpleNamespace(hadm_id="7",
+        ...                             timestamp=datetime(2155, 3, 1))
+        >>> events = {"patients": [person], "admissions": [admission]}
+        >>> patient = SimpleNamespace(get_events=lambda event_type: events[event_type])
+        >>> mimic_demographics(patient, {"hadm_id": "7"})
+        {'Gender': 'F', 'Age': 68}
+        >>> mimic_demographics(patient)  # no admission: no age
+        {'Gender': 'F'}
     """
-    try:
-        events = patient.get_events(event_type="patients")
-    except Exception:  # noqa: BLE001 - datasets without a patients table
+    persons = _events(patient, "patients")
+    if not persons:
         return {}
-    if not events:
-        return {}
-    event = events[0]
+    person = persons[0]
     out = {}
-    gender = getattr(event, "gender", None)
+    gender = getattr(person, "gender", None)
     if gender:
         out["Gender"] = gender
-    age = getattr(event, "anchor_age", None)
-    if age not in (None, ""):
+    age = _age_at_sample(person, patient, sample or {})
+    if age is not None:
         out["Age"] = age
     return out
 
@@ -369,17 +417,19 @@ class EHRTextSerializationTask(BaseTask):
     split into sections by prefix (:data:`PREFIX_SECTIONS`).
 
     Only code fields (inputs with a processor in :data:`CODE_PROCESSORS`,
-    such as ``"sequence"``) are serialized. Other inputs, e.g. a
-    ``"timeseries"`` of lab values, are left out of the text with a
-    warning; a task with no code field raises ``ValueError``.
+    such as ``"sequence"``) are serialized; for a ``"stagenet"`` input,
+    whose value is a ``(times, codes)`` pair, the codes are. Other inputs,
+    e.g. a ``"timeseries"`` or ``"stagenet_tensor"`` of lab values or a
+    ``"cehr"`` input, are left out of the text with a warning; a task with
+    no code field raises ``ValueError``.
 
     Args:
         base_task: The task to wrap, e.g. ``MortalityPredictionMIMIC4()``.
         sections: Sample field to ``(heading, vocabularies)``. Defaults to
             :data:`DEFAULT_SECTIONS` for the fields the task has; any other
             code field is shown under its own name with raw codes.
-        demographics: ``demographics(patient) -> dict`` for the header, or
-            ``None`` for no demographics. Defaults to
+        demographics: ``demographics(patient, sample) -> dict`` for the
+            header of each sample, or ``None`` for no demographics. Defaults to
             :func:`mimic_demographics`. A lambda or nested function is
             named in the cache key by its code, not by captured values.
         describer: Code lookup; defaults to :class:`CodeDescriber`. Pass
@@ -403,7 +453,8 @@ class EHRTextSerializationTask(BaseTask):
         self,
         base_task: BaseTask,
         sections: Mapping[str, tuple[str, Sequence[str]]] | None = None,
-        demographics: Callable[[Any], Mapping[str, Any]] | None = mimic_demographics,
+        demographics: Callable[[Any, Mapping[str, Any]], Mapping[str, Any]]
+        | None = mimic_demographics,
         describer: CodeDescriber | None = None,
         max_codes_per_section: int | None = None,
         max_chars: int | None = None,
@@ -436,6 +487,10 @@ class EHRTextSerializationTask(BaseTask):
             for field in codes
         }
         self.input_fields = sorted(inputs)
+        self.timed_fields = sorted(
+            f for f in codes
+            if _processor_name(inputs[f]) in TIMED_CODE_PROCESSORS
+        )
         self._demographics = _Keyed(demographics, _name(demographics))
         describer = describer or CodeDescriber()
         self._describer = _Keyed(describer, repr(describer))
@@ -452,7 +507,9 @@ class EHRTextSerializationTask(BaseTask):
         return self._base.obj
 
     @property
-    def demographics(self) -> Callable[[Any], Mapping[str, Any]] | None:
+    def demographics(
+        self,
+    ) -> Callable[[Any, Mapping[str, Any]], Mapping[str, Any]] | None:
         """The function giving the demographics header."""
         return self._demographics.obj
 
@@ -485,7 +542,10 @@ class EHRTextSerializationTask(BaseTask):
         grouped: dict[str, list[str]] = {}
         for field, (heading, vocabularies) in self.sections.items():
             # most recent first: tasks list codes in time order
-            for code in reversed(_flatten(sample.get(field))):
+            value = sample.get(field)
+            if field in self.timed_fields and isinstance(value, (list, tuple)):
+                value = value[1] if len(value) == 2 else None  # (times, codes)
+            for code in reversed(_flatten(value)):
                 if code in self.drop_codes:
                     continue
                 prefix, sep, _ = code.partition("/")
@@ -504,9 +564,10 @@ class EHRTextSerializationTask(BaseTask):
         samples = self.base_task(patient)
         if not samples:
             return []
-        demographics = self.demographics(patient) if self.demographics else None
         out = []
         for sample in samples:
+            demographics = (self.demographics(patient, sample)
+                            if self.demographics else None)
             new = {k: v for k, v in sample.items()
                    if k not in self.input_fields or self.keep_inputs}
             new["text"] = self.serialize_sample(sample, demographics)

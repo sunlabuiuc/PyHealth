@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import tempfile
 from collections.abc import Callable, Sequence
 from typing import Any
 
@@ -39,6 +40,21 @@ def qwen3_instruction(task: str, text: str) -> str:
         'Instruct: Predict in-hospital mortality\\nQuery:# EHR'
     """
     return f"Instruct: {task}\nQuery:{text}"
+
+
+def _save_atomically(path: str, array: np.ndarray) -> None:
+    """Saves ``array`` to ``path`` so readers never see a partial file."""
+    directory = os.path.dirname(path)
+    os.makedirs(directory, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=directory, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            np.save(f, array)
+        os.replace(tmp, path)
+    except BaseException:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+        raise
 
 
 class LLMEHREncoder(BaseModel):
@@ -68,7 +84,8 @@ class LLMEHREncoder(BaseModel):
         pooling: ``"last"`` (last non-padding token), ``"mean"`` or
             ``"cls"``.
         instruction: Optional task instruction, formatted with
-            ``instruction_format`` (Qwen3's by default).
+            ``instruction_format`` (Qwen3's by default). It is applied to
+            the texts before ``encoder`` or ``embed_fn``.
         instruction_format: ``format(instruction, text) -> str``. Its
             module, name and code are part of the cache key.
         normalize: L2-normalize the embeddings.
@@ -85,7 +102,8 @@ class LLMEHREncoder(BaseModel):
             ``tokenizer``), e.g. a small model in tests.
         tokenizer: The encoder's tokenizer.
         embed_fn: Alternatively, any ``embed_fn(texts) -> Tensor[n, d]``;
-            then ``model_name``, ``encoder`` and pooling are not used.
+            then ``model_name``, ``encoder`` and pooling are not used, but
+            ``instruction`` is.
         text_key: The input field holding the text. Defaults to the
             dataset's only ``"text"`` input.
 
@@ -179,8 +197,11 @@ class LLMEHREncoder(BaseModel):
             for p in encoder.parameters():
                 p.requires_grad_(False)
             self._encoder = [encoder]
+            # the precision changes the vectors, so it is part of the key
+            self._dtype_name = str(next(encoder.parameters()).dtype)
             dim = encoder.config.hidden_size
         else:
+            self._dtype_name = ""
             dim = int(embed_fn(["probe"]).shape[-1])
         self.embedding_dim = dim
         self.fc = nn.Linear(dim, self.get_output_size())
@@ -188,18 +209,19 @@ class LLMEHREncoder(BaseModel):
     # ------------------------------------------------------------ embedding
     def _cache_key(self, text: str) -> str:
         settings = (f"{self.cache_name}|{self.max_length}|{self.pooling}|"
-                    f"{self.instruction}|{self._format_name}|{self.normalize}|")
+                    f"{self.instruction}|{self._format_name}|{self.normalize}|"
+                    f"{self._dtype_name}|")
         return hashlib.sha256((settings + text).encode()).hexdigest()
 
     def _encode(self, texts: list[str]) -> torch.Tensor:
+        if self.instruction:
+            texts = [self.instruction_format(self.instruction, t) for t in texts]
         if self._embed_fn is not None:
             return torch.as_tensor(self._embed_fn(texts), dtype=torch.float32)
         encoder = self._encoder[0]
         device = self.device
         if next(encoder.parameters()).device != device:
             encoder.to(device)
-        if self.instruction:
-            texts = [self.instruction_format(self.instruction, t) for t in texts]
         batch = self._tokenizer(texts, padding=True, truncation=True,
                                 max_length=self.max_length, return_tensors="pt")
         batch = {k: v.to(device) for k, v in batch.items()}
@@ -254,8 +276,7 @@ class LLMEHREncoder(BaseModel):
                 self._memo[key] = vector
                 path = self._cache_path(key)
                 if path:
-                    os.makedirs(os.path.dirname(path), exist_ok=True)
-                    np.save(path, vector.numpy())
+                    _save_atomically(path, vector.numpy())
         return torch.stack([self._memo[k] for k in keys]).to(self.device)
 
     def _cache_path(self, key: str) -> str | None:

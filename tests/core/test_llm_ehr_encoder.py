@@ -6,6 +6,7 @@ import os
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 import tempfile
 import unittest
+from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -20,6 +21,7 @@ from pyhealth.tasks import (
     EHRTextSerializationTask,
     InHospitalMortalityMIMIC4,
     MortalityPredictionMIMIC4,
+    MortalityPredictionStageNetMIMIC4,
     serialize_ehr,
 )
 from pyhealth.tasks.base_task import BaseTask
@@ -57,26 +59,33 @@ class _EHRShotLikeTask(BaseTask):
         return [dict(patient.sample)]
 
 
-def _patient(sample, gender="F", age="63"):
-    demo = SimpleNamespace(gender=gender, anchor_age=age)
+def _patient(sample, gender="F", age="63", anchor_year="2150"):
+    events = {
+        "patients": [SimpleNamespace(gender=gender, anchor_age=age,
+                                     anchor_year=anchor_year)],
+        # admitted 5 years after the anchor year
+        "admissions": [SimpleNamespace(hadm_id="h1",
+                                       timestamp=date(2155, 6, 1))],
+    }
     return SimpleNamespace(
         patient_id="p0", sample=sample,
-        get_events=lambda event_type=None, **kw: [demo] if event_type == "patients" else [],
+        get_events=lambda event_type=None, **kw: events.get(event_type, []),
     )
 
 
 class TestSerialization(unittest.TestCase):
     def test_unique_codes_most_recent_first_with_descriptions(self):
         task = EHRTextSerializationTask(_CodesTask(), describer=OFFLINE)
-        patient = _patient({"patient_id": "p0", "label": 1,
+        patient = _patient({"patient_id": "p0", "hadm_id": "h1", "label": 1,
                             # "0" is MIMIC's missing code and is dropped
                             "conditions": ["4019", "25000", "4019", "9999", "0"],
                             "procedures": []})
         [sample] = task(patient)
-        self.assertEqual(set(sample), {"patient_id", "label", "text"})
+        self.assertEqual(set(sample), {"patient_id", "hadm_id", "label", "text"})
         self.assertEqual(sample["text"], (
             "# Electronic Health Record\n\n"
-            "## Patient Demographics\n- Gender: F\n- Age: 63\n\n"
+            # anchor_age 63 in 2150, admitted in 2155: age 68
+            "## Patient Demographics\n- Gender: F\n- Age: 68\n\n"
             "## Conditions\n"
             "- 9999\n"  # the most recent; no description, so the raw code
             "- Unspecified essential hypertension\n"  # listed once
@@ -102,6 +111,38 @@ class TestSerialization(unittest.TestCase):
         text = serialize_ehr({"A": [f"entry {i}" for i in range(50)]}, max_chars=60)
         self.assertLessEqual(len(text), 60)
         self.assertTrue(text.endswith(tuple(f"entry {i}" for i in range(50))))
+
+    def test_age_is_at_the_sample_admission_or_left_out(self):
+        task = EHRTextSerializationTask(_CodesTask(), describer=OFFLINE)
+
+        def header(sample, **kw):
+            sample = {"patient_id": "p0", "label": 0, "conditions": ["4019"],
+                      "procedures": [], **sample}
+            return task(_patient(sample, **kw))[0]["text"].split("\n\n")[1]
+
+        self.assertEqual(header({"visit_id": "h1"}),
+                         "## Patient Demographics\n- Gender: F\n- Age: 68")
+        for sample, kw in [({}, {}),  # no admission id in the sample
+                           ({"hadm_id": "other"}, {}),  # no such admission
+                           ({"hadm_id": "h1"}, {"anchor_year": None})]:
+            self.assertEqual(header(sample, **kw),
+                             "## Patient Demographics\n- Gender: F")
+
+    def test_stagenet_codes_are_serialized(self):
+        task = EHRTextSerializationTask(MortalityPredictionStageNetMIMIC4(),
+                                        describer=OFFLINE, demographics=None)
+        self.assertEqual(task.timed_fields, ["icd_codes"])
+        self.assertEqual(list(task.sections), ["icd_codes"])  # labs skipped
+        sample = {"patient_id": "p0", "mortality": 0,
+                  "icd_codes": ([0.0, 12.5], [["4019"], ["25000", "E11.9"]]),
+                  "labs": ([0.0], [[140.0] * 10])}
+        text = task.serialize_sample(sample)
+        self.assertEqual(text.splitlines()[2:], [
+            "## Icd codes",
+            "- Type 2 diabetes mellitus without complications",
+            "- Diabetes mellitus without complication",
+            "- Unspecified essential hypertension",
+        ])
 
     def test_icd_version_prefix_selects_the_vocabulary(self):
         seen = []
@@ -213,6 +254,41 @@ class TestSerialization(unittest.TestCase):
                 self.assertEqual(new["mortality"], old["mortality"])
                 for code in old["conditions"]:
                     self.assertIn(DESCRIPTIONS.get(code, code), new["text"])
+                # age at this admission, from anchor_age and anchor_year
+                person = patient.get_events(event_type="patients")[0]
+                [admission] = [a for a in patient.get_events(
+                    event_type="admissions") if a.hadm_id == old["hadm_id"]]
+                age = (int(person.anchor_age) + admission.timestamp.year
+                       - int(person.anchor_year))
+                self.assertIn(f"- Age: {age}\n", new["text"])
+
+
+class TestStageNetOnDemo(unittest.TestCase):
+    def test_stagenet_task_on_mimic4_demo(self):
+        root = Path(__file__).parents[2] / "test-resources" / "core" / "mimic4demo"
+        base = MortalityPredictionStageNetMIMIC4()
+        task = EHRTextSerializationTask(base, describer=OFFLINE)
+        with tempfile.TemporaryDirectory() as tmp:
+            dataset = MIMIC4EHRDataset(
+                root=str(root), cache_dir=tmp,
+                tables=["diagnoses_icd", "procedures_icd", "labevents"],
+            )
+            checked = 0
+            for patient in dataset.iter_patients():
+                expected = base(patient)
+                if not expected:
+                    continue
+                [old], [new] = expected, task(patient)
+                self.assertEqual(set(new), {"patient_id", "mortality", "text"})
+                _times, codes = old["icd_codes"]
+                for code in {c for visit in codes for c in visit}:
+                    self.assertIn(DESCRIPTIONS.get(code, code), new["text"])
+                self.assertNotIn("Lab", new["text"])
+                self.assertNotIn("Age", new["text"])  # patient-level sample
+                checked += 1
+                if checked == 3:
+                    break
+            self.assertGreater(checked, 0)
 
 
 def _tiny_encoder(tmp, padding_side="right"):
@@ -306,7 +382,12 @@ class TestLLMEHREncoder(unittest.TestCase):
                               cache_name="stub", instruction="Predict death")
         calls.clear()
         other.embed(["a"])
-        self.assertEqual(calls, [["a"]])  # other settings, other key
+        # other settings, other key; the instruction reaches embed_fn too
+        self.assertEqual(calls, [["Instruct: Predict death\nQuery:a"]])
+        self.assertEqual(
+            [p.suffix for p in Path(cache).rglob("*") if p.is_file()],
+            [".npy"] * 3,  # atomic writes leave no temporary files
+        )
         formatted = LLMEHREncoder(
             self.dataset, embed_fn=embed_fn, cache_dir=cache, cache_name="stub",
             instruction="Predict death",
@@ -314,7 +395,7 @@ class TestLLMEHREncoder(unittest.TestCase):
         )
         calls.clear()
         formatted.embed(["a"])
-        self.assertEqual(calls, [["a"]])  # another formatter, another key
+        self.assertEqual(calls, [["Predict death: a"]])  # another formatter
 
     def test_embedders_sharing_a_cache_dir_do_not_collide(self):
         cache = os.path.join(self.tmp.name, "cache")
