@@ -17,6 +17,7 @@ import logging
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -209,7 +210,7 @@ class VSACDataset(BaseDataset):
         tables: list[str] | None = None,
         dataset_name: str | None = None,
         config_path: str | None = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> None:
         if config_path is None:
             config_path = str(Path(__file__).parent / "configs" / "vsac.yaml")

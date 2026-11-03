@@ -50,8 +50,10 @@ import zlib
 from collections import defaultdict
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 import numpy as np
+import pandas as pd
 import polars as pl
 import torch
 from sklearn.metrics import (
@@ -82,7 +84,7 @@ SOURCE_SPLITS = ("train", "val", "test", "corpus")
 class SampledValueSetCompletion(ValueSetCompletion):
     """Keeps a fixed, OID-hashed fraction of target value sets."""
 
-    def __init__(self, index_dir: str, sample_frac: float = 1.0, **kwargs) -> None:
+    def __init__(self, index_dir: str, sample_frac: float = 1.0, **kwargs: Any) -> None:
         super().__init__(index_dir, **kwargs)
         self.sample_frac = sample_frac
 
@@ -144,8 +146,13 @@ def best_threshold(y_true: np.ndarray, y_prob: np.ndarray) -> float:
     return float(thresholds[min(int(np.argmax(f1)), len(thresholds) - 1)])
 
 
-def value_set_metrics(samples, y_prob: np.ndarray, threshold: float) -> dict:
-    """Macro precision/recall/F1 over value sets, recall over all true codes."""
+def value_set_metrics(
+    samples: Sequence[dict], y_prob: np.ndarray, threshold: float
+) -> tuple[dict, pd.DataFrame]:
+    """Macro precision/recall/F1 over value sets, recall over all true codes.
+
+    Returns the macro averages and one row per value set.
+    """
     predicted, hits, retrieved, n_true = (
         defaultdict(set),
         defaultdict(set),
@@ -162,21 +169,28 @@ def value_set_metrics(samples, y_prob: np.ndarray, threshold: float) -> dict:
             predicted[oid].add(code)
             if is_true:
                 hits[oid].add(code)
-    precision, recall, f1, ceiling = [], [], [], []
+    rows = []
     for oid, total in n_true.items():
         p = len(hits[oid]) / len(predicted[oid]) if predicted[oid] else 0.0
         r = len(hits[oid]) / total
-        precision.append(p)
-        recall.append(r)
-        f1.append(2 * p * r / (p + r) if p + r else 0.0)
-        ceiling.append(len(retrieved[oid]) / total)
+        rows.append(
+            {
+                "oid": oid,
+                "n_true_codes": total,
+                "precision": p,
+                "recall": r,
+                "f1": 2 * p * r / (p + r) if p + r else 0.0,
+                "retrieval_recall": len(retrieved[oid]) / total,
+            }
+        )
+    frame = pd.DataFrame(rows)
     return {
-        "n_value_sets": len(n_true),
-        "macro_precision": float(np.mean(precision)),
-        "macro_recall": float(np.mean(recall)),
-        "macro_f1": float(np.mean(f1)),
-        "retrieval_recall": float(np.mean(ceiling)),
-    }
+        "n_value_sets": len(frame),
+        "macro_precision": float(frame["precision"].mean()),
+        "macro_recall": float(frame["recall"].mean()),
+        "macro_f1": float(frame["f1"].mean()),
+        "retrieval_recall": float(frame["retrieval_recall"].mean()),
+    }, frame
 
 
 def run_config(
@@ -186,6 +200,7 @@ def run_config(
     args: argparse.Namespace,
 ) -> dict:
     """Trains and evaluates one configuration; returns its metrics."""
+    torch.manual_seed(42)
     task = SampledValueSetCompletion(
         index_dir, sample_frac=args.sample_frac, **CONFIGS[name]
     )
@@ -222,6 +237,10 @@ def run_config(
         :3
     ]
     test_true, test_prob = np.ravel(test_true), np.ravel(test_prob)
+    summary, per_set = value_set_metrics(test, test_prob, threshold)
+    output = Path(args.output)
+    output.mkdir(parents=True, exist_ok=True)
+    per_set.to_csv(output / f"per_set_{name}.csv", index=False)
     result = {
         "config": name,
         "task_args": {k: v for k, v in vars(task).items() if k != "input_schema"},
@@ -230,7 +249,7 @@ def run_config(
         "pair_auroc": float(roc_auc_score(test_true, test_prob)),
         "pair_ap": float(average_precision_score(test_true, test_prob)),
         "pair_f1": float(f1_score(test_true, test_prob >= threshold)),
-        **value_set_metrics(test, test_prob, threshold),
+        **summary,
     }
     if args.cleanup:
         shutil.rmtree(Path(dataset.cache_dir) / "tasks", ignore_errors=True)
