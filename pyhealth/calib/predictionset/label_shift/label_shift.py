@@ -283,6 +283,7 @@ class LabelShift(BaseConformal):
         score_type: str = "threshold",
         random_state: int | None = None,
         debug: bool = False,
+        saps_lambda: float = 0.1,
         **kwargs,
     ) -> None:
         if model.mode != "multiclass":
@@ -299,6 +300,7 @@ class LabelShift(BaseConformal):
             model,
             alpha,
             score_type=score_type,
+            saps_lambda=saps_lambda,
             random_state=random_state,
             debug=debug,
             **kwargs,
@@ -383,7 +385,11 @@ class LabelShift(BaseConformal):
 
         # Non-conformity scores of the true labels (higher = less conforming)
         nc_scores = true_class_nc_scores(
-            y_prob, y_true, score_type=self.score_type, rng=self.rng
+            y_prob,
+            y_true,
+            score_type=self.score_type,
+            rng=self.rng,
+            saps_lambda=self.saps_lambda,
         )
 
         thresholds, label_ratios = _compute_label_shift_thresholds(
