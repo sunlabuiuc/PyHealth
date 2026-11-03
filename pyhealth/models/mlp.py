@@ -1,13 +1,15 @@
-from typing import Dict, cast
+from typing import Any, cast
 
 import torch
 import torch.nn as nn
 
 from pyhealth.datasets import SampleDataset
-from pyhealth.models import BaseModel
+from pyhealth.datasets.utils import PAD_MASK_SUFFIX
 from pyhealth.interpret.api import Interpretable
+from pyhealth.models import BaseModel
 
 from .embedding import EmbeddingModel
+from .unified_embedding import UnifiedMultimodalEmbeddingModel
 from .utils import get_step_mask, masked_mean_pooling
 
 
@@ -61,6 +63,9 @@ class MLP(BaseModel, Interpretable):
         hidden_dim: the hidden dimension. Default is 128.
         n_layers: the number of layers. Default is 2.
         activation: the activation function. Default is "relu".
+        unified_embedding (UnifiedMultimodalEmbeddingModel, optional): when
+            provided, the model mean-pools one unified event sequence through
+            a single MLP instead of per-field MLPs.
         **kwargs: other parameters for the MLP layer.
 
     Examples:
@@ -118,12 +123,14 @@ class MLP(BaseModel, Interpretable):
         hidden_dim: int = 128,
         n_layers: int = 2,
         activation: str = "relu",
+        unified_embedding: UnifiedMultimodalEmbeddingModel | None = None,
         **kwargs,
     ):
         super(MLP, self).__init__(dataset)
         self.embedding_dim = embedding_dim
         self.hidden_dim = hidden_dim
         self.n_layers = n_layers
+        self._use_unified = unified_embedding is not None
 
         # validate kwargs for MLP layer
         if "input_size" in kwargs:
@@ -133,9 +140,6 @@ class MLP(BaseModel, Interpretable):
 
         assert len(self.label_keys) == 1, "Only one label key is supported"
         self.label_key = self.label_keys[0]
-
-        # Use the EmbeddingModel to handle embedding logic
-        self.embedding_model = EmbeddingModel(dataset, embedding_dim)
 
         # Set up activation function
         if activation == "relu":
@@ -151,18 +155,73 @@ class MLP(BaseModel, Interpretable):
         else:
             raise ValueError(f"Unsupported activation function {activation}")
 
-        # Create MLP layers for each feature
-        self.mlp = nn.ModuleDict()
-        for feature_key in self.feature_keys:
-            Modules = []
-            Modules.append(nn.Linear(self.embedding_dim, self.hidden_dim))
-            for _ in range(self.n_layers - 1):
-                Modules.append(self.activation)
-                Modules.append(nn.Linear(self.hidden_dim, self.hidden_dim))
-            self.mlp[feature_key] = nn.Sequential(*Modules)
-
         output_size = self.label_processor.output_size()
-        self.fc = nn.Linear(len(self.feature_keys) * self.hidden_dim, output_size)
+
+        if self._use_unified:
+            self.embedding_model = unified_embedding
+            modules = [nn.Linear(embedding_dim, hidden_dim)]
+            for _ in range(n_layers - 1):
+                modules.extend([self.activation, nn.Linear(hidden_dim, hidden_dim)])
+            self.mlp = nn.ModuleDict({"unified": nn.Sequential(*modules)})
+            self.fc = nn.Linear(hidden_dim, output_size)
+        else:
+            # Use the EmbeddingModel to handle embedding logic
+            self.embedding_model = EmbeddingModel(dataset, embedding_dim)
+            # Create MLP layers for each feature
+            self.mlp = nn.ModuleDict()
+            for feature_key in self.feature_keys:
+                Modules = []
+                Modules.append(nn.Linear(self.embedding_dim, self.hidden_dim))
+                for _ in range(self.n_layers - 1):
+                    Modules.append(self.activation)
+                    Modules.append(nn.Linear(self.hidden_dim, self.hidden_dim))
+                self.mlp[feature_key] = nn.Sequential(*Modules)
+            self.fc = nn.Linear(len(self.feature_keys) * self.hidden_dim, output_size)
+
+    def _build_unified_inputs(
+        self, kwargs: dict[str, Any]
+    ) -> dict[str, dict[str, torch.Tensor]]:
+        inputs: dict[str, dict[str, torch.Tensor]] = {}
+        for field_name in self.feature_keys:
+            feature = kwargs[field_name]
+            if isinstance(feature, torch.Tensor):
+                feature = (feature,)
+            schema = self.dataset.input_processors[field_name].schema()
+            field_dict: dict[str, torch.Tensor] = {}
+            if "value" in schema:
+                field_dict["value"] = feature[schema.index("value")].to(self.device)
+            if "time" in schema:
+                field_dict["time"] = feature[schema.index("time")].to(self.device)
+            if "mask" in schema:
+                field_dict["mask"] = feature[schema.index("mask")].to(self.device)
+            pad_mask = kwargs.get(f"{field_name}{PAD_MASK_SUFFIX}")
+            if pad_mask is not None:
+                field_dict["pad_mask"] = pad_mask.to(self.device)
+            inputs[field_name] = field_dict
+        return inputs
+
+    def _forward_unified(self, **kwargs: Any) -> dict[str, torch.Tensor]:
+        inputs = self._build_unified_inputs(kwargs)
+        out = self.embedding_model(inputs)
+        sequence = out["sequence"]
+        mask = out["mask"].float()
+
+        # Masked mean-pool over the event sequence
+        x = (sequence * mask.unsqueeze(-1)).sum(dim=1)
+        x = x / mask.sum(dim=1, keepdim=True).clamp(min=1)
+
+        x = self.mlp["unified"](x)
+        logits = self.fc(x)
+        y_prob = self.label_processor.activation(logits)
+
+        results: dict[str, torch.Tensor] = {"logit": logits, "y_prob": y_prob}
+        if self.label_key in kwargs:
+            y_true = cast(torch.Tensor, kwargs[self.label_key]).to(self.device)
+            results["loss"] = self.label_processor.loss(logits, y_true)
+            results["y_true"] = y_true
+        if kwargs.get("embed", False):
+            results["embed"] = x
+        return results
 
     @staticmethod
     def mean_pooling(x, mask):
@@ -208,7 +267,7 @@ class MLP(BaseModel, Interpretable):
     def forward_from_embedding(
         self,
         **kwargs: torch.Tensor | tuple[torch.Tensor, ...],
-    ) -> Dict[str, torch.Tensor]:
+    ) -> dict[str, torch.Tensor]:
         """Forward pass starting from feature embeddings.
 
         This method bypasses the embedding layers and processes
@@ -327,8 +386,13 @@ class MLP(BaseModel, Interpretable):
 
     def forward(
         self, **kwargs: torch.Tensor | tuple[torch.Tensor, ...]
-    ) -> Dict[str, torch.Tensor]:
+    ) -> dict[str, torch.Tensor]:
         """Forward propagation.
+
+        In **unified mode** (when ``unified_embedding`` was supplied at init)
+        the model jointly embeds all temporal fields, mean-pools the event
+        sequence, and processes it with a single MLP.  Otherwise each field
+        is embedded and encoded independently.
 
         Args:
             **kwargs: keyword arguments for the model.
@@ -347,6 +411,9 @@ class MLP(BaseModel, Interpretable):
                 logit: the raw logits before activation.
                 embed: (if embed=True in kwargs) the patient embedding.
         """
+        if self._use_unified:
+            return self._forward_unified(**kwargs)
+
         for feature_key in self.feature_keys:
             feature = kwargs[feature_key]
 
