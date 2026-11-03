@@ -95,6 +95,21 @@ class NotATensor(FeatureProcessor):
         return list(value)
 
 
+class TupleProcessor(FeatureProcessor):
+    """Declares tensor output and returns a tuple, as `value` says."""
+
+    stores_tensor = True
+
+    def __init__(self, value):
+        self.value = value
+
+    def process(self, value):
+        return self.value
+
+    def schema(self):
+        return ("value", "mask")
+
+
 def _samples(values):
     return [
         {
@@ -165,6 +180,20 @@ class TestCreateSampleDatasetRoundTrip(unittest.TestCase):
                 OUTPUT,
                 in_memory=False,
             )
+
+    def test_tensor_tuples_must_match_the_schema(self):
+        cases = {
+            "'codes'.*stores_tensor=True": (torch.zeros(1), "mask"),  # not all tensors
+            r"'codes'.*1 tensors.*schema\(\) has 2": (torch.zeros(1),),
+        }
+        for message, value in cases.items():
+            with self.subTest(message), self.assertRaisesRegex(ValueError, message):
+                create_sample_dataset(
+                    _samples(CASES["scalar str"]),
+                    {"raw_field": "raw", "codes": TupleProcessor(value)},
+                    OUTPUT,
+                    in_memory=False,
+                )
 
     def test_disk_write_starts_no_processes(self):
         # litdata.optimize left helper processes running when the transform

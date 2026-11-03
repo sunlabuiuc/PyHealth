@@ -53,6 +53,8 @@ from .chestxray14 import ChestXray14Dataset
 from .clinvar import ClinVarDataset
 from .cosmic import COSMICDataset
 from .covid19_cxr import COVID19CXRDataset
+from .ptbxl import PTBXLDataset as PTBXLDataset
+from .physionet2012 import PhysioNet2012Dataset as PhysioNet2012Dataset
 from .dreamt import DREAMTDataset
 from .ehrshot import EHRShotDataset
 from .eicu import eICUDataset
@@ -96,7 +98,6 @@ from .splitter import (
     split_by_visit_conformal,
 )
 from .eegbci import EEGBCIDataset as EEGBCIDataset  # noqa: E402
-from .ptbxl import PTBXLDataset as PTBXLDataset
 from .tuab import TUABDataset
 from .tuev import TUEVDataset
 from .utils import (
