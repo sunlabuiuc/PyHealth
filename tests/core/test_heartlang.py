@@ -12,7 +12,11 @@ import torch
 
 from pyhealth.datasets import create_sample_dataset, get_dataloader
 from pyhealth.models import HeartLang, HeartLangBackbone, ecg_to_heartbeat_sentence
-from pyhealth.models.heartlang import heartlang_state_dict, load_heartlang_checkpoint
+from pyhealth.models.heartlang import (
+    HF_REVISION,
+    heartlang_state_dict,
+    load_heartlang_checkpoint,
+)
 from pyhealth.tasks import PTBXLHeartLangClassification
 
 TINY = {"seq_len": 8, "token_len": 16, "embed_dim": 32, "depth": 1, "heads": 2,
@@ -72,6 +76,24 @@ class TestHeartbeatSentence(unittest.TestCase):
         self.assertEqual(set(lead_ids.tolist()), {2, 8})
         self.assertEqual(lead_ids.tolist().count(2), len(qrs))
 
+    def test_long_recordings_and_bad_leads_are_refused(self):
+        signal = np.zeros((12, 2000), dtype=np.float32)
+        # the last QRS before 15 s still fits the 16-row time embedding
+        _, _, time_ids = ecg_to_heartbeat_sentence(signal, qrs_inds=[100, 1499])
+        self.assertEqual(time_ids.max(), 15)
+        with self.assertRaisesRegex(ValueError, "crop the recording"):
+            ecg_to_heartbeat_sentence(signal, qrs_inds=[100, 1500])
+        with self.assertRaises(ValueError):
+            ecg_to_heartbeat_sentence(
+                np.zeros((16, 1000)), qrs_inds=[100], leads=[15])
+        # every index the tokenizer emits is accepted by the backbone
+        words, lead_ids, time_ids = ecg_to_heartbeat_sentence(
+            signal, qrs_inds=[100, 1499], max_len=8, token_len=16)
+        out = HeartLangBackbone(**TINY)(
+            torch.from_numpy(words)[None], torch.from_numpy(lead_ids)[None],
+            torch.from_numpy(time_ids)[None])
+        self.assertEqual(out.shape, (1, 9, 32))
+
     @unittest.skipUnless(HAS_WFDB, "wfdb not installed")
     def test_qrs_detection(self):
         signal, peaks = synthetic_ecg()
@@ -112,6 +134,15 @@ class TestHeartLangModel(unittest.TestCase):
         model(**batch)["loss"].backward()
         self.assertIsNone(model.backbone.cls_token.grad)
         self.assertIsNotNone(model.mlp_head.weight.grad)
+        # Trainer calls train(); the frozen backbone keeps dropout off
+        model.train()
+        self.assertTrue(model.training and model.mlp_head.training)
+        self.assertFalse(any(m.training for m in model.backbone.modules()))
+        model.eval()
+        self.assertFalse(model.mlp_head.training)
+        # a trainable backbone follows train() as usual
+        tuned = HeartLang(dataset, pretrained=False, **TINY).train()
+        self.assertTrue(tuned.backbone.training)
 
     def test_missing_input_is_an_error(self):
         dataset = make_dataset()
@@ -120,6 +151,15 @@ class TestHeartLangModel(unittest.TestCase):
 
 
 class TestCheckpoint(unittest.TestCase):
+    def test_download_is_pinned_to_a_revision(self):
+        with mock.patch(
+            "huggingface_hub.hf_hub_download",
+            return_value="/nonexistent/checkpoint.pth",
+        ) as download, self.assertRaises(FileNotFoundError):
+            load_heartlang_checkpoint()
+        self.assertEqual(download.call_args.kwargs["revision"], HF_REVISION)
+        self.assertRegex(HF_REVISION, r"^[0-9a-f]{40}$")
+
     def test_state_dict_mapping(self):
         state = {"module.backbone.cls_token": torch.zeros(4),
                  "lm_head.weight": torch.zeros(2, 4), "pos_embed": torch.ones(1)}
@@ -174,6 +214,19 @@ class TestPTBXLHeartLangTask(unittest.TestCase):
                         return_value=raw):
             out = task._prepare_signal("record", 100)
         np.testing.assert_allclose(out, 1.0)
+
+    def test_only_100_hz_by_default(self):
+        task = PTBXLHeartLangClassification(self.statements)
+        raw = np.zeros((12, 5000), dtype=np.float32)
+        with mock.patch("pyhealth.datasets.ptbxl.load_ptbxl_record",
+                        return_value=raw):
+            with self.assertRaisesRegex(ValueError, "500 Hz"):
+                task._prepare_signal("record", 500)
+            # sampling_rate=None is the documented opt-out
+            free = PTBXLHeartLangClassification(
+                self.statements, sampling_rate=None)
+            self.assertEqual(free._prepare_signal("record", 500).shape,
+                             (12, 5000))
 
     def test_samples_are_sentences(self):
         task = PTBXLHeartLangClassification(self.statements, leads=[0, 1])

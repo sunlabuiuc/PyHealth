@@ -55,6 +55,13 @@ HF_REPO_ID = "PKUDigitalHealth/HeartLang"
 HF_CHECKPOINT = "checkpoints/pretrain/MIMIC-IV/checkpoint-200.pth"
 """The pre-trained checkpoint (MIMIC-IV-ECG, 200 epochs) in :data:`HF_REPO_ID`."""
 
+HF_REVISION = "b8118c1bc34a43cc2202b6d30267244ac7fc52c1"
+"""The commit of :data:`HF_REPO_ID` that :data:`HF_CHECKPOINT` is read from."""
+
+MAX_INDEX = 15
+"""Largest lead or time index the model embeds (its index tables have 16 rows,
+row 0 being padding): at most 15 leads, and QRS complexes in the first 15 s."""
+
 
 # ----------------------------------------------------------------- tokenizer
 def _qrs_segments(
@@ -110,11 +117,16 @@ def ecg_to_heartbeat_sentence(
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Turns an ECG into a HeartLang "sentence" of heartbeat "words".
 
-    QRS complexes are detected on the first selected lead with
-    ``wfdb.processing.xqrs_detect`` (the ``pyhealth[ptbxl]`` extra), unless
-    ``qrs_inds`` is given. Every lead is cut into one ``token_len`` segment
-    per QRS; the segments of lead 1, then lead 2, and so on form the
-    sentence, padded with zeros or truncated to ``max_len`` words.
+    QRS complexes are detected on the first selected lead (lead I with the
+    default ``leads``) with ``wfdb.processing.xqrs_detect`` (the
+    ``pyhealth[ptbxl]`` extra), unless ``qrs_inds`` is given. Every lead is
+    cut into one ``token_len`` segment per QRS; the segments of lead 1, then
+    lead 2, and so on form the sentence, padded with zeros or truncated to
+    ``max_len`` words.
+
+    The model's time embedding covers whole seconds 1 to 15
+    (:data:`MAX_INDEX`), so a QRS at 15 s or later raises ``ValueError``:
+    crop longer recordings (HeartLang was trained on 10 s ECGs).
 
     Args:
         signal: ECG of shape ``(leads, samples)``, already standardized the
@@ -135,6 +147,8 @@ def ecg_to_heartbeat_sentence(
 
     Raises:
         ImportError: If ``qrs_inds`` is not given and ``wfdb`` is missing.
+        ValueError: If a lead index is above 14 or a QRS lies at 15 s or
+            later, beyond the model's lead and time embeddings.
 
     Examples:
         >>> import numpy as np
@@ -146,6 +160,8 @@ def ecg_to_heartbeat_sentence(
     """
     signal = np.asarray(signal, dtype=np.float32)
     leads = list(range(signal.shape[0])) if leads is None else list(leads)
+    if any(not 0 <= lead < MAX_INDEX for lead in leads):
+        raise ValueError(f"lead indices must be in [0, {MAX_INDEX - 1}]: {leads}")
     signal = signal[leads]
     if qrs_inds is None:
         try:
@@ -160,6 +176,12 @@ def ecg_to_heartbeat_sentence(
     qrs_inds = [int(i) for i in qrs_inds]
     words, lead_ids, time_ids = [], [], []
     times = [i // sampling_rate + 1 for i in qrs_inds]
+    if times and max(times) > MAX_INDEX:
+        raise ValueError(
+            f"a QRS at {max(qrs_inds) / sampling_rate:.1f} s is beyond the "
+            f"{MAX_INDEX} s the HeartLang time embedding covers; crop the "
+            "recording (the model was trained on 10 s ECGs)"
+        )
     for lead, segments in zip(leads, _qrs_segments(signal, qrs_inds, token_len)):
         words.extend(segments)
         lead_ids.extend([lead + 1] * len(segments))
@@ -305,8 +327,8 @@ class HeartLangBackbone(nn.Module):
         self.mask_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
         self.cls_token = nn.Parameter(torch.randn(embed_dim))
         self.pos_embed = nn.Parameter(torch.randn(1, seq_len + 1, embed_dim))
-        self.spa_embed = _IndexEmbedding(16, embed_dim)
-        self.tem_embed = _IndexEmbedding(16, embed_dim)
+        self.spa_embed = _IndexEmbedding(MAX_INDEX + 1, embed_dim)
+        self.tem_embed = _IndexEmbedding(MAX_INDEX + 1, embed_dim)
         self.dropout = nn.Dropout(emb_dropout)
         self.transformer = _Transformer(
             embed_dim, depth, heads, dim_head, mlp_dim, dropout
@@ -379,8 +401,9 @@ def load_heartlang_checkpoint(path: str | None = None) -> dict[str, torch.Tensor
 
     Args:
         path: A local checkpoint file. Defaults to downloading
-            :data:`HF_CHECKPOINT` from :data:`HF_REPO_ID` with
-            ``huggingface_hub`` (about 535 MB, cached).
+            :data:`HF_CHECKPOINT` from :data:`HF_REPO_ID` at the pinned
+            commit :data:`HF_REVISION` with ``huggingface_hub`` (about
+            535 MB, cached).
 
     Returns:
         A state dict for :class:`HeartLangBackbone`.
@@ -393,7 +416,9 @@ def load_heartlang_checkpoint(path: str | None = None) -> dict[str, torch.Tensor
     if path is None:
         from huggingface_hub import hf_hub_download
 
-        path = hf_hub_download(repo_id=HF_REPO_ID, filename=HF_CHECKPOINT)
+        path = hf_hub_download(
+            repo_id=HF_REPO_ID, filename=HF_CHECKPOINT, revision=HF_REVISION
+        )
     if not os.path.exists(path):
         raise FileNotFoundError(path)
     # The training checkpoint also stores its argparse arguments, which hold
@@ -425,7 +450,9 @@ class HeartLang(BaseModel):
         pretrained: ``True`` loads the published checkpoint from Hugging
             Face, a string loads a local checkpoint file, ``False`` starts
             from random weights.
-        freeze_backbone: Train only the linear head.
+        freeze_backbone: Train only the linear head. The frozen backbone
+            also stays in eval mode (no dropout) when ``train()`` is called,
+            as in the paper's linear probe.
         words_key: Input key of the heartbeat words.
         lead_key: Input key of the lead indices.
         time_key: Input key of the time indices.
@@ -510,6 +537,26 @@ class HeartLang(BaseModel):
         if freeze_backbone:
             for param in self.backbone.parameters():
                 param.requires_grad = False
+
+    def train(self, mode: bool = True) -> HeartLang:
+        """Sets training mode, keeping a frozen backbone in eval mode.
+
+        Args:
+            mode: ``True`` for training mode, ``False`` for eval mode.
+
+        Returns:
+            The model.
+
+        Examples:
+            >>> model = HeartLang(dataset, pretrained=False,  # doctest: +SKIP
+            ...                   freeze_backbone=True)
+            >>> model.train().backbone.training  # doctest: +SKIP
+            False
+        """
+        super().train(mode)
+        if mode and getattr(self, "freeze_backbone", False):
+            self.backbone.eval()
+        return self
 
     def embed(self, **kwargs: Any) -> torch.Tensor:
         """The [CLS] embedding of each sample in a batch.

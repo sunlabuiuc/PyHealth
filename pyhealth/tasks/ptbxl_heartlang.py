@@ -14,7 +14,15 @@ at 100 Hz, in mV.
 
 HeartLang follows the PTB-XL benchmark (Strodthoff et al., 2021), which
 standardizes every sample with one mean and standard deviation fitted on the
-training folds.
+training folds. The two constants can be recomputed with (``root`` is the
+PTB-XL 1.0.3 download)::
+
+    import numpy as np, pandas as pd, wfdb
+
+    db = pd.read_csv(f"{root}/ptbxl_database.csv")
+    files = db.loc[db.strat_fold <= 8, "filename_lr"]
+    x = np.stack([wfdb.rdsamp(f"{root}/{f}")[0] for f in files])
+    print(x.mean(), x.std())  # -0.000819, 0.235129
 """
 
 PTBXL_100HZ_STD = 0.235129
@@ -26,15 +34,20 @@ class PTBXLHeartLangClassification(PTBXLMultilabelClassification):
 
     Builds the inputs of :class:`~pyhealth.models.HeartLang`: each ECG is
     standardized, split into heartbeat "words" around the QRS complexes of
-    lead I (:func:`~pyhealth.models.heartlang.ecg_to_heartbeat_sentence`),
-    and returned with the lead and time index of every word. Labels follow
+    the first selected lead, lead I by default
+    (:func:`~pyhealth.models.heartlang.ecg_to_heartbeat_sentence`), and
+    returned with the lead and time index of every word. Labels follow
     :class:`~pyhealth.tasks.PTBXLMultilabelClassification`; with the default
     ``min_likelihood=0`` they match the PTB-XL benchmark that HeartLang uses
     (Jin et al., ICLR 2025). Use
     :func:`~pyhealth.datasets.split_by_strat_fold` for its split: folds 1-8
     train, 9 validation, 10 test.
 
-    QRS detection uses ``wfdb`` (the ``pyhealth[ptbxl]`` extra).
+    The published model was trained on 100 Hz ECGs: its 96-sample words and
+    the default standardization constants assume that rate, so build the
+    dataset with ``PTBXLDataset(..., sampling_rate=100)``. Other rates raise
+    ``ValueError`` unless ``sampling_rate=None``. QRS detection uses ``wfdb``
+    (the ``pyhealth[ptbxl]`` extra).
 
     Args:
         scp_statements_path: ``scp_statements.csv`` of the PTB-XL download;
@@ -48,9 +61,16 @@ class PTBXLHeartLangClassification(PTBXLMultilabelClassification):
         signal_std: Standard deviation every sample is divided by. Defaults
             to :data:`PTBXL_100HZ_STD`.
         leads: Lead indices to use (I, II, III, aVR, aVL, aVF, V1-V6 order).
-            Defaults to all 12.
+            Defaults to all 12. QRS complexes are detected on the first one.
         max_len: Words per sentence (256 for the published model).
         token_len: Samples per word (96 for the published model).
+        sampling_rate: The sampling rate the ECGs must have, in Hz (100 for
+            the published model). ``None`` accepts any rate; then choose
+            ``token_len`` and the standardization for that rate yourself.
+
+    Raises:
+        ValueError: From ``set_task``, if an ECG's sampling rate is not
+            ``sampling_rate``.
 
     Attributes:
         task_name (str): ``"PTBXLHeartLangClassification"``.
@@ -87,6 +107,7 @@ class PTBXLHeartLangClassification(PTBXLMultilabelClassification):
         leads: Sequence[int] | None = None,
         max_len: int = 256,
         token_len: int = 96,
+        sampling_rate: int | None = 100,
     ) -> None:
         if (signal_mean is None) != (signal_std is None):
             raise ValueError("give both signal_mean and signal_std, or neither")
@@ -97,6 +118,7 @@ class PTBXLHeartLangClassification(PTBXLMultilabelClassification):
         self.leads = None if leads is None else [int(i) for i in leads]
         self.max_len = max_len
         self.token_len = token_len
+        self.sampling_rate = sampling_rate
         super().__init__(
             scp_statements_path,
             label_set=label_set,
@@ -110,7 +132,18 @@ class PTBXLHeartLangClassification(PTBXLMultilabelClassification):
 
         Returns:
             The standardized ``(12, 10 * sampling_rate)`` signal.
+
+        Raises:
+            ValueError: If ``sampling_rate`` is not the one the task expects.
         """
+        if self.sampling_rate is not None and sampling_rate != self.sampling_rate:
+            raise ValueError(
+                f"PTBXLHeartLangClassification expects {self.sampling_rate} Hz "
+                f"ECGs (the rate of the pretrained HeartLang model) but got "
+                f"{sampling_rate} Hz; use PTBXLDataset(..., sampling_rate="
+                f"{self.sampling_rate}), or pass sampling_rate=None with your "
+                "own token_len and standardization"
+            )
         signal = super()._prepare_signal(signal_file, sampling_rate)
         if self.signal_mean is not None:
             signal = (signal - self.signal_mean) / self.signal_std
