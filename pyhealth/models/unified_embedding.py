@@ -23,6 +23,7 @@ Quickstart::
 from __future__ import annotations
 
 import math
+import warnings
 from typing import Any
 
 import torch
@@ -273,6 +274,7 @@ class UnifiedMultimodalEmbeddingModel(nn.Module):
             mod: i for i, mod in enumerate(unique_modalities)
         }
         self.type_embedding = nn.Embedding(len(unique_modalities), embedding_dim)
+        self._warned_nested_code_flatten = False
 
         # Time embedding
         if time_embedding == "sinusoidal":
@@ -444,6 +446,8 @@ class UnifiedMultimodalEmbeddingModel(nn.Module):
             * ``"time"``     — ``(B, S_total)``       timestamps (hours)
             * ``"mask"``     — ``(B, S_total)``       1=real event, 0=padding
             * ``"type_ids"`` — ``(B, S_total)``       modality index per event
+            * ``"token_emb"`` — ``(B, S_total, E')`` content-only event embedding
+              (before time/type are added); the target for masked modeling.
         """
         all_embeddings: list[torch.Tensor] = []
         all_times:      list[torch.Tensor] = []
@@ -464,7 +468,51 @@ class UnifiedMultimodalEmbeddingModel(nn.Module):
 
             # ── Encode ────────────────────────────────────────────────────
             if modality == ModalityType.CODE:
-                emb = encoder(value)                           # (B, S, E')
+                # CODE values may be either:
+                # - flat indices: (B, S)
+                # - nested indices: (B, S, C) where C is codes-per-event
+                # For nested indices, flatten to (B, S*C, E') so code-level
+                # detail is preserved, and expand time/mask to match.
+                if value.dim() == 2:
+                    emb = encoder(value)  # (B, S, E')
+                elif value.dim() == 3:
+                    bsz, seq_len, per_event_codes = value.shape
+                    token_emb = encoder(value.long())  # (B, S, C, E')
+                    emb = token_emb.reshape(bsz, seq_len * per_event_codes, -1)
+
+                    if not self._warned_nested_code_flatten:
+                        warnings.warn(
+                            (
+                                "UnifiedMultimodalEmbeddingModel detected "
+                                f"nested CODE input for '{field_name}' with "
+                                f"shape={tuple(value.shape)}. Flattening to "
+                                f"(B, S*C, E) and repeating time along C."
+                            ),
+                            stacklevel=2,
+                        )
+                        self._warned_nested_code_flatten = True
+
+                    if time is not None:
+                        time = (
+                            time.unsqueeze(-1)
+                            .expand(-1, -1, per_event_codes)
+                            .reshape(bsz, seq_len * per_event_codes)
+                        )
+
+                    if mask is not None:
+                        if mask.dim() == 2:
+                            mask = (
+                                mask.unsqueeze(-1)
+                                .expand(-1, -1, per_event_codes)
+                                .reshape(bsz, seq_len * per_event_codes)
+                            )
+                        elif mask.dim() == 3:
+                            mask = mask.reshape(bsz, seq_len * per_event_codes)
+                else:
+                    raise ValueError(
+                        f"Unsupported CODE value rank for '{field_name}': "
+                        f"shape={tuple(value.shape)}"
+                    )
 
             elif modality == ModalityType.TEXT:
                 b, n, l = value.shape
@@ -531,4 +579,10 @@ class UnifiedMultimodalEmbeddingModel(nn.Module):
             "time":     cat_time,   # (B, S_total)
             "mask":     cat_mask,   # (B, S_total)
             "type_ids": cat_types,  # (B, S_total)
+            # Per-event content embedding BEFORE time/type are added (same sort
+            # order as ``sequence``).  Masked-modeling pretrainers should
+            # reconstruct THIS rather than ``sequence``: the time/type
+            # components are largely recoverable from event position, so
+            # including them in the target dilutes the content signal.
+            "token_emb": cat_emb,   # (B, S_total, E')
         }
