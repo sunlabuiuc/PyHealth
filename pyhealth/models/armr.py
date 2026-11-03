@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import math
 import os
-import warnings
 
 import numpy as np
 import torch
@@ -240,8 +239,11 @@ class ARMR(BaseModel):
             embeddings, as the authors' code does. Default is True.
         graph_dataset: the samples the drug co-occurrence graph is built
             from; pass the training split, so that validation and test
-            labels stay out of the model. If ``use_graph`` is True and this is
-            None, the graph is built from ``dataset`` with a warning.
+            labels stay out of the model. Required when ``use_graph`` is
+            True.
+
+    Raises:
+        ValueError: if ``use_graph`` is True and ``graph_dataset`` is None.
 
     Examples:
         >>> from pyhealth.datasets import create_sample_dataset
@@ -266,7 +268,7 @@ class ARMR(BaseModel):
         ...     dataset_name="demo",
         ... )
         >>> model = ARMR(dataset, embedding_dim=16, use_graph=False)  # doctest: +SKIP
-        >>> # with the graphs, give the training split explicitly:
+        >>> # with the graphs (the default), pass the training split:
         >>> # ARMR(dataset, graph_dataset=train_split)
         >>> from pyhealth.datasets import get_dataloader
         >>> batch = next(iter(get_dataloader(dataset, batch_size=2)))
@@ -285,6 +287,13 @@ class ARMR(BaseModel):
         use_graph: bool = True,
         graph_dataset: SampleDataset | None = None,
     ):
+        if use_graph and graph_dataset is None:
+            raise ValueError(
+                "ARMR(use_graph=True) builds a drug co-occurrence graph from "
+                "drug labels: pass the training split as graph_dataset (for "
+                "example ARMR(dataset, graph_dataset=train)), or set "
+                "use_graph=False."
+            )
         super().__init__(dataset=dataset)
         for key in ("conditions", "procedures", "drugs_hist"):
             if key not in self.dataset.input_schema:
@@ -323,16 +332,6 @@ class ARMR(BaseModel):
 
         ddi_adj = self._ddi_adj(label_vocab)
         if use_graph:
-            if graph_dataset is None:
-                warnings.warn(
-                    "ARMR(use_graph=True) builds its drug co-occurrence graph "
-                    "from the drug labels of every sample in `dataset`. Pass "
-                    "the training split as `graph_dataset` so that validation "
-                    "and test labels do not leak into the model.",
-                    UserWarning,
-                    stacklevel=2,
-                )
-                graph_dataset = self.dataset
             ehr_adj = self._ehr_adj(label_vocab, graph_dataset)
             self.register_buffer("ehr_adj", _normalize(ehr_adj))
             self.register_buffer("ddi_adj_norm", _normalize(ddi_adj))

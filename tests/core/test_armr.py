@@ -185,11 +185,14 @@ class TestARMR(unittest.TestCase):
         self.assertEqual(out["logit"].shape, (2, 2))
         self.assertFalse(torch.isnan(out["loss"]))
 
-    def test_graph_without_graph_dataset_warns(self):
-        with self.assertWarnsRegex(UserWarning, "graph_dataset"):
+    def test_graph_without_graph_dataset_raises(self):
+        with self.assertRaisesRegex(ValueError, "graph_dataset"):
             ARMR(self.dataset, embedding_dim=16)
+        with self.assertRaisesRegex(ValueError, "use_graph=False"):
+            ARMR(self.dataset, embedding_dim=16, use_graph=True)
+        # no error, and no warning, with graph_dataset or without the graphs
         with warnings.catch_warnings():
-            warnings.simplefilter("error")
+            warnings.simplefilter("error", UserWarning)
             ARMR(self.dataset, embedding_dim=16, graph_dataset=self.dataset)
             ARMR(self.dataset, embedding_dim=16, use_graph=False)
 
