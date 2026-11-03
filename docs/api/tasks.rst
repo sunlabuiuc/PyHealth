@@ -216,6 +216,7 @@ Available Tasks
     COVID-19 CXR Classification <tasks/pyhealth.tasks.COVID19CXRClassification>
     COVID-19 CXR Image Generation <tasks/pyhealth.tasks.COVID19CXRImageGeneration>
     PTB-XL Multilabel Classification <tasks/pyhealth.tasks.PTBXLMultilabelClassification>
+    PTB-XL HeartLang Classification <tasks/pyhealth.tasks.PTBXLHeartLangClassification>
     PhysioNet 2012 Forecasting <tasks/pyhealth.tasks.PhysioNet2012Forecasting>
     DKA Prediction (MIMIC-IV) <tasks/pyhealth.tasks.dka>
     Drug Recommendation <tasks/pyhealth.tasks.drug_recommendation>
