@@ -9,6 +9,7 @@ from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
 from pyhealth.models.utils import (
     ddi_adjacency,
+    ehr_cooccurrence_adjacency,
     get_last_visit,
     history_to_label_index,
 )
@@ -428,23 +429,14 @@ class GAMENet(BaseModel):
     def generate_ehr_adj(self) -> torch.tensor:
         """Generates the EHR graph adjacency matrix."""
         label_vocab = self.dataset.output_processors[self.label_key].label_vocab
-        label_size = len(label_vocab)
-        ehr_adj = torch.zeros((label_size, label_size))
-        for sample in self.dataset:
-            curr_drugs = sample["drugs"]
-            if isinstance(curr_drugs, torch.Tensor):
-                continue
-            encoded_drugs = []
-            for drug in curr_drugs:
-                if drug in label_vocab:
-                    encoded_drugs.append(label_vocab[drug])
-            for idx1, med1 in enumerate(encoded_drugs):
-                for idx2, med2 in enumerate(encoded_drugs):
-                    if idx1 >= idx2:
-                        continue
-                    ehr_adj[med1, med2] = 1
-                    ehr_adj[med2, med1] = 1
-        return ehr_adj
+        # only unprocessed samples (lists of codes) are used, as before;
+        # processed multi-hot labels were always skipped here
+        drug_sets = (
+            sample["drugs"]
+            for sample in self.dataset
+            if not isinstance(sample["drugs"], torch.Tensor)
+        )
+        return ehr_cooccurrence_adjacency(drug_sets, label_vocab)
 
     def generate_ddi_adj(self) -> torch.tensor:
         """Generates the DDI graph adjacency matrix."""

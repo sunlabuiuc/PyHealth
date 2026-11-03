@@ -107,6 +107,45 @@ def ddi_adjacency(label_vocab: dict[str, int]) -> torch.Tensor:
     return adj
 
 
+def ehr_cooccurrence_adjacency(drug_sets, label_vocab: dict[str, int]) -> torch.Tensor:
+    """Builds the drug co-occurrence graph: drugs given together in a visit.
+
+    Build it from the training samples only, so that evaluation labels do not
+    reach the model. Shared by the drug recommendation models (GAMENet, ARMR).
+
+    Args:
+        drug_sets: an iterable with one entry per visit, either a list of
+            drug codes or a multi-hot tensor over ``label_vocab`` (as a
+            processed ``multilabel`` field is). Codes not in ``label_vocab``
+            are ignored.
+        label_vocab: drug code to label index.
+
+    Returns:
+        Symmetric 0/1 tensor of shape [len(label_vocab), len(label_vocab)]
+        with an empty diagonal.
+
+    Examples:
+        >>> vocab = {"A01A": 0, "B01A": 1, "C03C": 2}
+        >>> ehr_cooccurrence_adjacency(
+        ...     [["A01A", "B01A"], torch.tensor([0.0, 0.0, 1.0])], vocab
+        ... ).tolist()
+        [[0.0, 1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 0.0]]
+    """
+    size = len(label_vocab)
+    adj = torch.zeros((size, size))
+    for drugs in drug_sets:
+        if isinstance(drugs, torch.Tensor):  # multi-hot
+            ids = torch.nonzero(drugs.flatten()).flatten()
+        else:
+            ids = torch.tensor(
+                sorted({label_vocab[c] for c in drugs if c in label_vocab}),
+                dtype=torch.long,
+            )
+        if ids.numel() > 1:
+            adj[ids.unsqueeze(1), ids.unsqueeze(0)] = 1.0
+    adj.fill_diagonal_(0.0)
+    return adj
+
 def history_to_label_index(
     hist_vocab: dict[str, int], label_vocab: dict[str, int]
 ) -> torch.Tensor:

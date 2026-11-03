@@ -25,7 +25,11 @@ from pyhealth import BASE_CACHE_PATH as CACHE_PATH
 from pyhealth.datasets import SampleDataset
 from pyhealth.models.base_model import BaseModel
 from pyhealth.models.embedding import EmbeddingModel
-from pyhealth.models.utils import ddi_adjacency, history_to_label_index
+from pyhealth.models.utils import (
+    ddi_adjacency,
+    ehr_cooccurrence_adjacency,
+    history_to_label_index,
+)
 
 
 def _reverse_padded(x: torch.Tensor, lengths: torch.Tensor) -> torch.Tensor:
@@ -206,7 +210,10 @@ class ARMR(BaseModel):
       drug's score (Eq. 19) as a recency term.
     - Eq. 11's attention maps the drug-history attention to a per-feature
       weight (``W_o`` and ``W_n`` are ``2N -> dim``), so the weighting changes
-      the direction of a drug's embedding, which cosine similarity sees.
+      the direction of a drug's embedding, which cosine similarity sees. The
+      reused-drug softmax is taken over the drugs the patient took before
+      and the new-drug softmax over the drugs never taken (the paper does not
+      give the axis; the authors' code restricts each branch to its set).
     - ``use_graph`` (default ``True``) adds two-layer GCN embeddings of the
       drug co-occurrence graph and the drug-drug interaction graph to the
       drug embeddings, with weights 1 and 0.5, as the authors' released code
@@ -363,17 +370,8 @@ class ARMR(BaseModel):
             samples: the samples to read the drug labels from (the training
                 split).
         """
-        adj = torch.zeros(self.label_size, self.label_size)
-        for sample in samples:
-            drugs = sample[self.label_key]
-            if isinstance(drugs, torch.Tensor):  # processed: multi-hot
-                ids = torch.nonzero(drugs.flatten()).flatten()
-            else:
-                ids = torch.tensor([label_vocab[c] for c in drugs if c in label_vocab])
-            if ids.numel() > 1:
-                adj[ids.unsqueeze(1), ids.unsqueeze(0)] = 1.0
-        adj.fill_diagonal_(0.0)
-        return adj
+        drug_sets = (sample[self.label_key] for sample in samples)
+        return ehr_cooccurrence_adjacency(drug_sets, label_vocab)
 
     def _ddi_adj(self, label_vocab: dict) -> torch.Tensor:
         """Drug-drug interaction graph at ATC level 3 (as GAMENet and SafeDrug)."""
@@ -450,17 +448,35 @@ class ARMR(BaseModel):
         taken = (history.sum(dim=1) > 0).float()
         unused = 1.0 - taken  # Eq. 10
 
-        # Eq. 11
-        scale = math.sqrt(self.embedding_dim)
-        q_reused = torch.softmax(
-            self.w_reused(torch.einsum("md,bkd->bmk", emb, h_reused)) / scale, dim=1
+        # Eq. 11: reused drugs attend over the drugs taken before, new drugs
+        # over the drugs never taken; the decay goes into the score (forward)
+        # instead, since the cosine similarity ignores a per-drug scale
+        q_reused = self._set_attention(emb, h_reused, self.w_reused, taken)
+        q_new = self._set_attention(emb, h_new, self.w_new, unused)
+        return emb.unsqueeze(0) * (q_reused + q_new), used
+
+    def _set_attention(
+        self, emb: torch.Tensor, h: torch.Tensor, proj: nn.Linear, member: torch.Tensor
+    ) -> torch.Tensor:
+        """Eq. 11 attention ``q``, normalized over one set of drugs.
+
+        Args:
+            emb: drug embeddings, [M, dim].
+            h: the set's time-sensitive representation, [batch, 2N, dim].
+            proj: ``W_o`` or ``W_n``, mapping ``2N -> dim``.
+            member: 1 for the drugs in the set, else 0, [batch, M].
+
+        Returns:
+            Per-feature weights, [batch, M, dim]: a softmax over the drugs of
+            the set (each feature sums to 1 over them), zero outside the set
+            and all zero when the set is empty.
+        """
+        logits = proj(torch.einsum("md,bkd->bmk", emb, h)) / math.sqrt(
+            self.embedding_dim
         )
-        q_new = torch.softmax(
-            self.w_new(torch.einsum("md,bkd->bmk", emb, h_new)) / scale, dim=1
-        )
-        # the decay goes into the score (forward) instead: cosine ignores it here
-        weight = taken.unsqueeze(-1) * q_reused + unused.unsqueeze(-1) * q_new
-        return emb.unsqueeze(0) * weight, used
+        inside = member.unsqueeze(-1) > 0
+        logits = logits.masked_fill(~inside, torch.finfo(logits.dtype).min)
+        return torch.softmax(logits, dim=1) * inside
 
     def _loss(self, prob: torch.Tensor, logit: torch.Tensor, y: torch.Tensor):
         """``alpha * BCE + (1 - alpha) * multi-label margin`` (Eq. 20-22)."""

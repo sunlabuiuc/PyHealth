@@ -10,7 +10,11 @@ from pyhealth.models.armr import (
     _reverse_padded,
     _split_reused_new,
 )
-from pyhealth.models.utils import ddi_adjacency, history_to_label_index
+from pyhealth.models.utils import (
+    ddi_adjacency,
+    ehr_cooccurrence_adjacency,
+    history_to_label_index,
+)
 
 SCHEMA = {
     "conditions": "nested_sequence",
@@ -186,6 +190,29 @@ class TestARMR(unittest.TestCase):
         full = ARMR(self.dataset, embedding_dim=16, graph_dataset=self.dataset)
         self.assertGreater(full.ehr_adj[c, n].item(), 0.0)
 
+    def test_set_attention_is_normalized_within_each_set(self):
+        torch.manual_seed(0)
+        model = ARMR(self.dataset, embedding_dim=16, use_graph=False)
+        emb = model._drug_embeddings()
+        h = torch.randn(3, 2 * model.n_recent, 16)
+        # patient 0: drugs 0 and 2 taken; patient 1: all; patient 2: none
+        taken = torch.tensor(
+            [[1.0, 0.0, 1.0, 0.0], [1.0, 1.0, 1.0, 1.0], [0.0, 0.0, 0.0, 0.0]]
+        )
+        for member in (taken, 1.0 - taken):
+            q = model._set_attention(emb, h, model.w_reused, member)
+            self.assertEqual(q.shape, (3, 4, 16))
+            sums = q.sum(dim=1)  # per patient and feature
+            for b in range(3):
+                expected = 1.0 if member[b].sum() > 0 else 0.0
+                self.assertTrue(torch.allclose(sums[b], torch.full((16,), expected)))
+            # zero outside the set
+            self.assertEqual((q * (1 - member).unsqueeze(-1)).abs().sum().item(), 0.0)
+        # an empty set gives zeros with finite gradients
+        h.requires_grad_(True)
+        model._set_attention(emb, h, model.w_new, taken).sum().backward()
+        self.assertTrue(torch.isfinite(h.grad).all())
+
     def test_decay_parameters_get_a_gradient(self):
         torch.manual_seed(0)
         model = ARMR(self.dataset, embedding_dim=16, use_graph=False)
@@ -213,6 +240,17 @@ class TestPiecewiseTemporalLearning(unittest.TestCase):
 
 
 class TestDrugHelpers(unittest.TestCase):
+    def test_ehr_cooccurrence_adjacency_from_codes_and_multihot(self):
+        vocab = {"A01A": 0, "B01A": 1, "C03C": 2, "N02B": 3}
+        adj = ehr_cooccurrence_adjacency(
+            [["A01A", "B01A", "A01A", "X99X"], torch.tensor([0.0, 0.0, 1.0, 1.0]),
+             ["N02B"]],
+            vocab,
+        )
+        expected = torch.zeros(4, 4)
+        expected[0, 1] = expected[1, 0] = expected[2, 3] = expected[3, 2] = 1.0
+        self.assertTrue(torch.equal(adj, expected))
+
     def test_history_to_label_index_sends_unknown_codes_to_trash(self):
         mapping = history_to_label_index(
             {"<pad>": 0, "<unk>": 1, "B01A": 2, "X99X": 3}, {"N02B": 0, "B01A": 1}
