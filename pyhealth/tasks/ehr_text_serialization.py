@@ -156,7 +156,9 @@ class CodeDescriber:
     order.
     Unknown codes return ``None``. Vocabularies are loaded on first use
     (:class:`~pyhealth.medcode.InnerMap`, downloaded once and cached) and
-    lookups are memoized.
+    lookups are memoized. A vocabulary that fails to load raises
+    ``RuntimeError`` unless ``raw_fallback=True``: otherwise ``set_task``
+    would cache raw-code text under the same key as described text.
 
     Args:
         lookup: Optional ``lookup(code, vocabularies) -> str | None`` that
@@ -166,6 +168,9 @@ class CodeDescriber:
             function's module, name, line and code hash; pass one when two
             lookups share their code but not their data, e.g. closures
             over different tables.
+        raw_fallback: If a vocabulary cannot be loaded, warn and keep its
+            codes raw instead of raising. This is part of the cache key, so
+            such text is never reused by a run without it.
 
     Examples:
         >>> describe = CodeDescriber(
@@ -179,24 +184,29 @@ class CodeDescriber:
         'Hypertension'
         >>> CodeDescriber(lookup=describe, name="my-table-v2")
         CodeDescriber(lookup=my-table-v2)
+        >>> CodeDescriber(raw_fallback=True)
+        CodeDescriber(raw_fallback=True)
     """
 
     def __init__(
         self,
         lookup: Callable[[str, Sequence[str]], str | None] | None = None,
         name: str | None = None,
+        raw_fallback: bool = False,
     ) -> None:
         self._lookup = lookup
         self._name = name
+        self.raw_fallback = raw_fallback
         self._maps: dict[str, Any] = {}
         self._memo: dict[tuple[str, tuple[str, ...]], str | None] = {}
 
     def __repr__(self) -> str:
-        if self._lookup is None:
-            lookup = ""
-        else:
-            lookup = f"lookup={self._name or _name(self._lookup)}"
-        return f"CodeDescriber({lookup})"
+        args = []
+        if self._lookup is not None:
+            args.append(f"lookup={self._name or _name(self._lookup)}")
+        if self.raw_fallback:
+            args.append("raw_fallback=True")
+        return f"CodeDescriber({', '.join(args)})"
 
     def __call__(self, code: str, vocabularies: Sequence[str] = ()) -> str | None:
         key = (code, tuple(vocabularies))
@@ -233,7 +243,13 @@ class CodeDescriber:
                 from pyhealth.medcode import InnerMap
 
                 self._maps[vocabulary] = InnerMap.load(vocabulary)
-            except Exception as e:  # noqa: BLE001 - fall back to raw codes
+            except Exception as e:
+                if not self.raw_fallback:
+                    raise RuntimeError(
+                        f"vocabulary {vocabulary} could not be loaded "
+                        f"({type(e).__name__}: {e}); pass "
+                        "CodeDescriber(raw_fallback=True) to keep raw codes"
+                    ) from e
                 logger.warning("vocabulary %s unavailable (%s); raw codes are "
                                "used", vocabulary, type(e).__name__)
                 self._maps[vocabulary] = None

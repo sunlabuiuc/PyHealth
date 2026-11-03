@@ -25,6 +25,7 @@ import torch
 from torch import nn
 
 from ..datasets import SampleDataset
+from ..tasks.ehr_text_serialization import _name
 from .base_model import BaseModel
 
 POOLING_MODES = ("last", "mean", "cls")
@@ -68,7 +69,8 @@ class LLMEHREncoder(BaseModel):
             ``"cls"``.
         instruction: Optional task instruction, formatted with
             ``instruction_format`` (Qwen3's by default).
-        instruction_format: ``format(instruction, text) -> str``.
+        instruction_format: ``format(instruction, text) -> str``. Its
+            module, name and code are part of the cache key.
         normalize: L2-normalize the embeddings.
         batch_size: Texts per encoder call.
         cache_dir: Directory for an on-disk embedding cache, keyed by
@@ -144,6 +146,8 @@ class LLMEHREncoder(BaseModel):
         self.pooling = pooling
         self.instruction = instruction
         self.instruction_format = instruction_format
+        # the formatter changes the embedded text, so it is part of the key
+        self._format_name = _name(instruction_format) if instruction else ""
         self.normalize = normalize
         self.batch_size = batch_size
         if cache_dir and cache_name is None and (
@@ -184,7 +188,7 @@ class LLMEHREncoder(BaseModel):
     # ------------------------------------------------------------ embedding
     def _cache_key(self, text: str) -> str:
         settings = (f"{self.cache_name}|{self.max_length}|{self.pooling}|"
-                    f"{self.instruction}|{self.normalize}|")
+                    f"{self.instruction}|{self._format_name}|{self.normalize}|")
         return hashlib.sha256((settings + text).encode()).hexdigest()
 
     def _encode(self, texts: list[str]) -> torch.Tensor:
@@ -210,7 +214,9 @@ class LLMEHREncoder(BaseModel):
             weights = mask.unsqueeze(-1).to(hidden.dtype)
             pooled = (hidden * weights).sum(1) / weights.sum(1).clamp(min=1)
         else:
-            pooled = hidden[:, 0]
+            # the first non-padding token: position 0 only under right padding
+            first = mask.argmax(dim=1)
+            pooled = hidden[torch.arange(hidden.shape[0], device=device), first]
         return pooled.float()
 
     @torch.no_grad()

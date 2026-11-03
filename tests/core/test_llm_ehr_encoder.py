@@ -183,6 +183,19 @@ class TestSerialization(unittest.TestCase):
             EHRTextSerializationTask(_MixedTask(),
                                      sections={"labs": ("Lab tests", ())})
 
+    def test_vocabulary_load_failure_is_not_silent(self):
+        from unittest import mock
+
+        with mock.patch("pyhealth.medcode.InnerMap.load",
+                        side_effect=OSError("offline")):
+            with self.assertRaises(RuntimeError):
+                CodeDescriber()("4019", ("ICD9CM",))
+            describe = CodeDescriber(raw_fallback=True)
+            with self.assertLogs("pyhealth.tasks.ehr_text_serialization",
+                                 "WARNING"):
+                self.assertIsNone(describe("4019", ("ICD9CM",)))
+        self.assertNotEqual(repr(describe), repr(CodeDescriber()))
+
     def test_mimic4_demo_end_to_end(self):
         root = Path(__file__).parents[2] / "test-resources" / "core" / "mimic4demo"
         with tempfile.TemporaryDirectory() as tmp:
@@ -247,7 +260,7 @@ class TestLLMEHREncoder(unittest.TestCase):
                 for i in range(2):
                     valid = hidden[i][mask[i].bool()]
                     want = {"last": valid[-1], "mean": valid.mean(0),
-                            "cls": hidden[i][0]}[pooling]
+                            "cls": valid[0]}[pooling]
                     torch.testing.assert_close(got[i], want, msg=f"{side} {pooling}")
 
     def test_only_the_head_trains_and_is_saved(self):
@@ -294,6 +307,14 @@ class TestLLMEHREncoder(unittest.TestCase):
         calls.clear()
         other.embed(["a"])
         self.assertEqual(calls, [["a"]])  # other settings, other key
+        formatted = LLMEHREncoder(
+            self.dataset, embed_fn=embed_fn, cache_dir=cache, cache_name="stub",
+            instruction="Predict death",
+            instruction_format=lambda task, text: f"{task}: {text}",
+        )
+        calls.clear()
+        formatted.embed(["a"])
+        self.assertEqual(calls, [["a"]])  # another formatter, another key
 
     def test_embedders_sharing_a_cache_dir_do_not_collide(self):
         cache = os.path.join(self.tmp.name, "cache")
