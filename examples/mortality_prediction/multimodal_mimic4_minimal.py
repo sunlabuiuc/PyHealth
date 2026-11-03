@@ -1,4 +1,22 @@
-"""Minimal PyHealth Multimodal MIMIC-IV Demo - Explore all data modalities."""
+"""Minimal multimodal MIMIC-IV loading: EHR, clinical notes and chest X-rays.
+
+Loads MIMIC-IV EHR tables together with MIMIC-IV-Note (discharge and
+radiology notes) and MIMIC-CXR (image metadata and NegBio findings) into one
+MIMIC4Dataset. It then applies MultimodalMortalityPredictionMIMIC4 (one sample
+per patient, labelled with death in a later admission) and prints the first
+sample. No model is trained. For a fuller walkthrough, see
+multimodal_mimic4_demo.py.
+
+Data (all credentialed, from PhysioNet): MIMIC-IV v2.2
+(https://physionet.org/content/mimiciv/2.2/), MIMIC-IV-Note v2.2
+(https://physionet.org/content/mimic-iv-note/2.2/) and MIMIC-CXR-JPG v2.0.0
+(https://physionet.org/content/mimic-cxr-jpg/2.0.0/), plus the MIMIC-CXR
+NegBio labels. Set EHR_ROOT, NOTE_ROOT, CXR_ROOT and CACHE_DIR below. The task
+needs all three sources.
+
+Usage:
+    python examples/mortality_prediction/multimodal_mimic4_minimal.py
+"""
 
 from pyhealth.datasets import MIMIC4Dataset
 from pyhealth.tasks import MultimodalMortalityPredictionMIMIC4

@@ -1,11 +1,22 @@
-"""Evaluate all interpretability methods on StageNet + MIMIC-IV dataset using comprehensiveness 
-and sufficiency metrics.
+"""DeepLift attributions for a StageNet mortality model on MIMIC-IV.
 
-This example demonstrates:
-1. Loading a pre-trained StageNet model with processors and MIMIC-IV dataset
-2. Computing attributions with various interpretability methods
-3. Evaluating attribution faithfulness with Comprehensiveness & Sufficiency for each method
-4. Presenting results in a summary table
+Loads a trained StageNet for ``MortalityPredictionStageNetMIMIC4``, computes
+DeepLift attributions (``use_embeddings=True``) for one test batch, then scores
+DeepLift on the test split with comprehensiveness and sufficiency
+(``pyhealth.metrics.interpretability.evaluate_attribution``). Change ``name``
+in ``main()`` to run IG, GIM, SHAP or LIME the same way.
+
+Data: MIMIC-IV v2.2 hosp tables (credentialed PhysioNet access:
+https://physionet.org/content/mimiciv/2.2/). ``WORK_DIR/ckpts/mp_stagenet_mimic4/``
+should hold ``input_processors.pkl``, ``output_processors.pkl`` and
+``best.ckpt`` from training (e.g. with
+``examples/mortality_prediction/mortality_mimic4_stagenet_v2.py``).
+
+Run (set MIMIC4_ROOT and WORK_DIR below first; a GPU is used if available):
+    python examples/interpretability/deeplift_stagenet_mimic4.py
+To try it without credentials, set MIMIC4_ROOT to
+``test-resources/core/mimic4demo`` and train on it first; with only a few
+patients the scores are not meaningful.
 """
 
 from datetime import datetime
@@ -22,6 +33,10 @@ from pyhealth.datasets.utils import load_processors
 from pathlib import Path
 import pandas as pd
 
+# Paths: edit before running.
+MIMIC4_ROOT = "/path/to/mimiciv/2.2/"
+WORK_DIR = Path("/path/to/pyhealth_dka")  # holds cache/, ckpts/, output/
+
 
 def main():    
     """Main execution function."""
@@ -30,21 +45,21 @@ def main():
     print("=" * 70)
 
     # Set path
-    CACHE_DIR = Path("/shared/eng/pyhealth_dka/cache/mp_stagenet_mimic4")
-    CKPTS_DIR = Path("/shared/eng/pyhealth_dka/ckpts/mp_stagenet_mimic4")
-    OUTPUT_DIR = Path("/shared/eng/pyhealth_dka/output/mp_stagenet_mimic4")
+    CACHE_DIR = WORK_DIR / "cache" / "mp_stagenet_mimic4"
+    CKPTS_DIR = WORK_DIR / "ckpts" / "mp_stagenet_mimic4"
+    OUTPUT_DIR = WORK_DIR / "output" / "mp_stagenet_mimic4"
     print(f"\nUsing cache dir: {CACHE_DIR}")
     print(f"Using checkpoints dir: {CKPTS_DIR}")
     print(f"Using output dir: {OUTPUT_DIR}")
 
     # Set device
-    device = "cuda:7"
+    device = "cuda:0" if torch.cuda.is_available() else "cpu"
     print(f"\nUsing device: {device}")
 
     # Load MIMIC-IV dataset
     print("\n Loading MIMIC-IV dataset...")
     base_dataset = MIMIC4Dataset(
-        ehr_root="/srv/local/data/physionet.org/files/mimiciv/2.2/",
+        ehr_root=MIMIC4_ROOT,
         ehr_tables=[
             "patients",
             "admissions",
@@ -106,9 +121,7 @@ def main():
     method = methods[name]
     
     print(f"\nMove batch to {device}...")
-    it = iter(test_loader)
-    _ = next(it)
-    batch = next(it)
+    batch = next(iter(test_loader))
     batch0 = {}
     for key, value in batch.items():
         if isinstance(value, torch.Tensor):
@@ -124,6 +137,9 @@ def main():
     batch = batch0
     
     attributions = method.attribute(**batch)
+    print(f"{name} attributions for one batch:")
+    for key, attr in attributions.items():
+        print(f"  {key}: shape={tuple(attr.shape)}, sum={attr.sum().item():+.4f}")
 
     # # Initialize evaluator
     # evaluator = Evaluator(model, percentages=[1, 99])

@@ -15,7 +15,20 @@ This example shows:
 3. Training a MultimodalRETAIN model with both sequential and non-sequential inputs
 4. Evaluating the model performance
 5. Comparing to vanilla RETAIN (sequential only)
+
+Note: DrugRecommendationMIMIC4 only produces visit-level sequences, so with
+this task every feature goes through the RETAIN branch; add static features
+to the task to exercise the non-sequential branch.
+
+Data: MIMIC-IV 2.2 from PhysioNet (https://physionet.org/content/mimiciv/,
+credentialed). Set MIMIC4_ROOT below; ``dev=True`` uses a patient subset.
+
+Run: ``python examples/drug_recommendation/drug_recommendation_mimic4_multimodal_retain.py``.
+Without credentials, set MIMIC4_ROOT to ``test-resources/core/mimic4demo``
+and ``dev=False``.
 """
+
+import torch
 
 from pyhealth.datasets import MIMIC4Dataset
 from pyhealth.datasets import split_by_patient, get_dataloader
@@ -24,6 +37,8 @@ from pyhealth.tasks import DrugRecommendationMIMIC4
 from pyhealth.trainer import Trainer
 
 
+MIMIC4_ROOT = "/path/to/mimiciv/2.2"
+
 if __name__ == "__main__":
     # STEP 1: Load MIMIC-IV base dataset
     print("=" * 60)
@@ -31,7 +46,7 @@ if __name__ == "__main__":
     print("=" * 60)
     
     base_dataset = MIMIC4Dataset(
-        ehr_root="/srv/local/data/physionet.org/files/mimiciv/2.2/",
+        ehr_root=MIMIC4_ROOT,
         ehr_tables=["diagnoses_icd", "procedures_icd", "prescriptions"],
         dev=True,  # Use development mode for faster testing
         num_workers=4,
@@ -121,7 +136,7 @@ if __name__ == "__main__":
     
     trainer = Trainer(
         model=model,
-        device="cuda:0",  # Change to "cpu" if no GPU available
+        device="cuda" if torch.cuda.is_available() else "cpu",
         metrics=["pr_auc_samples", "roc_auc_samples", "jaccard_samples", "f1_samples"],
     )
 

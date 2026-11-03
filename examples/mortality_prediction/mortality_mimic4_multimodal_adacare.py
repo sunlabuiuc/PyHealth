@@ -1,20 +1,24 @@
-"""
-Mortality Prediction on MIMIC-IV with MultimodalAdaCare
+"""Mortality prediction on MIMIC-IV with MultimodalAdaCare.
 
-This example demonstrates how to use the MultimodalAdaCare model with mixed
-input modalities for in-hospital mortality prediction on MIMIC-IV.
+MultimodalAdaCare runs AdaCare (scale-adaptive convolution plus feature
+recalibration) on sequential inputs and embeds non-sequential inputs directly.
+The task here, InHospitalMortalityMIMIC4, gives a single sequential input: a
+48-hour time series of 10 lab categories per adult admission. So all of this
+model's capacity goes to the AdaCare branch. To use the non-sequential branch,
+add static features with a custom task. The label is in-hospital death. The
+script trains, evaluates, and prints AdaCare's input and convolutional
+feature-importance tensors.
 
-The MultimodalAdaCare model can handle:
-- Sequential features (diagnoses, procedures) → AdaCare processing with scale-adaptive
-  feature extraction and recalibration
-- Non-sequential features (demographics, static measurements) → Direct embedding
+Data: MIMIC-IV v2.2 (credentialed access, https://physionet.org/content/mimiciv/2.2/).
+Set ``ehr_root`` to your copy.
+To try it without credentials, set ``ehr_root`` to the open MIMIC-IV demo
+(https://physionet.org/content/mimic-iv-demo/2.2/, 100 patients).
 
-This example shows:
-1. Loading MIMIC-IV data with mixed feature types
-2. Applying a mortality prediction task
-3. Training a MultimodalAdaCare model with both sequential and non-sequential inputs
-4. Evaluating the model performance
-5. Analyzing feature importance (from AdaCareLayer for sequential features)
+Usage:
+    python examples/mortality_prediction/mortality_mimic4_multimodal_adacare.py
+
+With dev=True (at most 1000 patients), it runs on a CPU. ``device=None`` uses
+a GPU if one is available.
 """
 
 from pyhealth.datasets import MIMIC4Dataset
@@ -129,7 +133,7 @@ if __name__ == "__main__":
 
     trainer = Trainer(
         model=model,
-        device="cuda:0",  # Change to "cpu" if no GPU available
+        device=None,  # None: GPU if available, else CPU; or e.g. "cuda:0"
         metrics=["pr_auc", "roc_auc", "accuracy", "f1"],
     )
 

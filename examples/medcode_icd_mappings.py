@@ -1,7 +1,11 @@
 """ICD translation and grouper vocabularies in pyhealth.medcode.
 
 Runs entirely offline -- the mappings shown here ship inside the
-``icd-mappings`` wheel rather than being downloaded.
+``icd-mappings`` wheel rather than being downloaded (a PyHealth dependency;
+``pip install icd-mappings`` if your environment lacks it).
+
+Usage:
+    python examples/medcode_icd_mappings.py
 
 Author: John Wu (johnwu3)
 """

@@ -1,20 +1,20 @@
-import numpy as np
+"""Patient record linkage on MIMIC-III with MedLink.
 
-from pyhealth.datasets import MIMIC3Dataset
-from pyhealth.metrics import ranking_metrics_fn
-from pyhealth.models import MedLink
-from pyhealth.models.medlink import BM25Okapi
-from pyhealth.models.medlink import convert_to_ir_format
-from pyhealth.models.medlink import filter_by_candidates
-from pyhealth.models.medlink import generate_candidates
-from pyhealth.models.medlink import get_bm25_hard_negatives
-from pyhealth.models.medlink import get_eval_dataloader
-from pyhealth.models.medlink import get_train_dataloader
-from pyhealth.models.medlink import tvt_split
-from pyhealth.tasks import PatientLinkageMIMIC3Task
-from pyhealth.trainer import Trainer, logger
+Builds ``PatientLinkageMIMIC3Task`` samples (pairs of admissions that belong to
+the same patient), turns them into an information-retrieval corpus/queries
+split, trains MedLink, and reports ranking metrics (e.g. recall/NDCG@1, @5)
+for linking each test query to its patient's other records.
 
-"""
+Data: MIMIC-III v1.4 (https://physionet.org/content/mimiciii/1.4/,
+credentialed). Set ``MIMIC3_ROOT`` below. To try it without credentials, set
+it to ``test-resources/core/mimic3demo`` in this repository (a few patients;
+the scores are meaningless) or to the open-access MIMIC-III demo
+(https://physionet.org/content/mimiciii-demo/1.4/).
+
+Run: ``python examples/patient_linkage_mimic3_medlink.py``. The ranking
+metrics need ``pytrec_eval`` (``pip install pytrec-eval-terrier``). CPU is
+fine for the demo; the full database takes much longer.
+
 IMPORTANT: This implementation differs from the original paper in order to
 make it work with the PyHealth framework. Specifically, we do not use the
 pre-trained GloVe embeddings. And we only monitor the loss on the validation
@@ -29,66 +29,91 @@ hard-negative field (s_n) for the whole batch if it isn't present on every
 sample, rather than producing a misaligned batch.
 """
 
+import numpy as np
+
+from pyhealth.datasets import MIMIC3Dataset
+from pyhealth.metrics import ranking_metrics_fn
+from pyhealth.models import MedLink
+from pyhealth.models.medlink import (
+    BM25Okapi,
+    convert_to_ir_format,
+    filter_by_candidates,
+    generate_candidates,
+    get_bm25_hard_negatives,
+    get_eval_dataloader,
+    get_train_dataloader,
+    tvt_split,
+)
+from pyhealth.tasks import PatientLinkageMIMIC3Task
+from pyhealth.trainer import Trainer, logger
+
+MIMIC3_ROOT = "/path/to/mimiciii/1.4"
 USE_BM25_HARDNEGS = False
 
-""" STEP 1: load data """
-base_dataset = MIMIC3Dataset(
-    root="/srv/local/data/physionet.org/files/mimiciii/1.4",
-    tables=["DIAGNOSES_ICD"],
-)
-base_dataset.stats()
 
-""" STEP 2: set task """
-task = PatientLinkageMIMIC3Task()
-sample_dataset = base_dataset.set_task(task)
-print(f"Number of samples: {len(sample_dataset)}")
-corpus, queries, qrels, corpus_meta, queries_meta = convert_to_ir_format(
-    sample_dataset
-)
-tr_queries, va_queries, te_queries, tr_qrels, va_qrels, te_qrels = tvt_split(
-    queries, qrels
-)
-# generate candidates based on patient identifiers
-# (stored in corpus_meta and queries_meta)
-te_queries_meta = {k: v for k, v in queries_meta.items() if k in te_queries}
-candidates = generate_candidates(corpus_meta, te_queries_meta)
-average_matches = int(np.mean([len(v) for v in candidates.values()]))
-print(f"Average number of candidates per query: {average_matches}")
-# get BM25 hard negatives
-if USE_BM25_HARDNEGS:
-    bm25_model = BM25Okapi(corpus)
-    tr_qrels = get_bm25_hard_negatives(bm25_model, corpus, tr_queries, tr_qrels)
-# get data loaders
-train_dataloader = get_train_dataloader(
-    corpus, tr_queries, tr_qrels, batch_size=32, shuffle=True
-)
-val_dataloader = get_train_dataloader(
-    corpus, va_queries, va_qrels, batch_size=32, shuffle=False
-)
-test_corpus_dataloader, test_queries_dataloader = get_eval_dataloader(
-    corpus, te_queries, batch_size=32
-)
+def main():
+    """ STEP 1: load data """
+    base_dataset = MIMIC3Dataset(
+        root=MIMIC3_ROOT,
+        tables=["DIAGNOSES_ICD"],
+    )
+    base_dataset.stats()
 
-""" STEP 3: define model """
-model = MedLink(
-    dataset=sample_dataset,
-    feature_keys=["conditions"],
-)
+    """ STEP 2: set task """
+    task = PatientLinkageMIMIC3Task()
+    sample_dataset = base_dataset.set_task(task)
+    print(f"Number of samples: {len(sample_dataset)}")
+    corpus, queries, qrels, corpus_meta, queries_meta = convert_to_ir_format(
+        sample_dataset
+    )
+    tr_queries, va_queries, te_queries, tr_qrels, va_qrels, te_qrels = tvt_split(
+        queries, qrels
+    )
+    # generate candidates based on patient identifiers
+    # (stored in corpus_meta and queries_meta)
+    te_queries_meta = {k: v for k, v in queries_meta.items() if k in te_queries}
+    candidates = generate_candidates(corpus_meta, te_queries_meta)
+    average_matches = int(np.mean([len(v) for v in candidates.values()]))
+    print(f"Average number of candidates per query: {average_matches}")
+    # get BM25 hard negatives
+    if USE_BM25_HARDNEGS:
+        bm25_model = BM25Okapi(corpus)
+        tr_qrels = get_bm25_hard_negatives(bm25_model, corpus, tr_queries, tr_qrels)
+    # get data loaders
+    train_dataloader = get_train_dataloader(
+        corpus, tr_queries, tr_qrels, batch_size=32, shuffle=True
+    )
+    val_dataloader = get_train_dataloader(
+        corpus, va_queries, va_qrels, batch_size=32, shuffle=False
+    )
+    test_corpus_dataloader, test_queries_dataloader = get_eval_dataloader(
+        corpus, te_queries, batch_size=32
+    )
 
-""" STEP 4: define trainer """
-trainer = Trainer(model=model)
-trainer.train(
-    train_dataloader=train_dataloader,
-    val_dataloader=val_dataloader,
-    epochs=5,
-    monitor="loss",
-    monitor_criterion="min",
-)
+    """ STEP 3: define model """
+    model = MedLink(
+        dataset=sample_dataset,
+        feature_keys=["conditions"],
+    )
 
-""" STEP 5: evaluate """
-results = model.evaluate(test_corpus_dataloader, test_queries_dataloader)
-results = filter_by_candidates(results, te_qrels, candidates)
-scores = ranking_metrics_fn(te_qrels, results, k_values=[1, 5])
-logger.info(f"--- Test ---")
-for key in scores.keys():
-    logger.info("{}: {:.4f}".format(key, scores[key]))
+    """ STEP 4: define trainer """
+    trainer = Trainer(model=model)
+    trainer.train(
+        train_dataloader=train_dataloader,
+        val_dataloader=val_dataloader,
+        epochs=5,
+        monitor="loss",
+        monitor_criterion="min",
+    )
+
+    """ STEP 5: evaluate """
+    results = model.evaluate(test_corpus_dataloader, test_queries_dataloader)
+    results = filter_by_candidates(results, te_qrels, candidates)
+    scores = ranking_metrics_fn(te_qrels, results, k_values=[1, 5])
+    logger.info("--- Test ---")
+    for key in scores:
+        logger.info(f"{key}: {scores[key]:.4f}")
+
+
+if __name__ == "__main__":
+    main()

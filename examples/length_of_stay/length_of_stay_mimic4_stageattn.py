@@ -1,12 +1,21 @@
-"""
-Example of using StageNet for mortality prediction on MIMIC-IV.
+"""Length-of-stay prediction on MIMIC-IV with StageAttentionNet.
 
 This example demonstrates:
-1. Loading MIMIC-IV data
-2. Applying the MortalityPredictionStageNetMIMIC4 task
-3. Creating a SampleDataset with StageNet processors
-4. Training a StageNet model
-5. Testing with synthetic hold-out set (unseen codes, varying lengths)
+1. Loading MIMIC-IV (patients, admissions, diagnoses, procedures, labs)
+2. Applying the LengthOfStayStageNetMIMIC4 task (one patient-level sample,
+   10-class LOS category of the most recent admission; ICD codes and lab
+   vectors with time intervals)
+3. Saving the fitted processors and reloading them on later runs
+4. Training and evaluating a StageAttentionNet model
+
+Data: MIMIC-IV 2.2 from PhysioNet (https://physionet.org/content/mimiciv/,
+credentialed). Set MIMIC4_ROOT below to the folder that contains ``hosp/``,
+and PROCESSOR_DIR / OUTPUT_DIR to writable folders.
+
+Run: ``python examples/length_of_stay/length_of_stay_mimic4_stageattn.py``.
+The full dataset with 30 epochs needs a GPU and hours. Without credentials,
+set MIMIC4_ROOT to ``test-resources/core/mimic4demo`` and epochs=1 (only 5
+samples; use split ratios like [0.4, 0.3, 0.3] so no split is empty).
 """
 
 import os
@@ -21,10 +30,14 @@ from pyhealth.tasks import LengthOfStayStageNetMIMIC4
 from pyhealth.trainer import Trainer
 import torch
 
+MIMIC4_ROOT = "/path/to/mimiciv/2.2"
+PROCESSOR_DIR = "/path/to/los_sa/processors"
+OUTPUT_DIR = "/path/to/los_sa/output"
+
 if __name__ == "__main__":
     # STEP 1: Load MIMIC-IV base dataset
     base_dataset = MIMIC4Dataset(
-        ehr_root="/srv/local/data/physionet.org/files/mimiciv/2.2/",
+        ehr_root=MIMIC4_ROOT,
         ehr_tables=[
             "patients",
             "admissions",
@@ -42,7 +55,7 @@ if __name__ == "__main__":
     # - On subsequent runs, pre-fitted processors are loaded from disk
     # - This ensures consistent encoding and saves computation time
     # - Processors include vocabulary mappings and sequence length statistics
-    processor_dir = "/home/yongdaf2/los_sa/processors"
+    processor_dir = PROCESSOR_DIR
 
     if os.path.exists(os.path.join(processor_dir, "input_processors.pkl")):
         print("\n=== Loading Pre-fitted Processors ===")
@@ -102,9 +115,9 @@ if __name__ == "__main__":
     # STEP 5: Train the model
     trainer = Trainer(
         model=model,
-        device="cuda:4",  # or "cpu"
+        device="cuda" if torch.cuda.is_available() else "cpu",
         metrics=["accuracy", "f1_weighted", "f1_macro", "f1_micro"],
-        output_path="/home/yongdaf2/los_sa/output"
+        output_path=OUTPUT_DIR,
     )
 
     trainer.train(

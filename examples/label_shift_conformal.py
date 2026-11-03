@@ -115,12 +115,7 @@ def main():
     cal_ds = make_dataset(make_samples(rng, 400, SOURCE_MIX, 1000))
     test_ds = make_dataset(make_samples(rng, 400, TARGET_MIX, 2000))
 
-    model = MLP(
-        dataset=train_ds,
-        feature_keys=["procedures"],
-        label_key="label",
-        mode="multiclass",
-    )
+    model = MLP(dataset=train_ds)
     train_dl = get_dataloader(train_ds, batch_size=64, shuffle=True)
     Trainer(model=model, enable_logging=False).train(train_dl, epochs=8)
 

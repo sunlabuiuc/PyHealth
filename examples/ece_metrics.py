@@ -1,4 +1,12 @@
-"""Minimal Expected Calibration Error (ECE) examples."""
+"""Minimal Expected Calibration Error (ECE) examples.
+
+Computes the confidence ECE for a binary and a multiclass prediction with
+``pyhealth.metrics.calibration`` on a few hand-written probabilities. Runs
+instantly; no data or download.
+
+Usage:
+    python examples/ece_metrics.py
+"""
 
 import numpy as np
 

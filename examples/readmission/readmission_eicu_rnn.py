@@ -1,14 +1,17 @@
-"""
-Readmission Prediction on eICU with RNN
+"""Readmission prediction on eICU with an RNN.
 
-This example demonstrates how to use the modernized eICUDataset with the
-ReadmissionPredictionEICU task class for predicting ICU readmission
-using an RNN model.
+Loads the eICU-CRD demo (diagnosis, medication and physical exam tables),
+applies ``ReadmissionPredictionEICU`` (binary: is the patient readmitted to
+the ICU during the same hospital stay), and trains/evaluates an ``RNN`` for
+one epoch.
 
-Features:
-- Uses the new BaseDataset-based eICUDataset with YAML configuration
-- Uses the new ReadmissionPredictionEICU BaseTask class
-- Demonstrates the standardized PyHealth workflow
+Data: by default ``root`` points at a public copy of the eICU-CRD demo
+(downloaded on the fly, no credentials). For the full eICU-CRD
+(https://physionet.org/content/eicu-crd/, credentialed) set ``root`` to your
+local folder and set ``dev=False``.
+
+Run: ``python examples/readmission/readmission_eicu_rnn.py`` (CPU, a few
+minutes). Offline: set ``root`` to ``test-resources/core/eicudemo``.
 """
 
 import tempfile

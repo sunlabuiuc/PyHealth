@@ -15,9 +15,15 @@ Ablations:
     5. Modality: EHR-only vs EHR+CXR
 
 The script is intentionally lightweight by default:
-    - Synthetic data only
+    - Synthetic data only (no MIMIC-IV or MIMIC-CXR access needed; the
+      file name refers to the paper's setting, not to data read here)
     - Small dataset
     - Few epochs
+
+Usage (CPU, a few minutes; the ResNet backbone is not pretrained, so
+nothing is downloaded):
+    python examples/mimic4_mortality_medfuse.py
+    python examples/mimic4_mortality_medfuse.py --epochs 3 --train-size 128
 """
 
 from __future__ import annotations

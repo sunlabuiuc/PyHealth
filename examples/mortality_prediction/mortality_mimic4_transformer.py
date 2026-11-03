@@ -1,12 +1,23 @@
-"""
-Example of using StageNet for mortality prediction on MIMIC-IV.
+"""Mortality prediction on MIMIC-IV with Transformer.
 
-This example demonstrates:
-1. Loading MIMIC-IV data
-2. Applying the MortalityPredictionStageNetMIMIC4 task
-3. Creating a SampleDataset with StageNet processors
-4. Training a StageNet model
-5. Testing with synthetic hold-out set (unseen codes, varying lengths)
+Trains a Transformer encoder on MortalityPredictionStageNetMIMIC4, which makes
+one sample per patient. The inputs are ICD diagnosis/procedure codes from
+earlier admissions and 10-dimensional lab vectors (first 48 h of the target
+admission), both with time intervals. The label is death in the target
+admission. The fitted processors are saved to ``processor_dir`` on the first
+run and loaded on later runs, so the code vocabulary stays the same across
+experiments.
+
+Data: MIMIC-IV v2.2 (credentialed access, https://physionet.org/content/mimiciv/2.2/).
+Set ``ehr_root`` to your local copy. ``processor_dir`` and ``output_path``
+default to folders under the current directory. To try it without credentials,
+set ``ehr_root`` to the open MIMIC-IV demo
+(https://physionet.org/content/mimic-iv-demo/2.2/, 100 patients).
+
+Usage:
+    python examples/mortality_prediction/mortality_mimic4_transformer.py
+
+On full MIMIC-IV, use a GPU (``device``) for the 30 training epochs.
 """
 
 import os
@@ -42,7 +53,7 @@ if __name__ == "__main__":
     # - On subsequent runs, pre-fitted processors are loaded from disk
     # - This ensures consistent encoding and saves computation time
     # - Processors include vocabulary mappings and sequence length statistics
-    processor_dir = "/home/yongdaf2/mp_tf/processors"
+    processor_dir = "./processors/transformer_mortality_mimic4"
 
     if os.path.exists(os.path.join(processor_dir, "input_processors.pkl")):
         print("\n=== Loading Pre-fitted Processors ===")
@@ -102,9 +113,9 @@ if __name__ == "__main__":
     # STEP 5: Train the model
     trainer = Trainer(
         model=model,
-        device="cuda:4",  # or "cpu"
+        device=None,  # None: GPU if available, else CPU; or e.g. "cuda:0"
         metrics=["pr_auc", "roc_auc", "accuracy", "f1"],
-        output_path="/home/yongdaf2/mp_tf/output"
+        output_path="./output/transformer_mortality_mimic4"
     )
 
     trainer.train(

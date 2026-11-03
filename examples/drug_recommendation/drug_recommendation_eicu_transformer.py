@@ -1,13 +1,17 @@
-"""
-Drug Recommendation on eICU with Transformer
+"""Drug recommendation on eICU with a Transformer.
 
-This example demonstrates how to use the modernized eICUDataset with the
-DrugRecommendationEICU task class for drug recommendation using a Transformer model.
+Loads the eICU-CRD demo (diagnosis, medication and physical exam tables),
+applies ``DrugRecommendationEICU`` (multilabel: the drugs given during each
+ICU stay, from the stay history), and trains/evaluates a ``Transformer`` for
+one epoch.
 
-Features:
-- Uses the new BaseDataset-based eICUDataset with YAML configuration
-- Uses the new DrugRecommendationEICU BaseTask class
-- Demonstrates the standardized PyHealth workflow
+Data: by default ``root`` points at a public copy of the eICU-CRD demo
+(downloaded on the fly, no credentials). For the full eICU-CRD
+(https://physionet.org/content/eicu-crd/, credentialed) set ``root`` to your
+local folder and set ``dev=False``.
+
+Run: ``python examples/drug_recommendation/drug_recommendation_eicu_transformer.py``
+(CPU). Offline: set ``root`` to ``test-resources/core/eicudemo``.
 """
 
 import tempfile
