@@ -14,7 +14,7 @@ admission globally, so a later stay received a span that had already closed.
 
 ``emitted_data_version`` is 1 so future emitted-data changes invalidate
 old caches. The table protocol default is full stay
-(``window_hours=None``). Passing ``window_hours=24`` still caps collection
+(``window_hours=0``). Passing ``window_hours=24`` still caps collection
 per admission; the cap is anchored at each admission, not at the first
 admission's clock. (The CXR task classes, with their per-stay CXR window,
 land in a follow-up commit.)
@@ -100,10 +100,10 @@ class TestP1ObservationWindow(unittest.TestCase):
 
         self.assertNotEqual(cache_key(task), cache_key(task, drop_version=True))
 
-    def test_window_none_still_collects_through_discharge(self):
+    def test_window_zero_still_collects_through_discharge(self):
         from pyhealth.tasks.multimodal_mimic4 import LabsMIMIC4
 
-        task = LabsMIMIC4(window_hours=None)
+        task = LabsMIMIC4(window_hours=0)
         admit = datetime(2180, 5, 6, 8, 0, 0)
         discharge = admit + timedelta(days=9)
         self.assertEqual(task._admission_window_end(admit, discharge), discharge)
@@ -111,8 +111,8 @@ class TestP1ObservationWindow(unittest.TestCase):
     def test_protocol_default_is_full_stay(self):
         from pyhealth.tasks.multimodal_mimic4 import LabsMIMIC4, NotesLabsMIMIC4
 
-        self.assertIsNone(NotesLabsMIMIC4().window_hours)
-        self.assertIsNone(LabsMIMIC4().window_hours)
+        self.assertEqual(NotesLabsMIMIC4().window_hours, 0)
+        self.assertEqual(LabsMIMIC4().window_hours, 0)
 
     def test_discharge_coded_icd_is_not_a_mortality_task(self):
         from pyhealth.tasks import multimodal_mimic4 as m

@@ -17,11 +17,18 @@ class BaseMultimodalMIMIC4Task(BaseTask):
     and bound per-admission ``metadata`` CXR events with
     :meth:`_admission_window_end`.
 
+    The shared observation window is ``window_hours``: ``0`` (default)
+    means no cap (full stay through discharge); a positive value caps each
+    admission at ``min(admit + N h, discharge)``. Discharge notes stay
+    unbounded by design: the collected sections are admission context
+    stamped at admit, so windowing them would drop context without
+    removing any post-admit information.
+
     Example:
         >>> from pyhealth.tasks.multimodal_mimic4 import LabsMIMIC4
         >>> task = LabsMIMIC4()
-        >>> task.window_hours is None
-        True
+        >>> task.window_hours
+        0
     """
 
     MISSING_TEXT_TOKEN: ClassVar[str] = ""
@@ -89,8 +96,13 @@ class BaseMultimodalMIMIC4Task(BaseTask):
 
     def __init__(
         self,
-        window_hours: float | None = None,
+        window_hours: float = 0,
     ):
+        if window_hours is None or window_hours < 0:
+            raise ValueError(
+                "window_hours must be a non-negative number of hours "
+                f"(0 = full stay through discharge); got {window_hours!r}."
+            )
         self.window_hours = window_hours
         # The task cache key is uuid5 over {**vars(task), schemas}, so this
         # field participates in it. Bump it whenever the emitted samples
@@ -162,7 +174,7 @@ class BaseMultimodalMIMIC4Task(BaseTask):
             if dt is not None and (global_end is None or dt > global_end):
                 global_end = dt
 
-        if self.window_hours is not None:
+        if self.window_hours > 0:
             effective_start = global_start
             effective_end = effective_start + timedelta(hours=self.window_hours)
             return effective_start, effective_end
@@ -185,7 +197,7 @@ class BaseMultimodalMIMIC4Task(BaseTask):
         and clamp to discharge so a later stay cannot inherit the first
         admission's window.
         """
-        if self.window_hours is None:
+        if self.window_hours == 0:
             return admission_dischtime
         end = admission_time + timedelta(hours=self.window_hours)
         return min(end, admission_dischtime) if admission_dischtime else end
@@ -409,8 +421,8 @@ class NotesLabsMIMIC4(BaseMultimodalMIMIC4Task):
             per admission with inter-admission time offsets.
 
     Args:
-        window_hours: Hours from admission for lab collection. ``None``
-            collects for the full admission span. Default: ``None``.
+        window_hours: Hours from admission for lab collection. ``0``
+            (default) collects for the full admission span.
         include_icd: When ``True``, collect discharge-coded ICD codes and add
             ``icd_codes`` to the sample dict / input schema. Default: ``False``.
             MIMIC-IV timestamps those codes at ``dischtime``, so this leaks
@@ -421,7 +433,7 @@ class NotesLabsMIMIC4(BaseMultimodalMIMIC4Task):
         >>> from pyhealth.tasks.multimodal_mimic4 import NotesLabsMIMIC4
         >>> task = NotesLabsMIMIC4()
         >>> (task.task_name, task.window_hours, task.include_icd)
-        ('NotesLabsMIMIC4', None, False)
+        ('NotesLabsMIMIC4', 0, False)
     """
 
     PADDING: int = 0
@@ -446,7 +458,7 @@ class NotesLabsMIMIC4(BaseMultimodalMIMIC4Task):
 
     def __init__(
         self,
-        window_hours: float | None = None,
+        window_hours: float = 0,
         include_icd: bool = False,
     ) -> None:
         super().__init__(window_hours=window_hours)
@@ -574,13 +586,13 @@ class LabsMIMIC4(BaseMultimodalMIMIC4Task):
 
     Args:
         window_hours: Hours from admission to collect lab measurements.
-            ``None`` collects for the full admission span. Default: ``None``.
+            ``0`` (default) collects for the full admission span.
 
     Example:
         >>> from pyhealth.tasks.multimodal_mimic4 import LabsMIMIC4
         >>> task = LabsMIMIC4()
         >>> (task.task_name, task.window_hours)
-        ('LabsMIMIC4', None)
+        ('LabsMIMIC4', 0)
     """
 
     PADDING: int = 0
@@ -593,7 +605,7 @@ class LabsMIMIC4(BaseMultimodalMIMIC4Task):
     }
     output_schema: ClassVar[dict] = {"mortality": "binary"}
 
-    def __init__(self, window_hours: float | None = None) -> None:
+    def __init__(self, window_hours: float = 0) -> None:
         super().__init__(window_hours=window_hours)
 
     def __call__(self, patient: Any) -> list[dict[str, Any]]:  # type: ignore[override]
