@@ -4,7 +4,6 @@ import os
 
 import torch
 import torch.nn as nn
-import numpy as np
 from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
 from pyhealth.models.utils import (
