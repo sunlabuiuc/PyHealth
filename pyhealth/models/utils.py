@@ -80,7 +80,7 @@ def ddi_adjacency(label_vocab: dict[str, int]) -> torch.Tensor:
     Uses the DDI pairs that GAMENet released (``ATC().get_ddi(gamenet_ddi=True)``)
     converted to ATC level 3, so ``label_vocab`` should hold ATC-3 codes, as
     the MIMIC drug-recommendation tasks produce. Shared by the drug
-    recommendation models (GAMENet, ARMR).
+    recommendation models (GAMENet, SafeDrug, MICRON, MoleRec, ARMR).
 
     Args:
         label_vocab: drug code to label index.

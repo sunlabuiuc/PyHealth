@@ -139,6 +139,28 @@ class TestARMR(unittest.TestCase):
         self.assertGreater(rec_recent[0, 0].item(), rec_old[0, 0].item())
         self.assertGreater(rec_old[0, 0].item(), 0.0)
 
+    def test_visit_lengths_count_an_empty_middle_visit(self):
+        samples = [
+            {"patient_id": "p0", "visit_id": "v0",
+             "conditions": [["d1"], [], ["d2"]],
+             "procedures": [["p1"], [], ["p2"]],
+             "drugs_hist": [["A01A"], ["B01A"], []],
+             "drugs": ["A01A"]},
+            {"patient_id": "p1", "visit_id": "v1",
+             "conditions": [["d1"]], "procedures": [["p1"]],
+             "drugs_hist": [[]], "drugs": ["B01A"]},
+        ]
+        dataset = create_sample_dataset(
+            samples=samples, input_schema=SCHEMA,
+            output_schema={"drugs": "multilabel"}, dataset_name="armr_gap",
+        )
+        batch = next(iter(get_dataloader(dataset, batch_size=2)))
+        model = ARMR(dataset, embedding_dim=16, use_graph=False)
+        self.assertEqual(model._visit_lengths(batch["conditions"]).tolist(), [3, 1])
+        out = model(**batch)
+        self.assertEqual(out["logit"].shape, (2, 2))
+        self.assertFalse(torch.isnan(out["loss"]))
+
     def test_decay_parameters_get_a_gradient(self):
         torch.manual_seed(0)
         model = ARMR(self.dataset, embedding_dim=16, use_graph=False)

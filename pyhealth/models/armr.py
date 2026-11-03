@@ -307,14 +307,17 @@ class ARMR(BaseModel):
         self.decay_scale = nn.Parameter(torch.tensor(1.0))  # alpha in Eq. 9
         self.decay_rate = nn.Parameter(torch.tensor(0.0))  # softplus -> beta
 
+        ddi_adj = self._ddi_adj(label_vocab)
         if use_graph:
-            ddi_adj = self._ddi_adj(label_vocab)
             self.register_buffer("ehr_adj", _normalize(self._ehr_adj(label_vocab)))
             self.register_buffer("ddi_adj_norm", _normalize(ddi_adj))
             self.gcn_ehr = nn.ModuleList([nn.Linear(dim, dim), nn.Linear(dim, dim)])
             self.gcn_ddi = nn.ModuleList([nn.Linear(dim, dim), nn.Linear(dim, dim)])
-            os.makedirs(CACHE_PATH, exist_ok=True)
-            np.save(os.path.join(CACHE_PATH, "ddi_adj.npy"), ddi_adj.numpy())
+        # the "ddi" metric (pyhealth.metrics.multilabel) reads this file, as
+        # for GAMENet, SafeDrug, MICRON and MoleRec; written with or without
+        # the graphs so that metric works either way
+        os.makedirs(CACHE_PATH, exist_ok=True)
+        np.save(os.path.join(CACHE_PATH, "ddi_adj.npy"), ddi_adj.numpy())
 
         # Joint recommendation (Eq. 16-19)
         patient_size = 4 * n_recent * dim
@@ -358,8 +361,16 @@ class ARMR(BaseModel):
 
     # ---------------------------------------------------------------- pieces
     def _visit_lengths(self, codes: torch.Tensor) -> torch.Tensor:
-        """Number of visits with at least one code, per patient."""
-        return (codes > 0).any(dim=-1).sum(dim=1)
+        """Number of visits per patient: the last visit with a code, plus one.
+
+        An empty visit is all padding, like the padded visits after the end,
+        so counting non-empty visits would undercount a patient with an
+        empty visit in the middle; the position of the last non-empty visit
+        does not.
+        """
+        nonempty = (codes > 0).any(dim=-1)  # [batch, visits]
+        position = torch.arange(1, codes.size(1) + 1, device=codes.device)
+        return (nonempty * position).amax(dim=1)
 
     def _drug_history(self, drugs_hist: torch.Tensor, visits: int) -> torch.Tensor:
         """Multi-hot drugs of each visit in the label space, [batch, visits, M]."""
