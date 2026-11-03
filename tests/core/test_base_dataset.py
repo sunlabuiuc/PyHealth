@@ -161,6 +161,55 @@ class TestBaseDataset(unittest.TestCase):
             leaked, 4, f"{leaked} file descriptors leaked across 4 dataset builds"
         )
 
+    def test_interrupted_event_df_build_is_not_reused(self):
+        # A build interrupted (Ctrl-C) after writing part of the table must not
+        # leave that part at the cache path, where the next run would reuse it.
+        data = dd.from_pandas(
+            pd.DataFrame(
+                {
+                    "patient_id": ["1", "2", "3"],
+                    "event_type": ["test"] * 3,
+                    "timestamp": [None] * 3,
+                    "test/value": [1, 2, 3],
+                }
+            ),
+            npartitions=1,
+        )
+
+        with tempfile.TemporaryDirectory() as cache_root, patch(
+            "pyhealth.datasets.base_dataset.platformdirs.user_cache_dir",
+            return_value=cache_root,
+        ):
+            def dataset():
+                return MockDataset(
+                    data=data,
+                    root="/data/root_interrupt",
+                    tables=["table_a"],
+                    dataset_name="InterruptDataset",
+                    dev=False,
+                )
+
+            first = dataset()
+            cache_path = first.cache_dir / "global_event_df.parquet"
+
+            def interrupted(output_dir):
+                # one part file is on disk when Ctrl-C arrives
+                output_dir.mkdir(parents=True)
+                data.head(1).to_parquet(output_dir / "part.0.parquet", index=False)
+                self.assertFalse(cache_path.exists())  # nothing published yet
+                raise KeyboardInterrupt
+
+            with patch.object(first, "_event_transform", interrupted), \
+                    self.assertRaises(KeyboardInterrupt):
+                _ = first.global_event_df
+            self.assertFalse(cache_path.exists())
+            self.assertEqual(list(first.cache_dir.glob("*.building")), [])
+
+            second = dataset()
+            patients = second.global_event_df.collect()["patient_id"].to_list()
+            self.assertEqual(sorted(patients), ["1", "2", "3"])
+            self.assertEqual(list(second.cache_dir.glob("*.building")), [])
+
     def test_event_df_builds_in_notebook_without_ipywidgets(self):
         # In a Jupyter kernel dask's progress() draws an ipywidgets bar, but
         # ipywidgets is not a PyHealth dependency. Simulate a kernel without it;
