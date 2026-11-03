@@ -16,6 +16,7 @@ from .covid19_cxr_generation import (
     COVID19CXRImageGeneration as COVID19CXRImageGeneration,
 )
 from .ptbxl_multilabel_classification import PTBXLMultilabelClassification as PTBXLMultilabelClassification
+from .ptbxl_heartlang import PTBXLHeartLangClassification as PTBXLHeartLangClassification
 from .physionet2012_forecasting import (
     PhysioNet2012Forecasting as PhysioNet2012Forecasting,
     physionet2012_benchmark_split as physionet2012_benchmark_split,
@@ -33,6 +34,11 @@ from .drug_recommendation import (
     drug_recommendation_mimic3_fn,
     drug_recommendation_mimic4_fn,
     drug_recommendation_omop_fn,
+)
+from .ehr_text_serialization import (
+    CodeDescriber as CodeDescriber,
+    EHRTextSerializationTask as EHRTextSerializationTask,
+    serialize_ehr as serialize_ehr,
 )
 from .in_hospital_mortality_meds import (
     InHospitalMortalityMEDS as InHospitalMortalityMEDS,

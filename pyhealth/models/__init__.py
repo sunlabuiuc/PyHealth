@@ -51,6 +51,7 @@ from .tfm_tokenizer import (
 from .torchvision_model import TorchvisionModel
 from .transformer import Transformer, TransformerLayer
 from .transformers_model import TransformersModel
+from .llm_ehr_encoder import LLMEHREncoder as LLMEHREncoder
 from .ehrmamba import EHRMamba, MambaBlock
 from .ehrmamba_cehr import EHRMambaCEHR
 from .vae import VAE
@@ -77,3 +78,8 @@ from .generators.medgan import MedGAN
 from .generators.synthea import Synthea as Synthea
 from .generators.corgan import CorGAN as CorGAN
 from .survival_mdn import SurvivalMDN as SurvivalMDN
+from .heartlang import (
+    HeartLang as HeartLang,
+    HeartLangBackbone as HeartLangBackbone,
+    ecg_to_heartbeat_sentence as ecg_to_heartbeat_sentence,
+)
