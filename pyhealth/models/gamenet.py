@@ -8,7 +8,6 @@ import numpy as np
 from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
 from pyhealth.models.utils import (
-    batch_to_multihot,
     ddi_adjacency,
     get_last_visit,
     history_to_label_index,
