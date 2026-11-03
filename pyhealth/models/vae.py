@@ -7,7 +7,7 @@ import torch.nn.functional as F
 from torch.nn.utils.rnn import pack_padded_sequence
 
 from pyhealth.datasets import SampleDataset
-from pyhealth.models import BaseModel, EmbeddingModel
+from pyhealth.models import BaseModel
 from pyhealth.models.contrawr import ResBlock2D
 from pyhealth.processors import ImageProcessor, SequenceProcessor
 
@@ -24,8 +24,9 @@ class VAE(BaseModel):
     ``SequenceProcessor`` inputs use a recurrent encoder and an autoregressive
     decoder trained to reconstruct code tokens. Both paths use the same latent
     sampling and KL-divergence objective. The model reconstructs inputs rather
-    than predicting the dataset's output label, so ``Trainer`` reports loss
-    without classification metrics.
+    than predicting the dataset's output label. ``Trainer.evaluate()`` reports
+    the loss for sequence VAEs; ``Trainer.inference()`` returns each reconstructed
+    sequence and its token probabilities as variable-length per-sample arrays.
 
     Args:
         dataset: A fitted ``SampleDataset`` with one supported input feature.
@@ -169,20 +170,6 @@ class VAE(BaseModel):
         self.channels, height, width = self.image_shape
         if self.channels < 1:
             raise ValueError("Image inputs must have at least one channel.")
-        if image_processor.mode is not None and image_processor.mode not in {
-            "L",
-            "RGB",
-            "RGBA",
-        }:
-            raise ValueError(
-                "VAE supports ImageProcessor modes \"L\", \"RGB\", and "
-                f'"RGBA", got {image_processor.mode!r}.'
-            )
-        self.image_size = image_processor.image_size or height
-        if height != width:
-            # ImageProcessor resizes to a square when image_size is set. When
-            # it is unset, the decoder targets the shape inferred from sample 0.
-            self.image_size = height
         self.normalized = bool(image_processor.normalize)
         self.output_activation = nn.Identity() if self.normalized else nn.Sigmoid()
         if min(height, width) < MIN_ENCODED_SIDE:
@@ -233,7 +220,11 @@ class VAE(BaseModel):
         self.pad_token = int(self.sequence_processor.code_vocab.get("<pad>", 0))
         self.unk_token = self.sequence_processor.code_vocab.get("<unk>")
         self.vocab_size = self.sequence_processor.vocab_size()
-        self.embedding_model = EmbeddingModel(dataset, self.sequence_hidden_dim)
+        self.token_embedding = nn.Embedding(
+            self.vocab_size,
+            self.sequence_hidden_dim,
+            padding_idx=self.pad_token,
+        )
         self.sequence_encoder = nn.GRU(
             self.sequence_hidden_dim, self.sequence_hidden_dim, batch_first=True
         )
@@ -364,9 +355,7 @@ class VAE(BaseModel):
             )
         mask = tokens != self.pad_token
         lengths = mask.sum(dim=1).clamp(min=1).cpu()
-        embeddings = self.embedding_model({self.feature_key: tokens})[
-            self.feature_key
-        ]
+        embeddings = self.token_embedding(tokens)
         packed = pack_padded_sequence(
             embeddings, lengths, batch_first=True, enforce_sorted=False
         )
@@ -377,9 +366,7 @@ class VAE(BaseModel):
 
         start = self.sequence_start.expand(tokens.shape[0], -1, -1)
         if tokens.shape[1] > 1:
-            previous_embeddings = self.embedding_model(
-                {self.feature_key: tokens[:, :-1]}
-            )[self.feature_key]
+            previous_embeddings = self.token_embedding(tokens[:, :-1])
             decoder_inputs = torch.cat((start, previous_embeddings), dim=1)
         else:
             decoder_inputs = start
@@ -401,9 +388,12 @@ class VAE(BaseModel):
         )
         kl_loss = kl_per_sequence.mean()
         loss = reconstruction_loss + kl_loss
+        token_probabilities = F.softmax(logits, dim=-1)
         return {
             "loss": loss,
             "reconstruction_logits": logits,
+            "y_true": tokens,
+            "y_prob": token_probabilities,
             "mu": mu,
             "log_var": log_var,
             "mask": mask,
@@ -463,9 +453,7 @@ class VAE(BaseModel):
                     F.softmax(logits, dim=-1), num_samples=1
                 ).squeeze(-1)
                 generated.append(token)
-                previous = self.embedding_model(
-                    {self.feature_key: token.unsqueeze(1)}
-                )[self.feature_key]
+                previous = self.token_embedding(token.unsqueeze(1))
             return torch.stack(generated, dim=1)
 
         if self.condition_key and conditions is None:
