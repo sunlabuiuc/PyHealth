@@ -119,13 +119,48 @@ class TestVAE(unittest.TestCase):
             self.assertFalse(bool((generated == model.unk_token).any()))
 
         trainer = Trainer(model=model, device="cpu")
-        scores = trainer.evaluate(get_dataloader(self.sequence_dataset, batch_size=2))
+        loader = get_dataloader(self.sequence_dataset, batch_size=2)
+        scores = trainer.evaluate(loader)
         self.assertTrue(np.isfinite(scores["loss"]))
+        y_true, y_prob, inference_loss = trainer.inference(loader)
+        self.assertEqual(len(y_true), len(self.sequence_dataset))
+        self.assertEqual(len(y_prob), len(self.sequence_dataset))
+        self.assertTrue(np.isfinite(inference_loss))
+        for tokens, probabilities in zip(y_true, y_prob):
+            self.assertEqual(probabilities.shape, (len(tokens), model.vocab_size))
+            np.testing.assert_allclose(probabilities.sum(axis=-1), 1.0, atol=1e-6)
 
         model.eval()
         first = model(**batch)["loss"]
         second = model(**batch)["loss"]
         torch.testing.assert_close(first, second)
+
+    def test_sequence_vae_builds_only_the_selected_embedding(self):
+        dataset = create_sample_dataset(
+            samples=[
+                {
+                    "patient_id": "p0",
+                    "conditions": ["A", "B"],
+                    "procedures": ["X"],
+                },
+                {
+                    "patient_id": "p1",
+                    "conditions": ["B"],
+                    "procedures": ["Y", "X"],
+                },
+            ],
+            input_schema={
+                "conditions": "sequence",
+                "procedures": "sequence",
+            },
+            output_schema={},
+            dataset_name="test_vae_selected_sequence_embedding",
+        )
+        model = VAE(dataset, feature_key="conditions", sequence_hidden_dim=8)
+        self.assertIn("token_embedding.weight", model.state_dict())
+        self.assertFalse(
+            any("procedures" in name for name, _ in model.named_parameters())
+        )
 
     def test_unconditional_image_reconstruction_and_generation(self):
         samples = [
@@ -272,6 +307,43 @@ class TestVAE(unittest.TestCase):
         model = VAE(dataset)
         self.assertEqual(model.image_shape, (1, 32, 32))
 
+    def test_requires_feature_key_for_multiple_supported_inputs(self):
+        samples = [
+            {
+                "patient_id": f"multiple-{index}",
+                "image": os.path.join(self.temp_dir, f"image-{index}.png"),
+                "other_image": os.path.join(self.temp_dir, f"image-{index}.png"),
+            }
+            for index in range(4)
+        ]
+        dataset = create_sample_dataset(
+            samples=samples,
+            input_schema={
+                "image": ("image", {"image_size": 32, "mode": "L"}),
+                "other_image": ("image", {"image_size": 32, "mode": "L"}),
+            },
+            output_schema={},
+            dataset_name="test_vae_multiple_images",
+        )
+        with self.assertRaisesRegex(ValueError, "specify feature_key"):
+            VAE(dataset)
+
+    def test_rejects_images_smaller_than_eight_pixels(self):
+        tiny = create_sample_dataset(
+            samples=[
+                {
+                    "patient_id": f"tiny-{index}",
+                    "image": os.path.join(self.temp_dir, f"image-{index}.png"),
+                }
+                for index in range(4)
+            ],
+            input_schema={"image": ("image", {"image_size": 4, "mode": "L"})},
+            output_schema={},
+            dataset_name="test_vae_tiny_images",
+        )
+        with self.assertRaisesRegex(ValueError, "at least 8 pixels"):
+            VAE(tiny)
+
     def test_image_processor_without_tensor_output_has_clear_error(self):
         dataset = create_sample_dataset(
             samples=[
@@ -321,7 +393,7 @@ class TestVAE(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "binary or multiclass"):
             VAE(dataset, hidden_dim=8, condition_key="score")
 
-    def test_unsupported_image_mode_raises_value_error(self):
+    def test_infers_channels_for_nonstandard_image_mode(self):
         dataset = create_sample_dataset(
             samples=[
                 {
@@ -330,13 +402,15 @@ class TestVAE(unittest.TestCase):
                 }
                 for index in range(4)
             ],
-            input_schema={"image": ("image", {"image_size": 32, "mode": "L"})},
+            input_schema={"image": ("image", {"image_size": 32, "mode": "LA"})},
             output_schema={},
-            dataset_name="test_vae_unsupported_image_mode",
+            dataset_name="test_vae_two_channel_images",
         )
-        dataset.input_processors["image"].mode = "P"
-        with self.assertRaisesRegex(ValueError, "got 'P'"):
-            VAE(dataset)
+        model = VAE(dataset, hidden_dim=8)
+        self.assertEqual(model.image_shape, (2, 32, 32))
+        batch = next(iter(get_dataloader(dataset, batch_size=2)))
+        self.assertEqual(model(**batch)["y_prob"].shape, (2, 2, 32, 32))
+        self.assertEqual(model.generate(2).shape, (2, 2, 32, 32))
 
     def test_trainer_learns_to_reconstruct_over_multiple_epochs(self):
         torch.manual_seed(7)

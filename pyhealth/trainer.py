@@ -359,7 +359,9 @@ class Trainer:
             y_true_all: List of true labels.
             y_prob_all: List of predicted probabilities.
                 For the per-step ``timeseries_*`` modes, both are lists with
-                one array per sample, over its label records.
+                one array per sample, over its labeled time steps. Categorical
+                sequence reconstruction models likewise return one variable-length
+                token array per sample and a matching array of token probabilities.
             loss_mean: Mean loss over batches.
             additional_outputs (only if requested): Dict of additional results.
             patient_ids (only if requested): List of patient ids in the same order as y_true_all/y_prob_all.
@@ -371,13 +373,26 @@ class Trainer:
         if additional_outputs is not None:
             additional_outputs = {k: [] for k in additional_outputs}
         per_step = self.model.mode in ("timeseries_binary", "timeseries_regression")
+        variable_length_sequences = False
         self.model.eval()
         for data in tqdm(dataloader, desc="Evaluation"):
             with torch.no_grad():
                 output = self.model(**data)
                 loss = output["loss"]
                 loss_all.append(loss.item())
-                if per_step:
+                if "mask" in output and "reconstruction_logits" in output:
+                    # Sequence reconstruction is not a classification task, but
+                    # inference can still return each sample's unpadded tokens
+                    # and token probabilities without forcing equal lengths.
+                    variable_length_sequences = True
+                    values = output["y_true"].cpu().numpy()
+                    probabilities = output["y_prob"].cpu().numpy()
+                    mask = output["mask"].cpu().numpy()
+                    for i in range(len(values)):
+                        valid = mask[i]
+                        y_true_all.append(values[i][valid])
+                        y_prob_all.append(probabilities[i][valid])
+                elif per_step:
                     # Packed label records (values, time, batch offsets): one
                     # array per sample, as the timeseries metrics expect.
                     values, _, offsets = (t.cpu().numpy() for t in output["y_true"])
@@ -394,7 +409,7 @@ class Trainer:
             if return_patient_ids:
                 patient_ids.extend(data["patient_id"])
         loss_mean = sum(loss_all) / len(loss_all)
-        if not per_step:
+        if not per_step and not variable_length_sequences:
             y_true_all = np.concatenate(y_true_all, axis=0)
             y_prob_all = np.concatenate(y_prob_all, axis=0)
         outputs = [y_true_all, y_prob_all, loss_mean]
