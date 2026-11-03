@@ -13,6 +13,7 @@ import pytest
 import torch
 
 from examples.survival_benchmark.run_survival_mdn import GBSGBenchmark, main
+from tests.core.survival_test_utils import threaded_csv_loading
 
 
 def write_inputs(root, heldout_shift=0):
@@ -55,11 +56,14 @@ def by_id(samples):
     return {sample["patient_id"]: sample for sample in samples}
 
 
+@threaded_csv_loading()
 def test_gbsg_standardization_uses_training_rows_and_preserves_labels(tmp_path):
     root = tmp_path / "original"
     released, expected = write_inputs(root)
-    raw = GBSGBenchmark(root, released, tmp_path / "raw-cache")
-    scaled = GBSGBenchmark(root, released, tmp_path / "scaled-cache", standardize=True)
+    # Reuse source parsing; different task parameters still build separate samples.
+    cache = tmp_path / "cache"
+    raw = GBSGBenchmark(root, released, cache)
+    scaled = GBSGBenchmark(root, released, cache, standardize=True)
     ids, raw_samples, raw_meta = raw.split(1)
     scaled_ids, scaled_samples, metadata = scaled.split(1)
     assert ids == scaled_ids

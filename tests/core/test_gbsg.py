@@ -24,6 +24,7 @@ from pyhealth.datasets import (
 )
 from pyhealth.models import SurvivalMDN
 from pyhealth.tasks import SurvivalTimeToEventGBSG
+from tests.core.survival_test_utils import threaded_csv_loading
 
 try:
     import h5py
@@ -247,6 +248,7 @@ class TestGBSGDataset(unittest.TestCase):
         with self.assertRaises(FileNotFoundError):
             self.dataset()
 
+    @threaded_csv_loading()
     def test_training_fit_isolation_and_saved_configuration(self):
         from examples.gbsg_survival_loading import load_gbsg_splits, write_synthetic_csv
 
