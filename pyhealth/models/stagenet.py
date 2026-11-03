@@ -432,7 +432,6 @@ class StageNet(BaseModel, Interpretable):
                 value = value.to(self.device)
                 
             if time is None:
-                import warnings
                 _warn_user(
                     f"Feature '{feature_key}' does not have time "
                     f"intervals. StageNet's temporal modeling "
