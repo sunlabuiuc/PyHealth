@@ -1,5 +1,25 @@
-# Author: Giovanni Dall'Olio
-# Description: Image and categorical-sequence VAEs for PyHealth 2.0.
+"""Variational autoencoder for images and categorical EHR sequences.
+
+Author: Sameh Aissa (port to the PyHealth 2.0 API)
+Paper: Auto-Encoding Variational Bayes
+Paper Link: https://arxiv.org/abs/1312.6114
+
+Description:
+    A convolutional VAE that learns to reconstruct images from a small latent
+    vector and to generate new ones by decoding random latent vectors. The
+    image feature, its channel count and its size are all read from the
+    dataset's ``ImageProcessor``, so the model adapts to whatever image task
+    it is given, for example :class:`~pyhealth.tasks.COVID19CXRImageGeneration`.
+
+    The model reports ``mode == "regression"``, with the input image as the
+    target and the reconstruction as the prediction, so it trains with the
+    standard :class:`~pyhealth.trainer.Trainer` and its validation metrics are
+    reconstruction errors such as ``"mse"`` and ``"mae"``.
+
+    The model also supports categorical EHR code sequences. In that mode, a
+    recurrent encoder and autoregressive decoder reconstruct and generate code
+    tokens rather than images.
+"""
 
 import torch
 from torch import nn
