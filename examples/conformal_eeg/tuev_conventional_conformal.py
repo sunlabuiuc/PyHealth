@@ -17,6 +17,10 @@ Multi-seed usage (recommended for papers):
   python examples/conformal_eeg/tuev_conventional_conformal.py \\
       --root downloads/tuev/v2.0.1/edf --model tfm --n-seeds 5 --seed 42 --alpha 0.1 \\
       --log-file tuev_conventional_tfm_alpha0.1_5seeds.log
+
+Note: for multi-label problems where you want to control a cost (e.g.
+false positives) while maximizing value, rather than marginal miscoverage,
+see pyhealth.calib.predictionset.FavMac instead of LABEL.
 """
 
 from __future__ import annotations

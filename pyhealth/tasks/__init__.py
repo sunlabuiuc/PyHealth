@@ -12,6 +12,16 @@ from .cardiology_detect import (
 from .chestxray14_binary_classification import ChestXray14BinaryClassification
 from .chestxray14_multilabel_classification import ChestXray14MultilabelClassification
 from .covid19_cxr_classification import COVID19CXRClassification
+from .covid19_cxr_generation import (
+    COVID19CXRImageGeneration as COVID19CXRImageGeneration,
+)
+from .ptbxl_multilabel_classification import PTBXLMultilabelClassification as PTBXLMultilabelClassification
+from .ptbxl_heartlang import PTBXLHeartLangClassification as PTBXLHeartLangClassification
+from .physionet2012_forecasting import (
+    PhysioNet2012Forecasting as PhysioNet2012Forecasting,
+    physionet2012_benchmark_split as physionet2012_benchmark_split,
+    physionet2012_statistics as physionet2012_statistics,
+)
 from .deid_ner import DeIDNERTask
 from .dka import DKAPredictionMIMIC4, T1DDKAPredictionMIMIC4
 # New exports must use the redundant `X as X` form: this module has no
@@ -24,6 +34,11 @@ from .drug_recommendation import (
     drug_recommendation_mimic3_fn,
     drug_recommendation_mimic4_fn,
     drug_recommendation_omop_fn,
+)
+from .ehr_text_serialization import (
+    CodeDescriber as CodeDescriber,
+    EHRTextSerializationTask as EHRTextSerializationTask,
+    serialize_ehr as serialize_ehr,
 )
 from .in_hospital_mortality_meds import (
     InHospitalMortalityMEDS as InHospitalMortalityMEDS,
@@ -47,6 +62,7 @@ from .mortality_prediction import (
     MultimodalMortalityPredictionMIMIC3,
     MultimodalMortalityPredictionMIMIC4,
 )
+from .survival_mimic4 import InHospitalSurvivalMIMIC4 as InHospitalSurvivalMIMIC4
 from .survival_preprocess_support2 import SurvivalPreprocessSupport2
 from .liver_survival import LongitudinalLiverSurvival
 from .mortality_prediction_stagenet_mimic4 import (
@@ -88,6 +104,13 @@ from .variant_classification import (
     VariantClassificationClinVar,
 )
 from .patient_linkage_mimic3 import PatientLinkageMIMIC3Task
+from .yaib_mimic4 import (
+    YAIBAKIMIMIC4 as YAIBAKIMIMIC4,
+    YAIBKidneyFunctionMIMIC4 as YAIBKidneyFunctionMIMIC4,
+    YAIBLengthOfStayMIMIC4 as YAIBLengthOfStayMIMIC4,
+    YAIBMortalityMIMIC4 as YAIBMortalityMIMIC4,
+    YAIBSepsisMIMIC4 as YAIBSepsisMIMIC4,
+)
 
 
 def __getattr__(name: str):

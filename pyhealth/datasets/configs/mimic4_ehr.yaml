@@ -25,6 +25,7 @@ tables:
       - "race"
       - "discharge_location"
       - "dischtime"
+      - "deathtime"
       - "hospital_expire_flag"
 
   icustays:
@@ -117,3 +118,84 @@ tables:
       - "hcpcs_cd"
       - "seq_num"
       - "short_description"
+
+  transfers:
+    file_path: "hosp/transfers.csv.gz"
+    patient_id: "subject_id"
+    timestamp: "intime"
+    attributes:
+      - "hadm_id"
+      - "transfer_id"
+      - "eventtype"
+      - "careunit"
+      - "outtime"
+
+  microbiologyevents:
+    file_path: "hosp/microbiologyevents.csv.gz"
+    patient_id: "subject_id"
+    timestamp: "chartdate"
+    attributes:
+      - "hadm_id"
+      - "micro_specimen_id"
+      - "charttime"
+      - "spec_itemid"
+      - "spec_type_desc"
+      - "test_itemid"
+      - "test_name"
+      - "org_itemid"
+      - "org_name"
+
+  chartevents:
+    file_path: "icu/chartevents.csv.gz"
+    patient_id: "subject_id"
+    timestamp: "charttime"
+    attributes:
+      - "hadm_id"
+      - "stay_id"
+      - "itemid"
+      - "value"
+      - "valuenum"
+      - "valueuom"
+
+  outputevents:
+    file_path: "icu/outputevents.csv.gz"
+    patient_id: "subject_id"
+    timestamp: "charttime"
+    attributes:
+      - "hadm_id"
+      - "stay_id"
+      - "itemid"
+      - "value"
+      - "valueuom"
+
+  inputevents:
+    file_path: "icu/inputevents.csv.gz"
+    patient_id: "subject_id"
+    timestamp: "starttime"
+    attributes:
+      - "hadm_id"
+      - "stay_id"
+      - "itemid"
+      - "endtime"
+      - "amount"
+      - "amountuom"
+      - "rate"
+      - "rateuom"
+      - "patientweight"
+      - "orderid"
+      - "linkorderid"
+      - "ordercategoryname"
+      - "statusdescription"
+
+  procedureevents:
+    file_path: "icu/procedureevents.csv.gz"
+    patient_id: "subject_id"
+    timestamp: "starttime"
+    attributes:
+      - "hadm_id"
+      - "stay_id"
+      - "itemid"
+      - "endtime"
+      - "value"
+      - "valueuom"
+      - "statusdescription"

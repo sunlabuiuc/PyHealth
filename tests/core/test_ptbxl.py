@@ -717,5 +717,262 @@ class TestWFDBImportError(unittest.TestCase):
             self.assertIn("pyhealth[ptbxl]", str(ctx.exception))
 
 
+try:
+    import wfdb as _wfdb  # noqa: F401
+    _WFDB_AVAILABLE = True
+except ImportError:
+    _WFDB_AVAILABLE = False
+
+
+@unittest.skipUnless(
+    _WFDB_AVAILABLE,
+    "wfdb not installed; install the 'pyhealth[ptbxl]' extra to run these tests",
+)
+class TestPTBXLMultilabelClassification(unittest.TestCase):
+    """Tests for PTBXLMultilabelClassification wired to the master dataset."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp()
+        cls.root = Path(cls.tmp) / "ptbxl"
+        cls.root.mkdir()
+        shutil.copy(FIXTURE_ROOT / "ptbxl_database.csv", cls.root / "ptbxl_database.csv")
+        shutil.copy(FIXTURE_ROOT / "scp_statements.csv", cls.root / "scp_statements.csv")
+        for row in pd.read_csv(cls.root / "ptbxl_database.csv").itertuples():
+            _write_dummy_wfdb(cls.root / str(row.filename_lr), n_samples=1000)
+            _write_dummy_wfdb(cls.root / str(row.filename_hr), n_samples=5000, fs=500)
+        cls.cache = Path(cls.tmp) / "cache"
+        from pyhealth.datasets.ptbxl import PTBXLDataset
+        cls.dataset = PTBXLDataset(root=str(cls.root), cache_dir=str(cls.cache))
+        cls.scp_path = cls.dataset.scp_statements_path
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def test_superdiagnostic_samples_shape(self):
+        from pyhealth.tasks import PTBXLMultilabelClassification
+        task = PTBXLMultilabelClassification(
+            scp_statements_path=self.scp_path, label_set="superdiagnostic"
+        )
+        samples = self.dataset.set_task(task)
+        self.assertGreater(len(samples), 0)
+        item = samples[0]
+        self.assertEqual(tuple(item["signal"].shape), (12, 1000))
+
+    def test_rhythm_skips_non_rhythm_ecgs(self):
+        from pyhealth.tasks import PTBXLMultilabelClassification
+        task = PTBXLMultilabelClassification(
+            scp_statements_path=self.scp_path, label_set="rhythm"
+        )
+        samples = self.dataset.set_task(task)
+        self.assertGreater(len(samples), 0)
+        for item in samples:
+            self.assertTrue(len(item["labels"]) > 0)
+
+    def test_invalid_label_set_raises(self):
+        from pyhealth.tasks import PTBXLMultilabelClassification
+        with self.assertRaises(ValueError):
+            PTBXLMultilabelClassification(
+                scp_statements_path=self.scp_path, label_set="nope"
+            )
+
+    def test_invalid_standardize_raises(self):
+        from pyhealth.tasks import PTBXLMultilabelClassification
+        with self.assertRaises(ValueError):
+            PTBXLMultilabelClassification(
+                scp_statements_path=self.scp_path, standardize="dataset"
+            )
+
+    def test_prepare_signal_shape_and_dtype(self):
+        from pyhealth.tasks import PTBXLMultilabelClassification
+        task = PTBXLMultilabelClassification(
+            scp_statements_path=self.scp_path, remove_baseline=True
+        )
+        rec = str(self.root / "records100" / "00000" / "00001_lr")
+        out = task._prepare_signal(rec, 100)
+        self.assertEqual(out.shape, (12, 1000))
+        self.assertEqual(out.dtype, np.float32)
+        self.assertTrue(np.isfinite(out).all())
+
+    def test_prepare_signal_500hz(self):
+        from pyhealth.tasks import PTBXLMultilabelClassification
+        task = PTBXLMultilabelClassification(scp_statements_path=self.scp_path)
+        rec = str(self.root / "records500" / "00000" / "00001_hr")
+        out = task._prepare_signal(rec, 500)
+        self.assertEqual(out.shape, (12, 5000))
+
+    def test_aggregate_labels_likelihood_filter(self):
+        from pyhealth.tasks.ptbxl_multilabel_classification import (
+            _aggregate_labels,
+            _load_scp_statements,
+        )
+        stmts = _load_scp_statements(str(self.scp_path))
+        labels = _aggregate_labels(
+            {"IMI": 80.0, "NORM": 100.0}, stmts, "superdiagnostic", 0.0
+        )
+        self.assertIn("MI", labels)
+        self.assertIn("NORM", labels)
+        labels_hi = _aggregate_labels(
+            {"IMI": 80.0, "NORM": 50.0}, stmts, "superdiagnostic", 75.0
+        )
+        self.assertIn("MI", labels_hi)
+        self.assertNotIn("NORM", labels_hi)
+
+    def test_all_label_set_includes_rhythm(self):
+        from pyhealth.tasks.ptbxl_multilabel_classification import (
+            _aggregate_labels,
+            _load_scp_statements,
+        )
+        stmts = _load_scp_statements(str(self.scp_path))
+        # IMI is diagnostic; SR is rhythm — both appear under "all"
+        labels = _aggregate_labels({"IMI": 80.0, "SR": 100.0}, stmts, "all", 0.0)
+        self.assertIn("IMI", labels)
+        self.assertIn("SR", labels)
+
+    def test_diagnostic_label_set_excludes_rhythm(self):
+        from pyhealth.tasks.ptbxl_multilabel_classification import (
+            _aggregate_labels,
+            _load_scp_statements,
+        )
+        stmts = _load_scp_statements(str(self.scp_path))
+        labels = _aggregate_labels({"IMI": 80.0, "SR": 100.0}, stmts, "diagnostic", 0.0)
+        self.assertIn("IMI", labels)
+        self.assertNotIn("SR", labels)
+
+    def test_subdiagnostic_label_set_maps_to_subclass(self):
+        from pyhealth.tasks.ptbxl_multilabel_classification import (
+            _aggregate_labels,
+            _load_scp_statements,
+        )
+        stmts = _load_scp_statements(str(self.scp_path))
+        # IMI → diagnostic_subclass=IMI, LVH → diagnostic_subclass=LVH
+        labels = _aggregate_labels(
+            {"IMI": 100.0, "LVH": 80.0}, stmts, "subdiagnostic", 0.0
+        )
+        self.assertIn("IMI", labels)
+        self.assertIn("LVH", labels)
+        # SR has no diagnostic==1, so should not appear
+        labels_rhythm = _aggregate_labels({"SR": 100.0}, stmts, "subdiagnostic", 0.0)
+        self.assertEqual(labels_rhythm, [])
+
+    def test_form_label_set_empty_in_fixture(self):
+        from pyhealth.tasks.ptbxl_multilabel_classification import (
+            _aggregate_labels,
+            _load_scp_statements,
+        )
+        stmts = _load_scp_statements(str(self.scp_path))
+        # Fixture scp_statements has no form==1 codes
+        labels = _aggregate_labels({"NORM": 100.0, "IMI": 80.0}, stmts, "form", 0.0)
+        self.assertEqual(labels, [])
+
+    def test_superdiagnostic_matches_superclass_task(self):
+        """When label_set='superdiagnostic' and min_likelihood=0, labels match
+        PTBXLSuperclassClassification record-for-record.
+
+        Guards the Blocker-1 refactor that delegates the overlapping path to
+        aggregate_diagnostic_superclasses.
+        """
+        from pyhealth.tasks import (
+            PTBXLMultilabelClassification,
+            PTBXLSuperclassClassification,
+        )
+        multi = PTBXLMultilabelClassification(
+            scp_statements_path=self.scp_path, label_set="superdiagnostic"
+        )
+        superclass = PTBXLSuperclassClassification(
+            scp_statements_path=self.scp_path, drop_empty_labels=True
+        )
+        multi_samples = {
+            (s["patient_id"], s["strat_fold"]): sorted(s["labels"])
+            for s in self.dataset.set_task(multi)
+        }
+        # Build a fresh dataset for the superclass task so the two caches don't collide.
+        from pyhealth.datasets.ptbxl import PTBXLDataset
+        other_dataset = PTBXLDataset(
+            root=str(self.root), cache_dir=str(Path(self.tmp) / "cache_sup")
+        )
+        super_samples = {
+            (s["patient_id"], s["strat_fold"]): sorted(s["labels"])
+            for s in other_dataset.set_task(superclass)
+        }
+        self.assertEqual(set(multi_samples.keys()), set(super_samples.keys()))
+        for key, labels in multi_samples.items():
+            self.assertEqual(labels, super_samples[key])
+
+    def test_diagnostic_samples_labels_nonempty(self):
+        from pyhealth.tasks import PTBXLMultilabelClassification
+        task = PTBXLMultilabelClassification(
+            scp_statements_path=self.scp_path, label_set="diagnostic"
+        )
+        samples = self.dataset.set_task(task)
+        self.assertGreater(len(samples), 0)
+        for item in samples:
+            self.assertGreater(len(item["labels"]), 0)
+            self.assertIn("strat_fold", item)
+
+    def test_standardize_record_versus_none(self):
+        """'record' forces per-lead mean≈0 and std≈1; None does not."""
+        from pyhealth.tasks import PTBXLMultilabelClassification
+        rec = str(self.root / "records100" / "00000" / "00004_lr")
+
+        task_std = PTBXLMultilabelClassification(scp_statements_path=self.scp_path)
+        out_std = task_std._prepare_signal(rec, 100)
+        np.testing.assert_allclose(out_std.mean(axis=1), 0.0, atol=1e-5)
+        np.testing.assert_allclose(out_std.std(axis=1), 1.0, atol=1e-3)
+
+        task_raw = PTBXLMultilabelClassification(
+            scp_statements_path=self.scp_path, standardize=None
+        )
+        out_raw = task_raw._prepare_signal(rec, 100)
+        self.assertEqual(out_raw.shape, (12, 1000))
+        # The fixture signals are not centered, so standardize=None keeps a
+        # per-lead mean clearly away from zero for at least one lead.
+        self.assertTrue((np.abs(out_raw.mean(axis=1)) > 0.01).any())
+
+    def test_remove_baseline_changes_signal(self):
+        """remove_baseline=True must perturb the output vs. remove_baseline=False."""
+        from pyhealth.tasks import PTBXLMultilabelClassification
+        rec = str(self.root / "records100" / "00000" / "00004_lr")
+
+        task_no_bl = PTBXLMultilabelClassification(
+            scp_statements_path=self.scp_path,
+            standardize=None,
+            remove_baseline=False,
+        )
+        task_bl = PTBXLMultilabelClassification(
+            scp_statements_path=self.scp_path,
+            standardize=None,
+            remove_baseline=True,
+        )
+        out_no_bl = task_no_bl._prepare_signal(rec, 100)
+        out_bl = task_bl._prepare_signal(rec, 100)
+        self.assertEqual(out_bl.shape, out_no_bl.shape)
+        self.assertFalse(np.allclose(out_no_bl, out_bl))
+        # A high-pass filter removes DC; so the per-lead mean of the filtered
+        # output is closer to zero than the unfiltered one.
+        self.assertLess(
+            float(np.abs(out_bl.mean(axis=1)).max()),
+            float(np.abs(out_no_bl.mean(axis=1)).max()),
+        )
+
+    def test_load_signal_matches_superclass_task_signal(self):
+        """Both tasks must load the exact same signal tensor from the same record.
+
+        The multi-label task now uses load_ptbxl_record directly (same as the
+        superclass task), so there is one decoding path and the signals match.
+        """
+        from pyhealth.datasets.ptbxl import load_ptbxl_record
+        from pyhealth.tasks import PTBXLMultilabelClassification
+
+        task = PTBXLMultilabelClassification(
+            scp_statements_path=self.scp_path, standardize=None,
+        )
+        rec = str(self.root / "records100" / "00000" / "00001_lr")
+        prepped = task._prepare_signal(rec, 100)
+        canonical = load_ptbxl_record(rec)[:, :1000]
+        np.testing.assert_allclose(prepped, canonical, atol=1e-5)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -6,6 +6,13 @@ How to Contribute
 
 We welcome contributions to PyHealth! This guide will help you get started with contributing datasets, tasks, models, bug fixes, or other improvements to the project.
 
+.. card:: 🌐 Read the Contributor Quick Guide on pyhealth.dev
+   :link: https://pyhealth.dev/how_to_contribute.html
+   :link-type: url
+   :class-card: sd-bg-primary sd-text-white sd-text-center
+
+   **pyhealth.dev** — what makes a good pull request, and how to get it reviewed →
+
 Examples of Great Contributions
 ================================
 
@@ -579,12 +586,27 @@ Every pull request must include the following information in the comment:
 Review Process
 --------------
 
-After submitting your pull request:
+1. **Fork** `PyHealth <https://github.com/sunlabuiuc/PyHealth/fork>`_.
+2. **Submit a pull request** against the ``master`` branch, with "Allow edits by
+   maintainers" enabled.
+3. **Wait to be labeled** for AI review, or ask for a review on
+   `Discord <https://discord.gg/mpb835EHaX>`_.
+4. **Check your label:**
 
-1. Maintainers will review your code for style, functionality, and completeness
-2. Automated tests will be run to ensure compatibility
-3. You may be asked to make revisions based on feedback
-4. Once approved, your contribution will be merged into the main branch
+   - ``status: manual``: wait for a maintainer to review and approve your pull request.
+   - ``status: automatic``: comment ``/review`` to get an AI review. Push your fixes
+     and comment ``/review`` again whenever you want another review. **Once the AI
+     approves, you can merge your pull request into PyHealth yourself.**
+
+A pull request switches to ``status: manual`` if it:
+
+- changes core parts of the library,
+- changes any file outside ``docs/``, ``examples/``, ``pyhealth/``,
+  ``test-resources/`` and ``tests/``,
+- is too large for AI review,
+- contains a prompt-injection attempt flagged by the AI review, or
+- has used up its 5 AI reviews. The limit counts reviews since the
+  ``status: automatic`` label was last added.
 
 Getting Help
 ============

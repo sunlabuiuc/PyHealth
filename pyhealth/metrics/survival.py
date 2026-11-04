@@ -1,120 +1,231 @@
-"""Discrimination metrics for right-censored survival predictions.
+"""Metrics for right-censored survival predictions.
 
-Survival models score each sample with a *risk* (higher means the event is
-expected sooner), for example a Cox model's linear predictor. These metrics
-compare risks with observed outcomes while respecting censoring.
+Harrell's concordance index ranks risk scores; the inverse-probability-of-
+censoring weighted (IPCW) Brier score (Graf et al., 1999) and the cumulative /
+dynamic AUC (Uno et al., 2007) evaluate predictions at a time horizon. The
+censoring distribution is estimated with the Kaplan-Meier estimator of the
+censoring times on the evaluated data.
 """
 
-from typing import Any
+from __future__ import annotations
+
+from collections.abc import Sequence
 
 import numpy as np
 
-_TIED_RISK = {"half": 0.5, "zero": 0.0}
-_BLOCK_ROWS = 1024
+__all__ = [
+    "concordance_index",
+    "cumulative_dynamic_auc",
+    "ipcw_brier_score",
+    "survival_metrics_fn",
+]
 
 
-def _as_1d(values: Any, name: str) -> np.ndarray:
-    """Converts a list, array, or tensor to a 1D float array.
-
-    Args:
-        values: Values of shape ``(N,)`` or ``(N, 1)``.
-        name: Argument name, used in error messages.
-
-    Returns:
-        A float64 array of shape ``(N,)``.
-
-    Raises:
-        ValueError: If the values are not one per sample or not finite.
-    """
-    if hasattr(values, "detach"):
-        values = values.detach().cpu().numpy()
-    array = np.asarray(values, dtype=np.float64)
-    if array.ndim == 2 and array.shape[1] == 1:
-        array = array[:, 0]
-    if array.ndim != 1:
-        raise ValueError(f"{name} must have shape (N,) or (N, 1), got {array.shape}.")
-    if not np.all(np.isfinite(array)):
-        raise ValueError(f"{name} must be finite.")
-    return array
+def _as_arrays(duration, event) -> tuple[np.ndarray, np.ndarray]:
+    duration = np.asarray(duration, dtype=float).reshape(-1)
+    event = np.asarray(event, dtype=float).reshape(-1)
+    if duration.shape != event.shape:
+        raise ValueError("duration and event must have the same length")
+    if duration.size == 0:
+        raise ValueError("duration and event must not be empty")
+    if not np.isin(event, (0.0, 1.0)).all():
+        raise ValueError("event must contain only 0/1 indicators")
+    return duration, event.astype(bool)
 
 
-def concordance_index(
-    risk: Any,
-    duration: Any,
-    event: Any,
-    tied_risk: str = "half",
-) -> float:
-    """Harrell's concordance index (C-index) for right-censored data.
+def concordance_index(duration, event, risk, chunk_size: int = 2048) -> float:
+    """Harrell's concordance index of risk scores.
 
-    A pair of samples ``(i, j)`` is comparable when ``i`` had the event and
-    was observed for less time than ``j`` (``duration_i < duration_j``), or
-    for the same time while ``j`` was censored. The pair is concordant when
-    ``risk_i > risk_j``. The C-index is the fraction of comparable pairs that
-    are concordant, with tied risks counted as ``0.5`` by default. These rules
-    match ``lifelines.utils.concordance_index(duration, -risk, event)``.
-
-    Reference:
-        Harrell, F. E., Califf, R. M., Pryor, D. B., Lee, K. L., and
-        Rosati, R. A. "Evaluating the Yield of Medical Tests." JAMA 247(18),
-        1982.
+    A pair ``(i, j)`` is comparable when ``i`` had an observed event before
+    ``j``'s time (``duration[i] < duration[j]`` and ``event[i] == 1``). It is
+    concordant when ``risk[i] > risk[j]``; tied risks count one half. Higher
+    risk should mean earlier events.
 
     Args:
-        risk: Predicted risk per sample, shape ``(N,)`` or ``(N, 1)``; higher
-            means higher risk (for example ``y_prob`` from a Cox model).
-        duration: Observed time per sample, shape ``(N,)`` or ``(N, 1)``.
-        event: Event indicator per sample (1 observed, 0 censored).
-        tied_risk: How a comparable pair with equal risks counts:
-            ``"half"`` (0.5, the standard definition) or ``"zero"`` (0, as in
-            the MAS authors' code).
+        duration: Observed times, shape ``[n]``.
+        event: 1 for an observed event, 0 for censoring, shape ``[n]``.
+        risk: Risk scores, shape ``[n]`` (e.g. a Cox log hazard ratio).
+        chunk_size: Rows compared at once, to bound memory.
 
     Returns:
-        The C-index in ``[0, 1]``: 0.5 for random risks, 1 for a perfect
-        ranking. NaN if no pair is comparable (for example, no events).
-
-    Raises:
-        ValueError: If the inputs have different lengths, are not finite, the
-            events are not 0/1, or ``tied_risk`` is unknown.
+        The concordance index, or NaN when no pair is comparable.
 
     Examples:
-        >>> concordance_index(risk=[3, 2, 1], duration=[1, 2, 3], event=[1, 1, 0])
+        >>> concordance_index([1, 2, 3], [1, 1, 0], [3.0, 2.0, 1.0])
         1.0
-        >>> concordance_index(risk=[1, 2, 3], duration=[1, 2, 3], event=[1, 1, 0])
+        >>> concordance_index([1, 2, 3], [1, 1, 0], [1.0, 2.0, 3.0])
         0.0
     """
-    if tied_risk not in _TIED_RISK:
-        raise ValueError(
-            f"tied_risk must be one of {list(_TIED_RISK)}, got {tied_risk!r}."
-        )
-    risk = _as_1d(risk, "risk")
-    duration = _as_1d(duration, "duration")
-    event = _as_1d(event, "event")
-    if not (risk.size == duration.size == event.size):
-        raise ValueError(
-            f"risk, duration, and event lengths differ: {risk.size}, "
-            f"{duration.size}, {event.size}."
-        )
-    if not np.all(np.isin(event, (0.0, 1.0))):
-        raise ValueError("event must contain only 0 and 1.")
-
-    tie_weight = _TIED_RISK[tied_risk]
-    observed = event == 1.0
+    duration, event = _as_arrays(duration, event)
+    risk = np.asarray(risk, dtype=float).reshape(-1)
+    if risk.shape != duration.shape:
+        raise ValueError("risk must have the same length as duration")
     concordant = 0.0
     comparable = 0
-    # Rows are the samples with the event; compare them in blocks so memory
-    # stays bounded for large N.
-    rows = np.flatnonzero(observed)
-    for begin in range(0, rows.size, _BLOCK_ROWS):
-        block = rows[begin : begin + _BLOCK_ROWS]
-        earlier = duration[block, None] < duration[None, :]
-        same_time_censored = (duration[block, None] == duration[None, :]) & ~observed[
-            None, :
-        ]
-        is_comparable = earlier | same_time_censored
-        higher = risk[block, None] > risk[None, :]
-        tied = risk[block, None] == risk[None, :]
-        comparable += int(is_comparable.sum())
-        concordant += float((is_comparable & higher).sum())
-        concordant += tie_weight * float((is_comparable & tied).sum())
-    if comparable == 0:
+    cases = np.flatnonzero(event)
+    for start in range(0, len(cases), chunk_size):
+        rows = cases[start : start + chunk_size]
+        later = duration[None, :] > duration[rows, None]
+        diff = risk[rows, None] - risk[None, :]
+        comparable += int(later.sum())
+        concordant += float(((diff > 0) & later).sum())
+        concordant += 0.5 * float(((diff == 0) & later).sum())
+    return concordant / comparable if comparable else float("nan")
+
+
+def _censoring_survival(duration: np.ndarray, event: np.ndarray):
+    """Kaplan-Meier estimate of the censoring survival function ``G``.
+
+    Returns a function ``G(t, left)``; with ``left=True`` it gives the left
+    limit ``G(t-)``.
+    """
+    times = np.unique(duration)
+    at_risk = np.array([(duration >= t).sum() for t in times], dtype=float)
+    censored = np.array(
+        [((duration == t) & ~event).sum() for t in times], dtype=float
+    )
+    surv = np.cumprod(1.0 - censored / at_risk)
+
+    def g(t: np.ndarray, left: bool = False) -> np.ndarray:
+        idx = np.searchsorted(times, t, side="left" if left else "right") - 1
+        return np.where(idx >= 0, surv[np.clip(idx, 0, None)], 1.0)
+
+    return g
+
+
+def ipcw_brier_score(duration, event, survival_at_t, time: float) -> float:
+    """IPCW Brier score of survival probabilities at one time horizon.
+
+    Records with an event by ``time`` should have survival 0, records still
+    at risk after ``time`` survival 1; records censored before ``time`` are
+    reweighted away by the Kaplan-Meier censoring distribution (Graf et al.,
+    1999). Lower is better.
+
+    Args:
+        duration: Observed times, shape ``[n]``.
+        event: 1 for an observed event, 0 for censoring, shape ``[n]``.
+        survival_at_t: Predicted ``S(time | x)``, shape ``[n]``.
+        time: The horizon.
+
+    Returns:
+        The Brier score.
+
+    Examples:
+        >>> round(ipcw_brier_score([1, 3, 4], [1, 0, 1], [0.0, 1.0, 1.0], 2.0), 3)
+        0.0
+    """
+    duration, event = _as_arrays(duration, event)
+    survival_at_t = np.asarray(survival_at_t, dtype=float).reshape(-1)
+    g = _censoring_survival(duration, event)
+    case = (duration <= time) & event
+    control = duration > time
+    weight_case = np.where(case, 1.0 / np.maximum(g(duration, left=True), 1e-12), 0.0)
+    weight_control = 1.0 / max(float(g(np.array([time]))[0]), 1e-12)
+    loss = weight_case * survival_at_t**2
+    loss = loss + np.where(control, weight_control * (1.0 - survival_at_t) ** 2, 0.0)
+    return float(loss.mean())
+
+
+def cumulative_dynamic_auc(duration, event, risk, time: float) -> float:
+    """Cumulative/dynamic AUC of risk scores at one time horizon.
+
+    Cases have an event by ``time`` and are weighted by the inverse censoring
+    probability (Uno et al., 2007); controls are still at risk after
+    ``time``. Tied risks count one half.
+
+    Args:
+        duration: Observed times, shape ``[n]``.
+        event: 1 for an observed event, 0 for censoring, shape ``[n]``.
+        risk: Risk scores, shape ``[n]``; higher means earlier events.
+        time: The horizon.
+
+    Returns:
+        The AUC, or NaN without cases or controls.
+
+    Examples:
+        >>> cumulative_dynamic_auc([1, 2, 5, 6], [1, 1, 0, 1], [4, 3, 2, 1], 3.0)
+        1.0
+    """
+    duration, event = _as_arrays(duration, event)
+    risk = np.asarray(risk, dtype=float).reshape(-1)
+    g = _censoring_survival(duration, event)
+    cases = np.flatnonzero((duration <= time) & event)
+    controls = np.flatnonzero(duration > time)
+    if len(cases) == 0 or len(controls) == 0:
         return float("nan")
-    return concordant / comparable
+    weights = 1.0 / np.maximum(g(duration[cases], left=True), 1e-12)
+    diff = risk[cases, None] - risk[None, controls]
+    wins = (diff > 0).sum(axis=1) + 0.5 * (diff == 0).sum(axis=1)
+    return float((weights * wins).sum() / (weights.sum() * len(controls)))
+
+
+def _survival_at(survival, time_grid, t: float) -> np.ndarray:
+    """Survival curves ``[n, m]`` on ``time_grid``, linearly interpolated at ``t``.
+
+    Before the first grid time the curve runs linearly from ``S(0) = 1``.
+    A ``t`` after the last grid time raises, since extrapolating a survival
+    curve is not well defined.
+    """
+    grid = np.asarray(time_grid, dtype=float).reshape(-1)
+    survival = np.asarray(survival, dtype=float)
+    if survival.ndim != 2 or survival.shape[1] != grid.size:
+        raise ValueError("survival must have shape [n, len(time_grid)]")
+    if t > grid[-1]:
+        raise ValueError(
+            f"horizon {t:g} is after the last time_grid point {grid[-1]:g}"
+        )
+    if grid[0] > 0:
+        grid = np.concatenate([[0.0], grid])
+        survival = np.concatenate([np.ones((survival.shape[0], 1)), survival], 1)
+    right = int(np.clip(np.searchsorted(grid, t, side="left"), 1, grid.size - 1))
+    left = right - 1
+    span = grid[right] - grid[left]
+    weight = float(np.clip((t - grid[left]) / span, 0.0, 1.0)) if span > 0 else 1.0
+    return (1.0 - weight) * survival[:, left] + weight * survival[:, right]
+
+
+def survival_metrics_fn(
+    duration,
+    event,
+    risk,
+    survival: np.ndarray | None = None,
+    time_grid: Sequence[float] | None = None,
+    times: Sequence[float] = (),
+) -> dict[str, float]:
+    """Concordance plus Brier score and AUC at chosen horizons.
+
+    The Brier score at a horizon ``t`` reads each survival curve linearly
+    interpolated at ``t``; before the first grid time the curve starts from
+    ``S(0) = 1``. A horizon after the last grid time raises ``ValueError``.
+    The AUC uses ``risk`` and needs no grid.
+
+    Args:
+        duration: Observed times, shape ``[n]``.
+        event: 1 for an observed event, 0 for censoring, shape ``[n]``.
+        risk: Risk scores, shape ``[n]``; higher means earlier events.
+        survival: Optional predicted survival curves, shape ``[n, m]``, on
+            ``time_grid``. Needed for the Brier scores.
+        time_grid: The ``m`` increasing times of ``survival``.
+        times: Horizons for ``brier@t`` (with ``survival``) and ``auc@t``.
+
+    Returns:
+        ``{"c_index": ..., "auc@t": ..., "brier@t": ...}``.
+
+    Examples:
+        >>> survival_metrics_fn([1, 2, 3], [1, 1, 0], [3.0, 2.0, 1.0])
+        {'c_index': 1.0}
+        >>> out = survival_metrics_fn(
+        ...     [1, 3], [1, 0], [1.0, 0.0], survival=[[0.0, 0.0], [1.0, 0.5]],
+        ...     time_grid=[1.0, 3.0], times=[2.0])
+        >>> round(out["brier@2"], 4)  # S(2) = 0.75 for the second record
+        0.0312
+    """
+    out = {"c_index": concordance_index(duration, event, risk)}
+    if survival is not None and times and time_grid is None:
+        raise ValueError("time_grid is needed with survival")
+    for t in times:
+        out[f"auc@{t:g}"] = cumulative_dynamic_auc(duration, event, risk, t)
+        if survival is not None:
+            surv = _survival_at(survival, time_grid, t)
+            out[f"brier@{t:g}"] = ipcw_brier_score(duration, event, surv, t)
+    return out
