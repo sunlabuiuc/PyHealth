@@ -49,21 +49,25 @@ def _input(itemid, start, end, stay_id=10):
 
 
 def _patient(*, hours=18.0, age=60, deathtime=None, location="HOME",
-             vitals=True, hr_hours=(4.5, 8.5, 12.5), extra=()):
+             vitals=True, hr_hours=(4.5, 8.5, 12.5), extra=(), admission=True):
     """One admission with one ICU stay (stay_id 10) of ``hours`` hours.
 
     The six vitals are charted at hour 0.5 and a heart rate at ``hr_hours``.
+    With ``admission=False`` the admission has no ``admissions`` row.
     """
     outtime = T0 + timedelta(hours=hours)
-    rows = [
-        _event("patients", None, anchor_age=age, gender="F"),
-        _event("admissions", T0 - timedelta(hours=5), hadm_id=1,
-               dischtime=_fmt(outtime + timedelta(hours=2)),
-               deathtime=None if deathtime is None else _fmt(deathtime),
-               hospital_expire_flag=int(deathtime is not None),
-               discharge_location="DIED" if deathtime else location),
-        _event("icustays", T0, stay_id=10, hadm_id=1, outtime=_fmt(outtime)),
-    ]
+    rows = [_event("patients", None, anchor_age=age, gender="F")]
+    if admission:
+        rows.append(
+            _event("admissions", T0 - timedelta(hours=5), hadm_id=1,
+                   dischtime=_fmt(outtime + timedelta(hours=2)),
+                   deathtime=None if deathtime is None else _fmt(deathtime),
+                   hospital_expire_flag=int(deathtime is not None),
+                   discharge_location="DIED" if deathtime else location)
+        )
+    rows.append(
+        _event("icustays", T0, stay_id=10, hadm_id=1, outtime=_fmt(outtime))
+    )
     if vitals:
         for itemid, value in VITALS.items():
             rows.append(
@@ -138,6 +142,31 @@ class TestICUAcuityMIMIC4(unittest.TestCase):
         death = T0 + timedelta(hours=30)
         samples = self.task(_patient(deathtime=death, hr_hours=(4.5, 8.5, 12.5, 15.0)))
         self.assertEqual(_positives(samples[-1]), {"discharge"})
+
+    def test_death_within_tolerance_of_icu_discharge(self):
+        hr = (4.5, 8.5, 12.5, 15.0)
+        outtime = T0 + timedelta(hours=18)
+        within = self.task(
+            _patient(deathtime=outtime + timedelta(minutes=50), hr_hours=hr)
+        )
+        self.assertEqual(_positives(within[-1]), {"deceased"})
+        beyond = self.task(
+            _patient(deathtime=outtime + timedelta(minutes=70), hr_hours=hr)
+        )
+        self.assertEqual(_positives(beyond[-1]), {"discharge"})
+        strict = ICUAcuityMIMIC4(death_tolerance_hours=0)
+        late = strict(_patient(deathtime=outtime + timedelta(minutes=50), hr_hours=hr))
+        self.assertEqual(_positives(late[-1]), {"discharge"})
+
+    def test_missing_admission_row_drops_the_last_window(self):
+        samples = self.task(
+            _patient(admission=False, hr_hours=(4.5, 8.5, 12.5, 15.0),
+                     extra=self.therapies)
+        )
+        self.assertEqual([s["window"] for s in samples], [1, 2, 3])
+        self.assertEqual(
+            _positives(samples[-1]), {"unstable", "mv_stop", "vp_onset"}
+        )
 
     def test_discharge_home_only(self):
         task = ICUAcuityMIMIC4(discharge_home_only=True)

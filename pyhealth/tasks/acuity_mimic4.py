@@ -64,7 +64,12 @@ class ICUAcuityMIMIC4(_YAIBMIMIC4Task):
     ``stable`` otherwise. The last interval of the stay is ``deceased`` when
     the patient died in the ICU, and ``discharge`` when the patient left the
     ICU alive (with ``discharge_home_only``, only when the hospital
-    discharged the patient home within 24 hours of leaving the ICU).
+    discharged the patient home within 24 hours of leaving the ICU;
+    otherwise it keeps its stable or unstable state). A death up to
+    ``death_tolerance_hours`` after the recorded ICU discharge counts as an
+    ICU death. When the stay's admission has no ``admissions`` row, the
+    outcome is unknown, so the stay's last interval gets no label: the
+    sample predicting it is dropped, and the earlier windows are kept.
 
     One sample per stay and interval ``j >= 1`` (the prediction window) whose
     observation window, hours ``[4(j - 1), 4j)``, has at least one event:
@@ -274,11 +279,9 @@ class ICUAcuityMIMIC4(_YAIBMIMIC4Task):
         self,
         intime: datetime,
         outtime: datetime,
-        end: tuple[datetime | None, bool, datetime | None] | None,
+        end: tuple[datetime | None, bool, datetime | None],
     ) -> str | None:
-        """``deceased``, ``discharge`` or None for the last interval."""
-        if end is None:
-            return "discharge" if not self.discharge_home_only else None
+        """``deceased``, ``discharge`` or None (keep the therapy state)."""
         death, home, dischtime = end
         tolerance = timedelta(hours=self.death_tolerance_hours)
         if death is not None and intime < death <= outtime + tolerance:
@@ -332,7 +335,11 @@ class ICUAcuityMIMIC4(_YAIBMIMIC4Task):
             n_intervals = math.ceil(los / w)
             flags = self._interval_flags(therapies.get(stay_id, []), n_intervals)
             states = ["unstable" if f else "stable" for f in flags]
-            final = self._final_state(intime, outtime, ends.get(hadm_id))
+            end = ends.get(hadm_id)
+            # Without an admissions row the outcome is unknown: no sample
+            # predicts the last interval.
+            n_windows = n_intervals if end is not None else n_intervals - 1
+            final = None if end is None else self._final_state(intime, outtime, end)
             if final is not None:
                 states[-1] = final
 
@@ -340,7 +347,7 @@ class ICUAcuityMIMIC4(_YAIBMIMIC4Task):
             features = stay_events["feature"].to_list()
             values = stay_events["value"].to_list()
             start = 0
-            for j in range(1, n_intervals):
+            for j in range(1, n_windows):
                 lo, hi = (j - 1) * w, j * w
                 while start < len(hours) and hours[start] < lo:
                     start += 1
