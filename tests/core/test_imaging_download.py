@@ -7,7 +7,7 @@ import unittest
 import zipfile
 from pathlib import Path
 
-from pyhealth.datasets.imaging_utils import (
+from pyhealth.datasets.imaging.io import (
     _download_archives,
     _extract_zip,
 )

@@ -27,6 +27,36 @@ class MSDSegmentationTask(BaseTask):
         "mask": ("nifti", {"lazy": True, "is_mask": True}),
     }
 
+    def __init__(
+        self,
+        normalize: str | None = None,
+        num_classes: int | None = None,
+    ) -> None:
+        """Initialize the task with an optional modality-specific setup.
+
+        Args:
+            normalize: Intensity normalisation mode. Use ``"ct"`` for CT and
+                ``"mri"`` for MRI. The MSD dataset loaders pass their
+                ``dataset.json`` modality automatically.
+            num_classes: Number of mask classes, including background.
+        """
+        super().__init__()
+        if normalize is not None:
+            self.input_schema = {
+                "image": ("nifti", {"lazy": True, "normalize": normalize}),
+            }
+        if num_classes is not None:
+            self.output_schema = {
+                "mask": (
+                    "nifti",
+                    {
+                        "lazy": True,
+                        "is_mask": True,
+                        "num_classes": int(num_classes),
+                    },
+                ),
+            }
+
     def __call__(self, patient: Any) -> list[dict[str, Any]]:
         """Build one sample per labelled MSD case.
 
@@ -48,6 +78,7 @@ class MSDSegmentationTask(BaseTask):
                     "record_id": event.record_id,
                     "image": event.image_path,
                     "mask": event.label_path,
+                    "modality": getattr(event, "modality", None),
                 }
             )
         return samples

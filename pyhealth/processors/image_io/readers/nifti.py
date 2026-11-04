@@ -107,6 +107,9 @@ class NiftiReader(BaseImageReader):
         normalize: str | None = None,
         clip: tuple[float, float] | None = None,
         percentile_range: Sequence[float] = (1.0, 99.0),
+        intensity_stats: dict[str, float] | None = None,
+        use_nonzero_mask: bool = True,
+        mri_background_threshold: float | None = None,
         dtype: str = "float32",
         is_mask: bool = False,
         channel_axis: int = -1,
@@ -127,6 +130,11 @@ class NiftiReader(BaseImageReader):
                 :func:`~pyhealth.processors.image_io.transforms.normalize_intensity`.
             clip: Optional ``(low, high)`` intensity clipping range.
             percentile_range: Percentiles for ``normalize="percentile"``.
+            intensity_stats: Foreground statistics for ``normalize="ct"``.
+            use_nonzero_mask: For ``normalize="mri"``, normalise only non-zero
+                voxels. Defaults to True.
+            mri_background_threshold: Optional fraction of the 99th percentile
+                below which MRI voxels are treated as air/noise and zeroed.
             dtype: Output dtype. Masks default to ``int64`` when possible.
             is_mask: Treat the input as a segmentation mask. This disables
                 intensity normalisation and uses nearest-neighbour resampling.
@@ -207,5 +215,8 @@ class NiftiReader(BaseImageReader):
                 mode=normalize,
                 clip=clip,
                 percentile_range=percentile_range,
+                intensity_stats=intensity_stats,
+                use_nonzero_mask=use_nonzero_mask,
+                mri_background_threshold=mri_background_threshold,
             )
         return np.ascontiguousarray(data.astype(out_dtype, copy=False))

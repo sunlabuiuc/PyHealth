@@ -12,7 +12,7 @@ from pathlib import Path
 import pandas as pd
 
 from .base_dataset import BaseDataset
-from .imaging_utils import (
+from .imaging.io import (
     _absolute_path,
     _download_archives,
     _resolve_metadata_dir,
@@ -173,11 +173,44 @@ class MSDSegmentationDataset(BaseDataset):
         )
 
     @property
+    def _specification(self) -> dict:
+        """Return the parsed ``dataset.json`` specification."""
+        with open(self.source_root / "dataset.json") as handle:
+            return json.load(handle)
+
+    @property
+    def modality(self) -> str:
+        """Return the dataset modality declared in ``dataset.json``."""
+        specification = self._specification
+        modalities = specification.get("channel_names") or specification.get(
+            "modality", {}
+        )
+        if isinstance(modalities, dict):
+            values = list(modalities.values())
+        else:
+            values = list(modalities)
+        return ",".join(str(value) for value in values)
+
+    @property
+    def default_normalization(self) -> str:
+        """Return the nnU-Net-style default normalisation mode."""
+        return "ct" if "ct" in self.modality.lower() else "mri"
+
+    @property
+    def num_classes(self) -> int:
+        """Return the number of labels declared in ``dataset.json``."""
+        labels = self._specification.get("labels", {})
+        return len(labels) if labels else 2
+
+    @property
     def default_task(self):
         """Return the default MSD segmentation task."""
         from ..tasks.msd_segmentation import MSDSegmentationTask
 
-        return MSDSegmentationTask()
+        return MSDSegmentationTask(
+            normalize=self.default_normalization,
+            num_classes=self.num_classes,
+        )
 
 
 class MSDHippocampusDataset(MSDSegmentationDataset):

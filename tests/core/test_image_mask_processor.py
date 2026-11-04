@@ -10,7 +10,8 @@ import torch
 from PIL import Image
 
 from pyhealth.processors import ImageMaskDirectoryProcessor
-from pyhealth.processors.image_io.types import ImageRef
+from pyhealth.processors.image_io.readers.image_mask import ImageMaskReader
+from pyhealth.processors.image_io.types import ImageMetadata, ImageRef
 
 
 class TestImageMaskDirectoryProcessor(unittest.TestCase):
@@ -52,6 +53,31 @@ class TestImageMaskDirectoryProcessor(unittest.TestCase):
         self.assertTrue(eager_processor.stores_tensor)
         eager_tensor = eager_processor.process(self.mask_dir)
         self.assertTrue(torch.equal(lazy_tensor, eager_tensor))
+
+    def test_old_cached_processor_without_new_attributes(self):
+        processor = ImageMaskDirectoryProcessor(canonical=False, lazy=False)
+        # Simulate a processor unpickled from an older cache.
+        del processor.target_spacing
+        del processor.target_shape
+        del processor.label_map
+        tensor = processor.process(self.mask_dir)
+        self.assertEqual(tuple(tensor.shape), (1, 3, 4, 5))
+
+    def test_target_shape_resamples_mask(self):
+        files = tuple(sorted(self.mask_dir.glob("*.png")))
+        metadata = ImageMetadata(
+            format="image_mask",
+            shape=(1, 3, 4, 5),
+            affine=tuple(tuple(row) for row in np.eye(4)),
+            source=tuple(str(path) for path in files),
+        )
+        volume = ImageMaskReader().load(
+            files,
+            metadata=metadata,
+            canonical=False,
+            target_shape=(2, 3, 4),
+        )
+        self.assertEqual(tuple(volume.shape), (1, 2, 3, 4))
 
     def test_natural_filename_order(self):
         mask_dir = Path(self.temp_dir) / "natural_order"

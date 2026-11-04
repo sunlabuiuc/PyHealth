@@ -11,7 +11,13 @@ from .cardiology_detect import (
 )
 from .chestxray14_binary_classification import ChestXray14BinaryClassification
 from .chestxray14_multilabel_classification import ChestXray14MultilabelClassification
-from .chaos_segmentation import CHAOSSegmentationTask as CHAOSSegmentationTask
+from .chaos_segmentation import (
+    CHAOSAbdominalSegmentationCTMRI as CHAOSAbdominalSegmentationCTMRI,
+    CHAOSAbdominalSegmentationMRIonly as CHAOSAbdominalSegmentationMRIonly,
+    CHAOSLiverSegmentationCTMRI as CHAOSLiverSegmentationCTMRI,
+    CHAOSLiverSegmentationCTonly as CHAOSLiverSegmentationCTonly,
+    CHAOSLiverSegmentationMRIonly as CHAOSLiverSegmentationMRIonly,
+)
 from .covid19_cxr_classification import COVID19CXRClassification
 from .covid19_cxr_generation import (
     COVID19CXRImageGeneration as COVID19CXRImageGeneration,

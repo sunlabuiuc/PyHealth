@@ -6,7 +6,7 @@ from pathlib import Path
 import pandas as pd
 
 from .base_dataset import BaseDataset
-from .imaging_utils import _download_archives, _resolve_metadata_dir
+from .imaging.io import _download_archives, _resolve_metadata_dir
 
 logger = logging.getLogger(__name__)
 
@@ -240,7 +240,14 @@ class CHAOSDataset(BaseDataset):
 
     @property
     def default_task(self):
-        """Return the default CHAOS segmentation task."""
-        from ..tasks.chaos_segmentation import CHAOSSegmentationTask
+        """Return the default CHAOS segmentation task.
 
-        return CHAOSSegmentationTask()
+        Official task 4 (abdominal organs, CT + MRI) is the challenge's
+        combined multi-organ task.  Use the other CHAOS task classes for
+        single-modality or liver-only experiments.
+        """
+        from ..tasks.chaos_segmentation import (
+            CHAOSAbdominalSegmentationCTMRI,
+        )
+
+        return CHAOSAbdominalSegmentationCTMRI()

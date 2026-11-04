@@ -87,6 +87,21 @@ class TestMSDDatasets(unittest.TestCase):
         self.assertTrue((metadata_dir / "msd-metadata-pyhealth.csv").exists())
         self.assertFalse((root / "msd-metadata-pyhealth.csv").exists())
 
+        expected_norm = (
+            "ct"
+            if any("ct" in str(value).lower() for value in modality.values())
+            else "mri"
+        )
+        self.assertEqual(dataset.default_normalization, expected_norm)
+        self.assertEqual(dataset.num_classes, len(labels))
+        task = dataset.default_task
+        self.assertEqual(
+            task.input_schema["image"][1]["normalize"], expected_norm
+        )
+        self.assertEqual(
+            task.output_schema["mask"][1]["num_classes"], len(labels)
+        )
+
     def test_hippocampus(self):
         self._check_dataset(
             MSDHippocampusDataset,

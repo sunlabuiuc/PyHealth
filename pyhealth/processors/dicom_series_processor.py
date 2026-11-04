@@ -53,6 +53,9 @@ class DicomSeriesProcessor(FeatureProcessor):
         normalize: str | None = None,
         clip: tuple[float, float] | None = None,
         percentile_range: Sequence[float] = (1.0, 99.0),
+        intensity_stats: dict[str, float] | None = None,
+        use_nonzero_mask: bool = True,
+        mri_background_threshold: float | None = 0.05,
         dtype: str = "float32",
         is_mask: bool = False,
         order: int | None = None,
@@ -60,6 +63,7 @@ class DicomSeriesProcessor(FeatureProcessor):
         apply_rescale: bool = True,
         invert_monochrome1: bool = True,
         window: bool = False,
+        num_classes: int | None = None,
     ) -> None:
         """Initialize the DICOM series processor.
 
@@ -69,9 +73,16 @@ class DicomSeriesProcessor(FeatureProcessor):
             canonical: Reorient to canonical RAS.
             target_spacing: Target spacing in ``(D, H, W)`` order.
             target_shape: Target shape in ``(D, H, W)`` order.
-            normalize: Intensity normalisation mode.
+            normalize: Intensity normalisation mode. ``"auto"`` selects
+                ``"ct"`` or ``"mri"`` from the DICOM modality.
             clip: Optional intensity clipping range.
             percentile_range: Percentiles for percentile normalisation.
+            intensity_stats: Foreground statistics for ``normalize="ct"``.
+            use_nonzero_mask: For ``normalize="mri"``, normalise only non-zero
+                voxels. Defaults to True.
+            mri_background_threshold: For ``normalize="mri"``, fraction of the
+                99th percentile below which voxels are treated as air/noise
+                and set to zero. Defaults to 0.05 for DICOM MRI.
             dtype: Output dtype.
             is_mask: Treat the input as a mask.
             order: Interpolation order.
@@ -79,6 +90,8 @@ class DicomSeriesProcessor(FeatureProcessor):
             apply_rescale: Apply per-slice rescale values.
             invert_monochrome1: Invert MONOCHROME1 slices.
             window: Apply each slice's DICOM window.
+            num_classes: Optional number of segmentation classes, used by
+                models to configure the output head.
         """
         self.lazy = bool(lazy)
         self.channels = channels
@@ -90,6 +103,11 @@ class DicomSeriesProcessor(FeatureProcessor):
         self.normalize = normalize
         self.clip = clip
         self.percentile_range = tuple(percentile_range)
+        self.intensity_stats = (
+            None if intensity_stats is None else dict(intensity_stats)
+        )
+        self.use_nonzero_mask = bool(use_nonzero_mask)
+        self.mri_background_threshold = mri_background_threshold
         self.dtype = dtype
         self.is_mask = bool(is_mask)
         self.order = order
@@ -97,6 +115,7 @@ class DicomSeriesProcessor(FeatureProcessor):
         self.apply_rescale = bool(apply_rescale)
         self.invert_monochrome1 = bool(invert_monochrome1)
         self.window = bool(window)
+        self.num_classes = num_classes
 
     @property
     def stores_tensor(self) -> bool:
@@ -170,6 +189,11 @@ class DicomSeriesProcessor(FeatureProcessor):
             "normalize": self.normalize,
             "clip": self.clip,
             "percentile_range": self.percentile_range,
+            "intensity_stats": getattr(self, "intensity_stats", None),
+            "use_nonzero_mask": getattr(self, "use_nonzero_mask", True),
+            "mri_background_threshold": getattr(
+                self, "mri_background_threshold", 0.05
+            ),
             "dtype": self.dtype,
             "is_mask": self.is_mask,
             "order": self.order,

@@ -8,7 +8,7 @@ from typing import Any
 import pandas as pd
 
 from .base_dataset import BaseDataset
-from .imaging_utils import _resolve_metadata_dir
+from .imaging.io import _resolve_metadata_dir
 
 logger = logging.getLogger(__name__)
 
@@ -16,6 +16,9 @@ _DEFAULT_IMAGE_DIR = (
     "mdai_rsna_project_x9N20BZa_images_2018-07-20-153330"
 )
 _DEFAULT_MAPPING = "pneumonia-challenge-dataset-mappings_2018.json"
+_DEFAULT_ANNOTATIONS = (
+    "pneumonia-challenge-annotations-adjudicated-kaggle_2018.json"
+)
 
 
 def _as_int(value: Any, default: int = 0) -> int:
@@ -26,11 +29,61 @@ def _as_int(value: Any, default: int = 0) -> int:
         return default
 
 
+def _load_annotation_labels(
+    path: str | Path,
+    label_group: str = "Calculated",
+) -> dict[str, int]:
+    """Derive binary opacity labels from the Labelbox annotation JSON.
+
+    The adjudicated export contains a ``Calculated`` label group with the
+    consensus labels ``Normal``, ``No Lung Opacity / Not Normal`` and
+    ``Lung Opacity``. That group is the official adjudicated label source; the
+    other groups contain raw reader annotations. A case is positive when the
+    calculated label is ``Lung Opacity``, and negative for the other two
+    calculated labels. Missing or ambiguous cases fall back to the mapping
+    label.
+    """
+    with open(path) as handle:
+        data = json.load(handle)
+    groups = data.get("labelGroups", [])
+    selected = [
+        group for group in groups if group.get("name") == label_group
+    ]
+    if not selected:
+        # The original annotation export has no Calculated group; use all
+        # labels as a fallback.
+        selected = groups
+    label_names = {
+        label.get("id"): str(label.get("name", ""))
+        for group in selected
+        for label in group.get("labels", [])
+    }
+    positive: set[str] = set()
+    negative: set[str] = set()
+    for annotation in data.get("datasets", [{}])[0].get("annotations", []):
+        sop = str(annotation.get("SOPInstanceUID", "") or "")
+        if not sop:
+            continue
+        name = label_names.get(annotation.get("labelId"), "")
+        if name.startswith("Lung Opacity") and annotation.get("data") is not None:
+            positive.add(sop)
+        elif name in ("Normal", "No Lung Opacity / Not Normal"):
+            negative.add(sop)
+    labels = {sop: 1 for sop in positive}
+    for sop in negative:
+        labels.setdefault(sop, 0)
+    return labels
+
+
 class RSNAPneumoniaDataset(BaseDataset):
     """RSNA Pneumonia Detection Challenge chest X-ray dataset.
 
     The dataset maps the challenge mapping JSON to one event per DICOM image.
-    Labels come from ``subset_init_label``:
+    By default, binary labels are derived from the ``Calculated`` label group
+    of the adjudicated annotation JSON (the official consensus labels:
+    ``Lung Opacity`` vs ``Normal`` / ``No Lung Opacity / Not Normal``). The
+    mapping file's ``subset_init_label`` is used as a fallback. Set
+    ``label_source="mapping"`` to use ``subset_init_label`` directly:
 
     - 1: lung opacity / pneumonia positive
     - 0 or 2: negative
@@ -43,6 +96,10 @@ class RSNAPneumoniaDataset(BaseDataset):
         root: Dataset root containing the mapping JSON and image directory.
         image_dir: Optional DICOM image directory.
         mapping_file: Optional path to the challenge mapping JSON.
+        annotations_file: Optional path to the Labelbox annotation JSON.
+        label_source: ``"auto"`` uses adjudicated annotations when available
+            and falls back to the mapping file; ``"mapping"`` uses
+            ``subset_init_label``; ``"annotations"`` requires annotations.
         dataset_name: Optional dataset name.
         config_path: Optional table configuration path.
         cache_dir: Directory for processed caches.
@@ -68,6 +125,8 @@ class RSNAPneumoniaDataset(BaseDataset):
         root: str,
         image_dir: str | None = None,
         mapping_file: str | None = None,
+        annotations_file: str | None = None,
+        label_source: str = "auto",
         dataset_name: str | None = None,
         config_path: str | None = None,
         cache_dir: str | None = None,
@@ -83,6 +142,8 @@ class RSNAPneumoniaDataset(BaseDataset):
             root: Dataset root directory.
             image_dir: Optional DICOM image directory.
             mapping_file: Optional mapping JSON path.
+            annotations_file: Optional annotation JSON path.
+            label_source: ``"auto"``, ``"mapping"`` or ``"annotations"``.
             dataset_name: Optional dataset name.
             config_path: Optional table configuration path.
             cache_dir: Directory for processed caches.
@@ -116,6 +177,37 @@ class RSNAPneumoniaDataset(BaseDataset):
                 f"Expected {_DEFAULT_MAPPING} under {source_root}."
             )
 
+        if label_source not in ("auto", "mapping", "annotations"):
+            raise ValueError(
+                "label_source must be 'auto', 'mapping' or 'annotations'."
+            )
+        self.annotations_path = (
+            Path(annotations_file).resolve()
+            if annotations_file is not None
+            else (source_root / _DEFAULT_ANNOTATIONS).resolve()
+        )
+        self.use_annotations = label_source == "annotations" or (
+            label_source == "auto" and self.annotations_path.exists()
+        )
+        if label_source == "annotations" and not self.annotations_path.exists():
+            raise FileNotFoundError(
+                f"RSNA annotation file not found: {self.annotations_path}."
+            )
+        self.annotation_label_group = "Calculated"
+        self.annotation_labels = (
+            _load_annotation_labels(
+                self.annotations_path, label_group=self.annotation_label_group
+            )
+            if self.use_annotations
+            else None
+        )
+        self.label_source = "annotations" if self.use_annotations else "mapping"
+        self._label_source_key = (
+            f"annotations:{self.annotation_label_group}"
+            if self.use_annotations
+            else "mapping"
+        )
+
         self.read_dicom_patient_id = bool(read_dicom_patient_id)
         name = dataset_name or self.default_dataset_name
         self.metadata_dir = (
@@ -127,9 +219,33 @@ class RSNAPneumoniaDataset(BaseDataset):
         self.metadata_path = (
             self.metadata_dir / "rsna-pneumonia-metadata-pyhealth.csv"
         )
-
-        if refresh_metadata or not self.metadata_path.exists():
+        self._label_source_marker = (
+            self.metadata_dir / "rsna-pneumonia-label-source.txt"
+        )
+        marker_source = (
+            self._label_source_marker.read_text().strip()
+            if self._label_source_marker.exists()
+            else None
+        )
+        if marker_source is None:
+            # Metadata written before label-source tracking lacks the
+            # annotation_label column expected by the current config.
+            needs_refresh = True
+        elif self.use_annotations:
+            needs_refresh = (
+                refresh_metadata
+                or not self.metadata_path.exists()
+                or marker_source != self._label_source_key
+            )
+        else:
+            needs_refresh = (
+                refresh_metadata
+                or not self.metadata_path.exists()
+                or marker_source != self._label_source_key
+            )
+        if needs_refresh:
             self.prepare_metadata()
+        self._label_source_marker.write_text(self._label_source_key)
 
         if config_path is None:
             config_path = str(
@@ -165,6 +281,16 @@ class RSNAPneumoniaDataset(BaseDataset):
                 / f"{sop_id}.dcm"
             )
             subset_label = _as_int(entry.get("subset_init_label", 0))
+            annotation_label = (
+                None
+                if self.annotation_labels is None
+                else self.annotation_labels.get(sop_id)
+            )
+            label = (
+                int(annotation_label)
+                if annotation_label is not None
+                else int(subset_label == 1)
+            )
             orig_labels = entry.get("orig_labels") or []
             row = {
                 "patient_id": study_id or sop_id,
@@ -177,7 +303,10 @@ class RSNAPneumoniaDataset(BaseDataset):
                 "view_position": "",
                 "rows": "",
                 "columns": "",
-                "label": 1 if subset_label == 1 else 0,
+                "label": label,
+                "annotation_label": (
+                    "" if annotation_label is None else int(annotation_label)
+                ),
                 "subset_init_label": subset_label,
                 "orig_labels": "|".join(str(label) for label in orig_labels),
                 "fold": _as_int(entry.get("subset_group", 0)),

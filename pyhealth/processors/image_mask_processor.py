@@ -1,7 +1,10 @@
 """Processor for reading a directory of image segmentation masks."""
 
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
+
+import numpy as np
 
 from . import register_processor
 from .image_io.readers.image_mask import (
@@ -30,6 +33,14 @@ class ImageMaskDirectoryProcessor(ImageProcessor):
         canonical: Reorient the mask like the reference DICOM volume.
         lazy: Store an :class:`ImageRef` instead of the stacked mask volume.
             Defaults to True, matching the other 3D image processors.
+        label_map: Optional mapping from raw pixel values to class indices.
+            Use this for datasets whose masks store scaled or sparse label
+            values, such as CHAOS MR masks.
+        num_classes: Optional number of classes, used by models to configure
+            the output head.
+        target_spacing: Target spacing in ``(D, H, W)`` order. Requires a
+            reference DICOM series for the affine.
+        target_shape: Target shape in ``(D, H, W)`` order.
 
     Examples:
         >>> from pyhealth.processors import ImageMaskDirectoryProcessor
@@ -46,6 +57,10 @@ class ImageMaskDirectoryProcessor(ImageProcessor):
         pattern: str = "*.png",
         canonical: bool = True,
         lazy: bool = True,
+        label_map: dict[int, int] | None = None,
+        num_classes: int | None = None,
+        target_spacing: Sequence[float] | None = None,
+        target_shape: Sequence[int] | None = None,
     ) -> None:
         """Initialize the image mask directory processor.
 
@@ -54,6 +69,11 @@ class ImageMaskDirectoryProcessor(ImageProcessor):
             pattern: Glob pattern for mask files.
             canonical: Reorient the mask like the reference DICOM volume.
             lazy: Store references instead of the stacked mask volume.
+            label_map: Optional raw-value to class-index mapping.
+            num_classes: Optional number of classes.
+            target_spacing: Target spacing in ``(D, H, W)`` order. Requires a
+                reference DICOM series for the affine.
+            target_shape: Target shape in ``(D, H, W)`` order.
         """
         super().__init__(
             image_size=None,
@@ -64,6 +84,14 @@ class ImageMaskDirectoryProcessor(ImageProcessor):
         self.pattern = pattern
         self.canonical = bool(canonical)
         self.lazy = bool(lazy)
+        self.label_map = (
+            None if label_map is None else {int(k): int(v) for k, v in label_map.items()}
+        )
+        self.num_classes = num_classes
+        self.target_spacing = (
+            None if target_spacing is None else tuple(target_spacing)
+        )
+        self.target_shape = None if target_shape is None else tuple(target_shape)
 
     @property
     def stores_tensor(self) -> bool:
@@ -120,7 +148,10 @@ class ImageMaskDirectoryProcessor(ImageProcessor):
             metadata=metadata,
             canonical=self.canonical,
             mode=self.mode,
+            target_spacing=getattr(self, "target_spacing", None),
+            target_shape=getattr(self, "target_shape", None),
         )
+        array = self._apply_label_map(array)
         return _to_torch(array, dtype="int64")
 
     def materialize(self, ref: ImageRef) -> Any:
@@ -137,8 +168,31 @@ class ImageMaskDirectoryProcessor(ImageProcessor):
             metadata=ref.metadata,
             canonical=self.canonical,
             mode=self.mode,
+            target_spacing=getattr(self, "target_spacing", None),
+            target_shape=getattr(self, "target_shape", None),
         )
+        array = self._apply_label_map(array)
         return _to_torch(array, dtype="int64")
+
+    def _apply_label_map(self, array: "np.ndarray") -> "np.ndarray":
+        """Map raw mask values to class indices, rejecting unknown values."""
+        label_map = getattr(self, "label_map", None)
+        if label_map is None:
+            return array
+        mapped = array.copy()
+        unknown = sorted(
+            int(value)
+            for value in np.unique(array)
+            if int(value) not in label_map
+        )
+        if unknown:
+            raise ValueError(
+                "Found mask labels without a mapping: "
+                f"{unknown}. Add them to label_map."
+            )
+        for source, target in label_map.items():
+            mapped[array == source] = target
+        return mapped
 
     def dim(self) -> tuple[int, ...]:
         """Return the output tensor rank."""

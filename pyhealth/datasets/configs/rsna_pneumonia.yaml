@@ -15,6 +15,7 @@ tables:
       - "rows"
       - "columns"
       - "label"
+      - "annotation_label"
       - "subset_init_label"
       - "orig_labels"
       - "fold"

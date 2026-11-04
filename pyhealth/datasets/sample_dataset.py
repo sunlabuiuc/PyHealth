@@ -1,5 +1,6 @@
 from collections.abc import Sequence
 from pathlib import Path
+import os
 import pickle
 import shutil
 import tempfile
@@ -571,6 +572,12 @@ class SampleDataset(litdata.StreamingDataset):
         self.task_name = "" if task_name is None else task_name
         self._delete_on_close = delete_on_close
         self._resolve_refs = bool(resolve_refs)
+        # litdata opens and caches chunk files lazily. After a fork, a child
+        # inherits those file descriptors, and the parent and child then share
+        # one file offset. Concurrent seek/read calls can read bytes from the
+        # wrong sample, which surfaces as a random UnpicklingError. Remember
+        # the owning process so every worker opens its own chunk handles.
+        self._cache_pid = os.getpid()
 
         with open(f"{path}/schema.pkl", "rb") as f:
             metadata = pickle.load(f)
@@ -595,6 +602,15 @@ class SampleDataset(litdata.StreamingDataset):
         all read through here, so every path decodes the stored payload and,
         unless ``resolve_refs=False``, materialises lazy image references.
         """
+        pid = os.getpid()
+        if pid != self._cache_pid:
+            # A forked DataLoader worker inherited the parent's litdata cache
+            # and its open chunk file. Drop it so this process opens fresh
+            # descriptors; otherwise parent and worker share one file offset
+            # and can corrupt each other's reads.
+            self.cache = None
+            self.shuffler = None
+            self._cache_pid = pid
         sample = _decode_record(super().__getitem__(index))
         if self._resolve_refs:
             return _resolve_image_refs(

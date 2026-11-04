@@ -155,6 +155,14 @@ class TestDicomReaderAndProcessor(unittest.TestCase):
         with self.assertRaises(ValueError):
             DicomSeriesReader().read_metadata(self.root)
 
+    def test_auto_normalize_requires_modality(self):
+        path = self._write_single()
+        dataset = pydicom.dcmread(str(path))
+        del dataset.Modality
+        dataset.save_as(str(path), enforce_file_format=True)
+        with self.assertRaises(ValueError):
+            DicomSeriesReader().load(str(path), normalize="auto")
+
     def test_series_processor(self):
         self._write_series()
         processor = DicomSeriesProcessor()

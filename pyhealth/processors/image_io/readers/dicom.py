@@ -523,6 +523,9 @@ class DicomSeriesReader(BaseImageReader):
         normalize: str | None = None,
         clip: tuple[float, float] | None = None,
         percentile_range: Sequence[float] = (1.0, 99.0),
+        intensity_stats: dict[str, float] | None = None,
+        use_nonzero_mask: bool = True,
+        mri_background_threshold: float | None = None,
         dtype: str = "float32",
         is_mask: bool = False,
         order: int | None = None,
@@ -544,6 +547,11 @@ class DicomSeriesReader(BaseImageReader):
             normalize: Intensity normalisation mode.
             clip: Optional ``(low, high)`` clipping range.
             percentile_range: Percentiles for ``normalize="percentile"``.
+            intensity_stats: Foreground statistics for ``normalize="ct"``.
+            use_nonzero_mask: For ``normalize="mri"``, normalise only non-zero
+                voxels. Defaults to True.
+            mri_background_threshold: Optional fraction of the 99th percentile
+                below which MRI voxels are treated as air/noise and zeroed.
             dtype: Output dtype for non-mask volumes.
             is_mask: Treat the input as a mask.
             order: Interpolation order. Defaults to 0 for masks and 1
@@ -638,10 +646,23 @@ class DicomSeriesReader(BaseImageReader):
         volume = volume_dhw[np.newaxis, ...]
         if is_mask:
             return np.ascontiguousarray(volume.astype(np.int64, copy=False))
+        if normalize == "auto":
+            modality = metadata.modality if metadata is not None else None
+            if not modality:
+                modality = str(getattr(entries[0][1], "Modality", "") or "")
+            if not modality:
+                raise ValueError(
+                    "normalize='auto' requires a DICOM Modality; pass "
+                    "'ct' or 'mri' explicitly."
+                )
+            normalize = "ct" if modality.upper() == "CT" else "mri"
         volume = normalize_intensity(
             volume,
             mode=normalize,
             clip=clip,
             percentile_range=percentile_range,
+            intensity_stats=intensity_stats,
+            use_nonzero_mask=use_nonzero_mask,
+            mri_background_threshold=mri_background_threshold,
         )
         return np.ascontiguousarray(volume.astype(dtype, copy=False))

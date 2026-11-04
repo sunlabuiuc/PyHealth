@@ -243,7 +243,7 @@ Available Tasks
     ChestX-ray14 Multilabel Classification <tasks/pyhealth.tasks.ChestXray14MultilabelClassification>
     MSD Segmentation <tasks/pyhealth.tasks.MSDSegmentationTask>
     RSNA Pneumonia Classification <tasks/pyhealth.tasks.RSNAPneumoniaClassification>
-    CHAOS Segmentation <tasks/pyhealth.tasks.CHAOSSegmentationTask>
+    CHAOS Segmentation Tasks <tasks/pyhealth.tasks.CHAOSSegmentation>
     Variant Classification (ClinVar) <tasks/pyhealth.tasks.VariantClassificationClinVar>
     Mutation Pathogenicity (COSMIC) <tasks/pyhealth.tasks.MutationPathogenicityPrediction>
     Cancer Survival Prediction (TCGA) <tasks/pyhealth.tasks.CancerSurvivalPrediction>

@@ -124,6 +124,57 @@ class TestRSNAPneumoniaDataset(unittest.TestCase):
             (self.root / "rsna-pneumonia-metadata-pyhealth.csv").exists()
         )
 
+    def test_annotation_labels_override_mapping(self):
+        annotations = {
+            "labelGroups": [
+                {
+                    "labels": [
+                        {"id": "L_pos", "name": "Lung Opacity"},
+                        {
+                            "id": "L_neg",
+                            "name": "No Lung Opacity / Not Normal",
+                        },
+                    ]
+                }
+            ],
+            "datasets": [
+                {
+                    "annotations": [
+                        {
+                            "SOPInstanceUID": "sop_1",
+                            "labelId": "L_neg",
+                            "data": None,
+                        },
+                        {
+                            "SOPInstanceUID": "sop_2",
+                            "labelId": "L_pos",
+                            "data": {"x": 1, "y": 1, "width": 2, "height": 2},
+                        },
+                    ]
+                }
+            ],
+        }
+        annotations_path = self.root / "annotations.json"
+        with open(annotations_path, "w") as handle:
+            json.dump(annotations, handle)
+        dataset = RSNAPneumoniaDataset(
+            root=str(self.root),
+            cache_dir=str(self.cache_dir),
+            metadata_dir=str(Path(self.temp_dir) / "metadata_annotations"),
+            annotations_file=str(annotations_path),
+            label_source="annotations",
+        )
+        self.assertEqual(dataset.label_source, "annotations")
+        labels = {
+            patient_id: int(
+                dataset.get_patient(patient_id).get_events()[0].label
+            )
+            for patient_id in dataset.unique_patient_ids
+        }
+        # sop_1 is overridden to negative, sop_2 to positive, sop_3 falls
+        # back to the mapping label.
+        self.assertEqual(labels, {"study_1": 0, "study_2": 1, "study_3": 0})
+
     @unittest.skipUnless(pydicom is not None, "pydicom is not installed")
     def test_read_dicom_patient_id(self):
         path = self.image_dir / "study_1" / "series_1" / "sop_1.dcm"

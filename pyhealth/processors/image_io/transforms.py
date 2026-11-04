@@ -4,7 +4,7 @@ Examples:
     >>> import numpy as np
     >>> from pyhealth.processors.image_io.transforms import normalize_intensity
     >>> normalize_intensity(np.array([0.0, 5.0, 10.0]), mode="minmax")
-    array([0. , 0.5, 1. ])
+    array([0. , 0.5, 1. ], dtype=float32)
 """
 
 from __future__ import annotations
@@ -145,7 +145,7 @@ def apply_window(
         >>> import numpy as np
         >>> from pyhealth.processors.image_io.transforms import apply_window
         >>> apply_window(np.array([0.0, 50.0, 100.0]), 50.0, 100.0)
-        array([0. , 0.5, 1. ])
+        array([0. , 0.5, 1. ], dtype=float32)
     """
     array = np.asarray(data, dtype=np.float32)
     if width == 0:
@@ -156,21 +156,109 @@ def apply_window(
     return np.clip(array, 0.0, 1.0)
 
 
+def _normalize_ct(
+    array: np.ndarray,
+    intensity_stats: dict[str, float] | None,
+    eps: float,
+) -> np.ndarray:
+    """Apply nnU-Net's CT normalisation.
+
+    When ``intensity_stats`` is absent, percentiles and mean/std are estimated
+    from this volume's foreground. Dataset-level statistics are preferred
+    because they match nnU-Net's fingerprinting step.
+    """
+    if intensity_stats is not None:
+        lower = float(intensity_stats["percentile_00_5"])
+        upper = float(intensity_stats["percentile_99_5"])
+        mean = float(intensity_stats["mean"])
+        std = float(intensity_stats["std"])
+    else:
+        lower, upper = (float(value) for value in np.percentile(array, [0.5, 99.5]))
+        clipped = np.clip(array, lower, upper)
+        foreground = clipped > lower
+        if not foreground.any():
+            foreground = np.ones_like(clipped, dtype=bool)
+        mean = float(clipped[foreground].mean())
+        std = float(clipped[foreground].std())
+    clipped = np.clip(array, lower, upper)
+    return (clipped - mean) / max(std, eps)
+
+
+def _normalize_mri(
+    array: np.ndarray,
+    use_nonzero_mask: bool,
+    eps: float,
+    background_threshold: float | None = None,
+) -> np.ndarray:
+    """Apply nnU-Net's per-image z-score normalisation.
+
+    When ``background_threshold`` is set, voxels below that fraction of the
+    99th percentile are treated as air/scanner noise and set to zero before
+    z-scoring.  Otherwise every non-zero voxel is normalised, matching the
+    original nnU-Net mask-for-norm behaviour.
+    """
+    if use_nonzero_mask:
+        positive = array > 0
+        if not positive.any():
+            return array.copy()
+        if background_threshold is None:
+            mask = positive
+        else:
+            threshold = max(
+                eps,
+                float(background_threshold) * float(np.percentile(array, 99)),
+            )
+            mask = array > threshold
+        if not mask.any():
+            return array.copy()
+        result = np.zeros_like(array, dtype=np.float32)
+        values = array[mask].astype(np.float32)
+        mean = float(values.mean())
+        std = float(values.std())
+        result[mask] = (values - mean) / max(std, eps)
+        return result
+    mean = float(array.mean())
+    std = float(array.std())
+    return (array - mean) / max(std, eps)
+
+
 def normalize_intensity(
     data: np.ndarray,
     mode: str | None = None,
     clip: tuple[float, float] | None = None,
     percentile_range: Iterable[float] = (1.0, 99.0),
+    intensity_stats: dict[str, float] | None = None,
+    use_nonzero_mask: bool = True,
+    mri_background_threshold: float | None = None,
+    eps: float = 1e-8,
 ) -> np.ndarray:
     """Normalise image intensities.
 
+    The ``"ct"`` and ``"mri"`` modes follow the two normalisation schemes of
+    nnU-Net. ``"ct"`` clips to the dataset's foreground percentiles and then
+    z-scores with the dataset's foreground mean/std. ``"mri"`` applies a
+    per-image z-score; by default only non-zero voxels are normalised, which
+    corresponds to nnU-Net's ``ZScoreNormalization`` with
+    ``use_mask_for_norm=True``.
+
     Args:
         data: Input array.
-        mode: One of ``None``, ``"minmax"``, ``"zscore"``, ``"percentile"``
-            or ``"hu"``.
+        mode: One of ``None``, ``"minmax"``, ``"zscore"``, ``"percentile"``,
+            ``"hu"``, ``"ct"`` or ``"mri"``.
         clip: Optional ``(low, high)`` clipping range applied before
             normalisation.
         percentile_range: Lower and upper percentiles for ``"percentile"``.
+        intensity_stats: Foreground intensity statistics for ``"ct"``, as
+            returned by
+            :func:`pyhealth.datasets.compute_foreground_intensity_stats`.
+            When omitted, per-volume foreground statistics are used.
+        use_nonzero_mask: For ``"mri"``, normalise only non-zero voxels.
+            Defaults to True.
+        mri_background_threshold: For ``"mri"``, optional fraction of the
+            99th percentile below which voxels are treated as air/noise and
+            set to zero. ``0.05`` works for DICOM MRI with an air background;
+            ``None`` keeps every non-zero voxel.
+        eps: Small value used to avoid division by zero.
 
     Returns:
         The normalised float32 array.
@@ -182,14 +270,32 @@ def normalize_intensity(
         >>> import numpy as np
         >>> from pyhealth.processors.image_io.transforms import normalize_intensity
         >>> normalize_intensity(np.array([0.0, 5.0, 10.0]), "minmax")
-        array([0. , 0.5, 1. ])
+        array([0. , 0.5, 1. ], dtype=float32)
+        >>> normalize_intensity(np.array([0.0, 1.0, 2.0]), "mri")
+        array([ 0., -1.,  1.], dtype=float32)
     """
     array = np.asarray(data, dtype=np.float32)
     if mode is None:
         return array
 
+    if mode == "auto":
+        raise ValueError(
+            "normalize='auto' must be resolved by the processor: use 'ct' or "
+            "'mri' when the modality is known."
+        )
+
     if clip is not None:
         array = np.clip(array, float(clip[0]), float(clip[1]))
+
+    if mode == "ct":
+        return _normalize_ct(array, intensity_stats, eps)
+    if mode == "mri":
+        return _normalize_mri(
+            array,
+            use_nonzero_mask,
+            eps,
+            background_threshold=mri_background_threshold,
+        )
 
     if mode == "minmax":
         low = float(np.min(array))
@@ -213,5 +319,5 @@ def normalize_intensity(
 
     raise ValueError(
         "Unknown intensity mode "
-        f"{mode!r}; expected minmax, zscore, percentile or hu."
+        f"{mode!r}; expected minmax, zscore, percentile, hu, ct or mri."
     )

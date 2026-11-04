@@ -70,11 +70,15 @@ from .msd import (
 from .mimic3 import MIMIC3Dataset
 from .mimic4 import MIMIC4CXRDataset, MIMIC4Dataset, MIMIC4EHRDataset, MIMIC4NoteDataset
 from .fhir import FHIRDataset, MIMIC4FHIR
+from .imaging.patches import PatchDataset as PatchDataset
 from .mimicextract import MIMICExtractDataset
 from .omop import OMOPDataset
 from .physionet_deid import PhysioNetDeIDDataset
 from .rsna_pneumonia import RSNAPneumoniaDataset as RSNAPneumoniaDataset
 from .sample_dataset import SampleBuilder, SampleDataset, create_sample_dataset
+from .imaging.stats import (
+    compute_foreground_intensity_stats as compute_foreground_intensity_stats,
+)
 from .shhs import SHHSDataset
 from .sleepedf import SleepEDFDataset
 from .bmd_hs import BMDHSDataset

@@ -8,8 +8,9 @@ from .base_task import BaseTask
 class RSNAPneumoniaClassification(BaseTask):
     """Classify RSNA chest X-rays as lung-opacity positive or negative.
 
-    The task reads one DICOM image per sample and uses the binary
-    ``pneumonia`` label from the RSNA mapping metadata.
+    The task reads one DICOM image per sample, applies grayscale ImageNet-style
+    normalisation, and uses the binary ``pneumonia`` label from the RSNA
+    metadata (adjudicated annotations when available).
 
     Examples:
         >>> from pyhealth.datasets import RSNAPneumoniaDataset
@@ -20,7 +21,16 @@ class RSNAPneumoniaClassification(BaseTask):
 
     task_name: str = "RSNAPneumoniaClassification"
     input_schema: ClassVar[dict[str, Any]] = {
-        "image": ("dicom", {"lazy": True, "mode": "L"}),
+        "image": (
+            "dicom",
+            {
+                "lazy": True,
+                "mode": "L",
+                "normalize": True,
+                "mean": [0.449],
+                "std": [0.226],
+            },
+        ),
     }
     output_schema: ClassVar[dict[str, str]] = {"pneumonia": "binary"}
 

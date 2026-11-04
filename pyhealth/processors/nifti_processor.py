@@ -22,13 +22,22 @@ class NiftiProcessor(FeatureProcessor):
         canonical: Reorient to canonical RAS. Defaults to True.
         target_spacing: Target spacing in ``(D, H, W)`` order.
         target_shape: Target shape in ``(D, H, W)`` order.
-        normalize: Intensity normalisation mode.
+        normalize: Intensity normalisation mode. ``"ct"`` and ``"mri"`` follow
+            nnU-Net's CT and z-score schemes.
         clip: Optional ``(low, high)`` intensity clipping range.
         percentile_range: Percentiles for ``normalize="percentile"``.
+        intensity_stats: Foreground statistics for ``normalize="ct"``.
+        use_nonzero_mask: For ``normalize="mri"``, normalise only non-zero
+            voxels. Defaults to True.
+        mri_background_threshold: For ``normalize="mri"``, optional fraction
+            of the 99th percentile below which voxels are treated as air/noise
+            and set to zero. Defaults to None, which keeps all non-zero voxels.
         dtype: Output dtype. Defaults to ``"float32"``.
         is_mask: Treat the input as a segmentation mask.
         channel_axis: Channel axis for 4D NIfTI inputs.
         order: Interpolation order. Defaults to 0 for masks and 1 otherwise.
+        num_classes: Optional number of segmentation classes, used by models
+            to configure the output head.
 
     Examples:
         >>> from pyhealth.processors import NiftiProcessor
@@ -49,10 +58,14 @@ class NiftiProcessor(FeatureProcessor):
         normalize: str | None = None,
         clip: tuple[float, float] | None = None,
         percentile_range: Sequence[float] = (1.0, 99.0),
+        intensity_stats: dict[str, float] | None = None,
+        use_nonzero_mask: bool = True,
+        mri_background_threshold: float | None = None,
         dtype: str = "float32",
         is_mask: bool = False,
         channel_axis: int = -1,
         order: int | None = None,
+        num_classes: int | None = None,
     ) -> None:
         """Initialize the NIfTI processor.
 
@@ -80,10 +93,16 @@ class NiftiProcessor(FeatureProcessor):
         self.normalize = normalize
         self.clip = clip
         self.percentile_range = tuple(percentile_range)
+        self.intensity_stats = (
+            None if intensity_stats is None else dict(intensity_stats)
+        )
+        self.use_nonzero_mask = bool(use_nonzero_mask)
+        self.mri_background_threshold = mri_background_threshold
         self.dtype = dtype
         self.is_mask = bool(is_mask)
         self.channel_axis = channel_axis
         self.order = order
+        self.num_classes = num_classes
 
     @property
     def stores_tensor(self) -> bool:
@@ -148,6 +167,11 @@ class NiftiProcessor(FeatureProcessor):
             "normalize": self.normalize,
             "clip": self.clip,
             "percentile_range": self.percentile_range,
+            "intensity_stats": getattr(self, "intensity_stats", None),
+            "use_nonzero_mask": getattr(self, "use_nonzero_mask", True),
+            "mri_background_threshold": getattr(
+                self, "mri_background_threshold", None
+            ),
             "dtype": self.dtype,
             "is_mask": self.is_mask,
             "channel_axis": self.channel_axis,

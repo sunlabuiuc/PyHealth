@@ -9,13 +9,14 @@ Examples:
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 from PIL import Image
 
-from ..transforms import canonicalize_volume
+from ..transforms import canonicalize_volume, resample_volume
 from ..types import ImageMetadata, PathLike
 from .base import BaseImageReader
 from .dicom import DicomSeriesReader
@@ -118,6 +119,8 @@ class ImageMaskReader(BaseImageReader):
         canonical: bool = True,
         mode: str | None = None,
         image_processor: Any = None,
+        target_spacing: Sequence[float] | None = None,
+        target_shape: Sequence[int] | None = None,
     ) -> np.ndarray:
         """Load image slices and stack them into ``(1, D, H, W)``.
 
@@ -129,6 +132,9 @@ class ImageMaskReader(BaseImageReader):
             mode: Optional PIL mode conversion.
             image_processor: Optional pre-built ``ImageProcessor`` used to
                 read each slice.
+            target_spacing: Target spacing in ``(D, H, W)`` order. Masks use
+                nearest-neighbour interpolation.
+            target_shape: Target shape in ``(D, H, W)`` order.
 
         Returns:
             A contiguous ``int64`` array with shape ``(1, D, H, W)``.
@@ -154,14 +160,36 @@ class ImageMaskReader(BaseImageReader):
         # Nibabel does not accept bool or int64 data when reorienting, so use
         # int32 for the intermediate volume and widen after canonicalisation.
         volume = np.stack(slices, axis=0).astype(np.int32, copy=False)
-        if (
-            canonical
-            and metadata is not None
-            and metadata.affine is not None
-        ):
+        affine = None
+        if metadata is not None and metadata.affine is not None:
+            affine = np.asarray(metadata.affine, dtype=float)
+        if canonical and affine is not None:
             volume_xyz = np.transpose(volume, (2, 1, 0))
-            volume_xyz, _ = canonicalize_volume(
-                volume_xyz, np.asarray(metadata.affine, dtype=float)
+            volume_xyz, affine = canonicalize_volume(volume_xyz, affine)
+            volume = np.transpose(volume_xyz, (2, 1, 0))
+        if target_spacing is not None or target_shape is not None:
+            if affine is None:
+                raise ValueError(
+                    "Mask resampling requires a reference affine; pass the "
+                    "DICOM series path as the second mask value."
+                )
+            volume_xyz = np.transpose(volume, (2, 1, 0))
+            spacing_xyz = (
+                None
+                if target_spacing is None
+                else tuple(reversed(tuple(target_spacing)))
+            )
+            shape_xyz = (
+                None
+                if target_shape is None
+                else tuple(reversed(tuple(target_shape)))
+            )
+            volume_xyz, _ = resample_volume(
+                volume_xyz,
+                affine,
+                target_spacing=spacing_xyz,
+                target_shape=shape_xyz,
+                order=0,
             )
             volume = np.transpose(volume_xyz, (2, 1, 0))
         return np.ascontiguousarray(volume, dtype=np.int64)[None, ...]

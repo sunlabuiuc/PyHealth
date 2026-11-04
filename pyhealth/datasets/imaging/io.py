@@ -8,7 +8,7 @@ import zipfile
 from collections.abc import Sequence
 from pathlib import Path
 
-from ..utils import download_file
+from ...utils import download_file
 
 logger = logging.getLogger(__name__)
 
