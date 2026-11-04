@@ -2,7 +2,13 @@ Survival-curve metrics
 ======================
 
 These metrics evaluate predicted survival probabilities against right-censored
-outcomes. They complement metrics that accept one risk score per patient.
+outcomes. They complement :mod:`pyhealth.metrics.survival`, which provides
+Harrell's concordance index and Brier/AUC scores at individual horizons.
+This module instead provides IPCW time-dependent concordance, integrated
+Brier/log-likelihood scores and D-calibration, following the Survival MDN
+evaluator's curve comparisons and linearly interpolated censoring estimate.
+The two APIs use different weighting and tie conventions and are not
+interchangeable for paper comparisons.
 Inputs are CPU arrays or callbacks returning patient-ordered NumPy arrays.
 
 Concordance and integrated binomial log-likelihood are higher-is-better; the
