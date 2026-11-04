@@ -15,6 +15,7 @@ from pyhealth.processors import (
     DeepNestedSequenceProcessor,
     NestedFloatsProcessor,
     NestedSequenceProcessor,
+    StageNetProcessor,
 )
 
 LOGGER = DEEP_LOGGER = "pyhealth.processors.base_processor"
@@ -79,6 +80,38 @@ class TestDeepNestedTruncation(unittest.TestCase):
                     out = p.process([[[1.0, 2.0, 9.0], [3.0]]])
                 self.assertEqual(tuple(out.shape), (1, 2, 2))
                 self.assertEqual(out[0, 0].tolist(), [1.0, 2.0])
+
+
+class TestStageNetTruncation(unittest.TestCase):
+    def setUp(self):
+        self.p = StageNetProcessor()
+        self.p.fit([{"v": ([0.0], [["a", "b"]])}], "v")  # fitted width 2
+
+    def test_longer_visit_is_truncated_to_fitted_width(self):
+        with self.assertLogs(LOGGER, "WARNING"):
+            time, out = self.p.process(([0.0], [["a", "b", "c", "d"]]))
+        self.assertEqual(tuple(out.shape), (1, 2))
+        vocab = self.p.code_vocab
+        self.assertEqual(out.tolist(), [[vocab["a"], vocab["b"]]])
+        self.assertEqual(time.tolist(), [0.0])
+
+    def test_longer_and_shorter_visits_in_one_sample(self):
+        with self.assertLogs(LOGGER, "WARNING"):
+            _, out = self.p.process(([0.0, 1.0], [["a"], ["a", "b", "c"]]))
+        self.assertEqual(tuple(out.shape), (2, 2))
+
+    def test_warns_once_per_processor(self):
+        with self.assertLogs(LOGGER, "WARNING") as logs:
+            self.p.process(([0.0], [["a", "b", "c"]]))
+            self.p.process(([0.0], [["a", "b", "c", "d"]]))
+        self.assertEqual(len(logs.records), 1)
+
+    def test_padding_keeps_longer_visits(self):
+        p = StageNetProcessor(padding=2)
+        p.fit([{"v": ([0.0], [["a", "b"]])}], "v")
+        with self.assertNoLogs(LOGGER, "WARNING"):
+            _, out = p.process(([0.0], [["a", "b", "c", "d"]]))
+        self.assertEqual(tuple(out.shape), (1, 4))
 
 
 if __name__ == "__main__":
