@@ -14,7 +14,13 @@ try:
 except ImportError:  # pragma: no cover - test env installs the extra
     pydicom = None
 
-from pyhealth.processors import DicomProcessor, DicomSeriesProcessor
+from PIL import Image
+
+from pyhealth.processors import (
+    DicomProcessor,
+    DicomSeriesProcessor,
+    ImageMaskDirectoryProcessor,
+)
 from pyhealth.processors.image_io.readers.dicom import DicomReader, DicomSeriesReader
 from pyhealth.processors.image_io.types import ImageRef
 
@@ -28,6 +34,8 @@ def _write_slice(
     study_uid: str,
     *,
     include_position: bool = True,
+    iop: list[float] | None = None,
+    position: list[float] | None = None,
 ) -> None:
     """Write one small CT DICOM slice."""
     file_meta = FileMetaDataset()
@@ -57,9 +65,9 @@ def _write_slice(
     dataset.PixelSpacing = [1.0, 2.0]
     dataset.SliceThickness = 2.0
     dataset.InstanceNumber = instance
-    dataset.ImageOrientationPatient = [1, 0, 0, 0, 1, 0]
+    dataset.ImageOrientationPatient = iop or [1, 0, 0, 0, 1, 0]
     if include_position:
-        dataset.ImagePositionPatient = [0.0, 0.0, z]
+        dataset.ImagePositionPatient = position or [0.0, 0.0, z]
     dataset.RescaleSlope = 1.0
     dataset.RescaleIntercept = -1024.0
     array = np.full((6, 8), stored_value, dtype=np.int16)
@@ -138,6 +146,39 @@ class TestDicomReaderAndProcessor(unittest.TestCase):
         volume = DicomSeriesReader().load(self.root, metadata=metadata)
         self.assertEqual(volume.shape, (1, 3, 6, 8))
         self.assertEqual(set(np.unique(volume).tolist()), {0.0, 1.0, 2.0})
+
+    def test_non_axial_series_metadata_matches_loaded(self):
+        iop = [0, 1, 0, 0, 0, 1]
+        for index in range(3):
+            _write_slice(
+                self.root / f"IMG-{index}.dcm",
+                1024,
+                float(index),
+                index + 1,
+                self.series_uid,
+                self.study_uid,
+                iop=iop,
+                position=[float(index) * 3.0, 0.0, 0.0],
+            )
+        metadata = DicomSeriesReader().read_metadata(self.root)
+        volume = DicomSeriesReader().load(self.root, metadata=metadata)
+        self.assertEqual(metadata.shape, volume.shape)
+        self.assertEqual(metadata.spacing, (1.0, 2.0, 2.0))
+        self.assertEqual(metadata.orientation, "RAS")
+
+    def test_dicom_aligned_mask_order(self):
+        self._write_series()
+        mask_dir = self.root / "masks"
+        mask_dir.mkdir()
+        for index in range(3):
+            array = np.zeros((6, 8), dtype=np.uint8)
+            array[0, 0] = index + 1
+            Image.fromarray(array).save(mask_dir / f"IMG-{index}.png")
+        processor = ImageMaskDirectoryProcessor(lazy=False, canonical=False)
+        tensor = processor.process((mask_dir, self.root))
+        # DICOM positions are z=(4, 0, 2), so the mask order is IMG-1, IMG-2,
+        # IMG-0 and the marker values are (2, 3, 1).
+        self.assertEqual(tensor[0, :, 0, 0].tolist(), [2, 3, 1])
 
     def test_series_falls_back_to_instance_number(self):
         self._write_series(include_position=False)

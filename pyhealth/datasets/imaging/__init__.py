@@ -2,8 +2,7 @@
 
 This package holds imaging utilities that are not tied to one dataset loader:
 file download/archive helpers, the patch-based dataset view, and foreground
-intensity statistics. Dataset loaders such as ``msd.py`` and ``chaos.py`` stay
-at the top level of :mod:`pyhealth.datasets`.
+intensity statistics.
 """
 
 from .patches import PatchDataset as PatchDataset

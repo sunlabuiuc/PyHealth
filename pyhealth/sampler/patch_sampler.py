@@ -54,8 +54,9 @@ class PatchSampler:
     """Sample patch locations, optionally oversampling the foreground.
 
     Args:
-        patch_size: Patch size as one int or a tuple of 2 or 3 ints. A 2-tuple
-            samples a 2D patch from a 3D volume (one slice at a time).
+        patch_size: Patch size as a tuple of 2 or 3 ints. A 2-tuple samples a
+            2D patch from a 3D volume (one slice at a time); a 3-tuple samples
+            a 3D patch.
         foreground_prob: Probability of forcing the patch to contain a
             foreground voxel when the mask has one. Defaults to 1/3.
         rng: Random source with ``random()`` and ``randrange()`` methods.
@@ -77,20 +78,18 @@ class PatchSampler:
 
     def __init__(
         self,
-        patch_size: Sequence[int] | int,
+        patch_size: Sequence[int],
         foreground_prob: float = 1.0 / 3.0,
         rng: random.Random | None = None,
         ignore_index: int = 255,
     ) -> None:
         if not 0.0 <= float(foreground_prob) <= 1.0:
             raise ValueError("foreground_prob must be between 0 and 1.")
-        raw = (
-            (int(patch_size),)
-            if isinstance(patch_size, int)
-            else tuple(int(v) for v in patch_size)
-        )
+        if isinstance(patch_size, int):
+            raise TypeError("patch_size must be a 2/3-tuple, not an int.")
+        raw = tuple(int(v) for v in patch_size)
         if len(raw) not in (2, 3):
-            raise ValueError("patch_size must be an int or a 2/3-tuple.")
+            raise ValueError("patch_size must be a 2/3-tuple.")
         if any(v <= 0 for v in raw):
             raise ValueError("patch_size values must be positive.")
         self.patch_size = raw

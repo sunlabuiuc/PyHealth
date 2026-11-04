@@ -21,6 +21,10 @@ class TestPatchSampler(unittest.TestCase):
             ]
             self.assertGreater(int(patch.sum()), 0)
 
+    def test_int_patch_size_is_rejected(self):
+        with self.assertRaisesRegex(TypeError, "2/3-tuple"):
+            PatchSampler(4)  # type: ignore[arg-type]
+
     def test_random_fallback_without_foreground(self):
         sampler = PatchSampler((4, 4, 4), foreground_prob=1.0)
         mask = np.zeros((10, 10, 10), dtype=np.int64)

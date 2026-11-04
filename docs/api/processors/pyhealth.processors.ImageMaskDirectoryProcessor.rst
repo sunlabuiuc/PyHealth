@@ -1,5 +1,5 @@
 pyhealth.processors.ImageMaskDirectoryProcessor
-=============================================
+===============================================
 
 Processor for a directory of 2D image mask slices in any PIL-readable
 format. The default glob is ``*.png``; pass ``pattern`` to use another format

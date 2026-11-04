@@ -24,23 +24,6 @@ def _resolve_metadata_dir(cache_dir: str | Path | None, dataset_name: str) -> Pa
     return base / "metadata" / dataset_name
 
 
-def _absolute_path(root: str | Path, path: str | Path) -> str:
-    """Resolve a possibly relative dataset path to an absolute path string."""
-    candidate = Path(path)
-    if not candidate.is_absolute():
-        candidate = Path(root) / candidate
-    return str(candidate.resolve())
-
-
-def _strip_nii_suffix(path: str | Path) -> str:
-    """Return a case ID from a NIfTI path, removing ``.nii``/``.nii.gz``."""
-    name = Path(path).name
-    for suffix in (".nii.gz", ".nii"):
-        if name.endswith(suffix):
-            return name[: -len(suffix)]
-    return Path(path).stem
-
-
 def _safe_member_path(destination: Path, member: str) -> Path:
     """Resolve an archive member and reject paths outside destination."""
     target = (destination / member).resolve()
