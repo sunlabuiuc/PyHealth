@@ -13,16 +13,38 @@ References:
       Time-Frequency Motif Learning. ICLR 2026.
       https://github.com/Jathurshan0330/TFM-Tokenizer
 
-The full corpus is large. Pass ``--subjects`` to try a few cases first.
-``compute_stft`` is off because SparcNet takes a single feature.
+The full corpus is large. Pass ``--subjects`` to try a few cases first,
+for example ``--subjects 1 2 3``. ``compute_stft`` is off because SparcNet
+takes a single feature. Extra (augmented) seizure windows are kept for
+training but dropped from validation and test, so those metrics are on the
+regular non-overlapping windows only.
 """
 
 import argparse
 
-from pyhealth.datasets import CHBMITDataset, SubjectSplit, get_dataloader
+from pyhealth.datasets import (
+    CHBMITDataset,
+    SampleDataset,
+    SubjectSplit,
+    get_dataloader,
+)
 from pyhealth.models import SparcNet
 from pyhealth.tasks import SeizureDetectionCHBMIT
+from pyhealth.tasks.seizure_detection_chbmit import normalize_subject
 from pyhealth.trainer import Trainer
+
+
+def drop_augmented(dataset: SampleDataset) -> SampleDataset:
+    """Keep only the regular windows of a split part.
+
+    Args:
+        dataset: A split part returned by ``set_task``.
+
+    Returns:
+        A subset view without the ``is_augmented == 1`` windows.
+    """
+    keep = [i for i in range(len(dataset)) if int(dataset[i]["is_augmented"]) == 0]
+    return dataset.subset(keep)
 
 
 def main() -> None:
@@ -57,20 +79,25 @@ def main() -> None:
     print(dataset.stats())
 
     if args.subjects:
-        if len(args.subjects) < 3:
+        subjects = [normalize_subject(s) for s in args.subjects]
+        if len(subjects) < 3:
             parser.error("--subjects needs at least one train, one val and one test id")
-        split = SubjectSplit((args.subjects[:1], args.subjects[1:2], args.subjects[2:]))
+        split = SubjectSplit((subjects[:1], subjects[1:2], subjects[2:]))
     else:
         split = dataset.default_subject_split()
 
     # div_by_100 and cbramod match the CBraMod loader. STFT is omitted so
-    # the sample has the one signal feature SparcNet expects.
+    # the sample has the one signal feature SparcNet expects. Restricting
+    # the task to the split's subjects skips reading every other EDF.
     task = SeizureDetectionCHBMIT(
         normalization="div_by_100",
         label_mode="cbramod",
         compute_stft=False,
+        subjects=[s for part in split.subjects for s in part],
     )
     train_dataset, val_dataset, test_dataset = dataset.set_task(task, split=split)
+    val_dataset = drop_augmented(val_dataset)
+    test_dataset = drop_augmented(test_dataset)
     print(
         "samples train/val/test",
         len(train_dataset),

@@ -8,6 +8,14 @@ For each recording the task keeps 16 bipolar channels, cuts non-overlapping
 follows CBraMod and TFM-Tokenizer. Extra seizure windows are tagged with
 ``is_augmented`` so they can be dropped from validation and test.
 
+The label is ``binary`` (1 seizure, 0 background), so the trainer reports
+binary metrics such as ``pr_auc`` and ``roc_auc``.
+
+Resampling is done per window, as in CBraMod: windows are cut at the native
+256 Hz and each one is resampled to ``resample_rate``. TUAB and TUEV instead
+resample the whole recording before windowing, so values near window edges
+differ slightly if you compare the two pipelines.
+
 Task parameters:
 
 - resample_rate: float, default=200

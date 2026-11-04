@@ -216,7 +216,7 @@ class TestSeizureDetectionCHBMIT(unittest.TestCase):
             {"signal": "tensor"},
         )
         self.assertEqual(
-            SeizureDetectionCHBMIT().output_schema, {"label": "multiclass"}
+            SeizureDetectionCHBMIT().output_schema, {"label": "binary"}
         )
         with self.assertRaises(ValueError):
             SeizureDetectionCHBMIT(label_mode="nope")

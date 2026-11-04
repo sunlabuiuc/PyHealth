@@ -51,7 +51,7 @@ BIPOLAR_CHANNELS: tuple[str, ...] = (
 )
 
 
-def _normalize_subject(subject: str) -> str:
+def normalize_subject(subject: str) -> str:
     """Canonicalize a CHB-MIT subject id to ``chbXX``.
 
     ``"chb01"``, ``"CHB1"`` and ``"1"`` all become ``"chb01"``. Ids that are
@@ -63,6 +63,11 @@ def _normalize_subject(subject: str) -> str:
 
     Returns:
         The canonical subject id.
+
+    Examples:
+        >>> from pyhealth.tasks.seizure_detection_chbmit import normalize_subject
+        >>> [normalize_subject(s) for s in ("1", "CHB2", "chb10")]
+        ['chb01', 'chb02', 'chb10']
     """
     text = str(subject).strip().lower()
     if text.startswith("chb"):
@@ -252,10 +257,13 @@ class SeizureDetectionCHBMIT(BaseTask):
     - ``is_augmented``: 1 for an extra seizure window, else 0
     - ``stft``: time-frequency tensor, when ``compute_stft`` is True
 
-    The label schema is ``multiclass`` for the same reason as
-    :class:`~pyhealth.tasks.temple_university_EEG_tasks.EEGAbnormalTUAB`:
-    PyHealth's conformal predictors need a softmax over classes. Two-class
-    softmax is equivalent to a sigmoid for this binary problem.
+    The label schema is ``binary``, so models use a sigmoid output and the
+    trainer reports binary metrics (``pr_auc``, ``roc_auc``, ``f1``).
+
+    Each window is resampled on its own, as CBraMod does, so seizure
+    boundaries stay in native-rate sample indices. TUAB and TUEV resample
+    the whole recording before windowing, so values near window edges
+    differ slightly between the two approaches.
 
     Args:
         resample_rate: Samples per second after resampling. CBraMod uses 200.
@@ -293,7 +301,7 @@ class SeizureDetectionCHBMIT(BaseTask):
 
     task_name: str = "CHBMIT_seizure_detection"
     input_schema: ClassVar[dict[str, str]] = {"signal": "tensor", "stft": "tensor"}
-    output_schema: ClassVar[dict[str, str]] = {"label": "multiclass"}
+    output_schema: ClassVar[dict[str, str]] = {"label": "binary"}
 
     def __init__(
         self,
@@ -330,7 +338,7 @@ class SeizureDetectionCHBMIT(BaseTask):
         self.subjects = (
             None
             if subjects is None
-            else tuple(sorted({_normalize_subject(s) for s in subjects}))
+            else tuple(sorted({normalize_subject(s) for s in subjects}))
         )
         if not compute_stft:
             self.input_schema = {"signal": "tensor"}
@@ -476,7 +484,7 @@ class SeizureDetectionCHBMIT(BaseTask):
             Window samples for that subject. Empty when ``subjects`` was set
             and this subject is not in it.
         """
-        patient_id = _normalize_subject(patient.patient_id)
+        patient_id = normalize_subject(patient.patient_id)
         if self.subjects is not None and patient_id not in self.subjects:
             return []
         samples: list[dict[str, Any]] = []
