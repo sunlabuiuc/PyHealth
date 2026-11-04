@@ -362,9 +362,17 @@ class _YAIBMIMIC4Task(BaseTask):
         )
 
     def _measurements(
-        self, patient: Any, stays: pl.DataFrame, items: pl.DataFrame
+        self,
+        patient: Any,
+        stays: pl.DataFrame,
+        items: pl.DataFrame,
+        exact_hours: bool = False,
     ) -> pl.DataFrame:
-        """Returns valid measurements as (stay_id, hour, feature, value, is_sum)."""
+        """Returns valid measurements as (stay_id, hour, feature, value, is_sum).
+
+        With ``exact_hours``, a last column ``hours`` holds the fractional
+        hours since ICU admission (``hour`` is its floor).
+        """
         frames = []
         for table, value_column in _VALUE_COLUMNS.items():
             table_items = items.filter(pl.col("table") == table)
@@ -392,8 +400,11 @@ class _YAIBMIMIC4Task(BaseTask):
                 events = self._assign_stays(events, stays)
             frames.append(events.drop("hadm_id"))
 
+        schema = dict(_MEASUREMENT_SCHEMA)
+        if exact_hours:
+            schema["hours"] = pl.Float64
         if not frames:
-            return pl.DataFrame(schema=_MEASUREMENT_SCHEMA)
+            return pl.DataFrame(schema=schema)
 
         converted = pl.col("unit").str.contains(pl.col("unit_regex")).fill_null(False)
         return (
@@ -405,6 +416,10 @@ class _YAIBMIMIC4Task(BaseTask):
                 .otherwise(pl.col("value"))
                 .alias("value"),
                 _hours_since("intime").alias("hour"),
+                (
+                    (pl.col("timestamp") - pl.col("intime")).dt.total_seconds()
+                    / 3600
+                ).alias("hours"),
             )
             .filter(
                 pl.col("value").is_not_null()
@@ -412,7 +427,7 @@ class _YAIBMIMIC4Task(BaseTask):
                 & (pl.col("lower").is_null() | (pl.col("value") >= pl.col("lower")))
                 & (pl.col("upper").is_null() | (pl.col("value") <= pl.col("upper")))
             )
-            .select(list(_MEASUREMENT_SCHEMA))
+            .select(list(schema))
         )
 
     @staticmethod
