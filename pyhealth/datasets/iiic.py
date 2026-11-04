@@ -389,22 +389,29 @@ class IIICDataset(BaseDataset):
             keys = np.load(k_path)
 
             if Y.ndim == 2:
-                part_df = pd.DataFrame(Y, columns=[0, 1, 2, 3, 4, 5])
+                votes = pd.DataFrame(Y, columns=[0, 1, 2, 3, 4, 5])
             else:
-                # If 1D class indices are provided, convert to one-hot vote counts
                 one_hot = np.zeros((len(Y), 6), dtype=np.int64)
                 for idx_r, lbl in enumerate(Y):
                     one_hot[idx_r, int(lbl)] = 10
-                part_df = pd.DataFrame(one_hot, columns=[0, 1, 2, 3, 4, 5])
+                votes = pd.DataFrame(one_hot, columns=[0, 1, 2, 3, 4, 5])
 
-            part_df["key"] = keys.astype(str)
+            # Match _read_X: {k: X[i] for i, k in enumerate(key)} (last occurrence wins)
+            last_idx_map = {str(k): i for i, k in enumerate(keys)}
+
+            votes["key"] = keys.astype(str)
+            votes["majority"] = np.argmax(votes[[0, 1, 2, 3, 4, 5]].values, axis=1)
+            mask = (
+                votes[[0, 1, 2, 3, 4, 5]].values.sum(axis=1)
+                + votes["majority"].values
+            ) > self.vote_threshold
+
+            part_df = votes[mask].sort_values(["key"], ascending=True).copy()
+            part_df = part_df.reset_index(drop=True)
+            part_df = part_df.drop_duplicates(subset=["key"], keep="first").copy()
+            part_df["pid"] = part_df["key"].map(lambda s: str(s).split("_")[0])
             part_df["source_id"] = source_id
-            part_df["row_idx"] = np.arange(len(keys), dtype=np.int64)
-
-            vote_sums = part_df[[0, 1, 2, 3, 4, 5]].values.sum(axis=1)
-            part_df = part_df[vote_sums > self.vote_threshold].copy()
-            part_df.sort_values(by="key", ascending=True, inplace=True)
-            part_df.drop_duplicates(subset="key", keep="first", inplace=True)
+            part_df["row_idx"] = part_df["key"].map(last_idx_map).astype(np.int64)
 
             df_parts.append(part_df)
             x_arrays.append(X_mmap)
@@ -413,9 +420,6 @@ class IIICDataset(BaseDataset):
             return pd.DataFrame()
 
         combined = pd.concat(df_parts, axis=0, ignore_index=True)
-        combined.sort_values(by="key", ascending=True, inplace=True)
-        combined.drop_duplicates(subset="key", keep="first", inplace=True)
-        combined.reset_index(drop=True, inplace=True)
 
         # Filter out flat zero-std segments
         valid_mask: List[bool] = []
@@ -429,13 +433,8 @@ class IIICDataset(BaseDataset):
         if combined.empty:
             return pd.DataFrame()
 
-        combined["majority"] = np.argmax(
-            combined[[0, 1, 2, 3, 4, 5]].values, axis=1
-        ).astype(int)
-        combined["pid"] = combined["key"].apply(lambda k: str(k).split("_")[0])
-
         # Patient-level split matching Biosignal_Token (seed=5, 60/20/20)
-        pid_list = list(pd.unique(combined["pid"]))
+        pid_list = combined["pid"].unique().copy()
         rng = np.random.RandomState(self.seed)
         rng.shuffle(pid_list)
 
