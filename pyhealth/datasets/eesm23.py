@@ -20,8 +20,8 @@ References:
       (``datasets_processing/EarEEG/process.py``, ``EarEEGloader``)
 """
 
-import hashlib
 import logging
+import re
 from pathlib import Path
 
 import pandas as pd
@@ -29,15 +29,25 @@ import pandas as pd
 from pyhealth.tasks import SleepStagingEarEEG
 
 from .base_dataset import BaseDataset
+from .metadata_csv import (
+    metadata_cache_dir,
+    metadata_csv_exists,
+    resolve_metadata_root,
+    write_metadata_csv,
+)
 
 logger = logging.getLogger(__name__)
+
+_CSV_NAME = "eesm23-pyhealth.csv"
+
+# BIDS file names start with ``sub-XXX_ses-YYY_``. Reading the ids from the
+# file name, not the path, keeps a root such as ``/data/sub-study/...`` from
+# overriding every night's subject.
+_BIDS_IDS = re.compile(r"^(sub-[A-Za-z0-9]+)_(ses-[A-Za-z0-9]+)_")
 
 
 def _metadata_cache_dir(root: str | Path) -> Path:
     """Return the home-cache directory used when ``root`` is not writable.
-
-    The directory is keyed by a hash of the resolved root, so two dataset
-    roots never share cached metadata or each other's ``signal_file`` paths.
 
     Args:
         root: Dataset root directory.
@@ -45,9 +55,7 @@ def _metadata_cache_dir(root: str | Path) -> Path:
     Returns:
         ``~/.cache/pyhealth/eesm23/<hash of root>``.
     """
-    resolved = str(Path(root).expanduser().resolve())
-    digest = hashlib.sha256(resolved.encode("utf-8")).hexdigest()[:16]
-    return Path.home() / ".cache" / "pyhealth" / "eesm23" / digest
+    return metadata_cache_dir(root, "eesm23")
 
 
 def _scoring_path(signal_file: Path) -> Path:
@@ -78,19 +86,27 @@ def _failures_path(signal_file: Path) -> Path:
     return signal_file.parent / name
 
 
-def _row_for_signal_file(signal_file: Path) -> dict:
+def _row_for_signal_file(signal_file: Path) -> dict | None:
     """Build one metadata row from a BIDS ear-EEG ``.set`` path.
+
+    The subject and session come from the file name
+    (``sub-XXX_ses-YYY_...``), never from the directories above the file.
 
     Args:
         signal_file: Resolved path to an ear-EEG recording.
 
     Returns:
         Row dict with ``patient_id``, ``session_id``, file paths and
-        ``has_scoring`` (``"1"`` or ``"0"``).
+        ``has_scoring`` (``"1"`` or ``"0"``), or None when the file name is
+        not BIDS-style.
     """
-    parts = signal_file.parts
-    patient_id = next(p for p in parts if p.startswith("sub-"))
-    session_id = next(p for p in parts if p.startswith("ses-"))
+    match = _BIDS_IDS.match(signal_file.name)
+    if match is None:
+        logger.warning(
+            "Skipping file without sub-/ses- ids in its name: %s", signal_file
+        )
+        return None
+    patient_id, session_id = match.groups()
     scoring = _scoring_path(signal_file)
     failures = _failures_path(signal_file)
     has_scoring = scoring.is_file()
@@ -162,16 +178,8 @@ class EESM23Dataset(BaseDataset):
         self.root = root
         self.prepare_metadata()
 
-        root_path = Path(root)
-        cache_dir = _metadata_cache_dir(root_path)
-        shared_csv = root_path / "eesm23-pyhealth.csv"
-        cache_csv = cache_dir / "eesm23-pyhealth.csv"
-        if not shared_csv.exists() and cache_csv.exists():
-            logger.info("Using cached metadata from %s", cache_dir)
-            root = str(cache_dir)
-
         super().__init__(
-            root=root,
+            root=resolve_metadata_root(root, "eesm23", _CSV_NAME),
             tables=["recordings"],
             dataset_name=dataset_name or "eesm23",
             config_path=config_path,
@@ -190,14 +198,15 @@ class EESM23Dataset(BaseDataset):
             ``~/.cache/pyhealth/eesm23/<hash of root>/eesm23-pyhealth.csv``.
         """
         root = Path(self.root)
-        cache_dir = _metadata_cache_dir(root)
-        shared_csv = root / "eesm23-pyhealth.csv"
-        cache_csv = cache_dir / "eesm23-pyhealth.csv"
-        if shared_csv.exists() or cache_csv.exists():
+        if metadata_csv_exists(root, "eesm23", _CSV_NAME):
             return
 
         signal_files = sorted(root.glob("sub-*/ses-*/eeg/*_acq-earEEG_eeg.set"))
-        rows = [_row_for_signal_file(path) for path in signal_files]
+        rows = [
+            row
+            for row in (_row_for_signal_file(path) for path in signal_files)
+            if row is not None
+        ]
         if not rows:
             logger.warning("No EESM23 ear-EEG recordings found under %s", root)
             return
@@ -205,15 +214,7 @@ class EESM23Dataset(BaseDataset):
         df = pd.DataFrame(rows)
         df.sort_values(["patient_id", "session_id"], inplace=True, na_position="last")
         df.reset_index(drop=True, inplace=True)
-
-        try:
-            shared_csv.parent.mkdir(parents=True, exist_ok=True)
-            df.to_csv(shared_csv, index=False)
-            logger.info("Wrote metadata to %s", shared_csv)
-        except (PermissionError, OSError):
-            cache_dir.mkdir(parents=True, exist_ok=True)
-            df.to_csv(cache_csv, index=False)
-            logger.info("Wrote metadata to cache: %s", cache_csv)
+        write_metadata_csv(df, root, "eesm23", _CSV_NAME)
 
     @classmethod
     def default_subject_split(cls):

@@ -19,7 +19,6 @@ References:
       https://github.com/Jathurshan0330/TFM-Tokenizer
 """
 
-import hashlib
 import logging
 from pathlib import Path
 
@@ -28,8 +27,16 @@ import pandas as pd
 from pyhealth.tasks import SeizureDetectionCHBMIT
 
 from .base_dataset import BaseDataset
+from .metadata_csv import (
+    metadata_cache_dir,
+    metadata_csv_exists,
+    resolve_metadata_root,
+    write_metadata_csv,
+)
 
 logger = logging.getLogger(__name__)
+
+_CSV_NAME = "chbmit-pyhealth.csv"
 
 
 def _metadata_cache_dir(root: str | Path) -> Path:
@@ -44,9 +51,7 @@ def _metadata_cache_dir(root: str | Path) -> Path:
     Returns:
         ``~/.cache/pyhealth/chbmit/<hash of root>``.
     """
-    resolved = str(Path(root).expanduser().resolve())
-    digest = hashlib.sha256(resolved.encode("utf-8")).hexdigest()[:16]
-    return Path.home() / ".cache" / "pyhealth" / "chbmit" / digest
+    return metadata_cache_dir(root, "chbmit")
 
 
 def _seconds_before_unit(line: str) -> int | None:
@@ -292,16 +297,8 @@ class CHBMITDataset(BaseDataset):
         self.root = root
         self.prepare_metadata()
 
-        root_path = Path(root)
-        cache_dir = _metadata_cache_dir(root_path)
-        shared_csv = root_path / "chbmit-pyhealth.csv"
-        cache_csv = cache_dir / "chbmit-pyhealth.csv"
-        if not shared_csv.exists() and cache_csv.exists():
-            logger.info("Using cached metadata from %s", cache_dir)
-            root = str(cache_dir)
-
         super().__init__(
-            root=root,
+            root=resolve_metadata_root(root, "chbmit", _CSV_NAME),
             tables=["recordings"],
             dataset_name=dataset_name or "chbmit",
             config_path=config_path,
@@ -321,10 +318,7 @@ class CHBMITDataset(BaseDataset):
             ``~/.cache/pyhealth/chbmit/<hash of root>/chbmit-pyhealth.csv``.
         """
         root = Path(self.root)
-        cache_dir = _metadata_cache_dir(root)
-        shared_csv = root / "chbmit-pyhealth.csv"
-        cache_csv = cache_dir / "chbmit-pyhealth.csv"
-        if shared_csv.exists() or cache_csv.exists():
+        if metadata_csv_exists(root, "chbmit", _CSV_NAME):
             return
 
         demographics = _read_subject_info(root)
@@ -343,15 +337,7 @@ class CHBMITDataset(BaseDataset):
         df = pd.DataFrame(rows)
         df.sort_values(["patient_id", "record_id"], inplace=True, na_position="last")
         df.reset_index(drop=True, inplace=True)
-
-        try:
-            shared_csv.parent.mkdir(parents=True, exist_ok=True)
-            df.to_csv(shared_csv, index=False)
-            logger.info("Wrote metadata to %s", shared_csv)
-        except (PermissionError, OSError):
-            cache_dir.mkdir(parents=True, exist_ok=True)
-            df.to_csv(cache_csv, index=False)
-            logger.info("Wrote metadata to cache: %s", cache_csv)
+        write_metadata_csv(df, root, "chbmit", _CSV_NAME)
 
     @classmethod
     def default_subject_split(cls):

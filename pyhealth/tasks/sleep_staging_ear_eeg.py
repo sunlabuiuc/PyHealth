@@ -27,6 +27,7 @@ from scipy.signal import resample
 
 from pyhealth.tasks import BaseTask
 from pyhealth.tasks.eegbci import normalize_signal
+from pyhealth.tasks.subject_ids import normalize_prefixed_subject
 
 logger = logging.getLogger(__name__)
 
@@ -43,8 +44,9 @@ def normalize_subject(subject: str) -> str:
     """Canonicalize an EESM23 subject id to ``sub-XXX``.
 
     ``"sub-001"``, ``"SUB1"`` and ``"1"`` all become ``"sub-001"``. Other
-    strings are lower-cased and returned with a ``sub-`` prefix when the
-    remainder is numeric.
+    strings are lower-cased and returned unchanged. A thin wrapper over
+    :func:`~pyhealth.tasks.subject_ids.normalize_prefixed_subject`, which
+    the CHB-MIT task shares.
 
     Args:
         subject: Subject id as stored on a sample or passed by the user.
@@ -57,20 +59,7 @@ def normalize_subject(subject: str) -> str:
         >>> [normalize_subject(s) for s in ("1", "SUB2", "sub-010")]
         ['sub-001', 'sub-002', 'sub-010']
     """
-    text = str(subject).strip().lower()
-    if text.startswith("sub-"):
-        rest = text[4:]
-        if rest.isdigit():
-            return f"sub-{int(rest):03d}"
-        return text
-    if text.startswith("sub"):
-        rest = text[3:].lstrip("-")
-        if rest.isdigit():
-            return f"sub-{int(rest):03d}"
-        return text
-    if text.isdigit():
-        return f"sub-{int(text):03d}"
-    return text
+    return normalize_prefixed_subject(subject, "sub", 3, separator="-")
 
 
 def _has_scoring(event: Any) -> bool:

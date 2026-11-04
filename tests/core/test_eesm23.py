@@ -56,6 +56,37 @@ class TestEESM23Dataset(unittest.TestCase):
             self.assertEqual(unscored["has_scoring"], "0")
             self.assertEqual(unscored["scoring_file"], "")
 
+    def test_ids_come_from_file_names_not_the_root_path(self):
+        # A root under ``sub-study/ses-pilot`` must not give every night the
+        # same patient and session.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "sub-study" / "ses-pilot" / "ds005178"
+            self._write_fixture(root)
+            ds = EESM23Dataset.__new__(EESM23Dataset)
+            ds.root = str(root)
+            ds.prepare_metadata()
+            df = pd.read_csv(root / "eesm23-pyhealth.csv", dtype=str)
+            self.assertEqual(
+                sorted(zip(df["patient_id"], df["session_id"])),
+                [
+                    ("sub-001", "ses-001"),
+                    ("sub-001", "ses-003"),
+                    ("sub-002", "ses-001"),
+                ],
+            )
+
+    def test_file_without_bids_ids_is_skipped(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write_fixture(root)
+            self._touch(root / "sub-003" / "ses-001" / "eeg" / "x_acq-earEEG_eeg.set")
+            ds = EESM23Dataset.__new__(EESM23Dataset)
+            ds.root = str(root)
+            ds.prepare_metadata()
+            df = pd.read_csv(root / "eesm23-pyhealth.csv", dtype=str)
+            self.assertNotIn("sub-003", set(df["patient_id"]))
+            self.assertEqual(len(df), 3)
+
     def test_prepare_metadata_is_idempotent(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

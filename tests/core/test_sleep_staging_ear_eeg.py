@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from unittest.mock import patch
 
+import mne
 import numpy as np
 import torch
 
@@ -133,6 +134,10 @@ class TestSleepStagingEarEEG(unittest.TestCase):
         self.assertEqual(normalize_subject("10"), "sub-010")
         self.assertEqual(normalize_subject("SUB-2"), "sub-002")
 
+    def test_normalize_subject_shares_the_generic_helper(self):
+        self.assertEqual(normalize_subject("sub7"), "sub-007")
+        self.assertEqual(normalize_subject("Custom"), "custom")
+
     def test_compute_stft_adds_stft_field(self):
         rows = "0\t30\t1\tWake\n"
         task = SleepStagingEarEEG(
@@ -192,6 +197,119 @@ class TestSleepStagingEarEEG(unittest.TestCase):
             self.assertEqual(len(val), 1)
             self.assertEqual(len(test), 1)
             self.assertEqual(train[0]["patient_id"], "sub-001")
+
+
+def _raw_array(ch_names: list[str], seconds: float = 2.0) -> mne.io.RawArray:
+    """Build an in-memory recording; channel ``i`` is a constant ``(i+1)`` uV."""
+    n = int(SFREQ * seconds)
+    data = np.stack([np.full(n, (i + 1) * 1e-6) for i in range(len(ch_names))])
+    info = mne.create_info(ch_names, SFREQ, ch_types="eeg", verbose="error")
+    return mne.io.RawArray(data, info, verbose="error")
+
+
+class TestReadRecording(unittest.TestCase):
+    """``read_recording`` against a real ``mne.io.RawArray``."""
+
+    def test_selects_ear_channels_in_order_in_microvolts(self):
+        # File order differs from the task order, and ELE is present.
+        raw = _raw_array(["ELE", "LT", "RB", "LB", "RT"])
+        with patch("mne.io.read_raw_eeglab", return_value=raw) as reader:
+            loaded = SleepStagingEarEEG().read_recording("night.set")
+        reader.assert_called_once()
+        data, sfreq, ch_names = loaded
+        self.assertEqual(ch_names, list(EAR_EEG_CHANNELS))
+        self.assertEqual(sfreq, SFREQ)
+        self.assertEqual(data.shape, (4, int(SFREQ * 2)))
+        # RB is the 3rd file channel (3 uV), RT the 5th, LB the 4th, LT the 2nd.
+        np.testing.assert_allclose(data[:, 0], [3.0, 5.0, 4.0, 2.0])
+
+    def test_missing_ear_channel_returns_none(self):
+        raw = _raw_array(["RB", "RT", "LB", "ELE"])
+        with patch("mne.io.read_raw_eeglab", return_value=raw):
+            self.assertIsNone(SleepStagingEarEEG().read_recording("night.set"))
+
+    def test_read_failure_returns_none(self):
+        for exc in (OSError("corrupt"), ValueError("bad header"), RuntimeError("x")):
+            with patch("mne.io.read_raw_eeglab", side_effect=exc):
+                self.assertIsNone(SleepStagingEarEEG().read_recording("night.set"))
+
+
+class TestSkippedInputs(unittest.TestCase):
+    """Guards that return no samples instead of raising."""
+
+    def _call(self, task, scoring_text=None, scoring_file=None, seconds=40):
+        with tempfile.TemporaryDirectory() as tmp:
+            if scoring_file is None:
+                path = Path(tmp) / "scoring.tsv"
+                path.write_text(scoring_text)
+                scoring_file = str(path)
+            patient = _DummyPatient(
+                "sub-001", [_DummyEvent("night.set", scoring_file, "ses-001")]
+            )
+            loaded = (_signal(seconds), SFREQ, list(EAR_EEG_CHANNELS))
+            with patch.object(
+                SleepStagingEarEEG, "read_recording", return_value=loaded
+            ):
+                return task(patient)
+
+    def _task(self, **kwargs):
+        return SleepStagingEarEEG(
+            compute_stft=False, bandpass_filter=None, notch_filter=None, **kwargs
+        )
+
+    def test_subject_outside_filter_is_skipped(self):
+        rows = "onset\tduration\tscoring_idx\tscoring\n0\t30\t1\tWake\n"
+        task = self._task(subjects=["sub-002"])
+        self.assertEqual(self._call(task, rows), [])
+
+    def test_unreadable_scoring_file_is_skipped(self):
+        self.assertEqual(
+            self._call(self._task(), scoring_file="/nonexistent/scoring.tsv"), []
+        )
+
+    def test_epoch_past_end_of_recording_is_skipped(self):
+        rows = "onset\tduration\tscoring_idx\tscoring\n0\t30\t1\tWake\n30\t30\t2\tREM\n"
+        samples = self._call(self._task(), rows, seconds=45)
+        self.assertEqual([s["label"] for s in samples], [0])
+
+    def test_empty_scoring_path_is_skipped(self):
+        patient = _DummyPatient("sub-001", [_DummyEvent("night.set", "", "ses-001")])
+        self.assertEqual(self._task()(patient), [])
+
+
+class TestDefaultFiltering(unittest.TestCase):
+    """The default per-epoch filters run on real arrays."""
+
+    def test_filters_remove_dc_and_notch_line_noise(self):
+        t = np.arange(int(30 * SFREQ)) / SFREQ
+        noise = 100.0 * np.sin(2 * np.pi * 50.0 * t)
+        epoch = np.tile(50.0 + noise, (4, 1))
+        task = SleepStagingEarEEG(compute_stft=False, normalization=None)
+        out = task._filter_epoch(epoch, SFREQ)
+        self.assertEqual(out.shape, epoch.shape)
+        # 0.1 Hz high-pass drops the offset; the notch drops the 50 Hz tone.
+        # Skip the edges, where the filters have transients.
+        inner = out[:, 1000:-1000]
+        self.assertLess(abs(inner.mean()), 5.0)
+        self.assertLess(np.abs(inner).max(), 50.0)  # input tone amplitude is 100
+
+    def test_epochs_flow_through_default_filters(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            scoring = Path(tmp) / "scoring.tsv"
+            scoring.write_text("onset\tduration\tscoring_idx\tscoring\n0\t30\t3\tN1\n")
+            event = _DummyEvent("night.set", str(scoring), "ses-001")
+            rng = np.random.default_rng(0)
+            signal = rng.standard_normal((4, int(40 * SFREQ)))
+            task = SleepStagingEarEEG(compute_stft=False)
+            with patch.object(
+                SleepStagingEarEEG,
+                "read_recording",
+                return_value=(signal, SFREQ, list(EAR_EEG_CHANNELS)),
+            ):
+                samples = task._samples_from_event("sub-001", event)
+        self.assertEqual(len(samples), 1)
+        self.assertEqual(samples[0]["label"], 2)
+        self.assertEqual(samples[0]["signal"].shape, (4, 6000))
 
 
 if __name__ == "__main__":
