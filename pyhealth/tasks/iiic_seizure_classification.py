@@ -4,6 +4,7 @@
 # Paper Link: https://arxiv.org/pdf/2502.16060
 # Description: IIIC Seizure 6-class EEG classification task for PyHealth
 
+import logging
 import pickle
 from pathlib import Path
 from typing import Any, ClassVar
@@ -14,6 +15,8 @@ from scipy.signal import resample
 
 from pyhealth.tasks import BaseTask
 from pyhealth.tasks.eegbci import normalize_signal
+
+logger = logging.getLogger(__name__)
 
 IIIC_CLASSES: dict[int, str] = {
     0: "Other",
@@ -213,7 +216,18 @@ class EEGSeizureIIIC(BaseTask):
 
             try:
                 raw_signal, label = self.load_segment(signal_file, event_label)
-            except (OSError, ValueError, KeyError, EOFError):
+            except (
+                OSError,
+                pickle.UnpicklingError,
+                ValueError,
+                KeyError,
+                EOFError,
+            ) as exc:
+                logger.warning(
+                    "Skipping unreadable IIIC segment %s: %s",
+                    signal_file,
+                    exc,
+                )
                 continue
 
             if label is None:

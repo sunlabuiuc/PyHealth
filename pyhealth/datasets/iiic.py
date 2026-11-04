@@ -643,8 +643,17 @@ class IIICDataset(BaseDataset):
                 if self.save_pkl:
                     pkl_path = target_base / split / f"{key}.pkl"
                     if not pkl_path.exists() or self.refresh_metadata:
-                        with open(pkl_path, "wb") as f:
-                            pickle.dump({"signal": xi, "label": label}, f)
+                        tmp_pkl = pkl_path.with_name(
+                            f".{key}.{os.getpid()}.pkl.tmp"
+                        )
+                        try:
+                            with open(tmp_pkl, "wb") as f:
+                                pickle.dump({"signal": xi, "label": label}, f)
+                            os.replace(tmp_pkl, pkl_path)
+                        except BaseException:
+                            with contextlib.suppress(OSError):
+                                tmp_pkl.unlink()
+                            raise
                     signal_file_str = str(pkl_path)
                 else:
                     x_path = raw_sources[src_id][0]

@@ -437,6 +437,54 @@ class TestEEGSeizureIIICTask(unittest.TestCase):
         with self.assertRaises(ValueError):
             EEGSeizureIIIC(normalization="bad_norm")
 
+    def test_corrupted_pkl_is_logged_and_skipped(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rng = np.random.RandomState(1)
+            sig = (rng.randn(16, 2000) * 50.0).astype(np.float16)
+
+            valid_pkl = root / "abn10001_20140101_100000_001.pkl"
+            with open(valid_pkl, "wb") as f:
+                pickle.dump({"signal": sig, "label": 1}, f)
+
+            corrupt_pkl = root / "abn10001_20140101_100000_002.pkl"
+            corrupt_pkl.write_bytes(b"corrupted_non_pickle_bytes")
+
+            patient = _DummyPatient(
+                patient_id="abn10001",
+                events=[
+                    _DummyEvent(
+                        record_id="abn10001_20140101_100000_001",
+                        signal_file=str(valid_pkl),
+                        label=1,
+                        split="train",
+                    ),
+                    _DummyEvent(
+                        record_id="abn10001_20140101_100000_002",
+                        signal_file=str(corrupt_pkl),
+                        label=2,
+                        split="train",
+                    ),
+                ],
+            )
+
+            task = EEGSeizureIIIC(resample_rate=200, compute_stft=False)
+            with self.assertLogs(
+                "pyhealth.tasks.iiic_seizure_classification", level="WARNING"
+            ) as cm:
+                samples = task(patient)
+
+            self.assertEqual(len(samples), 1)
+            self.assertEqual(
+                samples[0]["record_id"], "abn10001_20140101_100000_001"
+            )
+            self.assertTrue(
+                any(
+                    "Skipping unreadable IIIC segment" in msg
+                    for msg in cm.output
+                )
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
