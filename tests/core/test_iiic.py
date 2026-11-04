@@ -379,6 +379,92 @@ class TestIIICDataset(unittest.TestCase):
             ):
                 IIICDataset(root=str(ro_root))
 
+    def test_relative_root_and_unlabeled_skip_behavior(self):
+        # 1) Relative root resolves to absolute paths and works after chdir
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp).resolve()
+            data_dir = base / "rel_data"
+            other_cwd = base / "other_cwd"
+            data_dir.mkdir()
+            other_cwd.mkdir()
+            self._create_preextracted_pkl_layout(data_dir)
+
+            orig_cwd = Path.cwd()
+            try:
+                os.chdir(base)
+                ds = IIICDataset(
+                    root="rel_data", cache_dir=str(base / "cache")
+                )
+                self.assertTrue(Path(ds.root).is_absolute())
+                df = pd.read_csv(data_dir / "iiic-processed.csv")
+                self.assertTrue(
+                    all(Path(p).is_absolute() for p in df["signal_file"])
+                )
+
+                # Change working directory and run task against cached CSV
+                os.chdir(other_cwd)
+                samples = ds.set_task(EEGSeizureIIIC(compute_stft=False))
+                self.assertEqual(len(samples), 4)
+            finally:
+                os.chdir(orig_cwd)
+
+        # 2) _build_metadata_from_pkl_dirs skips pickles missing 'label' key
+        with tempfile.TemporaryDirectory() as tmp2:
+            root2 = Path(tmp2)
+            tdir = root2 / "train"
+            tdir.mkdir(parents=True)
+            rng = np.random.RandomState(99)
+            sig = rng.randn(16, 2000).astype(np.float16)
+
+            with open(tdir / "abn60001_20170101_001.pkl", "wb") as f:
+                pickle.dump({"signal": sig, "label": 3}, f)
+            with open(tdir / "abn60002_20170102_001.pkl", "wb") as f:
+                pickle.dump({"signal": sig}, f)  # no label key -> must skip
+
+            with self.assertLogs("pyhealth.datasets.iiic", level="WARNING") as cm:
+                ds2 = IIICDataset(
+                    root=str(root2), cache_dir=str(root2 / "cache")
+                )
+            self.assertIsNotNone(ds2)
+            df2 = pd.read_csv(root2 / "iiic-processed.csv")
+            self.assertEqual(len(df2), 1)
+            self.assertEqual(int(df2.iloc[0]["label"]), 3)
+            self.assertTrue(
+                any("missing 'label' key" in m for m in cm.output)
+            )
+
+        # 3) _build_metadata_from_split_csvs skips CSVs/rows without labels
+        with tempfile.TemporaryDirectory() as tmp3:
+            root3 = Path(tmp3)
+            for sp in ("train", "val"):
+                (root3 / sp).mkdir(parents=True)
+            # train_df.csv has 'label' column for one row and NaN for the second
+            pd.DataFrame(
+                [
+                    {"key": "abn70001_20180101_001", "label": 4},
+                    {"key": "abn70002_20180102_001", "label": np.nan},
+                ]
+            ).to_csv(root3 / "train_df.csv", index=False)
+            # val_df.csv has no majority, label, or vote columns at all
+            pd.DataFrame([{"key": "abn70003_20180103_001"}]).to_csv(
+                root3 / "val_df.csv", index=False
+            )
+
+            with self.assertLogs("pyhealth.datasets.iiic", level="WARNING") as cm3:
+                ds3 = IIICDataset(
+                    root=str(root3), cache_dir=str(root3 / "cache")
+                )
+            self.assertIsNotNone(ds3)
+            df3 = pd.read_csv(root3 / "iiic-processed.csv")
+            self.assertEqual(len(df3), 1)
+            self.assertEqual(int(df3.iloc[0]["label"]), 4)
+            self.assertTrue(
+                any(
+                    "has no 'majority', 'label', or vote columns" in m
+                    for m in cm3.output
+                )
+            )
+
 
 class TestEEGSeizureIIICTask(unittest.TestCase):
     """Tests for EEGSeizureIIIC task signal processing and STFT."""

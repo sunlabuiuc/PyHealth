@@ -152,7 +152,7 @@ class IIICDataset(BaseDataset):
                 f"split_ratios must be a 3-tuple summing to 1.0, got {split_ratios}"
             )
 
-        self.root = str(root)
+        self.root = str(Path(root).expanduser().resolve())
         self.subset = subset
         self.vote_threshold = int(vote_threshold)
         self.split_ratios = tuple(float(r) for r in split_ratios)
@@ -216,6 +216,16 @@ class IIICDataset(BaseDataset):
         Uses the ``cache_dir`` argument passed to :class:`IIICDataset` when
         provided, or :func:`~pyhealth.datasets.base_dataset._default_cache_dir`
         otherwise (which respects ``PYHEALTH_REQUIRE_CACHE_DIR``).
+
+        Note:
+            Unlike :func:`pyhealth.datasets.chbmit._metadata_cache_dir` (which
+            hashes only ``root`` into a hardcoded ``~/.cache/pyhealth/chbmit``
+            directory), IIIC's cache directory must (1) key on the full build
+            parameter dictionary (:meth:`_build_params`) in addition to ``root``
+            so changing ``subset``, ``vote_threshold``, ``split_ratios``, or
+            ``seed`` never reuses stale splits, and (2) honor ``cache_dir`` and
+            :func:`_default_cache_dir` because restricted-access BDSP EEG
+            ``.pkl`` segments may be extracted there when ``root`` is read-only.
         """
         cache_id = f"iiic_{self._build_params_digest()}"
         if self._user_cache_dir is not None:
@@ -315,6 +325,18 @@ class IIICDataset(BaseDataset):
                 continue
 
             has_vote_cols = all(c in sdf.columns for c in vote_cols)
+            has_label_col = (
+                "majority" in sdf.columns
+                or "label" in sdf.columns
+                or has_vote_cols
+            )
+            if not has_label_col:
+                logger.warning(
+                    "Skipping %s: CSV has no 'majority', 'label', or vote columns",
+                    csv_path,
+                )
+                continue
+
             for row in sdf.to_dict(orient="records"):
                 key = str(row["key"]).strip()
                 pid = (
@@ -322,22 +344,37 @@ class IIICDataset(BaseDataset):
                     if "pid" in row and pd.notna(row["pid"])
                     else key.split("_")[0]
                 )
+                has_valid_votes = has_vote_cols and all(
+                    pd.notna(row[c]) for c in vote_cols
+                )
                 if "majority" in row and pd.notna(row["majority"]):
                     label = int(row["majority"])
                 elif "label" in row and pd.notna(row["label"]):
                     label = int(row["label"])
-                elif has_vote_cols:
+                elif has_valid_votes:
                     votes_arr = [int(row[c]) for c in vote_cols]
+                    if sum(votes_arr) <= 0:
+                        logger.warning(
+                            "Skipping unlabeled row %s in %s: zero total votes",
+                            key,
+                            csv_path,
+                        )
+                        continue
                     label = int(np.argmax(votes_arr))
                 else:
-                    label = 0
+                    logger.warning(
+                        "Skipping unlabeled row %s in %s: missing label and votes",
+                        key,
+                        csv_path,
+                    )
+                    continue
 
-                if has_vote_cols:
+                if has_valid_votes:
                     votes_str = json.dumps([int(row[c]) for c in vote_cols])
                 else:
                     votes_str = json.dumps([])
 
-                pkl_path = root / split / f"{key}.pkl"
+                pkl_path = (root / split / f"{key}.pkl").resolve()
                 rows.append(
                     {
                         "patient_id": pid,
@@ -368,19 +405,44 @@ class IIICDataset(BaseDataset):
             for pkl_path in sorted(split_dir.glob("*.pkl")):
                 key = pkl_path.stem
                 pid = key.split("_")[0]
-                label = 0
                 try:
                     with open(pkl_path, "rb") as f:
                         data = pickle.load(f)
-                    if isinstance(data, dict) and "label" in data:
-                        label = int(data["label"])
                 except (
                     OSError,
                     pickle.UnpicklingError,
                     ValueError,
                     KeyError,
+                    EOFError,
                 ) as exc:
-                    logger.debug("Failed to read label from %s: %s", pkl_path, exc)
+                    logger.warning(
+                        "Skipping unreadable pickle %s: %s", pkl_path, exc
+                    )
+                    continue
+
+                if (
+                    not isinstance(data, dict)
+                    or "label" not in data
+                    or data["label"] is None
+                    or pd.isna(data["label"])
+                ):
+                    logger.warning(
+                        "Skipping unlabeled pickle %s: missing 'label' key",
+                        pkl_path,
+                    )
+                    continue
+
+                try:
+                    label = int(data["label"])
+                except (TypeError, ValueError) as exc:
+                    logger.warning(
+                        "Skipping pickle %s with invalid label %r: %s",
+                        pkl_path,
+                        data["label"],
+                        exc,
+                    )
+                    continue
+
                 rows.append(
                     {
                         "patient_id": pid,
@@ -388,7 +450,7 @@ class IIICDataset(BaseDataset):
                         "label": label,
                         "votes": "[]",
                         "split": split,
-                        "signal_file": str(pkl_path),
+                        "signal_file": str(pkl_path.resolve()),
                     }
                 )
 
